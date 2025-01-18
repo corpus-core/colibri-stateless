@@ -43,28 +43,34 @@ uint64_t uint64_from_le(uint8_t* data) {
            ((uint64_t)data[7] << 56);
 }
 
+
+void buffer_grow(bytes_buffer_t* buffer, size_t min_len) {
+    if (buffer->data.data==NULL) {
+        buffer->data.data = malloc(min_len);
+        buffer->allocated = min_len;
+    }
+    else if (buffer->allocated<min_len) {
+        size_t new_len = buffer->allocated;
+        while (new_len<min_len) new_len = new_len*3/2;
+        buffer->data.data=realloc(buffer->data.data, new_len);
+        buffer->allocated = new_len;
+    }
+}
+
 void buffer_append(bytes_buffer_t* buffer, bytes_t data) {
     if (!data.len) return;
-    if (buffer->data.data==NULL) {
-        buffer->data.data = malloc(data.len);
-        buffer->allocated = data.len;
-    }
-    else if (buffer->allocated<buffer->data.len+data.len) {
-        buffer->data.data=realloc(buffer->data.data, buffer->data.len+data.len);
-        buffer->allocated += data.len;
-    }
-
+    buffer_grow(buffer, buffer->data.len+data.len);
     if (data.data)
         memcpy(buffer->data.data+buffer->data.len,data.data,data.len);
     else
         memset(buffer->data.data+buffer->data.len,0,data.len);
     buffer->data.len+=data.len;
 }
+
 void buffer_free(bytes_buffer_t* buffer) {
     if (buffer->data.data && buffer->allocated)
         free(buffer->data.data);
 }
-
 
 void print_hex(FILE *f, bytes_t data, char* prefix, char* suffix) {
     if (prefix) fprintf(f,"%s",prefix);
