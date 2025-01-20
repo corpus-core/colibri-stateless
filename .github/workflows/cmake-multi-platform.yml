@@ -43,17 +43,11 @@ jobs:
       with:
         platforms: arm64
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-
-    - name: Build ARM64 Docker Image
+    - name: Run ARM64 Build in Docker
       run: |
-        docker buildx build --platform linux/arm64 -t my-arm64-build .
-
-    - name: Run ARM64 Build
-      run: |
-        docker run --rm -v ${{ github.workspace }}:/workspace my-arm64-build /bin/bash -c "
-          cd /workspace &&
+        docker run --rm --privileged -v ${{ github.workspace }}:/workspace -w /workspace arm64v8/ubuntu:20.04 /bin/bash -c "
+          apt-get update &&
+          apt-get install -y cmake clang build-essential git &&
           cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} &&
           cmake --build build --config ${env.BUILD_TYPE}
         "
