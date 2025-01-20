@@ -28,7 +28,6 @@ add_custom_command(
 )
 
 
-
 # Add a custom target that depends on the custom command
 add_custom_target(blst_lib ALL DEPENDS ${BLST_LIB})
 
@@ -36,3 +35,4 @@ add_custom_target(blst_lib ALL DEPENDS ${BLST_LIB})
 add_library(blst STATIC IMPORTED GLOBAL)
 set_target_properties(blst PROPERTIES IMPORTED_LOCATION ${BLST_LIB})
 
+add_dependencies(blst blst_lib)
