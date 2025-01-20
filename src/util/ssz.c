@@ -1,5 +1,6 @@
 #include "ssz.h"
 #include "crypto.h"
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -223,7 +224,7 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
         case 1: fprintf(f, "%d", ob.bytes.data[0]); break;
         case 2: fprintf(f, "%d", uint16_from_le(ob.bytes.data)); break;
         case 4: fprintf(f, "%d", uint32_from_le(ob.bytes.data)); break;
-        case 8: fprintf(f, "%llu", uint64_from_le(ob.bytes.data)); break;
+        case 8: fprintf(f, "%" PRIu64, uint64_from_le(ob.bytes.data)); break;
         default: print_hex(f, ob.bytes, "\"0x", "\"");
       }
       break;
