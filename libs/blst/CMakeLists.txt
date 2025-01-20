@@ -20,7 +20,7 @@ FetchContent_MakeAvailable(blst)
 # Add a custom command to build the library using the script
 add_custom_command(
     OUTPUT ${BLST_LIB}
-    COMMAND ${CMAKE_COMMAND} -E env bash ${blst_SOURCE_DIR}/build.sh
+    COMMAND ${CMAKE_COMMAND} -E env CROSS_COMPILE=${CROSS_COMPILE} bash ${blst_SOURCE_DIR}/build.sh
     COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
     WORKING_DIRECTORY ${blst_SOURCE_DIR}
     COMMENT "Building and moving libblst.a"

@@ -63,9 +63,9 @@ jobs:
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
     - name: Configure CMake for ARM64
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+      run: cmake -B ${{github.workspace}}/build -S ${{github.workspace}} \
+            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+            -DCMAKE_TOOLCHAIN_FILE=${{github.workspace}}/.github/aarch64-toolchain.cmake   
 
     - name: Build for ARM64
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
