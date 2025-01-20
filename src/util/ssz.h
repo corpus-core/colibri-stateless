@@ -37,19 +37,19 @@ struct ssz_def {
       uint32_t len;
     } uint;
     struct ssz_container {
-      ssz_def_t* elements; // Use a pointer to ssz_def_t
+      const ssz_def_t* elements; // Use a pointer to ssz_def_t
       uint32_t   len;
     } container;
     struct ssz_list {
+      const ssz_def_t* type; // Use a pointer to ssz_def_t
       uint32_t   len;
-      ssz_def_t* type; // Use a pointer to ssz_def_t
     } vector;
   } def;
 };
 
 typedef struct {
   bytes_t    bytes;
-  ssz_def_t* def;
+  const ssz_def_t* def;
 } ssz_ob_t;
 #define ssz_ob(typename, data) \
   (ssz_ob_t) { .bytes = data, .def = &typename }
@@ -71,32 +71,38 @@ static inline bytes_t ssz_bytes(ssz_ob_t ob) {
 ssz_ob_t ssz_at(ssz_ob_t ob, uint32_t index);
 ssz_ob_t ssz_get(ssz_ob_t* ob, char* name);
 void     ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend);
+void     ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
 
 extern const ssz_def_t ssz_uint8;
+
+#define SSZ_BOOLEAN(property)                                        \
+  {                                                                       \
+    .name = property, .type = SSZ_TYPE_BOOLEAN, .def.uint = {.len = 1 } \
+  }
 
 #define SSZ_UINT(property, length)                                        \
   {                                                                       \
     .name = property, .type = SSZ_TYPE_UINT, .def.uint = {.len = length } \
   }
-#define SSZ_LIST(property, typePtr)                                                         \
+#define SSZ_LIST(property, typePtr, max_len)                                                         \
   {                                                                                         \
-    .name = property, .type = SSZ_TYPE_LIST, .def.vector = {.len  = 0,                      \
-                                                            .type = (ssz_def_t*) &typePtr } \
+    .name = property, .type = SSZ_TYPE_LIST, .def.vector = {.len  = max_len,                      \
+                                                            .type =  &typePtr} \
   }
 #define SSZ_VECTOR(property, typePtr, length)                                                 \
   {                                                                                           \
     .name = property, .type = SSZ_TYPE_VECTOR, .def.vector = {.len  = length,                 \
-                                                              .type = (ssz_def_t*) &typePtr } \
+                                                              .type = &typePtr} \
   }
-#define SSZ_BIT_LIST(property)                                                 \
+#define SSZ_BIT_LIST(property, max_length)                                                 \
   {                                                                            \
-    .name = property, .type = SSZ_TYPE_BIT_LIST, .def.vector = {.len  = 0,     \
-                                                                .type = NULL } \
+    .name = property, .type = SSZ_TYPE_BIT_LIST, .def.vector = {.len  = max_length,     \
+                                                                .type = NULL} \
   }
 #define SSZ_BIT_VECTOR(property, length)                                          \
   {                                                                               \
     .name = property, .type = SSZ_TYPE_BIT_VECTOR, .def.vector = {.len  = length, \
-                                                                  .type = NULL }  \
+                                                                  .type = NULL}  \
   }
 #define SSZ_CONTAINER(propname, children)                           \
   {                                                                 \
@@ -105,27 +111,38 @@ extern const ssz_def_t ssz_uint8;
     .def.container = {.elements = children,                         \
                       .len      = sizeof(children) / sizeof(ssz_def_t) } \
   }
+#define SSZ_UNION(propname, children)                           \
+  {                                                                 \
+    .name          = propname,                                      \
+    .type          = SSZ_TYPE_UNION,                            \
+    .def.container = {.elements = children,                         \
+                      .len      = sizeof(children) / sizeof(ssz_def_t) } \
+  }
 #define SSZ_BYTE                   ssz_uint8
-#define SSZ_BYTES(name)            SSZ_LIST(name, ssz_uint8)
+#define SSZ_BYTES(name, limit)            SSZ_LIST(name, ssz_uint8, limit)
 #define SSZ_BYTE_VECTOR(name, len) SSZ_VECTOR(name, ssz_uint8, len)
 #define SSZ_BYTES32(name)         SSZ_BYTE_VECTOR(name, 32)
 #define SSZ_ADDRESS(name)         SSZ_BYTE_VECTOR(name, 20)
+#define SSZ_UINT64(name)         SSZ_UINT(name, 8)
+#define SSZ_UINT32(name)         SSZ_UINT(name, 4)
+#define SSZ_UINT16(name)         SSZ_UINT(name, 2)
+#define SSZ_UINT8(name)          SSZ_UINT(name, 1)
 
 typedef struct {
   ssz_def_t*     def;
   bytes_buffer_t fixed;
   bytes_buffer_t dynamic;
-} ssz_buffer_t;
+} ssz_builder_t;
 
-void ssz_add_bytes(ssz_buffer_t* buffer, char* name, bytes_t data);
-void ssz_add_uint64(ssz_buffer_t* buffer, uint64_t value);
-void ssz_add_uint32(ssz_buffer_t* buffer, uint32_t value);
-void ssz_add_uint16(ssz_buffer_t* buffer, uint16_t value);
-void ssz_add_uint8(ssz_buffer_t* buffer, uint8_t value);
-void ssz_buffer_free(ssz_buffer_t* buffer);
+void ssz_add_bytes(ssz_builder_t* buffer, char* name, bytes_t data);
+void ssz_add_uint64(ssz_builder_t* buffer, uint64_t value);
+void ssz_add_uint32(ssz_builder_t* buffer, uint32_t value);
+void ssz_add_uint16(ssz_builder_t* buffer, uint16_t value);
+void ssz_add_uint8(ssz_builder_t* buffer, uint8_t value);
+void ssz_buffer_free(ssz_builder_t* buffer);
 // converts the ssz_buffer to bytes and the frees up the buffer
 // make sure to free the returned after using
-ssz_ob_t ssz_buffer_to_bytes(ssz_buffer_t* buffer);
+ssz_ob_t ssz_builder_to_bytes(ssz_builder_t* buffer);
 #ifdef __cplusplus
 }
 #endif

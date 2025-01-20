@@ -51,7 +51,7 @@ void buffer_grow(bytes_buffer_t* buffer, size_t min_len) {
     }
     else if (buffer->allocated<min_len) {
         size_t new_len = buffer->allocated;
-        while (new_len<min_len) new_len = new_len*3/2;
+        while (new_len<min_len) new_len = (new_len+1)*3/2;
         buffer->data.data=realloc(buffer->data.data, new_len);
         buffer->allocated = new_len;
     }

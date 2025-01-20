@@ -31,8 +31,7 @@ void buffer_grow(bytes_buffer_t* buffer, size_t min_len);
 #define bytes_slice(parent, offet, length) (bytes_t){.data=parent.data+offet, .len=length}
 void print_hex(FILE *f, bytes_t data, char* prefix, char* suffix);
 
-typedef uint8_t address_t[20]; 
-typedef uint8_t bytes32_t[32]; 
+
 
 #ifdef __cplusplus
 }

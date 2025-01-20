@@ -3,3 +3,4 @@ project(c4)
 
 
 add_subdirectory(src)
+add_subdirectory(libs)
