@@ -32,31 +32,6 @@ jobs:
         path: build/bin
 
 
-  build-linux-arm64:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v2
-      with:
-        platforms: arm64
-
-    - name: Run ARM64 Build in Docker
-      run: |
-        docker run --rm --privileged -v ${{ github.workspace }}:/workspace -w /workspace -e BUILD_TYPE=${{ env.BUILD_TYPE }} arm64v8/ubuntu:20.04 /bin/bash -c "
-          apt-get update &&
-          apt-get install -y cmake clang build-essential git &&
-          cmake -B build -DCMAKE_BUILD_TYPE=$BUILD_TYPE &&
-          cmake --build build --config $BUILD_TYPE
-        "
-
-    - name: Upload Binaries
-      uses: actions/upload-artifact@v3
-      with:
-        name: linux-arm64-bin
-        path: build/bin
       
   build-mac:
     runs-on: macos-latest
@@ -76,4 +51,27 @@ jobs:
         name: apple-arm64-binaries
         path: build/bin
 
-      
+build-linux-arm64:
+  runs-on: ubuntu-latest
+
+  steps:
+  - uses: actions/checkout@v4
+
+  - name: Set up cross-compilation toolchain
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+  - name: Configure CMake for ARM64
+    run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+
+  - name: Build for ARM64
+    run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+
+  - name: Upload Binaries
+    uses: actions/upload-artifact@v3
+    with:
+      name: linux-arm64-bin
+      path: build/bin
