@@ -1,6 +1,6 @@
 # This starter workflow is for a CMake project running on a single platform. There is a different starter workflow if you need cross-platform coverage.
 # See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-multi-platform.yml
-name: CMake on a single platform
+name: CMake Multi-Platform Build
 
 on:
   push:
@@ -28,9 +28,42 @@ jobs:
     - name: Upload Binaries
       uses: actions/upload-artifact@v3
       with:
-        name: linux-binaries
-        path: build/bin/ssz
+        name: linux-x64-bin
+        path: build/bin
 
+
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v2
+      with:
+        platforms: arm64
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Build ARM64 Docker Image
+      run: |
+        docker buildx build --platform linux/arm64 -t my-arm64-build .
+
+    - name: Run ARM64 Build
+      run: |
+        docker run --rm -v ${{ github.workspace }}:/workspace my-arm64-build /bin/bash -c "
+          cd /workspace &&
+          cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} &&
+          cmake --build build --config ${env.BUILD_TYPE}
+        "
+
+    - name: Upload Binaries
+      uses: actions/upload-artifact@v3
+      with:
+        name: linux-arm64-bin
+        path: build/bin
+      
   build-mac:
     runs-on: macos-latest
 
@@ -46,7 +79,7 @@ jobs:
     - name: Upload Binaries
       uses: actions/upload-artifact@v3
       with:
-        name: apple-binaries
-        path: build/bin/ssz
+        name: apple-arm64-binaries
+        path: build/bin
 
       
