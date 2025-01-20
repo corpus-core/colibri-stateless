@@ -10,13 +10,15 @@ extern "C" {
 #include <stdio.h>
 
 typedef struct {
-    uint8_t* data;
-    uint32_t len;
+  uint8_t* data;
+  uint32_t len;
 } bytes_t;
 
+#define NULL_BYTES (bytes_t){.data = NULL, .len = 0}
+
 typedef struct {
-    bytes_t data;
-    uint32_t allocated;
+  bytes_t  data;
+  uint32_t allocated;
 } bytes_buffer_t;
 
 uint16_t uint16_from_le(uint8_t* data);
@@ -27,11 +29,11 @@ void buffer_append(bytes_buffer_t* buffer, bytes_t data);
 void buffer_free(bytes_buffer_t* buffer);
 void buffer_grow(bytes_buffer_t* buffer, size_t min_len);
 
-#define bytes(ptr,length) (bytes_t){.data=ptr, .len=length}
-#define bytes_slice(parent, offet, length) (bytes_t){.data=parent.data+offet, .len=length}
-void print_hex(FILE *f, bytes_t data, char* prefix, char* suffix);
-
-
+#define bytes(ptr, length) \
+  (bytes_t) { .data = ptr, .len = length }
+#define bytes_slice(parent, offet, length) \
+  (bytes_t) { .data = parent.data + offet, .len = length }
+void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
 
 #ifdef __cplusplus
 }

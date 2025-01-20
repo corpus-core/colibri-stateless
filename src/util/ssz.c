@@ -7,8 +7,12 @@
 
 #define BYTES_PER_CHUNK 32
 
-const ssz_def_t ssz_uint8 = SSZ_UINT("", 1);
+// predefined types
+const ssz_def_t ssz_uint8     = SSZ_UINT("", 1);
+const ssz_def_t ssz_bytes32   = SSZ_BYTES32("bytes32");
+const ssz_def_t ssz_bls_pubky = SSZ_BYTE_VECTOR("bls_pubky", 48);
 
+// checks if a definition has a dynamic length
 static bool is_dynamic(const ssz_def_t* def) {
   if (def->type == SSZ_TYPE_CONTAINER) {
     for (int i = 0; i < def->def.container.len; i++) {
@@ -20,6 +24,7 @@ static bool is_dynamic(const ssz_def_t* def) {
   return def->type == SSZ_TYPE_LIST || def->type == SSZ_TYPE_BIT_LIST || def->type == SSZ_TYPE_UNION;
 }
 
+// finds a definition by name within a container or a union
 static const ssz_def_t* find_def(const ssz_def_t* def, char* name) {
   if (def->type != SSZ_TYPE_CONTAINER) return NULL;
   for (int i = 0; i < def->def.container.len; i++) {
@@ -28,6 +33,7 @@ static const ssz_def_t* find_def(const ssz_def_t* def, char* name) {
   return NULL;
 }
 
+// gets the length of a type for the fixed part.
 static size_t get_fixed_length(const ssz_def_t* def) {
   if (is_dynamic(def))
     return 4;
@@ -51,19 +57,71 @@ static size_t get_fixed_length(const ssz_def_t* def) {
   }
 }
 
+static bool check_data(ssz_ob_t* ob) {
+  switch (ob->def->type) {
+    case SSZ_TYPE_BOOLEAN:
+      return ob->bytes.len == 1 && ob->bytes.data[0] < 2;
+    case SSZ_TYPE_VECTOR:
+      return ob->bytes.len == ob->def->def.vector.len * get_fixed_length(ob->def->def.vector.type);
+    case SSZ_TYPE_LIST:
+      if (is_dynamic(ob->def->def.vector.type)) {
+        if (ob->bytes.len == 0) return true;
+        if (ob->bytes.len % 4 != 0) return false;
+        uint32_t first_offset = uint32_from_le(ob->bytes.data);
+        if (first_offset >= ob->bytes.len || first_offset < 4) return false;
+        uint32_t offset = first_offset;
+        for (int i = 4; i < first_offset; i += 4) {
+          uint32_t next_offset = uint32_from_le(ob->bytes.data + i);
+          if (next_offset >= ob->bytes.len || next_offset < offset) return false;
+          offset = next_offset;
+        }
+        return true;
+      }
+      return ob->bytes.len % get_fixed_length(ob->def->def.vector.type) == 0 && ob->bytes.len <= ob->def->def.vector.len * get_fixed_length(ob->def->def.vector.type);
+    case SSZ_TYPE_BIT_VECTOR:
+      return ob->bytes.len == (ob->def->def.vector.len + 7) >> 3;
+    case SSZ_TYPE_BIT_LIST:
+      return ob->bytes.len <= (ob->def->def.vector.len + 7) >> 3;
+    case SSZ_TYPE_UINT:
+      return ob->bytes.len == ob->def->def.uint.len;
+    case SSZ_TYPE_CONTAINER:
+      return ob->bytes.len >= get_fixed_length(ob->def);
+    case SSZ_TYPE_UNION:
+      return ob->bytes.len > 0 && ob->bytes.data[0] < ob->def->def.container.len;
+    default:
+      return true;
+  }
+}
+
+ssz_ob_t ssz_union(ssz_ob_t ob) {
+  ssz_ob_t res = {0};
+  // check if the object is valid
+  if (ob.def->type != SSZ_TYPE_UNION || !ob.bytes.data || !ob.bytes.len)
+    return res;
+
+  const uint8_t index = ob.bytes.data[0];
+  if (index >= ob.def->def.container.len) return res;
+  res.def = ob.def->def.container.elements + index;
+  if (res.def->type == SSZ_TYPE_NONE) return res;
+  res.bytes = bytes(ob.bytes.data + 1, ob.bytes.len - 1);
+  return res;
+}
+
+// gets the value of a field from a container
 ssz_ob_t ssz_get(ssz_ob_t* ob, char* name) {
   ssz_ob_t res = {0};
+  // check if the object is valid
   if (!ob || !name || ob->def->type != SSZ_TYPE_CONTAINER || !ob->bytes.data || !ob->bytes.len)
     return res;
 
+  // iterate over the fields of the container
   size_t           pos = 0;
   const ssz_def_t* def = NULL;
   for (int i = 0; i < ob->def->def.container.len; i++) {
     def        = ob->def->def.container.elements + i;
     size_t len = get_fixed_length(def);
 
-    if (pos + len > ob->bytes.len)
-      return res;
+    if (pos + len > ob->bytes.len) return res;
 
     if (strcmp(def->name, name) == 0) {
       res.def = def;
@@ -97,13 +155,13 @@ ssz_ob_t ssz_get(ssz_ob_t* ob, char* name) {
           res.bytes.len--;
           res.bytes.data++;
         }
-        else {
-          // invalid union
-          res.def        = NULL;
-          res.bytes.len  = 0;
-          res.bytes.data = NULL;
-        }
+        else
+          return (ssz_ob_t) {0};
       }
+
+      // check if the data are valid
+      if (!check_data(&res)) return (ssz_ob_t) {0};
+
       return res;
     }
     pos += len;
@@ -114,9 +172,14 @@ ssz_ob_t ssz_get(ssz_ob_t* ob, char* name) {
 uint32_t ssz_len(ssz_ob_t ob) {
   switch (ob.def->type) {
     case SSZ_TYPE_VECTOR: return ob.def->def.vector.len;
-    case SSZ_TYPE_LIST: return ob.bytes.len / get_fixed_length(ob.def->def.vector.type);
-    case SSZ_TYPE_CONTAINER: return ob.def->def.container.len;
-    default: return 1;
+    case SSZ_TYPE_LIST:
+      return ob.bytes.len > 4 && is_dynamic(ob.def->def.vector.type)
+                 ? uint32_from_le(ob.bytes.data) / 4
+                 : ob.bytes.len / get_fixed_length(ob.def->def.vector.type);
+    case SSZ_TYPE_BIT_VECTOR:
+    case SSZ_TYPE_BIT_LIST:
+      return ob.bytes.len * 8;
+    default: return 0;
   }
 }
 
@@ -129,6 +192,14 @@ ssz_ob_t ssz_at(ssz_ob_t ob, uint32_t index) {
   uint32_t len = ssz_len(ob);
   if (index >= len)
     return res;
+
+  if (is_dynamic(ob.def->def.vector.type)) {
+    uint32_t offset     = uint32_from_le(ob.bytes.data + index * 4);
+    uint32_t end_offset = index < len - 1 ? uint32_from_le(ob.bytes.data + (index + 1) * 4) : ob.bytes.len;
+    return (ssz_ob_t) {
+        .def   = ob.def->def.vector.type,
+        .bytes = bytes(ob.bytes.data + offset, end_offset - offset)};
+  }
 
   size_t element_size = get_fixed_length(ob.def->def.vector.type);
   if (element_size * (index + 1) > ob.bytes.len)
@@ -161,7 +232,7 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
       close_char = '}';
       fprintf(f, "{\n");
       for (int i = 0; i < def->def.container.len; i++) {
-        ssz_dump(f, ssz_get(&ob, def->def.container.elements[i].name), true, intend + 2);
+        ssz_dump(f, ssz_get(&ob, (char*) def->def.container.elements[i].name), true, intend + 2);
         if (i < def->def.container.len - 1) fprintf(f, ",\n");
       }
       break;
@@ -172,9 +243,8 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
       break;
     case SSZ_TYPE_VECTOR:
     case SSZ_TYPE_LIST: {
-      if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1) {
+      if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
         print_hex(f, ob.bytes, "\"0x", "\"");
-      }
       else {
         fprintf(f, "[\n");
         for (int i = 0; i < ssz_len(ob); i++) {
@@ -185,6 +255,17 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
       }
       break;
     }
+    case SSZ_TYPE_UNION:
+      if (ob.bytes.len == 0 || ob.bytes.data[0] >= def->def.container.len)
+        fprintf(f, "null");
+      else if (def->def.container.elements[ob.bytes.data[0]].type == SSZ_TYPE_NONE)
+        fprintf(f, "{\"selector\":%d,\"value\":null}", ob.bytes.data[0]);
+      else {
+        fprintf(f, "{ \"selector\":%d, \"value\":", ob.bytes.data[0]);
+        ssz_dump(f, ssz_ob(def->def.container.elements[ob.bytes.data[0]], bytes(ob.bytes.data + 1, ob.bytes.len - 1)), false, intend + 2);
+        close_char = '}';
+      }
+      break;
     default: fprintf(f, "%s", ob.bytes.data); break;
   }
 
@@ -282,9 +363,10 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out) {
   memset(out, 0, 32);
   const ssz_def_t* def = ob.def;
   switch (def->type) {
+    case SSZ_TYPE_NONE: break;
     case SSZ_TYPE_CONTAINER: {
       if (index < def->def.container.len)
-        ssz_hash_tree_root(ssz_get(&ob, def->def.container.elements[index].name), out);
+        ssz_hash_tree_root(ssz_get(&ob, (char*) def->def.container.elements[index].name), out);
       break;
     }
     case SSZ_TYPE_VECTOR:
