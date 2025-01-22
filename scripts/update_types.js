@@ -107,7 +107,7 @@ function getTypename(type, args) {
 
 
 const keys = Object.keys(types).sort()
-const table = keys.map(k => `    - [${k}](#${types[k][0].substr(4).toLowerCase().replace(/ /g, '-')})`).join('\n')
+const table = keys.map(k => `- [${k}](#${types[k][0].substr(4).toLowerCase().replace(/ /g, '-')})`).join('\n')
 
 
 let readme = fs.readFileSync('../README.md', 'utf8').split('\n')

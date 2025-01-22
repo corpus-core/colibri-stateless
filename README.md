@@ -34,18 +34,18 @@ bin/verify ../test/data/proof_data.ssz
 
 ## SSZ Types
 
-    - [BeaconBlockHeader](#beaconblockheader)
-    - [BlockHashProof](#blockhashproof)
-    - [C4Request](#c4request)
-    - [C4RequestData](#union-c4requestdata)
-    - [C4RequestProofs](#union-c4requestproofs)
-    - [C4RequestSyncdata](#union-c4requestsyncdata)
-    - [ExecutionPayloadHeader](#executionpayloadheader)
-    - [LightClientHeader](#lightclientheader)
-    - [LightClientUpdate](#lightclientupdate)
-    - [SyncAggregate](#syncaggregate)
-    - [SyncCommittee](#synccommittee)
-    - [SyncState](#syncstate)
+- [BeaconBlockHeader](#beaconblockheader)
+- [BlockHashProof](#blockhashproof)
+- [C4Request](#c4request)
+- [C4RequestData](#union-c4requestdata)
+- [C4RequestProofs](#union-c4requestproofs)
+- [C4RequestSyncdata](#union-c4requestsyncdata)
+- [ExecutionPayloadHeader](#executionpayloadheader)
+- [LightClientHeader](#lightclientheader)
+- [LightClientUpdate](#lightclientupdate)
+- [SyncAggregate](#syncaggregate)
+- [SyncCommittee](#synccommittee)
+- [SyncState](#syncstate)
 
 ### BeaconBlockHeader
 
