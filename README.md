@@ -36,7 +36,7 @@ bodyRoot: Bytes32
 
 ```python
 class SyncCommittee(Container):
-pubkeys: Vector [blsPubky, 512]   # [blsPubky](#blspubky)
+pubkeys: Vector [blsPubky, 512]
 aggregatePubkey: ByteVector
 ```
 
@@ -75,21 +75,21 @@ syncCommitteeSignature: ByteVector
 
 ```python
 class LightClientHeader(Container):
-beacon: BeaconBlockHeader   # [BeaconBlockHeader](#beaconblockheader)
-execution: ExecutionPayloadHeader   # [ExecutionPayloadHeader](#executionpayloadheader)
-executionBranch: Vector [bytes32, 4]   # [bytes32](#bytes32)
+beacon: BeaconBlockHeader
+execution: ExecutionPayloadHeader
+executionBranch: Vector [bytes32, 4]
 ```
 
 ### LightClientUpdate
 
 ```python
 class LightClientUpdate(Container):
-attestedHeader: LightClientHeader   # [LightClientHeader](#lightclientheader)
-nextSyncCommittee: SyncCommittee   # [SyncCommittee](#synccommittee)
-nextSyncCommitteeBranch: Vector [bytes32, 5]   # [bytes32](#bytes32)
-finalizedHeader: LightClientHeader   # [LightClientHeader](#lightclientheader)
-finalityBranch: Vector [bytes32, 6]   # [bytes32](#bytes32)
-syncAggregate: SyncAggregate   # [SyncAggregate](#syncaggregate)
+attestedHeader: LightClientHeader
+nextSyncCommittee: SyncCommittee
+nextSyncCommitteeBranch: Vector [bytes32, 5]
+finalizedHeader: LightClientHeader
+finalityBranch: Vector [bytes32, 6]
+syncAggregate: SyncAggregate
 signatureSlot: Uint64
 ```
 
@@ -97,8 +97,8 @@ signatureSlot: Uint64
 
 ```python
 class BlockHashProof(Container):
-blockhash_proof: List [bytes32, 256]   # [bytes32](#bytes32)
-header: BeaconBlockHeader   # [BeaconBlockHeader](#beaconblockheader)
+blockhash_proof: List [bytes32, 256]
+header: BeaconBlockHeader
 sync_committee_bits: BitVector [512]
 sync_committee_signature: ByteVector
 ```
@@ -125,9 +125,9 @@ C4RequestSyncdata = Union [ None , List [LightClientUpdate, 512]]
 
 ```python
 class C4Request(Container):
-data: C4RequestData <union>    # [C4RequestData](#union-c4requestdata)
-proof: C4RequestProofs <union>    # [C4RequestProofs](#union-c4requestproofs)
-sync_data: C4RequestSyncdata <union>    # [C4RequestSyncdata](#union-c4requestsyncdata)
+data: C4RequestData <union>
+proof: C4RequestProofs <union>
+sync_data: C4RequestSyncdata <union>
 ```
 ## License
 
