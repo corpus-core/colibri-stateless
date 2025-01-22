@@ -151,7 +151,7 @@ ssz_ob_t ssz_get(ssz_ob_t* ob, char* name) {
         res.bytes.data = ob->bytes.data + pos;
       }
       if (def->type == SSZ_TYPE_UNION) {
-        if (res.bytes.len && def->def.container.len < res.bytes.data[0]) {
+        if (res.bytes.len && def->def.container.len > res.bytes.data[0]) {
           res.def = def->def.container.elements + res.bytes.data[0];
           res.bytes.len--;
           res.bytes.data++;
@@ -232,6 +232,7 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
         default: print_hex(f, ob.bytes, "\"0x", "\"");
       }
       break;
+    case SSZ_TYPE_NONE: fprintf(f, "null"); break;
     case SSZ_TYPE_BOOLEAN: fprintf(f, "%s", ob.bytes.data[0] ? "true" : "false"); break;
     case SSZ_TYPE_CONTAINER: {
       close_char = '}';
