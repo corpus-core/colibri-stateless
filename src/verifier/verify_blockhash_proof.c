@@ -56,11 +56,11 @@ static bool calculate_signing_message(verify_ctx_t* ctx, uint64_t slot, bytes32_
   return true;
 }
 
-static bool verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature) {
+bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot) {
   bytes32_t       root       = {0};
-  uint64_t        slot       = ssz_get_uint64(header, "slot");
   c4_sync_state_t sync_state = {0};
 
+  if (slot == 0) slot = ssz_get_uint64(header, "slot");
   if (slot == 0) RETURN_VERIFY_ERROR(ctx, "slot is missing in beacon header!");
 
   // compute blockhash
@@ -108,7 +108,7 @@ bool verify_blockhash_proof(verify_ctx_t* ctx) {
   if (ssz_is_error(sync_committee_bits) || sync_committee_bits.bytes.len != 64 || ssz_is_error(sync_committee_signature) || sync_committee_signature.bytes.len != 96) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing sync committee bits or signature!");
   if (!ctx->data.def || !ssz_is_type(&ctx->data, &ssz_bytes32) || ctx->data.bytes.data == NULL || ctx->data.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid data, data is not a bytes32!");
   if (!verify_beacon_header(&header, ctx->data.bytes.data, blockhash_proof.bytes)) RETURN_VERIFY_ERROR(ctx, "invalid merkle proof for blockhash!");
-  if (!verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
+  if (!c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
 
   ctx->success = true;
   return true;

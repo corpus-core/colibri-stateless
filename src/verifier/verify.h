@@ -31,6 +31,10 @@ typedef struct {
 void c4_verify(verify_ctx_t* ctx);
 void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request);
 bool verify_blockhash_proof(verify_ctx_t* ctx);
+
+// helper
+bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot);
+
 #define RETURN_VERIFY_ERROR(ctx, msg)                     \
   do {                                                    \
     ctx->error   = ctx->error == NULL ? msg : ctx->error; \

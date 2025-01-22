@@ -2,7 +2,10 @@
 #include "../util/ssz.h"
 #include "default_synccommittee.h"
 #include "types_beacon.h"
+#include "verify.h"
+#include <string.h>
 
+#define NEXT_SYNC_COMMITTEE_GINDEX 55
 // the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
 const ssz_def_t SYNC_STATE[] = {
     SSZ_VECTOR("validators", ssz_bls_pubky, 512), // the list of the validators
@@ -17,4 +20,53 @@ const c4_sync_state_t c4_get_validators(uint64_t period) {
       .current_period = period,
       .last_period    = last_period,
       .validators     = last_period != period ? NULL_BYTES : ssz_get(&sync_state_ob, "validators").bytes};
+}
+
+static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
+  bytes32_t sync_root      = {0};
+  bytes32_t merkle_root    = {0};
+  ssz_ob_t  attested       = ssz_get(update, "attestedHeader");
+  ssz_ob_t  header         = ssz_get(&attested, "beacon");
+  ssz_ob_t  sync_aggregate = ssz_get(update, "syncAggregate");
+  ssz_ob_t  signature      = ssz_get(&sync_aggregate, "syncCommitteeSignature");
+  ssz_ob_t  sync_bits      = ssz_get(&sync_aggregate, "syncCommitteeBits");
+  ssz_ob_t  merkle_proof   = ssz_get(update, "nextSyncCommitteeBranch");
+  ssz_ob_t  sync_committee = ssz_get(update, "nextSyncCommittee");
+  ssz_ob_t  state_root     = ssz_get(&header, "stateRoot");
+  uint64_t  slot           = ssz_get_uint64(update, "signatureSlot");
+  if (ssz_is_error(header) || ssz_is_error(state_root) || ssz_is_error(signature) || ssz_is_error(sync_bits) || ssz_is_error(merkle_proof) || ssz_is_error(sync_committee))
+    RETURN_VERIFY_ERROR(ctx, "invalid light client update!");
+
+  // verify the signature of the old sync committee for the next sync committee
+  if (!c4_verify_blockroot_signature(ctx, &header, &sync_bits, &signature, slot)) RETURN_VERIFY_ERROR(ctx, "invalid signature in light client update!");
+
+  // create merkle root from proof
+  ssz_hash_tree_root(sync_committee, sync_root);
+  ssz_verify_merkle_proof(merkle_proof.bytes, sync_root, NEXT_SYNC_COMMITTEE_GINDEX, merkle_root);
+
+  // verify the merkle root
+  if (memcmp(merkle_root, state_root.bytes.data, 32)) RETURN_VERIFY_ERROR(ctx, "invalid merkle root in light client update!");
+
+  // TODO store the update
+
+  return true;
+}
+
+bool c4_update_from_sync_data(verify_ctx_t* ctx) {
+  if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
+  if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return true;
+
+  // check the sync_data type
+  if (ctx->sync_data.def->type == SSZ_TYPE_LIST) {
+    for (int i = 0; i < ssz_len(ctx->sync_data); i++) {
+      ssz_ob_t update = ssz_at(ctx->sync_data, i);
+      if (ssz_is_error(update)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
+      if (ssz_is_type(&update, LIGHT_CLIENT_UPDATE)) {
+        if (!update_light_client_update(ctx, &update)) return false;
+      }
+      else
+        RETURN_VERIFY_ERROR(ctx, "unknown sync_data type!");
+    }
+  }
+  return true;
 }

@@ -67,7 +67,7 @@ static bool check_data(ssz_ob_t* ob) {
     case SSZ_TYPE_LIST:
       if (is_dynamic(ob->def->def.vector.type)) {
         if (ob->bytes.len == 0) return true;
-        if (ob->bytes.len % 4 != 0) return false;
+        if (ob->bytes.len < 4) return false;
         uint32_t first_offset = uint32_from_le(ob->bytes.data);
         if (first_offset >= ob->bytes.len || first_offset < 4) return false;
         uint32_t offset = first_offset;
@@ -348,14 +348,24 @@ ssz_ob_t ssz_builder_to_bytes(ssz_builder_t* buffer) {
   return (ssz_ob_t) {.def = buffer->def, .bytes = buffer->fixed.data};
 }
 
+static bool is_basic_type(const ssz_def_t* def) {
+  return def->type == SSZ_TYPE_UINT || def->type == SSZ_TYPE_BOOLEAN || def->type == SSZ_TYPE_NONE;
+}
+
 static int calc_num_leafes(const ssz_def_t* def) {
   switch (def->type) {
     case SSZ_TYPE_CONTAINER:
       return def->def.container.len;
     case SSZ_TYPE_VECTOR:
-      return (def->def.vector.len * get_fixed_length(def->def.vector.type) + 31) >> 5;
+      if (is_basic_type(def->def.vector.type))
+        return (def->def.vector.len * get_fixed_length(def->def.vector.type) + 31) >> 5;
+      else
+        return def->def.vector.len;
     case SSZ_TYPE_LIST:
-      return ((def->def.vector.len + 1) * get_fixed_length(def->def.vector.type) + 31) >> 5;
+      if (is_basic_type(def->def.vector.type))
+        return ((def->def.vector.len + 1) * get_fixed_length(def->def.vector.type) + 31) >> 5;
+      else
+        return def->def.vector.len;
     case SSZ_TYPE_BIT_LIST:
       return (def->def.vector.len + 31) >> 5;
     case SSZ_TYPE_BIT_VECTOR:
@@ -379,6 +389,17 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out) {
     case SSZ_TYPE_LIST:
     case SSZ_TYPE_BIT_LIST:
     case SSZ_TYPE_BIT_VECTOR: {
+
+      // handle complex types
+      if ((def->type == SSZ_TYPE_VECTOR || def->type == SSZ_TYPE_LIST) && !is_basic_type(def->def.vector.type)) {
+        uint32_t len = ssz_len(ob);
+        if (index < len)
+          ssz_hash_tree_root(ssz_at(ob, index), out);
+        else if (index == len && def->type == SSZ_TYPE_LIST)
+          *out = 1;
+        return;
+      }
+
       int offset = index * BYTES_PER_CHUNK;
       int len    = ob.bytes.len - offset;
       if (len > BYTES_PER_CHUNK) len = BYTES_PER_CHUNK;
