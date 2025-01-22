@@ -34,9 +34,25 @@ bin/verify ../test/data/proof_data.ssz
 
 ## SSZ Types
 
+    - [BeaconBlockHeader](#beaconblockheader)
+    - [BlockHashProof](#blockhashproof)
+    - [C4Request](#c4request)
+    - [C4RequestData](#union-c4requestdata)
+    - [C4RequestProofs](#union-c4requestproofs)
+    - [C4RequestSyncdata](#union-c4requestsyncdata)
+    - [ExecutionPayloadHeader](#executionpayloadheader)
+    - [LightClientHeader](#lightclientheader)
+    - [LightClientUpdate](#lightclientupdate)
+    - [SyncAggregate](#syncaggregate)
+    - [SyncCommittee](#synccommittee)
+    - [SyncState](#syncstate)
+
 ### BeaconBlockHeader
 
 the header of a beacon block
+
+
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L8).
 
 ```python
 class BeaconBlockHeader(Container):
@@ -51,6 +67,9 @@ class BeaconBlockHeader(Container):
 
 the public keys sync committee used within a period ( about 27h)
 
+
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L16).
+
 ```python
 class SyncCommittee(Container):
     pubkeys: Vector [blsPubky, 512]   # the 512 pubkeys (each 48 bytes) of the validators in the sync committee
@@ -60,6 +79,9 @@ class SyncCommittee(Container):
 ### ExecutionPayloadHeader
 
 the block header of the execution layer proved within the beacon block
+
+
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L21).
 
 ```python
 class ExecutionPayloadHeader(Container):
@@ -86,6 +108,9 @@ class ExecutionPayloadHeader(Container):
 
 the aggregates signature of the sync committee
 
+
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L41).
+
 ```python
 class SyncAggregate(Container):
     syncCommitteeBits: BitVector [512]   # the bits of the validators that signed the block (each bit represents a validator)
@@ -95,6 +120,9 @@ class SyncAggregate(Container):
 ### LightClientHeader
 
 the header of the light client update
+
+
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L46).
 
 ```python
 class LightClientHeader(Container):
@@ -107,6 +135,9 @@ class LightClientHeader(Container):
 
 the light client update is used to verify the transition between two periods of the SyncCommittee.
  This data will be fetched directly through the beacon Chain API since it contains all required data.
+
+
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L53).
 
 ```python
 class LightClientUpdate(Container):
@@ -124,6 +155,9 @@ class LightClientUpdate(Container):
 the block hash proof is used as part of different other types since it contains all relevant
  proofs to validate the blockhash of the execution layer
 
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L10).
+
 ```python
 class BlockHashProof(Container):
     blockhash_proof: List [bytes32, 256]   # the merkle prooof from the executionPayload.blockhash down to the blockBodyRoot hash
@@ -136,6 +170,9 @@ class BlockHashProof(Container):
 
 A List of possible types of data matching the Proofs
 
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L19).
+
 ```python
 C4RequestData = Union [ None , Bytes32]
 ```
@@ -143,6 +180,9 @@ C4RequestData = Union [ None , Bytes32]
 ### Union C4RequestProofs
 
 A List of possible types of proofs matching the Data
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L24).
 
 ```python
 C4RequestProofs = Union [ None , BlockHashProof]
@@ -152,6 +192,9 @@ C4RequestProofs = Union [ None , BlockHashProof]
 
 A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L29).
+
 ```python
 C4RequestSyncdata = Union [ None , List [LightClientUpdate, 512]]
 ```
@@ -159,6 +202,9 @@ C4RequestSyncdata = Union [ None , List [LightClientUpdate, 512]]
 ### C4Request
 
 the main container defining the incoming data processed by the verifier
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L34).
 
 ```python
 class C4Request(Container):
@@ -170,6 +216,9 @@ class C4Request(Container):
 ### SyncState
 
 the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
+
+
+ The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L7).
 
 ```python
 class SyncState(Container):
