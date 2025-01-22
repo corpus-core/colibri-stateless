@@ -18,12 +18,12 @@ const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate
 // A List of possible types of data matching the Proofs
 const ssz_def_t C4_REQUEST_DATA_UNION[] = {
     SSZ_NONE,
-    SSZ_BYTES32("blockhash")};
+    SSZ_BYTES32("blockhash")}; // the blochash  which is used for blockhash proof
 
 // A List of possible types of proofs matching the Data
 const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("BlockHashProof", BLOCK_HASH_PROOF)};
+    SSZ_CONTAINER("BlockHashProof", BLOCK_HASH_PROOF)}; // the blockhash proof used validating blockhashes
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_REQUEST_SYNCDATA_UNION[] = {

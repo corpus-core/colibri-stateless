@@ -62,9 +62,9 @@ function handle(file, lines) {
             const [t, link] = getTypename(type, ('' + args).split(",").map(_ => _.trim()).filter(_ => _))
             if (union) {
                 const s = defs[defs.length - 2]
-                defs[defs.length - 2] = s.substring(0, s.length - 1)
-                    + (s.substr(-2) == '[]' ? ' ' : ' , ')
-                    + t + ']'
+                defs[defs.length - 2] = s.substring(0, s.length - 2)
+                    + (s.substr(-2) == '[]' ? '[\n    ' : ',\n    ')
+                    + t + (comment ? '# ' + comment : '') + '\n]'
             }
             else {
                 let cm = link ? '# ' + link : ''
@@ -116,6 +116,38 @@ function align_comments(lines) {
         return line
     })
 }
+
+const inlineUnions = true
+if (inlineUnions) {
+    function getUnionContent(name) {
+        const start = types[name].indexOf('```python')
+        const end = types[name].indexOf('```', start)
+        let content = types[name].slice(start + 1, end).join('\n').split('\n')
+
+        if (content[0].indexOf(' = ') > 0)
+            content[0] = content[0].split(' = ')[1]
+        return content
+    }
+    const unionTypes = Object.keys(types).filter(k => types[k][0].startsWith('### Union'))
+    Object.entries(types).forEach(([k, v]) => {
+        if (!unionTypes.includes(k)) {
+            for (let i = 0; i < v.length; i++) {
+                if (v[i].indexOf('<union>') > 0) {
+                    const splits = v[i].split('<union>')
+                    const unionName = splits[0].split(':')[1].trim()
+                    const unionContent = getUnionContent(unionName)
+                    v[i] = splits[0].replace(unionName, '') + ' Union[ ' + splits[1] + '\n' + unionContent.slice(1).map(_ => '    ' + _).join('\n')
+                }
+            }
+        }
+    })
+    unionTypes.forEach(k => {
+        delete types[k]
+    })
+}
+
+
+
 
 
 const keys = Object.keys(types).sort()

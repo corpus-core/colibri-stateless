@@ -37,9 +37,6 @@ bin/verify ../test/data/proof_data.ssz
 - [BeaconBlockHeader](#beaconblockheader)
 - [BlockHashProof](#blockhashproof)
 - [C4Request](#c4request)
-- [C4RequestData](#union-c4requestdata)
-- [C4RequestProofs](#union-c4requestproofs)
-- [C4RequestSyncdata](#union-c4requestsyncdata)
 - [ExecutionPayloadHeader](#executionpayloadheader)
 - [LightClientHeader](#lightclientheader)
 - [LightClientUpdate](#lightclientupdate)
@@ -88,51 +85,18 @@ the main container defining the incoming data processed by the verifier
 
 ```python
 class C4Request(Container):
-    data: C4RequestData <union>             # the data to proof
-    proof: C4RequestProofs <union>          # the proof of the data
-    sync_data: C4RequestSyncdata <union>    # the sync data containing proofs for the transition between the two periods
-```
-
-### Union C4RequestData
-
-A List of possible types of data matching the Proofs
-
-
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L19).
-
-```python
-C4RequestData = Union [
-    None,
-    Bytes32
-]
-```
-
-### Union C4RequestProofs
-
-A List of possible types of proofs matching the Data
-
-
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L24).
-
-```python
-C4RequestProofs = Union [
-    None,
-    BlockHashProof
-]
-```
-
-### Union C4RequestSyncdata
-
-A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
-
-
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L29).
-
-```python
-C4RequestSyncdata = Union [
-    None,
-    List [LightClientUpdate, 512]
-]
+    data:   Union[          # the data to proof
+        None,
+        Bytes32# the blochash  which is used for blockhash proof
+    ]
+    proof:   Union[         # the proof of the data
+        None,
+        BlockHashProof# the blockhash proof used validating blockhashes
+    ]
+    sync_data:   Union[     # the sync data containing proofs for the transition between the two periods
+        None,
+        List [LightClientUpdate, 512]# this light client update can be fetched directly from the beacon chain API
+    ]
 ```
 
 ### ExecutionPayloadHeader
