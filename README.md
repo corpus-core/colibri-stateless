@@ -36,7 +36,7 @@ bodyRoot: Bytes32
 
 ```python
 class SyncCommittee(Container):
-pubkeys: Vector [blsPubky, 512]   # blsPubky
+pubkeys: Vector [blsPubky, 512]   # [blsPubky](#blspubky)
 aggregatePubkey: ByteVector
 ```
 
@@ -75,21 +75,21 @@ syncCommitteeSignature: ByteVector
 
 ```python
 class LightClientHeader(Container):
-beacon: BeaconBlockHeader   # BeaconBlockHeader
-execution: ExecutionPayloadHeader   # ExecutionPayloadHeader
-executionBranch: Vector [bytes32, 4]   # bytes32
+beacon: BeaconBlockHeader   # [BeaconBlockHeader](#beaconblockheader)
+execution: ExecutionPayloadHeader   # [ExecutionPayloadHeader](#executionpayloadheader)
+executionBranch: Vector [bytes32, 4]   # [bytes32](#bytes32)
 ```
 
 ### LightClientUpdate
 
 ```python
 class LightClientUpdate(Container):
-attestedHeader: LightClientHeader   # LightClientHeader
-nextSyncCommittee: SyncCommittee   # SyncCommittee
-nextSyncCommitteeBranch: Vector [bytes32, 5]   # bytes32
-finalizedHeader: LightClientHeader   # LightClientHeader
-finalityBranch: Vector [bytes32, 6]   # bytes32
-syncAggregate: SyncAggregate   # SyncAggregate
+attestedHeader: LightClientHeader   # [LightClientHeader](#lightclientheader)
+nextSyncCommittee: SyncCommittee   # [SyncCommittee](#synccommittee)
+nextSyncCommitteeBranch: Vector [bytes32, 5]   # [bytes32](#bytes32)
+finalizedHeader: LightClientHeader   # [LightClientHeader](#lightclientheader)
+finalityBranch: Vector [bytes32, 6]   # [bytes32](#bytes32)
+syncAggregate: SyncAggregate   # [SyncAggregate](#syncaggregate)
 signatureSlot: Uint64
 ```
 
@@ -97,8 +97,8 @@ signatureSlot: Uint64
 
 ```python
 class BlockHashProof(Container):
-blockhash_proof: List [bytes32, 256]   # bytes32
-header: BeaconBlockHeader   # BeaconBlockHeader
+blockhash_proof: List [bytes32, 256]   # [bytes32](#bytes32)
+header: BeaconBlockHeader   # [BeaconBlockHeader](#beaconblockheader)
 sync_committee_bits: BitVector [512]
 sync_committee_signature: ByteVector
 ```
@@ -125,9 +125,9 @@ C4RequestSyncdata = Union [ None , List [LightClientUpdate, 512]]
 
 ```python
 class C4Request(Container):
-data: C4RequestData <union>    # C4RequestData
-proof: C4RequestProofs <union>    # C4RequestProofs
-sync_data: C4RequestSyncdata <union>    # C4RequestSyncdata
+data: C4RequestData <union>    # [C4RequestData](#union-c4requestdata)
+proof: C4RequestProofs <union>    # [C4RequestProofs](#union-c4requestproofs)
+sync_data: C4RequestSyncdata <union>    # [C4RequestSyncdata](#union-c4requestsyncdata)
 ```
 ## License
 
