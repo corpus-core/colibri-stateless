@@ -1,10 +1,12 @@
 #include "sync_committee.h"
 #include "../util/ssz.h"
-#include "beacon_types.h"
 #include "default_synccommittee.h"
+#include "types_beacon.h"
+
+// the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
 const ssz_def_t SYNC_STATE[] = {
-    SSZ_VECTOR("validators", ssz_bls_pubky, 512),
-    SSZ_UINT32("period")};
+    SSZ_VECTOR("validators", ssz_bls_pubky, 512), // the list of the validators
+    SSZ_UINT32("period")};                        // the period of the sync committee
 
 const ssz_def_t SYNC_STATE_CONTAINER = SSZ_CONTAINER("SyncState", SYNC_STATE);
 

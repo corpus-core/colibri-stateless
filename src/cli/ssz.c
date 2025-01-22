@@ -1,7 +1,7 @@
 #include "../util/ssz.h"
 #include "../util/bytes.h"
 #include "../util/crypto.h"
-#include "../verifier/beacon_types.h"
+#include "../verifier/types_verify.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,9 +30,8 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Usage: %s <file.ssz> <field1> <field2> ...\n", argv[0]);
     exit(EXIT_FAILURE);
   }
-  ssz_ob_t res = ssz_ob(C4_PROOFS_CONTAINER, read_from_file(argv[1]));
 
-  if (res.def->type == SSZ_TYPE_UNION) res = ssz_union(res);
+  ssz_ob_t res = ssz_ob(C4_REQUEST_CONTAINER, read_from_file(argv[1]));
 
   for (int i = 2; i < argc; i++)
     res = ssz_get(&res, argv[i]);

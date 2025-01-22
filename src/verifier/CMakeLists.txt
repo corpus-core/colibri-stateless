@@ -1,5 +1,6 @@
 add_library(verifier STATIC 
-  beacon_types.c
+  types_beacon.c
+  types_verify.c
   sync_committee.c
   verify.c
   verify_blockhash_proof.c

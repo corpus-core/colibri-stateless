@@ -1,20 +1,25 @@
 #include "verify.h"
+#include "../util/ssz.h"
+#include "types_verify.h"
+#include <string.h>
+void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request) {
+  ssz_ob_t req = ssz_ob(C4_REQUEST_CONTAINER, request);
+  memset(ctx, 0, sizeof(verify_ctx_t));
 
-#include "beacon_types.h"
+  ctx->data      = ssz_get(&req, "data");
+  ctx->proof     = ssz_get(&req, "proof");
+  ctx->sync_data = ssz_get(&req, "sync_data");
+  c4_verify(ctx);
+}
 
 void c4_verify(verify_ctx_t* ctx) {
-  if (ctx->type == PROOF_TYPE_BEACON_HEADER) {
-    if (ctx->proof.def->type != SSZ_TYPE_CONTAINER) {
-      ctx->error   = "proof is not a container";
-      ctx->success = false;
-      return;
-    }
-    if (ctx->proof.def->def.container.elements == BLOCK_HASH_PROOF)
-      verify_blockhash_proof(ctx);
-    else {
-      ctx->error   = "proof is not a supported proof type";
-      ctx->success = false;
-      return;
-    }
+
+  if (ssz_is_type(&ctx->proof, BLOCK_HASH_PROOF)) {
+    ctx->type = PROOF_TYPE_BEACON_HEADER;
+    verify_blockhash_proof(ctx);
+  }
+  else {
+    ctx->error   = "proof is not a supported proof type";
+    ctx->success = false;
   }
 }

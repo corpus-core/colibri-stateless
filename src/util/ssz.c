@@ -483,3 +483,35 @@ uint32_t ssz_add_gindex(uint32_t gindex1, uint32_t gindex2) {
   uint32_t depth = get_depth(gindex1);
   return (gindex1 << depth) | (gindex2 & ((1 << depth) - 1));
 }
+
+bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def) {
+  if (!ob || !ob->def || !def) return false;
+  if (ob->def == def) return true;
+  if (ob->def->type == SSZ_TYPE_UNION) {
+    ssz_ob_t union_ob = ssz_union(*ob);
+    return ssz_is_type(&union_ob, def);
+  }
+  if (ob->def->type == SSZ_TYPE_CONTAINER) return ob->def->def.container.elements == def;
+  switch (def->type) {
+    case SSZ_TYPE_UINT:
+      return def->type == SSZ_TYPE_UINT && ob->def->def.uint.len == def->def.uint.len;
+    case SSZ_TYPE_BOOLEAN:
+      return def->type == SSZ_TYPE_BOOLEAN;
+    case SSZ_TYPE_BIT_LIST:
+      return def->type == SSZ_TYPE_BIT_LIST && ob->def->def.uint.len == def->def.uint.len;
+    case SSZ_TYPE_BIT_VECTOR:
+      return def->type == SSZ_TYPE_BIT_VECTOR && ob->def->def.uint.len == def->def.uint.len;
+    case SSZ_TYPE_CONTAINER:
+      return ob->def->def.container.elements == def;
+    case SSZ_TYPE_VECTOR: {
+      ssz_ob_t el = {.def = ob->def->def.vector.type, .bytes = ob->bytes};
+      return def->type == SSZ_TYPE_VECTOR && ob->def->def.uint.len == def->def.uint.len && ssz_is_type(&el, def->def.vector.type);
+    }
+    case SSZ_TYPE_LIST: {
+      ssz_ob_t el = {.def = ob->def->def.vector.type, .bytes = ob->bytes};
+      return def->type == SSZ_TYPE_LIST && ob->def->def.uint.len == def->def.uint.len && ssz_is_type(&el, def->def.vector.type);
+    }
+    default:
+      return false;
+  }
+}

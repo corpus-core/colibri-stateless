@@ -106,7 +106,7 @@ bool verify_blockhash_proof(verify_ctx_t* ctx) {
 
   if (ssz_is_error(header) || ssz_is_error(blockhash_proof)) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing header or blockhash_proof!");
   if (ssz_is_error(sync_committee_bits) || sync_committee_bits.bytes.len != 64 || ssz_is_error(sync_committee_signature) || sync_committee_signature.bytes.len != 96) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing sync committee bits or signature!");
-  if (!ctx->data.def || ctx->data.def != &ssz_bytes32 || ctx->data.bytes.data == NULL || ctx->data.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid data, data is not a bytes32!");
+  if (!ctx->data.def || !ssz_is_type(&ctx->data, &ssz_bytes32) || ctx->data.bytes.data == NULL || ctx->data.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid data, data is not a bytes32!");
   if (!verify_beacon_header(&header, ctx->data.bytes.data, blockhash_proof.bytes)) RETURN_VERIFY_ERROR(ctx, "invalid merkle proof for blockhash!");
   if (!verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
 

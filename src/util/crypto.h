@@ -1,3 +1,10 @@
+#ifndef crypto_h__
+#define crypto_h__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "bytes.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -14,3 +21,9 @@ bool blst_verify(bytes32_t       message,         /**< 32 bytes hashed message *
                  uint8_t*        public_keys,     /**< 48 bytes public key array */
                  int             num_public_keys, /**< number of public keys */
                  bytes_t         pibkey_bitmask);         /**< num_public_keys.len = num_public_keys/8 and indicates with the bits set which of the public keys are part of the signature */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

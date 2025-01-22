@@ -21,6 +21,7 @@ typedef struct {
   proof_type_t type;
   ssz_ob_t     proof;
   ssz_ob_t     data;
+  ssz_ob_t     sync_data;
   uint64_t     first_missing_period;
   uint64_t     last_missing_period;
   bool         success;
@@ -28,6 +29,7 @@ typedef struct {
 } verify_ctx_t;
 
 void c4_verify(verify_ctx_t* ctx);
+void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request);
 bool verify_blockhash_proof(verify_ctx_t* ctx);
 #define RETURN_VERIFY_ERROR(ctx, msg)                     \
   do {                                                    \

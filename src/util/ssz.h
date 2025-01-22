@@ -110,6 +110,8 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend);
 /** hashes the object */
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
 
+bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
+
 extern const ssz_def_t ssz_uint8;
 extern const ssz_def_t ssz_bytes32;
 extern const ssz_def_t ssz_bls_pubky;
@@ -164,6 +166,7 @@ extern const ssz_def_t ssz_bls_pubky;
 #define SSZ_BYTES32(name)          SSZ_BYTE_VECTOR(name, 32)
 #define SSZ_ADDRESS(name)          SSZ_BYTE_VECTOR(name, 20)
 #define SSZ_UINT64(name)           SSZ_UINT(name, 8)
+#define SSZ_UINT256(name)          SSZ_UINT(name, 32)
 #define SSZ_UINT32(name)           SSZ_UINT(name, 4)
 #define SSZ_UINT16(name)           SSZ_UINT(name, 2)
 #define SSZ_UINT8(name)            SSZ_UINT(name, 1)
