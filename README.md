@@ -183,7 +183,7 @@ the public keys sync committee used within a period ( about 27h)
 ```python
 class SyncCommittee(Container):
     pubkeys        : Vector [blsPubky, 512]   # the 512 pubkeys (each 48 bytes) of the validators in the sync committee
-    aggregatePubkey: ByteVector [96]          # the aggregate pubkey (48 bytes) of the sync committee
+    aggregatePubkey: ByteVector [48]          # the aggregate pubkey (48 bytes) of the sync committee
 ```
 
 ### SyncState
@@ -191,7 +191,7 @@ class SyncCommittee(Container):
 the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
 
 
- The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L7).
+ The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L10).
 
 ```python
 class SyncState(Container):
