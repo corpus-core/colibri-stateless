@@ -4,16 +4,20 @@
 
 
 ```sh
+#clone
 git clone https://github.com/colibri-labs/c4.git
 cd c4
 
+#build
 mkdir build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Debug ..
 make
+
+#run 
+bin/verify ../test/data/proof_data.ssz
+
 ```
-
-
 
 ## SSZ Types
 
@@ -32,7 +36,7 @@ class BeaconBlockHeader(Container):
 
 ```python
 class SyncCommittee(Container):
-    pubkeys: Vector [blsPubky, 512]   
+    pubkeys: Vector [[blsPubky](#blspubky), 512]   
     aggregatePubkey: ByteVector   
 ```
 
@@ -71,21 +75,21 @@ class SyncAggregate(Container):
 
 ```python
 class LightClientHeader(Container):
-    beacon: BeaconBlockHeader   
-    execution: ExecutionPayloadHeader   
-    executionBranch: Vector [bytes32, 4]   
+    beacon: [BeaconBlockHeader](#beaconblockheader)   
+    execution: [ExecutionPayloadHeader](#executionpayloadheader)   
+    executionBranch: Vector [[bytes32](#bytes32), 4]   
 ```
 
 ### LightClientUpdate
 
 ```python
 class LightClientUpdate(Container):
-    attestedHeader: LightClientHeader   
-    nextSyncCommittee: SyncCommittee   
-    nextSyncCommitteeBranch: Vector [bytes32, 5]   
-    finalizedHeader: LightClientHeader   
-    finalityBranch: Vector [bytes32, 6]   
-    syncAggregate: SyncAggregate   
+    attestedHeader: [LightClientHeader](#lightclientheader)   
+    nextSyncCommittee: [SyncCommittee](#synccommittee)   
+    nextSyncCommitteeBranch: Vector [[bytes32](#bytes32), 5]   
+    finalizedHeader: [LightClientHeader](#lightclientheader)   
+    finalityBranch: Vector [[bytes32](#bytes32), 6]   
+    syncAggregate: [SyncAggregate](#syncaggregate)   
     signatureSlot: Uint64   
 ```
 
@@ -93,8 +97,8 @@ class LightClientUpdate(Container):
 
 ```python
 class BlockHashProof(Container):
-    blockhash_proof: List [bytes32, 256]   
-    header: BeaconBlockHeader   
+    blockhash_proof: List [[bytes32](#bytes32), 256]   
+    header: [BeaconBlockHeader](#beaconblockheader)   
     sync_committee_bits: BitVector [512]   
     sync_committee_signature: ByteVector   
 ```
@@ -108,22 +112,22 @@ C4RequestData = Union [ None , Bytes32]
 ### Union C4RequestProofs
 
 ```python
-C4RequestProofs = Union [ None , BlockHashProof]
+C4RequestProofs = Union [ None , [BlockHashProof](#blockhashproof)]
 ```
 
 ### Union C4RequestSyncdata
 
 ```python
-C4RequestSyncdata = Union [ None , List [LightClientUpdate, 512]]
+C4RequestSyncdata = Union [ None , List [[LightClientUpdate](#lightclientupdate), 512]]
 ```
 
 ### C4Request
 
 ```python
 class C4Request(Container):
-    data: C4RequestData <union>    
-    proof: C4RequestProofs <union>    
-    sync_data: C4RequestSyncdata <union>    
+    data: [C4RequestData](#union-c4requestdata) <union>    
+    proof: [C4RequestProofs](#union-c4requestproofs) <union>    
+    sync_data: [C4RequestSyncdata](#union-c4requestsyncdata) <union>    
 ```
 ## License
 
