@@ -37,25 +37,20 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Usage: %s request.ssz \n", argv[0]);
     exit(EXIT_FAILURE);
   }
+
+  verify_ctx_t ctx = {0};
+  c4_verify_from_bytes(&ctx, read_from_file(argv[1]));
+
   ssz_ob_t res = ssz_ob(C4_REQUEST_CONTAINER, read_from_file(argv[1]));
 
-  if (argc == 3 && strlen(argv[2]) == 66) {
-    bytes32_t blockhash;
-    if (hex_to_bytes(argv[2], bytes(blockhash, 32)) != 32) error("invalid blockhash!");
-
-    verify_ctx_t ctx = {0};
-    ctx.proof        = res;
-    ctx.data         = ssz_ob(ssz_bytes32, bytes(blockhash, 32));
-    c4_verify(&ctx);
-    if (ctx.success) {
-      printf("proof is valid\n");
-      return EXIT_SUCCESS;
-    }
-    else {
-      printf("proof is invalid: %s\n", ctx.error);
-      if (ctx.first_missing_period) printf("first missing period: %llu\n", ctx.first_missing_period);
-      if (ctx.last_missing_period) printf("last missing period: %llu\n", ctx.last_missing_period);
-      return EXIT_FAILURE;
-    }
+  if (ctx.success) {
+    printf("proof is valid\n");
+    return EXIT_SUCCESS;
+  }
+  else {
+    printf("proof is invalid: %s\n", ctx.error);
+    if (ctx.first_missing_period) printf("first missing period: %llu\n", ctx.first_missing_period);
+    if (ctx.last_missing_period) printf("last missing period: %llu\n", ctx.last_missing_period);
+    return EXIT_FAILURE;
   }
 }

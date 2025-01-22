@@ -73,7 +73,7 @@ class BlockHashProof(Container):
     blockhash_proof         : List [bytes32, 256]   # the merkle prooof from the executionPayload.blockhash down to the blockBodyRoot hash
     header                  : BeaconBlockHeader     # the header of the beacon block
     sync_committee_bits     : BitVector [512]       # the bits of the validators that signed the block
-    sync_committee_signature: ByteVector            # the signature of the sync committee
+    sync_committee_signature: ByteVector [96]       # the signature of the sync committee
 ```
 
 ### C4Request
@@ -108,23 +108,23 @@ the block header of the execution layer proved within the beacon block
 
 ```python
 class ExecutionPayloadHeader(Container):
-    parentHash      : Bytes32      # the hash of the parent block
-    feeRecipient    : Address      # the address of the fee recipient
-    stateRoot       : Bytes32      # the merkle root of the state at the end of the block
-    receiptsRoot    : Bytes32      # the merkle root of the transactionreceipts
-    logsBloom       : ByteVector   # the bloom filter of the logs
-    prevRandao      : Bytes32      # the randao of the previous block
-    blockNumber     : Uint64       # the block number
-    gasLimit        : Uint64       # the gas limit of the block
-    gasUsed         : Uint64       # the gas used of the block
-    timestamp       : Uint64       # the timestamp of the block
-    extraData       : Bytes        # the extra data of the block
-    baseFeePerGas   : Uint256      # the base fee per gas of the block
-    blockHash       : Bytes32      # the hash of the block
-    transactionsRoot: Bytes32      # the merkle root of the transactions
-    withdrawalsRoot : Bytes32      # the merkle root of the withdrawals
-    blobGasUsed     : Uint64       # the gas used for the blob transactions
-    excessBlobGas   : Uint64       # the excess blob gas of the block
+    parentHash      : Bytes32            # the hash of the parent block
+    feeRecipient    : Address            # the address of the fee recipient
+    stateRoot       : Bytes32            # the merkle root of the state at the end of the block
+    receiptsRoot    : Bytes32            # the merkle root of the transactionreceipts
+    logsBloom       : ByteVector [256]   # the bloom filter of the logs
+    prevRandao      : Bytes32            # the randao of the previous block
+    blockNumber     : Uint64             # the block number
+    gasLimit        : Uint64             # the gas limit of the block
+    gasUsed         : Uint64             # the gas used of the block
+    timestamp       : Uint64             # the timestamp of the block
+    extraData       : Bytes              # the extra data of the block
+    baseFeePerGas   : Uint256            # the base fee per gas of the block
+    blockHash       : Bytes32            # the hash of the block
+    transactionsRoot: Bytes32            # the merkle root of the transactions
+    withdrawalsRoot : Bytes32            # the merkle root of the withdrawals
+    blobGasUsed     : Uint64             # the gas used for the blob transactions
+    excessBlobGas   : Uint64             # the excess blob gas of the block
 ```
 
 ### LightClientHeader
@@ -170,7 +170,7 @@ the aggregates signature of the sync committee
 ```python
 class SyncAggregate(Container):
     syncCommitteeBits     : BitVector [512]   # the bits of the validators that signed the block (each bit represents a validator)
-    syncCommitteeSignature: ByteVector        # the signature of the sync committee
+    syncCommitteeSignature: ByteVector [96]   # the signature of the sync committee
 ```
 
 ### SyncCommittee
@@ -183,7 +183,7 @@ the public keys sync committee used within a period ( about 27h)
 ```python
 class SyncCommittee(Container):
     pubkeys        : Vector [blsPubky, 512]   # the 512 pubkeys (each 48 bytes) of the validators in the sync committee
-    aggregatePubkey: ByteVector               # the aggregate pubkey (48 bytes) of the sync committee
+    aggregatePubkey: ByteVector [96]          # the aggregate pubkey (48 bytes) of the sync committee
 ```
 
 ### SyncState

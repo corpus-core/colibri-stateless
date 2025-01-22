@@ -94,6 +94,8 @@ function getTypename(type, args) {
             return ['List [' + toCamelCase(args[0]) + ', ' + args[1] + ']', linked(toCamelCase(args[0]))]
         case "VECTOR":
             return ['Vector [' + toCamelCase(args[0]) + ', ' + args[1] + ']', linked(toCamelCase(args[0]))]
+        case "BYTE_VECTOR":
+            return ['ByteVector [' + args[0] + ']', '']
         case "BIT_LIST":
             return ['BitList [' + args[0] + ']', '']
         case "BIT_VECTOR":
