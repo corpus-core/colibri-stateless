@@ -105,15 +105,15 @@ function getTypename(type, args) {
     }
 }
 
-function align_comments(lines) {
+function align(lines, divider = ' # ') {
     lines = lines.join('\n').split('\n')
 
-    const pos = lines.reduce((max, line) => Math.max(line.lastIndexOf(' # '), max), 0)
+    const pos = lines.reduce((max, line) => Math.max(line.lastIndexOf(divider), max), 0)
     if (pos == 0) return lines
     return lines.map(line => {
-        const splits = line.split(' # ')
+        const splits = line.split(divider)
         if (splits.length > 1)
-            return splits[0].padEnd(pos) + ' # ' + splits[1]
+            return splits[0].padEnd(pos) + divider + splits[1]
         return line
     })
 }
@@ -137,7 +137,7 @@ if (inlineUnions) {
                     const splits = v[i].split('<union>')
                     const unionName = splits[0].split(':')[1].trim()
                     const unionContent = getUnionContent(unionName)
-                    v[i] = splits[0].replace(unionName, '') + ' Union[ ' + splits[1] + '\n' + unionContent.slice(1).map(_ => '    ' + _).join('\n')
+                    v[i] = splits[0].replace(unionName, '').trimEnd() + ' Union[ ' + splits[1] + '\n' + unionContent.slice(1).map(_ => '    ' + _).join('\n')
                 }
             }
         }
@@ -160,6 +160,6 @@ let start = readme.indexOf('## SSZ Types')
 let end = readme.findIndex((_, i) => _.startsWith('## ') && i > start)
 readme.splice(start + 2, end - start - 2,
     table + '\n',
-    keys.map(k => align_comments(types[k]).join('\n')).join('\n\n')
+    keys.map(k => align(align(types[k], ': '), ' # ').join('\n')).join('\n\n')
 )
 fs.writeFileSync('../README.md', readme.join('\n'))
