@@ -15,7 +15,7 @@ const ssz_def_t BEACON_BLOCK_HEADER[5] = {
 // the public keys sync committee used within a period ( about 27h)
 const ssz_def_t SYNC_COMMITTEE[] = {
     SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512), // the 512 pubkeys (each 48 bytes) of the validators in the sync committee
-    SSZ_BYTE_VECTOR("aggregatePubkey", 96)};   // the aggregate pubkey (48 bytes) of the sync committee
+    SSZ_BYTE_VECTOR("aggregatePubkey", 48)};   // the aggregate pubkey (48 bytes) of the sync committee
 
 // the block header of the execution layer proved within the beacon block
 const ssz_def_t EXECUTION_PAYLOAD_HEADER[] = {

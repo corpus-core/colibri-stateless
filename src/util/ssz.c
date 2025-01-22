@@ -112,7 +112,7 @@ ssz_ob_t ssz_union(ssz_ob_t ob) {
 ssz_ob_t ssz_get(ssz_ob_t* ob, char* name) {
   ssz_ob_t res = {0};
   // check if the object is valid
-  if (!ob || !name || ob->def->type != SSZ_TYPE_CONTAINER || !ob->bytes.data || !ob->bytes.len)
+  if (!ob || !name || !ob->def || ob->def->type != SSZ_TYPE_CONTAINER || !ob->bytes.data || !ob->bytes.len)
     return res;
 
   // iterate over the fields of the container
