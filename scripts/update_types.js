@@ -64,7 +64,7 @@ function handle(file, lines) {
                 const s = defs[defs.length - 2]
                 defs[defs.length - 2] = s.substring(0, s.length - 2)
                     + (s.substr(-2) == '[]' ? '[\n    ' : ',\n    ')
-                    + t + (comment ? '# ' + comment : '') + '\n]'
+                    + t + (comment ? ' # ' + comment : '') + '\n]'
             }
             else {
                 let cm = link ? '# ' + link : ''
@@ -106,6 +106,7 @@ function getTypename(type, args) {
 }
 
 function align_comments(lines) {
+    lines = lines.join('\n').split('\n')
 
     const pos = lines.reduce((max, line) => Math.max(line.lastIndexOf(' # '), max), 0)
     if (pos == 0) return lines

@@ -85,17 +85,17 @@ the main container defining the incoming data processed by the verifier
 
 ```python
 class C4Request(Container):
-    data:   Union[          # the data to proof
+    data:   Union[                    # the data to proof
         None,
-        Bytes32# the blochash  which is used for blockhash proof
+        Bytes32                       # the blochash  which is used for blockhash proof
     ]
-    proof:   Union[         # the proof of the data
+    proof:   Union[                   # the proof of the data
         None,
-        BlockHashProof# the blockhash proof used validating blockhashes
+        BlockHashProof                # the blockhash proof used validating blockhashes
     ]
-    sync_data:   Union[     # the sync data containing proofs for the transition between the two periods
+    sync_data:   Union[               # the sync data containing proofs for the transition between the two periods
         None,
-        List [LightClientUpdate, 512]# this light client update can be fetched directly from the beacon chain API
+        List [LightClientUpdate, 512] # this light client update can be fetched directly from the beacon chain API
     ]
 ```
 
