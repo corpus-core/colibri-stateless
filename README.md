@@ -101,7 +101,10 @@ A List of possible types of data matching the Proofs
  The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L19).
 
 ```python
-C4RequestData = Union [ None , Bytes32]
+C4RequestData = Union [
+    None,
+    Bytes32
+]
 ```
 
 ### Union C4RequestProofs
@@ -112,7 +115,10 @@ A List of possible types of proofs matching the Data
  The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L24).
 
 ```python
-C4RequestProofs = Union [ None , BlockHashProof]
+C4RequestProofs = Union [
+    None,
+    BlockHashProof
+]
 ```
 
 ### Union C4RequestSyncdata
@@ -123,7 +129,10 @@ A List of possible types of sync data used to update the sync state by verifying
  The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L29).
 
 ```python
-C4RequestSyncdata = Union [ None , List [LightClientUpdate, 512]]
+C4RequestSyncdata = Union [
+    None,
+    List [LightClientUpdate, 512]
+]
 ```
 
 ### ExecutionPayloadHeader
