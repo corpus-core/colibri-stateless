@@ -217,6 +217,10 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
   const ssz_def_t* def        = ob.def;
   char             close_char = '\0';
   for (int i = 0; i < intend; i++) fprintf(f, " ");
+  if (!def) {
+    fprintf(f, "<invalid>");
+    return;
+  }
   if (include_name) fprintf(f, "\"%s\":", def->name);
   switch (def->type) {
     case SSZ_TYPE_UINT:
@@ -415,9 +419,67 @@ static void merkle_hash(ssz_ob_t ob, int index, int depth, int num_leafes, uint8
 
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
   memset(out, 0, 32);
+  if (!ob.def) return;
   int num_leafes = calc_num_leafes(ob.def);
   if (num_leafes == 1)
     set_leaf(ob, 0, out);
   else
     merkle_hash(ob, 0, 1, num_leafes, out);
+}
+
+static uint32_t get_depth(uint32_t gindex) {
+  uint32_t depth = 0;
+  while (gindex > 1) {
+    gindex = gindex >> 1;
+    depth++;
+  }
+  return depth;
+}
+
+uint32_t ssz_get_gindex(ssz_ob_t* ob, const char* name) {
+  uint32_t num_leafes = calc_num_leafes(ob->def);
+  uint32_t index      = 0xffffffff;
+  for (int i = 0; i < ob->def->def.container.len; i++) {
+    if (strcmp(ob->def->def.container.elements[i].name, name) == 0) {
+      index = i;
+      break;
+    }
+  }
+  if (index == 0xffffffff) return 0;
+  uint32_t depth = 0;
+  while (num_leafes > 1) {
+    num_leafes = num_leafes >> 1;
+    depth++;
+  }
+  return index + (1 << depth);
+}
+
+void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out) {
+  memset(out, 0, 32);
+  uint32_t depth = get_depth(gindex);
+  uint32_t index = gindex % (1 << depth);
+
+  // check potential extra data to make sure they are all zero
+  if (proof_data.len >> 5 > depth) {
+    uint32_t num_extra = (proof_data.len >> 5) - depth;
+    for (uint32_t i = 0; i < num_extra; i++) {
+      if (!bytes_all_zero(proof_data)) return;
+    }
+  }
+
+  if ((proof_data.len >> 5) < depth) return;
+
+  memcpy(out, leaf, 32);
+
+  for (uint32_t i = 0; i < depth; i++) {
+    if ((index / (1 << i)) % 2 == 1)
+      sha256_merkle(bytes_slice(proof_data, (i << 5), 32), bytes(out, 32), out);
+    else
+      sha256_merkle(bytes(out, 32), bytes_slice(proof_data, (i << 5), 32), out);
+  }
+}
+
+uint32_t ssz_add_gindex(uint32_t gindex1, uint32_t gindex2) {
+  uint32_t depth = get_depth(gindex1);
+  return (gindex1 << depth) | (gindex2 & ((1 << depth) - 1));
 }

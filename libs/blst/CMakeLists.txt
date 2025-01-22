@@ -36,3 +36,4 @@ add_library(blst STATIC IMPORTED GLOBAL)
 set_target_properties(blst PROPERTIES IMPORTED_LOCATION ${BLST_LIB})
 
 add_dependencies(blst blst_lib)
+

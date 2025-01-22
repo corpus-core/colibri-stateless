@@ -14,11 +14,10 @@ const ssz_def_t BEACON_BLOCK_HEADER[] = {
 const ssz_def_t BEACON_BLOCK_HEADER_CONTAINER = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 
 const ssz_def_t BLOCK_HASH_PROOF[] = {
-    SSZ_LIST("offsets", SSZ_BYTE, 256),
-    SSZ_LIST("leaves", ssz_bytes32, 256),
+    SSZ_LIST("blockhash_proof", ssz_bytes32, 256),
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
     SSZ_BIT_VECTOR("sync_committee_bits", 512),
-    SSZ_BYTES32("sync_committee_signature")};
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)};
 
 const ssz_def_t BLOCK_HASH_PROOF_CONTAINER = SSZ_CONTAINER("BlockHashProof", BLOCK_HASH_PROOF);
 

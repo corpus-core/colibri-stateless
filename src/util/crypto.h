@@ -7,6 +7,7 @@ typedef uint8_t bytes32_t[32];
 typedef uint8_t bls_pubkey_t[48];
 typedef uint8_t bls_signature_t[96];
 void            sha256(bytes_t data, uint8_t* out);
+void            sha256_merkle(bytes_t data1, bytes_t data2, uint8_t* out);
 
 bool blst_verify(bytes32_t       message,         /**< 32 bytes hashed message */
                  bls_signature_t signature,       /**< 96 bytes signature */

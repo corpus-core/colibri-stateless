@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -28,12 +29,15 @@ uint64_t uint64_from_le(uint8_t* data);
 void buffer_append(bytes_buffer_t* buffer, bytes_t data);
 void buffer_free(bytes_buffer_t* buffer);
 void buffer_grow(bytes_buffer_t* buffer, size_t min_len);
+void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
+bool bytes_all_equal(bytes_t a, uint8_t value);
+int  hex_to_bytes(const char* hexstring, bytes_t buffer);
 
 #define bytes(ptr, length) \
   (bytes_t) { .data = ptr, .len = length }
 #define bytes_slice(parent, offet, length) \
   (bytes_t) { .data = parent.data + offet, .len = length }
-void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
+#define bytes_all_zero(a) bytes_all_equal(a, 0)
 
 #ifdef __cplusplus
 }

@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "bytes.h"
+#include "crypto.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -88,6 +89,17 @@ ssz_ob_t ssz_get(ssz_ob_t* ob, char* name);
 static inline uint64_t ssz_get_uint64(ssz_ob_t* ob, char* name) {
   return ssz_uint64(ssz_get(ob, name));
 }
+
+static inline uint32_t ssz_get_uint32(ssz_ob_t* ob, char* name) {
+  return ssz_uint32(ssz_get(ob, name));
+}
+/** adds two gindexes so the gindex2 is a subtree of gindex1 */
+uint32_t ssz_add_gindex(uint32_t gindex1, uint32_t gindex2);
+
+/** gets the gindex specifying the node of the given name */
+uint32_t ssz_get_gindex(ssz_ob_t* ob, const char* name);
+/** gets the merkle proof for the given index and writes the root hash to out */
+void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out);
 
 /** gets the value of a union. If the object is not a union, it will return an empty object. A Object with the type SSZ_TYPE_NONE will be returned if the union is empty */
 ssz_ob_t ssz_union(ssz_ob_t ob);
