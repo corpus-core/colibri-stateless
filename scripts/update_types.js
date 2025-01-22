@@ -87,6 +87,7 @@ function linked(name, prefix) {
 }
 
 function getTypename(type, args) {
+    args = args.filter(_ => _ && _ != 'undefined')
     switch (type) {
         case "UNION":
             return [toCamelCase(args[0], 'union-') + ' <union> ', linked(toCamelCase(args[0]), 'union-')]
@@ -103,7 +104,7 @@ function getTypename(type, args) {
         case "CONTAINER":
             return [toCamelCase(args[0]), linked(toCamelCase(args[0]))]
         default:
-            return [toCamelCase(type), '']
+            return [toCamelCase(type) + (args.length ? `[${args.join()}]` : ''), '']
     }
 }
 

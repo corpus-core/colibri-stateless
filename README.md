@@ -118,7 +118,7 @@ class ExecutionPayloadHeader(Container):
     gasLimit        : Uint64             # the gas limit of the block
     gasUsed         : Uint64             # the gas used of the block
     timestamp       : Uint64             # the timestamp of the block
-    extraData       : Bytes              # the extra data of the block
+    extraData       : Bytes[32]          # the extra data of the block
     baseFeePerGas   : Uint256            # the base fee per gas of the block
     blockHash       : Bytes32            # the hash of the block
     transactionsRoot: Bytes32            # the merkle root of the transactions
