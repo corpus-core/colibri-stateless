@@ -105,6 +105,18 @@ function getTypename(type, args) {
     }
 }
 
+function align_comments(lines) {
+
+    const pos = lines.reduce((max, line) => Math.max(line.lastIndexOf(' # '), max), 0)
+    if (pos == 0) return lines
+    return lines.map(line => {
+        const splits = line.split(' # ')
+        if (splits.length > 1)
+            return splits[0].padEnd(pos) + ' # ' + splits[1]
+        return line
+    })
+}
+
 
 const keys = Object.keys(types).sort()
 const table = keys.map(k => `- [${k}](#${types[k][0].substr(4).toLowerCase().replace(/ /g, '-')})`).join('\n')
@@ -115,5 +127,6 @@ let start = readme.indexOf('## SSZ Types')
 let end = readme.findIndex((_, i) => _.startsWith('## ') && i > start)
 readme.splice(start + 2, end - start - 2,
     table + '\n',
-    Object.entries(types).map(([k, v]) => v.join('\n')).join('\n\n'))
+    keys.map(k => align_comments(types[k]).join('\n')).join('\n\n')
+)
 fs.writeFileSync('../README.md', readme.join('\n'))
