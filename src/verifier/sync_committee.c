@@ -1,10 +1,12 @@
 #include "sync_committee.h"
+#include "../util/plugin.h"
 #include "../util/ssz.h"
 #include "default_synccommittee.h"
 #include "types_beacon.h"
 #include "verify.h"
 #include <string.h>
 
+#define STATES                     "states"
 #define NEXT_SYNC_COMMITTEE_GINDEX 55
 // the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
 const ssz_def_t SYNC_STATE[] = {
@@ -13,13 +15,82 @@ const ssz_def_t SYNC_STATE[] = {
 
 const ssz_def_t SYNC_STATE_CONTAINER = SSZ_CONTAINER("SyncState", SYNC_STATE);
 
-const c4_sync_state_t c4_get_validators(uint64_t period) {
-  ssz_ob_t sync_state_ob = ssz_ob(SYNC_STATE_CONTAINER, bytes((uint8_t*) default_synccommittee, default_synccommittee_len));
-  uint32_t last_period   = ssz_get_uint32(&sync_state_ob, "period");
+const c4_sync_state_t c4_get_validators(uint32_t period) {
+
+  storage_plugin_t storage_conf  = {0};
+  ssz_ob_t         sync_state_ob = ssz_ob(SYNC_STATE_CONTAINER, bytes((uint8_t*) default_synccommittee, default_synccommittee_len));
+  uint32_t         last_period   = ssz_get_uint32(&sync_state_ob, "period");
+
+  c4_get_storage_config(&storage_conf);
+  if (!storage_conf.get || period == last_period)
+    return (c4_sync_state_t) {
+        .current_period = period,
+        .needs_cleanup  = false,
+        .last_period    = last_period,
+        .validators     = last_period != period ? NULL_BYTES : ssz_get(&sync_state_ob, "validators").bytes};
+
+  char name[100];
+  sprintf(name, "sync_%d", period);
+  bytes_buffer_t tmp = {0};
+  tmp.allocated      = 512 * 48;
+  if (storage_conf.get(name, &tmp) && tmp.data.data != NULL) return (c4_sync_state_t) {
+      .current_period = period,
+      .needs_cleanup  = true,
+      .last_period    = period,
+      .validators     = tmp.data};
+
+  // find the latest
+  tmp.allocated = 4 * storage_conf.max_sync_states;
+  if (storage_conf.get(STATES, &tmp) && tmp.data.data) {
+    for (uint32_t i = 0; i < tmp.data.len; i += 4) {
+      uint32_t state = *(uint32_t*) (tmp.data.data + i);
+      if (state < period && state > last_period)
+        last_period = state;
+    }
+    buffer_free(&tmp);
+  }
+
   return (c4_sync_state_t) {
       .current_period = period,
       .last_period    = last_period,
-      .validators     = last_period != period ? NULL_BYTES : ssz_get(&sync_state_ob, "validators").bytes};
+      .needs_cleanup  = false,
+      .validators     = NULL_BYTES};
+}
+
+static bool store_sync(verify_ctx_t* ctx, bytes_t pubkeys, uint32_t period) {
+  char             name[100];
+  storage_plugin_t storage_conf = {0};
+  c4_get_storage_config(&storage_conf);
+  if (!storage_conf.set) RETURN_VERIFY_ERROR(ctx, "no storage plugin set!");
+
+  // cleanup
+  bytes_buffer_t tmp = {0};
+  storage_conf.get(STATES, &tmp);
+  if (tmp.data.len % 4 == 0) {
+    size_t pos = tmp.data.len;
+    if (tmp.data.len < storage_conf.max_sync_states * 4)
+      buffer_append(&tmp, bytes(NULL, 4));
+    else {
+      uint32_t oldest = 0;
+      for (uint32_t i = 0; i < tmp.data.len; i += 4) {
+        uint32_t state = *((uint32_t*) (tmp.data.data + i));
+        if (!oldest || state < oldest) {
+          oldest = state;
+          pos    = i;
+        }
+      }
+      sprintf(name, "sync_%d", oldest);
+      storage_conf.del(name);
+    }
+    *(uint32_t*) (tmp.data.data + pos) = period;
+  }
+
+  sprintf(name, "sync_%d", period);
+  storage_conf.set(name, pubkeys);
+  storage_conf.set(STATES, tmp.data);
+  buffer_free(&tmp);
+
+  return true;
 }
 
 static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
@@ -47,9 +118,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   // verify the merkle root
   if (memcmp(merkle_root, state_root.bytes.data, 32)) RETURN_VERIFY_ERROR(ctx, "invalid merkle root in light client update!");
 
-  // TODO store the update
-
-  return true;
+  return store_sync(ctx, ssz_get(&sync_committee, "pubkeys").bytes, (uint32_t) (ssz_get_uint64(&header, "slot") >> 13) + 1);
 }
 
 bool c4_update_from_sync_data(verify_ctx_t* ctx) {

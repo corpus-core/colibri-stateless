@@ -18,8 +18,8 @@ typedef struct {
 #define NULL_BYTES (bytes_t){.data = NULL, .len = 0}
 
 typedef struct {
-  bytes_t  data;
-  uint32_t allocated;
+  bytes_t data;
+  int32_t allocated; // 0: not allocated, >0: allocated or f bytes.data == NULL, this would be the inital size, <0: fixed memory - don 't grow and don't go over the limit!
 } bytes_buffer_t;
 
 uint16_t uint16_from_le(uint8_t* data);

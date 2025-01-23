@@ -48,18 +48,21 @@ uint64_t uint64_from_le(uint8_t* data) {
 
 void buffer_grow(bytes_buffer_t* buffer, size_t min_len) {
   if (buffer->data.data == NULL) {
+    if (buffer->allocated > 0) min_len = (size_t) buffer->allocated;
     buffer->data.data = malloc(min_len);
-    buffer->allocated = min_len;
+    buffer->allocated = (int32_t) min_len;
   }
-  else if (buffer->allocated < min_len) {
-    size_t new_len = buffer->allocated;
+  else if (buffer->allocated >= 0 && buffer->allocated < min_len) {
+    size_t new_len = (size_t) buffer->allocated;
     while (new_len < min_len) new_len = (new_len + 1) * 3 / 2;
     buffer->data.data = realloc(buffer->data.data, new_len);
-    buffer->allocated = new_len;
+    buffer->allocated = (int32_t) new_len;
   }
 }
 
 void buffer_append(bytes_buffer_t* buffer, bytes_t data) {
+  if (buffer->allocated < 0 && buffer->data.len + data.len > (uint32_t) (0 - buffer->allocated))
+    data.len = ((uint32_t) (0 - buffer->allocated)) - buffer->data.len;
   if (!data.len) return;
   buffer_grow(buffer, buffer->data.len + data.len);
   if (data.data)
@@ -70,7 +73,7 @@ void buffer_append(bytes_buffer_t* buffer, bytes_t data) {
 }
 
 void buffer_free(bytes_buffer_t* buffer) {
-  if (buffer->data.data && buffer->allocated)
+  if (buffer->data.data && buffer->allocated > 0)
     free(buffer->data.data);
 }
 

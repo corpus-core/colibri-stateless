@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /** the combined GIndex of the blockhash in the block body path = executionPayload*/
@@ -79,7 +80,11 @@ bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t
     return false;
   }
 
-  if (!blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes))
+  bool valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes);
+
+  if (sync_state.needs_cleanup) free(sync_state.validators.data);
+
+  if (!valid)
     RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
 
   return true;

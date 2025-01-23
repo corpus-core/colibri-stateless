@@ -10,12 +10,13 @@ extern "C" {
 #include <stdint.h>
 
 typedef struct {
-  uint64_t last_period;
-  uint64_t current_period;
+  uint32_t last_period;
+  uint32_t current_period;
   bytes_t  validators;
+  bool     needs_cleanup;
 } c4_sync_state_t;
 
-const c4_sync_state_t c4_get_validators(uint64_t period);
+const c4_sync_state_t c4_get_validators(uint32_t period);
 bool                  c4_update_from_sync_data(verify_ctx_t* ctx);
 #ifdef __cplusplus
 }

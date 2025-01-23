@@ -75,6 +75,10 @@ bin/verify ../test/data/proof_data.ssz
     Options: Debug, Release, RelWithDebInfo, MinSizeRel  
     Usage: `cmake -DCMAKE_BUILD_TYPE=Release` ..
 
+- **-DFILE_STORAGE**: if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR  
+    Default: ON  
+    Usage: `cmake -DFILE_STORAGE=ON` ..
+
 - **-DMESSAGES**: if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory  
     Default: ON  
     Usage: `cmake -DMESSAGES=ON` ..
@@ -229,7 +233,7 @@ class SyncCommittee(Container):
 the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
 
 
- The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L10).
+ The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L12).
 
 ```python
 class SyncState(Container):
