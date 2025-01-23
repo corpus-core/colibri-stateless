@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.5.1)
 project(c4)
+option(SHAREDLIB "if true the shared library will be build" OFF)
 
 
 set(OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -42,11 +43,14 @@ add_custom_target(doc ALL
     COMMENT "Running update_doc.js to generate documentation"
 )
 
-# Erstelle die Shared Library und verlinke die statischen Bibliotheken
-add_library(c4Lib SHARED src/util/version.c)
-target_link_libraries(c4Lib PRIVATE crypto verifier util blst)
-set_target_properties(c4Lib PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
-    VERSION 1.0
-    SOVERSION 1
-)
+
+if(SHAREDLIB)
+    # Erstelle die Shared Library und verlinke die statischen Bibliotheken
+    add_library(c4Lib SHARED src/util/version.c)
+    target_link_libraries(c4Lib PRIVATE crypto verifier util blst)
+    set_target_properties(c4Lib PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
+        VERSION 1.0
+        SOVERSION 1
+    )
+endif()
