@@ -126,7 +126,7 @@ class BlockHashProof(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L61).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L63).
 
 ```python
 class C4Request(Container):
@@ -150,7 +150,7 @@ class C4Request(Container):
 represents the account and storage values, including the Merkle proof, of the specified account.
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L32).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L34).
 
 ```python
 class EthAccountProof(Container):

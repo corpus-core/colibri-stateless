@@ -28,16 +28,18 @@ const ssz_def_t ETH_STORAGE_PROOF[] = {
     SSZ_BYTES32("value"),
 };
 
+const ssz_def_t ETH_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof", ETH_STORAGE_PROOF);
+
 // represents the account and storage values, including the Merkle proof, of the specified account.
 const ssz_def_t ETH_ACCOUNT_PROOF[] = {
-    SSZ_LIST("accountProof", ssz_bytes32, 256),       // Patricia merkle proof
-    SSZ_ADDRESS("address"),                           // the address of the account
-    SSZ_UINT256("balance"),                           // the balance of the account
-    SSZ_BYTES32("codeHash"),                          // the code hash of the account
-    SSZ_UINT256("nonce"),                             // the nonce of the account
-    SSZ_BYTES32("storageHash"),                       // the storage hash of the account
-    SSZ_LIST("storageProof", ETH_STORAGE_PROOF, 256), // the storage proofs of the selected
-    SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};   // the state proof of the account
+    SSZ_LIST("accountProof", ssz_bytes32, 256),                 // Patricia merkle proof
+    SSZ_ADDRESS("address"),                                     // the address of the account
+    SSZ_UINT256("balance"),                                     // the balance of the account
+    SSZ_BYTES32("codeHash"),                                    // the code hash of the account
+    SSZ_UINT256("nonce"),                                       // the nonce of the account
+    SSZ_BYTES32("storageHash"),                                 // the storage hash of the account
+    SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected
+    SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};             // the state proof of the account
 
 const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
 
