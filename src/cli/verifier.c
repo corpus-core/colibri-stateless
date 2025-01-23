@@ -4,6 +4,7 @@
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "../verifier/verify.h"
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,8 +50,9 @@ int main(int argc, char* argv[]) {
   }
   else {
     printf("proof is invalid: %s\n", ctx.error);
-    if (ctx.first_missing_period) printf("first missing period: %llu\n", ctx.first_missing_period);
-    if (ctx.last_missing_period) printf("last missing period: %llu\n", ctx.last_missing_period);
+
+    if (ctx.first_missing_period) printf("first missing period: %" PRIu64 "\n", ctx.first_missing_period);
+    if (ctx.last_missing_period) printf("last missing period: %" PRIu64 "\n", ctx.last_missing_period);
     return EXIT_FAILURE;
   }
 }
