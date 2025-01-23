@@ -151,6 +151,22 @@ function replace_section(readme, section, content) {
     readme.splice(start + 2, end - start - 2, content)
 }
 
+function createToC(readme) {
+    let toc = []
+    let level = 0
+    for (let line of readme.join('\n').split('\n')) {
+        if (line.startsWith('##')) {
+            level = line.indexOf(' ')
+            let name = line.substring(level + 1).trim()
+            toc.push(
+                ' '.repeat(level * 4 - 8)
+                + '- [' + name + '](#'
+                + name.toLowerCase().replace(/ /g, '-') + ')')
+        }
+    }
+    return toc.join('\n') + '\n\n'
+}
+
 function get_cmake_options() {
 
     function cmake_tokens(line) {
@@ -217,7 +233,7 @@ const table = keys.map(k => `- [${k}](#${types[k][0].substr(4).toLowerCase().rep
 
 let readme = fs.readFileSync('../README.md', 'utf8').split('\n')
 
-replace_section(readme, '## SSZ Types', table + '\n\n' + keys.map(k => align(align(types[k], ': '), ' # ').join('\n')).join('\n\n'))
+replace_section(readme, '## SSZ Types', keys.map(k => align(align(types[k], ': '), ' # ').join('\n')).join('\n\n'))
 replace_section(readme, '### CMake Options', get_cmake_options())
-
+replace_section(readme, '## Index', createToC(readme))
 fs.writeFileSync('../README.md', readme.join('\n'))

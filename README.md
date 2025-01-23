@@ -1,12 +1,25 @@
 # C4 (corpus core colibri client)
-hallo- **-D**: CLI
-    Default: generatestheCLItools.
-    Usage: `cmake -D$=generatestheCLItools. ..
 
-- **-DCMAKE_BUILD_TYPE**: Build type
-    Default: Release
-    Options: Debug, Release, RelWithDebInfo, MinSizeRel
-    Usage: `cmake -DCMAKE_BUILD_TYPE$=Release ..
+![ETH2.0_Spec_Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
+
+## Index
+
+- [Index](#index)
+- [Building](#building)
+    - [CMake Options](#cmake-options)
+- [SSZ Types](#ssz-types)
+    - [BeaconBlockHeader](#beaconblockheader)
+    - [BlockHashProof](#blockhashproof)
+    - [C4Request](#c4request)
+    - [ExecutionPayloadHeader](#executionpayloadheader)
+    - [LightClientHeader](#lightclientheader)
+    - [LightClientUpdate](#lightclientupdate)
+    - [SyncAggregate](#syncaggregate)
+    - [SyncCommittee](#synccommittee)
+    - [SyncState](#syncstate)
+- [License](#license)
+
+
 ## Building
 
 
@@ -43,16 +56,6 @@ bin/verify ../test/data/proof_data.ssz
 
 
 ## SSZ Types
-
-- [BeaconBlockHeader](#beaconblockheader)
-- [BlockHashProof](#blockhashproof)
-- [C4Request](#c4request)
-- [ExecutionPayloadHeader](#executionpayloadheader)
-- [LightClientHeader](#lightclientheader)
-- [LightClientUpdate](#lightclientupdate)
-- [SyncAggregate](#syncaggregate)
-- [SyncCommittee](#synccommittee)
-- [SyncState](#syncstate)
 
 ### BeaconBlockHeader
 
