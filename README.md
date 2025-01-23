@@ -1,18 +1,12 @@
 # C4 (corpus core colibri client)
+hallo- **-D**: CLI
+    Default: generatestheCLItools.
+    Usage: `cmake -D$=generatestheCLItools. ..
 
-C4 is a ultra light (almost) stateless client or verifier.
-
-The idea of C4 is to create a verifier, which can validate Proofs in order to make sure all the blockchain data you wan to preocess are correct.
-C4 is written in C so it can be used even on embedded systems.
-
-The minimal set up would be a proofer to create proofs and verifier to validate them.
-
-```mermaid
-graph TD;
-    Proofer --> Verifier;
-```
-
-
+- **-DCMAKE_BUILD_TYPE**: Build type
+    Default: Release
+    Options: Debug, Release, RelWithDebInfo, MinSizeRel
+    Usage: `cmake -DCMAKE_BUILD_TYPE$=Release ..
 ## Building
 
 
@@ -31,6 +25,22 @@ make
 bin/verify ../test/data/proof_data.ssz
 
 ```
+
+### CMake Options
+
+- **-DCLI**: generates the CLI tools.
+    Default: ON
+    Usage: `cmake -DCLI=ON` ..
+
+- **-DCMAKE_BUILD_TYPE**: Build type
+    Default: Release
+    Options: Debug, Release, RelWithDebInfo, MinSizeRel
+    Usage: `cmake -DCMAKE_BUILD_TYPE=Release` ..
+
+- **-DMESSAGES**: if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory
+    Default: ON
+    Usage: `cmake -DMESSAGES=ON` ..
+
 
 ## SSZ Types
 

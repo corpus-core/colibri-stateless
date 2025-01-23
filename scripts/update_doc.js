@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
 const fs = require('fs');
-const path = require('path');
-
 
 const type_defs = [
     "verifier/types_beacon.c",
@@ -19,11 +17,9 @@ function toCamelCase(str) {
     return str[0] + str.replace('_CONTAINER', '').replace('_UNION', '').substr(1).toLowerCase().replace(/_([a-z])/g, function (match, letter) {
         return letter.toUpperCase();
     })
-
 }
 
 function handle(file, lines) {
-    console.log(file, lines.length)
     let defs = []
     let union = false
     let comment = ''
@@ -35,7 +31,6 @@ function handle(file, lines) {
             line = splits[0]
             comment = ((comment || '') + '\n' + splits.slice(1).join('//')).trim()
         }
-        // https://github.com/corpus-core/c4/blob/main/src/verifier/beacon_types.c#L1
         let match = line.match(/const\s+ssz_def_t\s+(\w+)\[.*/);
         if (match) {
             defs = []
@@ -145,24 +140,84 @@ if (inlineUnions) {
             }
         }
     })
-    unionTypes.forEach(k => {
-        delete types[k]
-    })
+    unionTypes.forEach(k => delete types[k])
 }
 
 
+function replace_section(readme, section, content) {
+    let level = '#'.repeat(section.indexOf(' ')) + ' '
+    let start = readme.indexOf(section)
+    let end = readme.findIndex((_, i) => (_.startsWith(level) || _.startsWith(level.substring(1))) && i > start)
+    readme.splice(start + 2, end - start - 2, content)
+}
 
+function get_cmake_options() {
+
+    function cmake_tokens(line) {
+        let split = line.trim().split(/( +|\")/g)
+        let tokens = ['']
+        let quote = false
+        for (let i = 0; i < split.length; i++) {
+            if (i % 2 == 0) {
+                if (quote)
+                    tokens[tokens.length - 1] += split[i]
+                else
+                    tokens.push(split[i])
+            }
+            else if (split[i] == '"') quote = !quote
+            else if (quote)
+                tokens[tokens.length - 1] += split[i]
+        }
+        return tokens.filter(_ => _)
+    }
+
+
+    function read_dir(dir) {
+        for (let file of fs.readdirSync(dir)) {
+            if (file.endsWith('CMakeLists.txt')) {
+                let content = fs.readFileSync(dir + '/' + file, 'utf8').split('\n')
+                for (let line of content) {
+                    if (line.trim().startsWith('option(')) {
+                        let [name, description, val] = cmake_tokens(line.split('(')[1].split(')')[0].trim())
+                        options[name] = {
+                            default: val,
+                            description: description
+                        }
+                    }
+                }
+            }
+            else if (fs.statSync(dir + '/' + file).isDirectory())
+                read_dir(dir + '/' + file)
+        }
+    }
+
+    let options = {
+        CMAKE_BUILD_TYPE: {
+            default: 'Release',
+            description: 'Build type',
+            options: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'],
+        }
+    };
+
+    ['../src', '../libs'].forEach(read_dir)
+
+    return Object.keys(options).sort().map(name => `- **-D${name}**: ${options[name].description}\n    Default: ${options[name].default}\n${options[name].options ? `    Options: ${options[name].options.join(', ')}\n` : ''
+        }    Usage: \`cmake -D${name}=${options[name].default}\` ..`).join('\n\n') + '\n\n'
+
+
+
+}
 
 
 const keys = Object.keys(types).sort()
 const table = keys.map(k => `- [${k}](#${types[k][0].substr(4).toLowerCase().replace(/ /g, '-')})`).join('\n')
 
 
+// update readme
+
 let readme = fs.readFileSync('../README.md', 'utf8').split('\n')
-let start = readme.indexOf('## SSZ Types')
-let end = readme.findIndex((_, i) => _.startsWith('## ') && i > start)
-readme.splice(start + 2, end - start - 2,
-    table + '\n',
-    keys.map(k => align(align(types[k], ': '), ' # ').join('\n')).join('\n\n')
-)
+
+replace_section(readme, '## SSZ Types', table + '\n\n' + keys.map(k => align(align(types[k], ': '), ' # ').join('\n')).join('\n\n'))
+replace_section(readme, '### CMake Options', get_cmake_options())
+
 fs.writeFileSync('../README.md', readme.join('\n'))
