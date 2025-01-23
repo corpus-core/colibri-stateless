@@ -16,7 +16,8 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(blst)
 
-if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)
+if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
     # Compiler-Flags für Größe-Optimierung
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffunction-sections -fdata-sections -Os -g0")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffunction-sections -fdata-sections -Os -g0")

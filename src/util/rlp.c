@@ -1,49 +1,48 @@
 #include "rlp.h"
 
-bytes_t rlp_decode(bytes_t* data, uint32_t index) {
-  uint32_t token = 0;
-  uint32_t pos   = 0;
-  uint32_t l     = 0;
-  uint32_t n     = 0;
-  uint8_t  c;
-  bytes_t  dst = NULL_BYTES;
+static int check_range(bytes_t* target, bytes_t* src, size_t new_len, uint8_t* new_start, rlp_type_t result_type) {
+  if (!target) return RLP_OUT_OF_RANGE;
+  *target = bytes(new_start, new_len);
+  return (new_start >= src->data && (new_start + new_len) >= src->data && (new_start + new_len) <= (src->data + src->len)) ? result_type : RLP_OUT_OF_RANGE;
+}
 
-  for (; pos < data->len; pos++, token++) {
-    c = data->data[pos];
-    if (c < 0x80) { // single byte-item
-      if (token == index) {
-        dst = bytes(data->data + pos, 1);
-        break;
-      }
+rlp_type_t rlp_decode(bytes_t* src, int index, bytes_t* target) {
+  size_t pos = 0, src_idx = 0;
+  for (; src_idx < src->len; src_idx++, pos++) {
+    uint8_t c = src->data[src_idx];
+    if (c < 0x80) {
+      if ((int) pos == index)
+        return check_range(target, src, 1, src->data + src_idx, 1);
     }
-    else if (c < 0xb8) { // 0-55 length-item
-      if (token == index) {
-        dst = bytes(data->data + pos + 1, c - 0x80);
-      }
-      return bytes() return ref(dst, b, c - 0x80, b->data + pos + 1, 1);
-      pos += c - 0x80;
+    else if (c < 0xb8) {
+      if ((int) pos == index)
+        return check_range(target, src, c - 0x80, src->data + src_idx + 1, RLP_ITEM);
+      src_idx += c - 0x80;
     }
-    else if (c < 0xc0) { // very long item
-      for (l = 0, n = 0; n < (uint8_t) (c - 0xB7); n++) l |= (*(b->data + pos + 1 + n)) << (8 * ((c - 0xb7) - n - 1));
-      if ((int) token == index) return ref(dst, b, l, b->data + pos + c - 0xb7 + 1, 1);
-      pos += l + c - 0xb7;
+    else if (c < 0xc0) {
+      size_t len, n;
+      for (len = 0, n = 0; n < (uint8_t) (c - 0xB7); n++)
+        len |= (*(src->data + src_idx + 1 + n)) << (8 * ((c - 0xb7) - n - 1));
+      if ((int) pos == index) return check_range(target, src, len, src->data + src_idx + c - 0xb7 + 1, RLP_ITEM);
+      src_idx += len + c - 0xb7;
     }
-    else if (c < 0xf8) { // 0-55 byte long list
-      l = c - 0xc0;
-      if ((int) token == index) return ref(dst, b, l, b->data + pos + 1, 2);
-      pos += l; // + 1;
+    else if (c < 0xf8) {
+      size_t len = c - 0xc0;
+      if ((int) pos == index)
+        return check_range(target, src, len, src->data + src_idx + 1, RLP_LIST);
+      src_idx += len;
     }
-    else { // very long list
-      for (l = 0, n = 0; n < (uint8_t) (c - 0xF7); n++) l |= (*(b->data + pos + 1 + n)) << (8 * ((c - 0xf7) - n - 1));
-      if ((int) token == index) return ref(dst, b, l, b->data + pos + c - 0xf7 + 1, 2);
-      pos += l + c - 0xf7;
+    else {
+      size_t len = 0;
+      for (size_t i; i < (uint8_t) (c - 0xF7); i++)
+        len |= (*(src->data + src_idx + 1 + i)) << (8 * ((c - 0xf7) - i - 1));
+      if ((int) pos == index)
+        return check_range(target, src, len, src->data + src_idx + c - 0xf7 + 1, RLP_LIST);
+      src_idx += len + c - 0xf7;
     }
   }
 
-  if (index < 0)
-    return pos == b->len ? (int) token : -3; /* error */
-  else if (pos > b->len)
-    return -1; /* error */
-  else
-    return 0; /* data OK, but item at index doesn't exist */
+  if (index < 0) return src_idx == src->len ? (rlp_type_t) pos : RLP_OUT_OF_RANGE;
+
+  return (src_idx > src->len) ? RLP_OUT_OF_RANGE : RLP_NOT_FOUND;
 }

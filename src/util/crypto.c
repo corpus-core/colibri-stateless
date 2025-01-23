@@ -2,6 +2,7 @@
 #include "../../libs/blst/blst.h"
 #include "bytes.h"
 #include "sha2.h"
+#include "sha3.h"
 #include <stdlib.h> // For malloc and free
 
 void sha256(bytes_t data, uint8_t* out) {
@@ -9,6 +10,13 @@ void sha256(bytes_t data, uint8_t* out) {
   sha256_Init(&ctx);
   sha256_Update(&ctx, data.data, data.len);
   sha256_Final(&ctx, out);
+}
+
+void keccak(bytes_t data, uint8_t* out) {
+  SHA3_CTX ctx;
+  sha3_256_Init(&ctx);
+  sha3_Update(&ctx, data.data, data.len);
+  keccak_Final(&ctx, out);
 }
 
 void sha256_merkle(bytes_t data1, bytes_t data2, uint8_t* out) {
