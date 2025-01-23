@@ -201,7 +201,7 @@ function get_cmake_options() {
 
     ['../src', '../libs'].forEach(read_dir)
 
-    return Object.keys(options).sort().map(name => `- **-D${name}**: ${options[name].description}\n    Default: ${options[name].default}\n${options[name].options ? `    Options: ${options[name].options.join(', ')}\n` : ''
+    return Object.keys(options).sort().map(name => `- **-D${name}**: ${options[name].description}  \n    Default: ${options[name].default}  \n${options[name].options ? `    Options: ${options[name].options.join(', ')}  \n` : ''
         }    Usage: \`cmake -D${name}=${options[name].default}\` ..`).join('\n\n') + '\n\n'
 
 
