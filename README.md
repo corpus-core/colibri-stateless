@@ -5,6 +5,9 @@
 ## Index
 
 - [Index](#index)
+- [Concept](#concept)
+    - [Updating the sync committee](#updating-the-sync-committee)
+    - [Proof Requests](#proof-requests)
 - [Building](#building)
     - [CMake Options](#cmake-options)
 - [SSZ Types](#ssz-types)
@@ -19,6 +22,28 @@
     - [SyncState](#syncstate)
 - [License](#license)
 
+
+## Concept
+
+```mermaid
+flowchart
+    P[Proofer] --> V[Verifier]
+    V --> P
+    P -.-> RPC
+```
+
+The idea behind C4 is to create a ultra light client or better verifier which can be used in Websites, Mobile applications, but especially in embedded systems. The Proofer is a library which can used within you mobile app or in the backend to create Proof that the given data is valid. The Verifier is a library which can be used within the embedded system to verify this Proof.
+
+The verifier itself is almost stateless and only needs to store the state of the sync committee, which changes every 27h. But with the latest sync committee the verifier is able to verify any proof with the signatures matching the previously verified public keys of the sync committee.
+This allows independent Verification and security on any devices without the need to process every blockheader (as light clients usually would do).
+
+### Updating the sync committee
+ 
+A Sync Committee holds 512 validators signing every block. Every 27h the validators are updated. Since the verifier is passive, it will not activly sync. So whenever a proof is presented requiring a newer sync committee than the last state, it will tell it as part of the response to the proofer. The Proofer will then fetch the LightClientUpdates from any Beacon Chain API and push them to the verifier along with the Proof-Request. The verifier will then verify the LightClientUpdates and update the sync committee stored.
+
+### Proof Requests
+
+All requests send to the verifier are encoded using SSZ. The request itself is sepcified by the [C4Request](#c4request) type. This objects suports different types as data or proofs.
 
 ## Building
 
