@@ -7,3 +7,4 @@ add_library(verifier STATIC
 )
 target_include_directories(verifier PRIVATE util)
 
+target_link_libraries(verifier PRIVATE   util)
