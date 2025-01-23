@@ -14,6 +14,9 @@
     - [BeaconBlockHeader](#beaconblockheader)
     - [BlockHashProof](#blockhashproof)
     - [C4Request](#c4request)
+    - [EthAccountProof](#ethaccountproof)
+    - [EthStateProof](#ethstateproof)
+    - [EthStorageProof](#ethstorageproof)
     - [ExecutionPayloadHeader](#executionpayloadheader)
     - [LightClientHeader](#lightclientheader)
     - [LightClientUpdate](#lightclientupdate)
@@ -123,7 +126,7 @@ class BlockHashProof(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L34).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L61).
 
 ```python
 class C4Request(Container):
@@ -133,12 +136,62 @@ class C4Request(Container):
     ]
     proof    : Union[                 # the proof of the data
         None,
-        BlockHashProof                # the blockhash proof used validating blockhashes
+        BlockHashProof,
+        EthAccountProof               # the blockhash proof used validating blockhashes
     ]
     sync_data: Union[                 # the sync data containing proofs for the transition between the two periods
         None,
         List [LightClientUpdate, 512] # this light client update can be fetched directly from the beacon chain API
     ]
+```
+
+### EthAccountProof
+
+represents the account and storage values, including the Merkle proof, of the specified account.
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L32).
+
+```python
+class EthAccountProof(Container):
+    accountProof: List [bytes32, 256]           # Patricia merkle proof
+    address     : Address                       # the address of the account
+    balance     : Uint256                       # the balance of the account
+    codeHash    : Bytes32                       # the code hash of the account
+    nonce       : Uint256                       # the nonce of the account
+    storageHash : Bytes32                       # the storage hash of the account
+    storageProof: List [EthStorageProof, 256]   # the storage proofs of the selected
+    state_proof : EthStateProof                 # the state proof of the account
+```
+
+### EthStateProof
+
+the stateRoot proof is used as part of different other types since it contains all relevant
+ proofs to validate the stateRoot of the execution layer
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L18).
+
+```python
+class EthStateProof(Container):
+    state_proof             : List [bytes32, 256]   # the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+    header                  : BeaconBlockHeader     # the header of the beacon block
+    sync_committee_bits     : BitVector [512]       # the bits of the validators that signed the block
+    sync_committee_signature: ByteVector [96]       # the signature of the sync committee
+```
+
+### EthStorageProof
+
+represents the storage proof of a key
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L25).
+
+```python
+class EthStorageProof(Container):
+    key  : Bytes32             # the key to be proven
+    proof: List [bytes32, 5]   # Patricia merkle proof
+    value: Bytes32
 ```
 
 ### ExecutionPayloadHeader

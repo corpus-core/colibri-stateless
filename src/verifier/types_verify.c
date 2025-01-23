@@ -13,6 +13,32 @@ const ssz_def_t BLOCK_HASH_PROOF[] = {
     SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee
 
+// the stateRoot proof is used as part of different other types since it contains all relevant
+// proofs to validate the stateRoot of the execution layer
+const ssz_def_t ETH_STATE_PROOF[] = {
+    SSZ_LIST("state_proof", ssz_bytes32, 256),        // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee
+
+// represents the storage proof of a key
+const ssz_def_t ETH_STORAGE_PROOF[] = {
+    SSZ_BYTES32("key"),                // the key to be proven
+    SSZ_LIST("proof", ssz_bytes32, 5), // Patricia merkle proof
+    SSZ_BYTES32("value"),
+};
+
+// represents the account and storage values, including the Merkle proof, of the specified account.
+const ssz_def_t ETH_ACCOUNT_PROOF[] = {
+    SSZ_LIST("accountProof", ssz_bytes32, 256),       // Patricia merkle proof
+    SSZ_ADDRESS("address"),                           // the address of the account
+    SSZ_UINT256("balance"),                           // the balance of the account
+    SSZ_BYTES32("codeHash"),                          // the code hash of the account
+    SSZ_UINT256("nonce"),                             // the nonce of the account
+    SSZ_BYTES32("storageHash"),                       // the storage hash of the account
+    SSZ_LIST("storageProof", ETH_STORAGE_PROOF, 256), // the storage proofs of the selected
+    SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};   // the state proof of the account
+
 const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
 
 // A List of possible types of data matching the Proofs
@@ -23,7 +49,8 @@ const ssz_def_t C4_REQUEST_DATA_UNION[] = {
 // A List of possible types of proofs matching the Data
 const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("BlockHashProof", BLOCK_HASH_PROOF)}; // the blockhash proof used validating blockhashes
+    SSZ_CONTAINER("BlockHashProof", BLOCK_HASH_PROOF),
+    SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF)}; // the blockhash proof used validating blockhashes
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_REQUEST_SYNCDATA_UNION[] = {
