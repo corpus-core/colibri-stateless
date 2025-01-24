@@ -4,6 +4,7 @@ if (CLI)
 
     add_executable(proof proofer.c)
     target_link_libraries(proof PRIVATE 
+        curl_fetch
         proofer
         verifier
     )

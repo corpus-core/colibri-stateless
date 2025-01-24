@@ -137,7 +137,7 @@ int hex_to_bytes(const char* hexstring, int len, bytes_t buffer) {
   return dst_offset;
 }
 
-void buffer_add_chars(buffer_t* buffer, char* data) {
+void buffer_add_chars(buffer_t* buffer, const char* data) {
   if (!data) return;
   size_t len = strlen(data);
   buffer_append(buffer, bytes((uint8_t*) data, len + 1));
@@ -155,4 +155,10 @@ void buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* su
     buffer_add_chars(buffer, tmp);
   }
   buffer_add_chars(buffer, suffix);
+}
+
+bytes_t bytes_dup(bytes_t data) {
+  bytes_t result = {.data = malloc(data.len), .len = data.len};
+  memcpy(result.data, data.data, data.len);
+  return result;
 }

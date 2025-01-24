@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "../util/bytes.h"
+#include "../util/crypto.h"
 #include "../util/json.h"
 
 typedef enum {
@@ -25,6 +26,12 @@ typedef enum {
   C4_DATA_METHOD_PUT    = 2,
   C4_DATA_METHOD_DELETE = 3
 } data_request_method_t;
+typedef enum {
+  C4_PROOFER_PENDING = 0,
+  C4_PROOFER_WAITING = 1,
+  C4_PROOFER_SUCCESS = 2,
+  C4_PROOFER_ERROR   = 3
+} c4_proofer_status_t;
 
 typedef struct data_request {
   data_request_type_t     type;
@@ -35,6 +42,7 @@ typedef struct data_request {
   bytes_t                 response;
   char*                   error;
   struct data_request*    next;
+  bytes32_t               id;
 } data_request_t;
 
 typedef struct {
@@ -45,11 +53,22 @@ typedef struct {
   data_request_t* data_requests;
 } proofer_ctx_t;
 
-proofer_ctx_t* c4_proofer_create(char* method, char* params);
-void           c4_proofer_free(proofer_ctx_t* ctx);
-void           c4_proofer_execute(proofer_ctx_t* ctx);
+proofer_ctx_t*      c4_proofer_create(char* method, char* params);
+void                c4_proofer_free(proofer_ctx_t* ctx);
+c4_proofer_status_t c4_proofer_execute(proofer_ctx_t* ctx);
+c4_proofer_status_t c4_proofer_status(proofer_ctx_t* ctx);
 
 data_request_t* c4_proofer_get_pending_data_request(proofer_ctx_t* ctx);
+data_request_t* c4_proofer_get_data_request_by_id(proofer_ctx_t* ctx, bytes32_t id);
+void            c4_proofer_add_data_request(proofer_ctx_t* ctx, data_request_t* data_request);
+
+typedef enum {
+  C4_SUCCESS = 0,
+  C4_ERROR   = -1,
+  C4_PENDING = 2
+} c4_status_t;
+
+c4_status_t c4u_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result);
 
 #ifdef __cplusplus
 }

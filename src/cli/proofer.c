@@ -1,4 +1,5 @@
 #include "../proofer/proofer.h"
+#include "../../libs/curl/http.h"
 #include "../util/bytes.h"
 #include "../util/crypto.h"
 #include "../util/json.h"
@@ -49,7 +50,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  char*    method;
+  char*    method = NULL;
   buffer_t buffer = {0};
   buffer_add_chars(&buffer, "[");
 
@@ -59,34 +60,34 @@ int main(int argc, char* argv[]) {
     }
     else {
       if (buffer.data.len > 1) buffer_add_chars(&buffer, ",");
+      buffer_add_chars(&buffer, "\"");
       buffer_add_chars(&buffer, argv[i]);
+      buffer_add_chars(&buffer, "\"");
     }
   }
   buffer_add_chars(&buffer, "]");
 
-  proofer_ctx_t* ctx = c4_proofer_create(method, (char*) buffer.data.data);
-
+  proofer_ctx_t*  ctx = c4_proofer_create(method, (char*) buffer.data.data);
+  data_request_t* req;
   while (true) {
-    c4_proofer_execute(ctx);
-    if (ctx->error || ctx->proof.data) break;
+    switch (c4_proofer_execute(ctx)) {
+      case C4_PROOFER_WAITING:
+        while ((req = c4_proofer_get_pending_data_request(ctx)))
+          curl_fetch(req);
+        break;
 
-    data_request_t* data_request = c4_proofer_get_pending_data_request(ctx);
-    if (data_request) {
-      // handle data request
-    }
-    else {
-      printf("no pending data request but also no error - this is strange. Exiting!\n");
-      break;
-    }
-  }
+      case C4_PROOFER_ERROR:
+        fprintf(stderr, "Error: %s\n", ctx->error);
+        exit(EXIT_FAILURE);
 
-  if (ctx->error) {
-    fprintf(stderr, "Error: %s\n", ctx->error);
-    exit(EXIT_FAILURE);
-  }
-  else if (ctx->proof.data) {
-    fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
-    fflush(stdout);
+      case C4_PROOFER_SUCCESS:
+        fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
+        fflush(stdout);
+        exit(EXIT_SUCCESS);
+
+      case C4_PROOFER_PENDING:
+        break;
+    }
   }
 
   c4_proofer_free(ctx);

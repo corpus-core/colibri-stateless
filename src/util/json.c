@@ -138,7 +138,7 @@ size_t json_len(json_t parent) {
   return i;
 }
 
-char* json_to_string(json_t val, buffer_t* buffer) {
+char* json_as_string(json_t val, buffer_t* buffer) {
   buffer->data.len = 0;
   buffer_grow(buffer, val.len);
   if (val.type == JSON_TYPE_STRING)
@@ -154,7 +154,7 @@ char* json_to_string(json_t val, buffer_t* buffer) {
 uint64_t json_as_uint64(json_t val) {
   uint8_t  tmp[20];
   buffer_t buffer = stack_buffer(tmp);
-  return (uint64_t) strtoull(json_to_string(val, &buffer), NULL, 10);
+  return (uint64_t) strtoull(json_as_string(val, &buffer), NULL, 10);
 }
 
 bytes_t json_as_bytes(json_t val, buffer_t* buffer) {
@@ -179,4 +179,10 @@ bool json_as_bool(json_t val) {
 
 bool json_as_null(json_t val) {
   return val.type == JSON_TYPE_NULL && val.start[0] == 'n';
+}
+
+void buffer_add_json(buffer_t* buffer, json_t data) {
+  buffer_grow(buffer, buffer->data.len + data.len + 1);
+  buffer_append(buffer, bytes((uint8_t*) data.start, data.len));
+  buffer->data.data[buffer->data.len] = 0;
 }
