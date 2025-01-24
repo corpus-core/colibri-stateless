@@ -44,6 +44,127 @@ This allows independent Verification and security on any devices without the nee
  
 A Sync Committee holds 512 validators signing every block. Every 27h the validators are updated. Since the verifier is passive, it will not activly sync. So whenever a proof is presented requiring a newer sync committee than the last state, it will tell it as part of the response to the proofer. The Proofer will then fetch the LightClientUpdates from any Beacon Chain API and push them to the verifier along with the Proof-Request. The verifier will then verify the LightClientUpdates and update the sync committee stored.
 
+In order to verify a light client update the following merkle proof will be verified:
+
+
+```mermaid
+flowchart BT
+
+    classDef noBorder fill:none,stroke:none;
+    subgraph "header"
+        Slot
+        proposerIndex
+        parentRoot
+        stateRoot
+        bodyRoot
+    end
+
+   subgraph "SigningData"
+        blockheaderhash
+        Domain
+    end
+
+   subgraph "BeaconState"
+        beacon_mode(" ... ")
+        current_sync_committee
+        next_sync_committee
+        inactivity_scores
+        finalized_checkpoint
+
+    end
+    class beacon_mode noBorder
+
+    subgraph "SyncCommittee"
+        pubkeys
+        aggregate_pubkey
+    end
+
+    subgraph "ValidatorPubKeys"
+        Val1["Val 1"]
+        Val1_a["[0..31]"]
+        Val1_b["[32..64]"]
+        Val2["Val 2"]
+        Val2_a["[0..31]"]
+        Val2_b["[32..48]"]
+        val_mode(" ... ")
+    end
+
+    class val_mode noBorder
+
+    blockheaderhash --> SigningRoot
+    Domain --> SigningRoot
+    4{4} --> blockheaderhash
+    5{5} --> blockheaderhash
+    8{8} --> 4
+    9{9} --> 4
+    10{10} --> 5
+    11{11} --> 5
+    Slot --> 8
+    proposerIndex --> 8
+    parentRoot --> 9
+    stateRoot --> 9
+    bodyRoot --> 10
+    21{"zero"} --> 10
+    22{"zero"} --> 11
+    23{"zero"} --> 11
+
+
+    38{38} --> stateRoot
+    39{39} --> stateRoot
+
+    76{76} --> 38
+    77{77} --> 38
+    78{78} --> 39
+    79{79} --> 39
+
+    156{156} -->78
+    157{157} -->78
+
+    158("...") --> 79
+
+    314{314} --> 157
+    315{315} --> 157
+
+    finalized_checkpoint --> 314
+    inactivity_scores --> 314
+    current_sync_committee --> 315
+    next_sync_committee --> 315
+
+
+    pubkeys --> next_sync_committee
+    aggregate_pubkey --> next_sync_committee
+
+    2524{2524} --> pubkeys
+    2525{2525} --> pubkeys
+
+
+    5048{5048}  --> 2524
+    5049{5049}  --> 2524
+    10096{10096}  --> 5048
+    10097{10097}  --> 5048
+    20192{20192}  --> 10096
+    20193{20193}  --> 10096
+    40384{40384}  --> 20192
+    40385{40385}  --> 20192
+    80768{80768}  --> 40384
+    80769{80769}  --> 40384
+    161536{161536}  --> 80768
+    161537{161537}  --> 80768
+    323072{323072}  --> 161536
+    323073{323073}  --> 161536
+    Val1  --> 323072
+    Val2  --> 323072
+
+    Val1_a --> Val1
+    Val1_b --> Val1
+    Val2_a --> Val2
+    Val2_b --> Val2
+
+
+    class 158 noBorder
+
+```
+
 ### Proof Requests
 
 All requests send to the verifier are encoded using SSZ. The request itself is sepcified by the [C4Request](#c4request) type. This objects suports different types as data or proofs.
