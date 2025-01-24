@@ -44,8 +44,12 @@ This allows independent Verification and security on any devices without the nee
  
 A Sync Committee holds 512 validators signing every block. Every 27h the validators are updated. Since the verifier is passive, it will not activly sync. So whenever a proof is presented requiring a newer sync committee than the last state, it will tell it as part of the response to the proofer. The Proofer will then fetch the LightClientUpdates from any Beacon Chain API and push them to the verifier along with the Proof-Request. The verifier will then verify the LightClientUpdates and update the sync committee stored.
 
-In order to verify a light client update the following merkle proof will be verified:
+The Data in the [LightClientUpdate](#lightclientupdate) is used to verify the transition between two periods of the SyncCommittee. This is done oin 2 Steps:
 
+1. calculate the SigningRoot by calculating the hash_tree_root of the new validator pubkeys and following the merkle proof down to the blockBodyRoot hash adn finally the SigningRoot
+2. verify the BLS signature against the Signing Root as message and the aggregated pubkey of the old sync committee 
+
+The following diagram shows the Structure of the Merkle Tree leading to the SigningRoot:
 
 ```mermaid
 flowchart BT
