@@ -8,6 +8,7 @@
 
 #define STATES                     "states"
 #define NEXT_SYNC_COMMITTEE_GINDEX 55
+
 // the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
 const ssz_def_t SYNC_STATE[] = {
     SSZ_VECTOR("validators", ssz_bls_pubky, 512), // the list of the validators
@@ -31,8 +32,8 @@ const c4_sync_state_t c4_get_validators(uint32_t period) {
 
   char name[100];
   sprintf(name, "sync_%d", period);
-  bytes_buffer_t tmp = {0};
-  tmp.allocated      = 512 * 48;
+  buffer_t tmp  = {0};
+  tmp.allocated = 512 * 48;
   if (storage_conf.get(name, &tmp) && tmp.data.data != NULL) return (c4_sync_state_t) {
       .current_period = period,
       .needs_cleanup  = true,
@@ -64,7 +65,7 @@ static bool store_sync(verify_ctx_t* ctx, bytes_t pubkeys, uint32_t period) {
   if (!storage_conf.set) RETURN_VERIFY_ERROR(ctx, "no storage plugin set!");
 
   // cleanup
-  bytes_buffer_t tmp = {0};
+  buffer_t tmp = {0};
   storage_conf.get(STATES, &tmp);
   if (tmp.data.len % 4 == 0) {
     size_t pos = tmp.data.len;

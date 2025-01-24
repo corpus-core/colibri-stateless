@@ -67,7 +67,7 @@ void uint64_to_be(uint8_t* data, uint64_t value) {
   data[7] = value & 0xFF;
 }
 
-void buffer_grow(bytes_buffer_t* buffer, size_t min_len) {
+void buffer_grow(buffer_t* buffer, size_t min_len) {
   if (buffer->data.data == NULL) {
     if (buffer->allocated > min_len) min_len = (size_t) buffer->allocated;
     buffer->data.data = malloc(min_len);
@@ -81,7 +81,7 @@ void buffer_grow(bytes_buffer_t* buffer, size_t min_len) {
   }
 }
 
-void buffer_append(bytes_buffer_t* buffer, bytes_t data) {
+void buffer_append(buffer_t* buffer, bytes_t data) {
   if (buffer->allocated < 0 && buffer->data.len + data.len > (uint32_t) (0 - buffer->allocated))
     data.len = ((uint32_t) (0 - buffer->allocated)) - buffer->data.len;
   if (!data.len) return;
@@ -93,7 +93,7 @@ void buffer_append(bytes_buffer_t* buffer, bytes_t data) {
   buffer->data.len += data.len;
 }
 
-void buffer_free(bytes_buffer_t* buffer) {
+void buffer_free(buffer_t* buffer) {
   if (buffer->data.data && buffer->allocated > 0)
     free(buffer->data.data);
 }
@@ -137,14 +137,14 @@ int hex_to_bytes(const char* hexstring, int len, bytes_t buffer) {
   return dst_offset;
 }
 
-void buffer_add_chars(bytes_buffer_t* buffer, char* data) {
+void buffer_add_chars(buffer_t* buffer, char* data) {
   if (!data) return;
   size_t len = strlen(data);
   buffer_append(buffer, bytes((uint8_t*) data, len + 1));
   buffer->data.len -= 1;
 }
 
-void buffer_add_hex_chars(bytes_buffer_t* buffer, bytes_t data, char* prefix, char* suffix) {
+void buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix) {
   uint32_t len = data.len * 2 + (prefix ? strlen(prefix) : 0) + (suffix ? strlen(suffix) : 0);
   buffer_grow(buffer, buffer->data.len + len + 1);
   buffer_add_chars(buffer, prefix);

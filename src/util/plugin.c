@@ -20,7 +20,7 @@ static char* combine_filename(char* name) {
     return strdup(name);
 }
 
-static bool file_get(char* filename, bytes_buffer_t* data) {
+static bool file_get(char* filename, buffer_t* data) {
   unsigned char buffer[1024];
   size_t        bytesRead;
   char*         full_path = combine_filename(filename);

@@ -285,8 +285,8 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
 void ssz_add_bytes(ssz_builder_t* buffer, char* name, bytes_t data) {
   const ssz_def_t* def = find_def(buffer->def, name);
   if (!def) return;
-  bytes_buffer_t* bytes        = &(buffer->fixed);
-  size_t          fixed_length = 0;
+  buffer_t* bytes        = &(buffer->fixed);
+  size_t    fixed_length = 0;
 
   if (is_dynamic(def)) {
     size_t offset = 0;

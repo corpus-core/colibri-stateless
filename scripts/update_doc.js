@@ -5,7 +5,8 @@ const fs = require('fs');
 const type_defs = [
     "verifier/types_beacon.c",
     "verifier/types_verify.c",
-    "verifier/sync_committee.c"
+    "verifier/sync_committee.c",
+    "verifier/verify_blockhash_proof.c"
 ]
 
 let types = {}

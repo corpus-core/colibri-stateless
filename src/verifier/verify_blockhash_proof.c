@@ -16,15 +16,17 @@
 static const char     GENESIS_VALIDATORS_ROOT[] = "\x4b\x36\x3d\xb9\x4e\x28\x61\x20\xd7\x6e\xb9\x05\x34\x0f\xdd\x4e\x54\xbf\xe9\xf0\x6b\xf3\x3f\xf6\xcf\x5a\xd2\x7f\x51\x1b\xfe\x95";
 static const uint64_t FORK_EPOCHS[4]            = {74240, 144896, 194048, 269568};
 
+// combining the root with a domain to ensure uniqueness of the signing message
 static const ssz_def_t SIGNING_DATA[] = {
-    SSZ_BYTES32("root"),
-    SSZ_BYTES32("domain")};
+    SSZ_BYTES32("root"),    // the hashed root of the data to sign
+    SSZ_BYTES32("domain")}; // the domain of the data to sign
 
 static const ssz_def_t SIGNING_DATA_CONTAINER = SSZ_CONTAINER("SigningData", SIGNING_DATA);
 
+// the fork data is used to create the domain
 static const ssz_def_t FORK_DATA[] = {
-    SSZ_BYTE_VECTOR("version", 4),
-    SSZ_BYTES32("state")};
+    SSZ_BYTE_VECTOR("version", 4), // the version of the fork
+    SSZ_BYTES32("state")};         // the state of the Genisis Block
 
 static const ssz_def_t FORK_DATA_CONTAINER = SSZ_CONTAINER("ForkDate", FORK_DATA);
 

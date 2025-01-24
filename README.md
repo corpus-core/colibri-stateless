@@ -18,8 +18,10 @@
     - [EthStateProof](#ethstateproof)
     - [EthStorageProof](#ethstorageproof)
     - [ExecutionPayloadHeader](#executionpayloadheader)
+    - [ForkData](#forkdata)
     - [LightClientHeader](#lightclientheader)
     - [LightClientUpdate](#lightclientupdate)
+    - [SigningData](#signingdata)
     - [SyncAggregate](#syncaggregate)
     - [SyncCommittee](#synccommittee)
     - [SyncState](#syncstate)
@@ -358,6 +360,19 @@ class ExecutionPayloadHeader(Container):
     excessBlobGas   : Uint64             # the excess blob gas of the block
 ```
 
+### ForkData
+
+the fork data is used to create the domain
+
+
+ The Type is defined in [verifier/verify_blockhash_proof.c](https://github.com/corpus-core/c4/blob/main/src/verifier/verify_blockhash_proof.c#L27).
+
+```python
+class ForkData(Container):
+    version: ByteVector [4]   # the version of the fork
+    state  : Bytes32          # the state of the Genisis Block
+```
+
 ### LightClientHeader
 
 the header of the light client update
@@ -391,6 +406,19 @@ class LightClientUpdate(Container):
     signatureSlot          : Uint64                # the slot of the signature
 ```
 
+### SigningData
+
+combining the root with a domain to ensure uniqueness of the signing message
+
+
+ The Type is defined in [verifier/verify_blockhash_proof.c](https://github.com/corpus-core/c4/blob/main/src/verifier/verify_blockhash_proof.c#L20).
+
+```python
+class SigningData(Container):
+    root  : Bytes32   # the hashed root of the data to sign
+    domain: Bytes32   # the domain of the data to sign
+```
+
 ### SyncAggregate
 
 the aggregates signature of the sync committee
@@ -422,7 +450,7 @@ class SyncCommittee(Container):
 the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
 
 
- The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L12).
+ The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L13).
 
 ```python
 class SyncState(Container):

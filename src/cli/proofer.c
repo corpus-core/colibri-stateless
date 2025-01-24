@@ -8,9 +8,9 @@
 #include <string.h>
 
 static char* read_from_stdin() {
-  unsigned char  buffer[1024];
-  size_t         bytesRead;
-  bytes_buffer_t data = {0};
+  unsigned char buffer[1024];
+  size_t        bytesRead;
+  buffer_t      data = {0};
 
   while ((bytesRead = fread(buffer, 1, 1024, stdin)) > 0)
     buffer_append(&data, bytes(buffer, bytesRead));
@@ -24,9 +24,9 @@ static char* read_from_file(const char* filename) {
   if (strcmp(filename, "-") == 0)
     return read_from_stdin();
 
-  unsigned char  buffer[1024];
-  size_t         bytesRead;
-  bytes_buffer_t data = {0};
+  unsigned char buffer[1024];
+  size_t        bytesRead;
+  buffer_t      data = {0};
 
   FILE* file = fopen(filename, "rb");
   if (file == NULL) {
@@ -49,8 +49,8 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  char*          method;
-  bytes_buffer_t buffer = {0};
+  char*    method;
+  buffer_t buffer = {0};
   buffer_add_chars(&buffer, "[");
 
   for (int i = 1; i < argc; i++) {

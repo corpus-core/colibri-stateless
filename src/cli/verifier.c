@@ -10,9 +10,9 @@
 #include <string.h>
 
 static bytes_t read_from_file(const char* filename) {
-  unsigned char  buffer[1024];
-  size_t         bytesRead;
-  bytes_buffer_t data = {0};
+  unsigned char buffer[1024];
+  size_t        bytesRead;
+  buffer_t      data = {0};
 
   FILE* file = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
   if (file == NULL) {

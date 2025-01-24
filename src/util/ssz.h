@@ -173,9 +173,9 @@ extern const ssz_def_t ssz_bls_pubky;
 #define SSZ_NONE                   {.name = "NONE", .type = SSZ_TYPE_NONE}
 
 typedef struct {
-  ssz_def_t*     def;
-  bytes_buffer_t fixed;
-  bytes_buffer_t dynamic;
+  ssz_def_t* def;
+  buffer_t   fixed;
+  buffer_t   dynamic;
 } ssz_builder_t;
 
 void ssz_add_bytes(ssz_builder_t* buffer, char* name, bytes_t data);

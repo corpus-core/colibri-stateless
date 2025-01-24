@@ -10,7 +10,7 @@ extern "C" {
 // storage plugin
 
 typedef struct {
-  bool (*get)(char* key, bytes_buffer_t* buffer);
+  bool (*get)(char* key, buffer_t* buffer);
   void (*set)(char* key, bytes_t value);
   void (*del)(char* key);
   uint32_t max_sync_states;
