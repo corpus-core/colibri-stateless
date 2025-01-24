@@ -169,6 +169,17 @@ flowchart BT
 
 ```
 
+In order to validate, we need to calculate
+- 512 x sha256 for each pubkey 
+- 512 x sha256 merkle proof for the pubkeys
+- 2 x sha256 for the SyncCommittee
+- 5 x sha256 for the stateRoot
+- 3 x sha256 for the blockheader hash
+- 1 x for the SigningRoot
+
+So in total, we need to verify 1035 hashes and 1 bls signature.
+
+
 ### Proof Requests
 
 All requests send to the verifier are encoded using SSZ. The request itself is sepcified by the [C4Request](#c4request) type. This objects suports different types as data or proofs.
