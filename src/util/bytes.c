@@ -46,9 +46,30 @@ uint64_t uint64_from_le(uint8_t* data) {
          ((uint64_t) data[7] << 56);
 }
 
+uint64_t uint64_from_be(uint8_t* data) {
+  return (uint64_t) data[7] |
+         ((uint64_t) data[6] << 8) |
+         ((uint64_t) data[5] << 16) |
+         ((uint64_t) data[4] << 24) |
+         ((uint64_t) data[3] << 32) |
+         ((uint64_t) data[2] << 40) |
+         ((uint64_t) data[1] << 48) |
+         ((uint64_t) data[0] << 56);
+}
+void uint64_to_be(uint8_t* data, uint64_t value) {
+  data[0] = (value >> 56) & 0xFF;
+  data[1] = (value >> 48) & 0xFF;
+  data[2] = (value >> 40) & 0xFF;
+  data[3] = (value >> 32) & 0xFF;
+  data[4] = (value >> 24) & 0xFF;
+  data[5] = (value >> 16) & 0xFF;
+  data[6] = (value >> 8) & 0xFF;
+  data[7] = value & 0xFF;
+}
+
 void buffer_grow(bytes_buffer_t* buffer, size_t min_len) {
   if (buffer->data.data == NULL) {
-    if (buffer->allocated > 0) min_len = (size_t) buffer->allocated;
+    if (buffer->allocated > min_len) min_len = (size_t) buffer->allocated;
     buffer->data.data = malloc(min_len);
     buffer->allocated = (int32_t) min_len;
   }
@@ -96,8 +117,8 @@ static inline int hexchar_to_int(char c) {
   return -1; // Ungültiges Zeichen
 }
 
-int hex_to_bytes(const char* hexstring, bytes_t buffer) {
-  size_t hex_len = strlen(hexstring);
+int hex_to_bytes(const char* hexstring, int len, bytes_t buffer) {
+  size_t hex_len = len == -1 ? strlen(hexstring) : (size_t) len;
   if (!hexstring || !buffer.data) return -1;
   int dst_offset = hex_len % 2;
   int src_offset = (hexstring[0] == '0' && hexstring[1] == 'x') ? 2 : 0;
