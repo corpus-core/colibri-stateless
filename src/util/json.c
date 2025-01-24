@@ -11,7 +11,7 @@ static char* next_non_whitespace_token(char* data) {
 }
 
 static char* find_end(char* pos, char start, char end) {
-  int  level     = 0;
+  int  level     = 1;
   bool in_string = start == '"';
   for (; *pos; pos++) {
     if (in_string && *pos == '\\') {
@@ -35,7 +35,10 @@ static char* find_end(char* pos, char start, char end) {
 static json_t parse_number(char* start) {
   json_t json = json(JSON_TYPE_NUMBER, start, 0);
   for (; *start; start++) {
-    if (isdigit(*start) || *start == '.' || *start == '-' || *start == 'e' || *start == 'E') json.len++;
+    if (isdigit(*start) || *start == '.' || *start == '-' || *start == 'e' || *start == 'E')
+      json.len++;
+    else
+      break;
   }
   return json;
 }
@@ -83,8 +86,11 @@ json_t json_next_value(json_t val, bytes_t* property_name, json_next_t type) {
   char* start = next_non_whitespace_token(val.start + (type == JSON_NEXT_FIRST ? 1 : val.len));
   if (!start) return json(JSON_TYPE_INVALID, start, 0);
   if (type != JSON_NEXT_FIRST) {
-    if (*start != ',') return json(JSON_TYPE_INVALID, start, 0);
-    start++;
+    if (*start == ',') {
+      start++;
+      start = next_non_whitespace_token(start);
+      if (!start) return json(JSON_TYPE_INVALID, val.start, 0);
+    }
   }
   else
     type = val.type == JSON_TYPE_OBJECT ? JSON_NEXT_PROPERTY : JSON_NEXT_VALUE;
@@ -135,7 +141,11 @@ size_t json_len(json_t parent) {
 char* json_to_string(json_t val, bytes_buffer_t* buffer) {
   buffer->data.len = 0;
   buffer_grow(buffer, val.len);
-  buffer_append(buffer, bytes((uint8_t*) val.start, val.len - 1));
+  if (val.type == JSON_TYPE_STRING)
+    buffer_append(buffer, bytes((uint8_t*) val.start + 1, val.len - 2));
+  else
+    buffer_append(buffer, bytes((uint8_t*) val.start, val.len));
+
   if (buffer->data.len >= val.len - 1)
     buffer->data.data[val.len - 2] = '\0';
   return (char*) buffer->data.data;
@@ -155,9 +165,9 @@ bytes_t json_as_bytes(json_t val, bytes_buffer_t* buffer) {
     return buffer->data;
   }
 
-  buffer->data.len = 0;
   buffer_grow(buffer, val.len / 2);
-  int len = hex_to_bytes(val.start + 1, val.len - 2, buffer->data);
+  buffer->data.len = val.len;
+  int len          = hex_to_bytes(val.start + 1, val.len - 2, buffer->data);
   if (len == -1) return NULL_BYTES;
   buffer->data.len = (uint32_t) len;
   return buffer->data;

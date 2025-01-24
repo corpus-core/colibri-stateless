@@ -29,6 +29,8 @@ uint64_t uint64_from_be(uint8_t* data);
 void     uint64_to_be(uint8_t* data, uint64_t value);
 
 void buffer_append(bytes_buffer_t* buffer, bytes_t data);
+void buffer_add_chars(bytes_buffer_t* buffer, char* data);
+void buffer_add_hex_chars(bytes_buffer_t* buffer, bytes_t data, char* prefix, char* suffix);
 void buffer_free(bytes_buffer_t* buffer);
 void buffer_grow(bytes_buffer_t* buffer, size_t min_len);
 void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);

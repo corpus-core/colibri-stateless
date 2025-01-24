@@ -136,3 +136,23 @@ int hex_to_bytes(const char* hexstring, int len, bytes_t buffer) {
 
   return dst_offset;
 }
+
+void buffer_add_chars(bytes_buffer_t* buffer, char* data) {
+  if (!data) return;
+  size_t len = strlen(data);
+  buffer_append(buffer, bytes((uint8_t*) data, len + 1));
+  buffer->data.len -= 1;
+}
+
+void buffer_add_hex_chars(bytes_buffer_t* buffer, bytes_t data, char* prefix, char* suffix) {
+  uint32_t len = data.len * 2 + (prefix ? strlen(prefix) : 0) + (suffix ? strlen(suffix) : 0);
+  buffer_grow(buffer, buffer->data.len + len + 1);
+  buffer_add_chars(buffer, prefix);
+  char tmp[4];
+
+  for (size_t i = 0; i < data.len; i++) {
+    sprintf(tmp, "%02x", data.data[i]);
+    buffer_add_chars(buffer, tmp);
+  }
+  buffer_add_chars(buffer, suffix);
+}

@@ -45,13 +45,13 @@ bool     json_is_null(json_t val);
 
 #define json_for_each_property(parent, val, property_name)                    \
   for (json_t val = json_next_value(parent, &property_name, JSON_NEXT_FIRST); \
-       val.type != JSON_TYPE_NOT_FOUND;                                       \
+       val.type != JSON_TYPE_NOT_FOUND && val.type != JSON_TYPE_INVALID;      \
        val = json_next_value(val, &property_name, JSON_NEXT_PROPERTY))
 
-#define json_for_each_value(parent, val)                            \
-  for (json_t val = json_next_value(parent, NULL, JSON_NEXT_FIRST); \
-       val.type != JSON_TYPE_NOT_FOUND;                             \
-       val = json_next_value(val, NULL, JSON_NEXT_PROPERTY))
+#define json_for_each_value(parent, val)                                 \
+  for (json_t val = json_next_value(parent, NULL, JSON_NEXT_FIRST);      \
+       val.type != JSON_TYPE_NOT_FOUND && val.type != JSON_TYPE_INVALID; \
+       val = json_next_value(val, NULL, JSON_NEXT_VALUE))
 
 #ifdef __cplusplus
 }
