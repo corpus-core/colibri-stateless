@@ -128,7 +128,7 @@ ssz_ob_t ssz_get(ssz_ob_t* ob, char* name) {
       res.def = def;
       if (is_dynamic(def)) {
         uint32_t offset = uint32_from_le(ob->bytes.data + pos);
-        if (offset >= ob->bytes.len) return res;
+        if (offset > ob->bytes.len) return res;
         res.bytes.data = ob->bytes.data + offset;
         res.bytes.len  = ob->bytes.len - offset;
         pos += len;
@@ -352,7 +352,8 @@ static bool is_basic_type(const ssz_def_t* def) {
   return def->type == SSZ_TYPE_UINT || def->type == SSZ_TYPE_BOOLEAN || def->type == SSZ_TYPE_NONE;
 }
 
-static int calc_num_leafes(const ssz_def_t* def) {
+static int calc_num_leafes(const ssz_ob_t* ob, bool only_used) {
+  const ssz_def_t* def = ob->def;
   switch (def->type) {
     case SSZ_TYPE_CONTAINER:
       return def->def.container.len;
@@ -361,11 +362,13 @@ static int calc_num_leafes(const ssz_def_t* def) {
         return (def->def.vector.len * get_fixed_length(def->def.vector.type) + 31) >> 5;
       else
         return def->def.vector.len;
-    case SSZ_TYPE_LIST:
+    case SSZ_TYPE_LIST: {
+      uint32_t len = only_used ? ssz_len(*ob) : def->def.vector.len;
       if (is_basic_type(def->def.vector.type))
-        return ((def->def.vector.len + 1) * get_fixed_length(def->def.vector.type) + 31) >> 5;
+        return (len * get_fixed_length(def->def.vector.type) + 31) >> 5;
       else
-        return def->def.vector.len;
+        return len;
+    }
     case SSZ_TYPE_BIT_LIST:
       return (def->def.vector.len + 31) >> 5;
     case SSZ_TYPE_BIT_VECTOR:
@@ -395,8 +398,8 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out) {
         uint32_t len = ssz_len(ob);
         if (index < len)
           ssz_hash_tree_root(ssz_at(ob, index), out);
-        else if (index == len && def->type == SSZ_TYPE_LIST)
-          *out = 1;
+        //        else if (index == len && def->type == SSZ_TYPE_LIST)
+        //          *out = 1;
         return;
       }
 
@@ -405,7 +408,7 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out) {
       if (len > BYTES_PER_CHUNK) len = BYTES_PER_CHUNK;
       if (offset < ob.bytes.len)
         memcpy(out, ob.bytes.data + offset, len);
-      if (def->type == SSZ_TYPE_LIST || def->type == SSZ_TYPE_BIT_LIST) {
+      if (/*def->type == SSZ_TYPE_LIST || */ def->type == SSZ_TYPE_BIT_LIST) {
         if (offset < ob.bytes.len && len < BYTES_PER_CHUNK)
           out[len] = 1;
         else if (offset == ob.bytes.len)
@@ -442,11 +445,19 @@ static void merkle_hash(ssz_ob_t ob, int index, int depth, int num_leafes, uint8
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
   memset(out, 0, 32);
   if (!ob.def) return;
-  int num_leafes = calc_num_leafes(ob.def);
+  int num_used_leafes = calc_num_leafes(&ob, true);  // the number of leafes with actual content
+  int num_leafes      = calc_num_leafes(&ob, false); // the number of leafes in total including zero chunks
   if (num_leafes == 1)
     set_leaf(ob, 0, out);
   else
     merkle_hash(ob, 0, 1, num_leafes, out);
+
+  if (ob.def->type == SSZ_TYPE_LIST) {
+    // mix_in_length
+    uint8_t length[32];
+    uint64_to_le(length, (uint64_t) ssz_len(ob));
+    sha256_merkle(bytes(out, 32), bytes(length, 32), out);
+  }
 }
 
 static uint32_t get_depth(uint32_t gindex) {
@@ -459,7 +470,7 @@ static uint32_t get_depth(uint32_t gindex) {
 }
 
 uint32_t ssz_get_gindex(ssz_ob_t* ob, const char* name) {
-  uint32_t num_leafes = calc_num_leafes(ob->def);
+  uint32_t num_leafes = calc_num_leafes(ob, false);
   uint32_t index      = 0xffffffff;
   for (int i = 0; i < ob->def->def.container.len; i++) {
     if (strcmp(ob->def->def.container.elements[i].name, name) == 0) {

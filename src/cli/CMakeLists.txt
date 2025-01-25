@@ -15,6 +15,7 @@ if (CLI)
     add_executable(ssz ssz.c)
     target_link_libraries(ssz PRIVATE 
       verifier
+      proofer
     )
     set_target_properties(ssz PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"

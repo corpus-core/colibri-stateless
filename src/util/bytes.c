@@ -67,6 +67,17 @@ void uint64_to_be(uint8_t* data, uint64_t value) {
   data[7] = value & 0xFF;
 }
 
+void uint64_to_le(uint8_t* data, uint64_t value) {
+  data[7] = (value >> 56) & 0xFF;
+  data[6] = (value >> 48) & 0xFF;
+  data[5] = (value >> 40) & 0xFF;
+  data[4] = (value >> 32) & 0xFF;
+  data[3] = (value >> 24) & 0xFF;
+  data[2] = (value >> 16) & 0xFF;
+  data[1] = (value >> 8) & 0xFF;
+  data[0] = value & 0xFF;
+}
+
 void buffer_grow(buffer_t* buffer, size_t min_len) {
   if (buffer->data.data == NULL) {
     if (buffer->allocated > min_len) min_len = (size_t) buffer->allocated;

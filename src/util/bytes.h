@@ -27,16 +27,16 @@ uint32_t uint32_from_le(uint8_t* data);
 uint64_t uint64_from_le(uint8_t* data);
 uint64_t uint64_from_be(uint8_t* data);
 void     uint64_to_be(uint8_t* data, uint64_t value);
-
-void    buffer_append(buffer_t* buffer, bytes_t data);
-void    buffer_add_chars(buffer_t* buffer, const char* data);
-void    buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix);
-void    buffer_free(buffer_t* buffer);
-void    buffer_grow(buffer_t* buffer, size_t min_len);
-void    print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
-bool    bytes_all_equal(bytes_t a, uint8_t value);
-bytes_t bytes_dup(bytes_t data);
-int     hex_to_bytes(const char* hexstring, int len, bytes_t buffer);
+void     uint64_to_le(uint8_t* data, uint64_t value);
+void     buffer_append(buffer_t* buffer, bytes_t data);
+void     buffer_add_chars(buffer_t* buffer, const char* data);
+void     buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix);
+void     buffer_free(buffer_t* buffer);
+void     buffer_grow(buffer_t* buffer, size_t min_len);
+void     print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
+bool     bytes_all_equal(bytes_t a, uint8_t value);
+bytes_t  bytes_dup(bytes_t data);
+int      hex_to_bytes(const char* hexstring, int len, bytes_t buffer);
 
 // creates a buffer on the stack which write into given variable on the stack and ensure to stay within the bounds of the variable
 #define stack_buffer(stack_var) \

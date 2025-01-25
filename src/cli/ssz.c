@@ -1,4 +1,5 @@
 #include "../util/ssz.h"
+#include "../proofer/ssz_types.h"
 #include "../util/bytes.h"
 #include "../util/crypto.h"
 #include "../verifier/types_verify.h"
@@ -42,21 +43,45 @@ static bytes_t read_from_file(const char* filename) {
     fclose(file);
   return data.data;
 }
-
+const ssz_def_t* get_def(char* typename) {
+  if (strcmp(typename, "signed_block") == 0) return &SIGNED_BEACON_BLOCK_CONTAINER;
+  fprintf(stderr, "Unknown type : %s \n", typename);
+  exit(EXIT_FAILURE);
+}
 int main(int argc, char* argv[]) {
   if (argc == 1) {
-    fprintf(stderr, "Usage: %s <file.ssz> <field1> <field2> ...\n", argv[0]);
+    fprintf(stderr, "Usage: %s -t <typename> -o <outfile> -nh <file.ssz> <field1> <field2> ...\n"
+                    "\n"
+                    "  -t <typename> : type name\n"
+                    "  -o <outfile> : output file\n"
+                    "  -h         : show hash_root\n"
+                    "  -n          : show typename\n"
+                    "\n",
+            argv[0]);
     exit(EXIT_FAILURE);
   }
 
-  ssz_ob_t res          = ssz_ob(C4_REQUEST_CONTAINER, read_from_file(argv[1]));
-  char*    out_filename = NULL;
+  ssz_ob_t res = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, read_from_file(argv[1]));
+  //  ssz_ob_t res          = ssz_ob(C4_REQUEST_CONTAINER, read_from_file(argv[1]));
+  char* out_filename = NULL;
+  bool  show_hash    = false;
+  bool  show_name    = false;
 
   for (int i = 2; i < argc; i++) {
     if (argv[i][0] == '-') {
-      if (strcmp(argv[i], "-o") == 0) {
-        out_filename = argv[i + 1];
-        i++;
+      for (int j = 1; argv[i][j] != '\0'; j++) {
+        if (argv[i][j] == 'h')
+          show_hash = true;
+        if (argv[i][j] == 'n')
+          show_name = true;
+        if (argv[i][j] == 'o') {
+          out_filename = argv[i + 1];
+          i++;
+        }
+        if (argv[i][j] == 't') {
+          res.def = get_def(argv[i + 1]);
+          i++;
+        }
       }
     }
     else if (res.def && res.def->type != SSZ_TYPE_CONTAINER) {
@@ -82,8 +107,10 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  ssz_dump(stdout, res, true, 0);
-  bytes32_t hashroot;
-  ssz_hash_tree_root(res, hashroot);
-  print_hex(stdout, bytes(hashroot, 32), "\ntree_hash_root: 0x", "\n");
+  ssz_dump(stdout, res, show_name, 0);
+  if (show_hash) {
+    bytes32_t hashroot;
+    ssz_hash_tree_root(res, hashroot);
+    print_hex(stdout, bytes(hashroot, 32), "\ntree_hash_root: 0x", "\n");
+  }
 }
