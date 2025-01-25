@@ -13,6 +13,30 @@ const ssz_def_t ssz_uint8     = SSZ_UINT("", 1);
 const ssz_def_t ssz_bytes32   = SSZ_BYTES32("bytes32");
 const ssz_def_t ssz_bls_pubky = SSZ_BYTE_VECTOR("bls_pubky", 48);
 
+/**
+ * Liefert ceil(log2(val)), also den kleinsten n,
+ * so dass 2^n >= val.
+ *
+ * Beispielwerte:
+ *  val = 1   => 0  (denn 2^0 = 1)
+ *  val = 2   => 1
+ *  val = 3   => 2
+ *  val = 4   => 2
+ *  val = 5   => 3
+ *  usw.
+ *
+ * Hinweis: Für val=0 ist das mathematisch nicht definiert.
+ *          Hier returnen wir einfach 0 oder man könnte
+ *          einen Assert machen, je nachdem.
+ */
+static inline uint32_t log2_ceil(uint32_t val) {
+  if (val < 2) return 0;
+
+  // floor(log2(val)):
+  uint32_t floor_log2 = 31 - __builtin_clz(val);
+  return (val & (val - 1)) == 0 ? floor_log2 : floor_log2 + 1;
+}
+
 // checks if a definition has a dynamic length
 static bool is_dynamic(const ssz_def_t* def) {
   if (def->type == SSZ_TYPE_CONTAINER) {
@@ -370,9 +394,9 @@ static int calc_num_leafes(const ssz_ob_t* ob, bool only_used) {
         return len;
     }
     case SSZ_TYPE_BIT_LIST:
-      return (def->def.vector.len + 31) >> 5;
+      return (def->def.vector.len + 256) >> 8;
     case SSZ_TYPE_BIT_VECTOR:
-      return ((def->def.vector.len + 1) + 31) >> 5;
+      return (def->def.vector.len + 255) >> 8;
     default:
       return 1;
   }
@@ -427,30 +451,66 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out) {
   }
 }
 
-static void merkle_hash(ssz_ob_t ob, int index, int depth, int num_leafes, uint8_t* out) {
+#ifdef PRECOMPILE_ZERO_HASHES
+#define MAX_DEPTH 30
+static int     inited_zero_hashed = 0;
+static uint8_t ZERO_HASHES[MAX_DEPTH][32];
+static void    cached_zero_hash(int depth, uint8_t* out) {
+  if (depth > MAX_DEPTH) return;
+
+  while (inited_zero_hashed < depth) {
+    if (inited_zero_hashed == 0) {
+      bytes32_t zeros = {0};
+      sha256_merkle(bytes(zeros, 32), bytes(zeros, 32), ZERO_HASHES[inited_zero_hashed]);
+    }
+    else
+      sha256_merkle(bytes(ZERO_HASHES[inited_zero_hashed - 1], 32), bytes(ZERO_HASHES[inited_zero_hashed - 1], 32), ZERO_HASHES[inited_zero_hashed]);
+    inited_zero_hashed++;
+  }
+
+  memcpy(out, ZERO_HASHES[depth - 1], 32);
+}
+
+#endif
+
+static void merkle_hash(ssz_ob_t ob, int index, int depth, int max_depth, int num_used_leafes, uint8_t* out) {
   uint8_t temp[64];
 
-  if (1 << depth >= num_leafes) {
-    set_leaf(ob, index * 2, temp);
-    set_leaf(ob, index * 2 + 1, temp + 32);
-  }
-  else {
-    merkle_hash(ob, index * 2, depth + 1, num_leafes, temp);
-    merkle_hash(ob, index * 2 + 1, depth + 1, num_leafes, temp + 32);
+  // how many leafes do we have from depth?
+  int subtree_depth = max_depth - depth;
+  int subtree_size  = 1 << subtree_depth;
+
+  if (subtree_depth == 0) {
+    set_leaf(ob, index, out);
+    return;
   }
 
+#ifdef PRECOMPILE_ZERO_HASHES
+
+  int gindex           = (1 << depth) + index;               // current gindex
+  int subtree_min_leaf = gindex << subtree_depth;            // gindex of first leaf of the current subtree
+  int gindex_max_leaf  = (1 << max_depth) + num_used_leafes; // gindex of last leaf of the used leafes
+  if (gindex_max_leaf < subtree_min_leaf && subtree_depth < MAX_DEPTH) {
+    cached_zero_hash(subtree_depth, out);
+    return;
+  }
+#endif
+
+  merkle_hash(ob, index << 1, depth + 1, max_depth, num_used_leafes, temp);
+  merkle_hash(ob, (index << 1) + 1, depth + 1, max_depth, num_used_leafes, temp + 32);
   sha256(bytes(temp, 64), out);
 }
 
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
   memset(out, 0, 32);
   if (!ob.def) return;
-  int num_used_leafes = calc_num_leafes(&ob, true);  // the number of leafes with actual content
-  int num_leafes      = calc_num_leafes(&ob, false); // the number of leafes in total including zero chunks
+  int max_depth       = log2_ceil(calc_num_leafes(&ob, false));
+  int num_used_leafes = calc_num_leafes(&ob, true); // the number of leafes with actual content
+  int num_leafes      = 1 << max_depth;             // the number of leafes in total including zero chunks
   if (num_leafes == 1)
     set_leaf(ob, 0, out);
   else
-    merkle_hash(ob, 0, 1, num_leafes, out);
+    merkle_hash(ob, 0, 0, max_depth, num_used_leafes, out);
 
   if (ob.def->type == SSZ_TYPE_LIST) {
     // mix_in_length

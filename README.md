@@ -243,6 +243,10 @@ bin/verify ../test/data/proof_data.ssz
     Default: ON  
     Usage: `cmake -DMESSAGES=ON` ..
 
+- **-DPRECOMPILE_ZERO_HASHES**: if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the proofer, but not in the client.in  
+    Default: ON  
+    Usage: `cmake -DPRECOMPILE_ZERO_HASHES=ON` ..
+
 
 ## SSZ Types
 
