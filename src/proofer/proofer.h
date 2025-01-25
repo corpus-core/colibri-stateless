@@ -68,7 +68,8 @@ typedef enum {
   C4_PENDING = 2
 } c4_status_t;
 
-c4_status_t c4u_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result);
+c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result);
+c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result);
 
 #ifdef __cplusplus
 }

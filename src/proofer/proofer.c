@@ -78,7 +78,7 @@ c4_proofer_status_t c4_proofer_status(proofer_ctx_t* ctx) {
   return C4_PROOFER_PENDING;
 }
 
-c4_status_t c4u_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result) {
+c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, "{\"jsonrpc\":\"2.0\",\"method\":\"");
@@ -117,8 +117,10 @@ c4_status_t c4u_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, jso
       *result = res;
       return C4_SUCCESS;
     }
-    else
-      ctx->error = strdup(data_request->error ? data_request->error : "Data request already exists");
+    else {
+      ctx->error = strdup(data_request->error ? data_request->error : "Data request failed");
+      return C4_ERROR;
+    }
   }
   else {
     data_request = calloc(1, sizeof(data_request_t));
@@ -127,6 +129,101 @@ c4_status_t c4u_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, jso
     data_request->encoding = C4_DATA_ENCODING_JSON;
     data_request->method   = C4_DATA_METHOD_POST;
     data_request->type     = C4_DATA_TYPE_ETH_RPC;
+    c4_proofer_add_data_request(ctx, data_request);
+    return C4_PENDING;
+  }
+
+  return C4_SUCCESS;
+}
+
+c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result) {
+  bytes32_t id     = {0};
+  buffer_t  buffer = {0};
+  buffer_add_chars(&buffer, path);
+  if (query) {
+    buffer_add_chars(&buffer, "?");
+    buffer_add_chars(&buffer, query);
+  }
+  sha256(buffer.data, id);
+  data_request_t* data_request = c4_proofer_get_data_request_by_id(ctx, id);
+  if (data_request) {
+    buffer_free(&buffer);
+    if (!data_request->error && data_request->response.data) {
+      json_t response = json_parse((char*) data_request->response.data);
+      if (response.type == JSON_TYPE_INVALID) {
+        ctx->error = strdup("Invalid JSON response");
+        return C4_ERROR;
+      }
+
+      *result = response;
+      return C4_SUCCESS;
+    }
+    else {
+      ctx->error = strdup(data_request->error ? data_request->error : "Data request failed");
+      return C4_ERROR;
+    }
+  }
+  else {
+    data_request = calloc(1, sizeof(data_request_t));
+    memcpy(data_request->id, id, 32);
+    data_request->url      = (char*) buffer.data.data;
+    data_request->encoding = C4_DATA_ENCODING_JSON;
+    data_request->method   = C4_DATA_METHOD_GET;
+    data_request->type     = C4_DATA_TYPE_BEACON_API;
+    c4_proofer_add_data_request(ctx, data_request);
+    return C4_PENDING;
+  }
+
+  return C4_SUCCESS;
+}
+
+/*
+
+export const SignedBeaconBlock = new ContainerType(
+  {
+    message: BeaconBlock,
+    signature: BLSSignature,
+  },
+  {typeName: "SignedBeaconBlock", jsonCase: "eth2"}
+);
+
+
+              const version = meta.versions[i];
+              const forkDigest = cachedBeaconConfig().forkName2ForkDigest(version);
+              const serialized = getLightClientForkTypes(version).LightClientUpdate.serialize(update);
+              const length = ssz.UintNum64.serialize(4 + serialized.length);
+              chunks.push(length, forkDigest, serialized);
+
+
+*/
+c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, bytes_t* result) {
+  bytes32_t id     = {0};
+  buffer_t  buffer = {0};
+  buffer_add_chars(&buffer, path);
+  if (query) {
+    buffer_add_chars(&buffer, "?");
+    buffer_add_chars(&buffer, query);
+  }
+  sha256(buffer.data, id);
+  data_request_t* data_request = c4_proofer_get_data_request_by_id(ctx, id);
+  if (data_request) {
+    buffer_free(&buffer);
+    if (!data_request->error && data_request->response.data) {
+      *result = data_request->response;
+      return C4_SUCCESS;
+    }
+    else {
+      ctx->error = strdup(data_request->error ? data_request->error : "Data request failed");
+      return C4_ERROR;
+    }
+  }
+  else {
+    data_request = calloc(1, sizeof(data_request_t));
+    memcpy(data_request->id, id, 32);
+    data_request->url      = (char*) buffer.data.data;
+    data_request->encoding = C4_DATA_ENCODING_JSON;
+    data_request->method   = C4_DATA_METHOD_GET;
+    data_request->type     = C4_DATA_TYPE_BEACON_API;
     c4_proofer_add_data_request(ctx, data_request);
     return C4_PENDING;
   }

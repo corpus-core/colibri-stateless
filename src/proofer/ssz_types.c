@@ -94,6 +94,7 @@ const ssz_def_t WITHDRAWAL[] = {
 };
 
 const ssz_def_t ssz_transactions_bytes = SSZ_BYTES("Bytes", 1073741824);
+const ssz_def_t WITHDRAWAL_CONTAINER   = SSZ_CONTAINER("withdrawal", WITHDRAWAL);
 
 // the block header of the execution layer proved within the beacon block
 const ssz_def_t EXECUTION_PAYLOAD[] = {
@@ -111,7 +112,7 @@ const ssz_def_t EXECUTION_PAYLOAD[] = {
     SSZ_UINT256("baseFeePerGas"),                              // the base fee per gas of the block
     SSZ_BYTES32("blockHash"),                                  // the hash of the block
     SSZ_LIST("transactions", ssz_transactions_bytes, 1048576), // the list of transactions
-    SSZ_LIST("withdrawals", WITHDRAWAL, 16),                   // the list of withdrawels
+    SSZ_LIST("withdrawals", WITHDRAWAL_CONTAINER, 16),         // the list of withdrawels
     SSZ_UINT64("blobGasUsed"),                                 // the gas used for the blob transactions
     SSZ_UINT64("excessBlobGas")};                              // the excess blob gas of the block
 
@@ -126,20 +127,27 @@ const ssz_def_t SIGNED_BLS_TO_EXECUTION_CHANGE[] = {
     SSZ_BYTE_VECTOR("signature", 96),
 };
 
+const ssz_def_t PROPOSER_SLASHING_CONTAINER = SSZ_CONTAINER("proposerSlashing", PROPOSER_SLASHING);
+const ssz_def_t ATTESTER_SLASHING_CONTAINER = SSZ_CONTAINER("attesterSlashing", ATTESTER_SLASHING);
+
 // const ssz_def_t ssz_bls_pubky[] = {
 
-const ssz_def_t BEACON_BLOCK_BODY[] = {
+const ssz_def_t ATTESTATION_CONTAINER                    = SSZ_CONTAINER("attestation", ATTESTATION);
+const ssz_def_t DEPOSIT_CONTAINER                        = SSZ_CONTAINER("deposit", DEPOSIT);
+const ssz_def_t SIGNED_VOLUNTARY_EXIT_CONTAINER          = SSZ_CONTAINER("signedVoluntaryExit", SIGNED_VOLUNTARY_EXIT);
+const ssz_def_t SIGNED_BLS_TO_EXECUTION_CHANGE_CONTAINER = SSZ_CONTAINER("signedBlsToExecutionChange", SIGNED_BLS_TO_EXECUTION_CHANGE);
+const ssz_def_t BEACON_BLOCK_BODY[]                      = {
     SSZ_BYTE_VECTOR("randaoReveal", 96),
     SSZ_CONTAINER("eth1Data", ETH1_DATA),
     SSZ_BYTES32("graffiti"),
-    SSZ_LIST("proposerSlashings", PROPOSER_SLASHING, MAX_PROPOSER_SLASHINGS),
-    SSZ_LIST("attesterSlashings", ATTESTER_SLASHING, MAX_ATTESTER_SLASHINGS),
-    SSZ_LIST("attestations", ATTESTATION, MAX_ATTESTATIONS),
-    SSZ_LIST("deposits", DEPOSIT, MAX_DEPOSITS),
-    SSZ_LIST("voluntaryExits", SIGNED_VOLUNTARY_EXIT, MAX_VOLUNTARY_EXITS),
+    SSZ_LIST("proposerSlashings", PROPOSER_SLASHING_CONTAINER, MAX_PROPOSER_SLASHINGS),
+    SSZ_LIST("attesterSlashings", ATTESTER_SLASHING_CONTAINER, MAX_ATTESTER_SLASHINGS),
+    SSZ_LIST("attestations", ATTESTATION_CONTAINER, MAX_ATTESTATIONS),
+    SSZ_LIST("deposits", DEPOSIT_CONTAINER, MAX_DEPOSITS),
+    SSZ_LIST("voluntaryExits", SIGNED_VOLUNTARY_EXIT_CONTAINER, MAX_VOLUNTARY_EXITS),
     SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),
     SSZ_CONTAINER("executionPayload", EXECUTION_PAYLOAD),
-    SSZ_LIST("blsToExecutionChanges", SIGNED_BLS_TO_EXECUTION_CHANGE, MAX_BLS_TO_EXECUTION_CHANGES),
+    SSZ_LIST("blsToExecutionChanges", SIGNED_BLS_TO_EXECUTION_CHANGE_CONTAINER, MAX_BLS_TO_EXECUTION_CHANGES),
     SSZ_LIST("blobKzgCommitments", ssz_bls_pubky, 4096),
 };
 

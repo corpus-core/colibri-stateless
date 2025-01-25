@@ -16,7 +16,7 @@ void c4_proof_account(proofer_ctx_t* ctx) {
   snprintf(tmp, sizeof(tmp), "[%.44s,[],\"latest\"]", address.start);
 
   json_t result = {0};
-  if (c4u_send_eth_rpc(ctx, "eth_getProof", tmp, &result)) return;
+  if (c4_send_eth_rpc(ctx, "eth_getProof", tmp, &result)) return;
 
   ctx->proof = bytes_dup(bytes((uint8_t*) result.start, result.len));
 }

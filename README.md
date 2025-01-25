@@ -286,7 +286,7 @@ class AttesterSlashing(Container):
 ### BeaconBlock
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L146).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L154).
 
 ```python
 class BeaconBlock(Container):
@@ -302,7 +302,7 @@ class BeaconBlock(Container):
 const ssz_def_t ssz_bls_pubky[] = {
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L131).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L139).
 
 ```python
 class BeaconBlockBody(Container):
@@ -355,7 +355,7 @@ class BlockHashProof(Container):
 ### BlsToExecutionChange
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L118).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L119).
 
 ```python
 class BlsToExecutionChange(Container):
@@ -489,7 +489,7 @@ class EthStorageProof(Container):
 the block header of the execution layer proved within the beacon block
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L99).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L100).
 
 ```python
 class ExecutionPayload(Container):
@@ -612,7 +612,7 @@ class ProposerSlashing(Container):
 ### SignedBeaconBlock
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L153).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L161).
 
 ```python
 class SignedBeaconBlock(Container):
@@ -634,7 +634,7 @@ class SignedBeaconBlockheader(Container):
 ### SignedBlsToExecutionChange
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L124).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L125).
 
 ```python
 class SignedBlsToExecutionChange(Container):
