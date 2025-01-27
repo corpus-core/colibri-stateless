@@ -1,5 +1,7 @@
 #include "../proofer/proofer.h"
+#ifdef USE_CURL
 #include "../../libs/curl/http.h"
+#endif
 #include "../util/bytes.h"
 #include "../util/crypto.h"
 #include "../util/json.h"
@@ -73,7 +75,11 @@ int main(int argc, char* argv[]) {
     switch (c4_proofer_execute(ctx)) {
       case C4_PROOFER_WAITING:
         while ((req = c4_proofer_get_pending_data_request(ctx)))
+#ifdef USE_CURL
           curl_fetch(req);
+#else
+          fprintf(stderr, "CURL not enabled\n");
+#endif
         break;
 
       case C4_PROOFER_ERROR:

@@ -3,6 +3,9 @@ project(c4)
 option(SHAREDLIB "if true the shared library will be build" OFF)
 option(TEST "if true the test will be build" OFF)
 
+if(CURL)
+    add_definitions(-DUSE_CURL)
+endif()
 
 set(OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)

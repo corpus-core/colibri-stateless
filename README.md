@@ -235,6 +235,10 @@ bin/verify ../test/data/proof_data.ssz
     Options: Debug, Release, RelWithDebInfo, MinSizeRel  
     Usage: `cmake -DCMAKE_BUILD_TYPE=Release` ..
 
+- **-DCURL**: if true curl will be used as transport  
+    Default: ON  
+    Usage: `cmake -DCURL=ON` ..
+
 - **-DFILE_STORAGE**: if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR  
     Default: ON  
     Usage: `cmake -DFILE_STORAGE=ON` ..
