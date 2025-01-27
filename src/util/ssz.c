@@ -1,5 +1,8 @@
 #include "ssz.h"
 #include "crypto.h"
+#if defined(_MSC_VER)
+#include <intrin.h> // Include for MSVC intrinsics
+#endif
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -32,8 +35,14 @@ const ssz_def_t ssz_bls_pubky = SSZ_BYTE_VECTOR("bls_pubky", 48);
 static inline uint32_t log2_ceil(uint32_t val) {
   if (val < 2) return 0;
 
-  // floor(log2(val)):
+  // Use MSVC intrinsic for counting leading zeros
+  unsigned long index;
+#if defined(_MSC_VER)
+  _BitScanReverse(&index, val);
+  uint32_t floor_log2 = index;
+#else
   uint32_t floor_log2 = 31 - __builtin_clz(val);
+#endif
   return (val & (val - 1)) == 0 ? floor_log2 : floor_log2 + 1;
 }
 
