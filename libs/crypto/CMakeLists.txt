@@ -1,12 +1,16 @@
-
 string(REGEX MATCH "^[0-9]+" MAJOR_VERSION ${CMAKE_C_COMPILER_VERSION})
 if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND MAJOR_VERSION GREATER 12)
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-null-pointer-subtraction -Wno-implicit-function-declaration")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-null-pointer-subtraction -Wno-implicit-function-declaration")
 endif()
 if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND MAJOR_VERSION GREATER 15)
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-array-parameter")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-array-parameter")
 endif()
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-#pragma-messages ")
+
+# Conditionally set flags based on the compiler
+if(NOT MSVC)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-#pragma-messages")
+endif()
+
 add_definitions(-DAES_128)
 
 set(SRC 
