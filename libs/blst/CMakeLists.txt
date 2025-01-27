@@ -45,7 +45,7 @@ if(WIN32)
         OUTPUT ${BLST_LIB}
         COMMAND ${CMAKE_COMMAND} -E env CFLAGS=-ffunction-sections\ -fdata-sections ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
         COMMAND ${CMAKE_COMMAND} -E echo "Checking if blst.lib exists"
-        COMMAND ${CMAKE_COMMAND} -E if(EXISTS ${blst_SOURCE_DIR}/blst.lib) copy ${blst_SOURCE_DIR}/blst.lib ${BLST_LIB}
+        COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/blst.lib ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
         COMMENT "Building and copying blst.lib with optimization flags on Windows"
         VERBATIM
