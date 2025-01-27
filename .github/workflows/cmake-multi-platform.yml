@@ -105,3 +105,9 @@ jobs:
 #        reporter: java-junit 
 #      env:
 #        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  actions: read
