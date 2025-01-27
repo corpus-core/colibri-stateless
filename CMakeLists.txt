@@ -44,6 +44,9 @@ add_subdirectory(libs)
 if(TEST)
     enable_testing()
     add_subdirectory(test)
+
+    # Set CTest arguments to include --output-on-failure
+    set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
 endif()
 
 # Define a custom target named 'doc'

@@ -11,6 +11,40 @@ void tearDown(void) {
   // Bereinigung nach jedem Test (falls erforderlich)
 }
 
+void test_block_body() {
+  bytes_t data = read_testdata("body.ssz");
+  TEST_ASSERT_NOT_NULL_MESSAGE(data.data, "body.ssz not found");
+  ssz_ob_t  signed_beacon_block = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, data);
+  ssz_ob_t  block               = ssz_get(&signed_beacon_block, "message");
+  bytes32_t blockhash           = {0};
+  ssz_hash_tree_root(block, blockhash);
+  ASSERT_HEX_STRING_EQUAL("0x4dbac2cc64863d5b59244662993ef74f8635086b4096a9e29eef0cbc794f8841", blockhash, 32, "invalid blockhash");
+
+  // create state proof
+  ssz_ob_t body = ssz_get(&block, "body");
+  TEST_ASSERT_NOT_NULL_MESSAGE(body.bytes.data, "body not found");
+  char*    path[] = {"executionPayload", "stateRoot"};
+  buffer_t proof  = {0};
+  uint32_t gindex;
+  ssz_create_proof(body, (char**) path, sizeof(path) / sizeof(path[0]), &proof, &gindex);
+  TEST_ASSERT_EQUAL_UINT32(802, gindex);
+
+  // verify proof
+  ssz_ob_t  exec_state = ssz_get(&body, "executionPayload");
+  bytes_t   state_root = ssz_get(&exec_state, "stateRoot").bytes;
+  bytes32_t root       = {0};
+  bytes32_t body_root  = {0};
+  ssz_hash_tree_root(body, body_root);
+  ssz_verify_merkle_proof(proof.data, state_root.data, 802, root);
+
+  TEST_ASSERT_EQUAL_MESSAGE(32, state_root.len, "invalid stateroot length");
+  ASSERT_HEX_STRING_EQUAL("0xc255ec5d008f5c8bc009e6f7aff0dd831245efd6a3657c1f91d7c4c44613df12",
+                          state_root.data, 32, "invalid stateroot");
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(body_root, root, 32, "root hash must be the same after merkle proof");
+  TEST_ASSERT_EQUAL_MESSAGE(9, proof.data.len / 32, "invalid prooflength");
+  buffer_free(&proof);
+}
+
 void test_hash_root() {
 
   ssz_def_t TEST_TYPE[] = {
@@ -54,6 +88,6 @@ void test_hash_root() {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_hash_root);
-
+  RUN_TEST(test_block_body);
   return UNITY_END();
 }
