@@ -34,7 +34,7 @@ rlp_type_t rlp_decode(bytes_t* src, int index, bytes_t* target) {
     }
     else {
       size_t len = 0;
-      for (size_t i; i < (uint8_t) (c - 0xF7); i++)
+      for (size_t i = 0; i < (uint8_t) (c - 0xF7); i++)
         len |= (*(src->data + src_idx + 1 + i)) << (8 * ((c - 0xf7) - i - 1));
       if ((int) pos == index)
         return check_range(target, src, len, src->data + src_idx + c - 0xf7 + 1, RLP_LIST);

@@ -18,7 +18,7 @@ int patricia_match_nibbles(uint8_t* a, uint8_t* b) {
 }
 
 static int count_nibbles(uint8_t* a) {
-  for (int n;; n++) {
+  for (int n = 0;; n++) {
     if (a[n] == 0xFF) return n;
   }
 }
