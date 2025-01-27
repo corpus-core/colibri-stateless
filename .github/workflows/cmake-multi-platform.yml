@@ -39,6 +39,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Test
+      run: cmake --build ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=Debug -DTEST=true -S ${{github.workspace}} && cd ${{github.workspace}}/build && make && make test
+
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
 
