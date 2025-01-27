@@ -87,3 +87,5 @@ jobs:
         name: ctest-results
         path: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
         reporter: java-junit 
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
