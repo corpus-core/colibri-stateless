@@ -103,15 +103,18 @@ void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex
 
 /** gets the value of a union. If the object is not a union, it will return an empty object. A Object with the type SSZ_TYPE_NONE will be returned if the union is empty */
 ssz_ob_t ssz_union(ssz_ob_t ob);
-
+// returns the length of the fixed part of the object
+size_t ssz_fixed_length(const ssz_def_t* def);
 /** dumps the object to a file */
 void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend);
 
 /** hashes the object */
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
 bool ssz_create_proof(ssz_ob_t root, char** path, uint32_t path_len, buffer_t* proof, uint32_t* gindex);
-
+// checks if a definition has a dynamic length
+bool ssz_is_dynamic(const ssz_def_t* def);
 bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
+bool ssz_is_valid(ssz_ob_t* ob);
 
 extern const ssz_def_t ssz_uint8;
 extern const ssz_def_t ssz_bytes32;

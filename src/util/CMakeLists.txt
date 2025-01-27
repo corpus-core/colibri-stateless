@@ -12,6 +12,8 @@ endif()
 add_library(util STATIC 
   bytes.c 
   ssz.c
+  ssz_merkle.c
+  ssz_builder.c
   crypto.c
   plugin.c
   patricia.c
