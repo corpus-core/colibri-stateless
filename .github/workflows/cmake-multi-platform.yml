@@ -81,7 +81,9 @@ jobs:
         path: build/bin
 
     - name: Upload Test Results
-      uses: actions/upload-artifact@v4
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
       with:
-        name: junit-results
-        path: junit_output.xml
+        name: ctest-results
+        path: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
+        reporter: java-junit 
