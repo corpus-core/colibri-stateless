@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.5.1)
 project(c4)
 option(SHAREDLIB "if true the shared library will be build" OFF)
+option(TEST "if true the test will be build" OFF)
 
 
 set(OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -36,6 +37,11 @@ endif()
 
 add_subdirectory(src)
 add_subdirectory(libs)
+
+if(TEST)
+    enable_testing()
+    add_subdirectory(test)
+endif()
 
 # Define a custom target named 'doc'
 add_custom_target(doc ALL

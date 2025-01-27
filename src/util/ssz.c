@@ -376,6 +376,48 @@ static bool is_basic_type(const ssz_def_t* def) {
   return def->type == SSZ_TYPE_UINT || def->type == SSZ_TYPE_BOOLEAN || def->type == SSZ_TYPE_NONE;
 }
 
+// ------------------------ merkle --------------------------------
+
+typedef struct {
+  char**    path;
+  int       proof_gindex;
+  uint32_t  path_len;
+  buffer_t* proof;
+} merkle_proot_ctx_t;
+
+typedef struct {
+  ssz_ob_t            ob;
+  int                 max_depth;
+  int                 num_used_leafes;
+  int                 num_leafes;
+  int                 proof_gindex;
+  merkle_proot_ctx_t* proof;
+} merkle_ctx_t;
+
+#ifdef PRECOMPILE_ZERO_HASHES
+#define MAX_DEPTH 30
+static int     inited_zero_hashed = 0;
+static uint8_t ZERO_HASHES[MAX_DEPTH][32];
+static void    cached_zero_hash(int depth, uint8_t* out) {
+  if (depth < 0) {
+    memset(out, 0, 32);
+    return;
+  }
+  while (inited_zero_hashed < depth + 1) {
+    if (inited_zero_hashed == 0) {
+      bytes32_t zeros = {0};
+      sha256_merkle(bytes(zeros, 32), bytes(zeros, 32), ZERO_HASHES[inited_zero_hashed]);
+    }
+    else
+      sha256_merkle(bytes(ZERO_HASHES[inited_zero_hashed - 1], 32), bytes(ZERO_HASHES[inited_zero_hashed - 1], 32), ZERO_HASHES[inited_zero_hashed]);
+    inited_zero_hashed++;
+  }
+
+  memcpy(out, ZERO_HASHES[depth], 32);
+}
+
+#endif
+
 static int calc_num_leafes(const ssz_ob_t* ob, bool only_used) {
   const ssz_def_t* def = ob->def;
   switch (def->type) {
@@ -402,14 +444,17 @@ static int calc_num_leafes(const ssz_ob_t* ob, bool only_used) {
   }
 }
 
-static void set_leaf(ssz_ob_t ob, int index, uint8_t* out) {
+static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent);
+static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
   memset(out, 0, 32);
   const ssz_def_t* def = ob.def;
   switch (def->type) {
     case SSZ_TYPE_NONE: break;
     case SSZ_TYPE_CONTAINER: {
       if (index < def->def.container.len)
-        ssz_hash_tree_root(ssz_get(&ob, (char*) def->def.container.elements[index].name), out);
+        hash_tree_root(
+            ssz_get(&ob, (char*) def->def.container.elements[index].name),
+            out, ctx);
       break;
     }
     case SSZ_TYPE_VECTOR:
@@ -421,7 +466,7 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out) {
       if ((def->type == SSZ_TYPE_VECTOR || def->type == SSZ_TYPE_LIST) && !is_basic_type(def->def.vector.type)) {
         uint32_t len = ssz_len(ob);
         if (index < len)
-          ssz_hash_tree_root(ssz_at(ob, index), out);
+          hash_tree_root(ssz_at(ob, index), out, ctx);
         //        else if (index == len && def->type == SSZ_TYPE_LIST)
         //          *out = 1;
         return;
@@ -451,73 +496,116 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out) {
   }
 }
 
-#ifdef PRECOMPILE_ZERO_HASHES
-#define MAX_DEPTH 30
-static int     inited_zero_hashed = 0;
-static uint8_t ZERO_HASHES[MAX_DEPTH][32];
-static void    cached_zero_hash(int depth, uint8_t* out) {
-  if (depth > MAX_DEPTH) return;
-
-  while (inited_zero_hashed < depth) {
-    if (inited_zero_hashed == 0) {
-      bytes32_t zeros = {0};
-      sha256_merkle(bytes(zeros, 32), bytes(zeros, 32), ZERO_HASHES[inited_zero_hashed]);
-    }
-    else
-      sha256_merkle(bytes(ZERO_HASHES[inited_zero_hashed - 1], 32), bytes(ZERO_HASHES[inited_zero_hashed - 1], 32), ZERO_HASHES[inited_zero_hashed]);
-    inited_zero_hashed++;
-  }
-
-  memcpy(out, ZERO_HASHES[depth - 1], 32);
-}
-
-#endif
-
-static void merkle_hash(ssz_ob_t ob, int index, int depth, int max_depth, int num_used_leafes, uint8_t* out) {
+static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
   uint8_t temp[64];
 
   // how many leafes do we have from depth?
-  int subtree_depth = max_depth - depth;
+  int subtree_depth = ctx->max_depth - depth;
   int subtree_size  = 1 << subtree_depth;
+  int gindex        = (1 << depth) + index; // current gindex
+                                            //  char pre[100];
+                                            //  sprintf(pre, "## %d   (%d) :", gindex, ctx->proof_gindex);
 
   if (subtree_depth == 0) {
-    set_leaf(ob, index, out);
+    set_leaf(ctx->ob, index, out, ctx->proof_gindex == gindex ? ctx : NULL);
+    //  if (ctx->proof_gindex) print_hex(stdout, bytes(out, 32), pre, "\n");
+
+    //    if (ctx->proof && ctx->proof_gindex && (ctx->proof_gindex % 2 ? ctx->proof_gindex - 1 : ctx->proof_gindex + 1) == gindex)
+    //      buffer_append(ctx->proof->proof, bytes(out, 32));
+
     return;
   }
 
 #ifdef PRECOMPILE_ZERO_HASHES
 
-  int gindex           = (1 << depth) + index;               // current gindex
-  int subtree_min_leaf = gindex << subtree_depth;            // gindex of first leaf of the current subtree
-  int gindex_max_leaf  = (1 << max_depth) + num_used_leafes; // gindex of last leaf of the used leafes
-  if (gindex_max_leaf < subtree_min_leaf && subtree_depth < MAX_DEPTH) {
-    cached_zero_hash(subtree_depth, out);
+  int gindex_subtree_left_leaf = gindex << subtree_depth;                          // gindex of first leaf of the current subtree
+  int gindex_last_used_leaf    = (1 << ctx->max_depth) + ctx->num_used_leafes - 1; // gindex of last leaf of the used leafes
+  if (gindex_last_used_leaf < gindex_subtree_left_leaf && subtree_depth < MAX_DEPTH) {
+    cached_zero_hash(subtree_depth - 1, out);
+    //    if (ctx->proof && ctx->proof_gindex && ctx->proof_gindex >> subtree_depth == gindex) {
+    //      cached_zero_hash(subtree_depth - 2, temp);
+    //      buffer_append(ctx->proof->proof, bytes(temp, 32));
+    //    }
     return;
   }
 #endif
 
-  merkle_hash(ob, index << 1, depth + 1, max_depth, num_used_leafes, temp);
-  merkle_hash(ob, (index << 1) + 1, depth + 1, max_depth, num_used_leafes, temp + 32);
+  merkle_hash(ctx, index << 1, depth + 1, temp);
+  merkle_hash(ctx, (index << 1) + 1, depth + 1, temp + 32);
+  if (ctx->proof && ctx->proof_gindex && ctx->proof_gindex >> subtree_depth == gindex) {
+    if ((ctx->proof_gindex >> (subtree_depth - 1)) % 2)
+      buffer_append(ctx->proof->proof, bytes(temp, 32));
+    else
+      buffer_append(ctx->proof->proof, bytes(temp + 32, 32));
+  }
   sha256(bytes(temp, 64), out);
+  // if (ctx->proof_gindex) print_hex(stdout, bytes(out, 32), pre, "\n");
 }
 
-void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
+static inline void calc_leafes(merkle_ctx_t* ctx, ssz_ob_t ob) {
+  ctx->max_depth       = log2_ceil(calc_num_leafes(&ob, false));
+  ctx->num_used_leafes = calc_num_leafes(&ob, true);
+  ctx->num_leafes      = 1 << ctx->max_depth;
+  ctx->ob              = ob;
+}
+
+static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent) {
   memset(out, 0, 32);
   if (!ob.def) return;
-  int max_depth       = log2_ceil(calc_num_leafes(&ob, false));
-  int num_used_leafes = calc_num_leafes(&ob, true); // the number of leafes with actual content
-  int num_leafes      = 1 << max_depth;             // the number of leafes in total including zero chunks
-  if (num_leafes == 1)
-    set_leaf(ob, 0, out);
-  else
-    merkle_hash(ob, 0, 0, max_depth, num_used_leafes, out);
+  merkle_ctx_t ctx = {0};
+  calc_leafes(&ctx, ob);
 
+  if (ctx.num_leafes == 1) {
+    set_leaf(ob, 0, out, NULL);
+    return;
+  }
+  // if proof is not null, we are in the proof generation phase
+  if (parent && parent->proof && parent->proof->path_len && ob.def->type == SSZ_TYPE_CONTAINER) {
+    int index = -1;
+    for (int i = 0; i < ob.def->def.container.len; i++) {
+      if (strcmp(ob.def->def.container.elements[i].name, parent->proof->path[0]) == 0) {
+        index = i;
+        break;
+      }
+    }
+    if (index >= 0) {
+      ctx.proof_gindex = (1 << ctx.max_depth) + index;
+      parent->proof->path++;
+      parent->proof->path_len--;
+      ctx.proof               = parent->proof;
+      ctx.proof->proof_gindex = ctx.proof->proof_gindex ? ssz_add_gindex(ctx.proof->proof_gindex, ctx.proof_gindex) : ctx.proof_gindex;
+    }
+  }
+
+  merkle_hash(&ctx, 0, 0, out);
+
+  // mix_in_length
   if (ob.def->type == SSZ_TYPE_LIST) {
-    // mix_in_length
     uint8_t length[32];
     uint64_to_le(length, (uint64_t) ssz_len(ob));
     sha256_merkle(bytes(out, 32), bytes(length, 32), out);
   }
+}
+
+void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
+  hash_tree_root(ob, out, NULL);
+}
+
+bool ssz_create_proof(ssz_ob_t root, char** path, uint32_t path_len, buffer_t* proof, uint32_t* gindex) {
+  bytes32_t          tmp;
+  merkle_proot_ctx_t proof_ctx = {
+      .path         = path,
+      .path_len     = path_len,
+      .proof_gindex = 0,
+      .proof        = proof};
+
+  merkle_ctx_t ctx = {0};
+  ctx.proof        = &proof_ctx;
+
+  hash_tree_root(root, tmp, &ctx);
+
+  *gindex = proof_ctx.proof_gindex;
+  return true;
 }
 
 static uint32_t get_depth(uint32_t gindex) {
@@ -573,7 +661,7 @@ void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex
 }
 
 uint32_t ssz_add_gindex(uint32_t gindex1, uint32_t gindex2) {
-  uint32_t depth = get_depth(gindex1);
+  uint32_t depth = get_depth(gindex1) + 1;
   return (gindex1 << depth) | (gindex2 & ((1 << depth) - 1));
 }
 

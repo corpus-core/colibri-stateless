@@ -109,6 +109,7 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend);
 
 /** hashes the object */
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
+bool ssz_create_proof(ssz_ob_t root, char** path, uint32_t path_len, buffer_t* proof, uint32_t* gindex);
 
 bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
 

@@ -53,9 +53,9 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Usage: %s -t <typename> -o <outfile> -nh <file.ssz> <field1> <field2> ...\n"
                     "\n"
                     "  -t <typename> : type name\n"
-                    "  -o <outfile> : output file\n"
-                    "  -h         : show hash_root\n"
-                    "  -n          : show typename\n"
+                    "  -o <outfile>  : output file\n"
+                    "  -h            : show hash_root\n"
+                    "  -n            : show typename\n"
                     "\n",
             argv[0]);
     exit(EXIT_FAILURE);

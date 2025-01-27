@@ -191,22 +191,20 @@ function get_cmake_options() {
 
 
     function read_dir(dir) {
-        for (let file of fs.readdirSync(dir)) {
-            if (file.endsWith('CMakeLists.txt')) {
-                let content = fs.readFileSync(dir + '/' + file, 'utf8').split('\n')
-                for (let line of content) {
-                    if (line.trim().startsWith('option(')) {
-                        let [name, description, val] = cmake_tokens(line.split('(')[1].split(')')[0].trim())
-                        options[name] = {
-                            default: val,
-                            description: description
-                        }
+        if (dir.endsWith('CMakeLists.txt')) {
+            let content = fs.readFileSync(dir, 'utf8').split('\n')
+            for (let line of content) {
+                if (line.trim().startsWith('option(')) {
+                    let [name, description, val] = cmake_tokens(line.split('(')[1].split(')')[0].trim())
+                    options[name] = {
+                        default: val,
+                        description: description
                     }
                 }
             }
-            else if (fs.statSync(dir + '/' + file).isDirectory())
-                read_dir(dir + '/' + file)
         }
+        else if (fs.statSync(dir).isDirectory())
+            fs.readdirSync(dir).forEach(file => read_dir(dir + '/' + file))
     }
 
     let options = {
@@ -217,7 +215,7 @@ function get_cmake_options() {
         }
     };
 
-    ['../src', '../libs'].forEach(read_dir)
+    ['../src', '../libs', '../CMakeLists.txt'].forEach(read_dir)
 
     return Object.keys(options).sort().map(name => `- **-D${name}**: ${options[name].description}  \n    Default: ${options[name].default}  \n${options[name].options ? `    Options: ${options[name].options.join(', ')}  \n` : ''
         }    Usage: \`cmake -D${name}=${options[name].default}\` ..`).join('\n\n') + '\n\n'
