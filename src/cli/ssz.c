@@ -56,6 +56,7 @@ int main(int argc, char* argv[]) {
                     "  -o <outfile>  : output file\n"
                     "  -h            : show hash_root\n"
                     "  -n            : show typename\n"
+                    "  -s            : show serialization\n"
                     "\n",
             argv[0]);
     exit(EXIT_FAILURE);
@@ -66,7 +67,7 @@ int main(int argc, char* argv[]) {
   char* out_filename = NULL;
   bool  show_hash    = false;
   bool  show_name    = false;
-
+  bool  show_serial  = false;
   for (int i = 2; i < argc; i++) {
     if (argv[i][0] == '-') {
       for (int j = 1; argv[i][j] != '\0'; j++) {
@@ -74,6 +75,8 @@ int main(int argc, char* argv[]) {
           show_hash = true;
         if (argv[i][j] == 'n')
           show_name = true;
+        if (argv[i][j] == 's')
+          show_serial = true;
         if (argv[i][j] == 'o') {
           out_filename = argv[i + 1];
           i++;
@@ -100,6 +103,12 @@ int main(int argc, char* argv[]) {
 
   if (out_filename) {
     write_bytes_to_file(out_filename, res.bytes.data, res.bytes.len);
+  }
+
+  if (show_serial) {
+    for (int i = 0; i < res.bytes.len; i += 32) {
+      print_hex(stdout, bytes(res.bytes.data + i, res.bytes.len - i < 32 ? res.bytes.len - i : 32), "# ", "\n");
+    }
   }
 
   if (ssz_is_error(res)) {

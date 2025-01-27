@@ -211,8 +211,15 @@ uint32_t ssz_len(ssz_ob_t ob) {
                  ? uint32_from_le(ob.bytes.data) / 4
                  : ob.bytes.len / get_fixed_length(ob.def->def.vector.type);
     case SSZ_TYPE_BIT_VECTOR:
-    case SSZ_TYPE_BIT_LIST:
       return ob.bytes.len * 8;
+    case SSZ_TYPE_BIT_LIST: {
+      uint8_t last_bit = ob.bytes.data[ob.bytes.len - 1];
+      for (int i = 7; i >= 0; i--) {
+        if (last_bit & (1 << i))
+          return ((ob.bytes.len - 1) * 8) + i;
+      }
+      return ob.bytes.len * 8;
+    }
     default: return 0;
   }
 }
@@ -277,9 +284,14 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
       break;
     }
     case SSZ_TYPE_BIT_VECTOR:
-    case SSZ_TYPE_BIT_LIST:
       print_hex(f, ob.bytes, "\"0x", "\"");
       break;
+    case SSZ_TYPE_BIT_LIST: {
+      uint32_t len = ssz_len(ob);
+      print_hex(f, bytes(ob.bytes.data, len >> 3), "\"0x", "\"");
+      //      print_hex(f, ob.bytes, "\"0x", "\"");
+      break;
+    }
     case SSZ_TYPE_VECTOR:
     case SSZ_TYPE_LIST: {
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
@@ -445,7 +457,7 @@ static int calc_num_leafes(const ssz_ob_t* ob, bool only_used) {
         return len;
     }
     case SSZ_TYPE_BIT_LIST:
-      return (def->def.vector.len + 256) >> 8;
+      return (((only_used ? ssz_len(*ob) : def->def.vector.len) + 255) >> 8);
     case SSZ_TYPE_BIT_VECTOR:
       return (def->def.vector.len + 255) >> 8;
     default:
@@ -466,9 +478,21 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
             out, ctx);
       break;
     }
+    case SSZ_TYPE_BIT_LIST: {
+      uint32_t bit_len = ssz_len(ob);
+      uint32_t chunks  = (bit_len + 255) >> 8;
+      if (index < chunks) {
+        uint32_t rest = ob.bytes.len - (index << 5);
+        memcpy(out, ob.bytes.data + (index << 5), rest > 32 ? 32 : rest);
+        if (index == chunks - 1) {
+          bit_len = bit_len % 256; // bits in the last chunk
+          out[bit_len >> 3] &= ~(1 << bit_len % 8);
+        }
+      }
+      return;
+    }
     case SSZ_TYPE_VECTOR:
     case SSZ_TYPE_LIST:
-    case SSZ_TYPE_BIT_LIST:
     case SSZ_TYPE_BIT_VECTOR: {
 
       // handle complex types
@@ -476,8 +500,6 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
         uint32_t len = ssz_len(ob);
         if (index < len)
           hash_tree_root(ssz_at(ob, index), out, ctx);
-        //        else if (index == len && def->type == SSZ_TYPE_LIST)
-        //          *out = 1;
         return;
       }
 
@@ -486,12 +508,6 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
       if (len > BYTES_PER_CHUNK) len = BYTES_PER_CHUNK;
       if (offset < ob.bytes.len)
         memcpy(out, ob.bytes.data + offset, len);
-      if (/*def->type == SSZ_TYPE_LIST || */ def->type == SSZ_TYPE_BIT_LIST) {
-        if (offset < ob.bytes.len && len < BYTES_PER_CHUNK)
-          out[len] = 1;
-        else if (offset == ob.bytes.len)
-          out[0] = 1;
-      }
       break;
     }
     case SSZ_TYPE_UINT:
@@ -513,11 +529,11 @@ static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
   int subtree_size  = 1 << subtree_depth;
   int gindex        = (1 << depth) + index; // current gindex
                                             //  char pre[100];
-                                            //  sprintf(pre, "## %d   (%d) :", gindex, ctx->proof_gindex);
+                                            // sprintf(pre, "## %d   (%d) :", gindex, ctx->proof_gindex);
 
   if (subtree_depth == 0) {
     set_leaf(ctx->ob, index, out, ctx->proof_gindex == gindex ? ctx : NULL);
-    //  if (ctx->proof_gindex) print_hex(stdout, bytes(out, 32), pre, "\n");
+    //    print_hex(stdout, bytes(out, 32), pre, "\n");
 
     //    if (ctx->proof && ctx->proof_gindex && (ctx->proof_gindex % 2 ? ctx->proof_gindex - 1 : ctx->proof_gindex + 1) == gindex)
     //      buffer_append(ctx->proof->proof, bytes(out, 32));
@@ -548,7 +564,7 @@ static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
       buffer_append(ctx->proof->proof, bytes(temp + 32, 32));
   }
   sha256(bytes(temp, 64), out);
-  // if (ctx->proof_gindex) print_hex(stdout, bytes(out, 32), pre, "\n");
+  //    print_hex(stdout, bytes(out, 32), pre, "\n");
 }
 
 static inline void calc_leafes(merkle_ctx_t* ctx, ssz_ob_t ob) {
@@ -564,10 +580,6 @@ static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent) {
   merkle_ctx_t ctx = {0};
   calc_leafes(&ctx, ob);
 
-  if (ctx.num_leafes == 1) {
-    set_leaf(ob, 0, out, NULL);
-    return;
-  }
   // if proof is not null, we are in the proof generation phase
   if (parent && parent->proof && parent->proof->path_len && ob.def->type == SSZ_TYPE_CONTAINER) {
     int index = -1;
@@ -585,12 +597,14 @@ static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent) {
       ctx.proof->proof_gindex = ctx.proof->proof_gindex ? ssz_add_gindex(ctx.proof->proof_gindex, ctx.proof_gindex) : ctx.proof_gindex;
     }
   }
-
-  merkle_hash(&ctx, 0, 0, out);
+  if (ctx.num_leafes == 1)
+    set_leaf(ob, 0, out, NULL);
+  else
+    merkle_hash(&ctx, 0, 0, out);
 
   // mix_in_length
-  if (ob.def->type == SSZ_TYPE_LIST) {
-    uint8_t length[32];
+  if (ob.def->type == SSZ_TYPE_LIST || ob.def->type == SSZ_TYPE_BIT_LIST) {
+    uint8_t length[32] = {0};
     uint64_to_le(length, (uint64_t) ssz_len(ob));
     sha256_merkle(bytes(out, 32), bytes(length, 32), out);
   }
