@@ -39,9 +39,9 @@ if(WIN32)
     add_custom_command(
         OUTPUT ${BLST_LIB}
         COMMAND ${CMAKE_COMMAND} -E env CFLAGS=-ffunction-sections\ -fdata-sections ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
-        COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+        COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
-        COMMENT "Building and moving libblst.a with optimization flags on Windows"
+        COMMENT "Building and copying libblst.a with optimization flags on Windows"
         VERBATIM
     )
 else()
