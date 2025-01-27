@@ -80,12 +80,12 @@ jobs:
         name: ${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.c_compiler }}
         path: build/bin
 
-    - name: Upload Test Results
-      uses: dorny/test-reporter@v1
-      if: success() || failure()
-      with:
-        name: ctest-results
-        path: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
-        reporter: java-junit 
-      env:
-        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+#    - name: Upload Test Results
+#      uses: dorny/test-reporter@v1
+#      if: success() || failure()
+#      with:
+#        name: ctest-results
+#        path: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
+#        reporter: java-junit 
+#      env:
+#        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
