@@ -38,6 +38,7 @@ json_t   json_get(json_t parent, char* property);
 json_t   json_at(json_t parent, size_t index);
 size_t   json_len(json_t parent);
 char*    json_as_string(json_t parent, buffer_t* buffer);
+char*    json_new_string(json_t parent);
 bytes_t  json_as_bytes(json_t parent, buffer_t* buffer);
 uint64_t json_as_uint64(json_t val);
 bool     json_as_bool(json_t val);

@@ -186,3 +186,11 @@ void buffer_add_json(buffer_t* buffer, json_t data) {
   buffer_append(buffer, bytes((uint8_t*) data.start, data.len));
   buffer->data.data[buffer->data.len] = 0;
 }
+
+char* json_new_string(json_t parent) {
+  char* new_str = (char*) malloc(parent.len + 1);
+  if (!new_str) return NULL;
+  memcpy(new_str, parent.start, parent.len);
+  new_str[parent.len] = '\0';
+  return new_str;
+}

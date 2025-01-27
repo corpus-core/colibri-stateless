@@ -100,11 +100,11 @@ c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json
       json_t error = json_get(response, "error");
       if (error.type == JSON_TYPE_OBJECT) {
         error      = json_get(error, "message");
-        ctx->error = strndup(error.start, error.len);
+        ctx->error = json_new_string(error);
         return C4_ERROR;
       }
       else if (error.type == JSON_TYPE_STRING) {
-        ctx->error = strndup(error.start, error.len);
+        ctx->error = json_new_string(error);
         return C4_ERROR;
       }
 
