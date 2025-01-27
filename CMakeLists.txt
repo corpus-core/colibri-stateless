@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.10...3.32)
 project(c4)
 option(SHAREDLIB "if true the shared library will be build" OFF)
 option(TEST "if true the test will be build" OFF)
