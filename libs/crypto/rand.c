@@ -55,18 +55,32 @@ uint32_t random32(void) {
 //
 
 #if defined(_MSC_VER)
-#define WEAK __declspec(selectany)
+#define WEAK
 #else
 #define WEAK __attribute__((weak))
 #endif
 
-void WEAK random_buffer(uint8_t* buf, size_t len) {
+// Declare a function pointer for random_buffer
+void (*random_buffer_ptr)(uint8_t* buf, size_t len) = NULL;
+
+// Define the default implementation
+void default_random_buffer(uint8_t* buf, size_t len) {
   uint32_t r = 0;
   for (size_t i = 0; i < len; i++) {
     if (i % 4 == 0) {
       r = random32();
     }
     buf[i] = (r >> ((i % 4) * 8)) & 0xFF;
+  }
+}
+
+// Initialize the function pointer to the default implementation
+void WEAK random_buffer(uint8_t* buf, size_t len) {
+  if (random_buffer_ptr) {
+    random_buffer_ptr(buf, len);
+  }
+  else {
+    default_random_buffer(buf, len);
   }
 }
 
