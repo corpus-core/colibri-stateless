@@ -46,7 +46,10 @@ jobs:
             c_compiler: clang
           - os: ubuntu-latest
             c_compiler: cl
-
+          - os: macos-latest
+            c_compiler: cl
+          - os: macos-latest
+            c_compiler: gcc
     steps:
     - uses: actions/checkout@v4
 
