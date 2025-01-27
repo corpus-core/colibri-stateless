@@ -2,7 +2,12 @@ include(FetchContent)
 
 # Define the output path for the static library
 set(BLST_LIB_OUTPUT_DIR ${CMAKE_BINARY_DIR}/libs/blst)
-set(BLST_LIB ${BLST_LIB_OUTPUT_DIR}/libblst.a)
+
+if(WIN32)
+    set(BLST_LIB ${BLST_LIB_OUTPUT_DIR}/blst.lib)
+else()
+    set(BLST_LIB ${BLST_LIB_OUTPUT_DIR}/libblst.a)
+endif()
 
 # Ensure the output directory exists
 file(MAKE_DIRECTORY ${BLST_LIB_OUTPUT_DIR})
@@ -39,9 +44,10 @@ if(WIN32)
     add_custom_command(
         OUTPUT ${BLST_LIB}
         COMMAND ${CMAKE_COMMAND} -E env CFLAGS=-ffunction-sections\ -fdata-sections ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
-        COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+        COMMAND ${CMAKE_COMMAND} -E echo "Checking if blst.lib exists"
+        COMMAND ${CMAKE_COMMAND} -E if(EXISTS ${blst_SOURCE_DIR}/blst.lib) copy ${blst_SOURCE_DIR}/blst.lib ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
-        COMMENT "Building and copying libblst.a with optimization flags on Windows"
+        COMMENT "Building and copying blst.lib with optimization flags on Windows"
         VERBATIM
     )
 else()
