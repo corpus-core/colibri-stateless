@@ -35,14 +35,25 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
     # Add a custom command to build the library using the script
 endif()
 
-add_custom_command(
-    OUTPUT ${BLST_LIB}
-    COMMAND ${CMAKE_COMMAND} -E env CFLAGS=-ffunction-sections\ -fdata-sections bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
-    COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
-    WORKING_DIRECTORY ${blst_SOURCE_DIR}
-    COMMENT "Building and moving libblst.a with optimization flags"
-    VERBATIM
-)
+if(WIN32)
+    add_custom_command(
+        OUTPUT ${BLST_LIB}
+        COMMAND ${CMAKE_COMMAND} -E env CFLAGS=-ffunction-sections\ -fdata-sections ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
+        COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+        WORKING_DIRECTORY ${blst_SOURCE_DIR}
+        COMMENT "Building and moving libblst.a with optimization flags on Windows"
+        VERBATIM
+    )
+else()
+    add_custom_command(
+        OUTPUT ${BLST_LIB}
+        COMMAND ${CMAKE_COMMAND} -E env CFLAGS=-ffunction-sections\ -fdata-sections bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
+        COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+        WORKING_DIRECTORY ${blst_SOURCE_DIR}
+        COMMENT "Building and moving libblst.a with optimization flags on non-Windows"
+        VERBATIM
+    )
+endif()
 
 # Add a custom target that depends on the custom command
 add_custom_target(blst_lib ALL DEPENDS ${BLST_LIB})
