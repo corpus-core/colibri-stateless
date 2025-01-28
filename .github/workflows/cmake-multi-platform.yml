@@ -31,7 +31,7 @@ jobs:
       - name: Build Project
         uses: threeal/cmake-action@v2.0.0
         with:
-          options: -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=Debug 
+          options: TEST=true CURL=false CMAKE_BUILD_TYPE=Debug 
 
       - name: Test Project
         uses: threeal/ctest-action@v1.1.0
@@ -42,7 +42,7 @@ jobs:
         uses: threeal/gcovr-action@v1.1.0
         with:
           html-out: coverage.html
-          
+
   build:
     runs-on: ${{ matrix.os }}
 
