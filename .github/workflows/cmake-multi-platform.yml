@@ -21,6 +21,28 @@ jobs:
         with:
           binary_path: ./build/test/unittests/test_ssz_merkle
 
+
+  code_coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Project
+        uses: actions/checkout@v4.2.2
+
+      - name: Build Project
+        uses: threeal/cmake-action@v2.0.0
+        with:
+          options: -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=Debug 
+
+      - name: Test Project
+        uses: threeal/ctest-action@v1.1.0
+        with:
+          test-dir: build/test/unittests
+
+      - name: Check Test Coverage
+        uses: threeal/gcovr-action@v1.1.0
+        with:
+          html-out: coverage.html
+          
   build:
     runs-on: ${{ matrix.os }}
 
