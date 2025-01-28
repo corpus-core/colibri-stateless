@@ -4,8 +4,10 @@
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "ssz_types.h"
+#include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>
+
 static ssz_ob_t get_execution_payload(proofer_ctx_t* ctx, ssz_ob_t block) {
   ssz_ob_t body = ssz_get(&block, "body");
   return ssz_get(&body, "executionPayload");
@@ -17,7 +19,7 @@ c4_status_t get_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* block) {
   if (slot == 0)
     sprintf(path, "eth/v2/beacon/blocks/head");
   else {
-    sprintf(path, "eth/v2/beacon/blocks/%llu", slot);
+    sprintf(path, "eth/v2/beacon/blocks/%" PRIu64, slot);
   }
 
   bytes_t block_data;
@@ -51,7 +53,7 @@ c4_status_t get_latest_block(proofer_ctx_t* ctx, ssz_ob_t* sig_block, ssz_ob_t* 
 
 static c4_status_t get_eth_proof(proofer_ctx_t* ctx, json_t address, json_t* proof, uint64_t block_number) {
   char tmp[120];
-  snprintf(tmp, sizeof(tmp), "[%.44s,[],\"0x%llx\"]", address.start, block_number);
+  snprintf(tmp, sizeof(tmp), "[%.44s,[],\"0x%" PRIx64 "\"]", address.start, block_number);
   return c4_send_eth_rpc(ctx, "eth_getProof", tmp, proof);
 }
 
