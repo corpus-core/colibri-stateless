@@ -385,7 +385,7 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L63).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L66).
 
 ```python
 class C4Request(Container):
@@ -456,15 +456,15 @@ class Eth1Data(Container):
 represents the account and storage values, including the Merkle proof, of the specified account.
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L34).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L36).
 
 ```python
 class EthAccountProof(Container):
-    accountProof: List [bytes32, 256]           # Patricia merkle proof
+    accountProof: List [bytes_1024, 256]        # Patricia merkle proof
     address     : Address                       # the address of the account
-    balance     : Uint256                       # the balance of the account
+    balance     : Bytes32                       # the balance of the account
     codeHash    : Bytes32                       # the code hash of the account
-    nonce       : Uint256                       # the nonce of the account
+    nonce       : Bytes32                       # the nonce of the account
     storageHash : Bytes32                       # the storage hash of the account
     storageProof: List [EthStorageProof, 256]   # the storage proofs of the selected
     state_proof : EthStateProof                 # the state proof of the account
@@ -491,12 +491,12 @@ class EthStateProof(Container):
 represents the storage proof of a key
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L25).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L27).
 
 ```python
 class EthStorageProof(Container):
-    key  : Bytes32             # the key to be proven
-    proof: List [bytes32, 5]   # Patricia merkle proof
+    key  : Bytes32                # the key to be proven
+    proof: List [bytes_1024, 5]   # Patricia merkle proof
     value: Bytes32
 ```
 
@@ -533,7 +533,7 @@ class ExecutionPayload(Container):
 the block header of the execution layer proved within the beacon block
 
 
- The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L21).
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L23).
 
 ```python
 class ExecutionPayloadHeader(Container):
@@ -586,7 +586,7 @@ class IndexAttestation(Container):
 the header of the light client update
 
 
- The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L46).
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L48).
 
 ```python
 class LightClientHeader(Container):
@@ -601,7 +601,7 @@ the light client update is used to verify the transition between two periods of 
  This data will be fetched directly through the beacon Chain API since it contains all required data.
 
 
- The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L53).
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L55).
 
 ```python
 class LightClientUpdate(Container):
@@ -687,7 +687,7 @@ class SigningData(Container):
 the aggregates signature of the sync committee
 
 
- The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L41).
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L43).
 
 ```python
 class SyncAggregate(Container):
@@ -700,7 +700,7 @@ class SyncAggregate(Container):
 the public keys sync committee used within a period ( about 27h)
 
 
- The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L16).
+ The Type is defined in [verifier/types_beacon.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_beacon.c#L18).
 
 ```python
 class SyncCommittee(Container):

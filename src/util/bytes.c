@@ -104,6 +104,24 @@ void buffer_append(buffer_t* buffer, bytes_t data) {
   buffer->data.len += data.len;
 }
 
+void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data) {
+  buffer_grow(buffer, buffer->data.len + data.len - len);
+  uint32_t old_end_offset = offset + len;
+  uint32_t new_end_offset = offset + data.len;
+  // TODO add preallocated check
+  if (new_end_offset != old_end_offset && buffer->data.len - old_end_offset > 0)
+    memmove(buffer->data.data + new_end_offset, buffer->data.data + old_end_offset, buffer->data.len - old_end_offset);
+
+  if (data.len) {
+    if (data.data)
+      memcpy(buffer->data.data + offset, data.data, data.len);
+    else
+      memset(buffer->data.data + offset, 0, data.len);
+  }
+
+  buffer->data.len = buffer->data.len + data.len - len;
+}
+
 void buffer_free(buffer_t* buffer) {
   if (buffer->data.data && buffer->allocated > 0)
     free(buffer->data.data);
