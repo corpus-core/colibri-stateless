@@ -19,7 +19,7 @@ jobs:
       - name: Valgrind
         uses: ximaz/valgrind-action@v1.2.0
         with:
-          binary_path: ./build/test/unittests
+          binary_path: ./build/test/unittests/test_*
 
   build:
     runs-on: ${{ matrix.os }}
