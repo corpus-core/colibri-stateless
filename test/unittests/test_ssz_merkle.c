@@ -83,6 +83,7 @@ void test_hash_root() {
   TEST_ASSERT_EQUAL_MESSAGE(12, gindex, "invalid gindex");
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(root, root2, 32, "root hash must be the same after merkle proof");
   ASSERT_HEX_STRING_EQUAL("0xdf0a32672e8c927cfc3acd778121417e0597a8042d0994b6d069d16f66b62080", root, 32, "invalid hash tree root");
+  buffer_free(&proof);
 }
 
 int main(void) {
