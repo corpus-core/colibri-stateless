@@ -45,10 +45,10 @@ void ssz_add_bytes(ssz_builder_t* buffer, char* name, bytes_t data) {
     bytes = &(buffer->dynamic);
   }
   else
-    fixed_length = ssz_fixed_length(buffer->def);
+    fixed_length = ssz_fixed_length(def);
 
-  if (fixed_length && bytes->data.len < fixed_length)
-    buffer_append(bytes, bytes(NULL, fixed_length - bytes->data.len));
+  if (fixed_length && data.len < fixed_length)
+    buffer_append(bytes, bytes(NULL, fixed_length - data.len));
   buffer_append(bytes, data);
 }
 

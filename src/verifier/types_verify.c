@@ -49,8 +49,8 @@ const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate
 // A List of possible types of data matching the Proofs
 const ssz_def_t C4_REQUEST_DATA_UNION[] = {
     SSZ_NONE,
-    SSZ_BYTES32("blockhash")}; // the blochash  which is used for blockhash proof
-
+    SSZ_BYTES32("blockhash"), // the blochash  which is used for blockhash proof
+    SSZ_BYTES32("balance")};  // the balance of an account
 // A List of possible types of proofs matching the Data
 const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,

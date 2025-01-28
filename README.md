@@ -391,7 +391,8 @@ the main container defining the incoming data processed by the verifier
 class C4Request(Container):
     data     : Union[                 # the data to proof
         None,
-        Bytes32                       # the blochash  which is used for blockhash proof
+        Bytes32                       # the blochash  which is used for blockhash proof,
+        Bytes32                       # the balance of an account
     ]
     proof    : Union[                 # the proof of the data
         None,

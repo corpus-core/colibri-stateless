@@ -37,6 +37,7 @@ void     buffer_grow(buffer_t* buffer, size_t min_len);
 void     print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
 bool     bytes_all_equal(bytes_t a, uint8_t value);
 bytes_t  bytes_dup(bytes_t data);
+void     bytes_write(bytes_t data, FILE* f, bool close);
 int      hex_to_bytes(const char* hexstring, int len, bytes_t buffer);
 
 // creates a buffer on the stack which write into given variable on the stack and ensure to stay within the bounds of the variable

@@ -23,6 +23,8 @@ c4_status_t get_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* block) {
   bytes_t block_data;
   TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, &block_data));
 
+  bytes_write(block_data, fopen("signed_block.ssz", "w"), true);
+
   ssz_ob_t signed_block = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, block_data);
   *block                = ssz_get(&signed_block, "message");
   if (ssz_is_error(*block)) {
@@ -110,18 +112,18 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   // build the data
   json_as_bytes(json_get(eth_proof, "balance"), &tmp);
   buffer_splice(&tmp, 0, 0, bytes(NULL, 33 - tmp.data.len)); // we add zeros at the beginning so have a fixed length of 32+ selector
-  tmp.data.data[0] = 1;                                      // union selector for bytes32 == index 1
+  tmp.data.data[0] = 2;                                      // union selector for balance == index 2
 
   // build the request
   ssz_add_bytes(&c4_req, "data", tmp.data);
-  ssz_add_builders(&c4_req, "proof", &eth_state_proof);
+  ssz_add_builders(&c4_req, "proof", &eth_account_proof);
 
   // empty sync_data
   union_selector = 0;
   ssz_add_bytes(&c4_req, "sync_data", bytes(&union_selector, 1));
 
   buffer_free(&tmp);
-  ctx->proof = ssz_builder_to_bytes(&eth_account_proof).bytes;
+  ctx->proof = ssz_builder_to_bytes(&c4_req).bytes;
   return C4_SUCCESS;
 }
 
@@ -146,7 +148,7 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
   ssz_ob_t  sig_body = ssz_get(&sig_block, "body");
   ssz_ob_t  body     = ssz_get(&data_block, "body");
   bytes32_t body_root;
-  buffer_t  state_proof;
+  buffer_t  state_proof = {0};
   uint32_t  gindex;
 
   char* path[] = {"executionPayload", "stateRoot"};

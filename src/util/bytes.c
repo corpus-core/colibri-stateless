@@ -191,3 +191,9 @@ bytes_t bytes_dup(bytes_t data) {
   memcpy(result.data, data.data, data.len);
   return result;
 }
+
+void bytes_write(bytes_t data, FILE* f, bool close) {
+  if (!f) return;
+  fwrite(data.data, 1, data.len, f);
+  if (close && f != stdout && f != stderr) fclose(f);
+}
