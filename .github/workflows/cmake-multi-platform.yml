@@ -15,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Build
-        run: cmake -B build -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=Debug -S .
+        run: cmake -B build -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make
       - name: Valgrind
         uses: ximaz/valgrind-action@v1.2.0
         with:
