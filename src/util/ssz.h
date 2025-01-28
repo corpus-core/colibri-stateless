@@ -183,6 +183,8 @@ typedef struct {
 } ssz_builder_t;
 
 void ssz_add_bytes(ssz_builder_t* buffer, char* name, bytes_t data);
+void ssz_add_builders(ssz_builder_t* buffer, char* name, ssz_builder_t* data); // adds a builder to the buffer and frees the resources of the data builder
+void ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t data);
 void ssz_add_uint64(ssz_builder_t* buffer, uint64_t value);
 void ssz_add_uint32(ssz_builder_t* buffer, uint32_t value);
 void ssz_add_uint16(ssz_builder_t* buffer, uint16_t value);

@@ -74,12 +74,14 @@ int main(int argc, char* argv[]) {
   while (true) {
     switch (c4_proofer_execute(ctx)) {
       case C4_PROOFER_WAITING:
-        while ((req = c4_proofer_get_pending_data_request(ctx)))
+        while ((req = c4_proofer_get_pending_data_request(ctx))) {
 #ifdef USE_CURL
           curl_fetch(req);
 #else
           fprintf(stderr, "CURL not enabled\n");
+          exit(EXIT_FAILURE);
 #endif
+        }
         break;
 
       case C4_PROOFER_ERROR:

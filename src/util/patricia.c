@@ -1,6 +1,6 @@
 #include "crypto.h"
 #include "rlp.h"
-
+#include "ssz.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -103,7 +103,7 @@ static int handle_node(bytes_t* raw, uint8_t** k, bytes_t* expected_val, int las
   return 1;
 }
 
-int patricia_verify(bytes_t* root, bytes_t* p, bytes_t** proof, bytes_t* expected) {
+int patricia_verify(bytes32_t root, bytes_t* p, ssz_ob_t proof, bytes_t* expected) {
   int       result     = 1;
   uint8_t*  nibbles    = patricia_to_nibbles(*p, 0);
   uint8_t*  key        = nibbles;
@@ -111,13 +111,20 @@ int patricia_verify(bytes_t* root, bytes_t* p, bytes_t** proof, bytes_t* expecte
   bytes32_t expected_hash;
   bytes32_t node_hash;
 
-  memcpy(expected_hash, root->data, 32);
+  //  memcpy(expected_hash, root->data, 32);
 
-  size_t depth = 0;
-  for (; *proof; proof += 1) {
-    keccak(*(*proof), node_hash);
-    if (memcmp(expected_hash, node_hash, 32)) break;
-    if (!(result = handle_node(*proof, &key, expected, *(proof + 1) == NULL, &last_value, expected_hash, &depth))) break;
+  uint32_t proof_len = ssz_len(proof);
+  size_t   depth     = 0;
+  for (uint32_t i = 0; i < proof_len; i++) {
+    ssz_ob_t witness = ssz_at(proof, i);
+    keccak(witness.bytes, node_hash);
+    if (i == 0) {
+      memcpy(expected_hash, node_hash, 32);
+      memcpy(root, node_hash, 32);
+    }
+    else if (memcmp(expected_hash, node_hash, 32))
+      break;
+    if (!(result = handle_node(&witness.bytes, &key, expected, i + 1 == proof_len, &last_value, expected_hash, &depth))) break;
   }
 
   if (result && expected) {

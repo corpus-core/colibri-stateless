@@ -12,6 +12,8 @@ const ssz_def_t BEACON_BLOCK_HEADER[5] = {
     SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block
     SSZ_BYTES32("bodyRoot")};    // the hash_tree_root of the block body
 
+const ssz_def_t BEACON_BLOCKHEADER_CONTAINER = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
+
 // the public keys sync committee used within a period ( about 27h)
 const ssz_def_t SYNC_COMMITTEE[] = {
     SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512), // the 512 pubkeys (each 48 bytes) of the validators in the sync committee

@@ -14,7 +14,7 @@ extern "C" {
 extern const ssz_def_t BEACON_BLOCK_HEADER[5];
 extern const ssz_def_t LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t SYNC_AGGREGATE[2];
-
+extern const ssz_def_t BEACON_BLOCKHEADER_CONTAINER;
 #ifdef __cplusplus
 }
 #endif

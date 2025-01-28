@@ -62,12 +62,12 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  ssz_ob_t res = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, read_from_file(argv[1]));
-  //  ssz_ob_t res          = ssz_ob(C4_REQUEST_CONTAINER, read_from_file(argv[1]));
-  char* out_filename = NULL;
-  bool  show_hash    = false;
-  bool  show_name    = false;
-  bool  show_serial  = false;
+  //  ssz_ob_t res = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, read_from_file(argv[1]));
+  ssz_ob_t res          = ssz_ob(C4_REQUEST_CONTAINER, read_from_file(argv[1]));
+  char*    out_filename = NULL;
+  bool     show_hash    = false;
+  bool     show_name    = false;
+  bool     show_serial  = false;
   for (int i = 2; i < argc; i++) {
     if (argv[i][0] == '-') {
       for (int j = 1; argv[i][j] != '\0'; j++) {
@@ -80,10 +80,12 @@ int main(int argc, char* argv[]) {
         if (argv[i][j] == 'o') {
           out_filename = argv[i + 1];
           i++;
+          break;
         }
         if (argv[i][j] == 't') {
           res.def = get_def(argv[i + 1]);
           i++;
+          break;
         }
       }
     }

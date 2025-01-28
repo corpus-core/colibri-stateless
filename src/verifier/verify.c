@@ -22,6 +22,8 @@ void c4_verify(verify_ctx_t* ctx) {
     ctx->type = PROOF_TYPE_BEACON_HEADER;
     verify_blockhash_proof(ctx);
   }
+  else if (ssz_is_type(&ctx->proof, ETH_ACCOUNT_PROOF))
+    verify_account_proof(ctx);
   else {
     ctx->error   = "proof is not a supported proof type";
     ctx->success = false;

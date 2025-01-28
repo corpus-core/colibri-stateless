@@ -70,6 +70,29 @@ typedef enum {
 
 c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result);
 c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result);
+c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, bytes_t* result);
+
+#define TRY_ASYNC(fn)                      \
+  do {                                     \
+    c4_status_t state = fn;                \
+    if (state != C4_SUCCESS) return state; \
+  } while (0)
+
+#define TRY_ASYNC_FINAL(fn, final)         \
+  do {                                     \
+    c4_status_t state = fn;                \
+    final;                                 \
+    if (state != C4_SUCCESS) return state; \
+  } while (0)
+
+#define TRY_ASYNC_CATCH(fn, cleanup) \
+  do {                               \
+    c4_status_t state = fn;          \
+    if (state != C4_SUCCESS) {       \
+      cleanup;                       \
+      return state;                  \
+    }                                \
+  } while (0)
 
 #ifdef __cplusplus
 }

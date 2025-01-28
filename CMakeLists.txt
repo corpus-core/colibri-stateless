@@ -2,9 +2,15 @@ cmake_minimum_required(VERSION 3.10...3.32)
 project(c4)
 option(SHAREDLIB "if true the shared library will be build" OFF)
 option(TEST "if true the test will be build" OFF)
+option(COVERAGE "if true the coverage will be build" OFF)
 
 if(CURL)
     add_definitions(-DUSE_CURL)
+endif()
+
+if(COVERAGE)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
 endif()
 
 set(OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -44,6 +50,9 @@ add_subdirectory(libs)
 if(TEST)
     enable_testing()
     add_subdirectory(test)
+
+    # Set CTest arguments to include --output-on-failure
+    set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
 endif()
 
 # Define a custom target named 'doc'

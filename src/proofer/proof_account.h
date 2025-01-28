@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-void c4_proof_account(proofer_ctx_t* ctx);
+c4_status_t c4_proof_account(proofer_ctx_t* ctx);
 
 #ifdef __cplusplus
 }

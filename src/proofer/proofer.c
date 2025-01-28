@@ -221,7 +221,7 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, byte
     data_request = calloc(1, sizeof(data_request_t));
     memcpy(data_request->id, id, 32);
     data_request->url      = (char*) buffer.data.data;
-    data_request->encoding = C4_DATA_ENCODING_JSON;
+    data_request->encoding = C4_DATA_ENCODING_SSZ;
     data_request->method   = C4_DATA_METHOD_GET;
     data_request->type     = C4_DATA_TYPE_BEACON_API;
     c4_proofer_add_data_request(ctx, data_request);

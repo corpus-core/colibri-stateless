@@ -29,7 +29,6 @@ static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) 
 }
 
 static bool handle(data_request_t* req, char* url, buffer_t* error) {
-
   CURL* curl = curl_easy_init();
   if (!curl) {
     buffer_add_chars(error, "Failed to initialize curl");
@@ -69,6 +68,23 @@ static bool handle(data_request_t* req, char* url, buffer_t* error) {
 }
 
 void curl_fetch(data_request_t* req) {
+  /*
+  char filename[1024];
+  sprintf(filename, ".cache/%llx.req", *((long long*) req->id));
+  FILE* f = fopen(filename, "rb");
+  if (f) {
+    unsigned char buffer[1024];
+    size_t        bytesRead;
+    buffer_t      data = {0};
+
+    while ((bytesRead = fread(buffer, 1, 1024, f)) > 0)
+      buffer_append(&data, bytes(buffer, bytesRead));
+
+    fclose(f);
+    req->response = data.data;
+    return;
+  }
+*/
   // make sure there is a config
   if (!curl_config.config.start) curl_set_config(json_parse(DEFAULT_CONFIG));
 
@@ -112,6 +128,8 @@ void curl_fetch(data_request_t* req) {
   else if (error.data.data)
     buffer_free(&error);
   buffer_free(&url);
+
+  //  if (req->response.data) bytes_write(req->response, fopen(filename, "wb"), true);
 }
 
 void curl_set_config(json_t config) {

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 // finds a definition by name within a container or a union
@@ -13,6 +14,21 @@ static const ssz_def_t* find_def(const ssz_def_t* def, char* name) {
     if (strcmp(def->def.container.elements[i].name, name) == 0) return def->def.container.elements + i;
   }
   return NULL;
+}
+void ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t data) {
+  const ssz_def_t* child_def = buffer->def->def.vector.type;
+  if (ssz_is_dynamic(child_def)) {
+    uint32_t offset = 4 * num_elements + buffer->dynamic.data.len;
+    ssz_add_uint32(buffer, offset);
+    buffer_append(&buffer->dynamic, data);
+  }
+  else
+    buffer_append(&buffer->fixed, data);
+}
+void ssz_add_builders(ssz_builder_t* buffer, char* name, ssz_builder_t* data) {
+  ssz_ob_t element = ssz_builder_to_bytes(data);
+  ssz_add_bytes(buffer, name, element.bytes);
+  free(element.bytes.data);
 }
 
 void ssz_add_bytes(ssz_builder_t* buffer, char* name, bytes_t data) {
@@ -29,11 +45,11 @@ void ssz_add_bytes(ssz_builder_t* buffer, char* name, bytes_t data) {
     bytes = &(buffer->dynamic);
   }
   else
-    fixed_length = ssz_fixed_length(buffer->def);
+    fixed_length = ssz_fixed_length(def);
 
+  if (fixed_length && data.len < fixed_length)
+    buffer_append(bytes, bytes(NULL, fixed_length - data.len));
   buffer_append(bytes, data);
-  if (fixed_length && bytes->data.len < fixed_length)
-    buffer_append(bytes, bytes(NULL, fixed_length - bytes->data.len));
 }
 
 void ssz_add_uint64(ssz_builder_t* buffer, uint64_t value) {

@@ -12,12 +12,14 @@ extern "C" {
 #include <stdlib.h>
 
 extern const ssz_def_t BLOCK_HASH_PROOF[4];
+extern const ssz_def_t ETH_ACCOUNT_PROOF[8];
 extern const ssz_def_t C4_REQUEST_DATA[];
 extern const ssz_def_t C4_REQUEST_PROOFS[];
 extern const ssz_def_t C4_REQUEST_SYNCDATA[];
 extern const ssz_def_t C4_REQUEST[];
 
 extern const ssz_def_t C4_REQUEST_CONTAINER;
+extern const ssz_def_t ETH_ACCOUNT_PROOF_CONTAINER;
 // extern const ssz_def_t BLOCK_HASH_PROOF_CONTAINER;
 
 #ifdef __cplusplus
