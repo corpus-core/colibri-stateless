@@ -41,8 +41,9 @@ jobs:
       - name: Check Test Coverage
         uses: threeal/gcovr-action@v1.1.0
         with:
+          excludes: libs.*
           xml-out: coverage.xml
-          
+
       - name: Code Coverage Summary Report
         uses: irongut/CodeCoverageSummary@v1.3.0
         with:
