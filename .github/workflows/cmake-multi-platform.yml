@@ -42,7 +42,7 @@ jobs:
         uses: threeal/gcovr-action@v1.1.0
         with:
           html-out: coverage.html
-          coveralls-send: true
+
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
