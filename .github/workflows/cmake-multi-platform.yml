@@ -43,6 +43,13 @@ jobs:
         with:
           html-out: coverage.html
 
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage_report
+          path: coverage.html
+
+
   build:
     runs-on: ${{ matrix.os }}
 
