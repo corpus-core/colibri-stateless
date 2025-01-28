@@ -68,6 +68,7 @@ static bool handle(data_request_t* req, char* url, buffer_t* error) {
 }
 
 void curl_fetch(data_request_t* req) {
+  /*
   char filename[1024];
   sprintf(filename, ".cache/%llx.req", *((long long*) req->id));
   FILE* f = fopen(filename, "rb");
@@ -83,7 +84,7 @@ void curl_fetch(data_request_t* req) {
     req->response = data.data;
     return;
   }
-
+*/
   // make sure there is a config
   if (!curl_config.config.start) curl_set_config(json_parse(DEFAULT_CONFIG));
 
@@ -128,7 +129,7 @@ void curl_fetch(data_request_t* req) {
     buffer_free(&error);
   buffer_free(&url);
 
-  if (req->response.data) bytes_write(req->response, fopen(filename, "wb"), true);
+  //  if (req->response.data) bytes_write(req->response, fopen(filename, "wb"), true);
 }
 
 void curl_set_config(json_t config) {
