@@ -41,7 +41,7 @@ jobs:
       - name: Check Test Coverage
         uses: threeal/gcovr-action@v1.1.0
         with:
-          excludes: libs.* build.*
+          excludes: libs.* build.* test.*
           xml-out: coverage.xml
 
       - name: Code Coverage Summary Report
