@@ -51,6 +51,7 @@ jobs:
           badge: true
           format: markdown
           output: both
+          thresholds: '30 50'
 
       - name: Add Coverage PR Comment
         uses: marocchino/sticky-pull-request-comment@v2
