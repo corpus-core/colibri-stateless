@@ -1,5 +1,6 @@
 #include "../util/bytes.h"
 #include "../util/crypto.h"
+#include "../util/request.h"
 #include "../util/ssz.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
@@ -35,7 +36,7 @@ void error(const char* msg) {
   fprintf(stderr, "%s\n", msg);
   exit(EXIT_FAILURE);
 }
-
+#ifdef USE_CURL
 static bool get_client_updates(verify_ctx_t* ctx) {
   char url[200] = {0};
   sprintf(url, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", (uint32_t) ctx->first_missing_period - 1, (uint32_t) (ctx->last_missing_period - ctx->first_missing_period + 1));
@@ -110,7 +111,7 @@ static bool get_client_updates(verify_ctx_t* ctx) {
   // wrap into request
   return true;
 }
-
+#endif
 int main(int argc, char* argv[]) {
   if (argc == 1) {
     fprintf(stderr, "Usage: %s request.ssz \n", argv[0]);
