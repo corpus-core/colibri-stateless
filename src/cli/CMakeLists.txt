@@ -6,18 +6,6 @@ if (CLI)
 
 
     add_executable(proof proofer.c)#
-    if(CURL)
-        target_link_libraries(proof PRIVATE 
-            curl_fetch
-            proofer
-            verifier
-        )
-    else()
-        target_link_libraries(proof PRIVATE 
-            proofer
-            verifier
-        )   
-    endif()
     set_target_properties(proof PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
@@ -32,12 +20,31 @@ if (CLI)
     )
 
     add_executable(verify verifier.c)
-    target_link_libraries(verify PRIVATE 
-      verifier
-    )
     set_target_properties(verify PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
+
+    if(CURL)
+        target_link_libraries(proof PRIVATE 
+            curl_fetch
+            proofer
+            verifier
+        )
+        target_link_libraries(verify PRIVATE 
+            curl_fetch
+            verifier
+        )
+
+    else()
+        target_link_libraries(proof PRIVATE 
+            proofer
+            verifier
+        )   
+        target_link_libraries(verify PRIVATE 
+            verifier
+        )
+
+    endif()
 
 
 

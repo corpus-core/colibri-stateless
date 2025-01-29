@@ -8,6 +8,14 @@ if(CURL)
     add_definitions(-DUSE_CURL)
 endif()
 
+
+if(TEST)
+    if(NOT DEFINED TESTDATA_DIR)
+        set(TESTDATA_DIR "${CMAKE_SOURCE_DIR}/test/data")
+    endif()
+    add_definitions(-DTEST -DTESTDATA_DIR="${TESTDATA_DIR}")
+endif()
+
 if(COVERAGE)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")

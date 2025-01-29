@@ -25,7 +25,7 @@ c4_status_t get_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* block) {
   bytes_t block_data;
   TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, &block_data));
 
-  bytes_write(block_data, fopen("signed_block.ssz", "w"), true);
+  //  bytes_write(block_data, fopen("signed_block.ssz", "w"), true);
 
   ssz_ob_t signed_block = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, block_data);
   *block                = ssz_get(&signed_block, "message");

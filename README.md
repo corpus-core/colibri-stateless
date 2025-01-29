@@ -235,6 +235,10 @@ bin/verify ../test/data/proof_data.ssz
     Options: Debug, Release, RelWithDebInfo, MinSizeRel  
     Usage: `cmake -DCMAKE_BUILD_TYPE=Release` ..
 
+- **-DCOVERAGE**: if true the coverage will be build  
+    Default: OFF  
+    Usage: `cmake -DCOVERAGE=OFF` ..
+
 - **-DCURL**: if true curl will be used as transport  
     Default: ON  
     Usage: `cmake -DCURL=ON` ..
@@ -714,7 +718,7 @@ class SyncCommittee(Container):
 the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
 
 
- The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L13).
+ The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L15).
 
 ```python
 class SyncState(Container):
