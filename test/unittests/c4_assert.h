@@ -92,6 +92,7 @@ static bytes_t read_testdata(const char* filename) {
   while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
     buffer_append(&data, bytes(buffer, bytesRead));
 
+  fclose(file);
   return data.data;
 }
 
