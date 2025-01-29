@@ -18,6 +18,7 @@ typedef struct {
 
 const c4_sync_state_t c4_get_validators(uint32_t period);
 bool                  c4_update_from_sync_data(verify_ctx_t* ctx);
+bool                  c4_handle_client_updates(bytes_t client_updates);
 #ifdef __cplusplus
 }
 #endif

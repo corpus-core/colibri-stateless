@@ -1,8 +1,10 @@
 #include "sync_committee.h"
+#include "../util/json.h"
 #include "../util/plugin.h"
 #include "../util/ssz.h"
 #include "default_synccommittee.h"
 #include "types_beacon.h"
+#include "types_verify.h"
 #include "verify.h"
 #include <string.h>
 
@@ -138,5 +140,50 @@ bool c4_update_from_sync_data(verify_ctx_t* ctx) {
         RETURN_VERIFY_ERROR(ctx, "unknown sync_data type!");
     }
   }
+  return true;
+}
+
+bool c4_handle_client_updates(bytes_t client_updates) {
+
+  buffer_t updates = {0};
+  if (client_updates.len && client_updates.data[0] == '{') {
+    json_t json = json_parse((char*) client_updates.data);
+    json_t msg  = json_get(json, "message");
+    if (msg.start) return false;
+  }
+
+  uint32_t pos = 0;
+  while (pos < client_updates.len) {
+    updates.data.len = 0;
+    uint64_t length  = uint64_from_le(client_updates.data + pos);
+    buffer_grow(&updates, length + 100);
+    buffer_append(&updates, bytes(NULL, 15)); // 3 offsets + 3 union bytes
+    uint64_to_le(updates.data.data, 12);      // offset for data
+    uint64_to_le(updates.data.data + 4, 13);  // offset for proof
+    uint64_to_le(updates.data.data + 8, 14);  // offset for sync
+    updates.data.data[14] = 1;                // union type for lightclient updates
+
+    ssz_builder_t builder = {0};
+    builder.def           = (ssz_def_t*) (C4_REQUEST_SYNCDATA_UNION + 1); // union type for lightclient updates
+    ssz_add_dynamic_list_bytes(&builder, 1, bytes(client_updates.data + pos + 8 + 4, length - 4));
+    bytes_t list_data = ssz_builder_to_bytes(&builder).bytes;
+    buffer_append(&updates, list_data);
+    free(list_data.data);
+
+    verify_ctx_t sync_ctx = {0};
+    c4_verify_from_bytes(&sync_ctx, updates.data);
+    if (sync_ctx.error) return false;
+
+    pos += length + 8;
+  }
+
+  buffer_free(&updates);
+
+  // each entry:
+  //  - 8 bytes (uint64) length
+  //- 4 bytes forDigest
+  //- LightClientUpdate
+
+  // wrap into request
   return true;
 }

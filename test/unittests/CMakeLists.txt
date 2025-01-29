@@ -1,5 +1,5 @@
 # Finde alle C-Dateien im aktuellen Verzeichnis
-file(GLOB TEST_SOURCES *.c)
+file(GLOB TEST_SOURCES test_*.c)
 
 add_definitions(-DTEST_DATA_DIR=${CMAKE_SOURCE_DIR}/test/data)
 

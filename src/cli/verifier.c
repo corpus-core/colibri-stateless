@@ -13,6 +13,17 @@
 #include "../../libs/curl/http.h"
 #endif
 
+#ifdef TEST
+static char* REQ_TEST_DIR = NULL;
+
+static void set_req_test_dir(const char* dir) {
+  char* path = malloc(strlen(dir) + strlen(TESTDATA_DIR) + 5);
+  sprintf(path, "%s/%s", TESTDATA_DIR, dir);
+  REQ_TEST_DIR = path;
+}
+
+#endif
+
 static bytes_t read_from_file(const char* filename) {
   unsigned char buffer[1024];
   size_t        bytesRead;
@@ -57,7 +68,15 @@ static bool get_client_updates(verify_ctx_t* ctx) {
     fprintf(stderr, "Error fetching client updates: %s\n", req.error);
     return false;
   }
-  //  bytes_write(req.response, fopen("updates.ssz", "wb"), true);
+
+#ifdef TEST
+  if (REQ_TEST_DIR) {
+
+    char test_filename[1024];
+    sprintf(test_filename, "%s/sync_data_%d.ssz", REQ_TEST_DIR, (uint32_t) ctx->last_missing_period);
+    bytes_write(req.response, fopen(test_filename, "wb"), true);
+  }
+#endif
 
   buffer_t updates = {0};
   if (req.response.len && req.response.data[0] == '{') {
@@ -117,6 +136,13 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Usage: %s request.ssz \n", argv[0]);
     exit(EXIT_FAILURE);
   }
+
+#ifdef TEST
+  for (int i = 2; i < argc; i++) {
+    if (strcmp(argv[i], "-t") == 0)
+      set_req_test_dir(argv[++i]);
+  }
+#endif
 
   bytes_t request = read_from_file(argv[1]);
 

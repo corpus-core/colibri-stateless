@@ -5,10 +5,44 @@
 #include "../util/bytes.h"
 #include "../util/crypto.h"
 #include "../util/json.h"
+#include "../util/request.h"
 #include "../util/ssz.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef TEST
+#include <sys/stat.h>
+#include <sys/types.h>
+#ifdef _WIN32
+#include <direct.h>
+#define MKDIR(path) _mkdir(path)
+#else
+#include <unistd.h>
+#define MKDIR(path) mkdir(path, 0755)
+#endif
+
+static char* REQ_TEST_DIR = NULL;
+
+static void set_req_test_dir(const char* dir) {
+  char* path = malloc(strlen(dir) + strlen(TESTDATA_DIR) + 5);
+  sprintf(path, "%s/%s", TESTDATA_DIR, dir);
+  REQ_TEST_DIR = path;
+
+  if (MKDIR(path) != 0) {
+    perror("Error creating directory");
+  }
+}
+
+static void test_write_file(const char* filename, bytes_t data) {
+  if (!REQ_TEST_DIR) return;
+  char* path = malloc(strlen(REQ_TEST_DIR) + strlen(filename) + 5);
+  sprintf(path, "%s/%s", REQ_TEST_DIR, filename);
+  bytes_write(data, fopen(path, "w"), true);
+  free(path);
+}
+
+#endif
 
 static char* read_from_stdin() {
   unsigned char buffer[1024];
@@ -60,6 +94,11 @@ int main(int argc, char* argv[]) {
     if (method == NULL) {
       method = argv[i];
     }
+#ifdef TEST
+    else if (strcmp(argv[i], "-t") == 0) {
+      set_req_test_dir(argv[++i]);
+    }
+#endif
     else {
       if (buffer.data.len > 1) buffer_add_chars(&buffer, ",");
       buffer_add_chars(&buffer, "\"");
@@ -77,6 +116,13 @@ int main(int argc, char* argv[]) {
         while ((req = c4_proofer_get_pending_data_request(ctx))) {
 #ifdef USE_CURL
           curl_fetch(req);
+#ifdef TEST
+          if (req->response.data && REQ_TEST_DIR) {
+            char test_filename[1024];
+            sprintf(test_filename, "%llx.%s", *((unsigned long long*) req->id), req->type == C4_DATA_TYPE_BEACON_API ? "ssz" : "json");
+            test_write_file(test_filename, req->response);
+          }
+#endif
 #else
           fprintf(stderr, "CURL not enabled\n");
           exit(EXIT_FAILURE);

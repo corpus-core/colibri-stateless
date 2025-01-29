@@ -718,7 +718,7 @@ class SyncCommittee(Container):
 the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
 
 
- The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L13).
+ The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L15).
 
 ```python
 class SyncState(Container):
