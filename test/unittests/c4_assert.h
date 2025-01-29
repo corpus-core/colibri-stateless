@@ -93,6 +93,7 @@ static bytes_t read_testdata(const char* filename) {
     buffer_append(&data, bytes(buffer, bytesRead));
 
   fclose(file);
+  buffer_free(&path);
   return data.data;
 }
 
