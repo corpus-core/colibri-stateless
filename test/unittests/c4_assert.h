@@ -2,6 +2,7 @@
 #include "../../src/proofer/ssz_types.h"
 #include "../../src/util/bytes.h"
 #include "../../src/util/crypto.h"
+#include "../../src/util/json.h"
 #include "../../src/util/plugin.h"
 #include "../../src/util/request.h"
 #include "../../src/util/ssz.h"
@@ -132,7 +133,7 @@ static void verify(char* dirname, char* method, char* args) {
   // now verify
   for (int i = 0; i < 2; i++) {
     verify_ctx_t verify_ctx = {0};
-    c4_verify_from_bytes(&verify_ctx, proof_ctx->proof);
+    c4_verify_from_bytes(&verify_ctx, proof_ctx->proof, method, json_parse(args));
 
     if (verify_ctx.success) {
       c4_proofer_free(proof_ctx);

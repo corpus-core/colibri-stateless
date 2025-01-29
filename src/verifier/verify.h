@@ -7,6 +7,7 @@ extern "C" {
 
 #include "../util/bytes.h"
 #include "../util/crypto.h"
+#include "../util/json.h"
 #include "../util/ssz.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -20,6 +21,8 @@ typedef enum {
 
 typedef struct {
   proof_type_t type;
+  char*        method;
+  json_t       args;
   ssz_ob_t     proof;
   ssz_ob_t     data;
   ssz_ob_t     sync_data;
@@ -30,7 +33,7 @@ typedef struct {
 } verify_ctx_t;
 
 void c4_verify(verify_ctx_t* ctx);
-void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request);
+void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args);
 bool verify_blockhash_proof(verify_ctx_t* ctx);
 bool verify_account_proof(verify_ctx_t* ctx);
 

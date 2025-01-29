@@ -171,7 +171,7 @@ bool c4_handle_client_updates(bytes_t client_updates) {
     free(list_data.data);
 
     verify_ctx_t sync_ctx = {0};
-    c4_verify_from_bytes(&sync_ctx, updates.data);
+    c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0});
     if (sync_ctx.error) return false;
 
     pos += length + 8;

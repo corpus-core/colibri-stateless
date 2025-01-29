@@ -108,7 +108,7 @@ static bool get_client_updates(verify_ctx_t* ctx) {
     free(list_data.data);
 
     verify_ctx_t sync_ctx = {0};
-    c4_verify_from_bytes(&sync_ctx, updates.data);
+    c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0});
     if (sync_ctx.error) {
       if (sync_ctx.last_missing_period && sync_ctx.first_missing_period != ctx->first_missing_period)
         return get_client_updates(&sync_ctx);
@@ -137,19 +137,31 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-#ifdef TEST
-  for (int i = 2; i < argc; i++) {
-    if (strcmp(argv[i], "-t") == 0)
-      set_req_test_dir(argv[++i]);
-  }
-#endif
+  char*    method = NULL;
+  buffer_t args   = {0};
+  buffer_add_chars(&args, "[");
 
+  for (int i = 2; i < argc; i++) {
+    if (method == NULL)
+      method = argv[i];
+#ifdef TEST
+    else if (strcmp(argv[i], "-t") == 0)
+      set_req_test_dir(argv[++i]);
+#endif
+    else {
+      if (args.data.len > 1) buffer_add_chars(&args, ",");
+      buffer_add_chars(&args, "\"");
+      buffer_add_chars(&args, argv[i]);
+      buffer_add_chars(&args, "\"");
+    }
+  }
+  buffer_add_chars(&args, "]");
   bytes_t request = read_from_file(argv[1]);
 
   for (int i = 0; i < 5; i++) { // max 5 retries
 
     verify_ctx_t ctx = {0};
-    c4_verify_from_bytes(&ctx, request);
+    c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0});
 
     if (ctx.success) {
       ssz_dump(stdout, ctx.data, false, 0);

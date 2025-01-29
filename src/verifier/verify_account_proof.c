@@ -1,6 +1,7 @@
 
 #include "../util/bytes.h"
 #include "../util/crypto.h"
+#include "../util/json.h"
 #include "../util/patricia.h"
 #include "../util/rlp.h"
 #include "../util/ssz.h"
@@ -73,16 +74,21 @@ bool verify_account_proof(verify_ctx_t* ctx) {
   ssz_ob_t  header                   = ssz_get(&state_proof, "header");
   ssz_ob_t  sync_committee_bits      = ssz_get(&state_proof, "sync_committee_bits");
   ssz_ob_t  sync_committee_signature = ssz_get(&state_proof, "sync_committee_signature");
+  bytes_t   verified_address         = ssz_get(&ctx->proof, "address").bytes;
+  buffer_t  address_buf              = stack_buffer(body_root);
 
   if (ssz_is_error(header) || ssz_is_error(state_proof) || ssz_is_error(state_merkle_proof)) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing header or blockhash_proof!");
   if (ssz_is_error(sync_committee_bits) || sync_committee_bits.bytes.len != 64 || ssz_is_error(sync_committee_signature) || sync_committee_signature.bytes.len != 96) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing sync committee bits or signature!");
-  if (!ctx->data.def || !ssz_is_type(&ctx->data, &ssz_bytes32) || ctx->data.bytes.data == NULL || ctx->data.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid data, data is not a bytes32!");
+  if (!verified_address.data || verified_address.len != 20 || !ctx->data.def || !ssz_is_type(&ctx->data, &ssz_bytes32) || ctx->data.bytes.data == NULL || ctx->data.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid data, data is not a bytes32!");
 
   if (!verify_account_proof_exec(ctx, &ctx->proof, state_root)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
   ssz_verify_merkle_proof(state_merkle_proof.bytes, state_root, STATE_ROOT_GINDEX, body_root);
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
   if (!c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
 
+  bytes_t req_address = {0};
+  if (ctx->method && strcmp(ctx->method, "eth_getBalance") == 0) req_address = json_as_bytes(json_at(ctx->args, 0), &address_buf);
+  if (req_address.data && (req_address.len != 20 || memcmp(req_address.data, verified_address.data, 20) != 0)) RETURN_VERIFY_ERROR(ctx, "proof does not match the address in request");
   ctx->success = true;
   return true;
 }
