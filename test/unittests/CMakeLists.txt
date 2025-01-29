@@ -1,7 +1,7 @@
 # Finde alle C-Dateien im aktuellen Verzeichnis
 file(GLOB TEST_SOURCES test_*.c)
 
-add_definitions(-DTEST_DATA_DIR=${CMAKE_SOURCE_DIR}/test/data)
+#add_definitions(-DTEST_DATA_DIR=${CMAKE_SOURCE_DIR}/test/data)
 
 foreach(test_source ${TEST_SOURCES})
     # Extrahiere den Dateinamen ohne Pfad und Suffix
@@ -16,7 +16,7 @@ foreach(test_source ${TEST_SOURCES})
     # Verknüpfe die Testausführbare mit Unity und deinem Code
     target_link_libraries(${test_name} unity verifier proofer)
 
-    target_compile_definitions(${test_name} PRIVATE TESTDATA_DIR="${CMAKE_SOURCE_DIR}/test/data")
+#    target_compile_definitions(${test_name} PRIVATE TESTDATA_DIR="${CMAKE_SOURCE_DIR}/test/data")
 
     # Füge den Test zu CTest hinzu
     add_test(NAME ${test_name} COMMAND ${test_name})

@@ -15,11 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Build
-        run: cmake -B build -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make
+        run: cmake -B build -DTEST=true -DCURL=false  -DTESTDATA_DIR=/github/workspace/test/data -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make
       - name: Valgrind
         uses: ximaz/valgrind-action@v1.2.0
         with:
-          binary_path: ./build/test/unittests/test_ssz_merkle
+          binary_path: ./build/test/unittests/test_verify_balance
 
 
   code_coverage:
