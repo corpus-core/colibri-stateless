@@ -6,7 +6,7 @@ add_library(curl_fetch STATIC
 )
 
 # Verlinke libcurl mit deiner ausführbaren Datei
-target_link_libraries(curl_fetch util proofer CURL::libcurl)
-add_dependencies(curl_fetch util proofer)
+target_link_libraries(curl_fetch util CURL::libcurl)
+add_dependencies(curl_fetch util)
 
-target_include_directories(curl_fetch PRIVATE ../../src/proofer)
+target_include_directories(curl_fetch PRIVATE ../../src/util)

@@ -8,6 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef USE_CURL
+#include "../../libs/curl/http.h"
+#endif
 
 static bytes_t read_from_file(const char* filename) {
   unsigned char buffer[1024];
@@ -33,26 +36,117 @@ void error(const char* msg) {
   exit(EXIT_FAILURE);
 }
 
+static bool get_client_updates(verify_ctx_t* ctx) {
+  char url[200] = {0};
+  sprintf(url, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", (uint32_t) ctx->first_missing_period - 1, (uint32_t) (ctx->last_missing_period - ctx->first_missing_period + 1));
+  data_request_t req = {
+      .encoding = C4_DATA_ENCODING_SSZ,
+      .error    = NULL,
+      .id       = {0},
+      .method   = C4_DATA_METHOD_GET,
+      .payload  = {0},
+      .response = {0},
+      .type     = C4_DATA_TYPE_BEACON_API,
+      .url      = url};
+
+  sha256(bytes((uint8_t*) url, strlen(url)), req.id);
+
+  curl_fetch(&req);
+  if (req.error) {
+    fprintf(stderr, "Error fetching client updates: %s\n", req.error);
+    return false;
+  }
+  //  bytes_write(req.response, fopen("updates.ssz", "wb"), true);
+
+  buffer_t updates = {0};
+  if (req.response.len && req.response.data[0] == '{') {
+    json_t json = json_parse((char*) req.response.data);
+    json_t msg  = json_get(json, "message");
+
+    fprintf(stderr, "Error fetching updates: %s\n", json_as_string(msg, &updates));
+    exit(EXIT_FAILURE);
+  }
+
+  uint32_t pos    = 0;
+  uint32_t period = ctx->first_missing_period;
+  while (pos < req.response.len) {
+    fprintf(stderr, "## verifying period %d\n", period++);
+    updates.data.len = 0;
+    uint64_t length  = uint64_from_le(req.response.data + pos);
+    buffer_grow(&updates, length + 100);
+    buffer_append(&updates, bytes(NULL, 15)); // 3 offsets + 3 union bytes
+    uint64_to_le(updates.data.data, 12);      // offset for data
+    uint64_to_le(updates.data.data + 4, 13);  // offset for proof
+    uint64_to_le(updates.data.data + 8, 14);  // offset for sync
+    updates.data.data[14] = 1;                // union type for lightclient updates
+
+    ssz_builder_t builder = {0};
+    builder.def           = (ssz_def_t*) (C4_REQUEST_SYNCDATA_UNION + 1); // union type for lightclient updates
+    ssz_add_dynamic_list_bytes(&builder, 1, bytes(req.response.data + pos + 8 + 4, length - 4));
+    bytes_t list_data = ssz_builder_to_bytes(&builder).bytes;
+    buffer_append(&updates, list_data);
+    free(list_data.data);
+
+    verify_ctx_t sync_ctx = {0};
+    c4_verify_from_bytes(&sync_ctx, updates.data);
+    if (sync_ctx.error) {
+      if (sync_ctx.last_missing_period && sync_ctx.first_missing_period != ctx->first_missing_period)
+        return get_client_updates(&sync_ctx);
+
+      fprintf(stderr, "Error verifying sync data: %s\n", sync_ctx.error);
+      return false;
+    }
+
+    pos += length + 8;
+  }
+
+  buffer_free(&updates);
+
+  // each entry:
+  //  - 8 bytes (uint64) length
+  //- 4 bytes forDigest
+  //- LightClientUpdate
+
+  // wrap into request
+  return true;
+}
+
 int main(int argc, char* argv[]) {
   if (argc == 1) {
     fprintf(stderr, "Usage: %s request.ssz \n", argv[0]);
     exit(EXIT_FAILURE);
   }
 
-  verify_ctx_t ctx = {0};
-  c4_verify_from_bytes(&ctx, read_from_file(argv[1]));
+  bytes_t request = read_from_file(argv[1]);
 
-  ssz_ob_t res = ssz_ob(C4_REQUEST_CONTAINER, read_from_file(argv[1]));
+  for (int i = 0; i < 5; i++) { // max 5 retries
 
-  if (ctx.success) {
-    printf("proof is valid\n");
-    return EXIT_SUCCESS;
+    verify_ctx_t ctx = {0};
+    c4_verify_from_bytes(&ctx, request);
+
+    if (ctx.success) {
+      ssz_dump(stdout, ctx.data, false, 0);
+      fflush(stdout);
+      //      fprintf(stderr, "proof is valid\n");
+      return EXIT_SUCCESS;
+    }
+    else {
+
+      if (ctx.first_missing_period) printf("first missing period: %" PRIu64 "\n", ctx.first_missing_period);
+      if (ctx.last_missing_period) printf("last missing period: %" PRIu64 "\n", ctx.last_missing_period);
+// getting the client updates
+#ifdef USE_CURL
+      if (!ctx.first_missing_period || !get_client_updates(&ctx)) {
+        fprintf(stderr, "proof is invalid: %s\n", ctx.error);
+        return EXIT_FAILURE;
+      }
+//      bytes_t updates = get_client_updates(ctx.first_missing_period, ctx.last_missing_period);
+//      c4_verify_from_bytes(&ctx, updates);
+#else
+      fprintf(stderr, "proof is invalid: %s\n", ctx.error);
+      return EXIT_FAILURE;
+#endif
+    }
   }
-  else {
-    printf("proof is invalid: %s\n", ctx.error);
-
-    if (ctx.first_missing_period) printf("first missing period: %" PRIu64 "\n", ctx.first_missing_period);
-    if (ctx.last_missing_period) printf("last missing period: %" PRIu64 "\n", ctx.last_missing_period);
-    return EXIT_FAILURE;
-  }
+  return EXIT_FAILURE;
 }

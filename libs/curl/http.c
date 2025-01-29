@@ -1,5 +1,5 @@
 #include "http.h"
-#include "proofer.h"
+#include "request.h"
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <string.h>

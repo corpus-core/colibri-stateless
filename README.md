@@ -235,6 +235,10 @@ bin/verify ../test/data/proof_data.ssz
     Options: Debug, Release, RelWithDebInfo, MinSizeRel  
     Usage: `cmake -DCMAKE_BUILD_TYPE=Release` ..
 
+- **-DCOVERAGE**: if true the coverage will be build  
+    Default: OFF  
+    Usage: `cmake -DCOVERAGE=OFF` ..
+
 - **-DCURL**: if true curl will be used as transport  
     Default: ON  
     Usage: `cmake -DCURL=ON` ..
