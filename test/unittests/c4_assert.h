@@ -85,7 +85,6 @@ static bytes_t read_testdata(const char* filename) {
   FILE* file = fopen((char*) path.data.data, "rb");
   buffer_free(&path);
   if (file == NULL) {
-    buffer_free(&path);
     fprintf(stderr, "Error opening file: %s\n", filename);
     return NULL_BYTES;
   }
@@ -94,7 +93,6 @@ static bytes_t read_testdata(const char* filename) {
     buffer_append(&data, bytes(buffer, bytesRead));
 
   fclose(file);
-  buffer_free(&path);
   return data.data;
 }
 
