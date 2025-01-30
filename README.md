@@ -550,14 +550,14 @@ class Eth1Data(Container):
 
 ```python
 class EthAccountProof(Container):
-    accountProof                                                                                                                                                                   : List [bytes_1024, 256]        # Patricia merkle proof
-    address                                                                                                                                                                        : Address                       # the address of the account
-    balance                                                                                                                                                                        : Bytes32                       # the balance of the account
-    codeHash                                                                                                                                                                       : Bytes32                       # the code hash of the account
-    nonce                                                                                                                                                                          : Bytes32                       # the nonce of the account
-    storageHash                                                                                                                                                                    : Bytes32                       # the storage hash of the account
-    storageProof                                                                                                                                                                   : List [EthStorageProof, 256]   # the storage proofs of the selected
-    state_proof                                                                                                                                                                    : EthStateProof                 # the state proof of the account
+    accountProof: List [bytes_1024, 256]        # Patricia merkle proof
+    address     : Address                       # the address of the account
+    balance     : Bytes32                       # the balance of the account
+    codeHash    : Bytes32                       # the code hash of the account
+    nonce       : Bytes32                       # the nonce of the account
+    storageHash : Bytes32                       # the storage hash of the account
+    storageProof: List [EthStorageProof, 256]   # the storage proofs of the selected
+    state_proof : EthStateProof                 # the state proof of the account
 ```
 
 ### EthStateProof
@@ -625,12 +625,12 @@ represents the account and storage values, including the Merkle proof, of the sp
 
 ```python
 class EthTransactionProof(Container):
-    transaction                                                                                              : Bytes[1073741824]    # the raw transaction payload
-    transactionIndex                                                                                         : Uint32               # the index of the transaction in the block
-    proof                                                                                                    : List [bytes32, 64]   # the multi proof of the transaction, blockNumber and blockHash
-    header                                                                                                   : BeaconBlockHeader    # the header of the beacon block
-    sync_committee_bits                                                                                      : BitVector [512]      # the bits of the validators that signed the block
-    sync_committee_signature                                                                                 : ByteVector [96]      # the signature of the sync committee
+    transaction             : Bytes[1073741824]    # the raw transaction payload
+    transactionIndex        : Uint32               # the index of the transaction in the block
+    proof                   : List [bytes32, 64]   # the multi proof of the transaction, blockNumber and blockHash
+    header                  : BeaconBlockHeader    # the header of the beacon block
+    sync_committee_bits     : BitVector [512]      # the bits of the validators that signed the block
+    sync_committee_signature: ByteVector [96]      # the signature of the sync committee
 ```
 
 ### ExecutionPayload
