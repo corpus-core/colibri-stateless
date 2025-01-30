@@ -13,8 +13,8 @@
     - [eth_getNonce](#eth_getnonce)
     - [eth_getProof](#eth_getproof)
     - [eth_getStorageAt](#eth_getstorageat)
-- [eth_getTransactionByHash](#eth_gettransactionbyhash)
-- [eth_getTransactionByBlockHashAndIndex](#eth_gettransactionbyblockhashandindex)
+    - [eth_getTransactionByHash](#eth_gettransactionbyhash)
+    - [eth_getTransactionByBlockHashAndIndex](#eth_gettransactionbyblockhashandindex)
 - [Building](#building)
     - [CMake Options](#cmake-options)
 - [SSZ Types](#ssz-types)
@@ -238,12 +238,12 @@ not implemented yet
 
 not implemented yet
 
-## eth_getTransactionByHash
+### eth_getTransactionByHash
 
 - Data: [EthTransactionData](#ethtransactiondata)
 - Proof: [EthTransactionProof](#ethtransactionproof)
 
-## eth_getTransactionByBlockHashAndIndex
+### eth_getTransactionByBlockHashAndIndex
 
 
 - Data: [EthTransactionData](#ethtransactiondata)
