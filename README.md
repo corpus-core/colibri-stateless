@@ -226,6 +226,22 @@ bin/verify ../test/data/proof_data.ssz
 
 ### CMake Options
 
+- **-DBUILD_EMSCRIPTEN**: Build emscripten bindings  
+    Default: OFF  
+    Usage: `cmake -DBUILD_EMSCRIPTEN=OFF` ..
+
+- **-DBUILD_NODEJS**: Build nodejs bindings  
+    Default: OFF  
+    Usage: `cmake -DBUILD_NODEJS=OFF` ..
+
+- **-DBUILD_PYTHON**: Build Python bindings  
+    Default: OFF  
+    Usage: `cmake -DBUILD_PYTHON=OFF` ..
+
+- **-DBUILD_SWIG**: Build SWIG bindings  
+    Default: OFF  
+    Usage: `cmake -DBUILD_SWIG=OFF` ..
+
 - **-DCLI**: generates the CLI tools.  
     Default: ON  
     Usage: `cmake -DCLI=ON` ..

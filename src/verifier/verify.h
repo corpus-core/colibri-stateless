@@ -32,8 +32,10 @@ typedef struct {
   char*        error;
 } verify_ctx_t;
 
-void c4_verify(verify_ctx_t* ctx);
-void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args);
+void          c4_verify(verify_ctx_t* ctx);
+void          c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args);
+verify_ctx_t* c4_create_and_verify_from_bytes(void* start_data, int len_data, char* method, char* args);
+
 bool verify_blockhash_proof(verify_ctx_t* ctx);
 bool verify_account_proof(verify_ctx_t* ctx);
 

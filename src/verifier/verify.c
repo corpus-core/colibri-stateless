@@ -5,6 +5,12 @@
 #include "types_verify.h"
 #include <string.h>
 
+verify_ctx_t* c4_create_and_verify_from_bytes(void* start_data, int len_data, char* method, char* args) {
+  verify_ctx_t* ctx = calloc(1, sizeof(verify_ctx_t));
+  c4_verify_from_bytes(ctx, bytes(start_data, len_data), method, json_parse(args));
+  return ctx;
+}
+
 void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args) {
   ssz_ob_t req = ssz_ob(C4_REQUEST_CONTAINER, request);
   memset(ctx, 0, sizeof(verify_ctx_t));

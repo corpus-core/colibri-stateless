@@ -4,27 +4,32 @@ option(SHAREDLIB "if true the shared library will be build" OFF)
 option(TEST "if true the test will be build" OFF)
 option(COVERAGE "if true the coverage will be build" OFF)
 
+option(BUILD_SWIG "Build SWIG bindings" OFF)
+option(BUILD_PYTHON "Build Python bindings" OFF)
+option(BUILD_NODEJS "Build nodejs bindings" OFF)
+option(BUILD_EMSCRIPTEN "Build emscripten bindings" OFF)
+
 if(CURL)
     add_definitions(-DUSE_CURL)
 endif()
-
 
 if(TEST)
     if(NOT DEFINED TESTDATA_DIR)
         set(TESTDATA_DIR "${CMAKE_SOURCE_DIR}/test/data")
     endif()
     add_definitions(-DTEST -DTESTDATA_DIR="${TESTDATA_DIR}")
+
+    if(COVERAGE)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
+    endif()
+    set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
+
 endif()
 
-if(COVERAGE)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
-endif()
 
 set(OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)
-
-
 if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
 
     if(POLICY CMP0069)
@@ -48,7 +53,6 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
             set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --gc-sections")
         endif()
     endif()
-
 endif()
 
 
@@ -58,10 +62,8 @@ add_subdirectory(libs)
 if(TEST)
     enable_testing()
     add_subdirectory(test)
-
-    # Set CTest arguments to include --output-on-failure
-    set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
 endif()
+
 
 # Define a custom target named 'doc'
 add_custom_target(doc ALL
@@ -73,7 +75,6 @@ add_custom_target(doc ALL
 
 
 if(SHAREDLIB)
-    # Erstelle die Shared Library und verlinke die statischen Bibliotheken
     add_library(c4Lib SHARED src/util/version.c)
     target_link_libraries(c4Lib PRIVATE crypto verifier util blst)
     set_target_properties(c4Lib PROPERTIES
@@ -81,4 +82,9 @@ if(SHAREDLIB)
         VERSION 1.0
         SOVERSION 1
     )
+endif()
+
+# SWIG Setup
+if(BUILD_SWIG)
+    add_subdirectory(bindings)
 endif()
