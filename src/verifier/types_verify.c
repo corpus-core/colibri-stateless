@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+const ssz_def_t ssz_transactions_bytes = SSZ_BYTES("Bytes", 1073741824);
+
 // the block hash proof is used as part of different other types since it contains all relevant
 // proofs to validate the blockhash of the execution layer
 const ssz_def_t BLOCK_HASH_PROOF[] = {
@@ -31,8 +33,91 @@ const ssz_def_t ETH_STORAGE_PROOF[] = {
 };
 
 const ssz_def_t ETH_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof", ETH_STORAGE_PROOF);
+const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
 
 // represents the account and storage values, including the Merkle proof, of the specified account.
+
+// 1. The **payload of the transaction** is used to create its SSZ Hash Tree Root.
+// 2. The **SSZ Merkle Proof** from the Transactions of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
+// 3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
+// 4. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+// ```mermaid
+// flowchart TB
+//     subgraph "ExecutionPayload"
+//         transactions
+//         blockNumber
+//         blockHash
+//     end
+//     TX --SSZ D:21--> transactions
+//     subgraph "BeaconBlockBody"
+//         transactions  --SSZ D:5--> executionPayload
+//         blockNumber --SSZ D:5--> executionPayload
+//         blockHash --SSZ D:5--> executionPayload
+//         m[".."]
+//     end
+//     subgraph "BeaconBlockHeader"
+//         slot
+//         proposerIndex
+//         parentRoot
+//         s[stateRoot]
+//         executionPayload  --SSZ D:4--> bodyRoot
+//     end
+// ```
+
+const ssz_def_t ETH_TRANSACTION_PROOF[] = {
+    SSZ_BYTES("transaction", 1073741824),  // the raw transaction payload
+    SSZ_UINT32("transactionIndex"), // the index of the transaction in the block
+    SSZ_LIST("proof", ssz_bytes32, 64), // the multi proof of the transaction, blockNumber and blockHash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)}); // the signature of the sync committee
+
+// 1. **Patricia Merkle Proof** for the Account Object in the execution layer (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
+// 2. **State Proof** is a SSZ Merkle Proof from the StateRoot to the ExecutionPayload over the BeaconBlockBody to its root hash which is part of the header.
+// 3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
+// 4. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+
+// ```mermaid
+// flowchart TB
+//     subgraph "ExecutionLayer"
+//         class ExecutionLayer transparent
+
+//         subgraph "Account"
+//             balance --> account
+//             nonce --> account
+//             codeHash --> account
+//             storageHash --> account
+//         end
+
+//         subgraph "Storage"
+//             key1 --..PM..-->storageHash
+//             key2 --..PM..-->storageHash
+//             key3 --..PM..-->storageHash
+//         end
+//     end
+
+//     subgraph "ConsensusLayer"
+//         subgraph "ExecutionPayload"
+//             account --..PM..--> stateRoot
+//         end
+
+//         subgraph "BeaconBlockBody"
+//             stateRoot --SSZ D:5--> executionPayload
+//             m[".."]
+//         end
+
+//         subgraph "BeaconBlockHeader"
+//             slot
+//             proposerIndex
+//             parentRoot
+//             s[stateRoot]
+//             executionPayload  --SSZ D:4--> bodyRoot
+//         end
+
+//     end
+
+// ```
+
 const ssz_def_t ETH_ACCOUNT_PROOF[] = {
     SSZ_LIST("accountProof", ssz_bytes_1024, 256),              // Patricia merkle proof
     SSZ_ADDRESS("address"),                                     // the address of the account

@@ -9,6 +9,7 @@
     - [Updating the sync committee](#updating-the-sync-committee)
     - [Proof Requests](#proof-requests)
         - [Account Proof](#account-proof)
+        - [Transaction Proof](#transaction-proof)
 - [Building](#building)
     - [CMake Options](#cmake-options)
 - [SSZ Types](#ssz-types)
@@ -28,6 +29,7 @@
     - [EthAccountProof](#ethaccountproof)
     - [EthStateProof](#ethstateproof)
     - [EthStorageProof](#ethstorageproof)
+    - [EthTransactionProof](#ethtransactionproof)
     - [ExecutionPayload](#executionpayload)
     - [ExecutionPayloadHeader](#executionpayloadheader)
     - [ForkData](#forkdata)
@@ -213,51 +215,42 @@ Depending on the data to proof, the proof max loo differently.
 
 See [EthAccountProof](#ethaccountproof) 
 
-1. **Patricia Merkle Proof** for the Account Object in the execution layer (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
-2. **State Proof** for the Account Object (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
+#### Transaction Proof
+
+See [EthTransactionProof](#ethtransactionproof) 
+
+1. The **payload of the transaction** is used to create its SSZ Hash Tree Root.
+2. The **SSZ Merkle Proof** from the Transactions of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
+3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
+4. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+
 
 ```mermaid
-flowchart LR
-
-    subgraph "ExecutionLayer"
+flowchart TB
     
-        subgraph "Account"
-            balance --> account
-            nonce --> account
-            codeHash --> account
-            storageHash --> account
-        end
 
-        subgraph "Storage"
-            key1 --..PM..-->storageHash
-            key2 --..PM..-->storageHash
-            key3 --..PM..-->storageHash
-        end
+    subgraph "ExecutionPayload"
+        transactions
+        blockNumber
+        blockHash
     end
 
-    subgraph "ConsensusLayer"
+    TX --SSZ D:21--> transactions
 
-        subgraph "ExecutionPayload"
-            stateRoot --..PM..--> account
-        end
-
-        subgraph "BeaconBlockBody"
-            executionPayload --SSZ D:5--> stateRoot
-            m[".."]
-        end
-
-        subgraph "BeaconBlockHeader"
-            slot
-            proposerIndex
-            parentRoot
-            s[stateRoot]
-            bodyRoot --SSZ D:4--> executionPayload
-        end
-
+    subgraph "BeaconBlockBody"
+        transactions  --SSZ D:5--> executionPayload
+        blockNumber --SSZ D:5--> executionPayload
+        blockHash --SSZ D:5--> executionPayload
+        m[".."]
     end
 
-
-
+    subgraph "BeaconBlockHeader"
+        slot
+        proposerIndex
+        parentRoot
+        s[stateRoot]
+        executionPayload  --SSZ D:4--> bodyRoot
+    end
 ```
 
 
@@ -418,7 +411,7 @@ the block hash proof is used as part of different other types since it contains 
  proofs to validate the blockhash of the execution layer
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L10).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L12).
 
 ```python
 class BlockHashProof(Container):
@@ -445,7 +438,7 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L66).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L151).
 
 ```python
 class C4Request(Container):
@@ -514,21 +507,57 @@ class Eth1Data(Container):
 
 ### EthAccountProof
 
-represents the account and storage values, including the Merkle proof, of the specified account.
+1. **Patricia Merkle Proof** for the Account Object in the execution layer (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
+ 2. **State Proof** is a SSZ Merkle Proof from the StateRoot to the ExecutionPayload over the BeaconBlockBody to its root hash which is part of the header.
+ 3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
+ 4. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+ ```mermaid
+ flowchart TB
+     subgraph "ExecutionLayer"
+         class ExecutionLayer transparent
+         subgraph "Account"
+             balance --> account
+             nonce --> account
+             codeHash --> account
+             storageHash --> account
+         end
+         subgraph "Storage"
+             key1 --..PM..-->storageHash
+             key2 --..PM..-->storageHash
+             key3 --..PM..-->storageHash
+         end
+     end
+     subgraph "ConsensusLayer"
+         subgraph "ExecutionPayload"
+             account --..PM..--> stateRoot
+         end
+         subgraph "BeaconBlockBody"
+             stateRoot --SSZ D:5--> executionPayload
+             m[".."]
+         end
+         subgraph "BeaconBlockHeader"
+             slot
+             proposerIndex
+             parentRoot
+             s[stateRoot]
+             executionPayload  --SSZ D:4--> bodyRoot
+         end
+     end
+ ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L36).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L121).
 
 ```python
 class EthAccountProof(Container):
-    accountProof: List [bytes_1024, 256]        # Patricia merkle proof
-    address     : Address                       # the address of the account
-    balance     : Bytes32                       # the balance of the account
-    codeHash    : Bytes32                       # the code hash of the account
-    nonce       : Bytes32                       # the nonce of the account
-    storageHash : Bytes32                       # the storage hash of the account
-    storageProof: List [EthStorageProof, 256]   # the storage proofs of the selected
-    state_proof : EthStateProof                 # the state proof of the account
+    accountProof                                                                                                                                                                   : List [bytes_1024, 256]        # Patricia merkle proof
+    address                                                                                                                                                                        : Address                       # the address of the account
+    balance                                                                                                                                                                        : Bytes32                       # the balance of the account
+    codeHash                                                                                                                                                                       : Bytes32                       # the code hash of the account
+    nonce                                                                                                                                                                          : Bytes32                       # the nonce of the account
+    storageHash                                                                                                                                                                    : Bytes32                       # the storage hash of the account
+    storageProof                                                                                                                                                                   : List [EthStorageProof, 256]   # the storage proofs of the selected
+    state_proof                                                                                                                                                                    : EthStateProof                 # the state proof of the account
 ```
 
 ### EthStateProof
@@ -537,7 +566,7 @@ the stateRoot proof is used as part of different other types since it contains a
  proofs to validate the stateRoot of the execution layer
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L18).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L20).
 
 ```python
 class EthStateProof(Container):
@@ -552,13 +581,56 @@ class EthStateProof(Container):
 represents the storage proof of a key
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L27).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L29).
 
 ```python
 class EthStorageProof(Container):
     key  : Bytes32                # the key to be proven
     proof: List [bytes_1024, 5]   # Patricia merkle proof
     value: Bytes32
+```
+
+### EthTransactionProof
+
+represents the account and storage values, including the Merkle proof, of the specified account.
+ 1. The **payload of the transaction** is used to create its SSZ Hash Tree Root.
+ 2. The **SSZ Merkle Proof** from the Transactions of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
+ 3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
+ 4. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+ ```mermaid
+ flowchart TB
+     subgraph "ExecutionPayload"
+         transactions
+         blockNumber
+         blockHash
+     end
+     TX --SSZ D:21--> transactions
+     subgraph "BeaconBlockBody"
+         transactions  --SSZ D:5--> executionPayload
+         blockNumber --SSZ D:5--> executionPayload
+         blockHash --SSZ D:5--> executionPayload
+         m[".."]
+     end
+     subgraph "BeaconBlockHeader"
+         slot
+         proposerIndex
+         parentRoot
+         s[stateRoot]
+         executionPayload  --SSZ D:4--> bodyRoot
+     end
+ ```
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L67).
+
+```python
+class EthTransactionProof(Container):
+    transaction                                                                                              : Bytes[1073741824]    # the raw transaction payload
+    transactionIndex                                                                                         : Uint32               # the index of the transaction in the block
+    proof                                                                                                    : List [bytes32, 64]   # the multi proof of the transaction, blockNumber and blockHash
+    header                                                                                                   : BeaconBlockHeader    # the header of the beacon block
+    sync_committee_bits                                                                                      : BitVector [512]      # the bits of the validators that signed the block
+    sync_committee_signature                                                                                 : ByteVector [96]      # the signature of the sync committee
 ```
 
 ### ExecutionPayload
