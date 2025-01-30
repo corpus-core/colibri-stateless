@@ -51,10 +51,21 @@ c4_status_t get_latest_block(proofer_ctx_t* ctx, ssz_ob_t* sig_block, ssz_ob_t* 
   return C4_SUCCESS;
 }
 
-static c4_status_t get_eth_proof(proofer_ctx_t* ctx, json_t address, json_t* proof, uint64_t block_number) {
-  char tmp[120];
-  snprintf(tmp, sizeof(tmp), "[%.44s,[],\"0x%" PRIx64 "\"]", address.start, block_number);
+static c4_status_t get_eth_proof(proofer_ctx_t* ctx, json_t address, json_t storage_key, json_t* proof, uint64_t block_number) {
+  char storage[80] = {0};
+  char tmp[200];
+  if (storage_key.len && storage_key.len < sizeof(storage))
+    memcpy(storage, storage_key.start, storage_key.len);
+
+  snprintf(tmp, sizeof(tmp), "[%.44s,[%s],\"0x%" PRIx64 "\"]", address.start, storage, block_number);
   return c4_send_eth_rpc(ctx, "eth_getProof", tmp, proof);
+}
+
+static c4_status_t get_eth_code(proofer_ctx_t* ctx, json_t address, json_t* code, uint64_t block_number) {
+  char   tmp[120];
+  json_t data = {0};
+  snprintf(tmp, sizeof(tmp), "[%.44s,\"latest\"]", address.start);
+  return c4_send_eth_rpc(ctx, "eth_getCode", tmp, code);
 }
 
 static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, char* name) {
@@ -75,6 +86,7 @@ static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, cha
 
 static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof, ssz_ob_t syncAggregate, bytes32_t body_root, ssz_ob_t block, bytes_t state_proof, json_t address) {
 
+  json_t        json_code         = {0};
   buffer_t      tmp               = {0};
   ssz_builder_t eth_account_proof = {0};
   ssz_builder_t eth_state_proof   = {0};
@@ -85,6 +97,10 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   beacon_header.def               = (ssz_def_t*) &BEACON_BLOCKHEADER_CONTAINER;
   c4_req.def                      = (ssz_def_t*) &C4_REQUEST_CONTAINER;
   uint8_t union_selector          = 2; // TODO:  use the name to find the index based on the union definition
+
+  // make sure we have the full code
+  if (strcmp(ctx->method, "eth_getCode") == 0)
+    TRY_ASYNC(get_eth_code(ctx, address, &json_code, 0));
 
   // build the header
   ssz_add_bytes(&beacon_header, "slot", ssz_get(&block, "slot").bytes);
@@ -112,9 +128,29 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   ssz_add_builders(&eth_account_proof, "state_proof", &eth_state_proof);
 
   // build the data
-  json_as_bytes(json_get(eth_proof, "balance"), &tmp);
-  buffer_splice(&tmp, 0, 0, bytes(NULL, 33 - tmp.data.len)); // we add zeros at the beginning so have a fixed length of 32+ selector
-  tmp.data.data[0] = 2;                                      // union selector for balance == index 2
+  if (strcmp(ctx->method, "eth_getBalance") == 0) {
+    union_selector = 1;
+    json_as_bytes(json_get(eth_proof, "balance"), &tmp);
+  }
+  else if (strcmp(ctx->method, "eth_getCode") == 0) {
+    union_selector = 2;
+    json_as_bytes(json_code, &tmp);
+  }
+  else if (strcmp(ctx->method, "eth_getNonce") == 0) {
+    union_selector = 1;
+    json_as_bytes(json_get(eth_proof, "nonce"), &tmp);
+  }
+  else if (strcmp(ctx->method, "eth_getStorageAt") == 0) {
+    union_selector = 1;
+    json_as_bytes(json_get(json_at(json_get(eth_proof, "storageProof"), 0), "value"), &tmp);
+  }
+  //    json_as_bytes(json_get(eth_proof, "storageHash"), &tmp);
+
+  if (union_selector == 1)
+    buffer_splice(&tmp, 0, 0, bytes(NULL, 33 - tmp.data.len)); // we add zeros at the beginning so have a fixed length of 32+ selector
+  else if (union_selector == 2)
+    buffer_splice(&tmp, 0, 0, bytes(NULL, 1)); // make room for one byte
+  tmp.data.data[0] = union_selector;           // union selector for bytes32 == index 1
 
   // build the request
   ssz_add_bytes(&c4_req, "data", tmp.data);
@@ -145,7 +181,7 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
   ssz_ob_t execution_payload = get_execution_payload(ctx, data_block);
   uint64_t block_number      = ssz_get_uint64(&execution_payload, "blockNumber");
 
-  TRY_ASYNC(get_eth_proof(ctx, address, &eth_proof, block_number));
+  TRY_ASYNC(get_eth_proof(ctx, address, strcmp(ctx->method, "eth_getStorageAt") == 0 ? json_at(ctx->params, 1) : (json_t) {0}, &eth_proof, block_number));
 
   ssz_ob_t  sig_body = ssz_get(&sig_block, "body");
   ssz_ob_t  body     = ssz_get(&data_block, "body");

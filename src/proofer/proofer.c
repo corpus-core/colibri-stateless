@@ -40,7 +40,7 @@ c4_proofer_status_t c4_proofer_execute(proofer_ctx_t* ctx) {
   if (c4_proofer_get_pending_data_request(ctx)) return C4_PROOFER_WAITING;
   if (ctx->error) return C4_PROOFER_ERROR;
 
-  if (strcmp(ctx->method, "eth_getBalance") == 0)
+  if (strcmp(ctx->method, "eth_getBalance") == 0 || strcmp(ctx->method, "eth_getCode") == 0 || strcmp(ctx->method, "eth_getNonce") == 0 || strcmp(ctx->method, "eth_getProof") == 0 || strcmp(ctx->method, "eth_getStorageAt") == 0)
     c4_proof_account(ctx);
   else
     ctx->error = strdup("Unsupported method");
@@ -177,25 +177,6 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, jso
   return C4_SUCCESS;
 }
 
-/*
-
-export const SignedBeaconBlock = new ContainerType(
-  {
-    message: BeaconBlock,
-    signature: BLSSignature,
-  },
-  {typeName: "SignedBeaconBlock", jsonCase: "eth2"}
-);
-
-
-              const version = meta.versions[i];
-              const forkDigest = cachedBeaconConfig().forkName2ForkDigest(version);
-              const serialized = getLightClientForkTypes(version).LightClientUpdate.serialize(update);
-              const length = ssz.UintNum64.serialize(4 + serialized.length);
-              chunks.push(length, forkDigest, serialized);
-
-
-*/
 c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, bytes_t* result) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};

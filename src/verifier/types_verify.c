@@ -33,7 +33,7 @@ const ssz_def_t ETH_STORAGE_PROOF[] = {
 };
 
 const ssz_def_t ETH_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof", ETH_STORAGE_PROOF);
-const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
+// const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
 
 // represents the account and storage values, including the Merkle proof, of the specified account.
 
@@ -65,12 +65,12 @@ const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
 // ```
 
 const ssz_def_t ETH_TRANSACTION_PROOF[] = {
-    SSZ_BYTES("transaction", 1073741824),  // the raw transaction payload
-    SSZ_UINT32("transactionIndex"), // the index of the transaction in the block
-    SSZ_LIST("proof", ssz_bytes32, 64), // the multi proof of the transaction, blockNumber and blockHash
+    SSZ_BYTES("transaction", 1073741824),             // the raw transaction payload
+    SSZ_UINT32("transactionIndex"),                   // the index of the transaction in the block
+    SSZ_LIST("proof", ssz_bytes32, 64),               // the multi proof of the transaction, blockNumber and blockHash
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
     SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
-    SSZ_BYTE_VECTOR("sync_committee_signature", 96)}); // the signature of the sync committee
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee
 
 // 1. **Patricia Merkle Proof** for the Account Object in the execution layer (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
 // 2. **State Proof** is a SSZ Merkle Proof from the StateRoot to the ExecutionPayload over the BeaconBlockBody to its root hash which is part of the header.

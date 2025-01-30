@@ -20,6 +20,8 @@ extern const ssz_def_t C4_REQUEST[];
 
 extern const ssz_def_t C4_REQUEST_CONTAINER;
 extern const ssz_def_t ETH_ACCOUNT_PROOF_CONTAINER;
+
+extern const ssz_def_t ssz_transactions_bytes;
 // extern const ssz_def_t BLOCK_HASH_PROOF_CONTAINER;
 
 #ifdef __cplusplus

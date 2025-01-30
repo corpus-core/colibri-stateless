@@ -93,8 +93,7 @@ const ssz_def_t WITHDRAWAL[] = {
     SSZ_UINT64("amount"),
 };
 
-const ssz_def_t ssz_transactions_bytes = SSZ_BYTES("Bytes", 1073741824);
-const ssz_def_t WITHDRAWAL_CONTAINER   = SSZ_CONTAINER("withdrawal", WITHDRAWAL);
+const ssz_def_t WITHDRAWAL_CONTAINER = SSZ_CONTAINER("withdrawal", WITHDRAWAL);
 
 // the block header of the execution layer proved within the beacon block
 const ssz_def_t EXECUTION_PAYLOAD[] = {

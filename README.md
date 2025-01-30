@@ -354,7 +354,7 @@ class AttesterSlashing(Container):
 ### BeaconBlock
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L154).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L153).
 
 ```python
 class BeaconBlock(Container):
@@ -370,7 +370,7 @@ class BeaconBlock(Container):
 const ssz_def_t ssz_bls_pubky[] = {
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L139).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L138).
 
 ```python
 class BeaconBlockBody(Container):
@@ -423,7 +423,7 @@ class BlockHashProof(Container):
 ### BlsToExecutionChange
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L119).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L118).
 
 ```python
 class BlsToExecutionChange(Container):
@@ -591,7 +591,8 @@ class EthStorageProof(Container):
 
 ### EthTransactionProof
 
-represents the account and storage values, including the Merkle proof, of the specified account.
+const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
+ represents the account and storage values, including the Merkle proof, of the specified account.
  1. The **payload of the transaction** is used to create its SSZ Hash Tree Root.
  2. The **SSZ Merkle Proof** from the Transactions of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
  3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
@@ -637,7 +638,7 @@ class EthTransactionProof(Container):
 the block header of the execution layer proved within the beacon block
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L100).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L99).
 
 ```python
 class ExecutionPayload(Container):
@@ -760,7 +761,7 @@ class ProposerSlashing(Container):
 ### SignedBeaconBlock
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L161).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L160).
 
 ```python
 class SignedBeaconBlock(Container):
@@ -782,7 +783,7 @@ class SignedBeaconBlockheader(Container):
 ### SignedBlsToExecutionChange
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L125).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L124).
 
 ```python
 class SignedBlsToExecutionChange(Container):
