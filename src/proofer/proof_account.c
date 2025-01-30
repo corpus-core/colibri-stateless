@@ -187,11 +187,10 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
   ssz_ob_t  body     = ssz_get(&data_block, "body");
   bytes32_t body_root;
   buffer_t  state_proof = {0};
-  uint32_t  gindex;
 
-  char* path[] = {"executionPayload", "stateRoot"};
   ssz_hash_tree_root(body, body_root);
-  ssz_create_proof(body, (char**) path, 2, &state_proof, &gindex);
+  gindex_t gindex = ssz_gindex(body.def, 2, "executionPayload", "stateRoot");
+  ssz_create_proof(body, gindex, &state_proof);
 
   TRY_ASYNC_FINAL(
       create_eth_account_proof(ctx, eth_proof, ssz_get(&sig_body, "syncAggregate"),

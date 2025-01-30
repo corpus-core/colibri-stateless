@@ -23,10 +23,9 @@ void test_block_body() {
   // create state proof
   ssz_ob_t body = ssz_get(&block, "body");
   TEST_ASSERT_NOT_NULL_MESSAGE(body.bytes.data, "body not found");
-  char*    path[] = {"executionPayload", "stateRoot"};
   buffer_t proof  = {0};
-  uint32_t gindex;
-  ssz_create_proof(body, (char**) path, sizeof(path) / sizeof(path[0]), &proof, &gindex);
+  gindex_t gindex = ssz_gindex(body.def, 2, "executionPayload", "stateRoot");
+  ssz_create_proof(body, gindex, &proof);
   TEST_ASSERT_EQUAL_UINT32(802, gindex);
 
   // verify proof
@@ -58,16 +57,19 @@ void test_hash_root() {
       SSZ_CONTAINER("sub", TEST_TYPE),
   };
 
+  TEST_ASSERT_EQUAL(7, ssz_add_gindex(3, 3));
+  TEST_ASSERT_EQUAL(4, ssz_add_gindex(2, 2));
+  TEST_ASSERT_EQUAL(14, ssz_add_gindex(7, 2));
+
   ssz_def_t TEST_TYPE_CONTAINER = SSZ_CONTAINER("TEST_ROOT", TEST_ROOT);
   uint8_t   ssz_data[]          = {1, 2, 3, 4};
   bytes32_t root                = {0};
   ssz_ob_t  res                 = ssz_ob(TEST_TYPE_CONTAINER, bytes(ssz_data, sizeof(ssz_data)));
 
   ssz_hash_tree_root(res, root);
-  const char* path[] = {"sub", "a"};
-  uint32_t    gindex;
-  buffer_t    proof = {0};
-  ssz_create_proof(res, (char**) path, sizeof(path) / sizeof(path[0]), &proof, &gindex);
+  gindex_t gindex = ssz_gindex(res.def, 2, "sub", "a");
+  buffer_t proof  = {0};
+  ssz_create_proof(res, gindex, &proof);
 
   // ssz_dump(stdout, res, true, 0);
   // print_hex(stdout, res.bytes, "DATA: 0x", "\n");

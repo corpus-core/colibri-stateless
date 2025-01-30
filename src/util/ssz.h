@@ -15,6 +15,7 @@ extern "C" {
 typedef struct ssz_def       ssz_def_t;
 typedef struct ssz_list      ssz_list_t;
 typedef struct ssz_container ssz_container_t;
+typedef uint64_t             gindex_t;
 
 /** the available SSZ Types */
 typedef enum {
@@ -94,10 +95,8 @@ static inline uint32_t ssz_get_uint32(ssz_ob_t* ob, char* name) {
   return ssz_uint32(ssz_get(ob, name));
 }
 /** adds two gindexes so the gindex2 is a subtree of gindex1 */
-uint32_t ssz_add_gindex(uint32_t gindex1, uint32_t gindex2);
+gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2);
 
-/** gets the gindex specifying the node of the given name */
-uint32_t ssz_get_gindex(ssz_ob_t* ob, const char* name);
 /** gets the merkle proof for the given index and writes the root hash to out */
 void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out);
 
@@ -110,7 +109,9 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend);
 
 /** hashes the object */
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
-bool ssz_create_proof(ssz_ob_t root, char** path, uint32_t path_len, buffer_t* proof, uint32_t* gindex);
+
+bool     ssz_create_proof(ssz_ob_t root, gindex_t gindex, buffer_t* proof);
+gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...);
 // checks if a definition has a dynamic length
 bool ssz_is_dynamic(const ssz_def_t* def);
 bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
