@@ -7,9 +7,14 @@
 - [Index](#index)
 - [Concept](#concept)
     - [Updating the sync committee](#updating-the-sync-committee)
-    - [Proof Requests](#proof-requests)
-        - [Account Proof](#account-proof)
-        - [Transaction Proof](#transaction-proof)
+- [RPC Proofs](#rpc-proofs)
+    - [eth_getBalance](#eth_getbalance)
+    - [eth_getCode](#eth_getcode)
+    - [eth_getNonce](#eth_getnonce)
+    - [eth_getProof](#eth_getproof)
+    - [eth_getStorageAt](#eth_getstorageat)
+- [eth_getTransactionByHash](#eth_gettransactionbyhash)
+- [eth_getTransactionByBlockHashAndIndex](#eth_gettransactionbyblockhashandindex)
 - [Building](#building)
     - [CMake Options](#cmake-options)
 - [SSZ Types](#ssz-types)
@@ -204,54 +209,48 @@ In order to validate, we need to calculate
 So in total, we need to verify 1035 hashes and 1 bls signature.
 
 
-### Proof Requests
+## RPC Proofs
 
 All requests send to the verifier are encoded using SSZ. The request itself is sepcified by the [C4Request](#c4request) type. This objects suports different types as data or proofs.
 
+In order to proof the RPC-Request, the  proofer will use different proofs.
 
-Depending on the data to proof, the proof max loo differently.
+### eth_getBalance
 
-#### Account Proof
+- Data: Bytes32
+- Proof: [EthAccountProof](#ethaccountproof)
 
-See [EthAccountProof](#ethaccountproof) 
+### eth_getCode
 
-#### Transaction Proof
+- Data: Bytes
+- Proof: [EthAccountProof](#ethaccountproof)
 
-See [EthTransactionProof](#ethtransactionproof) 
+### eth_getNonce
 
-1. The **payload of the transaction** is used to create its SSZ Hash Tree Root.
-2. The **SSZ Merkle Proof** from the Transactions of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
-3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
-4. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+- Data: Bytes32
+- Proof: [EthAccountProof](#ethaccountproof)
+
+### eth_getProof
+
+not implemented yet
+
+### eth_getStorageAt
+
+not implemented yet
+
+## eth_getTransactionByHash
+
+- Data: [EthTransactionData](#ethtransactiondata)
+- Proof: [EthTransactionProof](#ethtransactionproof)
+
+## eth_getTransactionByBlockHashAndIndex
 
 
-```mermaid
-flowchart TB
-    
+- Data: [EthTransactionData](#ethtransactiondata)
+- Proof: [EthTransactionProof](#ethtransactionproof)
 
-    subgraph "ExecutionPayload"
-        transactions
-        blockNumber
-        blockHash
-    end
 
-    TX --SSZ D:21--> transactions
 
-    subgraph "BeaconBlockBody"
-        transactions  --SSZ D:5--> executionPayload
-        blockNumber --SSZ D:5--> executionPayload
-        blockHash --SSZ D:5--> executionPayload
-        m[".."]
-    end
-
-    subgraph "BeaconBlockHeader"
-        slot
-        proposerIndex
-        parentRoot
-        s[stateRoot]
-        executionPayload  --SSZ D:4--> bodyRoot
-    end
-```
 
 
 ## Building
