@@ -8,6 +8,7 @@
 - [Concept](#concept)
     - [Updating the sync committee](#updating-the-sync-committee)
     - [Proof Requests](#proof-requests)
+        - [Account Proof](#account-proof)
 - [Building](#building)
     - [CMake Options](#cmake-options)
 - [SSZ Types](#ssz-types)
@@ -204,6 +205,61 @@ So in total, we need to verify 1035 hashes and 1 bls signature.
 ### Proof Requests
 
 All requests send to the verifier are encoded using SSZ. The request itself is sepcified by the [C4Request](#c4request) type. This objects suports different types as data or proofs.
+
+
+Depending on the data to proof, the proof max loo differently.
+
+#### Account Proof
+
+See [EthAccountProof](#ethaccountproof) 
+
+1. **Patricia Merkle Proof** for the Account Object in the execution layer (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
+2. **State Proof** for the Account Object (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
+
+```mermaid
+flowchart LR
+
+    subgraph "ExecutionLayer"
+    
+        subgraph "Account"
+            balance --> account
+            nonce --> account
+            codeHash --> account
+            storageHash --> account
+        end
+
+        subgraph "Storage"
+            key1 --..PM..-->storageHash
+            key2 --..PM..-->storageHash
+            key3 --..PM..-->storageHash
+        end
+    end
+
+    subgraph "ConsensusLayer"
+
+        subgraph "ExecutionPayload"
+            stateRoot --..PM..--> account
+        end
+
+        subgraph "BeaconBlockBody"
+            executionPayload --SSZ D:5--> stateRoot
+            m[".."]
+        end
+
+        subgraph "BeaconBlockHeader"
+            slot
+            proposerIndex
+            parentRoot
+            s[stateRoot]
+            bodyRoot --SSZ D:4--> executionPayload
+        end
+
+    end
+
+
+
+```
+
 
 ## Building
 
