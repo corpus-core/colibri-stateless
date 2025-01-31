@@ -708,7 +708,7 @@ class EthTransactionProof(Container):
     transaction             : Bytes[1073741824]    # the raw transaction payload
     transactionIndex        : Uint32               # the index of the transaction in the block
     blockNumber             : Uint64               # the number of the execution block containing the transaction
-    blockHash               : Uint64               # the blockHash of the execution block containing the transaction
+    blockHash               : Bytes32              # the blockHash of the execution block containing the transaction
     proof                   : List [bytes32, 64]   # the multi proof of the transaction, blockNumber and blockHash
     header                  : BeaconBlockHeader    # the header of the beacon block
     sync_committee_bits     : BitVector [512]      # the bits of the validators that signed the block

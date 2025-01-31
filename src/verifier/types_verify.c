@@ -68,7 +68,7 @@ const ssz_def_t ETH_TRANSACTION_PROOF[] = {
     SSZ_BYTES("transaction", 1073741824),             // the raw transaction payload
     SSZ_UINT32("transactionIndex"),                   // the index of the transaction in the block
     SSZ_UINT64("blockNumber"),                        // the number of the execution block containing the transaction
-    SSZ_UINT64("blockHash"),                          // the blockHash of the execution block containing the transaction
+    SSZ_BYTES32("blockHash"),                         // the blockHash of the execution block containing the transaction
     SSZ_LIST("proof", ssz_bytes32, 64),               // the multi proof of the transaction, blockNumber and blockHash
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
     SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
