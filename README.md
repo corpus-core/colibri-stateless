@@ -7,6 +7,9 @@
 - [Index](#index)
 - [Concept](#concept)
     - [Updating the sync committee](#updating-the-sync-committee)
+    - [Merkle Proofs](#merkle-proofs)
+        - [Patricia Merkle Proof](#patricia-merkle-proof)
+        - [SSZ Merkle Proof](#ssz-merkle-proof)
 - [RPC Proofs](#rpc-proofs)
     - [eth_getBalance](#eth_getbalance)
     - [eth_getCode](#eth_getcode)
@@ -207,6 +210,83 @@ In order to validate, we need to calculate
 - 1 x for the SigningRoot
 
 So in total, we need to verify 1035 hashes and 1 bls signature.
+
+### Merkle Proofs
+
+The Proofs contain different types of Merkle Proofs.
+
+#### Patricia Merkle Proof
+
+The [Patricia Merkle Proof](https://github.com/corpus-core/c4/blob/main/src/util/ssz_merkle.c#L100) is a proof for a single leaf and used in the execution layer of ethereum for states of accounts and storage, transaction receipts and more. This is what you get when calling eth_getProof.
+
+#### SSZ Merkle Proof
+
+This Merkle trees are used withn the beacon chain. The Structure is based on the defition of the SSZ Types and allows to proof individual properties. 
+Another feature is the option to [proof multiple leafs](https://ethereum.org/de/developers/docs/data-structures-and-encoding/ssz/#multiproofs) at once which is used in different types of proofs in the c4 client.
+
+All ssz proofs for single or multiple leafs are following the same structure:
+
+- Only required node (32 bytess each) are added.
+- The nodes are alwayys sorted by their [generalized index](https://ethereum.org/de/developers/docs/data-structures-and-encoding/ssz/#generalized-index) starting with highest number.
+
+WHile a merkle proof for a single proof has always the same fixed size (which is equal to its depth), the size of a multi proof depends on the number of leafs and their position within the tree.
+So in order to verify a multi proof, we first need to figure out which nodes ( represented by ther generalized index) are required. For example a multi proof for a small tree with 4 leafes, would end up with as empty list if you actually request all 4 leafes because there would be no nodes left to proof.
+
+```c
+  // define a small tree with 3 leafes
+  ssz_def_t TEST_SUB[] = {
+      SSZ_UINT8("a"),
+      SSZ_UINT8("b"),
+      SSZ_UINT8("c"),
+  };
+
+  ssz_def_t TEST_ROOT[] = {
+      SSZ_UINT8("count"),
+      SSZ_CONTAINER("sub", TEST_SUB),
+  };
+
+  ssz_def_t TEST_TYPE_CONTAINER = SSZ_CONTAINER("TEST_ROOT", TEST_ROOT);
+
+  // create a container with the defined ssz type
+  uint8_t   ssz_data[]          = {1, 2, 3, 4}; // serialized data of the container
+  ssz_ob_t  val                 = ssz_ob(TEST_TYPE_CONTAINER, bytes(ssz_data, 4));
+
+  // create a multi proof the properties count,  a and b
+  bytes_t multi_proof = ssz_create_multi_proof(res, 3,
+                            ssz_gindex(res.def, 1, "count"),
+                            ssz_gindex(res.def, 2, "sub", "a"),
+                            ssz_gindex(res.def, 2, "sub", "b")
+                       );
+
+ // this proof has only one witness
+
+ // verify the proof
+ // create a leafes array for the required leafes
+  uint8_t leafes[96] = {0};
+  leafes[0]          = 1; // count = 1
+  leafes[32]         = 2; // a = 2
+  leafes[64]         = 3; // b = 3
+
+  // define the gindexes of the required lproperties
+  gindex_t gindexes[] = {
+    ssz_gindex(res.def, 1, "count"),
+    ssz_gindex(res.def, 2, "sub", "a"),
+    ssz_gindex(res.def, 2, "sub", "b")};
+
+  // verify the proof and store the calculated root hash in proofed_root
+  bytes32_t proofed_root = {0};
+  ssz_verify_multi_merkle_proof(multi_proof, bytes(leafes, sizeof(leafes)), gindexes, proofed_root);
+
+  // now the root contains the root hash, which you can compare with the hash_tree_root of the container
+  bytes32_t root = {0};
+  ssz_hash_tree_root(val, root);
+
+  // assert
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(root, proofed_root, 32, "root hash must be the same after merkle proof");
+
+```
+
+
 
 
 ## RPC Proofs
@@ -437,7 +517,7 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L151).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L153).
 
 ```python
 class C4Request(Container):
@@ -545,7 +625,7 @@ class Eth1Data(Container):
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L121).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L123).
 
 ```python
 class EthAccountProof(Container):
@@ -627,6 +707,8 @@ const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
 class EthTransactionProof(Container):
     transaction             : Bytes[1073741824]    # the raw transaction payload
     transactionIndex        : Uint32               # the index of the transaction in the block
+    blockNumber             : Uint64               # the number of the execution block containing the transaction
+    blockHash               : Uint64               # the blockHash of the execution block containing the transaction
     proof                   : List [bytes32, 64]   # the multi proof of the transaction, blockNumber and blockHash
     header                  : BeaconBlockHeader    # the header of the beacon block
     sync_committee_bits     : BitVector [512]      # the bits of the validators that signed the block

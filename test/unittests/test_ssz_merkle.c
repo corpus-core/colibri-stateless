@@ -45,15 +45,15 @@ void test_block_body() {
 
 void test_hash_root() {
 
-  ssz_def_t TEST_TYPE[] = {
+  ssz_def_t TEST_SUB[] = {
       SSZ_UINT8("a"),
       SSZ_UINT8("b"),
       SSZ_UINT8("c"),
   };
 
   ssz_def_t TEST_ROOT[] = {
-      SSZ_UINT8("dummy"),
-      SSZ_CONTAINER("sub", TEST_TYPE),
+      SSZ_UINT8("count"),
+      SSZ_CONTAINER("sub", TEST_SUB),
   };
 
   TEST_ASSERT_EQUAL(7, ssz_add_gindex(3, 3));
@@ -89,7 +89,7 @@ void test_hash_root() {
 
   // create multproof
   bytes_t multi_proof = ssz_create_multi_proof(res, 3,
-                                               ssz_gindex(res.def, 1, "dummy"),
+                                               ssz_gindex(res.def, 1, "count"),
                                                ssz_gindex(res.def, 2, "sub", "a"),
                                                ssz_gindex(res.def, 2, "sub", "b"));
 
@@ -99,7 +99,7 @@ void test_hash_root() {
   leafes[64]         = 3;
 
   gindex_t gindexes[] = {
-      ssz_gindex(res.def, 1, "dummy"),
+      ssz_gindex(res.def, 1, "count"),
       ssz_gindex(res.def, 2, "sub", "a"),
       ssz_gindex(res.def, 2, "sub", "b")};
 
