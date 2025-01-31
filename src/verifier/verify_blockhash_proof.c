@@ -97,7 +97,7 @@ static bool verify_beacon_header(ssz_ob_t* header, bytes32_t exec_blockhash, byt
   // check merkle proof
   ssz_ob_t  header_body_root = ssz_get(header, "bodyRoot");
   bytes32_t root_hash;
-  ssz_verify_merkle_proof(blockhash_proof, exec_blockhash, BLOCKHASH_BLOCKBODY_GINDEX, root_hash);
+  ssz_verify_single_merkle_proof(blockhash_proof, exec_blockhash, BLOCKHASH_BLOCKBODY_GINDEX, root_hash);
   if (ssz_is_error(header_body_root) || header_body_root.bytes.len != 32 || memcmp(root_hash, header_body_root.bytes.data, 32)) return false;
 
   return true;

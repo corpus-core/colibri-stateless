@@ -98,8 +98,7 @@ static inline uint32_t ssz_get_uint32(ssz_ob_t* ob, char* name) {
 gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2);
 
 /** gets the merkle proof for the given index and writes the root hash to out */
-void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out);
-bool ssz_verify_muli_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out);
+bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out);
 void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t gindex, bytes32_t out);
 /** gets the value of a union. If the object is not a union, it will return an empty object. A Object with the type SSZ_TYPE_NONE will be returned if the union is empty */
 ssz_ob_t ssz_union(ssz_ob_t ob);
@@ -111,7 +110,8 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend);
 /** hashes the object */
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
 
-bool     ssz_create_proof(ssz_ob_t root, gindex_t gindex, buffer_t* proof);
+bytes_t  ssz_create_proof(ssz_ob_t root, gindex_t gindex);
+bytes_t  ssz_create_multi_proof(ssz_ob_t root, int gindex_len, ...);
 gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...);
 // checks if a definition has a dynamic length
 bool ssz_is_dynamic(const ssz_def_t* def);

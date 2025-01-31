@@ -375,7 +375,7 @@ static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent) {
   else
     merkle_hash(&ctx, 0, 0, out);
 
-  // mix_in_length
+  // mix_in_length s
   if (ob.def->type == SSZ_TYPE_LIST || ob.def->type == SSZ_TYPE_BIT_LIST) {
     uint8_t length[32] = {0};
     uint64_to_le(length, (uint64_t) ssz_len(ob));
@@ -393,17 +393,25 @@ void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
   hash_tree_root(ob, out, NULL);
 }
 
-bool ssz_create_proof(ssz_ob_t root, gindex_t gindex, buffer_t* proof) {
+bytes_t ssz_create_multi_proof(ssz_ob_t root, int gindex_len, ...) {
 
   buffer_t witnesses  = {0};
   buffer_t calculated = {0};
+  buffer_t proof      = {0};
 
-  ssz_add_multi_merkle_proof(gindex, &witnesses, &calculated);
+  va_list args;
+  va_start(args, gindex_len);
+  for (int i = 0; i < gindex_len; i++) {
+    gindex_t gindex = va_arg(args, gindex_t);
+    ssz_add_multi_merkle_proof(gindex, &witnesses, &calculated);
+  }
+  va_end(args);
+
   buffer_free(&calculated);
 
   bytes32_t          tmp;
   merkle_proot_ctx_t proof_ctx = {
-      .proof     = proof,
+      .proof     = &proof,
       .witnesses = &witnesses,
   };
 
@@ -415,16 +423,11 @@ bool ssz_create_proof(ssz_ob_t root, gindex_t gindex, buffer_t* proof) {
   hash_tree_root(root, tmp, &ctx);
 
   buffer_free(&witnesses);
-  return true;
+  return proof.data;
 }
 
-static uint32_t get_depth(uint32_t gindex) {
-  uint32_t depth = 0;
-  while (gindex > 1) {
-    gindex = gindex >> 1;
-    depth++;
-  }
-  return depth;
+bytes_t ssz_create_proof(ssz_ob_t root, gindex_t gindex) {
+  return ssz_create_multi_proof(root, 1, gindex);
 }
 
 typedef struct {
@@ -480,7 +483,7 @@ static bool merkle_proof(merkle_proof_data_t* proof, gindex_t start, gindex_t en
   return true;
 }
 
-bool ssz_verify_muli_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out) {
+bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out) {
   buffer_t witnesses_gindex  = {0};
   buffer_t calculated_gindex = {0};
   for (uint32_t i = 0; i < leafes.len / 32; i++)
@@ -513,9 +516,9 @@ bool ssz_verify_muli_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* 
 }
 
 void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t gindex, bytes32_t out) {
-  ssz_verify_muli_merkle_proof(proof_data, bytes(leaf, 32), &gindex, out);
+  ssz_verify_multi_merkle_proof(proof_data, bytes(leaf, 32), &gindex, out);
 }
-
+/*
 void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out) {
   memset(out, 0, 32);
   uint32_t depth = get_depth(gindex);
@@ -540,7 +543,7 @@ void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex
       sha256_merkle(bytes(out, 32), bytes_slice(proof_data, (i << 5), 32), out);
   }
 }
-
+*/
 gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2) {
   uint32_t depth = log2_ceil((uint32_t) gindex2 + 1) - 1;
   return (gindex1 << depth) | (gindex2 & ((1 << depth) - 1));

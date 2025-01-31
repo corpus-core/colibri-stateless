@@ -116,7 +116,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
 
   // create merkle root from proof
   ssz_hash_tree_root(sync_committee, sync_root);
-  ssz_verify_merkle_proof(merkle_proof.bytes, sync_root, NEXT_SYNC_COMMITTEE_GINDEX, merkle_root);
+  ssz_verify_single_merkle_proof(merkle_proof.bytes, sync_root, NEXT_SYNC_COMMITTEE_GINDEX, merkle_root);
 
   // verify the merkle root
   if (memcmp(merkle_root, state_root.bytes.data, 32)) RETURN_VERIFY_ERROR(ctx, "invalid merkle root in light client update!");
