@@ -99,7 +99,8 @@ gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2);
 
 /** gets the merkle proof for the given index and writes the root hash to out */
 void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out);
-
+bool ssz_verify_muli_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out);
+void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t gindex, bytes32_t out);
 /** gets the value of a union. If the object is not a union, it will return an empty object. A Object with the type SSZ_TYPE_NONE will be returned if the union is empty */
 ssz_ob_t ssz_union(ssz_ob_t ob);
 // returns the length of the fixed part of the object

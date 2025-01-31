@@ -121,7 +121,7 @@ static void gindex_del(buffer_t* index_list, gindex_t index) {
   }
 }
 
-static void ssz_add_multi_merkle_proof(const ssz_def_t* def, gindex_t gindex, buffer_t* witnesses, buffer_t* calculated) {
+static void ssz_add_multi_merkle_proof(gindex_t gindex, buffer_t* witnesses, buffer_t* calculated) {
   if (gindex == 1) return;
   while (gindex > 1) {
     gindex_del(witnesses, gindex);
@@ -398,7 +398,7 @@ bool ssz_create_proof(ssz_ob_t root, gindex_t gindex, buffer_t* proof) {
   buffer_t witnesses  = {0};
   buffer_t calculated = {0};
 
-  ssz_add_multi_merkle_proof(root.def, gindex, &witnesses, &calculated);
+  ssz_add_multi_merkle_proof(gindex, &witnesses, &calculated);
   buffer_free(&calculated);
 
   bytes32_t          tmp;
@@ -425,6 +425,95 @@ static uint32_t get_depth(uint32_t gindex) {
     depth++;
   }
   return depth;
+}
+
+typedef struct {
+  bytes_t   witnesses_data;
+  gindex_t* witnesses_gindex;
+  uint32_t  witnesses_len;
+
+  bytes_t   leafes_data;
+  gindex_t* leafes_gindex;
+  uint32_t  leafes_len;
+} merkle_proof_data_t;
+
+static bytes_t merkle_get_data(merkle_proof_data_t* proof, gindex_t idx) {
+  for (uint32_t i = 0; i < proof->leafes_len; i++) {
+    if (proof->leafes_gindex[i] == idx)
+      return bytes_slice(proof->leafes_data, i * BYTES_PER_CHUNK, BYTES_PER_CHUNK);
+  }
+  for (uint32_t i = 0; i < proof->witnesses_len; i++) {
+    if (proof->witnesses_gindex[i] == idx)
+      return bytes_slice(proof->witnesses_data, i * BYTES_PER_CHUNK, BYTES_PER_CHUNK);
+  }
+  return NULL_BYTES;
+}
+
+static bool merkle_proof(merkle_proof_data_t* proof, gindex_t start, gindex_t end, bytes32_t out) {
+  bytes32_t tmp        = {0};
+  bytes_t   start_data = merkle_get_data(proof, start);
+  if (start_data.len != 32) return false;
+  memcpy(out, start_data.data, 32);
+
+  while (start > end) {
+    gindex_t witness      = start & 1 ? start - 1 : start + 1;
+    bytes_t  witness_data = merkle_get_data(proof, witness);
+    if (witness_data.data == NULL) {
+      // how do we find the start for calculating this witness?
+      for (int i = 0; i < proof->leafes_len && witness_data.data == NULL; i++) {
+        gindex_t path = proof->leafes_gindex[i];
+        for (; path > 1; path >>= 1) {
+          if (path == witness && merkle_proof(proof, proof->leafes_gindex[i], witness, tmp)) {
+            witness_data = bytes(tmp, 32);
+            break;
+          }
+        }
+      }
+      if (witness_data.data == NULL) return false;
+    }
+    if (start & 1)
+      sha256_merkle(witness_data, bytes(out, 32), out);
+    else
+      sha256_merkle(bytes(out, 32), witness_data, out);
+    start >>= 1;
+  }
+  return true;
+}
+
+bool ssz_verify_muli_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out) {
+  buffer_t witnesses_gindex  = {0};
+  buffer_t calculated_gindex = {0};
+  for (uint32_t i = 0; i < leafes.len / 32; i++)
+    ssz_add_multi_merkle_proof(gindex[i], &witnesses_gindex, &calculated_gindex);
+  buffer_free(&calculated_gindex);
+
+  merkle_proof_data_t data = {
+      .leafes_gindex    = gindex,
+      .leafes_data      = leafes,
+      .leafes_len       = leafes.len / 32,
+      .witnesses_data   = proof_data,
+      .witnesses_gindex = (gindex_t*) witnesses_gindex.data.data,
+      .witnesses_len    = witnesses_gindex.data.len / sizeof(gindex_t),
+  };
+
+  if (data.witnesses_len != proof_data.len / 32) {
+    buffer_free(&witnesses_gindex);
+    return false;
+  }
+
+  // find the highest gindex since we want to start with that.
+  gindex_t start = 0;
+  for (uint32_t i = 0; i < data.leafes_len; i++) {
+    if (data.leafes_gindex[i] > start) start = data.leafes_gindex[i];
+  }
+
+  bool result = merkle_proof(&data, start, 1, out);
+  buffer_free(&witnesses_gindex);
+  return result;
+}
+
+void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t gindex, bytes32_t out) {
+  ssz_verify_muli_merkle_proof(proof_data, bytes(leaf, 32), &gindex, out);
 }
 
 void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out) {
