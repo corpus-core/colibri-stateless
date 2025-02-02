@@ -44,42 +44,6 @@ static void test_write_file(const char* filename, bytes_t data) {
 
 #endif
 
-static char* read_from_stdin() {
-  unsigned char buffer[1024];
-  size_t        bytesRead;
-  buffer_t      data = {0};
-
-  while ((bytesRead = fread(buffer, 1, 1024, stdin)) > 0)
-    buffer_append(&data, bytes(buffer, bytesRead));
-
-  buffer_append(&data, bytes(NULL, 1));
-
-  return (char*) data.data.data;
-}
-
-static char* read_from_file(const char* filename) {
-  if (strcmp(filename, "-") == 0)
-    return read_from_stdin();
-
-  unsigned char buffer[1024];
-  size_t        bytesRead;
-  buffer_t      data = {0};
-
-  FILE* file = fopen(filename, "rb");
-  if (file == NULL) {
-    fprintf(stderr, "Error opening file: %s\n", filename);
-    exit(EXIT_FAILURE);
-  }
-
-  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
-    buffer_append(&data, bytes(buffer, bytesRead));
-
-  fclose(file);
-
-  buffer_append(&data, bytes(NULL, 1));
-  return (char*) data.data.data;
-}
-
 int main(int argc, char* argv[]) {
   if (argc < 2) {
     fprintf(stderr, "Usage: proof <method> <params>\n");
@@ -91,19 +55,22 @@ int main(int argc, char* argv[]) {
   buffer_add_chars(&buffer, "[");
 
   for (int i = 1; i < argc; i++) {
+#ifdef TEST
+    if (strcmp(argv[i], "-t") == 0) {
+      set_req_test_dir(argv[++i]);
+      continue;
+    }
+#endif
+
     if (method == NULL) {
       method = argv[i];
     }
-#ifdef TEST
-    else if (strcmp(argv[i], "-t") == 0) {
-      set_req_test_dir(argv[++i]);
-    }
-#endif
     else {
       if (buffer.data.len > 1) buffer_add_chars(&buffer, ",");
-      buffer_add_chars(&buffer, "\"");
-      buffer_add_chars(&buffer, argv[i]);
-      buffer_add_chars(&buffer, "\"");
+      if (argv[i][0] == '{' || argv[i][0] == '[' || strcmp(argv[i], "true") == 0 || strcmp(argv[i], "false") == 0)
+        buffer_add_chars(&buffer, argv[i]);
+      else
+        bprintf(&buffer, "\"%s\"", argv[i]);
     }
   }
   buffer_add_chars(&buffer, "]");

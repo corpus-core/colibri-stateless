@@ -164,7 +164,7 @@ int main(int argc, char* argv[]) {
     c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0});
 
     if (ctx.success) {
-      ssz_dump(stdout, ctx.data, false, 0);
+      ssz_dump_to_file(stdout, ctx.data, false, true);
       fflush(stdout);
       //      fprintf(stderr, "proof is valid\n");
       return EXIT_SUCCESS;

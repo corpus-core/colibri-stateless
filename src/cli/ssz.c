@@ -118,7 +118,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  ssz_dump(stdout, res, show_name, 0);
+  ssz_dump_to_file(stdout, res, show_name, true);
   if (show_hash) {
     bytes32_t hashroot;
     ssz_hash_tree_root(res, hashroot);

@@ -105,7 +105,8 @@ ssz_ob_t ssz_union(ssz_ob_t ob);
 // returns the length of the fixed part of the object
 size_t ssz_fixed_length(const ssz_def_t* def);
 /** dumps the object to a file */
-void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend);
+void  ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_as_hex);
+char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex);
 
 /** hashes the object */
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
