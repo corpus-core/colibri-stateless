@@ -282,7 +282,16 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           break;
         }
         case 'z': {
-          // TODO dump
+          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, false);
+          buffer_add_chars(buf, s);
+          free(s);
+          break;
+        }
+        case 'Z': {
+          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), true, false);
+          buffer_add_chars(buf, s);
+          free(s);
+          break;
         }
       }
       p++;
