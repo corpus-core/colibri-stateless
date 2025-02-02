@@ -28,6 +28,17 @@ static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) 
   return size * nmemb;
 }
 
+static void configure() {
+  char*   config_file = getenv("C4_CONFIG");
+  bytes_t content     = {0};
+  if (config_file) content = bytes_read(config_file);
+  if (!content.data) content = bytes_read("c4_config.json");
+  if (!content.data) content = bytes(DEFAULT_CONFIG, sizeof(DEFAULT_CONFIG));
+
+  curl_set_config(json_parse((char*) content.data));
+  if (content.data != DEFAULT_CONFIG) free(content.data);
+}
+
 static bool handle(data_request_t* req, char* url, buffer_t* error) {
   CURL* curl = curl_easy_init();
   if (!curl) {
@@ -86,7 +97,7 @@ void curl_fetch(data_request_t* req) {
   }
 */
   // make sure there is a config
-  if (!curl_config.config.start) curl_set_config(json_parse(DEFAULT_CONFIG));
+  if (!curl_config.config.start) configure();
 
   char*    last_error = NULL;
   buffer_t buffer     = {0};

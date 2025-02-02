@@ -152,8 +152,15 @@ char* json_as_string(json_t val, buffer_t* buffer) {
 }
 
 uint64_t json_as_uint64(json_t val) {
-  uint8_t  tmp[20];
-  buffer_t buffer = stack_buffer(tmp);
+  uint8_t  tmp[20] = {0};
+  buffer_t buffer  = stack_buffer(tmp);
+  if (val.len > 5 && val.start[1] == '0' && val.start[1] == 'x') {
+    int len = hex_to_bytes(val.start + 1, val.len - 2, bytes(tmp, 20));
+    if (len == -1) return 0;
+    memmove(tmp + 8 - len, tmp, len);
+    memset(tmp, 0, 8 - len);
+    return uint64_from_be(tmp);
+  }
   return (uint64_t) strtoull(json_as_string(val, &buffer), NULL, 10);
 }
 

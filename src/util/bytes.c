@@ -197,3 +197,22 @@ void bytes_write(bytes_t data, FILE* f, bool close) {
   fwrite(data.data, 1, data.len, f);
   if (close && f != stdout && f != stderr) fclose(f);
 }
+
+bytes_t bytes_read(char* filename) {
+  unsigned char buffer[1024];
+  size_t        bytesRead;
+  buffer_t      data = {0};
+
+  FILE* file = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
+  if (file == NULL) return NULL_BYTES;
+
+  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
+    buffer_append(&data, bytes(buffer, bytesRead));
+
+  buffer_append(&data, bytes(NULL, 1));
+  data.data.len--;
+
+  if (file != stdin)
+    fclose(file);
+  return data.data;
+}

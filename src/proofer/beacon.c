@@ -39,7 +39,27 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
 
 */
 
-c4_status_t get_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* block) {
+static c4_status_t get_beacon_header_by_hash(proofer_ctx_t* ctx, char* hash, json_t* header) {
+
+  char path[100];
+  sprintf(path, "eth/v1/beacon/headers/%s", hash);
+
+  json_t result;
+  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, &result));
+
+  json_t val = json_get(result, "data");
+  val        = json_get(val, "header");
+  *header    = json_get(val, "message");
+
+  if (!header->start) {
+    ctx->error = strdup("Invalid block-format!");
+    return C4_ERROR;
+  }
+
+  return C4_SUCCESS;
+}
+
+static c4_status_t get_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* block) {
 
   char path[100];
   if (slot == 0)
@@ -77,18 +97,39 @@ static c4_status_t get_latest_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t*
   return C4_SUCCESS;
 }
 
+static c4_status_t eth_get_block(proofer_ctx_t* ctx, json_t block, json_t* result) {
+  char tmp[200] = {0};
+  memcpy(tmp + 1, block.start, block.len);
+  tmp[0]             = '[';
+  tmp[block.len + 1] = ']';
+  return c4_send_eth_rpc(ctx, "eth_getBlockByNumber", tmp, result);
+}
+
 c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
-  uint64_t slot = 0;
+  uint8_t  tmp[100] = {0};
+  buffer_t buffer   = stack_buffer(tmp);
+  uint64_t slot     = 0;
   ssz_ob_t sig_block;
   ssz_ob_t data_block;
   ssz_ob_t sig_body;
 
-  if (strncmp(block.start, "\"latest\"", 8) != 0) {
-    ctx->error = strdup("Block must be latest (at least for now)");
-    return C4_ERROR;
-  }
+  if (strncmp(block.start, "\"latest\"", 8) == 0)
+    TRY_ASYNC(get_latest_block(ctx, slot, &sig_block, &data_block));
+  else {
+    if (block.type != JSON_TYPE_STRING || block.len < 5 || block.start[1] != '0' || block.start[2] != 'x') {
+      ctx->error = strdup("Invalid block-format!");
+      return C4_ERROR;
+    }
+    json_t eth_block;
+    TRY_ASYNC(eth_get_block(ctx, block, &eth_block));
 
-  TRY_ASYNC(get_latest_block(ctx, slot, &sig_block, &data_block));
+    json_t hash = json_get(eth_block, "parentBeaconBlockRoot");
+    json_t header;
+    memset(tmp, 0, sizeof(tmp));
+    memcpy(tmp, hash.start + 1, hash.len - 2);
+    TRY_ASYNC(get_beacon_header_by_hash(ctx, (char*) tmp, &header));
+    TRY_ASYNC(get_latest_block(ctx, json_as_uint64(json_get(header, "slot")) + 2, &sig_block, &data_block));
+  }
 
   sig_body                     = ssz_get(&sig_block, "body");
   beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
@@ -98,9 +139,3 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
   beacon_block->sync_aggregate = ssz_get(&sig_body, "syncAggregate");
   return C4_SUCCESS;
 }
-/*
-ssz_ob_t get_execution_payload(proofer_ctx_t* ctx, ssz_ob_t block) {
-  ssz_ob_t body = ssz_get(&block, "body");
-  return ssz_get(&body, "executionPayload");
-}
-*/
