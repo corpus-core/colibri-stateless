@@ -33,10 +33,12 @@ static void configure() {
   bytes_t content     = {0};
   if (config_file) content = bytes_read(config_file);
   if (!content.data) content = bytes_read("c4_config.json");
-  if (!content.data) content = bytes(DEFAULT_CONFIG, sizeof(DEFAULT_CONFIG));
-
-  curl_set_config(json_parse((char*) content.data));
-  if (content.data != DEFAULT_CONFIG) free(content.data);
+  if (content.data) {
+    curl_set_config(json_parse((char*) content.data));
+    free(content.data);
+  }
+  else
+    curl_set_config(json_parse(DEFAULT_CONFIG));
 }
 
 static bool handle(data_request_t* req, char* url, buffer_t* error) {
@@ -144,6 +146,6 @@ void curl_fetch(data_request_t* req) {
 }
 
 void curl_set_config(json_t config) {
-  if (curl_config.config.start) free(curl_config.config.start);
+  if (curl_config.config.start) free((void*) curl_config.config.start);
   curl_config.config = (json_t) {.len = config.len, .start = strdup(config.start), .type = config.type};
 }

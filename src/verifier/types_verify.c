@@ -152,8 +152,9 @@ const ssz_def_t ETH_ACCOUNT_PROOF[] = {
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected
     SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};             // the state proof of the account
 
-const ssz_def_t ETH_ACCOUNT_PROOF_CONTAINER   = SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF);
-const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
+const ssz_def_t ETH_ACCOUNT_PROOF_CONTAINER     = SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF);
+const ssz_def_t ETH_TRANSACTION_PROOF_CONTAINER = SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF);
+const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER   = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
 
 // A List of possible types of data matching the Proofs
 const ssz_def_t C4_REQUEST_DATA_UNION[4] = {

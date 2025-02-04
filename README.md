@@ -518,7 +518,7 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L177).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L178).
 
 ```python
 class C4Request(Container):

@@ -50,7 +50,7 @@ char*    bprintf(buffer_t* buf, const char* fmt, ...);
   (buffer_t) { .data = NULL_BYTES, .allocated = init_size }
 
 #define bytes(ptr, length) \
-  (bytes_t) { .data = ptr, .len = length }
+  (bytes_t) { .data = (uint8_t*) ptr, .len = length }
 #define bytes_slice(parent, offet, length) \
   (bytes_t) { .data = parent.data + offet, .len = length }
 #define bytes_all_zero(a) bytes_all_equal(a, 0)

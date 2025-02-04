@@ -30,7 +30,7 @@ void c4_proofer_free(proofer_ctx_t* ctx) {
   }
 
   if (ctx->method) free(ctx->method);
-  if (ctx->params.start) free(ctx->params.start);
+  if (ctx->params.start) free((void*) ctx->params.start);
   if (ctx->error) free(ctx->error);
   if (ctx->proof.data) free(ctx->proof.data);
   free(ctx);
