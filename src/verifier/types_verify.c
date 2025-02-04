@@ -33,6 +33,28 @@ const ssz_def_t ETH_STORAGE_PROOF[] = {
 };
 
 const ssz_def_t ETH_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof", ETH_STORAGE_PROOF);
+
+/**
+ * tx_data
+ */
+const ssz_def_t ETH_TX_DATA[] = {
+    SSZ_BYTES32("blockHash"),       // the blockHash of the execution block containing the transaction
+    SSZ_UINT64("blockNumber"),      // the number of the execution block containing the transaction
+    SSZ_BYTES32("hash"),            // the blockHash of the execution block containing the transaction
+    SSZ_UINT32("transactionIndex"), // the index of the transaction in the block
+    SSZ_UINT8("type"),              // the type of the transaction
+    SSZ_UINT64("nonce"),            // the gasPrice of the transaction
+    SSZ_BYTES("input", 1073741824), // the raw transaction payload
+    SSZ_BYTES32("r"),               // the r value of the transaction
+    SSZ_BYTES32("s"),               // the s value of the transaction
+    SSZ_UINT32("chainId"),          // the s value of the transaction
+    SSZ_UINT8("v"),                 // the v value of the transaction
+    SSZ_UINT64("gas"),              // the gas limnit
+    SSZ_ADDRESS("from"),            // the sender of the transaction
+    SSZ_BYTES("to", 20),            // the target of the transaction
+    SSZ_UINT256("value"),           // the value of the transaction
+    SSZ_UINT64("gasPrice")};        // the gasPrice of the transaction
+
 // const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
 
 // represents the account and storage values, including the Merkle proof, of the specified account.
@@ -134,15 +156,17 @@ const ssz_def_t ETH_ACCOUNT_PROOF_CONTAINER   = SSZ_CONTAINER("AccountProof", ET
 const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
 
 // A List of possible types of data matching the Proofs
-const ssz_def_t C4_REQUEST_DATA_UNION[] = {
+const ssz_def_t C4_REQUEST_DATA_UNION[4] = {
     SSZ_NONE,
     SSZ_BYTES32("blockhash"), // the blochash  which is used for blockhash proof
-    SSZ_BYTES32("balance")};  // the balance of an account
+    SSZ_BYTES32("balance"),
+    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA)}; // the balance of an account
 // A List of possible types of proofs matching the Data
-const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
+const ssz_def_t C4_REQUEST_PROOFS_UNION[4] = {
     SSZ_NONE,
     SSZ_CONTAINER("BlockHashProof", BLOCK_HASH_PROOF),
-    SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF)}; // the blockhash proof used validating blockhashes
+    SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF),
+    SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF)}; // the blockhash proof used validating blockhashes
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_REQUEST_SYNCDATA_UNION[] = {

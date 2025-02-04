@@ -7,6 +7,7 @@ extern "C" {
 
 #include "bytes.h"
 #include "crypto.h"
+#include "json.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -102,10 +103,14 @@ bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t*
 void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t gindex, bytes32_t out);
 /** gets the value of a union. If the object is not a union, it will return an empty object. A Object with the type SSZ_TYPE_NONE will be returned if the union is empty */
 ssz_ob_t ssz_union(ssz_ob_t ob);
+uint8_t  ssz_union_selector(const ssz_def_t* union_types, size_t union_types_len, char* name, const ssz_def_t** def);
+#define ssz_union_selector_index(union_types, name, def) ssz_union_selector(union_types, sizeof(union_types) / sizeof(ssz_def_t), name, def)
+
 // returns the length of the fixed part of the object
 size_t ssz_fixed_length(const ssz_def_t* def);
 /** dumps the object to a file */
-void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend);
+void  ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_as_hex);
+char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex);
 
 /** hashes the object */
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
@@ -179,19 +184,20 @@ extern const ssz_def_t ssz_bls_pubky;
 #define SSZ_NONE                   {.name = "NONE", .type = SSZ_TYPE_NONE}
 
 typedef struct {
-  ssz_def_t* def;
-  buffer_t   fixed;
-  buffer_t   dynamic;
+  const ssz_def_t* def;
+  buffer_t         fixed;
+  buffer_t         dynamic;
 } ssz_builder_t;
 
-void ssz_add_bytes(ssz_builder_t* buffer, char* name, bytes_t data);
-void ssz_add_builders(ssz_builder_t* buffer, char* name, ssz_builder_t* data); // adds a builder to the buffer and frees the resources of the data builder
-void ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t data);
-void ssz_add_uint64(ssz_builder_t* buffer, uint64_t value);
-void ssz_add_uint32(ssz_builder_t* buffer, uint32_t value);
-void ssz_add_uint16(ssz_builder_t* buffer, uint16_t value);
-void ssz_add_uint8(ssz_builder_t* buffer, uint8_t value);
-void ssz_buffer_free(ssz_builder_t* buffer);
+void     ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data);
+void     ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t* data); // adds a builder to the buffer and frees the resources of the data builder
+void     ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t data);
+void     ssz_add_uint64(ssz_builder_t* buffer, uint64_t value);
+void     ssz_add_uint32(ssz_builder_t* buffer, uint32_t value);
+void     ssz_add_uint16(ssz_builder_t* buffer, uint16_t value);
+void     ssz_add_uint8(ssz_builder_t* buffer, uint8_t value);
+ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def);
+void     ssz_buffer_free(ssz_builder_t* buffer);
 // converts the ssz_buffer to bytes and the frees up the buffer
 // make sure to free the returned after using
 ssz_ob_t ssz_builder_to_bytes(ssz_builder_t* buffer);

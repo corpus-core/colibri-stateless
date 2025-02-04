@@ -24,25 +24,6 @@ static void set_req_test_dir(const char* dir) {
 
 #endif
 
-static bytes_t read_from_file(const char* filename) {
-  unsigned char buffer[1024];
-  size_t        bytesRead;
-  buffer_t      data = {0};
-
-  FILE* file = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
-  if (file == NULL) {
-    fprintf(stderr, "Error opening file: %s\n", filename);
-    exit(EXIT_FAILURE);
-  }
-
-  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
-    buffer_append(&data, bytes(buffer, bytesRead));
-
-  if (file != stdin)
-    fclose(file);
-  return data.data;
-}
-
 void error(const char* msg) {
   fprintf(stderr, "%s\n", msg);
   exit(EXIT_FAILURE);
@@ -131,6 +112,7 @@ static bool get_client_updates(verify_ctx_t* ctx) {
   return true;
 }
 #endif
+
 int main(int argc, char* argv[]) {
   if (argc == 1) {
     fprintf(stderr, "Usage: %s request.ssz \n", argv[0]);
@@ -156,7 +138,7 @@ int main(int argc, char* argv[]) {
     }
   }
   buffer_add_chars(&args, "]");
-  bytes_t request = read_from_file(argv[1]);
+  bytes_t request = bytes_read(argv[1]);
 
   for (int i = 0; i < 5; i++) { // max 5 retries
 
@@ -164,7 +146,7 @@ int main(int argc, char* argv[]) {
     c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0});
 
     if (ctx.success) {
-      ssz_dump(stdout, ctx.data, false, 0);
+      ssz_dump_to_file(stdout, ctx.data, false, true);
       fflush(stdout);
       //      fprintf(stderr, "proof is valid\n");
       return EXIT_SUCCESS;

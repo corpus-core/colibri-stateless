@@ -38,6 +38,7 @@
     - [EthStateProof](#ethstateproof)
     - [EthStorageProof](#ethstorageproof)
     - [EthTransactionProof](#ethtransactionproof)
+    - [EthTxData](#ethtxdata)
     - [ExecutionPayload](#executionpayload)
     - [ExecutionPayloadHeader](#executionpayloadheader)
     - [ForkData](#forkdata)
@@ -517,19 +518,21 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L153).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L177).
 
 ```python
 class C4Request(Container):
     data     : Union[                 # the data to proof
         None,
         Bytes32                       # the blochash  which is used for blockhash proof,
-        Bytes32                       # the balance of an account
+        Bytes32,
+        EthTxData                     # the balance of an account
     ]
     proof    : Union[                 # the proof of the data
         None,
         BlockHashProof,
-        EthAccountProof               # the blockhash proof used validating blockhashes
+        EthAccountProof,
+        EthTransactionProof           # the blockhash proof used validating blockhashes
     ]
     sync_data: Union[                 # the sync data containing proofs for the transition between the two periods
         None,
@@ -625,7 +628,7 @@ class Eth1Data(Container):
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L123).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L145).
 
 ```python
 class EthAccountProof(Container):
@@ -701,7 +704,7 @@ const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L67).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L89).
 
 ```python
 class EthTransactionProof(Container):
@@ -713,6 +716,31 @@ class EthTransactionProof(Container):
     header                  : BeaconBlockHeader    # the header of the beacon block
     sync_committee_bits     : BitVector [512]      # the bits of the validators that signed the block
     sync_committee_signature: ByteVector [96]      # the signature of the sync committee
+```
+
+### EthTxData
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L40).
+
+```python
+class EthTxData(Container):
+    blockHash       : Bytes32             # the blockHash of the execution block containing the transaction
+    blockNumber     : Uint64              # the number of the execution block containing the transaction
+    hash            : Bytes32             # the blockHash of the execution block containing the transaction
+    transactionIndex: Uint32              # the index of the transaction in the block
+    type            : Uint8               # the type of the transaction
+    nonce           : Uint64              # the gasPrice of the transaction
+    input           : Bytes[1073741824]   # the raw transaction payload
+    r               : Bytes32             # the r value of the transaction
+    s               : Bytes32             # the s value of the transaction
+    chainId         : Uint32              # the s value of the transaction
+    v               : Uint8               # the v value of the transaction
+    gas             : Uint64              # the gas limnit
+    from            : Address             # the sender of the transaction
+    to              : Bytes[20]           # the target of the transaction
+    value           : Uint256             # the value of the transaction
+    gasPrice        : Uint64              # the gasPrice of the transaction
 ```
 
 ### ExecutionPayload

@@ -1,5 +1,6 @@
 #include "ssz.h"
 #include "crypto.h"
+#include "json.h"
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -178,54 +179,59 @@ bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def) {
   }
 }
 
-void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
+typedef struct {
+  buffer_t buf;
+  bool     write_unit_as_hex;
+} ssz_dump_t;
+
+static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
   const ssz_def_t* def        = ob.def;
+  buffer_t*        buf        = &ctx->buf;
   char             close_char = '\0';
-  for (int i = 0; i < intend; i++) fprintf(f, " ");
+  for (int i = 0; i < intend; i++) buffer_add_chars(buf, " ");
   if (!def) {
-    fprintf(f, "<invalid>");
+    buffer_add_chars(buf, "<invalid>");
     return;
   }
-  if (include_name) fprintf(f, "\"%s\":", def->name);
+  if (name) bprintf(buf, "\"%s\":", name);
   switch (def->type) {
     case SSZ_TYPE_UINT:
       switch (def->def.uint.len) {
-        case 1: fprintf(f, "%d", ob.bytes.data[0]); break;
-        case 2: fprintf(f, "%d", uint16_from_le(ob.bytes.data)); break;
-        case 4: fprintf(f, "%d", uint32_from_le(ob.bytes.data)); break;
-        case 8: fprintf(f, "%" PRIu64, uint64_from_le(ob.bytes.data)); break;
-        default: print_hex(f, ob.bytes, "\"0x", "\"");
+        case 1: bprintf(buf, "%d", (uint32_t) ob.bytes.data[0]); break;
+        case 2: bprintf(buf, "%d", (uint32_t) uint16_from_le(ob.bytes.data)); break;
+        case 4: bprintf(buf, "%d", (uint32_t) uint32_from_le(ob.bytes.data)); break;
+        case 8: bprintf(buf, "%l", uint64_from_le(ob.bytes.data)); break;
+        default: bprintf(buf, "\"0x%x\"", ob.bytes);
       }
       break;
-    case SSZ_TYPE_NONE: fprintf(f, "null"); break;
-    case SSZ_TYPE_BOOLEAN: fprintf(f, "%s", ob.bytes.data[0] ? "true" : "false"); break;
+    case SSZ_TYPE_NONE: buffer_add_chars(buf, "null"); break;
+    case SSZ_TYPE_BOOLEAN: buffer_add_chars(buf, ob.bytes.data[0] ? "true" : "false"); break;
     case SSZ_TYPE_CONTAINER: {
       close_char = '}';
-      fprintf(f, "{\n");
+      buffer_add_chars(buf, "{\n");
       for (int i = 0; i < def->def.container.len; i++) {
-        ssz_dump(f, ssz_get(&ob, (char*) def->def.container.elements[i].name), true, intend + 2);
-        if (i < def->def.container.len - 1) fprintf(f, ",\n");
+        dump(ctx, ssz_get(&ob, (char*) def->def.container.elements[i].name), def->def.container.elements[i].name, intend + 2);
+        if (i < def->def.container.len - 1) buffer_add_chars(buf, ",\n");
       }
       break;
     }
     case SSZ_TYPE_BIT_VECTOR:
-      print_hex(f, ob.bytes, "\"0x", "\"");
+      bprintf(buf, "\"0x%x\"", ob.bytes);
       break;
     case SSZ_TYPE_BIT_LIST: {
       uint32_t len = ssz_len(ob);
-      print_hex(f, bytes(ob.bytes.data, len >> 3), "\"0x", "\"");
-      //      print_hex(f, ob.bytes, "\"0x", "\"");
+      bprintf(buf, "\"0x%x\"", bytes(ob.bytes.data, len >> 3));
       break;
     }
     case SSZ_TYPE_VECTOR:
     case SSZ_TYPE_LIST: {
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
-        print_hex(f, ob.bytes, "\"0x", "\"");
+        bprintf(buf, "\"0x%x\"", ob.bytes);
       else {
-        fprintf(f, "[\n");
+        buffer_add_chars(buf, "[\n");
         for (int i = 0; i < ssz_len(ob); i++) {
-          ssz_dump(f, ssz_at(ob, i), false, intend + 2);
-          if (i < ssz_len(ob) - 1) fprintf(f, ",\n");
+          dump(ctx, ssz_at(ob, i), false, intend + 2);
+          if (i < ssz_len(ob) - 1) buffer_add_chars(buf, ",\n");
         }
         close_char = ']';
       }
@@ -233,21 +239,39 @@ void ssz_dump(FILE* f, ssz_ob_t ob, bool include_name, int intend) {
     }
     case SSZ_TYPE_UNION:
       if (ob.bytes.len == 0 || ob.bytes.data[0] >= def->def.container.len)
-        fprintf(f, "null");
+        buffer_add_chars(buf, "null");
       else if (def->def.container.elements[ob.bytes.data[0]].type == SSZ_TYPE_NONE)
-        fprintf(f, "{\"selector\":%d,\"value\":null}", ob.bytes.data[0]);
+        bprintf(buf, "{\"selector\":%d,\"value\":null}", ob.bytes.data[0]);
       else {
-        fprintf(f, "{ \"selector\":%d, \"value\":", ob.bytes.data[0]);
-        ssz_dump(f, ssz_ob(def->def.container.elements[ob.bytes.data[0]], bytes(ob.bytes.data + 1, ob.bytes.len - 1)), false, intend + 2);
+        bprintf(buf, "{ \"selector\":%d, \"value\":", ob.bytes.data[0]);
+        dump(ctx, ssz_ob(def->def.container.elements[ob.bytes.data[0]], bytes(ob.bytes.data + 1, ob.bytes.len - 1)), false, intend + 2);
         close_char = '}';
       }
       break;
-    default: fprintf(f, "%s", ob.bytes.data); break;
+    default: buffer_add_chars(buf, (char*) ob.bytes.data); break;
   }
 
   if (close_char) {
-    fprintf(f, "\n");
-    for (int i = 0; i < intend; i++) fprintf(f, " ");
-    fprintf(f, "%c", close_char);
+    buffer_add_chars(buf, "\n");
+    for (int i = 0; i < intend; i++) buffer_add_chars(buf, " ");
+    bprintf(buf, "%c", close_char);
   }
+}
+char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
+  ssz_dump_t ctx = {
+      .buf               = {0},
+      .write_unit_as_hex = write_unit_as_hex,
+  };
+  dump(&ctx, ob, include_name ? ob.def->name : NULL, 0);
+  return (char*) ctx.buf.data.data;
+}
+
+void ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
+  ssz_dump_t ctx = {
+      .buf               = {0},
+      .write_unit_as_hex = write_unit_as_hex,
+  };
+  dump(&ctx, ob, include_name ? ob.def->name : NULL, 0);
+  bytes_write(ctx.buf.data, f, false);
+  buffer_free(&ctx.buf);
 }

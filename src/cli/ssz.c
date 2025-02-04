@@ -7,47 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Function to write bytes to a file
-void write_bytes_to_file(const char* filename, const unsigned char* data, size_t length) {
-  FILE* file = fopen(filename, "wb");
-  if (file == NULL) {
-    fprintf(stderr, "Error opening file for writing: %s\n", filename);
-    exit(EXIT_FAILURE);
-  }
-
-  size_t written = fwrite(data, sizeof(unsigned char), length, file);
-  if (written != length) {
-    fprintf(stderr, "Error writing data to file: %s\n", filename);
-    fclose(file);
-    exit(EXIT_FAILURE);
-  }
-
-  fclose(file);
-}
-
-static bytes_t read_from_file(const char* filename) {
-  unsigned char buffer[1024];
-  size_t        bytesRead;
-  buffer_t      data = {0};
-
-  FILE* file = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
-  if (file == NULL) {
-    fprintf(stderr, "Error opening file: %s\n", filename);
-    exit(EXIT_FAILURE);
-  }
-
-  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
-    buffer_append(&data, bytes(buffer, bytesRead));
-
-  if (file != stdin)
-    fclose(file);
-  return data.data;
-}
 const ssz_def_t* get_def(char* typename) {
   if (strcmp(typename, "signed_block") == 0) return &SIGNED_BEACON_BLOCK_CONTAINER;
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
 }
+
 int main(int argc, char* argv[]) {
   if (argc == 1) {
     fprintf(stderr, "Usage: %s -t <typename> -o <outfile> -nh <file.ssz> <field1> <field2> ...\n"
@@ -63,7 +28,7 @@ int main(int argc, char* argv[]) {
   }
 
   //  ssz_ob_t res = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, read_from_file(argv[1]));
-  ssz_ob_t res          = ssz_ob(C4_REQUEST_CONTAINER, read_from_file(argv[1]));
+  ssz_ob_t res          = ssz_ob(C4_REQUEST_CONTAINER, bytes_read(argv[1]));
   char*    out_filename = NULL;
   bool     show_hash    = false;
   bool     show_name    = false;
@@ -103,9 +68,8 @@ int main(int argc, char* argv[]) {
       res = ssz_get(&res, argv[i]);
   }
 
-  if (out_filename) {
-    write_bytes_to_file(out_filename, res.bytes.data, res.bytes.len);
-  }
+  if (out_filename)
+    bytes_write(res.bytes, fopen(out_filename, "wb"), true);
 
   if (show_serial) {
     for (int i = 0; i < res.bytes.len; i += 32) {
@@ -118,7 +82,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  ssz_dump(stdout, res, show_name, 0);
+  ssz_dump_to_file(stdout, res, show_name, true);
   if (show_hash) {
     bytes32_t hashroot;
     ssz_hash_tree_root(res, hashroot);

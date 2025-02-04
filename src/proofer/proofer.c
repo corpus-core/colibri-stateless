@@ -1,6 +1,6 @@
 #include "proofer.h"
 #include "../util/json.h"
-#include "proof_account.h"
+#include "proofs.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -42,6 +42,8 @@ c4_proofer_status_t c4_proofer_execute(proofer_ctx_t* ctx) {
 
   if (strcmp(ctx->method, "eth_getBalance") == 0 || strcmp(ctx->method, "eth_getCode") == 0 || strcmp(ctx->method, "eth_getNonce") == 0 || strcmp(ctx->method, "eth_getProof") == 0 || strcmp(ctx->method, "eth_getStorageAt") == 0)
     c4_proof_account(ctx);
+  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getCode") == 0 || strcmp(ctx->method, "eth_getNonce") == 0 || strcmp(ctx->method, "eth_getProof") == 0 || strcmp(ctx->method, "eth_getStorageAt") == 0)
+    c4_proof_transaction(ctx);
   else
     ctx->error = strdup("Unsupported method");
 
