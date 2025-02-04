@@ -297,7 +297,6 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
       p++;
       last_pos = p + 1;
       if (!*(p + 1)) break;
-      break;
     }
   }
   va_end(args);

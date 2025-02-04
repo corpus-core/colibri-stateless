@@ -3,22 +3,16 @@
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "beacon.h"
-#include "proof_account.h"
+#include "proofs.h"
 #include "ssz_types.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>
 
 static c4_status_t get_eth_tx(proofer_ctx_t* ctx, json_t txhash, json_t* tx_data) {
-  char tmp[200];
-  snprintf(tmp, sizeof(tmp), "[%.66s]", txhash.start);
-  return c4_send_eth_rpc(ctx, "eth_getTransactionByHash", tmp, tx_data);
-}
-
-static bytes_t create_eth_data(json_t tx_data) {
-  bytes_t data = {0};
-  //  buffer_append(&data, json_as_bytes(json_get(tx_data, "input"), &tmp));
-  return data;
+  uint8_t  tmp[200];
+  buffer_t buf = stack_buffer(tmp);
+  return c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), tx_data);
 }
 
 static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof) {
@@ -73,7 +67,7 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
 c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   json_t txhash = json_at(ctx->params, 0);
 
-  if (txhash.type != JSON_TYPE_STRING || txhash.len != 66 || txhash.start[1] != '0' || txhash.start[2] != 'x') {
+  if (txhash.type != JSON_TYPE_STRING || txhash.len != 68 || txhash.start[1] != '0' || txhash.start[2] != 'x') {
     ctx->error = strdup("Invalid hash");
     return C4_ERROR;
   }
@@ -81,7 +75,7 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   json_t tx_data;
   TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
 
-  uint32_t tx_index     = (uint32_t) json_as_uint64(json_get(tx_data, "transactionIndex"));
+  uint32_t tx_index     = json_get_uint32(tx_data, "transactionIndex");
   json_t   block_number = json_get(tx_data, "blockNumber");
   if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') {
     ctx->error = strdup("Invalid block number");
@@ -100,11 +94,8 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
                                                ssz_gindex(block.body.def, 3, "executionPayload", "transactions", tx_index)
 
   );
-  /*
   TRY_ASYNC_FINAL(
-      create_eth_tx_proof(ctx, eth_proof, &block,
-                          body_root, state_proof, address),
+      create_eth_tx_proof(ctx, tx_data, &block, body_root, state_proof),
       free(state_proof.data));
-  */
   return C4_SUCCESS;
 }

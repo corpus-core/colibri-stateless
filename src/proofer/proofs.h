@@ -1,5 +1,5 @@
-#ifndef C4_PROOF_ACCOUNT_H
-#define C4_PROOF_ACCOUNT_H
+#ifndef C4_PROOFS_H
+#define C4_PROOFS_H
 
 #include "proofer.h"
 
@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 c4_status_t c4_proof_account(proofer_ctx_t* ctx);
-
+c4_status_t c4_proof_transaction(proofer_ctx_t* ctx);
 #ifdef __cplusplus
 }
 #endif

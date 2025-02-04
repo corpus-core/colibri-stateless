@@ -97,12 +97,10 @@ static c4_status_t get_latest_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t*
   return C4_SUCCESS;
 }
 
-static c4_status_t eth_get_block(proofer_ctx_t* ctx, json_t block, json_t* result) {
-  char tmp[200] = {0};
-  memcpy(tmp + 1, block.start, block.len);
-  tmp[0]             = '[';
-  tmp[block.len + 1] = ']';
-  return c4_send_eth_rpc(ctx, "eth_getBlockByNumber", tmp, result);
+static c4_status_t eth_get_block(proofer_ctx_t* ctx, json_t block, bool full_tx, json_t* result) {
+  uint8_t  tmp[200] = {0};
+  buffer_t buffer   = stack_buffer(tmp);
+  return c4_send_eth_rpc(ctx, "eth_getBlockByNumber", bprintf(&buffer, "[%J,%s]", block, full_tx ? "true" : "false"), result);
 }
 
 c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
@@ -121,7 +119,7 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
       return C4_ERROR;
     }
     json_t eth_block;
-    TRY_ASYNC(eth_get_block(ctx, block, &eth_block));
+    TRY_ASYNC(eth_get_block(ctx, block, false, &eth_block));
 
     json_t hash = json_get(eth_block, "parentBeaconBlockRoot");
     json_t header;

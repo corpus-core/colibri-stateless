@@ -1,9 +1,9 @@
-#include "proof_account.h"
 #include "../util/json.h"
 #include "../util/ssz.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "beacon.h"
+#include "proofs.h"
 #include "ssz_types.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>

@@ -20,7 +20,7 @@ typedef enum json_type_t {
 } json_type_t;
 
 typedef struct json_t {
-  char*       start;
+  const char* start;
   size_t      len;
   json_type_t type;
 } json_t;

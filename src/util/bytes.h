@@ -44,7 +44,7 @@ char*    bprintf(buffer_t* buf, const char* fmt, ...);
 
 // creates a buffer on the stack which write into given variable on the stack and ensure to stay within the bounds of the variable
 #define stack_buffer(stack_var) \
-  (buffer_t) { .data = bytes(stack_var, 0), .allocated = -((int32_t) sizeof(stack_var)) }
+  (buffer_t) { .data = bytes((uint8_t*) stack_var, 0), .allocated = -((int32_t) sizeof(stack_var)) }
 
 #define buffer_for_size(init_size) \
   (buffer_t) { .data = NULL_BYTES, .allocated = init_size }
