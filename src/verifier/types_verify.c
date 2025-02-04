@@ -43,7 +43,7 @@ const ssz_def_t ETH_TX_DATA[] = {
     SSZ_BYTES32("hash"),            // the blockHash of the execution block containing the transaction
     SSZ_UINT32("transactionIndex"), // the index of the transaction in the block
     SSZ_UINT8("type"),              // the type of the transaction
-    SSZ_UINT256("nonce"),           // the gasPrice of the transaction
+    SSZ_UINT64("nonce"),            // the gasPrice of the transaction
     SSZ_BYTES("input", 1073741824), // the raw transaction payload
     SSZ_BYTES32("r"),               // the r value of the transaction
     SSZ_BYTES32("s"),               // the s value of the transaction
@@ -156,13 +156,13 @@ const ssz_def_t ETH_ACCOUNT_PROOF_CONTAINER   = SSZ_CONTAINER("AccountProof", ET
 const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
 
 // A List of possible types of data matching the Proofs
-const ssz_def_t C4_REQUEST_DATA_UNION[] = {
+const ssz_def_t C4_REQUEST_DATA_UNION[4] = {
     SSZ_NONE,
     SSZ_BYTES32("blockhash"), // the blochash  which is used for blockhash proof
     SSZ_BYTES32("balance"),
     SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA)}; // the balance of an account
 // A List of possible types of proofs matching the Data
-const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
+const ssz_def_t C4_REQUEST_PROOFS_UNION[4] = {
     SSZ_NONE,
     SSZ_CONTAINER("BlockHashProof", BLOCK_HASH_PROOF),
     SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF),

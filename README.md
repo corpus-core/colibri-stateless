@@ -730,7 +730,7 @@ class EthTxData(Container):
     hash            : Bytes32             # the blockHash of the execution block containing the transaction
     transactionIndex: Uint32              # the index of the transaction in the block
     type            : Uint8               # the type of the transaction
-    nonce           : Uint256             # the gasPrice of the transaction
+    nonce           : Uint64              # the gasPrice of the transaction
     input           : Bytes[1073741824]   # the raw transaction payload
     r               : Bytes32             # the r value of the transaction
     s               : Bytes32             # the s value of the transaction

@@ -1,5 +1,6 @@
 #include "ssz.h"
 #include "crypto.h"
+#include "json.h"
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>

@@ -43,7 +43,7 @@ static json_t parse_number(char* start) {
   return json;
 }
 
-json_t json_parse(char* data) {
+json_t json_parse(const char* data) {
   json_t invalid = json(JSON_TYPE_INVALID, data, 0);
   char*  start   = next_non_whitespace_token(data);
   char*  end     = NULL;
@@ -112,7 +112,7 @@ json_t json_next_value(json_t val, bytes_t* property_name, json_next_t type) {
   return json_parse(start);
 }
 
-json_t json_get(json_t parent, char* property) {
+json_t json_get(json_t parent, const char* property) {
   if (parent.type != JSON_TYPE_OBJECT) return json(JSON_TYPE_INVALID, parent.start, 0);
   bytes_t property_name = NULL_BYTES;
   size_t  len           = strlen(property);

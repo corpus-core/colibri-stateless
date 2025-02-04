@@ -21,7 +21,7 @@ static bytes_t create_eth_data(json_t tx_data) {
   return data;
 }
 
-static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beacon_block_t* block_data, bytes32_t body_root, bytes_t state_proof) {
+static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof) {
 
   buffer_t      tmp          = {0};
   ssz_builder_t eth_tx_proof = {0};
@@ -31,9 +31,8 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
   ssz_ob_t      block         = block_data->header;
   //  eth_account_proof.def           = (ssz_def_t*) &ETH_ACCOUNT_PROOF_CONTAINER;
   //  eth_state_proof.def             = (ssz_def_t*) (eth_account_proof.def->def.container.elements + 7); // TODO:  use the name to identify last element
-  beacon_header.def      = (ssz_def_t*) &BEACON_BLOCKHEADER_CONTAINER;
-  c4_req.def             = (ssz_def_t*) &C4_REQUEST_CONTAINER;
-  uint8_t union_selector = 3; // TODO:  use the name to find the index based on the union definition
+  beacon_header.def = (ssz_def_t*) &BEACON_BLOCKHEADER_CONTAINER;
+  c4_req.def        = (ssz_def_t*) &C4_REQUEST_CONTAINER;
 
   // build the header
   ssz_add_bytes(&beacon_header, "slot", ssz_get(&block, "slot").bytes);
@@ -42,26 +41,29 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
   ssz_add_bytes(&beacon_header, "stateRoot", ssz_get(&block, "stateRoot").bytes);
   ssz_add_bytes(&beacon_header, "bodyRoot", bytes(body_root, 32));
 
-  buffer_grow(&eth_tx_proof.fixed, 256);
-  buffer_append(&eth_tx_proof.fixed, bytes(&union_selector, 1)); // we add the union selector at the beginning
+  // build the proof
+  ssz_add_uint8(&eth_tx_proof, ssz_union_selector_index(C4_REQUEST_PROOFS_UNION, "TransactionProof", &eth_tx_proof.def));
   ssz_add_bytes(&eth_tx_proof, "transaction", json_as_bytes(json_get(tx_data, "input"), &tmp));
-  ssz_add_uint32(&eth_tx_proof, (uint32_t) json_as_uint64(json_get(tx_data, "transactionIndex")));
-  ssz_add_uint64(&eth_tx_proof, json_as_uint64(json_get(tx_data, "blockNumber")));
-  ssz_add_bytes(&eth_tx_proof, "blockHash", json_as_bytes(json_get(tx_data, "blockHash"), &tmp));
-  //--------------
-  if (union_selector == 1)
-    buffer_splice(&tmp, 0, 0, bytes(NULL, 33 - tmp.data.len)); // we add zeros at the beginning so have a fixed length of 32+ selector
-  else if (union_selector == 2)
-    buffer_splice(&tmp, 0, 0, bytes(NULL, 1)); // make room for one byte
-  tmp.data.data[0] = union_selector;           // union selector for bytes32 == index 1
+  ssz_add_uint32(&eth_tx_proof, json_get_uint64(tx_data, "transactionIndex"));
+  ssz_add_uint64(&eth_tx_proof, json_get_uint64(tx_data, "blockNumber"));
+  ssz_add_bytes(&eth_tx_proof, "blockHash", json_get_bytes(tx_data, "blockHash", &tmp));
+  ssz_add_bytes(&eth_tx_proof, "proof", tx_proof);
+  ssz_add_builders(&eth_tx_proof, "header", &beacon_header);
+  ssz_add_bytes(&eth_tx_proof, "sync_committee_bits", ssz_get(&block_data->sync_aggregate, "syncCommitteeBits").bytes);
+  ssz_add_bytes(&eth_tx_proof, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
+
+  // build the data
+  const ssz_def_t* data_type = NULL;
+  tmp.data.data[0]           = ssz_union_selector_index(C4_REQUEST_DATA_UNION, "EthTransactionData", &data_type);
+  tmp.data.len               = 1;
+  ssz_ob_t tx_data_ob        = ssz_from_json(tx_data, data_type);
+  buffer_append(&tmp, tx_data_ob.bytes);
+  free(tx_data_ob.bytes.data);
 
   // build the request
   ssz_add_bytes(&c4_req, "data", tmp.data);
   ssz_add_builders(&c4_req, "proof", &eth_tx_proof);
-
-  // empty sync_data
-  union_selector = 0;
-  ssz_add_bytes(&c4_req, "sync_data", bytes(&union_selector, 1));
+  ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
 
   buffer_free(&tmp);
   ctx->proof = ssz_builder_to_bytes(&c4_req).bytes;

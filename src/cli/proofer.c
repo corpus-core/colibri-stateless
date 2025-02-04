@@ -25,21 +25,16 @@
 static char* REQ_TEST_DIR = NULL;
 
 static void set_req_test_dir(const char* dir) {
-  char* path = malloc(strlen(dir) + strlen(TESTDATA_DIR) + 5);
-  sprintf(path, "%s/%s", TESTDATA_DIR, dir);
-  REQ_TEST_DIR = path;
-
-  if (MKDIR(path) != 0) {
-    perror("Error creating directory");
-  }
+  buffer_t buf = {0};
+  REQ_TEST_DIR = bprintf(&buf, "%s/%s", TESTDATA_DIR, dir);
+  if (MKDIR(REQ_TEST_DIR) != 0) perror("Error creating directory");
 }
 
 static void test_write_file(const char* filename, bytes_t data) {
   if (!REQ_TEST_DIR) return;
-  char* path = malloc(strlen(REQ_TEST_DIR) + strlen(filename) + 5);
-  sprintf(path, "%s/%s", REQ_TEST_DIR, filename);
-  bytes_write(data, fopen(path, "w"), true);
-  free(path);
+  buffer_t buf = {0};
+  bytes_write(data, fopen(bprintf(&buf, "%s/%s", REQ_TEST_DIR, filename), "w"), true);
+  buffer_free(&buf);
 }
 
 #endif
