@@ -86,7 +86,7 @@ static inline bool ssz_is_error(ssz_ob_t ob) {
 ssz_ob_t ssz_at(ssz_ob_t ob, uint32_t index);
 
 /** gets the value of a field with the given name. If the data is not a container or union or if the field is not found, it will return an empty object */
-ssz_ob_t ssz_get(ssz_ob_t* ob, char* name);
+ssz_ob_t ssz_get(ssz_ob_t* ob, const char* name);
 
 static inline uint64_t ssz_get_uint64(ssz_ob_t* ob, char* name) {
   return ssz_uint64(ssz_get(ob, name));

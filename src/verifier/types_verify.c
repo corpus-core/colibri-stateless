@@ -34,9 +34,14 @@ const ssz_def_t ETH_STORAGE_PROOF[] = {
 
 const ssz_def_t ETH_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof", ETH_STORAGE_PROOF);
 
-/**
- * tx_data
- */
+// Entry in thr access list
+const ssz_def_t ETH_ACCESS_LIST_DATA[] = {
+    SSZ_ADDRESS("address"),
+    SSZ_LIST("storageKeys", ssz_bytes32, 256),
+};
+const ssz_def_t ETH_ACCESS_LIST_DATA_CONTAINER = SSZ_CONTAINER("AccessListData", ETH_ACCESS_LIST_DATA);
+
+// the transaction data
 const ssz_def_t ETH_TX_DATA[] = {
     SSZ_BYTES32("blockHash"),       // the blockHash of the execution block containing the transaction
     SSZ_UINT64("blockNumber"),      // the number of the execution block containing the transaction
@@ -53,7 +58,12 @@ const ssz_def_t ETH_TX_DATA[] = {
     SSZ_ADDRESS("from"),            // the sender of the transaction
     SSZ_BYTES("to", 20),            // the target of the transaction
     SSZ_UINT256("value"),           // the value of the transaction
-    SSZ_UINT64("gasPrice")};        // the gasPrice of the transaction
+    SSZ_UINT64("gasPrice"),
+    SSZ_UINT64("maxFeePerGas"),
+    SSZ_UINT64("maxPriorityFeePerGas"),
+    SSZ_LIST("accessList", ETH_ACCESS_LIST_DATA_CONTAINER, 256),
+    SSZ_LIST("blobVersionedHashes", ssz_bytes32, 16),
+    SSZ_UINT8("yParity")}; // the gasPrice of the transaction
 
 // const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
 

@@ -201,6 +201,13 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
         case 2: bprintf(buf, "%d", (uint32_t) uint16_from_le(ob.bytes.data)); break;
         case 4: bprintf(buf, "%d", (uint32_t) uint32_from_le(ob.bytes.data)); break;
         case 8: bprintf(buf, "%l", uint64_from_le(ob.bytes.data)); break;
+        case 32: {
+          bytes32_t tmp = {0};
+          for (int i = 0; i < 32; i++)
+            tmp[i] = ob.bytes.data[31 - i];
+          bprintf(buf, "\"0x%x\"", bytes_remove_leading_zeros(bytes(tmp, 32)));
+          break;
+        }
         default: bprintf(buf, "\"0x%x\"", ob.bytes);
       }
       break;

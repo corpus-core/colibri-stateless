@@ -22,7 +22,10 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
   //  ssz_builder_t eth_state_proof   = {0};
   ssz_builder_t beacon_header = {0};
   ssz_builder_t c4_req        = {0};
+  uint32_t      tx_index      = json_get_uint32(tx_data, "transactionIndex");
   ssz_ob_t      block         = block_data->header;
+  ssz_ob_t      raw           = ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index);
+
   //  eth_account_proof.def           = (ssz_def_t*) &ETH_ACCOUNT_PROOF_CONTAINER;
   //  eth_state_proof.def             = (ssz_def_t*) (eth_account_proof.def->def.container.elements + 7); // TODO:  use the name to identify last element
   beacon_header.def = (ssz_def_t*) &BEACON_BLOCKHEADER_CONTAINER;
@@ -37,8 +40,8 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
 
   // build the proof
   ssz_add_uint8(&eth_tx_proof, ssz_union_selector_index(C4_REQUEST_PROOFS_UNION, "TransactionProof", &eth_tx_proof.def));
-  ssz_add_bytes(&eth_tx_proof, "transaction", json_as_bytes(json_get(tx_data, "input"), &tmp));
-  ssz_add_uint32(&eth_tx_proof, json_get_uint64(tx_data, "transactionIndex"));
+  ssz_add_bytes(&eth_tx_proof, "transaction", raw.bytes);
+  ssz_add_uint32(&eth_tx_proof, tx_index);
   ssz_add_uint64(&eth_tx_proof, json_get_uint64(tx_data, "blockNumber"));
   ssz_add_bytes(&eth_tx_proof, "blockHash", json_get_bytes(tx_data, "blockHash", &tmp));
   ssz_add_bytes(&eth_tx_proof, "proof", tx_proof);

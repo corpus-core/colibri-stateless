@@ -121,11 +121,11 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def) {
       }
       return ssz_builder_to_bytes(&buf);
     case SSZ_TYPE_UINT: {
-      buffer_grow(&buf.fixed, def->def.uint.len);
+      buffer_append(&buf.fixed, bytes(NULL, def->def.uint.len));
       if (def->def.uint.len <= 8) {
         uint64_t val = json_as_uint64(json);
         for (int i = 0; i < def->def.uint.len; i++)
-          buf.fixed.data.data[0] = (uint8_t) ((val >> (i * 8)) & 0xff);
+          buf.fixed.data.data[i] = (uint8_t) ((val >> (i * 8)) & 0xff);
       }
       else {
         memset(buf.fixed.data.data, 0, def->def.uint.len);
@@ -177,7 +177,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def) {
         }
       else {
         buffer_grow(&buf.fixed, len * ssz_fixed_length(def->def.vector.type));
-        for (int i = 0; i < def->def.vector.len; i++) {
+        for (int i = 0; i < len; i++) {
           ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type);
           buffer_append(&buf.fixed, ob.bytes);
           free(ob.bytes.data);

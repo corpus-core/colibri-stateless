@@ -306,3 +306,11 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
     buf->data.len--;
   return (char*) buf->data.data;
 }
+
+bytes_t bytes_remove_leading_zeros(bytes_t data) {
+  while (data.len > 1 && data.data[0] == 0) {
+    data.len--;
+    data.data++;
+  }
+  return data;
+}

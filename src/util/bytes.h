@@ -41,7 +41,7 @@ void     bytes_write(bytes_t data, FILE* f, bool close);
 bytes_t  bytes_read(char* filename);
 int      hex_to_bytes(const char* hexstring, int len, bytes_t buffer);
 char*    bprintf(buffer_t* buf, const char* fmt, ...);
-
+bytes_t  bytes_remove_leading_zeros(bytes_t data);
 // creates a buffer on the stack which write into given variable on the stack and ensure to stay within the bounds of the variable
 #define stack_buffer(stack_var) \
   (buffer_t) { .data = bytes((uint8_t*) stack_var, 0), .allocated = -((int32_t) sizeof(stack_var)) }

@@ -12,6 +12,7 @@
 #include <string.h>
 
 #ifdef TEST
+
 #include <sys/stat.h>
 #include <sys/types.h>
 #ifdef _WIN32

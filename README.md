@@ -34,6 +34,7 @@
     - [Deposit](#deposit)
     - [DepositData](#depositdata)
     - [Eth1Data](#eth1data)
+    - [EthAccessListData](#ethaccesslistdata)
     - [EthAccountProof](#ethaccountproof)
     - [EthStateProof](#ethstateproof)
     - [EthStorageProof](#ethstorageproof)
@@ -518,7 +519,7 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L178).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L188).
 
 ```python
 class C4Request(Container):
@@ -587,6 +588,19 @@ class Eth1Data(Container):
     blockHash   : Bytes32
 ```
 
+### EthAccessListData
+
+Entry in thr access list
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L38).
+
+```python
+class EthAccessListData(Container):
+    address    : Address
+    storageKeys: List [bytes32, 256]
+```
+
 ### EthAccountProof
 
 1. **Patricia Merkle Proof** for the Account Object in the execution layer (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
@@ -628,7 +642,7 @@ class Eth1Data(Container):
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L145).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L155).
 
 ```python
 class EthAccountProof(Container):
@@ -704,7 +718,7 @@ const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L89).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L99).
 
 ```python
 class EthTransactionProof(Container):
@@ -720,27 +734,34 @@ class EthTransactionProof(Container):
 
 ### EthTxData
 
+the transaction data
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L40).
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L45).
 
 ```python
 class EthTxData(Container):
-    blockHash       : Bytes32             # the blockHash of the execution block containing the transaction
-    blockNumber     : Uint64              # the number of the execution block containing the transaction
-    hash            : Bytes32             # the blockHash of the execution block containing the transaction
-    transactionIndex: Uint32              # the index of the transaction in the block
-    type            : Uint8               # the type of the transaction
-    nonce           : Uint64              # the gasPrice of the transaction
-    input           : Bytes[1073741824]   # the raw transaction payload
-    r               : Bytes32             # the r value of the transaction
-    s               : Bytes32             # the s value of the transaction
-    chainId         : Uint32              # the s value of the transaction
-    v               : Uint8               # the v value of the transaction
-    gas             : Uint64              # the gas limnit
-    from            : Address             # the sender of the transaction
-    to              : Bytes[20]           # the target of the transaction
-    value           : Uint256             # the value of the transaction
-    gasPrice        : Uint64              # the gasPrice of the transaction
+    blockHash           : Bytes32             # the blockHash of the execution block containing the transaction
+    blockNumber         : Uint64              # the number of the execution block containing the transaction
+    hash                : Bytes32             # the blockHash of the execution block containing the transaction
+    transactionIndex    : Uint32              # the index of the transaction in the block
+    type                : Uint8               # the type of the transaction
+    nonce               : Uint64              # the gasPrice of the transaction
+    input               : Bytes[1073741824]   # the raw transaction payload
+    r                   : Bytes32             # the r value of the transaction
+    s                   : Bytes32             # the s value of the transaction
+    chainId             : Uint32              # the s value of the transaction
+    v                   : Uint8               # the v value of the transaction
+    gas                 : Uint64              # the gas limnit
+    from                : Address             # the sender of the transaction
+    to                  : Bytes[20]           # the target of the transaction
+    value               : Uint256             # the value of the transaction
+    gasPrice            : Uint64
+    maxFeePerGas        : Uint64
+    maxPriorityFeePerGas: Uint64
+    accessList          : List [EthAccessListData, 256]
+    blobVersionedHashes : List [bytes32, 16]
+    yParity             : Uint8               # the gasPrice of the transaction
 ```
 
 ### ExecutionPayload
