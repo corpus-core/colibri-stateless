@@ -94,7 +94,7 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   bytes_t state_proof = ssz_create_multi_proof(block.body, 3,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
-                                               ssz_gindex(block.body.def, 3, "executionPayload", "transactions", tx_index)
+                                               /* 1704984576 + tx_index */ ssz_gindex(block.body.def, 3, "executionPayload", "transactions", tx_index)
 
   );
   TRY_ASYNC_FINAL(

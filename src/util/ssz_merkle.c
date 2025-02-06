@@ -3,6 +3,7 @@
 #if defined(_MSC_VER)
 #include <intrin.h> // Include for MSVC intrinsics
 #endif
+#include "logger.h"
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -70,7 +71,7 @@ gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...) {
       }
     }
     else if (def->type == SSZ_TYPE_LIST) {
-      leafes = is_basic_type(def->def.vector.type) ? ((def->def.vector.len * ssz_fixed_length(def->def.vector.type) + 31) >> 5) : def->def.vector.len;
+      leafes = is_basic_type(def->def.vector.type) ? ((def->def.vector.len * ssz_fixed_length(def->def.vector.type) + 31) >> 5) * 2 : def->def.vector.len * 2;
       idx    = (uint64_t) va_arg(args, int);
     }
 
@@ -343,8 +344,11 @@ static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
   if (ctx->proof) {
     gindex  = ssz_add_gindex(ctx->root_gindex, gindex); // global gindex
     int pos = gindex_indexOf(ctx->proof->witnesses, gindex);
+    log_debug_full("gindex: %l (i: %d  d:%d  r:%l) %s %x",
+                   gindex, index, depth, ctx->root_gindex, pos >= 0 ? "X" : " ", bytes(out, 32));
+    //    fprintf(stderr, "gindex: %llu (i: %d  d:%d  r:%llu) %s", gindex, index, depth, ctx->root_gindex, pos >= 0 ? "X" : " ");
+    //    print_hex(stderr, bytes(out, 32), " : ", "\n");
     if (pos >= 0) {
-
       buffer_grow(ctx->proof->proof, (ctx->proof->witnesses->data.len / sizeof(gindex_t)) * 32);
       ctx->proof->proof->data.len = ctx->proof->witnesses->data.len / sizeof(gindex_t) * 32;
       memcpy(ctx->proof->proof->data.data + pos * 32, out, 32);
@@ -459,6 +463,12 @@ static bool merkle_proof(merkle_proof_data_t* proof, gindex_t start, gindex_t en
   memcpy(out, start_data.data, 32);
 
   while (start > end) {
+    log_debug_full("%l: %x", start, bytes(out, 32));
+
+    /*
+    fprintf(stderr, "s: %llu ", start);
+    print_hex(stderr, bytes(out, 32), " : ", "\n");
+    */
     gindex_t witness      = start & 1 ? start - 1 : start + 1;
     bytes_t  witness_data = merkle_get_data(proof, witness);
     if (witness_data.data == NULL) {
@@ -488,6 +498,19 @@ bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t*
   buffer_t calculated_gindex = {0};
   for (uint32_t i = 0; i < leafes.len / 32; i++)
     ssz_add_multi_merkle_proof(gindex[i], &witnesses_gindex, &calculated_gindex);
+  /*
+  fprintf(stderr, "_______\nwitnesses_gindex:\n");
+  for (uint32_t i = 0; i < witnesses_gindex.data.len / sizeof(gindex_t); i++) {
+    fprintf(stderr, "witness gindex: %llu\n", ((gindex_t*) witnesses_gindex.data.data)[i]);
+  }
+
+  fprintf(stderr, "_______\ncalculated_gindex:\n");
+  for (uint32_t i = 0; i < calculated_gindex.data.len / sizeof(gindex_t); i++) {
+    fprintf(stderr, "path gindex: %llu\n", ((gindex_t*) calculated_gindex.data.data)[i]);
+  }
+  fprintf(stderr, "_______\nvalues:\n");
+  */
+
   buffer_free(&calculated_gindex);
 
   merkle_proof_data_t data = {
@@ -518,32 +541,7 @@ bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t*
 void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t gindex, bytes32_t out) {
   ssz_verify_multi_merkle_proof(proof_data, bytes(leaf, 32), &gindex, out);
 }
-/*
-void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out) {
-  memset(out, 0, 32);
-  uint32_t depth = get_depth(gindex);
-  uint32_t index = gindex % (1 << depth);
 
-  // check potential extra data to make sure they are all zero
-  if (proof_data.len >> 5 > depth) {
-    uint32_t num_extra = (proof_data.len >> 5) - depth;
-    for (uint32_t i = 0; i < num_extra; i++) {
-      if (!bytes_all_zero(proof_data)) return;
-    }
-  }
-
-  if ((proof_data.len >> 5) < depth) return;
-
-  memcpy(out, leaf, 32);
-
-  for (uint32_t i = 0; i < depth; i++) {
-    if ((index / (1 << i)) % 2 == 1)
-      sha256_merkle(bytes_slice(proof_data, (i << 5), 32), bytes(out, 32), out);
-    else
-      sha256_merkle(bytes(out, 32), bytes_slice(proof_data, (i << 5), 32), out);
-  }
-}
-*/
 gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2) {
   uint32_t depth = log2_ceil((uint32_t) gindex2 + 1) - 1;
   return (gindex1 << depth) | (gindex2 & ((1 << depth) - 1));
