@@ -1,4 +1,5 @@
 #include "../util/json.h"
+#include "../util/logger.h"
 #include "../util/ssz.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
@@ -17,19 +18,13 @@ static c4_status_t get_eth_tx(proofer_ctx_t* ctx, json_t txhash, json_t* tx_data
 
 static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof) {
 
-  buffer_t      tmp          = {0};
-  ssz_builder_t eth_tx_proof = {0};
-  //  ssz_builder_t eth_state_proof   = {0};
-  ssz_builder_t beacon_header = {0};
-  ssz_builder_t c4_req        = {0};
+  buffer_t      tmp           = {0};
+  ssz_builder_t eth_tx_proof  = {0};
+  ssz_builder_t beacon_header = {.def = (ssz_def_t*) &BEACON_BLOCKHEADER_CONTAINER, .dynamic = {0}, .fixed = {0}};
+  ssz_builder_t c4_req        = {.def = (ssz_def_t*) &C4_REQUEST_CONTAINER, .dynamic = {0}, .fixed = {0}};
   uint32_t      tx_index      = json_get_uint32(tx_data, "transactionIndex");
   ssz_ob_t      block         = block_data->header;
   ssz_ob_t      raw           = ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index);
-
-  //  eth_account_proof.def           = (ssz_def_t*) &ETH_ACCOUNT_PROOF_CONTAINER;
-  //  eth_state_proof.def             = (ssz_def_t*) (eth_account_proof.def->def.container.elements + 7); // TODO:  use the name to identify last element
-  beacon_header.def = (ssz_def_t*) &BEACON_BLOCKHEADER_CONTAINER;
-  c4_req.def        = (ssz_def_t*) &C4_REQUEST_CONTAINER;
 
   // build the header
   ssz_add_bytes(&beacon_header, "slot", ssz_get(&block, "slot").bytes);

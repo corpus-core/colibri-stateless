@@ -11,12 +11,12 @@ void tearDown(void) {
   reset_local_filecache();
 }
 
-void test_balance() {
+void test_tx() {
   verify("eth_getTransactionByHash1", "eth_getTransactionByHash", "[\"0x5f41c75eabb3fee183e0896859a82c81635dbb40edf5630fa29555e8d6c3e7f1\"]");
 }
 
 int main(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_balance);
+  RUN_TEST(test_tx);
   return UNITY_END();
 }

@@ -90,7 +90,7 @@ void ssz_add_uint8(ssz_builder_t* buffer, uint8_t value) {
 uint8_t ssz_union_selector(const ssz_def_t* union_types, size_t union_types_len, char* name, const ssz_def_t** def) {
   *def = NULL;
   for (int i = 0; i < union_types_len; i++) {
-    if (union_types[i].name == name) { // this equals is ok, because we are always comparing string literals!
+    if (union_types[i].name == name || strcmp(union_types[i].name, name) == 0) {
       *def = union_types + i;
       return i;
     }
