@@ -28,6 +28,7 @@ uint64_t uint64_from_le(uint8_t* data);
 uint64_t uint64_from_be(uint8_t* data);
 void     uint64_to_be(uint8_t* data, uint64_t value);
 void     uint64_to_le(uint8_t* data, uint64_t value);
+
 uint32_t buffer_append(buffer_t* buffer, bytes_t data);
 void     buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data);
 void     buffer_add_chars(buffer_t* buffer, const char* data);
@@ -35,15 +36,17 @@ void     buffer_add_be(buffer_t* buffer, uint64_t value, uint32_t len);
 void     buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix);
 void     buffer_free(buffer_t* buffer);
 void     buffer_grow(buffer_t* buffer, size_t min_len);
-void     print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
-bool     bytes_all_equal(bytes_t a, uint8_t value);
-bytes_t  bytes_dup(bytes_t data);
-void     bytes_write(bytes_t data, FILE* f, bool close);
-bytes_t  bytes_read(char* filename);
-int      hex_to_bytes(const char* hexstring, int len, bytes_t buffer);
 char*    bprintf(buffer_t* buf, const char* fmt, ...);
-bytes_t  bytes_remove_leading_zeros(bytes_t data);
-void     buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
+
+void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
+
+bool    bytes_all_equal(bytes_t a, uint8_t value);
+bytes_t bytes_dup(bytes_t data);
+void    bytes_write(bytes_t data, FILE* f, bool close);
+bytes_t bytes_read(char* filename);
+int     hex_to_bytes(const char* hexstring, int len, bytes_t buffer);
+bytes_t bytes_remove_leading_zeros(bytes_t data);
+void    buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
 // creates a buffer on the stack which write into given variable on the stack and ensure to stay within the bounds of the variable
 #define stack_buffer(stack_var) \
   (buffer_t) { .data = bytes((uint8_t*) stack_var, 0), .allocated = -((int32_t) sizeof(stack_var)) }

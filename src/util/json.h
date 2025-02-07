@@ -33,10 +33,11 @@ typedef enum json_next_t {
 
 json_t json_next_value(json_t val, bytes_t* property_name, json_next_t type);
 
-json_t   json_parse(const char* data);
-json_t   json_get(json_t parent, const char* property);
-json_t   json_at(json_t parent, size_t index);
-size_t   json_len(json_t parent);
+json_t json_parse(const char* data);
+json_t json_get(json_t parent, const char* property);
+json_t json_at(json_t parent, size_t index);
+size_t json_len(json_t parent);
+
 char*    json_as_string(json_t parent, buffer_t* buffer);
 char*    json_new_string(json_t parent);
 bytes_t  json_as_bytes(json_t parent, buffer_t* buffer);

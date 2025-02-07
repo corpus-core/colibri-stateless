@@ -18,7 +18,7 @@ bool c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_val
   return true;
 }
 
-int c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch) {
+fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch) {
   const uint64_t* fork_epochs = NULL;
   int             i           = 0;
 
@@ -27,9 +27,9 @@ int c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch) {
       fork_epochs = eth_mainnet_fork_epochs;
       break;
     }
-    default: return -1;
+    default: return C4_FORK_ALTAIR;
   }
 
   while (fork_epochs && fork_epochs[i] && epoch >= fork_epochs[i]) i++;
-  return i;
+  return (fork_id_t) i;
 }

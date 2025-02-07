@@ -126,7 +126,7 @@ int main(int argc, char* argv[]) {
   char*      input    = NULL;
   buffer_add_chars(&args, "[");
 
-  for (int i = 2; i < argc; i++) {
+  for (int i = 1; i < argc; i++) {
     if (*argv[i] == '-') {
       for (char* c = argv[i] + 1; *c; c++) {
         switch (*c) {
@@ -143,6 +143,8 @@ int main(int argc, char* argv[]) {
             exit(EXIT_FAILURE);
         }
       }
+      if (input == NULL && strlen(argv[i]) == 1)
+        input = argv[i];
     }
     else if (input == NULL)
       input = argv[i];
