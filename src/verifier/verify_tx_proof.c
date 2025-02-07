@@ -101,18 +101,74 @@ static const rlp_type_defs_t tx_type_defs[] = {
     {tx_type3_defs, sizeof(tx_type3_defs) / sizeof(rlp_def_t)},
 };
 
-static bool verify_tx_data(verify_ctx_t* ctx, ssz_ob_t tx_data, bytes_t raw_tx, bytes32_t block_hash, uint64_t block_number) {
-  // check tx_type
-  if (raw_tx.len < 1) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing type!");
-  tx_type_t type = raw_tx.data[0];
-  if (type >= 0x7f)
-    type = TX_TYPE_LEGACY; // legacy tx
-  else if (type > 3)
+static bool get_and_remove_tx_type(verify_ctx_t* ctx, bytes_t* raw_tx, tx_type_t* type) {
+  if (raw_tx->len < 1) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing type!");
+  *type = raw_tx->data[0];
+  if (*type >= 0x7f)
+    *type = TX_TYPE_LEGACY; // legacy tx
+  else if (*type > 3)
     RETURN_VERIFY_ERROR(ctx, "invalid tx type, must be 1,2,3 or legacy tx!");
   else {
-    raw_tx.data++;
-    raw_tx.len--;
+    raw_tx->data++;
+    raw_tx->len--;
   }
+  return true;
+}
+static bool create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8_t* address) {
+  buffer_t  buf      = {0};
+  bytes32_t raw_hash = {0};
+  bytes_t   last_item;
+  tx_type_t type = 0;
+  if (!get_and_remove_tx_type(ctx, &raw_tx, &type)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing type!");
+  if (rlp_decode(&raw_tx, 0, &raw_tx) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
+  rlp_type_defs_t defs = tx_type_defs[type];
+  rlp_decode(&raw_tx, defs.len - 4, &last_item);
+  buffer_append(&buf, bytes(raw_tx.data, last_item.data + last_item.len - raw_tx.data));
+  uint64_t v = 0;
+  if (type == TX_TYPE_LEGACY) {
+    v = rlp_get_uint64(raw_tx, 6);
+    if (v > 28) {
+      rlp_add_uint64(&buf, (v - 36 + v % 2) / 2);
+      rlp_add_item(&buf, NULL_BYTES);
+      rlp_add_item(&buf, NULL_BYTES);
+    }
+  }
+  else
+    v = rlp_get_uint64(raw_tx, defs.len - 3);
+
+  rlp_to_list(&buf);
+
+  if (type != TX_TYPE_LEGACY) {
+    buffer_splice(&buf, 0, 0, bytes(NULL, 1));
+    buf.data.data[0] = (uint8_t) type;
+  }
+  keccak(buf.data, raw_hash);
+  buffer_free(&buf);
+
+  if (type == TX_TYPE_EIP4844) RETURN_VERIFY_ERROR(ctx, "invalid tx data, EIP4844 not supported (yet)!");
+
+  uint8_t sig[65]    = {0};
+  uint8_t pubkey[64] = {0};
+  rlp_decode(&raw_tx, defs.len - 2, &last_item);
+  memcpy(sig + 32 - last_item.len, last_item.data, last_item.len);
+  rlp_decode(&raw_tx, defs.len - 1, &last_item);
+  memcpy(sig + 64 - last_item.len, last_item.data, last_item.len);
+  sig[64] = (uint8_t) (v > 28 ? (v % 2 ? 27 : 28) : v);
+
+  if (!secp256k1_recover(raw_hash, bytes(sig, 65), pubkey)) RETURN_VERIFY_ERROR(ctx, "invalid  signature!");
+
+  keccak(bytes(pubkey, 64), sig);
+  memcpy(address, sig + 12, 20);
+
+  return true;
+}
+
+static bool verify_tx_data(verify_ctx_t* ctx, ssz_ob_t tx_data, bytes_t serialized_tx, bytes32_t block_hash, uint64_t block_number) {
+  // check tx_type
+
+  bytes_t   raw_tx = serialized_tx;
+  tx_type_t type   = 0;
+  if (!get_and_remove_tx_type(ctx, &raw_tx, &type)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing type!");
 
   // check data
   rlp_type_defs_t defs = tx_type_defs[type];
@@ -153,6 +209,10 @@ static bool verify_tx_data(verify_ctx_t* ctx, ssz_ob_t tx_data, bytes_t raw_tx, 
   if (exp_block_number != block_number) RETURN_VERIFY_ERROR(ctx, "invalid tx data, block number mismatch!");
   if (exp_block_hash.len != 32 || memcmp(exp_block_hash.data, block_hash, 32)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, block number mismatch!");
 
+  uint8_t address[20]  = {0};
+  bytes_t from_address = ssz_get(&tx_data, "from").bytes;
+  if (!create_from_address(ctx, serialized_tx, address)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, wrong signature!");
+  if (from_address.len != 20 || memcmp(from_address.data, address, 20) != 0) RETURN_VERIFY_ERROR(ctx, "invalid from address!");
   // TODO verify signature (from-address)
   return true;
 }

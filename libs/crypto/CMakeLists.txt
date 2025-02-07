@@ -21,14 +21,14 @@ set(SRC
   secp256k1.c
   memzero.c
   sha3.c
-#  hmac_drbg.c
-#  ripemd160.c
-#  base58.c
+  hmac_drbg.c
+  ripemd160.c
+  base58.c
   hasher.c
   sha2.c
-#  blake256.c
-#  blake2b.c
-#  groestl.c
+  blake256.c
+  blake2b.c
+  groestl.c
 #  pbkdf2.c
   rfc6979.c
 
@@ -36,7 +36,7 @@ set(SRC
 #  bip39.c
 #  bip39_english.c
 
-#  curves.c
+  curves.c
 #  bip32.c
 #  nist256p1.c
 

@@ -10,20 +10,20 @@
 #include <string.h>
 
 static c4_status_t get_eth_proof(proofer_ctx_t* ctx, json_t address, json_t storage_key, json_t* proof, uint64_t block_number) {
-  char storage[80] = {0};
-  char tmp[200];
-  if (storage_key.len && storage_key.len < sizeof(storage))
-    memcpy(storage, storage_key.start, storage_key.len);
+  char     tmp[300];
+  buffer_t buffer = stack_buffer(tmp);
+  bprintf(&buffer, "[%J,[", address);
+  if (storage_key.len && storage_key.len < 70)
+    bprintf(&buffer, "%J", storage_key);
+  bprintf(&buffer, "],\"0x%lx\"]", block_number);
 
-  snprintf(tmp, sizeof(tmp), "[%.44s,[%s],\"0x%" PRIx64 "\"]", address.start, storage, block_number);
   return c4_send_eth_rpc(ctx, "eth_getProof", tmp, proof);
 }
 
 static c4_status_t get_eth_code(proofer_ctx_t* ctx, json_t address, json_t* code, uint64_t block_number) {
-  char   tmp[120];
-  json_t data = {0};
-  snprintf(tmp, sizeof(tmp), "[%.44s,\"latest\"]", address.start);
-  return c4_send_eth_rpc(ctx, "eth_getCode", tmp, code);
+  char     tmp[120];
+  buffer_t buf = stack_buffer(tmp);
+  return c4_send_eth_rpc(ctx, "eth_getCode", bprintf(&buf, "[%J,\"lastest\"]", address), code);
 }
 
 static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, char* name) {

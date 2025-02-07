@@ -1,9 +1,11 @@
 #include "crypto.h"
 #include "../../libs/blst/blst.h"
 #include "bytes.h"
+#include "secp256k1.h"
 #include "sha2.h"
 #include "sha3.h"
 #include <stdlib.h> // For malloc and free
+#include <string.h>
 
 void sha256(bytes_t data, uint8_t* out) {
   SHA256_CTX ctx;
@@ -82,4 +84,13 @@ bool blst_verify(bytes32_t       message_hash,    /**< 32 bytes hashed message *
   // cleanup
   free(ctx);
   return result;
+}
+
+bool secp256k1_recover(const bytes32_t digest, bytes_t signature, uint8_t* pubkey) {
+  uint8_t pub[65] = {0};
+  if (ecdsa_recover_pub_from_sig(&secp256k1, pub, signature.data, digest, signature.data[64] % 27))
+    return false;
+  else
+    memcpy(pubkey, pub + 1, 64);
+  return true;
 }

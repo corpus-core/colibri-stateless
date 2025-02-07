@@ -46,3 +46,68 @@ rlp_type_t rlp_decode(bytes_t* src, int index, bytes_t* target) {
 
   return (src_idx > src->len) ? RLP_OUT_OF_RANGE : RLP_NOT_FOUND;
 }
+
+static void encode_length(buffer_t* buf, uint32_t len, uint8_t offset) {
+  uint8_t val = offset;
+  if (len < 56)
+    buffer_add_bytes(buf, 1, offset + len);
+  else if (len < 0x100)
+    buffer_add_bytes(buf, 2, offset + 55 + 1, len);
+  else if (len < 0x10000) {
+    buffer_add_bytes(buf, 1, offset + 55 + 2);
+    buffer_add_be(buf, len, 2);
+  }
+  else if (len < 0x1000000) {
+    buffer_add_bytes(buf, 1, offset + 55 + 3);
+    buffer_add_be(buf, len, 3);
+  }
+  else {
+    buffer_add_bytes(buf, 1, offset + 55 + 4);
+    buffer_add_be(buf, len, 4);
+  }
+}
+
+void rlp_add_item(buffer_t* buf, bytes_t data) {
+  if (data.len == 1 && data.data[0] < 0x80) {
+  }
+  else if (data.len < 56)
+    buffer_add_bytes(buf, 1, data.len + 0x80);
+  else
+    encode_length(buf, data.len, 0x80);
+  buffer_append(buf, data);
+}
+
+void rlp_add_list(buffer_t* buf, bytes_t data) {
+  encode_length(buf, data.len, 0xc0);
+  buffer_append(buf, data);
+}
+
+void rlp_add_uint(buffer_t* buf, bytes_t data) {
+  while (data.len > 1 && data.data[0] == 0) {
+    data.data++;
+    data.len--;
+  }
+  rlp_add_item(buf, data);
+}
+
+void rlp_add_uint64(buffer_t* buf, uint64_t value) {
+  uint8_t data[8] = {0};
+  uint64_to_be(data, value);
+  rlp_add_uint(buf, bytes(data, 8));
+}
+
+void rlp_to_list(buffer_t* buf) {
+  uint8_t  tmp[4] = {0};
+  buffer_t tbuf   = stack_buffer(tmp);
+  encode_length(&tbuf, buf->data.len, 0xc0);
+  buffer_splice(buf, 0, 0, tbuf.data);
+}
+
+uint64_t rlp_get_uint64(bytes_t data, int index) {
+  uint64_t value = 0;
+  rlp_decode(&data, index, &data);
+  if (data.len > 8 || !data.len) return 0;
+  for (int i = 0; i < data.len; i++)
+    value |= ((uint64_t) data.data[i]) << ((data.len - i - 1) << 3);
+  return value;
+}
