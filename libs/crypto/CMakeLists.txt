@@ -12,25 +12,25 @@ if(NOT MSVC)
 endif()
 
 add_definitions(-DAES_128)
-
+# add_definitions(-DUSE_HASHER)
 set(SRC 
   ecdsa.c
-  address.c
+#  address.c
   bignum.c
   rand.c
   secp256k1.c
   memzero.c
   sha3.c
-  hmac_drbg.c
-  ripemd160.c
-  base58.c
-  hasher.c
+#  hmac_drbg.c
+#  ripemd160.c
+#  base58.c
+#  hasher.c
   sha2.c
-  blake256.c
-  blake2b.c
-  groestl.c
+#  blake256.c
+#  blake2b.c
+#  groestl.c
 #  pbkdf2.c
-  rfc6979.c
+#  rfc6979.c
 
 
 #  bip39.c
