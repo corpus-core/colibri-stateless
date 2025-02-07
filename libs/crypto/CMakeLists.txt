@@ -42,34 +42,5 @@ set(SRC
 
 )
 
-if (ED25519) 
-  set(SRC ${SRC} 
-    ed25519-donna/curve25519-donna-32bit.c
-    ed25519-donna/curve25519-donna-helpers.c
-    ed25519-donna/curve25519-donna-scalarmult-base.c
-    ed25519-donna/ed25519-donna-32bit-tables.c
-    ed25519-donna/ed25519-donna-basepoint-table.c
-    ed25519-donna/ed25519-donna-impl-base.c
-    ed25519-donna/ed25519-keccak.c
-    ed25519-donna/ed25519-sha3.c
-    ed25519-donna/ed25519.c
-    ed25519-donna/modm-donna-32bit.c
-  )
- ADD_DEFINITIONS(-DUSE_BIP32_25519_CURVES=1)
-else()
-  ADD_DEFINITIONS(-DUSE_BIP32_25519_CURVES=0)
-endif()
-
-
-if (NOT ESP_IDF)
-    set(SRC ${SRC} 
-    hmac.c
-    aes/aes_modes.c
-    aes/aescrypt.c
-    aes/aeskey.c
-    aes/aestab.c    
-    )
-endif()
-
 add_library(crypto STATIC ${SRC} )
 
