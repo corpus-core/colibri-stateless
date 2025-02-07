@@ -6,9 +6,9 @@
 #include "types_beacon.h"
 #include "types_verify.h"
 #include "verify.h"
+#include <inttypes.h>
 #include <string.h>
 
-#define STATES                     "states"
 #define NEXT_SYNC_COMMITTEE_GINDEX 55
 
 // the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
@@ -18,7 +18,7 @@ const ssz_def_t SYNC_STATE[] = {
 
 const ssz_def_t SYNC_STATE_CONTAINER = SSZ_CONTAINER("SyncState", SYNC_STATE);
 
-const c4_sync_state_t c4_get_validators(uint32_t period) {
+const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
 
   storage_plugin_t storage_conf  = {0};
   ssz_ob_t         sync_state_ob = ssz_ob(SYNC_STATE_CONTAINER, bytes((uint8_t*) default_synccommittee, default_synccommittee_len));
@@ -33,7 +33,7 @@ const c4_sync_state_t c4_get_validators(uint32_t period) {
         .validators     = last_period != period ? NULL_BYTES : ssz_get(&sync_state_ob, "validators").bytes};
 
   char name[100];
-  sprintf(name, "sync_%d", period);
+  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
   buffer_t tmp  = {0};
   tmp.allocated = 512 * 48;
   if (storage_conf.get(name, &tmp) && tmp.data.data != NULL) return (c4_sync_state_t) {
@@ -43,8 +43,9 @@ const c4_sync_state_t c4_get_validators(uint32_t period) {
       .validators     = tmp.data};
 
   // find the latest
+  sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
   tmp.allocated = 4 * storage_conf.max_sync_states;
-  if (storage_conf.get(STATES, &tmp) && tmp.data.data) {
+  if (storage_conf.get(name, &tmp) && tmp.data.data) {
     for (uint32_t i = 0; i < tmp.data.len; i += 4) {
       uint32_t state = *(uint32_t*) (tmp.data.data + i);
       if (state < period && state > last_period)
@@ -68,7 +69,8 @@ static bool store_sync(verify_ctx_t* ctx, bytes_t pubkeys, uint32_t period) {
 
   // cleanup
   buffer_t tmp = {0};
-  storage_conf.get(STATES, &tmp);
+  sprintf(name, "states_%" PRIu64, (uint64_t) ctx->chain_id);
+  storage_conf.get(name, &tmp);
   if (tmp.data.len % 4 == 0) {
     size_t pos = tmp.data.len;
     if (tmp.data.len < storage_conf.max_sync_states * 4)
@@ -82,15 +84,16 @@ static bool store_sync(verify_ctx_t* ctx, bytes_t pubkeys, uint32_t period) {
           pos    = i;
         }
       }
-      sprintf(name, "sync_%d", oldest);
+      sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, oldest);
       storage_conf.del(name);
     }
     *(uint32_t*) (tmp.data.data + pos) = period;
   }
 
-  sprintf(name, "sync_%d", period);
+  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, period);
   storage_conf.set(name, pubkeys);
-  storage_conf.set(STATES, tmp.data);
+  sprintf(name, "states_%" PRIu64, (uint64_t) ctx->chain_id);
+  storage_conf.set(name, tmp.data);
   buffer_free(&tmp);
 
   return true;
@@ -143,7 +146,7 @@ bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   return true;
 }
 
-bool c4_handle_client_updates(bytes_t client_updates) {
+bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id) {
 
   buffer_t updates = {0};
   if (client_updates.len && client_updates.data[0] == '{') {
@@ -171,7 +174,7 @@ bool c4_handle_client_updates(bytes_t client_updates) {
     free(list_data.data);
 
     verify_ctx_t sync_ctx = {0};
-    c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0});
+    c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0}, chain_id);
     if (sync_ctx.error) return false;
 
     pos += length + 8;

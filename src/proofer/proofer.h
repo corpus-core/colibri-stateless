@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include "../util/chains.h"
 #include "../util/request.h"
 
 typedef struct {
@@ -13,9 +14,10 @@ typedef struct {
   char*           error;
   bytes_t         proof;
   data_request_t* data_requests;
+  chain_id_t      chain_id;
 } proofer_ctx_t;
 
-proofer_ctx_t*      c4_proofer_create(char* method, char* params);
+proofer_ctx_t*      c4_proofer_create(char* method, char* params, chain_id_t chain_id);
 void                c4_proofer_free(proofer_ctx_t* ctx);
 c4_proofer_status_t c4_proofer_execute(proofer_ctx_t* ctx);
 c4_proofer_status_t c4_proofer_status(proofer_ctx_t* ctx);

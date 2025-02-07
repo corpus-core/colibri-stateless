@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "bytes.h"
+#include "chains.h"
 #include "crypto.h"
 #include "json.h"
 
@@ -27,13 +28,13 @@ typedef enum {
   C4_DATA_METHOD_DELETE = 3
 } data_request_method_t;
 typedef enum {
-  C4_PROOFER_PENDING = 0,
   C4_PROOFER_WAITING = 1,
   C4_PROOFER_SUCCESS = 2,
   C4_PROOFER_ERROR   = 3
 } c4_proofer_status_t;
 
 typedef struct data_request {
+  chain_id_t              chain_id;
   data_request_type_t     type;
   data_request_encoding_t encoding;
   char*                   url;

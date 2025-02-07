@@ -16,9 +16,9 @@ typedef struct {
   bool     needs_cleanup;
 } c4_sync_state_t;
 
-const c4_sync_state_t c4_get_validators(uint32_t period);
+const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id);
 bool                  c4_update_from_sync_data(verify_ctx_t* ctx);
-bool                  c4_handle_client_updates(bytes_t client_updates);
+bool                  c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id);
 #ifdef __cplusplus
 }
 #endif

@@ -1,6 +1,7 @@
 #include "../../src/proofer/proofer.h"
 #include "../../src/proofer/ssz_types.h"
 #include "../../src/util/bytes.h"
+#include "../../src/util/chains.h"
 #include "../../src/util/crypto.h"
 #include "../../src/util/json.h"
 #include "../../src/util/plugin.h"
@@ -97,13 +98,13 @@ static bytes_t read_testdata(const char* filename) {
   return data.data;
 }
 
-static void verify(char* dirname, char* method, char* args) {
+static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
   char tmp[1024];
 
   bytes_t proof_data = {0};
 
   // proofer
-  proofer_ctx_t*  proof_ctx = c4_proofer_create(method, args);
+  proofer_ctx_t*  proof_ctx = c4_proofer_create(method, args, chain_id);
   data_request_t* req;
   while (proof_data.data == NULL) {
     switch (c4_proofer_execute(proof_ctx)) {
@@ -124,16 +125,13 @@ static void verify(char* dirname, char* method, char* args) {
       case C4_PROOFER_SUCCESS:
         proof_data = proof_ctx->proof;
         break;
-
-      case C4_PROOFER_PENDING:
-        break;
     }
   }
 
   // now verify
   for (int i = 0; i < 2; i++) {
     verify_ctx_t verify_ctx = {0};
-    c4_verify_from_bytes(&verify_ctx, proof_ctx->proof, method, json_parse(args));
+    c4_verify_from_bytes(&verify_ctx, proof_ctx->proof, method, json_parse(args), chain_id);
 
     if (verify_ctx.success) {
       c4_proofer_free(proof_ctx);
@@ -149,7 +147,7 @@ static void verify(char* dirname, char* method, char* args) {
       sprintf(test_filename, "%s/sync_data_%d.ssz", dirname, (uint32_t) verify_ctx.last_missing_period);
       bytes_t content = read_testdata(test_filename);
       TEST_ASSERT_NOT_NULL_MESSAGE(content.data, "sync_data is missing");
-      c4_handle_client_updates(content);
+      c4_handle_client_updates(content, chain_id);
       free(content.data);
     }
   }

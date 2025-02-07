@@ -20,6 +20,7 @@ add_library(util STATIC
   rlp.c
   json.c
   logger.c
+  chains.c
 )
 target_include_directories(util PRIVATE ../../libs/crypto)
 target_link_libraries(util PRIVATE crypto blst)

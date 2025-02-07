@@ -40,7 +40,8 @@ static bool get_client_updates(verify_ctx_t* ctx) {
       .payload  = {0},
       .response = {0},
       .type     = C4_DATA_TYPE_BEACON_API,
-      .url      = url};
+      .url      = url,
+      .chain_id = ctx->chain_id};
 
   sha256(bytes((uint8_t*) url, strlen(url)), req.id);
 
@@ -89,7 +90,7 @@ static bool get_client_updates(verify_ctx_t* ctx) {
     free(list_data.data);
 
     verify_ctx_t sync_ctx = {0};
-    c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0});
+    c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0}, ctx->chain_id);
     if (sync_ctx.error) {
       if (sync_ctx.last_missing_period && sync_ctx.first_missing_period != ctx->first_missing_period)
         return get_client_updates(&sync_ctx);
@@ -119,36 +120,54 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  char*    method = NULL;
-  buffer_t args   = {0};
+  char*      method   = NULL;
+  chain_id_t chain_id = C4_CHAIN_MAINNET;
+  buffer_t   args     = {0};
+  char*      input    = NULL;
   buffer_add_chars(&args, "[");
 
   for (int i = 2; i < argc; i++) {
-    if (method == NULL)
-      method = argv[i];
+    if (*argv[i] == '-') {
+      for (char* c = argv[i] + 1; *c; c++) {
+        switch (*c) {
+          case 'c':
+            chain_id = atoi(argv[++i]);
+            break;
 #ifdef TEST
-    else if (strcmp(argv[i], "-t") == 0)
-      set_req_test_dir(argv[++i]);
+          case 't':
+            set_req_test_dir(argv[++i]);
+            break;
 #endif
+          default:
+            fprintf(stderr, "Unknown option: %c\n", *c);
+            exit(EXIT_FAILURE);
+        }
+      }
+    }
+    else if (input == NULL)
+      input = argv[i];
+    else if (method == NULL)
+      method = argv[i];
     else {
       if (args.data.len > 1) buffer_add_chars(&args, ",");
-      buffer_add_chars(&args, "\"");
-      buffer_add_chars(&args, argv[i]);
-      buffer_add_chars(&args, "\"");
+      bprintf(&args, "\"%s\"", argv[i]);
     }
   }
   buffer_add_chars(&args, "]");
-  bytes_t request = bytes_read(argv[1]);
+  if (input == NULL) {
+    fprintf(stderr, "No input file provided\n");
+    exit(EXIT_FAILURE);
+  }
+  bytes_t request = bytes_read(input);
 
   for (int i = 0; i < 5; i++) { // max 5 retries
 
     verify_ctx_t ctx = {0};
-    c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0});
+    c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
 
     if (ctx.success) {
       ssz_dump_to_file(stdout, ctx.data, false, true);
       fflush(stdout);
-      //      fprintf(stderr, "proof is valid\n");
       return EXIT_SUCCESS;
     }
     else {
@@ -161,8 +180,6 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "proof is invalid: %s\n", ctx.error);
         return EXIT_FAILURE;
       }
-//      bytes_t updates = get_client_updates(ctx.first_missing_period, ctx.last_missing_period);
-//      c4_verify_from_bytes(&ctx, updates);
 #else
       fprintf(stderr, "proof is invalid: %s\n", ctx.error);
       return EXIT_FAILURE;

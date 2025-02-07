@@ -12,7 +12,7 @@ void tearDown(void) {
 }
 
 void test_tx() {
-  verify("eth_getTransactionByHash1", "eth_getTransactionByHash", "[\"0x5f41c75eabb3fee183e0896859a82c81635dbb40edf5630fa29555e8d6c3e7f1\"]");
+  verify("eth_getTransactionByHash1", "eth_getTransactionByHash", "[\"0x5f41c75eabb3fee183e0896859a82c81635dbb40edf5630fa29555e8d6c3e7f1\"]", C4_CHAIN_MAINNET);
 }
 
 int main(void) {

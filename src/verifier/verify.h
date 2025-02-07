@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "../util/bytes.h"
+#include "../util/chains.h"
 #include "../util/crypto.h"
 #include "../util/json.h"
 #include "../util/ssz.h"
@@ -31,10 +32,11 @@ typedef struct {
   uint64_t     last_missing_period;
   bool         success;
   char*        error;
+  chain_id_t   chain_id;
 } verify_ctx_t;
 
 void c4_verify(verify_ctx_t* ctx);
-void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args);
+void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id);
 bool verify_blockhash_proof(verify_ctx_t* ctx);
 bool verify_account_proof(verify_ctx_t* ctx);
 bool verify_tx_proof(verify_ctx_t* ctx);

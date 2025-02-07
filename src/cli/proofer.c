@@ -29,6 +29,7 @@ static void set_req_test_dir(const char* dir) {
   buffer_t buf = {0};
   REQ_TEST_DIR = bprintf(&buf, "%s/%s", TESTDATA_DIR, dir);
   if (MKDIR(REQ_TEST_DIR) != 0) perror("Error creating directory");
+  buffer_free(&buf);
 }
 
 static void test_write_file(const char* filename, bytes_t data) {
@@ -46,21 +47,31 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  char*    method = NULL;
-  buffer_t buffer = {0};
+  char*      method   = NULL;
+  buffer_t   buffer   = {0};
+  chain_id_t chain_id = C4_CHAIN_MAINNET;
   buffer_add_chars(&buffer, "[");
 
   for (int i = 1; i < argc; i++) {
+    if (*argv[i] == '-') {
+      for (char* c = argv[i] + 1; *c; c++) {
+        switch (*c) {
+          case 'c':
+            chain_id = atoi(argv[++i]);
+            break;
 #ifdef TEST
-    if (strcmp(argv[i], "-t") == 0) {
-      set_req_test_dir(argv[++i]);
-      continue;
-    }
+          case 't':
+            set_req_test_dir(argv[++i]);
+            break;
 #endif
-
-    if (method == NULL) {
-      method = argv[i];
+          default:
+            fprintf(stderr, "Unknown option: %c\n", *c);
+            exit(EXIT_FAILURE);
+        }
+      }
     }
+    else if (method == NULL)
+      method = argv[i];
     else {
       if (buffer.data.len > 1) buffer_add_chars(&buffer, ",");
       if (argv[i][0] == '{' || argv[i][0] == '[' || strcmp(argv[i], "true") == 0 || strcmp(argv[i], "false") == 0)
@@ -71,10 +82,19 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&buffer, "]");
 
-  proofer_ctx_t*  ctx = c4_proofer_create(method, (char*) buffer.data.data);
+  proofer_ctx_t*  ctx = c4_proofer_create(method, (char*) buffer.data.data, chain_id);
   data_request_t* req;
   while (true) {
     switch (c4_proofer_execute(ctx)) {
+      case C4_PROOFER_SUCCESS:
+        fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
+        fflush(stdout);
+        exit(EXIT_SUCCESS);
+
+      case C4_PROOFER_ERROR:
+        fprintf(stderr, "Error: %s\n", ctx->error);
+        exit(EXIT_FAILURE);
+
       case C4_PROOFER_WAITING:
         while ((req = c4_proofer_get_pending_data_request(ctx))) {
 #ifdef USE_CURL
@@ -91,18 +111,6 @@ int main(int argc, char* argv[]) {
           exit(EXIT_FAILURE);
 #endif
         }
-        break;
-
-      case C4_PROOFER_ERROR:
-        fprintf(stderr, "Error: %s\n", ctx->error);
-        exit(EXIT_FAILURE);
-
-      case C4_PROOFER_SUCCESS:
-        fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
-        fflush(stdout);
-        exit(EXIT_SUCCESS);
-
-      case C4_PROOFER_PENDING:
         break;
     }
   }

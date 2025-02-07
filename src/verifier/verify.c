@@ -5,10 +5,10 @@
 #include "types_verify.h"
 #include <string.h>
 
-void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args) {
+void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id) {
   ssz_ob_t req = ssz_ob(C4_REQUEST_CONTAINER, request);
   memset(ctx, 0, sizeof(verify_ctx_t));
-
+  ctx->chain_id  = chain_id; // ssz_get_uint64(&req, "chainId");
   ctx->data      = ssz_get(&req, "data");
   ctx->proof     = ssz_get(&req, "proof");
   ctx->sync_data = ssz_get(&req, "sync_data");

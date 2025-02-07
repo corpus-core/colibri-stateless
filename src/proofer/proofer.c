@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-proofer_ctx_t* c4_proofer_create(char* method, char* params) {
+proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id) {
   json_t params_json = json_parse(params);
   if (params_json.type != JSON_TYPE_ARRAY) return NULL;
   char* params_str = malloc(params_json.len + 1);
@@ -14,6 +14,7 @@ proofer_ctx_t* c4_proofer_create(char* method, char* params) {
   proofer_ctx_t* ctx          = calloc(1, sizeof(proofer_ctx_t));
   ctx->method                 = strdup(method);
   ctx->params                 = params_json;
+  ctx->chain_id               = chain_id;
   return ctx;
 }
 
@@ -77,7 +78,7 @@ c4_proofer_status_t c4_proofer_status(proofer_ctx_t* ctx) {
   if (ctx->error) return C4_PROOFER_ERROR;
   if (ctx->proof.data) return C4_PROOFER_SUCCESS;
   if (c4_proofer_get_pending_data_request(ctx)) return C4_PROOFER_WAITING;
-  return C4_PROOFER_PENDING;
+  return C4_PROOFER_WAITING;
 }
 
 c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result) {
