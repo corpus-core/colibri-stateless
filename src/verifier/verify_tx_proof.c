@@ -114,6 +114,7 @@ static bool get_and_remove_tx_type(verify_ctx_t* ctx, bytes_t* raw_tx, tx_type_t
   }
   return true;
 }
+
 static bool create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8_t* address) {
   buffer_t  buf      = {0};
   bytes32_t raw_hash = {0};
@@ -202,6 +203,7 @@ static bool verify_tx_data(verify_ctx_t* ctx, ssz_ob_t tx_data, bytes_t serializ
         break;
     }
   }
+  if (((uint64_t) type) != ssz_get(&tx_data, "type").bytes.data[0]) RETURN_VERIFY_ERROR(ctx, "invalid tx data, type mismatch!");
 
   // check blocknumber and blockHash
   uint64_t exp_block_number = ssz_get_uint64(&tx_data, "blockNumber");
