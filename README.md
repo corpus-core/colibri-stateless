@@ -19,6 +19,7 @@
     - [eth_getTransactionByHash](#eth_gettransactionbyhash)
     - [eth_getTransactionByBlockHashAndIndex](#eth_gettransactionbyblockhashandindex)
 - [Building](#building)
+    - [Build Javascript bindings (WASM)](#build-javascript-bindings-(wasm))
     - [CMake Options](#cmake-options)
 - [SSZ Types](#ssz-types)
     - [Attestation](#attestation)
@@ -354,6 +355,18 @@ bin/verify ../test/data/proof_data.ssz
 
 ```
 
+### Build Javascript bindings (WASM)
+
+In order to build the Javascript bindings, you need to have [emscripten installed](https://emscripten.org/docs/getting_started/downloads.html). 
+
+```sh
+cd build
+emcmake cmake -DWASM=true -DCURL=false ..
+make
+```
+The js-module will be in the `build/emscripten` folder.
+
+
 ### CMake Options
 
 - **-DCLI**: generates the CLI tools.  
@@ -392,6 +405,10 @@ bin/verify ../test/data/proof_data.ssz
 - **-DTEST**: if true the test will be build  
     Default: OFF  
     Usage: `cmake -DTEST=OFF` ..
+
+- **-DWASM**: if true the wasm will be build  
+    Default: OFF  
+    Usage: `cmake -DWASM=OFF` ..
 
 
 ## SSZ Types
@@ -825,7 +842,7 @@ class ExecutionPayloadHeader(Container):
 the fork data is used to create the domain
 
 
- The Type is defined in [verifier/verify_blockhash_proof.c](https://github.com/corpus-core/c4/blob/main/src/verifier/verify_blockhash_proof.c#L27).
+ The Type is defined in [verifier/verify_blockhash_proof.c](https://github.com/corpus-core/c4/blob/main/src/verifier/verify_blockhash_proof.c#L24).
 
 ```python
 class ForkData(Container):
@@ -938,7 +955,7 @@ class SignedVoluntaryExit(Container):
 combining the root with a domain to ensure uniqueness of the signing message
 
 
- The Type is defined in [verifier/verify_blockhash_proof.c](https://github.com/corpus-core/c4/blob/main/src/verifier/verify_blockhash_proof.c#L20).
+ The Type is defined in [verifier/verify_blockhash_proof.c](https://github.com/corpus-core/c4/blob/main/src/verifier/verify_blockhash_proof.c#L17).
 
 ```python
 class SigningData(Container):
