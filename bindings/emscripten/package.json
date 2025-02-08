@@ -1,0 +1,22 @@
+{
+    "name": "c4",
+    "version": "0.1",
+    "description": "a minimalistic proofer for c4",
+    "main": "index.js",
+    "author": "corpus core",
+    "license": "MIT",
+    "scripts": {},
+    "type": "module",
+    "module": "index.js",
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.7.3"
+    },
+    "keywords": [
+        "ethereum",
+        "client",
+        "minimum"
+    ]
+}

@@ -8,13 +8,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+typedef struct node node_t;
 
 int patricia_verify(bytes32_t root, bytes_t* p, ssz_ob_t proof, bytes_t* expected);
 
-typedef struct node node_t;
+ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path);
+void     patricia_set_value(node_t** root, bytes_t path, bytes_t value);
+void     patricia_node_free(node_t* node);
 
-void patricia_set_value(node_t** root, bytes_t path, bytes_t value);
-void patricia_node_free(node_t* node);
 #ifdef __cplusplus
 }
 #endif

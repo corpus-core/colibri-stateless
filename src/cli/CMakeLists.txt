@@ -1,4 +1,7 @@
 option(CLI "generates the CLI tools." ON)
+if (WASM)
+    set(CLI false)
+endif()
 
 if (CLI)    
 

@@ -2,9 +2,11 @@
 #include "crypto.h"
 #include "patricia.h"
 #include "rlp.h"
+#include "ssz.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+
 typedef bytes_t nibbles_t;
 typedef enum {
   NODE_TYPE_LEAF,
@@ -36,7 +38,7 @@ typedef struct node {
   } values;
 } node_t;
 
-static void node_update_hash(node_t* node, bool follow_parent) {
+static void node_update_hash(node_t* node, bool follow_parent, ssz_builder_t* builder) {
   buffer_t buf = {0};
   if (node->type == NODE_TYPE_LEAF) {
     rlp_add_item(&buf, node->values.leaf.path);
@@ -55,10 +57,11 @@ static void node_update_hash(node_t* node, bool follow_parent) {
     rlp_add_item(&buf, node->values.branch.value);
   }
   rlp_to_list(&buf);
-  keccak_256(buf.data, node->hash);
+  if (builder) ssz_add_dynamic_list_bytes(builder, 0, buf.data);
+  keccak(buf.data, node->hash);
   buffer_free(&buf);
   if (node->parent && follow_parent)
-    node_update_hash(node->parent, true);
+    node_update_hash(node->parent, true, NULL);
 }
 
 void patricia_node_free(node_t* node) {
@@ -85,7 +88,7 @@ void patricia_node_free(node_t* node) {
 
 static nibbles_t path_to_nibbles(bytes_t path, bool include_prefix) {
   int      odd         = include_prefix ? (path.data[0] & 0x10) : 0;
-  int      nibbles_len = path.len * 2 - include_prefix ? (odd ? 1 : 2) : 0;
+  int      nibbles_len = path.len * 2 - (include_prefix ? (odd ? 1 : 2) : 0);
   uint8_t* nibbles     = calloc(nibbles_len, 1);
   for (int i = 0; i < nibbles_len; i++)
     nibbles[i] = path.data[(i + (include_prefix << 1) - odd) >> 1] >> ((i + odd) % 2 ? 0 : 4) & 0xf;
@@ -126,9 +129,9 @@ static node_t* convert_to_branch(node_t* parent, nibbles_t path, int idx1, node_
 
   child1->parent = branch;
   child2->parent = branch;
-  node_update_hash(child1, false);
-  node_update_hash(child2, false);
-  node_update_hash(branch, true);
+  node_update_hash(child1, false, NULL);
+  node_update_hash(child2, false, NULL);
+  node_update_hash(branch, true, NULL);
   return branch;
 }
 
@@ -154,14 +157,14 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
         if (parent->values.branch.value.data)
           free(parent->values.branch.value.data);
         parent->values.branch.value = bytes_dup(value);
-        node_update_hash(parent, true);
+        node_update_hash(parent, true, NULL);
         return;
       }
       else if (parent->values.branch.children[nibbles.data[offset]] == NULL) {
         // create leaf
         node_t* leaf                                         = create_leaf(parent, remaining_nibbles(nibbles, offset + 1), bytes_dup(value));
         parent->values.branch.children[nibbles.data[offset]] = leaf;
-        node_update_hash(leaf, true);
+        node_update_hash(leaf, true, NULL);
         return;
       }
       else
@@ -187,7 +190,7 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
         if (parent->values.leaf.value.data)
           free(parent->values.leaf.value.data);
         parent->values.leaf.value = bytes_dup(value);
-        node_update_hash(parent, true);
+        node_update_hash(parent, true, NULL);
         return;
       }
       else {
@@ -212,9 +215,46 @@ void patricia_set_value(node_t** root, bytes_t path, bytes_t value) {
     (*root)->type              = NODE_TYPE_LEAF;
     (*root)->values.leaf.path  = nibbles_to_path(nibbles, true);
     (*root)->values.leaf.value = bytes_dup(value);
-    node_update_hash(*root, false);
+    node_update_hash(*root, false, NULL);
   }
   else
     set_value(*root, nibbles, value);
   free(nibbles.data);
+}
+
+ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
+  ssz_def_t     def     = SSZ_LIST("bytes", ssz_bytes_list, 1024);
+  ssz_builder_t builder = {0};
+  buffer_t      buf     = {0};
+  nibbles_t     nibbles = path_to_nibbles(path, false);
+  int           offset  = 0;
+  int           len     = 0;
+  builder.def           = &def;
+  while (root && offset <= nibbles.len) {
+    // add the node
+    node_update_hash(root, false, &builder);
+    len++;
+
+    if (offset == nibbles.len) break;
+    if (root->type == NODE_TYPE_BRANCH) {
+      root = root->values.branch.children[nibbles.data[offset]];
+      offset++;
+    }
+    else if (root->type == NODE_TYPE_LEAF)
+      break;
+    else {
+      nibbles_t remaining = remaining_nibbles(nibbles, offset);
+      int       leaf_nibble_len;
+      int       same = nibble_cmp(remaining, root->values.leaf.path, &leaf_nibble_len);
+      root           = root->values.extension.child;
+      offset += same;
+    }
+  }
+  free(nibbles.data);
+
+  // fix offsets in builder
+  for (int i = 0; i < len; i++)
+    uint32_to_le(builder.fixed.data.data + i * 4, uint32_from_le(builder.fixed.data.data + i * 4) + len * 4);
+
+  return ssz_builder_to_bytes(&builder);
 }

@@ -8,9 +8,10 @@
 #include <string.h>
 
 // predefined types
-const ssz_def_t ssz_uint8     = SSZ_UINT("", 1);
-const ssz_def_t ssz_bytes32   = SSZ_BYTES32("bytes32");
-const ssz_def_t ssz_bls_pubky = SSZ_BYTE_VECTOR("bls_pubky", 48);
+const ssz_def_t ssz_uint8      = SSZ_UINT("", 1);
+const ssz_def_t ssz_bytes32    = SSZ_BYTES32("bytes32");
+const ssz_def_t ssz_bls_pubky  = SSZ_BYTE_VECTOR("bls_pubky", 48);
+const ssz_def_t ssz_bytes_list = SSZ_BYTES("bytes", 1024 << 8);
 
 // checks if a definition has a dynamic length
 bool ssz_is_dynamic(const ssz_def_t* def) {

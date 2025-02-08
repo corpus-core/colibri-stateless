@@ -126,6 +126,7 @@ bool ssz_is_valid(ssz_ob_t* ob);
 extern const ssz_def_t ssz_uint8;
 extern const ssz_def_t ssz_bytes32;
 extern const ssz_def_t ssz_bls_pubky;
+extern const ssz_def_t ssz_bytes_list;
 
 #define SSZ_BOOLEAN(property)       \
   {                                 \
