@@ -82,6 +82,13 @@ void uint64_to_le(uint8_t* data, uint64_t value) {
   data[0] = value & 0xFF;
 }
 
+void uint32_to_le(uint8_t* data, uint32_t value) {
+  data[0] = value & 0xFF;
+  data[1] = (value >> 8) & 0xFF;
+  data[2] = (value >> 16) & 0xFF;
+  data[3] = (value >> 24) & 0xFF;
+}
+
 void buffer_grow(buffer_t* buffer, size_t min_len) {
   if (buffer->data.data == NULL) {
     if (buffer->allocated > min_len) min_len = (size_t) buffer->allocated;

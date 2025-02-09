@@ -3,6 +3,7 @@ project(c4)
 option(SHAREDLIB "if true the shared library will be build" OFF)
 option(TEST "if true the test will be build" OFF)
 option(COVERAGE "if true the coverage will be build" OFF)
+option(WASM "if true the wasm will be build" OFF)
 
 if(CURL)
     add_definitions(-DUSE_CURL)
@@ -89,3 +90,8 @@ if(SHAREDLIB)
         SOVERSION 1
     )
 endif()
+
+if(WASM)
+    add_subdirectory(bindings/emscripten)
+endif()
+

@@ -21,6 +21,7 @@ add_library(util STATIC
   json.c
   logger.c
   chains.c
+  patricia_trie.c
 )
 target_include_directories(util PRIVATE ../../libs/crypto)
 target_link_libraries(util PRIVATE crypto blst)
