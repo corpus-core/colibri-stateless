@@ -2,24 +2,16 @@ set(EMC_PROPS "-s ALLOW_MEMORY_GROWTH=1 -s EXPORT_ES6=1 -s MODULARIZE=1 -s NODEJ
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -Wpointer-arith ")
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wpointer-arith ")
 
-set(EMC_PROPS "${EMC_PROPS} -s WASM=1")
-
 
 IF (CMAKE_BUILD_TYPE MATCHES Debug)
-   set(EMC_PROPS "${EMC_PROPS} -g -s SAFE_HEAP=1 -s ASSERTIONS=1 -s STACK_OVERFLOW_CHECK=1 -s RUNTIME_LOGGING=1 ")
+   set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -g -s SAFE_HEAP=1 -s ASSERTIONS=1 -s STACK_OVERFLOW_CHECK=1 -s RUNTIME_LOGGING=1 ")
+ELSE (CMAKE_BUILD_TYPE MATCHES Debug)
+   set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -O3 --closure 1 --llvm-lto 3 --minify 0")
 ENDIF (CMAKE_BUILD_TYPE MATCHES Debug)
 
 if (WASM_EMBED)
    set(EMC_PROPS "${EMC_PROPS} -s SINGLE_FILE=1")
 endif(WASM_EMBED)
-
-if (WASM_EMMALLOC)
-   set(EMC_PROPS "${EMC_PROPS} -s MALLOC=emmalloc")
-endif(WASM_EMMALLOC)
-
-if (WASM_SYNC)
-   set(EMC_PROPS "${EMC_PROPS} -s WASM_ASYNC_COMPILATION=0")
-endif(WASM_SYNC)
 
 # Define a custom output directory for Emscripten and TypeScript artifacts
 set(EMSCRIPTEN_OUTPUT_DIR "${CMAKE_BINARY_DIR}/emscripten")
