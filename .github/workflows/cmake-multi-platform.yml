@@ -21,7 +21,7 @@ jobs:
 
       - name: Build with Emscripten
         run: |
-          emcmake cmake -B build -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
+          emcmake cmake -B build -DWASM=true -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
           cmake --build build
           
       - name: Upload WASM
