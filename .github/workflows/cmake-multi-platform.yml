@@ -9,6 +9,29 @@ on:
     branches: [ "main" ]
 
 jobs:
+
+  emscripten:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+
+      - name: Build with Emscripten
+        run: |
+          emcmake cmake -B build -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
+          cmake --build build
+          
+      - name: Upload WASM
+        uses: actions/upload-artifact@v4
+        with:
+          name: c4-wasm
+          path: build/emscripten
+  
+
+
   valgrind:
     runs-on: ubuntu-latest
     steps:
