@@ -1,11 +1,13 @@
 {
     "compilerOptions": {
+      "moduleResolution": "node",
       "lib": ["es2020","DOM"],
-      "target": "ES6",
+      "target": "ESNext",
       "module": "ESNext",
       "outDir": "./dist",
       "rootDir": "./src",
-      "strict": true
+      "strict": true,
+      "types": ["node"]
     },
     "include": ["src/**/*"]
   }

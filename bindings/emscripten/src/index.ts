@@ -1,20 +1,5 @@
 // Import the Emscripten-generated module
-import { loadC4WModule, C4W } from "./c4_module.js";
-
-
-let module: C4W | null = null;
-let modulePromise: Promise<C4W> | null = null;
-async function getC4w(): Promise<C4W> {
-    if (module) return module;
-    if (!modulePromise) {
-        modulePromise = loadC4WModule().then((loadedModule) => {
-            module = loadedModule;
-            modulePromise = null; // Reset the promise after loading
-            return module;
-        });
-    }
-    return modulePromise;
-}
+import { getC4w, as_char_ptr, as_json, as_bytes, copy_to_c } from "./wasm.js";
 
 export interface Config {
     chainId: number;
@@ -60,7 +45,8 @@ async function handle_request(req: DataRequest, conf: Config) {
     }
 }
 
-export class C4Proofer {
+
+export default class C4Client {
 
     config: Config;
 
@@ -77,55 +63,62 @@ export class C4Proofer {
 
     async createProof(method: string, args: any[]): Promise<Uint8Array> {
         const c4w = await getC4w();
-
-        // Convert method and args to strings
-        const argsStr = JSON.stringify(args);
-
-        // Allocate memory for the strings
-        const methodPtr = c4w._malloc(method.length + 1);
-        const argsPtr = c4w._malloc(argsStr.length + 1);
+        const free_buffers: number[] = [];
         let ctx = 0;
 
         try {
-            // Copy the strings into the module's memory
-            c4w.stringToUTF8(method, methodPtr, method.length + 1);
-            c4w.stringToUTF8(argsStr, argsPtr, argsStr.length + 1);
-
-            // Convert chainId to BigInt
-            const chainIdBigInt = BigInt(this.config.chainId);
-
             // Call the C function
-            ctx = c4w._c4w_create_proof_ctx(methodPtr, argsPtr, chainIdBigInt);
+            ctx = c4w._c4w_create_proof_ctx(
+                as_char_ptr(method, c4w, free_buffers),
+                as_char_ptr(JSON.stringify(args), c4w, free_buffers),
+                BigInt(this.config.chainId)
+            );
 
             while (true) {
-                const resultPtr = c4w._c4w_execute_proof_ctx(ctx);
+                const state = as_json(c4w._c4w_execute_proof_ctx(ctx), c4w, true);
 
-                // Convert the char* to a JavaScript string
-                const resultStr = c4w.UTF8ToString(resultPtr);
-                c4w._free(resultPtr);
-                const state = JSON.parse(resultStr);
                 switch (state.status) {
-                    case "success": {
-                        const data_ptr = state.result;
-                        const data_len = state.result_len;
-                        const data = new Uint8Array(data_len);
-                        data.set(c4w.HEAPU8.subarray(data_ptr, data_ptr + data_len));
-                        return data;
-                    }
+                    case "success":
+                        return as_bytes(state.result, state.result_len, c4w);
+                    case "error":
+                        throw new Error(state.error);
                     case "waiting": {
                         await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
                         break;
                     }
-                    case "error": {
-                        throw new Error(state.error);
-                    }
                 }
             }
         } finally {
-            // Free the allocated memory
-            c4w._free(methodPtr);
-            c4w._free(argsPtr);
+            free_buffers.forEach(ptr => c4w._free(ptr));
             if (ctx) c4w._c4w_free_proof_ctx(ctx);
         }
     }
+
+    async verifyProof(method: string, args: any[], proof: Uint8Array): Promise<any> {
+        const c4w = await getC4w();
+        for (let i = 0; i < 5; i++) {
+            const free_buffers: number[] = [];
+            const result = as_json(c4w._c4w_verify_proof(
+                copy_to_c(proof, c4w, free_buffers),
+                proof.length,
+                as_char_ptr(method, c4w, free_buffers),
+                as_char_ptr(JSON.stringify(args), c4w, free_buffers),
+                BigInt(this.config.chainId)
+            ), c4w, true);
+            free_buffers.forEach(ptr => c4w._free(ptr));
+            if (result.result !== undefined) return result.result;
+            if (result.client_updates) {
+                for (const update of result.client_updates) {
+                    await handle_request(update, this.config);
+                    c4w._c4w_handle_client_updates(update.req_ptr, BigInt(this.config.chainId));
+                    c4w._c4w_req_free(update.req_ptr);
+                }
+                continue;
+            }
+            throw new Error(result.error);
+        }
+        throw new Error('too many updates');
+    }
 }
+
+
