@@ -2,6 +2,7 @@ add_library(verifier STATIC
   types_beacon.c
   types_verify.c
   sync_committee.c
+  sync_committee_state.c
   verify.c
   verify_blockhash_proof.c
   verify_account_proof.c

@@ -11,6 +11,7 @@ extern "C" {
 #include <stdio.h>
 #include <stdlib.h>
 
+extern const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER;
 extern const ssz_def_t BLOCK_HASH_PROOF[4];
 extern const ssz_def_t ETH_ACCOUNT_PROOF[8];
 extern const ssz_def_t ETH_TRANSACTION_PROOF[8];
