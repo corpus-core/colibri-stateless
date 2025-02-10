@@ -1,5 +1,5 @@
 // Import the Emscripten-generated module
-import { getC4w, as_char_ptr, as_json, as_bytes, copy_to_c } from "./wasm.js";
+import { getC4w, as_char_ptr, as_json, as_bytes, copy_to_c, Storage as C4Storage } from "./wasm.js";
 
 export interface Config {
     chainId: number;
@@ -118,6 +118,16 @@ export default class C4Client {
             throw new Error(result.error);
         }
         throw new Error('too many updates');
+    }
+
+    async rpc(method: string, args: any[]): Promise<any> {
+        const proof = await this.createProof(method, args);
+        return this.verifyProof(method, args, proof);
+    }
+
+    static async register_storage(storage: C4Storage) {
+        const c4w = await getC4w();
+        c4w.storage = storage;
     }
 }
 
