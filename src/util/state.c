@@ -56,3 +56,40 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state) {
   }
   return NULL;
 }
+
+#ifdef TEST
+char* c4_req_mockname(data_request_t* req) {
+  buffer_t buf = {0};
+  if (req->url) {
+    bprintf(&buf, "%s", req->url);
+  }
+  else if (req->payload.data) {
+    json_t t = json_parse((char*) req->payload.data);
+    bprintf(&buf, "%j", json_get(t, "method"));
+    json_t params = json_get(t, "params");
+    for (int i = 0; i < json_len(params); i++)
+      bprintf(&buf, "_%j", json_at(params, i));
+  }
+
+  for (int i = 0; i < buf.data.len; i++) {
+    switch (buf.data.data[i]) {
+      case '/':
+      case '.':
+      case ' ':
+      case ',':
+      case ':':
+      case '=':
+      case '?':
+      case '&':
+      case '[':
+      case ']':
+        buf.data.data[i] = '_';
+        break;
+      default:
+        break;
+    }
+  }
+  bprintf(&buf, ".%s", req->encoding == C4_DATA_ENCODING_SSZ ? "ssz" : "json");
+  return (char*) buf.data.data;
+}
+#endif

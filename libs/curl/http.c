@@ -158,9 +158,9 @@ void curl_fetch(data_request_t* req) {
 
 #ifdef TEST
   if (req->response.data && REQ_TEST_DIR) {
-    char test_filename[1024];
-    sprintf(test_filename, "%llx.%s", *((unsigned long long*) req->id), req->type == C4_DATA_TYPE_BEACON_API ? "ssz" : "json");
+    char* test_filename = c4_req_mockname(req);
     test_write_file(test_filename, req->response);
+    free(test_filename);
   }
 #endif
 }

@@ -59,6 +59,10 @@ bool            c4_state_is_pending(data_request_t* req);
 void            c4_state_add_request(c4_state_t* state, data_request_t* data_request);
 data_request_t* c4_state_get_pending_request(c4_state_t* state);
 
+#ifdef TEST
+char* c4_req_mockname(data_request_t* req);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

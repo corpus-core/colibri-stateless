@@ -122,7 +122,6 @@ static void set_state(chain_id_t chain_id, char* dirname) {
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
   char tmp[1024];
-  char test_filename[1024];
 
   set_state(chain_id, dirname);
 
@@ -135,8 +134,10 @@ static void verify(char* dirname, char* method, char* args, chain_id_t chain_id)
     switch (c4_proofer_execute(proof_ctx)) {
       case C4_PENDING:
         while ((req = c4_state_get_pending_request(&proof_ctx->state))) {
-          sprintf(test_filename, "%s/%llx.%s", dirname, *((unsigned long long*) req->id), req->type == C4_DATA_TYPE_BEACON_API ? "ssz" : "json");
-          bytes_t content = read_testdata(test_filename);
+          char* filename = c4_req_mockname(req);
+          sprintf(tmp, "%s/%s", dirname, filename);
+          free(filename);
+          bytes_t content = read_testdata(tmp);
           TEST_ASSERT_NOT_NULL_MESSAGE(content.data, "Die not find the testdata!");
           req->response = content;
         }
