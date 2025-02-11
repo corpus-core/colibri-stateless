@@ -52,7 +52,7 @@ static c4_status_t get_beacon_header_by_hash(proofer_ctx_t* ctx, char* hash, jso
   *header    = json_get(val, "message");
 
   if (!header->start) {
-    ctx->error = strdup("Invalid block-format!");
+    ctx->state.error = strdup("Invalid block-format!");
     return C4_ERROR;
   }
 
@@ -76,7 +76,7 @@ static c4_status_t get_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* block)
   ssz_ob_t signed_block = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, block_data);
   *block                = ssz_get(&signed_block, "message");
   if (ssz_is_error(*block)) {
-    ctx->error = strdup("Invalid block-format!");
+    ctx->state.error = strdup("Invalid block-format!");
     return C4_ERROR;
   }
 
@@ -91,7 +91,7 @@ static c4_status_t get_latest_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t*
   TRY_ASYNC(get_block(ctx, sig_slot - 1, data_block));
 
   if (!sig_slot) {
-    ctx->error = strdup("Invalid slot!");
+    ctx->state.error = strdup("Invalid slot!");
     return C4_ERROR;
   }
   return C4_SUCCESS;
@@ -115,7 +115,7 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
     TRY_ASYNC(get_latest_block(ctx, slot, &sig_block, &data_block));
   else {
     if (block.type != JSON_TYPE_STRING || block.len < 5 || block.start[1] != '0' || block.start[2] != 'x') {
-      ctx->error = strdup("Invalid block-format!");
+      ctx->state.error = strdup("Invalid block-format!");
       return C4_ERROR;
     }
     json_t eth_block;

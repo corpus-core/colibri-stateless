@@ -8,7 +8,8 @@
 #include <string.h>
 
 const ssz_def_t* get_def(char* typename) {
-  if (strcmp(typename, "signed_block") == 0) return &SIGNED_BEACON_BLOCK_CONTAINER;
+  if (strcmp(typename, "signedblock") == 0) return &SIGNED_BEACON_BLOCK_CONTAINER;
+  if (strcmp(typename, "blockbody") == 0) return &BEACON_BLOCK_BODY_CONTAINER;
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
 }

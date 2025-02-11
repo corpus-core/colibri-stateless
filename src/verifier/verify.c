@@ -33,7 +33,7 @@ void c4_verify(verify_ctx_t* ctx) {
     ctx->success = true;
   }
   else {
-    ctx->error   = strdup("proof is not a supported proof type");
-    ctx->success = false;
+    ctx->state.error = strdup("proof is not a supported proof type");
+    ctx->success     = false;
   }
 }

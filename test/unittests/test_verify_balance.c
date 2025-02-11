@@ -12,7 +12,7 @@ void tearDown(void) {
 }
 
 void test_balance() {
-  verify("eth_getBalance1", "eth_getBalance", "[\"0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5\",\"latest\"]", C4_CHAIN_MAINNET);
+  verify("eth_getBalance1", "eth_getBalance", "[\"0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5\",\"0x14d0303\"]", C4_CHAIN_MAINNET);
 }
 
 int main(void) {

@@ -273,9 +273,9 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
       if (index < chunks) {
         uint32_t rest = ob.bytes.len - (index << 5);
         memcpy(out, ob.bytes.data + (index << 5), rest > 32 ? 32 : rest);
-        if (index == chunks - 1) {
+        if (index == chunks - 1 && bit_len % 8) {
           bit_len = bit_len % 256; // bits in the last chunk
-          out[bit_len >> 3] &= ~(1 << bit_len % 8);
+          out[bit_len >> 3] &= 0xff >> (8 - (bit_len % 8));
         }
       }
       return;

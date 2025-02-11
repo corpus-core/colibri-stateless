@@ -66,7 +66,7 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   json_t txhash = json_at(ctx->params, 0);
 
   if (txhash.type != JSON_TYPE_STRING || txhash.len != 68 || txhash.start[1] != '0' || txhash.start[2] != 'x') {
-    ctx->error = strdup("Invalid hash");
+    ctx->state.error = strdup("Invalid hash");
     return C4_ERROR;
   }
 
@@ -76,7 +76,7 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   uint32_t tx_index     = json_get_uint32(tx_data, "transactionIndex");
   json_t   block_number = json_get(tx_data, "blockNumber");
   if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') {
-    ctx->error = strdup("Invalid block number");
+    ctx->state.error = strdup("Invalid block number");
     return C4_ERROR;
   }
 

@@ -10,6 +10,10 @@ extern "C" {
 void curl_fetch(data_request_t* req);
 void curl_set_config(json_t config);
 
+#ifdef TEST
+void curl_set_test_dir(const char* dir);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

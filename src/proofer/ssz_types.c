@@ -161,4 +161,5 @@ const ssz_def_t SIGNED_BEACON_BLOCK[] = {
     SSZ_CONTAINER("message", BEACON_BLOCK),
     SSZ_BYTE_VECTOR("signature", 96)};
 
+const ssz_def_t BEACON_BLOCK_BODY_CONTAINER   = SSZ_CONTAINER("beaconBlockBody", BEACON_BLOCK_BODY);
 const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER = SSZ_CONTAINER("signedBeaconBlock", SIGNED_BEACON_BLOCK);
