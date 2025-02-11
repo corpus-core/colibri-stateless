@@ -19,7 +19,7 @@ proofer_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* arg
 void EMSCRIPTEN_KEEPALIVE c4w_free_proof_ctx(proofer_ctx_t* ctx) {
   c4_proofer_free(ctx);
 }
-static const char* status_to_string(c4_proofer_status_t status) {
+static const char* status_to_string(c4_status_t status) {
   switch (status) {
     case C4_SUCCESS:
       return "success";
@@ -74,19 +74,19 @@ static void add_data_request(buffer_t* result, data_request_t* data_request) {
 }
 
 char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(proofer_ctx_t* ctx) {
-  buffer_t            result = {0};
-  c4_proofer_status_t status = c4_proofer_execute(ctx);
+  buffer_t    result = {0};
+  c4_status_t status = c4_proofer_execute(ctx);
   bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
   switch (status) {
     case C4_SUCCESS:
       bprintf(&result, "\"result\": %l, \"result_len\": %d", (uint64_t) ctx->proof.data, ctx->proof.len);
       break;
     case C4_ERROR:
-      bprintf(&result, "\"error\": %\"s\"", ctx->error);
+      bprintf(&result, "\"error\": %\"s\"", ctx->state.error);
       break;
     case C4_PENDING: {
       bprintf(&result, "\"requests\": [");
-      data_request_t* data_request = c4_proofer_get_pending_data_request(ctx);
+      data_request_t* data_request = c4_state_get_pending_request(&ctx->state);
       while (data_request) {
         if (!data_request->response.data && !data_request->error) {
           if (result.data.data[result.data.len - 1] != '[') bprintf(&result, ",");
@@ -133,12 +133,14 @@ char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(uint8_t* proof, size_t proof_len, ch
                        .url      = url,
                        .chain_id = chain_id};
     sha256(bytes((uint8_t*) url, strlen(url)), req->id);
-    bprintf(&buf, "{\"error\": \"%s\", \"client_updates\": [", ctx.error);
+    bprintf(&buf, "{\"error\": \"%s\", \"client_updates\": [", ctx.state.error);
     add_data_request(&buf, req);
     bprintf(&buf, "]}");
   }
   else
-    bprintf(&buf, "{\"error\": \"%s\"}", ctx.error);
+    bprintf(&buf, "{\"error\": \"%s\"}", ctx.state.error);
+
+  if (ctx.state.error) free(ctx.state.error);
 
   return (char*) buf.data.data;
 }
@@ -160,15 +162,20 @@ uint8_t* EMSCRIPTEN_KEEPALIVE c4w_buffer_alloc(buffer_t* buf, size_t len) {
 }
 
 char* EMSCRIPTEN_KEEPALIVE c4w_init_chain(uint64_t chain_id, char* trusted_block_hashes, data_request_t* requests) {
-  buffer_t buf    = {0};
-  json_t   blocks = json_parse(trusted_block_hashes ? trusted_block_hashes : "[]");
-  char*    error  = NULL;
+  buffer_t   buf    = {0};
+  json_t     blocks = json_parse(trusted_block_hashes ? trusted_block_hashes : "[]");
+  c4_state_t state  = {0};
+  state.requests    = requests;
 
-  requests = c4_set_trusted_blocks(blocks, chain_id, requests, &error);
-  if (error)
-    return bprintf(&buf, "{\"error\": \"%s\"}", error);
+  c4_status_t status = c4_set_trusted_blocks(&state, blocks, chain_id);
+  if (state.error) {
+    bprintf(&buf, "{\"error\": \"%s\"}", state.error);
+    c4_state_free(&state);
+    return (char*) buf.data.data;
+  }
 
-  bprintf(&buf, "{\"req_ptr\": %d, \"requests\": [", (uint32_t) requests);
+  bprintf(&buf, "{\"req_ptr\": %d, \"requests\": [", (uint32_t) state.requests);
+  requests = state.requests;
   while (requests) {
     if (!requests->error && !requests->response.data) {
       if (buf.data.data[buf.data.len - 1] != '[') bprintf(&buf, ",");
@@ -176,6 +183,8 @@ char* EMSCRIPTEN_KEEPALIVE c4w_init_chain(uint64_t chain_id, char* trusted_block
     }
     requests = requests->next;
   }
+
+  if (!c4_state_get_pending_request(&state)) c4_state_free(&state);
   return bprintf(&buf, "]}");
 }
 
