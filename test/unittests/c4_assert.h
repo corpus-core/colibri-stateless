@@ -72,7 +72,7 @@ static void reset_local_filecache() {
       .del             = file_delete,
       .get             = file_get,
       .set             = file_set,
-      .max_sync_states = 1};
+      .max_sync_states = 3};
   c4_set_storage_config(&plgn);
 }
 

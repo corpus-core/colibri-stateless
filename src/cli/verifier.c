@@ -2,6 +2,7 @@
 #include "../util/crypto.h"
 #include "../util/request.h"
 #include "../util/ssz.h"
+#include "../verifier/sync_committee.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "../verifier/verify.h"
@@ -114,17 +115,44 @@ static bool get_client_updates(verify_ctx_t* ctx) {
 }
 #endif
 
+static void check_state(chain_id_t chain_id, json_t trusted_blocks) {
+  data_request_t* requests = NULL;
+  char*           error    = NULL;
+  while (true) {
+    requests            = c4_set_trusted_blocks(trusted_blocks, chain_id, requests, &error);
+    data_request_t* req = requests;
+    if (error) {
+      fprintf(stderr, "Error setting trusted blocks: %s\n", error);
+      exit(EXIT_FAILURE);
+    }
+#ifdef USE_CURL
+    while (req) {
+      if (!req->error && !req->response.len)
+        curl_fetch(req);
+      req = req->next;
+    }
+#else
+    if (requests) {
+      fprintf(stderr, "No curl installed");
+      exit(EXIT_FAILURE);
+    }
+#endif
+    if (!requests) return;
+  }
+}
 int main(int argc, char* argv[]) {
   if (argc == 1) {
     fprintf(stderr, "Usage: %s request.ssz \n", argv[0]);
     exit(EXIT_FAILURE);
   }
 
-  char*      method   = NULL;
-  chain_id_t chain_id = C4_CHAIN_MAINNET;
-  buffer_t   args     = {0};
-  char*      input    = NULL;
+  char*      method         = NULL;
+  chain_id_t chain_id       = C4_CHAIN_MAINNET;
+  buffer_t   args           = {0};
+  char*      input          = NULL;
+  buffer_t   trusted_blocks = {0};
   buffer_add_chars(&args, "[");
+  buffer_add_chars(&trusted_blocks, "[");
 
   for (int i = 1; i < argc; i++) {
     if (*argv[i] == '-') {
@@ -132,6 +160,10 @@ int main(int argc, char* argv[]) {
         switch (*c) {
           case 'c':
             chain_id = atoi(argv[++i]);
+            break;
+          case 'b':
+            if (trusted_blocks.data.len > 1) buffer_add_chars(&trusted_blocks, ",");
+            bprintf(&trusted_blocks, "\"%s\"", argv[++i]);
             break;
 #ifdef TEST
           case 't':
@@ -156,11 +188,14 @@ int main(int argc, char* argv[]) {
     }
   }
   buffer_add_chars(&args, "]");
+  buffer_add_chars(&trusted_blocks, "]");
   if (input == NULL) {
     fprintf(stderr, "No input file provided\n");
     exit(EXIT_FAILURE);
   }
   bytes_t request = bytes_read(input);
+
+  check_state(chain_id, json_parse((char*) trusted_blocks.data.data));
 
   for (int i = 0; i < 5; i++) { // max 5 retries
 

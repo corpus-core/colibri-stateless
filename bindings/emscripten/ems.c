@@ -144,7 +144,7 @@ char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(uint8_t* proof, size_t proof_len, ch
 }
 
 bool EMSCRIPTEN_KEEPALIVE c4w_handle_client_updates(data_request_t* client_update, uint64_t chain_id) {
-  return c4_handle_client_updates(client_update->response, chain_id);
+  return c4_handle_client_updates(client_update->response, chain_id, NULL);
 }
 
 void EMSCRIPTEN_KEEPALIVE c4w_req_free(data_request_t* client_update) {
@@ -157,6 +157,26 @@ uint8_t* EMSCRIPTEN_KEEPALIVE c4w_buffer_alloc(buffer_t* buf, size_t len) {
   buffer_grow(buf, len + 1);
   buf->data.len = len;
   return buf->data.data;
+}
+
+char* EMSCRIPTEN_KEEPALIVE c4w_init_chain(uint64_t chain_id, char* trusted_block_hashes, data_request_t* requests) {
+  buffer_t buf    = {0};
+  json_t   blocks = json_parse(trusted_block_hashes ? trusted_block_hashes : "[]");
+  char*    error  = NULL;
+
+  requests = c4_set_trusted_blocks(blocks, chain_id, requests, &error);
+  if (error)
+    return bprintf(&buf, "{\"error\": \"%s\"}", error);
+
+  bprintf(&buf, "{\"req_ptr\": %d, \"requests\": [", (uint32_t) requests);
+  while (requests) {
+    if (!requests->error && !requests->response.data) {
+      if (buf.data.data[buf.data.len - 1] != '[') bprintf(&buf, ",");
+      add_data_request(&buf, requests);
+    }
+    requests = requests->next;
+  }
+  return bprintf(&buf, "]}");
 }
 
 static bool file_get(char* key, buffer_t* buffer) {
@@ -190,6 +210,6 @@ void EMSCRIPTEN_KEEPALIVE init_storage(void* ptr) {
       .del             = file_delete,
       .get             = file_get,
       .set             = file_set,
-      .max_sync_states = 1};
+      .max_sync_states = 3};
   c4_set_storage_config(&plgn);
 }

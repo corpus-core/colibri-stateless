@@ -5,6 +5,7 @@ export interface Config {
     chainId: number;
     beacon_apis: string[],
     rpcs: string[];
+    trusted_block_hashes: string[];
 }
 
 interface DataRequest {
@@ -15,6 +16,26 @@ interface DataRequest {
     url: string;
     payload: string;
     req_ptr: number;
+}
+
+async function initialize_storage(conf: Config) {
+    const c4w = await getC4w();
+    let ptr = 0;
+    while (true) {
+        const free_buffers: number[] = [];
+        try {
+            const state = as_json(c4w._c4w_init_chain(BigInt(conf.chainId), as_char_ptr(JSON.stringify(conf.trusted_block_hashes || []), c4w), ptr), c4w, true);
+            if (state.error) {
+                throw new Error(state.error);
+            }
+            ptr = state.req_ptr;
+            if (state.req_ptr && state.requests.length)
+                await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, conf)));
+            else return;
+        } finally {
+            free_buffers.forEach(ptr => c4w._free(ptr));
+        }
+    }
 }
 
 async function handle_request(req: DataRequest, conf: Config) {
@@ -55,7 +76,8 @@ export default class C4Client {
             ...{
                 chainId: 1, // Default chainId
                 beacon_apis: ["https://lodestar-mainnet.chainsafe.io"], // Default beacon API
-                rpcs: ["https://rpc.ankr.com/eth"] // Default RPC
+                rpcs: ["https://rpc.ankr.com/eth"], // Default RPC
+                trusted_block_hashes: []
             }, ...config
         }
     }
@@ -96,6 +118,8 @@ export default class C4Client {
 
     async verifyProof(method: string, args: any[], proof: Uint8Array): Promise<any> {
         const c4w = await getC4w();
+        if (!c4w.storage.get("states_" + this.config.chainId)) await initialize_storage(this.config);
+
         for (let i = 0; i < 5; i++) {
             const free_buffers: number[] = [];
             const result = as_json(c4w._c4w_verify_proof(

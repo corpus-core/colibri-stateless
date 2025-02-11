@@ -14,6 +14,15 @@ static data_request_t* find_req(data_request_t* req, char* url) {
   }
   return NULL;
 }
+
+static data_request_t* first_pending_req(data_request_t* req) {
+  while (req) {
+    if (req->error == NULL && req->response.data == NULL) return req;
+    req = req->next;
+  }
+  return NULL;
+}
+
 static void add_req(data_request_t** req, data_request_t* new_req) {
   data_request_t* current = *req;
   *req                    = new_req;
@@ -41,7 +50,6 @@ c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
 
 static bool req_header(json_t slot, chain_id_t chain_id, data_request_t** requests, json_t* data, char** error) {
   buffer_t tmp = {0};
-  char     name[100];
   if (slot.type == JSON_TYPE_STRING)
     bprintf(&tmp, "eth/v1/beacon/headers/%j", slot);
   else
@@ -53,6 +61,7 @@ static bool req_header(json_t slot, chain_id_t chain_id, data_request_t** reques
     json_t res = json_parse((char*) req->response.data);
     if (res.type == JSON_TYPE_OBJECT) res = json_get(res, "data");
     if (res.type == JSON_TYPE_OBJECT) res = json_get(res, "header");
+    if (res.type == JSON_TYPE_OBJECT) res = json_get(res, "message");
     if (res.type == JSON_TYPE_OBJECT) {
       *data = res;
       return true;
@@ -75,10 +84,10 @@ static bool req_header(json_t slot, chain_id_t chain_id, data_request_t** reques
   add_req(requests, new_req);
   return false;
 }
+
 static bool req_client_update(uint32_t period, chain_id_t chain_id, data_request_t** requests, bytes_t* data, char** error) {
   buffer_t tmp = {0};
-  char     name[100];
-  bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d6&count=1", period);
+  bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=1", period);
 
   data_request_t* req = find_req(*requests, (char*) tmp.data.data);
   if (req) buffer_free(&tmp);
@@ -111,12 +120,36 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
 
   while (state.len >= storage_conf.max_sync_states) {
     uint32_t oldest       = 0;
+    uint32_t latest       = 0;
     int      oldest_index = 0;
+    int      latest_index = 0;
+
+    // find the oldest and latest period
     for (int i = 0; i < state.len; i++) {
-      if (state.blocks[i].period < oldest || oldest == 0) {
-        oldest       = state.blocks[i].period;
+      uint32_t p = state.blocks[i].period;
+      if (p > latest || latest == 0) {
+        latest       = p;
+        latest_index = i;
+      }
+      if (p < oldest || oldest == 0) {
+        oldest       = p;
         oldest_index = i;
       }
+    }
+
+    if (state.len > 2) {
+      // we want to keep the oldest and the latest, but remove the second oldest
+      uint32_t oldest_2nd       = 0;
+      int      oldest_2nd_index = 0;
+      for (int i = 0; i < state.len; i++) {
+        uint32_t p = state.blocks[i].period;
+        if (p > oldest && p < latest && (p < oldest_2nd || oldest_2nd == 0)) {
+          oldest_2nd       = p;
+          oldest_2nd_index = i;
+        }
+      }
+      oldest_index = oldest_2nd_index;
+      oldest       = oldest_2nd;
     }
 
     sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, oldest);
@@ -144,18 +177,21 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
 }
 
 data_request_t* c4_set_trusted_blocks(json_t blocks, chain_id_t chain_id, data_request_t* requests, char** error) {
-  c4_chain_state_t state         = c4_get_chain_state(chain_id);
-  data_request_t*  req           = requests;
-  json_t           data          = {0};
-  bool             success       = false;
-  bytes_t          client_update = {0};
-  bytes32_t        blockhash     = {0};
+  c4_chain_state_t state              = c4_get_chain_state(chain_id);
+  data_request_t*  req                = requests;
+  json_t           data               = {0};
+  bool             success            = false;
+  bytes_t          client_update      = {0};
+  bytes_t          client_update_past = {0};
+  bytes32_t        blockhash          = {0};
   if (state.len == 0 && (blocks.len == 0 || json_len(blocks) == 0)) {
     // we need to fetch the last client update
     success = req_header((json_t) {0}, chain_id, &req, &data, error);
     if (success) {
-      uint64_t period = (json_get_uint64(data, "slot") >> 13) - 1;
+      uint64_t slot   = json_get_uint64(data, "slot");
+      uint32_t period = (slot >> 13) - 1;
       success         = req_client_update(period, chain_id, &req, &client_update, error);
+      success         = req_client_update(period - 20, chain_id, &req, &client_update_past, error);
     }
   }
   else if (state.len == 0) {
@@ -170,8 +206,12 @@ data_request_t* c4_set_trusted_blocks(json_t blocks, chain_id_t chain_id, data_r
     // we need to check if the blocks are in the cache
   }
   free(state.blocks);
+  if (success && client_update.len && !c4_handle_client_updates(client_update, chain_id, blockhash))
+    *error = "Failed to handle client updates";
+  if (success && client_update_past.len && !c4_handle_client_updates(client_update_past, chain_id, blockhash))
+    *error = "Failed to handle client updates";
 
-  if (!success) {
+  if (!first_pending_req(req) || *error)
     while (req) {
       data_request_t* next = req->next;
       if (req->url) free(req->url);
@@ -181,10 +221,34 @@ data_request_t* c4_set_trusted_blocks(json_t blocks, chain_id_t chain_id, data_r
       free(req);
       req = next;
     }
-  };
-
-  if (success && client_update.len && !c4_handle_client_updates(client_update, chain_id, blockhash))
-    *error = "Failed to handle client updates";
 
   return req;
+}
+
+const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
+
+  storage_plugin_t storage_conf = {0};
+  c4_chain_state_t chain_state  = c4_get_chain_state(chain_id);
+  uint32_t         last_period  = 0;
+  buffer_t         validators   = {0};
+  bool             found        = false;
+  c4_get_storage_config(&storage_conf);
+
+  for (uint32_t i = 0; i < chain_state.len; i++) {
+    uint32_t p = chain_state.blocks[i].period;
+    if (p == period) found = true;
+    last_period = p > last_period && p <= period ? p : last_period;
+  }
+  free(chain_state.blocks);
+
+  if (found && storage_conf.get) {
+    char name[100];
+    sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
+    storage_conf.get(name, &validators);
+  }
+
+  return (c4_sync_state_t) {
+      .current_period = period,
+      .last_period    = last_period,
+      .validators     = validators.data};
 }
