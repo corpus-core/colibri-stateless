@@ -147,7 +147,7 @@ static void verify(char* dirname, char* method, char* args, chain_id_t chain_id)
       sprintf(test_filename, "%s/sync_data_%d.ssz", dirname, (uint32_t) verify_ctx.last_missing_period);
       bytes_t content = read_testdata(test_filename);
       TEST_ASSERT_NOT_NULL_MESSAGE(content.data, "sync_data is missing");
-      c4_handle_client_updates(content, chain_id);
+      c4_handle_client_updates(content, chain_id, NULL);
       free(content.data);
     }
   }
