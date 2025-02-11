@@ -104,7 +104,7 @@ bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes
     }
     else {
       c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0}, chain_id);
-      if (sync_ctx.error) {
+      if (sync_ctx.state.error) {
         buffer_free(&updates);
         return false;
       }

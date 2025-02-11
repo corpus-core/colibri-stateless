@@ -1,5 +1,6 @@
 #include "proofer.h"
 #include "../util/json.h"
+#include "../util/state.h"
 #include "proofs.h"
 #include <stdlib.h>
 #include <string.h>
@@ -19,66 +20,32 @@ proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id
 }
 
 void c4_proofer_free(proofer_ctx_t* ctx) {
-  data_request_t* data_request = ctx->data_requests;
-  while (data_request) {
-    data_request_t* next = data_request->next;
-    if (data_request->url) free(data_request->url);
-    if (data_request->error) free(data_request->error);
-    if (data_request->payload.data) free(data_request->payload.data);
-    if (data_request->response.data) free(data_request->response.data);
-    free(data_request);
-    data_request = next;
-  }
-
+  c4_state_free(&ctx->state);
   if (ctx->method) free(ctx->method);
   if (ctx->params.start) free((void*) ctx->params.start);
-  if (ctx->error) free(ctx->error);
   if (ctx->proof.data) free(ctx->proof.data);
   free(ctx);
 }
 
-c4_proofer_status_t c4_proofer_execute(proofer_ctx_t* ctx) {
-  if (c4_proofer_get_pending_data_request(ctx)) return C4_PROOFER_WAITING;
-  if (ctx->error) return C4_PROOFER_ERROR;
+c4_status_t c4_proofer_execute(proofer_ctx_t* ctx) {
+  if (c4_state_get_pending_request(&ctx->state)) return C4_PENDING;
+  if (ctx->state.error) return C4_ERROR;
 
   if (strcmp(ctx->method, "eth_getBalance") == 0 || strcmp(ctx->method, "eth_getCode") == 0 || strcmp(ctx->method, "eth_getNonce") == 0 || strcmp(ctx->method, "eth_getProof") == 0 || strcmp(ctx->method, "eth_getStorageAt") == 0)
     c4_proof_account(ctx);
   else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getCode") == 0 || strcmp(ctx->method, "eth_getNonce") == 0 || strcmp(ctx->method, "eth_getProof") == 0 || strcmp(ctx->method, "eth_getStorageAt") == 0)
     c4_proof_transaction(ctx);
   else
-    ctx->error = strdup("Unsupported method");
+    ctx->state.error = strdup("Unsupported method");
 
   return c4_proofer_status(ctx);
 }
 
-data_request_t* c4_proofer_get_pending_data_request(proofer_ctx_t* ctx) {
-  data_request_t* data_request = ctx->data_requests;
-  while (data_request) {
-    if (data_request->response.data == NULL && data_request->error == NULL) return data_request;
-    data_request = data_request->next;
-  }
-  return NULL;
-}
-
-data_request_t* c4_proofer_get_data_request_by_id(proofer_ctx_t* ctx, bytes32_t id) {
-  data_request_t* data_request = ctx->data_requests;
-  while (data_request) {
-    if (memcmp(data_request->id, id, 32) == 0) return data_request;
-    data_request = data_request->next;
-  }
-  return NULL;
-}
-
-void c4_proofer_add_data_request(proofer_ctx_t* ctx, data_request_t* data_request) {
-  data_request->next = ctx->data_requests;
-  ctx->data_requests = data_request;
-}
-
-c4_proofer_status_t c4_proofer_status(proofer_ctx_t* ctx) {
-  if (ctx->error) return C4_PROOFER_ERROR;
-  if (ctx->proof.data) return C4_PROOFER_SUCCESS;
-  if (c4_proofer_get_pending_data_request(ctx)) return C4_PROOFER_WAITING;
-  return C4_PROOFER_WAITING;
+c4_status_t c4_proofer_status(proofer_ctx_t* ctx) {
+  if (ctx->state.error) return C4_ERROR;
+  if (ctx->proof.data) return C4_SUCCESS;
+  if (c4_state_get_pending_request(&ctx->state)) return C4_PENDING;
+  return C4_PENDING;
 }
 
 c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result) {
@@ -90,30 +57,30 @@ c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json
   buffer_add_chars(&buffer, params);
   buffer_add_chars(&buffer, ",\"id\":1}");
   sha256(buffer.data, id);
-  data_request_t* data_request = c4_proofer_get_data_request_by_id(ctx, id);
+  data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     buffer_free(&buffer);
     if (!data_request->error && data_request->response.data) {
       json_t response = json_parse((char*) data_request->response.data);
       if (response.type != JSON_TYPE_OBJECT) {
-        ctx->error = strdup("Invalid JSON response");
+        ctx->state.error = strdup("Invalid JSON response");
         return C4_ERROR;
       }
 
       json_t error = json_get(response, "error");
       if (error.type == JSON_TYPE_OBJECT) {
-        error      = json_get(error, "message");
-        ctx->error = json_new_string(error);
+        error            = json_get(error, "message");
+        ctx->state.error = json_new_string(error);
         return C4_ERROR;
       }
       else if (error.type == JSON_TYPE_STRING) {
-        ctx->error = json_new_string(error);
+        ctx->state.error = json_new_string(error);
         return C4_ERROR;
       }
 
       json_t res = json_get(response, "result");
       if (res.type == JSON_TYPE_NOT_FOUND || res.type == JSON_TYPE_INVALID) {
-        ctx->error = strdup("Invalid JSON response");
+        ctx->state.error = strdup("Invalid JSON response");
         return C4_ERROR;
       }
 
@@ -121,7 +88,7 @@ c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json
       return C4_SUCCESS;
     }
     else {
-      ctx->error = strdup(data_request->error ? data_request->error : "Data request failed");
+      ctx->state.error = strdup(data_request->error ? data_request->error : "Data request failed");
       return C4_ERROR;
     }
   }
@@ -132,7 +99,7 @@ c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json
     data_request->encoding = C4_DATA_ENCODING_JSON;
     data_request->method   = C4_DATA_METHOD_POST;
     data_request->type     = C4_DATA_TYPE_ETH_RPC;
-    c4_proofer_add_data_request(ctx, data_request);
+    c4_state_add_request(&ctx->state, data_request);
     return C4_PENDING;
   }
 
@@ -148,13 +115,13 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, jso
     buffer_add_chars(&buffer, query);
   }
   sha256(buffer.data, id);
-  data_request_t* data_request = c4_proofer_get_data_request_by_id(ctx, id);
+  data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     buffer_free(&buffer);
     if (!data_request->error && data_request->response.data) {
       json_t response = json_parse((char*) data_request->response.data);
       if (response.type == JSON_TYPE_INVALID) {
-        ctx->error = strdup("Invalid JSON response");
+        ctx->state.error = strdup("Invalid JSON response");
         return C4_ERROR;
       }
 
@@ -162,7 +129,7 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, jso
       return C4_SUCCESS;
     }
     else {
-      ctx->error = strdup(data_request->error ? data_request->error : "Data request failed");
+      ctx->state.error = strdup(data_request->error ? data_request->error : "Data request failed");
       return C4_ERROR;
     }
   }
@@ -173,7 +140,7 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, jso
     data_request->encoding = C4_DATA_ENCODING_JSON;
     data_request->method   = C4_DATA_METHOD_GET;
     data_request->type     = C4_DATA_TYPE_BEACON_API;
-    c4_proofer_add_data_request(ctx, data_request);
+    c4_state_add_request(&ctx->state, data_request);
     return C4_PENDING;
   }
 
@@ -189,7 +156,7 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, byte
     buffer_add_chars(&buffer, query);
   }
   sha256(buffer.data, id);
-  data_request_t* data_request = c4_proofer_get_data_request_by_id(ctx, id);
+  data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     buffer_free(&buffer);
     if (!data_request->error && data_request->response.data) {
@@ -197,7 +164,7 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, byte
       return C4_SUCCESS;
     }
     else {
-      ctx->error = strdup(data_request->error ? data_request->error : "Data request failed");
+      ctx->state.error = strdup(data_request->error ? data_request->error : "Data request failed");
       return C4_ERROR;
     }
   }
@@ -208,7 +175,7 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, byte
     data_request->encoding = C4_DATA_ENCODING_SSZ;
     data_request->method   = C4_DATA_METHOD_GET;
     data_request->type     = C4_DATA_TYPE_BEACON_API;
-    c4_proofer_add_data_request(ctx, data_request);
+    c4_state_add_request(&ctx->state, data_request);
     return C4_PENDING;
   }
 

@@ -7,28 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static data_request_t* find_req(data_request_t* req, char* url) {
-  while (req) {
-    if (strcmp(req->url, url) == 0) return req;
-    req = req->next;
-  }
-  return NULL;
-}
-
-static data_request_t* first_pending_req(data_request_t* req) {
-  while (req) {
-    if (req->error == NULL && req->response.data == NULL) return req;
-    req = req->next;
-  }
-  return NULL;
-}
-
-static void add_req(data_request_t** req, data_request_t* new_req) {
-  data_request_t* current = *req;
-  *req                    = new_req;
-  new_req->next           = current;
-}
-
 c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
   c4_chain_state_t state = {0};
   char             name[100];
@@ -48,14 +26,14 @@ c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
   return state;
 }
 
-static bool req_header(json_t slot, chain_id_t chain_id, data_request_t** requests, json_t* data, char** error) {
+static bool req_header(c4_state_t* state, json_t slot, chain_id_t chain_id, json_t* data) {
   buffer_t tmp = {0};
   if (slot.type == JSON_TYPE_STRING)
     bprintf(&tmp, "eth/v1/beacon/headers/%j", slot);
   else
     bprintf(&tmp, "eth/v1/beacon/headers/head");
 
-  data_request_t* req = find_req(*requests, (char*) tmp.data.data);
+  data_request_t* req = c4_state_get_data_request_by_url(state, (char*) tmp.data.data);
   if (req) buffer_free(&tmp);
   if (req && req->response.data) {
     json_t res = json_parse((char*) req->response.data);
@@ -67,12 +45,12 @@ static bool req_header(json_t slot, chain_id_t chain_id, data_request_t** reques
       return true;
     }
     else {
-      *error = "Invalid response for header";
+      state->error = strdup("Invalid response for header");
       return false;
     }
   }
   else if (req && req->error) {
-    *error = req->error;
+    state->error = strdup(req->error);
     return false;
   }
   data_request_t* new_req = calloc(1, sizeof(data_request_t));
@@ -81,22 +59,23 @@ static bool req_header(json_t slot, chain_id_t chain_id, data_request_t** reques
   new_req->encoding       = C4_DATA_ENCODING_JSON;
   new_req->type           = C4_DATA_TYPE_BEACON_API;
 
-  add_req(requests, new_req);
+  c4_state_add_request(state, new_req);
+
   return false;
 }
 
-static bool req_client_update(uint32_t period, chain_id_t chain_id, data_request_t** requests, bytes_t* data, char** error) {
+static bool req_client_update(c4_state_t* state, uint32_t period, chain_id_t chain_id, bytes_t* data) {
   buffer_t tmp = {0};
   bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=1", period);
 
-  data_request_t* req = find_req(*requests, (char*) tmp.data.data);
+  data_request_t* req = c4_state_get_data_request_by_url(state, (char*) tmp.data.data);
   if (req) buffer_free(&tmp);
   if (req && req->response.data) {
     *data = req->response;
     return true;
   }
   else if (req && req->error) {
-    *error = req->error;
+    state->error = strdup(req->error);
     return false;
   }
   data_request_t* new_req = calloc(1, sizeof(data_request_t));
@@ -104,8 +83,7 @@ static bool req_client_update(uint32_t period, chain_id_t chain_id, data_request
   new_req->url            = (char*) tmp.data.data;
   new_req->encoding       = C4_DATA_ENCODING_SSZ;
   new_req->type           = C4_DATA_TYPE_BEACON_API;
-
-  add_req(requests, new_req);
+  c4_state_add_request(state, new_req);
   return false;
 }
 
@@ -176,53 +154,40 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
   return true;
 }
 
-data_request_t* c4_set_trusted_blocks(json_t blocks, chain_id_t chain_id, data_request_t* requests, char** error) {
-  c4_chain_state_t state              = c4_get_chain_state(chain_id);
-  data_request_t*  req                = requests;
+c4_status_t c4_set_trusted_blocks(c4_state_t* state, json_t blocks, chain_id_t chain_id) {
+  c4_chain_state_t chain_state        = c4_get_chain_state(chain_id);
   json_t           data               = {0};
   bool             success            = false;
   bytes_t          client_update      = {0};
   bytes_t          client_update_past = {0};
   bytes32_t        blockhash          = {0};
-  if (state.len == 0 && (blocks.len == 0 || json_len(blocks) == 0)) {
+  if (chain_state.len == 0 && (blocks.len == 0 || json_len(blocks) == 0)) {
     // we need to fetch the last client update
-    success = req_header((json_t) {0}, chain_id, &req, &data, error);
+    success = req_header(state, (json_t) {0}, chain_id, &data);
     if (success) {
       uint64_t slot   = json_get_uint64(data, "slot");
       uint32_t period = (slot >> 13) - 1;
-      success         = req_client_update(period, chain_id, &req, &client_update, error);
-      success         = req_client_update(period - 20, chain_id, &req, &client_update_past, error);
+      success         = req_client_update(state, period, chain_id, &client_update);
+      success         = req_client_update(state, period - 20, chain_id, &client_update_past);
     }
   }
-  else if (state.len == 0) {
+  else if (chain_state.len == 0) {
     // we need to resolve the client update for the given blockhash.
-    success = req_header(json_at(blocks, 0), chain_id, &req, &data, error);
+    success = req_header(state, json_at(blocks, 0), chain_id, &data);
     if (success) {
       uint64_t period = (json_get_uint64(data, "slot") >> 13) - 1;
-      success         = req_client_update(period, chain_id, &req, &client_update, error);
+      success         = req_client_update(state, period, chain_id, &client_update);
     }
   }
   else {
     // we need to check if the blocks are in the cache
   }
-  free(state.blocks);
+  free(chain_state.blocks);
   if (success && client_update.len && !c4_handle_client_updates(client_update, chain_id, blockhash))
-    *error = "Failed to handle client updates";
+    state->error = strdup("Failed to handle client updates");
   if (success && client_update_past.len && !c4_handle_client_updates(client_update_past, chain_id, blockhash))
-    *error = "Failed to handle client updates";
-
-  if (!first_pending_req(req) || *error)
-    while (req) {
-      data_request_t* next = req->next;
-      if (req->url) free(req->url);
-      if (req->error) free(req->error);
-      if (req->payload.data) free(req->payload.data);
-      if (req->response.data) free(req->response.data);
-      free(req);
-      req = next;
-    }
-
-  return req;
+    state->error = strdup("Failed to handle client updates");
+  return state->error ? C4_ERROR : (c4_state_get_pending_request(state) ? C4_PENDING : C4_SUCCESS);
 }
 
 const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {

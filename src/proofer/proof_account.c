@@ -129,7 +129,7 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
   // json_t block   = json_at(ctx->params, 1);
 
   if (address.type != JSON_TYPE_STRING || address.len != 44 || address.start[1] != '0' || address.start[2] != 'x') {
-    ctx->error = strdup("Invalid address");
+    ctx->state.error = strdup("Invalid address");
     return C4_ERROR;
   }
 

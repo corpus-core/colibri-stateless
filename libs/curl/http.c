@@ -1,8 +1,22 @@
 #include "http.h"
-#include "request.h"
+#include "state.h"
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef TEST
+
+#include <sys/stat.h>
+#include <sys/types.h>
+#ifdef _WIN32
+#include <direct.h>
+#define MKDIR(path) _mkdir(path)
+#else
+#include <unistd.h>
+#define MKDIR(path) mkdir(path, 0755)
+#endif
+#endif
+
 typedef struct {
   json_t config;
 } curl_config_t;
@@ -19,6 +33,23 @@ const char* CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
     req->error = strdup(msg);  \
     return;                    \
   }
+
+#ifdef TEST
+static char* REQ_TEST_DIR = NULL;
+static void  test_write_file(const char* filename, bytes_t data) {
+  if (!REQ_TEST_DIR) return;
+  buffer_t buf = {0};
+  bytes_write(data, fopen(bprintf(&buf, "%s/%s", REQ_TEST_DIR, filename), "w"), true);
+  buffer_free(&buf);
+}
+
+void curl_set_test_dir(const char* dir) {
+  buffer_t buf = {0};
+  REQ_TEST_DIR = bprintf(&buf, "%s/%s", TESTDATA_DIR, dir);
+  MKDIR(REQ_TEST_DIR);
+  //  if (MKDIR(REQ_TEST_DIR) != 0) perror("Error creating directory");
+}
+#endif
 
 static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) {
   buffer_t* buffer = (buffer_t*) buf;
@@ -81,23 +112,6 @@ static bool handle(data_request_t* req, char* url, buffer_t* error) {
 }
 
 void curl_fetch(data_request_t* req) {
-  /*
-  char filename[1024];
-  sprintf(filename, ".cache/%llx.req", *((long long*) req->id));
-  FILE* f = fopen(filename, "rb");
-  if (f) {
-    unsigned char buffer[1024];
-    size_t        bytesRead;
-    buffer_t      data = {0};
-
-    while ((bytesRead = fread(buffer, 1, 1024, f)) > 0)
-      buffer_append(&data, bytes(buffer, bytesRead));
-
-    fclose(f);
-    req->response = data.data;
-    return;
-  }
-*/
   // make sure there is a config
   if (!curl_config.config.start) configure();
 
@@ -142,7 +156,13 @@ void curl_fetch(data_request_t* req) {
     buffer_free(&error);
   buffer_free(&url);
 
-  //  if (req->response.data) bytes_write(req->response, fopen(filename, "wb"), true);
+#ifdef TEST
+  if (req->response.data && REQ_TEST_DIR) {
+    char test_filename[1024];
+    sprintf(test_filename, "%llx.%s", *((unsigned long long*) req->id), req->type == C4_DATA_TYPE_BEACON_API ? "ssz" : "json");
+    test_write_file(test_filename, req->response);
+  }
+#endif
 }
 
 void curl_set_config(json_t config) {
