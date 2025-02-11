@@ -14,7 +14,7 @@ extern "C" {
 extern const ssz_def_t BEACON_BLOCK[5];
 extern const ssz_def_t SIGNED_BEACON_BLOCK[2];
 extern const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER;
-
+extern const ssz_def_t BEACON_BLOCK_BODY_CONTAINER;
 #ifdef __cplusplus
 }
 #endif

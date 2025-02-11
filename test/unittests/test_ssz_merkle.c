@@ -108,8 +108,18 @@ void test_hash_root() {
   free(multi_proof.data);
 }
 
+void test_hash_body() {
+  bytes_t data = read_testdata("body_11038724.ssz");
+  TEST_ASSERT_NOT_NULL_MESSAGE(data.data, "body_11038724.ssz not found");
+  ssz_ob_t  block = ssz_ob(BEACON_BLOCK_BODY_CONTAINER, data);
+  bytes32_t root  = {0};
+  ssz_hash_tree_root(block, root);
+  ASSERT_HEX_STRING_EQUAL("ef0d785cb18cb409d4ec8ae1a2f815542b66425716623b16192389e38af32ba7", root, 32, "invalid blockhash");
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_hash_body);
   RUN_TEST(test_hash_root);
   RUN_TEST(test_block_body);
   return UNITY_END();

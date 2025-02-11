@@ -109,6 +109,7 @@ uint32_t ssz_len(ssz_ob_t ob) {
       return ob.bytes.len * 8;
     case SSZ_TYPE_BIT_LIST: {
       uint8_t last_bit = ob.bytes.data[ob.bytes.len - 1];
+      if (last_bit == 1) return ob.bytes.len * 8 - 8;
       for (int i = 7; i >= 0; i--) {
         if (last_bit & (1 << i))
           return ((ob.bytes.len - 1) * 8) + i;
@@ -227,8 +228,9 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
       bprintf(buf, "\"0x%x\"", ob.bytes);
       break;
     case SSZ_TYPE_BIT_LIST: {
-      uint32_t len = ssz_len(ob);
-      bprintf(buf, "\"0x%x\"", bytes(ob.bytes.data, len >> 3));
+      bprintf(buf, "\"0x%x\"", ob.bytes);
+      //      uint32_t len = ssz_len(ob);
+      //      bprintf(buf, "\"0x%x\"", bytes(ob.bytes.data, len >> 3));
       break;
     }
     case SSZ_TYPE_VECTOR:
