@@ -32,4 +32,4 @@ RUN cmake -DTEST=true -DCURL=OFF ..
 RUN make
 
 # Set the default command to run Valgrind on your application
-CMD ["valgrind", "--leak-check=full", "./test/unittests/test_verify_tx"]
+CMD ["valgrind", "--leak-check=full", "./test/unittests/test_patricia_trie"]

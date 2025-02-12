@@ -6,11 +6,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-static char* create_error_str(char* error) {
-  buffer_t buffer = {0};
-  bprintf(&buffer, "ERROR:%s", error);
-  return (char*) buffer.data.data;
-}
 
 proofer_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id) {
   return c4_proofer_create(method, args, chain_id);
@@ -100,7 +95,7 @@ char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(proofer_ctx_t* ctx) {
     }
   }
   bprintf(&result, "}");
-  return (char*) result.data.data;
+  return buffer_as_string(result);
 }
 
 void EMSCRIPTEN_KEEPALIVE c4w_req_set_response(data_request_t* ctx, void* data, size_t len) {

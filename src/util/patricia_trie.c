@@ -13,10 +13,17 @@ typedef enum {
   NODE_TYPE_EXTENSION,
   NODE_TYPE_BRANCH,
 } node_type_t;
-#define remaining_nibbles(list, offset) \
-  (nibbles_t) { nibbles.data + (offset), nibbles.len - (offset) }
+
+static inline nibbles_t remaining_nibbles(nibbles_t list, uint32_t offset) {
+  return (nibbles_t) {.data = list.data + ((uint32_t) (offset)), .len = list.len - ((uint32_t) (offset))};
+}
+static inline nibbles_t slice_nibbles(nibbles_t list, uint32_t offset, uint32_t len) {
+  return (nibbles_t) {.data = list.data + ((uint32_t) (offset)), .len = len};
+}
+
 typedef struct node {
   uint8_t      hash[32];
+  uint32_t     hash_len;
   struct node* parent;
   node_type_t  type;
   union {
@@ -38,27 +45,47 @@ typedef struct node {
   } values;
 } node_t;
 
-static void node_update_hash(node_t* node, bool follow_parent, ssz_builder_t* builder) {
-  buffer_t buf = {0};
+static void rlp_add_child(buffer_t* buf, node_t* node) {
+  if (!node)
+    rlp_add_item(buf, NULL_BYTES);
+  else if (node->hash_len == 32)
+    rlp_add_item(buf, bytes(node->hash, 32));
+  else {
+    bytes_t decoded = {0};
+    bytes_t data    = bytes(node->hash, node->hash_len);
+    rlp_decode(&data, 0, &decoded);
+    rlp_add_list(buf, decoded);
+  }
+}
+
+static void serialize_node(node_t* node, buffer_t* buf) {
   if (node->type == NODE_TYPE_LEAF) {
-    rlp_add_item(&buf, node->values.leaf.path);
-    rlp_add_item(&buf, node->values.leaf.value);
+    rlp_add_item(buf, node->values.leaf.path);
+    rlp_add_item(buf, node->values.leaf.value);
   }
   else if (node->type == NODE_TYPE_EXTENSION) {
-    rlp_add_item(&buf, node->values.extension.path);
-    rlp_add_item(&buf, node->values.extension.child ? bytes(node->values.extension.child->hash, 32) : NULL_BYTES);
+    rlp_add_item(buf, node->values.extension.path);
+    rlp_add_child(buf, node->values.extension.child);
   }
   else if (node->type == NODE_TYPE_BRANCH) {
-    for (int i = 0; i < 16; i++) {
-      rlp_add_item(&buf, node->values.branch.children[i] != NULL
-                             ? bytes(node->values.branch.children[i]->hash, 32)
-                             : NULL_BYTES);
-    }
-    rlp_add_item(&buf, node->values.branch.value);
+    for (int i = 0; i < 16; i++)
+      rlp_add_child(buf, node->values.branch.children[i]);
+    rlp_add_item(buf, node->values.branch.value);
   }
+}
+
+static void node_update_hash(node_t* node, bool follow_parent, ssz_builder_t* builder) {
+  buffer_t buf = {0};
+  serialize_node(node, &buf);
   rlp_to_list(&buf);
+  node->hash_len = buf.data.len;
   if (builder) ssz_add_dynamic_list_bytes(builder, 0, buf.data);
-  keccak(buf.data, node->hash);
+  if (node->hash_len >= 32) {
+    keccak(buf.data, node->hash);
+    node->hash_len = 32;
+  }
+  else
+    memcpy(node->hash, buf.data.data, node->hash_len);
   buffer_free(&buf);
   if (node->parent && follow_parent)
     node_update_hash(node->parent, true, NULL);
@@ -87,7 +114,7 @@ void patricia_node_free(node_t* node) {
 }
 
 static nibbles_t path_to_nibbles(bytes_t path, bool include_prefix) {
-  int      odd         = include_prefix ? (path.data[0] & 0x10) : 0;
+  int      odd         = include_prefix ? ((path.data[0] & 0x10) >> 4) : 0;
   int      nibbles_len = path.len * 2 - (include_prefix ? (odd ? 1 : 2) : 0);
   uint8_t* nibbles     = calloc(nibbles_len, 1);
   for (int i = 0; i < nibbles_len; i++)
@@ -97,9 +124,10 @@ static nibbles_t path_to_nibbles(bytes_t path, bool include_prefix) {
 
 static bytes_t nibbles_to_path(nibbles_t nibbles, bool is_leaf) {
   uint8_t* path = calloc((nibbles.len >> 1) + 1, 1);
-  for (int i = 0; i < nibbles.len; i++)
-    path[(i + 1) >> 1] |= i % 2 ? nibbles.data[i] : nibbles.data[i] << 4;
-  *path |= ((is_leaf >> 1) + nibbles.len % 2) << 4;
+  path[0]       = ((is_leaf << 1) + (nibbles.len & 1)) << 4;
+  int pos       = (nibbles.len & 1) ? 1 : 2;
+  for (int i = 0; i < nibbles.len; i++, pos++)
+    path[pos >> 1] |= pos % 2 ? nibbles.data[i] : (nibbles.data[i] << 4);
   return bytes(path, (nibbles.len >> 1) + 1);
 }
 
@@ -112,7 +140,7 @@ static node_t* create_leaf(node_t* parent, nibbles_t nibbles, bytes_t value) {
   return leaf;
 }
 
-static node_t* convert_to_branch(node_t* parent, nibbles_t path, int idx1, node_t* child1, int idx2, node_t* child2) {
+static node_t* convert_to_branch(node_t* parent, nibbles_t path, int idx1, node_t* child1, int idx2, node_t* child2, bytes_t value) {
   node_t* branch = parent;
   if (path.len > 0) {
     parent->type                   = NODE_TYPE_EXTENSION;
@@ -123,14 +151,15 @@ static node_t* convert_to_branch(node_t* parent, nibbles_t path, int idx1, node_
   }
 
   for (int i = 0; i < 16; i++) branch->values.branch.children[i] = NULL;
-  branch->values.branch.children[idx1] = child1;
-  branch->values.branch.children[idx2] = child2;
-  branch->values.branch.value          = NULL_BYTES;
+  if (idx1 != -1) branch->values.branch.children[idx1] = child1;
+  if (idx2 != -1) branch->values.branch.children[idx2] = child2;
+  branch->values.branch.value = value;
+  branch->type                = NODE_TYPE_BRANCH;
 
-  child1->parent = branch;
-  child2->parent = branch;
-  node_update_hash(child1, false, NULL);
-  node_update_hash(child2, false, NULL);
+  if (child1) child1->parent = branch;
+  if (child2) child2->parent = branch;
+  if (child1) node_update_hash(child1, false, NULL);
+  if (child2) node_update_hash(child2, false, NULL);
   node_update_hash(branch, true, NULL);
   return branch;
 }
@@ -175,32 +204,94 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
       nibbles_t remaining = remaining_nibbles(nibbles, offset);
       int       leaf_nibble_len;
       int       same = nibble_cmp(remaining, parent->values.leaf.path, &leaf_nibble_len);
-      if (same == leaf_nibble_len && same < remaining.len) {
-        if (parent->type == NODE_TYPE_EXTENSION) {
-          offset += same;
-          parent = parent->values.extension.child;
-        }
-        else {
-          // TODO: create a branch, but this should never happen, if the length of the keys are the same.
-        }
+      if (same == leaf_nibble_len && same <= remaining.len && parent->type == NODE_TYPE_EXTENSION) { // the nibbles match thw whol extension
+        offset += same;                                                                              // so we follow
+        parent = parent->values.extension.child;                                                     // with the child
       }
-      else if (same == leaf_nibble_len) {
-        // TODO: check if the leaf is a extension, which should never happem, if the length of all keys are the same.!
-        // update leaf value
-        if (parent->values.leaf.value.data)
-          free(parent->values.leaf.value.data);
-        parent->values.leaf.value = bytes_dup(value);
+      else if (same == leaf_nibble_len && same == remaining.len && parent->type == NODE_TYPE_LEAF) { // if it's a leaf and path mathes
+        if (parent->values.leaf.value.data) free(parent->values.leaf.value.data);                    // clean up the old value
+        parent->values.leaf.value = bytes_dup(value);                                                // we update the value
         node_update_hash(parent, true, NULL);
         return;
       }
       else {
-        nibbles_t leaf_nibbles = path_to_nibbles(parent->values.leaf.path, true);
-        node_t*   old_leaf     = malloc(sizeof(node_t));
-        *old_leaf              = *parent;
-        free(old_leaf->values.leaf.path.data);
-        old_leaf->values.leaf.path = nibbles_to_path(remaining_nibbles(leaf_nibbles, same + 1), old_leaf->type == NODE_TYPE_LEAF);
-        node_t* leaf               = create_leaf(NULL, remaining_nibbles(nibbles, offset + same + 1), bytes_dup(value));
-        convert_to_branch(parent, remaining_nibbles(leaf_nibbles, same), leaf_nibbles.data[same], old_leaf, nibbles.data[offset + same], leaf);
+        node_t*   old_leaf         = NULL;
+        node_t*   new_leaf         = NULL;
+        int       old_idx          = -1;
+        int       new_idx          = -1;
+        bytes_t   branch_value     = NULL_BYTES;
+        nibbles_t leaf_nibbles     = path_to_nibbles(parent->values.leaf.path, true);
+        int       current_node_len = leaf_nibbles.len;
+        int       remaining_len    = remaining.len;
+        int       matching         = same;
+
+        // cleanup old path memory
+        free(parent->values.extension.path.data);
+
+        // handle existing node
+        if (current_node_len == matching && parent->type == NODE_TYPE_LEAF) {
+          branch_value = parent->values.leaf.value;
+        }
+        else if (current_node_len == matching + 1) {
+          if (parent->type == NODE_TYPE_EXTENSION) {
+            old_leaf = parent->values.extension.child;
+            old_idx  = leaf_nibbles.data[matching];
+          }
+          else {
+            old_leaf = create_leaf(NULL, remaining_nibbles(leaf_nibbles, matching + 1), parent->values.leaf.value);
+            old_idx  = leaf_nibbles.data[matching];
+          }
+        }
+        else if (current_node_len > matching) {
+          old_leaf                   = malloc(sizeof(node_t)); // we create a new extension
+          *old_leaf                  = *parent;                // with the current values
+          old_leaf->values.leaf.path =                         // just adjusting the path
+              nibbles_to_path(remaining_nibbles(leaf_nibbles, same + 1), old_leaf->type == NODE_TYPE_LEAF);
+          old_idx = leaf_nibbles.data[matching];
+        }
+
+        // handle new node
+        if (remaining_len > matching) {
+          new_leaf = create_leaf(NULL, remaining_nibbles(nibbles, offset + same + 1), bytes_dup(value));
+          new_idx  = nibbles.data[offset + same];
+        }
+        else
+          branch_value = bytes_dup(value);
+
+        /*
+
+        //        print_hex(stdout, leaf_nibbles, "leaf_nibbles: ", "\n");
+
+        if (leaf_nibbles.len == same + 1) {            // the current extension is not needed anymore, since it would have a path length=0
+          free(parent->values.leaf.path.data);         // so we remove the old path
+          if (parent->type == NODE_TYPE_EXTENSION)     // and put the child in the new branch
+            old_leaf = parent->values.extension.child; // keeping value as they are
+          else                                         //
+            branch_value = parent->values.leaf.value;  // since this is a leaf, we put remove it and put the value in the branch
+        }
+        else if (leaf_nibbles.len == same && same < remaining.len) { // the path matches, but there is more to come
+        }
+        else {
+          old_leaf  = malloc(sizeof(node_t));    // we create a new extension
+          *old_leaf = *parent;                   // with the current values
+          free(old_leaf->values.leaf.path.data); //
+          old_leaf->values.leaf.path =           // just adjusting the path
+              nibbles_to_path(remaining_nibbles(leaf_nibbles, same + 1), old_leaf->type == NODE_TYPE_LEAF);
+        }
+
+        //        print_hex(stdout, old_leaf->values.leaf.path, "old_leaf_path: ", "\n");
+
+        node_t* leaf = NULL;
+        if (offset + same == nibbles.len)
+          branch_value = bytes_dup(value);
+        else if (leaf_nibbles.len == same && parent->type == NODE_TYPE_LEAF)
+          branch_value = parent->values.leaf.value;
+        else
+          leaf = create_leaf(NULL, remaining_nibbles(nibbles, offset + same + 1), bytes_dup(value));
+
+          */
+        convert_to_branch(parent, slice_nibbles(leaf_nibbles, 0, same),
+                          old_idx, old_leaf, new_idx, new_leaf, branch_value);
         free(leaf_nibbles.data);
         return;
       }
@@ -232,7 +323,8 @@ ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
   builder.def           = &def;
   while (root && offset <= nibbles.len) {
     // add the node
-    node_update_hash(root, false, &builder);
+    if (root->hash_len >= 32)
+      node_update_hash(root, false, &builder);
     len++;
 
     if (offset == nibbles.len) break;
@@ -258,3 +350,59 @@ ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
 
   return ssz_builder_to_bytes(&builder);
 }
+
+bytes_t patricia_get_root(node_t* node) {
+  return bytes(node->hash, 32);
+}
+
+#ifdef TEST
+static void rlp_dump(node_t* node) {
+  ssz_def_t     def     = SSZ_LIST("bytes", ssz_bytes_list, 1024);
+  ssz_builder_t builder = {0};
+  builder.def           = &def;
+  node_update_hash(node, false, &builder);
+  print_hex(stdout, builder.dynamic.data, "     rlp: 0x", "\n");
+  buffer_free(&builder.dynamic);
+  buffer_free(&builder.fixed);
+}
+static void dump_node(node_t* node, int level, int idx) {
+  for (int i = 0; i < level; i++) printf("  ");
+  if (idx < 16) printf("%x: ", idx);
+  if (!node)
+    printf("-\n");
+  else if (node->type == NODE_TYPE_LEAF) {
+    printf("Leaf ( %s", (node->values.leaf.path.data[0] & 16) ? "odd" : "even");
+    print_hex(stdout, node->values.leaf.path, " path: ", ", ");
+    print_hex(stdout, node->values.leaf.value, "value: ", " )");
+    rlp_dump(node);
+  }
+  else if (node->type == NODE_TYPE_EXTENSION) {
+    printf("Extension ( %s", (node->values.extension.path.data[0] & 16) ? "odd" : "even");
+    print_hex(stdout, node->values.extension.path, " path: ", ")");
+    rlp_dump(node);
+    dump_node(node->values.extension.child, level + 1, 16);
+  }
+  else if (node->type == NODE_TYPE_BRANCH) {
+    print_hex(stdout, node->values.branch.value, "Branch ( value: ", ")");
+    rlp_dump(node);
+    for (int i = 0; i < 16; i++) {
+      if (node->values.branch.children[i] == NULL) {
+        int n = i + 1;
+        for (; n < 16; n++) {
+          if (node->values.branch.children[n] != NULL) break;
+        }
+        if (n > i + 1) {
+          for (int c = 0; c < level + 1; c++) printf("  ");
+          printf("%x: - (... %x)\n", i, n - 1);
+          i = n - 1;
+          continue;
+        }
+      }
+      dump_node(node->values.branch.children[i], level + 1, i);
+    }
+  }
+}
+void patricia_dump(node_t* root) {
+  dump_node(root, 0, 16);
+}
+#endif

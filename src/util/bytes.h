@@ -51,6 +51,9 @@ void    buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
 #define stack_buffer(stack_var) \
   (buffer_t) { .data = bytes((uint8_t*) stack_var, 0), .allocated = -((int32_t) sizeof(stack_var)) }
 
+#define buffer_as_string(buffer) (char*) buffer.data.data
+#define bytes_as_string(bytes)   (char*) bytes.data
+
 #define buffer_for_size(init_size) \
   (buffer_t) { .data = NULL_BYTES, .allocated = init_size }
 
