@@ -30,9 +30,12 @@ int main(int argc, char* argv[]) {
             chain_id = atoi(argv[++i]);
             break;
 #ifdef TEST
-#ifdef CURL
+#ifdef USE_CURL
           case 't':
             curl_set_test_dir(argv[++i]);
+            break;
+          case 'x':
+            curl_set_cache_dir(argv[++i]);
             break;
 #endif
 #endif

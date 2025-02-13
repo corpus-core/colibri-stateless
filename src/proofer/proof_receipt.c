@@ -13,19 +13,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, json_t tx_data, beacon_block_t* block_data, bytes32_t body_root, ssz_ob_t receipt_proof, json_t receipt, bytes_t tx_proof) {
+static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, beacon_block_t* block_data, bytes32_t body_root, ssz_ob_t receipt_proof, json_t receipt, bytes_t tx_proof) {
 
   buffer_t      tmp          = {0};
   ssz_builder_t eth_tx_proof = {0};
   ssz_builder_t c4_req       = {.def = (ssz_def_t*) &C4_REQUEST_CONTAINER, .dynamic = {0}, .fixed = {0}};
-  uint32_t      tx_index     = json_get_uint32(tx_data, "transactionIndex");
+  uint32_t      tx_index     = json_get_uint32(receipt, "transactionIndex");
 
   // build the proof
   ssz_add_uint8(&eth_tx_proof, ssz_union_selector_index(C4_REQUEST_PROOFS_UNION, "ReceiptProof", &eth_tx_proof.def));
   ssz_add_bytes(&eth_tx_proof, "transaction", ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index).bytes);
   ssz_add_uint32(&eth_tx_proof, tx_index);
-  ssz_add_uint64(&eth_tx_proof, json_get_uint64(tx_data, "blockNumber"));
-  ssz_add_bytes(&eth_tx_proof, "blockHash", json_get_bytes(tx_data, "blockHash", &tmp));
+  ssz_add_uint64(&eth_tx_proof, json_get_uint64(receipt, "blockNumber"));
+  ssz_add_bytes(&eth_tx_proof, "blockHash", json_get_bytes(receipt, "blockHash", &tmp));
   ssz_add_bytes(&eth_tx_proof, "receipt_proof", receipt_proof.bytes);
   ssz_add_bytes(&eth_tx_proof, "block_proof", tx_proof);
   ssz_add_builders(&eth_tx_proof, "header", c4_proof_add_header(block_data->header, body_root));
@@ -33,7 +33,7 @@ static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, json_t tx_data, 
   ssz_add_bytes(&eth_tx_proof, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
 
   // build the request
-  ssz_add_bytes(&c4_req, "data", c4_proofer_add_data(tx_data, "EthReceiptData", &tmp));
+  ssz_add_bytes(&c4_req, "data", c4_proofer_add_data(receipt, "EthReceiptData", &tmp));
   ssz_add_builders(&c4_req, "proof", eth_tx_proof);
   ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
 
@@ -44,10 +44,9 @@ static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, json_t tx_data, 
 
 static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, json_t* receipt) {
   node_t*   root         = NULL;
-  json_t    r            = {0};
   bytes32_t tmp          = {0};
-  buffer_t  buf          = stack_buffer(tmp);
   buffer_t  receipts_buf = {0};
+  buffer_t  buf          = stack_buffer(tmp);
 
   json_for_each_value(block_receipts, r) {
     uint32_t index = json_get_uint32(r, "transactionIndex");
@@ -56,8 +55,6 @@ static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, 
   }
 
   ssz_ob_t proof = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx_index, &buf));
-
-  print_hex(stderr, patricia_get_root(root), "receipts root : 0x", "\n");
 
   patricia_node_free(root);
   buffer_free(&buf);
@@ -104,7 +101,7 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
 
      );
   TRY_ASYNC_FINAL(
-      create_eth_receipt_proof(ctx, tx_data, &block, body_root, receipt_proof, receipt, state_proof),
+      create_eth_receipt_proof(ctx, &block, body_root, receipt_proof, receipt, state_proof),
       free(state_proof.data);
       free(receipt_proof.bytes.data));
   return C4_SUCCESS;

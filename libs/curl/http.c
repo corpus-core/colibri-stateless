@@ -5,8 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef TEST
-
 #include <sys/stat.h>
 #include <sys/types.h>
 #ifdef _WIN32
@@ -15,7 +13,6 @@
 #else
 #include <unistd.h>
 #define MKDIR(path) mkdir(path, 0755)
-#endif
 #endif
 
 typedef struct {
@@ -28,6 +25,13 @@ const char* CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 #define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://rpc.ankr.com/eth\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\"]," \
                        "\"beacon_api\":[\"https://lodestar-mainnet.chainsafe.io\"]}"
+
+char* cache_dir = NULL;
+
+void curl_set_cache_dir(const char* dir) {
+  cache_dir = strdup(dir);
+  MKDIR(cache_dir);
+}
 
 #define return_error(req, msg) \
   {                            \
@@ -107,17 +111,42 @@ static bool handle(data_request_t* req, char* url, buffer_t* error) {
     buffer_free(&buffer);
     buffer_add_chars(error, curl_easy_strerror(res));
   }
-  if (req->payload.len && req->payload.data)
-    log_info("req: %j", (json_t) {.start = (char*) req->payload.data, .len = req->payload.len, .type = JSON_TYPE_OBJECT});
-  else
-    log_info("req: %s", url);
-
   curl_easy_cleanup(curl);
   return res == CURLE_OK;
 }
+#ifdef TEST
+static bool check_cache(data_request_t* req) {
+  buffer_t buf = {0};
+  bprintf(&buf, "%s/%s", cache_dir, c4_req_mockname(req));
+  bytes_t content = bytes_read((char*) buf.data.data);
+  if (content.data) {
+    req->response = content;
+    return true;
+  }
+  return false;
+}
+
+static void write_cache(data_request_t* req) {
+  buffer_t buf = {0};
+  bprintf(&buf, "%s/%s", cache_dir, c4_req_mockname(req));
+  bytes_write(req->response, fopen((char*) buf.data.data, "w"), true);
+  buffer_free(&buf);
+}
+
+#endif
 
 void curl_fetch(data_request_t* req) {
   // make sure there is a config
+  if (req->payload.len && req->payload.data)
+    log_info("req: %j", (json_t) {.start = (char*) req->payload.data, .len = req->payload.len, .type = JSON_TYPE_OBJECT});
+  else
+    log_info("req: %s", req->url);
+
+#ifdef TEST
+
+  if (cache_dir && check_cache(req)) return;
+
+#endif
   if (!curl_config.config.start) configure();
 
   char*    last_error = NULL;
@@ -167,6 +196,7 @@ void curl_fetch(data_request_t* req) {
     test_write_file(test_filename, req->response);
     free(test_filename);
   }
+  if (cache_dir && req->response.data) write_cache(req);
 #endif
 }
 
