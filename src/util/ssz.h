@@ -103,7 +103,7 @@ bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t*
 void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t gindex, bytes32_t out);
 /** gets the value of a union. If the object is not a union, it will return an empty object. A Object with the type SSZ_TYPE_NONE will be returned if the union is empty */
 ssz_ob_t ssz_union(ssz_ob_t ob);
-uint8_t  ssz_union_selector(const ssz_def_t* union_types, size_t union_types_len, char* name, const ssz_def_t** def);
+uint8_t  ssz_union_selector(const ssz_def_t* union_types, size_t union_types_len, const char* name, const ssz_def_t** def);
 #define ssz_union_selector_index(union_types, name, def) ssz_union_selector(union_types, sizeof(union_types) / sizeof(ssz_def_t), name, def)
 
 // returns the length of the fixed part of the object

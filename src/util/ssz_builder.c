@@ -87,7 +87,7 @@ void ssz_add_uint16(ssz_builder_t* buffer, uint16_t value) {
 void ssz_add_uint8(ssz_builder_t* buffer, uint8_t value) {
   buffer_append(&buffer->fixed, bytes(&value, 1));
 }
-uint8_t ssz_union_selector(const ssz_def_t* union_types, size_t union_types_len, char* name, const ssz_def_t** def) {
+uint8_t ssz_union_selector(const ssz_def_t* union_types, size_t union_types_len, const char* name, const ssz_def_t** def) {
   *def = NULL;
   for (int i = 0; i < union_types_len; i++) {
     if (union_types[i].name == name || strcmp(union_types[i].name, name) == 0) {

@@ -153,7 +153,7 @@ bytes_t c4_proofer_add_data(json_t data, const char* union_name, buffer_t* tmp) 
   tmp->data.data[0]          = ssz_union_selector_index(C4_REQUEST_DATA_UNION, union_name, &data_type);
   tmp->data.len              = 1;
   ssz_ob_t tx_data_ob        = ssz_from_json(data, data_type);
-  buffer_append(&tmp, tx_data_ob.bytes);
+  buffer_append(tmp, tx_data_ob.bytes);
   free(tx_data_ob.bytes.data);
   return tmp->data;
 }
