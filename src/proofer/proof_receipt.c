@@ -53,7 +53,7 @@ static bytes_t create_path(uint32_t tx_index, buffer_t* buf) {
     path = bytes_remove_leading_zeros(bytes(tmp, 4));
   }
   buf->data.len = 0;
-  rlp_add_item(&buf, path);
+  rlp_add_item(buf, path);
   return buf->data;
 }
 
@@ -84,7 +84,7 @@ bytes_t serialize_receipt(json_t r, buffer_t* buf) {
   }
   rlp_add_list(buf, logs_buf.data);
   rlp_to_list(buf);
-  if (type) buffer_splice(&buf, 0, 0, bytes(&type, 1));
+  if (type) buffer_splice(buf, 0, 0, bytes(&type, 1));
   buffer_free(&logs_buf);
   buffer_free(&log_buf);
   buffer_free(&topics_buf);

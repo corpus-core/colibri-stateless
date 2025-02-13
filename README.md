@@ -336,6 +336,11 @@ not implemented yet
 
 not implemented yet
 
+### eth_getTransactionReceipt
+
+- Data: [EthReceiptData](#ethreceiptdata)
+- Proof: [EthReceiptProof](#ethreceiptproof)
+
 ### eth_getTransactionByHash
 
 - Data: [EthTransactionData](#ethtransactiondata)

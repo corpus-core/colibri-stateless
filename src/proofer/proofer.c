@@ -33,8 +33,10 @@ c4_status_t c4_proofer_execute(proofer_ctx_t* ctx) {
 
   if (strcmp(ctx->method, "eth_getBalance") == 0 || strcmp(ctx->method, "eth_getCode") == 0 || strcmp(ctx->method, "eth_getNonce") == 0 || strcmp(ctx->method, "eth_getProof") == 0 || strcmp(ctx->method, "eth_getStorageAt") == 0)
     c4_proof_account(ctx);
-  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getCode") == 0 || strcmp(ctx->method, "eth_getNonce") == 0 || strcmp(ctx->method, "eth_getProof") == 0 || strcmp(ctx->method, "eth_getStorageAt") == 0)
+  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0)
     c4_proof_transaction(ctx);
+  else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
+    c4_proof_receipt(ctx);
   else
     ctx->state.error = strdup("Unsupported method");
 
@@ -51,16 +53,12 @@ c4_status_t c4_proofer_status(proofer_ctx_t* ctx) {
 c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
-  buffer_add_chars(&buffer, "{\"jsonrpc\":\"2.0\",\"method\":\"");
-  buffer_add_chars(&buffer, method);
-  buffer_add_chars(&buffer, "\",\"params\":");
-  buffer_add_chars(&buffer, params);
-  buffer_add_chars(&buffer, ",\"id\":1}");
+  bprintf(&buffer, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s,\"id\":1}", method, params);
   sha256(buffer.data, id);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     buffer_free(&buffer);
-    if (c4_state_is_pending(&ctx->state)) return C4_PENDING;
+    if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (!data_request->error && data_request->response.data) {
       json_t response = json_parse((char*) data_request->response.data);
       if (response.type != JSON_TYPE_OBJECT) {
@@ -119,7 +117,7 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, jso
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     buffer_free(&buffer);
-    if (c4_state_is_pending(&ctx->state)) return C4_PENDING;
+    if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (!data_request->error && data_request->response.data) {
       json_t response = json_parse((char*) data_request->response.data);
       if (response.type == JSON_TYPE_INVALID) {
@@ -161,7 +159,7 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, byte
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     buffer_free(&buffer);
-    if (c4_state_is_pending(&ctx->state)) return C4_PENDING;
+    if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (!data_request->error && data_request->response.data) {
       *result = data_request->response;
       return C4_SUCCESS;
