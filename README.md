@@ -7,6 +7,7 @@
 - [Index](#index)
 - [Concept](#concept)
     - [Updating the sync committee](#updating-the-sync-committee)
+    - [Verifying Blockhashes](#verifying-blockhashes)
     - [Merkle Proofs](#merkle-proofs)
         - [Patricia Merkle Proof](#patricia-merkle-proof)
         - [SSZ Merkle Proof](#ssz-merkle-proof)
@@ -214,6 +215,20 @@ In order to validate, we need to calculate
 
 So in total, we need to verify 1035 hashes and 1 bls signature.
 
+### Verifying Blockhashes
+
+Blocks in the execution layer are always verified by the blocks in the consensus layer. Each BeaconBlock has a executionPayload which holds the data of the Block in the execution layer. So many information like transactions, blockNumber and blockHash can directly be verified with the beacon block, while others like the receipts or the stateRoot, still needs Patricia Merkle Proofs from the execution layer to be verified.
+
+But the most ciritcal verification is checking that a BeaconBlock is valid. This is done by using the SyncCommittee, which holds 512 public keys of validators and change very period (about every 27 hours). Having the correct keys is critical to verify the blockhash. 
+Now the C4 Client is always trying to hold the SyncCommittees public keys up to date, having the latest sync committee so we can checking the aggregated BLS Signature of them to verify blockhashes.
+
+But what happens, if you want to verify a blockhash of an older block, because you need an older transaction?
+In this case the you can use a new BeaconState and and create a MerkleProof for the historical roots. Since this is a list, there is practiclly no limit ( https://ethereum.github.io/consensus-specs/specs/phase0/beacon-chain/#state-list-lengths  HISTORICAL_ROOTS_LIMIT = 2 ** 40 = 52262 years).
+Since the capella Fork the state contains the [HistoricalSuummary](https://ethereum.github.io/consensus-specs/specs/capella/beacon-chain/#historicalsummary) which holds all the bloclhashes and state roots, so you can create a proof for the historical roots.
+Unfortunatly the current specification for the [Beacon API](https://ethereum.github.io/beacon-APIs/) does not support providing proofs for those data yet, but we are planning to create an EIP to change this.
+
+
+
 ### Merkle Proofs
 
 The Proofs contain different types of Merkle Proofs.
@@ -288,20 +303,6 @@ So in order to verify a multi proof, we first need to figure out which nodes ( r
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(root, proofed_root, 32, "root hash must be the same after merkle proof");
 
 ```
-
-### Verifying Blockhashes
-
-Blocks in the execution layer are always verified by the blocks in the consensus layer. Each BeaconBlock has a executionPayload which holds the data of the Block in the execution layer. So many information like transactions, blockNumber and blockHash can directly be verified with the beacon block, while others like the receipts or the stateRoot, still needs Patricia Merkle Proofs from the execution layer to be verified.
-
-But the most ciritcal verification is checking that a BeaconBlock is valid. This is done by using the SyncCommittee, which holds 512 public keys of validators and change very period (about every 27 hours). Having the correct keys is critical to verify the blockhash. 
-Now the C4 Client is always trying to hold the SyncCommittees public keys up to date, having the latest sync committee so we can checking the aggregated BLS Signature of them to verify blockhashes.
-
-But what happens, if you want to verify a blockhash of an older block, because you need an older transaction?
-In this case the you can use a new BeaconState and and create a MerkleProof for the historical roots. Since this is a list, there is practiclly no limit ( https://ethereum.github.io/consensus-specs/specs/phase0/beacon-chain/#state-list-lengths  HISTORICAL_ROOTS_LIMIT = 2 ** 40 = 52262 years).
-Since the capella Fork the state contains the [HistoricalSuummary](https://ethereum.github.io/consensus-specs/specs/capella/beacon-chain/#historicalsummary) which holds all the bloclhashes and state roots, so you can create a proof for the historical roots.
-Unfortunatly the current specification for the [Beacon API](https://ethereum.github.io/beacon-APIs/) does not support providing proofs for those data yet, but we are planning to create an EIP to change this.
-
-
 
 
 ## RPC Proofs
