@@ -37,6 +37,7 @@
     - [Eth1Data](#eth1data)
     - [EthAccessListData](#ethaccesslistdata)
     - [EthAccountProof](#ethaccountproof)
+    - [EthReceiptProof](#ethreceiptproof)
     - [EthStateProof](#ethstateproof)
     - [EthStorageProof](#ethstorageproof)
     - [EthTransactionProof](#ethtransactionproof)
@@ -55,7 +56,6 @@
     - [SigningData](#signingdata)
     - [SyncAggregate](#syncaggregate)
     - [SyncCommittee](#synccommittee)
-    - [SyncState](#syncstate)
     - [VoluntaryExit](#voluntaryexit)
     - [Withdrawal](#withdrawal)
 - [License](#license)
@@ -288,6 +288,18 @@ So in order to verify a multi proof, we first need to figure out which nodes ( r
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(root, proofed_root, 32, "root hash must be the same after merkle proof");
 
 ```
+
+### Verifying Blockhashes
+
+Blocks in the execution layer are always verified by the blocks in the consensus layer. Each BeaconBlock has a executionPayload which holds the data of the Block in the execution layer. So many information like transactions, blockNumber and blockHash can directly be verified with the beacon block, while others like the receipts or the stateRoot, still needs Patricia Merkle Proofs from the execution layer to be verified.
+
+But the most ciritcal verification is checking that a BeaconBlock is valid. This is done by using the SyncCommittee, which holds 512 public keys of validators and change very period (about every 27 hours). Having the correct keys is critical to verify the blockhash. 
+Now the C4 Client is always trying to hold the SyncCommittees public keys up to date, having the latest sync committee so we can checking the aggregated BLS Signature of them to verify blockhashes.
+
+But what happens, if you want to verify a blockhash of an older block, because you need an older transaction?
+In this case the you can use a new BeaconState and and create a MerkleProof for the historical roots. Since this is a list, there is practiclly no limit ( https://ethereum.github.io/consensus-specs/specs/phase0/beacon-chain/#state-list-lengths  HISTORICAL_ROOTS_LIMIT = 2 ** 40 = 52262 years).
+Since the capella Fork the state contains the [HistoricalSuummary](https://ethereum.github.io/consensus-specs/specs/capella/beacon-chain/#historicalsummary) which holds all the bloclhashes and state roots, so you can create a proof for the historical roots.
+Unfortunatly the current specification for the [Beacon API](https://ethereum.github.io/beacon-APIs/) does not support providing proofs for those data yet, but we are planning to create an EIP to change this.
 
 
 
@@ -536,7 +548,7 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L188).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L229).
 
 ```python
 class C4Request(Container):
@@ -659,7 +671,7 @@ class EthAccessListData(Container):
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L155).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L196).
 
 ```python
 class EthAccountProof(Container):
@@ -671,6 +683,55 @@ class EthAccountProof(Container):
     storageHash : Bytes32                       # the storage hash of the account
     storageProof: List [EthStorageProof, 256]   # the storage proofs of the selected
     state_proof : EthStateProof                 # the state proof of the account
+```
+
+### EthReceiptProof
+
+represents the proof for a transaction receipt
+ 1. All Receipts of the execution blocks are serialized into a Patricia Merkle Trie and the merkle proof is created for the requested receipt.
+ 2. The **payload of the transaction** is used to create its SSZ Hash Tree Root from the BeaconBlock. This is needed in order to verify that the receipt actually belongs to the given transactionhash.
+ 3. The **SSZ Multi Merkle Proof** from the Transactions, Receipts, BlockNumber and BlockHash of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
+ 4. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
+ 5. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+ ```mermaid
+ flowchart TB
+     subgraph "ExecutionPayload"
+         transactions
+         receipts
+         blockNumber
+         blockHash
+     end
+     Receipt --PM--> receipts
+     TX --SSZ D:21--> transactions
+     subgraph "BeaconBlockBody"
+         transactions  --SSZ D:5--> executionPayload
+         blockNumber --SSZ D:5--> executionPayload
+         blockHash --SSZ D:5--> executionPayload
+         m[".."]
+     end
+     subgraph "BeaconBlockHeader"
+         slot
+         proposerIndex
+         parentRoot
+         s[stateRoot]
+         executionPayload  --SSZ D:4--> bodyRoot
+     end
+ ```
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L100).
+
+```python
+class EthReceiptProof(Container):
+    transaction             : Bytes[1073741824]    # the raw transaction payload
+    transactionIndex        : Uint32               # the index of the transaction in the block
+    blockNumber             : Uint64               # the number of the execution block containing the transaction
+    blockHash               : Bytes32              # the blockHash of the execution block containing the transaction
+    receipt_proof           : List [bytes32, 64]   # the Merklr Patricia Proof of the transaction receipt ending in the receipt root
+    block_proof             : List [bytes32, 64]   # the multi proof of the transaction, receipt_root,blockNumber and blockHash
+    header                  : BeaconBlockHeader    # the header of the beacon block
+    sync_committee_bits     : BitVector [512]      # the bits of the validators that signed the block
+    sync_committee_signature: ByteVector [96]      # the signature of the sync committee
 ```
 
 ### EthStateProof
@@ -705,8 +766,7 @@ class EthStorageProof(Container):
 
 ### EthTransactionProof
 
-const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
- represents the account and storage values, including the Merkle proof, of the specified account.
+represents the account and storage values, including the Merkle proof, of the specified account.
  1. The **payload of the transaction** is used to create its SSZ Hash Tree Root.
  2. The **SSZ Merkle Proof** from the Transactions of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
  3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
@@ -735,7 +795,7 @@ const ssz_def_t ssz_transactions_bytes      = SSZ_BYTES("Bytes", 1073741824);
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L99).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L140).
 
 ```python
 class EthTransactionProof(Container):
@@ -987,19 +1047,6 @@ the public keys sync committee used within a period ( about 27h)
 class SyncCommittee(Container):
     pubkeys        : Vector [blsPubky, 512]   # the 512 pubkeys (each 48 bytes) of the validators in the sync committee
     aggregatePubkey: ByteVector [48]          # the aggregate pubkey (48 bytes) of the sync committee
-```
-
-### SyncState
-
-the sync state of the sync committee. This is used to store the verfied validators as state within the verifier.
-
-
- The Type is defined in [verifier/sync_committee.c](https://github.com/corpus-core/c4/blob/main/src/verifier/sync_committee.c#L15).
-
-```python
-class SyncState(Container):
-    validators: Vector [blsPubky, 512]   # the list of the validators
-    period    : Uint32                   # the period of the sync committee
 ```
 
 ### VoluntaryExit
