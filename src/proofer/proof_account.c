@@ -48,12 +48,9 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   buffer_t      tmp               = {0};
   ssz_builder_t eth_account_proof = {0};
   ssz_builder_t eth_state_proof   = {0};
-  ssz_builder_t beacon_header     = {0};
   ssz_builder_t c4_req            = {0};
-  ssz_ob_t      block             = block_data->header;
   eth_account_proof.def           = (ssz_def_t*) &ETH_ACCOUNT_PROOF_CONTAINER;
   eth_state_proof.def             = (ssz_def_t*) (eth_account_proof.def->def.container.elements + 7); // TODO:  use the name to identify last element
-  beacon_header.def               = (ssz_def_t*) &BEACON_BLOCKHEADER_CONTAINER;
   c4_req.def                      = (ssz_def_t*) &C4_REQUEST_CONTAINER;
   uint8_t union_selector          = 2; // TODO:  use the name to find the index based on the union definition
 
@@ -61,16 +58,9 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   if (strcmp(ctx->method, "eth_getCode") == 0)
     TRY_ASYNC(get_eth_code(ctx, address, &json_code, 0));
 
-  // build the header
-  ssz_add_bytes(&beacon_header, "slot", ssz_get(&block, "slot").bytes);
-  ssz_add_bytes(&beacon_header, "proposerIndex", ssz_get(&block, "proposerIndex").bytes);
-  ssz_add_bytes(&beacon_header, "parentRoot", ssz_get(&block, "parentRoot").bytes);
-  ssz_add_bytes(&beacon_header, "stateRoot", ssz_get(&block, "stateRoot").bytes);
-  ssz_add_bytes(&beacon_header, "bodyRoot", bytes(body_root, 32));
-
   // build the state proof
   ssz_add_bytes(&eth_state_proof, "state_proof", state_proof);
-  ssz_add_builders(&eth_state_proof, "header", &beacon_header);
+  ssz_add_builders(&eth_state_proof, "header", c4_proof_add_header(block_data->header, body_root));
   ssz_add_bytes(&eth_state_proof, "sync_committee_bits", ssz_get(&block_data->sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&eth_state_proof, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
 
@@ -84,7 +74,7 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   ssz_add_bytes(&eth_account_proof, "nonce", json_as_bytes(json_get(eth_proof, "nonce"), &tmp));
   ssz_add_bytes(&eth_account_proof, "storageHash", json_as_bytes(json_get(eth_proof, "storageHash"), &tmp));
   ssz_add_bytes(&eth_account_proof, "storageProof", bytes(tmp.data.data, 0)); // for now, we add an empty list
-  ssz_add_builders(&eth_account_proof, "state_proof", &eth_state_proof);
+  ssz_add_builders(&eth_account_proof, "state_proof", eth_state_proof);
 
   // build the data
   if (strcmp(ctx->method, "eth_getBalance") == 0) {
@@ -113,7 +103,7 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
 
   // build the request
   ssz_add_bytes(&c4_req, "data", tmp.data);
-  ssz_add_builders(&c4_req, "proof", &eth_account_proof);
+  ssz_add_builders(&c4_req, "proof", eth_account_proof);
 
   // empty sync_data
   union_selector = 0;

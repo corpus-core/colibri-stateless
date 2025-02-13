@@ -27,8 +27,8 @@ void ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t
   else
     buffer_append(&buffer->fixed, data);
 }
-void ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t* data) {
-  ssz_ob_t element = ssz_builder_to_bytes(data);
+void ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t data) {
+  ssz_ob_t element = ssz_builder_to_bytes(&data);
   ssz_add_bytes(buffer, name, element.bytes);
   free(element.bytes.data);
 }

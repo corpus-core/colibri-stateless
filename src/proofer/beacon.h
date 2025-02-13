@@ -20,7 +20,9 @@ typedef struct {
 // ssz_ob_t get_execution_payload(proofer_ctx_t* ctx, ssz_ob_t block);
 
 // void        c4_proof_account(proofer_ctx_t* ctx);
-c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+c4_status_t   c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+ssz_builder_t c4_proof_add_header(ssz_ob_t block, bytes32_t body_root);
+bytes_t       c4_proofer_add_data(json_t data, const char* union_name, buffer_t* tmp);
 
 // c4_status_t get_latest_block(proofer_ctx_t* ctx, ssz_ob_t* sig_block, ssz_ob_t* data_block);
 #ifdef __cplusplus

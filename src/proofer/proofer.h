@@ -34,6 +34,14 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, byte
     if (state != C4_SUCCESS) return state; \
   } while (0)
 
+#define TRY_2_ASYNC(fn1, fn2)                \
+  do {                                       \
+    c4_status_t state1 = fn1;                \
+    c4_status_t state2 = fn2;                \
+    if (state1 != C4_SUCCESS) return state1; \
+    if (state2 != C4_SUCCESS) return state2; \
+  } while (0)
+
 #define TRY_ASYNC_FINAL(fn, final)         \
   do {                                     \
     c4_status_t state = fn;                \
