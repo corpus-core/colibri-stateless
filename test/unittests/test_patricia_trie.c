@@ -1,4 +1,5 @@
 #include "c4_assert.h"
+#include "proofer/eth_req.h"
 #include "unity.h"
 #include "util/bytes.h"
 #include "util/json.h"
@@ -90,6 +91,43 @@ static void run_test(const char* file, const char* testname) {
   free((void*) data.start);
 }
 
+void test_receipt_tree() {
+  json_t receipts = read_test("block_receipts.json");
+  json_t block    = read_test("block.json");
+
+  node_t*   root         = NULL;
+  bytes32_t tmp          = {0};
+  buffer_t  buf          = stack_buffer(tmp);
+  buffer_t  receipts_buf = {0};
+  buffer_t  file         = {0};
+
+  json_for_each_value(receipts, r) {
+
+    bytes_t key   = c4_eth_create_tx_path(json_get_uint32(r, "transactionIndex"), &buf);
+    bytes_t value = c4_serialize_receipt(r, &receipts_buf);
+    bprintf(&file, "0x%x : 0x%x\n", key, value);
+
+    patricia_set_value(&root, key, value);
+  }
+
+  bytes_write(file.data, fopen("receipts.txt", "w"), true);
+
+  bytes_t expected_root = json_get_bytes(block, "receiptsRoot", &buf);
+
+  print_hex(stderr, expected_root, "expected   receipts_root : 0x", "\n");
+  print_hex(stderr, patricia_get_root(root), "calculated receipts_root : 0x", "\n");
+
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(expected_root.data, patricia_get_root(root).data, 32, "invalid root");
+
+  //  ssz_ob_t proof = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx_index, &buf));
+
+  patricia_node_free(root);
+  buffer_free(&buf);
+  buffer_free(&receipts_buf);
+  free((void*) receipts.start);
+  free((void*) block.start);
+}
+
 void test_basic() {
   run_test("trietest.json", "insert-middle-leaf");
   run_test("trietest.json", "branch-value-update");
@@ -101,6 +139,7 @@ void test_basic() {
 
 int main(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_basic);
+  RUN_TEST(test_receipt_tree);
+  //  RUN_TEST(test_basic);
   return UNITY_END();
 }

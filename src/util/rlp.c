@@ -83,7 +83,7 @@ void rlp_add_list(buffer_t* buf, bytes_t data) {
 }
 
 void rlp_add_uint(buffer_t* buf, bytes_t data) {
-  while (data.len > 1 && data.data[0] == 0) {
+  while (data.len && data.data[0] == 0) {
     data.data++;
     data.len--;
   }

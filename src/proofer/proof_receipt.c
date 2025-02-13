@@ -42,56 +42,7 @@ static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, json_t tx_data, 
   return C4_SUCCESS;
 }
 
-static bytes_t create_path(uint32_t tx_index, buffer_t* buf) {
-  bytes32_t tmp     = {0};
-  buffer_t  val_buf = stack_buffer(tmp);
-  bytes_t   path    = {.data = buf->data.data, .len = 0};
-
-  // create_path
-  if (tx_index > 0) {
-    buffer_add_be(&val_buf, tx_index, 4);
-    path = bytes_remove_leading_zeros(bytes(tmp, 4));
-  }
-  buf->data.len = 0;
-  rlp_add_item(buf, path);
-  return buf->data;
-}
-
-bytes_t serialize_receipt(json_t r, buffer_t* buf) {
-  uint8_t  tmp[300]   = {0};
-  buffer_t tmp_buf    = stack_buffer(tmp);
-  uint8_t  tmp2[32]   = {0};
-  buffer_t short_buf  = stack_buffer(tmp2);
-  buffer_t topics_buf = {0};
-  buffer_t logs_buf   = {0};
-  buffer_t log_buf    = {0};
-  buf->data.len       = 0;
-  uint8_t type        = json_get_uint8(r, "type");
-  if (type > 0) rlp_add_uint64(buf, json_get_uint64(r, "status"));
-  rlp_add_uint64(buf, json_get_uint64(r, "cumulativeGasUsed"));
-  rlp_add_item(buf, json_get_bytes(r, "logsBloom", &tmp_buf));
-
-  json_for_each_value(json_get(r, "logs"), log) {
-    log_buf.data.len = 0;
-    rlp_add_item(&log_buf, json_get_bytes(log, "address", &tmp_buf));
-
-    topics_buf.data.len = 0;
-    json_for_each_value(json_get(log, "topics"), topic)
-        rlp_add_item(&topics_buf, json_as_bytes(topic, &short_buf));
-    rlp_add_list(&log_buf, topics_buf.data);
-    rlp_add_item(&log_buf, json_get_bytes(log, "data", &topics_buf));
-    rlp_add_list(&logs_buf, log_buf.data);
-  }
-  rlp_add_list(buf, logs_buf.data);
-  rlp_to_list(buf);
-  if (type) buffer_splice(buf, 0, 0, bytes(&type, 1));
-  buffer_free(&logs_buf);
-  buffer_free(&log_buf);
-  buffer_free(&topics_buf);
-  return buf->data;
-}
-
-ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, json_t* receipt) {
+static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, json_t* receipt) {
   node_t*   root         = NULL;
   json_t    r            = {0};
   bytes32_t tmp          = {0};
@@ -101,10 +52,10 @@ ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, json_t*
   json_for_each_value(block_receipts, r) {
     uint32_t index = json_get_uint32(r, "transactionIndex");
     if (index == tx_index) *receipt = r;
-    patricia_set_value(&root, create_path(index, &buf), serialize_receipt(r, &receipts_buf));
+    patricia_set_value(&root, c4_eth_create_tx_path(index, &buf), c4_serialize_receipt(r, &receipts_buf));
   }
 
-  ssz_ob_t proof = patricia_create_merkle_proof(root, create_path(tx_index, &buf));
+  ssz_ob_t proof = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx_index, &buf));
 
   print_hex(stderr, patricia_get_root(root), "receipts root : 0x", "\n");
 

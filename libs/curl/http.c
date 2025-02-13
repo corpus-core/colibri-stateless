@@ -1,4 +1,5 @@
 #include "http.h"
+#include "logger.h"
 #include "state.h"
 #include <curl/curl.h>
 #include <stdlib.h>
@@ -106,6 +107,10 @@ static bool handle(data_request_t* req, char* url, buffer_t* error) {
     buffer_free(&buffer);
     buffer_add_chars(error, curl_easy_strerror(res));
   }
+  if (req->payload.len && req->payload.data)
+    log_info("req: %j", (json_t) {.start = (char*) req->payload.data, .len = req->payload.len, .type = JSON_TYPE_OBJECT});
+  else
+    log_info("req: %s", url);
 
   curl_easy_cleanup(curl);
   return res == CURLE_OK;
