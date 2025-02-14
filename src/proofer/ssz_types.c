@@ -65,7 +65,6 @@ const ssz_def_t ETH1_DATA[] = {
 // an attestation is a list of aggregation bits, a data and a signature
 const ssz_def_t ATTESTATION[] = {
     SSZ_BIT_LIST("aggregationBits", 2048),
-    SSZ_BIT_LIST("aggregationBits", 2048),
     SSZ_CONTAINER("data", ATTESTATION_DATA),
     SSZ_BYTE_VECTOR("signature", 96),
 };
