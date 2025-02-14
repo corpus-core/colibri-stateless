@@ -1,3 +1,6 @@
+
+![c4 logo](c4_logo.png)
+
 # C4 (corpus core colibri client)
 
 ![ETH2.0_Spec_Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
