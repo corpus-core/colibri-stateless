@@ -198,20 +198,26 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
   if (name) bprintf(buf, "\"%s\":", name);
   switch (def->type) {
     case SSZ_TYPE_UINT:
-      switch (def->def.uint.len) {
-        case 1: bprintf(buf, "%d", (uint32_t) ob.bytes.data[0]); break;
-        case 2: bprintf(buf, "%d", (uint32_t) uint16_from_le(ob.bytes.data)); break;
-        case 4: bprintf(buf, "%d", (uint32_t) uint32_from_le(ob.bytes.data)); break;
-        case 8: bprintf(buf, "%l", uint64_from_le(ob.bytes.data)); break;
-        case 32: {
-          bytes32_t tmp = {0};
-          for (int i = 0; i < 32; i++)
-            tmp[i] = ob.bytes.data[31 - i];
-          bprintf(buf, "\"0x%x\"", bytes_remove_leading_zeros(bytes(tmp, 32)));
-          break;
-        }
-        default: bprintf(buf, "\"0x%x\"", ob.bytes);
+      if (ctx->write_unit_as_hex) { // eth rpc requires hex representation of uints, represented as a bigendian without leading zeros
+        bytes32_t tmp = {0};
+        for (int i = 0; i < def->def.uint.len; i++) tmp[i] = ob.bytes.data[def->def.uint.len - 1 - i];
+        bprintf(buf, "\"0x%u\"", bytes(tmp, def->def.uint.len));
       }
+      else
+        switch (def->def.uint.len) {
+          case 1: bprintf(buf, "%d", (uint32_t) ob.bytes.data[0]); break;
+          case 2: bprintf(buf, "%d", (uint32_t) uint16_from_le(ob.bytes.data)); break;
+          case 4: bprintf(buf, "%d", (uint32_t) uint32_from_le(ob.bytes.data)); break;
+          case 8: bprintf(buf, "%l", uint64_from_le(ob.bytes.data)); break;
+          case 32: {
+            bytes32_t tmp = {0};
+            for (int i = 0; i < 32; i++)
+              tmp[i] = ob.bytes.data[31 - i];
+            bprintf(buf, "\"0x%x\"", bytes_remove_leading_zeros(bytes(tmp, 32)));
+            break;
+          }
+          default: bprintf(buf, "\"0x%x\"", ob.bytes);
+        }
       break;
     case SSZ_TYPE_NONE: buffer_add_chars(buf, "null"); break;
     case SSZ_TYPE_BOOLEAN: buffer_add_chars(buf, ob.bytes.data[0] ? "true" : "false"); break;

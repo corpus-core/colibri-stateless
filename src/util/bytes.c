@@ -263,6 +263,15 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
         case 'x':
           buffer_add_hex_chars(buf, va_arg(args, bytes_t), NULL, NULL);
           break;
+        case 'u': {
+          uint32_t len = buf->data.len;
+          buffer_add_hex_chars(buf, bytes_remove_leading_zeros(va_arg(args, bytes_t)), NULL, NULL);
+          if (buf->data.data[len] == '0') {
+            buffer_splice(buf, len, 1, bytes(NULL, 1));
+            buf->data.data[buf->data.len] = 0;
+          }
+          break;
+        }
         case 'J': {
           json_t val = va_arg(args, json_t);
           buffer_append(buf, bytes((uint8_t*) val.start, val.len));
@@ -314,7 +323,7 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           break;
         }
         case 'Z': {
-          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), true, false);
+          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, true);
           buffer_add_chars(buf, s);
           free(s);
           break;

@@ -38,7 +38,39 @@ void     buffer_add_be(buffer_t* buffer, uint64_t value, uint32_t len);
 void     buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix);
 void     buffer_free(buffer_t* buffer);
 void     buffer_grow(buffer_t* buffer, size_t min_len);
-char*    bprintf(buffer_t* buf, const char* fmt, ...);
+
+/**
+ * writes to the buffer. the format is similar to printf. but those are the supported formats:
+ *
+ *     - %s: char*
+ *
+ *     - %x: bytes_t as hex
+ *
+ *     - %u: bytes_t as hex without leading zeros
+ *
+ *     - %c: char as char
+ *
+ *     - %j: json_t adds as json string
+ *
+ *     - %J: json_t adds as json string , but on case of a string, the quotes are removed
+ *
+ *     - %l: uint64_t as number
+ *
+ *     - %lx: uint64_t as hex
+ *
+ *     - %d: uint32_t as number
+ *
+ *     - %dx: uint32_t as hex
+ *
+ *     - %z: ssz_ob_t as json using numbers for uint
+ *
+ *     - %Z: ssz_ob_t as json using hex without leading zeros for uint
+ *
+ * @param buf the buffer to write to
+ * @param fmt the format string
+ * @return the pointer to the start of the buffer as char*
+ */
+char* bprintf(buffer_t* buf, const char* fmt, ...);
 
 void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
 
