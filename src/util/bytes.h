@@ -22,6 +22,8 @@ typedef struct {
   int32_t allocated; // 0: not allocated, >0: allocated or f bytes.data == NULL, this would be the inital size, <0: fixed memory - don 't grow and don't go over the limit!
 } buffer_t;
 
+uint64_t bytes_as_le(bytes_t data);
+uint64_t bytes_as_be(bytes_t data);
 uint16_t uint16_from_le(uint8_t* data);
 uint32_t uint32_from_le(uint8_t* data);
 uint64_t uint64_from_le(uint8_t* data);
@@ -41,10 +43,12 @@ char*    bprintf(buffer_t* buf, const char* fmt, ...);
 void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix);
 
 bool    bytes_all_equal(bytes_t a, uint8_t value);
+bool    bytes_eq(bytes_t a, bytes_t b);
 bytes_t bytes_dup(bytes_t data);
 void    bytes_write(bytes_t data, FILE* f, bool close);
 bytes_t bytes_read(char* filename);
 int     hex_to_bytes(const char* hexstring, int len, bytes_t buffer);
+
 bytes_t bytes_remove_leading_zeros(bytes_t data);
 void    buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
 // creates a buffer on the stack which write into given variable on the stack and ensure to stay within the bounds of the variable

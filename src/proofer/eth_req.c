@@ -63,18 +63,3 @@ bytes_t c4_serialize_receipt(json_t r, buffer_t* buf) {
   //  print_hex(stderr, buf->data, "serialize_receipt: 0x", "\n");
   return buf->data;
 }
-
-bytes_t c4_eth_create_tx_path(uint32_t tx_index, buffer_t* buf) {
-  bytes32_t tmp     = {0};
-  buffer_t  val_buf = stack_buffer(tmp);
-  bytes_t   path    = {.data = buf->data.data, .len = 0};
-
-  // create_path
-  if (tx_index > 0) {
-    buffer_add_be(&val_buf, tx_index, 4);
-    path = bytes_remove_leading_zeros(bytes(tmp, 4));
-  }
-  buf->data.len = 0;
-  rlp_add_item(buf, path);
-  return buf->data;
-}

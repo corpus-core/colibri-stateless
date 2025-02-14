@@ -27,6 +27,8 @@ void c4_verify(verify_ctx_t* ctx) {
   }
   else if (ssz_is_type(&ctx->proof, ETH_TRANSACTION_PROOF))
     verify_tx_proof(ctx);
+  else if (ssz_is_type(&ctx->proof, ETH_RECEIPT_PROOF))
+    verify_receipt_proof(ctx);
   else if (ssz_is_type(&ctx->proof, ETH_ACCOUNT_PROOF))
     verify_account_proof(ctx);
   else if (ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE) {

@@ -70,6 +70,7 @@ const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
     SSZ_BYTES32("blockHash"),           // the blockHash of the execution block containing the transaction
     SSZ_UINT64("blockNumber"),          // the number of the execution block containing the transaction
     SSZ_BYTES32("transactionHash"),     // the hash of the transaction
+    SSZ_BYTES32("transactionHash"),     // the hash of the transaction
     SSZ_UINT32("transactionIndex"),     // the index of the transaction in the block
     SSZ_ADDRESS("address"),             // the address of the log
     SSZ_UINT32("logIndex"),             // the index of the log in the transaction

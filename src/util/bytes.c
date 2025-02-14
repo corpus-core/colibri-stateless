@@ -340,3 +340,22 @@ bytes_t bytes_remove_leading_zeros(bytes_t data) {
   }
   return data;
 }
+
+bool bytes_eq(bytes_t a, bytes_t b) {
+  if (a.len != b.len) return false;
+  for (uint32_t i = 0; i < a.len; i++)
+    if (a.data[i] != b.data[i]) return false;
+  return true;
+}
+uint64_t bytes_as_le(bytes_t data) {
+  uint64_t result = 0;
+  for (uint32_t i = 0; i < data.len; i++)
+    result = (result << 8) | data.data[data.len - i - 1];
+  return result;
+}
+uint64_t bytes_as_be(bytes_t data) {
+  uint64_t result = 0;
+  for (uint32_t i = 0; i < data.len; i++)
+    result = (result << 8) | data.data[i];
+  return result;
+}

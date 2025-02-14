@@ -62,12 +62,12 @@ typedef struct {
 
 /** gets the uint64 value of the object */
 static inline uint64_t ssz_uint64(ssz_ob_t ob) {
-  return ob.bytes.len == 8 ? uint64_from_le(ob.bytes.data) : 0;
+  return bytes_as_le(ob.bytes);
 }
 
 /** gets the uint32 value of the object */
 static inline uint32_t ssz_uint32(ssz_ob_t ob) {
-  return ob.bytes.len == 4 ? uint32_from_le(ob.bytes.data) : 0;
+  return (uint32_t) bytes_as_le(ob.bytes);
 }
 
 /** gets the length of the object */
