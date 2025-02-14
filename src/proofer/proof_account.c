@@ -3,7 +3,8 @@
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "beacon.h"
-#include "proofs.h"
+#include "eth_req.h"
+#include "proofer.h"
 #include "ssz_types.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -29,10 +30,9 @@ static c4_status_t get_eth_code(proofer_ctx_t* ctx, json_t address, json_t* code
 static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, char* name) {
   ssz_builder_t list = {0};
   list.def           = (ssz_def_t*) &ETH_ACCOUNT_PROOF_CONTAINER.def.container.elements[0];
-
-  buffer_t tmp    = {0};
-  size_t   len    = json_len(bytes_list);
-  uint32_t offset = 0;
+  buffer_t tmp       = {0};
+  size_t   len       = json_len(bytes_list);
+  uint32_t offset    = 0;
   for (size_t i = 0; i < len; i++)
     ssz_add_dynamic_list_bytes(&list, len, json_as_bytes(json_at(bytes_list, i), &tmp));
 
@@ -115,23 +115,21 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
 }
 
 c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
-  json_t address = json_at(ctx->params, 0);
-  // json_t block   = json_at(ctx->params, 1);
-
-  if (address.type != JSON_TYPE_STRING || address.len != 44 || address.start[1] != '0' || address.start[2] != 'x') {
-    ctx->state.error = strdup("Invalid address");
-    return C4_ERROR;
-  }
-
+  json_t         address = json_at(ctx->params, 0);
   json_t         eth_proof;
   beacon_block_t block = {0};
+  bytes32_t      body_root;
+
+  if (address.type != JSON_TYPE_STRING || address.len != 44 || address.start[1] != '0' || address.start[2] != 'x')
+    THROW_ERROR("Invalid address");
+
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_at(ctx->params, strcmp(ctx->method, "eth_getStorageAt") == 0 ? 2 : 1), &block));
 
   uint64_t block_number = ssz_get_uint64(&block.execution, "blockNumber");
   TRY_ASYNC(get_eth_proof(ctx, address, strcmp(ctx->method, "eth_getStorageAt") == 0 ? json_at(ctx->params, 1) : (json_t) {0}, &eth_proof, block_number));
 
-  bytes32_t body_root;
   ssz_hash_tree_root(block.body, body_root);
+
   bytes_t state_proof = ssz_create_proof(block.body, ssz_gindex(block.body.def, 2, "executionPayload", "stateRoot"));
 
   TRY_ASYNC_FINAL(

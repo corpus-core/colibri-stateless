@@ -9,22 +9,27 @@
 extern "C" {
 #endif
 
+// beacon block including the relevant parts for the proof
 typedef struct {
-  uint64_t slot;
-  ssz_ob_t header;
-  ssz_ob_t execution;
-  ssz_ob_t body;
-  ssz_ob_t sync_aggregate;
+  uint64_t slot;           // slot of the block
+  ssz_ob_t header;         // block header
+  ssz_ob_t execution;      // execution payload of the block
+  ssz_ob_t body;           // body of the block
+  ssz_ob_t sync_aggregate; // sync aggregate with the signature of the block
 } beacon_block_t;
 
-// ssz_ob_t get_execution_payload(proofer_ctx_t* ctx, ssz_ob_t block);
+// get the beacon block for the given eth block number or hash
+c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
 
-// void        c4_proof_account(proofer_ctx_t* ctx);
-c4_status_t   c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
-ssz_builder_t c4_proof_add_header(ssz_ob_t block, bytes32_t body_root);
-bytes_t       c4_proofer_add_data(json_t data, const char* union_name, buffer_t* tmp);
+// creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
+ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 
-// c4_status_t get_latest_block(proofer_ctx_t* ctx, ssz_ob_t* sig_block, ssz_ob_t* data_block);
+// creates the data based on the json as ssz object with the union_name passed and returns the bytes_t, which uses the buffer_t passed for memory
+bytes_t c4_proofer_add_data(json_t data, const char* union_name, buffer_t* tmp);
+
+c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result);
+c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, bytes_t* result);
+
 #ifdef __cplusplus
 }
 #endif

@@ -61,6 +61,8 @@ void    buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
 #define buffer_for_size(init_size) \
   (buffer_t) { .data = NULL_BYTES, .allocated = init_size }
 
+#define buffer_reset(buf) (buf)->data.len = 0
+
 #define bytes(ptr, length) \
   (bytes_t) { .data = (uint8_t*) ptr, .len = length }
 #define bytes_slice(parent, offet, length) \

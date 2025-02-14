@@ -14,10 +14,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define GINDEX_BLOCKUMBER 806
-#define GINDEX_BLOCHASH   812
-#define GINDEX_TXINDEX_G  1704984576L // gindex of the first tx
-
 typedef enum {
   TX_TYPE_LEGACY  = 0,
   TX_TYPE_EIP2930 = 1,

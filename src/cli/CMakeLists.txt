@@ -4,10 +4,6 @@ if (WASM)
 endif()
 
 if (CLI)    
-
-   
-
-
     add_executable(proof proofer.c)#
     set_target_properties(proof PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"

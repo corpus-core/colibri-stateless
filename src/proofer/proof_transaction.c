@@ -5,7 +5,7 @@
 #include "../verifier/types_verify.h"
 #include "beacon.h"
 #include "eth_req.h"
-#include "proofs.h"
+#include "proofer.h"
 #include "ssz_types.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -50,27 +50,21 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
 }
 
 c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
-  json_t txhash = json_at(ctx->params, 0);
+  bytes32_t      body_root = {0};
+  json_t         txhash    = json_at(ctx->params, 0);
+  json_t         tx_data   = {0};
+  beacon_block_t block     = {0};
 
-  if (txhash.type != JSON_TYPE_STRING || txhash.len != 68 || txhash.start[1] != '0' || txhash.start[2] != 'x') {
-    ctx->state.error = strdup("Invalid hash");
-    return C4_ERROR;
-  }
+  if (txhash.type != JSON_TYPE_STRING || txhash.len != 68 || txhash.start[1] != '0' || txhash.start[2] != 'x') THROW_ERROR("Invalid hash");
 
-  json_t tx_data;
   TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
 
   uint32_t tx_index     = json_get_uint32(tx_data, "transactionIndex");
   json_t   block_number = json_get(tx_data, "blockNumber");
-  if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') {
-    ctx->state.error = strdup("Invalid block number");
-    return C4_ERROR;
-  }
+  if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') THROW_ERROR("Invalid block number");
 
-  beacon_block_t block = {0};
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
 
-  bytes32_t body_root;
   ssz_hash_tree_root(block.body, body_root);
 
   bytes_t state_proof = ssz_create_multi_proof(block.body, 3,

@@ -15,50 +15,56 @@
 #define MAX_VOLUNTARY_EXITS          16
 #define MAX_BLS_TO_EXECUTION_CHANGES 16
 
+// a checkpoint is a tuple of epoch and root
 const ssz_def_t CHECKPOINT[] = {
-    SSZ_UINT64("epoch"),
-    SSZ_BYTES32("root")};
+    SSZ_UINT64("epoch"), // the epoch of the checkpoint
+    SSZ_BYTES32("root")  // the root of the checkpoint
+};
 
+// the data of an attestation
 const ssz_def_t ATTESTATION_DATA[] = {
-
-    SSZ_UINT64("slot"),
-    SSZ_UINT64("index"),
-    SSZ_BYTES32("beaconBlockRoot"),
-    SSZ_CONTAINER("source", CHECKPOINT),
-    SSZ_CONTAINER("target", CHECKPOINT),
-
+    SSZ_UINT64("slot"),                  // the slot of the attestation
+    SSZ_UINT64("index"),                 // the index of the attestation
+    SSZ_BYTES32("beaconBlockRoot"),      // the root of the beacon block
+    SSZ_CONTAINER("source", CHECKPOINT), // the source of the attestation
+    SSZ_CONTAINER("target", CHECKPOINT)  // the target of the attestation
 };
 
+// an index attestation is a list of attesting indices, a data and a signature
 const ssz_def_t INDEX_ATTESTATION[] = {
-
-    SSZ_LIST("attestingIndices", ssz_uint8, 2048),
-    SSZ_CONTAINER("data", ATTESTATION_DATA),
-    SSZ_BYTE_VECTOR("signature", 96),
-
+    SSZ_LIST("attestingIndices", ssz_uint8, 2048), // the list of attesting indices
+    SSZ_CONTAINER("data", ATTESTATION_DATA),       // the data of the attestation
+    SSZ_BYTE_VECTOR("signature", 96)               // the BLS signature of the attestation
 };
 
+// a signed beacon block header is a beacon block header and a signature
 const ssz_def_t SIGNED_BEACON_BLOCKHEADER[] = {
-    SSZ_CONTAINER("message", BEACON_BLOCK_HEADER),
-    SSZ_BYTE_VECTOR("signature", 96)};
+    SSZ_CONTAINER("message", BEACON_BLOCK_HEADER), // the beacon block header
+    SSZ_BYTE_VECTOR("signature", 96)               // the BLS signature of the beacon block header
+};
 
+// a proposer slashing is a list of two signed beacon block headers
 const ssz_def_t PROPOSER_SLASHING[] = {
     SSZ_CONTAINER("signedHeader1", SIGNED_BEACON_BLOCKHEADER),
     SSZ_CONTAINER("signedHeader2", SIGNED_BEACON_BLOCKHEADER),
 };
 
+// an attester slashing is a list of two index attestations
 const ssz_def_t ATTESTER_SLASHING[] = {
     SSZ_CONTAINER("signedHeader1", INDEX_ATTESTATION),
     SSZ_CONTAINER("signedHeader2", INDEX_ATTESTATION),
 };
 
+// the eth1 data is a deposit root, a deposit count and a block hash
 const ssz_def_t ETH1_DATA[] = {
     SSZ_BYTES32("depositRoot"),
     SSZ_UINT64("depositCount"),
     SSZ_BYTES32("blockHash"),
 };
 
+// an attestation is a list of aggregation bits, a data and a signature
 const ssz_def_t ATTESTATION[] = {
-
+    SSZ_BIT_LIST("aggregationBits", 2048),
     SSZ_BIT_LIST("aggregationBits", 2048),
     SSZ_CONTAINER("data", ATTESTATION_DATA),
     SSZ_BYTE_VECTOR("signature", 96),

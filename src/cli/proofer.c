@@ -13,13 +13,21 @@
 
 int main(int argc, char* argv[]) {
   if (argc < 2) {
-    fprintf(stderr, "Usage: proof <method> <params>\n");
+    fprintf(stderr, "Usage: %s [options] <method> <params> > proof.ssz\n"
+                    "\n"
+                    "  -c <chain_id>   : selected chain (default MAINNET = 1)\n"
+                    "  -t <testname>   : generates test files in test/data/<testname>\n"
+                    "  -x <cachedir>   : caches all reguests in the cache directory\n"
+                    "  -o <outputfile> : ssz file with the proof ( default to stdout )\n"
+                    "\n",
+            argv[0]);
     exit(EXIT_FAILURE);
   }
 
-  char*      method   = NULL;
-  buffer_t   buffer   = {0};
-  chain_id_t chain_id = C4_CHAIN_MAINNET;
+  char*      method     = NULL;
+  buffer_t   buffer     = {0};
+  char*      outputfile = NULL;
+  chain_id_t chain_id   = C4_CHAIN_MAINNET;
   buffer_add_chars(&buffer, "[");
 
   for (int i = 1; i < argc; i++) {
@@ -28,6 +36,9 @@ int main(int argc, char* argv[]) {
         switch (*c) {
           case 'c':
             chain_id = atoi(argv[++i]);
+            break;
+          case 'o':
+            outputfile = argv[++i];
             break;
 #ifdef TEST
 #ifdef USE_CURL
@@ -62,7 +73,10 @@ int main(int argc, char* argv[]) {
   while (true) {
     switch (c4_proofer_execute(ctx)) {
       case C4_SUCCESS:
-        fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
+        if (outputfile)
+          bytes_write(ctx->proof, fopen(outputfile, "wb"), true);
+        else
+          fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
         fflush(stdout);
         exit(EXIT_SUCCESS);
 

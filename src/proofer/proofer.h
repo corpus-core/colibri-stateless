@@ -16,47 +16,41 @@ typedef struct {
   c4_state_t state;
 } proofer_ctx_t;
 
-proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id);
-void           c4_proofer_free(proofer_ctx_t* ctx);
-c4_status_t    c4_proofer_execute(proofer_ctx_t* ctx);
-c4_status_t    c4_proofer_status(proofer_ctx_t* ctx);
+// generic proofer context
+// to use run the c4_proofer_execute in a loop:
 
-data_request_t* c4_proofer_get_data_request_by_id(proofer_ctx_t* ctx, bytes32_t id);
-void            c4_proofer_add_data_request(proofer_ctx_t* ctx, data_request_t* data_request);
+// ```c
+// data_request_t* data_request = NULL;
+// bytes_t proof = {0};
+// char* error = NULL;
+// while (true) {
+//   switch (c4_proofer_status(ctx)) {
+//     case C4_SUCCESS:
+//       proof = bytes_dup(ctx->proof);
+//       break;
+//     case C4_PENDING:
+//       while ((data_request = c4_state_get_pending_request(&ctx->state))
+//          fetch_data(data_request);
+//       break;
+//     case C4_ERROR:
+//       error = strdup(ctx->state.error);
+//       break;
+//   }
+// }
+// c4_proofer_free(ctx);
+// ....
+// ```
 
-c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json_t* result);
-c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result);
-c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, bytes_t* result);
+proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id); // create a new proofer context
+void           c4_proofer_free(proofer_ctx_t* ctx);                                // cleanup for the ctx
+c4_status_t    c4_proofer_execute(proofer_ctx_t* ctx);                             // tries to create the proof, but if there are pending requests, they need to fetched before calling it again.
+c4_status_t    c4_proofer_status(proofer_ctx_t* ctx);                              // returns the status of the proofer
 
-#define TRY_ASYNC(fn)                      \
-  do {                                     \
-    c4_status_t state = fn;                \
-    if (state != C4_SUCCESS) return state; \
-  } while (0)
+// proofer functions
 
-#define TRY_2_ASYNC(fn1, fn2)                \
-  do {                                       \
-    c4_status_t state1 = fn1;                \
-    c4_status_t state2 = fn2;                \
-    if (state1 != C4_SUCCESS) return state1; \
-    if (state2 != C4_SUCCESS) return state2; \
-  } while (0)
-
-#define TRY_ASYNC_FINAL(fn, final)         \
-  do {                                     \
-    c4_status_t state = fn;                \
-    final;                                 \
-    if (state != C4_SUCCESS) return state; \
-  } while (0)
-
-#define TRY_ASYNC_CATCH(fn, cleanup) \
-  do {                               \
-    c4_status_t state = fn;          \
-    if (state != C4_SUCCESS) {       \
-      cleanup;                       \
-      return state;                  \
-    }                                \
-  } while (0)
+c4_status_t c4_proof_account(proofer_ctx_t* ctx);     // creates an account proof
+c4_status_t c4_proof_transaction(proofer_ctx_t* ctx); // creates a transaction proof
+c4_status_t c4_proof_receipt(proofer_ctx_t* ctx);     // creates a receipt proof
 
 #ifdef __cplusplus
 }

@@ -14,10 +14,6 @@
 #include "../../libs/curl/http.h"
 #endif
 
-void error(const char* msg) {
-  fprintf(stderr, "%s\n", msg);
-  exit(EXIT_FAILURE);
-}
 #ifdef USE_CURL
 static bool get_client_updates(verify_ctx_t* ctx) {
   char url[200] = {0};
