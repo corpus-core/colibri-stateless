@@ -205,14 +205,21 @@ const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
     last_period = p > last_period && p <= period ? p : last_period;
   }
   free(chain_state.blocks);
+  char name[100];
+  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
 
-  if (found && storage_conf.get) {
-    char name[100];
-    sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
-    storage_conf.get(name, &validators);
+  if (found && storage_conf.get) storage_conf.get(name, &validators);
+#ifdef BLS_DESERIALIZE
+  if (validators.data.data && validators.data.len == 512 * 48) {
+    bytes_t b = blst_deserialize_p1_affine(validators.data.data, 512);
+    buffer_free(&validators);
+    validators.data = b;
+    storage_conf.set(name, b);
   }
+#endif
 
   return (c4_sync_state_t) {
+      .deserialized   = validators.data.data && validators.data.len > 512 * 48,
       .current_period = period,
       .last_period    = last_period,
       .validators     = validators.data};

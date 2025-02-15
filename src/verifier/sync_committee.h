@@ -14,6 +14,7 @@ typedef struct {
   uint32_t last_period;
   uint32_t current_period;
   bytes_t  validators;
+  bool     deserialized;
 } c4_sync_state_t;
 
 typedef struct {

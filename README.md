@@ -21,6 +21,7 @@
     - [eth_getNonce](#eth_getnonce)
     - [eth_getProof](#eth_getproof)
     - [eth_getStorageAt](#eth_getstorageat)
+    - [eth_getTransactionReceipt](#eth_gettransactionreceipt)
     - [eth_getTransactionByHash](#eth_gettransactionbyhash)
     - [eth_getTransactionByBlockHashAndIndex](#eth_gettransactionbyblockhashandindex)
 - [Building](#building)
@@ -393,6 +394,10 @@ The js-module will be in the `build/emscripten` folder.
 
 ### CMake Options
 
+- **-DBLS_DESERIALIZE**: if true bls keys will be stored deserialized, which increases the state per sync committee period from 25kB to 50kB, but make verification 5x faster  
+    Default: ON  
+    Usage: `cmake -DBLS_DESERIALIZE=ON` ..
+
 - **-DCLI**: generates the CLI tools.  
     Default: ON  
     Usage: `cmake -DCLI=ON` ..
@@ -439,8 +444,10 @@ The js-module will be in the `build/emscripten` folder.
 
 ### Attestation
 
+an attestation is a list of aggregation bits, a data and a signature
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L60).
+
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L66).
 
 ```python
 class Attestation(Container):
@@ -451,22 +458,26 @@ class Attestation(Container):
 
 ### AttestationData
 
+the data of an attestation
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L22).
+
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L25).
 
 ```python
 class AttestationData(Container):
-    slot           : Uint64
-    index          : Uint64
-    beaconBlockRoot: Bytes32
-    source         : Checkpoint
-    target         : Checkpoint
+    slot           : Uint64       # the slot of the attestation
+    index          : Uint64       # the index of the attestation
+    beaconBlockRoot: Bytes32      # the root of the beacon block
+    source         : Checkpoint   # the source of the attestation
+    target         : Checkpoint   # the target of the attestation
 ```
 
 ### AttesterSlashing
 
+an attester slashing is a list of two index attestations
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L49).
+
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L53).
 
 ```python
 class AttesterSlashing(Container):
@@ -477,7 +488,7 @@ class AttesterSlashing(Container):
 ### BeaconBlock
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L153).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L158).
 
 ```python
 class BeaconBlock(Container):
@@ -493,7 +504,7 @@ class BeaconBlock(Container):
 const ssz_def_t ssz_bls_pubky[] = {
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L138).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L143).
 
 ```python
 class BeaconBlockBody(Container):
@@ -546,7 +557,7 @@ class BlockHashProof(Container):
 ### BlsToExecutionChange
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L118).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L123).
 
 ```python
 class BlsToExecutionChange(Container):
@@ -576,7 +587,7 @@ class C4Request(Container):
         BlockHashProof,
         EthAccountProof,
         EthTransactionProof,
-        EthReceiptProof
+        EthReceiptProof               # the blockhash proof used validating blockhashes
     ]
     sync_data: Union[                 # the sync data containing proofs for the transition between the two periods
         None,
@@ -586,19 +597,21 @@ class C4Request(Container):
 
 ### Checkpoint
 
+a checkpoint is a tuple of epoch and root
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L18).
+
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L19).
 
 ```python
 class Checkpoint(Container):
-    epoch: Uint64
-    root : Bytes32
+    epoch: Uint64    # the epoch of the checkpoint
+    root : Bytes32   # the root of the checkpoint
 ```
 
 ### Deposit
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L74).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L79).
 
 ```python
 class Deposit(Container):
@@ -609,7 +622,7 @@ class Deposit(Container):
 ### DepositData
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L67).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L72).
 
 ```python
 class DepositData(Container):
@@ -621,8 +634,10 @@ class DepositData(Container):
 
 ### Eth1Data
 
+the eth1 data is a deposit root, a deposit count and a block hash
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L54).
+
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L59).
 
 ```python
 class Eth1Data(Container):
@@ -685,7 +700,7 @@ class EthAccessListData(Container):
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L226).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L227).
 
 ```python
 class EthAccountProof(Container):
@@ -704,7 +719,7 @@ class EthAccountProof(Container):
 the transaction data
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L82).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L83).
 
 ```python
 class EthReceiptData(Container):
@@ -734,6 +749,7 @@ a log entry in the receipt
 class EthReceiptDataLog(Container):
     blockHash       : Bytes32             # the blockHash of the execution block containing the transaction
     blockNumber     : Uint64              # the number of the execution block containing the transaction
+    transactionHash : Bytes32             # the hash of the transaction
     transactionHash : Bytes32             # the hash of the transaction
     transactionIndex: Uint32              # the index of the transaction in the block
     address         : Address             # the address of the log
@@ -778,19 +794,19 @@ the gasPrice of the transaction
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L130).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L131).
 
 ```python
 class EthReceiptProof(Container):
-    transaction             : Bytes[1073741824]    # the raw transaction payload
-    transactionIndex        : Uint32               # the index of the transaction in the block
-    blockNumber             : Uint64               # the number of the execution block containing the transaction
-    blockHash               : Bytes32              # the blockHash of the execution block containing the transaction
-    receipt_proof           : List [bytes32, 64]   # the Merklr Patricia Proof of the transaction receipt ending in the receipt root
-    block_proof             : List [bytes32, 64]   # the multi proof of the transaction, receipt_root,blockNumber and blockHash
-    header                  : BeaconBlockHeader    # the header of the beacon block
-    sync_committee_bits     : BitVector [512]      # the bits of the validators that signed the block
-    sync_committee_signature: ByteVector [96]      # the signature of the sync committee
+    transaction             : Bytes[1073741824]       # the raw transaction payload
+    transactionIndex        : Uint32                  # the index of the transaction in the block
+    blockNumber             : Uint64                  # the number of the execution block containing the transaction
+    blockHash               : Bytes32                 # the blockHash of the execution block containing the transaction
+    receipt_proof           : List [bytes_1024, 64]   # the Merklr Patricia Proof of the transaction receipt ending in the receipt root
+    block_proof             : List [bytes32, 64]      # the multi proof of the transaction, receipt_root,blockNumber and blockHash
+    header                  : BeaconBlockHeader       # the header of the beacon block
+    sync_committee_bits     : BitVector [512]         # the bits of the validators that signed the block
+    sync_committee_signature: ByteVector [96]         # the signature of the sync committee
 ```
 
 ### EthStateProof
@@ -854,7 +870,7 @@ represents the account and storage values, including the Merkle proof, of the sp
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L170).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L171).
 
 ```python
 class EthTransactionProof(Container):
@@ -905,7 +921,7 @@ class EthTxData(Container):
 the block header of the execution layer proved within the beacon block
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L99).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L104).
 
 ```python
 class ExecutionPayload(Container):
@@ -971,14 +987,16 @@ class ForkData(Container):
 
 ### IndexAttestation
 
+an index attestation is a list of attesting indices, a data and a signature
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L32).
+
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L34).
 
 ```python
 class IndexAttestation(Container):
-    attestingIndices: List [uint8, 2048]
-    data            : AttestationData
-    signature       : ByteVector [96]
+    attestingIndices: List [uint8, 2048]   # the list of attesting indices
+    data            : AttestationData      # the data of the attestation
+    signature       : ByteVector [96]      # the BLS signature of the attestation
 ```
 
 ### LightClientHeader
@@ -1016,8 +1034,10 @@ class LightClientUpdate(Container):
 
 ### ProposerSlashing
 
+a proposer slashing is a list of two signed beacon block headers
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L44).
+
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L47).
 
 ```python
 class ProposerSlashing(Container):
@@ -1028,7 +1048,7 @@ class ProposerSlashing(Container):
 ### SignedBeaconBlock
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L160).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L165).
 
 ```python
 class SignedBeaconBlock(Container):
@@ -1038,19 +1058,21 @@ class SignedBeaconBlock(Container):
 
 ### SignedBeaconBlockheader
 
+a signed beacon block header is a beacon block header and a signature
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L40).
+
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L41).
 
 ```python
 class SignedBeaconBlockheader(Container):
-    message  : BeaconBlockHeader
-    signature: ByteVector [96]
+    message  : BeaconBlockHeader   # the beacon block header
+    signature: ByteVector [96]     # the BLS signature of the beacon block header
 ```
 
 ### SignedBlsToExecutionChange
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L124).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L129).
 
 ```python
 class SignedBlsToExecutionChange(Container):
@@ -1061,7 +1083,7 @@ class SignedBlsToExecutionChange(Container):
 ### SignedVoluntaryExit
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L84).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L89).
 
 ```python
 class SignedVoluntaryExit(Container):
@@ -1111,7 +1133,7 @@ class SyncCommittee(Container):
 ### VoluntaryExit
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L79).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L84).
 
 ```python
 class VoluntaryExit(Container):
@@ -1122,7 +1144,7 @@ class VoluntaryExit(Container):
 ### Withdrawal
 
 
- The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L89).
+ The Type is defined in [proofer/ssz_types.c](https://github.com/corpus-core/c4/blob/main/src/proofer/ssz_types.c#L94).
 
 ```python
 class Withdrawal(Container):

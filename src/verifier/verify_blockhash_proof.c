@@ -71,7 +71,7 @@ bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t
     return false;
   }
 
-  bool valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes);
+  bool valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
 
   free(sync_state.validators.data);
 

@@ -119,8 +119,7 @@ static void set_state(chain_id_t chain_id, char* dirname) {
   }
   free(state_content.data);
 }
-
-static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
+static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count) {
   char tmp[1024];
 
   set_state(chain_id, dirname);
@@ -153,28 +152,36 @@ static void verify(char* dirname, char* method, char* args, chain_id_t chain_id)
     }
   }
 
-  // now verify
-  for (int i = 0; i < 2; i++) {
-    verify_ctx_t verify_ctx = {0};
-    c4_verify_from_bytes(&verify_ctx, proof_ctx->proof, method, json_parse(args), chain_id);
+  for (int n = 0; n < count; n++) {
+    // now verify
+    bool success = false;
+    for (int i = 0; i < 2; i++) {
+      verify_ctx_t verify_ctx = {0};
+      c4_verify_from_bytes(&verify_ctx, proof_ctx->proof, method, json_parse(args), chain_id);
 
-    if (verify_ctx.success) {
-      c4_proofer_free(proof_ctx);
-      return;
-    }
+      if (verify_ctx.success) {
+        success = true;
+        break;
+      }
 
-    else if (!verify_ctx.first_missing_period) {
-      TEST_FAIL_MESSAGE(verify_ctx.state.error);
-      return;
+      else if (!verify_ctx.first_missing_period) {
+        TEST_FAIL_MESSAGE(verify_ctx.state.error);
+        break;
+      }
+      else {
+        char test_filename[1024];
+        sprintf(test_filename, "%s/sync_data_%d.ssz", dirname, (uint32_t) verify_ctx.last_missing_period);
+        bytes_t content = read_testdata(test_filename);
+        TEST_ASSERT_NOT_NULL_MESSAGE(content.data, "sync_data is missing");
+        c4_handle_client_updates(content, chain_id, NULL);
+        free(content.data);
+      }
     }
-    else {
-      char test_filename[1024];
-      sprintf(test_filename, "%s/sync_data_%d.ssz", dirname, (uint32_t) verify_ctx.last_missing_period);
-      bytes_t content = read_testdata(test_filename);
-      TEST_ASSERT_NOT_NULL_MESSAGE(content.data, "sync_data is missing");
-      c4_handle_client_updates(content, chain_id, NULL);
-      free(content.data);
-    }
+    TEST_ASSERT_TRUE_MESSAGE(success, "not able to verify"); //    TEST_FAIL_MESSAGE("not able to verify");
   }
-  TEST_FAIL_MESSAGE("not able to verify");
+  c4_proofer_free(proof_ctx);
+}
+
+static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
+  verify_count(dirname, method, args, chain_id, 1);
 }

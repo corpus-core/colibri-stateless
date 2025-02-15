@@ -4,9 +4,14 @@ option(SHAREDLIB "if true the shared library will be build" OFF)
 option(TEST "if true the test will be build" OFF)
 option(COVERAGE "if true the coverage will be build" OFF)
 option(WASM "if true the wasm will be build" OFF)
+option(BLS_DESERIALIZE "if true bls keys will be stored deserialized, which increases the state per sync committee period from 25kB to 50kB, but make verification 5x faster" ON)
 
 if(CURL)
     add_definitions(-DUSE_CURL)
+endif()
+
+if(BLS_DESERIALIZE)
+    add_definitions(-DBLS_DESERIALIZE)
 endif()
 
 
@@ -75,7 +80,8 @@ add_custom_target(doc
 add_custom_target(valgrind
     COMMAND ${CMAKE_COMMAND} -E echo "Generating valgrind image..."
     COMMAND ${CMAKE_COMMAND} -E env bash -c "docker build -f test/valgrind/Dockerfile --platform=linux/amd64 -t c4_valgrind ."
-    COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run c4_valgrind"
+    COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run --rm --platform=linux/amd64 c4_valgrind"
+#    COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run --rm --platform=linux/amd64 -v ${CMAKE_BINARY_DIR}:/out c4_valgrind"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Generating the valgrind image"
 )
