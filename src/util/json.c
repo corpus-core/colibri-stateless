@@ -140,14 +140,13 @@ size_t json_len(json_t parent) {
 
 char* json_as_string(json_t val, buffer_t* buffer) {
   buffer->data.len = 0;
-  buffer_grow(buffer, val.len);
+  buffer_grow(buffer, val.len + 1);
   if (val.type == JSON_TYPE_STRING)
     buffer_append(buffer, bytes((uint8_t*) val.start + 1, val.len - 2));
   else
     buffer_append(buffer, bytes((uint8_t*) val.start, val.len));
 
-  if (buffer->data.len >= val.len - 1)
-    buffer->data.data[val.len - 2] = '\0';
+  buffer->data.data[buffer->data.len] = '\0';
   return (char*) buffer->data.data;
 }
 

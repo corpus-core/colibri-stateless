@@ -185,7 +185,9 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
       free(tx_bytes.data);
     }
     ssz_add_builders(&block_ssz, "txs", txs_ssz);
-    ssz_add_builders(&blocks_ssz, "blocks", block_ssz);
+    bytes_t block_bytes = ssz_builder_to_bytes(&block_ssz).bytes;
+    ssz_add_dynamic_list_bytes(&blocks_ssz, block_count, block_bytes);
+    free(block_bytes.data);
   }
 
   // build the request
@@ -205,10 +207,10 @@ c4_status_t c4_proof_logs(proofer_ctx_t* ctx) {
   TRY_ASYNC(eth_get_logs(ctx, ctx->params, &logs));
 
   add_blocks(&blocks, logs);
-  TRY_ASYNC_FINAL(get_receipts(ctx, blocks), free_blocks(blocks));
+  TRY_ASYNC_CATCH(get_receipts(ctx, blocks), free_blocks(blocks));
 
   for (proof_logs_block_t* block = blocks; block; block = block->next)
-    TRY_ASYNC_FINAL(proof_block(ctx, block), free_blocks(blocks));
+    TRY_ASYNC_CATCH(proof_block(ctx, block), free_blocks(blocks));
 
   // serialize the proof
   serialize_log_proof(ctx, blocks, logs);

@@ -267,7 +267,7 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           uint32_t len = buf->data.len;
           buffer_add_hex_chars(buf, bytes_remove_leading_zeros(va_arg(args, bytes_t)), NULL, NULL);
           if (buf->data.data[len] == '0') {
-            buffer_splice(buf, len, 1, bytes(NULL, 1));
+            buffer_splice(buf, len, 1, bytes(NULL, 0));
             buf->data.data[buf->data.len] = 0;
           }
           break;

@@ -74,6 +74,7 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
     TRY_ASYNC(eth_get_block(ctx, block, false, &eth_block));
 
     json_t hash = json_get(eth_block, "parentBeaconBlockRoot");
+    if (hash.len != 68) THROW_ERROR("The Block is not a Beacon Block!");
     json_t header;
     memset(tmp, 0, sizeof(tmp));
     memcpy(tmp, hash.start + 1, hash.len - 2);
@@ -101,6 +102,7 @@ ssz_builder_t c4_proof_add_header(ssz_ob_t block, bytes32_t body_root) {
 }
 
 bytes_t c4_proofer_add_data(json_t data, const char* union_name, buffer_t* tmp) {
+  buffer_grow(tmp, 100);
   const ssz_def_t* data_type = NULL;
   tmp->data.data[0]          = ssz_union_selector_index(C4_REQUEST_DATA_UNION, union_name, &data_type);
   tmp->data.len              = 1;
