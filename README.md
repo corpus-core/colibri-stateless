@@ -43,6 +43,8 @@
     - [Eth1Data](#eth1data)
     - [EthAccessListData](#ethaccesslistdata)
     - [EthAccountProof](#ethaccountproof)
+    - [EthLogsBlock](#ethlogsblock)
+    - [EthLogsTx](#ethlogstx)
     - [EthReceiptData](#ethreceiptdata)
     - [EthReceiptDataLog](#ethreceiptdatalog)
     - [EthReceiptProof](#ethreceiptproof)
@@ -571,27 +573,29 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L262).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L283).
 
 ```python
 class C4Request(Container):
-    data     : Union[                 # the data to proof
+    data     : Union[                  # the data to proof
         None,
-        Bytes32                       # the blochash  which is used for blockhash proof,
-        Bytes32                       # the balance of an account,
-        EthTxData                     # the transaction data,
-        EthReceiptData                # the transaction receipt
+        Bytes32                        # the blochash  which is used for blockhash proof,
+        Bytes32                        # the balance of an account,
+        EthTxData                      # the transaction data,
+        EthReceiptData                 # the transaction receipt,
+        List [EthReceiptDataLog, 1024] # result of eth_getLogs
     ]
-    proof    : Union[                 # the proof of the data
+    proof    : Union[                  # the proof of the data
         None,
         BlockHashProof,
         EthAccountProof,
         EthTransactionProof,
-        EthReceiptProof               # the blockhash proof used validating blockhashes
+        EthReceiptProof                # a Proof of a TransactionReceipt,
+        List [EthLogsBlock, 256]       # a Proof for multiple Receipts and txs
     ]
-    sync_data: Union[                 # the sync data containing proofs for the transition between the two periods
+    sync_data: Union[                  # the sync data containing proofs for the transition between the two periods
         None,
-        List [LightClientUpdate, 512] # this light client update can be fetched directly from the beacon chain API
+        List [LightClientUpdate, 512]  # this light client update can be fetched directly from the beacon chain API
     ]
 ```
 
@@ -700,7 +704,7 @@ class EthAccessListData(Container):
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L227).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L245).
 
 ```python
 class EthAccountProof(Container):
@@ -712,6 +716,34 @@ class EthAccountProof(Container):
     storageHash : Bytes32                       # the storage hash of the account
     storageProof: List [EthStorageProof, 256]   # the storage proofs of the selected
     state_proof : EthStateProof                 # the state proof of the account
+```
+
+### EthLogsBlock
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L149).
+
+```python
+class EthLogsBlock(Container):
+    blockNumber             : Uint64                  # the number of the execution block containing the transaction
+    blockHash               : Bytes32                 # the blockHash of the execution block containing the transaction
+    proof                   : List [bytes32, 64]      # the multi proof of the transaction, receipt_root,blockNumber and blockHash
+    header                  : BeaconBlockHeader       # the header of the beacon block
+    sync_committee_bits     : BitVector [512]         # the bits of the validators that signed the block
+    sync_committee_signature: ByteVector [96]         # the signature of the sync committee
+    txs                     : List [EthLogsTx, 256]   # the transactions of the block
+```
+
+### EthLogsTx
+
+
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L142).
+
+```python
+class EthLogsTx(Container):
+    transaction     : Bytes[1073741824]       # the raw transaction payload
+    transactionIndex: Uint32                  # the index of the transaction in the block
+    proof           : List [bytes_1024, 64]   # the Merklr Patricia Proof of the transaction receipt ending in the receipt root
 ```
 
 ### EthReceiptData
@@ -749,7 +781,6 @@ a log entry in the receipt
 class EthReceiptDataLog(Container):
     blockHash       : Bytes32             # the blockHash of the execution block containing the transaction
     blockNumber     : Uint64              # the number of the execution block containing the transaction
-    transactionHash : Bytes32             # the hash of the transaction
     transactionHash : Bytes32             # the hash of the transaction
     transactionIndex: Uint32              # the index of the transaction in the block
     address         : Address             # the address of the log
@@ -870,7 +901,7 @@ represents the account and storage values, including the Merkle proof, of the sp
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L171).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L189).
 
 ```python
 class EthTransactionProof(Container):

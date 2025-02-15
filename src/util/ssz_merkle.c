@@ -1,5 +1,6 @@
 #include "crypto.h"
 #include "ssz.h"
+#include <stdlib.h>
 #if defined(_MSC_VER)
 #include <intrin.h> // Include for MSVC intrinsics
 #endif
@@ -397,19 +398,14 @@ void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
   hash_tree_root(ob, out, NULL);
 }
 
-bytes_t ssz_create_multi_proof(ssz_ob_t root, int gindex_len, ...) {
+bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, gindex_t* gindex, int gindex_len) {
 
   buffer_t witnesses  = {0};
   buffer_t calculated = {0};
   buffer_t proof      = {0};
 
-  va_list args;
-  va_start(args, gindex_len);
-  for (int i = 0; i < gindex_len; i++) {
-    gindex_t gindex = va_arg(args, gindex_t);
-    ssz_add_multi_merkle_proof(gindex, &witnesses, &calculated);
-  }
-  va_end(args);
+  for (int i = 0; i < gindex_len; i++)
+    ssz_add_multi_merkle_proof(gindex[i], &witnesses, &calculated);
 
   buffer_free(&calculated);
 
@@ -428,6 +424,20 @@ bytes_t ssz_create_multi_proof(ssz_ob_t root, int gindex_len, ...) {
 
   buffer_free(&witnesses);
   return proof.data;
+}
+
+bytes_t ssz_create_multi_proof(ssz_ob_t root, int gindex_len, ...) {
+
+  gindex_t* gindex = malloc(gindex_len * sizeof(gindex_t));
+  va_list   args;
+  va_start(args, gindex_len);
+  for (int i = 0; i < gindex_len; i++)
+    gindex[i] = va_arg(args, gindex_t);
+  va_end(args);
+
+  bytes_t proof = ssz_create_multi_proof_for_gindexes(root, gindex, gindex_len);
+  free(gindex);
+  return proof;
 }
 
 bytes_t ssz_create_proof(ssz_ob_t root, gindex_t gindex) {

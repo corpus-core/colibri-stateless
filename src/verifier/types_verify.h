@@ -16,8 +16,8 @@ extern const ssz_def_t BLOCK_HASH_PROOF[4];
 extern const ssz_def_t ETH_ACCOUNT_PROOF[8];
 extern const ssz_def_t ETH_TRANSACTION_PROOF[8];
 extern const ssz_def_t ETH_RECEIPT_PROOF[9];
-extern const ssz_def_t C4_REQUEST_DATA_UNION[5];
-extern const ssz_def_t C4_REQUEST_PROOFS_UNION[5];
+extern const ssz_def_t C4_REQUEST_DATA_UNION[6];
+extern const ssz_def_t C4_REQUEST_PROOFS_UNION[6];
 extern const ssz_def_t C4_REQUEST_SYNCDATA_UNION[2];
 extern const ssz_def_t C4_REQUEST[];
 

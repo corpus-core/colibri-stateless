@@ -65,6 +65,13 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state);
     if (state != C4_SUCCESS) return state; \
   } while (0)
 
+#define TRY_ADD_ASYNC(prev, fn)             \
+  do {                                      \
+    c4_status_t state = fn;                 \
+    if (state == C4_ERROR) return C4_ERROR; \
+    if (state == C4_PENDING) prev = state;  \
+  } while (0)
+
 #define TRY_2_ASYNC(fn1, fn2)                \
   do {                                       \
     c4_status_t state1 = fn1;                \

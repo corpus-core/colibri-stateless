@@ -12,6 +12,9 @@ extern "C" {
 // get the eth transaction for the given hash
 c4_status_t get_eth_tx(proofer_ctx_t* ctx, json_t txhash, json_t* tx_data);
 
+// get the logs
+c4_status_t eth_get_logs(proofer_ctx_t* ctx, json_t params, json_t* logs);
+
 // get the block receipts for the given block
 c4_status_t eth_getBlockReceipts(proofer_ctx_t* ctx, json_t block, json_t* receipts_array);
 

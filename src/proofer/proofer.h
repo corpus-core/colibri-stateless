@@ -51,6 +51,7 @@ c4_status_t    c4_proofer_status(proofer_ctx_t* ctx);                           
 c4_status_t c4_proof_account(proofer_ctx_t* ctx);     // creates an account proof
 c4_status_t c4_proof_transaction(proofer_ctx_t* ctx); // creates a transaction proof
 c4_status_t c4_proof_receipt(proofer_ctx_t* ctx);     // creates a receipt proof
+c4_status_t c4_proof_logs(proofer_ctx_t* ctx);        // creates a logs proof
 
 #ifdef __cplusplus
 }

@@ -43,6 +43,8 @@ c4_status_t c4_proofer_execute(proofer_ctx_t* ctx) {
     c4_proof_transaction(ctx);
   else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
     c4_proof_receipt(ctx);
+  else if (strcmp(ctx->method, "eth_getLogs") == 0)
+    c4_proof_logs(ctx);
   else
     THROW_ERROR("Unsupported method");
 

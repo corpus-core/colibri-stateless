@@ -70,7 +70,6 @@ const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
     SSZ_BYTES32("blockHash"),           // the blockHash of the execution block containing the transaction
     SSZ_UINT64("blockNumber"),          // the number of the execution block containing the transaction
     SSZ_BYTES32("transactionHash"),     // the hash of the transaction
-    SSZ_BYTES32("transactionHash"),     // the hash of the transaction
     SSZ_UINT32("transactionIndex"),     // the index of the transaction in the block
     SSZ_ADDRESS("address"),             // the address of the log
     SSZ_UINT32("logIndex"),             // the index of the log in the transaction
@@ -79,6 +78,7 @@ const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
     SSZ_BYTES("data", 1073741824),      // the data of the log
 };
 const ssz_def_t ETH_RECEIPT_DATA_LOG_CONTAINER = SSZ_CONTAINER("Log", ETH_RECEIPT_DATA_LOG);
+
 // the transaction data
 const ssz_def_t ETH_RECEIPT_DATA[] = {
     SSZ_BYTES32("blockHash"),                              // the blockHash of the execution block containing the transaction
@@ -138,6 +138,24 @@ const ssz_def_t ETH_RECEIPT_PROOF[] = {
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
     SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee
+
+const ssz_def_t ETH_LOGS_TX[] = {
+    SSZ_BYTES("transaction", 1073741824),  // the raw transaction payload
+    SSZ_UINT32("transactionIndex"),        // the index of the transaction in the block
+    SSZ_LIST("proof", ssz_bytes_1024, 64), // the Merklr Patricia Proof of the transaction receipt ending in the receipt root
+};
+const ssz_def_t ETH_LOGS_TX_CONTAINER = SSZ_CONTAINER("LogsTx", ETH_LOGS_TX);
+
+const ssz_def_t ETH_LOGS_BLOCK[] = {
+    SSZ_UINT64("blockNumber"),                       // the number of the execution block containing the transaction
+    SSZ_BYTES32("blockHash"),                        // the blockHash of the execution block containing the transaction
+    SSZ_LIST("proof", ssz_bytes32, 64),              // the multi proof of the transaction, receipt_root,blockNumber and blockHash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),    // the header of the beacon block
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),      // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96), // the signature of the sync committee
+    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256)};    // the transactions of the block
+
+const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH_LOGS_BLOCK);
 
 // represents the account and storage values, including the Merkle proof, of the specified account.
 
@@ -241,17 +259,20 @@ const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER   = SSZ_CONTAINER("LightClientUpda
 // A List of possible types of data matching the Proofs
 const ssz_def_t C4_REQUEST_DATA_UNION[] = {
     SSZ_NONE,
-    SSZ_BYTES32("blockhash"),                           // the blochash  which is used for blockhash proof
-    SSZ_BYTES32("balance"),                             // the balance of an account
-    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),   // the transaction data
-    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA)}; // the transaction receipt
+    SSZ_BYTES32("blockhash"),                                   // the blochash  which is used for blockhash proof
+    SSZ_BYTES32("balance"),                                     // the balance of an account
+    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),           // the transaction data
+    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),          // the transaction receipt
+    SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024)}; // result of eth_getLogs
+
 // A List of possible types of proofs matching the Data
 const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,
     SSZ_CONTAINER("BlockHashProof", BLOCK_HASH_PROOF),
     SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF),
     SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF),
-    SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF)}; // the blockhash proof used validating blockhashes
+    SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF),      // a Proof of a TransactionReceipt
+    SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256)}; // a Proof for multiple Receipts and txs
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_REQUEST_SYNCDATA_UNION[] = {

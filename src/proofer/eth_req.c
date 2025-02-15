@@ -23,6 +23,12 @@ c4_status_t eth_getBlockReceipts(proofer_ctx_t* ctx, json_t block, json_t* recei
   return c4_send_eth_rpc(ctx, "eth_getBlockReceipts", bprintf(&buf, "[%J]", block), receipts_array);
 }
 
+c4_status_t eth_get_logs(proofer_ctx_t* ctx, json_t params, json_t* logs) {
+  uint8_t  tmp[1000];
+  buffer_t buf = stack_buffer(tmp);
+  return c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), logs);
+}
+
 bytes_t c4_serialize_receipt(json_t r, buffer_t* buf) {
   uint8_t  tmp[300]   = {0};
   buffer_t tmp_buf    = stack_buffer(tmp);

@@ -118,6 +118,8 @@ void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
 bytes_t  ssz_create_proof(ssz_ob_t root, gindex_t gindex);
 bytes_t  ssz_create_multi_proof(ssz_ob_t root, int gindex_len, ...);
 gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...);
+bytes_t  ssz_create_multi_proof_for_gindexes(ssz_ob_t root, gindex_t* gindex, int gindex_len);
+
 // checks if a definition has a dynamic length
 bool ssz_is_dynamic(const ssz_def_t* def);
 bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
