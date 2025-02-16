@@ -281,6 +281,7 @@ const ssz_def_t C4_REQUEST_SYNCDATA_UNION[] = {
 
 // the main container defining the incoming data processed by the verifier
 const ssz_def_t C4_REQUEST[] = {
+    SSZ_BYTE_VECTOR("version", 4),                      // the [domain, major, minor, patch] version of the request, domaon=1 = eth
     SSZ_UNION("data", C4_REQUEST_DATA_UNION),           // the data to proof
     SSZ_UNION("proof", C4_REQUEST_PROOFS_UNION),        // the proof of the data
     SSZ_UNION("sync_data", C4_REQUEST_SYNCDATA_UNION)}; // the sync data containing proofs for the transition between the two periods

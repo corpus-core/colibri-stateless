@@ -59,19 +59,22 @@ bool            c4_state_is_pending(data_request_t* req);
 void            c4_state_add_request(c4_state_t* state, data_request_t* data_request);
 data_request_t* c4_state_get_pending_request(c4_state_t* state);
 
+// executes the function and returns the state if it was not successful
 #define TRY_ASYNC(fn)                      \
   do {                                     \
     c4_status_t state = fn;                \
     if (state != C4_SUCCESS) return state; \
   } while (0)
 
-#define TRY_ADD_ASYNC(prev, fn)             \
-  do {                                      \
-    c4_status_t state = fn;                 \
-    if (state == C4_ERROR) return C4_ERROR; \
-    if (state == C4_PENDING) prev = state;  \
+// executes the function but keeps on going unless a error is detected, but it stores the status in the status-variable passed. This allows to create multiple requests.
+#define TRY_ADD_ASYNC(status, fn)            \
+  do {                                       \
+    c4_status_t state = fn;                  \
+    if (state == C4_ERROR) return C4_ERROR;  \
+    if (state == C4_PENDING) status = state; \
   } while (0)
 
+// send send 2 requests , which can be executed in parallel.
 #define TRY_2_ASYNC(fn1, fn2)                \
   do {                                       \
     c4_status_t state1 = fn1;                \
@@ -80,6 +83,7 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state);
     if (state2 != C4_SUCCESS) return state2; \
   } while (0)
 
+// executes the function and always executtes the final statement no matter if it continues or returns.
 #define TRY_ASYNC_FINAL(fn, final)         \
   do {                                     \
     c4_status_t state = fn;                \

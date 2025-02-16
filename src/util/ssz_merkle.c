@@ -398,7 +398,7 @@ void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
   hash_tree_root(ob, out, NULL);
 }
 
-bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, gindex_t* gindex, int gindex_len) {
+bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, bytes32_t root_hash, gindex_t* gindex, int gindex_len) {
 
   buffer_t witnesses  = {0};
   buffer_t calculated = {0};
@@ -409,7 +409,6 @@ bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, gindex_t* gindex, int
 
   buffer_free(&calculated);
 
-  bytes32_t          tmp;
   merkle_proot_ctx_t proof_ctx = {
       .proof     = &proof,
       .witnesses = &witnesses,
@@ -420,13 +419,13 @@ bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, gindex_t* gindex, int
   ctx.root_gindex  = 1;
   ctx.last_gindex  = 1;
 
-  hash_tree_root(root, tmp, &ctx);
+  hash_tree_root(root, root_hash, &ctx);
 
   buffer_free(&witnesses);
   return proof.data;
 }
 
-bytes_t ssz_create_multi_proof(ssz_ob_t root, int gindex_len, ...) {
+bytes_t ssz_create_multi_proof(ssz_ob_t root, bytes32_t root_hash, int gindex_len, ...) {
 
   gindex_t* gindex = malloc(gindex_len * sizeof(gindex_t));
   va_list   args;
@@ -435,13 +434,13 @@ bytes_t ssz_create_multi_proof(ssz_ob_t root, int gindex_len, ...) {
     gindex[i] = va_arg(args, gindex_t);
   va_end(args);
 
-  bytes_t proof = ssz_create_multi_proof_for_gindexes(root, gindex, gindex_len);
+  bytes_t proof = ssz_create_multi_proof_for_gindexes(root, root_hash, gindex, gindex_len);
   free(gindex);
   return proof;
 }
 
-bytes_t ssz_create_proof(ssz_ob_t root, gindex_t gindex) {
-  return ssz_create_multi_proof(root, 1, gindex);
+bytes_t ssz_create_proof(ssz_ob_t root, bytes32_t root_hash, gindex_t gindex) {
+  return ssz_create_multi_proof(root, root_hash, 1, gindex);
 }
 
 typedef struct {

@@ -3,6 +3,7 @@
 #include "../util/patricia.h"
 #include "../util/rlp.h"
 #include "../util/ssz.h"
+#include "../util/version.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "beacon.h"
@@ -33,6 +34,7 @@ static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, beacon_block_t* 
   ssz_add_bytes(&eth_tx_proof, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
 
   // build the request
+  ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
   ssz_add_bytes(&c4_req, "data", c4_proofer_add_data(receipt, "EthReceiptData", &tmp));
   ssz_add_builders(&c4_req, "proof", eth_tx_proof);
   ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
@@ -82,10 +84,8 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
       c4_beacon_get_block_for_eth(ctx, block_number, &block),
       eth_getBlockReceipts(ctx, block_number, &block_receipts));
 
-  ssz_hash_tree_root(block.body, body_root);
-
   ssz_ob_t receipt_proof = create_receipts_proof(block_receipts, tx_index, &receipt);
-  bytes_t  state_proof   = ssz_create_multi_proof(block.body, 4,
+  bytes_t  state_proof   = ssz_create_multi_proof(block.body, body_root, 4,
                                                   ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                                                   ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
                                                   ssz_gindex(block.body.def, 2, "executionPayload", "receiptsRoot"),

@@ -1,5 +1,6 @@
 #include "../util/json.h"
 #include "../util/ssz.h"
+#include "../util/version.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "beacon.h"
@@ -102,6 +103,7 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   tmp.data.data[0] = union_selector;           // union selector for bytes32 == index 1
 
   // build the request
+  ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
   ssz_add_bytes(&c4_req, "data", tmp.data);
   ssz_add_builders(&c4_req, "proof", eth_account_proof);
 
@@ -128,9 +130,7 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
   uint64_t block_number = ssz_get_uint64(&block.execution, "blockNumber");
   TRY_ASYNC(get_eth_proof(ctx, address, strcmp(ctx->method, "eth_getStorageAt") == 0 ? json_at(ctx->params, 1) : (json_t) {0}, &eth_proof, block_number));
 
-  ssz_hash_tree_root(block.body, body_root);
-
-  bytes_t state_proof = ssz_create_proof(block.body, ssz_gindex(block.body.def, 2, "executionPayload", "stateRoot"));
+  bytes_t state_proof = ssz_create_proof(block.body, body_root, ssz_gindex(block.body.def, 2, "executionPayload", "stateRoot"));
 
   TRY_ASYNC_FINAL(
       create_eth_account_proof(ctx, eth_proof, &block,

@@ -24,7 +24,7 @@ void test_block_body() {
   ssz_ob_t body = ssz_get(&block, "body");
   TEST_ASSERT_NOT_NULL_MESSAGE(body.bytes.data, "body not found");
   gindex_t gindex = ssz_gindex(body.def, 2, "executionPayload", "stateRoot");
-  bytes_t  proof  = ssz_create_proof(body, gindex);
+  bytes_t  proof  = ssz_create_proof(body, blockhash, gindex);
   TEST_ASSERT_EQUAL_UINT32(802, gindex);
 
   // verify proof
@@ -67,7 +67,7 @@ void test_hash_root() {
 
   ssz_hash_tree_root(res, root);
   gindex_t gindex = ssz_gindex(res.def, 2, "sub", "a");
-  bytes_t  proof  = ssz_create_proof(res, gindex);
+  bytes_t  proof  = ssz_create_proof(res, root, gindex);
 
   // ssz_dump(stdout, res, true, 0);
   // print_hex(stdout, res.bytes, "DATA: 0x", "\n");
@@ -88,7 +88,7 @@ void test_hash_root() {
   ASSERT_HEX_STRING_EQUAL("0xdf0a32672e8c927cfc3acd778121417e0597a8042d0994b6d069d16f66b62080", root, 32, "invalid hash tree root");
 
   // create multproof
-  bytes_t multi_proof = ssz_create_multi_proof(res, 3,
+  bytes_t multi_proof = ssz_create_multi_proof(res, root, 3,
                                                ssz_gindex(res.def, 1, "count"),
                                                ssz_gindex(res.def, 2, "sub", "a"),
                                                ssz_gindex(res.def, 2, "sub", "b"));

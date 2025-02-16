@@ -3,6 +3,7 @@
 #include "../util/patricia.h"
 #include "../util/rlp.h"
 #include "../util/ssz.h"
+#include "../util/version.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "beacon.h"
@@ -121,7 +122,7 @@ static c4_status_t proof_create_multiproof(proofer_ctx_t* ctx, proof_logs_block_
   for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next, i++)
     gindex[i + 3] = ssz_gindex(block->beacon_block.body.def, 3, "executionPayload", "transactions", tx->tx_index);
 
-  block->proof = ssz_create_multi_proof_for_gindexes(block->beacon_block.body, gindex, 3 + block->tx_count);
+  block->proof = ssz_create_multi_proof_for_gindexes(block->beacon_block.body, block->body_root, gindex, 3 + block->tx_count);
   free(gindex);
 
   return C4_SUCCESS;
@@ -133,7 +134,6 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
   buffer_t  receipts_buf = {0};
   buffer_t  buf          = stack_buffer(tmp);
 
-  ssz_hash_tree_root(block->beacon_block.body, block->body_root);
   block->block_hash = ssz_get(&block->beacon_block.execution, "blockHash").bytes;
 
   // create receipts tree
@@ -191,6 +191,8 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
   }
 
   // build the request
+  ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
+
   ssz_add_bytes(&c4_req, "data", c4_proofer_add_data(logs, "EthLogs", &tmp));
   ssz_add_builders(&c4_req, "proof", blocks_ssz);
   ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));

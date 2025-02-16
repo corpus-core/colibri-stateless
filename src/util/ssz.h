@@ -115,10 +115,10 @@ char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex);
 /** hashes the object */
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);
 
-bytes_t  ssz_create_proof(ssz_ob_t root, gindex_t gindex);
-bytes_t  ssz_create_multi_proof(ssz_ob_t root, int gindex_len, ...);
+bytes_t  ssz_create_proof(ssz_ob_t root, bytes32_t root_hash, gindex_t gindex);
+bytes_t  ssz_create_multi_proof(ssz_ob_t root, bytes32_t root_hash, int gindex_len, ...);
 gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...);
-bytes_t  ssz_create_multi_proof_for_gindexes(ssz_ob_t root, gindex_t* gindex, int gindex_len);
+bytes_t  ssz_create_multi_proof_for_gindexes(ssz_ob_t root, bytes32_t root_hash, gindex_t* gindex, int gindex_len);
 
 // checks if a definition has a dynamic length
 bool ssz_is_dynamic(const ssz_def_t* def);

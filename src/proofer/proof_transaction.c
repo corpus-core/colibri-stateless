@@ -1,6 +1,7 @@
 #include "../util/json.h"
 #include "../util/logger.h"
 #include "../util/ssz.h"
+#include "../util/version.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "beacon.h"
@@ -40,6 +41,7 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
   free(tx_data_ob.bytes.data);
 
   // build the request
+  ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
   ssz_add_bytes(&c4_req, "data", tmp.data);
   ssz_add_builders(&c4_req, "proof", eth_tx_proof);
   ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
@@ -65,12 +67,10 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
 
-  ssz_hash_tree_root(block.body, body_root);
-
-  bytes_t state_proof = ssz_create_multi_proof(block.body, 3,
+  bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 3,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
-                                               /* 1704984576 + tx_index */ ssz_gindex(block.body.def, 3, "executionPayload", "transactions", tx_index)
+                                               ssz_gindex(block.body.def, 3, "executionPayload", "transactions", tx_index)
 
   );
   TRY_ASYNC_FINAL(
