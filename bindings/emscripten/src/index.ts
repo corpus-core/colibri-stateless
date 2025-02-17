@@ -13,6 +13,7 @@ interface DataRequest {
     chain_id: number;
     encoding: string;
     type: string;
+    exclude_mask: number;
     url: string;
     payload: string;
     req_ptr: number;
@@ -41,7 +42,13 @@ async function initialize_storage(conf: Config) {
 async function handle_request(req: DataRequest, conf: Config) {
     const servers = req.type == "beacon_api" ? conf.beacon_apis : conf.rpcs;
     const c4w = await getC4w();
+    let node_index = 0;
+    let last_error = "All nodes failed";
     for (const server of servers) {
+        if (req.exclude_mask & (1 << node_index)) {
+            node_index++;
+            continue;
+        }
         try {
             const response = await fetch(server + (req.url ? ('/' + req.url) : ''), {
                 method: req.method,
@@ -50,20 +57,22 @@ async function handle_request(req: DataRequest, conf: Config) {
                     "Content-Type": "application/json",
                     "Accept": req.encoding == "json" ? "application/json" : "application/octet-stream"
                 }
-            }).then(res => res.blob())
-                .then(blob => blob.bytes());
+            });
 
-            const data_ptr = c4w._malloc(response.length + 1);
-            c4w.HEAPU8.set(response, data_ptr);
-            c4w.HEAPU8[data_ptr + response.length] = 0;
-            c4w._c4w_req_set_response(req.req_ptr, data_ptr, response.length);
+            if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}, Details: ${await response.text()}`);
+
+            const bytes = await response.blob().then(blob => blob.arrayBuffer());
+            const data_ptr = c4w._malloc(bytes.byteLength + 1);
+            c4w.HEAPU8.set(new Uint8Array(bytes), data_ptr);
+            c4w.HEAPU8[data_ptr + bytes.byteLength] = 0;
+            c4w._c4w_req_set_response(req.req_ptr, data_ptr, bytes.byteLength, node_index);
             return;
         } catch (e) {
-            const errorMessage = (e instanceof Error) ? e.message : String(e);
-            c4w._c4w_req_set_error(req.req_ptr, errorMessage);
-            return;
+            last_error = (e instanceof Error) ? e.message : String(e);
         }
+        node_index++;
     }
+    c4w._c4w_req_set_error(req.req_ptr, last_error, 0);
 }
 
 

@@ -61,6 +61,7 @@ static void add_data_request(buffer_t* result, data_request_t* data_request) {
   bprintf(result, "{\"req_ptr\": %l,", (uint64_t) data_request);
   bprintf(result, "\"chain_id\": %d,", (uint32_t) data_request->chain_id);
   bprintf(result, "\"encoding\": \"%s\",", encoding_to_string(data_request->encoding));
+  bprintf(result, "\"exclude_mask\": \"%d\",", (uint32_t) data_request->node_exclude_mask);
   bprintf(result, "\"method\": \"%s\",", method_to_string(data_request->method));
   bprintf(result, "\"url\": \"%s\",", data_request->url);
   if (data_request->payload.data)
@@ -98,12 +99,14 @@ char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(proofer_ctx_t* ctx) {
   return buffer_as_string(result);
 }
 
-void EMSCRIPTEN_KEEPALIVE c4w_req_set_response(data_request_t* ctx, void* data, size_t len) {
-  ctx->response = bytes(data, len);
+void EMSCRIPTEN_KEEPALIVE c4w_req_set_response(data_request_t* ctx, void* data, size_t len, uint16_t node_index) {
+  ctx->response            = bytes(data, len);
+  ctx->response_node_index = node_index;
 }
 
-void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error) {
-  ctx->error = strdup(error);
+void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, uint16_t node_index) {
+  ctx->error               = strdup(error);
+  ctx->response_node_index = node_index;
 }
 
 char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id) {
