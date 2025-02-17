@@ -32,6 +32,11 @@ void ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t dat
   ssz_add_bytes(buffer, name, element.bytes);
   free(element.bytes.data);
 }
+void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_builder_t data) {
+  ssz_ob_t element = ssz_builder_to_bytes(&data);
+  ssz_add_dynamic_list_bytes(buffer, num_elements, element.bytes);
+  free(element.bytes.data);
+}
 
 void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data) {
   const ssz_def_t* def = find_def(buffer->def, name);

@@ -35,7 +35,7 @@ typedef struct proof_logs_block {
   bytes32_t                body_root;
 } proof_logs_block_t;
 
-static uint32_t get_block_count(proof_logs_block_t* blocks) {
+static inline uint32_t get_block_count(proof_logs_block_t* blocks) {
   uint32_t count = 0;
   while (blocks) {
     count++;
@@ -59,20 +59,18 @@ static void free_blocks(proof_logs_block_t* blocks) {
   }
 }
 
-static proof_logs_block_t* find_block(proof_logs_block_t* blocks, uint64_t block_number) {
+static inline proof_logs_block_t* find_block(proof_logs_block_t* blocks, uint64_t block_number) {
   while (blocks && blocks->block_number != block_number) blocks = blocks->next;
   return blocks;
 }
 
-static proof_logs_tx_t* find_tx(proof_logs_block_t* blocks, uint64_t block_number, uint32_t tx_index) {
-  proof_logs_block_t* block = find_block(blocks, block_number);
-  if (!block) return NULL;
+static inline proof_logs_tx_t* find_tx(proof_logs_block_t* block, uint32_t tx_index) {
   proof_logs_tx_t* tx = block->txs;
   while (tx && tx->tx_index != tx_index) tx = tx->next;
   return tx;
 }
 
-static void add_blocks(proof_logs_block_t** blocks, json_t logs) {
+static inline void add_blocks(proof_logs_block_t** blocks, json_t logs) {
   bytes32_t tmp = {0};
   buffer_t  buf = stack_buffer(tmp);
   json_for_each_value(logs, log) {
@@ -86,7 +84,7 @@ static void add_blocks(proof_logs_block_t** blocks, json_t logs) {
       *blocks             = block;
     }
 
-    proof_logs_tx_t* tx = find_tx(*blocks, block_number, tx_index);
+    proof_logs_tx_t* tx = find_tx(block, tx_index);
     if (!tx) {
       tx           = calloc(1, sizeof(proof_logs_tx_t));
       tx->tx_index = tx_index;
@@ -98,7 +96,6 @@ static void add_blocks(proof_logs_block_t** blocks, json_t logs) {
 }
 
 static c4_status_t get_receipts(proofer_ctx_t* ctx, proof_logs_block_t* blocks) {
-
   c4_status_t status   = C4_SUCCESS;
   uint8_t     tmp[100] = {0};
   buffer_t    buf      = stack_buffer(tmp);
@@ -115,10 +112,9 @@ static c4_status_t proof_create_multiproof(proofer_ctx_t* ctx, proof_logs_block_
 
   int       i      = 0;
   gindex_t* gindex = calloc(3 + block->tx_count, sizeof(gindex_t));
-
-  gindex[0] = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockNumber");
-  gindex[1] = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockHash");
-  gindex[2] = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "receiptsRoot");
+  gindex[0]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockNumber");
+  gindex[1]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockHash");
+  gindex[2]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "receiptsRoot");
   for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next, i++)
     gindex[i + 3] = ssz_gindex(block->beacon_block.body.def, 3, "executionPayload", "transactions", tx->tx_index);
 
@@ -137,10 +133,10 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
   block->block_hash = ssz_get(&block->beacon_block.execution, "blockHash").bytes;
 
   // create receipts tree
-  json_for_each_value(block->block_receipts, r) {
-    uint32_t index = json_get_uint32(r, "transactionIndex");
-    patricia_set_value(&root, c4_eth_create_tx_path(index, &buf), c4_serialize_receipt(r, &receipts_buf));
-  }
+  json_for_each_value(block->block_receipts, r)
+      patricia_set_value(&root,
+                         c4_eth_create_tx_path(json_get_uint32(r, "transactionIndex"), &buf),
+                         c4_serialize_receipt(r, &receipts_buf));
 
   // create receipts proofs
   for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
@@ -150,24 +146,24 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
 
   // create multiproof for the transactions
   proof_create_multiproof(ctx, block);
-
   patricia_node_free(root);
   buffer_free(&buf);
   buffer_free(&receipts_buf);
 
   return C4_SUCCESS;
 }
+
 static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* blocks, json_t logs) {
 
   buffer_t      tmp         = {0};
-  ssz_builder_t c4_req      = {.def = (ssz_def_t*) &C4_REQUEST_CONTAINER, .dynamic = {0}, .fixed = {0}};
-  ssz_builder_t blocks_ssz  = {0};
+  ssz_builder_t c4_req      = ssz_builder_for(C4_REQUEST_CONTAINER);
+  ssz_builder_t block_list  = {0};
   uint32_t      block_count = get_block_count(blocks);
+  ssz_def_t     txs_def     = SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256);
 
-  ssz_add_uint8(&blocks_ssz, ssz_union_selector_index(C4_REQUEST_PROOFS_UNION, "LogsProof", &blocks_ssz.def));
+  ssz_add_uniondef(&block_list, C4_REQUEST_PROOFS_UNION, "LogsProof");
   for (proof_logs_block_t* block = blocks; block; block = block->next) {
-    ssz_builder_t block_ssz = {.def = blocks_ssz.def->def.vector.type, .dynamic = {0}, .fixed = {0}};
-    ssz_builder_t txs_ssz   = {.def = block_ssz.def->def.container.elements + 6, .dynamic = {0}, .fixed = {0}};
+    ssz_builder_t block_ssz = ssz_builder_for(ETH_LOGS_BLOCK_CONTAINER);
     ssz_add_uint64(&block_ssz, block->block_number);
     ssz_add_bytes(&block_ssz, "blockHash", block->block_hash);
     ssz_add_bytes(&block_ssz, "proof", block->proof);
@@ -175,31 +171,27 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
     ssz_add_bytes(&block_ssz, "sync_committee_bits", ssz_get(&block->beacon_block.sync_aggregate, "syncCommitteeBits").bytes);
     ssz_add_bytes(&block_ssz, "sync_committee_signature", ssz_get(&block->beacon_block.sync_aggregate, "syncCommitteeSignature").bytes);
 
+    ssz_builder_t tx_list = ssz_builder_for(txs_def);
     for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
-      ssz_builder_t tx_ssz = {.def = txs_ssz.def->def.vector.type, .dynamic = {0}, .fixed = {0}};
+      ssz_builder_t tx_ssz = ssz_builder_for(ETH_LOGS_TX_CONTAINER);
       ssz_add_bytes(&tx_ssz, "transaction", tx->raw_tx);
       ssz_add_uint32(&tx_ssz, tx->tx_index);
       ssz_add_bytes(&tx_ssz, "proof", tx->proof.bytes);
-      bytes_t tx_bytes = ssz_builder_to_bytes(&tx_ssz).bytes;
-      ssz_add_dynamic_list_bytes(&txs_ssz, block->tx_count, tx_bytes);
-      free(tx_bytes.data);
+      ssz_add_dynamic_list_builders(&tx_list, block->tx_count, tx_ssz);
     }
-    ssz_add_builders(&block_ssz, "txs", txs_ssz);
-    bytes_t block_bytes = ssz_builder_to_bytes(&block_ssz).bytes;
-    ssz_add_dynamic_list_bytes(&blocks_ssz, block_count, block_bytes);
-    free(block_bytes.data);
+    ssz_add_builders(&block_ssz, "txs", tx_list);
+    ssz_add_dynamic_list_builders(&block_list, block_count, block_ssz);
   }
 
   // build the request
   ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
-
   ssz_add_bytes(&c4_req, "data", c4_proofer_add_data(logs, "EthLogs", &tmp));
-  ssz_add_builders(&c4_req, "proof", blocks_ssz);
+  ssz_add_builders(&c4_req, "proof", block_list);
   ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
 
-  buffer_free(&tmp);
   ctx->proof = ssz_builder_to_bytes(&c4_req).bytes;
 
+  buffer_free(&tmp);
   return C4_SUCCESS;
 }
 

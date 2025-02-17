@@ -23,6 +23,8 @@ const ssz_def_t ETH_STATE_PROOF[] = {
     SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee
 
+const ssz_def_t ETH_STATE_PROOF_CONTAINER = SSZ_CONTAINER("StateProof", ETH_STATE_PROOF);
+
 const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1024);
 
 // represents the storage proof of a key

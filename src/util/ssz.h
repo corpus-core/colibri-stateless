@@ -60,6 +60,9 @@ typedef struct {
 #define ssz_ob(typename, data) \
   (ssz_ob_t) { .bytes = data, .def = &typename }
 
+#define ssz_builder_for(typename) \
+  {.def = (ssz_def_t*) &typename, .dynamic = {0}, .fixed = {0}}
+
 /** gets the uint64 value of the object */
 static inline uint64_t ssz_uint64(ssz_ob_t ob) {
   return bytes_as_le(ob.bytes);
@@ -105,6 +108,7 @@ void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t
 ssz_ob_t ssz_union(ssz_ob_t ob);
 uint8_t  ssz_union_selector(const ssz_def_t* union_types, size_t union_types_len, const char* name, const ssz_def_t** def);
 #define ssz_union_selector_index(union_types, name, def) ssz_union_selector(union_types, sizeof(union_types) / sizeof(ssz_def_t), name, def)
+#define ssz_add_uniondef(builder, union_def, name)       ssz_add_uint8((builder), ssz_union_selector_index(union_def, name, &(builder)->def))
 
 // returns the length of the fixed part of the object
 size_t ssz_fixed_length(const ssz_def_t* def);
@@ -195,6 +199,7 @@ typedef struct {
 void     ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data);
 void     ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t data); // adds a builder to the buffer and frees the resources of the data builder
 void     ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t data);
+void     ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_builder_t data);
 void     ssz_add_uint64(ssz_builder_t* buffer, uint64_t value);
 void     ssz_add_uint32(ssz_builder_t* buffer, uint32_t value);
 void     ssz_add_uint16(ssz_builder_t* buffer, uint16_t value);

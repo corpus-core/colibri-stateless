@@ -26,7 +26,9 @@ extern const ssz_def_t ETH_ACCOUNT_PROOF_CONTAINER;
 extern const ssz_def_t ETH_TRANSACTION_PROOF_CONTAINER;
 extern const ssz_def_t ssz_transactions_bytes;
 // extern const ssz_def_t BLOCK_HASH_PROOF_CONTAINER;
-
+extern const ssz_def_t ETH_LOGS_BLOCK_CONTAINER;
+extern const ssz_def_t ETH_LOGS_TX_CONTAINER;
+extern const ssz_def_t ETH_STATE_PROOF_CONTAINER;
 #ifdef __cplusplus
 }
 #endif

@@ -9,7 +9,7 @@ extern "C" {
 #include "chains.h"
 #include "crypto.h"
 #include "json.h"
-
+#include <string.h>
 typedef enum {
   C4_DATA_TYPE_BEACON_API = 0,
   C4_DATA_TYPE_ETH_RPC    = 1,
@@ -104,6 +104,42 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state);
   do {                              \
     ctx->state.error = strdup(msg); \
     return C4_ERROR;                \
+  } while (0)
+
+#define CHECK_JSON_IS_ADDRESS(val)                 \
+  do {                                             \
+    if (val.type != JSON_TYPE_STRING ||            \
+        val.len != 44 ||                           \
+        val.start[1] != '0' ||                     \
+        val.start[2] != 'x')                       \
+      THROW_ERROR(#val " is not a valid address"); \
+  } while (0)
+
+#define CHECK_JSON_IS_BYTES32(val)                 \
+  do {                                             \
+    if (val.type != JSON_TYPE_STRING ||            \
+        val.len != 68 ||                           \
+        val.start[1] != '0' ||                     \
+        val.start[2] != 'x')                       \
+      THROW_ERROR(#val " is not a valid bytes32"); \
+  } while (0)
+
+#define CHECK_JSON_IS_BLOCKNUMBER(val)                                                                                                         \
+  do {                                                                                                                                         \
+    if (val.type != JSON_TYPE_STRING ||                                                                                                        \
+        val.len < 5 || val.len > 25 ||                                                                                                         \
+        !((val.start[1] == '0' && val.start[2] == 'x') ||                                                                                      \
+          strncmp("\"latest\"", val.start, 8) == 0 || strncmp("\"safe\"", val.start, 6) == 0 || strncmp("\"finalized\"", val.start, 11) == 0)) \
+      THROW_ERROR(#val " is not a valid blocknumber");                                                                                         \
+  } while (0)
+
+#define CHECK_JSON_IS_BYTES32_ARRAY(val)   \
+  do {                                     \
+    if (val.type != JSON_TYPE_ARRAY)       \
+      THROW_ERROR(#val " is not a array"); \
+    json_for_each_value(val, item) {       \
+      CHECK_JSON_IS_BYTES32(item);         \
+    }                                      \
   } while (0)
 
 #ifdef TEST
