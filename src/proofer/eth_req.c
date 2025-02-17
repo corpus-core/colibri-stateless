@@ -90,17 +90,17 @@ c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, json
 
       json_t error = json_get(response, "error");
       if (error.type == JSON_TYPE_OBJECT) {
-        error            = json_get(error, "message");
-        ctx->state.error = json_new_string(error);
-        return C4_ERROR;
+        json_t code = json_get(error, "code");
+        if (code.len == 6 && strncmp(code.start, "-32602", 6) == 0)
+          RETRY_REQUEST(data_request);
+        else
+          THROW_ERROR("Error when calling eth-rpc for %s (params: %s) : %j", method, params, json_get(error, "message"));
       }
-      else if (error.type == JSON_TYPE_STRING) {
-        ctx->state.error = json_new_string(error);
-        return C4_ERROR;
-      }
+      else if (error.type == JSON_TYPE_STRING)
+        THROW_ERROR("Error when calling eth-rpc for %s (params: %s) : %j", method, params, error);
 
       json_t res = json_get(response, "result");
-      if (res.type == JSON_TYPE_NOT_FOUND || res.type == JSON_TYPE_INVALID) THROW_ERROR("Invalid JSON response");
+      if (res.type == JSON_TYPE_NOT_FOUND || res.type == JSON_TYPE_INVALID) THROW_ERROR("Error when calling eth-rpc for %s (params: %s): Invalid JSON response (no result)", method, params);
 
       *result = res;
       return C4_SUCCESS;

@@ -78,6 +78,11 @@ static void configure() {
 }
 
 static bool handle(data_request_t* req, char* url, buffer_t* error) {
+  if (req->payload.len && req->payload.data)
+    log_info("req: %s : %j", url, (json_t) {.start = (char*) req->payload.data, .len = req->payload.len, .type = JSON_TYPE_OBJECT});
+  else
+    log_info("req: %s", req->url);
+
   CURL* curl = curl_easy_init();
   if (!curl) {
     buffer_add_chars(error, "Failed to initialize curl");
@@ -137,10 +142,6 @@ static void write_cache(data_request_t* req) {
 
 void curl_fetch(data_request_t* req) {
   // make sure there is a config
-  if (req->payload.len && req->payload.data)
-    log_info("req: %j", (json_t) {.start = (char*) req->payload.data, .len = req->payload.len, .type = JSON_TYPE_OBJECT});
-  else
-    log_info("req: %s", req->url);
 
 #ifdef TEST
 
@@ -166,22 +167,30 @@ void curl_fetch(data_request_t* req) {
   }
 
   if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) return_error(req, "Invalid servers in config");
-
+  int  i       = 0;
+  bool success = false;
   if (req->type == C4_DATA_TYPE_REST_API)
-    handle(req, NULL, &error);
+    success = handle(req, NULL, &error);
   else
     json_for_each_value(servers, server) {
-      error.data.len = 0;
-      url.data.len   = 0;
+      if (req->node_exclude_mask & (1 << i)) {
+        i++;
+        continue;
+      }
+      req->response_node_index = i;
+      error.data.len           = 0;
+      url.data.len             = 0;
       buffer_add_chars(&url, json_as_string(server, &buffer));
       if (req->url && *req->url) {
         buffer_add_chars(&url, "/");
         buffer_add_chars(&url, req->url);
       }
 
-      bool success = handle(req, (char*) url.data.data, &error);
+      success = handle(req, (char*) url.data.data, &error);
       if (success) break;
+      i++;
     }
+  if (!success) return_error(req, "All servers failed");
 
   buffer_free(&buffer);
   if (error.data.len)

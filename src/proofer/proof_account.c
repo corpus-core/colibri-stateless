@@ -121,9 +121,10 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
   beacon_block_t block         = {0};
   bytes32_t      body_root;
 
-  CHECK_JSON_IS_BLOCKNUMBER(block_number);
-  CHECK_JSON_IS_ADDRESS(address);
-  if (is_storage_at) CHECK_JSON_IS_BYTES32_ARRAY(storage_keys);
+  if (is_storage_at)
+    CHECK_JSON(ctx->params, "[address,[bytes32],block]", "Invalid arguments for eth_getStorageAt: ");
+  else
+    CHECK_JSON(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
   TRY_ASYNC(get_eth_proof(ctx, address, storage_keys,

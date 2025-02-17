@@ -65,6 +65,7 @@ json_t json_parse(const char* data) {
       return strncmp(start, "false", 5) ? invalid : json(JSON_TYPE_BOOLEAN, start, 5);
     case 'n':
       return strncmp(start, "null", 4) ? invalid : json(JSON_TYPE_NULL, start, 4);
+    case '-':
     case '0':
     case '1':
     case '2':

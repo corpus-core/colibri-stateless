@@ -81,7 +81,7 @@ int main(int argc, char* argv[]) {
         exit(EXIT_SUCCESS);
 
       case C4_ERROR:
-        fprintf(stderr, "Error: %s\n", ctx->state.error);
+        fprintf(stderr, "Failed: %s\n", ctx->state.error);
         exit(EXIT_FAILURE);
 
       case C4_PENDING:

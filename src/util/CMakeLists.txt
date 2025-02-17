@@ -19,6 +19,7 @@ add_library(util STATIC
   patricia.c
   rlp.c
   json.c
+  json_validate.c
   logger.c
   chains.c
   patricia_trie.c

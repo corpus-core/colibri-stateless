@@ -55,6 +55,7 @@ void     buffer_add_json(buffer_t* buffer, json_t data);
 #define json_get_uint8(val, name)      json_as_uint8(json_get(val, name))
 #define json_get_bytes(val, name, buf) json_as_bytes(json_get(val, name), buf)
 
+const char* json_validate(json_t val, const char* def, const char* error_prefix);
 #define json_for_each_property(parent, val, property_name)                    \
   for (json_t val = json_next_value(parent, &property_name, JSON_NEXT_FIRST); \
        val.type != JSON_TYPE_NOT_FOUND && val.type != JSON_TYPE_INVALID;      \

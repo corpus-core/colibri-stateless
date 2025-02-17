@@ -42,6 +42,8 @@ typedef struct data_request {
   data_request_method_t   method;
   bytes_t                 payload;
   bytes_t                 response;
+  uint16_t                response_node_index; // index of the node that responded with the result
+  uint16_t                node_exclude_mask;   // the bitlist marking nodes, which should be excluded when retrying ( 1st bit = index 0) max 16)
   char*                   error;
   struct data_request*    next;
   bytes32_t               id;
@@ -100,46 +102,28 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state);
     }                                \
   } while (0)
 
-#define THROW_ERROR(msg)            \
-  do {                              \
-    ctx->state.error = strdup(msg); \
-    return C4_ERROR;                \
+#define THROW_ERROR(fmt, ...)                             \
+  do {                                                    \
+    buffer_t buf     = {0};                               \
+    ctx->state.error = bprintf(&buf, fmt, ##__VA_ARGS__); \
+    return C4_ERROR;                                      \
   } while (0)
 
-#define CHECK_JSON_IS_ADDRESS(val)                 \
-  do {                                             \
-    if (val.type != JSON_TYPE_STRING ||            \
-        val.len != 44 ||                           \
-        val.start[1] != '0' ||                     \
-        val.start[2] != 'x')                       \
-      THROW_ERROR(#val " is not a valid address"); \
+#define CHECK_JSON(val, def, error_prefix)                   \
+  do {                                                       \
+    const char* err = json_validate(val, def, error_prefix); \
+    if (err) {                                               \
+      ctx->state.error = strdup(err);                        \
+      return C4_ERROR;                                       \
+    }                                                        \
   } while (0)
 
-#define CHECK_JSON_IS_BYTES32(val)                 \
-  do {                                             \
-    if (val.type != JSON_TYPE_STRING ||            \
-        val.len != 68 ||                           \
-        val.start[1] != '0' ||                     \
-        val.start[2] != 'x')                       \
-      THROW_ERROR(#val " is not a valid bytes32"); \
-  } while (0)
-
-#define CHECK_JSON_IS_BLOCKNUMBER(val)                                                                                                         \
-  do {                                                                                                                                         \
-    if (val.type != JSON_TYPE_STRING ||                                                                                                        \
-        val.len < 5 || val.len > 25 ||                                                                                                         \
-        !((val.start[1] == '0' && val.start[2] == 'x') ||                                                                                      \
-          strncmp("\"latest\"", val.start, 8) == 0 || strncmp("\"safe\"", val.start, 6) == 0 || strncmp("\"finalized\"", val.start, 11) == 0)) \
-      THROW_ERROR(#val " is not a valid blocknumber");                                                                                         \
-  } while (0)
-
-#define CHECK_JSON_IS_BYTES32_ARRAY(val)   \
-  do {                                     \
-    if (val.type != JSON_TYPE_ARRAY)       \
-      THROW_ERROR(#val " is not a array"); \
-    json_for_each_value(val, item) {       \
-      CHECK_JSON_IS_BYTES32(item);         \
-    }                                      \
+#define RETRY_REQUEST(req)                                     \
+  do {                                                         \
+    req->node_exclude_mask |= (1 << req->response_node_index); \
+    free(req->response.data);                                  \
+    req->response = NULL_BYTES;                                \
+    return C4_PENDING;                                         \
   } while (0)
 
 #ifdef TEST
