@@ -11,22 +11,32 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define JSON_TX_FIELDS       "{transactionIndex:hexuint,blockNumber:hexuint,hash:bytes32,blockHash:bytes32,from:address,gas:hexuint,gasPrice:hexuint,input:bytes,nonce:hexuint,to:address,value:hexuint,type:hexuint,v:hexuint,r:bytes32,s:bytes32}"
+#define JSON_LOG_FIELDS      "{address:address,topics:[bytes32],data:bytes,blockNumber:hexuint,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,logIndex:hexuint,removed:bool}"
+#define JSON_RECEIPTS_FIELDS "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
+
 c4_status_t get_eth_tx(proofer_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   uint8_t  tmp[200];
   buffer_t buf = stack_buffer(tmp);
-  return c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), tx_data);
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), tx_data));
+  CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
+  return C4_SUCCESS;
 }
 
 c4_status_t eth_getBlockReceipts(proofer_ctx_t* ctx, json_t block, json_t* receipts_array) {
   uint8_t  tmp[200];
   buffer_t buf = stack_buffer(tmp);
-  return c4_send_eth_rpc(ctx, "eth_getBlockReceipts", bprintf(&buf, "[%J]", block), receipts_array);
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getBlockReceipts", bprintf(&buf, "[%J]", block), receipts_array));
+  CHECK_JSON(*receipts_array, "[" JSON_RECEIPTS_FIELDS "]", "Invalid results for Block Receipts: ");
+  return C4_SUCCESS;
 }
 
 c4_status_t eth_get_logs(proofer_ctx_t* ctx, json_t params, json_t* logs) {
   uint8_t  tmp[1000];
   buffer_t buf = stack_buffer(tmp);
-  return c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), logs);
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), logs));
+  CHECK_JSON(*logs, "[" JSON_LOG_FIELDS "]", "Invalid results for Logs: ");
+  return C4_SUCCESS;
 }
 
 bytes_t c4_serialize_receipt(json_t r, buffer_t* buf) {
