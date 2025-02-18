@@ -31,6 +31,12 @@ set_target_properties(c4w PROPERTIES
 add_custom_command(
     TARGET c4w POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/bindings/emscripten/c4_logo.png
+    ${EMSCRIPTEN_OUTPUT_DIR}/c4_logo.png
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/bindings/emscripten/README.md
+    ${EMSCRIPTEN_OUTPUT_DIR}/README.md
+    COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/bindings/emscripten/package.json
     ${EMSCRIPTEN_OUTPUT_DIR}/package.json
     COMMAND ${CMAKE_COMMAND} -E copy
