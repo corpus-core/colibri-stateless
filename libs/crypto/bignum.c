@@ -169,9 +169,13 @@ int bn_bitcount(const bignum256* x) {
   for (int i = BN_LIMBS - 1; i >= 0; i--) {
     uint32_t limb = x->val[i];
     if (limb != 0) {
-      // __builtin_clz returns the number of leading zero bits starting at the
-      // most significant bit position
+#ifdef _MSC_VER
+      unsigned long index;
+      _BitScanReverse(&index, limb);
+      return i * BN_BITS_PER_LIMB + (31 - index);
+#else
       return i * BN_BITS_PER_LIMB + (32 - __builtin_clz(limb));
+#endif
     }
   }
   return 0;

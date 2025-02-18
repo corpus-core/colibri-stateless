@@ -1,5 +1,9 @@
 #include "./bytes.h"
+#include "./json.h"
+#include "ssz.h"
 #include <ctype.h>
+#include <inttypes.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -78,6 +82,13 @@ void uint64_to_le(uint8_t* data, uint64_t value) {
   data[0] = value & 0xFF;
 }
 
+void uint32_to_le(uint8_t* data, uint32_t value) {
+  data[0] = value & 0xFF;
+  data[1] = (value >> 8) & 0xFF;
+  data[2] = (value >> 16) & 0xFF;
+  data[3] = (value >> 24) & 0xFF;
+}
+
 void buffer_grow(buffer_t* buffer, size_t min_len) {
   if (buffer->data.data == NULL) {
     if (buffer->allocated > min_len) min_len = (size_t) buffer->allocated;
@@ -92,16 +103,17 @@ void buffer_grow(buffer_t* buffer, size_t min_len) {
   }
 }
 
-void buffer_append(buffer_t* buffer, bytes_t data) {
+uint32_t buffer_append(buffer_t* buffer, bytes_t data) {
   if (buffer->allocated < 0 && buffer->data.len + data.len > (uint32_t) (0 - buffer->allocated))
     data.len = ((uint32_t) (0 - buffer->allocated)) - buffer->data.len;
-  if (!data.len) return;
+  if (!data.len) return 0;
   buffer_grow(buffer, buffer->data.len + data.len);
   if (data.data)
     memcpy(buffer->data.data + buffer->data.len, data.data, data.len);
   else
     memset(buffer->data.data + buffer->data.len, 0, data.len);
   buffer->data.len += data.len;
+  return data.len;
 }
 
 void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data) {
@@ -196,4 +208,163 @@ void bytes_write(bytes_t data, FILE* f, bool close) {
   if (!f) return;
   fwrite(data.data, 1, data.len, f);
   if (close && f != stdout && f != stderr) fclose(f);
+}
+
+bytes_t bytes_read(char* filename) {
+  unsigned char buffer[1024];
+  size_t        bytesRead;
+  buffer_t      data = {0};
+
+  FILE* file = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
+  if (file == NULL) return NULL_BYTES;
+
+  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
+    buffer_append(&data, bytes(buffer, bytesRead));
+
+  buffer_append(&data, bytes(NULL, 1));
+  data.data.len--;
+
+  if (file != stdin)
+    fclose(file);
+  return data.data;
+}
+
+void buffer_add_bytes(buffer_t* buf, uint32_t len, ...) {
+  buffer_grow(buf, buf->data.len + len);
+  va_list args;
+  va_start(args, len);
+  for (uint32_t i = 0; i < len; i++) {
+    buf->data.data[buf->data.len] = (uint8_t) va_arg(args, int);
+    buf->data.len++;
+  }
+  va_end(args);
+}
+
+void buffer_add_be(buffer_t* buffer, uint64_t value, uint32_t len) {
+  buffer_grow(buffer, buffer->data.len + len);
+  uint32_t s = buffer->data.len;
+  for (uint32_t i = 0; i < len; i++)
+    buffer->data.data[s + len - i - 1] = (value >> (i << 3)) & 0xFF;
+  buffer->data.len += len;
+}
+
+char* bprintf(buffer_t* buf, const char* fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  const char* last_pos = fmt;
+  const char* p;
+  for (p = fmt; *p; p++) {
+    if (*p == '%') {
+      if (p != last_pos) buffer_append(buf, bytes((uint8_t*) last_pos, p - last_pos));
+      switch (*(p + 1)) {
+        case 's':
+          buffer_add_chars(buf, va_arg(args, const char*));
+          break;
+        case 'x':
+          buffer_add_hex_chars(buf, va_arg(args, bytes_t), NULL, NULL);
+          break;
+        case 'u': {
+          uint32_t len = buf->data.len;
+          buffer_add_hex_chars(buf, bytes_remove_leading_zeros(va_arg(args, bytes_t)), NULL, NULL);
+          if (buf->data.data[len] == '0') {
+            buffer_splice(buf, len, 1, bytes(NULL, 0));
+            buf->data.data[buf->data.len] = 0;
+          }
+          break;
+        }
+        case 'J': {
+          json_t val = va_arg(args, json_t);
+          buffer_append(buf, bytes((uint8_t*) val.start, val.len));
+          break;
+        }
+        case 'j': {
+          json_t val = va_arg(args, json_t);
+          if (val.type == JSON_TYPE_STRING)
+            buffer_append(buf, bytes((uint8_t*) val.start + 1, val.len - 2));
+          else
+            buffer_append(buf, bytes((uint8_t*) val.start, val.len));
+          break;
+        }
+        case 'l': {
+          uint64_t value   = va_arg(args, uint64_t);
+          char     tmp[20] = {0};
+          if (*(p + 2) == 'x') {
+            p++;
+            if (!*(p + 1)) break;
+            sprintf(tmp, "%" PRIx64, value);
+          }
+          else
+            sprintf(tmp, "%" PRIu64, value);
+          buffer_add_chars(buf, tmp);
+          break;
+        }
+        case 'd': {
+          uint32_t value   = va_arg(args, uint32_t);
+          char     tmp[20] = {0};
+          if (*(p + 2) == 'x') {
+            p++;
+            if (!*(p + 1)) break;
+            sprintf(tmp, "%" PRIx32, value);
+          }
+          else
+            sprintf(tmp, "%" PRIu32, value);
+          buffer_add_chars(buf, tmp);
+          break;
+        }
+        case 'c': {
+          char c = va_arg(args, int);
+          buffer_append(buf, bytes((uint8_t*) &c, 1));
+          break;
+        }
+        case 'z': {
+          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, false);
+          buffer_add_chars(buf, s);
+          free(s);
+          break;
+        }
+        case 'Z': {
+          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, true);
+          buffer_add_chars(buf, s);
+          free(s);
+          break;
+        }
+      }
+      p++;
+      last_pos = p + 1;
+      if (!*(p + 1)) break;
+    }
+  }
+  va_end(args);
+  if (last_pos != p)
+    buffer_add_chars(buf, last_pos);
+  else if (buffer_append(buf, bytes(NULL, 1)))
+    buf->data.len--;
+  return (char*) buf->data.data;
+}
+
+bytes_t bytes_remove_leading_zeros(bytes_t data) {
+  while (data.len > 1 && data.data[0] == 0) {
+    data.len--;
+    data.data++;
+  }
+  return data;
+}
+
+bool bytes_eq(bytes_t a, bytes_t b) {
+  if (a.len != b.len) return false;
+  for (uint32_t i = 0; i < a.len; i++)
+    if (a.data[i] != b.data[i]) return false;
+  return true;
+}
+uint64_t bytes_as_le(bytes_t data) {
+  uint64_t result = 0;
+  for (uint32_t i = 0; i < data.len; i++)
+    result = (result << 8) | data.data[data.len - i - 1];
+  return result;
+}
+uint64_t bytes_as_be(bytes_t data) {
+  uint64_t result = 0;
+  for (uint32_t i = 0; i < data.len; i++)
+    result = (result << 8) | data.data[i];
+  return result;
 }

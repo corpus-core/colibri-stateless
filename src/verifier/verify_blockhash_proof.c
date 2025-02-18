@@ -13,9 +13,6 @@
 /** the combined GIndex of the blockhash in the block body path = executionPayload*/
 #define BLOCKHASH_BLOCKBODY_GINDEX 812
 
-static const char     GENESIS_VALIDATORS_ROOT[] = "\x4b\x36\x3d\xb9\x4e\x28\x61\x20\xd7\x6e\xb9\x05\x34\x0f\xdd\x4e\x54\xbf\xe9\xf0\x6b\xf3\x3f\xf6\xcf\x5a\xd2\x7f\x51\x1b\xfe\x95";
-static const uint64_t FORK_EPOCHS[4]            = {74240, 144896, 194048, 269568};
-
 // combining the root with a domain to ensure uniqueness of the signing message
 static const ssz_def_t SIGNING_DATA[] = {
     SSZ_BYTES32("root"),    // the hashed root of the data to sign
@@ -30,21 +27,13 @@ static const ssz_def_t FORK_DATA[] = {
 
 static const ssz_def_t FORK_DATA_CONTAINER = SSZ_CONTAINER("ForkDate", FORK_DATA);
 
-static uint8_t compute_fork_version(uint64_t epoch) {
-  const size_t fork_epochs_len = sizeof(FORK_EPOCHS) / sizeof(FORK_EPOCHS[0]);
-  for (size_t i = 0; i < fork_epochs_len; i++) {
-    if (epoch < FORK_EPOCHS[i]) return i;
-  }
-  return fork_epochs_len;
-}
-
 static bool calculate_signing_message(verify_ctx_t* ctx, uint64_t slot, bytes32_t blockhash, bytes32_t signing_message) {
   uint8_t   buffer[64] = {0};
   bytes32_t root       = {0};
 
   // compute fork_data root hash to the seconf 32 bytes of bffer
-  buffer[0] = compute_fork_version((slot - 1) >> 5);
-  memcpy(buffer + 4, GENESIS_VALIDATORS_ROOT, 32);
+  buffer[0] = (uint8_t) c4_chain_fork_id(ctx->chain_id, (slot - 1) >> 5);
+  if (!c4_chain_genesis_validators_root(ctx->chain_id, buffer + 4)) RETURN_VERIFY_ERROR(ctx, "unsupported chain!");
 
   ssz_hash_tree_root(ssz_ob(FORK_DATA_CONTAINER, bytes(buffer, 36)), root);
 
@@ -73,18 +62,18 @@ bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t
   calculate_signing_message(ctx, slot, root, root);
 
   // get the validators and make sure we have the right ones for the requested period
-  sync_state = c4_get_validators(slot >> 13);
+  sync_state = c4_get_validators(slot >> 13, ctx->chain_id);
   if (sync_state.validators.data == NULL) {
     ctx->first_missing_period = sync_state.last_period + 1;
     ctx->last_missing_period  = sync_state.current_period;
     ctx->success              = false;
-    ctx->error                = "sync_committee transitions required to verify";
+    ctx->state.error          = strdup("sync_committee transitions required to verify");
     return false;
   }
 
-  bool valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes);
+  bool valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
 
-  if (sync_state.needs_cleanup) free(sync_state.validators.data);
+  free(sync_state.validators.data);
 
   if (!valid)
     RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
@@ -97,7 +86,7 @@ static bool verify_beacon_header(ssz_ob_t* header, bytes32_t exec_blockhash, byt
   // check merkle proof
   ssz_ob_t  header_body_root = ssz_get(header, "bodyRoot");
   bytes32_t root_hash;
-  ssz_verify_merkle_proof(blockhash_proof, exec_blockhash, BLOCKHASH_BLOCKBODY_GINDEX, root_hash);
+  ssz_verify_single_merkle_proof(blockhash_proof, exec_blockhash, BLOCKHASH_BLOCKBODY_GINDEX, root_hash);
   if (ssz_is_error(header_body_root) || header_body_root.bytes.len != 32 || memcmp(root_hash, header_body_root.bytes.data, 32)) return false;
 
   return true;

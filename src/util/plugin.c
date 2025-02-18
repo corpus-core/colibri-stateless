@@ -2,7 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define MAX_SYNC_STATES_DEFAULT 1
+
+#define MAX_SYNC_STATES_DEFAULT 3
 
 storage_plugin_t storage_conf = {0};
 #ifdef FILE_STORAGE

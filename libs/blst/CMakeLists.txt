@@ -39,8 +39,22 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
     endif()
     # Add a custom command to build the library using the script
 endif()
+if(EMSCRIPTEN)
+    set(EMCC emcc)
 
-if(WIN32)
+    # Add a custom command to build the static library for WASM
+    add_custom_command(
+        OUTPUT ${BLST_LIB}
+        COMMAND ${EMCC} -I.. -fexceptions -include stddef.h
+                -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=[$intArrayFromString]
+                -o ${BLST_LIB}
+                -c ${blst_SOURCE_DIR}/src/server.c
+        WORKING_DIRECTORY ${blst_SOURCE_DIR}
+        COMMENT "Building blst as a static library for WebAssembly with Emscripten"
+        VERBATIM
+    )
+
+elseif(WIN32)
     add_custom_command(
         OUTPUT ${BLST_LIB}
         COMMAND ${CMAKE_COMMAND} -E env CFLAGS=-ffunction-sections\ -fdata-sections ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__

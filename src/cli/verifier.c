@@ -1,7 +1,9 @@
 #include "../util/bytes.h"
 #include "../util/crypto.h"
-#include "../util/request.h"
 #include "../util/ssz.h"
+#include "../util/state.h"
+#include "../util/version.h"
+#include "../verifier/sync_committee.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
 #include "../verifier/verify.h"
@@ -13,40 +15,6 @@
 #include "../../libs/curl/http.h"
 #endif
 
-#ifdef TEST
-static char* REQ_TEST_DIR = NULL;
-
-static void set_req_test_dir(const char* dir) {
-  char* path = malloc(strlen(dir) + strlen(TESTDATA_DIR) + 5);
-  sprintf(path, "%s/%s", TESTDATA_DIR, dir);
-  REQ_TEST_DIR = path;
-}
-
-#endif
-
-static bytes_t read_from_file(const char* filename) {
-  unsigned char buffer[1024];
-  size_t        bytesRead;
-  buffer_t      data = {0};
-
-  FILE* file = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
-  if (file == NULL) {
-    fprintf(stderr, "Error opening file: %s\n", filename);
-    exit(EXIT_FAILURE);
-  }
-
-  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
-    buffer_append(&data, bytes(buffer, bytesRead));
-
-  if (file != stdin)
-    fclose(file);
-  return data.data;
-}
-
-void error(const char* msg) {
-  fprintf(stderr, "%s\n", msg);
-  exit(EXIT_FAILURE);
-}
 #ifdef USE_CURL
 static bool get_client_updates(verify_ctx_t* ctx) {
   char url[200] = {0};
@@ -59,7 +27,8 @@ static bool get_client_updates(verify_ctx_t* ctx) {
       .payload  = {0},
       .response = {0},
       .type     = C4_DATA_TYPE_BEACON_API,
-      .url      = url};
+      .url      = url,
+      .chain_id = ctx->chain_id};
 
   sha256(bytes((uint8_t*) url, strlen(url)), req.id);
 
@@ -68,15 +37,6 @@ static bool get_client_updates(verify_ctx_t* ctx) {
     fprintf(stderr, "Error fetching client updates: %s\n", req.error);
     return false;
   }
-
-#ifdef TEST
-  if (REQ_TEST_DIR) {
-
-    char test_filename[1024];
-    sprintf(test_filename, "%s/sync_data_%d.ssz", REQ_TEST_DIR, (uint32_t) ctx->last_missing_period);
-    bytes_write(req.response, fopen(test_filename, "wb"), true);
-  }
-#endif
 
   buffer_t updates = {0};
   if (req.response.len && req.response.data[0] == '{') {
@@ -94,11 +54,12 @@ static bool get_client_updates(verify_ctx_t* ctx) {
     updates.data.len = 0;
     uint64_t length  = uint64_from_le(req.response.data + pos);
     buffer_grow(&updates, length + 100);
-    buffer_append(&updates, bytes(NULL, 15)); // 3 offsets + 3 union bytes
-    uint64_to_le(updates.data.data, 12);      // offset for data
-    uint64_to_le(updates.data.data + 4, 13);  // offset for proof
-    uint64_to_le(updates.data.data + 8, 14);  // offset for sync
-    updates.data.data[14] = 1;                // union type for lightclient updates
+    buffer_append(&updates, bytes(NULL, 19)); // 3 offsets + 3 union bytes +  4 version
+    memcpy(updates.data.data, c4_version_bytes, 4);
+    uint64_to_le(updates.data.data + 4, 16);  // offset for data
+    uint64_to_le(updates.data.data + 8, 17);  // offset for proof
+    uint64_to_le(updates.data.data + 12, 18); // offset for sync
+    updates.data.data[18] = 1;                // union type for lightclient updates
 
     ssz_builder_t builder = {0};
     builder.def           = (ssz_def_t*) (C4_REQUEST_SYNCDATA_UNION + 1); // union type for lightclient updates
@@ -108,12 +69,12 @@ static bool get_client_updates(verify_ctx_t* ctx) {
     free(list_data.data);
 
     verify_ctx_t sync_ctx = {0};
-    c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0});
-    if (sync_ctx.error) {
+    c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0}, ctx->chain_id);
+    if (sync_ctx.state.error) {
       if (sync_ctx.last_missing_period && sync_ctx.first_missing_period != ctx->first_missing_period)
         return get_client_updates(&sync_ctx);
 
-      fprintf(stderr, "Error verifying sync data: %s\n", sync_ctx.error);
+      fprintf(stderr, "Error verifying sync data: %s\n", sync_ctx.state.error);
       return false;
     }
 
@@ -121,52 +82,107 @@ static bool get_client_updates(verify_ctx_t* ctx) {
   }
 
   buffer_free(&updates);
-
-  // each entry:
-  //  - 8 bytes (uint64) length
-  //- 4 bytes forDigest
-  //- LightClientUpdate
-
-  // wrap into request
   return true;
 }
 #endif
+
+static void check_state(chain_id_t chain_id, json_t trusted_blocks) {
+  c4_state_t state = {0};
+  while (true) {
+    c4_status_t status = c4_set_trusted_blocks(&state, trusted_blocks, chain_id);
+    if (state.error) {
+      fprintf(stderr, "Error setting trusted blocks: %s\n", state.error);
+      exit(EXIT_FAILURE);
+    }
+#ifdef USE_CURL
+    data_request_t* req = c4_state_get_pending_request(&state);
+    if (req) {
+      while (req) {
+        if (c4_state_is_pending(req))
+          curl_fetch(req);
+        req = req->next;
+      }
+      continue;
+    }
+#else
+    if (state.requests) {
+      fprintf(stderr, "No curl installed");
+      exit(EXIT_FAILURE);
+    }
+#endif
+    if (!c4_state_get_pending_request(&state)) {
+      c4_state_free(&state);
+      return;
+    }
+  }
+}
 int main(int argc, char* argv[]) {
   if (argc == 1) {
     fprintf(stderr, "Usage: %s request.ssz \n", argv[0]);
     exit(EXIT_FAILURE);
   }
 
-  char*    method = NULL;
-  buffer_t args   = {0};
+  char*      method         = NULL;
+  chain_id_t chain_id       = C4_CHAIN_MAINNET;
+  buffer_t   args           = {0};
+  char*      input          = NULL;
+  buffer_t   trusted_blocks = {0};
   buffer_add_chars(&args, "[");
+  buffer_add_chars(&trusted_blocks, "[");
 
-  for (int i = 2; i < argc; i++) {
-    if (method == NULL)
-      method = argv[i];
+  for (int i = 1; i < argc; i++) {
+    if (*argv[i] == '-') {
+      for (char* c = argv[i] + 1; *c; c++) {
+        switch (*c) {
+          case 'c':
+            chain_id = atoi(argv[++i]);
+            break;
+          case 'b':
+            if (trusted_blocks.data.len > 1) buffer_add_chars(&trusted_blocks, ",");
+            bprintf(&trusted_blocks, "\"%s\"", argv[++i]);
+            break;
 #ifdef TEST
-    else if (strcmp(argv[i], "-t") == 0)
-      set_req_test_dir(argv[++i]);
+#ifdef CURL
+          case 't':
+            curl_set_test_dir(argv[++i]);
+            break;
 #endif
+#endif
+          default:
+            fprintf(stderr, "Unknown option: %c\n", *c);
+            exit(EXIT_FAILURE);
+        }
+      }
+      if (input == NULL && strlen(argv[i]) == 1)
+        input = argv[i];
+    }
+    else if (input == NULL)
+      input = argv[i];
+    else if (method == NULL)
+      method = argv[i];
     else {
       if (args.data.len > 1) buffer_add_chars(&args, ",");
-      buffer_add_chars(&args, "\"");
-      buffer_add_chars(&args, argv[i]);
-      buffer_add_chars(&args, "\"");
+      bprintf(&args, "\"%s\"", argv[i]);
     }
   }
   buffer_add_chars(&args, "]");
-  bytes_t request = read_from_file(argv[1]);
+  buffer_add_chars(&trusted_blocks, "]");
+  if (input == NULL) {
+    fprintf(stderr, "No input file provided\n");
+    exit(EXIT_FAILURE);
+  }
+  bytes_t request = bytes_read(input);
+
+  check_state(chain_id, json_parse((char*) trusted_blocks.data.data));
 
   for (int i = 0; i < 5; i++) { // max 5 retries
 
     verify_ctx_t ctx = {0};
-    c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0});
+    c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
 
     if (ctx.success) {
-      ssz_dump(stdout, ctx.data, false, 0);
+      ssz_dump_to_file(stdout, ctx.data, false, true);
       fflush(stdout);
-      //      fprintf(stderr, "proof is valid\n");
       return EXIT_SUCCESS;
     }
     else {
@@ -176,13 +192,11 @@ int main(int argc, char* argv[]) {
 // getting the client updates
 #ifdef USE_CURL
       if (!ctx.first_missing_period || !get_client_updates(&ctx)) {
-        fprintf(stderr, "proof is invalid: %s\n", ctx.error);
+        fprintf(stderr, "proof is invalid: %s\n", ctx.state.error);
         return EXIT_FAILURE;
       }
-//      bytes_t updates = get_client_updates(ctx.first_missing_period, ctx.last_missing_period);
-//      c4_verify_from_bytes(&ctx, updates);
 #else
-      fprintf(stderr, "proof is invalid: %s\n", ctx.error);
+      fprintf(stderr, "proof is invalid: %s\n", ctx.state.error);
       return EXIT_FAILURE;
 #endif
     }

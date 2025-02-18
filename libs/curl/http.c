@@ -1,8 +1,20 @@
 #include "http.h"
-#include "request.h"
+#include "logger.h"
+#include "state.h"
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <sys/stat.h>
+#include <sys/types.h>
+#ifdef _WIN32
+#include <direct.h>
+#define MKDIR(path) _mkdir(path)
+#else
+#include <unistd.h>
+#define MKDIR(path) mkdir(path, 0755)
+#endif
+
 typedef struct {
   json_t config;
 } curl_config_t;
@@ -11,14 +23,38 @@ curl_config_t curl_config = {0};
 
 const char* CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
-#define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\"]," \
+#define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://rpc.ankr.com/eth\"]," \
                        "\"beacon_api\":[\"https://lodestar-mainnet.chainsafe.io\"]}"
+
+char* cache_dir = NULL;
+
+void curl_set_cache_dir(const char* dir) {
+  cache_dir = strdup(dir);
+  MKDIR(cache_dir);
+}
 
 #define return_error(req, msg) \
   {                            \
     req->error = strdup(msg);  \
     return;                    \
   }
+
+#ifdef TEST
+static char* REQ_TEST_DIR = NULL;
+static void  test_write_file(const char* filename, bytes_t data) {
+  if (!REQ_TEST_DIR) return;
+  buffer_t buf = {0};
+  bytes_write(data, fopen(bprintf(&buf, "%s/%s", REQ_TEST_DIR, filename), "w"), true);
+  buffer_free(&buf);
+}
+
+void curl_set_test_dir(const char* dir) {
+  buffer_t buf = {0};
+  REQ_TEST_DIR = bprintf(&buf, "%s/%s", TESTDATA_DIR, dir);
+  MKDIR(REQ_TEST_DIR);
+  //  if (MKDIR(REQ_TEST_DIR) != 0) perror("Error creating directory");
+}
+#endif
 
 static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) {
   buffer_t* buffer = (buffer_t*) buf;
@@ -28,7 +64,25 @@ static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) 
   return size * nmemb;
 }
 
+static void configure() {
+  char*   config_file = getenv("C4_CONFIG");
+  bytes_t content     = {0};
+  if (config_file) content = bytes_read(config_file);
+  if (!content.data) content = bytes_read("c4_config.json");
+  if (content.data) {
+    curl_set_config(json_parse((char*) content.data));
+    free(content.data);
+  }
+  else
+    curl_set_config(json_parse(DEFAULT_CONFIG));
+}
+
 static bool handle(data_request_t* req, char* url, buffer_t* error) {
+  if (req->payload.len && req->payload.data)
+    log_info("req: %s : %j", url, (json_t) {.start = (char*) req->payload.data, .len = req->payload.len, .type = JSON_TYPE_OBJECT});
+  else
+    log_info("req: %s", req->url);
+
   CURL* curl = curl_easy_init();
   if (!curl) {
     buffer_add_chars(error, "Failed to initialize curl");
@@ -62,31 +116,39 @@ static bool handle(data_request_t* req, char* url, buffer_t* error) {
     buffer_free(&buffer);
     buffer_add_chars(error, curl_easy_strerror(res));
   }
-
   curl_easy_cleanup(curl);
   return res == CURLE_OK;
 }
+#ifdef TEST
+static bool check_cache(data_request_t* req) {
+  buffer_t buf = {0};
+  bprintf(&buf, "%s/%s", cache_dir, c4_req_mockname(req));
+  bytes_t content = bytes_read((char*) buf.data.data);
+  if (content.data) {
+    req->response = content;
+    return true;
+  }
+  return false;
+}
+
+static void write_cache(data_request_t* req) {
+  buffer_t buf = {0};
+  bprintf(&buf, "%s/%s", cache_dir, c4_req_mockname(req));
+  bytes_write(req->response, fopen((char*) buf.data.data, "w"), true);
+  buffer_free(&buf);
+}
+
+#endif
 
 void curl_fetch(data_request_t* req) {
-  /*
-  char filename[1024];
-  sprintf(filename, ".cache/%llx.req", *((long long*) req->id));
-  FILE* f = fopen(filename, "rb");
-  if (f) {
-    unsigned char buffer[1024];
-    size_t        bytesRead;
-    buffer_t      data = {0};
-
-    while ((bytesRead = fread(buffer, 1, 1024, f)) > 0)
-      buffer_append(&data, bytes(buffer, bytesRead));
-
-    fclose(f);
-    req->response = data.data;
-    return;
-  }
-*/
   // make sure there is a config
-  if (!curl_config.config.start) curl_set_config(json_parse(DEFAULT_CONFIG));
+
+#ifdef TEST
+
+  if (cache_dir && check_cache(req)) return;
+
+#endif
+  if (!curl_config.config.start) configure();
 
   char*    last_error = NULL;
   buffer_t buffer     = {0};
@@ -105,22 +167,30 @@ void curl_fetch(data_request_t* req) {
   }
 
   if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) return_error(req, "Invalid servers in config");
-
+  int  i       = 0;
+  bool success = false;
   if (req->type == C4_DATA_TYPE_REST_API)
-    handle(req, NULL, &error);
+    success = handle(req, NULL, &error);
   else
     json_for_each_value(servers, server) {
-      error.data.len = 0;
-      url.data.len   = 0;
+      if (req->node_exclude_mask & (1 << i)) {
+        i++;
+        continue;
+      }
+      req->response_node_index = i;
+      error.data.len           = 0;
+      url.data.len             = 0;
       buffer_add_chars(&url, json_as_string(server, &buffer));
       if (req->url && *req->url) {
         buffer_add_chars(&url, "/");
         buffer_add_chars(&url, req->url);
       }
 
-      bool success = handle(req, (char*) url.data.data, &error);
+      success = handle(req, (char*) url.data.data, &error);
       if (success) break;
+      i++;
     }
+  if (!success) return_error(req, "All servers failed");
 
   buffer_free(&buffer);
   if (error.data.len)
@@ -129,10 +199,17 @@ void curl_fetch(data_request_t* req) {
     buffer_free(&error);
   buffer_free(&url);
 
-  //  if (req->response.data) bytes_write(req->response, fopen(filename, "wb"), true);
+#ifdef TEST
+  if (req->response.data && REQ_TEST_DIR) {
+    char* test_filename = c4_req_mockname(req);
+    test_write_file(test_filename, req->response);
+    free(test_filename);
+  }
+  if (cache_dir && req->response.data) write_cache(req);
+#endif
 }
 
 void curl_set_config(json_t config) {
-  if (curl_config.config.start) free(curl_config.config.start);
+  if (curl_config.config.start) free((void*) curl_config.config.start);
   curl_config.config = (json_t) {.len = config.len, .start = strdup(config.start), .type = config.type};
 }

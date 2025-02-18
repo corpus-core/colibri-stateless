@@ -1,9 +1,12 @@
 #include "crypto.h"
 #include "ssz.h"
+#include <stdlib.h>
 #if defined(_MSC_VER)
 #include <intrin.h> // Include for MSVC intrinsics
 #endif
+#include "logger.h"
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -12,9 +15,7 @@
 #define BYTES_PER_CHUNK 32
 
 typedef struct {
-  char**    path;
-  int       proof_gindex;
-  uint32_t  path_len;
+  buffer_t* witnesses;
   buffer_t* proof;
 } merkle_proot_ctx_t;
 
@@ -23,7 +24,8 @@ typedef struct {
   int                 max_depth;
   int                 num_used_leafes;
   int                 num_leafes;
-  int                 proof_gindex;
+  gindex_t            root_gindex;
+  gindex_t            last_gindex;
   merkle_proot_ctx_t* proof;
 } merkle_ctx_t;
 
@@ -40,8 +42,97 @@ static inline uint32_t log2_ceil(uint32_t val) {
 #endif
   return (val & (val - 1)) == 0 ? floor_log2 : floor_log2 + 1;
 }
+
 static bool is_basic_type(const ssz_def_t* def) {
   return def->type == SSZ_TYPE_UINT || def->type == SSZ_TYPE_BOOLEAN || def->type == SSZ_TYPE_NONE;
+}
+
+static bool is_basic_type(const ssz_def_t* def);
+
+gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...) {
+  if (!def || num_elements <= 0) return 0;
+  gindex_t gindex = 1;
+
+  va_list args;
+  va_start(args, num_elements);
+
+  for (int i = 0; i < num_elements; i++) {
+    uint64_t leafes = 0;
+    uint64_t idx    = 0;
+
+    if (def->type == SSZ_TYPE_CONTAINER) {
+      const char* path_element = va_arg(args, const char*);
+      for (int i = 0; i < def->def.container.len; i++) {
+        if (strcmp(def->def.container.elements[i].name, path_element) == 0) {
+          idx    = i;
+          leafes = def->def.container.len;
+          def    = def->def.container.elements + i;
+          break;
+        }
+      }
+    }
+    else if (def->type == SSZ_TYPE_LIST) {
+      leafes = is_basic_type(def->def.vector.type) ? ((def->def.vector.len * ssz_fixed_length(def->def.vector.type) + 31) >> 5) * 2 : def->def.vector.len * 2;
+      idx    = (uint64_t) va_arg(args, int);
+    }
+
+    if (leafes == 0) {
+      va_end(args);
+      return 0;
+    }
+
+    uint32_t max_depth = log2_ceil(leafes);
+    gindex             = ssz_add_gindex(gindex, (((gindex_t) 1) << max_depth) + idx);
+  }
+
+  va_end(args);
+  return gindex;
+}
+
+static int gindex_indexOf(buffer_t* index_list, gindex_t index) {
+  int       len              = index_list->data.len / sizeof(gindex_t);
+  gindex_t* index_list_array = (gindex_t*) index_list->data.data;
+  for (int i = 0; i < len; i++) {
+    if (index_list_array[i] == index) return i;
+  }
+  return -1;
+}
+
+static void gindex_add(buffer_t* index_list, gindex_t index) {
+  int       len              = index_list->data.len / sizeof(gindex_t);
+  gindex_t* index_list_array = (gindex_t*) index_list->data.data;
+  for (int i = 0; i < len; i++) {
+    if (index_list_array[i] < index) {
+      buffer_splice(index_list, i * sizeof(gindex_t), 0, bytes((uint8_t*) &index, sizeof(gindex_t)));
+      return;
+    }
+    if (index_list_array[i] == index) return;
+  }
+
+  buffer_append(index_list, bytes((uint8_t*) &index, sizeof(gindex_t)));
+}
+
+static void gindex_del(buffer_t* index_list, gindex_t index) {
+  int       len              = index_list->data.len / sizeof(gindex_t);
+  gindex_t* index_list_array = (gindex_t*) index_list->data.data;
+  for (int i = 0; i < len; i++) {
+    if (index_list_array[i] == index) {
+      buffer_splice(index_list, i * sizeof(gindex_t), sizeof(gindex_t), NULL_BYTES);
+      return;
+    }
+  }
+}
+
+static void ssz_add_multi_merkle_proof(gindex_t gindex, buffer_t* witnesses, buffer_t* calculated) {
+  if (gindex == 1) return;
+  while (gindex > 1) {
+    gindex_del(witnesses, gindex);
+    gindex_add(calculated, gindex);
+    gindex_t witness = (gindex & 1) ? gindex - 1 : gindex + 1;
+    if (gindex_indexOf(calculated, witness) != -1 || gindex_indexOf(witnesses, witness) != -1) break;
+    gindex_add(witnesses, witness);
+    gindex = gindex >> 1;
+  }
 }
 
 // gets the value of a field from a container
@@ -106,7 +197,7 @@ static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
   return res;
 }
 
-ssz_ob_t ssz_get(ssz_ob_t* ob, char* name) {
+ssz_ob_t ssz_get(ssz_ob_t* ob, const char* name) {
   if (ob->def->type != SSZ_TYPE_CONTAINER) return (ssz_ob_t) {0};
   for (int i = 0; i < ob->def->def.container.len; i++) {
     if (strcmp(ob->def->def.container.elements[i].name, name) == 0) return ssz_get_field(ob, i);
@@ -183,9 +274,9 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
       if (index < chunks) {
         uint32_t rest = ob.bytes.len - (index << 5);
         memcpy(out, ob.bytes.data + (index << 5), rest > 32 ? 32 : rest);
-        if (index == chunks - 1) {
+        if (index == chunks - 1 && bit_len % 8) {
           bit_len = bit_len % 256; // bits in the last chunk
-          out[bit_len >> 3] &= ~(1 << bit_len % 8);
+          out[bit_len >> 3] &= 0xff >> (8 - (bit_len % 8));
         }
       }
       return;
@@ -224,46 +315,46 @@ static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
   uint8_t temp[64];
 
   // how many leafes do we have from depth?
-  int subtree_depth = ctx->max_depth - depth;
-  int subtree_size  = 1 << subtree_depth;
-  int gindex        = (1 << depth) + index; // current gindex
-                                            //  char pre[100];
-                                            // sprintf(pre, "## %d   (%d) :", gindex, ctx->proof_gindex);
+  int      subtree_depth = ctx->max_depth - depth;
+  gindex_t gindex        = (((gindex_t) 1) << depth) + index; // global gindex
 
   if (subtree_depth == 0) {
-    set_leaf(ctx->ob, index, out, ctx->proof_gindex == gindex ? ctx : NULL);
-    //    print_hex(stdout, bytes(out, 32), pre, "\n");
-
-    //    if (ctx->proof && ctx->proof_gindex && (ctx->proof_gindex % 2 ? ctx->proof_gindex - 1 : ctx->proof_gindex + 1) == gindex)
-    //      buffer_append(ctx->proof->proof, bytes(out, 32));
-
-    return;
+    if (ctx->proof) ctx->last_gindex = ssz_add_gindex(ctx->root_gindex, gindex); // global gindex
+    set_leaf(ctx->ob, index, out, ctx);
   }
+  else {
 
 #ifdef PRECOMPILE_ZERO_HASHES
 
-  int gindex_subtree_left_leaf = gindex << subtree_depth;                          // gindex of first leaf of the current subtree
-  int gindex_last_used_leaf    = (1 << ctx->max_depth) + ctx->num_used_leafes - 1; // gindex of last leaf of the used leafes
-  if (gindex_last_used_leaf < gindex_subtree_left_leaf && subtree_depth < MAX_DEPTH) {
-    cached_zero_hash(subtree_depth - 1, out);
-    //    if (ctx->proof && ctx->proof_gindex && ctx->proof_gindex >> subtree_depth == gindex) {
-    //      cached_zero_hash(subtree_depth - 2, temp);
-    //      buffer_append(ctx->proof->proof, bytes(temp, 32));
-    //    }
-    return;
-  }
+    int gindex_subtree_left_leaf = gindex << subtree_depth;                          // gindex of first leaf of the current subtree
+    int gindex_last_used_leaf    = (1 << ctx->max_depth) + ctx->num_used_leafes - 1; // gindex of last leaf of the used leafes
+    if (gindex_last_used_leaf < gindex_subtree_left_leaf && subtree_depth < MAX_DEPTH)
+      cached_zero_hash(subtree_depth - 1, out);
+    else {
 #endif
 
-  merkle_hash(ctx, index << 1, depth + 1, temp);
-  merkle_hash(ctx, (index << 1) + 1, depth + 1, temp + 32);
-  if (ctx->proof && ctx->proof_gindex && ctx->proof_gindex >> subtree_depth == gindex) {
-    if ((ctx->proof_gindex >> (subtree_depth - 1)) % 2)
-      buffer_append(ctx->proof->proof, bytes(temp, 32));
-    else
-      buffer_append(ctx->proof->proof, bytes(temp + 32, 32));
+      merkle_hash(ctx, index << 1, depth + 1, temp);
+      merkle_hash(ctx, (index << 1) + 1, depth + 1, temp + 32);
+
+      sha256(bytes(temp, 64), out);
+#ifdef PRECOMPILE_ZERO_HASHES
+    }
+#endif
   }
-  sha256(bytes(temp, 64), out);
-  //    print_hex(stdout, bytes(out, 32), pre, "\n");
+
+  if (ctx->proof) {
+    gindex  = ssz_add_gindex(ctx->root_gindex, gindex); // global gindex
+    int pos = gindex_indexOf(ctx->proof->witnesses, gindex);
+    log_debug_full("gindex: %l (i: %d  d:%d  r:%l) %s %x",
+                   gindex, index, depth, ctx->root_gindex, pos >= 0 ? "X" : " ", bytes(out, 32));
+    //    fprintf(stderr, "gindex: %llu (i: %d  d:%d  r:%llu) %s", gindex, index, depth, ctx->root_gindex, pos >= 0 ? "X" : " ");
+    //    print_hex(stderr, bytes(out, 32), " : ", "\n");
+    if (pos >= 0) {
+      buffer_grow(ctx->proof->proof, (ctx->proof->witnesses->data.len / sizeof(gindex_t)) * 32);
+      ctx->proof->proof->data.len = ctx->proof->witnesses->data.len / sizeof(gindex_t) * 32;
+      memcpy(ctx->proof->proof->data.data + pos * 32, out, 32);
+    }
+  }
 }
 
 static inline void calc_leafes(merkle_ctx_t* ctx, ssz_ob_t ob) {
@@ -277,35 +368,29 @@ static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent) {
   memset(out, 0, 32);
   if (!ob.def) return;
   merkle_ctx_t ctx = {0};
+  ctx.root_gindex  = 1;
   calc_leafes(&ctx, ob);
-
-  // if proof is not null, we are in the proof generation phase
-  if (parent && parent->proof && parent->proof->path_len && ob.def->type == SSZ_TYPE_CONTAINER) {
-    int index = -1;
-    for (int i = 0; i < ob.def->def.container.len; i++) {
-      if (strcmp(ob.def->def.container.elements[i].name, parent->proof->path[0]) == 0) {
-        index = i;
-        break;
-      }
-    }
-    if (index >= 0) {
-      ctx.proof_gindex = (1 << ctx.max_depth) + index;
-      parent->proof->path++;
-      parent->proof->path_len--;
-      ctx.proof               = parent->proof;
-      ctx.proof->proof_gindex = ctx.proof->proof_gindex ? ssz_add_gindex(ctx.proof->proof_gindex, ctx.proof_gindex) : ctx.proof_gindex;
-    }
+  if (parent) {
+    ctx.proof       = parent->proof;
+    ctx.root_gindex = ob.def->type == SSZ_TYPE_LIST ? parent->last_gindex * 2 : parent->last_gindex;
   }
+
   if (ctx.num_leafes == 1)
     set_leaf(ob, 0, out, NULL);
   else
     merkle_hash(&ctx, 0, 0, out);
 
-  // mix_in_length
+  // mix_in_length s
   if (ob.def->type == SSZ_TYPE_LIST || ob.def->type == SSZ_TYPE_BIT_LIST) {
     uint8_t length[32] = {0};
     uint64_to_le(length, (uint64_t) ssz_len(ob));
     sha256_merkle(bytes(out, 32), bytes(length, 32), out);
+
+    if (ctx.proof) {
+      int pos = gindex_indexOf(ctx.proof->witnesses, ctx.root_gindex + 1);
+      if (pos >= 0)
+        memcpy(ctx.proof->proof->data.data + pos * 32, length, 32);
+    }
   }
 }
 
@@ -313,76 +398,160 @@ void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
   hash_tree_root(ob, out, NULL);
 }
 
-bool ssz_create_proof(ssz_ob_t root, char** path, uint32_t path_len, buffer_t* proof, uint32_t* gindex) {
-  bytes32_t          tmp;
+bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, bytes32_t root_hash, gindex_t* gindex, int gindex_len) {
+
+  buffer_t witnesses  = {0};
+  buffer_t calculated = {0};
+  buffer_t proof      = {0};
+
+  for (int i = 0; i < gindex_len; i++)
+    ssz_add_multi_merkle_proof(gindex[i], &witnesses, &calculated);
+
+  buffer_free(&calculated);
+
   merkle_proot_ctx_t proof_ctx = {
-      .path         = path,
-      .path_len     = path_len,
-      .proof_gindex = 0,
-      .proof        = proof};
+      .proof     = &proof,
+      .witnesses = &witnesses,
+  };
 
   merkle_ctx_t ctx = {0};
   ctx.proof        = &proof_ctx;
+  ctx.root_gindex  = 1;
+  ctx.last_gindex  = 1;
 
-  hash_tree_root(root, tmp, &ctx);
+  hash_tree_root(root, root_hash, &ctx);
 
-  *gindex = proof_ctx.proof_gindex;
+  buffer_free(&witnesses);
+  return proof.data;
+}
+
+bytes_t ssz_create_multi_proof(ssz_ob_t root, bytes32_t root_hash, int gindex_len, ...) {
+
+  gindex_t* gindex = malloc(gindex_len * sizeof(gindex_t));
+  va_list   args;
+  va_start(args, gindex_len);
+  for (int i = 0; i < gindex_len; i++)
+    gindex[i] = va_arg(args, gindex_t);
+  va_end(args);
+
+  bytes_t proof = ssz_create_multi_proof_for_gindexes(root, root_hash, gindex, gindex_len);
+  free(gindex);
+  return proof;
+}
+
+bytes_t ssz_create_proof(ssz_ob_t root, bytes32_t root_hash, gindex_t gindex) {
+  return ssz_create_multi_proof(root, root_hash, 1, gindex);
+}
+
+typedef struct {
+  bytes_t   witnesses_data;
+  gindex_t* witnesses_gindex;
+  uint32_t  witnesses_len;
+
+  bytes_t   leafes_data;
+  gindex_t* leafes_gindex;
+  uint32_t  leafes_len;
+} merkle_proof_data_t;
+
+static bytes_t merkle_get_data(merkle_proof_data_t* proof, gindex_t idx) {
+  for (uint32_t i = 0; i < proof->leafes_len; i++) {
+    if (proof->leafes_gindex[i] == idx)
+      return bytes_slice(proof->leafes_data, i * BYTES_PER_CHUNK, BYTES_PER_CHUNK);
+  }
+  for (uint32_t i = 0; i < proof->witnesses_len; i++) {
+    if (proof->witnesses_gindex[i] == idx)
+      return bytes_slice(proof->witnesses_data, i * BYTES_PER_CHUNK, BYTES_PER_CHUNK);
+  }
+  return NULL_BYTES;
+}
+
+static bool merkle_proof(merkle_proof_data_t* proof, gindex_t start, gindex_t end, bytes32_t out) {
+  bytes32_t tmp        = {0};
+  bytes_t   start_data = merkle_get_data(proof, start);
+  if (start_data.len != 32) return false;
+  memcpy(out, start_data.data, 32);
+
+  while (start > end) {
+    log_debug_full("%l: %x", start, bytes(out, 32));
+
+    /*
+    fprintf(stderr, "s: %llu ", start);
+    print_hex(stderr, bytes(out, 32), " : ", "\n");
+    */
+    gindex_t witness      = start & 1 ? start - 1 : start + 1;
+    bytes_t  witness_data = merkle_get_data(proof, witness);
+    if (witness_data.data == NULL) {
+      // how do we find the start for calculating this witness?
+      for (int i = 0; i < proof->leafes_len && witness_data.data == NULL; i++) {
+        gindex_t path = proof->leafes_gindex[i];
+        for (; path > 1; path >>= 1) {
+          if (path == witness && merkle_proof(proof, proof->leafes_gindex[i], witness, tmp)) {
+            witness_data = bytes(tmp, 32);
+            break;
+          }
+        }
+      }
+      if (witness_data.data == NULL) return false;
+    }
+    if (start & 1)
+      sha256_merkle(witness_data, bytes(out, 32), out);
+    else
+      sha256_merkle(bytes(out, 32), witness_data, out);
+    start >>= 1;
+  }
   return true;
 }
 
-static uint32_t get_depth(uint32_t gindex) {
-  uint32_t depth = 0;
-  while (gindex > 1) {
-    gindex = gindex >> 1;
-    depth++;
+bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out) {
+  buffer_t witnesses_gindex  = {0};
+  buffer_t calculated_gindex = {0};
+  for (uint32_t i = 0; i < leafes.len / 32; i++)
+    ssz_add_multi_merkle_proof(gindex[i], &witnesses_gindex, &calculated_gindex);
+  /*
+  fprintf(stderr, "_______\nwitnesses_gindex:\n");
+  for (uint32_t i = 0; i < witnesses_gindex.data.len / sizeof(gindex_t); i++) {
+    fprintf(stderr, "witness gindex: %llu\n", ((gindex_t*) witnesses_gindex.data.data)[i]);
   }
-  return depth;
+
+  fprintf(stderr, "_______\ncalculated_gindex:\n");
+  for (uint32_t i = 0; i < calculated_gindex.data.len / sizeof(gindex_t); i++) {
+    fprintf(stderr, "path gindex: %llu\n", ((gindex_t*) calculated_gindex.data.data)[i]);
+  }
+  fprintf(stderr, "_______\nvalues:\n");
+  */
+
+  buffer_free(&calculated_gindex);
+
+  merkle_proof_data_t data = {
+      .leafes_gindex    = gindex,
+      .leafes_data      = leafes,
+      .leafes_len       = leafes.len / 32,
+      .witnesses_data   = proof_data,
+      .witnesses_gindex = (gindex_t*) witnesses_gindex.data.data,
+      .witnesses_len    = witnesses_gindex.data.len / sizeof(gindex_t),
+  };
+
+  if (data.witnesses_len != proof_data.len / 32) {
+    buffer_free(&witnesses_gindex);
+    return false;
+  }
+
+  // find the highest gindex since we want to start with that.
+  gindex_t start = 0;
+  for (uint32_t i = 0; i < data.leafes_len; i++) {
+    if (data.leafes_gindex[i] > start) start = data.leafes_gindex[i];
+  }
+
+  bool result = merkle_proof(&data, start, 1, out);
+  buffer_free(&witnesses_gindex);
+  return result;
 }
 
-uint32_t ssz_get_gindex(ssz_ob_t* ob, const char* name) {
-  uint32_t num_leafes = calc_num_leafes(ob, false);
-  uint32_t index      = 0xffffffff;
-  for (int i = 0; i < ob->def->def.container.len; i++) {
-    if (strcmp(ob->def->def.container.elements[i].name, name) == 0) {
-      index = i;
-      break;
-    }
-  }
-  if (index == 0xffffffff) return 0;
-  uint32_t depth = 0;
-  while (num_leafes > 1) {
-    num_leafes = num_leafes >> 1;
-    depth++;
-  }
-  return index + (1 << depth);
+void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t gindex, bytes32_t out) {
+  ssz_verify_multi_merkle_proof(proof_data, bytes(leaf, 32), &gindex, out);
 }
 
-void ssz_verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out) {
-  memset(out, 0, 32);
-  uint32_t depth = get_depth(gindex);
-  uint32_t index = gindex % (1 << depth);
-
-  // check potential extra data to make sure they are all zero
-  if (proof_data.len >> 5 > depth) {
-    uint32_t num_extra = (proof_data.len >> 5) - depth;
-    for (uint32_t i = 0; i < num_extra; i++) {
-      if (!bytes_all_zero(proof_data)) return;
-    }
-  }
-
-  if ((proof_data.len >> 5) < depth) return;
-
-  memcpy(out, leaf, 32);
-
-  for (uint32_t i = 0; i < depth; i++) {
-    if ((index / (1 << i)) % 2 == 1)
-      sha256_merkle(bytes_slice(proof_data, (i << 5), 32), bytes(out, 32), out);
-    else
-      sha256_merkle(bytes(out, 32), bytes_slice(proof_data, (i << 5), 32), out);
-  }
-}
-
-uint32_t ssz_add_gindex(uint32_t gindex1, uint32_t gindex2) {
-  uint32_t depth = get_depth(gindex1) + 1;
+gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2) {
+  uint32_t depth = log2_ceil((uint32_t) gindex2 + 1) - 1;
   return (gindex1 << depth) | (gindex2 & ((1 << depth) - 1));
 }

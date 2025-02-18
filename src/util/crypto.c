@@ -1,9 +1,11 @@
 #include "crypto.h"
 #include "../../libs/blst/blst.h"
 #include "bytes.h"
+#include "secp256k1.h"
 #include "sha2.h"
 #include "sha3.h"
 #include <stdlib.h> // For malloc and free
+#include <string.h>
 
 void sha256(bytes_t data, uint8_t* out) {
   SHA256_CTX ctx;
@@ -29,19 +31,25 @@ void sha256_merkle(bytes_t data1, bytes_t data2, uint8_t* out) {
 
 static const uint8_t blst_dst[]   = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 static const size_t  blst_dst_len = sizeof(blst_dst) - 1;
-
+#ifdef BLS_DESERIALIZE
+bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys) {
+  blst_p1_affine* pubkeys = (blst_p1_affine*) malloc(num_public_keys * sizeof(blst_p1_affine));
+  for (int i = 0; i < num_public_keys; i++) {
+    if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * 48) != BLST_SUCCESS) {
+      free(pubkeys);
+      return NULL_BYTES;
+    }
+  }
+  return bytes((uint8_t*) pubkeys, num_public_keys * sizeof(blst_p1_affine));
+}
+#endif
 bool blst_verify(bytes32_t       message_hash,    /**< 32 bytes hashed message */
                  bls_signature_t signature,       /**< 96 bytes signature */
                  uint8_t*        public_keys,     /**< 48 bytes public key array */
                  int             num_public_keys, /**< number of public keys */
-                 bytes_t         pubkeys_used) {          /**< num_public_keys.len = num_public_keys/8 and indicates with the bits set which of the public keys are part of the signature */
-
-  /*
-    print_hex(stdout, bytes(message_hash, 32), "message_hash:", "\n");
-    print_hex(stdout, bytes(signature, 96), "signature:", "\n");
-    print_hex(stdout, bytes(public_keys, 48 * 2), "public_keys:", "\n");
-    print_hex(stdout, pubkeys_used, "pubkeys_used:", "\n");
-  */
+                 bytes_t         pubkeys_used,
+                 bool            deserialized // if true the publickeys are already deserialized (96 bytes(p1_affine))
+) {                                           /**< num_public_keys.len = num_public_keys/8 and indicates with the bits set which of the public keys are part of the signature */
 
   if (pubkeys_used.len != num_public_keys / 8) return false;
 
@@ -53,7 +61,10 @@ bool blst_verify(bytes32_t       message_hash,    /**< 32 bytes hashed message *
   for (int i = 0; i < num_public_keys; i++) {
     if (pubkeys_used.data[i / 8] & (1 << (i % 8))) {
       blst_p1_affine pubkey_affine;
-      if (blst_p1_deserialize(&pubkey_affine, public_keys + i * 48) != BLST_SUCCESS) return false;
+      if (deserialized)
+        pubkey_affine = ((blst_p1_affine*) public_keys)[i];
+      else if (blst_p1_deserialize(&pubkey_affine, public_keys + i * 48) != BLST_SUCCESS)
+        return false;
 
       if (first_key) {
         blst_p1_from_affine(&pubkey_sum, &pubkey_affine);
@@ -82,4 +93,13 @@ bool blst_verify(bytes32_t       message_hash,    /**< 32 bytes hashed message *
   // cleanup
   free(ctx);
   return result;
+}
+
+bool secp256k1_recover(const bytes32_t digest, bytes_t signature, uint8_t* pubkey) {
+  uint8_t pub[65] = {0};
+  if (ecdsa_recover_pub_from_sig(&secp256k1, pub, signature.data, digest, signature.data[64] % 27))
+    return false;
+  else
+    memcpy(pubkey, pub + 1, 64);
+  return true;
 }

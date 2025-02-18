@@ -107,10 +107,12 @@ function getTypename(type, args) {
 
 function align(lines, divider = ' # ') {
     lines = lines.join('\n').split('\n')
+    let p = lines.findIndex(line => line.startsWith('```python'))
 
-    const pos = lines.reduce((max, line) => Math.max(line.lastIndexOf(divider), max), 0)
+    const pos = lines.slice(p + 1).reduce((max, line) => Math.max(line.lastIndexOf(divider), max), 0)
     if (pos == 0) return lines
-    return lines.map(line => {
+    return lines.map((line, i) => {
+        if (i < p) return line
         const splits = line.split(divider)
         if (splits.length > 1)
             return splits[0].padEnd(pos) + divider + splits[1]

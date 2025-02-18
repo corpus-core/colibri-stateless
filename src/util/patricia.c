@@ -10,7 +10,7 @@
 #define NODE_LEAF      2
 #define NODE_EXTENSION 3
 
-int patricia_match_nibbles(uint8_t* a, uint8_t* b) {
+static int patricia_match_nibbles(uint8_t* a, uint8_t* b) {
   for (int i = 0;; i++) {
     if (a[i] == 0xff || b[i] == 0xff || a[i] != b[i]) return i;
   }
@@ -23,7 +23,7 @@ static int count_nibbles(uint8_t* a) {
   }
 }
 
-uint8_t* patricia_to_nibbles(bytes_t p, bool prefix) {
+static uint8_t* patricia_to_nibbles(bytes_t p, bool prefix) {
   size_t   count   = 0;
   uint8_t* nibbles = malloc(1 + (p.len << 1));
   for (size_t i = 0; i < p.len; i++) {

@@ -3,9 +3,15 @@ project(c4)
 option(SHAREDLIB "if true the shared library will be build" OFF)
 option(TEST "if true the test will be build" OFF)
 option(COVERAGE "if true the coverage will be build" OFF)
+option(WASM "if true the wasm will be build" OFF)
+option(BLS_DESERIALIZE "if true bls keys will be stored deserialized, which increases the state per sync committee period from 25kB to 50kB, but make verification 5x faster" ON)
 
 if(CURL)
     add_definitions(-DUSE_CURL)
+endif()
+
+if(BLS_DESERIALIZE)
+    add_definitions(-DBLS_DESERIALIZE)
 endif()
 
 
@@ -64,13 +70,21 @@ if(TEST)
 endif()
 
 # Define a custom target named 'doc'
-add_custom_target(doc ALL
+add_custom_target(doc 
     COMMAND ${CMAKE_COMMAND} -E echo "Generating documentation..."
     COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/update_doc.js
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/scripts
     COMMENT "Running update_doc.js to generate documentation"
 )
 
+add_custom_target(valgrind
+    COMMAND ${CMAKE_COMMAND} -E echo "Generating valgrind image..."
+    COMMAND ${CMAKE_COMMAND} -E env bash -c "docker build -f test/valgrind/Dockerfile --platform=linux/amd64 -t c4_valgrind ."
+    COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run --rm --platform=linux/amd64 c4_valgrind"
+#    COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run --rm --platform=linux/amd64 -v ${CMAKE_BINARY_DIR}/out:/out c4_valgrind"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Generating the valgrind image"
+)
 
 if(SHAREDLIB)
     # Erstelle die Shared Library und verlinke die statischen Bibliotheken
@@ -82,3 +96,8 @@ if(SHAREDLIB)
         SOVERSION 1
     )
 endif()
+
+if(WASM)
+    add_subdirectory(bindings/emscripten)
+endif()
+

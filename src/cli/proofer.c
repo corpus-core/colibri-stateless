@@ -5,141 +5,94 @@
 #include "../util/bytes.h"
 #include "../util/crypto.h"
 #include "../util/json.h"
-#include "../util/request.h"
 #include "../util/ssz.h"
+#include "../util/state.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef TEST
-#include <sys/stat.h>
-#include <sys/types.h>
-#ifdef _WIN32
-#include <direct.h>
-#define MKDIR(path) _mkdir(path)
-#else
-#include <unistd.h>
-#define MKDIR(path) mkdir(path, 0755)
-#endif
-
-static char* REQ_TEST_DIR = NULL;
-
-static void set_req_test_dir(const char* dir) {
-  char* path = malloc(strlen(dir) + strlen(TESTDATA_DIR) + 5);
-  sprintf(path, "%s/%s", TESTDATA_DIR, dir);
-  REQ_TEST_DIR = path;
-
-  if (MKDIR(path) != 0) {
-    perror("Error creating directory");
-  }
-}
-
-static void test_write_file(const char* filename, bytes_t data) {
-  if (!REQ_TEST_DIR) return;
-  char* path = malloc(strlen(REQ_TEST_DIR) + strlen(filename) + 5);
-  sprintf(path, "%s/%s", REQ_TEST_DIR, filename);
-  bytes_write(data, fopen(path, "w"), true);
-  free(path);
-}
-
-#endif
-
-static char* read_from_stdin() {
-  unsigned char buffer[1024];
-  size_t        bytesRead;
-  buffer_t      data = {0};
-
-  while ((bytesRead = fread(buffer, 1, 1024, stdin)) > 0)
-    buffer_append(&data, bytes(buffer, bytesRead));
-
-  buffer_append(&data, bytes(NULL, 1));
-
-  return (char*) data.data.data;
-}
-
-static char* read_from_file(const char* filename) {
-  if (strcmp(filename, "-") == 0)
-    return read_from_stdin();
-
-  unsigned char buffer[1024];
-  size_t        bytesRead;
-  buffer_t      data = {0};
-
-  FILE* file = fopen(filename, "rb");
-  if (file == NULL) {
-    fprintf(stderr, "Error opening file: %s\n", filename);
-    exit(EXIT_FAILURE);
-  }
-
-  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
-    buffer_append(&data, bytes(buffer, bytesRead));
-
-  fclose(file);
-
-  buffer_append(&data, bytes(NULL, 1));
-  return (char*) data.data.data;
-}
-
 int main(int argc, char* argv[]) {
   if (argc < 2) {
-    fprintf(stderr, "Usage: proof <method> <params>\n");
+    fprintf(stderr, "Usage: %s [options] <method> <params> > proof.ssz\n"
+                    "\n"
+                    "  -c <chain_id>   : selected chain (default MAINNET = 1)\n"
+                    "  -t <testname>   : generates test files in test/data/<testname>\n"
+                    "  -x <cachedir>   : caches all reguests in the cache directory\n"
+                    "  -o <outputfile> : ssz file with the proof ( default to stdout )\n"
+                    "\n",
+            argv[0]);
     exit(EXIT_FAILURE);
   }
 
-  char*    method = NULL;
-  buffer_t buffer = {0};
+  char*      method     = NULL;
+  buffer_t   buffer     = {0};
+  char*      outputfile = NULL;
+  chain_id_t chain_id   = C4_CHAIN_MAINNET;
   buffer_add_chars(&buffer, "[");
 
   for (int i = 1; i < argc; i++) {
-    if (method == NULL) {
-      method = argv[i];
-    }
+    if (*argv[i] == '-') {
+      for (char* c = argv[i] + 1; *c; c++) {
+        switch (*c) {
+          case 'c':
+            chain_id = atoi(argv[++i]);
+            break;
+          case 'o':
+            outputfile = argv[++i];
+            break;
 #ifdef TEST
-    else if (strcmp(argv[i], "-t") == 0) {
-      set_req_test_dir(argv[++i]);
-    }
+#ifdef USE_CURL
+          case 't':
+            curl_set_test_dir(argv[++i]);
+            break;
+          case 'x':
+            curl_set_cache_dir(argv[++i]);
+            break;
 #endif
+#endif
+          default:
+            fprintf(stderr, "Unknown option: %c\n", *c);
+            exit(EXIT_FAILURE);
+        }
+      }
+    }
+    else if (method == NULL)
+      method = argv[i];
     else {
       if (buffer.data.len > 1) buffer_add_chars(&buffer, ",");
-      buffer_add_chars(&buffer, "\"");
-      buffer_add_chars(&buffer, argv[i]);
-      buffer_add_chars(&buffer, "\"");
+      if (argv[i][0] == '{' || argv[i][0] == '[' || strcmp(argv[i], "true") == 0 || strcmp(argv[i], "false") == 0)
+        buffer_add_chars(&buffer, argv[i]);
+      else
+        bprintf(&buffer, "\"%s\"", argv[i]);
     }
   }
   buffer_add_chars(&buffer, "]");
 
-  proofer_ctx_t*  ctx = c4_proofer_create(method, (char*) buffer.data.data);
+  proofer_ctx_t*  ctx = c4_proofer_create(method, (char*) buffer.data.data, chain_id);
   data_request_t* req;
   while (true) {
     switch (c4_proofer_execute(ctx)) {
-      case C4_PROOFER_WAITING:
-        while ((req = c4_proofer_get_pending_data_request(ctx))) {
+      case C4_SUCCESS:
+        if (outputfile)
+          bytes_write(ctx->proof, fopen(outputfile, "wb"), true);
+        else
+          fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
+        fflush(stdout);
+        exit(EXIT_SUCCESS);
+
+      case C4_ERROR:
+        fprintf(stderr, "Failed: %s\n", ctx->state.error);
+        exit(EXIT_FAILURE);
+
+      case C4_PENDING:
+        while ((req = c4_state_get_pending_request(&ctx->state))) {
 #ifdef USE_CURL
           curl_fetch(req);
-#ifdef TEST
-          if (req->response.data && REQ_TEST_DIR) {
-            char test_filename[1024];
-            sprintf(test_filename, "%llx.%s", *((unsigned long long*) req->id), req->type == C4_DATA_TYPE_BEACON_API ? "ssz" : "json");
-            test_write_file(test_filename, req->response);
-          }
-#endif
 #else
           fprintf(stderr, "CURL not enabled\n");
           exit(EXIT_FAILURE);
 #endif
         }
-        break;
-
-      case C4_PROOFER_ERROR:
-        fprintf(stderr, "Error: %s\n", ctx->error);
-        exit(EXIT_FAILURE);
-
-      case C4_PROOFER_SUCCESS:
-        fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
-        fflush(stdout);
-        exit(EXIT_SUCCESS);
-
-      case C4_PROOFER_PENDING:
         break;
     }
   }
