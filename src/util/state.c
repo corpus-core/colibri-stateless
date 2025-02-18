@@ -83,6 +83,9 @@ char* c4_req_mockname(data_request_t* req) {
       case '&':
       case '[':
       case ']':
+      case '"':
+      case '{':
+      case '}':
         buf.data.data[i] = '_';
         break;
       default:
