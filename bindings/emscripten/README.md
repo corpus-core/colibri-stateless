@@ -20,15 +20,21 @@ npm install @corpus-core/colibri-stateless
 ```js
 import Colibri from "@corpus-core/colibri-stateless";
 
-const client = new Colibri();
 
 async function main() {
     const method = "eth_getTransactionByHash";
     const args = ['0x2af8e0202a3d4887781b4da03e6238f49f3a176835bc8c98525768d43af4aa24'];
 
 
-    const proof = await c4w.createProof(method, args);
-    const result = await c4w.verifyProof(method, args, proof);
+    // Initialize the client with the default configuration and RPCs
+    const client = new Colibri();
+
+    // Create a proof for the given method and arguments as UInt8Array
+    const proof = await client.createProof(method, args);
+
+    // Verify the proof against requested method and arguments
+    const result = await client.verifyProof(method, args, proof);
+
     console.log(result);
 }
 
