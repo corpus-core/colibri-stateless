@@ -118,7 +118,7 @@ static const char* check_hex(json_t val, int len, bool isuint, const char* error
   }
 
   if (len > 0 && (l % 2 || l / 2 != len)) ERROR("%sExpected hex string with fixed size (%d) but got %d bytes", error_prefix, len, l / 2);
-  if (isuint && l == 0 || val.start[3] == '0') ERROR("%sno leading zeros allowed for uint", error_prefix);
+  if (isuint && (l == 0 || (val.start[3] == '0' && l > 1))) ERROR("%sno leading zeros allowed for uint", error_prefix);
   return NULL;
 }
 
