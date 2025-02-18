@@ -81,7 +81,7 @@ add_custom_target(valgrind
     COMMAND ${CMAKE_COMMAND} -E echo "Generating valgrind image..."
     COMMAND ${CMAKE_COMMAND} -E env bash -c "docker build -f test/valgrind/Dockerfile --platform=linux/amd64 -t c4_valgrind ."
     COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run --rm --platform=linux/amd64 c4_valgrind"
-#    COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run --rm --platform=linux/amd64 -v ${CMAKE_BINARY_DIR}:/out c4_valgrind"
+#    COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run --rm --platform=linux/amd64 -v ${CMAKE_BINARY_DIR}/out:/out c4_valgrind"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Generating the valgrind image"
 )
