@@ -230,6 +230,44 @@ bool c4_tx_verify_tx_hash(verify_ctx_t* ctx, bytes_t raw) {
   RETURN_VERIFY_ERROR(ctx, "invalid method for tx proof!");
 }
 
+static bool matches(ssz_ob_t log, bytes_t logs) {
+  bytes_t val = {0};
+  if (rlp_decode(&logs, 0, &val) != RLP_ITEM || !bytes_eq(val, ssz_get(&log, "address").bytes)) return false;
+  if (rlp_decode(&logs, 2, &val) != RLP_ITEM || !bytes_eq(val, ssz_get(&log, "data").bytes)) return false;
+
+  log = ssz_get(&log, "topics");
+  if (rlp_decode(&logs, 1, &logs) != RLP_LIST) return false;
+  if (ssz_len(log) != rlp_decode(&logs, -1, &logs)) return false;
+  for (uint32_t topic_index = 0; topic_index < ssz_len(log); topic_index++) {
+    if (rlp_decode(&logs, topic_index, &val) != RLP_ITEM || !bytes_eq(val, ssz_at(log, topic_index).bytes)) return false;
+  }
+
+  return true;
+}
+
+bool c4_tx_verify_log_data(verify_ctx_t* ctx, ssz_ob_t log, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw) {
+  bytes32_t tx_hash = {0};
+  bytes_t   val     = {0};
+  bytes_t   logs    = {0};
+  tx_type_t type    = 0;
+  uint32_t  log_idx = ssz_get_uint32(&log, "logIndex");
+  keccak(tx_raw, tx_hash);
+  if (!bytes_eq(bytes(tx_hash, 32), ssz_get(&log, "transactionHash").bytes)) RETURN_VERIFY_ERROR(ctx, "invalid transaction hash!");
+  if (block_number != ssz_get_uint64(&log, "blockNumber")) RETURN_VERIFY_ERROR(ctx, "invalid block number!");
+  if (!bytes_eq(ssz_get(&log, "blockHash").bytes, bytes(block_hash, 32))) RETURN_VERIFY_ERROR(ctx, "invalid block hash!");
+  if (tx_index != ssz_get_uint32(&log, "transactionIndex")) RETURN_VERIFY_ERROR(ctx, "invalid transaction index!");
+  if (!get_and_remove_tx_type(ctx, &receipt_raw, &type)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, invalid type!");
+  if (rlp_decode(&receipt_raw, 0, &receipt_raw) != RLP_LIST || rlp_decode(&receipt_raw, 3, &logs) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid to data!");
+  uint32_t logs_len = rlp_decode(&logs, -1, &logs);
+
+  for (uint32_t i = 0; i < logs_len; i++) {
+    bytes_t log_rlp = {0};
+    rlp_decode(&logs, i, &log_rlp);
+    if (matches(log, log_rlp)) return true;
+  }
+  RETURN_VERIFY_ERROR(ctx, "missing the log within the tx");
+}
+
 bool c4_tx_verify_receipt_data(verify_ctx_t* ctx, ssz_ob_t receipt_data, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw) {
   bytes32_t tmp     = {0};
   tx_type_t type    = 0;

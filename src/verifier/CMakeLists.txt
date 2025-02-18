@@ -8,6 +8,7 @@ add_library(verifier STATIC
   verify_account_proof.c
   verify_tx_proof.c
   verify_receipt_proof.c
+  verify_logs_proof.c
   eth_tx.c
 )
 target_include_directories(verifier PRIVATE util)

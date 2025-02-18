@@ -74,6 +74,7 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   ssz_add_builders(&eth_account_proof, "state_proof", eth_state_proof);
 
   // build the data
+
   if (strcmp(ctx->method, "eth_getBalance") == 0) {
     union_selector = 1;
     json_as_bytes(json_get(eth_proof, "balance"), &tmp);

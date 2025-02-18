@@ -15,11 +15,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define GINDEX_RECEIPT_ROOT 803
-#define GINDEX_BLOCKUMBER   806
-#define GINDEX_BLOCHASH     812
-#define GINDEX_TXINDEX_G    1704984576L // gindex of the first tx
-
 static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof, bytes_t block_hash, bytes_t block_number, bytes_t raw, uint32_t tx_index, bytes32_t receipt_root, bytes32_t body_root) {
   uint8_t   leafes[4 * 32] = {0};                                                                                    // 3 leafes, 32 bytes each
   bytes32_t root_hash      = {0};                                                                                    // calculated body root hash

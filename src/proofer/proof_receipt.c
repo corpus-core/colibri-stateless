@@ -72,13 +72,13 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
   json_t         receipt        = {0};
   bytes32_t      body_root      = {0};
 
-  if (txhash.type != JSON_TYPE_STRING || txhash.len != 68 || txhash.start[1] != '0' || txhash.start[2] != 'x') THROW_ERROR("Invalid hash");
+  CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
 
   TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+  CHECK_JSON(txhash, "{transactionIndex:uint,blockNumber:uint}", "Invalid results for Tx: ");
 
   uint32_t tx_index     = json_get_uint32(tx_data, "transactionIndex");
   json_t   block_number = json_get(tx_data, "blockNumber");
-  if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') THROW_ERROR("Invalid block number");
 
   TRY_2_ASYNC(
       c4_beacon_get_block_for_eth(ctx, block_number, &block),
