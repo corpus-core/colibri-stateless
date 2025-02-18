@@ -157,6 +157,7 @@ bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def) {
     return ssz_is_type(&union_ob, def);
   }
   if (ob->def->type == SSZ_TYPE_CONTAINER) return ob->def->def.container.elements == def;
+  if (ob->def->type == SSZ_TYPE_LIST) return ob->def->def.vector.type == def;
   switch (def->type) {
     case SSZ_TYPE_UINT:
       return def->type == SSZ_TYPE_UINT && ob->def->def.uint.len == def->def.uint.len;

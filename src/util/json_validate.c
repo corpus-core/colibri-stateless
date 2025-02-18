@@ -97,7 +97,7 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
       if (prop_name.len == name_len && prop_name.data && memcmp(prop_name.data, name, name_len) == 0) {
         found           = true;
         const char* err = json_validate(val, item_def, error_prefix ? error_prefix : "");
-        if (err) ERROR("%s.%s%s%s", error_prefix, name, *err == '.' ? "" : ":", err);
+        if (err) ERROR("%s.%j%s%s", error_prefix, (json_t) {.type = JSON_TYPE_OBJECT, .start = name, .len = name_len}, *err == '.' ? "" : ":", err);
         break;
       }
     }

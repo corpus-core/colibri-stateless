@@ -2,6 +2,7 @@
 #include "../util/crypto.h"
 #include "../util/ssz.h"
 #include "../util/state.h"
+#include "../util/version.h"
 #include "../verifier/sync_committee.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
@@ -53,11 +54,12 @@ static bool get_client_updates(verify_ctx_t* ctx) {
     updates.data.len = 0;
     uint64_t length  = uint64_from_le(req.response.data + pos);
     buffer_grow(&updates, length + 100);
-    buffer_append(&updates, bytes(NULL, 15)); // 3 offsets + 3 union bytes
-    uint64_to_le(updates.data.data, 12);      // offset for data
-    uint64_to_le(updates.data.data + 4, 13);  // offset for proof
-    uint64_to_le(updates.data.data + 8, 14);  // offset for sync
-    updates.data.data[14] = 1;                // union type for lightclient updates
+    buffer_append(&updates, bytes(NULL, 19)); // 3 offsets + 3 union bytes +  4 version
+    memcpy(updates.data.data, c4_version_bytes, 4);
+    uint64_to_le(updates.data.data + 4, 16);  // offset for data
+    uint64_to_le(updates.data.data + 8, 17);  // offset for proof
+    uint64_to_le(updates.data.data + 12, 18); // offset for sync
+    updates.data.data[18] = 1;                // union type for lightclient updates
 
     ssz_builder_t builder = {0};
     builder.def           = (ssz_def_t*) (C4_REQUEST_SYNCDATA_UNION + 1); // union type for lightclient updates

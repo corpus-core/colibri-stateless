@@ -113,7 +113,7 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state);
   do {                                                       \
     const char* err = json_validate(val, def, error_prefix); \
     if (err) {                                               \
-      ctx->state.error = strdup(err);                        \
+      ctx->state.error = (char*) err;                        \
       return C4_ERROR;                                       \
     }                                                        \
   } while (0)
