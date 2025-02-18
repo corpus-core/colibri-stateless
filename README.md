@@ -1,6 +1,6 @@
 
 
-<img src="c4_logo.png" alt="C4 Logo" width="300"/>
+<img src="bindings/emscripten/c4_logo.png" alt="C4 Logo" width="300"/>
 
 # C4 (corpus core colibri client)
 

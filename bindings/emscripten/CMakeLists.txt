@@ -33,7 +33,10 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/bindings/emscripten/package.json
     ${EMSCRIPTEN_OUTPUT_DIR}/package.json
-    COMMENT "Copying package.json to output directory"
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/LICENSE
+    ${EMSCRIPTEN_OUTPUT_DIR}/LICENSE
+    COMMENT "Copying package.json, LICENSE, and c4_logo.png to output directory"
 )
 
 # Add a custom target to compile TypeScript
