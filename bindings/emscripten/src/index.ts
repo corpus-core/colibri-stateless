@@ -40,6 +40,7 @@ async function initialize_storage(conf: Config) {
 }
 
 async function handle_request(req: DataRequest, conf: Config) {
+    const free_buffers: number[] = [];
     const servers = req.type == "beacon_api" ? conf.beacon_apis : conf.rpcs;
     const c4w = await getC4w();
     let node_index = 0;
@@ -62,17 +63,16 @@ async function handle_request(req: DataRequest, conf: Config) {
             if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}, Details: ${await response.text()}`);
 
             const bytes = await response.blob().then(blob => blob.arrayBuffer());
-            const data_ptr = c4w._malloc(bytes.byteLength + 1);
-            c4w.HEAPU8.set(new Uint8Array(bytes), data_ptr);
-            c4w.HEAPU8[data_ptr + bytes.byteLength] = 0;
-            c4w._c4w_req_set_response(req.req_ptr, data_ptr, bytes.byteLength, node_index);
+            c4w._c4w_req_set_response(req.req_ptr,
+                copy_to_c(new Uint8Array(bytes), c4w), bytes.byteLength, node_index);
             return;
         } catch (e) {
             last_error = (e instanceof Error) ? e.message : String(e);
         }
         node_index++;
     }
-    c4w._c4w_req_set_error(req.req_ptr, last_error, 0);
+    c4w._c4w_req_set_error(req.req_ptr, as_char_ptr(last_error, c4w, free_buffers), 0);
+    free_buffers.forEach(ptr => c4w._free(ptr));
 }
 
 

@@ -5,7 +5,7 @@ export interface C4W {
     _c4w_execute_proof_ctx: (proofCtx: number) => number;
     _c4w_get_pending_data_request: (proofCtx: number) => number;
     _c4w_req_set_response: (reqPtr: number, data: number, len: number, node_index: number) => void;
-    _c4w_req_set_error: (reqPtr: number, error: string, node_index: number) => void;
+    _c4w_req_set_error: (reqPtr: number, error: number, node_index: number) => void;
     _c4w_verify_proof: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint) => number;
     _c4w_handle_client_updates: (update_ptr: number, chain_id: bigint) => boolean;
     _c4w_init_chain: (chain_id: bigint, trusted_block_hashes: number, requests: number) => number;
@@ -129,8 +129,9 @@ export function as_bytes(ptr: number, len: number, c4w: C4W, free_ptrs?: number[
 }
 
 export function copy_to_c(data: Uint8Array, c4w: C4W, free_ptrs?: number[]): number {
-    const ptr = c4w._malloc(data.length);
+    const ptr = c4w._malloc(data.length + 1);
     c4w.HEAPU8.set(data, ptr);
+    c4w.HEAPU8[ptr + data.length] = 0;
     if (free_ptrs) free_ptrs.push(ptr);
     return ptr;
 }
