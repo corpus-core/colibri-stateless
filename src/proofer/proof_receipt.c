@@ -75,7 +75,6 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
   CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
 
   TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
-  CHECK_JSON(txhash, "{transactionIndex:uint,blockNumber:uint}", "Invalid results for Tx: ");
 
   uint32_t tx_index     = json_get_uint32(tx_data, "transactionIndex");
   json_t   block_number = json_get(tx_data, "blockNumber");
