@@ -31,7 +31,12 @@ jobs:
         working-directory: build/emscripten
   
       - name: Publish to npm
-        run: npm publish
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          cp ../../README.md .
+          cp ../../LICENSE .
+          cp ../../c4_logo.png .
+          npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: build/emscripten
