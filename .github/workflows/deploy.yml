@@ -28,12 +28,13 @@ jobs:
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
           echo "Setting version to $TAG_VERSION in package.json"
           npm version $TAG_VERSION --no-git-tag-version
+        working-directory: build/emscripten
   
       - name: Publish to npm
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
+        working-directory: build/emscripten
 permissions:
   contents: read
   checks: write
