@@ -1,23 +1,44 @@
 {
-    "name": "c4",
-    "version": "0.1",
-    "description": "a minimalistic proofer for c4",
+    "name": "@corpus-core/colibri-stateless",
+    "version": "0.1.0",
+    "description": "Colibri is a stateless and trustless ethereum client, which is optimized for the mobile apps or embedded devices, because it does not hols the state, but verifies on demand.",
     "main": "index.js",
-    "author": "corpus core",
-    "license": "MIT",
     "scripts": {},
-    "type": "module",
-    "module": "index.js",
-    "engines": {
-        "node": ">=18.0.0"
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/corpus-core/c4.git"
     },
+    "keywords": [
+        "beacon",
+        "ethereum",
+        "client",
+        "minimum",
+        "stateless",
+        "proof",
+        "verifier"
+    ],
+    "author": "Simon Jentzsch <simon@corpus.io>",
+    "contributors": [
+        {
+            "name": "Simon Jentzsch",
+            "email": "simon@corpus.io"
+        },
+        {
+            "name": "Steffen Kux",
+            "email": "steffen@corpus.io"
+        }
+    ],
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/corpus-core/c4/issues"
+    },
+    "homepage": "https://github.com/corpus-core/c4#readme",
+    "dependencies": {},
     "devDependencies": {
         "@types/node": "^22.13.1",
         "typescript": "^5.7.3"
     },
-    "keywords": [
-        "ethereum",
-        "client",
-        "minimum"
-    ]
+    "publishConfig": {
+        "access": "public"
+    }
 }
