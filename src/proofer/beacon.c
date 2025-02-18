@@ -45,13 +45,18 @@ static c4_status_t get_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* block)
 
 static c4_status_t get_latest_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* sig_block, ssz_ob_t* data_block) {
 
-  TRY_ASYNC(get_block(ctx, slot, sig_block));
+  c4_status_t status = C4_SUCCESS;
 
-  uint64_t sig_slot = ssz_get_uint64(sig_block, "slot");
-  TRY_ASYNC(get_block(ctx, sig_slot - 1, data_block));
+  TRY_ADD_ASYNC(status, get_block(ctx, slot, sig_block));
+  if (slot) {
+    TRY_ADD_ASYNC(status, get_block(ctx, slot - 1, data_block));
+  }
+  else if (status == C4_SUCCESS) {
+    uint64_t sig_slot = ssz_get_uint64(sig_block, "slot");
+    TRY_ADD_ASYNC(status, get_block(ctx, sig_slot - 1, data_block));
+  }
 
-  if (!sig_slot) THROW_ERROR("Invalid slot!");
-  return C4_SUCCESS;
+  return status;
 }
 
 static c4_status_t eth_get_block(proofer_ctx_t* ctx, json_t block, bool full_tx, json_t* result) {
