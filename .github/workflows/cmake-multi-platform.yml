@@ -58,7 +58,7 @@ jobs:
       - name: Upload class-files
         uses: actions/upload-artifact@v4
         with:
-          name: java
+          name: c4-java
           path: build/bindings/kotlin
     
 
