@@ -20,6 +20,9 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(blst)
+if(KOTLIN)
+  set(EXTRA_C_FLAGS "-fPIC\ ")
+endif()
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)
 if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
@@ -57,7 +60,7 @@ if(EMSCRIPTEN)
 elseif(WIN32)
     add_custom_command(
         OUTPUT ${BLST_LIB}
-        COMMAND ${CMAKE_COMMAND} -E env CFLAGS=-ffunction-sections\ -fdata-sections ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
+        COMMAND ${CMAKE_COMMAND} -E env CFLAGS=${EXTRA_C_FLAGS}-ffunction-sections\ -fdata-sections ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
         COMMAND ${CMAKE_COMMAND} -E echo "Checking if blst.lib exists"
         COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/blst.lib ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
@@ -67,7 +70,7 @@ elseif(WIN32)
 else()
     add_custom_command(
         OUTPUT ${BLST_LIB}
-        COMMAND ${CMAKE_COMMAND} -E env CFLAGS=-ffunction-sections\ -fdata-sections bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
+        COMMAND ${CMAKE_COMMAND} -E env CFLAGS=${EXTRA_C_FLAGS}-ffunction-sections\ -fdata-sections bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
         COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
         COMMENT "Building and moving libblst.a with optimization flags on non-Windows"
