@@ -31,13 +31,11 @@ message(STATUS "Java include directories: ${Java_INCLUDE_DIRS}")
 # Stelle sicher, dass der Pfad zu deinen Headern (und dem SWIG-Interface) stimmt.
 include_directories(${CMAKE_SOURCE_DIR}/bindings)
 
-# Globale SWIG-Flags, ohne -module, da swig_add_library das bereits übernimmt
-set(CMAKE_SWIG_FLAGS -package;com.corpuscore.colibri;-outdir;${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri;-I${CMAKE_SOURCE_DIR}/bindings)
-
-
-# Hier fügst du sowohl deine SWIG-Interface-Datei als auch deinen C-Quellcode ein.
+set(CMAKE_SWIG_FLAGS -verbose;-package;com.corpuscore.colibri;-outdir;${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri;-I${CMAKE_SOURCE_DIR}/bindings)
 swig_add_library(colibri_java
     LANGUAGE java
+    OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri
+    OUTFILE_DIR ${CMAKE_CURRENT_BINARY_DIR}/java    
     SOURCES
        ${CMAKE_CURRENT_SOURCE_DIR}/colibri.i
        ${CMAKE_CURRENT_SOURCE_DIR}/../colibri.c
@@ -46,3 +44,16 @@ swig_add_library(colibri_java
 #find_library(log-lib log)
 target_link_libraries(colibri_java proofer util verifier)
 
+
+# Compile the generated Java files
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/classes/com/corpuscore/colibri/colibri.class
+    COMMAND ${Java_JAVAC_EXECUTABLE} -d ${CMAKE_CURRENT_BINARY_DIR}/classes ${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri/*.java
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri/colibri.java
+    COMMENT "Compiling generated Java files"
+)
+
+# Add a custom target to build the Java classes
+add_custom_target(CompileJava ALL
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/classes/com/corpuscore/colibri/colibri.class
+)
