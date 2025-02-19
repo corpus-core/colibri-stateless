@@ -4,6 +4,7 @@ option(SHAREDLIB "if true the shared library will be build" OFF)
 option(TEST "if true the test will be build" OFF)
 option(COVERAGE "if true the coverage will be build" OFF)
 option(WASM "if true the wasm will be build" OFF)
+option(KOTLIN "if true the kotlin bindings will be build" OFF)
 option(BLS_DESERIALIZE "if true bls keys will be stored deserialized, which increases the state per sync committee period from 25kB to 50kB, but make verification 5x faster" ON)
 
 if(CURL)
@@ -99,5 +100,9 @@ endif()
 
 if(WASM)
     add_subdirectory(bindings/emscripten)
+endif()
+
+if(KOTLIN)
+    add_subdirectory(bindings/kotlin)
 endif()
 

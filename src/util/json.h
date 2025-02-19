@@ -44,6 +44,7 @@ bytes_t  json_as_bytes(json_t parent, buffer_t* buffer);
 uint64_t json_as_uint64(json_t val);
 bool     json_as_bool(json_t val);
 bool     json_is_null(json_t val);
+bool     json_equal_string(json_t val, const char* str);
 void     buffer_add_json(buffer_t* buffer, json_t data);
 
 #define json_as_uint32(val)            ((uint32_t) json_as_uint64(val))

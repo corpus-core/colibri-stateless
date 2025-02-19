@@ -421,6 +421,10 @@ The js-module will be in the `build/emscripten` folder.
     Default: ON  
     Usage: `cmake -DFILE_STORAGE=ON` ..
 
+- **-DKOTLIN**: if true the kotlin bindings will be build  
+    Default: OFF  
+    Usage: `cmake -DKOTLIN=OFF` ..
+
 - **-DMESSAGES**: if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory  
     Default: ON  
     Usage: `cmake -DMESSAGES=ON` ..
@@ -573,10 +577,11 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L283).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L285).
 
 ```python
 class C4Request(Container):
+    version  : ByteVector [4]          # the [domain, major, minor, patch] version of the request, domaon=1 = eth
     data     : Union[                  # the data to proof
         None,
         Bytes32                        # the blochash  which is used for blockhash proof,
@@ -655,7 +660,7 @@ class Eth1Data(Container):
 Entry in thr access list
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L38).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L40).
 
 ```python
 class EthAccessListData(Container):
@@ -704,7 +709,7 @@ class EthAccessListData(Container):
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L245).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L247).
 
 ```python
 class EthAccountProof(Container):
@@ -721,7 +726,7 @@ class EthAccountProof(Container):
 ### EthLogsBlock
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L149).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L151).
 
 ```python
 class EthLogsBlock(Container):
@@ -737,7 +742,7 @@ class EthLogsBlock(Container):
 ### EthLogsTx
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L142).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L144).
 
 ```python
 class EthLogsTx(Container):
@@ -751,7 +756,7 @@ class EthLogsTx(Container):
 the transaction data
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L83).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L85).
 
 ```python
 class EthReceiptData(Container):
@@ -775,7 +780,7 @@ class EthReceiptData(Container):
 a log entry in the receipt
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L69).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L71).
 
 ```python
 class EthReceiptDataLog(Container):
@@ -825,7 +830,7 @@ the gasPrice of the transaction
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L131).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L133).
 
 ```python
 class EthReceiptProof(Container):
@@ -861,7 +866,7 @@ class EthStateProof(Container):
 represents the storage proof of a key
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L29).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L31).
 
 ```python
 class EthStorageProof(Container):
@@ -901,7 +906,7 @@ represents the account and storage values, including the Merkle proof, of the sp
  ```
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L189).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L191).
 
 ```python
 class EthTransactionProof(Container):
@@ -920,7 +925,7 @@ class EthTransactionProof(Container):
 the transaction data
 
 
- The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L45).
+ The Type is defined in [verifier/types_verify.c](https://github.com/corpus-core/c4/blob/main/src/verifier/types_verify.c#L47).
 
 ```python
 class EthTxData(Container):

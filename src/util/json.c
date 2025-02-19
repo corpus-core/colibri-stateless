@@ -201,3 +201,8 @@ char* json_new_string(json_t parent) {
   new_str[parent.len] = '\0';
   return new_str;
 }
+
+bool json_equal_string(json_t val, const char* str) {
+  int len = strlen(str);
+  return val.type == JSON_TYPE_STRING && val.len == len - 2 && memcmp(val.start + 1, str, val.len - 2) == 0;
+}
