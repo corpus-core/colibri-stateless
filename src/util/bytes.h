@@ -9,11 +9,13 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-
+#ifndef BYTES_T_DEFINED
 typedef struct {
   uint8_t* data;
   uint32_t len;
 } bytes_t;
+#define BYTES_T_DEFINED
+#endif
 
 #define NULL_BYTES (bytes_t){.data = NULL, .len = 0}
 

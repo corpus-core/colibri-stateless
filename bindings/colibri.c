@@ -101,7 +101,7 @@ char* proofer_execute_json_status(proofer_t* proofer) {
 void free_proofer_ctx(proofer_t* ctx) {
   c4_proofer_free((proofer_ctx_t*) ctx);
 }
-void req_set_response(void* req_ptr, bytearray_t data, uint16_t node_index) {
+void req_set_response(void* req_ptr, bytes_t data, uint16_t node_index) {
   data_request_t* ctx      = (data_request_t*) req_ptr;
   ctx->response            = bytes(data.data, data.len);
   ctx->response_node_index = node_index;
@@ -190,9 +190,9 @@ char* c4w_init_chain(uint64_t chain_id, char* trusted_block_hashes, data_request
   return bprintf(&buf, "]}");
 }
 
-bytearray_t proofer_get_proof(proofer_t* proofer) {
+bytes_t proofer_get_proof(proofer_t* proofer) {
   proofer_ctx_t* ctx = (proofer_ctx_t*) proofer;
-  return (bytearray_t) {.data = ctx->proof.data, .len = ctx->proof.len};
+  return ctx->proof;
 }
 /*
 bytes_t c4_proof(char* method, char* params, uint64_t chain_id, char** error) {

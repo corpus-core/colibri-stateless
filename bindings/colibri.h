@@ -2,10 +2,13 @@
 #include <stdint.h>
 
 typedef void proofer_t;
+#ifndef BYTES_T_DEFINED
 typedef struct {
   uint8_t* data;
-  size_t   len;
-} bytearray_t;
+  uint32_t len;
+} bytes_t;
+#define BYTES_T_DEFINED
+#endif
 
 /**
  * creates a new proofer_ctx_t
@@ -54,7 +57,7 @@ void free_proofer_ctx(proofer_t* ctx);
  * @param node_index the  index of the node the response came from.
  * @return the pointer to the allocated memory
  */
-void req_set_response(void* req_ptr, bytearray_t data, uint16_t node_index);
+void req_set_response(void* req_ptr, bytes_t data, uint16_t node_index);
 
 /**
  * sets the error of the data request
@@ -78,6 +81,6 @@ char* verify_proof(uint8_t* proof, uint32_t proof_len, char* method, char* args,
 /**
  * gets the proof from the proofer_t
  * @param ctx the proofer_t
- * @return the proof as bytearray_t
+ * @return the proof as bytes_t
  */
-bytearray_t proofer_get_proof(proofer_t* ctx);
+bytes_t proofer_get_proof(proofer_t* ctx);

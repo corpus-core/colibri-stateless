@@ -2,39 +2,69 @@
 
 %{
 #include "colibri.h"
-#include <string.h>
 %}
 
+// Include standard typemaps
 %include "stdint.i"
+%include "various.i"
 
-// Mache SWIG klar, dass der Typ bytearray_t in Java als byte[] dargestellt werden soll:
-%typemap(jstype) bytearray_t "byte[]"
-
-// Für Eingabeparameter: Wenn ein byte[] übergeben wird, konvertiert SWIG diesen in ein bytearray_t
-%typemap(javain) bytearray_t (jbyteArray jarr) {
-#ifdef SWIGJAVA
-    jsize _len = env->GetArrayLength($input);
-    $1.data = (uint8_t *) malloc(_len);
-    if (!$1.data) {
-        SWIG_exception_fail(SWIG_MemoryError, "Unable to allocate memory for bytearray_t.data");
-    }
-    env->GetByteArrayRegion($input, 0, _len, (jbyte*) $1.data);
-    $1.len = (size_t)_len;
+// IMPORTANT: Define the bytes_t structure for SWIG
+// This needs to be before the typemaps so the wrapper code can refer to it
+%{
+#ifndef BYTES_T_DEFINED
+typedef struct bytes_t {
+  uint8_t* data;
+  uint32_t   len;
+} bytes_t;
+#define BYTES_T_DEFINED
 #endif
+%}
+
+// We don't want SWIG to create a Java class for bytes_t
+// Instead, we need to map it to byte[] in Java but keep the struct definition for C
+%ignore bytes_t;
+
+// For req_set_response - converting Java byte[] to bytes_t
+%typemap(jni) bytes_t "jbyteArray"
+%typemap(jtype) bytes_t "byte[]"
+%typemap(jstype) bytes_t "byte[]"
+%typemap(javain) bytes_t "$javainput"
+
+%typemap(in) bytes_t {
+    bytes_t array;
+    array.data = (uint8_t*)JCALL2(GetByteArrayElements, jenv, $input, 0);
+    array.len = JCALL1(GetArrayLength, jenv, $input);
+    $1 = array;
 }
 
-// Für Rückgabewerte: Konvertiere ein bytearray_t in ein Java byte[]
-%typemap(javaout) bytearray_t {
-#ifdef SWIGJAVA
-    jsize _len = (jsize)$1.len;
-    jbyteArray jarr = env->NewByteArray(_len);
-    if (!jarr) {
-        SWIG_exception_fail(SWIG_MemoryError, "Unable to allocate Java byte array");
-    }
-    env->SetByteArrayRegion(jarr, 0, _len, (jbyte*) $1.data);
-    /* Optional: Falls erforderlich, free($1.data) */
-    $result = jarr;
-#endif
+%typemap(freearg) bytes_t {
+    JCALL3(ReleaseByteArrayElements, jenv, $input, (jbyte*)$1.data, JNI_ABORT);
 }
 
+// For return values - converting bytes_t to Java byte[]
+%typemap(jni) bytes_t "jbyteArray"
+%typemap(jtype) bytes_t "byte[]"
+%typemap(jstype) bytes_t "byte[]"
+%typemap(javaout) bytes_t { return $jnicall; }
+
+%typemap(out) bytes_t {
+    $result = JCALL1(NewByteArray, jenv, $1.len);
+    JCALL4(SetByteArrayRegion, jenv, $result, 0, $1.len, (jbyte*)$1.data);
+}
+
+// Handle the void* type properly
+%typemap(jni) void* "jlong"
+%typemap(jtype) void* "long"
+%typemap(jstype) void* "long"
+%typemap(javain) void* "$javainput"
+%typemap(javaout) void* { return $jnicall; }
+
+// Handle proofer_t* as an opaque pointer
+%typemap(jni) proofer_t* "jlong"
+%typemap(jtype) proofer_t* "long"
+%typemap(jstype) proofer_t* "long"
+%typemap(javain) proofer_t* "$javainput"
+%typemap(javaout) proofer_t* { return $jnicall; }
+
+// Now include the full header
 %include "colibri.h"
