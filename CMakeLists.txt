@@ -7,6 +7,10 @@ option(WASM "if true the wasm will be build" OFF)
 option(KOTLIN "if true the kotlin bindings will be build" OFF)
 option(BLS_DESERIALIZE "if true bls keys will be stored deserialized, which increases the state per sync committee period from 25kB to 50kB, but make verification 5x faster" ON)
 
+if(KOTLIN)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 if(CURL)
     add_definitions(-DUSE_CURL)
 endif()
