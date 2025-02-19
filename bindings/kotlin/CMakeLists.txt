@@ -31,7 +31,7 @@ message(STATUS "Java include directories: ${Java_INCLUDE_DIRS}")
 # Stelle sicher, dass der Pfad zu deinen Headern (und dem SWIG-Interface) stimmt.
 include_directories(${CMAKE_SOURCE_DIR}/bindings)
 
-set(CMAKE_SWIG_FLAGS -verbose;-package;com.corpuscore.colibri;-outdir;${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri;-I${CMAKE_SOURCE_DIR}/bindings)
+set(CMAKE_SWIG_FLAGS -package;com.corpuscore.colibri;-outdir;${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri;-I${CMAKE_SOURCE_DIR}/bindings)
 swig_add_library(colibri_java
     LANGUAGE java
     OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri
