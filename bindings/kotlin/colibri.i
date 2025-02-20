@@ -1,4 +1,4 @@
-%module colibri
+%module c4
 
 %{
 #include "colibri.h"

@@ -1,3 +1,6 @@
 /build
 .vscode
 bindings/emscripten/node_modules
+bindings/kotlin/build
+bindings/kotlin/lib/build
+bindings/kotlin/.gradle
