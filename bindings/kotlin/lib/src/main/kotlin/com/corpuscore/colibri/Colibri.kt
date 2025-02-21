@@ -17,6 +17,12 @@ class Colibri(
     private var ethRpcs: Array<String> = arrayOf("https://default.rpc"), // Default value
     private var beaconApis: Array<String> = arrayOf("https://default.beacon") // Default value
 ) {
+    companion object {
+        init {
+            // This will trigger the native library loading
+            NativeLoader
+        }
+    }
     private val client = HttpClient(CIO)
 
     // Setter for chainId
