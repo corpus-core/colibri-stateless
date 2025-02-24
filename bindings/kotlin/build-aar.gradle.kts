@@ -35,10 +35,16 @@ android {
             java.srcDirs(file("${projectDir}/generated/java"))
         }
     }
+
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+            withJavadocJar()
+        }
+    }
 }
 
 dependencies {
-
     api(libs.commons.math3)
     implementation(libs.guava)
     implementation("io.ktor:ktor-client-core:2.0.0")
@@ -48,22 +54,25 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
     implementation("org.json:json:20210307")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
-
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("aar") {
-            from(components["release"])
-            artifactId = "colibri-aar"
+afterEvaluate {
+    publishing {
+        publications {
+            register<MavenPublication>("release") {
+                from(components["release"])
+                groupId = "com.corpuscore"
+                artifactId = "colibri-aar"
+                version = "1.0.0"
+            }
         }
-    }
-    repositories {
-        maven {
-            url = uri("https://your.maven.repo") // Replace with your Maven repository URL
-            credentials {
-                username = project.findProperty("mavenUsername")?.toString()
-                password = project.findProperty("mavenPassword")?.toString()
+        repositories {
+            maven {
+                url = uri("https://your.maven.repo") // Replace with your Maven repository URL
+                credentials {
+                    username = project.findProperty("mavenUsername")?.toString()
+                    password = project.findProperty("mavenPassword")?.toString()
+                }
             }
         }
     }
