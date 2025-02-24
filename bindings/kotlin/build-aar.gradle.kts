@@ -8,6 +8,7 @@ group = "com.corpuscore"
 version = "1.0.0" // Adjust as needed
 
 android {
+    namespace = "com.corpuscore.colibri"
     compileSdk = 33
     defaultConfig {
         minSdk = 21
