@@ -1,7 +1,12 @@
 plugins {
     id("java-library")
-    id("org.jetbrains.kotlin.jvm")
+    id("org.jetbrains.kotlin.jvm") version "1.9.24" // Specify a Kotlin version
     id("maven-publish")
+}
+
+// Define repositories for plugins and dependencies
+repositories {
+    mavenCentral()
 }
 
 group = "com.corpuscore"
@@ -36,8 +41,8 @@ publishing {
         maven {
             url = uri("https://your.maven.repo") // Replace with your Maven repository URL
             credentials {
-                username = project.findProperty("mavenUsername")?.toString()
-                password = project.findProperty("mavenPassword")?.toString()
+                username = project.findProperty("mavenUsername") as String?
+                password = project.findProperty("mavenPassword") as String?
             }
         }
     }
