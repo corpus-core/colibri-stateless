@@ -136,18 +136,28 @@ jobs:
         with:
           platforms: arm64
 
-      - name: Install CMake
-        run: sudo apt-get install -y cmake
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Configure CMake
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          # Set cross-compilation environment variables
+          export CC=aarch64-linux-gnu-gcc
+          export CXX=aarch64-linux-gnu-g++
+          export AR=aarch64-linux-gnu-ar
+          export RANLIB=aarch64-linux-gnu-ranlib
+          export AS=aarch64-linux-gnu-as
+          export STRIP=aarch64-linux-gnu-strip
+
           cmake -S . -B build-linux-arm64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DCMAKE_SYSTEM_NAME=Linux \
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_AR=/usr/bin/aarch64-linux-gnu-ar \
+            -DCMAKE_RANLIB=/usr/bin/aarch64-linux-gnu-ranlib \
             -DGENERATE_JAVA_SOURCES=OFF \
             -DCMAKE_BUILD_TYPE=Release \
             -DCURL=false \

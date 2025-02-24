@@ -68,14 +68,33 @@ elseif(WIN32)
         VERBATIM
     )
 else()
-    add_custom_command(
-        OUTPUT ${BLST_LIB}
-        COMMAND ${CMAKE_COMMAND} -E env CFLAGS=${EXTRA_C_FLAGS}-ffunction-sections\ -fdata-sections bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
-        COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
-        WORKING_DIRECTORY ${blst_SOURCE_DIR}
-        COMMENT "Building and moving libblst.a with optimization flags on non-Windows"
-        VERBATIM
-    )
+    # For cross-compilation, we need to pass the appropriate toolchain
+    if(CMAKE_CROSSCOMPILING)
+        add_custom_command(
+            OUTPUT ${BLST_LIB}
+            COMMAND ${CMAKE_COMMAND} -E env 
+                CC=${CMAKE_C_COMPILER}
+                AR=${CMAKE_AR}
+                RANLIB=${CMAKE_RANLIB}
+                CFLAGS=${EXTRA_C_FLAGS}-ffunction-sections\ -fdata-sections
+                bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
+            COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+            WORKING_DIRECTORY ${blst_SOURCE_DIR}
+            COMMENT "Building and moving libblst.a with cross-compilation toolchain"
+            VERBATIM
+        )
+    else()
+        add_custom_command(
+            OUTPUT ${BLST_LIB}
+            COMMAND ${CMAKE_COMMAND} -E env 
+                CFLAGS=${EXTRA_C_FLAGS}-ffunction-sections\ -fdata-sections 
+                bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
+            COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+            WORKING_DIRECTORY ${blst_SOURCE_DIR}
+            COMMENT "Building and moving libblst.a with optimization flags on non-Windows"
+            VERBATIM
+        )
+    endif()
 endif()
 
 # Add a custom target that depends on the custom command
