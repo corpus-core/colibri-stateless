@@ -26,26 +26,6 @@ class Colibri(
     }
     private val client = HttpClient(CIO)
 
-    // Setter for chainId
-    fun setChainId(newChainId: BigInteger) {
-        chainId = newChainId
-    }
-
-    // Setter for ethRpcs
-    fun setEthRpcs(newEthRpcs: Array<String>) {
-        ethRpcs = newEthRpcs
-    }
-
-    // Setter for beaconApis
-    fun setBeaconApis(newBeaconApis: Array<String>) {
-        beaconApis = newBeaconApis
-    }
-
-    // Setter for trustedBlockHashes
-    fun setTrustedBlockHashes(newTrustedBlockHashes: Array<String>) {
-        trustedBlockHashes = newTrustedBlockHashes
-    }
-
     // Example method to demonstrate usage
     fun printConfig() {
         println("Chain ID: $chainId")
