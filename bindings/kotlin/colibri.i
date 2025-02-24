@@ -20,6 +20,14 @@ typedef struct bytes_t {
 #endif
 %}
 
+// Add typemap for char* return values that need to be freed
+%typemap(out) char* verify_execute_json_status, char* proofer_execute_json_status {
+    if ($1) {
+        $result = (*jenv)->NewStringUTF(jenv, (const char *)$1);
+        free($1);  // Free the dynamically allocated string
+    }
+}
+
 // We don't want SWIG to create a Java class for bytes_t
 // Instead, we need to map it to byte[] in Java but keep the struct definition for C
 %ignore bytes_t;

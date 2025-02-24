@@ -1,12 +1,21 @@
 #include "colibri.h"
 #include "../src/proofer/proofer.h"
+#include "../src/util/plugin.h"
+#include "../src/util/ssz.h"
 #include "../src/verifier/sync_committee.h"
+#include "../src/verifier/types_verify.h"
 #include "../src/verifier/verify.h"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+typedef struct {
+  json_t       trusted_blocks;
+  verify_ctx_t ctx;
+  bool         initialised;
+} c4_verify_ctx_t;
 
 proofer_t* create_proofer_ctx(char* method, char* params, uint64_t chain_id) {
   return (void*) c4_proofer_create(method, params, chain_id);
@@ -113,172 +122,121 @@ void req_set_error(void* req_ptr, char* error, uint16_t node_index) {
   ctx->response_node_index = node_index;
 }
 
-char* verify_proof(uint8_t* proof, uint32_t proof_len, char* method, char* args, uint64_t chain_id) {
-  verify_ctx_t ctx = {0};
-  buffer_t     buf = {0};
-  c4_verify_from_bytes(&ctx, bytes(proof, proof_len), method, json_parse(args), chain_id);
-
-  if (ctx.success)
-    bprintf(&buf, "{\"result\": %z}", ctx.data);
-  else if (ctx.first_missing_period) {
-    char url[200] = {0};
-    sprintf(url, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", (uint32_t) ctx.first_missing_period - 1, (uint32_t) (ctx.last_missing_period - ctx.first_missing_period + 1));
-    data_request_t* req = malloc(sizeof(data_request_t));
-    *req                = (data_request_t) {
-                       .encoding = C4_DATA_ENCODING_SSZ,
-                       .error    = NULL,
-                       .id       = {0},
-                       .method   = C4_DATA_METHOD_GET,
-                       .payload  = {0},
-                       .response = {0},
-                       .type     = C4_DATA_TYPE_BEACON_API,
-                       .url      = url,
-                       .chain_id = chain_id};
-    sha256(bytes((uint8_t*) url, strlen(url)), req->id);
-    bprintf(&buf, "{\"error\": \"%s\", \"client_updates\": [", ctx.state.error);
-    add_data_request(&buf, req);
-    bprintf(&buf, "]}");
-  }
-  else
-    bprintf(&buf, "{\"error\": \"%s\"}", ctx.state.error);
-
-  if (ctx.state.error) free(ctx.state.error);
-
-  return (char*) buf.data.data;
-}
-
-bool c4w_handle_client_updates(data_request_t* client_update, uint64_t chain_id) {
-  return c4_handle_client_updates(client_update->response, chain_id, NULL);
-}
-
-void c4w_req_free(data_request_t* client_update) {
-  if (client_update->error) free(client_update->error);
-  if (client_update->response.data) free(client_update->response.data);
-  free(client_update);
-}
-
-uint8_t* c4w_buffer_alloc(buffer_t* buf, size_t len) {
-  buffer_grow(buf, len + 1);
-  buf->data.len = len;
-  return buf->data.data;
-}
-
-char* c4w_init_chain(uint64_t chain_id, char* trusted_block_hashes, data_request_t* requests) {
-  buffer_t   buf    = {0};
-  json_t     blocks = json_parse(trusted_block_hashes ? trusted_block_hashes : "[]");
-  c4_state_t state  = {0};
-  state.requests    = requests;
-
-  c4_status_t status = c4_set_trusted_blocks(&state, blocks, chain_id);
-  if (state.error) {
-    bprintf(&buf, "{\"error\": \"%s\"}", state.error);
-    c4_state_free(&state);
-    return (char*) buf.data.data;
-  }
-
-  bprintf(&buf, "{\"req_ptr\": \"%lx\", \"requests\": [", (uint64_t) state.requests);
-  requests = state.requests;
-  while (requests) {
-    if (!requests->error && !requests->response.data) {
-      if (buf.data.data[buf.data.len - 1] != '[') bprintf(&buf, ",");
-      add_data_request(&buf, requests);
-    }
-    requests = requests->next;
-  }
-
-  if (!c4_state_get_pending_request(&state)) c4_state_free(&state);
-  return bprintf(&buf, "]}");
-}
-
 bytes_t proofer_get_proof(proofer_t* proofer) {
   proofer_ctx_t* ctx = (proofer_ctx_t*) proofer;
   return ctx->proof;
 }
-/*
-bytes_t c4_proof(char* method, char* params, uint64_t chain_id, char** error) {
 
-  buffer_t buf    = {0};
-  bytes_t  result = {0};
+void* verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes) {
+  c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
+  ssz_ob_t         req = ssz_ob(C4_REQUEST_CONTAINER, bytes_dup(proof));
+  ctx->ctx.chain_id    = chain_id;
+  ctx->ctx.data        = ssz_get(&req, "data");
+  ctx->ctx.proof       = ssz_get(&req, "proof");
+  ctx->ctx.sync_data   = ssz_get(&req, "sync_data");
+  ctx->ctx.method      = method ? strdup(method) : NULL;
+  ctx->ctx.args        = args ? json_parse(strdup(args)) : ((json_t) {0});
+  ctx->trusted_blocks  = trusted_block_hashes ? json_parse(strdup(trusted_block_hashes)) : ((json_t) {0});
+  return (void*) ctx;
+}
 
-  proofer_t* proofer = create_proofer_ctx(method, params, chain_id);
-  while (true) {
-    char*  state      = proofer_execute_json_status(proofer);
-    json_t state_json = json_parse(state);
-    json_t status     = json_get(state_json, "status");
-    if (json_equal_string(status, "success")) {
-      free(state);
-      uint8_t* proof     = (uint8_t*) json_get_uint64(json, "result");
-      uint32_t proof_len = json_get_uint32(json, "result_len");
-      result             = bytes_dup(bytes(proof, proof_len));
-      break;
-    }
-    else if (json_string_equal(status, "error")) {
-      *error = json_new_string(json_get(state_json, "error"));
-      free(state);
-      break;
-    }
-    else { // there are pending requests we need to fetch first
-      json_for_each_value(json_get(state_json, "requests"), req) {
-        // this should be done async in kotlin
-        bytes_t response = curl_fetch(
-            json_get(req, "url"),
-            json_get_bytes(req, "payload", &buf),
-            json_get(req, "method"),
-            json_get_uint32(req, "chain_id"));
-        void* req_ptr = json_get_uint64(req, "req_ptr");
-        if (response.len) {
-          uint8_t* target = req_create_response(req_ptr, response.len, 0);
-          memcpy(target, response.data, response.len);
-        }
-        else {
-          req_set_error(req_ptr, "Failed to fetch data", 0);
-        }
+char* verify_execute_json_status(void* ptr) {
+  buffer_t         buf    = {0};
+  c4_verify_ctx_t* ctx    = (c4_verify_ctx_t*) ptr;
+  data_request_t*  req    = c4_state_get_pending_request(&(ctx->ctx.state));
+  c4_status_t      status = ctx->ctx.state.error ? C4_ERROR : (req ? C4_PENDING : C4_SUCCESS);
+
+  // initialise the trusted blocks
+  if (status == C4_SUCCESS && !ctx->initialised) {
+    status = c4_set_trusted_blocks(&(ctx->ctx.state), ctx->trusted_blocks, ctx->ctx.chain_id);
+    if (status == C4_SUCCESS) ctx->initialised = true;
+  }
+
+  // do we have some client updates to handle?
+  if (status == C4_SUCCESS && ctx->ctx.first_missing_period) {
+    buffer_t url = {0};
+    bprintf(&url, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", (uint32_t) ctx->ctx.first_missing_period - 1, (uint32_t) (ctx->ctx.last_missing_period - ctx->ctx.first_missing_period + 1));
+    data_request_t* req = c4_state_get_data_request_by_url(&(ctx->ctx.state), (char*) url.data.data);
+    buffer_free(&url);
+    if (req) {
+      if (req->error) {
+        buffer_t error       = {0};
+        ctx->ctx.state.error = bprintf(&buf, "Error fetching the client updates: %s", req->error);
       }
-      free(state);
+      else if (!c4_handle_client_updates(req->response, ctx->ctx.chain_id, NULL))
+        ctx->ctx.state.error = strdup("Error handling the client updates");
+
+      ctx->ctx.first_missing_period = 0;
+    }
+    else
+      ctx->ctx.state.error = strdup("No response to client update handle");
+
+    status = ctx->ctx.state.error ? C4_ERROR : C4_SUCCESS;
+  }
+
+  // verify the proof
+  if (status == C4_SUCCESS) {
+    c4_verify(&ctx->ctx);
+    if (!ctx->ctx.success) {
+      if (ctx->ctx.first_missing_period) {
+        buffer_t url = {0};
+        bprintf(&url, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", (uint32_t) ctx->ctx.first_missing_period - 1, (uint32_t) (ctx->ctx.last_missing_period - ctx->ctx.first_missing_period + 1));
+
+        data_request_t* req = malloc(sizeof(data_request_t));
+        *req                = (data_request_t) {
+                           .encoding = C4_DATA_ENCODING_SSZ,
+                           .error    = NULL,
+                           .id       = {0},
+                           .method   = C4_DATA_METHOD_GET,
+                           .payload  = {0},
+                           .response = {0},
+                           .type     = C4_DATA_TYPE_BEACON_API,
+                           .url      = (char*) url.data.data,
+                           .chain_id = ctx->ctx.chain_id};
+        c4_state_add_request(&(ctx->ctx.state), req);
+        if (ctx->ctx.state.error) {
+          free(ctx->ctx.state.error);
+          ctx->ctx.state.error = NULL;
+        }
+        status = C4_PENDING;
+      }
+      else
+        status = C4_ERROR;
     }
   }
 
-  free_proofer_ctx(proofer);
-  return result;
+  bprintf(&buf, "{\"status\": \"%s\",", status_to_string(status));
+  switch (status) {
+    case C4_SUCCESS:
+      bprintf(&buf, "\"result\": %Z,", ctx->ctx.data);
+      break;
+    case C4_ERROR:
+      bprintf(&buf, "\"error\": %\"s\"", ctx->ctx.state.error);
+      break;
+    case C4_PENDING: {
+      bprintf(&buf, "\"requests\": [");
+      data_request_t* data_request = c4_state_get_pending_request(&(ctx->ctx.state));
+      while (data_request) {
+        if (!data_request->response.data && !data_request->error) {
+          if (buf.data.data[buf.data.len - 1] != '[') bprintf(&buf, ",");
+          add_data_request(&buf, data_request);
+        }
+        data_request = data_request->next;
+      }
+
+      bprintf(&buf, "]");
+      break;
+    }
+  }
+  bprintf(&buf, "}");
+  return buffer_as_string(buf);
 }
 
-
-
-
-    suspend fun getProof(method: String, args: Array<Any>): ByteArray {
-        return withContext(Dispatchers.IO) {
-            var error: String? = null
-            var requests: Array<Request>? = null
-            var proof: ByteArray? = null
-
-            long ctx =colibriJNI.create_proofer_ctx(method, args, chainId)
-
-            while (true) {
-                var state_string = colibriJNI.proofer_execute_json_status(ctx)
-                var state = JSON.parse( state_string ) // How do I parse the json string to a json object?
-                if (state.status == "success") {
-                    proof = new ByteArray(state.result, state.result_len) // how do I access C-pointers in Kotlin
-                }
-                else if (state.status == "error") {
-                    error = state.error
-                }
-                else {
-                    // there are pending requests we need to fetch first
-                    // maybe even in different threads to run them parallel?
-                    state.requests.forEach { request ->
-                        var response = await fetchRequest(request)
-                        if (response.len > 0) {
-                            var target = colibriJNI.req_create_response(request.req_ptr, response.len, 0)
-                            memcpy(target, response.data, response.len)
-                        }
-                        else {
-                            colibriJNI.req_set_error(request.req_ptr, "Failed to fetch data", 0)
-                        }
-                    }
-                }
-            }
-            colibriJNI.free_proofer_ctx(ctx)
-            proof ?: throw RuntimeException(error ?: "Failed to generate proof")
-        }
-    }
-*/
+void verify_free_ctx(void* ptr) {
+  c4_verify_ctx_t* ctx = (c4_verify_ctx_t*) ptr;
+  if (ctx->trusted_blocks.start) free((char*) ctx->trusted_blocks.start);
+  if (ctx->ctx.method) free((char*) ctx->ctx.method);
+  if (ctx->ctx.args.start) free((char*) ctx->ctx.args.start);
+  c4_state_free(&(ctx->ctx.state));
+  free(ctx);
+}

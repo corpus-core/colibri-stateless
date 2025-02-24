@@ -76,7 +76,19 @@ void req_set_error(void* req_ptr, char* error, uint16_t node_index);
  * @param chain_id the chain id
  * @return the result of the verification as json string ( needs to be freed by the caller )
  */
-char* verify_proof(uint8_t* proof, uint32_t proof_len, char* method, char* args, uint64_t chain_id);
+void* verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes);
+
+/**
+ * verifies the proof created by the proofer_ctx_t and returns the result as json string.
+ * @param ctx the context of the proof
+ * @return the result of the verification as json string ( needs to be freed by the caller )
+ */
+char* verify_execute_json_status(void* ctx);
+
+/**
+ * frees the verification context
+ */
+void verify_free_ctx(void* ctx);
 
 /**
  * gets the proof from the proofer_t

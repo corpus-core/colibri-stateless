@@ -13,9 +13,10 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 
 class Colibri(
-    private var chainId: BigInteger = BigInteger.ONE, // Default value
-    private var ethRpcs: Array<String> = arrayOf("https://default.rpc"), // Default value
-    private var beaconApis: Array<String> = arrayOf("https://default.beacon") // Default value
+    var chainId: BigInteger = BigInteger.ONE, // Default value
+    var ethRpcs: Array<String> = arrayOf("https://default.rpc"), // Default value
+    var beaconApis: Array<String> = arrayOf("https://default.beacon"), // Default value
+    var trustedBlockHashes: Array<String> = arrayOf() // Default empty array
 ) {
     companion object {
         init {
@@ -40,11 +41,17 @@ class Colibri(
         beaconApis = newBeaconApis
     }
 
+    // Setter for trustedBlockHashes
+    fun setTrustedBlockHashes(newTrustedBlockHashes: Array<String>) {
+        trustedBlockHashes = newTrustedBlockHashes
+    }
+
     // Example method to demonstrate usage
     fun printConfig() {
         println("Chain ID: $chainId")
         println("ETH RPCs: ${ethRpcs.joinToString(", ")}")
         println("Beacon APIs: ${beaconApis.joinToString(", ")}")
+        println("Trusted Block Hashes: ${trustedBlockHashes.joinToString(", ")}")
     }
 
     private suspend fun fetchRequest(servers: Array<String>, request: JSONObject) {
@@ -73,10 +80,24 @@ class Colibri(
         throw RuntimeException("No response from any server")
     }
 
+    private fun formatArg(arg: Any): String = when (arg) {
+        is BigInteger -> "\"0x${arg.toString(16)}\""  // Convert BigInteger to hex
+        is Number -> "\"0x${arg.toLong().toString(16)}\""  // Convert numbers to hex
+        is String -> {
+            if (arg.startsWith("0x")) "\"$arg\""  // Keep hex strings as-is
+            else "\"$arg\""  // Quote regular strings
+        }
+        is Array<*> -> "[${arg.joinToString(",") { formatArg(it ?: "null") }}]"  // Handle nested arrays
+        else -> "\"$arg\""  // Quote everything else
+    }
+
     suspend fun getProof(method: String, args: Array<Any>): ByteArray {
         return withContext(Dispatchers.IO) {
-            // Create the proofer context
-            val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, args.joinToString(","), chainId)
+            // Format arguments as JSON array
+            val jsonArgs = "[${args.joinToString(",") { formatArg(it) }}]"
+            
+            // Create the proofer context with properly formatted JSON args
+            val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, jsonArgs, chainId)
 
             try {
                 while (true) {
@@ -108,6 +129,45 @@ class Colibri(
             
             // This line should never be reached due to the infinite loop and return/throw statements above
             throw RuntimeException("Unexpected end of getProof method")
+        }
+    }
+
+    suspend fun verifyProof(proof: ByteArray, method: String, args: Array<Any>): JSONObject {
+        return withContext(Dispatchers.IO) {
+            val jsonArgs = "[${args.joinToString(",") { formatArg(it) }}]"
+            val ctx = com.corpuscore.colibri.c4.verify_create_ctx(proof, method, jsonArgs, chainId, "[${trustedBlockHashes.joinToString(",") { formatArg(it) }}]")
+
+
+            try {
+                while (true) {
+                    // Execute the proofer and get the JSON status
+                    val stateString = com.corpuscore.colibri.c4.verify_execute_json_status(ctx)
+                    val state = JSONObject(stateString)
+
+                    when (state.getString("status")) {
+                        "success" -> {
+                            return@withContext state.getJSONObject("result")
+                        }
+                        "error" -> {
+                            throw RuntimeException(state.getString("error")) 
+                        }
+                        "pending" -> {
+                            // Handle pending requests
+                            val requests = state.getJSONArray("requests")
+                            for (i in 0 until requests.length()) {
+                                val request = requests.getJSONObject(i)
+                                val servers = if (request.getString("type") == "eth_rpc") ethRpcs else beaconApis
+                                fetchRequest(servers, request)
+                            }
+                        }
+                    }
+                }
+            } finally {
+                com.corpuscore.colibri.c4.verify_free_ctx(ctx)
+            }
+            
+            // This line should never be reached due to the infinite loop and return/throw statements above
+            throw RuntimeException("Unexpected end of verify method")
         }
     }
 }
