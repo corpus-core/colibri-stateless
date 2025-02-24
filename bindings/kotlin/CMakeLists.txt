@@ -26,23 +26,25 @@ include_directories(${CMAKE_SOURCE_DIR}/bindings)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Colibri.i PROPERTIES CPLUSPLUS OFF)
 set(CMAKE_SWIG_FLAGS "-module" "c4" "-package" "com.corpuscore.colibri" "-I${CMAKE_SOURCE_DIR}/bindings")
 
+# Define sources
+set(SWIG_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/colibri.i
+    ${CMAKE_CURRENT_SOURCE_DIR}/../colibri.c
+)
+
 if(GENERATE_JAVA_SOURCES)
     # Generate Java sources and wrapper
     swig_add_library(c4_java
         LANGUAGE java
         OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri
         OUTFILE_DIR ${CMAKE_CURRENT_BINARY_DIR}/java    
-        SOURCES
-            ${CMAKE_CURRENT_SOURCE_DIR}/Colibri.i
-            ${CMAKE_CURRENT_SOURCE_DIR}/../colibri.c
+        SOURCES ${SWIG_SOURCES}
     )
 else()
     # Use pre-generated wrapper, still build the library with JNI
     swig_add_library(c4_java
         LANGUAGE java
-        SOURCES
-            ${CMAKE_CURRENT_SOURCE_DIR}/Colibri.i
-            ${CMAKE_CURRENT_SOURCE_DIR}/../colibri.c
+        SOURCES ${SWIG_SOURCES}
     )
 endif()
 

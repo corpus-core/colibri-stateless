@@ -60,7 +60,7 @@ jobs:
         run: mkdir -p bindings/kotlin/native-libs/darwin-aarch64
 
       - name: Copy library
-        run: cp build-macos/bindings/kotlin/libc4_java.dylib bindings/kotlin/native-libs/darwin-aarch64/libc4_java.jnilib
+        run: cp build-macos/bindings/kotlin/libc4_java.jnilib bindings/kotlin/native-libs/darwin-aarch64/libc4_java.jnilib
 
       - name: Upload native-libs
         uses: actions/upload-artifact@v4 # Updated to v4
