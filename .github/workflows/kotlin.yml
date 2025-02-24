@@ -171,11 +171,14 @@ jobs:
         run: cd bindings/kotlin && ./gradlew -b build-jar.gradle.kts build
       #      run: cd bindings/kotlin && ./gradlew -b build-jar.gradle.kts build publish -PmavenUsername=${{ secrets.MAVEN_USERNAME }} -PmavenPassword=${{ secrets.MAVEN_PASSWORD }}
 
+      - name: Debug - List build directory
+        run: find bindings/kotlin -name "*.jar"
+
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: colibri-jar
-          path: bindings/kotlin/lib/build/libs/*.jar
+          path: bindings/kotlin/build/libs/*.jar
           if-no-files-found: error
 
   build-publish-aar:
@@ -209,4 +212,12 @@ jobs:
           yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" "build-tools;33.0.0" "ndk;23.1.7779620"
 
       - name: Build and publish AAR
-        run: cd bindings/kotlin && ./gradlew -b build-aar.gradle.kts build publish -PmavenUsername=${{ secrets.MAVEN_USERNAME }} -PmavenPassword=${{ secrets.MAVEN_PASSWORD }} --stacktrace
+        run: |
+          cd bindings/kotlin
+          # Add settings.gradle if it doesn't exist
+          echo "pluginManagement { repositories { google(); mavenCentral() }}" > settings.gradle
+          # Run the build
+          ./gradlew -b build-aar.gradle.kts build publish \
+            -PmavenUsername=${{ secrets.MAVEN_USERNAME }} \
+            -PmavenPassword=${{ secrets.MAVEN_PASSWORD }} \
+            --stacktrace
