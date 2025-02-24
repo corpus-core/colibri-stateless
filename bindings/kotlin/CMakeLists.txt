@@ -9,13 +9,24 @@ find_package(Java REQUIRED)
 include(UseJava)
 
 # Set Java include directories
-if(NOT Java_INCLUDE_DIRS)
+if(ANDROID)
+    # Use Android NDK's JNI headers
+    set(Java_INCLUDE_DIRS 
+        "${ANDROID_NDK}/toolchains/llvm/prebuilt/${HOST_TAG}/sysroot/usr/include"
+        "${ANDROID_NDK}/toolchains/llvm/prebuilt/${HOST_TAG}/sysroot/usr/include/linux")
+elseif(NOT Java_INCLUDE_DIRS)
     if(APPLE)
-        set(Java_INCLUDE_DIRS "$ENV{JAVA_HOME}/include" "$ENV{JAVA_HOME}/include/darwin")
+        set(Java_INCLUDE_DIRS 
+            "$ENV{JAVA_HOME}/include" 
+            "$ENV{JAVA_HOME}/include/darwin")
     elseif(UNIX)
-        set(Java_INCLUDE_DIRS "$ENV{JAVA_HOME}/include" "$ENV{JAVA_HOME}/include/linux")
+        set(Java_INCLUDE_DIRS 
+            "$ENV{JAVA_HOME}/include" 
+            "$ENV{JAVA_HOME}/include/linux")
     elseif(WIN32)
-        set(Java_INCLUDE_DIRS "$ENV{JAVA_HOME}/include" "$ENV{JAVA_HOME}/include/win32")
+        set(Java_INCLUDE_DIRS 
+            "$ENV{JAVA_HOME}/include" 
+            "$ENV{JAVA_HOME}/include/win32")
     endif()
     message(WARNING "Java include directories manually set to: ${Java_INCLUDE_DIRS}")
 endif()

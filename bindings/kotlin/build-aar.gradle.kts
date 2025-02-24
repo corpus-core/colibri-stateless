@@ -1,3 +1,8 @@
+repositories {
+    google()
+    mavenCentral()
+}
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
@@ -53,7 +58,6 @@ dependencies {
     implementation("io.ktor:ktor-client-json:2.0.0")
     implementation("io.ktor:ktor-client-serialization:2.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
-    implementation("org.json:json:20210307")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
 }
 
