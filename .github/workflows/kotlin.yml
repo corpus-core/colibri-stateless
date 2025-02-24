@@ -50,6 +50,9 @@ jobs:
       - name: Install CMake
         run: brew install cmake
 
+      - name: Install SWIG
+        run: brew install swig
+
       - name: Configure CMake
         run: cmake -S . -B build-macos -DGENERATE_JAVA_SOURCES=OFF -DCMAKE_BUILD_TYPE=Release  -DCURL=false -DKOTLIN=true -DTEST=false -DWASM=false -DCLI=false
 
