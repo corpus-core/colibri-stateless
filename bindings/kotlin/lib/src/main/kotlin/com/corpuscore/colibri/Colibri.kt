@@ -75,8 +75,6 @@ class Colibri(
 
     suspend fun getProof(method: String, args: Array<Any>): ByteArray {
         return withContext(Dispatchers.IO) {
-            var error: String? = null
-            var proof: ByteArray? = null
 
             // Create the proofer context
             val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, args.joinToString(","), chainId)
@@ -109,7 +107,6 @@ class Colibri(
             } finally {
                 com.corpuscore.colibri.c4.free_proofer_ctx(ctx)
             }
-            throw RuntimeException("No proof could be generated")
         }
     }
 }
