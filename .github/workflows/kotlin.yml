@@ -199,20 +199,13 @@ jobs:
 
       - name: Install Android SDK and NDK
         run: |
-          # Install command-line tools
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
-          unzip -q cmdline-tools.zip -d $ANDROID_HOME
-          rm cmdline-tools.zip
-          mkdir -p $ANDROID_HOME/cmdline-tools/latest
-          mv $ANDROID_HOME/cmdline-tools/* $ANDROID_HOME/cmdline-tools/latest/
-
           # Set environment variables
-          echo "ANDROID_HOME=/home/runner/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=/home/runner/android-sdk" >> $GITHUB_ENV
-          echo "PATH=$PATH:/home/runner/android-sdk/cmdline-tools/latest/bin:/home/runner/android-sdk/platform-tools" >> $GITHUB_PATH
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
 
           # Install SDK components (API 33) and NDK 23.1.7779620
-          yes | sdkmanager --sdk_root=$ANDROID_HOME "platforms;android-33" "build-tools;33.0.0" "ndk;23.1.7779620"
+          yes | sdkmanager "platforms;android-33" "build-tools;33.0.0" "ndk;23.1.7779620"
 
       - name: Build and publish AAR
         run: cd bindings/kotlin && ./gradlew -b build-aar.gradle.kts build publish -PmavenUsername=${{ secrets.MAVEN_USERNAME }} -PmavenPassword=${{ secrets.MAVEN_PASSWORD }} --stacktrace
