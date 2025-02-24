@@ -17,6 +17,12 @@ class Colibri(
     private var ethRpcs: Array<String> = arrayOf("https://default.rpc"), // Default value
     private var beaconApis: Array<String> = arrayOf("https://default.beacon") // Default value
 ) {
+    companion object {
+        init {
+            // This will trigger the native library loading
+            NativeLoader
+        }
+    }
     private val client = HttpClient(CIO)
 
     // Setter for chainId
@@ -69,9 +75,6 @@ class Colibri(
 
     suspend fun getProof(method: String, args: Array<Any>): ByteArray {
         return withContext(Dispatchers.IO) {
-            var error: String? = null
-            var proof: ByteArray? = null
-
             // Create the proofer context
             val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, args.joinToString(","), chainId)
 
@@ -79,22 +82,21 @@ class Colibri(
                 while (true) {
                     // Execute the proofer and get the JSON status
                     val stateString = com.corpuscore.colibri.c4.proofer_execute_json_status(ctx)
-                    val state = JSONObject(stateString) // Parse JSON string to JSONObject
+                    val state = JSONObject(stateString)
 
                     when (state.getString("status")) {
                         "success" -> {
-                            return@withContext com.corpuscore.colibri.c4.proofer_get_proof(ctx)
+                            return@withContext com.corpuscore.colibri.c4.proofer_get_proof(ctx) as ByteArray
                         }
                         "error" -> {
                             throw RuntimeException(state.getString("error")) 
                         }
-                        else -> {
+                        "pending" -> {
                             // Handle pending requests
                             val requests = state.getJSONArray("requests")
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
                                 val servers = if (request.getString("type") == "eth_rpc") ethRpcs else beaconApis
-                                
                                 fetchRequest(servers, request)
                             }
                         }
@@ -103,7 +105,9 @@ class Colibri(
             } finally {
                 com.corpuscore.colibri.c4.free_proofer_ctx(ctx)
             }
-            throw RuntimeException("No proof could be generated")
+            
+            // This line should never be reached due to the infinite loop and return/throw statements above
+            throw RuntimeException("Unexpected end of getProof method")
         }
     }
 }
