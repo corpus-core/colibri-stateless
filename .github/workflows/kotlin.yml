@@ -165,7 +165,8 @@ jobs:
           java-version: "11"
 
       - name: Build and publish JAR
-        run: cd bindings/kotlin && ./gradlew -b build-jar.gradle.kts build publish -PmavenUsername=${{ secrets.MAVEN_USERNAME }} -PmavenPassword=${{ secrets.MAVEN_PASSWORD }}
+        run: cd bindings/kotlin && ./gradlew -b build-jar.gradle.kts build
+  #      run: cd bindings/kotlin && ./gradlew -b build-jar.gradle.kts build publish -PmavenUsername=${{ secrets.MAVEN_USERNAME }} -PmavenPassword=${{ secrets.MAVEN_PASSWORD }}
 
   build-publish-aar:
     runs-on: ubuntu-latest

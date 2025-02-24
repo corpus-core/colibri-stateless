@@ -75,7 +75,6 @@ class Colibri(
 
     suspend fun getProof(method: String, args: Array<Any>): ByteArray {
         return withContext(Dispatchers.IO) {
-
             // Create the proofer context
             val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, args.joinToString(","), chainId)
 
@@ -83,11 +82,12 @@ class Colibri(
                 while (true) {
                     // Execute the proofer and get the JSON status
                     val stateString = com.corpuscore.colibri.c4.proofer_execute_json_status(ctx)
-                    val state = JSONObject(stateString) // Parse JSON string to JSONObject
+                    val state = JSONObject(stateString)
 
                     when (state.getString("status")) {
                         "success" -> {
-                            return@withContext com.corpuscore.colibri.c4.proofer_get_proof(ctx)
+                            val proof = com.corpuscore.colibri.c4.proofer_get_proof(ctx)
+                            return@withContext proof as ByteArray
                         }
                         "error" -> {
                             throw RuntimeException(state.getString("error")) 
@@ -101,6 +101,7 @@ class Colibri(
                                 
                                 fetchRequest(servers, request)
                             }
+                            continue
                         }
                     }
                 }
