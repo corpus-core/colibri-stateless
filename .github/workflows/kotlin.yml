@@ -214,8 +214,21 @@ jobs:
       - name: Build and publish AAR
         run: |
           cd bindings/kotlin
-          # Add settings.gradle if it doesn't exist
-          echo "pluginManagement { repositories { google(); mavenCentral() }}" > settings.gradle
+          # Create settings.gradle.kts with proper plugin management
+          cat > settings.gradle.kts << 'EOL'
+          pluginManagement {
+              repositories {
+                  gradlePluginPortal()
+                  google()
+                  mavenCentral()
+              }
+              plugins {
+                  id("com.android.library") version "8.1.0"
+                  id("org.jetbrains.kotlin.android") version "1.9.24"
+              }
+          }
+          EOL
+
           # Run the build
           ./gradlew -b build-aar.gradle.kts build publish \
             -PmavenUsername=${{ secrets.MAVEN_USERNAME }} \
