@@ -197,15 +197,16 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      - name: Install Android SDK and NDK
+      - name: Set Android SDK environment variables
         run: |
-          # Set environment variables
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
-          echo "PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+          echo "PATH=$PATH:/usr/local/lib/android/sdk/cmdline-tools/latest/bin:/usr/local/lib/android/sdk/platform-tools" >> $GITHUB_PATH
 
-          # Install SDK components (API 33) and NDK 23.1.7779620
-          yes | sdkmanager "platforms;android-33" "build-tools;33.0.0" "ndk;23.1.7779620"
+      - name: Install Android SDK and NDK
+        run: |
+          # Install SDK components using absolute path
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" "build-tools;33.0.0" "ndk;23.1.7779620"
 
       - name: Build and publish AAR
         run: cd bindings/kotlin && ./gradlew -b build-aar.gradle.kts build publish -PmavenUsername=${{ secrets.MAVEN_USERNAME }} -PmavenPassword=${{ secrets.MAVEN_PASSWORD }} --stacktrace
