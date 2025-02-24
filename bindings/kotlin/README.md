@@ -46,11 +46,13 @@ public class Example {
             e.printStackTrace();
         }
     }
-}```
+}
+```
 
 ### Kotlin
 
 Add the dependency to your `build.gradle` file:
+
 ```groovy
 repositories {
     google()
