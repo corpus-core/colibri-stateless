@@ -1,4 +1,4 @@
-name: Android Build
+name: CI Pipeline
 
 on:
   push:
@@ -35,7 +35,7 @@ jobs:
         run: mkdir -p bindings/kotlin/generated/java && cp -r build/bindings/kotlin/java/com/corpuscore/colibri bindings/kotlin/generated/java/
 
       - name: Upload generated Java sources
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # Updated to v4
         with:
           name: generated-java-sources
           path: bindings/kotlin/generated/java
@@ -63,7 +63,7 @@ jobs:
         run: cp build-macos/bindings/kotlin/libc4_java.jnilib native-libs/darwin-x86-64/
 
       - name: Upload native-libs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # Updated to v4
         with:
           name: native-libs-macos
           path: native-libs/
@@ -88,7 +88,7 @@ jobs:
         run: copy build-windows\bindings\kotlin\Release\c4_java.dll native-libs\win32-x86-64\
 
       - name: Upload native-libs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # Updated to v4
         with:
           name: native-libs-windows
           path: native-libs/
@@ -116,7 +116,7 @@ jobs:
         run: cp build-linux/bindings/kotlin/libc4_java.so native-libs/linux-x86-64/
 
       - name: Upload native-libs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # Updated to v4
         with:
           name: native-libs-linux
           path: native-libs/
@@ -135,25 +135,25 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Download generated Java sources
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4 # Updated to v4
         with:
           name: generated-java-sources
           path: bindings/kotlin/generated/java
 
       - name: Download native-libs-macos
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4 # Updated to v4
         with:
           name: native-libs-macos
           path: bindings/kotlin/native-libs
 
       - name: Download native-libs-windows
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4 # Updated to v4
         with:
           name: native-libs-windows
           path: bindings/kotlin/native-libs
 
       - name: Download native-libs-linux
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4 # Updated to v4
         with:
           name: native-libs-linux
           path: bindings/kotlin/native-libs
@@ -175,7 +175,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Download generated Java sources
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4 # Updated to v4
         with:
           name: generated-java-sources
           path: bindings/kotlin/generated/java
