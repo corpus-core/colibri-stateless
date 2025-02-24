@@ -69,7 +69,26 @@ elseif(WIN32)
     )
 else()
     # For cross-compilation, we need to pass the appropriate toolchain
-    if(CMAKE_CROSSCOMPILING)
+    if(ANDROID)
+        # Get the Android NDK compiler path for the current ABI
+        set(ANDROID_TOOLCHAIN_PATH "${ANDROID_TOOLCHAIN}/bin")
+        set(ANDROID_COMPILER_PREFIX "${ANDROID_TOOLCHAIN_PATH}/${ANDROID_LLVM_TRIPLE}")
+        
+        add_custom_command(
+            OUTPUT ${BLST_LIB}
+            COMMAND ${CMAKE_COMMAND} -E env 
+                CC=${ANDROID_COMPILER_PREFIX}
+                AR=${CMAKE_AR}
+                RANLIB=${CMAKE_RANLIB}
+                CROSS_COMPILE=${ANDROID_TOOLCHAIN_PREFIX}
+                CFLAGS=${EXTRA_C_FLAGS}-ffunction-sections\ -fdata-sections\ --target=${ANDROID_LLVM_TRIPLE}\ -D__BLST_PORTABLE__
+                bash ${blst_SOURCE_DIR}/build.sh
+            COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+            WORKING_DIRECTORY ${blst_SOURCE_DIR}
+            COMMENT "Building and moving libblst.a with Android NDK toolchain"
+            VERBATIM
+        )
+    elseif(CMAKE_CROSSCOMPILING)
         add_custom_command(
             OUTPUT ${BLST_LIB}
             COMMAND ${CMAKE_COMMAND} -E env 
