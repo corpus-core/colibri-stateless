@@ -12,16 +12,23 @@ android {
     defaultConfig {
         minSdk = 21
         targetSdk = 33
+        
+        externalNativeBuild {
+            cmake {
+                // Pass arguments to CMake
+                arguments("-DGENERATE_JAVA_SOURCES=OFF", "-DKOTLIN=true", "-DCURL=false")
+                // Specify ABIs to build for
+                abiFilters("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            }
+        }
     }
+    
     externalNativeBuild {
         cmake {
             path = file("CMakeLists.txt")
-            // Pass argument to skip Java source generation, as they are pre-generated
-            arguments("-DGENERATE_JAVA_SOURCES=OFF", "-DKOTLIN=true", "-DCURL=false")
-            // Specify ABIs to build for
-            abiFilters("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }
     }
+    
     ndkVersion = "23.1.7779620" // Adjust to your NDK version
     sourceSets {
         getByName("main") {
