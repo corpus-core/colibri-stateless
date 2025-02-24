@@ -5,59 +5,41 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 
 object NativeLoader {
-    init {
-        loadNativeLibrary()
-    }
+    private var loaded = false
 
-    private fun loadNativeLibrary() {
-        val libraryName = when {
-            System.getProperty("os.name").lowercase().contains("windows") -> "c4_java.dll"
-            System.getProperty("os.name").lowercase().contains("mac") -> "libc4_java.jnilib"
-            else -> "libc4_java.so"
-        }
-
-        val arch = System.getProperty("os.arch").lowercase()
-        val osName = when {
-            System.getProperty("os.name").lowercase().contains("windows") -> "win32-x86-64"
-            System.getProperty("os.name").lowercase().contains("mac") -> {
-                // Handle macOS architecture
-                val archSuffix = when (arch) {
-                    "aarch64", "arm64" -> "aarch64"
-                    else -> "x86-64"
-                }
-                "darwin-$archSuffix"
-            }
-            else -> {
-                // Handle Linux architecture
-                val archSuffix = when (arch) {
-                    "aarch64", "arm64" -> "aarch64"
-                    else -> "x86-64"
-                }
-                "linux-$archSuffix"
-            }
-        }
-
-        val resourcePath = "native/$osName/$libraryName"
+    fun loadLibrary() {
+        if (loaded) return
         
-        // Create temporary directory for the native library
-        val tempDir = Files.createTempDirectory("colibri-native-").toFile()
-        tempDir.deleteOnExit()
-
-        // Extract library to temporary directory
-        val libraryFile = File(tempDir, libraryName)
-        libraryFile.deleteOnExit()
-
-        // Copy library from JAR to temporary directory
-        javaClass.classLoader.getResourceAsStream(resourcePath)?.use { input ->
-            FileOutputStream(libraryFile).use { output ->
-                input.copyTo(output)
+        try {
+            // Try Android (AAR) way first
+            System.loadLibrary("c4_java")
+            loaded = true
+            return
+        } catch (e: UnsatisfiedLinkError) {
+            // If AAR loading fails, try JAR way
+            try {
+                val osName = System.getProperty("os.name").lowercase()
+                val libraryName = when {
+                    osName.contains("win") -> "c4_java.dll"
+                    osName.contains("mac") -> "libc4_java.dylib"
+                    else -> "libc4_java.so"
+                }
+                
+                val libraryPath = "/native/$osName/$libraryName"
+                val tmpDir = createTempDirectory("native-lib")
+                val tmpLib = tmpDir.resolve(libraryName)
+                
+                NativeLoader::class.java.getResourceAsStream(libraryPath)?.use { input ->
+                    tmpLib.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                
+                System.load(tmpLib.absolutePath)
+                loaded = true
+            } catch (e2: Exception) {
+                throw UnsatisfiedLinkError("Failed to load native library: ${e2.message}")
             }
-        } ?: throw UnsatisfiedLinkError(
-            "Native library $libraryName not found in JAR for platform $osName. " +
-            "Available architectures: x86-64 and aarch64 for macOS, x86-64 for Windows and Linux"
-        )
-
-        // Load the library
-        System.load(libraryFile.absolutePath)
+        }
     }
 } 
