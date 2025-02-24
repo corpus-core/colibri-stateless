@@ -229,6 +229,13 @@ jobs:
           }
           EOL
 
+          # Create clean gradle.properties
+          cat > gradle.properties << 'EOL'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          kotlin.code.style=official
+          EOL
+
           # Run the build
           ./gradlew -b build-aar.gradle.kts build publish \
             -PmavenUsername=${{ secrets.MAVEN_USERNAME }} \
