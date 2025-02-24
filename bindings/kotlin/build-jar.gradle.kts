@@ -11,6 +11,18 @@ repositories {
 group = "com.corpuscore"
 version = "1.0.0" // Adjust as needed
 
+dependencies {
+    api(libs.commons.math3)
+    implementation(libs.guava)
+    implementation("io.ktor:ktor-client-core:2.0.0")
+    implementation("io.ktor:ktor-client-cio:2.0.0") // CIO engine for asynchronous requests
+    implementation("io.ktor:ktor-client-json:2.0.0")
+    implementation("io.ktor:ktor-client-serialization:2.0.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
+    implementation("org.json:json:20210307")
+
+}
+
 sourceSets {
     main {
         java {
