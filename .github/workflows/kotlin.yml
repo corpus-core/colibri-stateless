@@ -51,22 +51,22 @@ jobs:
         run: brew install cmake
 
       - name: Configure CMake
-        run: cmake -S . -B build-macos -DGENERATE_JAVA_SOURCES=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64  -DCURL=false -DKOTLIN=true -DTEST=false -DWASM=false -DCLI=false
+        run: cmake -S . -B build-macos -DGENERATE_JAVA_SOURCES=OFF -DCMAKE_BUILD_TYPE=Release  -DCURL=false -DKOTLIN=true -DTEST=false -DWASM=false -DCLI=false
 
       - name: Build
         run: cmake --build build-macos --target c4_java
 
       - name: Create native-libs directory
-        run: mkdir -p native-libs/darwin-x86-64
+        run: mkdir -p bindings/kotlin/native-libs/darwin-aarch64
 
       - name: Copy library
-        run: cp build-macos/bindings/kotlin/libc4_java.jnilib native-libs/darwin-x86-64/
+        run: cp build-macos/bindings/kotlin/libc4_java.dylib bindings/kotlin/native-libs/darwin-aarch64/libc4_java.jnilib
 
       - name: Upload native-libs
         uses: actions/upload-artifact@v4 # Updated to v4
         with:
           name: native-libs-macos
-          path: native-libs/
+          path: bindings/kotlin/native-libs/
 
   build-native-windows:
     runs-on: windows-latest
@@ -82,16 +82,16 @@ jobs:
         run: cmake --build build-windows --config Release --target c4_java
 
       - name: Create native-libs directory
-        run: mkdir native-libs\win32-x86-64
+        run: mkdir bindings\kotlin\native-libs\win32-x86-64
 
       - name: Copy library
-        run: copy build-windows\bindings\kotlin\Release\c4_java.dll native-libs\win32-x86-64\
+        run: copy build-windows\bindings\kotlin\Release\c4_java.dll bindings\kotlin\native-libs\win32-x86-64\
 
       - name: Upload native-libs
         uses: actions/upload-artifact@v4 # Updated to v4
         with:
           name: native-libs-windows
-          path: native-libs/
+          path: bindings/kotlin/native-libs/
 
   build-native-linux:
     runs-on: ubuntu-latest
@@ -110,16 +110,16 @@ jobs:
         run: cmake --build build-linux --target c4_java
 
       - name: Create native-libs directory
-        run: mkdir -p native-libs/linux-x86-64
+        run: mkdir -p bindings/kotlin/native-libs/linux-x86-64
 
       - name: Copy library
-        run: cp build-linux/bindings/kotlin/libc4_java.so native-libs/linux-x86-64/
+        run: cp build-linux/bindings/kotlin/libc4_java.so bindings/kotlin/native-libs/linux-x86-64/
 
       - name: Upload native-libs
         uses: actions/upload-artifact@v4 # Updated to v4
         with:
           name: native-libs-linux
-          path: native-libs/
+          path: bindings/kotlin/native-libs/
 
   build-publish-jar:
     runs-on: ubuntu-latest
