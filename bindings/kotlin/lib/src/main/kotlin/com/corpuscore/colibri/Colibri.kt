@@ -86,28 +86,28 @@ class Colibri(
 
                     when (state.getString("status")) {
                         "success" -> {
-                            val proof = com.corpuscore.colibri.c4.proofer_get_proof(ctx)
-                            return@withContext proof as ByteArray
+                            return@withContext com.corpuscore.colibri.c4.proofer_get_proof(ctx) as ByteArray
                         }
                         "error" -> {
                             throw RuntimeException(state.getString("error")) 
                         }
-                        else -> {
+                        "pending" -> {
                             // Handle pending requests
                             val requests = state.getJSONArray("requests")
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
                                 val servers = if (request.getString("type") == "eth_rpc") ethRpcs else beaconApis
-                                
                                 fetchRequest(servers, request)
                             }
-                            continue
                         }
                     }
                 }
             } finally {
                 com.corpuscore.colibri.c4.free_proofer_ctx(ctx)
             }
+            
+            // This line should never be reached due to the infinite loop and return/throw statements above
+            throw RuntimeException("Unexpected end of getProof method")
         }
     }
 }
