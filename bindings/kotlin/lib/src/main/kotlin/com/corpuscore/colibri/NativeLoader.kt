@@ -3,6 +3,7 @@ package com.corpuscore.colibri
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
+import java.nio.file.Path
 
 object NativeLoader {
     private var loaded = false
@@ -26,14 +27,12 @@ object NativeLoader {
                 }
                 
                 val libraryPath = "/native/$osName/$libraryName"
-                val tmpDir = createTempDirectory("native-lib")
-                val tmpLib = tmpDir.resolve(libraryName)
+                val tmpDir: Path = Files.createTempDirectory("native-lib")
+                val tmpLib: File = tmpDir.resolve(libraryName).toFile()
                 
                 NativeLoader::class.java.getResourceAsStream(libraryPath)?.use { input ->
-                    tmpLib.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
+                    Files.copy(input, tmpLib.toPath())
+                } ?: throw UnsatisfiedLinkError("Could not find native library: $libraryPath")
                 
                 System.load(tmpLib.absolutePath)
                 loaded = true
