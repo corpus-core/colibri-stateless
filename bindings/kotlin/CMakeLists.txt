@@ -29,7 +29,7 @@ if(GENERATE_JAVA_SOURCES)
         OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/java/com/corpuscore/colibri
         OUTFILE_DIR ${CMAKE_CURRENT_BINARY_DIR}/java    
         SOURCES
-            ${CMAKE_CURRENT_SOURCE_DIR}/Colibri.i
+            ${CMAKE_CURRENT_SOURCE_DIR}/colibri.i
             ${CMAKE_CURRENT_SOURCE_DIR}/../colibri.c
     )
     target_link_libraries(c4_java proofer util verifier)
