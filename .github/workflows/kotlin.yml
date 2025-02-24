@@ -161,7 +161,7 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v3
         with:
-          distribution: "temurin"
+          distribution: "adopt"
           java-version: "11"
 
       - name: Build and publish JAR
