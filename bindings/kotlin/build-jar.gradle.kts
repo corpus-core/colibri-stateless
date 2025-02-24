@@ -14,10 +14,11 @@ version = "1.0.0" // Adjust as needed
 sourceSets {
     main {
         java {
-            srcDirs.set(setOf(file("src/main/java"), file("${projectDir}/generated/java")))
+            srcDir("src/main/java")
+            srcDir("${projectDir}/generated/java")
         }
         kotlin {
-            srcDirs.set(setOf(file("lib/src/main/kotlin")))
+            srcDir("lib/src/main/kotlin")
         }
     }
 }
