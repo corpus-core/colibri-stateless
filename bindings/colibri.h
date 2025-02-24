@@ -45,6 +45,13 @@ proofer_t* create_proofer_ctx(char* method, char* params, uint64_t chain_id);
 char* proofer_execute_json_status(proofer_t* ctx);
 
 /**
+ * gets the proof from the proofer_t
+ * @param ctx the proofer_t
+ * @return the proof as bytes_t
+ */
+bytes_t proofer_get_proof(proofer_t* ctx);
+
+/**
  * frees the proofer_ctx_t
  * @param ctx the proofer_ctx_t to free
  */
@@ -89,10 +96,3 @@ char* verify_execute_json_status(void* ctx);
  * frees the verification context
  */
 void verify_free_ctx(void* ctx);
-
-/**
- * gets the proof from the proofer_t
- * @param ctx the proofer_t
- * @return the proof as bytes_t
- */
-bytes_t proofer_get_proof(proofer_t* ctx);

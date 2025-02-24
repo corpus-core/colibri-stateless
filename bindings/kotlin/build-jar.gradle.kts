@@ -26,7 +26,6 @@ dependencies {
 sourceSets {
     main {
         java {
-            srcDir("src/main/java")
             srcDir("${projectDir}/generated/java")
         }
         kotlin {

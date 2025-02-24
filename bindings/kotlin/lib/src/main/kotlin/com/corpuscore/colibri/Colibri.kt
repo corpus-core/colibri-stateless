@@ -14,8 +14,8 @@ import io.ktor.http.*
 
 class Colibri(
     var chainId: BigInteger = BigInteger.ONE, // Default value
-    var ethRpcs: Array<String> = arrayOf("https://default.rpc"), // Default value
-    var beaconApis: Array<String> = arrayOf("https://default.beacon"), // Default value
+    var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
+    var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
     var trustedBlockHashes: Array<String> = arrayOf() // Default empty array
 ) {
     companion object {
@@ -36,28 +36,48 @@ class Colibri(
 
     private suspend fun fetchRequest(servers: Array<String>, request: JSONObject) {
         var index = 0
+        var lastError = ""
         for (server in servers) {
+            val exclude_mask = request.getInt("exclude_mask")
+            val uri = request.getString("url")
             val payload = request.getJSONObject("payload")
-            val url = server + "/" + request.getString("url")
+            val url = uri ? server + "/" + uri : server
             val method = request.getString("method")
+
+            if (exclude_mask and (1 shl index) != 0) {
+                index++
+                continue
+            }
 
             try {
                 val response: HttpResponse = client.request(url) {
                     this.method = HttpMethod.parse(method)
-                    contentType(ContentType.Application.Json)
-                    setBody(payload.toString())
+                    if (request.getString("encoding") == "json") {
+                        accept(ContentType.Application.Json)
+                    } else {
+                        accept(ContentType.Application.OctetStream)
+                    }
+
+                    if (!payload.isEmpty()) {
+                        contentType(ContentType.Application.Json)
+                        setBody(payload.toString())
+                    }
                 }
 
                 if (response.status.isSuccess()) {
                     c4.req_set_response(request.getLong("req_ptr"), response.readBytes(), index)
                     return
                 }
+                else {
+                    lastError = response.status.toString()
+                }
             } catch (e: Exception) {
-                // Handle exceptions, e.g., log them or retry
+                lastError = e.message ?: "Unknown error"
             }
             index++
         }
-        throw RuntimeException("No response from any server")
+
+        c4.req_set_error(request.getLong("req_ptr"), lastError, 0)
     }
 
     private fun formatArg(arg: Any): String = when (arg) {
@@ -73,17 +93,14 @@ class Colibri(
 
     suspend fun getProof(method: String, args: Array<Any>): ByteArray {
         return withContext(Dispatchers.IO) {
-            // Format arguments as JSON array
-            val jsonArgs = "[${args.joinToString(",") { formatArg(it) }}]"
             
             // Create the proofer context with properly formatted JSON args
-            val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, jsonArgs, chainId)
+            val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, "[${args.joinToString(",") { formatArg(it) }}]", chainId)
 
             try {
                 while (true) {
                     // Execute the proofer and get the JSON status
-                    val stateString = com.corpuscore.colibri.c4.proofer_execute_json_status(ctx)
-                    val state = JSONObject(stateString)
+                    val state = JSONObject(com.corpuscore.colibri.c4.proofer_execute_json_status(ctx))
 
                     when (state.getString("status")) {
                         "success" -> {
