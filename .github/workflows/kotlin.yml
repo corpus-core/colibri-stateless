@@ -166,7 +166,14 @@ jobs:
 
       - name: Build and publish JAR
         run: cd bindings/kotlin && ./gradlew -b build-jar.gradle.kts build
-  #      run: cd bindings/kotlin && ./gradlew -b build-jar.gradle.kts build publish -PmavenUsername=${{ secrets.MAVEN_USERNAME }} -PmavenPassword=${{ secrets.MAVEN_PASSWORD }}
+      #      run: cd bindings/kotlin && ./gradlew -b build-jar.gradle.kts build publish -PmavenUsername=${{ secrets.MAVEN_USERNAME }} -PmavenPassword=${{ secrets.MAVEN_PASSWORD }}
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: colibri-jar
+          path: bindings/kotlin/lib/build/libs/*.jar
+          if-no-files-found: error
 
   build-publish-aar:
     runs-on: ubuntu-latest
