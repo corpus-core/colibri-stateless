@@ -78,16 +78,22 @@ jobs:
           for test_binary in ./build/test/unittests/test_*; do
             if [ -x "$test_binary" ]; then
               echo "Running valgrind on $test_binary"
-              echo "## $(basename "$test_binary")" >> valgrind_summary.md
-              echo '```' >> valgrind_summary.md
-              if ! valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary" 2>&1 | tee >(grep -E "^==[0-9]+== " >> valgrind_summary.md); then
+              TEST_NAME=$(basename "$test_binary")
+              
+              # Run valgrind and capture output
+              VALGRIND_OUTPUT=$(valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary" 2>&1)
+              VALGRIND_STATUS=$?
+              
+              if [ $VALGRIND_STATUS -ne 0 ]; then
                 EXIT_CODE=1
-                echo "❌ Memory issues found" >> valgrind_summary.md
+                echo "❌ $TEST_NAME: memory issues found:" >> valgrind_summary.md
+                echo '```' >> valgrind_summary.md
+                echo "$VALGRIND_OUTPUT" | grep -E "^==[0-9]+== " >> valgrind_summary.md
+                echo '```' >> valgrind_summary.md
+                echo "" >> valgrind_summary.md
               else
-                echo "✅ No memory issues detected" >> valgrind_summary.md
+                echo "✅ $TEST_NAME: no memory issues detected" >> valgrind_summary.md
               fi
-              echo '```' >> valgrind_summary.md
-              echo "" >> valgrind_summary.md
             fi
           done
 
@@ -99,7 +105,7 @@ jobs:
           set -x  # Enable debug output
           echo "# Memory Analysis for test_verify_logs" > memory_analysis.md
           echo "" >> memory_analysis.md
-          echo "## Stack and Heap Analysis" >> memory_analysis.md
+          echo "## Memory Usage Summary" >> memory_analysis.md
           echo '```' >> memory_analysis.md
 
           # Run valgrind with both heap and stack profiling
@@ -107,32 +113,37 @@ jobs:
             --detailed-freq=1 \
             --max-snapshots=100 \
             --threshold=0.1 \
+            --stacks=yes \
             --massif-out-file=massif.out \
             ./build/test/unittests/test_verify_logs || true
 
-          # Try to get massif stats, but don't fail if it doesn't work
+          # Extract peak heap size from massif output
           {
-            echo "Massif Output Summary:"
-            ms_print massif.out 2>&1 | head -n 20
+            echo "=== Peak Heap Usage ==="
+            ms_print massif.out | grep -E "peak heap total:" | sed 's/.*: //'
+            echo ""
           } >> memory_analysis.md || true
 
-          echo "" >> memory_analysis.md
-          echo "## Direct Valgrind Memory Information" >> memory_analysis.md
-          echo '```' >> memory_analysis.md
-
-          # Run memcheck with stack trace
+          # Run memcheck to get stack info
           valgrind --tool=memcheck \
             --track-origins=yes \
             --max-stackframe=2000000 \
             --log-file=memcheck.out \
+            --verbose \
             ./build/test/unittests/test_verify_logs || true
 
-          # Add memcheck output
+          # Extract stack size from memcheck output
           {
-            echo "Memcheck Output Summary:"
-            cat memcheck.out | grep -E "^==[0-9]+== (Command:|Peak|Used|Stack|Heap|Access)" || true
-          } >> memory_analysis.md
+            echo "=== Stack Usage ==="
+            grep -E "Stack size below" memcheck.out | sed 's/.*below: //'
+            echo ""
+          } >> memory_analysis.md || true
 
+          echo '```' >> memory_analysis.md
+
+          echo "## Detailed Massif Output" >> memory_analysis.md
+          echo '```' >> memory_analysis.md
+          ms_print massif.out | head -n 30 >> memory_analysis.md || true
           echo '```' >> memory_analysis.md
 
           # Always try to write to summary
