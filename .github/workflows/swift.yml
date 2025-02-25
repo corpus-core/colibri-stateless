@@ -58,7 +58,7 @@ jobs:
           git push https://dein-benutzername:${{ secrets.PAT_TOKEN }}@github.com/dein-benutzername/colibri-swift.git --tags
 
       - name: Upload swift_package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: swift_package
           path: swift_package
