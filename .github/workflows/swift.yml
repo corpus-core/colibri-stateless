@@ -23,10 +23,11 @@ jobs:
           cd build
           cmake -DCURL=false -DSWIFT=true ..
           make
+          cd ..
 
       - name: Copy Swift-Package
         run: |
-          mkdir -p swift_package
+          mkdir -p swift_package/binaries
           cp -r bindings/swift/* swift_package/
           cp build/libc4_swift.a swift_package/binaries/
 
