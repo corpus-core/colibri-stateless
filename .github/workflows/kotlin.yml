@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: Kotlin/Java Pipeline
 
 on:
   push:

@@ -13,6 +13,9 @@ let package = Package(
             dependencies: ["c4_swift"],
             path: "src"
         ),
-        .binaryTarget(name: "c4_swift", path: "../../build/libc4_swift.a")
+        .binaryTarget(
+            name: "c4_swift", 
+            path: "../../build/libc4_swift.a"
+        )
     ]
 )

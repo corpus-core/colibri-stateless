@@ -1,0 +1,64 @@
+name: Release Swift Package
+
+on:
+  push:
+    branches: ["main", "dev", "gradle1"]
+  pull_request:
+    branches: ["main", "dev", "gradle1"]
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Installi CMake
+        run: brew install cmake
+
+      - name: Build FAT Binary
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCURL=false -DSWIFT=true ..
+          make
+
+      - name: Copy Swift-Package
+        run: |
+          mkdir -p swift_package
+          cp -r bindings/swift/* swift_package/
+          cp build/libc4_swift.a swift_package/binaries/
+
+      - name: Update Package.swift
+        run: |
+          sed -i '' 's|path: ".*\.a"|path: "binaries/libc4_swift.a"|' swift_package/Package.swift
+
+      - name: Clone Swift-Package-Repository
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git clone https://github.com/dein-benutzername/colibri-swift.git
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+
+      - name: Copy updated files
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cp -r swift_package/* colibri-swift/
+
+      - name: Commit and Push
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cd colibri-swift
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Release ${{ github.ref_name }}"
+          git tag ${{ github.ref_name }}
+          git push https://dein-benutzername:${{ secrets.PAT_TOKEN }}@github.com/dein-benutzername/colibri-swift.git --tags
+
+      - name: Upload swift_package
+        uses: actions/upload-artifact@v3
+        with:
+          name: swift_package
+          path: swift_package
