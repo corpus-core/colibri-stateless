@@ -4,12 +4,11 @@ name: CMake on multiple platforms
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: ["main", "dev"]
   pull_request:
-    branches: [ "main", "dev" ]
+    branches: ["main", "dev"]
 
 jobs:
-
   emscripten:
     runs-on: ubuntu-latest
     steps:
@@ -23,7 +22,7 @@ jobs:
         run: |
           emcmake cmake -B build -DWASM=true -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
           cmake --build build
-          
+
       - name: Upload WASM
         uses: actions/upload-artifact@v4
         with:
@@ -38,13 +37,13 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin' # See 'Supported distributions' for available options
-          java-version: '21'
+          distribution: "temurin" # See 'Supported distributions' for available options
+          java-version: "21"
 
       - name: Install CMake
         uses: jwlawson/actions-setup-cmake@v1
         with:
-          cmake-version: '3.22.0'
+          cmake-version: "3.22.0"
 
       - name: Install SWIG
         run: sudo apt-get install -y swig
@@ -60,20 +59,24 @@ jobs:
         with:
           name: c4-java
           path: build/bindings/kotlin
-    
 
   valgrind:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
       - name: Build
-        run: cmake -B build -DTEST=true -DCURL=false  -DTESTDATA_DIR=/github/workspace/test/data -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make
-      - name: Valgrind
-        uses: ximaz/valgrind-action@v1.2.0
-        with:
-          binary_path: ./build/test/unittests/test_verify_balance
-
+        run: cmake -B build -DTEST=true -DCURL=false  -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
+      - name: Run Valgrind on all test binaries
+        run: |
+          for test_binary in ./build/test/unittests/test_*; do
+            if [ -x "$test_binary" ]; then
+              echo "Running valgrind on $test_binary"
+              valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary"
+            fi
+          done
 
   code_coverage:
     runs-on: ubuntu-24.04
@@ -104,7 +107,7 @@ jobs:
           badge: true
           format: markdown
           output: both
-          thresholds: '30 50'
+          thresholds: "30 50"
 
       - name: Add Coverage PR Comment
         uses: marocchino/sticky-pull-request-comment@v2
@@ -115,7 +118,6 @@ jobs:
 
       - name: Write to Job Summary
         run: cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY
-
 
   build:
     runs-on: ${{ matrix.os }}
@@ -159,49 +161,48 @@ jobs:
           - os: macos-latest
             c_compiler: gcc
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set reusable strings
-      # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
-      id: strings
-      shell: bash
-      run: |
-        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+      - name: Set reusable strings
+        # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
+        id: strings
+        shell: bash
+        run: |
+          echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
-    - name: Configure CMake
-      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
-      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: >
-        cmake -B ${{ steps.strings.outputs.build-output-dir }}
-        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
-        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
-        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -DTEST=true
-        -DCURL=false
-        -S ${{ github.workspace }}
+      - name: Configure CMake
+        # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
+        # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
+        run: >
+          cmake -B ${{ steps.strings.outputs.build-output-dir }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DTEST=true
+          -DCURL=false
+          -S ${{ github.workspace }}
 
-    - name: Build
-      # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
-      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+      - name: Build
+        # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
+        run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
 
-    - name: Test
-      working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      run: ctest  --output-junit junit_output.xml --output-on-failure --build-config ${{ matrix.build_type }} 
+      - name: Test
+        working-directory: ${{ steps.strings.outputs.build-output-dir }}
+        run: ctest  --output-junit junit_output.xml --output-on-failure --build-config ${{ matrix.build_type }}
 
-    - name: Upload Binaries
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.c_compiler }}
-        path: build/bin
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.c_compiler }}
+          path: build/bin
 
-    - name: Publish Test Report
-      uses: mikepenz/action-junit-report@v5
-      if: success() || failure() # always run even if the previous step fails
-      with:
-        report_paths: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
-      env:
-        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v5
+        if: success() || failure() # always run even if the previous step fails
+        with:
+          report_paths: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 
 #    - name: Upload Test Results
 #      uses: dorny/test-reporter@v1
@@ -209,7 +210,7 @@ jobs:
 #      with:
 #        name: ctest-results
 #        path: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
-#        reporter: java-junit 
+#        reporter: java-junit
 #      env:
 #        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 
