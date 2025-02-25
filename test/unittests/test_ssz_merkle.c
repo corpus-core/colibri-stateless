@@ -41,6 +41,7 @@ void test_block_body() {
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(body_root, root, 32, "root hash must be the same after merkle proof");
   TEST_ASSERT_EQUAL_MESSAGE(9, proof.len / 32, "invalid prooflength");
   free(proof.data);
+  free(data.data);
 }
 
 void test_hash_root() {
