@@ -41,7 +41,7 @@ class Colibri(
             val exclude_mask = request.getInt("exclude_mask")
             val uri = request.getString("url")
             val payload = request.getJSONObject("payload")
-            val url = uri ? server + "/" + uri : server
+            val url = if (uri.isNotEmpty()) server + "/" + uri else server
             val method = request.getString("method")
 
             if (exclude_mask and (1 shl index) != 0) {
