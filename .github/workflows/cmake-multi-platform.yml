@@ -71,12 +71,51 @@ jobs:
         run: cmake -B build -DTEST=true -DCURL=false  -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
       - name: Run Valgrind on all test binaries
         run: |
+          echo "# Valgrind Memory Check Results" > valgrind_summary.md
+          echo "" >> valgrind_summary.md
+          EXIT_CODE=0
+
           for test_binary in ./build/test/unittests/test_*; do
             if [ -x "$test_binary" ]; then
               echo "Running valgrind on $test_binary"
-              valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary"
+              echo "## $(basename "$test_binary")" >> valgrind_summary.md
+              echo '```' >> valgrind_summary.md
+              if ! valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary" 2>&1 | tee >(grep -E "^==[0-9]+== " >> valgrind_summary.md); then
+                EXIT_CODE=1
+                echo "❌ Memory issues found" >> valgrind_summary.md
+              else
+                echo "✅ No memory issues detected" >> valgrind_summary.md
+              fi
+              echo '```' >> valgrind_summary.md
+              echo "" >> valgrind_summary.md
             fi
           done
+
+          cat valgrind_summary.md >> $GITHUB_STEP_SUMMARY
+          exit $EXIT_CODE
+
+      - name: Analyze Stack Usage for test_verify_logs
+        run: |
+          echo "# Memory Analysis for test_verify_logs" > memory_analysis.md
+          echo "" >> memory_analysis.md
+          echo "## Stack and Heap Analysis" >> memory_analysis.md
+          echo '```' >> memory_analysis.md
+
+          # Run with massif for heap profiling
+          valgrind --tool=massif --massif-out-file=massif.out ./build/test/unittests/test_verify_logs
+
+          # Get peak memory usage and other stats
+          ms_print massif.out | grep -E "^\s*(Command|peak|heap|stack)" >> memory_analysis.md
+
+          echo '```' >> memory_analysis.md
+
+          # Run with --max-stackframe for stack size estimation
+          echo "## Detailed Stack Information" >> memory_analysis.md
+          echo '```' >> memory_analysis.md
+          valgrind --tool=memcheck --max-stackframe=2000000 ./build/test/unittests/test_verify_logs 2>&1 | grep -E "^==[0-9]+== (Stack|Access)" >> memory_analysis.md
+          echo '```' >> memory_analysis.md
+
+          cat memory_analysis.md >> $GITHUB_STEP_SUMMARY
 
   code_coverage:
     runs-on: ubuntu-24.04

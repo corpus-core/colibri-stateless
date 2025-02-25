@@ -99,18 +99,18 @@ void test_receipt_tree() {
   bytes32_t tmp          = {0};
   buffer_t  buf          = stack_buffer(tmp);
   buffer_t  receipts_buf = {0};
-  buffer_t  file         = {0};
+  //  buffer_t  file         = {0};
 
   json_for_each_value(receipts, r) {
 
     bytes_t key   = c4_eth_create_tx_path(json_get_uint32(r, "transactionIndex"), &buf);
     bytes_t value = c4_serialize_receipt(r, &receipts_buf);
-    bprintf(&file, "0x%x : 0x%x\n", key, value);
+    //    bprintf(&file, "0x%x : 0x%x\n", key, value);
 
     patricia_set_value(&root, key, value);
   }
 
-  bytes_write(file.data, fopen("receipts.txt", "w"), true);
+  //  bytes_write(file.data, fopen("receipts.txt", "w"), true);
 
   bytes_t expected_root = json_get_bytes(block, "receiptsRoot", &buf);
 
