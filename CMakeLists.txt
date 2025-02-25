@@ -5,10 +5,38 @@ option(TEST "if true the test will be build" OFF)
 option(COVERAGE "if true the coverage will be build" OFF)
 option(WASM "if true the wasm will be build" OFF)
 option(KOTLIN "if true the kotlin bindings will be build" OFF)
+option(SWIFT "if true the swift bindings will be build" OFF)
 option(BLS_DESERIALIZE "if true bls keys will be stored deserialized, which increases the state per sync committee period from 25kB to 50kB, but make verification 5x faster" ON)
 
 if(KOTLIN)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    set(CURL OFF)
+endif()
+
+# Definiere eine Funktion, um iOS-spezifische Eigenschaften für ein Target zu setzen
+function(set_ios_target_properties target)
+    if(SWIFT)
+        set_target_properties(${target} PROPERTIES
+            XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator"
+            XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO
+            XCODE_ATTRIBUTE_VALID_ARCHS "arm64 x86_64"
+        )
+    endif()
+endfunction()
+
+if(SWIFT)
+    # Wenn für Swift gebaut wird, verwende iOS Toolchain nur für die Swift-Bibliothek
+    set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/.github/ios.toolchain.cmake CACHE FILEPATH "iOS Toolchain file")
+    set(PLATFORM "OS64COMBINED" CACHE STRING "iOS Platform target")
+    set(CURL OFF)
+    
+    # Speichere die iOS-spezifischen Flags
+    set(IOS_CMAKE_C_FLAGS ${CMAKE_C_FLAGS})
+    set(IOS_CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+    
+    # Setze temporär die Standard-Flags für die Host-Builds
+    set(CMAKE_C_FLAGS ${SAVED_CMAKE_C_FLAGS})
+    set(CMAKE_CXX_FLAGS ${SAVED_CMAKE_CXX_FLAGS})
 endif()
 
 if(CURL)
@@ -18,7 +46,6 @@ endif()
 if(BLS_DESERIALIZE)
     add_definitions(-DBLS_DESERIALIZE)
 endif()
-
 
 if(TEST)
     if(NOT DEFINED TESTDATA_DIR)
@@ -110,3 +137,9 @@ if(KOTLIN)
     add_subdirectory(bindings/kotlin)
 endif()
 
+if(SWIFT)
+    # Stelle die iOS-Flags für die Swift-Bibliothek wieder her
+    set(CMAKE_C_FLAGS ${IOS_CMAKE_C_FLAGS})
+    set(CMAKE_CXX_FLAGS ${IOS_CMAKE_CXX_FLAGS})
+    add_subdirectory(bindings/swift)
+endif()

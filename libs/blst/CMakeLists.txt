@@ -20,8 +20,10 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(blst)
+
+# Set up initial flags
 if(KOTLIN)
-  set(EXTRA_C_FLAGS "-fPIC\ ")
+    set(EXTRA_C_FLAGS "-fPIC\ ")
 endif()
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)
@@ -40,11 +42,11 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --gc-sections")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --gc-sections")
     endif()
-    # Add a custom command to build the library using the script
 endif()
+
+# Handle different platforms and build configurations
 if(EMSCRIPTEN)
     set(EMCC emcc)
-
     # Add a custom command to build the static library for WASM
     add_custom_command(
         OUTPUT ${BLST_LIB}
@@ -56,7 +58,6 @@ if(EMSCRIPTEN)
         COMMENT "Building blst as a static library for WebAssembly with Emscripten"
         VERBATIM
     )
-
 elseif(WIN32)
     add_custom_command(
         OUTPUT ${BLST_LIB}
@@ -68,7 +69,6 @@ elseif(WIN32)
         VERBATIM
     )
 else()
-    # For cross-compilation, we need to pass the appropriate toolchain
     if(ANDROID)
         # Get the Android NDK paths
         set(ANDROID_NDK_ROOT $ENV{ANDROID_NDK_HOME})
@@ -120,14 +120,28 @@ else()
             VERBATIM
         )
     else()
+        # Standard build for native platforms
+        if(APPLE)
+            # Get SDK paths only when building for iOS
+            execute_process(
+                COMMAND xcrun --sdk macosx --show-sdk-path
+                OUTPUT_VARIABLE MACOS_SDK_PATH
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH}")
+        else()
+            set(BLST_CFLAGS "${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections")
+        endif()
+
         add_custom_command(
             OUTPUT ${BLST_LIB}
             COMMAND ${CMAKE_COMMAND} -E env 
-                CFLAGS=${EXTRA_C_FLAGS}-ffunction-sections\ -fdata-sections 
+                "CC=${CMAKE_C_COMPILER}"
+                "CFLAGS=${BLST_CFLAGS}"
                 bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
             COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
             WORKING_DIRECTORY ${blst_SOURCE_DIR}
-            COMMENT "Building and moving libblst.a with optimization flags on non-Windows"
+            COMMENT "Building blst for native architecture"
             VERBATIM
         )
     endif()
@@ -138,6 +152,74 @@ add_custom_target(blst_lib ALL DEPENDS ${BLST_LIB})
 
 # Declare the blst library as an imported target
 add_library(blst STATIC IMPORTED GLOBAL)
-set_target_properties(blst PROPERTIES IMPORTED_LOCATION ${BLST_LIB})
+set_target_properties(blst PROPERTIES 
+    IMPORTED_LOCATION ${BLST_LIB}
+)
 
+# Make sure the library is built before it's used
 add_dependencies(blst blst_lib)
+
+# iOS-specific build for Swift
+if(SWIFT)
+    # Get iOS SDK paths
+    execute_process(
+        COMMAND xcrun --sdk iphoneos --show-sdk-path
+        OUTPUT_VARIABLE IOS_SDK_PATH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    execute_process(
+        COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+        OUTPUT_VARIABLE IOS_SIMULATOR_SDK_PATH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    # Für iOS bauen wir beide Architekturen und erstellen dann eine Fat Binary
+    set(BLST_IOS_LIB ${BLST_LIB_OUTPUT_DIR}/libblst_ios.a)
+    set(BLST_LIB_ARM64 ${BLST_LIB_OUTPUT_DIR}/libblst_arm64.a)
+    set(BLST_LIB_X86_64 ${BLST_LIB_OUTPUT_DIR}/libblst_x86_64.a)
+
+    # Build für ARM64 (iOS Devices)
+    add_custom_command(
+        OUTPUT ${BLST_LIB_ARM64}
+        COMMAND ${CMAKE_COMMAND} -E env 
+            "CC=${CMAKE_C_COMPILER}"
+            "CFLAGS=-target arm64-apple-ios -isysroot ${IOS_SDK_PATH}"
+            bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
+        COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB_ARM64}
+        WORKING_DIRECTORY ${blst_SOURCE_DIR}
+        COMMENT "Building blst for iOS ARM64"
+        VERBATIM
+    )
+
+    # Build für x86_64 (iOS Simulator)
+    add_custom_command(
+        OUTPUT ${BLST_LIB_X86_64}
+        COMMAND ${CMAKE_COMMAND} -E env 
+            "CC=${CMAKE_C_COMPILER}"
+            "CFLAGS=-target x86_64-apple-ios-simulator -isysroot ${IOS_SIMULATOR_SDK_PATH}"
+            bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
+        COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB_X86_64}
+        WORKING_DIRECTORY ${blst_SOURCE_DIR}
+        COMMENT "Building blst for iOS Simulator x86_64"
+        VERBATIM
+    )
+
+    # Kombiniere zu iOS Fat Binary
+    add_custom_command(
+        OUTPUT ${BLST_IOS_LIB}
+        DEPENDS ${BLST_LIB_ARM64} ${BLST_LIB_X86_64}
+        COMMAND lipo -create 
+            ${BLST_LIB_ARM64}
+            ${BLST_LIB_X86_64}
+            -output ${BLST_IOS_LIB}
+        COMMAND touch ${BLST_IOS_LIB}.fat
+        COMMENT "Creating Fat Binary for iOS"
+        VERBATIM
+    )
+
+    # Custom target für die iOS Fat Binary
+    add_custom_target(blst_ios ALL 
+        DEPENDS ${BLST_IOS_LIB}
+        SOURCES ${blst_SOURCE_DIR}/src/server.c
+    )
+endif()
