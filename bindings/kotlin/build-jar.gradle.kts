@@ -11,6 +11,10 @@ repositories {
 group = "com.corpuscore"
 version = "1.0.0" // Adjust as needed
 
+// Configure the path to generated Java sources
+val generatedSourcesPath = project.findProperty("generatedSourcesPath")?.toString() 
+    ?: "${projectDir}/../../build/bindings/kotlin/java"
+
 dependencies {
     api(libs.commons.math3)
     implementation(libs.guava)
@@ -20,13 +24,12 @@ dependencies {
     implementation("io.ktor:ktor-client-serialization:2.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
     implementation("org.json:json:20210307")
-
 }
 
 sourceSets {
     main {
         java {
-            srcDir("${projectDir}/generated/java")
+            srcDir(file(generatedSourcesPath))
         }
         kotlin {
             srcDir("lib/src/main/kotlin")

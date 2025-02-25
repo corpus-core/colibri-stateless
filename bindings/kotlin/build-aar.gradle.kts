@@ -12,12 +12,15 @@ plugins {
 group = "com.corpuscore"
 version = "1.0.0" // Adjust as needed
 
+// Configure the path to generated Java sources
+val generatedSourcesPath = project.findProperty("generatedSourcesPath")?.toString() 
+    ?: "${projectDir}/../../build/bindings/kotlin/java"
+
 android {
     namespace = "com.corpuscore.colibri"
     compileSdk = 33
     defaultConfig {
         minSdk = 21
-        targetSdk = 33
         
         externalNativeBuild {
             cmake {
@@ -36,10 +39,28 @@ android {
     }
     
     ndkVersion = "23.1.7779620" // Adjust to your NDK version
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+    
+    lint {
+        disable += "DuplicatePlatformClasses"  // Disable lint check for JSON library conflict
+    }
+    
     sourceSets {
         getByName("main") {
-            java.srcDirs(file("${projectDir}/generated/java"))
-            kotlin.srcDirs(file("${projectDir}/lib/src/main/kotlin"))
+            java {
+                srcDirs(file(generatedSourcesPath))
+            }
+            kotlin {
+                srcDirs(file("${projectDir}/lib/src/main/kotlin"))
+            }
         }
     }
 
@@ -60,6 +81,7 @@ dependencies {
     implementation("io.ktor:ktor-client-serialization:2.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
+    implementation("org.json:json:20210307")  // Add explicit JSON dependency to match JAR build
 }
 
 afterEvaluate {
