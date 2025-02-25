@@ -127,36 +127,52 @@ jobs:
             --max-snapshots=100 \
             --threshold=0.1 \
             --stacks=yes \
+            --pages-as-heap=yes \
             --massif-out-file=massif.out \
             ./build/test/unittests/test_verify_logs || true
 
-          # Extract peak heap size from massif output
+          # Wait a moment for file to be written
+          sleep 1
+
+          # Extract peak heap size from massif output with more detailed parsing
           {
             echo "=== Peak Heap Usage ==="
-            ms_print massif.out | grep -E "peak heap total:" | sed 's/.*: //'
+            ms_print massif.out | awk '/peak heap total:/ {print $4 " " $5; found=1} END{if(!found) print "Could not determine peak heap usage"}'
             echo ""
-          } >> memory_analysis.md || true
+          } >> memory_analysis.md
 
-          # Run memcheck to get stack info
+          # Run memcheck with stack trace for detailed stack analysis
           valgrind --tool=memcheck \
             --track-origins=yes \
             --max-stackframe=2000000 \
             --log-file=memcheck.out \
             --verbose \
+            --main-stacksize=8388608 \
             ./build/test/unittests/test_verify_logs || true
 
-          # Extract stack size from memcheck output
+          # Extract stack size information with more robust parsing
           {
             echo "=== Stack Usage ==="
-            grep -E "Stack size below" memcheck.out | sed 's/.*below: //'
+            if grep -q "Stack size below" memcheck.out; then
+              grep -E "Stack size below" memcheck.out | sed 's/.*below: //'
+            else
+              # Alternative method to get stack info
+              grep -E "using --main-stacksize=" memcheck.out | sed 's/.*using --main-stacksize=/Current stack size: /'
+            fi
             echo ""
+          } >> memory_analysis.md
+
+          echo '```' >> memory_analysis.md
+
+          echo "## Detailed Memory Information" >> memory_analysis.md
+          echo '```' >> memory_analysis.md
+          {
+            echo "=== Massif Detailed Output ==="
+            ms_print massif.out | head -n 30
+            echo ""
+            echo "=== Memcheck Stack Information ==="
+            grep -E "^==[0-9]+== (Command:|Stack|Heap)" memcheck.out || echo "No detailed stack information available"
           } >> memory_analysis.md || true
-
-          echo '```' >> memory_analysis.md
-
-          echo "## Detailed Massif Output" >> memory_analysis.md
-          echo '```' >> memory_analysis.md
-          ms_print massif.out | head -n 30 >> memory_analysis.md || true
           echo '```' >> memory_analysis.md
 
           # Always try to write to summary
