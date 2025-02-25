@@ -32,7 +32,9 @@ jobs:
         run: cmake --build build --target c4_java
 
       - name: Copy generated Java sources
-        run: mkdir -p bindings/kotlin/generated/java && cp -r build/bindings/kotlin/java/com/corpuscore/colibri bindings/kotlin/generated/java/
+        run: |
+          mkdir -p bindings/kotlin/generated/java
+          cp -r build/bindings/kotlin/java/* bindings/kotlin/generated/java/
 
       - name: Upload generated Java sources
         uses: actions/upload-artifact@v4 # Updated to v4
