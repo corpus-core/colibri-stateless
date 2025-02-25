@@ -80,20 +80,33 @@ jobs:
               echo "Running valgrind on $test_binary"
               TEST_NAME=$(basename "$test_binary")
               
-              # Run valgrind and capture output
-              VALGRIND_OUTPUT=$(valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary" 2>&1)
-              VALGRIND_STATUS=$?
+              # Create a temporary file for valgrind output
+              TEMP_OUTPUT=$(mktemp)
+              
+              # Run valgrind and capture both stdout and stderr
+              valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary" 2>&1 | tee "$TEMP_OUTPUT"
+              VALGRIND_STATUS=${PIPESTATUS[0]}
+              
+              # Extract valgrind-specific messages (lines starting with ==)
+              VALGRIND_MESSAGES=$(grep -E "^==[0-9]+== " "$TEMP_OUTPUT" || true)
               
               if [ $VALGRIND_STATUS -ne 0 ]; then
                 EXIT_CODE=1
                 echo "❌ $TEST_NAME: memory issues found:" >> valgrind_summary.md
                 echo '```' >> valgrind_summary.md
-                echo "$VALGRIND_OUTPUT" | grep -E "^==[0-9]+== " >> valgrind_summary.md
+                # First show the test output without valgrind messages
+                grep -vE "^==[0-9]+== " "$TEMP_OUTPUT" >> valgrind_summary.md || true
+                echo "" >> valgrind_summary.md
+                # Then show the valgrind messages
+                echo "$VALGRIND_MESSAGES" >> valgrind_summary.md
                 echo '```' >> valgrind_summary.md
                 echo "" >> valgrind_summary.md
               else
                 echo "✅ $TEST_NAME: no memory issues detected" >> valgrind_summary.md
               fi
+              
+              # Clean up temp file
+              rm "$TEMP_OUTPUT"
             fi
           done
 
