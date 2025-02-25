@@ -187,9 +187,6 @@ static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
           return (ssz_ob_t) {0};
       }
 
-      // check if the data are valid
-      if (!ssz_is_valid(&res)) return (ssz_ob_t) {0};
-
       return res;
     }
     pos += len;

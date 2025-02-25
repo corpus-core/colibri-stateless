@@ -69,6 +69,7 @@ bool c4_update_from_sync_data(verify_ctx_t* ctx) {
 
 bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes32_t trusted_blockhash) {
 
+  bool     success = true;
   buffer_t updates = {0};
   if (client_updates.len && client_updates.data[0] == '{') {
     json_t json = json_parse((char*) client_updates.data);
@@ -79,7 +80,15 @@ bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes
   uint32_t pos = 0;
   while (pos < client_updates.len) {
     updates.data.len = 0;
-    uint64_t length  = uint64_from_le(client_updates.data + pos);
+    if (client_updates.len - pos < 8 + 4) {
+      success = false;
+      break;
+    }
+    uint64_t length = uint64_from_le(client_updates.data + pos);
+    if (pos + 8 + length > client_updates.len) {
+      success = false;
+      break;
+    }
     buffer_grow(&updates, length + 100);
     buffer_append(&updates, bytes(NULL, 19)); // 3 offsets + 3 union bytes +  4 version
     memcpy(updates.data.data, c4_version_bytes, 4);
@@ -100,15 +109,15 @@ bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes
     sync_ctx.chain_id     = chain_id;
     if (trusted_blockhash) {
       if (!update_light_client_update(&sync_ctx, &client_update_ob, trusted_blockhash)) {
-        buffer_free(&updates);
-        return false;
+        success = false;
+        break;
       }
     }
     else {
       c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0}, chain_id);
       if (sync_ctx.state.error) {
-        buffer_free(&updates);
-        return false;
+        success = false;
+        break;
       }
     }
 
@@ -123,5 +132,5 @@ bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes
   //- LightClientUpdate
 
   // wrap into request
-  return true;
+  return success;
 }

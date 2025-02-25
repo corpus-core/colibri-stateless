@@ -8,6 +8,7 @@
 void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id) {
   ssz_ob_t req = ssz_ob(C4_REQUEST_CONTAINER, request);
   memset(ctx, 0, sizeof(verify_ctx_t));
+  if (!ssz_is_valid(req, true, &ctx->state)) return;
   ctx->chain_id  = chain_id; // ssz_get_uint64(&req, "chainId");
   ctx->data      = ssz_get(&req, "data");
   ctx->proof     = ssz_get(&req, "proof");
@@ -18,6 +19,7 @@ void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json
 }
 
 void c4_verify(verify_ctx_t* ctx) {
+  if (ctx->state.error) return;
   // check if there are sync_datat, we should use to update the state
   if (!c4_update_from_sync_data(ctx)) return;
 

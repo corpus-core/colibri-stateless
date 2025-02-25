@@ -130,13 +130,14 @@ bytes_t proofer_get_proof(proofer_t* proofer) {
 void* verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes) {
   c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
   ssz_ob_t         req = ssz_ob(C4_REQUEST_CONTAINER, bytes_dup(proof));
-  ctx->ctx.chain_id    = chain_id;
-  ctx->ctx.data        = ssz_get(&req, "data");
-  ctx->ctx.proof       = ssz_get(&req, "proof");
-  ctx->ctx.sync_data   = ssz_get(&req, "sync_data");
-  ctx->ctx.method      = method ? strdup(method) : NULL;
-  ctx->ctx.args        = args ? json_parse(strdup(args)) : ((json_t) {0});
-  ctx->trusted_blocks  = trusted_block_hashes ? json_parse(strdup(trusted_block_hashes)) : ((json_t) {0});
+  if (!ssz_is_valid(req, true, &ctx->ctx.state)) return ctx;
+  ctx->ctx.chain_id   = chain_id;
+  ctx->ctx.data       = ssz_get(&req, "data");
+  ctx->ctx.proof      = ssz_get(&req, "proof");
+  ctx->ctx.sync_data  = ssz_get(&req, "sync_data");
+  ctx->ctx.method     = method ? strdup(method) : NULL;
+  ctx->ctx.args       = args ? json_parse(strdup(args)) : ((json_t) {0});
+  ctx->trusted_blocks = trusted_block_hashes ? json_parse(strdup(trusted_block_hashes)) : ((json_t) {0});
   return (void*) ctx;
 }
 

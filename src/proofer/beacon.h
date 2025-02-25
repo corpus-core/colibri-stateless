@@ -28,7 +28,7 @@ ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 bytes_t c4_proofer_add_data(json_t data, const char* union_name, buffer_t* tmp);
 
 c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result);
-c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, bytes_t* result);
+c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, ssz_ob_t* result);
 
 #ifdef __cplusplus
 }

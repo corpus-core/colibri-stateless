@@ -34,12 +34,8 @@ static c4_status_t get_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* block)
   else
     sprintf(path, "eth/v2/beacon/blocks/%" PRIu64, slot);
 
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, &block_data));
-
-  ssz_ob_t signed_block = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, block_data);
-  *block                = ssz_get(&signed_block, "message");
-  if (ssz_is_error(*block)) THROW_ERROR("Invalid block-format!");
-
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, &SIGNED_BEACON_BLOCK_CONTAINER, block));
+  *block = ssz_get(block, "message");
   return C4_SUCCESS;
 }
 
@@ -153,7 +149,7 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, jso
   return C4_SUCCESS;
 }
 
-c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, bytes_t* result) {
+c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, ssz_ob_t* result) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -167,8 +163,8 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, byte
     buffer_free(&buffer);
     if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (!data_request->error && data_request->response.data) {
-      *result = data_request->response;
-      return C4_SUCCESS;
+      *result = (ssz_ob_t) {.def = def, .bytes = data_request->response};
+      return ssz_is_valid(*result, true, &ctx->state) ? C4_SUCCESS : C4_ERROR;
     }
     else
       THROW_ERROR(data_request->error ? data_request->error : "Data request failed");

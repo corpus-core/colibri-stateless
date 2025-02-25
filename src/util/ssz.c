@@ -1,6 +1,7 @@
 #include "ssz.h"
 #include "crypto.h"
 #include "json.h"
+#include "state.h"
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -12,6 +13,10 @@ const ssz_def_t ssz_uint8      = SSZ_UINT("", 1);
 const ssz_def_t ssz_bytes32    = SSZ_BYTES32("bytes32");
 const ssz_def_t ssz_bls_pubky  = SSZ_BYTE_VECTOR("bls_pubky", 48);
 const ssz_def_t ssz_bytes_list = SSZ_BYTES("bytes", 1024 << 8);
+
+static bool is_basic_type(const ssz_def_t* def) {
+  return def->type == SSZ_TYPE_UINT || def->type == SSZ_TYPE_BOOLEAN || def->type == SSZ_TYPE_NONE;
+}
 
 // checks if a definition has a dynamic length
 bool ssz_is_dynamic(const ssz_def_t* def) {
@@ -48,37 +53,99 @@ size_t ssz_fixed_length(const ssz_def_t* def) {
   }
 }
 
-bool ssz_is_valid(ssz_ob_t* ob) {
-  switch (ob->def->type) {
+static bool failure(char* fnt) {
+  printf("Invalid %s\n", fnt);
+  return false;
+}
+
+#define THROW_INVALID(fmt, ...)                       \
+  do {                                                \
+    if (!state) return failure(fmt);                  \
+    buffer_t buf = {0};                               \
+    state->error = bprintf(&buf, fmt, ##__VA_ARGS__); \
+    return failure(fmt);                              \
+  } while (0)
+
+bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
+  switch (ob.def->type) {
     case SSZ_TYPE_BOOLEAN:
-      return ob->bytes.len == 1 && ob->bytes.data[0] < 2;
+      if (ob.bytes.len != 1 || ob.bytes.data[0] > 1) THROW_INVALID("invalid boolean value");
+      return true;
     case SSZ_TYPE_VECTOR:
-      return ob->bytes.len == ob->def->def.vector.len * ssz_fixed_length(ob->def->def.vector.type);
+      if (ob.bytes.len != ob.def->def.vector.len * ssz_fixed_length(ob.def->def.vector.type)) THROW_INVALID("Invalid bytelength for vector");
+      if (recursive && ob.def->def.vector.type->type != SSZ_TYPE_UINT) {
+        for (int i = 0; i < ob.def->def.vector.len; i++) {
+          ssz_ob_t el = ssz_at(ob, i);
+          if (!ssz_is_valid(el, recursive, state)) return false;
+        }
+      }
+      return true;
     case SSZ_TYPE_LIST:
-      if (ssz_is_dynamic(ob->def->def.vector.type)) {
-        if (ob->bytes.len == 0) return true;
-        if (ob->bytes.len < 4) return false;
-        uint32_t first_offset = uint32_from_le(ob->bytes.data);
-        if (first_offset >= ob->bytes.len || first_offset < 4) return false;
+      if (ssz_is_dynamic(ob.def->def.vector.type)) {
+        if (ob.bytes.len == 0) return true;
+        if (ob.bytes.len < 4) THROW_INVALID("Invalid bytelength for list");
+        uint32_t first_offset = uint32_from_le(ob.bytes.data);
+        if (first_offset >= ob.bytes.len || first_offset < 4) THROW_INVALID("Invalid first offset for list");
         uint32_t offset = first_offset;
         for (int i = 4; i < first_offset; i += 4) {
-          uint32_t next_offset = uint32_from_le(ob->bytes.data + i);
-          if (next_offset >= ob->bytes.len || next_offset < offset) return false;
+          uint32_t next_offset = uint32_from_le(ob.bytes.data + i);
+          if (next_offset >= ob.bytes.len || next_offset < offset) THROW_INVALID("Invalid  offset for list");
+          if (recursive && !ssz_is_valid(ssz_ob(*ob.def->def.vector.type, bytes(ob.bytes.data + offset, next_offset - offset)), recursive, state)) return false;
           offset = next_offset;
         }
+        if (recursive && !ssz_is_valid(ssz_ob(*ob.def->def.vector.type, bytes(ob.bytes.data + offset, ob.bytes.len - offset)), recursive, state)) return false;
         return true;
       }
-      return ob->bytes.len % ssz_fixed_length(ob->def->def.vector.type) == 0 && ob->bytes.len <= ob->def->def.vector.len * ssz_fixed_length(ob->def->def.vector.type);
+      int fixed_length = ssz_fixed_length(ob.def->def.vector.type);
+      if (ob.bytes.len % fixed_length != 0 ||
+          ob.bytes.len > ob.def->def.vector.len * fixed_length) THROW_INVALID("Invalid length for list");
+      if (recursive && ob.def->type != SSZ_TYPE_UINT) {
+        for (int i = 0; i < ob.bytes.len; i += fixed_length) {
+          if (!ssz_is_valid(ssz_ob(*ob.def->def.vector.type, bytes(ob.bytes.data + i, fixed_length)), recursive, state)) return false;
+        }
+      }
+      return true;
     case SSZ_TYPE_BIT_VECTOR:
-      return ob->bytes.len == (ob->def->def.vector.len + 7) >> 3;
+      return ob.bytes.len == (ob.def->def.vector.len + 7) >> 3;
     case SSZ_TYPE_BIT_LIST:
-      return ob->bytes.len <= (ob->def->def.vector.len + 7) >> 3;
+      return ob.bytes.len <= (ob.def->def.vector.len + 7) >> 3;
     case SSZ_TYPE_UINT:
-      return ob->bytes.len == ob->def->def.uint.len;
+      return ob.bytes.len == ob.def->def.uint.len;
     case SSZ_TYPE_CONTAINER:
-      return ob->bytes.len >= ssz_fixed_length(ob->def);
+      if (ssz_is_dynamic(ob.def) ? (ob.bytes.len < ssz_fixed_length(ob.def)) : (ob.bytes.len != ssz_fixed_length(ob.def))) THROW_INVALID("Invalid length for container");
+      if (recursive) {
+        ssz_ob_t last_ob     = {0};
+        uint32_t last_offset = 0;
+        uint32_t pos         = 0;
+        for (int i = 0; i < ob.def->def.container.len; i++) {
+          const ssz_def_t* def = ob.def->def.container.elements + i;
+          if (ssz_is_dynamic(def)) {
+            uint32_t offset = uint32_from_le(ob.bytes.data + pos);
+            if (offset > ob.bytes.len || offset < pos + 4 || last_offset > offset) THROW_INVALID("Invalid offset for container");
+            if (last_ob.def) {
+              last_ob.bytes = bytes(ob.bytes.data + last_offset, offset - last_offset);
+              if (!ssz_is_valid(last_ob, recursive, state)) return false;
+            }
+            last_ob.def = def;
+            last_offset = offset;
+            pos += 4;
+          }
+          else {
+            uint32_t len = ssz_fixed_length(def);
+            if (!ssz_is_valid(ssz_ob(*def, bytes(ob.bytes.data + pos, len)), recursive, state)) return false;
+            pos += len;
+          }
+        }
+        if (last_ob.def) {
+          last_ob.bytes = bytes(ob.bytes.data + last_offset, ob.bytes.len - last_offset);
+          if (!ssz_is_valid(last_ob, recursive, state)) return false;
+        }
+      }
+      return true;
     case SSZ_TYPE_UNION:
-      return ob->bytes.len > 0 && ob->bytes.data[0] < ob->def->def.container.len;
+      if (ob.bytes.len == 0 || ob.bytes.data[0] >= ob.def->def.container.len) THROW_INVALID("Invalid selector for union");
+      if (recursive && ob.def->def.container.elements[ob.bytes.data[0]].type != SSZ_TYPE_NONE && !ssz_is_valid(ssz_ob(ob.def->def.container.elements[ob.bytes.data[0]], bytes(ob.bytes.data + 1, ob.bytes.len - 1)), recursive, state)) return false;
+      return true;
     default:
       return true;
   }

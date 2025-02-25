@@ -8,6 +8,7 @@ extern "C" {
 #include "bytes.h"
 #include "crypto.h"
 #include "json.h"
+#include "state.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -127,7 +128,7 @@ bytes_t  ssz_create_multi_proof_for_gindexes(ssz_ob_t root, bytes32_t root_hash,
 // checks if a definition has a dynamic length
 bool ssz_is_dynamic(const ssz_def_t* def);
 bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
-bool ssz_is_valid(ssz_ob_t* ob);
+bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state);
 
 extern const ssz_def_t ssz_uint8;
 extern const ssz_def_t ssz_bytes32;
