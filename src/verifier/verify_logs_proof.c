@@ -42,7 +42,12 @@ static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t rec
     gindexes[3 + i] = GINDEX_TXINDEX_G + ssz_get_uint64(&tx, "transactionIndex");
   }
 
-  if (!ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, (3 + tx_count) * 32), gindexes, root_hash)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof, missing nodes!");
+  bool merkle_proof_match = ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, (3 + tx_count) * 32), gindexes, root_hash);
+  free(leafes);
+  free(gindexes);
+
+  if (!merkle_proof_match)
+    RETURN_VERIFY_ERROR(ctx, "invalid tx proof, missing nodes!");
   if (memcmp(root_hash, body_root.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid tx proof, body root mismatch!");
   return true;
 }

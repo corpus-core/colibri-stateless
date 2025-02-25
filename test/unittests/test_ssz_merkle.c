@@ -115,6 +115,7 @@ void test_hash_body() {
   bytes32_t root  = {0};
   ssz_hash_tree_root(block, root);
   ASSERT_HEX_STRING_EQUAL("ef0d785cb18cb409d4ec8ae1a2f815542b66425716623b16192389e38af32ba7", root, 32, "invalid blockhash");
+  free(data.data);
 }
 
 int main(void) {
