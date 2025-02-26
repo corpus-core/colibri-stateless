@@ -7,12 +7,6 @@ on:
       - "v*" # Trigger on version tags
   pull_request:
     branches: ["main", "dev"]
-  release:
-    types: [published]
-  workflow_run:
-    workflows: ["CMake on multiple platforms"]
-    types:
-      - completed
 
 # Add permissions block at the top level
 permissions:
