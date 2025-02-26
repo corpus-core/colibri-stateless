@@ -1,3 +1,5 @@
+<img src="c4_logo.png" alt="C4 Logo" width="300"/>
+
 # Swift Bindings for Colibri
 
 The Colibri bindings for Swift are built using CMake and Swift Package Manager. It can be used in iOS (13.0+) and macOS (10.15+) applications.

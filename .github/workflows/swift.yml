@@ -37,6 +37,7 @@ jobs:
           mkdir -p swift_package
           cp -r bindings/swift/* swift_package/
           cp -r build/c4_swift.xcframework swift_package/
+          rm -rf swift_package/CMakeLists.txt
 
           # Update Package.swift to use local XCFramework
           sed -i '' "s|path: \".*xcframework\"|path: \"c4_swift.xcframework\"|" swift_package/Package.swift
@@ -59,24 +60,23 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            swift_package/c4_swift.xcframework/**/*
+            swift_package
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Swift Package Repository
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           # Clone the Swift package repository
-          git clone https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/corpus-core/colibri-swift.git
+          git clone https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/corpus-core/colibri-stateless-swift.git
 
           # Copy updated files
           cp -r swift_package/* colibri-swift/
 
           # Update version in Package.swift for release
-          VERSION=${GITHUB_REF#refs/tags/v}
-          cd colibri-swift
+          #VERSION=${GITHUB_REF#refs/tags/v}
+          cd colibri-stateless-swift
 
           # Configure git
           git config user.name "GitHub Actions"
@@ -85,7 +85,7 @@ jobs:
           # Commit and push changes
           git add .
           git commit -m "Release ${VERSION}"
-          git tag "v${VERSION}"
+          #git tag "v${VERSION}"
           git push origin main --tags
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
