@@ -7,10 +7,6 @@ on:
       - "v*" # Trigger on version tags
   pull_request:
     branches: ["main", "dev"]
-  workflow_run:
-    workflows: ["CMake on multiple platforms"]
-    types:
-      - completed
 
 # Add permissions block at the top level
 permissions:
@@ -20,22 +16,6 @@ permissions:
   actions: read
 
 jobs:
-  # Add a check for the trigger type
-  should-run-release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    outputs:
-      run-release: ${{ steps.check.outputs.run }}
-    steps:
-      - id: check
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_run" && "${{ github.event.workflow_run.head_branch }}" == refs/tags/v* ]]; then
-            # Only run release on workflow_run if it's a tag
-            echo "run=true" >> $GITHUB_OUTPUT
-          else
-            echo "run=false" >> $GITHUB_OUTPUT
-          fi
-
   generate-java-sources:
     runs-on: ubuntu-latest
     steps:
@@ -430,16 +410,9 @@ jobs:
         working-directory: build/emscripten
 
   create-release:
-    needs:
-      [
-        should-run-release,
-        swift,
-        emscripten,
-        build-publish-aar,
-        build-publish-jar,
-      ]
+    needs: [swift, emscripten, build-publish-aar, build-publish-jar]
     runs-on: ubuntu-latest
-    if: needs.should-run-release.outputs.run-release == 'true'
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       # Download artifacts from CMake workflow
       - name: Download CMake Workflow Artifacts
