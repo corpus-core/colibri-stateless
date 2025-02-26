@@ -72,7 +72,7 @@ jobs:
           git clone https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/corpus-core/colibri-stateless-swift.git
 
           # Copy updated files
-          cp -r swift_package/* colibri-swift/
+          cp -r swift_package/* colibri-stateless-swift/
 
           # Update version in Package.swift for release
           # VERSION=${GITHUB_REF#refs/tags/v}
