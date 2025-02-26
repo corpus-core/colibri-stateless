@@ -374,7 +374,7 @@ jobs:
               # Remove the % symbol
               gsub(/%/, "", coverage)
               # Add status icon based on coverage threshold
-              if (coverage >= 70) {
+              if (coverage >= 70 || coverage == 100) {
                 icon="✅"
               } else {
                 icon="⚠️"
