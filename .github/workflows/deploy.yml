@@ -1,14 +1,13 @@
 # This starter workflow is for a CMake project running on multiple platforms. There is a different starter workflow if you just want a single platform.
 # See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-single-platform.yml
-name: CMake on multiple platforms
+name: deploy
 
 on:
   push:
     tags:
-      - 'v*'  # This pattern matches tags that start with 'v', e.g., v1.0.0
+      - "v*" # This pattern matches tags that start with 'v', e.g., v1.0.0
 
 jobs:
-
   npm:
     runs-on: ubuntu-latest
     steps:
@@ -29,7 +28,7 @@ jobs:
           echo "Setting version to $TAG_VERSION in package.json"
           npm version $TAG_VERSION --no-git-tag-version
         working-directory: build/emscripten
-  
+
       - name: Publish to npm
         run: |
           echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc

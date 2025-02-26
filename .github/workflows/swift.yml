@@ -1,4 +1,4 @@
-name: Release Swift Package
+name: Swift Pipeline
 
 on:
   push:
