@@ -9,57 +9,6 @@ on:
     branches: ["main", "dev"]
 
 jobs:
-  emscripten:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Emscripten
-        uses: mymindstorm/setup-emsdk@v14
-
-      - name: Build with Emscripten
-        run: |
-          emcmake cmake -B build -DWASM=true -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
-          cmake --build build
-
-      - name: Upload WASM
-        uses: actions/upload-artifact@v4
-        with:
-          name: c4-wasm
-          path: build/emscripten
-
-  kotlin:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: "temurin" # See 'Supported distributions' for available options
-          java-version: "21"
-
-      - name: Install CMake
-        uses: jwlawson/actions-setup-cmake@v1
-        with:
-          cmake-version: "3.22.0"
-
-      - name: Install SWIG
-        run: sudo apt-get install -y swig
-
-      - name: Build with CMake
-        run: |
-          mkdir build
-          cd build
-          cmake -DKOTLIN=true -DTEST=false -DCURL=false ..
-          make
-      - name: Upload class-files
-        uses: actions/upload-artifact@v4
-        with:
-          name: c4-java
-          path: build/bindings/kotlin
-
   valgrind:
     runs-on: ubuntu-latest
     steps:
