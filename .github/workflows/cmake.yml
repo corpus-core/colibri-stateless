@@ -122,6 +122,57 @@ jobs:
           path: memory-analysis
           if-no-files-found: error
 
+  static_analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Clang Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tools clang
+
+      - name: Configure CMake with Scan-Build
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTEST=true -DCURL=false ..
+
+      - name: Run Scan-Build
+        run: |
+          cd build
+          scan-build -o scan-build-results make
+
+      - name: Check for Analysis Results
+        id: check-results
+        run: |
+          if [ -d "build/scan-build-results" ]; then
+            echo "Analysis results found"
+            echo "results_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "No issues found by static analysis"
+            echo "results_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Analysis Summary
+        if: steps.check-results.outputs.results_found == 'true'
+        run: |
+          echo "## Static Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Clang Static Analyzer found potential issues. See the uploaded artifacts for detailed reports." >> $GITHUB_STEP_SUMMARY
+
+          # Count the number of issues
+          ISSUES=$(find build/scan-build-results -name "*.html" | wc -l)
+          echo "Found $ISSUES potential issue(s)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Analysis Results
+        if: steps.check-results.outputs.results_found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-report
+          path: build/scan-build-results
+          if-no-files-found: ignore
+
   code_coverage:
     runs-on: ubuntu-24.04
     steps:
