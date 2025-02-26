@@ -100,8 +100,10 @@ jobs:
             echo "## Memory Usage"
             echo "| Metric | Size |"
             echo "|--------|------|"
-            echo "| Peak Heap | $(awk '/heap_tree=peak/{found=1; next} found&&/mem_heap_B/{printf "%.2f MB", $2/1024/1024; exit}' massif.out) |"
-            echo "| Peak Stack | $(awk '/mem_stacks_B/{if ($2>max) max=$2} END{printf "%.2f MB", max/1024/1024}' massif.out) |"
+            # Extract peak heap memory (convert to KB)
+            echo "| Peak Heap | $(awk '/heap_tree=peak/{getline; getline; print $2/1024" KB"}' massif.out) |"
+            # Find maximum stack size across all snapshots (convert to KB)
+            echo "| Peak Stack | $(awk '/mem_stacks_B/{if ($2>max) max=$2} END{print max/1024" KB"}' massif.out) |"
             echo ""
             echo "## Detailed Memory Information"
             echo '```'
