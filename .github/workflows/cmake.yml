@@ -5,8 +5,12 @@ name: CMake on multiple platforms
 on:
   push:
     branches: ["main", "dev"]
+    tags:
+      - "v*" # Trigger on version tags
   pull_request:
     branches: ["main", "dev"]
+  release:
+    types: [created, published]
 
 jobs:
   valgrind:
@@ -266,6 +270,29 @@ jobs:
         with:
           name: ${{ matrix.os }}-${{ matrix.build_type }}-${{ matrix.c_compiler }}
           path: build/bin
+
+      # Create release artifact for tagged versions
+      - name: Create Release Archive
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cd build/bin
+          if [ "${{ matrix.os }}" == "windows-latest" ]; then
+            7z a ../../colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.zip .
+          else
+            tar -czf ../../colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.tar.gz .
+          fi
+        shell: bash
+
+      # Upload to release if this is a tag
+      - name: Upload Release Artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.zip
+            colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5

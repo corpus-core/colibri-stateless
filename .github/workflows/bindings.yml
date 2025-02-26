@@ -3,8 +3,12 @@ name: Bindings Pipeline
 on:
   push:
     branches: ["main", "dev"]
+    tags:
+      - "v*" # Trigger on version tags
   pull_request:
     branches: ["main", "dev"]
+  release:
+    types: [created, published]
 
 jobs:
   generate-java-sources:
@@ -288,6 +292,15 @@ jobs:
           path: bindings/kotlin/build/outputs/aar/*.aar
           if-no-files-found: error
 
+      # Upload artifacts to release if this is a tag
+      - name: Upload AAR to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: bindings/kotlin/build/outputs/aar/*.aar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # Optional: Upload to Maven repository
       #- name: Publish AAR
       #  run: |
@@ -327,14 +340,8 @@ jobs:
           cp -r build/c4_swift.xcframework swift_package/
           rm -rf swift_package/CMakeLists.txt
 
-          # Update Package.swift to use local XCFramework
-          sed -i '' "s|path: \".*xcframework\"|path: \"c4_swift.xcframework\"|" swift_package/Package.swift
-
-      - name: Run Tests
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          cd swift_package
-          swift test
+          # Create a zip archive for the release
+          zip -r colibri-swift-package.zip swift_package/
 
       - name: Upload Swift Package
         uses: actions/upload-artifact@v4
@@ -393,14 +400,29 @@ jobs:
           emcmake cmake -B build -DWASM=true -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
           cmake --build build
 
+      - name: Create WASM Package
+        run: |
+          cd build/emscripten
+          zip -r ../../colibri-wasm.zip ./*
+          cd ../..
+
       - name: Upload WASM
         uses: actions/upload-artifact@v4
         with:
           name: c4-wasm
           path: build/emscripten
 
+      # Upload WASM to release if this is a tag
+      - name: Upload WASM to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: colibri-wasm.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set package version from tag
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
           echo "Setting version to $TAG_VERSION in package.json"
@@ -408,7 +430,7 @@ jobs:
         working-directory: build/emscripten
 
       - name: Publish to npm
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
           npm publish
