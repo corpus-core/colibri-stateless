@@ -7,6 +7,10 @@ on:
       - "v*" # Trigger on version tags
   pull_request:
     branches: ["main", "dev"]
+  workflow_run:
+    workflows: ["CMake on multiple platforms"]
+    types:
+      - completed
 
 # Add permissions block at the top level
 permissions:
@@ -16,6 +20,21 @@ permissions:
   actions: read
 
 jobs:
+  # Add a check for the trigger type
+  should-run-release:
+    runs-on: ubuntu-latest
+    outputs:
+      run-release: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" && "${{ github.event.workflow_run.head_branch }}" == refs/tags/v* ]]; then
+            # Only run release on workflow_run if it's a tag
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+          fi
+
   generate-java-sources:
     runs-on: ubuntu-latest
     steps:
@@ -53,7 +72,7 @@ jobs:
 
   build-native-macos:
     runs-on: macos-latest
-    needs: generate-java-sources
+    needs: [generate-java-sources]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -84,7 +103,7 @@ jobs:
 
   build-native-windows:
     runs-on: windows-latest
-    needs: generate-java-sources
+    needs: [generate-java-sources]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -109,7 +128,7 @@ jobs:
 
   build-native-linux:
     runs-on: ubuntu-latest
-    needs: generate-java-sources
+    needs: [generate-java-sources]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -137,7 +156,7 @@ jobs:
 
   build-native-linux-aarch64:
     runs-on: ubuntu-latest
-    needs: generate-java-sources
+    needs: [generate-java-sources]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -258,7 +277,7 @@ jobs:
 
   build-publish-aar:
     runs-on: ubuntu-latest
-    needs: generate-java-sources
+    needs: [generate-java-sources]
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -307,7 +326,6 @@ jobs:
 
   swift:
     runs-on: macos-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -410,13 +428,28 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: build/emscripten
 
-  # New job to create release and upload all artifacts
   create-release:
-    needs: [swift, emscripten, build-publish-aar]
+    needs:
+      [
+        should-run-release,
+        swift,
+        emscripten,
+        build-publish-aar,
+        build-publish-jar,
+      ]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-
+    if: needs.should-run-release.outputs.run-release == 'true'
     steps:
+      # Download artifacts from CMake workflow
+      - name: Download CMake Workflow Artifacts
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: cmake.yml
+          workflow_conclusion: success
+          commit: ${{github.sha}}
+          path: artifacts/cmake
+
       - name: Download Swift Package
         uses: actions/download-artifact@v4
         with:
@@ -435,12 +468,11 @@ jobs:
           name: colibri-aar
           path: artifacts/aar
 
-      - name: Download Build Artifacts
+      - name: Download JAR Package
         uses: actions/download-artifact@v4
         with:
-          pattern: release-*
-          path: artifacts/builds
-          merge-multiple: true
+          name: colibri-jar
+          path: artifacts/jar
 
       - name: Prepare Release Files
         run: |
@@ -455,7 +487,10 @@ jobs:
           mv colibri-swift-package.zip release_files/
           mv wasm/colibri-wasm.zip release_files/
           mv aar/*.aar release_files/
-          mv builds/* release_files/ || true
+          mv jar/*.jar release_files/
+
+          # Move CMake artifacts
+          find cmake -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release_files/ \;
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
