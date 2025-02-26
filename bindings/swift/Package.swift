@@ -3,19 +3,27 @@ import PackageDescription
 
 let package = Package(
     name: "Colibri",
-     platforms: [.iOS(.v13)],
+    platforms: [.iOS(.v13), .macOS(.v10_15)],
     products: [
-        .library(name: "Colibri", targets: ["ColibriSwift"])
+        .library(name: "Colibri", targets: ["Colibri"])
     ],
     targets: [
         .target(
-            name: "ColibriSwift",
+            name: "Colibri",
             dependencies: ["c4_swift"],
-            path: "src"
-        ),
+            path: "src",
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("include")
+            ]),            
         .binaryTarget(
             name: "c4_swift", 
-            path: "../../build/libc4_swift.a"
+            path: "../../build/c4_swift.xcframework"
+        ),
+        .testTarget(
+            name: "ColibriTests",
+            dependencies: ["Colibri"],
+            path: "Tests"
         )
     ]
 )

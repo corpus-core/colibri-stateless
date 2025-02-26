@@ -1,7 +1,10 @@
 /build
 .vscode
+bindings/swift/src/include
+bindings/swift/.build
 bindings/kotlin/.cxx
 bindings/emscripten/node_modules
 bindings/kotlin/build
 bindings/kotlin/lib/build
 bindings/kotlin/.gradle
+/build_x86

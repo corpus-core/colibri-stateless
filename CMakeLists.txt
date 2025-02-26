@@ -13,30 +13,40 @@ if(KOTLIN)
     set(CURL OFF)
 endif()
 
-# Definiere eine Funktion, um iOS-spezifische Eigenschaften für ein Target zu setzen
-function(set_ios_target_properties target)
-    if(SWIFT)
-        set_target_properties(${target} PROPERTIES
-            XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator"
-            XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO
-            XCODE_ATTRIBUTE_VALID_ARCHS "arm64 x86_64"
-        )
-    endif()
-endfunction()
-
 if(SWIFT)
-    # Wenn für Swift gebaut wird, verwende iOS Toolchain nur für die Swift-Bibliothek
-    set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/.github/ios.toolchain.cmake CACHE FILEPATH "iOS Toolchain file")
-    set(PLATFORM "OS64COMBINED" CACHE STRING "iOS Platform target")
+    # Set SDK paths based on target architecture
+    if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+        execute_process(
+            COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        set(IOS_PLATFORM "SIMULATOR64")
+        set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+    elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+        execute_process(
+            COMMAND xcrun --sdk iphoneos --show-sdk-path
+            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        set(IOS_PLATFORM "OS64")
+        set(TARGET_TRIPLE "arm64-apple-ios")
+    endif()
+
+    # Set common iOS build settings
+    set(CMAKE_SYSTEM_NAME "iOS")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment version" FORCE)
+    set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO)
+    set(CMAKE_IOS_INSTALL_COMBINED NO)
+    
+    # Set iOS-specific compiler and linker flags
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
+    
+    # Disable CURL for iOS builds
     set(CURL OFF)
-    
-    # Speichere die iOS-spezifischen Flags
-    set(IOS_CMAKE_C_FLAGS ${CMAKE_C_FLAGS})
-    set(IOS_CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    
-    # Setze temporär die Standard-Flags für die Host-Builds
-    set(CMAKE_C_FLAGS ${SAVED_CMAKE_C_FLAGS})
-    set(CMAKE_CXX_FLAGS ${SAVED_CMAKE_CXX_FLAGS})
 endif()
 
 if(CURL)
@@ -62,33 +72,26 @@ endif()
 set(OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)
 
-
 if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
-
     if(POLICY CMP0069)
         cmake_policy(SET CMP0069 NEW)
     endif()
-    # Aktivieren von Link-Time Optimization
+    # Activate Link-Time Optimization
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-    # Compiler-Flags für Größe-Optimierung
+    # Compiler flags for size optimization
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffunction-sections -fdata-sections")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffunction-sections -fdata-sections")
 
-    # Unterscheide zwischen Plattformen
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         if(APPLE)
-            # macOS-spezifische Flags
             set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -dead_strip")
             set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -dead_strip")
         else()
-            # Standard (z. B. für Linux)
             set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --gc-sections")
             set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --gc-sections")
         endif()
     endif()
-
 endif()
-
 
 add_subdirectory(src)
 add_subdirectory(libs)
@@ -96,12 +99,9 @@ add_subdirectory(libs)
 if(TEST)
     enable_testing()
     add_subdirectory(test)
-
-    # Set CTest arguments to include --output-on-failure
     set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
 endif()
 
-# Define a custom target named 'doc'
 add_custom_target(doc 
     COMMAND ${CMAKE_COMMAND} -E echo "Generating documentation..."
     COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/update_doc.js
@@ -113,13 +113,11 @@ add_custom_target(valgrind
     COMMAND ${CMAKE_COMMAND} -E echo "Generating valgrind image..."
     COMMAND ${CMAKE_COMMAND} -E env bash -c "docker build -f test/valgrind/Dockerfile --platform=linux/amd64 -t c4_valgrind ."
     COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run --rm --platform=linux/amd64 c4_valgrind"
-#    COMMAND ${CMAKE_COMMAND} -E env bash -c "docker run --rm --platform=linux/amd64 -v ${CMAKE_BINARY_DIR}/out:/out c4_valgrind"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Generating the valgrind image"
 )
 
 if(SHAREDLIB)
-    # Erstelle die Shared Library und verlinke die statischen Bibliotheken
     add_library(c4Lib SHARED src/util/version.c)
     target_link_libraries(c4Lib PRIVATE crypto verifier util blst)
     set_target_properties(c4Lib PROPERTIES
@@ -138,8 +136,5 @@ if(KOTLIN)
 endif()
 
 if(SWIFT)
-    # Stelle die iOS-Flags für die Swift-Bibliothek wieder her
-    set(CMAKE_C_FLAGS ${IOS_CMAKE_C_FLAGS})
-    set(CMAKE_CXX_FLAGS ${IOS_CMAKE_CXX_FLAGS})
     add_subdirectory(bindings/swift)
 endif()

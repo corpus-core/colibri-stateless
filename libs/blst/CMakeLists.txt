@@ -105,24 +105,43 @@ else()
             COMMENT "Building blst using build script with Android NDK toolchain"
             VERBATIM
         )
-    elseif(CMAKE_CROSSCOMPILING)
-        add_custom_command(
-            OUTPUT ${BLST_LIB}
-            COMMAND ${CMAKE_COMMAND} -E env 
-                CC=${CMAKE_C_COMPILER}
-                AR=${CMAKE_AR}
-                RANLIB=${CMAKE_RANLIB}
-                CFLAGS=${EXTRA_C_FLAGS}-ffunction-sections\ -fdata-sections
-                bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
-            COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
-            WORKING_DIRECTORY ${blst_SOURCE_DIR}
-            COMMENT "Building and moving libblst.a with cross-compilation toolchain"
-            VERBATIM
-        )
+    elseif(SWIFT)
+        # iOS build configuration
+        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+            add_custom_command(
+                OUTPUT ${BLST_LIB}
+                COMMAND ${CMAKE_COMMAND} -E env 
+                    CC=${CMAKE_C_COMPILER}
+                    AR=${CMAKE_AR}
+                    RANLIB=${CMAKE_RANLIB}
+                    CROSS_COMPILE=x86_64-apple-ios-simulator
+                    "CFLAGS=-target x86_64-apple-ios-simulator -isysroot ${CMAKE_OSX_SYSROOT} -D__BLST_PORTABLE__"
+                    bash ${blst_SOURCE_DIR}/build.sh
+                COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+                WORKING_DIRECTORY ${blst_SOURCE_DIR}
+                COMMENT "Building blst for iOS Simulator (x86_64)"
+                VERBATIM
+            )
+        else()
+            add_custom_command(
+                OUTPUT ${BLST_LIB}
+                COMMAND ${CMAKE_COMMAND} -E env 
+                    CC=${CMAKE_C_COMPILER}
+                    AR=${CMAKE_AR}
+                    RANLIB=${CMAKE_RANLIB}
+                    CROSS_COMPILE=arm64-apple-ios
+                    "CFLAGS=-target arm64-apple-ios -isysroot ${CMAKE_OSX_SYSROOT} -D__BLST_PORTABLE__"
+                    bash ${blst_SOURCE_DIR}/build.sh
+                COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+                WORKING_DIRECTORY ${blst_SOURCE_DIR}
+                COMMENT "Building blst for iOS Device (arm64)"
+                VERBATIM
+            )
+        endif()
     else()
         # Standard build for native platforms
         if(APPLE)
-            # Get SDK paths only when building for iOS
+            # Get SDK paths only when building for macOS
             execute_process(
                 COMMAND xcrun --sdk macosx --show-sdk-path
                 OUTPUT_VARIABLE MACOS_SDK_PATH
@@ -136,8 +155,8 @@ else()
         add_custom_command(
             OUTPUT ${BLST_LIB}
             COMMAND ${CMAKE_COMMAND} -E env 
-                "CC=${CMAKE_C_COMPILER}"
-                "CFLAGS=${BLST_CFLAGS}"
+                CC=${CMAKE_C_COMPILER}
+                CFLAGS=${BLST_CFLAGS}
                 bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
             COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
             WORKING_DIRECTORY ${blst_SOURCE_DIR}
@@ -158,68 +177,3 @@ set_target_properties(blst PROPERTIES
 
 # Make sure the library is built before it's used
 add_dependencies(blst blst_lib)
-
-# iOS-specific build for Swift
-if(SWIFT)
-    # Get iOS SDK paths
-    execute_process(
-        COMMAND xcrun --sdk iphoneos --show-sdk-path
-        OUTPUT_VARIABLE IOS_SDK_PATH
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    execute_process(
-        COMMAND xcrun --sdk iphonesimulator --show-sdk-path
-        OUTPUT_VARIABLE IOS_SIMULATOR_SDK_PATH
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-
-    # Für iOS bauen wir beide Architekturen und erstellen dann eine Fat Binary
-    set(BLST_IOS_LIB ${BLST_LIB_OUTPUT_DIR}/libblst_ios.a)
-    set(BLST_LIB_ARM64 ${BLST_LIB_OUTPUT_DIR}/libblst_arm64.a)
-    set(BLST_LIB_X86_64 ${BLST_LIB_OUTPUT_DIR}/libblst_x86_64.a)
-
-    # Build für ARM64 (iOS Devices)
-    add_custom_command(
-        OUTPUT ${BLST_LIB_ARM64}
-        COMMAND ${CMAKE_COMMAND} -E env 
-            "CC=${CMAKE_C_COMPILER}"
-            "CFLAGS=-target arm64-apple-ios -isysroot ${IOS_SDK_PATH}"
-            bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
-        COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB_ARM64}
-        WORKING_DIRECTORY ${blst_SOURCE_DIR}
-        COMMENT "Building blst for iOS ARM64"
-        VERBATIM
-    )
-
-    # Build für x86_64 (iOS Simulator)
-    add_custom_command(
-        OUTPUT ${BLST_LIB_X86_64}
-        COMMAND ${CMAKE_COMMAND} -E env 
-            "CC=${CMAKE_C_COMPILER}"
-            "CFLAGS=-target x86_64-apple-ios-simulator -isysroot ${IOS_SIMULATOR_SDK_PATH}"
-            bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
-        COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB_X86_64}
-        WORKING_DIRECTORY ${blst_SOURCE_DIR}
-        COMMENT "Building blst for iOS Simulator x86_64"
-        VERBATIM
-    )
-
-    # Kombiniere zu iOS Fat Binary
-    add_custom_command(
-        OUTPUT ${BLST_IOS_LIB}
-        DEPENDS ${BLST_LIB_ARM64} ${BLST_LIB_X86_64}
-        COMMAND lipo -create 
-            ${BLST_LIB_ARM64}
-            ${BLST_LIB_X86_64}
-            -output ${BLST_IOS_LIB}
-        COMMAND touch ${BLST_IOS_LIB}.fat
-        COMMENT "Creating Fat Binary for iOS"
-        VERBATIM
-    )
-
-    # Custom target für die iOS Fat Binary
-    add_custom_target(blst_ios ALL 
-        DEPENDS ${BLST_IOS_LIB}
-        SOURCES ${blst_SOURCE_DIR}/src/server.c
-    )
-endif()
