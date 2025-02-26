@@ -238,8 +238,32 @@ jobs:
         with:
           excludes: libs.* build.* test.* src.cli.*
           xml-out: coverage.xml
-          html-details: build/coverage-report/index.html
+          html-details: coverage-report/index.html
           html-title: "Colibri Coverage Report"
+
+      - name: Debug Coverage Files
+        run: |
+          echo "Current directory structure:"
+          pwd
+          ls -la
+          echo "\nBuild directory structure:"
+          ls -la build/
+          echo "\nSearching for coverage files:"
+          find . -name "*.html" -o -name "coverage*"
+
+      - name: Move Coverage Report
+        run: |
+          # Ensure the coverage report exists and move it to the right location
+          if [ -d "coverage-report" ]; then
+            echo "Coverage report found in root directory"
+            mkdir -p build/coverage-report
+            cp -r coverage-report/* build/coverage-report/
+          elif [ -d "build/coverage-report" ]; then
+            echo "Coverage report already in build directory"
+          else
+            echo "Error: Coverage report not found"
+            exit 1
+          fi
 
       - name: Code Coverage Summary Report
         uses: irongut/CodeCoverageSummary@v1.3.0
