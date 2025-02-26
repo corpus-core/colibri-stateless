@@ -292,9 +292,19 @@ jobs:
         with:
           excludes: libs.* build.* test.* src.cli.*
           xml-out: coverage.xml
-          html-details: build/coverage-report/index.html
-          html-title: "Colibri Coverage Report"
-          working-directory: .
+
+      - name: Generate HTML Coverage Report
+        run: |
+          # Install gcovr (should already be installed by gcovr-action, but just in case)
+          pip install gcovr
+
+          # Create coverage report directory
+          mkdir -p build/coverage-report
+
+          # Run gcovr to generate HTML report
+          gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*" \
+                --html-details build/coverage-report/index.html \
+                --html-title "Colibri Coverage Report"
 
       - name: Debug Coverage Files
         run: |
