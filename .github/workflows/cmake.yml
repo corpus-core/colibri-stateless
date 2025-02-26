@@ -212,6 +212,16 @@ jobs:
             -enable-checker security.FloatLoopCounter \
             -enable-checker security.insecureAPI.rand \
             -enable-checker security.insecureAPI.strcpy \
+            -enable-checker alpha.core.PointerAfterDereference \
+            -enable-checker alpha.unix.SimpleStream \
+            -enable-checker alpha.unix.Stream \
+            -enable-checker alpha.core.BufYes \
+            -enable-checker alpha.core.CallAndMessage \
+            -enable-checker alpha.core.CastToStruct \
+            -enable-checker alpha.core.Conversion \
+            -enable-checker alpha.core.DynamicTypeChecker \
+            -enable-checker alpha.core.PointerArithm \
+            -enable-checker alpha.core.PointerSub \
             -analyzer-config aggressive-binary-operation-simplification=true \
             -analyzer-config c++-allocator-inlining=true \
             -analyzer-config c++-container-inlining=true \
@@ -221,6 +231,14 @@ jobs:
             -analyzer-config max-nodes=1000000 \
             -analyzer-config max-times-through-loop=100 \
             -analyzer-config mode=deep \
+            -analyzer-config explore-paths=true \
+            -analyzer-config crosscheck-with-z3=true \
+            -analyzer-config ctu-enable-all=true \
+            -analyzer-config strict-mode=true \
+            -analyzer-config report-after-free=true \
+            -analyzer-config report-after-delete=true \
+            -analyzer-config report-use-after-free=true \
+            -analyzer-config report-double-free=true \
             make 2>&1 | tee -a scan-build-output.txt || true
 
           # Store the scan-build exit code
