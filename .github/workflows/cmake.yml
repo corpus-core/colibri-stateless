@@ -316,8 +316,32 @@ jobs:
             echo "\`\`\`"
             echo ""
             echo "### Coverage Table"
-            echo "| File | Line Coverage | Branch Coverage |"
-            echo "|------|---------------|-----------------|"
+            echo "| Status | File | Coverage |"
+            echo "|--------|------|----------|"
+            
+            # Process gcovr output into a table with status icons
+            gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*" | \
+            awk '
+            # Skip header lines and empty lines
+            NR > 3 && $1 != "TOTAL" && NF > 0 {
+              # Extract file and coverage
+              file=$1
+              coverage=$4
+              # Remove the % symbol
+              gsub(/%/, "", coverage)
+              # Add status icon based on coverage threshold
+              if (coverage >= 70) {
+                icon="✅"
+              } else {
+                icon="⚠️"
+              }
+              # Print in markdown table format
+              printf "| %s | %s | %s%% |\n", icon, file, coverage
+            }' >> coverage_summary.txt
+
+            # Add total coverage at the end
+            echo "" >> coverage_summary.txt
+            echo "**Total coverage:** $(gcovr --exclude 'libs.*' --exclude 'build.*' --exclude 'test.*' --exclude 'src.cli.*' | grep 'TOTAL' | awk '{print $4}')" >> coverage_summary.txt
           } > coverage_summary.txt
 
           # Add the summary to both the step summary and the coverage report directory
