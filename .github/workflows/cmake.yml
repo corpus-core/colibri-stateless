@@ -144,55 +144,106 @@ jobs:
           cd build
           # Create a directory for the results
           mkdir -p scan-build-results
-          # Run scan-build with explicit output directory and use -v for verbose output
-          scan-build --status-bugs -v -o scan-build-results make 2>&1 | tee scan-build-output.txt || true
+
+          # List available checkers
+          echo "Available checkers:" >> scan-build-output.txt
+          scan-build --help 2>&1 | grep "CHECKERS:" -A 100 >> scan-build-output.txt
+
+          # Run scan-build with specific checkers enabled
+          # Common useful checkers:
+          # - alpha.core.* (Core checkers)
+          # - alpha.unix.* (Unix-specific checkers)
+          # - alpha.security.* (Security checkers)
+          # - nullability.* (Null pointer checkers)
+          # - optin.performance.* (Performance checkers)
+          # - optin.portability.* (Portability checkers)
+          scan-build \
+            --status-bugs \
+            -v \
+            -o scan-build-results \
+            -enable-checker alpha.core.BoolAssignment \
+            -enable-checker alpha.core.CallAndMessageUnInitRefArg \
+            -enable-checker alpha.core.CastSize \
+            -enable-checker alpha.core.CastToStruct \
+            -enable-checker alpha.core.Conversion \
+            -enable-checker alpha.core.DynamicTypeChecker \
+            -enable-checker alpha.core.FixedAddr \
+            -enable-checker alpha.core.IdenticalExpr \
+            -enable-checker alpha.core.PointerArithm \
+            -enable-checker alpha.core.PointerSub \
+            -enable-checker alpha.core.SizeofPtr \
+            -enable-checker alpha.core.TestAfterDivZero \
+            -enable-checker alpha.security.ArrayBound \
+            -enable-checker alpha.security.ArrayBoundV2 \
+            -enable-checker alpha.security.MallocOverflow \
+            -enable-checker alpha.security.ReturnPtrRange \
+            -enable-checker alpha.security.taint.TaintPropagation \
+            -enable-checker alpha.unix.Chroot \
+            -enable-checker alpha.unix.PthreadLock \
+            -enable-checker alpha.unix.Stream \
+            -enable-checker alpha.unix.cstring.BufferOverlap \
+            -enable-checker alpha.unix.cstring.NotNullTerminated \
+            -enable-checker nullability.NullPassedToNonnull \
+            -enable-checker nullability.NullReturnedFromNonnull \
+            -enable-checker optin.performance.Padding \
+            -enable-checker security.FloatLoopCounter \
+            -enable-checker security.insecureAPI.rand \
+            -enable-checker security.insecureAPI.strcpy \
+            make 2>&1 | tee -a scan-build-output.txt || true
 
           # Store the scan-build exit code
           SCAN_EXIT_CODE=${PIPESTATUS[0]}
 
-          # Check if any results were generated and parse them
-          if [ -n "$(ls -A scan-build-results 2>/dev/null)" ]; then
-            echo "Analysis results found"
-            echo "results_found=true" >> $GITHUB_OUTPUT
-            
-            # Create a summary of the issues
-            echo "## 🔍 Static Analysis Issues" > analysis_summary.md
-            echo "" >> analysis_summary.md
-            
-            # Find the report directory (it's usually named something like scan-build-2024-XX-XX-*)
-            REPORT_DIR=$(ls -d scan-build-results/* | head -n 1)
-            
-            # Parse and format each issue from the HTML files
-            for report in $REPORT_DIR/*.html; do
-              if [ -f "$report" ]; then
-                # Extract issue information using grep and sed
-                ISSUE_TYPE=$(grep -A 1 "<!-- BUGTYPE" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
-                ISSUE_DESC=$(grep -A 1 "<!-- BUGDESC" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
-                ISSUE_FILE=$(grep -A 1 "<!-- FILEPATH" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
-                ISSUE_LINE=$(grep -A 1 "<!-- FUNCTIONLINE" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
-                
-                echo "### ⚠️ $ISSUE_TYPE" >> analysis_summary.md
-                echo "- **Description**: $ISSUE_DESC" >> analysis_summary.md
-                echo "- **Location**: $ISSUE_FILE:$ISSUE_LINE" >> analysis_summary.md
-                echo "" >> analysis_summary.md
-              fi
-            done
-            
-            # Save the summary for the next step
-            mv analysis_summary.md ../analysis_summary.md
-            
-            # List the results for debugging
-            echo "Contents of scan-build-results:"
-            ls -la scan-build-results/
-            
-            # Exit with the scan-build status code
-            exit $SCAN_EXIT_CODE
-          else
-            echo "No issues found by static analysis"
-            echo "results_found=false" >> $GITHUB_OUTPUT
+          # Check if scan-build found no bugs
+          if grep -q "No bugs found." scan-build-output.txt; then
+            echo "no_bugs=true" >> $GITHUB_OUTPUT
             echo "## ✅ Static Analysis Results" > ../analysis_summary.md
             echo "" >> ../analysis_summary.md
-            echo "No issues found by static analysis." >> ../analysis_summary.md
+            echo "No bugs found by static analysis." >> ../analysis_summary.md
+          else
+            echo "no_bugs=false" >> $GITHUB_OUTPUT
+            
+            # Create a summary of the issues
+            echo "## 🔍 Static Analysis Issues" > ../analysis_summary.md
+            echo "" >> ../analysis_summary.md
+            
+            # Add enabled checkers to the summary
+            echo "### 🔧 Enabled Checkers" >> ../analysis_summary.md
+            echo '```' >> ../analysis_summary.md
+            scan-build --help 2>&1 | grep -A 100 "CHECKERS:" | grep "^  [-]" | grep -E "$(echo "-enable-checker" | sed 's/ /|/g')" >> ../analysis_summary.md
+            echo '```' >> ../analysis_summary.md
+            echo "" >> ../analysis_summary.md
+            
+            # Find the report directory (it's usually named something like scan-build-2024-XX-XX-*)
+            if [ -n "$(ls -A scan-build-results 2>/dev/null)" ]; then
+              REPORT_DIR=$(ls -d scan-build-results/* | head -n 1)
+              
+              echo "### 🚨 Found Issues" >> ../analysis_summary.md
+              echo "" >> ../analysis_summary.md
+              
+              # Parse and format each issue from the HTML files
+              for report in $REPORT_DIR/*.html; do
+                if [ -f "$report" ]; then
+                  # Extract issue information using grep and sed
+                  ISSUE_TYPE=$(grep -A 1 "<!-- BUGTYPE" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
+                  ISSUE_DESC=$(grep -A 1 "<!-- BUGDESC" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
+                  ISSUE_FILE=$(grep -A 1 "<!-- FILEPATH" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
+                  ISSUE_LINE=$(grep -A 1 "<!-- FUNCTIONLINE" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
+                  
+                  echo "#### ⚠️ $ISSUE_TYPE" >> ../analysis_summary.md
+                  echo "- **Description**: $ISSUE_DESC" >> ../analysis_summary.md
+                  echo "- **Location**: $ISSUE_FILE:$ISSUE_LINE" >> ../analysis_summary.md
+                  echo "" >> ../analysis_summary.md
+                fi
+              done
+            else
+              echo "⚠️ Scan completed but no detailed report was generated." >> ../analysis_summary.md
+              echo "" >> ../analysis_summary.md
+              echo "Please check the build output below for more information." >> ../analysis_summary.md
+            fi
+            
+            # Exit with the scan-build status code if bugs were found
+            exit $SCAN_EXIT_CODE
           fi
 
       - name: Generate Analysis Summary
@@ -202,15 +253,18 @@ jobs:
             # Include the analysis summary
             cat analysis_summary.md
             
-            echo "" 
-            echo "### 🔄 Build Output" 
-            echo '```'
-            cat build/scan-build-output.txt
-            echo '```'
+            # Only include build output if bugs were found
+            if [ "${{ steps.scan-build.outputs.no_bugs }}" != "true" ]; then
+              echo "" 
+              echo "### 🔄 Build Output" 
+              echo '```'
+              cat build/scan-build-output.txt
+              echo '```'
+            fi
           } >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Analysis Results
-        if: always()
+        if: steps.scan-build.outputs.no_bugs != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: static-analysis-report
