@@ -53,7 +53,7 @@ jobs:
                 echo '```' >> valgrind_summary.md
                 echo "" >> valgrind_summary.md
               else
-                echo "✅ $TEST_NAME: no memory issues detected" >> valgrind_summary.md
+                echo "✅ $TEST_NAME:  ok" >> valgrind_summary.md
               fi
               
               # Clean up temp file
@@ -97,14 +97,16 @@ jobs:
           {
             echo "# Memory Analysis Summary"
             echo ""
-            echo "## Peak Heap Usage"
-            echo '```'
-            ms_print massif.out | grep -m 1 "peak heap total:" || echo "Could not determine peak heap usage"
-            echo '```'
+            echo "## Memory Usage"
+            echo "| Metric | Size |"
+            echo "|--------|------|"
+            echo "| Peak Heap | $(awk '/heap_tree=peak/{found=1; next} found&&/mem_heap_B/{printf "%.2f MB", $2/1024/1024; exit}' massif.out) |"
+            echo "| Peak Stack | $(awk '/mem_stacks_B/{if ($2>max) max=$2} END{printf "%.2f MB", max/1024/1024}' massif.out) |"
             echo ""
-            echo "## Stack Frame Size"
+            echo "## Detailed Memory Information"
             echo '```'
-            grep -m 1 "max-stackframe=" memcheck.out | sed 's/.*max-stackframe=/Current stack frame: /' || echo "Could not determine stack frame size"
+            # Extract only the allocation tree starting from n0: until the next section separator
+            awk '/heap_tree=peak/{p=1;next} p&&/^n[0-9]:/{start=1} start&&p{print} p&&/^#-----------/{exit}' massif.out
             echo '```'
           } > memory_summary.md
 
