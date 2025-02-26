@@ -66,13 +66,10 @@ jobs:
 
       - name: Analyze Stack Usage for test_verify_logs
         run: |
-          set -x  # Enable debug output
-          echo "# Memory Analysis for test_verify_logs" > memory_analysis.md
-          echo "" >> memory_analysis.md
-          echo "## Memory Usage Summary" >> memory_analysis.md
-          echo '```' >> memory_analysis.md
+          # Create directory for detailed reports
+          mkdir -p memory-analysis
 
-          # Run massif with more detailed options
+          # Run massif for heap analysis
           valgrind --tool=massif \
             --detailed-freq=1 \
             --max-snapshots=100 \
@@ -83,29 +80,7 @@ jobs:
             --massif-out-file=massif.out \
             ./build/test/unittests/test_verify_logs
 
-          # Wait a moment and verify the file exists
-          sleep 2
-          ls -l massif.out || true
-
-          # Extract peak heap size from massif output with more detailed parsing
-          {
-            echo "=== Peak Heap Usage ==="
-            # First try the detailed peak snapshot
-            if ms_print massif.out | grep -A 5 "Detailed snapshot" > detailed_snapshot.txt; then
-              PEAK_MEM=$(awk '/total heap usage:/ {print $4 " bytes"}' detailed_snapshot.txt)
-              if [ ! -z "$PEAK_MEM" ]; then
-                echo "$PEAK_MEM"
-              else
-                # Fallback to peak heap total
-                ms_print massif.out | awk '/peak heap total:/ {print $4 " bytes"}' || echo "Could not determine peak heap usage"
-              fi
-            else
-              echo "Could not find detailed snapshot information"
-            fi
-            echo ""
-          } >> memory_analysis.md
-
-          # Run memcheck specifically for stack analysis
+          # Run memcheck for stack analysis
           valgrind --tool=memcheck \
             --track-origins=yes \
             --max-stackframe=8388608 \
@@ -115,41 +90,37 @@ jobs:
             --trace-children=yes \
             ./build/test/unittests/test_verify_logs
 
-          # Extract stack size information with improved parsing
+          # Generate full massif report
+          ms_print massif.out > memory-analysis/massif-full-report.txt
+
+          # Create summary for GitHub
           {
-            echo "=== Stack Usage ==="
-            # Try multiple patterns to find stack information
-            if grep -q "Stack size below" memcheck.out; then
-              grep -E "Stack size below" memcheck.out | sed 's/.*below: //'
-            elif grep -q "using --main-stacksize=" memcheck.out; then
-              grep -E "using --main-stacksize=" memcheck.out | sed 's/.*using --main-stacksize=/Maximum stack size: /'
-            elif grep -q "max-stackframe" memcheck.out; then
-              grep -E "max-stackframe" memcheck.out | sed 's/.*max-stackframe=/Current stack frame: /'
-            else
-              # Last resort: try to find any stack-related information
-              grep -i "stack" memcheck.out | grep -v "vgstack" || echo "No stack information available"
-            fi
+            echo "# Memory Analysis Summary"
             echo ""
-          } >> memory_analysis.md
-
-          echo '```' >> memory_analysis.md
-
-          echo "## Raw Memory Information" >> memory_analysis.md
-          echo '```' >> memory_analysis.md
-          {
-            echo "=== Massif Raw Output ==="
-            ms_print massif.out | head -n 50
+            echo "## Peak Heap Usage"
+            echo '```'
+            ms_print massif.out | grep -m 1 "peak heap total:" || echo "Could not determine peak heap usage"
+            echo '```'
             echo ""
-            echo "=== Memcheck Raw Output ==="
-            head -n 50 memcheck.out
-          } >> memory_analysis.md
-          echo '```' >> memory_analysis.md
+            echo "## Stack Frame Size"
+            echo '```'
+            grep -m 1 "max-stackframe=" memcheck.out | sed 's/.*max-stackframe=/Current stack frame: /' || echo "Could not determine stack frame size"
+            echo '```'
+          } > memory_summary.md
 
-          # Always try to write to summary
-          cat memory_analysis.md >> $GITHUB_STEP_SUMMARY || true
+          # Save detailed logs
+          cp memcheck.out memory-analysis/
+          cp massif.out memory-analysis/
 
-          # Exit successfully since this is an analysis step
-          exit 0
+          # Write summary to GitHub step summary
+          cat memory_summary.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Memory Analysis Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-analysis-reports
+          path: memory-analysis
+          if-no-files-found: error
 
   code_coverage:
     runs-on: ubuntu-24.04
@@ -172,6 +143,8 @@ jobs:
         with:
           excludes: libs.* build.* test.* src.cli.*
           xml-out: coverage.xml
+          html-details: coverage-report/index.html
+          html-title: "Colibri Coverage Report"
 
       - name: Code Coverage Summary Report
         uses: irongut/CodeCoverageSummary@v1.3.0
@@ -182,15 +155,37 @@ jobs:
           output: both
           thresholds: "30 50"
 
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage-report
+          if-no-files-found: error
+
       - name: Add Coverage PR Comment
         uses: marocchino/sticky-pull-request-comment@v2
         if: github.event_name == 'pull_request'
         with:
           recreate: true
+          message: |
+            ## Coverage Report
+            ${{ steps.coverage.outputs.message }}
+
+            [View detailed coverage report](../actions/runs/${{ github.run_id }}/artifacts)
+
+            <details>
+            <summary>Coverage Details</summary>
+            $(cat code-coverage-results.md)
+            </details>
           path: code-coverage-results.md
 
       - name: Write to Job Summary
-        run: cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY
+        run: |
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[View detailed coverage report](../actions/runs/${{ github.run_id }}/artifacts)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY
 
   build:
     runs-on: ${{ matrix.os }}
@@ -304,7 +299,7 @@ jobs:
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5
-        if: success() || failure() # always run even if the previous step fails
+        if: (success() || failure()) && matrix.os == 'ubuntu-latest' && matrix.c_compiler == 'clang' # only run for ubuntu-latest with clang
         with:
           report_paths: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
         env:
