@@ -105,11 +105,11 @@ jobs:
             # Find maximum stack size across all snapshots (convert to KB)
             echo "| Peak Stack | $(awk '/mem_stacks_B/{split($0,a,"="); if(a[2]>max) max=a[2]} END{print max/1024" KB"}' massif.out) |"
             echo ""
-            echo "## Detailed Memory Information"
-            echo '```'
-            # Extract only the allocation tree starting from n0: until the next section separator
-            awk '/heap_tree=peak/{p=1;next} p&&/^n[0-9]:/{start=1} start&&p{print} p&&/^#-----------/{exit}' massif.out
-            echo '```'
+#            echo "## Detailed Memory Information"
+#            echo '```'
+#            # Extract only the allocation tree starting from n0: until the next section separator
+#            awk '/heap_tree=peak/{p=1;next} p&&/^n[0-9]:/{start=1} start&&p{print} p&&/^#-----------/{exit}' massif.out
+#            echo '```'
           } > memory_summary.md
 
           # Save detailed logs
