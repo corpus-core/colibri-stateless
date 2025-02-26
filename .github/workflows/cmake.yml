@@ -275,11 +275,12 @@ jobs:
       - name: Create Release Archive
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
+          mkdir -p release-artifacts
           cd build/bin
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            7z a ../../colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.zip .
+            7z a ../../release-artifacts/colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.zip ./*
           else
-            tar -czf ../../colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.tar.gz .
+            tar -czf ../../release-artifacts/colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.tar.gz ./*
           fi
         shell: bash
 
@@ -288,9 +289,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.zip
-            colibri-${{ matrix.os }}-${{ matrix.c_compiler }}.tar.gz
+          files: release-artifacts/*
+          generate_release_notes: true
+          draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -313,7 +314,7 @@ jobs:
 #        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 
 permissions:
-  contents: read
+  contents: write
   checks: write
   pull-requests: write
   actions: read

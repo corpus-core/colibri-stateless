@@ -10,6 +10,13 @@ on:
   release:
     types: [created, published]
 
+# Add permissions block at the top level
+permissions:
+  contents: write # Required for creating releases and uploading assets
+  checks: write
+  pull-requests: write
+  actions: read
+
 jobs:
   generate-java-sources:
     runs-on: ubuntu-latest
@@ -292,15 +299,6 @@ jobs:
           path: bindings/kotlin/build/outputs/aar/*.aar
           if-no-files-found: error
 
-      # Upload artifacts to release if this is a tag
-      - name: Upload AAR to Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: bindings/kotlin/build/outputs/aar/*.aar
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       # Optional: Upload to Maven repository
       #- name: Publish AAR
       #  run: |
@@ -340,29 +338,14 @@ jobs:
           cp -r build/c4_swift.xcframework swift_package/
           rm -rf swift_package/CMakeLists.txt
 
-          # Create a zip archive for the release
-          zip -r colibri-swift-package.zip swift_package/
-
       - name: Upload Swift Package
         uses: actions/upload-artifact@v4
         with:
           name: swift_package
           path: swift_package
 
-      # Release steps only run on tag pushes
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            swift_package
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Update Swift Package Repository
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           # Clone the Swift package repository
           git clone https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/corpus-core/colibri-stateless-swift.git
@@ -410,16 +393,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: c4-wasm
-          path: build/emscripten
-
-      # Upload WASM to release if this is a tag
-      - name: Upload WASM to Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: colibri-wasm.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: colibri-wasm.zip
 
       - name: Set package version from tag
         if: startsWith(github.ref, 'refs/tags/v')
@@ -438,8 +412,50 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: build/emscripten
 
-permissions:
-  contents: read
-  checks: write
-  pull-requests: write
-  actions: read
+  # New job to create release and upload all artifacts
+  create-release:
+    needs: [swift, emscripten, build-publish-aar]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download Swift Package
+        uses: actions/download-artifact@v4
+        with:
+          name: swift_package
+          path: artifacts/swift_package
+
+      - name: Download WASM Package
+        uses: actions/download-artifact@v4
+        with:
+          name: c4-wasm
+          path: artifacts/wasm
+
+      - name: Download AAR Package
+        uses: actions/download-artifact@v4
+        with:
+          name: colibri-aar
+          path: artifacts/aar
+
+      - name: Prepare Release Files
+        run: |
+          cd artifacts
+          # Zip Swift package if not already zipped
+          cd swift_package
+          zip -r ../colibri-swift-package.zip ./*
+          cd ..
+
+          # Move all release files to a single directory
+          mkdir release_files
+          mv colibri-swift-package.zip release_files/
+          mv wasm/colibri-wasm.zip release_files/
+          mv aar/*.aar release_files/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/release_files/*
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
