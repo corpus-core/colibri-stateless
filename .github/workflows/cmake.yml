@@ -101,7 +101,7 @@ jobs:
             echo "| Metric | Size |"
             echo "|--------|------|"
             # Extract peak heap memory (convert to KB)
-            echo "| Peak Heap | $(awk '/heap_tree=peak/{getline; getline; split($0,a,"="); print a[2]/1024" KB"}' massif.out) |"
+            echo "| Peak Heap | $(awk '/heap_tree=peak/{getline; split($0,a," "); print a[2]/1024" KB"}' massif.out) |"
             # Find maximum stack size across all snapshots (convert to KB)
             echo "| Peak Stack | $(awk '/mem_stacks_B/{split($0,a,"="); if(a[2]>max) max=a[2]} END{print max/1024" KB"}' massif.out) |"
             echo ""
