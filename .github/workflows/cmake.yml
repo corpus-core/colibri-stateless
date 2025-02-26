@@ -292,8 +292,9 @@ jobs:
         with:
           excludes: libs.* build.* test.* src.cli.*
           xml-out: coverage.xml
-          html-details: coverage-report/index.html
+          html-details: build/coverage-report/index.html
           html-title: "Colibri Coverage Report"
+          working-directory: .
 
       - name: Debug Coverage Files
         run: |
@@ -307,15 +308,18 @@ jobs:
 
       - name: Move Coverage Report
         run: |
-          # Ensure the coverage report exists and move it to the right location
-          if [ -d "coverage-report" ]; then
-            echo "Coverage report found in root directory"
-            mkdir -p build/coverage-report
-            cp -r coverage-report/* build/coverage-report/
-          elif [ -d "build/coverage-report" ]; then
-            echo "Coverage report already in build directory"
+          # Create the coverage report directory if it doesn't exist
+          mkdir -p build/coverage-report
+
+          # Check if the coverage report exists in the expected location
+          if [ -d "build/coverage-report" ] && [ -f "build/coverage-report/index.html" ]; then
+            echo "Coverage report found in build directory"
           else
-            echo "Error: Coverage report not found"
+            echo "Error: Coverage report not found in expected location"
+            echo "Contents of build directory:"
+            ls -la build/
+            echo "Contents of build/coverage-report (if it exists):"
+            ls -la build/coverage-report/ || true
             exit 1
           fi
 
