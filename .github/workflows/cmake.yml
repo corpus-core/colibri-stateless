@@ -306,6 +306,21 @@ jobs:
                 --html-details build/coverage-report/index.html \
                 --html-title "Colibri Coverage Report"
 
+          # Generate text summary with per-file coverage
+          echo "## Coverage Summary by File" > coverage_summary.txt
+          echo "" >> coverage_summary.txt
+          echo "| File | Line Coverage | Branch Coverage |" >> coverage_summary.txt
+          echo "|------|---------------|-----------------|" >> coverage_summary.txt
+
+          # Run gcovr with text output for summary
+          gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*" \
+                --txt --txt-summary-format "| {file} | {line_percent}% | {branch_percent}% |" \
+                >> coverage_summary.txt
+
+          # Add the summary to both the step summary and the coverage report directory
+          cat coverage_summary.txt >> $GITHUB_STEP_SUMMARY
+          cp coverage_summary.txt build/coverage-report/
+
       - name: Debug Coverage Files
         run: |
           echo "Current directory structure:"
