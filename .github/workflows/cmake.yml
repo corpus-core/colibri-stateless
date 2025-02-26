@@ -310,20 +310,14 @@ jobs:
           {
             echo "## Coverage Summary by File"
             echo ""
-            echo "### Raw Coverage Data"
-            echo "\`\`\`"
-            gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*"
-            echo "\`\`\`"
-            echo ""
-            echo "### Coverage Table"
             echo "| Status | File | Coverage |"
             echo "|--------|------|----------|"
             
             # Process gcovr output into a table with status icons
             gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*" | \
             awk '
-            # Skip header lines and empty lines
-            NR > 3 && $1 != "TOTAL" && NF > 0 {
+            # Skip header lines, separator lines, and empty lines
+            NR > 3 && $1 != "TOTAL" && NF > 0 && !/^-+$/ && !/^Directory:/ && !/^File.*Lines.*/ {
               # Extract file and coverage
               file=$1
               coverage=$4
