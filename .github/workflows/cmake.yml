@@ -307,27 +307,18 @@ jobs:
                 --html-title "Colibri Coverage Report"
 
           # Generate text summary with per-file coverage
-          echo "## Coverage Summary by File" > coverage_summary.txt
-          echo "" >> coverage_summary.txt
-          echo "| File | Line Coverage | Branch Coverage |" >> coverage_summary.txt
-          echo "|------|---------------|-----------------|" >> coverage_summary.txt
-
-          # Run gcovr and process its output into a markdown table
-          gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*" | \
-          awk '
-          # Skip the header lines and empty lines
-          NR > 3 && NF > 0 {
-            # Extract file, line coverage, and branch coverage
-            file=$1
-            line_cov=$3
-            branch_cov=$5
-            # Remove the % symbol and trailing characters
-            gsub(/%/, "", line_cov)
-            gsub(/%/, "", branch_cov)
-            if (branch_cov == "-") branch_cov = "N/A"
-            # Print in markdown table format
-            printf "| %s | %s%% | %s |\n", file, line_cov, branch_cov
-          }' >> coverage_summary.txt
+          {
+            echo "## Coverage Summary by File"
+            echo ""
+            echo "### Raw Coverage Data"
+            echo "\`\`\`"
+            gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*"
+            echo "\`\`\`"
+            echo ""
+            echo "### Coverage Table"
+            echo "| File | Line Coverage | Branch Coverage |"
+            echo "|------|---------------|-----------------|"
+          } > coverage_summary.txt
 
           # Add the summary to both the step summary and the coverage report directory
           cat coverage_summary.txt >> $GITHUB_STEP_SUMMARY
