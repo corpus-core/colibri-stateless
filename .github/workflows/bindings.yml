@@ -8,7 +8,11 @@ on:
   pull_request:
     branches: ["main", "dev"]
   release:
-    types: [created, published]
+    types: [published]
+  workflow_run:
+    workflows: ["CMake on multiple platforms"]
+    types:
+      - completed
 
 # Add permissions block at the top level
 permissions:
@@ -437,6 +441,13 @@ jobs:
           name: colibri-aar
           path: artifacts/aar
 
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts/builds
+          merge-multiple: true
+
       - name: Prepare Release Files
         run: |
           cd artifacts
@@ -450,6 +461,7 @@ jobs:
           mv colibri-swift-package.zip release_files/
           mv wasm/colibri-wasm.zip release_files/
           mv aar/*.aar release_files/
+          mv builds/* release_files/ || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1

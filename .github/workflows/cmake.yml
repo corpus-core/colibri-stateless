@@ -10,7 +10,7 @@ on:
   pull_request:
     branches: ["main", "dev"]
   release:
-    types: [created, published]
+    types: [published]
 
 jobs:
   valgrind:
@@ -284,16 +284,13 @@ jobs:
           fi
         shell: bash
 
-      # Upload to release if this is a tag
-      - name: Upload Release Artifact
+      - name: Upload Build Artifacts
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
+        uses: actions/upload-artifact@v4
         with:
-          files: release-artifacts/*
-          generate_release_notes: true
-          draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: release-${{ matrix.os }}-${{ matrix.c_compiler }}
+          path: release-artifacts/*
+          if-no-files-found: error
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5
