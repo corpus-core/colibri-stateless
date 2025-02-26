@@ -75,7 +75,7 @@ jobs:
           cp -r swift_package/* colibri-swift/
 
           # Update version in Package.swift for release
-          #VERSION=${GITHUB_REF#refs/tags/v}
+          # VERSION=${GITHUB_REF#refs/tags/v}
           cd colibri-stateless-swift
 
           # Configure git
