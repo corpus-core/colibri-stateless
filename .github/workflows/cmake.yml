@@ -239,8 +239,35 @@ jobs:
               echo "" 
               echo "### 🔄 Build Output" 
               echo '```'
-              # Filter out cmake progress lines and third-party lib analysis
-              grep -v -e '^\[' -e '/libs/' build/scan-build-output.txt
+              # Process the output to filter third-party lib warnings while keeping code snippets for our own code
+              awk '
+                # Skip lines starting with [ (cmake progress)
+                /^\[/ { next }
+                
+                # Start of a warning block - check if its from libs/
+                /:[0-9]+:[0-9]+: (warning|note|error):/ {
+                  if ($0 ~ /\/libs\//) {
+                    in_lib_warning = 1
+                    next
+                  } else {
+                    in_lib_warning = 0
+                    print
+                  }
+                  next
+                }
+                
+                # If we are in a lib warning block, skip all lines until we hit another warning or empty line
+                in_lib_warning && (/^$/ || /:[0-9]+:[0-9]+: (warning|note|error):/) {
+                  in_lib_warning = 0
+                  next
+                }
+                
+                # Skip lines while in a lib warning block
+                in_lib_warning { next }
+                
+                # Print all other lines
+                { print }
+              ' build/scan-build-output.txt
               echo '```'
             fi
           } >> $GITHUB_STEP_SUMMARY
