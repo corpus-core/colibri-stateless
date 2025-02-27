@@ -196,59 +196,47 @@ jobs:
               echo "| Bug Group | Bug Type | File | Function/Method | Line | Path Length |" >> ../analysis_summary.md
               echo "|-----------|-----------|------|----------------|------|-------------|" >> ../analysis_summary.md
               
-              # Debug: Check if index.html exists and show its contents
-              echo "Debug: Checking index.html contents..." >> ../analysis_summary.md
-              if [ -f "$REPORT_DIR/index.html" ]; then
-                echo "Found index.html file" >> ../analysis_summary.md
-              else
-                echo "index.html file not found!" >> ../analysis_summary.md
-              fi
-              
               # Parse the index.html file and extract table data
               awk '
-                BEGIN { found_table = 0; in_row = 0; col = 0 }
+                BEGIN { in_table = 0; in_row = 0 }
                 
-                /<table class="sortable"/ { found_table = 1 }
+                # Skip header row
+                /<thead>/ { in_header = 1; next }
+                /<\/thead>/ { in_header = 0; next }
                 
-                found_table && /<tr class="bt_/ {
+                # Process table body
+                /<tbody>/ { in_table = 1; next }
+                /<\/tbody>/ { in_table = 0; next }
+                
+                # Start of a row
+                in_table && /<tr class="bt_/ {
+                  row = ""
                   in_row = 1
-                  col = 0
-                  printf "| "
+                  next
                 }
                 
-                found_table && in_row && /<td/ {
-                  # Get content between <td> and </td>
-                  match($0, /<td[^>]*>([^<]*)<\/td>/, arr)
-                  if (arr[1] != "") {
-                    printf "%s | ", arr[1]
-                  } else {
-                    # If no direct text content, get the next line
-                    getline content
-                    gsub(/<[^>]*>/, "", content)
-                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", content)
-                    printf "%s | ", content
+                # Process cells in a row
+                in_row && /<td[^>]*>/ {
+                  # Get the content between <td> and </td>
+                  gsub(/<td[^>]*>/, "")
+                  gsub(/<\/td>.*$/, "")
+                  gsub(/<[^>]*>/, "")  # Remove any remaining HTML tags
+                  gsub(/^[[:space:]]+|[[:space:]]+$/, "")  # Trim whitespace
+                  
+                  # Skip empty cells and link cells
+                  if ($0 != "" && !/<a href/) {
+                    row = row $0 " | "
                   }
-                  col++
                 }
                 
-                found_table && in_row && col >= 6 {
-                  printf "\n"
+                # End of a row
+                in_row && /<\/tr>/ {
+                  if (row != "") {
+                    print "| " row
+                  }
                   in_row = 0
                 }
-                
-                /<\/table>/ { found_table = 0 }
-                
-                END {
-                  if (found_table == 0 && NR == 0) {
-                    print "No table data found in the file" > "/dev/stderr"
-                  }
-                }
-              ' "$REPORT_DIR/index.html" >> ../analysis_summary.md || true
-              
-              # Debug: Show what was processed
-              echo "" >> ../analysis_summary.md
-              echo "Debug: Table processing completed" >> ../analysis_summary.md
-              echo "Number of lines in index.html: $(wc -l < "$REPORT_DIR/index.html")" >> ../analysis_summary.md
+              ' "$REPORT_DIR/index.html" >> ../analysis_summary.md
               
               echo "" >> ../analysis_summary.md
             else
