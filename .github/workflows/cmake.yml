@@ -184,13 +184,6 @@ jobs:
             echo "## 🔍 Static Analysis Issues" > ../analysis_summary.md
             echo "" >> ../analysis_summary.md
             
-            # Add enabled checkers to the summary
-            echo "### 🔧 Enabled Checkers" >> ../analysis_summary.md
-            echo '```' >> ../analysis_summary.md
-            scan-build --help 2>&1 | grep -A 100 "CHECKERS:" | grep "^  [-]" | grep -E "$(echo "-enable-checker" | sed 's/ /|/g')" >> ../analysis_summary.md
-            echo '```' >> ../analysis_summary.md
-            echo "" >> ../analysis_summary.md
-            
             # Find the report directory (it's usually named something like scan-build-2024-XX-XX-*)
             if [ -n "$(ls -A scan-build-results 2>/dev/null)" ]; then
               REPORT_DIR=$(ls -d scan-build-results/* | head -n 1)
@@ -235,13 +228,15 @@ jobs:
               echo "" 
               echo "### 🔄 Build Output" 
               echo '```'
-              cat build/scan-build-output.txt
+              # Filter out cmake progress lines starting with '['
+              grep -v '^\[' build/scan-build-output.txt
               echo '```'
             fi
           } >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Analysis Results
-        if: steps.scan-build.outputs.no_bugs != 'true'
+        if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: static-analysis-report
