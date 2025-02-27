@@ -185,44 +185,6 @@ jobs:
             echo "## 🔄 Static Analysis Issues" > ../analysis_summary.md
             echo "" >> ../analysis_summary.md
             
-            # Find the report directory (it's usually named something like scan-build-2024-XX-XX-*)
-            if [ -n "$(ls -A scan-build-results 2>/dev/null)" ]; then
-              REPORT_DIR=$(ls -d scan-build-results/* | head -n 1)
-              
-              echo "### 🚨 Found Issues" >> ../analysis_summary.md
-              echo "" >> ../analysis_summary.md
-              
-              # Create the table header
-              echo "| Bug Group | Bug Type | File | Function/Method | Line | Path Length |" >> ../analysis_summary.md
-              echo "|-----------|-----------|------|----------------|------|-------------|" >> ../analysis_summary.md
-
-              # Install xmllint if not present
-              sudo apt-get update && sudo apt-get install -y libxml2-utils
-
-              # Parse the table using xmllint and format it
-              xmllint --html --xpath "//table[@class='sortable']//tr[@class[starts-with(., 'bt_')]]" "$REPORT_DIR/index.html" 2>/dev/null | \
-              while IFS= read -r line; do
-                if [[ $line =~ \<tr[[:space:]].*\> ]]; then
-                  row=""
-                elif [[ $line =~ \<td[[:space:]].*\>(.*)\</td\> ]]; then
-                    content="${BASH_REMATCH[1]}"
-                    # Remove any remaining HTML tags and trim whitespace
-                    content=$(echo "$content" | sed 's/<[^>]*>//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-                    if [[ -n "$content" && ! "$content" =~ "View Report" ]]; then
-                      row="$row$content | "
-                    fi
-                elif [[ $line =~ \</tr\> && -n "$row" ]]; then
-                  echo "| $row" >> ../analysis_summary.md
-                fi
-              done
-
-              echo "" >> ../analysis_summary.md
-            else
-              echo "⚠️ Scan completed but no detailed report was generated." >> ../analysis_summary.md
-              echo "" >> ../analysis_summary.md
-              echo "Please check the build output below for more information." >> ../analysis_summary.md
-            fi
-            
             # Exit with the scan-build status code if bugs were found
             exit $SCAN_EXIT_CODE
           fi
@@ -236,8 +198,6 @@ jobs:
             
             # Only include build output if bugs were found
             if [ "${{ steps.scan-build.outputs.no_bugs }}" != "true" ]; then
-              echo "" 
-              echo "### 🔄 Static Analysis Issues" 
               
               # Process the output to create a markdown list with code blocks
               awk '
