@@ -165,6 +165,7 @@ jobs:
             --status-bugs \
             -v \
             -o scan-build-results \
+            --exclude ../libs \
             $SCAN_BUILD_OPTS \
             make 2>&1 | tee -a scan-build-output.txt || true
 
@@ -195,35 +196,59 @@ jobs:
               echo "| Bug Group | Bug Type | File | Function/Method | Line | Path Length |" >> ../analysis_summary.md
               echo "|-----------|-----------|------|----------------|------|-------------|" >> ../analysis_summary.md
               
+              # Debug: Check if index.html exists and show its contents
+              echo "Debug: Checking index.html contents..." >> ../analysis_summary.md
+              if [ -f "$REPORT_DIR/index.html" ]; then
+                echo "Found index.html file" >> ../analysis_summary.md
+              else
+                echo "index.html file not found!" >> ../analysis_summary.md
+              fi
+              
               # Parse the index.html file and extract table data
-              # Use awk to process the HTML and extract table rows
               awk '
-                /<tr class="bt_/ {
-                  # Initialize variables for this row
-                  group=""; type=""; file=""; func=""; line=""; path="";
-                  
-                  # Read the row
-                  for(i=0; i<6; i++) {
-                    getline;
-                    # Extract text content between <td> tags, remove HTML
-                    gsub(/<[^>]*>/, "");
-                    gsub(/^[[:space:]]+|[[:space:]]+$/, "");
-                    
-                    # Store in appropriate variable based on position
-                    if(i==0) group=$0;
-                    if(i==1) type=$0;
-                    if(i==2) file=$0;
-                    if(i==3) func=$0;
-                    if(i==4) line=$0;
-                    if(i==5) path=$0;
+                BEGIN { found_table = 0; in_row = 0; col = 0 }
+                
+                /<table class="sortable"/ { found_table = 1 }
+                
+                found_table && /<tr class="bt_/ {
+                  in_row = 1
+                  col = 0
+                  printf "| "
+                }
+                
+                found_table && in_row && /<td/ {
+                  # Get content between <td> and </td>
+                  match($0, /<td[^>]*>([^<]*)<\/td>/, arr)
+                  if (arr[1] != "") {
+                    printf "%s | ", arr[1]
+                  } else {
+                    # If no direct text content, get the next line
+                    getline content
+                    gsub(/<[^>]*>/, "", content)
+                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", content)
+                    printf "%s | ", content
                   }
-                  # Print the row in markdown table format
-                  if(group != "" && type != "") {
-                    printf "| %s | %s | %s | %s | %s | %s |\n", 
-                      group, type, file, func, line, path;
+                  col++
+                }
+                
+                found_table && in_row && col >= 6 {
+                  printf "\n"
+                  in_row = 0
+                }
+                
+                /<\/table>/ { found_table = 0 }
+                
+                END {
+                  if (found_table == 0 && NR == 0) {
+                    print "No table data found in the file" > "/dev/stderr"
                   }
                 }
-              ' "$REPORT_DIR/index.html" >> ../analysis_summary.md
+              ' "$REPORT_DIR/index.html" >> ../analysis_summary.md || true
+              
+              # Debug: Show what was processed
+              echo "" >> ../analysis_summary.md
+              echo "Debug: Table processing completed" >> ../analysis_summary.md
+              echo "Number of lines in index.html: $(wc -l < "$REPORT_DIR/index.html")" >> ../analysis_summary.md
               
               echo "" >> ../analysis_summary.md
             else
