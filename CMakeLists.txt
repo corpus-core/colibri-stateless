@@ -78,11 +78,18 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
     endif()
     # Activate Link-Time Optimization
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-    # Compiler flags for size optimization
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffunction-sections -fdata-sections")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffunction-sections -fdata-sections")
 
-    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    if(MSVC)
+        # MSVC specific flags for size optimization
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Gy")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Gy")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /OPT:REF /OPT:ICF")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /OPT:REF /OPT:ICF")
+    else()
+        # GCC/Clang flags for size optimization
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffunction-sections -fdata-sections")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffunction-sections -fdata-sections")
+
         if(APPLE)
             set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -dead_strip")
             set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -dead_strip")
