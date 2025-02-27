@@ -165,7 +165,6 @@ jobs:
 
           # Run scan-build with the same options
           scan-build \
-            
             --status-bugs \
             -v \
             -o scan-build-results \
