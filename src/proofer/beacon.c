@@ -63,7 +63,6 @@ static c4_status_t eth_get_block(proofer_ctx_t* ctx, json_t block, bool full_tx,
 
 c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
   uint8_t  tmp[100] = {0};
-  buffer_t buffer   = stack_buffer(tmp);
   uint64_t slot     = 0;
   ssz_ob_t sig_block, data_block, sig_body;
 
@@ -77,7 +76,6 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
     json_t hash = json_get(eth_block, "parentBeaconBlockRoot");
     if (hash.len != 68) THROW_ERROR("The Block is not a Beacon Block!");
     json_t header;
-    memset(tmp, 0, sizeof(tmp));
     memcpy(tmp, hash.start + 1, hash.len - 2);
     TRY_ASYNC(get_beacon_header_by_hash(ctx, (char*) tmp, &header));
     TRY_ASYNC(get_latest_block(ctx, json_as_uint64(json_get(header, "slot")) + 2, &sig_block, &data_block));

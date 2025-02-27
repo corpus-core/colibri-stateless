@@ -71,8 +71,6 @@ static inline proof_logs_tx_t* find_tx(proof_logs_block_t* block, uint32_t tx_in
 }
 
 static inline void add_blocks(proof_logs_block_t** blocks, json_t logs) {
-  bytes32_t tmp = {0};
-  buffer_t  buf = stack_buffer(tmp);
   json_for_each_value(logs, log) {
     uint64_t            block_number = json_get_uint64(log, "blockNumber");
     uint32_t            tx_index     = json_get_uint32(log, "transactionIndex");

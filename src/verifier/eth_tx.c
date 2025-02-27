@@ -250,7 +250,6 @@ bool c4_tx_verify_log_data(verify_ctx_t* ctx, ssz_ob_t log, bytes32_t block_hash
   bytes_t   val     = {0};
   bytes_t   logs    = {0};
   tx_type_t type    = 0;
-  uint32_t  log_idx = ssz_get_uint32(&log, "logIndex");
   keccak(tx_raw, tx_hash);
   if (!bytes_eq(bytes(tx_hash, 32), ssz_get(&log, "transactionHash").bytes)) RETURN_VERIFY_ERROR(ctx, "invalid transaction hash!");
   if (block_number != ssz_get_uint64(&log, "blockNumber")) RETURN_VERIFY_ERROR(ctx, "invalid block number!");

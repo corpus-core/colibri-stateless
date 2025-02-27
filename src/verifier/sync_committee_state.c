@@ -96,19 +96,16 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
 
   c4_get_storage_config(&storage_conf);
 
-  while (state.len >= storage_conf.max_sync_states) {
+  while (state.len >= storage_conf.max_sync_states && state.blocks) {
     uint32_t oldest       = 0;
     uint32_t latest       = 0;
     int      oldest_index = 0;
-    int      latest_index = 0;
 
     // find the oldest and latest period
     for (int i = 0; i < state.len; i++) {
       uint32_t p = state.blocks[i].period;
-      if (p > latest || latest == 0) {
-        latest       = p;
-        latest_index = i;
-      }
+      if (p > latest || latest == 0)
+        latest = p;
       if (p < oldest || oldest == 0) {
         oldest       = p;
         oldest_index = i;
@@ -167,8 +164,8 @@ c4_status_t c4_set_trusted_blocks(c4_state_t* state, json_t blocks, chain_id_t c
     if (success) {
       uint64_t slot   = json_get_uint64(data, "slot");
       uint32_t period = (slot >> 13) - 1;
-      success         = req_client_update(state, period, chain_id, &client_update);
-      success         = req_client_update(state, period - 20, chain_id, &client_update_past);
+      req_client_update(state, period, chain_id, &client_update);
+      success = req_client_update(state, period - 20, chain_id, &client_update_past);
     }
   }
   else if (chain_state.len == 0) {

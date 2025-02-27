@@ -18,7 +18,6 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
   ssz_builder_t eth_tx_proof = {0};
   ssz_builder_t c4_req       = {.def = (ssz_def_t*) &C4_REQUEST_CONTAINER, .dynamic = {0}, .fixed = {0}};
   uint32_t      tx_index     = json_get_uint32(tx_data, "transactionIndex");
-  ssz_ob_t      block        = block_data->header;
   ssz_ob_t      raw          = ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index);
 
   // build the proof

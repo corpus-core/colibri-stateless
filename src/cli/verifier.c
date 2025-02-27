@@ -90,8 +90,8 @@ static void check_state(chain_id_t chain_id, json_t trusted_blocks) {
   c4_state_t state = {0};
   while (true) {
     c4_status_t status = c4_set_trusted_blocks(&state, trusted_blocks, chain_id);
-    if (state.error) {
-      fprintf(stderr, "Error setting trusted blocks: %s\n", state.error);
+    if (state.error || status == C4_ERROR) {
+      fprintf(stderr, "Error setting trusted blocks: %s\n", state.error ? state.error : "unknown error");
       exit(EXIT_FAILURE);
     }
 #ifdef USE_CURL

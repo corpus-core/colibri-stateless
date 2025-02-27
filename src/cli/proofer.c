@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
 #ifdef USE_CURL
           curl_fetch(req);
 #else
-          fprintf(stderr, "CURL not enabled\n");
+          if (req) fprintf(stderr, "CURL not enabled\n");
           exit(EXIT_FAILURE);
 #endif
         }

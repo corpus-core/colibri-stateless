@@ -83,14 +83,11 @@ static bool verif_block(verify_ctx_t* ctx, ssz_ob_t block) {
   ssz_ob_t  txs                      = ssz_get(&block, "txs");
   bytes32_t receipt_root             = {0};
   uint32_t  tx_count                 = ssz_len(txs);
-  bytes_t   block_number             = ssz_get(&block, "blockNumber").bytes;
 
   // verify each tx and get the receipt root
   for (int i = 0; i < tx_count; i++) {
     if (!verify_tx(ctx, block, ssz_at(txs, i), receipt_root)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
   }
-  // 0x586ce3a01c2b20f144ee72574dbd51a7c6bf58aeae30df210199b5d963808261
-  //  print_hex(stderr, bytes(receipt_root, 32), "receipt root: 0x", "\n");
   if (!verify_merkle_proof(ctx, block, receipt_root)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
   if (!c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
 
