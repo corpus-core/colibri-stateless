@@ -132,7 +132,7 @@ jobs:
           sudo apt-get install -y clang-tools clang
 
       - name: List Checkers
-        run: scan-build --help 2>&1 | grep "CHECKERS:" -A 100
+        run: scan-build --help 2>&1
 
       - name: Configure CMake with Scan-Build
         run: |
@@ -141,7 +141,6 @@ jobs:
 
           # Define scan-build options
           SCAN_BUILD_OPTS="\
-            --force-analyze-debug-code \
             -enable-checker alpha.core.SizeofPtr \
             -enable-checker alpha.core.TestAfterDivZero \
             -enable-checker alpha.security.ArrayBoundV2 \
@@ -160,11 +159,9 @@ jobs:
         id: scan-build
         run: |
           cd build
-          # Create a directory for the results
-          mkdir -p scan-build-results
-
           # Run scan-build with the same options
           scan-build \
+            --force-analyze-debug-code \
             --status-bugs \
             -v \
             -o scan-build-results \
