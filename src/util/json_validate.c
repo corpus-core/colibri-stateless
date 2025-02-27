@@ -57,11 +57,11 @@ static const char* next_type(const char* pos, const char** next, int* len) {
 
 static const char* check_array(json_t val, const char* def, const char* error_prefix) {
   if (val.type != JSON_TYPE_ARRAY) ERROR("%sExpected array", error_prefix);
-  const char* end      = find_end(def + 1, '[', ']');
   const char* next     = NULL;
   int         item_len = 0;
   int         idx      = 0;
   const char* item_def = next_type(def + 1, &next, &item_len);
+  if (!next) ERROR("%sExpected array", error_prefix);
   while (*next && isspace(*next)) next++;
   json_for_each_value(val, item) {
     const char* err = json_validate(item, item_def, "");
@@ -78,12 +78,12 @@ static const char* check_array(json_t val, const char* def, const char* error_pr
 
 static const char* check_object(json_t ob, const char* def, const char* error_prefix) {
   if (ob.type != JSON_TYPE_OBJECT) ERROR("%sExpected object", error_prefix);
-  const char* end      = find_end(def + 1, '{', '}');
   const char* next     = def;
   const char* name     = NULL;
   int         name_len = 0;
   int         item_len = 0;
   while ((name = next_name(def + 1, &next, &name_len))) {
+    if (!next) ERROR("%sExpected object", error_prefix);
     bool optional = next && *next == '?';
     if (optional) next++;
     while (*next && isspace(*next)) next++;

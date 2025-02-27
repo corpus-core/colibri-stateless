@@ -385,7 +385,7 @@ static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent) {
 
     if (ctx.proof) {
       int pos = gindex_indexOf(ctx.proof->witnesses, ctx.root_gindex + 1);
-      if (pos >= 0)
+      if (pos >= 0 && ctx.proof->proof->data.data)
         memcpy(ctx.proof->proof->data.data + pos * 32, length, 32);
     }
   }
@@ -550,5 +550,9 @@ void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t
 
 gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2) {
   uint32_t depth = log2_ceil((uint32_t) gindex2 + 1) - 1;
+  if (depth > 63) {
+    log_error("gindex depth is too large: %u", depth);
+    return 0;
+  }
   return (gindex1 << depth) | (gindex2 & ((1 << depth) - 1));
 }

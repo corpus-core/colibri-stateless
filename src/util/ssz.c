@@ -168,10 +168,13 @@ ssz_ob_t ssz_union(ssz_ob_t ob) {
 uint32_t ssz_len(ssz_ob_t ob) {
   switch (ob.def->type) {
     case SSZ_TYPE_VECTOR: return ob.def->def.vector.len;
-    case SSZ_TYPE_LIST:
+    case SSZ_TYPE_LIST: {
+      int fixed_length = ssz_fixed_length(ob.def->def.vector.type);
+      if (fixed_length == 0) return 0;
       return ob.bytes.len > 4 && ssz_is_dynamic(ob.def->def.vector.type)
                  ? uint32_from_le(ob.bytes.data) / 4
-                 : ob.bytes.len / ssz_fixed_length(ob.def->def.vector.type);
+                 : ob.bytes.len / fixed_length;
+    }
     case SSZ_TYPE_BIT_VECTOR:
       return ob.bytes.len * 8;
     case SSZ_TYPE_BIT_LIST: {
