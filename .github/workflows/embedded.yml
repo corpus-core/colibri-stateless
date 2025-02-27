@@ -1,0 +1,69 @@
+name: Embedded Testing
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  embedded-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM toolchain and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi qemu-system-arm mtools dosfstools
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . \
+            -DCMAKE_TOOLCHAIN_FILE=test/embedded/CMakeLists.txt \
+            -DSTATIC_MEMORY=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Prepare test data filesystem
+        run: |
+          # Create a 64MB FAT image
+          dd if=/dev/zero of=sdcard.img bs=1M count=64
+          mkfs.vfat sdcard.img
+
+          # Create mount point
+          mkdir -p mnt
+
+          # Copy test files using mtools (no need for sudo)
+          mcopy -i sdcard.img test/data/eth_getLogs1/states_1 ::/states_1
+          mcopy -i sdcard.img test/data/eth_getLogs1/proof.ssz ::/proof.ssz
+          mcopy -i sdcard.img test/data/eth_getLogs1/sync_1_1351 ::/sync_1_1351
+
+          # List contents to verify
+          mdir -i sdcard.img
+
+      - name: Analyze binary size
+        working-directory: build
+        run: |
+          make size_analysis
+          make memory_map
+
+      - name: Run in QEMU
+        run: |
+          qemu-system-arm \
+            -M mps2-an385 \
+            -cpu cortex-m4 \
+            -nographic \
+            -semihosting \
+            -kernel build/test/embedded/verify_embedded \
+            -drive file=sdcard.img,if=sd,format=raw
+
+      - name: Upload memory analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-analysis
+          path: |
+            build/memory_map.txt
+            build/**/*.map

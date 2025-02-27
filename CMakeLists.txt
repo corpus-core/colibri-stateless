@@ -67,6 +67,10 @@ if(SWIFT)
     # Disable CURL for iOS builds
     set(CURL OFF)
 endif()
+if(KOTLIN)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    set(CURL OFF)
+endif()
 
 # Feature flags and compiler settings
 if(CURL)
