@@ -15,9 +15,9 @@ void setUp(void) {
 }
 
 void test_verify_only() {
-  storage_plugin_t storage;
   verify_ctx_t     verify_ctx = {0};
-  buffer_t         proof_buf  = {0};
+  storage_plugin_t storage;
+  buffer_t         proof_buf = {0};
   c4_get_storage_config(&storage);
   storage.get("proof.ssz", &proof_buf);
 

@@ -7,4 +7,7 @@ bindings/emscripten/node_modules
 bindings/kotlin/build
 bindings/kotlin/lib/build
 bindings/kotlin/.gradle
+test/embedded/sdcard.img
+test/embedded/memory_map.txt
+
 /build_x86

@@ -7,16 +7,32 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef C4_STATIC_MEMORY
+// Static buffers for embedded targets
+static uint8_t state_buffer[C4_STATIC_STATE_SIZE];
+static uint8_t sync_buffer[C4_STATIC_SYNC_SIZE];
+#endif
+
 c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
   c4_chain_state_t state = {0};
   char             name[100];
-  buffer_t         tmp          = {0};
   storage_plugin_t storage_conf = {0};
+
+#ifdef C4_STATIC_MEMORY
+  // Use static buffer with size limit
+  buffer_t tmp = {
+      .allocated = -C4_STATIC_STATE_SIZE, // Negative value indicates static allocation
+      .data      = bytes(state_buffer, 0)};
+#else
+  buffer_t tmp = {0};
+#endif
 
   c4_get_storage_config(&storage_conf);
 
   sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
+#ifndef C4_STATIC_MEMORY
   tmp.allocated = sizeof(c4_trusted_block_t) * storage_conf.max_sync_states;
+#endif
 
   if (storage_conf.get(name, &tmp) && tmp.data.data) {
     state.blocks = (c4_trusted_block_t*) tmp.data.data;
@@ -188,12 +204,17 @@ c4_status_t c4_set_trusted_blocks(c4_state_t* state, json_t blocks, chain_id_t c
 }
 
 const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
-
   storage_plugin_t storage_conf = {0};
   c4_chain_state_t chain_state  = c4_get_chain_state(chain_id);
   uint32_t         last_period  = 0;
-  buffer_t         validators   = {0};
-  bool             found        = false;
+#ifdef C4_STATIC_MEMORY
+  buffer_t validators = {
+      .allocated = -C4_STATIC_SYNC_SIZE,
+      .data      = bytes(sync_buffer, 0)};
+#else
+  buffer_t validators = {0};
+#endif
+  bool found = false;
   c4_get_storage_config(&storage_conf);
 
   for (uint32_t i = 0; i < chain_state.len; i++) {
@@ -201,7 +222,9 @@ const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
     if (p == period) found = true;
     last_period = p > last_period && p <= period ? p : last_period;
   }
+#ifndef C4_STATIC_MEMORY
   free(chain_state.blocks);
+#endif
   char name[100];
   sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
 

@@ -37,5 +37,9 @@ add_executable(verify_only verify_only.c)
 # Füge die Include-Verzeichnisse hinzu
 target_include_directories(verify_only PRIVATE ${unity_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src)
 
+# Define TESTDATA_DIR
+target_compile_definitions(verify_only PRIVATE TESTDATA_DIR="${CMAKE_SOURCE_DIR}/test/data")
+
+
 # Verknüpfe die Testausführbare mit Unity und deinem Code
-target_link_libraries(verify_only verifier )
+target_link_libraries(verify_only verifier)

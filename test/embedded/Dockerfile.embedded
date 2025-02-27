@@ -1,0 +1,24 @@
+FROM ubuntu:22.04
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies and tools
+RUN apt-get update && apt-get install -y \
+    cmake \
+    gcc-arm-none-eabi \
+    qemu-system-arm \
+    mtools \
+    dosfstools \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up working directory
+WORKDIR /workspace
+
+# Create mount points for volumes
+RUN mkdir -p /workspace/build
+
+# Default command - this will be overridden by docker run
+CMD ["/bin/bash"] 

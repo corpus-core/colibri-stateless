@@ -73,7 +73,9 @@ bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t
 
   bool valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
 
+#ifndef C4_STATIC_MEMORY
   free(sync_state.validators.data);
+#endif
 
   if (!valid)
     RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
