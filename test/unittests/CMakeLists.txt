@@ -21,3 +21,21 @@ foreach(test_source ${TEST_SOURCES})
     # Füge den Test zu CTest hinzu
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
+
+
+if(MSVC)
+    # Add Windows-specific definitions for test compatibility
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+    add_definitions(-DWIN32_LEAN_AND_MEAN)
+    # Define setenv macro for Windows compatibility
+    add_definitions(-Dsetenv=_putenv_s)
+endif()
+
+# Erstelle eine ausführbare Datei für den Test
+add_executable(verify_only verify_only.c)
+
+# Füge die Include-Verzeichnisse hinzu
+target_include_directories(verify_only PRIVATE ${unity_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src)
+
+# Verknüpfe die Testausführbare mit Unity und deinem Code
+target_link_libraries(verify_only verifier )

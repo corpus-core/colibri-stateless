@@ -70,8 +70,8 @@ jobs:
       - name: Analyze Stack Usage for test_verify_logs
         run: |
           # Define the test binary path
-          TEST_BINARY="./build/test/unittests/test_verify_only"
-          TEST_BINARY_MINSIZE="./build_minsize/test/unittests/test_verify_only"
+          TEST_BINARY="./build/test/unittests/verify_only"
+          TEST_BINARY_MINSIZE="./build_minsize/test/unittests/verify_only"
 
           # Create directory for detailed reports
           mkdir -p memory-analysis
