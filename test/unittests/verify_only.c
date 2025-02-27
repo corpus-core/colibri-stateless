@@ -1,3 +1,4 @@
+#include "platform_compat.h"
 #include "unity.h"
 #include "util/bytes.h"
 #include "util/json.h"

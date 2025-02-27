@@ -27,8 +27,6 @@ if(MSVC)
     # Add Windows-specific definitions for test compatibility
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
     add_definitions(-DWIN32_LEAN_AND_MEAN)
-    # Define setenv macro for Windows compatibility, ignoring the overwrite parameter
-    add_definitions(-Dsetenv(name,value,overwrite)=_putenv_s(name,value))
 endif()
 
 
