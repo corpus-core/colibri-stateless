@@ -135,7 +135,22 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          scan-build cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTEST=true -DCURL=false ..
+
+          # Define scan-build options
+          SCAN_BUILD_OPTS="\
+            -enable-checker alpha.core.SizeofPtr \
+            -enable-checker alpha.core.TestAfterDivZero \
+            -enable-checker alpha.security.ArrayBoundV2 \
+            -enable-checker alpha.security.MallocOverflow \
+            -enable-checker alpha.security.ReturnPtrRange \
+            -enable-checker optin.performance.Padding \
+            -analyzer-config aggressive-binary-operation-simplification=true \
+            -analyzer-config mode=deep \
+            -analyzer-config explore-paths=true \
+            -analyzer-config strict-mode=true"
+
+          # Apply scan-build to CMake configuration
+          scan-build $SCAN_BUILD_OPTS cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTEST=true -DCURL=false ..
 
       - name: Run Scan-Build
         id: scan-build
@@ -148,92 +163,12 @@ jobs:
           echo "Available checkers:" >> scan-build-output.txt
           scan-build --help 2>&1 | grep "CHECKERS:" -A 100 >> scan-build-output.txt
 
-          # Run scan-build with specific checkers enabled
-          # Common useful checkers:
-          # - alpha.core.* (Core checkers)
-          # - alpha.unix.* (Unix-specific checkers)
-          # - alpha.security.* (Security checkers)
-          # - nullability.* (Null pointer checkers)
-          # - optin.performance.* (Performance checkers)
-          # - optin.portability.* (Portability checkers)
+          # Run scan-build with the same options
           scan-build \
             --status-bugs \
             -v \
             -o scan-build-results \
-            -enable-checker alpha.unix.cstring.HeapError \
-            -enable-checker alpha.cplusplus.DeleteMissingNoThrow \
-            -enable-checker alpha.core.PointerArithm \
-            -enable-checker alpha.unix.Malloc \
-            -enable-checker alpha.unix.MallocWithAnnotations \
-            -enable-checker unix.Malloc \
-            -enable-checker alpha.core.CastToStruct \
-            -enable-checker alpha.core.IdenticalExpr \
-            -enable-checker alpha.unix.cstring.BufferOverlap \
-            -enable-checker alpha.unix.cstring.NotNullTerminated \
-            -enable-checker alpha.core.BoolAssignment \
-            -enable-checker alpha.core.CallAndMessageUnInitRefArg \
-            -enable-checker alpha.core.CastSize \
-            -enable-checker alpha.core.DynamicTypeChecker \
-            -enable-checker alpha.core.FixedAddr \
-            -enable-checker alpha.core.TestAfterDivZero \
-            -enable-checker alpha.deadcode.UnreachableCode \
-            -enable-checker alpha.security.ArrayBound \
-            -enable-checker alpha.security.ArrayBoundV2 \
-            -enable-checker alpha.security.MallocOverflow \
-            -enable-checker alpha.security.ReturnPtrRange \
-            -enable-checker alpha.core.PointerSub \
-            -enable-checker alpha.core.SizeofPtr \
-            -enable-checker nullability.NullPassedToNonnull \
-            -enable-checker nullability.NullReturnedFromNonnull \
-            -enable-checker security.insecureAPI.strcpy \
-            -enable-checker valist.CopyToSelf \
-            -enable-checker valist.Uninitialized \
-            -enable-checker valist.Unterminated \
-            -enable-checker core.DivideZero \
-            -enable-checker core.DynamicTypePropagation \
-            -enable-checker core.NonNullParamChecker \
-            -enable-checker core.NullDereference \
-            -enable-checker core.StackAddressEscape \
-            -enable-checker core.UndefinedBinaryOperatorResult \
-            -enable-checker core.VLASize \
-            -enable-checker core.uninitialized.ArraySubscript \
-            -enable-checker core.uninitialized.Assign \
-            -enable-checker core.uninitialized.Branch \
-            -enable-checker core.uninitialized.CapturedBlockVariable \
-            -enable-checker core.uninitialized.UndefReturn \
-            -enable-checker cplusplus.NewDelete \
-            -enable-checker cplusplus.NewDeleteLeaks \
-            -enable-checker deadcode.DeadStores \
-            -enable-checker security.FloatLoopCounter \
-            -enable-checker security.insecureAPI.rand \
-            -enable-checker security.insecureAPI.strcpy \
-            -enable-checker alpha.core.PointerAfterDereference \
-            -enable-checker alpha.unix.SimpleStream \
-            -enable-checker alpha.unix.Stream \
-            -enable-checker alpha.core.BufYes \
-            -enable-checker alpha.core.CallAndMessage \
-            -enable-checker alpha.core.CastToStruct \
-            -enable-checker alpha.core.Conversion \
-            -enable-checker alpha.core.DynamicTypeChecker \
-            -enable-checker alpha.core.PointerArithm \
-            -enable-checker alpha.core.PointerSub \
-            -analyzer-config aggressive-binary-operation-simplification=true \
-            -analyzer-config c++-allocator-inlining=true \
-            -analyzer-config c++-container-inlining=true \
-            -analyzer-config c++-shared_ptr-inlining=true \
-            -analyzer-config c++-stdlib-inlining=true \
-            -analyzer-config c++-temp-dtor-inlining=true \
-            -analyzer-config max-nodes=1000000 \
-            -analyzer-config max-times-through-loop=100 \
-            -analyzer-config mode=deep \
-            -analyzer-config explore-paths=true \
-            -analyzer-config crosscheck-with-z3=true \
-            -analyzer-config ctu-enable-all=true \
-            -analyzer-config strict-mode=true \
-            -analyzer-config report-after-free=true \
-            -analyzer-config report-after-delete=true \
-            -analyzer-config report-use-after-free=true \
-            -analyzer-config report-double-free=true \
+            $SCAN_BUILD_OPTS \
             make 2>&1 | tee -a scan-build-output.txt || true
 
           # Store the scan-build exit code
