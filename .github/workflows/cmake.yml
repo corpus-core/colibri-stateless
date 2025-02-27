@@ -195,49 +195,27 @@ jobs:
               # Create the table header
               echo "| Bug Group | Bug Type | File | Function/Method | Line | Path Length |" >> ../analysis_summary.md
               echo "|-----------|-----------|------|----------------|------|-------------|" >> ../analysis_summary.md
-              
-              # Parse the index.html file and extract table data
-              awk '
-                BEGIN { in_table = 0; in_row = 0 }
-                
-                # Skip header row
-                /<thead>/ { in_header = 1; next }
-                /<\/thead>/ { in_header = 0; next }
-                
-                # Process table body
-                /<tbody>/ { in_table = 1; next }
-                /<\/tbody>/ { in_table = 0; next }
-                
-                # Start of a row
-                in_table && /<tr class="bt_/ {
-                  row = ""
-                  in_row = 1
-                  next
-                }
-                
-                # Process cells in a row
-                in_row && /<td[^>]*>/ {
-                  # Get the content between <td> and </td>
-                  gsub(/<td[^>]*>/, "")
-                  gsub(/<\/td>.*$/, "")
-                  gsub(/<[^>]*>/, "")  # Remove any remaining HTML tags
-                  gsub(/^[[:space:]]+|[[:space:]]+$/, "")  # Trim whitespace
-                  
-                  # Skip empty cells and link cells
-                  if ($0 != "" && !/<a href/) {
-                    row = row $0 " | "
-                  }
-                }
-                
-                # End of a row
-                in_row && /<\/tr>/ {
-                  if (row != "") {
-                    print "| " row
-                  }
-                  in_row = 0
-                }
-              ' "$REPORT_DIR/index.html" >> ../analysis_summary.md
-              
+
+              # Install xmllint if not present
+              sudo apt-get update && sudo apt-get install -y libxml2-utils
+
+              # Parse the table using xmllint and format it
+              xmllint --html --xpath "//table[@class='sortable']//tr[@class[starts-with(., 'bt_')]]" "$REPORT_DIR/index.html" 2>/dev/null | \
+              while IFS= read -r line; do
+                if [[ $line =~ \<tr[[:space:]].*\> ]]; then
+                  row=""
+                elif [[ $line =~ \<td[[:space:]].*\>(.*)\</td\> ]]; then
+                    content="${BASH_REMATCH[1]}"
+                    # Remove any remaining HTML tags and trim whitespace
+                    content=$(echo "$content" | sed 's/<[^>]*>//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                    if [[ -n "$content" && ! "$content" =~ "View Report" ]]; then
+                      row="$row$content | "
+                    fi
+                elif [[ $line =~ \</tr\> && -n "$row" ]]; then
+                  echo "| $row" >> ../analysis_summary.md
+                fi
+              done
+
               echo "" >> ../analysis_summary.md
             else
               echo "⚠️ Scan completed but no detailed report was generated." >> ../analysis_summary.md
@@ -261,8 +239,8 @@ jobs:
               echo "" 
               echo "### 🔄 Build Output" 
               echo '```'
-              # Filter out cmake progress lines starting with '['
-              grep -v '^\[' build/scan-build-output.txt
+              # Filter out cmake progress lines and third-party lib analysis
+              grep -v -e '^\[' -e '/libs/' build/scan-build-output.txt
               echo '```'
             fi
           } >> $GITHUB_STEP_SUMMARY
