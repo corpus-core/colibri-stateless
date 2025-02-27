@@ -237,38 +237,58 @@ jobs:
             # Only include build output if bugs were found
             if [ "${{ steps.scan-build.outputs.no_bugs }}" != "true" ]; then
               echo "" 
-              echo "### 🔄 Build Output" 
-              echo '```'
-              # Process the output to filter third-party lib warnings while keeping code snippets for our own code
+              echo "### 🔄 Static Analysis Warnings" 
+              
+              # Process the output to create a markdown list with code blocks
               awk '
-                # Skip lines starting with [ (cmake progress)
+                BEGIN { in_warning = 0; warning_text = ""; code_block = ""; }
+                
+                # Skip cmake progress lines
                 /^\[/ { next }
                 
-                # Start of a warning block - check if its from libs/
-                /:[0-9]+:[0-9]+: (warning|note|error):/ {
-                  if ($0 ~ /\/libs\//) {
-                    in_lib_warning = 1
-                    next
-                  } else {
-                    in_lib_warning = 0
-                    print
+                # Start of a warning - collect the warning line
+                /:[0-9]+:[0-9]+: warning:/ {
+                  if ($0 ~ /\/libs\//) { next }
+                  
+                  # If we were processing a previous warning, print it
+                  if (in_warning) {
+                    print warning_text
+                    if (code_block != "") {
+                      print "  ```c"
+                      print code_block "  ```\n"
+                    }
                   }
+                  
+                  # Extract file path and line info
+                  match($0, /([^:]+):([0-9]+):([0-9]+): warning: (.+) \[(.+)\]/, arr)
+                  file = arr[1]
+                  gsub(".*/", "", file)  # Remove path prefix
+                  
+                  # Format the new warning
+                  warning_text = sprintf("- warning: *%s* [%s]\n  in %s:%s:%s", arr[4], arr[5], file, arr[2], arr[3])
+                  
+                  in_warning = 1
+                  code_block = ""
                   next
                 }
                 
-                # If we are in a lib warning block, skip all lines until we hit another warning or empty line
-                in_lib_warning && (/^$/ || /:[0-9]+:[0-9]+: (warning|note|error):/) {
-                  in_lib_warning = 0
+                # Collect code block lines while in a warning
+                in_warning && /^[ ]*[0-9]+[ ]*\|/ {
+                  code_block = code_block "  " $0 "\n"
                   next
                 }
                 
-                # Skip lines while in a lib warning block
-                in_lib_warning { next }
-                
-                # Print all other lines
-                { print }
+                # Print the last warning when we reach the end
+                END {
+                  if (in_warning) {
+                    print warning_text
+                    if (code_block != "") {
+                      print "  ```c"
+                      print code_block "  ```\n"
+                    }
+                  }
+                }
               ' build/scan-build-output.txt
-              echo '```'
             fi
           } >> $GITHUB_STEP_SUMMARY
 
