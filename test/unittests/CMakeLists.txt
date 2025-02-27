@@ -27,9 +27,11 @@ if(MSVC)
     # Add Windows-specific definitions for test compatibility
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
     add_definitions(-DWIN32_LEAN_AND_MEAN)
-    # Define setenv macro for Windows compatibility
-    add_definitions(-Dsetenv=_putenv_s)
+    # Define setenv macro for Windows compatibility, ignoring the overwrite parameter
+    add_definitions(-Dsetenv(name,value,overwrite)=_putenv_s(name,value))
 endif()
+
+
 
 # Erstelle eine ausführbare Datei für den Test
 add_executable(verify_only verify_only.c)
