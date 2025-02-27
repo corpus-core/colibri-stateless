@@ -131,6 +131,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-tools clang
 
+      - name: List Checkers
+        run: scan-build --help 2>&1 | grep "CHECKERS:" -A 100
+
       - name: Configure CMake with Scan-Build
         run: |
           mkdir -p build
@@ -138,6 +141,7 @@ jobs:
 
           # Define scan-build options
           SCAN_BUILD_OPTS="\
+            --force-analyze-debug-code \
             -enable-checker alpha.core.SizeofPtr \
             -enable-checker alpha.core.TestAfterDivZero \
             -enable-checker alpha.security.ArrayBoundV2 \
@@ -150,7 +154,7 @@ jobs:
             -analyzer-config strict-mode=true"
 
           # Apply scan-build to CMake configuration
-          scan-build $SCAN_BUILD_OPTS cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTEST=true -DCURL=false ..
+          scan-build $SCAN_BUILD_OPTS cmake -DCMAKE_BUILD_TYPE=DEBUG -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTEST=true -DCURL=false ..
 
       - name: Run Scan-Build
         id: scan-build
@@ -159,12 +163,9 @@ jobs:
           # Create a directory for the results
           mkdir -p scan-build-results
 
-          # List available checkers
-          echo "Available checkers:" >> scan-build-output.txt
-          scan-build --help 2>&1 | grep "CHECKERS:" -A 100 >> scan-build-output.txt
-
           # Run scan-build with the same options
           scan-build \
+            
             --status-bugs \
             -v \
             -o scan-build-results \
