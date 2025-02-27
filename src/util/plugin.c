@@ -27,7 +27,7 @@ static bool file_get(char* filename, buffer_t* data) {
   char*         full_path = combine_filename(filename);
   if (full_path == NULL) return false;
 
-  FILE* file = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
+  FILE* file = strcmp(filename, "-") ? fopen(full_path, "rb") : stdin;
   free(full_path);
   if (file == NULL) return false;
 
