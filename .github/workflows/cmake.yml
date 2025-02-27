@@ -153,7 +153,7 @@ jobs:
             -analyzer-config strict-mode=true"
 
           # Apply scan-build to CMake configuration
-          scan-build $SCAN_BUILD_OPTS cmake -DCMAKE_BUILD_TYPE=DEBUG -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTEST=true -DCURL=false ..
+          scan-build $SCAN_BUILD_OPTS cmake -DCMAKE_BUILD_TYPE=DEBUG  -DTEST=true -DCURL=false ..
 
       - name: Run Scan-Build
         id: scan-build
