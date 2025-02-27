@@ -344,18 +344,7 @@ jobs:
           } > coverage_summary.txt
 
           # Add the summary to both the step summary and the coverage report directory
-          cat coverage_summary.txt >> $GITHUB_STEP_SUMMARY
           cp coverage_summary.txt build/coverage-report/
-
-      - name: Debug Coverage Files
-        run: |
-          echo "Current directory structure:"
-          pwd
-          ls -la
-          echo "\nBuild directory structure:"
-          ls -la build/
-          echo "\nSearching for coverage files:"
-          find . -name "*.html" -o -name "coverage*"
 
       - name: Move Coverage Report
         run: |
@@ -414,6 +403,7 @@ jobs:
           echo "[View detailed coverage report](../actions/runs/${{ github.run_id }}/artifacts)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY
+          cat coverage_summary.txt >> $GITHUB_STEP_SUMMARY
 
   build:
     runs-on: ${{ matrix.os }}
