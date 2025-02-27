@@ -191,21 +191,41 @@ jobs:
               echo "### 🚨 Found Issues" >> ../analysis_summary.md
               echo "" >> ../analysis_summary.md
               
-              # Parse and format each issue from the HTML files
-              for report in $REPORT_DIR/*.html; do
-                if [ -f "$report" ]; then
-                  # Extract issue information using grep and sed
-                  ISSUE_TYPE=$(grep -A 1 "<!-- BUGTYPE" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
-                  ISSUE_DESC=$(grep -A 1 "<!-- BUGDESC" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
-                  ISSUE_FILE=$(grep -A 1 "<!-- FILEPATH" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
-                  ISSUE_LINE=$(grep -A 1 "<!-- FUNCTIONLINE" "$report" | tail -n 1 | sed 's/<[^>]*>//g' | xargs)
+              # Create the table header
+              echo "| Bug Group | Bug Type | File | Function/Method | Line | Path Length |" >> ../analysis_summary.md
+              echo "|-----------|-----------|------|----------------|------|-------------|" >> ../analysis_summary.md
+              
+              # Parse the index.html file and extract table data
+              # Use awk to process the HTML and extract table rows
+              awk '
+                /<tr class="bt_/ {
+                  # Initialize variables for this row
+                  group=""; type=""; file=""; func=""; line=""; path="";
                   
-                  echo "#### ⚠️ $ISSUE_TYPE" >> ../analysis_summary.md
-                  echo "- **Description**: $ISSUE_DESC" >> ../analysis_summary.md
-                  echo "- **Location**: $ISSUE_FILE:$ISSUE_LINE" >> ../analysis_summary.md
-                  echo "" >> ../analysis_summary.md
-                fi
-              done
+                  # Read the row
+                  for(i=0; i<6; i++) {
+                    getline;
+                    # Extract text content between <td> tags, remove HTML
+                    gsub(/<[^>]*>/, "");
+                    gsub(/^[[:space:]]+|[[:space:]]+$/, "");
+                    
+                    # Store in appropriate variable based on position
+                    if(i==0) group=$0;
+                    if(i==1) type=$0;
+                    if(i==2) file=$0;
+                    if(i==3) func=$0;
+                    if(i==4) line=$0;
+                    if(i==5) path=$0;
+                  }
+                  # Print the row in markdown table format
+                  if(group != "" && type != "") {
+                    printf "| %s | %s | %s | %s | %s | %s |\n", 
+                      group, type, file, func, line, path;
+                  }
+                }
+              ' "$REPORT_DIR/index.html" >> ../analysis_summary.md
+              
+              echo "" >> ../analysis_summary.md
             else
               echo "⚠️ Scan completed but no detailed report was generated." >> ../analysis_summary.md
               echo "" >> ../analysis_summary.md
