@@ -172,8 +172,8 @@ jobs:
           # Store the scan-build exit code
           SCAN_EXIT_CODE=${PIPESTATUS[0]}
 
-          # Check if scan-build found no bugs
-          if grep -q "No bugs found." scan-build-output.txt; then
+          # Check if scan-build found no bugs (handles both formats)
+          if grep -q -E "No bugs found\.|scan-build: 0 bugs found" scan-build-output.txt; then
             echo "no_bugs=true" >> $GITHUB_OUTPUT
             echo "## ✅ Static Analysis Results" > ../analysis_summary.md
             echo "" >> ../analysis_summary.md
