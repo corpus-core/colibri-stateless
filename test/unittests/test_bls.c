@@ -14,9 +14,6 @@ void tearDown(void) {
 }
 
 void test_bls() {
-  int* a = malloc(sizeof(uint64_t));
-  free(a);
-  free(a);
 }
 int main(void) {
   UNITY_BEGIN();
