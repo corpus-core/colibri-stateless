@@ -8,11 +8,17 @@
 
 #include <stdint.h>
 
-/* Include standard inttypes.h if available */
-#if !defined(EMBEDDED) || defined(__STDC_FORMAT_MACROS)
+/* For non-embedded targets, just include standard inttypes.h */
+#if !defined(EMBEDDED)
 #include <inttypes.h>
 #else
-/* Define format macros for embedded targets that may lack proper inttypes.h support */
+/* For embedded targets, we include inttypes.h but also provide our own definitions
+   as a fallback in case the platform's inttypes.h is incomplete */
+#ifdef __STDC_FORMAT_MACROS
+#include <inttypes.h>
+#endif
+
+/* Always define our own macros for embedded targets (they won't override if already defined) */
 #ifndef PRIx64
 #define PRIx64 "llx"
 #endif
