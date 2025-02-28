@@ -44,14 +44,21 @@ jobs:
         run: |
           cmake --build build --target minimal_verify.elf
 
+      - name: Diagnostic ELF info
+        run: |
+          echo "Checking ELF file structure for debug purposes:"
+          arm-none-eabi-readelf -S build/test/embedded/verify_embedded.elf | grep "Section" | head -1
+          echo "All section headers:"
+          arm-none-eabi-readelf -S build/test/embedded/verify_embedded.elf | grep -A 1 "\[" | head -20
+
       - name: Memory analysis
         run: |
           # Create the GitHub Step Summary
-          echo "# C4 Verifier Memory Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "# EmbeddedMemory Analysis" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Executable Size" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Full Verifier" >> $GITHUB_STEP_SUMMARY
+          echo "### Verifier" >> $GITHUB_STEP_SUMMARY
           echo "| Section | Size | Description |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|------|-------------|" >> $GITHUB_STEP_SUMMARY
 
@@ -68,32 +75,39 @@ jobs:
           echo "| Total | $(numfmt --to=iec --format="%.2f" $TOTAL_SIZE) | Total memory footprint |" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Minimal Verifier" >> $GITHUB_STEP_SUMMARY
-          echo "| Section | Size | Description |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|------|-------------|" >> $GITHUB_STEP_SUMMARY
-
-          # Get size information for minimal verifier
-          SIZE_OUTPUT=$(arm-none-eabi-size --format=berkeley build/test/embedded/minimal_verify.elf)
-          TEXT_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $1}')
-          DATA_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $2}')
-          BSS_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $3}')
-          TOTAL_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $4}')
-
-          echo "| .text (Flash) | $(numfmt --to=iec --format="%.2f" $TEXT_SIZE) | Code |" >> $GITHUB_STEP_SUMMARY
-          echo "| .data (RAM) | $(numfmt --to=iec --format="%.2f" $DATA_SIZE) | Initialized data |" >> $GITHUB_STEP_SUMMARY
-          echo "| .bss (RAM) | $(numfmt --to=iec --format="%.2f" $BSS_SIZE) | Uninitialized data |" >> $GITHUB_STEP_SUMMARY
-          echo "| Total | $(numfmt --to=iec --format="%.2f" $TOTAL_SIZE) | Total memory footprint |" >> $GITHUB_STEP_SUMMARY
-
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Section Details" >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
-          arm-none-eabi-readelf -S build/test/embedded/verify_embedded.elf | grep -E '\.text|\.data|\.bss|\.rodata' >> $GITHUB_STEP_SUMMARY
+          # First capture the command output to check if it's empty
+          SECTION_OUTPUT=$(arm-none-eabi-readelf -S build/test/embedded/verify_embedded.elf 2>&1)
+          if [ $? -ne 0 ]; then
+            echo "Error running readelf: $SECTION_OUTPUT" >> $GITHUB_STEP_SUMMARY
+          else
+            FILTERED_SECTIONS=$(echo "$SECTION_OUTPUT" | grep -i -E '\.[Tt][Ee][Xx][Tt]|\.[Dd][Aa][Tt][Aa]|\.[Bb][Ss][Ss]|\.[Rr][Oo][Dd][Aa][Tt][Aa]')
+            if [ -z "$FILTERED_SECTIONS" ]; then
+              echo "No matching sections found. Full readelf output:" >> $GITHUB_STEP_SUMMARY
+              echo "$SECTION_OUTPUT" | head -20 >> $GITHUB_STEP_SUMMARY
+              echo "..." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "$FILTERED_SECTIONS" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
           echo "```" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Memory Map" >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
-          arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf | tail -20 >> $GITHUB_STEP_SUMMARY
+          # First capture the command output to check if it's empty
+          NM_OUTPUT=$(arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf 2>&1)
+          if [ $? -ne 0 ]; then
+            echo "Error running nm: $NM_OUTPUT" >> $GITHUB_STEP_SUMMARY
+          else
+            if [ -z "$NM_OUTPUT" ]; then
+              echo "No symbols found in the ELF file." >> $GITHUB_STEP_SUMMARY
+            else
+              # Show the 20 largest symbols
+              echo "$NM_OUTPUT" | tail -20 >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
           echo "```" >> $GITHUB_STEP_SUMMARY
           echo "*Showing 20 largest symbols*" >> $GITHUB_STEP_SUMMARY
 
@@ -353,7 +367,7 @@ jobs:
                 
                 # Collect code block lines while in an issue
                 in_issue && /^[ ]*[0-9]+[ ]*\|/ {
-                  code_block = code_block "  " $0 "\n"
+                  code_block = code_block "  $0 "\n"
                   # Also collect the pointer line that follows
                   getline pointer_line
                   if (pointer_line ~ /[ ]*\|/) {
