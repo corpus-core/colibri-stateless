@@ -63,9 +63,21 @@ add_executable(minimal_verify.elf
     ${CMAKE_CURRENT_SOURCE_DIR}/minimal_verify.c
 )
 
+# Explicitly ensure startup.s uses A-profile flags
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/startup.s PROPERTIES 
+    LANGUAGE ASM
+    COMPILE_FLAGS "${ASM_CORTEX_A_FLAGS}"
+)
+
 target_include_directories(minimal_verify.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src
+)
+
+# Set consistent architecture flags for all files
+target_compile_options(minimal_verify.elf PRIVATE -mcpu=cortex-a15 -mthumb)
+set_target_properties(minimal_verify.elf PROPERTIES
+    COMPILE_FLAGS "-mcpu=cortex-a15 -mthumb"
 )
 
 target_link_libraries(minimal_verify.elf
@@ -74,7 +86,7 @@ target_link_libraries(minimal_verify.elf
 )
 
 set_target_properties(minimal_verify.elf PROPERTIES
-    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=minimal_verify.map --specs=nosys.specs"
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=minimal_verify.map --specs=nosys.specs -mcpu=cortex-a15 -mthumb"
 )
 
 # Add a custom command to print the size of the binary
@@ -152,8 +164,16 @@ add_executable(baremetal_test.elf
     ${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s
 )
 
+# Explicitly set language properties for the assembly file
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s PROPERTIES 
+    LANGUAGE ASM
+    COMPILE_FLAGS "${ASM_CORTEX_M_FLAGS}"
+)
+
 # Set consistent architecture flags for all files
 target_compile_options(baremetal_test.elf PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
+
+# Ensure the target properties are consistent
 set_target_properties(baremetal_test.elf PROPERTIES
     COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
 )
