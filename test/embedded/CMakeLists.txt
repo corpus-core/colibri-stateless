@@ -1,16 +1,48 @@
 # Embedded test configuration
 cmake_minimum_required(VERSION 3.10)
 
+# Option for M-profile assembly files (Cortex-M3)
+option(EMBEDDED_ASM_M_PROFILE "Use Cortex-M profile for assembly files" OFF)
+
 # Enable assembly language 
 enable_language(ASM)
 
 # Set ARM CPU flags
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-a15 -mthumb -Os")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=cortex-a15 -mthumb -Os")
-set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -mcpu=cortex-a15 -mthumb")
 
-# Set startup.s as assembly file explicitly
-set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/startup.s PROPERTIES LANGUAGE ASM)
+# Set ASM flags based on profile option
+if(EMBEDDED_ASM_M_PROFILE)
+  # Use Cortex-M3 for assembly by default
+  set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -mcpu=cortex-m3 -mthumb")
+  set(ASM_CORTEX_A_FLAGS "-mcpu=cortex-a15 -mthumb")
+  set(ASM_CORTEX_M_FLAGS "-mcpu=cortex-m3 -mthumb")
+  message(STATUS "Using Cortex-M3 profile for assembly files by default")
+else()
+  # Use Cortex-A15 for assembly by default
+  set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -mcpu=cortex-a15 -mthumb")
+  set(ASM_CORTEX_A_FLAGS "-mcpu=cortex-a15 -mthumb")
+  set(ASM_CORTEX_M_FLAGS "-mcpu=cortex-m3 -mthumb")
+  message(STATUS "Using Cortex-A15 profile for assembly files by default")
+endif()
+
+# Set startup.s as assembly file explicitly for A-profile
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/startup.s PROPERTIES 
+    LANGUAGE ASM
+    COMPILE_FLAGS "${ASM_CORTEX_A_FLAGS}"
+)
+
+# Set mps2_startup.s as assembly file explicitly for M-profile
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/mps2_startup.s PROPERTIES 
+    LANGUAGE ASM
+    COMPILE_FLAGS "${ASM_CORTEX_M_FLAGS}"
+)
+
+# Set baremetal_startup.s as assembly file explicitly for M-profile
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s PROPERTIES 
+    LANGUAGE ASM
+    COMPILE_FLAGS "${ASM_CORTEX_M_FLAGS}"
+)
 
 # Common embedded source files
 set(EMBEDDED_COMMON_SRC
@@ -119,12 +151,19 @@ add_executable(baremetal_test.elf
     baremetal_test.c
     ${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s
 )
+
+# Set consistent architecture flags for all files
 target_compile_options(baremetal_test.elf PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
+set_target_properties(baremetal_test.elf PROPERTIES
+    COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
+)
+
 target_link_options(baremetal_test.elf PRIVATE 
     -nostdlib 
     -T${CMAKE_CURRENT_SOURCE_DIR}/baremetal_linker.ld
     -Wl,--gc-sections
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/baremetal_test.map
+    -mcpu=cortex-m3 -mthumb
 )
 target_link_libraries(baremetal_test.elf PRIVATE c gcc)
 
@@ -139,12 +178,22 @@ add_executable(mps2_test.elf
     baremetal_test.c
     mps2_startup.s
 )
+
+# Explicitly set language properties for the assembly file
+set_source_files_properties(mps2_startup.s PROPERTIES LANGUAGE ASM)
+
+# Set consistent architecture flags for all files
 target_compile_options(mps2_test.elf PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
+set_target_properties(mps2_test.elf PROPERTIES
+    COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
+)
+
 target_link_options(mps2_test.elf PRIVATE 
     -nostdlib 
     -T${CMAKE_CURRENT_SOURCE_DIR}/mps2_linker.ld
     -Wl,--gc-sections
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/mps2_test.map
+    -mcpu=cortex-m3 -mthumb
 )
 target_link_libraries(mps2_test.elf PRIVATE c gcc)
 
