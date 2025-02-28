@@ -26,27 +26,6 @@ set(EMBEDDED_SYS_LIBS
     -lnosys
 )
 
-# Hello World example
-add_executable(hello_world.elf
-    ${CMAKE_CURRENT_SOURCE_DIR}/startup.s
-    ${CMAKE_CURRENT_SOURCE_DIR}/syscalls.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/hello_world.c
-)
-
-target_link_libraries(hello_world.elf PRIVATE
-    ${EMBEDDED_SYS_LIBS}
-)
-
-set_target_properties(hello_world.elf PROPERTIES
-    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=hello_world.map"
-)
-
-add_custom_command(TARGET hello_world.elf POST_BUILD
-    COMMAND ${CMAKE_OBJDUMP} -h $<TARGET_FILE:hello_world.elf>
-    COMMAND ${CMAKE_SIZE} $<TARGET_FILE:hello_world.elf>
-    COMMENT "Size of hello_world.elf"
-)
-
 # Minimal verification executable
 add_executable(minimal_verify.elf
     ${EMBEDDED_COMMON_SRC}
