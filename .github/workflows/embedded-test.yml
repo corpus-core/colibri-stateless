@@ -50,16 +50,44 @@ jobs:
 
       - name: Build Tests
         run: |
+          # Clear any existing build files
+          rm -rf build
           mkdir -p build
           cd build
-          cmake -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake -DEMBEDDED=ON -DBOARD=qemu_embedded -DEMBEDDED_TEST=ON -DEMBEDDED_ASM_M_PROFILE=ON ..
-          # Build targets one by one to isolate any issues
-          make -j2 simple_test.elf 
-          make -j2 minimal_verify.elf
-          make -j2 baremetal_test.elf
-          make -j2 mps2_test.elf
+
+          # Configure with architecture profile option and verbose output
+          cmake -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake -DEMBEDDED=ON -DBOARD=qemu_embedded -DEMBEDDED_TEST=ON -DEMBEDDED_ASM_M_PROFILE=ON -DCMAKE_VERBOSE_MAKEFILE=ON ..
+
+          # Display assembly flags being used
+          echo "CMAKE_ASM_FLAGS: $(cmake -LA -N . | grep CMAKE_ASM_FLAGS)"
+
+          # Build A-profile targets
+          make -j2 VERBOSE=1 simple_test.elf minimal_verify.elf
+
+          # Build object libraries for M-profile assembly first
+          make -j2 VERBOSE=1 baremetal_startup_m mps2_startup_m
+
+          # Print object flags
+          echo "Object files details:"
+          arm-none-eabi-readelf -A test/embedded/CMakeFiles/baremetal_startup_m.dir/baremetal_startup.s.obj || true
+          arm-none-eabi-readelf -A test/embedded/CMakeFiles/mps2_startup_m.dir/mps2_startup.s.obj || true
+
+          # Build M-profile executables
+          make -j2 VERBOSE=1 baremetal_test.elf mps2_test.elf
+
+          # List built files
           ls -la test/embedded/
+
+          # Check binary info
+          echo "Checking binary architectures:"
+          arm-none-eabi-readelf -A test/embedded/baremetal_test.elf || true
+          arm-none-eabi-readelf -A test/embedded/mps2_test.elf || true
+
+          # Show binary sizes
           arm-none-eabi-size test/embedded/simple_test.elf test/embedded/minimal_verify.elf test/embedded/baremetal_test.elf test/embedded/mps2_test.elf
+
+          # Show sections
+          arm-none-eabi-objdump -h test/embedded/baremetal_test.elf
           arm-none-eabi-objdump -h test/embedded/mps2_test.elf
 
       - name: Build simple test

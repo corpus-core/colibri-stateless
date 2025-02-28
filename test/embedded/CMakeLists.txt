@@ -166,24 +166,18 @@ add_custom_command(TARGET simple_test.elf POST_BUILD
     COMMENT "Size of simple_test.elf"
 )
 
-# Bare-metal test with minimal dependencies
-add_executable(baremetal_test.elf 
-    baremetal_test.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s
+# Create a separate object library for the M-profile assembly file
+add_library(baremetal_startup_m OBJECT EXCLUDE_FROM_ALL)
+target_sources(baremetal_startup_m PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s)
+# Force M-profile flags for this assembly file
+set_target_properties(baremetal_startup_m PROPERTIES
+    COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
 )
 
-# Use our helper function to explicitly set assembly file to M-profile
-if(COMMAND set_assembly_m_profile)
-    set_assembly_m_profile(${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s)
-else()
-    # Fallback if function not available
-    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s PROPERTIES 
-        LANGUAGE ASM
-        COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
-    )
-endif()
+# Bare-metal test without assembly source (will link with object lib)
+add_executable(baremetal_test.elf baremetal_test.c)
 
-# Set consistent architecture flags for C files
+# Set architecture flags for C file
 target_compile_options(baremetal_test.elf PRIVATE 
     -g 
     -mcpu=cortex-m3 
@@ -191,18 +185,17 @@ target_compile_options(baremetal_test.elf PRIVATE
     -nostdlib
 )
 
-# Use explicit linker flags to ensure M-profile architecture is used
-target_link_options(baremetal_test.elf PRIVATE 
+# Link with our custom-compiled assembly object
+target_link_libraries(baremetal_test.elf PRIVATE 
+    baremetal_startup_m
     -nostdlib 
-    -T${CMAKE_CURRENT_SOURCE_DIR}/baremetal_linker.ld
-    -Wl,--gc-sections
-    -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/baremetal_test.map
-    -mcpu=cortex-m3 
-    -mthumb
+    -lgcc -lc
 )
 
-# Link with minimal libraries
-target_link_libraries(baremetal_test.elf PRIVATE c gcc)
+# Set explicit link flags for M-profile
+set_target_properties(baremetal_test.elf PROPERTIES
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/baremetal_linker.ld -Wl,--gc-sections -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/baremetal_test.map -mcpu=cortex-m3 -mthumb"
+)
 
 # Add a custom command to print the size of the binary
 add_custom_command(TARGET baremetal_test.elf POST_BUILD
@@ -210,24 +203,18 @@ add_custom_command(TARGET baremetal_test.elf POST_BUILD
     COMMENT "Size of baremetal_test.elf"
 )
 
-# Add a target for Cortex-M3 MPS2 test
-add_executable(mps2_test.elf 
-    baremetal_test.c
-    mps2_startup.s
+# Create a separate object library for the M-profile assembly file
+add_library(mps2_startup_m OBJECT EXCLUDE_FROM_ALL)
+target_sources(mps2_startup_m PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/mps2_startup.s)
+# Force M-profile flags for this assembly file
+set_target_properties(mps2_startup_m PROPERTIES
+    COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
 )
 
-# Use our helper function to explicitly set assembly file to M-profile
-if(COMMAND set_assembly_m_profile)
-    set_assembly_m_profile(${CMAKE_CURRENT_SOURCE_DIR}/mps2_startup.s)
-else()
-    # Fallback if function not available
-    set_source_files_properties(mps2_startup.s PROPERTIES 
-        LANGUAGE ASM
-        COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
-    )
-endif()
+# MPS2 test without assembly source (will link with object lib)
+add_executable(mps2_test.elf baremetal_test.c)
 
-# Set consistent architecture flags for C files
+# Set architecture flags for C file
 target_compile_options(mps2_test.elf PRIVATE 
     -g 
     -mcpu=cortex-m3 
@@ -235,18 +222,17 @@ target_compile_options(mps2_test.elf PRIVATE
     -nostdlib
 )
 
-# Use explicit linker flags to ensure M-profile architecture is used
-target_link_options(mps2_test.elf PRIVATE 
+# Link with our custom-compiled assembly object
+target_link_libraries(mps2_test.elf PRIVATE 
+    mps2_startup_m
     -nostdlib 
-    -T${CMAKE_CURRENT_SOURCE_DIR}/mps2_linker.ld
-    -Wl,--gc-sections
-    -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/mps2_test.map
-    -mcpu=cortex-m3 
-    -mthumb
+    -lgcc -lc
 )
 
-# Link with minimal libraries
-target_link_libraries(mps2_test.elf PRIVATE c gcc)
+# Set explicit link flags for M-profile
+set_target_properties(mps2_test.elf PROPERTIES
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/mps2_linker.ld -Wl,--gc-sections -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/mps2_test.map -mcpu=cortex-m3 -mthumb"
+)
 
 # Add a custom command to print the size of the binary
 add_custom_command(TARGET mps2_test.elf POST_BUILD
