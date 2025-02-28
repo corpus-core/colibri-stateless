@@ -41,6 +41,7 @@ jobs:
           cmake -B build -S . \
             -DCMAKE_TOOLCHAIN_FILE=$PWD/test/embedded/toolchain.cmake \
             -DEMBEDDED=ON \
+            -DEMBEDDED_ASM_M_PROFILE=ON \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCURL=OFF \
             -DPROOFER=OFF \

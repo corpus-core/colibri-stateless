@@ -63,28 +63,36 @@ add_executable(minimal_verify.elf
     ${CMAKE_CURRENT_SOURCE_DIR}/minimal_verify.c
 )
 
-# Explicitly ensure startup.s uses A-profile flags
-set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/startup.s PROPERTIES 
-    LANGUAGE ASM
-    COMPILE_FLAGS "${ASM_CORTEX_A_FLAGS}"
-)
+# Use our helper function to explicitly set assembly file to A-profile
+if(COMMAND set_assembly_a_profile)
+    set_assembly_a_profile(${CMAKE_CURRENT_SOURCE_DIR}/startup.s)
+else()
+    # Fallback if function not available
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/startup.s PROPERTIES 
+        LANGUAGE ASM
+        COMPILE_FLAGS "-mcpu=cortex-a15 -mthumb"
+    )
+endif()
 
 target_include_directories(minimal_verify.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src
 )
 
-# Set consistent architecture flags for all files
-target_compile_options(minimal_verify.elf PRIVATE -mcpu=cortex-a15 -mthumb)
-set_target_properties(minimal_verify.elf PROPERTIES
-    COMPILE_FLAGS "-mcpu=cortex-a15 -mthumb"
+# Set consistent architecture flags for C files
+target_compile_options(minimal_verify.elf PRIVATE 
+    -g 
+    -mcpu=cortex-a15 
+    -mthumb
 )
 
+# Link with verification libraries
 target_link_libraries(minimal_verify.elf
     verifier
     ${EMBEDDED_SYS_LIBS}
 )
 
+# Use explicit linker flags to ensure A-profile architecture is used
 set_target_properties(minimal_verify.elf PROPERTIES
     LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=minimal_verify.map --specs=nosys.specs -mcpu=cortex-a15 -mthumb"
 )
@@ -164,27 +172,36 @@ add_executable(baremetal_test.elf
     ${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s
 )
 
-# Explicitly set language properties for the assembly file
-set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s PROPERTIES 
-    LANGUAGE ASM
-    COMPILE_FLAGS "${ASM_CORTEX_M_FLAGS}"
+# Use our helper function to explicitly set assembly file to M-profile
+if(COMMAND set_assembly_m_profile)
+    set_assembly_m_profile(${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s)
+else()
+    # Fallback if function not available
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s PROPERTIES 
+        LANGUAGE ASM
+        COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
+    )
+endif()
+
+# Set consistent architecture flags for C files
+target_compile_options(baremetal_test.elf PRIVATE 
+    -g 
+    -mcpu=cortex-m3 
+    -mthumb 
+    -nostdlib
 )
 
-# Set consistent architecture flags for all files
-target_compile_options(baremetal_test.elf PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
-
-# Ensure the target properties are consistent
-set_target_properties(baremetal_test.elf PROPERTIES
-    COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
-)
-
+# Use explicit linker flags to ensure M-profile architecture is used
 target_link_options(baremetal_test.elf PRIVATE 
     -nostdlib 
     -T${CMAKE_CURRENT_SOURCE_DIR}/baremetal_linker.ld
     -Wl,--gc-sections
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/baremetal_test.map
-    -mcpu=cortex-m3 -mthumb
+    -mcpu=cortex-m3 
+    -mthumb
 )
+
+# Link with minimal libraries
 target_link_libraries(baremetal_test.elf PRIVATE c gcc)
 
 # Add a custom command to print the size of the binary
@@ -199,22 +216,36 @@ add_executable(mps2_test.elf
     mps2_startup.s
 )
 
-# Explicitly set language properties for the assembly file
-set_source_files_properties(mps2_startup.s PROPERTIES LANGUAGE ASM)
+# Use our helper function to explicitly set assembly file to M-profile
+if(COMMAND set_assembly_m_profile)
+    set_assembly_m_profile(${CMAKE_CURRENT_SOURCE_DIR}/mps2_startup.s)
+else()
+    # Fallback if function not available
+    set_source_files_properties(mps2_startup.s PROPERTIES 
+        LANGUAGE ASM
+        COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
+    )
+endif()
 
-# Set consistent architecture flags for all files
-target_compile_options(mps2_test.elf PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
-set_target_properties(mps2_test.elf PROPERTIES
-    COMPILE_FLAGS "-mcpu=cortex-m3 -mthumb"
+# Set consistent architecture flags for C files
+target_compile_options(mps2_test.elf PRIVATE 
+    -g 
+    -mcpu=cortex-m3 
+    -mthumb 
+    -nostdlib
 )
 
+# Use explicit linker flags to ensure M-profile architecture is used
 target_link_options(mps2_test.elf PRIVATE 
     -nostdlib 
     -T${CMAKE_CURRENT_SOURCE_DIR}/mps2_linker.ld
     -Wl,--gc-sections
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/mps2_test.map
-    -mcpu=cortex-m3 -mthumb
+    -mcpu=cortex-m3 
+    -mthumb
 )
+
+# Link with minimal libraries
 target_link_libraries(mps2_test.elf PRIVATE c gcc)
 
 # Add a custom command to print the size of the binary
