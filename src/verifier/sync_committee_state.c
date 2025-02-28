@@ -1,7 +1,7 @@
+#include "../util/compat.h"
 #include "../util/crypto.h"
 #include "../util/plugin.h"
 #include "./sync_committee.h"
-#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
