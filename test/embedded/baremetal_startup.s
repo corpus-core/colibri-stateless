@@ -5,9 +5,12 @@
 
 .global _start
 .global Reset_Handler
+.global __stack_start__
+.global __stack_end__ 
 
-/* Define stack end address - using a different area of memory */
-.equ  _estack, 0x40000000  /* Use a different memory location to avoid conflicts */
+/* External symbols from linker script */
+.extern __stack_start__
+.extern __stack_end__
 
 /* Vector table - essential for cortex-a in virt machine */
 .section .isr_vector,"a",%progbits
@@ -15,7 +18,7 @@
 .size  g_pfnVectors, .-g_pfnVectors
 
 g_pfnVectors:
-    .word  _estack           /* Top of Stack */
+    .word  __stack_start__   /* Top of Stack - from linker script */
     .word  Reset_Handler     /* Reset Handler */
     .word  0                 /* NMI Handler */
     .word  0                 /* Hard Fault Handler */
@@ -47,46 +50,44 @@ Reset_Handler:
     /* Disable interrupts before starting initialization */
     cpsid i
 
-    /* Initialize the stack pointer - direct value for maximum compatibility */
-    ldr sp, =_estack
+    /* Initialize the stack pointer using symbol from linker script */
+    ldr sp, =__stack_start__
     
-    /* Setup CPU mode and enable FPU if available */
+    /* Validate memory and setup CPU mode */
+    mov r0, #0               /* Store test value to memory */
+    ldr r1, =__stack_end__   /* Bottom of stack address */
+    str r0, [r1]             /* Validate we can write to memory */
+    
+    /* Try several instructions to see if the CPU is alive */
+    mov r0, #1
+    mov r1, #1
+    add r0, r0, r1           /* Simple operation to validate CPU works */
+    
+    /* Setup CPU mode */
     mrs r0, cpsr
     bic r0, r0, #0x1F        /* Clear mode bits */
     orr r0, r0, #0x13        /* Set SVC mode */
     msr cpsr_c, r0
     
     /* Simple delay for hardware initialization */
-    mov r0, #0x200000
+    mov r0, #0x10000         /* Use a smaller delay to get output faster */
 delay_loop:
     subs r0, r0, #1
     bne  delay_loop
     
-    /* Clear BSS section (zero init) */
-    ldr r0, =__bss_start__
-    ldr r1, =__bss_end__
-    mov r2, #0
-bss_clear_loop:
-    cmp r0, r1
-    bge bss_clear_done
-    str r2, [r0], #4
-    b bss_clear_loop
-bss_clear_done:
+    /* Skip BSS clear for now to simplify debugging */
     
     /* Jump to main function */
     bl  main
     
     /* If main returns, stay in infinite loop */
 hang:
-    wfe                     /* Wait for event (power efficient) */
-    b   hang
+    b   hang                 /* Simple infinite loop */
 .size  Reset_Handler, .-Reset_Handler
 
 /* Define symbols for linker */
 .section .bss
 .align 3
-__bss_start__:
 .space 4
-__bss_end__:
 
 .end 

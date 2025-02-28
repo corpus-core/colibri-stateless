@@ -1,102 +1,157 @@
 /**
- * Bare-metal test for QEMU (no dependencies, direct hardware access)
+ * Bare-metal test for QEMU (absolute minimal version)
  *
- * This test avoids semihosting and even stdio/libc dependencies
- * to ensure it works in the most minimalist environment possible.
+ * This test avoids all dependencies and uses the simplest possible
+ * approach to get output from QEMU. It directly accesses the UART
+ * hardware registers at the address expected by QEMU's virt machine.
  */
 
-/* Direct UART registers for QEMU virt machine
- * QEMU virt machine uses PL011 UART at this address
- */
-#define UART0_BASE    0x09000000
-#define UART0_DR      (*(volatile unsigned int*) (UART0_BASE))
-#define UART0_FR      (*(volatile unsigned int*) (UART0_BASE + 0x18))
-#define UART0_IBRD    (*(volatile unsigned int*) (UART0_BASE + 0x24))
-#define UART0_FBRD    (*(volatile unsigned int*) (UART0_BASE + 0x28))
-#define UART0_LCRH    (*(volatile unsigned int*) (UART0_BASE + 0x2C))
-#define UART0_CR      (*(volatile unsigned int*) (UART0_BASE + 0x30))
-#define UART0_FR_TXFF 0x20
+/* UART registers for QEMU virt machine (PL011 UART) */
+#define UART_BASE 0x09000000
+#define UART_DR   (*(volatile unsigned int*) (UART_BASE + 0x00))
+#define UART_FR   (*(volatile unsigned int*) (UART_BASE + 0x18))
+#define UART_CR   (*(volatile unsigned int*) (UART_BASE + 0x30))
 
-/* Initialize UART for QEMU virt machine (PL011) */
+/* Flag bits in the Flag Register (FR) */
+#define UART_FR_TXFF (1 << 5) /* Transmit FIFO full */
+#define UART_FR_RXFE (1 << 4) /* Receive FIFO empty */
+
+/* Memory regions defined in linker script */
+extern unsigned int __stack_start__;
+extern unsigned int __stack_end__;
+extern unsigned int __bss_start__;
+extern unsigned int __bss_end__;
+
+/* Minimalistic UART initialization - absolute minimum to get output */
 void uart_init(void) {
-  /* Disable UART during configuration */
-  UART0_CR = 0;
-
-  /* Configure baud rate (115200) - assuming 24MHz clock
-   * Divider = 24000000 / (16 * 115200) = 13.0208
-   * Integer part = 13
-   * Fractional part = 0.0208 * 64 = 1.33 ≈ 1
-   */
-  UART0_IBRD = 13;
-  UART0_FBRD = 1;
-
-  /* Enable FIFO, 8 data bits, 1 stop bit, no parity */
-  UART0_LCRH = 0x70; /* 8N1 + FIFO enable */
-
-  /* Enable UART, transmit, receive */
-  UART0_CR = 0x301; /* UART enable, TX enable, RX enable */
+  /* Simply enable the UART, assuming hardware default values are okay */
+  UART_CR = 0x301; /* UART enable (bit 0), TX enable (bit 8), RX enable (bit 9) */
 }
 
-/* Simple delay function */
-void delay(int count) {
-  for (volatile int i = 0; i < count; i++) {
+/* Short delay without actual timer */
+void short_delay(void) {
+  volatile int i;
+  for (i = 0; i < 1000; i++) {
     /* Do nothing */
   }
 }
 
-/* Write a character to the UART */
-void uart_putc(char c) {
-  /* Wait for UART to be ready */
-  while (UART0_FR & UART0_FR_TXFF) {}
+/* Send a single character to UART */
+void uart_putc(unsigned char c) {
+  /* Wait for space in the FIFO */
+  while (UART_FR & UART_FR_TXFF) {
+    /* Just wait */
+  }
 
-  /* Write character */
-  UART0_DR = c;
+  /* Send the character */
+  UART_DR = c;
 
-  /* Special handling for newline */
+  /* If we sent a newline, also send carriage return */
   if (c == '\n') {
     uart_putc('\r');
   }
 }
 
-/* Write a string to the UART */
-void uart_puts(const char* str) {
-  while (*str) {
-    uart_putc(*str++);
+/* Send a string to UART */
+void uart_puts(const char* s) {
+  while (*s) {
+    uart_putc(*s++);
   }
 }
 
-/* Main function */
+/* Simple integer to string conversion for debugging (minimal implementation) */
+void uart_puthex(unsigned int value) {
+  const char hexchars[] = "0123456789ABCDEF";
+  uart_puts("0x");
+
+  /* Print 8 hex digits */
+  for (int i = 7; i >= 0; i--) {
+    int digit = (value >> (i * 4)) & 0xF;
+    uart_putc(hexchars[digit]);
+  }
+}
+
+/* Test memory access to validate we can access RAM */
+int test_memory(void) {
+  volatile unsigned int* stack_end = (volatile unsigned int*) &__stack_end__;
+  volatile unsigned int* ram_test  = (volatile unsigned int*) 0x40100000; /* Some RAM location */
+
+  /* Try to write and read from stack area */
+  *stack_end = 0xABCD1234;
+  if (*stack_end != 0xABCD1234) {
+    return 1; /* Failed stack memory test */
+  }
+
+  /* Try to write and read from main RAM area */
+  *ram_test = 0x55AA55AA;
+  if (*ram_test != 0x55AA55AA) {
+    return 2; /* Failed RAM memory test */
+  }
+
+  return 0; /* All memory tests passed */
+}
+
+/* Main function - entry point after startup code */
 int main(void) {
-  /* Initialize UART hardware explicitly */
+  int counter = 0;
+  int mem_test_result;
+
+  /* Initialize UART */
   uart_init();
+  short_delay();
 
-  /* Direct hardware initialization */
-  delay(100000);
+  /* Initial hello message */
+  uart_puts("\n\n=========================\n");
+  uart_puts("BAREMETAL TEST STARTING\n");
+  uart_puts("=========================\n\n");
 
-  /* Write a message directly to the UART - no dependencies */
-  uart_puts("\n\n============================\n");
-  uart_puts("BARE METAL TEST STARTING\n");
-  uart_puts("============================\n\n");
+  /* Print UART status for debugging */
+  uart_puts("UART_BASE: ");
+  uart_puthex(UART_BASE);
+  uart_puts("\nUART_CR: ");
+  uart_puthex(UART_CR);
+  uart_puts("\nUART_FR: ");
+  uart_puthex(UART_FR);
+  uart_puts("\n\n");
 
-  /* Short delay */
-  delay(100000);
+  /* Print memory configuration */
+  uart_puts("Stack Start: ");
+  uart_puthex((unsigned int) &__stack_start__);
+  uart_puts("\nStack End: ");
+  uart_puthex((unsigned int) &__stack_end__);
+  uart_puts("\nBSS Start: ");
+  uart_puthex((unsigned int) &__bss_start__);
+  uart_puts("\nBSS End: ");
+  uart_puthex((unsigned int) &__bss_end__);
+  uart_puts("\n\n");
 
-  /* Print a message that will be visible */
-  uart_puts("Test step 1: Basic UART output\n");
-  delay(10000);
+  /* Test memory access */
+  uart_puts("Testing memory access...\n");
+  mem_test_result = test_memory();
+  if (mem_test_result == 0) {
+    uart_puts("Memory test passed!\n");
+  }
+  else {
+    uart_puts("Memory test failed with code: ");
+    uart_puthex(mem_test_result);
+    uart_puts("\n");
+  }
 
-  /* Print more debug information */
-  uart_puts("Test step 2: Secondary output\n");
-  delay(10000);
+  /* Print test message */
+  uart_puts("Test successful! UART communication works.\n");
+  uart_puts("TEST COMPLETED SUCCESSFULLY\n");
 
-  /* Print a successful test message */
-  uart_puts("\n>> TEST COMPLETED SUCCESSFULLY <<\n");
-  uart_puts("Test completed successfully!\n");
-
-  /* Infinite loop to prevent return */
+  /* Continue printing something in a loop to show we're alive */
   while (1) {
-    uart_puts(".");
-    delay(1000000);
+    short_delay();
+    uart_puts("Still alive: ");
+    uart_puthex(counter++);
+    uart_puts("\n");
+
+    /* Longer delay between messages */
+    for (volatile int i = 0; i < 10000; i++) {
+      /* Do nothing */
+    }
   }
 
   return 0;

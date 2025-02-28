@@ -2,23 +2,34 @@
 
 ENTRY(_start)
 
-/* Define memory regions with addresses matching QEMU virt machine */
+/* 
+ * Define memory regions with correct addresses for QEMU virt machine
+ * QEMU virt machine uses 0x40000000 as the start of RAM
+ * We'll place code at 0x40010000 to leave room for stack
+ */
 MEMORY
 {
-  /* QEMU virt machine places RAM at 0x40000000 */
-  RAM (rwx) : ORIGIN = 0x40000000, LENGTH = 1M
+  /* Main memory for code & data */
+  RAM (rwx)   : ORIGIN = 0x40010000, LENGTH = 0xFFF0000
+  /* Reserve 64KB for stack at start of RAM */
+  STACK (rw)  : ORIGIN = 0x40000000, LENGTH = 0x10000
 }
 
 /* Define symbols required by startup code */
 __bss_start__ = 0;
 __bss_end__ = 0;
 
+/* Define stack addresses explicitly */
+__stack_end__ = ORIGIN(STACK);
+__stack_size__ = LENGTH(STACK);
+__stack_start__ = ORIGIN(STACK) + __stack_size__;
+
 SECTIONS
 {
-  /* Place everything at the start of RAM */
+  /* Place code at the beginning of RAM section after stack */
   . = ORIGIN(RAM);
 
-  /* Vector table and code in RAM (simplifies execution) */
+  /* Vector table and code */
   .text : 
   {
     __text_start__ = .;
@@ -53,16 +64,6 @@ SECTIONS
     *(COMMON)
     . = ALIGN(4);
     __bss_end__ = .;
-  } >RAM
-
-  /* Stack area - define a generous space */
-  .stack (NOLOAD) :
-  {
-    . = ALIGN(8);
-    __stack_start__ = .;
-    . = . + 0x10000;  /* 64KB of stack space */
-    __stack_end__ = .;
-    . = ALIGN(8);
   } >RAM
 
   /* Remove standard libraries - we're not using them */
