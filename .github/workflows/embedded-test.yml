@@ -1,0 +1,94 @@
+name: Embedded Verification Test
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  test-embedded:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-arm-none-eabi binutils-arm-none-eabi qemu-system-arm
+
+      - name: Set up test files
+        run: |
+          # Create a directory for test files
+          mkdir -p /tmp/embedded_files
+
+          # Copy test files to the temporary directory
+          cp test/data/eth_getLogs1/proof.ssz /tmp/embedded_files/
+          cp test/data/eth_getLogs1/states_1 /tmp/embedded_files/
+          cp test/data/eth_getLogs1/sync_1_1351 /tmp/embedded_files/
+
+          # Display the test files
+          echo "Test files prepared:"
+          ls -la /tmp/embedded_files
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cmake -B build -S . \
+            -DCMAKE_TOOLCHAIN_FILE=$PWD/test/embedded/toolchain.cmake \
+            -DEMBEDDED=ON \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCURL=OFF \
+            -DPROOFER=OFF \
+            -DCLI=OFF \
+            -DINCLUDE=test/embedded
+
+      - name: Build minimal verify
+        run: |
+          cmake --build build --target minimal_verify.elf
+
+          # Show binary size information
+          echo "Binary size information:"
+          arm-none-eabi-size --format=berkeley build/test/embedded/minimal_verify.elf
+
+      - name: Run QEMU test
+        run: |
+          # Create log directory
+          mkdir -p /tmp/qemu_logs
+
+          # Change to test files directory
+          cd /tmp/embedded_files
+
+          # Run QEMU with the minimal verify executable
+          echo "Starting QEMU execution..."
+
+          timeout --foreground 30s qemu-system-arm \
+            -machine virt \
+            -cpu cortex-a15 \
+            -m 128 \
+            -kernel $GITHUB_WORKSPACE/build/test/embedded/minimal_verify.elf \
+            -nographic \
+            -semihosting \
+            -semihosting-config enable=on,target=native \
+            -no-reboot > /tmp/qemu_logs/qemu_output.log 2>&1 || true
+
+          # Check if the output contains success message
+          if grep -q "Test completed successfully" /tmp/qemu_logs/qemu_output.log; then
+            echo "✅ Verification test completed successfully!" | tee -a $GITHUB_STEP_SUMMARY
+            exit 0
+          else
+            echo "❌ Verification test failed or timed out!" | tee -a $GITHUB_STEP_SUMMARY
+            cat /tmp/qemu_logs/qemu_output.log
+            exit 1
+          fi
+
+      - name: Upload QEMU logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: qemu-logs
+          path: /tmp/qemu_logs/

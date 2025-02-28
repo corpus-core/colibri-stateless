@@ -11,6 +11,106 @@ on:
     branches: ["main", "dev"]
 
 jobs:
+  build-embedded:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-arm-none-eabi binutils-arm-none-eabi
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cmake -B build -S . \
+            -DCMAKE_TOOLCHAIN_FILE=$PWD/test/embedded/toolchain.cmake \
+            -DEMBEDDED=ON \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCURL=OFF \
+            -DPROOFER=OFF \
+            -DCLI=OFF \
+            -DINCLUDE=test/embedded
+
+      - name: Build verifier
+        run: |
+          cmake --build build --target verify_embedded.elf
+
+      - name: Build minimal verify
+        run: |
+          cmake --build build --target minimal_verify.elf
+
+      - name: Memory analysis
+        run: |
+          # Create the GitHub Step Summary
+          echo "# C4 Verifier Memory Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Executable Size" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Full Verifier" >> $GITHUB_STEP_SUMMARY
+          echo "| Section | Size | Description |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|------|-------------|" >> $GITHUB_STEP_SUMMARY
+
+          # Get size information for full verifier
+          SIZE_OUTPUT=$(arm-none-eabi-size --format=berkeley build/test/embedded/verify_embedded.elf)
+          TEXT_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $1}')
+          DATA_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $2}')
+          BSS_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $3}')
+          TOTAL_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $4}')
+
+          echo "| .text (Flash) | $(numfmt --to=iec --format="%.2f" $TEXT_SIZE) | Code |" >> $GITHUB_STEP_SUMMARY
+          echo "| .data (RAM) | $(numfmt --to=iec --format="%.2f" $DATA_SIZE) | Initialized data |" >> $GITHUB_STEP_SUMMARY
+          echo "| .bss (RAM) | $(numfmt --to=iec --format="%.2f" $BSS_SIZE) | Uninitialized data |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total | $(numfmt --to=iec --format="%.2f" $TOTAL_SIZE) | Total memory footprint |" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Minimal Verifier" >> $GITHUB_STEP_SUMMARY
+          echo "| Section | Size | Description |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|------|-------------|" >> $GITHUB_STEP_SUMMARY
+
+          # Get size information for minimal verifier
+          SIZE_OUTPUT=$(arm-none-eabi-size --format=berkeley build/test/embedded/minimal_verify.elf)
+          TEXT_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $1}')
+          DATA_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $2}')
+          BSS_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $3}')
+          TOTAL_SIZE=$(echo "$SIZE_OUTPUT" | tail -1 | awk '{print $4}')
+
+          echo "| .text (Flash) | $(numfmt --to=iec --format="%.2f" $TEXT_SIZE) | Code |" >> $GITHUB_STEP_SUMMARY
+          echo "| .data (RAM) | $(numfmt --to=iec --format="%.2f" $DATA_SIZE) | Initialized data |" >> $GITHUB_STEP_SUMMARY
+          echo "| .bss (RAM) | $(numfmt --to=iec --format="%.2f" $BSS_SIZE) | Uninitialized data |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total | $(numfmt --to=iec --format="%.2f" $TOTAL_SIZE) | Total memory footprint |" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Section Details" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          arm-none-eabi-readelf -S build/test/embedded/verify_embedded.elf | grep -E '\.text|\.data|\.bss|\.rodata' >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Memory Map" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf | tail -20 >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          echo "*Showing 20 largest symbols*" >> $GITHUB_STEP_SUMMARY
+
+          # Create artifact with detailed memory analysis
+          mkdir -p memory_analysis
+          arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf > memory_analysis/symbols_by_size.txt
+          arm-none-eabi-objdump -h build/test/embedded/verify_embedded.elf > memory_analysis/section_headers.txt
+          arm-none-eabi-readelf -S build/test/embedded/verify_embedded.elf > memory_analysis/section_details.txt
+          arm-none-eabi-size --format=berkeley build/test/embedded/verify_embedded.elf > memory_analysis/size_summary.txt
+          arm-none-eabi-size --format=berkeley build/test/embedded/minimal_verify.elf >> memory_analysis/size_summary.txt
+
+      - name: Upload memory analysis
+        uses: actions/upload-artifact@v3
+        with:
+          name: memory-analysis
+          path: memory_analysis/
+
   valgrind:
     runs-on: ubuntu-latest
     steps:

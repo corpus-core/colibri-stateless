@@ -66,11 +66,11 @@ elseif(STATIC_MEMORY)
             CC=${CMAKE_C_COMPILER}
             AR=${CMAKE_AR}
             RANLIB=${CMAKE_RANLIB}
-            "CFLAGS=-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -ffunction-sections -fdata-sections -fno-common -D__BLST_PORTABLE__ ${EXTRA_C_FLAGS}"
+            "CFLAGS=-mcpu=cortex-a15 -mthumb -ffunction-sections -fdata-sections -fno-common -D__BLST_PORTABLE__ ${EXTRA_C_FLAGS}"
             bash ${blst_SOURCE_DIR}/build.sh
         COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
-        COMMENT "Building blst for embedded target (ARM Cortex-M4)"
+        COMMENT "Building blst for embedded target (ARM Cortex-A15)"
         VERBATIM
     )
 elseif(WIN32)

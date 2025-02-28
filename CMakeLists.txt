@@ -27,6 +27,8 @@ if(EMBEDDED)
     set(PROOFER OFF)
     set(CLI OFF)
     set(STATIC_MEMORY ON)
+    
+    # Force portable implementations
     add_definitions(-DBLST_PORTABLE)
     set(BLS_SIGNATURES_BUILD_SHARED_LIBS OFF)
     set(BLS_SIGNATURES_USE_STATIC ON)
@@ -67,6 +69,7 @@ if(SWIFT)
     # Disable CURL for iOS builds
     set(CURL OFF)
 endif()
+
 if(KOTLIN)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     set(CURL OFF)
@@ -84,13 +87,13 @@ endif()
 if(BLS_DESERIALIZE)
     add_definitions(-DBLS_DESERIALIZE)
 endif()
+
 if(TEST)
     if(NOT DEFINED TESTDATA_DIR)
         set(TESTDATA_DIR "${CMAKE_SOURCE_DIR}/test/data")
     endif()
     add_definitions(-DTEST -DTESTDATA_DIR="${TESTDATA_DIR}")
 endif()
-
 
 if(COVERAGE)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
@@ -109,7 +112,6 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 
     if(MSVC)
-        # MSVC specific flags for size optimization
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Gy")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Gy")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /OPT:REF /OPT:ICF")
@@ -127,8 +129,9 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
     endif()
 endif()
 
-add_subdirectory(src)
+# Add core libraries first
 add_subdirectory(libs)
+add_subdirectory(src)
 
 # Additional includes (like embedded targets)
 if(INCLUDE)
@@ -136,7 +139,7 @@ if(INCLUDE)
 endif()
 
 # Optional components
-if(TEST)
+if((TEST) AND (NOT EMBEDDED))
     enable_testing()
     add_subdirectory(test)
     set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
@@ -154,9 +157,8 @@ if(SWIFT)
     add_subdirectory(bindings/swift)
 endif()
 
-
-# Shared library if requested
-if(SHAREDLIB)
+# Shared library if requested and not embedded
+if(SHAREDLIB AND NOT EMBEDDED)
     add_library(c4Lib SHARED src/util/version.c)
     target_link_libraries(c4Lib PRIVATE crypto verifier util blst)
     set_target_properties(c4Lib PROPERTIES
@@ -165,7 +167,6 @@ if(SHAREDLIB)
         SOVERSION 1
     )
 endif()
-
 
 add_custom_target(doc 
     COMMAND ${CMAKE_COMMAND} -E echo "Generating documentation..."

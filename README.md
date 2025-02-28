@@ -1,5 +1,3 @@
-
-
 <img src="c4_logo.png" alt="C4 Logo" width="300"/>
 
 # C4 (corpus core colibri client)
@@ -27,6 +25,9 @@
 - [Building](#building)
     - [Build Javascript bindings (WASM)](#build-javascript-bindings-(wasm))
     - [CMake Options](#cmake-options)
+    - [Running on embedded devices](#running-on-embedded-devices)
+        - [Embedded Tests](#embedded-tests)
+        - [CI Workflows](#ci-workflows)
 - [SSZ Types](#ssz-types)
     - [Attestation](#attestation)
     - [AttestationData](#attestationdata)
@@ -396,11 +397,11 @@ The js-module will be in the `build/emscripten` folder.
 
 ### CMake Options
 
-- **-DBLS_DESERIALIZE**: if true bls keys will be stored deserialized, which increases the state per sync committee period from 25kB to 50kB, but make verification 5x faster  
-    Default: ON  
-    Usage: `cmake -DBLS_DESERIALIZE=ON` ..
+- **-DBLS_DESERIALIZE**: Store BLS keys deserialized  
+    Default: undefined  
+    Usage: `cmake -DBLS_DESERIALIZE=undefined` ..
 
-- **-DCLI**: generates the CLI tools.  
+- **-DCLI**: Build command line tools  
     Default: ON  
     Usage: `cmake -DCLI=ON` ..
 
@@ -409,19 +410,23 @@ The js-module will be in the `build/emscripten` folder.
     Options: Debug, Release, RelWithDebInfo, MinSizeRel  
     Usage: `cmake -DCMAKE_BUILD_TYPE=Release` ..
 
-- **-DCOVERAGE**: if true the coverage will be build  
+- **-DCOVERAGE**: Enable coverage  
     Default: OFF  
     Usage: `cmake -DCOVERAGE=OFF` ..
 
-- **-DCURL**: if true curl will be used as transport  
+- **-DCURL**: Enable CURL support  
     Default: ON  
     Usage: `cmake -DCURL=ON` ..
+
+- **-DEMBEDDED**: Build for embedded target  
+    Default: OFF  
+    Usage: `cmake -DEMBEDDED=OFF` ..
 
 - **-DFILE_STORAGE**: if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR  
     Default: ON  
     Usage: `cmake -DFILE_STORAGE=ON` ..
 
-- **-DKOTLIN**: if true the kotlin bindings will be build  
+- **-DKOTLIN**: Build Kotlin bindings  
     Default: OFF  
     Usage: `cmake -DKOTLIN=OFF` ..
 
@@ -433,17 +438,72 @@ The js-module will be in the `build/emscripten` folder.
     Default: ON  
     Usage: `cmake -DPRECOMPILE_ZERO_HASHES=ON` ..
 
-- **-DSHAREDLIB**: if true the shared library will be build  
+- **-DPROOFER**: Build the proofer library  
+    Default: ON  
+    Usage: `cmake -DPROOFER=ON` ..
+
+- **-DSHAREDLIB**: Build shared library  
     Default: OFF  
     Usage: `cmake -DSHAREDLIB=OFF` ..
 
-- **-DTEST**: if true the test will be build  
+- **-DSTATIC_MEMORY**: if true, the memory will be statically allocated  
+    Default: undefined  
+    Usage: `cmake -DSTATIC_MEMORY=undefined` ..
+
+- **-DSWIFT**: Build Swift bindings  
+    Default: OFF  
+    Usage: `cmake -DSWIFT=OFF` ..
+
+- **-DTEST**: Build tests  
     Default: OFF  
     Usage: `cmake -DTEST=OFF` ..
 
-- **-DWASM**: if true the wasm will be build  
+- **-DVERIFIER**: Build the verifier library  
+    Default: ON  
+    Usage: `cmake -DVERIFIER=ON` ..
+
+- **-DWASM**: Build WebAssembly target  
     Default: OFF  
     Usage: `cmake -DWASM=OFF` ..
+
+
+### Running on embedded devices
+
+Colibri is designed to be portable and run on a variety of platforms, including embedded systems.
+
+The C4 verifier can run on embedded systems with the following minimum specifications:
+
+- **Flash/ROM**: ~225 KB (for code and read-only data)
+- **RAM**: ~108 KB minimum, 128 KB recommended
+- **CPU**: ARM Cortex-M4/M7 or more powerful processors
+
+For more details on embedded systems support, see [test/embedded/README.md](test/embedded/README.md).
+
+
+```bash
+mkdir build && cd build
+cmake .. -DCMAKE_TOOLCHAIN_FILE=../test/embedded/toolchain.cmake -DEMBEDDED=ON -DCURL=OFF -DPROOFER=OFF -DCLI=OFF
+make
+```
+
+#### Embedded Tests
+
+```bash
+# Run minimal verification test (requires QEMU)
+../test/embedded/run_minimal_with_log.sh
+
+# Run full verification test (requires QEMU)
+../test/embedded/run_embedded_test.sh
+```
+
+#### CI Workflows
+
+The project includes several GitHub Actions workflows:
+
+- **Embedded Build Analysis**: Builds the C4 verifier for embedded targets and analyzes memory usage
+- **Embedded Verification Test**: Tests the C4 verifier in an emulated environment (QEMU) to verify functionality
+- **Standard Tests**: Runs the standard test suite on multiple platforms
+
 
 
 ## SSZ Types
@@ -1192,3 +1252,4 @@ class Withdrawal(Container):
 ## License
 
 MIT
+

@@ -1,75 +1,121 @@
 # Embedded test configuration
 cmake_minimum_required(VERSION 3.10)
 
-# Set up ARM cross-compilation
-set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_SYSTEM_PROCESSOR arm)
+# Enable assembly language 
+enable_language(ASM)
 
-# Static memory configuration
-if(STATIC_MEMORY)
-    add_definitions(-DC4_STATIC_MEMORY)
-    # Define static buffer sizes
-    add_definitions(-DC4_STATIC_STATE_SIZE=1024)    # 1KB for state
-    add_definitions(-DC4_STATIC_SYNC_SIZE=49152)    # 48KB for sync committee
-endif()
+# Set ARM CPU flags
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-a15 -mthumb -Os")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=cortex-a15 -mthumb -Os")
+set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -mcpu=cortex-a15 -mthumb")
 
-# Toolchain settings
-set(CMAKE_C_COMPILER arm-none-eabi-gcc)
-set(CMAKE_CXX_COMPILER arm-none-eabi-g++)
-set(CMAKE_ASM_COMPILER arm-none-eabi-gcc)
+# Set startup.s as assembly file explicitly
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/startup.s PROPERTIES LANGUAGE ASM)
 
-# Compiler flags for embedded target
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffunction-sections -fdata-sections -fno-common -fno-builtin")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
+# Common embedded source files
+set(EMBEDDED_COMMON_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/startup.s
+    ${CMAKE_CURRENT_SOURCE_DIR}/syscalls.c
+)
 
-# Use newlib for filesystem support
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --specs=nano.specs --specs=rdimon.specs")
+# Common system libraries for embedded targets
+set(EMBEDDED_SYS_LIBS
+    -lgcc
+    -lc
+    -lm
+    -lnosys
+)
 
-# Configure blst for embedded target (will be used by util/crypto)
-set(BLS_SIGNATURES_BUILD_SHARED_LIBS OFF)
-set(BLS_SIGNATURES_USE_STATIC ON)
-add_definitions(-DBLST_PORTABLE)  # Force portable C implementation
+# Hello World example
+add_executable(hello_world.elf
+    ${CMAKE_CURRENT_SOURCE_DIR}/startup.s
+    ${CMAKE_CURRENT_SOURCE_DIR}/syscalls.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/hello_world.c
+)
 
-# Create embedded test executable
-add_executable(verify_embedded verify_embedded.c)
+target_link_libraries(hello_world.elf PRIVATE
+    ${EMBEDDED_SYS_LIBS}
+)
 
-# Include directories
-target_include_directories(verify_embedded PRIVATE 
+set_target_properties(hello_world.elf PROPERTIES
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=hello_world.map"
+)
+
+add_custom_command(TARGET hello_world.elf POST_BUILD
+    COMMAND ${CMAKE_OBJDUMP} -h $<TARGET_FILE:hello_world.elf>
+    COMMAND ${CMAKE_SIZE} $<TARGET_FILE:hello_world.elf>
+    COMMENT "Size of hello_world.elf"
+)
+
+# Minimal verification executable
+add_executable(minimal_verify.elf
+    ${EMBEDDED_COMMON_SRC}
+    ${CMAKE_CURRENT_SOURCE_DIR}/minimal_verify.c
+)
+
+target_include_directories(minimal_verify.elf PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src
 )
 
-# Link with verifier library (which brings in util, crypto, and blst)
-target_link_libraries(verify_embedded verifier)
-
-# Add linker flags for embedded target
-target_link_options(verify_embedded PRIVATE
-    -specs=nano.specs
-    -specs=nosys.specs  # Use this instead of rdimon.specs
-    -Wl,--gc-sections
-    -Wl,--print-memory-usage
+target_link_libraries(minimal_verify.elf
+    verifier
+    ${EMBEDDED_SYS_LIBS}
 )
 
-# Add startup code and linker script
-target_sources(verify_embedded PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/startup.c
+set_target_properties(minimal_verify.elf PROPERTIES
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=minimal_verify.map"
 )
 
-# Set binary format
-set_target_properties(verify_embedded PROPERTIES
-    SUFFIX ".elf"
-    LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cortex-m4.ld
+# Add a custom command to print the size of the binary
+add_custom_command(TARGET minimal_verify.elf POST_BUILD
+    COMMAND ${CMAKE_SIZE} ${CMAKE_CURRENT_BINARY_DIR}/minimal_verify.elf
+    COMMENT "Size of minimal_verify.elf"
 )
 
-# Add memory analysis targets
-add_custom_target(size_analysis
-    COMMAND arm-none-eabi-size --format=berkeley $<TARGET_FILE:verify_embedded>
-    DEPENDS verify_embedded
-    COMMENT "Analyzing embedded binary size"
+# Simple semihosting test executable
+add_executable(semihosting_test.elf
+    ${EMBEDDED_COMMON_SRC}
+    ${CMAKE_CURRENT_SOURCE_DIR}/semihosting_test.c
 )
 
-add_custom_target(memory_map
-    COMMAND arm-none-eabi-nm --print-size --size-sort --radix=d $<TARGET_FILE:verify_embedded> > memory_map.txt
-    DEPENDS verify_embedded
-    COMMENT "Generating memory map"
+target_include_directories(semihosting_test.elf PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+set_target_properties(semihosting_test.elf PROPERTIES
+    LINK_FLAGS "-Wl,--gc-sections -static -nostartfiles -Wl,--gc-sections -T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=semihosting_test.map"
+)
+
+# Add a custom command to print the size of the binary
+add_custom_command(TARGET semihosting_test.elf POST_BUILD
+    COMMAND ${CMAKE_SIZE} ${CMAKE_CURRENT_BINARY_DIR}/semihosting_test.elf
+    COMMENT "Size of semihosting_test.elf"
+)
+
+# Original verification executable (kept for compatibility)
+add_executable(verify_embedded.elf
+    ${EMBEDDED_COMMON_SRC}
+    ${CMAKE_CURRENT_SOURCE_DIR}/verify_embedded.c
+)
+
+target_include_directories(verify_embedded.elf PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(verify_embedded.elf
+    verifier
+    ${EMBEDDED_SYS_LIBS}
+)
+
+set_target_properties(verify_embedded.elf PROPERTIES
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=verify_embedded.map"
+)
+
+# Add a custom command to print the size of the binary
+add_custom_command(TARGET verify_embedded.elf POST_BUILD
+    COMMAND ${CMAKE_SIZE} ${CMAKE_CURRENT_BINARY_DIR}/verify_embedded.elf
+    COMMENT "Size of verify_embedded.elf"
 ) 
