@@ -89,13 +89,20 @@ jobs:
 
           # Run QEMU with explicit monitor and serial settings
           timeout --foreground 30s qemu-system-arm \
-            -machine virt \
+            -machine virt,accel=tcg,gic-version=2 \
             -cpu cortex-a15 \
             -m 256 \
             -kernel $GITHUB_WORKSPACE/build/test/embedded/baremetal_test.elf \
             -nographic \
-            -append "console=ttyAMA0" \
-            -no-reboot 2>&1 | tee /tmp/qemu_logs/baremetal_output.log || true
+            -serial mon:stdio \
+            -no-reboot \
+            -d guest_errors,unimp \
+            -D /tmp/qemu_logs/baremetal_debug.log \
+            2>&1 | tee /tmp/qemu_logs/baremetal_output.log || true
+
+          # Display debug log regardless of outcome
+          echo "QEMU debug log:"
+          cat /tmp/qemu_logs/baremetal_debug.log || true
 
           # Check if the baremetal test succeeded
           if grep -q "TEST COMPLETED SUCCESSFULLY" /tmp/qemu_logs/baremetal_output.log; then
@@ -124,16 +131,23 @@ jobs:
 
           # Run QEMU and capture output
           timeout --foreground 30s qemu-system-arm \
-            -machine virt \
+            -machine virt,accel=tcg,gic-version=2 \
             -cpu cortex-a15 \
             -m 256 \
             -kernel $GITHUB_WORKSPACE/build/test/embedded/simple_test.elf \
             -nographic \
+            -serial mon:stdio \
             -semihosting \
             -semihosting-config enable=on,target=native \
-            -append "console=ttyAMA0" \
-            -no-reboot 2>&1 | tee /tmp/qemu_logs/simple_test_output.log || true
+            -no-reboot \
+            -d guest_errors,unimp \
+            -D /tmp/qemu_logs/simple_test_debug.log \
+            2>&1 | tee /tmp/qemu_logs/simple_test_output.log || true
             
+          # Display debug log regardless of outcome  
+          echo "QEMU debug log:"
+          cat /tmp/qemu_logs/simple_test_debug.log || true
+
           # Check if the simple test succeeded
           if grep -q "Test completed successfully" /tmp/qemu_logs/simple_test_output.log; then
             echo "✅ Simple test completed successfully!" | tee -a $GITHUB_STEP_SUMMARY
@@ -164,15 +178,22 @@ jobs:
 
           # Run QEMU and capture output to both console and log file
           timeout --foreground 30s qemu-system-arm \
-            -machine virt \
+            -machine virt,accel=tcg,gic-version=2 \
             -cpu cortex-a15 \
             -m 256 \
             -kernel $GITHUB_WORKSPACE/build/test/embedded/minimal_verify.elf \
             -nographic \
+            -serial mon:stdio \
             -semihosting \
             -semihosting-config enable=on,target=native \
-            -append "console=ttyAMA0" \
-            -no-reboot 2>&1 | tee /tmp/qemu_logs/qemu_output.log || true
+            -no-reboot \
+            -d guest_errors,unimp \
+            -D /tmp/qemu_logs/minimal_verify_debug.log \
+            2>&1 | tee /tmp/qemu_logs/qemu_output.log || true
+
+          # Display debug log regardless of outcome
+          echo "QEMU debug log:"
+          cat /tmp/qemu_logs/minimal_verify_debug.log || true
 
           # Capture exit code
           QEMU_EXIT=$?
