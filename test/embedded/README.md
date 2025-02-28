@@ -58,17 +58,43 @@ The project is now integrated into the main CMake workflow in `.github/workflows
 
 ## Building Locally
 
-To build and test locally:
+There are two ways to build the embedded targets:
+
+### Using Docker (Recommended)
+
+This is the most reliable method as it ensures all required tools are available:
 
 ```bash
 # Build the Docker image
 docker build -t c4-embedded -f test/embedded/Dockerfile.embedded .
+
+# Build all embedded targets
+docker run --rm -v $(pwd):/workspace c4-embedded bash -c "cd /workspace && \
+  cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=/workspace/test/embedded/toolchain.cmake \
+  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROOFER=OFF -DCLI=OFF \
+  -DINCLUDE=test/embedded && \
+  cmake --build build --target verify_embedded.elf minimal_verify.elf semihosting_test.elf"
 
 # Run the embedded verification test
 ./test/embedded/run_embedded_test.sh
 
 # Run the semihosting test
 ./test/embedded/run_semihosting_test.sh
+```
+
+### Direct Build (Requires ARM Toolchain)
+
+If you have the ARM toolchain installed locally:
+
+```bash
+# Create build directory and configure
+mkdir -p build
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=$PWD/test/embedded/toolchain.cmake \
+  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROOFER=OFF -DCLI=OFF \
+  -DINCLUDE=test/embedded
+
+# Build targets
+cmake --build build --target verify_embedded.elf minimal_verify.elf semihosting_test.elf
 ```
 
 ## Directory Maintenance

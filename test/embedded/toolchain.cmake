@@ -15,8 +15,8 @@ set(CMAKE_SIZE arm-none-eabi-size)
 set(CMAKE_STRIP arm-none-eabi-strip)
 
 # Important build flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-builtin -ffunction-sections -fdata-sections -nostartfiles -nostdlib -specs=nosys.specs")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-builtin -ffunction-sections -fdata-sections -nostartfiles -nostdlib -specs=nosys.specs")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-builtin -ffunction-sections -fdata-sections -nostartfiles")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-builtin -ffunction-sections -fdata-sections -nostartfiles")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections -static -nostartfiles")
 
 # Debugging options

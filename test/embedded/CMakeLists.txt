@@ -23,7 +23,6 @@ set(EMBEDDED_SYS_LIBS
     -lgcc
     -lc
     -lm
-    -lnosys
 )
 
 # Minimal verification executable
@@ -43,7 +42,7 @@ target_link_libraries(minimal_verify.elf
 )
 
 set_target_properties(minimal_verify.elf PROPERTIES
-    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=minimal_verify.map"
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=minimal_verify.map --specs=nosys.specs"
 )
 
 # Add a custom command to print the size of the binary
@@ -64,7 +63,7 @@ target_include_directories(semihosting_test.elf PRIVATE
 )
 
 set_target_properties(semihosting_test.elf PROPERTIES
-    LINK_FLAGS "-Wl,--gc-sections -static -nostartfiles -Wl,--gc-sections -T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=semihosting_test.map"
+    LINK_FLAGS "-Wl,--gc-sections -static -nostartfiles -Wl,--gc-sections -T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=semihosting_test.map --specs=nosys.specs"
 )
 
 # Add a custom command to print the size of the binary
@@ -90,7 +89,7 @@ target_link_libraries(verify_embedded.elf
 )
 
 set_target_properties(verify_embedded.elf PROPERTIES
-    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=verify_embedded.map"
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=verify_embedded.map --specs=nosys.specs"
 )
 
 # Add a custom command to print the size of the binary
