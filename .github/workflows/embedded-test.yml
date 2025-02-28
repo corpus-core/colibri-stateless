@@ -63,6 +63,57 @@ jobs:
           echo "Simple test binary size information:"
           arm-none-eabi-size --format=berkeley build/test/embedded/simple_test.elf
 
+      - name: Build baremetal test
+        run: |
+          cmake --build build --target baremetal_test.elf
+
+          # Show binary size information
+          echo "Baremetal test binary size information:"
+          arm-none-eabi-size --format=berkeley build/test/embedded/baremetal_test.elf
+
+          # Show entry point and sections
+          echo "Baremetal binary analysis:"
+          arm-none-eabi-readelf -h build/test/embedded/baremetal_test.elf
+          echo "Baremetal sections:"
+          arm-none-eabi-readelf -S build/test/embedded/baremetal_test.elf | grep -E '\.text|\.data|\.bss|\.isr_vector'
+          echo "Baremetal symbols:"
+          arm-none-eabi-nm build/test/embedded/baremetal_test.elf | grep -E '_start|Reset_Handler|main|uart'
+
+      - name: Run QEMU with baremetal test
+        run: |
+          # Create log directory
+          mkdir -p /tmp/qemu_logs
+
+          # Run baremetal test
+          echo "Starting QEMU execution with baremetal_test.elf..."
+
+          # Run QEMU with explicit monitor and serial settings
+          timeout --foreground 30s qemu-system-arm \
+            -machine virt \
+            -cpu cortex-a15 \
+            -m 256 \
+            -kernel $GITHUB_WORKSPACE/build/test/embedded/baremetal_test.elf \
+            -nographic \
+            -append "console=ttyAMA0" \
+            -no-reboot 2>&1 | tee /tmp/qemu_logs/baremetal_output.log || true
+
+          # Check if the baremetal test succeeded
+          if grep -q "TEST COMPLETED SUCCESSFULLY" /tmp/qemu_logs/baremetal_output.log; then
+            echo "✅ Baremetal test completed successfully!" | tee -a $GITHUB_STEP_SUMMARY
+            
+            # Include the output in the summary
+            echo "Baremetal test output:" | tee -a $GITHUB_STEP_SUMMARY
+            echo '```' | tee -a $GITHUB_STEP_SUMMARY
+            cat /tmp/qemu_logs/baremetal_output.log | tee -a $GITHUB_STEP_SUMMARY
+            echo '```' | tee -a $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Baremetal test failed or timed out!" | tee -a $GITHUB_STEP_SUMMARY
+            echo "Baremetal test output:" | tee -a $GITHUB_STEP_SUMMARY
+            echo '```' | tee -a $GITHUB_STEP_SUMMARY
+            cat /tmp/qemu_logs/baremetal_output.log | tee -a $GITHUB_STEP_SUMMARY
+            echo '```' | tee -a $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Run QEMU test with simple test
         run: |
           # Create log directory
@@ -72,7 +123,7 @@ jobs:
           echo "Starting QEMU execution with simple test..."
 
           # Run QEMU and capture output
-          timeout --foreground 60s qemu-system-arm \
+          timeout --foreground 30s qemu-system-arm \
             -machine virt \
             -cpu cortex-a15 \
             -m 256 \
@@ -80,6 +131,7 @@ jobs:
             -nographic \
             -semihosting \
             -semihosting-config enable=on,target=native \
+            -append "console=ttyAMA0" \
             -no-reboot 2>&1 | tee /tmp/qemu_logs/simple_test_output.log || true
             
           # Check if the simple test succeeded
@@ -111,7 +163,7 @@ jobs:
           echo "Starting QEMU execution with minimal_verify.elf..."
 
           # Run QEMU and capture output to both console and log file
-          timeout --foreground 60s qemu-system-arm \
+          timeout --foreground 30s qemu-system-arm \
             -machine virt \
             -cpu cortex-a15 \
             -m 256 \
@@ -119,6 +171,7 @@ jobs:
             -nographic \
             -semihosting \
             -semihosting-config enable=on,target=native \
+            -append "console=ttyAMA0" \
             -no-reboot 2>&1 | tee /tmp/qemu_logs/qemu_output.log || true
 
           # Capture exit code

@@ -112,4 +112,22 @@ set_target_properties(simple_test.elf PROPERTIES
 add_custom_command(TARGET simple_test.elf POST_BUILD
     COMMAND ${CMAKE_SIZE} ${CMAKE_CURRENT_BINARY_DIR}/simple_test.elf
     COMMENT "Size of simple_test.elf"
+)
+
+# Bare-metal test with minimal dependencies
+add_executable(baremetal_test.elf
+    ${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s
+    ${CMAKE_CURRENT_SOURCE_DIR}/baremetal_test.c
+)
+
+# Use different flags for the baremetal test to maximize compatibility
+set_target_properties(baremetal_test.elf PROPERTIES 
+    COMPILE_FLAGS "-mcpu=cortex-a15 -mthumb -O2 -g -Wall -ffreestanding -nostdlib -fno-builtin"
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/baremetal_linker.ld -nostdlib -nostartfiles -ffreestanding -Wl,--gc-sections -Wl,-Map=baremetal_test.map"
+)
+
+# Add a custom command to print the size of the binary
+add_custom_command(TARGET baremetal_test.elf POST_BUILD
+    COMMAND ${CMAKE_SIZE} ${CMAKE_CURRENT_BINARY_DIR}/baremetal_test.elf
+    COMMENT "Size of baremetal_test.elf"
 ) 
