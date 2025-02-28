@@ -130,4 +130,27 @@ set_target_properties(baremetal_test.elf PROPERTIES
 add_custom_command(TARGET baremetal_test.elf POST_BUILD
     COMMAND ${CMAKE_SIZE} ${CMAKE_CURRENT_BINARY_DIR}/baremetal_test.elf
     COMMENT "Size of baremetal_test.elf"
-) 
+)
+
+# Add a target for baremetal test
+add_executable(baremetal_test baremetal_test.c)
+target_compile_options(baremetal_test PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
+target_link_options(baremetal_test PRIVATE 
+    -nostdlib 
+    -T${CMAKE_CURRENT_SOURCE_DIR}/baremetal_linker.ld
+    -Wl,--gc-sections
+)
+target_link_libraries(baremetal_test PRIVATE c c4_embedded)
+
+# Add a target for Cortex-M3 MPS2 test
+add_executable(mps2_test 
+    baremetal_test.c
+    mps2_startup.s
+)
+target_compile_options(mps2_test PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
+target_link_options(mps2_test PRIVATE 
+    -nostdlib 
+    -T${CMAKE_CURRENT_SOURCE_DIR}/mps2_linker.ld
+    -Wl,--gc-sections
+)
+target_link_libraries(mps2_test PRIVATE c4_embedded) 
