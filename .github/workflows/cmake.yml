@@ -74,42 +74,6 @@ jobs:
           echo "| .bss (RAM) | $(numfmt --to=iec --format="%.2f" $BSS_SIZE) | Uninitialized data |" >> $GITHUB_STEP_SUMMARY
           echo "| Total | $(numfmt --to=iec --format="%.2f" $TOTAL_SIZE) | Total memory footprint |" >> $GITHUB_STEP_SUMMARY
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Section Details" >> $GITHUB_STEP_SUMMARY
-          echo "```" >> $GITHUB_STEP_SUMMARY
-          # First capture the command output to check if it's empty
-          SECTION_OUTPUT=$(arm-none-eabi-readelf -S build/test/embedded/verify_embedded.elf 2>&1)
-          if [ $? -ne 0 ]; then
-            echo "Error running readelf: $SECTION_OUTPUT" >> $GITHUB_STEP_SUMMARY
-          else
-            FILTERED_SECTIONS=$(echo "$SECTION_OUTPUT" | grep -i -E '\.[Tt][Ee][Xx][Tt]|\.[Dd][Aa][Tt][Aa]|\.[Bb][Ss][Ss]|\.[Rr][Oo][Dd][Aa][Tt][Aa]')
-            if [ -z "$FILTERED_SECTIONS" ]; then
-              echo "No matching sections found. Full readelf output:" >> $GITHUB_STEP_SUMMARY
-              echo "$SECTION_OUTPUT" | head -20 >> $GITHUB_STEP_SUMMARY
-              echo "..." >> $GITHUB_STEP_SUMMARY
-            else
-              echo "$FILTERED_SECTIONS" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-          echo "```" >> $GITHUB_STEP_SUMMARY
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Memory Map" >> $GITHUB_STEP_SUMMARY
-          echo "```" >> $GITHUB_STEP_SUMMARY
-          # First capture the command output to check if it's empty
-          NM_OUTPUT=$(arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf 2>&1)
-          if [ $? -ne 0 ]; then
-            echo "Error running nm: $NM_OUTPUT" >> $GITHUB_STEP_SUMMARY
-          else
-            if [ -z "$NM_OUTPUT" ]; then
-              echo "No symbols found in the ELF file." >> $GITHUB_STEP_SUMMARY
-            else
-              # Show the 20 largest symbols
-              echo "$NM_OUTPUT" | tail -20 >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-          echo "```" >> $GITHUB_STEP_SUMMARY
-          echo "*Showing 20 largest symbols*" >> $GITHUB_STEP_SUMMARY
 
           # Create artifact with detailed memory analysis
           mkdir -p memory_analysis

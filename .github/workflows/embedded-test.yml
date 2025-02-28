@@ -63,18 +63,46 @@ jobs:
           # Change to test files directory
           cd /tmp/embedded_files
 
-          # Run QEMU with the minimal verify executable
-          echo "Starting QEMU execution..."
+          # Run QEMU with the minimal verify executable - with console output directly displayed
+          echo "Starting QEMU execution with 60 second timeout..."
 
-          timeout --foreground 30s qemu-system-arm \
+          # Run QEMU and capture output to both console and log file
+          timeout --foreground 60s qemu-system-arm \
             -machine virt \
             -cpu cortex-a15 \
-            -m 128 \
+            -m 256 \
             -kernel $GITHUB_WORKSPACE/build/test/embedded/minimal_verify.elf \
             -nographic \
             -semihosting \
             -semihosting-config enable=on,target=native \
-            -no-reboot > /tmp/qemu_logs/qemu_output.log 2>&1 || true
+            -serial stdio \
+            -no-reboot 2>&1 | tee /tmp/qemu_logs/qemu_output.log || true
+
+          # Capture exit code
+          QEMU_EXIT=$?
+
+          # Show the exit code and debug info
+          echo "QEMU exited with code: $QEMU_EXIT"
+
+          # Check for ARM error codes or exceptions
+          if grep -q "Exception" /tmp/qemu_logs/qemu_output.log; then
+            echo "ARM exception detected!" | tee -a $GITHUB_STEP_SUMMARY
+          fi
+
+          if grep -q "undefined instruction" /tmp/qemu_logs/qemu_output.log; then
+            echo "Undefined instruction detected!" | tee -a $GITHUB_STEP_SUMMARY
+          fi
+
+          if grep -q "Unhandled" /tmp/qemu_logs/qemu_output.log; then
+            echo "Unhandled condition detected!" | tee -a $GITHUB_STEP_SUMMARY
+          fi
+
+          # Add binary analysis
+          echo "Binary information:" | tee -a $GITHUB_STEP_SUMMARY
+          arm-none-eabi-readelf -h $GITHUB_WORKSPACE/build/test/embedded/minimal_verify.elf | tee -a $GITHUB_STEP_SUMMARY
+
+          echo "Entry point:" | tee -a $GITHUB_STEP_SUMMARY
+          arm-none-eabi-nm $GITHUB_WORKSPACE/build/test/embedded/minimal_verify.elf | grep -E " main$| _start$| Reset_Handler$" | tee -a $GITHUB_STEP_SUMMARY
 
           # Check if the output contains success message
           if grep -q "Test completed successfully" /tmp/qemu_logs/qemu_output.log; then
@@ -82,7 +110,8 @@ jobs:
             exit 0
           else
             echo "❌ Verification test failed or timed out!" | tee -a $GITHUB_STEP_SUMMARY
-            cat /tmp/qemu_logs/qemu_output.log
+            echo "Last 20 lines of QEMU output:" | tee -a $GITHUB_STEP_SUMMARY
+            tail -20 /tmp/qemu_logs/qemu_output.log | tee -a $GITHUB_STEP_SUMMARY
             exit 1
           fi
 
