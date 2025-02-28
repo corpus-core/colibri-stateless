@@ -34,6 +34,7 @@ add_executable(minimal_verify.elf
 target_include_directories(minimal_verify.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(minimal_verify.elf
@@ -60,6 +61,7 @@ add_executable(semihosting_test.elf
 target_include_directories(semihosting_test.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 set_target_properties(semihosting_test.elf PROPERTIES
@@ -81,6 +83,7 @@ add_executable(verify_embedded.elf
 target_include_directories(verify_embedded.elf PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(verify_embedded.elf

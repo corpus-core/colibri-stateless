@@ -1,8 +1,8 @@
 #include "./bytes.h"
+#include "./compat.h" /* Include our compatibility header for PRI* macros */
 #include "./json.h"
 #include "ssz.h"
 #include <ctype.h>
-#include <inttypes.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>

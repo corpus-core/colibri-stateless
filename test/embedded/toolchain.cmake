@@ -32,6 +32,9 @@ set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} ${CPU_FLAGS}")
 add_definitions(-DSTATIC_MEMORY)
 add_definitions(-DBLST_PORTABLE)
 add_definitions(-DBLS_DESERIALIZE)
+add_definitions(-D__STDC_FORMAT_MACROS)
+add_definitions(-D_POSIX_C_SOURCE=200809L)
+add_definitions(-DEMBEDDED)
 
 # Prevent trying to find the compiler automatically
 # since it won't find the cross-compiler otherwise

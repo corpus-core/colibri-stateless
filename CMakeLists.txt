@@ -29,7 +29,7 @@ if(EMBEDDED)
     set(STATIC_MEMORY ON)
     
     # Force portable implementations
-    add_definitions(-DBLST_PORTABLE)
+    add_definitions(-DBLST_PORTABLE -DEMBEDDED)
     set(BLS_SIGNATURES_BUILD_SHARED_LIBS OFF)
     set(BLS_SIGNATURES_USE_STATIC ON)
 endif()
