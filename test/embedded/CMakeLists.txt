@@ -96,4 +96,20 @@ set_target_properties(verify_embedded.elf PROPERTIES
 add_custom_command(TARGET verify_embedded.elf POST_BUILD
     COMMAND ${CMAKE_SIZE} ${CMAKE_CURRENT_BINARY_DIR}/verify_embedded.elf
     COMMENT "Size of verify_embedded.elf"
+)
+
+# Simple test for QEMU debugging
+add_executable(simple_test.elf
+    ${EMBEDDED_COMMON_SRC}
+    ${CMAKE_CURRENT_SOURCE_DIR}/simple_test.c
+)
+
+set_target_properties(simple_test.elf PROPERTIES
+    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/linker_minimal.ld -Wl,-Map=simple_test.map --specs=nosys.specs"
+)
+
+# Add a custom command to print the size of the binary
+add_custom_command(TARGET simple_test.elf POST_BUILD
+    COMMAND ${CMAKE_SIZE} ${CMAKE_CURRENT_BINARY_DIR}/simple_test.elf
+    COMMENT "Size of simple_test.elf"
 ) 

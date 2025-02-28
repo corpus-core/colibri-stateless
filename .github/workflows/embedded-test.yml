@@ -55,6 +55,50 @@ jobs:
           echo "Binary size information:"
           arm-none-eabi-size --format=berkeley build/test/embedded/minimal_verify.elf
 
+      - name: Build simple test
+        run: |
+          cmake --build build --target simple_test.elf
+
+          # Show binary size information
+          echo "Simple test binary size information:"
+          arm-none-eabi-size --format=berkeley build/test/embedded/simple_test.elf
+
+      - name: Run QEMU test with simple test
+        run: |
+          # Create log directory
+          mkdir -p /tmp/qemu_logs
+
+          # Run the simple test first (more likely to succeed)
+          echo "Starting QEMU execution with simple test..."
+
+          # Run QEMU and capture output
+          timeout --foreground 60s qemu-system-arm \
+            -machine virt \
+            -cpu cortex-a15 \
+            -m 256 \
+            -kernel $GITHUB_WORKSPACE/build/test/embedded/simple_test.elf \
+            -nographic \
+            -semihosting \
+            -semihosting-config enable=on,target=native \
+            -no-reboot 2>&1 | tee /tmp/qemu_logs/simple_test_output.log || true
+            
+          # Check if the simple test succeeded
+          if grep -q "Test completed successfully" /tmp/qemu_logs/simple_test_output.log; then
+            echo "✅ Simple test completed successfully!" | tee -a $GITHUB_STEP_SUMMARY
+            
+            # Include the output in the summary
+            echo "Simple test output:" | tee -a $GITHUB_STEP_SUMMARY
+            echo '```' | tee -a $GITHUB_STEP_SUMMARY
+            cat /tmp/qemu_logs/simple_test_output.log | tee -a $GITHUB_STEP_SUMMARY
+            echo '```' | tee -a $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Simple test failed or timed out!" | tee -a $GITHUB_STEP_SUMMARY
+            echo "Simple test output:" | tee -a $GITHUB_STEP_SUMMARY
+            echo '```' | tee -a $GITHUB_STEP_SUMMARY
+            cat /tmp/qemu_logs/simple_test_output.log | tee -a $GITHUB_STEP_SUMMARY
+            echo '```' | tee -a $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Run QEMU test
         run: |
           # Create log directory
@@ -63,8 +107,8 @@ jobs:
           # Change to test files directory
           cd /tmp/embedded_files
 
-          # Run QEMU with the minimal verify executable - with console output directly displayed
-          echo "Starting QEMU execution with 60 second timeout..."
+          # Run QEMU with the minimal verify executable
+          echo "Starting QEMU execution with minimal_verify.elf..."
 
           # Run QEMU and capture output to both console and log file
           timeout --foreground 60s qemu-system-arm \
@@ -75,7 +119,6 @@ jobs:
             -nographic \
             -semihosting \
             -semihosting-config enable=on,target=native \
-            -serial stdio \
             -no-reboot 2>&1 | tee /tmp/qemu_logs/qemu_output.log || true
 
           # Capture exit code
