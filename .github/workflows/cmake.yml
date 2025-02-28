@@ -106,7 +106,7 @@ jobs:
           arm-none-eabi-size --format=berkeley build/test/embedded/minimal_verify.elf >> memory_analysis/size_summary.txt
 
       - name: Upload memory analysis
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: memory-analysis
           path: memory_analysis/
