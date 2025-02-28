@@ -115,16 +115,18 @@ add_custom_command(TARGET simple_test.elf POST_BUILD
 )
 
 # Bare-metal test with minimal dependencies
-add_executable(baremetal_test.elf
+add_executable(baremetal_test.elf 
+    baremetal_test.c
     ${CMAKE_CURRENT_SOURCE_DIR}/baremetal_startup.s
-    ${CMAKE_CURRENT_SOURCE_DIR}/baremetal_test.c
 )
-
-# Use different flags for the baremetal test to maximize compatibility
-set_target_properties(baremetal_test.elf PROPERTIES 
-    COMPILE_FLAGS "-mcpu=cortex-a15 -mthumb -O2 -g -Wall -ffreestanding -nostdlib -fno-builtin"
-    LINK_FLAGS "-T${CMAKE_CURRENT_SOURCE_DIR}/baremetal_linker.ld -nostdlib -nostartfiles -ffreestanding -Wl,--gc-sections -Wl,-Map=baremetal_test.map"
+target_compile_options(baremetal_test.elf PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
+target_link_options(baremetal_test.elf PRIVATE 
+    -nostdlib 
+    -T${CMAKE_CURRENT_SOURCE_DIR}/baremetal_linker.ld
+    -Wl,--gc-sections
+    -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/baremetal_test.map
 )
+target_link_libraries(baremetal_test.elf PRIVATE c gcc)
 
 # Add a custom command to print the size of the binary
 add_custom_command(TARGET baremetal_test.elf POST_BUILD
@@ -132,25 +134,22 @@ add_custom_command(TARGET baremetal_test.elf POST_BUILD
     COMMENT "Size of baremetal_test.elf"
 )
 
-# Add a target for baremetal test
-add_executable(baremetal_test baremetal_test.c)
-target_compile_options(baremetal_test PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
-target_link_options(baremetal_test PRIVATE 
-    -nostdlib 
-    -T${CMAKE_CURRENT_SOURCE_DIR}/baremetal_linker.ld
-    -Wl,--gc-sections
-)
-target_link_libraries(baremetal_test PRIVATE c c4_embedded)
-
 # Add a target for Cortex-M3 MPS2 test
-add_executable(mps2_test 
+add_executable(mps2_test.elf 
     baremetal_test.c
     mps2_startup.s
 )
-target_compile_options(mps2_test PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
-target_link_options(mps2_test PRIVATE 
+target_compile_options(mps2_test.elf PRIVATE -g -mcpu=cortex-m3 -mthumb -nostdlib)
+target_link_options(mps2_test.elf PRIVATE 
     -nostdlib 
     -T${CMAKE_CURRENT_SOURCE_DIR}/mps2_linker.ld
     -Wl,--gc-sections
+    -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/mps2_test.map
 )
-target_link_libraries(mps2_test PRIVATE c4_embedded) 
+target_link_libraries(mps2_test.elf PRIVATE c gcc)
+
+# Add a custom command to print the size of the binary
+add_custom_command(TARGET mps2_test.elf POST_BUILD
+    COMMAND ${CMAKE_SIZE} ${CMAKE_CURRENT_BINARY_DIR}/mps2_test.elf
+    COMMENT "Size of mps2_test.elf"
+) 

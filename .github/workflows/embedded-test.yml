@@ -52,7 +52,7 @@ jobs:
           mkdir -p build
           cd build
           cmake -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake -DEMBEDDED=ON -DBOARD=qemu_embedded -DEMBEDDED_TEST=ON ..
-          make -j2 simple_test minimal_verify baremetal_test mps2_test
+          make -j2 simple_test.elf minimal_verify.elf baremetal_test.elf mps2_test
           ls -la test/embedded/
           arm-none-eabi-size test/embedded/simple_test.elf test/embedded/minimal_verify.elf test/embedded/baremetal_test.elf test/embedded/mps2_test.elf
           arm-none-eabi-objdump -h test/embedded/mps2_test.elf
