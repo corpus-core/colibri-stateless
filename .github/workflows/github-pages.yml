@@ -6,7 +6,7 @@ on:
     workflows: ["CMake on multiple platforms"]
     types:
       - completed
-    branches: [main]
+    branches: [main, dev]
 
   # Manual trigger option
   workflow_dispatch:
