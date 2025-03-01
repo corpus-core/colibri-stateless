@@ -8,7 +8,7 @@
 #include <string.h>
 
 #ifdef C4_STATIC_MEMORY
-#define C4_STATIC_STATE_SIZE   1024 * 1024
+#define C4_STATIC_STATE_SIZE   1024
 #define C4_STATIC_SYNC_SIZE    49152
 #define C4_STATIC_KEYS_48_SIZE 512 * 48
 // Static buffers for embedded targets
