@@ -173,6 +173,12 @@ jobs:
               # For backward compatibility, still extract executable size from summary file
               EXEC_SIZE=$(grep "Executable" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
               echo "Extracted executable size: $EXEC_SIZE"
+              
+              # Ensure EXEC_SIZE is not empty
+              if [ -z "$EXEC_SIZE" ]; then
+                EXEC_SIZE="null"
+                echo "Empty EXEC_SIZE, setting to null"
+              fi
             else
               # Fallback to parsing size_summary.txt
               echo "Pre-generated metrics.json not found, parsing size_summary.txt"
@@ -189,6 +195,28 @@ jobs:
                 echo "Extracted BSS size: $BSS_SIZE"
                 echo "Extracted total size: $TOTAL_SIZE"
                 echo "Extracted executable size: $EXEC_SIZE"
+                
+                # Ensure values are not empty
+                if [ -z "$EXEC_SIZE" ]; then
+                  EXEC_SIZE="null"
+                  echo "Empty EXEC_SIZE, setting to null"
+                fi
+                if [ -z "$TEXT_SIZE" ]; then
+                  TEXT_SIZE="null"
+                  echo "Empty TEXT_SIZE, setting to null"
+                fi
+                if [ -z "$DATA_SIZE" ]; then
+                  DATA_SIZE="null"
+                  echo "Empty DATA_SIZE, setting to null"
+                fi
+                if [ -z "$BSS_SIZE" ]; then
+                  BSS_SIZE="null"
+                  echo "Empty BSS_SIZE, setting to null"
+                fi
+                if [ -z "$TOTAL_SIZE" ]; then
+                  TOTAL_SIZE="null"
+                  echo "Empty TOTAL_SIZE, setting to null"
+                fi
               else
                 echo "Warning: size_summary.txt not found"
                 EXEC_SIZE="null"
@@ -210,8 +238,22 @@ jobs:
           # Code coverage metrics
           if [ -f "artifacts/coverage-report/coverage_summary.txt" ]; then
             cat artifacts/coverage-report/coverage_summary.txt
-            TOTAL_COVERAGE=$(grep "Total coverage:" artifacts/coverage-report/coverage_summary.txt | grep -o '[0-9]*\.[0-9]*%' | sed 's/%//g')
+            # Try different patterns to extract coverage percentage
+            if grep -q "Total coverage:" artifacts/coverage-report/coverage_summary.txt; then
+              TOTAL_COVERAGE=$(grep "Total coverage:" artifacts/coverage-report/coverage_summary.txt | grep -o '[0-9]*\.[0-9]*%\|[0-9]*%' | sed 's/%//g')
+            elif grep -q "Total" artifacts/coverage-report/coverage_summary.txt; then
+              TOTAL_COVERAGE=$(grep "Total" artifacts/coverage-report/coverage_summary.txt | grep -o '[0-9]*\.[0-9]*%\|[0-9]*%' | sed 's/%//g')
+            else
+              # Try to extract from the last line with a percentage
+              TOTAL_COVERAGE=$(grep -o '[0-9]*\.[0-9]*%\|[0-9]*%' artifacts/coverage-report/coverage_summary.txt | tail -1 | sed 's/%//g')
+            fi
+            
             echo "Extracted coverage: $TOTAL_COVERAGE"
+            # Ensure TOTAL_COVERAGE is not empty
+            if [ -z "$TOTAL_COVERAGE" ]; then
+              TOTAL_COVERAGE="null"
+              echo "Empty TOTAL_COVERAGE, setting to null"
+            fi
           else
             echo "Warning: coverage_summary.txt not found"
             TOTAL_COVERAGE="null"
@@ -231,8 +273,35 @@ jobs:
             STATIC_ANALYSIS="null"
           fi
 
-          # Create new metrics entry
-          NEW_METRICS="{\"commit\": \"$COMMIT_HASH\", \"date\": \"$COMMIT_DATE\", \"heap_size\": $PEAK_HEAP, \"stack_size\": $PEAK_STACK, \"executable_size\": \"$EXEC_SIZE\", \"text_size\": \"$TEXT_SIZE\", \"data_size\": \"$DATA_SIZE\", \"bss_size\": \"$BSS_SIZE\", \"total_size\": \"$TOTAL_SIZE\", \"coverage\": $TOTAL_COVERAGE, \"static_analysis\": \"$STATIC_ANALYSIS\"}"
+          # Validate all metrics values to ensure they are valid for JSON
+          # For each value, if it's empty, set it to "null"
+          [ -z "$PEAK_HEAP" ] && PEAK_HEAP="null"
+          [ -z "$PEAK_STACK" ] && PEAK_STACK="null"
+          [ -z "$TEXT_SIZE" ] && TEXT_SIZE="null"
+          [ -z "$DATA_SIZE" ] && DATA_SIZE="null"
+          [ -z "$BSS_SIZE" ] && BSS_SIZE="null"
+          [ -z "$TOTAL_SIZE" ] && TOTAL_SIZE="null"
+          [ -z "$EXEC_SIZE" ] && EXEC_SIZE="null"
+          [ -z "$TOTAL_COVERAGE" ] && TOTAL_COVERAGE="null"
+          [ -z "$STATIC_ANALYSIS" ] && STATIC_ANALYSIS="null"
+
+          # Create JSON using jq for proper escaping and formatting
+          NEW_METRICS=$(jq -n \
+              --arg commit "$COMMIT_HASH" \
+              --arg date "$COMMIT_DATE" \
+              --argjson heap_size "$([ "$PEAK_HEAP" = "null" ] && echo null || echo $PEAK_HEAP)" \
+              --argjson stack_size "$([ "$PEAK_STACK" = "null" ] && echo null || echo $PEAK_STACK)" \
+              --arg executable_size "$EXEC_SIZE" \
+              --arg text_size "$TEXT_SIZE" \
+              --arg data_size "$DATA_SIZE" \
+              --arg bss_size "$BSS_SIZE" \
+              --arg total_size "$TOTAL_SIZE" \
+              --argjson coverage "$([ "$TOTAL_COVERAGE" = "null" ] && echo null || echo $TOTAL_COVERAGE)" \
+              --arg static_analysis "$STATIC_ANALYSIS" \
+              '{commit: $commit, date: $date, heap_size: $heap_size, stack_size: $stack_size, 
+                executable_size: $executable_size, text_size: $text_size, data_size: $data_size, 
+                bss_size: $bss_size, total_size: $total_size, coverage: $coverage, 
+                static_analysis: $static_analysis}')
 
           echo "New metrics entry:"
           echo $NEW_METRICS | jq .
@@ -243,7 +312,7 @@ jobs:
           else
             echo "Adding new metrics for commit $COMMIT_HASH"
             # Add new metrics to the JSON file
-            jq ". + [$(echo $NEW_METRICS | jq .)]" metrics-data/metrics.json > temp.json && mv temp.json metrics-data/metrics.json
+            jq ". + [$NEW_METRICS]" metrics-data/metrics.json > temp.json && mv temp.json metrics-data/metrics.json
             echo "Updated metrics file:"
             cat metrics-data/metrics.json | jq .
           fi
@@ -258,13 +327,28 @@ jobs:
             TEST_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             
             # Use the actual metric values but with a different commit hash
-            TEST_METRICS="{\"commit\": \"$TEST_COMMIT\", \"date\": \"$TEST_DATE\", \"heap_size\": $PEAK_HEAP, \"stack_size\": $PEAK_STACK, \"executable_size\": \"$EXEC_SIZE\", \"text_size\": \"$TEXT_SIZE\", \"data_size\": \"$DATA_SIZE\", \"bss_size\": \"$BSS_SIZE\", \"total_size\": \"$TOTAL_SIZE\", \"coverage\": $TOTAL_COVERAGE, \"static_analysis\": \"$STATIC_ANALYSIS\"}"
+            TEST_METRICS=$(jq -n \
+              --arg commit "$TEST_COMMIT" \
+              --arg date "$TEST_DATE" \
+              --argjson heap_size "$([ "$PEAK_HEAP" = "null" ] && echo null || echo $PEAK_HEAP)" \
+              --argjson stack_size "$([ "$PEAK_STACK" = "null" ] && echo null || echo $PEAK_STACK)" \
+              --arg executable_size "$EXEC_SIZE" \
+              --arg text_size "$TEXT_SIZE" \
+              --arg data_size "$DATA_SIZE" \
+              --arg bss_size "$BSS_SIZE" \
+              --arg total_size "$TOTAL_SIZE" \
+              --argjson coverage "$([ "$TOTAL_COVERAGE" = "null" ] && echo null || echo $TOTAL_COVERAGE)" \
+              --arg static_analysis "$STATIC_ANALYSIS" \
+              '{commit: $commit, date: $date, heap_size: $heap_size, stack_size: $stack_size, 
+                executable_size: $executable_size, text_size: $text_size, data_size: $data_size, 
+                bss_size: $bss_size, total_size: $total_size, coverage: $coverage, 
+                static_analysis: $static_analysis}')
             
             echo "Adding test metrics entry for development:"
             echo $TEST_METRICS | jq .
             
             # Add the test metrics to the JSON file
-            jq ". + [$(echo $TEST_METRICS | jq .)]" metrics-data/metrics.json > temp.json && mv temp.json metrics-data/metrics.json
+            jq ". + [$TEST_METRICS]" metrics-data/metrics.json > temp.json && mv temp.json metrics-data/metrics.json
           fi
 
           # Copy metrics data to site
