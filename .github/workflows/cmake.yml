@@ -224,6 +224,7 @@ jobs:
             # Get executable size in KB
             echo "| Executable | $(ls -l $TEST_BINARY_MINSIZE | awk '{print int($5/1024)" KB"}') |"
             echo ""
+            echo "[View detailed memory analysis](https://corpus-core.github.io/c4/memory-analysis/massif-full-report.txt)"
           } > memory_summary.md
 
           # Save detailed logs
@@ -317,7 +318,8 @@ jobs:
             # Create a summary of the issues
             echo "## 🔄 Static Analysis Issues" > ../analysis_summary.md
             echo "" >> ../analysis_summary.md
-            
+            echo "[View detailed static analysis report](https://corpus-core.github.io/c4/static-analysis/analysis_summary.md)" >> ../analysis_summary.md
+            echo "" >> ../analysis_summary.md
             # Organize the HTML reports for GitHub Pages
             mkdir -p static-analysis-report/report
             
