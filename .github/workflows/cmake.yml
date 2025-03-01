@@ -172,6 +172,8 @@ jobs:
             --stacks=yes \
             --pages-as-heap=yes \
             --heap=yes \
+            --ignore-fn=dl_start \
+            --ignore-fn=_dl_start \
             --massif-out-file=massif.out \
             $TEST_BINARY
 
