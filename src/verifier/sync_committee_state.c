@@ -213,6 +213,12 @@ const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
       .data      = bytes(sync_buffer, 0)};
 #else
   buffer_t validators = {0};
+#ifdef BLS_DESERIALIZE
+  validators.allocated = 512 * 48 * 2;
+#else
+  validators.allocated = 512 * 48;
+#endif
+
 #endif
   bool found = false;
   c4_get_storage_config(&storage_conf);
