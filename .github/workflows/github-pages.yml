@@ -121,24 +121,66 @@ jobs:
               cp .github/extract-app-heap.awk "_site/memory-analysis/extract-app-heap.awk"
               chmod +x "_site/memory-analysis/extract-app-heap.awk"
               
-              # Run the AWK script to filter the massif report
-              awk -f "_site/memory-analysis/extract-app-heap.awk" "_site/memory-analysis/massif-full-report.txt" > "_site/memory-analysis/app-heap-report.txt"
+              # Debug: Check if the AWK script was copied properly
+              echo "Checking AWK script:"
+              ls -la "_site/memory-analysis/extract-app-heap.awk"
+              head -n 5 "_site/memory-analysis/extract-app-heap.awk"
+              
+              # Debug: Check the first few lines of the massif report
+              echo "Checking massif report format:"
+              head -n 10 "_site/memory-analysis/massif-full-report.txt"
+              
+              # Run the AWK script
+              echo "Running AWK script..."
+              if ! awk -f "_site/memory-analysis/extract-app-heap.awk" "_site/memory-analysis/massif-full-report.txt" > "_site/memory-analysis/app-heap-report.txt" 2>"_site/memory-analysis/awk-error.log"; then
+                echo "AWK script failed. Error output:"
+                cat "_site/memory-analysis/awk-error.log"
+                # Create an empty app-heap-report.txt to allow the workflow to continue
+                echo "# Fallback: Creating empty app heap report" > "_site/memory-analysis/app-heap-report.txt"
+                echo "heap_tree=peak" >> "_site/memory-analysis/app-heap-report.txt"
+                echo "n1: 0 (heap allocation functions) malloc/new/new[], --alloc-fns, etc." >> "_site/memory-analysis/app-heap-report.txt"
+                echo " n0: 0 in 0 places, all below massif's threshold" >> "_site/memory-analysis/app-heap-report.txt"
+              else
+                echo "AWK script completed successfully"
+              fi
               
               # Also extract peak heap sizes that are actually from the application
-              grep -A 10 "heap_tree=peak" "_site/memory-analysis/app-heap-report.txt" | grep -m1 -A3 '[0-9]\.[0-9]\+%' > "_site/memory-analysis/app-peak-heap.txt"
+              echo "Extracting peak heap sizes from app-heap-report.txt"
+              if ! grep -A 10 "heap_tree=peak" "_site/memory-analysis/app-heap-report.txt" | grep -m1 -A3 '[0-9]\.[0-9]\+%\|[0-9]%' > "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null; then
+                # Try alternate format for matching percentages
+                grep -A 10 "heap_tree=peak" "_site/memory-analysis/app-heap-report.txt" | grep -m1 -A3 'n[0-9]\+:' > "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null || true
+              fi
               
-              # Create a JSON file with application-focused metrics
-              APP_PEAK_HEAP=$(grep "total:" "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null | awk '{print $2}' | tr -d ',' || echo "0")
+              # Make sure app-peak-heap.txt exists even if empty
+              touch "_site/memory-analysis/app-peak-heap.txt"
+              
+              # Show extracted peak heap information
+              echo "Extracted peak heap information:"
+              cat "_site/memory-analysis/app-peak-heap.txt" || echo "No peak heap information found"
+              
+              # Process application heap metrics
+              # Try different patterns to extract the peak heap value
+              APP_PEAK_HEAP=$(grep "total:" "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null | awk '{print $2}' | tr -d ',' || echo "")
+              
+              # If that didn't work, try another common format
+              if [ -z "$APP_PEAK_HEAP" ]; then
+                APP_PEAK_HEAP=$(grep -E "n[0-9]+:" "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null | head -1 | awk '{print $2}' | tr -d ',' || echo "")
+              fi
+              
+              # If still empty, try looking for any number
+              if [ -z "$APP_PEAK_HEAP" ]; then
+                APP_PEAK_HEAP=$(grep -Eo '[0-9]+' "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null | head -1 || echo "0")
+              fi
               
               # Convert to integer if found, otherwise use 0
               if [ -z "$APP_PEAK_HEAP" ]; then
                 APP_PEAK_HEAP=0
+                echo "No application peak heap value found, defaulting to 0"
               else
                 # Remove commas if present
                 APP_PEAK_HEAP=$(echo $APP_PEAK_HEAP | tr -d ',')
+                echo "Found application peak heap usage: $APP_PEAK_HEAP bytes"
               fi
-              
-              echo "Application peak heap usage: $APP_PEAK_HEAP bytes"
               
               # Create or update valgrind-metrics.json with app heap
               if [ -f "_site/memory-analysis/valgrind-metrics.json" ]; then
@@ -184,18 +226,55 @@ jobs:
               fi
               
               # Run the AWK script
-              awk -f "_site/memory-analysis/extract-app-heap.awk" "_site/memory-analysis/massif-full-report.txt" > "_site/memory-analysis/app-heap-report.txt"
-              grep -A 10 "heap_tree=peak" "_site/memory-analysis/app-heap-report.txt" | grep -m1 -A3 '[0-9]\.[0-9]\+%' > "_site/memory-analysis/app-peak-heap.txt"
+              echo "Running AWK script..."
+              if ! awk -f "_site/memory-analysis/extract-app-heap.awk" "_site/memory-analysis/massif-full-report.txt" > "_site/memory-analysis/app-heap-report.txt" 2>"_site/memory-analysis/awk-error.log"; then
+                echo "AWK script failed. Error output:"
+                cat "_site/memory-analysis/awk-error.log"
+                # Create an empty app-heap-report.txt to allow the workflow to continue
+                echo "# Fallback: Creating empty app heap report" > "_site/memory-analysis/app-heap-report.txt"
+                echo "heap_tree=peak" >> "_site/memory-analysis/app-heap-report.txt"
+                echo "n1: 0 (heap allocation functions) malloc/new/new[], --alloc-fns, etc." >> "_site/memory-analysis/app-heap-report.txt"
+                echo " n0: 0 in 0 places, all below massif's threshold" >> "_site/memory-analysis/app-heap-report.txt"
+              else
+                echo "AWK script completed successfully"
+              fi
+              
+              # Also extract peak heap sizes that are actually from the application
+              echo "Extracting peak heap sizes from app-heap-report.txt"
+              if ! grep -A 10 "heap_tree=peak" "_site/memory-analysis/app-heap-report.txt" | grep -m1 -A3 '[0-9]\.[0-9]\+%\|[0-9]%' > "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null; then
+                # Try alternate format for matching percentages
+                grep -A 10 "heap_tree=peak" "_site/memory-analysis/app-heap-report.txt" | grep -m1 -A3 'n[0-9]\+:' > "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null || true
+              fi
+              
+              # Make sure app-peak-heap.txt exists even if empty
+              touch "_site/memory-analysis/app-peak-heap.txt"
+              
+              # Show extracted peak heap information
+              echo "Extracted peak heap information:"
+              cat "_site/memory-analysis/app-peak-heap.txt" || echo "No peak heap information found"
               
               # Process application heap metrics
-              APP_PEAK_HEAP=$(grep "total:" "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null | awk '{print $2}' | tr -d ',' || echo "0")
+              # Try different patterns to extract the peak heap value
+              APP_PEAK_HEAP=$(grep "total:" "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null | awk '{print $2}' | tr -d ',' || echo "")
+              
+              # If that didn't work, try another common format
+              if [ -z "$APP_PEAK_HEAP" ]; then
+                APP_PEAK_HEAP=$(grep -E "n[0-9]+:" "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null | head -1 | awk '{print $2}' | tr -d ',' || echo "")
+              fi
+              
+              # If still empty, try looking for any number
+              if [ -z "$APP_PEAK_HEAP" ]; then
+                APP_PEAK_HEAP=$(grep -Eo '[0-9]+' "_site/memory-analysis/app-peak-heap.txt" 2>/dev/null | head -1 || echo "0")
+              fi
               
               # Convert to integer if found, otherwise use 0
               if [ -z "$APP_PEAK_HEAP" ]; then
                 APP_PEAK_HEAP=0
+                echo "No application peak heap value found, defaulting to 0"
               else
-                # Remove commas if present  
+                # Remove commas if present
                 APP_PEAK_HEAP=$(echo $APP_PEAK_HEAP | tr -d ',')
+                echo "Found application peak heap usage: $APP_PEAK_HEAP bytes"
               fi
               
               echo "Application peak heap usage: $APP_PEAK_HEAP bytes"
