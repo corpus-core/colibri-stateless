@@ -1,0 +1,72 @@
+#!/usr/bin/awk -f
+
+# AWK script to extract application-specific heap allocations from Massif output
+# Excludes system library allocations (ld.so, libc, etc.)
+
+BEGIN {
+    in_snapshot = 0
+    in_heap_tree = 0
+    is_app_related = 0
+    buffer = ""
+    snapshot_buffer = ""
+}
+
+# Start of a snapshot section
+/^\-\-\-\-/ && /time/ {
+    in_snapshot = 1
+    snapshot_buffer = $0 "\n"
+    next
+}
+
+# Detect heap tree sections
+/heap_tree=/ {
+    in_heap_tree = 1
+    buffer = $0 "\n"
+    is_app_related = 0
+    next
+}
+
+# Process lines when in a heap tree section
+in_heap_tree {
+    buffer = buffer $0 "\n"
+    
+    # Check if this line contains application code (not system libraries)
+    # Exclude common system paths and functions
+    if ($0 ~ /\/usr\/lib\// || $0 ~ /ld-linux/ || $0 ~ /libc\.so/ || 
+        $0 ~ /dl_/ || $0 ~ /_dl_/ || $0 ~ /\/lib\/x86_64-linux-gnu\// ||
+        $0 ~ /mmap/ || $0 ~ /brk/ || $0 ~ /__glibc_/) {
+        # This is a system library call - do nothing special
+    } else if ($0 !~ /^[ |]*$/) {
+        # This line contains something not from system libraries
+        is_app_related = 1
+    }
+    
+    # End of heap tree section
+    if ($0 ~ /^\s*$/) {
+        in_heap_tree = 0
+        # Only print heap trees that contain application code
+        if (is_app_related) {
+            print buffer
+        }
+        buffer = ""
+    }
+    next
+}
+
+# Process snapshot header lines
+in_snapshot {
+    snapshot_buffer = snapshot_buffer $0 "\n"
+    
+    # End of snapshot header
+    if ($0 ~ /^\s*$/) {
+        print snapshot_buffer
+        in_snapshot = 0
+        snapshot_buffer = ""
+    }
+    next
+}
+
+# Always print non-snapshot, non-heap-tree lines
+!in_snapshot && !in_heap_tree {
+    print
+} 

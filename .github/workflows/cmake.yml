@@ -170,10 +170,28 @@ jobs:
             --max-snapshots=100 \
             --threshold=0.1 \
             --stacks=yes \
-            --pages-as-heap=yes \
+            --pages-as-heap=no \
             --heap=yes \
             --ignore-fn=dl_start \
             --ignore-fn=_dl_start \
+            --ignore-fn=_dl_* \
+            --ignore-fn=dl_* \
+            --ignore-fn=__GI_* \
+            --ignore-fn=__libc_* \
+            --ignore-fn=malloc \
+            --ignore-fn=calloc \
+            --ignore-fn=realloc \
+            --ignore-fn=free \
+            --ignore-fn=__malloc_* \
+            --ignore-fn=__realloc_* \
+            --ignore-fn=__calloc_* \
+            --ignore-fn=__free_* \
+            --ignore-fn=*mmap* \
+            --ignore-fn=*brk* \
+            --ignore-fn=tcache* \
+            --ignore-fn=sbrk \
+            --ignore-fn=sysmalloc \
+            --ignore-fn=_int_malloc \
             --massif-out-file=massif.out \
             $TEST_BINARY
 
