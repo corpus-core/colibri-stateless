@@ -85,9 +85,8 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections -static 
 set(CMAKE_BUILD_TYPE "MinSizeRel" CACHE STRING "Build type")
 
 # Add target-specific definitions
-add_definitions(-DSTATIC_MEMORY)
+add_definitions(-DC4_STATIC_MEMORY)
 add_definitions(-DBLST_PORTABLE)
-add_definitions(-DBLS_DESERIALIZE)
 add_definitions(-D__STDC_FORMAT_MACROS)
 add_definitions(-D_POSIX_C_SOURCE=200809L)
 add_definitions(-DEMBEDDED)
