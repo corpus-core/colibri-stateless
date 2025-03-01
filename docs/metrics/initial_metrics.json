@@ -5,6 +5,10 @@
         "heap_size": 0,
         "stack_size": 0,
         "executable_size": "0",
+        "text_size": "0",
+        "data_size": "0",
+        "bss_size": "0",
+        "total_size": "0",
         "coverage": 0,
         "static_analysis": "null"
     }

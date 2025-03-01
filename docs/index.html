@@ -39,6 +39,17 @@
       <div class="col-md-6">
         <div class="card">
           <div class="card-header">
+            <h5>Embedded Metrics Over Time</h5>
+          </div>
+          <div class="card-body">
+            <canvas id="embeddedMetricsChart"></canvas>
+          </div>
+        </div>
+      </div>
+      
+      <div class="col-md-6">
+        <div class="card">
+          <div class="card-header">
             <h5>Latest Static Analysis</h5>
           </div>
           <div class="card-body">
@@ -54,7 +65,9 @@
           </div>
         </div>
       </div>
-      
+    </div>
+    
+    <div class="row mb-4">
       <div class="col-md-6">
         <div class="card">
           <div class="card-header">
@@ -83,7 +96,7 @@
   
   <script>
     // Fetch the metrics data
-    fetch('./metrics/initial_metrics.json')
+    fetch('./metrics/metrics.json')
       .then(response => response.json())
       .then(data => {
         // Sort data by date
@@ -99,6 +112,12 @@
         const heapSizes = data.map(entry => entry.heap_size === null ? null : entry.heap_size / 1024); // Convert to KB
         const stackSizes = data.map(entry => entry.stack_size === null ? null : entry.stack_size / 1024); // Convert to KB
         const coverageValues = data.map(entry => entry.coverage);
+        
+        // Extract embedded metrics
+        const textSizes = data.map(entry => entry.text_size === "null" ? null : parseFloat(entry.text_size));
+        const dataSizes = data.map(entry => entry.data_size === "null" ? null : parseFloat(entry.data_size));
+        const bssSizes = data.map(entry => entry.bss_size === "null" ? null : parseFloat(entry.bss_size));
+        const totalSizes = data.map(entry => entry.total_size === "null" ? null : parseFloat(entry.total_size));
         
         // Create memory chart
         const memoryCtx = document.getElementById('memoryChart').getContext('2d');
@@ -208,6 +227,56 @@
             }
           });
         }
+        
+        // Create embedded metrics chart
+        const embeddedCtx = document.getElementById('embeddedMetricsChart').getContext('2d');
+        new Chart(embeddedCtx, {
+          type: 'line',
+          data: {
+            labels: dates,
+            datasets: [
+              {
+                label: 'Text Size (KB)',
+                data: textSizes,
+                borderColor: 'rgba(255, 159, 64, 1)',
+                backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                tension: 0.1
+              },
+              {
+                label: 'Data Size (KB)',
+                data: dataSizes,
+                borderColor: 'rgba(75, 192, 192, 1)',
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                tension: 0.1
+              },
+              {
+                label: 'BSS Size (KB)',
+                data: bssSizes,
+                borderColor: 'rgba(153, 102, 255, 1)',
+                backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                tension: 0.1
+              },
+              {
+                label: 'Total Size (KB)',
+                data: totalSizes,
+                borderColor: 'rgba(54, 162, 235, 1)',
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                tension: 0.1
+              }
+            ]
+          },
+          options: {
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: 'Size (KB)'
+                }
+              }
+            }
+          }
+        });
       })
       .catch(error => console.error('Error loading metrics:', error));
       
