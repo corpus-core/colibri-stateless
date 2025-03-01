@@ -27,7 +27,7 @@ if(EMBEDDED)
     set(CLI OFF)
     set(STATIC_MEMORY ON)
     set(BLS_DESERIALIZE OFF)
-    
+        
     # Force portable implementations
     add_definitions(-DBLST_PORTABLE -DEMBEDDED)
     set(BLS_SIGNATURES_BUILD_SHARED_LIBS OFF)

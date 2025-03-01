@@ -30,11 +30,13 @@ jobs:
           cmake -B build -S . \
             -DCMAKE_TOOLCHAIN_FILE=$PWD/test/embedded/toolchain.cmake \
             -DEMBEDDED=ON \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCURL=OFF \
             -DPROOFER=OFF \
             -DCLI=OFF \
             -DINCLUDE=test/embedded
+          cat build/compile_commands.json
 
       - name: Build verifier
         run: |
