@@ -39,7 +39,7 @@ jobs:
         run: |
           mkdir -p build
           cmake -B build -S . \
-            -DCMAKE_TOOLCHAIN_FILE=$PWD/test/embedded/toolchain.cmake \
+            -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/test/embedded/toolchain.cmake \
             -DEMBEDDED=ON \
             -DEMBEDDED_ASM_M_PROFILE=ON \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
@@ -56,7 +56,7 @@ jobs:
           cd build
 
           # Configure with architecture profile option and verbose output
-          cmake -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake -DEMBEDDED=ON -DBOARD=qemu_embedded -DEMBEDDED_TEST=ON -DEMBEDDED_ASM_M_PROFILE=ON -DCMAKE_VERBOSE_MAKEFILE=ON ..
+          cmake -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/test/embedded/toolchain.cmake -DEMBEDDED=ON -DBOARD=qemu_embedded -DEMBEDDED_TEST=ON -DEMBEDDED_ASM_M_PROFILE=ON -DCMAKE_VERBOSE_MAKEFILE=ON ..
 
           # Display assembly flags being used
           echo "CMAKE_ASM_FLAGS: $(cmake -LA -N . | grep CMAKE_ASM_FLAGS)"
