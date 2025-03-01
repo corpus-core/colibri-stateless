@@ -722,8 +722,8 @@ jobs:
                     <div class="card-body">
                       <canvas id="memoryChart"></canvas>
                       <div class="mt-3 small text-muted">
-                        <p><strong>Application Heap</strong> shows memory allocated by your application code only, filtering out system allocations.</p>
-                        <p><strong>Peak Heap</strong> shows total memory including system libraries.</p>
+                        <p><strong>Peak Heap</strong> shows total memory allocation peak during program execution.</p>
+                        <p><strong>Peak Stack</strong> shows maximum stack usage during program execution.</p>
                       </div>
                     </div>
                   </div>
@@ -820,7 +820,6 @@ jobs:
                               <th>Total Size (KB)</th>
                               <th>Peak Heap (KB)</th>
                               <th>Peak Stack (KB)</th>
-                              <th class="table-primary">App Heap (KB)</th>
                               <th>Coverage (%)</th>
                               <th>Static Analysis</th>
                             </tr>
@@ -971,7 +970,9 @@ jobs:
                 tableBody.innerHTML = '';
                 
                 // Sort data by date (newest first)
-                const sortedData = [...data].sort((a, b) => new Date(b.date) - new Date(a.date));
+                const sortedData = [...data]
+                  .filter(entry => !entry.commit.startsWith('test-')) // Filter out test entries
+                  .sort((a, b) => new Date(b.date) - new Date(a.date));
                 
                 sortedData.forEach(entry => {
                   const row = document.createElement('tr');
@@ -987,7 +988,6 @@ jobs:
                   const totalSize = entry.total_size !== null ? (typeof entry.total_size === 'string' ? parseFloat(entry.total_size) : entry.total_size) : null;
                   const heapSize = entry.heap_size !== null ? (typeof entry.heap_size === 'string' ? parseFloat(entry.heap_size) / 1024 : entry.heap_size / 1024) : null;
                   const stackSize = entry.stack_size !== null ? (typeof entry.stack_size === 'string' ? parseFloat(entry.stack_size) / 1024 : entry.stack_size / 1024) : null;
-                  const appHeapSize = entry.app_heap !== null ? (typeof entry.app_heap === 'string' ? parseFloat(entry.app_heap) / 1024 : entry.app_heap / 1024) : null;
                   
                   // Create row content
                   row.innerHTML = `
@@ -999,7 +999,6 @@ jobs:
                     <td>${formatMetric(totalSize)}</td>
                     <td>${formatMetric(heapSize)}</td>
                     <td>${formatMetric(stackSize)}</td>
-                    <td class="table-primary"><strong>${formatMetric(appHeapSize)}</strong></td>
                     <td>${entry.coverage === null ? 'N/A' : entry.coverage + '%'}</td>
                     <td>${entry.static_analysis === 'pass' ? '✅ Pass' : entry.static_analysis === 'fail' ? '⚠️ Fail' : 'N/A'}</td>
                   `;
@@ -1054,6 +1053,9 @@ jobs:
               fetch('./metrics/metrics.json')
                 .then(response => response.json())
                 .then(data => {
+                  // Filter out test entries
+                  data = data.filter(entry => !entry.commit.startsWith('test-'));
+                  
                   // Sort data by date
                   data.sort((a, b) => new Date(a.date) - new Date(b.date));
                   
@@ -1068,8 +1070,6 @@ jobs:
                     typeof entry.heap_size === 'string' ? parseFloat(entry.heap_size) / 1024 : entry.heap_size / 1024); // Convert to KB
                   const stackSizes = data.map(entry => entry.stack_size === null ? null : 
                     typeof entry.stack_size === 'string' ? parseFloat(entry.stack_size) / 1024 : entry.stack_size / 1024); // Convert to KB
-                  const appHeapSizes = data.map(entry => entry.app_heap === null ? null : 
-                    typeof entry.app_heap === 'string' ? parseFloat(entry.app_heap) / 1024 : entry.app_heap / 1024); // Convert to KB
                   const coverageValues = data.map(entry => entry.coverage);
                   
                   // Extract embedded metrics
@@ -1104,17 +1104,6 @@ jobs:
                           backgroundColor: isDarkMode ? 'rgba(153, 102, 255, 0.1)' : 'rgba(153, 102, 255, 0.2)',
                           tension: 0.1,
                           order: 3
-                        },
-                        {
-                          label: 'Application Heap (KB)',
-                          data: appHeapSizes,
-                          borderColor: colors.appHeap,
-                          backgroundColor: isDarkMode ? 'rgba(255, 99, 132, 0.1)' : 'rgba(255, 99, 132, 0.2)',
-                          tension: 0.1,
-                          borderWidth: 3,
-                          order: 1, // Bring this to front
-                          pointRadius: 5,
-                          pointBackgroundColor: colors.appHeap
                         }
                       ]
                     },
