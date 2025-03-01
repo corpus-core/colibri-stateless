@@ -1,0 +1,10 @@
+[
+    {
+        "commit": "initial",
+        "date": "2023-01-01T00:00:00Z",
+        "heap_size": 0,
+        "stack_size": 0,
+        "executable_size": "0",
+        "coverage": 0
+    }
+]

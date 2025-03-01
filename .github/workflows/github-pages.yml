@@ -1,0 +1,367 @@
+name: Deploy GitHub Pages
+
+on:
+  # Run after the main workflow completes successfully
+  workflow_run:
+    workflows: ["CMake on multiple platforms"]
+    types:
+      - completed
+    branches: [main]
+
+  # Manual trigger option
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # Build job
+  build:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for metrics over time
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Download all artifacts
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: cmake.yml
+          workflow_conclusion: success
+          path: artifacts
+
+      - name: Create metrics directory structure
+        run: |
+          mkdir -p _site/metrics
+          mkdir -p _site/coverage
+          mkdir -p _site/memory-analysis
+          mkdir -p _site/static-analysis
+          cp -R docs/* _site/ || true  # Copy any static content if it exists
+
+      - name: Process coverage report
+        run: |
+          # Extract the most recent coverage report
+          if [ -d "artifacts/coverage-report" ]; then
+            echo "Copying coverage report to _site/coverage/"
+            cp -R artifacts/coverage-report/* _site/coverage/
+          fi
+
+      - name: Process static analysis reports
+        run: |
+          # Extract static analysis reports
+          if [ -d "artifacts/static-analysis-report" ]; then
+            echo "Copying static analysis reports to _site/static-analysis/"
+            cp -R artifacts/static-analysis-report/* _site/static-analysis/
+            
+            # If there's an HTML report, make sure it's accessible
+            if [ -d "artifacts/static-analysis-report/report" ]; then
+              cp -R artifacts/static-analysis-report/report/* _site/static-analysis/
+            fi
+            
+            # Create a status file to indicate if issues were found
+            if [ -f "artifacts/static-analysis-report/analysis_summary.md" ]; then
+              cp artifacts/static-analysis-report/analysis_summary.md _site/static-analysis/
+              # Check if issues were found
+              if grep -q "✅ Static Analysis Results" artifacts/static-analysis-report/analysis_summary.md; then
+                echo '{"status": "success", "message": "No issues found"}' > _site/static-analysis/status.json
+              else
+                echo '{"status": "warning", "message": "Issues found"}' > _site/static-analysis/status.json
+              fi
+            else
+              echo '{"status": "unknown", "message": "No analysis summary found"}' > _site/static-analysis/status.json
+            fi
+          else
+            mkdir -p _site/static-analysis
+            echo '{"status": "unknown", "message": "No static analysis reports found"}' > _site/static-analysis/status.json
+          fi
+
+      - name: Process memory analysis
+        run: |
+          # Extract memory analysis reports
+          if [ -d "artifacts/memory-analysis" ]; then
+            cp -R artifacts/memory-analysis/* _site/memory-analysis/
+          fi
+          if [ -d "artifacts/memory-analysis-reports" ]; then
+            cp -R artifacts/memory-analysis-reports/* _site/memory-analysis/
+          fi
+
+      - name: Create metrics history database
+        run: |
+          # Get commit hash and date
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          COMMIT_DATE=$(git show -s --format=%ci $COMMIT_HASH)
+
+          # Create metrics directory if it doesn't exist
+          mkdir -p metrics-data
+
+          # Check if metrics.json exists; if not, create it
+          if [ ! -f "metrics-data/metrics.json" ]; then
+            echo "[]" > metrics-data/metrics.json
+          fi
+
+          # Extract metrics from artifacts
+
+          # Memory size metrics
+          if [ -f "artifacts/memory-analysis/massif-full-report.txt" ]; then
+            PEAK_HEAP=$(grep "heap_tree=peak" artifacts/memory-analysis/massif-full-report.txt -A 2 | grep "total:" | awk '{print $2}')
+            PEAK_STACK=$(grep "mem_stacks_B" artifacts/memory-analysis/massif-full-report.txt | awk -F= '{if($2>max) max=$2} END{print max}')
+          else
+            PEAK_HEAP="null"
+            PEAK_STACK="null"
+          fi
+
+          # Executable size
+          if [ -d "artifacts/memory-analysis" ]; then
+            # Try to find executable size from memory analysis
+            EXEC_SIZE=$(grep "Executable" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
+          else
+            EXEC_SIZE="null"
+          fi
+
+          # Code coverage metrics
+          if [ -f "artifacts/coverage-report/coverage_summary.txt" ]; then
+            TOTAL_COVERAGE=$(grep "Total coverage:" artifacts/coverage-report/coverage_summary.txt | grep -o '[0-9]*\.[0-9]*%' | sed 's/%//g')
+          else
+            TOTAL_COVERAGE="null"
+          fi
+
+          # Create new metrics entry
+          NEW_METRICS="{\"commit\": \"$COMMIT_HASH\", \"date\": \"$COMMIT_DATE\", \"heap_size\": $PEAK_HEAP, \"stack_size\": $PEAK_STACK, \"executable_size\": \"$EXEC_SIZE\", \"coverage\": $TOTAL_COVERAGE}"
+
+          # Add new metrics to the JSON file
+          jq ". + [$NEW_METRICS]" metrics-data/metrics.json > temp.json && mv temp.json metrics-data/metrics.json
+
+          # Copy metrics data to site
+          cp metrics-data/metrics.json _site/metrics/
+
+      - name: Create visualization pages
+        run: |
+          # Create index.html
+          cat > _site/index.html << 'EOL'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Colibri Project Metrics</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+          </head>
+          <body>
+            <div class="container mt-5">
+              <h1 class="mb-4">Colibri Project Metrics</h1>
+              
+              <div class="row mb-4">
+                <div class="col-md-6">
+                  <div class="card">
+                    <div class="card-header">
+                      <h5>Memory Usage Over Time</h5>
+                    </div>
+                    <div class="card-body">
+                      <canvas id="memoryChart"></canvas>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="col-md-6">
+                  <div class="card">
+                    <div class="card-header">
+                      <h5>Code Coverage Over Time</h5>
+                    </div>
+                    <div class="card-body">
+                      <canvas id="coverageChart"></canvas>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="row mb-4">
+                <div class="col-md-6">
+                  <div class="card">
+                    <div class="card-header">
+                      <h5>Latest Static Analysis</h5>
+                    </div>
+                    <div class="card-body">
+                      <div id="staticAnalysisStatus" class="alert" role="alert">
+                        Loading static analysis status...
+                      </div>
+                      <div class="mt-3">
+                        <a href="./static-analysis/index.html" class="btn btn-outline-primary" id="viewStaticAnalysisBtn">View Static Analysis Report</a>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="col-md-6">
+                  <div class="card">
+                    <div class="card-header">
+                      <h5>Latest Reports</h5>
+                    </div>
+                    <div class="card-body">
+                      <ul class="list-group">
+                        <li class="list-group-item">
+                          <a href="./coverage/index.html">Coverage Report</a>
+                        </li>
+                        <li class="list-group-item">
+                          <a href="./memory-analysis/massif-full-report.txt">Memory Analysis Report</a>
+                        </li>
+                        <li class="list-group-item">
+                          <a href="./static-analysis/analysis_summary.md">Static Analysis Summary</a>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <script>
+              // Fetch the metrics data
+              fetch('./metrics/metrics.json')
+                .then(response => response.json())
+                .then(data => {
+                  // Sort data by date
+                  data.sort((a, b) => new Date(a.date) - new Date(b.date));
+                  
+                  // Format dates for display
+                  const dates = data.map(entry => {
+                    const date = new Date(entry.date);
+                    return date.toLocaleDateString();
+                  });
+                  
+                  // Extract metrics
+                  const heapSizes = data.map(entry => entry.heap_size === null ? null : entry.heap_size / 1024); // Convert to KB
+                  const stackSizes = data.map(entry => entry.stack_size === null ? null : entry.stack_size / 1024); // Convert to KB
+                  const coverageValues = data.map(entry => entry.coverage);
+                  
+                  // Create memory chart
+                  const memoryCtx = document.getElementById('memoryChart').getContext('2d');
+                  new Chart(memoryCtx, {
+                    type: 'line',
+                    data: {
+                      labels: dates,
+                      datasets: [
+                        {
+                          label: 'Peak Heap (KB)',
+                          data: heapSizes,
+                          borderColor: 'rgba(75, 192, 192, 1)',
+                          backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                          tension: 0.1
+                        },
+                        {
+                          label: 'Peak Stack (KB)',
+                          data: stackSizes,
+                          borderColor: 'rgba(153, 102, 255, 1)',
+                          backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                          tension: 0.1
+                        }
+                      ]
+                    },
+                    options: {
+                      scales: {
+                        y: {
+                          beginAtZero: true,
+                          title: {
+                            display: true,
+                            text: 'Size (KB)'
+                          }
+                        }
+                      }
+                    }
+                  });
+                  
+                  // Create coverage chart
+                  const coverageCtx = document.getElementById('coverageChart').getContext('2d');
+                  new Chart(coverageCtx, {
+                    type: 'line',
+                    data: {
+                      labels: dates,
+                      datasets: [{
+                        label: 'Code Coverage (%)',
+                        data: coverageValues,
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        tension: 0.1
+                      }]
+                    },
+                    options: {
+                      scales: {
+                        y: {
+                          beginAtZero: true,
+                          max: 100,
+                          title: {
+                            display: true,
+                            text: 'Coverage (%)'
+                          }
+                        }
+                      }
+                    }
+                  });
+                })
+                .catch(error => console.error('Error loading metrics:', error));
+                
+              // Fetch static analysis status
+              fetch('./static-analysis/status.json')
+                .then(response => response.json())
+                .then(data => {
+                  const statusElement = document.getElementById('staticAnalysisStatus');
+                  const reportBtn = document.getElementById('viewStaticAnalysisBtn');
+                  
+                  if (data.status === 'success') {
+                    statusElement.className = 'alert alert-success';
+                    statusElement.textContent = '✅ No static analysis issues found';
+                  } else if (data.status === 'warning') {
+                    statusElement.className = 'alert alert-warning';
+                    statusElement.textContent = '⚠️ Static analysis issues found';
+                  } else {
+                    statusElement.className = 'alert alert-secondary';
+                    statusElement.textContent = 'ℹ️ ' + data.message;
+                  }
+                  
+                  // Update report button href based on available files
+                  fetch('./static-analysis/index.html')
+                    .then(() => {
+                      // HTML report exists, keep default link
+                    })
+                    .catch(() => {
+                      // HTML report doesn't exist, update button to analysis summary
+                      reportBtn.href = './static-analysis/analysis_summary.md';
+                    });
+                })
+                .catch(error => {
+                  const statusElement = document.getElementById('staticAnalysisStatus');
+                  statusElement.className = 'alert alert-secondary';
+                  statusElement.textContent = 'ℹ️ Static analysis status not available';
+                });
+            </script>
+          </body>
+          </html>
+          EOL
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+
+  # Deployment job
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

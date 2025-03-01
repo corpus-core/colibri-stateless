@@ -83,6 +83,16 @@ jobs:
           arm-none-eabi-size --format=berkeley build/test/embedded/verify_embedded.elf > memory_analysis/size_summary.txt
           arm-none-eabi-size --format=berkeley build/test/embedded/minimal_verify.elf >> memory_analysis/size_summary.txt
 
+          # Create a simple metrics file for easier parsing later
+          echo "{" > memory_analysis/metrics.json
+          echo "  \"text_size\": $TEXT_SIZE," >> memory_analysis/metrics.json
+          echo "  \"data_size\": $DATA_SIZE," >> memory_analysis/metrics.json
+          echo "  \"bss_size\": $BSS_SIZE," >> memory_analysis/metrics.json
+          echo "  \"total_size\": $TOTAL_SIZE," >> memory_analysis/metrics.json
+          echo "  \"commit\": \"$(git rev-parse --short HEAD)\"," >> memory_analysis/metrics.json
+          echo "  \"date\": \"$(git show -s --format=%ci HEAD)\"" >> memory_analysis/metrics.json
+          echo "}" >> memory_analysis/metrics.json
+
       - name: Upload memory analysis
         uses: actions/upload-artifact@v4
         with:
@@ -198,6 +208,20 @@ jobs:
           cp memcheck.out memory-analysis/
           cp massif.out memory-analysis/
 
+          # Extract metrics for JSON format
+          PEAK_HEAP=$(awk '/heap_tree=peak/{getline; split($0,a," "); print a[2]}' massif.out)
+          PEAK_STACK=$(awk '/mem_stacks_B/{split($0,a,"="); if(a[2]>max) max=a[2]} END{print max}' massif.out)
+          EXEC_SIZE=$(ls -l $TEST_BINARY_MINSIZE | awk '{print $5}')
+
+          # Create JSON metrics file
+          echo "{" > memory-analysis/valgrind-metrics.json
+          echo "  \"peak_heap\": $PEAK_HEAP," >> memory-analysis/valgrind-metrics.json
+          echo "  \"peak_stack\": $PEAK_STACK," >> memory-analysis/valgrind-metrics.json
+          echo "  \"executable_size\": $EXEC_SIZE," >> memory-analysis/valgrind-metrics.json
+          echo "  \"commit\": \"$(git rev-parse --short HEAD)\"," >> memory-analysis/valgrind-metrics.json
+          echo "  \"date\": \"$(git show -s --format=%ci HEAD)\"" >> memory-analysis/valgrind-metrics.json
+          echo "}" >> memory-analysis/valgrind-metrics.json
+
           # Write summary to GitHub step summary
           cat memory_summary.md >> $GITHUB_STEP_SUMMARY
 
@@ -272,6 +296,34 @@ jobs:
             echo "## 🔄 Static Analysis Issues" > ../analysis_summary.md
             echo "" >> ../analysis_summary.md
             
+            # Organize the HTML reports for GitHub Pages
+            mkdir -p static-analysis-report/report
+            
+            # Find the latest HTML report directory (created by scan-build)
+            LATEST_REPORT=$(find scan-build-results -type d -name "20*" | sort | tail -n 1)
+            
+            if [ -n "$LATEST_REPORT" ] && [ -d "$LATEST_REPORT" ]; then
+              # Copy the HTML report to our report directory
+              cp -R $LATEST_REPORT/* static-analysis-report/report/
+              
+              # Create an index.html file that redirects to the actual report
+              REPORT_INDEX=$(find static-analysis-report/report -name "index.html")
+              REPORT_PATH=$(basename $(dirname $REPORT_INDEX))
+              
+              # Create a simple redirect index if needed
+              if [ "$REPORT_PATH" != "report" ]; then
+                echo '<!DOCTYPE html>
+                <html>
+                <head>
+                  <meta http-equiv="refresh" content="0; url='$REPORT_PATH'/index.html">
+                </head>
+                <body>
+                  <p>Redirecting to <a href="'$REPORT_PATH'/index.html">static analysis report</a>...</p>
+                </body>
+                </html>' > static-analysis-report/report/index.html
+              fi
+            fi
+            
             # Exit with the scan-build status code if bugs were found
             exit $SCAN_EXIT_CODE
           fi
@@ -279,6 +331,10 @@ jobs:
       - name: Generate Analysis Summary
         if: always()
         run: |
+          # Copy analysis summary to the report directory
+          mkdir -p build/static-analysis-report
+          cp analysis_summary.md build/static-analysis-report/
+
           {
             # Include the analysis summary
             cat analysis_summary.md
@@ -360,7 +416,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: static-analysis-report
-          path: build/scan-build-results
+          path: build/static-analysis-report
           if-no-files-found: warn
 
   code_coverage:
@@ -427,7 +483,16 @@ jobs:
 
             # Add total coverage at the end
             echo "" >> coverage_summary.txt
-            echo "**Total coverage:** $(gcovr --exclude 'libs.*' --exclude 'build.*' --exclude 'test.*' --exclude 'src.cli.*' | grep 'TOTAL' | awk '{print $4}')" >> coverage_summary.txt
+            TOTAL_COVERAGE=$(gcovr --exclude 'libs.*' --exclude 'build.*' --exclude 'test.*' --exclude 'src.cli.*' | grep 'TOTAL' | awk '{print $4}')
+            echo "**Total coverage:** $TOTAL_COVERAGE" >> coverage_summary.txt
+            
+            # Create JSON metrics file
+            TOTAL_COVERAGE_NUM=$(echo $TOTAL_COVERAGE | sed 's/%//')
+            echo "{" > build/coverage-report/coverage-metrics.json
+            echo "  \"total_coverage\": $TOTAL_COVERAGE_NUM," >> build/coverage-report/coverage-metrics.json
+            echo "  \"commit\": \"$(git rev-parse --short HEAD)\"," >> build/coverage-report/coverage-metrics.json
+            echo "  \"date\": \"$(git show -s --format=%ci HEAD)\"" >> build/coverage-report/coverage-metrics.json
+            echo "}" >> build/coverage-report/coverage-metrics.json
           } > coverage_summary.txt
 
           # Add the summary to both the step summary and the coverage report directory
