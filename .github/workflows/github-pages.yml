@@ -37,7 +37,7 @@ jobs:
         uses: actions/configure-pages@v4
 
       - name: Download all artifacts
-        uses: dawidd6/action-download-artifact@v3
+        uses: dawidd6/action-download-artifact@v6
         with:
           workflow: cmake.yml
           workflow_conclusion: success
