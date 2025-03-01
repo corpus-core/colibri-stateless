@@ -13,9 +13,11 @@
 #define C4_STATIC_KEYS_48_SIZE 512 * 48
 // Static buffers for embedded targets
 static uint8_t state_buffer[C4_STATIC_STATE_SIZE];
-static uint8_t sync_buffer[C4_STATIC_SYNC_SIZE];
 #ifdef BLS_DESERIALIZE
+static uint8_t sync_buffer[C4_STATIC_SYNC_SIZE];
 static uint8_t keys_48_buffer[C4_STATIC_KEYS_48_SIZE];
+#else
+static uint8_t sync_buffer[C4_STATIC_KEYS_48_SIZE];
 #endif
 #endif
 

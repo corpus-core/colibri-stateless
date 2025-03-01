@@ -26,6 +26,7 @@ if(EMBEDDED)
     set(PROOFER OFF)
     set(CLI OFF)
     set(STATIC_MEMORY ON)
+    set(BLS_DESERIALIZE OFF)
     
     # Force portable implementations
     add_definitions(-DBLST_PORTABLE -DEMBEDDED)
