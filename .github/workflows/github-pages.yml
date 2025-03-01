@@ -48,6 +48,15 @@ jobs:
           echo "Listing all downloaded artifacts:"
           find artifacts -type f | sort
 
+          echo -e "\nDetailed directory structure of artifacts:"
+          find artifacts -type d | sort
+
+          echo -e "\nLooking for valgrind-metrics.json files:"
+          find artifacts -name "valgrind-metrics.json" | sort
+
+          echo -e "\nLooking for massif-full-report.txt files:"
+          find artifacts -name "massif-full-report.txt" | sort
+
       - name: Create metrics directory structure
         run: |
           mkdir -p _site/metrics
@@ -97,11 +106,28 @@ jobs:
         run: |
           # Extract memory analysis reports
           if [ -d "artifacts/memory-analysis" ]; then
+            echo "Found memory-analysis artifact, copying to _site/memory-analysis/"
+            mkdir -p _site/memory-analysis
             cp -R artifacts/memory-analysis/* _site/memory-analysis/
+            echo "Contents of memory-analysis:"
+            find artifacts/memory-analysis -type f | sort
+          else
+            echo "No memory-analysis artifact found"
           fi
+
           if [ -d "artifacts/memory-analysis-reports" ]; then
+            echo "Found memory-analysis-reports artifact, copying to _site/memory-analysis/"
+            mkdir -p _site/memory-analysis
             cp -R artifacts/memory-analysis-reports/* _site/memory-analysis/
+            echo "Contents of memory-analysis-reports:"
+            find artifacts/memory-analysis-reports -type f | sort
+          else
+            echo "No memory-analysis-reports artifact found"
           fi
+
+          # List resulting files in the site directory for verification
+          echo "Final contents of _site/memory-analysis:"
+          find _site/memory-analysis -type f | sort 2>/dev/null || echo "No files found in _site/memory-analysis"
 
       - name: Create metrics history database
         run: |
@@ -140,8 +166,28 @@ jobs:
           fi
 
           # Memory size metrics
-          if [ -f "artifacts/memory-analysis/valgrind-metrics.json" ]; then
-            echo "Using pre-generated valgrind metrics from memory-analysis job"
+          if [ -f "artifacts/memory-analysis-reports/valgrind-metrics.json" ]; then
+            echo "Using pre-generated valgrind metrics from memory-analysis-reports artifact"
+            cat artifacts/memory-analysis-reports/valgrind-metrics.json
+            
+            # Extract heap and stack metrics from valgrind-metrics.json
+            PEAK_HEAP=$(grep -o '"peak_heap": [^,]*' artifacts/memory-analysis-reports/valgrind-metrics.json | awk '{print $2}')
+            PEAK_STACK=$(grep -o '"peak_stack": [^,]*' artifacts/memory-analysis-reports/valgrind-metrics.json | awk '{print $2}')
+            
+            echo "Extracted peak heap: $PEAK_HEAP"
+            echo "Extracted peak stack: $PEAK_STACK"
+            
+            # Ensure values are not empty
+            if [ -z "$PEAK_HEAP" ]; then
+              PEAK_HEAP="null"
+              echo "Empty PEAK_HEAP, setting to null"
+            fi
+            if [ -z "$PEAK_STACK" ]; then
+              PEAK_STACK="null"
+              echo "Empty PEAK_STACK, setting to null"
+            fi
+          elif [ -f "artifacts/memory-analysis/valgrind-metrics.json" ]; then
+            echo "Using pre-generated valgrind metrics from memory-analysis artifact"
             cat artifacts/memory-analysis/valgrind-metrics.json
             
             # Extract heap and stack metrics from valgrind-metrics.json
@@ -162,7 +208,21 @@ jobs:
             fi
           else
             # Fallback to parsing massif-full-report.txt if valgrind-metrics.json doesn't exist
-            if [ -f "artifacts/memory-analysis/massif-full-report.txt" ]; then
+            if [ -f "artifacts/memory-analysis-reports/massif-full-report.txt" ]; then
+              PEAK_HEAP=$(grep "heap_tree=peak" artifacts/memory-analysis-reports/massif-full-report.txt -A 2 | grep "total:" | awk '{print $2}')
+              PEAK_STACK=$(grep "mem_stacks_B" artifacts/memory-analysis-reports/massif-full-report.txt | awk -F= '{if($2>max) max=$2} END{print max}')
+              echo "Extracted peak heap: $PEAK_HEAP, peak stack: $PEAK_STACK"
+              
+              # Ensure values are not empty
+              if [ -z "$PEAK_HEAP" ]; then
+                PEAK_HEAP="null"
+                echo "Empty PEAK_HEAP, setting to null"
+              fi
+              if [ -z "$PEAK_STACK" ]; then
+                PEAK_STACK="null"
+                echo "Empty PEAK_STACK, setting to null"
+              fi
+            elif [ -f "artifacts/memory-analysis/massif-full-report.txt" ]; then
               PEAK_HEAP=$(grep "heap_tree=peak" artifacts/memory-analysis/massif-full-report.txt -A 2 | grep "total:" | awk '{print $2}')
               PEAK_STACK=$(grep "mem_stacks_B" artifacts/memory-analysis/massif-full-report.txt | awk -F= '{if($2>max) max=$2} END{print max}')
               echo "Extracted peak heap: $PEAK_HEAP, peak stack: $PEAK_STACK"
@@ -177,7 +237,7 @@ jobs:
                 echo "Empty PEAK_STACK, setting to null"
               fi
             else
-              echo "Warning: neither valgrind-metrics.json nor massif-full-report.txt found"
+              echo "Warning: valgrind-metrics.json and massif-full-report.txt not found in either artifact"
               PEAK_HEAP="null"
               PEAK_STACK="null"
             fi
