@@ -139,17 +139,48 @@ jobs:
             fi
           fi
 
-          # Extract metrics from artifacts
-
           # Memory size metrics
-          if [ -f "artifacts/memory-analysis/massif-full-report.txt" ]; then
-            PEAK_HEAP=$(grep "heap_tree=peak" artifacts/memory-analysis/massif-full-report.txt -A 2 | grep "total:" | awk '{print $2}')
-            PEAK_STACK=$(grep "mem_stacks_B" artifacts/memory-analysis/massif-full-report.txt | awk -F= '{if($2>max) max=$2} END{print max}')
-            echo "Extracted peak heap: $PEAK_HEAP, peak stack: $PEAK_STACK"
+          if [ -f "artifacts/memory-analysis/valgrind-metrics.json" ]; then
+            echo "Using pre-generated valgrind metrics from memory-analysis job"
+            cat artifacts/memory-analysis/valgrind-metrics.json
+            
+            # Extract heap and stack metrics from valgrind-metrics.json
+            PEAK_HEAP=$(grep -o '"peak_heap": [^,]*' artifacts/memory-analysis/valgrind-metrics.json | awk '{print $2}')
+            PEAK_STACK=$(grep -o '"peak_stack": [^,]*' artifacts/memory-analysis/valgrind-metrics.json | awk '{print $2}')
+            
+            echo "Extracted peak heap: $PEAK_HEAP"
+            echo "Extracted peak stack: $PEAK_STACK"
+            
+            # Ensure values are not empty
+            if [ -z "$PEAK_HEAP" ]; then
+              PEAK_HEAP="null"
+              echo "Empty PEAK_HEAP, setting to null"
+            fi
+            if [ -z "$PEAK_STACK" ]; then
+              PEAK_STACK="null"
+              echo "Empty PEAK_STACK, setting to null"
+            fi
           else
-            echo "Warning: massif-full-report.txt not found"
-            PEAK_HEAP="null"
-            PEAK_STACK="null"
+            # Fallback to parsing massif-full-report.txt if valgrind-metrics.json doesn't exist
+            if [ -f "artifacts/memory-analysis/massif-full-report.txt" ]; then
+              PEAK_HEAP=$(grep "heap_tree=peak" artifacts/memory-analysis/massif-full-report.txt -A 2 | grep "total:" | awk '{print $2}')
+              PEAK_STACK=$(grep "mem_stacks_B" artifacts/memory-analysis/massif-full-report.txt | awk -F= '{if($2>max) max=$2} END{print max}')
+              echo "Extracted peak heap: $PEAK_HEAP, peak stack: $PEAK_STACK"
+              
+              # Ensure values are not empty
+              if [ -z "$PEAK_HEAP" ]; then
+                PEAK_HEAP="null"
+                echo "Empty PEAK_HEAP, setting to null"
+              fi
+              if [ -z "$PEAK_STACK" ]; then
+                PEAK_STACK="null"
+                echo "Empty PEAK_STACK, setting to null"
+              fi
+            else
+              echo "Warning: neither valgrind-metrics.json nor massif-full-report.txt found"
+              PEAK_HEAP="null"
+              PEAK_STACK="null"
+            fi
           fi
 
           # Executable size
@@ -291,11 +322,11 @@ jobs:
               --arg date "$COMMIT_DATE" \
               --argjson heap_size "$([ "$PEAK_HEAP" = "null" ] && echo null || echo $PEAK_HEAP)" \
               --argjson stack_size "$([ "$PEAK_STACK" = "null" ] && echo null || echo $PEAK_STACK)" \
-              --arg executable_size "$EXEC_SIZE" \
-              --arg text_size "$TEXT_SIZE" \
-              --arg data_size "$DATA_SIZE" \
-              --arg bss_size "$BSS_SIZE" \
-              --arg total_size "$TOTAL_SIZE" \
+              --argjson executable_size "$([ "$EXEC_SIZE" = "null" ] && echo null || echo $EXEC_SIZE)" \
+              --argjson text_size "$([ "$TEXT_SIZE" = "null" ] && echo null || echo $TEXT_SIZE)" \
+              --argjson data_size "$([ "$DATA_SIZE" = "null" ] && echo null || echo $DATA_SIZE)" \
+              --argjson bss_size "$([ "$BSS_SIZE" = "null" ] && echo null || echo $BSS_SIZE)" \
+              --argjson total_size "$([ "$TOTAL_SIZE" = "null" ] && echo null || echo $TOTAL_SIZE)" \
               --argjson coverage "$([ "$TOTAL_COVERAGE" = "null" ] && echo null || echo $TOTAL_COVERAGE)" \
               --arg static_analysis "$STATIC_ANALYSIS" \
               '{commit: $commit, date: $date, heap_size: $heap_size, stack_size: $stack_size, 
@@ -332,11 +363,11 @@ jobs:
               --arg date "$TEST_DATE" \
               --argjson heap_size "$([ "$PEAK_HEAP" = "null" ] && echo null || echo $PEAK_HEAP)" \
               --argjson stack_size "$([ "$PEAK_STACK" = "null" ] && echo null || echo $PEAK_STACK)" \
-              --arg executable_size "$EXEC_SIZE" \
-              --arg text_size "$TEXT_SIZE" \
-              --arg data_size "$DATA_SIZE" \
-              --arg bss_size "$BSS_SIZE" \
-              --arg total_size "$TOTAL_SIZE" \
+              --argjson executable_size "$([ "$EXEC_SIZE" = "null" ] && echo null || echo $EXEC_SIZE)" \
+              --argjson text_size "$([ "$TEXT_SIZE" = "null" ] && echo null || echo $TEXT_SIZE)" \
+              --argjson data_size "$([ "$DATA_SIZE" = "null" ] && echo null || echo $DATA_SIZE)" \
+              --argjson bss_size "$([ "$BSS_SIZE" = "null" ] && echo null || echo $BSS_SIZE)" \
+              --argjson total_size "$([ "$TOTAL_SIZE" = "null" ] && echo null || echo $TOTAL_SIZE)" \
               --argjson coverage "$([ "$TOTAL_COVERAGE" = "null" ] && echo null || echo $TOTAL_COVERAGE)" \
               --arg static_analysis "$STATIC_ANALYSIS" \
               '{commit: $commit, date: $date, heap_size: $heap_size, stack_size: $stack_size, 
@@ -466,15 +497,21 @@ jobs:
                   });
                   
                   // Extract metrics
-                  const heapSizes = data.map(entry => entry.heap_size === null ? null : entry.heap_size / 1024); // Convert to KB
-                  const stackSizes = data.map(entry => entry.stack_size === null ? null : entry.stack_size / 1024); // Convert to KB
+                  const heapSizes = data.map(entry => entry.heap_size === null ? null : 
+                    typeof entry.heap_size === 'string' ? parseFloat(entry.heap_size) / 1024 : entry.heap_size / 1024); // Convert to KB
+                  const stackSizes = data.map(entry => entry.stack_size === null ? null : 
+                    typeof entry.stack_size === 'string' ? parseFloat(entry.stack_size) / 1024 : entry.stack_size / 1024); // Convert to KB
                   const coverageValues = data.map(entry => entry.coverage);
                   
                   // Extract embedded metrics
-                  const textSizes = data.map(entry => entry.text_size === "null" ? null : parseFloat(entry.text_size));
-                  const dataSizes = data.map(entry => entry.data_size === "null" ? null : parseFloat(entry.data_size));
-                  const bssSizes = data.map(entry => entry.bss_size === "null" ? null : parseFloat(entry.bss_size));
-                  const totalSizes = data.map(entry => entry.total_size === "null" ? null : parseFloat(entry.total_size));
+                  const textSizes = data.map(entry => entry.text_size === null ? null : 
+                    typeof entry.text_size === 'string' ? parseFloat(entry.text_size) : entry.text_size);
+                  const dataSizes = data.map(entry => entry.data_size === null ? null : 
+                    typeof entry.data_size === 'string' ? parseFloat(entry.data_size) : entry.data_size);
+                  const bssSizes = data.map(entry => entry.bss_size === null ? null : 
+                    typeof entry.bss_size === 'string' ? parseFloat(entry.bss_size) : entry.bss_size);
+                  const totalSizes = data.map(entry => entry.total_size === null ? null : 
+                    typeof entry.total_size === 'string' ? parseFloat(entry.total_size) : entry.total_size);
                   
                   // Create memory chart
                   const memoryCtx = document.getElementById('memoryChart').getContext('2d');
