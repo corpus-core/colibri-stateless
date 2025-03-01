@@ -355,7 +355,7 @@ bytes_t patricia_get_root(node_t* node) {
   return bytes(node->hash, 32);
 }
 
-#ifdef TEST
+#if defined(TEST) && defined(DEBUG)
 static void rlp_dump(node_t* node) {
   ssz_def_t     def     = SSZ_LIST("bytes", ssz_bytes_list, 1024);
   ssz_builder_t builder = {0};
