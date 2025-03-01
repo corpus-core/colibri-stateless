@@ -8,9 +8,15 @@
 #include <string.h>
 
 #ifdef C4_STATIC_MEMORY
+#define C4_STATIC_STATE_SIZE   1024 * 1024
+#define C4_STATIC_SYNC_SIZE    49152
+#define C4_STATIC_KEYS_48_SIZE 512 * 48
 // Static buffers for embedded targets
 static uint8_t state_buffer[C4_STATIC_STATE_SIZE];
 static uint8_t sync_buffer[C4_STATIC_SYNC_SIZE];
+#ifdef BLS_DESERIALIZE
+static uint8_t keys_48_buffer[C4_STATIC_KEYS_48_SIZE];
+#endif
 #endif
 
 c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
@@ -20,9 +26,7 @@ c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
 
 #ifdef C4_STATIC_MEMORY
   // Use static buffer with size limit
-  buffer_t tmp = {
-      .allocated = -C4_STATIC_STATE_SIZE, // Negative value indicates static allocation
-      .data      = bytes(state_buffer, 0)};
+  buffer_t tmp = stack_buffer(state_buffer);
 #else
   buffer_t tmp = {0};
 #endif
@@ -149,10 +153,14 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
     state.len--;
   }
 
+#ifdef C4_STATIC_MEMORY
+  state.blocks = (c4_trusted_block_t*) state_buffer;
+#else
   if (allocated_len == 0)
     state.blocks = calloc(sizeof(c4_trusted_block_t), 1);
   else if (allocated_len < state.len + 1)
     state.blocks = realloc(state.blocks, sizeof(c4_trusted_block_t) * (state.len + 1));
+#endif
   state.blocks[state.len].slot   = slot;
   state.blocks[state.len].period = period;
   memcpy(state.blocks[state.len].blockhash, blockhash, 32);
@@ -162,7 +170,10 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
   storage_conf.set(name, validators);
   sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
   storage_conf.set(name, bytes(state.blocks, state.len * sizeof(c4_trusted_block_t)));
+
+#ifndef C4_STATIC_MEMORY
   free(state.blocks);
+#endif
 
   return true;
 }
@@ -195,7 +206,9 @@ c4_status_t c4_set_trusted_blocks(c4_state_t* state, json_t blocks, chain_id_t c
   else {
     // we need to check if the blocks are in the cache
   }
+#ifndef C4_STATIC_MEMORY
   free(chain_state.blocks);
+#endif
   if (success && client_update.len && !c4_handle_client_updates(client_update, chain_id, blockhash))
     state->error = strdup("Failed to handle client updates");
   if (success && client_update_past.len && !c4_handle_client_updates(client_update_past, chain_id, blockhash))
@@ -208,9 +221,7 @@ const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
   c4_chain_state_t chain_state  = c4_get_chain_state(chain_id);
   uint32_t         last_period  = 0;
 #ifdef C4_STATIC_MEMORY
-  buffer_t validators = {
-      .allocated = -C4_STATIC_SYNC_SIZE,
-      .data      = bytes(sync_buffer, 0)};
+  buffer_t validators = stack_buffer(sync_buffer);
 #else
   buffer_t validators = {0};
 #ifdef BLS_DESERIALIZE
@@ -237,12 +248,19 @@ const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
   if (found && storage_conf.get) storage_conf.get(name, &validators);
 #ifdef BLS_DESERIALIZE
   if (validators.data.data && validators.data.len == 512 * 48) {
-    bytes_t b = blst_deserialize_p1_affine(validators.data.data, 512);
+#ifdef C4_STATIC_MEMORY
+    memcpy(keys_48_buffer, validators.data.data, 512 * 48);
+    bytes_t b = blst_deserialize_p1_affine(validators.data.data, 512, sync_buffer);
+#else
+    bytes_t b = blst_deserialize_p1_affine(validators.data.data, 512, NULL);
     buffer_free(&validators);
+#endif
     validators.data = b;
     storage_conf.set(name, b);
   }
 #endif
+
+  if (validators.data.len == 0) validators.data.data = NULL; // just to make sure we mark it as not found, even if we are using static memory
 
   return (c4_sync_state_t) {
       .deserialized   = validators.data.data && validators.data.len > 512 * 48,

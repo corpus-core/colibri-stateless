@@ -7,7 +7,6 @@ option(PROOFER "Build the proofer library" ON)
 option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but more memory)" ON)
-
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -81,7 +80,7 @@ if(CURL)
 endif()
 
 if(STATIC_MEMORY)
-    add_definitions(-DSTATIC_MEMORY)
+    add_definitions(-DC4_STATIC_MEMORY)
 endif()
 
 if(BLS_DESERIALIZE)

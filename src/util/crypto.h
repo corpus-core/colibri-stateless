@@ -18,7 +18,7 @@ void keccak(bytes_t data, uint8_t* out);
 void sha256(bytes_t data, uint8_t* out);
 void sha256_merkle(bytes_t data1, bytes_t data2, uint8_t* out);
 #ifdef BLS_DESERIALIZE
-bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys);
+bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys, uint8_t* out);
 #endif
 
 bool blst_verify(bytes32_t       message,         /**< 32 bytes hashed message */

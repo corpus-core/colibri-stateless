@@ -58,7 +58,7 @@ if(EMSCRIPTEN)
         COMMENT "Building blst as a static library for WebAssembly with Emscripten"
         VERBATIM
     )
-elseif(STATIC_MEMORY)
+elseif(EMBEDDED)
     # Embedded target configuration
     add_custom_command(
         OUTPUT ${BLST_LIB}

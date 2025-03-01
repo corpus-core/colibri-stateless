@@ -32,8 +32,8 @@ void sha256_merkle(bytes_t data1, bytes_t data2, uint8_t* out) {
 static const uint8_t blst_dst[]   = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 static const size_t  blst_dst_len = sizeof(blst_dst) - 1;
 #ifdef BLS_DESERIALIZE
-bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys) {
-  blst_p1_affine* pubkeys = (blst_p1_affine*) malloc(num_public_keys * sizeof(blst_p1_affine));
+bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys, uint8_t* out) {
+  blst_p1_affine* pubkeys = out ? (blst_p1_affine*) out : (blst_p1_affine*) malloc(num_public_keys * sizeof(blst_p1_affine));
   for (int i = 0; i < num_public_keys; i++) {
     if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * 48) != BLST_SUCCESS) {
       free(pubkeys);

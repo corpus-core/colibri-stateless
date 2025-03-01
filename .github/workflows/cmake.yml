@@ -560,7 +560,7 @@ jobs:
             ## Coverage Report
             ${{ steps.coverage.outputs.message }}
 
-            [View detailed coverage report](../actions/runs/${{ github.run_id }}/artifacts)
+            [View detailed coverage report](https://corpus-core.github.io/c4/coverage/index.html)
 
             <details>
             <summary>Coverage Details</summary>
@@ -572,7 +572,7 @@ jobs:
         run: |
           echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[View detailed coverage report](../actions/runs/${{ github.run_id }}/artifacts)" >> $GITHUB_STEP_SUMMARY
+          echo "[View detailed coverage report](https://corpus-core.github.io/c4/coverage/index.html)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY
           cat coverage_summary.txt >> $GITHUB_STEP_SUMMARY
