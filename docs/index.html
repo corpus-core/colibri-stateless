@@ -48,6 +48,9 @@
             <div class="mt-3">
               <a href="./static-analysis/index.html" class="btn btn-outline-primary" id="viewStaticAnalysisBtn">View Static Analysis Report</a>
             </div>
+            <div class="mt-3">
+              <canvas id="staticAnalysisChart"></canvas>
+            </div>
           </div>
         </div>
       </div>
@@ -160,6 +163,51 @@
             }
           }
         });
+        
+        // Process static analysis results for chart (in case we have them)
+        const staticResults = data.map(entry => {
+          if (!entry.static_analysis || entry.static_analysis === "null") {
+            return null;
+          }
+          return entry.static_analysis === "pass" ? 1 : 0;
+        });
+        
+        // Create static analysis chart (only if we have data)
+        if (staticResults.some(result => result !== null)) {
+          const staticAnalysisCtx = document.getElementById('staticAnalysisChart').getContext('2d');
+          new Chart(staticAnalysisCtx, {
+            type: 'line',
+            data: {
+              labels: dates,
+              datasets: [{
+                label: 'Static Analysis Status',
+                data: staticResults,
+                borderColor: 'rgba(54, 162, 235, 1)',
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                tension: 0.1,
+                stepped: true
+              }]
+            },
+            options: {
+              scales: {
+                y: {
+                  min: 0,
+                  max: 1,
+                  ticks: {
+                    stepSize: 1,
+                    callback: function(value) {
+                      return value === 1 ? 'Pass' : 'Fail';
+                    }
+                  },
+                  title: {
+                    display: true,
+                    text: 'Status'
+                  }
+                }
+              }
+            }
+          });
+        }
       })
       .catch(error => console.error('Error loading metrics:', error));
       
@@ -192,9 +240,8 @@
           });
       })
       .catch(error => {
-        const statusElement = document.getElementById('staticAnalysisStatus');
-        statusElement.className = 'alert alert-secondary';
-        statusElement.textContent = 'ℹ️ Static analysis status not available';
+        // If static analysis status fetch fails, metrics will still provide the info
+        console.log('Static analysis status file not available, using metrics data instead');
       });
   </script>
 </body>

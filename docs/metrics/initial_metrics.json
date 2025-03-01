@@ -5,6 +5,7 @@
         "heap_size": 0,
         "stack_size": 0,
         "executable_size": "0",
-        "coverage": 0
+        "coverage": 0,
+        "static_analysis": "null"
     }
 ]
