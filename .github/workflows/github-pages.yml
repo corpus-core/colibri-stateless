@@ -63,7 +63,7 @@ jobs:
           mkdir -p _site/coverage
           mkdir -p _site/memory-analysis
           mkdir -p _site/static-analysis
-          cp -R docs/* _site/ || true  # Copy any static content if it exists
+          cp -R .github/pages/* _site/ || true  # Copy any static content if it exists
 
       - name: Process coverage report
         run: |
@@ -330,8 +330,8 @@ jobs:
           # After attempting to fetch, check if metrics.json is empty or just contains an empty array
           if [ "$(cat metrics-data/metrics.json)" = "[]" ]; then
             echo "metrics.json is empty, using initial_metrics.json as a starting point"
-            if [ -f "docs/metrics/initial_metrics.json" ]; then
-              cp docs/metrics/initial_metrics.json metrics-data/metrics.json
+            if [ -f ".github/pages/metrics/initial_metrics.json" ]; then
+              cp .github/pages/metrics/initial_metrics.json metrics-data/metrics.json
               echo "Copied initial metrics:"
               cat metrics-data/metrics.json | jq .
             fi
