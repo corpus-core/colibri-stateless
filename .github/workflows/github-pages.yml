@@ -43,6 +43,11 @@ jobs:
           workflow_conclusion: success
           path: artifacts
 
+      - name: List artifact contents for debugging
+        run: |
+          echo "Listing all downloaded artifacts:"
+          find artifacts -type f | sort
+
       - name: Create metrics directory structure
         run: |
           mkdir -p _site/metrics
@@ -104,6 +109,9 @@ jobs:
           COMMIT_HASH=$(git rev-parse --short HEAD)
           COMMIT_DATE=$(git show -s --format=%ci $COMMIT_HASH)
 
+          echo "Current commit hash: $COMMIT_HASH"
+          echo "Current commit date: $COMMIT_DATE"
+
           # Create metrics directory if it doesn't exist
           mkdir -p metrics-data
 
@@ -114,6 +122,8 @@ jobs:
           echo "Attempting to fetch existing metrics from $GITHUB_PAGES_URL"
           if curl -s -f -o metrics-data/metrics.json "$GITHUB_PAGES_URL"; then
             echo "Successfully fetched existing metrics"
+            echo "Content of metrics file:"
+            cat metrics-data/metrics.json | jq .
           else
             echo "Could not fetch existing metrics, starting with empty dataset"
             echo "[]" > metrics-data/metrics.json
@@ -124,6 +134,8 @@ jobs:
             echo "metrics.json is empty, using initial_metrics.json as a starting point"
             if [ -f "docs/metrics/initial_metrics.json" ]; then
               cp docs/metrics/initial_metrics.json metrics-data/metrics.json
+              echo "Copied initial metrics:"
+              cat metrics-data/metrics.json | jq .
             fi
           fi
 
@@ -133,7 +145,9 @@ jobs:
           if [ -f "artifacts/memory-analysis/massif-full-report.txt" ]; then
             PEAK_HEAP=$(grep "heap_tree=peak" artifacts/memory-analysis/massif-full-report.txt -A 2 | grep "total:" | awk '{print $2}')
             PEAK_STACK=$(grep "mem_stacks_B" artifacts/memory-analysis/massif-full-report.txt | awk -F= '{if($2>max) max=$2} END{print max}')
+            echo "Extracted peak heap: $PEAK_HEAP, peak stack: $PEAK_STACK"
           else
+            echo "Warning: massif-full-report.txt not found"
             PEAK_HEAP="null"
             PEAK_STACK="null"
           fi
@@ -143,6 +157,7 @@ jobs:
             # Use the pre-generated metrics.json file from build_embedded job
             if [ -f "artifacts/memory-analysis/metrics.json" ]; then
               echo "Using pre-generated metrics from build_embedded job"
+              cat artifacts/memory-analysis/metrics.json
               
               # Extract embedded metrics from metrics.json
               TEXT_SIZE=$(grep -o '"text_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
@@ -150,18 +165,41 @@ jobs:
               BSS_SIZE=$(grep -o '"bss_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
               TOTAL_SIZE=$(grep -o '"total_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
               
+              echo "Extracted text size: $TEXT_SIZE"
+              echo "Extracted data size: $DATA_SIZE"
+              echo "Extracted BSS size: $BSS_SIZE"
+              echo "Extracted total size: $TOTAL_SIZE"
+              
               # For backward compatibility, still extract executable size from summary file
               EXEC_SIZE=$(grep "Executable" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
+              echo "Extracted executable size: $EXEC_SIZE"
             else
               # Fallback to parsing size_summary.txt
               echo "Pre-generated metrics.json not found, parsing size_summary.txt"
-              EXEC_SIZE=$(grep "Executable" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
-              TEXT_SIZE=$(grep "Text" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
-              DATA_SIZE=$(grep "Data" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
-              BSS_SIZE=$(grep "BSS" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
-              TOTAL_SIZE=$(grep "Total" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
+              if [ -f "artifacts/memory-analysis/size_summary.txt" ]; then
+                cat artifacts/memory-analysis/size_summary.txt
+                EXEC_SIZE=$(grep "Executable" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
+                TEXT_SIZE=$(grep "Text" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
+                DATA_SIZE=$(grep "Data" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
+                BSS_SIZE=$(grep "BSS" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
+                TOTAL_SIZE=$(grep "Total" artifacts/memory-analysis/size_summary.txt 2>/dev/null | awk '{print $2}' || echo "null")
+                
+                echo "Extracted text size: $TEXT_SIZE"
+                echo "Extracted data size: $DATA_SIZE"
+                echo "Extracted BSS size: $BSS_SIZE"
+                echo "Extracted total size: $TOTAL_SIZE"
+                echo "Extracted executable size: $EXEC_SIZE"
+              else
+                echo "Warning: size_summary.txt not found"
+                EXEC_SIZE="null"
+                TEXT_SIZE="null"
+                DATA_SIZE="null"
+                BSS_SIZE="null"
+                TOTAL_SIZE="null"
+              fi
             fi
           else
+            echo "Warning: memory-analysis directory not found"
             EXEC_SIZE="null"
             TEXT_SIZE="null"
             DATA_SIZE="null"
@@ -171,32 +209,62 @@ jobs:
 
           # Code coverage metrics
           if [ -f "artifacts/coverage-report/coverage_summary.txt" ]; then
+            cat artifacts/coverage-report/coverage_summary.txt
             TOTAL_COVERAGE=$(grep "Total coverage:" artifacts/coverage-report/coverage_summary.txt | grep -o '[0-9]*\.[0-9]*%' | sed 's/%//g')
+            echo "Extracted coverage: $TOTAL_COVERAGE"
           else
+            echo "Warning: coverage_summary.txt not found"
             TOTAL_COVERAGE="null"
           fi
 
           # Check for static analysis results
           if [ -f "artifacts/static-analysis-report/analysis_summary.md" ]; then
+            cat artifacts/static-analysis-report/analysis_summary.md
             if grep -q "✅ Static Analysis Results" artifacts/static-analysis-report/analysis_summary.md; then
               STATIC_ANALYSIS="pass"
             else
               STATIC_ANALYSIS="fail"
             fi
+            echo "Static analysis status: $STATIC_ANALYSIS"
           else
+            echo "Warning: analysis_summary.md not found"
             STATIC_ANALYSIS="null"
           fi
 
           # Create new metrics entry
           NEW_METRICS="{\"commit\": \"$COMMIT_HASH\", \"date\": \"$COMMIT_DATE\", \"heap_size\": $PEAK_HEAP, \"stack_size\": $PEAK_STACK, \"executable_size\": \"$EXEC_SIZE\", \"text_size\": \"$TEXT_SIZE\", \"data_size\": \"$DATA_SIZE\", \"bss_size\": \"$BSS_SIZE\", \"total_size\": \"$TOTAL_SIZE\", \"coverage\": $TOTAL_COVERAGE, \"static_analysis\": \"$STATIC_ANALYSIS\"}"
 
-          # Check if this commit is already in the metrics file
-          if grep -q "\"commit\": \"$COMMIT_HASH\"" metrics-data/metrics.json; then
+          echo "New metrics entry:"
+          echo $NEW_METRICS | jq .
+
+          # More robust check if this commit is already in the metrics file
+          if jq -e ".[] | select(.commit == \"$COMMIT_HASH\")" metrics-data/metrics.json > /dev/null; then
             echo "Metrics for commit $COMMIT_HASH already exist, skipping"
           else
             echo "Adding new metrics for commit $COMMIT_HASH"
             # Add new metrics to the JSON file
-            jq ". + [$NEW_METRICS]" metrics-data/metrics.json > temp.json && mv temp.json metrics-data/metrics.json
+            jq ". + [$(echo $NEW_METRICS | jq .)]" metrics-data/metrics.json > temp.json && mv temp.json metrics-data/metrics.json
+            echo "Updated metrics file:"
+            cat metrics-data/metrics.json | jq .
+          fi
+
+          # Special handling for development mode or manual triggers:
+          # For dev branch or manual workflow dispatch, always add a timestamp-based entry for testing
+          if [[ "$GITHUB_REF" == *"dev"* || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Development mode or manual trigger detected, adding test metrics entry"
+            # Create a timestamped test entry
+            TIMESTAMP=$(date +%s)
+            TEST_COMMIT="test-$TIMESTAMP"
+            TEST_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            
+            # Use the actual metric values but with a different commit hash
+            TEST_METRICS="{\"commit\": \"$TEST_COMMIT\", \"date\": \"$TEST_DATE\", \"heap_size\": $PEAK_HEAP, \"stack_size\": $PEAK_STACK, \"executable_size\": \"$EXEC_SIZE\", \"text_size\": \"$TEXT_SIZE\", \"data_size\": \"$DATA_SIZE\", \"bss_size\": \"$BSS_SIZE\", \"total_size\": \"$TOTAL_SIZE\", \"coverage\": $TOTAL_COVERAGE, \"static_analysis\": \"$STATIC_ANALYSIS\"}"
+            
+            echo "Adding test metrics entry for development:"
+            echo $TEST_METRICS | jq .
+            
+            # Add the test metrics to the JSON file
+            jq ". + [$(echo $TEST_METRICS | jq .)]" metrics-data/metrics.json > temp.json && mv temp.json metrics-data/metrics.json
           fi
 
           # Copy metrics data to site
