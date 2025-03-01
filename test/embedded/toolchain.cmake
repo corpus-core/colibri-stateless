@@ -89,4 +89,5 @@ add_definitions(-DC4_STATIC_MEMORY)
 add_definitions(-DBLST_PORTABLE)
 add_definitions(-D__STDC_FORMAT_MACROS)
 add_definitions(-D_POSIX_C_SOURCE=200809L)
+#is this needed?
 add_definitions(-DEMBEDDED)
