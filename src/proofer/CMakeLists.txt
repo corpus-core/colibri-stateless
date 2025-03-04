@@ -7,6 +7,7 @@ add_library(proofer STATIC
   beacon.c
   proof_receipt.c
   eth_req.c
+  beacon_cache.c
 )
 target_include_directories(proofer PRIVATE util)
 target_link_libraries(proofer PRIVATE  

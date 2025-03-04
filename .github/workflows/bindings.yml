@@ -409,6 +409,16 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: build/emscripten
 
+  docker-proofer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t colibri-server -f bindings/docker/Dockerfile .
+
   create-release:
     needs: [swift, emscripten, build-publish-aar, build-publish-jar]
     runs-on: ubuntu-latest

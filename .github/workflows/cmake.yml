@@ -382,7 +382,8 @@ jobs:
                     print issue_text
                     if (code_block != "") {
                       print "  ```c"
-                      print code_block "  ```\n"
+                      print code_block "  ```"
+                      print ""
                     }
                   }
                   
@@ -402,7 +403,7 @@ jobs:
                   }
                   
                   # Format the new issue
-                  issue_text = sprintf("- %s **%s** [%s]\n  in %s:%s:%s", icon, arr[5], arr[6], file, arr[2], arr[3])
+                  issue_text = sprintf("- %s **%s** [%s]\\n  in %s:%s:%s", icon, arr[5], arr[6], file, arr[2], arr[3])
                   
                   in_issue = 1
                   code_block = ""
@@ -411,11 +412,11 @@ jobs:
                 
                 # Collect code block lines while in an issue
                 in_issue && /^[ ]*[0-9]+[ ]*\|/ {
-                  code_block = code_block "  $0 "\n"
+                  code_block = code_block "  " $0 "\\n"
                   # Also collect the pointer line that follows
                   getline pointer_line
                   if (pointer_line ~ /[ ]*\|/) {
-                    code_block = code_block "  " pointer_line "\n"
+                    code_block = code_block "  " pointer_line "\\n"
                   }
                   next
                 }
@@ -426,7 +427,8 @@ jobs:
                     print issue_text
                     if (code_block != "") {
                       print "  ```c"
-                      print code_block "  ```\n"
+                      print code_block "  ```"
+                      print ""
                     }
                   }
                 }

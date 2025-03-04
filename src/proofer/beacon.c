@@ -65,21 +65,40 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
   uint8_t  tmp[100] = {0};
   uint64_t slot     = 0;
   ssz_ob_t sig_block, data_block, sig_body;
-
-  if (strncmp(block.start, "\"latest\"", 8) == 0)
+#ifdef PROOFER_CACHE
+  slot = c4_beacon_cache_get_slot(block, ctx->chain_id);
+  if (slot) {
     TRY_ASYNC(get_latest_block(ctx, slot, &sig_block, &data_block));
-  else {
-    if (block.type != JSON_TYPE_STRING || block.len < 5 || block.start[1] != '0' || block.start[2] != 'x') THROW_ERROR("Invalid block!");
-    json_t eth_block;
-    TRY_ASYNC(eth_get_block(ctx, block, false, &eth_block));
-
-    json_t hash = json_get(eth_block, "parentBeaconBlockRoot");
-    if (hash.len != 68) THROW_ERROR("The Block is not a Beacon Block!");
-    json_t header;
-    memcpy(tmp, hash.start + 1, hash.len - 2);
-    TRY_ASYNC(get_beacon_header_by_hash(ctx, (char*) tmp, &header));
-    TRY_ASYNC(get_latest_block(ctx, json_as_uint64(json_get(header, "slot")) + 2, &sig_block, &data_block));
   }
+  else {
+#endif
+
+    if (strncmp(block.start, "\"latest\"", 8) == 0)
+      TRY_ASYNC(get_latest_block(ctx, slot, &sig_block, &data_block));
+    else {
+      if (block.type != JSON_TYPE_STRING || block.len < 5 || block.start[1] != '0' || block.start[2] != 'x') THROW_ERROR("Invalid block!");
+      json_t eth_block;
+      TRY_ASYNC(eth_get_block(ctx, block, false, &eth_block));
+
+      json_t hash = json_get(eth_block, "parentBeaconBlockRoot");
+      if (hash.len != 68) THROW_ERROR("The Block is not a Beacon Block!");
+      json_t header;
+      memcpy(tmp, hash.start + 1, hash.len - 2);
+      TRY_ASYNC(get_beacon_header_by_hash(ctx, (char*) tmp, &header));
+      TRY_ASYNC(get_latest_block(ctx, json_as_uint64(json_get(header, "slot")) + 2, &sig_block, &data_block));
+    }
+
+#ifdef PROOFER_CACHE
+    ssz_ob_t body      = ssz_get(&data_block, "body");
+    ssz_ob_t execution = ssz_get(&body, "executionPayload");
+    c4_beacon_cache_update(
+        ctx->chain_id,
+        ssz_get_uint64(&data_block, "slot"),
+        ssz_get_uint64(&execution, "blockNumber"),
+        ssz_get(&execution, "blockHash").bytes.data,
+        strncmp(block.start, "\"latest\"", 8) == 0);
+  }
+#endif
 
   sig_body                     = ssz_get(&sig_block, "body");
   beacon_block->slot           = ssz_get_uint64(&data_block, "slot");

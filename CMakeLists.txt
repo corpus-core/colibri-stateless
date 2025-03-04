@@ -7,6 +7,7 @@ option(PROOFER "Build the proofer library" ON)
 option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but more memory)" ON)
+option(PROOFER_CACHE "Caches blockhashes and maps)" ON)
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -69,13 +70,15 @@ if(SWIFT)
     # Disable CURL for iOS builds
     set(CURL OFF)
 endif()
-
 if(KOTLIN)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     set(CURL OFF)
 endif()
 
 # Feature flags and compiler settings
+if (PROOFER_CACHE) 
+    add_definitions(-DPROOFER_CACHE)
+endif()
 if(CURL)
     add_definitions(-DUSE_CURL)
 endif()
