@@ -1,21 +1,29 @@
 // Import the Emscripten-generated module
 import { getC4w, as_char_ptr, as_json, as_bytes, copy_to_c, Storage as C4Storage } from "./wasm.js";
-
+export interface Cache {
+    cacheable(req: DataRequest): boolean;
+    get(req: DataRequest): Uint8Array | undefined;
+    set(req: DataRequest, data: Uint8Array): void;
+}
 export interface Config {
     chainId: number;
     beacon_apis: string[],
     rpcs: string[];
+    proofer?: string[];
     trusted_block_hashes: string[];
+    cache?: Cache;
+    debug?: boolean;
+    verify?: (method: string, args: any[]) => boolean;
 }
 
-interface DataRequest {
+export interface DataRequest {
     method: string;
     chain_id: number;
     encoding: string;
     type: string;
     exclude_mask: number;
     url: string;
-    payload: string;
+    payload: any;
     req_ptr: number;
 }
 
@@ -39,10 +47,56 @@ async function initialize_storage(conf: Config) {
     }
 }
 
-async function handle_request(req: DataRequest, conf: Config) {
+async function fetch_rpc(urls: string[], method: string, params: any[], as_proof: boolean = false) {
+    let last_error = "All nodes failed";
+    for (const url of urls) {
+        const response = await fetch(url, {
+            method: 'POST',
+            body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": as_proof ? "application/octet-stream" : "application/json"
+            }
+        });
+        if (response.ok) {
+            if (!as_proof) {
+                const res = await response.json();
+                if (res.error) {
+                    last_error = res.error?.message || res.error;
+                    continue;
+                }
+                return res.result;
+            }
+            const bytes = await response.blob().then(blob => blob.arrayBuffer());
+            return new Uint8Array(bytes);
+        }
+        else last_error = `HTTP error! Status: ${response.status}, Details: ${await response.text()}`;
+    }
+    throw new Error(last_error);
+}
+function log(msg: string) {
+    console.error(msg);
+}
+export async function handle_request(req: DataRequest, conf: Config) {
+
     const free_buffers: number[] = [];
     const servers = req.type == "beacon_api" ? conf.beacon_apis : conf.rpcs;
     const c4w = await getC4w();
+    let path = (req.type == 'eth_rpc' && req.payload)
+        ? `rpc: ${req.payload?.method}(${req.payload?.params.join(',')})`
+        : req.url;
+
+
+    let cacheable = conf.cache && conf.cache.cacheable(req);
+
+    if (cacheable && conf.cache) {
+        const data = conf.cache.get(req);
+        if (data) {
+            if (conf.debug) log(`::: ${path} (len=${data.length} bytes) CACHED`);
+            c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, 0);
+            return;
+        }
+    }
     let node_index = 0;
     let last_error = "All nodes failed";
     for (const server of servers) {
@@ -63,8 +117,12 @@ async function handle_request(req: DataRequest, conf: Config) {
             if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}, Details: ${await response.text()}`);
 
             const bytes = await response.blob().then(blob => blob.arrayBuffer());
+            const data = new Uint8Array(bytes);
             c4w._c4w_req_set_response(req.req_ptr,
-                copy_to_c(new Uint8Array(bytes), c4w), bytes.byteLength, node_index);
+                copy_to_c(data, c4w), data.length, node_index);
+            if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
+
+            if (conf.cache && cacheable) conf.cache.set(req, data);
             return;
         } catch (e) {
             last_error = (e instanceof Error) ? e.message : String(e);
@@ -73,10 +131,12 @@ async function handle_request(req: DataRequest, conf: Config) {
     }
     c4w._c4w_req_set_error(req.req_ptr, as_char_ptr(last_error, c4w, free_buffers), 0);
     free_buffers.forEach(ptr => c4w._free(ptr));
+    if (conf.debug) log(`::: ${path} (Error: ${last_error})`);
 }
 
 
 export default class C4Client {
+
 
     config: Config;
 
@@ -154,7 +214,14 @@ export default class C4Client {
     }
 
     async rpc(method: string, args: any[]): Promise<any> {
-        const proof = await this.createProof(method, args);
+        // skip verify
+        if (this.config.verify && !this.config.verify(method, args))
+            return await fetch_rpc(this.config.rpcs, method, args, false);
+
+        let proof = this.config.proofer && this.config.proofer.length
+            ? await fetch_rpc(this.config.proofer, method, args, true)
+            : await this.createProof(method, args);
+
         return this.verifyProof(method, args, proof);
     }
 
