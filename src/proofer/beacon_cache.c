@@ -10,9 +10,9 @@
 #ifdef PROOFER_CACHE
 #if defined(_WIN32) || defined(WIN32)
 #include <windows.h>
-#endif
-
+#else
 #include <sys/time.h>
+#endif
 
 typedef struct {
   uint64_t slot;
