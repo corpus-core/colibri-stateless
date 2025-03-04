@@ -34,7 +34,20 @@ static buffer_t chains      = {0};
 
 uint64_t current_ms() {
   struct timeval te;
+#ifdef _WIN32
+  FILETIME       ft;
+  ULARGE_INTEGER li;
+  GetSystemTimeAsFileTime(&ft);
+  li.LowPart  = ft.dwLowDateTime;
+  li.HighPart = ft.dwHighDateTime;
+  // Convert to microseconds from Jan 1, 1601
+  // Then adjust to Unix epoch (Jan 1, 1970)
+  uint64_t unix_time = (li.QuadPart - 116444736000000000LL) / 10;
+  te.tv_sec          = unix_time / 1000000;
+  te.tv_usec         = unix_time % 1000000;
+#else
   gettimeofday(&te, NULL);
+#endif
   return te.tv_sec * 1000L + te.tv_usec / 1000;
 }
 
