@@ -108,9 +108,11 @@ void c4_beacon_cache_update(chain_id_t chain_id, uint64_t slot, uint64_t block_n
     block = (block_number_t*) (chain_blocks->block_numbers.data.data + len * BLOCK_SIZE);
   }
 
-  block->slot         = slot;
-  block->block_number = block_number;
-  memcpy(block->blockhash, blockhash, 32);
+  if (block) {
+    block->slot         = slot;
+    block->block_number = block_number;
+    memcpy(block->blockhash, blockhash, 32);
+  }
 
   if (is_latest) {
     chain_blocks->beacon_latest    = slot;
