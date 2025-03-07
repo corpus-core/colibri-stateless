@@ -192,7 +192,7 @@ add_custom_target(valgrind
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Generating the valgrind image"
 )
-
 # Generate headers at the end
 generate_verifiers_header()
 generate_proofers_header()
+
