@@ -4,9 +4,17 @@
 #include VERIFIERS_PATH
 #include <string.h>
 
+const ssz_def_t* c4_get_request_type(chain_type_t chain_type) {
+  return request_container(chain_type);
+}
+
 void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id) {
-  ssz_def_t* container_type = request_container(chain_id);
-  ssz_ob_t   req            = {.bytes = request, .def = container_type};
+  chain_type_t chain_type = c4_chain_type(chain_id);
+  if (chain_type != c4_get_chain_type_from_req(request)) {
+    ctx->state.error = strdup("chain type does not match the proof");
+    return;
+  }
+  ssz_ob_t req = {.bytes = request, .def = request_container(chain_type)};
   memset(ctx, 0, sizeof(verify_ctx_t));
   if (!req.def) {
     ctx->state.error = strdup("chain not supported");
@@ -23,6 +31,20 @@ void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json
 }
 
 void c4_verify(verify_ctx_t* ctx) {
+  // make sure the state is clean
   if (ctx->state.error) return;
-  // check if there are sync_datat, we should use to update the state
+  if (c4_state_get_pending_request(&ctx->state)) return;
+
+  // verify the proof
+  if (!handle_verification(ctx))
+    ctx->state.error = bprintf(NULL, "verification for proof of chain %l is not supported", ctx->chain_id);
+}
+
+chain_type_t c4_get_chain_type_from_req(bytes_t request) {
+  if (request.len < 4) return C4_CHAIN_TYPE_ETHEREUM;
+  return (chain_type_t) request.data[0];
+}
+
+const ssz_def_t* c4_get_req_type_from_req(bytes_t request) {
+  return c4_get_request_type(c4_get_chain_type_from_req(request));
 }

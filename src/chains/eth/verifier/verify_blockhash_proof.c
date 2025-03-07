@@ -2,8 +2,8 @@
 #include "../util/bytes.h"
 #include "../util/crypto.h"
 #include "../util/ssz.h"
+#include "eth_verify.h"
 #include "sync_committee.h"
-#include "verify.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -95,8 +95,6 @@ static bool verify_beacon_header(ssz_ob_t* header, bytes32_t exec_blockhash, byt
 }
 
 bool verify_blockhash_proof(verify_ctx_t* ctx) {
-  ctx->type = PROOF_TYPE_BEACON_HEADER;
-
   ssz_ob_t header                   = ssz_get(&ctx->proof, "header");
   ssz_ob_t blockhash_proof          = ssz_get(&ctx->proof, "blockhash_proof");
   ssz_ob_t sync_committee_bits      = ssz_get(&ctx->proof, "sync_committee_bits");

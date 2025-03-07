@@ -21,7 +21,7 @@ if (CLI)
     )
 
     add_executable(verify verifier.c)
-    target_include_directories(verifier PRIVATE ../util ../proofer ../verifier)
+    target_include_directories(verify PRIVATE ../util ../proofer ../verifier ../chains/eth/verifier)
     set_target_properties(verify PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )

@@ -15,37 +15,25 @@ extern "C" {
 #include <stdint.h>
 #include <stdio.h>
 
-typedef enum {
-  PROOF_TYPE_BEACON_HEADER,
-  PROOF_TYPE_SYNC_COMMITTEE,
-  PROOF_TYPE_ACCOUNT,
-  PROOF_TYPE_TRANSACTION,
-} proof_type_t;
-
 typedef struct {
-  proof_type_t type;
-  char*        method;
-  json_t       args;
-  ssz_ob_t     proof;
-  ssz_ob_t     data;
-  ssz_ob_t     sync_data;
-  uint64_t     first_missing_period;
-  uint64_t     last_missing_period;
-  bool         success;
-  c4_state_t   state;
-  chain_id_t   chain_id;
+  char*      method;
+  json_t     args;
+  ssz_ob_t   proof;
+  ssz_ob_t   data;
+  ssz_ob_t   sync_data;
+  uint64_t   first_missing_period;
+  uint64_t   last_missing_period;
+  bool       success;
+  c4_state_t state;
+  chain_id_t chain_id;
 } verify_ctx_t;
 
-void c4_verify(verify_ctx_t* ctx);
-void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id);
-bool verify_blockhash_proof(verify_ctx_t* ctx);
-bool verify_account_proof(verify_ctx_t* ctx);
-bool verify_tx_proof(verify_ctx_t* ctx);
-bool verify_receipt_proof(verify_ctx_t* ctx);
-bool verify_logs_proof(verify_ctx_t* ctx);
+const ssz_def_t* c4_get_request_type(chain_type_t chain_type);
+chain_type_t     c4_get_chain_type_from_req(bytes_t request);
+const ssz_def_t* c4_get_req_type_from_req(bytes_t request);
+void             c4_verify(verify_ctx_t* ctx);
+void             c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id);
 
-// helper
-bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot);
 #pragma endregion
 #ifdef MESSAGES
 #define RETURN_VERIFY_ERROR(ctx, msg)                                             \

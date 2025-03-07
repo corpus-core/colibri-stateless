@@ -133,6 +133,11 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
     endif()
 endif()
 
+include(src/chains/verifier.cmake)
+
+# Define the path for the generated verifiers.h file
+add_definitions(-DVERIFIERS_PATH="${CMAKE_BINARY_DIR}/verifiers.h")
+
 # Add core libraries first
 add_subdirectory(libs)
 add_subdirectory(src)
@@ -186,8 +191,6 @@ add_custom_target(valgrind
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Generating the valgrind image"
 )
-
-include(cmake/verifier.cmake)
 
 # Generate verifiers header at the end
 generate_verifiers_header()

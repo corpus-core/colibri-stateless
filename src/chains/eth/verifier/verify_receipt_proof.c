@@ -2,13 +2,13 @@
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_tx.h"
+#include "eth_verify.h"
 #include "json.h"
 #include "patricia.h"
 #include "rlp.h"
 #include "ssz.h"
 #include "sync_committee.h"
 #include "types_verify.h"
-#include "verify.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -32,8 +32,6 @@ static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof, bytes_t block
 }
 
 bool verify_receipt_proof(verify_ctx_t* ctx) {
-  ctx->type = PROOF_TYPE_TRANSACTION;
-
   ssz_ob_t  raw_tx                   = ssz_get(&ctx->proof, "transaction");
   ssz_ob_t  receipt_proof            = ssz_get(&ctx->proof, "receipt_proof");
   ssz_ob_t  block_proof              = ssz_get(&ctx->proof, "block_proof");

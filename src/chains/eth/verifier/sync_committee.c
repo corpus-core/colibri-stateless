@@ -3,9 +3,9 @@
 #include "../util/plugin.h"
 #include "../util/ssz.h"
 #include "../util/version.h"
+#include "eth_verify.h"
 #include "types_beacon.h"
 #include "types_verify.h"
-#include "verify.h"
 #include <inttypes.h>
 #include <string.h>
 

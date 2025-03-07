@@ -1,8 +1,10 @@
 #include "ssz.h"
+#include "../chains/eth/proofer/ssz_types.h"
+#include "../chains/eth/verifier/types_verify.h"
 #include "bytes.h"
+#include "chains.h"
 #include "crypto.h"
-#include "ssz_types.h"
-#include "types_verify.h"
+#include "verify.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,7 +31,8 @@ int main(int argc, char* argv[]) {
   }
 
   //  ssz_ob_t res = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, read_from_file(argv[1]));
-  ssz_ob_t res          = ssz_ob(C4_REQUEST_CONTAINER, bytes_read(argv[1]));
+  bytes_t  req_data     = bytes_read(argv[1]);
+  ssz_ob_t res          = {.def = c4_get_req_type_from_req(req_data), .bytes = req_data};
   char*    out_filename = NULL;
   bool     show_hash    = false;
   bool     show_name    = false;

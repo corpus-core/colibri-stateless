@@ -13,6 +13,7 @@ if (VERIFIER)
       verifier/verify_receipt_proof.c
       verifier/verify_logs_proof.c
       verifier/eth_tx.c
+      verifier/eth_verify.c
       verifier/patricia_trie.c
       verifier/patricia.c
       verifier/rlp.c
