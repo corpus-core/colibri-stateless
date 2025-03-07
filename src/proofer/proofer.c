@@ -1,6 +1,7 @@
 #include "proofer.h"
 #include "../util/json.h"
 #include "../util/state.h"
+#include PROOFERS_PATH
 #include <stdlib.h>
 #include <string.h>
 
@@ -37,16 +38,7 @@ c4_status_t c4_proofer_execute(proofer_ctx_t* ctx) {
   if (c4_state_get_pending_request(&ctx->state)) return C4_PENDING;
   if (ctx->state.error) return C4_ERROR;
 
-  if (strcmp(ctx->method, "eth_getBalance") == 0 || strcmp(ctx->method, "eth_getCode") == 0 || strcmp(ctx->method, "eth_getNonce") == 0 || strcmp(ctx->method, "eth_getProof") == 0 || strcmp(ctx->method, "eth_getStorageAt") == 0)
-    c4_proof_account(ctx);
-  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0)
-    c4_proof_transaction(ctx);
-  else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
-    c4_proof_receipt(ctx);
-  else if (strcmp(ctx->method, "eth_getLogs") == 0)
-    c4_proof_logs(ctx);
-  else
-    THROW_ERROR("Unsupported method");
+  proofer_execute(ctx);
 
   return c4_proofer_status(ctx);
 }

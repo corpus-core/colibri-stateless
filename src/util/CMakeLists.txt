@@ -16,15 +16,13 @@ add_library(util STATIC
   ssz_builder.c
   crypto.c
   plugin.c
-  patricia.c
-  rlp.c
   json.c
   json_validate.c
   logger.c
   chains.c
-  patricia_trie.c
   state.c
   version.c
 )
-target_include_directories(util PRIVATE ../../libs/crypto)
+target_include_directories(util PRIVATE ../../libs/crypto ${CMAKE_BINARY_DIR}/_deps/blst-src/bindings)
+target_include_directories(util INTERFACE .)
 target_link_libraries(util PRIVATE crypto blst)

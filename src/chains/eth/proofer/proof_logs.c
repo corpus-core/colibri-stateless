@@ -1,15 +1,15 @@
-#include "../util/json.h"
-#include "../util/logger.h"
-#include "../util/patricia.h"
-#include "../util/rlp.h"
-#include "../util/ssz.h"
-#include "../util/version.h"
-#include "../verifier/types_beacon.h"
-#include "../verifier/types_verify.h"
 #include "beacon.h"
 #include "eth_req.h"
+#include "json.h"
+#include "logger.h"
+#include "patricia.h"
 #include "proofer.h"
+#include "rlp.h"
+#include "ssz.h"
 #include "ssz_types.h"
+#include "types_beacon.h"
+#include "types_verify.h"
+#include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>

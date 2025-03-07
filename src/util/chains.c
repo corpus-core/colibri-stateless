@@ -33,3 +33,12 @@ fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch) {
   while (fork_epochs && fork_epochs[i] && epoch >= fork_epochs[i]) i++;
   return (fork_id_t) i;
 }
+
+chain_type_t c4_chain_type(chain_id_t chain_id) {
+  switch (chain_id) {
+    case C4_CHAIN_MAINNET:
+      return C4_CHAIN_TYPE_ETHEREUM;
+    default:
+      return C4_CHAIN_TYPE_ETHEREUM;
+  }
+}

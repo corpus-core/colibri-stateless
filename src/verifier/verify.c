@@ -1,13 +1,25 @@
 #include "verify.h"
 #include "../util/json.h"
 #include "../util/ssz.h"
-#include "sync_committee.h"
-#include "types_verify.h"
+#include VERIFIERS_PATH
 #include <string.h>
 
+const ssz_def_t* c4_get_request_type(chain_type_t chain_type) {
+  return request_container(chain_type);
+}
+
 void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id) {
-  ssz_ob_t req = ssz_ob(C4_REQUEST_CONTAINER, request);
+  chain_type_t chain_type = c4_chain_type(chain_id);
+  if (chain_type != c4_get_chain_type_from_req(request)) {
+    ctx->state.error = strdup("chain type does not match the proof");
+    return;
+  }
+  ssz_ob_t req = {.bytes = request, .def = request_container(chain_type)};
   memset(ctx, 0, sizeof(verify_ctx_t));
+  if (!req.def) {
+    ctx->state.error = strdup("chain not supported");
+    return;
+  }
   if (!ssz_is_valid(req, true, &ctx->state)) return;
   ctx->chain_id  = chain_id; // ssz_get_uint64(&req, "chainId");
   ctx->data      = ssz_get(&req, "data");
@@ -19,27 +31,20 @@ void c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json
 }
 
 void c4_verify(verify_ctx_t* ctx) {
+  // make sure the state is clean
   if (ctx->state.error) return;
-  // check if there are sync_datat, we should use to update the state
-  if (!c4_update_from_sync_data(ctx)) return;
+  if (c4_state_get_pending_request(&ctx->state)) return;
 
-  if (ssz_is_type(&ctx->proof, BLOCK_HASH_PROOF)) {
-    ctx->type = PROOF_TYPE_BEACON_HEADER;
-    verify_blockhash_proof(ctx);
-  }
-  else if (ssz_is_type(&ctx->proof, ETH_TRANSACTION_PROOF))
-    verify_tx_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, ETH_RECEIPT_PROOF))
-    verify_receipt_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, &ETH_LOGS_BLOCK_CONTAINER))
-    verify_logs_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, ETH_ACCOUNT_PROOF))
-    verify_account_proof(ctx);
-  else if (ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE) {
-    ctx->success = true;
-  }
-  else {
-    ctx->state.error = strdup("proof is not a supported proof type");
-    ctx->success     = false;
-  }
+  // verify the proof
+  if (!handle_verification(ctx))
+    ctx->state.error = bprintf(NULL, "verification for proof of chain %l is not supported", ctx->chain_id);
+}
+
+chain_type_t c4_get_chain_type_from_req(bytes_t request) {
+  if (request.len < 4) return C4_CHAIN_TYPE_ETHEREUM;
+  return (chain_type_t) request.data[0];
+}
+
+const ssz_def_t* c4_get_req_type_from_req(bytes_t request) {
+  return c4_get_request_type(c4_get_chain_type_from_req(request));
 }

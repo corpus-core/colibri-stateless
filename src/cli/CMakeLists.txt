@@ -4,10 +4,13 @@ if (WASM)
 endif()
 
 if (CLI)    
-    add_executable(proof proofer.c)#
+    add_executable(proof proofer.c)
+#    target_include_directories(proof PRIVATE ../util ../proofer ../verifier)
     set_target_properties(proof PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
+
+    
 
     add_executable(ssz ssz.c)
     target_link_libraries(ssz PRIVATE 

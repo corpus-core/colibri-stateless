@@ -1,7 +1,7 @@
-#include "../../src/proofer/proofer.h"
-#include "../../src/util/plugin.h"
-#include "../../src/verifier/sync_committee.h"
-#include "../../src/verifier/verify.h"
+#include "plugin.h"
+#include "proofer.h"
+#include "sync_committee.h"
+#include "verify.h"
 #include <emscripten.h>
 #include <stdio.h>
 #include <string.h>

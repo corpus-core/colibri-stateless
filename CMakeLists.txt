@@ -8,6 +8,7 @@ option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but more memory)" ON)
 option(PROOFER_CACHE "Caches blockhashes and maps)" ON)
+option(CHAIN_ETH "includes all ETH engine" ON)
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -132,6 +133,12 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "MINSIZEREL")
     endif()
 endif()
 
+include(src/chains/chains.cmake)
+
+# Define the path for the generated headers
+add_definitions(-DVERIFIERS_PATH="${CMAKE_BINARY_DIR}/verifiers.h")
+add_definitions(-DPROOFERS_PATH="${CMAKE_BINARY_DIR}/proofers.h")
+
 # Add core libraries first
 add_subdirectory(libs)
 add_subdirectory(src)
@@ -185,3 +192,7 @@ add_custom_target(valgrind
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Generating the valgrind image"
 )
+
+# Generate headers at the end
+generate_verifiers_header()
+generate_proofers_header()

@@ -1,6 +1,11 @@
 # Finde alle C-Dateien im aktuellen Verzeichnis
 file(GLOB TEST_SOURCES test_*.c)
 
+set(TEST_INCLUDES
+  ${unity_SOURCE_DIR}/src 
+  ${CMAKE_SOURCE_DIR}/src 
+)
+
 #add_definitions(-DTEST_DATA_DIR=${CMAKE_SOURCE_DIR}/test/data)
 
 foreach(test_source ${TEST_SOURCES})
@@ -11,7 +16,7 @@ foreach(test_source ${TEST_SOURCES})
     add_executable(${test_name} ${test_source})
 
     # Füge die Include-Verzeichnisse hinzu
-    target_include_directories(${test_name} PRIVATE ${unity_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src)
+    target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
     target_link_libraries(${test_name} unity verifier proofer)
@@ -35,7 +40,7 @@ endif()
 add_executable(verify_only verify_only.c)
 
 # Füge die Include-Verzeichnisse hinzu
-target_include_directories(verify_only PRIVATE ${unity_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(verify_only PRIVATE  ${TEST_INCLUDES})
 
 # Define TESTDATA_DIR
 target_compile_definitions(verify_only PRIVATE TESTDATA_DIR="${CMAKE_SOURCE_DIR}/test/data")

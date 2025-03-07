@@ -1,12 +1,12 @@
 
-#include "../util/bytes.h"
-#include "../util/crypto.h"
-#include "../util/json.h"
-#include "../util/patricia.h"
-#include "../util/rlp.h"
-#include "../util/ssz.h"
+#include "bytes.h"
+#include "crypto.h"
+#include "eth_verify.h"
+#include "json.h"
+#include "patricia.h"
+#include "rlp.h"
+#include "ssz.h"
 #include "sync_committee.h"
-#include "verify.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -65,8 +65,6 @@ static bool verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes3
 }
 
 bool verify_account_proof(verify_ctx_t* ctx) {
-  ctx->type = PROOF_TYPE_ACCOUNT;
-
   bytes32_t body_root                = {0};
   bytes32_t state_root               = {0};
   ssz_ob_t  state_proof              = ssz_get(&ctx->proof, "state_proof");

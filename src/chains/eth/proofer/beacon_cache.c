@@ -1,10 +1,10 @@
-#include "../util/json.h"
-#include "../verifier/types_beacon.h"
-#include "../verifier/types_verify.h"
 #include "beacon.h"
 #include "eth_req.h"
+#include "json.h"
 #include "proofer.h"
 #include "ssz_types.h"
+#include "types_beacon.h"
+#include "types_verify.h"
 #include <inttypes.h>
 #include <string.h>
 #ifdef PROOFER_CACHE

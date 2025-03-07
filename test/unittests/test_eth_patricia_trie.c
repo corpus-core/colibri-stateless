@@ -1,10 +1,10 @@
+#include "bytes.h"
 #include "c4_assert.h"
-#include "proofer/eth_req.h"
+#include "eth_req.h"
+#include "json.h"
+#include "patricia.h"
+#include "ssz.h"
 #include "unity.h"
-#include "util/bytes.h"
-#include "util/json.h"
-#include "util/patricia.h"
-#include "util/ssz.h"
 void setUp(void) {
   // Initialisierung vor jedem Test (falls erforderlich)
 }

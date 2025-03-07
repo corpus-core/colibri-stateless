@@ -1,14 +1,14 @@
 
-#include "../util/bytes.h"
-#include "../util/crypto.h"
-#include "../util/json.h"
-#include "../util/patricia.h"
-#include "../util/rlp.h"
-#include "../util/ssz.h"
+#include "bytes.h"
+#include "crypto.h"
 #include "eth_tx.h"
+#include "eth_verify.h"
+#include "json.h"
+#include "patricia.h"
+#include "rlp.h"
+#include "ssz.h"
 #include "sync_committee.h"
 #include "types_verify.h"
-#include "verify.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>

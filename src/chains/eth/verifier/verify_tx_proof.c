@@ -1,14 +1,14 @@
 
-#include "../util/bytes.h"
-#include "../util/crypto.h"
-#include "../util/json.h"
-#include "../util/patricia.h"
-#include "../util/rlp.h"
-#include "../util/ssz.h"
+#include "bytes.h"
+#include "crypto.h"
 #include "eth_tx.h"
+#include "eth_verify.h"
+#include "json.h"
+#include "patricia.h"
+#include "rlp.h"
+#include "ssz.h"
 #include "sync_committee.h"
 #include "types_verify.h"
-#include "verify.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -35,8 +35,6 @@ static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof, bytes_t block
 }
 
 bool verify_tx_proof(verify_ctx_t* ctx) {
-  ctx->type = PROOF_TYPE_TRANSACTION;
-
   ssz_ob_t raw                      = ssz_get(&ctx->proof, "transaction");
   ssz_ob_t tx_proof                 = ssz_get(&ctx->proof, "proof");
   ssz_ob_t tx_index                 = ssz_get(&ctx->proof, "transactionIndex");

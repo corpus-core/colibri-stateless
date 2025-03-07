@@ -1,10 +1,10 @@
 #include "colibri.h"
-#include "../src/proofer/proofer.h"
-#include "../src/util/plugin.h"
-#include "../src/util/ssz.h"
-#include "../src/verifier/sync_committee.h"
-#include "../src/verifier/types_verify.h"
-#include "../src/verifier/verify.h"
+#include "plugin.h"
+#include "proofer.h"
+#include "ssz.h"
+#include "sync_committee.h"
+#include "types_verify.h"
+#include "verify.h"
 
 #include <stdbool.h>
 #include <stdio.h>

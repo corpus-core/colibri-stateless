@@ -5,8 +5,8 @@
 extern "C" {
 #endif
 
-#include "../util/bytes.h"
-#include "../util/state.h"
+#include "bytes.h"
+#include "state.h"
 #include "verify.h"
 #include <stdint.h>
 

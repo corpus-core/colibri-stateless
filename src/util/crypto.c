@@ -1,5 +1,5 @@
 #include "crypto.h"
-#include "../../libs/blst/blst.h"
+#include "blst.h"
 #include "bytes.h"
 #include "secp256k1.h"
 #include "sha2.h"
