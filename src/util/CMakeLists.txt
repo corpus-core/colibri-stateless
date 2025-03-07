@@ -23,5 +23,6 @@ add_library(util STATIC
   state.c
   version.c
 )
-target_include_directories(util PRIVATE ../../libs/crypto)
+target_include_directories(util PRIVATE ../../libs/crypto ${CMAKE_BINARY_DIR}/_deps/blst-src/bindings)
+target_include_directories(util INTERFACE .)
 target_link_libraries(util PRIVATE crypto blst)

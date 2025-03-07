@@ -1,8 +1,8 @@
 // datei: test_addiere.c
+#include "bytes.h"
 #include "c4_assert.h"
+#include "ssz.h"
 #include "unity.h"
-#include "util/bytes.h"
-#include "util/ssz.h"
 void setUp(void) {
   reset_local_filecache();
 }

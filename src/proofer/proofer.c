@@ -1,7 +1,7 @@
 #include "proofer.h"
 #include "../util/json.h"
 #include "../util/state.h"
-#include "proofers.h"
+#include PROOFERS_PATH
 #include <stdlib.h>
 #include <string.h>
 

@@ -32,6 +32,7 @@ elseif(NOT Java_INCLUDE_DIRS)
 endif()
 include_directories(${Java_INCLUDE_DIRS})
 include_directories(${CMAKE_SOURCE_DIR}/bindings)
+include_directories(${CMAKE_SOURCE_DIR}/bindings)
 
 # Define SWIG flags (used in both cases)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Colibri.i PROPERTIES CPLUSPLUS OFF)

@@ -157,7 +157,7 @@ jobs:
           cat valgrind_summary.md >> $GITHUB_STEP_SUMMARY
           exit $EXIT_CODE
 
-      - name: Analyze Stack Usage for test_verify_logs
+      - name: Analyze Stack Usage for test_eth_verify_logs
         run: |
           # Define the test binary path
           TEST_BINARY="./build/test/unittests/verify_only"
