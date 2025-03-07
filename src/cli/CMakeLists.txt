@@ -5,6 +5,7 @@ endif()
 
 if (CLI)    
     add_executable(proof proofer.c)#
+    target_include_directories(proof PRIVATE ../util ../proofer ../verifier)
     set_target_properties(proof PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
@@ -14,11 +15,13 @@ if (CLI)
       verifier
       proofer
     )
+    target_include_directories(ssz PRIVATE ../util ../proofer ../verifier)
     set_target_properties(ssz PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
 
     add_executable(verify verifier.c)
+    target_include_directories(verifier PRIVATE ../util ../proofer ../verifier)
     set_target_properties(verify PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )

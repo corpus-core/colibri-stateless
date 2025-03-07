@@ -1,6 +1,6 @@
+#include "../../src/chains/eth/verifier/sync_committee.h"
 #include "../../src/proofer/proofer.h"
 #include "../../src/util/plugin.h"
-#include "../../src/verifier/sync_committee.h"
 #include "../../src/verifier/verify.h"
 #include <emscripten.h>
 #include <stdio.h>

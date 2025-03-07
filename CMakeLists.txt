@@ -8,6 +8,7 @@ option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but more memory)" ON)
 option(PROOFER_CACHE "Caches blockhashes and maps)" ON)
+option(CHAIN_ETH "includes all ETH engine" ON)
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -185,3 +186,8 @@ add_custom_target(valgrind
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Generating the valgrind image"
 )
+
+include(cmake/verifier.cmake)
+
+# Generate verifiers header at the end
+generate_verifiers_header()

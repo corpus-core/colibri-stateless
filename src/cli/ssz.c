@@ -1,8 +1,8 @@
-#include "../util/ssz.h"
-#include "../proofer/ssz_types.h"
-#include "../util/bytes.h"
-#include "../util/crypto.h"
-#include "../verifier/types_verify.h"
+#include "ssz.h"
+#include "bytes.h"
+#include "crypto.h"
+#include "ssz_types.h"
+#include "types_verify.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

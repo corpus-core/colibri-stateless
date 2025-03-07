@@ -16,13 +16,10 @@ add_library(util STATIC
   ssz_builder.c
   crypto.c
   plugin.c
-  patricia.c
-  rlp.c
   json.c
   json_validate.c
   logger.c
   chains.c
-  patricia_trie.c
   state.c
   version.c
 )

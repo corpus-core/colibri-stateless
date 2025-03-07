@@ -21,6 +21,7 @@ file(MAKE_DIRECTORY ${EMSCRIPTEN_OUTPUT_DIR})
 
 
 add_executable(c4w ems.c)
+target_include_directories(c4w PRIVATE proofer util verifier)
 target_link_libraries(c4w proofer util verifier)
 set_target_properties(c4w PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${EMSCRIPTEN_OUTPUT_DIR}

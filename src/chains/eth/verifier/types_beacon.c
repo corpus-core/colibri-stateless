@@ -1,6 +1,6 @@
-#include "../util/bytes.h"
-#include "../util/crypto.h"
-#include "../util/ssz.h"
+#include "bytes.h"
+#include "crypto.h"
+#include "ssz.h"
 #include <stdio.h>
 #include <stdlib.h>
 

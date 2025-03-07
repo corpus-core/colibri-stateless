@@ -249,6 +249,8 @@ void buffer_add_be(buffer_t* buffer, uint64_t value, uint32_t len) {
 }
 
 char* bprintf(buffer_t* buf, const char* fmt, ...) {
+  buffer_t tmp_buf = {0};
+  if (buf == NULL) buf = &tmp_buf;
   va_list args;
   va_start(args, fmt);
   const char* last_pos = fmt;
