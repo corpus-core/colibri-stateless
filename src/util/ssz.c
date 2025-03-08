@@ -65,7 +65,14 @@ static bool failure(char* fnt) {
     state->error = bprintf(&buf, fmt, ##__VA_ARGS__); \
     return failure(fmt);                              \
   } while (0)
-
+#define RETURN_VALID_IF(condition, msg, ...)                       \
+  do {                                                             \
+    if (!(condition)) {                                            \
+      if (state) state->error = bprintf(NULL, msg, ##__VA_ARGS__); \
+      return failure(msg);                                         \
+    }                                                              \
+    return true;                                                   \
+  } while (0)
 bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
   switch (ob.def->type) {
     case SSZ_TYPE_BOOLEAN:
@@ -106,11 +113,11 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
       }
       return true;
     case SSZ_TYPE_BIT_VECTOR:
-      return ob.bytes.len == (ob.def->def.vector.len + 7) >> 3;
+      RETURN_VALID_IF(ob.bytes.len == (ob.def->def.vector.len + 7) >> 3, "Invalid length for bit vector");
     case SSZ_TYPE_BIT_LIST:
-      return ob.bytes.len <= (ob.def->def.vector.len + 7) >> 3;
+      RETURN_VALID_IF(ob.bytes.len <= (ob.def->def.vector.len + 7) >> 3, "Invalid length for bit list");
     case SSZ_TYPE_UINT:
-      return ob.bytes.len == ob.def->def.uint.len;
+      RETURN_VALID_IF(ob.bytes.len == ob.def->def.uint.len, "Invalid length for uint");
     case SSZ_TYPE_CONTAINER:
       if (ssz_is_dynamic(ob.def) ? (ob.bytes.len < ssz_fixed_length(ob.def)) : (ob.bytes.len != ssz_fixed_length(ob.def))) THROW_INVALID("Invalid length for container");
       if (recursive) {
