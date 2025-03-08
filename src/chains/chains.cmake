@@ -50,7 +50,7 @@ function(add_proofer)
     add_library(${PROOFER_NAME} STATIC ${PROOFER_SOURCES})
     
     # Set include directories
-    target_include_directories(${PROOFER_NAME} PUBLIC ../../proofer proofer)
+    target_include_directories(${PROOFER_NAME} PUBLIC ../../proofer proofer ssz)
 
     
     # Link dependencies
