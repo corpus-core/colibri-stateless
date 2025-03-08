@@ -2,6 +2,7 @@
 #include "../util/json.h"
 #include "../verifier/types_beacon.h"
 #include "../verifier/types_verify.h"
+#include "beacon_types.h"
 #include "eth_req.h"
 #include "proofer.h"
 #include "ssz_types.h"
@@ -34,7 +35,7 @@ static c4_status_t get_block(proofer_ctx_t* ctx, uint64_t slot, ssz_ob_t* block)
   else
     sprintf(path, "eth/v2/beacon/blocks/%" PRIu64, slot);
 
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, &SIGNED_BEACON_BLOCK_CONTAINER, block));
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB), block));
   *block = ssz_get(block, "message");
   return C4_SUCCESS;
 }

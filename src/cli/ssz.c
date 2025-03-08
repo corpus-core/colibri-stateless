@@ -1,6 +1,7 @@
 #include "ssz.h"
 #include "../chains/eth/proofer/ssz_types.h"
 #include "../chains/eth/verifier/types_verify.h"
+#include "beacon_types.h"
 #include "bytes.h"
 #include "chains.h"
 #include "crypto.h"
@@ -10,8 +11,8 @@
 #include <string.h>
 
 const ssz_def_t* get_def(char* typename) {
-  if (strcmp(typename, "signedblock") == 0) return &SIGNED_BEACON_BLOCK_CONTAINER;
-  if (strcmp(typename, "blockbody") == 0) return &BEACON_BLOCK_BODY_CONTAINER;
+  if (strcmp(typename, "signedblock") == 0) return eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB);
+  if (strcmp(typename, "blockbody") == 0) return eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_DENEB);
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
 }

@@ -27,11 +27,13 @@ add_proofer(
     proofer/proof_account.c
     proofer/proof_transaction.c
     proofer/proof_logs.c
-    proofer/ssz_types.c
     proofer/beacon.c
     proofer/proof_receipt.c
     proofer/eth_req.c
     proofer/beacon_cache.c
+    ssz/beacon_types.c
+    ssz/beacon_denep.c
   DEPS util eth_verifier
   PROOF eth_proofer_execute
 )
+

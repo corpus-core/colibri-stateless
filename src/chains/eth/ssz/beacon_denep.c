@@ -1,12 +1,7 @@
-#include "ssz_types.h"
-#include "../util/bytes.h"
-#include "../util/crypto.h"
-#include "../util/ssz.h"
-#include "../verifier/types_beacon.h"
-#include "../verifier/types_verify.h"
-#include "beacon.h"
-#include <stdio.h>
-#include <stdlib.h>
+#include "beacon_types.h"
+#include "ssz.h"
+#include "types_beacon.h"
+#include "types_verify.h"
 
 #define MAX_PROPOSER_SLASHINGS       16
 #define MAX_ATTESTER_SLASHINGS       2

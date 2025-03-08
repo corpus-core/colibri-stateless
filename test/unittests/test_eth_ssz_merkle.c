@@ -1,7 +1,9 @@
 // datei: test_addiere.c
+#include "beacon_types.h"
 #include "bytes.h"
 #include "c4_assert.h"
 #include "ssz.h"
+#include "state.h"
 #include "unity.h"
 void setUp(void) {
   // Initialisierung vor jedem Test (falls erforderlich)
@@ -14,9 +16,14 @@ void tearDown(void) {
 void test_block_body() {
   bytes_t data = read_testdata("body.ssz");
   TEST_ASSERT_NOT_NULL_MESSAGE(data.data, "body.ssz not found");
-  ssz_ob_t  signed_beacon_block = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, data);
-  ssz_ob_t  block               = ssz_get(&signed_beacon_block, "message");
-  bytes32_t blockhash           = {0};
+  ssz_ob_t signed_beacon_block = {.def = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB), .bytes = data};
+  // ssz_dump_to_file(stdout, signed_beacon_block, true, true);
+
+  c4_state_t state = {0};
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(signed_beacon_block, true, &state), state.error);
+
+  ssz_ob_t  block     = ssz_get(&signed_beacon_block, "message");
+  bytes32_t blockhash = {0};
   ssz_hash_tree_root(block, blockhash);
   ASSERT_HEX_STRING_EQUAL("0x4dbac2cc64863d5b59244662993ef74f8635086b4096a9e29eef0cbc794f8841", blockhash, 32, "invalid blockhash");
 
@@ -112,7 +119,7 @@ void test_hash_root() {
 void test_hash_body() {
   bytes_t data = read_testdata("body_11038724.ssz");
   TEST_ASSERT_NOT_NULL_MESSAGE(data.data, "body_11038724.ssz not found");
-  ssz_ob_t  block = ssz_ob(BEACON_BLOCK_BODY_CONTAINER, data);
+  ssz_ob_t  block = {.def = eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_DENEB), .bytes = data};
   bytes32_t root  = {0};
   ssz_hash_tree_root(block, root);
   ASSERT_HEX_STRING_EQUAL("ef0d785cb18cb409d4ec8ae1a2f815542b66425716623b16192389e38af32ba7", root, 32, "invalid blockhash");
