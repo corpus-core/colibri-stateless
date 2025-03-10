@@ -1,9 +1,9 @@
 #include "colibri.h"
+#include "beacon_types.h"
 #include "plugin.h"
 #include "proofer.h"
 #include "ssz.h"
 #include "sync_committee.h"
-#include "types_verify.h"
 #include "verify.h"
 
 #include <stdbool.h>
