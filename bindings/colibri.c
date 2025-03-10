@@ -128,8 +128,13 @@ bytes_t proofer_get_proof(proofer_t* proofer) {
 }
 
 void* verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes) {
-  c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
-  ssz_ob_t         req = ssz_ob(C4_REQUEST_CONTAINER, bytes_dup(proof));
+  c4_verify_ctx_t* ctx        = calloc(1, sizeof(c4_verify_ctx_t));
+  chain_type_t     chain_type = c4_chain_type(chain_id);
+  if (chain_type != c4_get_chain_type_from_req(proof)) {
+    ctx->ctx.state.error = strdup("chain type does not match the proof");
+    return ctx;
+  }
+  ssz_ob_t req = {.bytes = bytes_dup(proof), .def = c4_get_request_type(chain_type)};
   if (!ssz_is_valid(req, true, &ctx->ctx.state)) return ctx;
   ctx->ctx.chain_id   = chain_id;
   ctx->ctx.data       = ssz_get(&req, "data");
