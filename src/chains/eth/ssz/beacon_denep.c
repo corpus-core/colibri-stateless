@@ -16,6 +16,11 @@ const ssz_def_t BEACON_BLOCK_HEADER[5] = {
     SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block
     SSZ_BYTES32("bodyRoot")};    // the hash_tree_root of the block body
 
+// the aggregates signature of the sync committee
+static const ssz_def_t SYNC_AGGREGATE[] = {
+    SSZ_BIT_VECTOR("syncCommitteeBits", 512),       // the bits of the validators that signed the block (each bit represents a validator)
+    SSZ_BYTE_VECTOR("syncCommitteeSignature", 96)}; // the signature of the sync committee
+
 #ifdef PROOFER
 // a checkpoint is a tuple of epoch and root
 static const ssz_def_t CHECKPOINT[] = {
@@ -135,11 +140,6 @@ static const ssz_def_t SIGNED_BLS_TO_EXECUTION_CHANGE[] = {
 
 static const ssz_def_t PROPOSER_SLASHING_CONTAINER = SSZ_CONTAINER("proposerSlashing", PROPOSER_SLASHING);
 static const ssz_def_t ATTESTER_SLASHING_CONTAINER = SSZ_CONTAINER("attesterSlashing", ATTESTER_SLASHING);
-
-// the aggregates signature of the sync committee
-static const ssz_def_t SYNC_AGGREGATE[] = {
-    SSZ_BIT_VECTOR("syncCommitteeBits", 512),       // the bits of the validators that signed the block (each bit represents a validator)
-    SSZ_BYTE_VECTOR("syncCommitteeSignature", 96)}; // the signature of the sync committee
 
 static const ssz_def_t ATTESTATION_CONTAINER                    = SSZ_CONTAINER("attestation", ATTESTATION);
 static const ssz_def_t DEPOSIT_CONTAINER                        = SSZ_CONTAINER("deposit", DEPOSIT);
