@@ -1,31 +1,29 @@
 #include "eth_verify.h"
+#include "beacon_types.h"
 #include "chains.h"
 #include "json.h"
 #include "ssz.h"
 #include "sync_committee.h"
-#include "types_verify.h"
 #include "verify.h"
 #include <string.h>
 
 const ssz_def_t* c4_eth_get_request_type(chain_type_t chain_type) {
-  if (chain_type == C4_CHAIN_TYPE_ETHEREUM)
-    return &C4_REQUEST_CONTAINER;
-  return NULL;
+  return chain_type == C4_CHAIN_TYPE_ETHEREUM ? eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST) : NULL;
 }
 
 bool c4_eth_verify(verify_ctx_t* ctx) {
   if (ctx->chain_id != C4_CHAIN_MAINNET) return false;
   if (!c4_update_from_sync_data(ctx)) return true;
 
-  if (ssz_is_type(&ctx->proof, BLOCK_HASH_PROOF))
+  if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_HASH_PROOF)))
     verify_blockhash_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, ETH_TRANSACTION_PROOF))
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF)))
     verify_tx_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, ETH_RECEIPT_PROOF))
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_RECEIPT_PROOF)))
     verify_receipt_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, &ETH_LOGS_BLOCK_CONTAINER))
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF)))
     verify_logs_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, ETH_ACCOUNT_PROOF))
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF)))
     verify_account_proof(ctx);
   else if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok

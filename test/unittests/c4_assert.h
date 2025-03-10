@@ -1,3 +1,4 @@
+#include "beacon_types.h"
 #include "bytes.h"
 #include "chains.h"
 #include "crypto.h"
@@ -8,7 +9,6 @@
 #include "ssz_types.h"
 #include "state.h"
 #include "sync_committee.h"
-#include "types_verify.h"
 #include "unity.h"
 #include "verify.h"
 
@@ -148,6 +148,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 
       case C4_SUCCESS:
         proof_data = proof_ctx->proof;
+        //        ssz_dump_to_file(stdout, (ssz_ob_t) {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = proof_data}, true, true);
         break;
     }
   }

@@ -20,7 +20,7 @@ function(add_verifier)
     add_library(${VERIFIER_NAME} STATIC ${VERIFIER_SOURCES})
     
     # Set include directories
-    target_include_directories(${VERIFIER_NAME} PUBLIC verifier ../../verifier)
+    target_include_directories(${VERIFIER_NAME} PUBLIC verifier ../../verifier ssz)
     
     # Link dependencies
     target_link_libraries(${VERIFIER_NAME} PUBLIC ${VERIFIER_DEPENDS})
@@ -50,7 +50,7 @@ function(add_proofer)
     add_library(${PROOFER_NAME} STATIC ${PROOFER_SOURCES})
     
     # Set include directories
-    target_include_directories(${PROOFER_NAME} PUBLIC ../../proofer proofer ssz)
+    target_include_directories(${PROOFER_NAME} PUBLIC ../../proofer proofer)
 
     
     # Link dependencies

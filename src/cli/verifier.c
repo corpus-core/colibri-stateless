@@ -1,11 +1,10 @@
-#include "../chains/eth/verifier/sync_committee.h"
-#include "../chains/eth/verifier/types_beacon.h"
-#include "../chains/eth/verifier/types_verify.h"
-#include "../verifier/verify.h"
+#include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
 #include "ssz.h"
 #include "state.h"
+#include "sync_committee.h"
+#include "verify.h"
 #include "version.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -61,8 +60,7 @@ static bool get_client_updates(verify_ctx_t* ctx) {
     uint64_to_le(updates.data.data + 12, 18); // offset for sync
     updates.data.data[18] = 1;                // union type for lightclient updates
 
-    ssz_builder_t builder = {0};
-    builder.def           = (ssz_def_t*) (C4_REQUEST_SYNCDATA_UNION + 1); // union type for lightclient updates
+    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST);
     ssz_add_dynamic_list_bytes(&builder, 1, bytes(req.response.data + pos + 8 + 4, length - 4));
     bytes_t list_data = ssz_builder_to_bytes(&builder).bytes;
     buffer_append(&updates, list_data);

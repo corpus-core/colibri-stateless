@@ -1,13 +1,12 @@
-#include "../util/json.h"
-#include "../util/logger.h"
-#include "../util/ssz.h"
-#include "../util/version.h"
-#include "../verifier/types_beacon.h"
-#include "../verifier/types_verify.h"
 #include "beacon.h"
+#include "beacon_types.h"
 #include "eth_req.h"
+#include "json.h"
+#include "logger.h"
 #include "proofer.h"
+#include "ssz.h"
 #include "ssz_types.h"
+#include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>
@@ -15,13 +14,12 @@
 static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof) {
 
   buffer_t      tmp          = {0};
-  ssz_builder_t eth_tx_proof = {0};
-  ssz_builder_t c4_req       = {.def = (ssz_def_t*) &C4_REQUEST_CONTAINER, .dynamic = {0}, .fixed = {0}};
+  ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF);
+  ssz_builder_t c4_req       = ssz_builder_for_type(ETH_SSZ_VERIFY_REQUEST);
   uint32_t      tx_index     = json_get_uint32(tx_data, "transactionIndex");
   ssz_ob_t      raw          = ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index);
 
   // build the proof
-  ssz_add_uint8(&eth_tx_proof, ssz_union_selector_index(C4_REQUEST_PROOFS_UNION, "TransactionProof", &eth_tx_proof.def));
   ssz_add_bytes(&eth_tx_proof, "transaction", raw.bytes);
   ssz_add_uint32(&eth_tx_proof, tx_index);
   ssz_add_uint64(&eth_tx_proof, json_get_uint64(tx_data, "blockNumber"));
@@ -31,17 +29,9 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
   ssz_add_bytes(&eth_tx_proof, "sync_committee_bits", ssz_get(&block_data->sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&eth_tx_proof, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
 
-  // build the data
-  const ssz_def_t* data_type = NULL;
-  tmp.data.data[0]           = ssz_union_selector_index(C4_REQUEST_DATA_UNION, "EthTransactionData", &data_type);
-  tmp.data.len               = 1;
-  ssz_ob_t tx_data_ob        = ssz_from_json(tx_data, data_type);
-  buffer_append(&tmp, tx_data_ob.bytes);
-  free(tx_data_ob.bytes.data);
-
   // build the request
   ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
-  ssz_add_bytes(&c4_req, "data", tmp.data);
+  ssz_add_builders(&c4_req, "data", ssz_builder_from(ssz_from_json(tx_data, eth_ssz_verification_type(ETH_SSZ_DATA_TX))));
   ssz_add_builders(&c4_req, "proof", eth_tx_proof);
   ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
 

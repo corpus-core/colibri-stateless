@@ -1,12 +1,11 @@
 #include "eth_req.h"
 #include "beacon.h"
+#include "beacon_types.h"
 #include "json.h"
 #include "logger.h"
 #include "rlp.h"
 #include "ssz.h"
 #include "ssz_types.h"
-#include "types_beacon.h"
-#include "types_verify.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>

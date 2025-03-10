@@ -3,8 +3,6 @@
 #include "json.h"
 #include "proofer.h"
 #include "ssz_types.h"
-#include "types_beacon.h"
-#include "types_verify.h"
 #include <inttypes.h>
 #include <string.h>
 #ifdef PROOFER_CACHE

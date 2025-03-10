@@ -1,4 +1,5 @@
 
+#include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_tx.h"
@@ -8,7 +9,6 @@
 #include "rlp.h"
 #include "ssz.h"
 #include "sync_committee.h"
-#include "types_verify.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>

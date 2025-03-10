@@ -194,6 +194,13 @@ static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
   return res;
 }
 
+const ssz_def_t* ssz_get_def(const ssz_def_t* def, const char* name) {
+  for (int i = 0; i < def->def.container.len; i++) {
+    if (strcmp(def->def.container.elements[i].name, name) == 0) return def->def.container.elements + i;
+  }
+  return NULL;
+}
+
 ssz_ob_t ssz_get(ssz_ob_t* ob, const char* name) {
   if (ob->def->type != SSZ_TYPE_CONTAINER) return (ssz_ob_t) {0};
   for (int i = 0; i < ob->def->def.container.len; i++) {

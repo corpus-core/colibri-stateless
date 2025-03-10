@@ -1,4 +1,5 @@
 #include "beacon.h"
+#include "beacon_types.h"
 #include "eth_req.h"
 #include "json.h"
 #include "logger.h"
@@ -7,8 +8,6 @@
 #include "rlp.h"
 #include "ssz.h"
 #include "ssz_types.h"
-#include "types_beacon.h"
-#include "types_verify.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -17,12 +16,11 @@
 static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, beacon_block_t* block_data, bytes32_t body_root, ssz_ob_t receipt_proof, json_t receipt, bytes_t tx_proof) {
 
   buffer_t      tmp          = {0};
-  ssz_builder_t eth_tx_proof = {0};
-  ssz_builder_t c4_req       = {.def = (ssz_def_t*) &C4_REQUEST_CONTAINER, .dynamic = {0}, .fixed = {0}};
+  ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_RECEIPT_PROOF);
+  ssz_builder_t c4_req       = ssz_builder_for_type(ETH_SSZ_VERIFY_REQUEST);
   uint32_t      tx_index     = json_get_uint32(receipt, "transactionIndex");
 
   // build the proof
-  ssz_add_uint8(&eth_tx_proof, ssz_union_selector_index(C4_REQUEST_PROOFS_UNION, "ReceiptProof", &eth_tx_proof.def));
   ssz_add_bytes(&eth_tx_proof, "transaction", ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index).bytes);
   ssz_add_uint32(&eth_tx_proof, tx_index);
   ssz_add_uint64(&eth_tx_proof, json_get_uint64(receipt, "blockNumber"));
@@ -35,7 +33,7 @@ static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, beacon_block_t* 
 
   // build the request
   ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
-  ssz_add_bytes(&c4_req, "data", c4_proofer_add_data(receipt, "EthReceiptData", &tmp));
+  ssz_add_builders(&c4_req, "data", ssz_builder_from(ssz_from_json(receipt, eth_ssz_verification_type(ETH_SSZ_DATA_RECEIPT))));
   ssz_add_builders(&c4_req, "proof", eth_tx_proof);
   ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
 

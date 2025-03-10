@@ -24,9 +24,6 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 
-// creates the data based on the json as ssz object with the union_name passed and returns the bytes_t, which uses the buffer_t passed for memory
-bytes_t c4_proofer_add_data(json_t data, const char* union_name, buffer_t* tmp);
-
 c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result);
 c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, ssz_ob_t* result);
 uint64_t    c4_beacon_cache_get_slot(json_t block, chain_id_t chain_id);

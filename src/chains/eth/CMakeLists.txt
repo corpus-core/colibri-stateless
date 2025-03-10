@@ -1,8 +1,6 @@
 add_verifier(
   NAME eth_verifier
   SOURCES 
-    verifier/types_beacon.c
-    verifier/types_verify.c
     verifier/sync_committee.c
     verifier/sync_committee_state.c
     verifier/verify_blockhash_proof.c
@@ -15,6 +13,10 @@ add_verifier(
     verifier/patricia_trie.c
     verifier/patricia.c
     verifier/rlp.c
+    ssz/verify_types.c
+    ssz/beacon_types.c
+    ssz/beacon_denep.c
+    ssz/beacon_electra.c
   DEPENDS util
   GET_REQ_TYPE c4_eth_get_request_type
   VERIFY c4_eth_verify
@@ -31,8 +33,6 @@ add_proofer(
     proofer/proof_receipt.c
     proofer/eth_req.c
     proofer/beacon_cache.c
-    ssz/beacon_types.c
-    ssz/beacon_denep.c
   DEPS util eth_verifier
   PROOF eth_proofer_execute
 )

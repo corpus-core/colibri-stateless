@@ -1,4 +1,5 @@
 #include "beacon.h"
+#include "beacon_types.h"
 #include "eth_req.h"
 #include "json.h"
 #include "logger.h"
@@ -7,8 +8,6 @@
 #include "rlp.h"
 #include "ssz.h"
 #include "ssz_types.h"
-#include "types_beacon.h"
-#include "types_verify.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -153,15 +152,15 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
 
 static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* blocks, json_t logs) {
 
-  buffer_t      tmp         = {0};
-  ssz_builder_t c4_req      = ssz_builder_for(C4_REQUEST_CONTAINER);
-  ssz_builder_t block_list  = {0};
-  uint32_t      block_count = get_block_count(blocks);
-  ssz_def_t     txs_def     = SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256);
+  buffer_t         tmp         = {0};
+  ssz_builder_t    c4_req      = ssz_builder_for_type(ETH_SSZ_VERIFY_REQUEST);
+  ssz_builder_t    block_list  = ssz_builder_for_type(ETH_SSZ_VERIFY_LOGS_PROOF);
+  uint32_t         block_count = get_block_count(blocks);
+  const ssz_def_t* block_def   = block_list.def->def.vector.type;
+  const ssz_def_t* txs_def     = ssz_get_def(block_def, "txs");
 
-  ssz_add_uniondef(&block_list, C4_REQUEST_PROOFS_UNION, "LogsProof");
   for (proof_logs_block_t* block = blocks; block; block = block->next) {
-    ssz_builder_t block_ssz = ssz_builder_for(ETH_LOGS_BLOCK_CONTAINER);
+    ssz_builder_t block_ssz = ssz_builder_for_def(block_def);
     ssz_add_uint64(&block_ssz, block->block_number);
     ssz_add_bytes(&block_ssz, "blockHash", block->block_hash);
     ssz_add_bytes(&block_ssz, "proof", block->proof);
@@ -169,9 +168,9 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
     ssz_add_bytes(&block_ssz, "sync_committee_bits", ssz_get(&block->beacon_block.sync_aggregate, "syncCommitteeBits").bytes);
     ssz_add_bytes(&block_ssz, "sync_committee_signature", ssz_get(&block->beacon_block.sync_aggregate, "syncCommitteeSignature").bytes);
 
-    ssz_builder_t tx_list = ssz_builder_for(txs_def);
+    ssz_builder_t tx_list = ssz_builder_for_def(txs_def);
     for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
-      ssz_builder_t tx_ssz = ssz_builder_for(ETH_LOGS_TX_CONTAINER);
+      ssz_builder_t tx_ssz = ssz_builder_for_def(txs_def->def.vector.type);
       ssz_add_bytes(&tx_ssz, "transaction", tx->raw_tx);
       ssz_add_uint32(&tx_ssz, tx->tx_index);
       ssz_add_bytes(&tx_ssz, "proof", tx->proof.bytes);
@@ -183,7 +182,7 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
 
   // build the request
   ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
-  ssz_add_bytes(&c4_req, "data", c4_proofer_add_data(logs, "EthLogs", &tmp));
+  ssz_add_builders(&c4_req, "data", ssz_builder_from(ssz_from_json(logs, eth_ssz_verification_type(ETH_SSZ_DATA_LOGS))));
   ssz_add_builders(&c4_req, "proof", block_list);
   ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
 

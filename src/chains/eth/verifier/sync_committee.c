@@ -1,12 +1,12 @@
 #include "sync_committee.h"
-#include "../util/json.h"
-#include "../util/plugin.h"
-#include "../util/ssz.h"
-#include "../util/version.h"
+#include "beacon_types.h"
 #include "eth_verify.h"
-#include "types_beacon.h"
-#include "types_verify.h"
+#include "json.h"
+#include "plugin.h"
+#include "ssz.h"
+#include "version.h"
 #include <inttypes.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define NEXT_SYNC_COMMITTEE_GINDEX 55
@@ -52,19 +52,17 @@ bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return true;
 
-  // check the sync_data type
-  if (ctx->sync_data.def->type == SSZ_TYPE_LIST) {
-    for (int i = 0; i < ssz_len(ctx->sync_data); i++) {
+  if (ctx->sync_data.def == eth_ssz_verification_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST)) {
+    uint32_t updates_len = ssz_len(ctx->sync_data);
+    for (uint32_t i = 0; i < updates_len; i++) {
       ssz_ob_t update = ssz_at(ctx->sync_data, i);
       if (ssz_is_error(update)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
-      if (ssz_is_type(&update, LIGHT_CLIENT_UPDATE)) {
-        if (!update_light_client_update(ctx, &update, NULL)) return false;
-      }
-      else
-        RETURN_VERIFY_ERROR(ctx, "unknown sync_data type!");
+      if (!update_light_client_update(ctx, &update, NULL)) return false;
     }
+    return true;
   }
-  return true;
+  else
+    RETURN_VERIFY_ERROR(ctx, "unknown sync_data type!");
 }
 
 bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes32_t trusted_blockhash) {
@@ -98,8 +96,8 @@ bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes
     updates.data.data[18] = 1;                // union type for lightclient updates
 
     ssz_builder_t builder     = {0};
-    builder.def               = (ssz_def_t*) (C4_REQUEST_SYNCDATA_UNION + 1); // union type for lightclient updates
-    ssz_ob_t client_update_ob = ssz_ob(LIGHT_CLIENT_UPDATE_CONTAINER, bytes(client_updates.data + pos + 8 + 4, length - 4));
+    builder.def               = eth_ssz_verification_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST); // union type for lightclient updates
+    ssz_ob_t client_update_ob = {.bytes = bytes(client_updates.data + pos + 8 + 4, length - 4), .def = eth_ssz_verification_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE)};
     ssz_add_dynamic_list_bytes(&builder, 1, client_update_ob.bytes);
     bytes_t list_data = ssz_builder_to_bytes(&builder).bytes;
     buffer_append(&updates, list_data);

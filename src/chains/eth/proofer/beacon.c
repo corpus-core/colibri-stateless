@@ -1,9 +1,7 @@
 #include "beacon.h"
-#include "../util/json.h"
-#include "../verifier/types_beacon.h"
-#include "../verifier/types_verify.h"
 #include "beacon_types.h"
 #include "eth_req.h"
+#include "json.h"
 #include "proofer.h"
 #include "ssz_types.h"
 #include <inttypes.h>
@@ -111,24 +109,13 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
 }
 
 ssz_builder_t c4_proof_add_header(ssz_ob_t block, bytes32_t body_root) {
-  ssz_builder_t beacon_header = {.def = (ssz_def_t*) &BEACON_BLOCKHEADER_CONTAINER, .dynamic = {0}, .fixed = {0}};
+  ssz_builder_t beacon_header = {.def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER), .dynamic = {0}, .fixed = {0}};
   ssz_add_bytes(&beacon_header, "slot", ssz_get(&block, "slot").bytes);
   ssz_add_bytes(&beacon_header, "proposerIndex", ssz_get(&block, "proposerIndex").bytes);
   ssz_add_bytes(&beacon_header, "parentRoot", ssz_get(&block, "parentRoot").bytes);
   ssz_add_bytes(&beacon_header, "stateRoot", ssz_get(&block, "stateRoot").bytes);
   ssz_add_bytes(&beacon_header, "bodyRoot", bytes(body_root, 32));
   return beacon_header;
-}
-
-bytes_t c4_proofer_add_data(json_t data, const char* union_name, buffer_t* tmp) {
-  buffer_grow(tmp, 100);
-  const ssz_def_t* data_type = NULL;
-  tmp->data.data[0]          = ssz_union_selector_index(C4_REQUEST_DATA_UNION, union_name, &data_type);
-  tmp->data.len              = 1;
-  ssz_ob_t tx_data_ob        = ssz_from_json(data, data_type);
-  buffer_append(tmp, tx_data_ob.bytes);
-  free(tx_data_ob.bytes.data);
-  return tmp->data;
 }
 
 c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result) {

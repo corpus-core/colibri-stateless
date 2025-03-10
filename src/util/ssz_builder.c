@@ -1,6 +1,7 @@
 #include "bytes.h"
 #include "crypto.h"
 #include "json.h"
+#include "logger.h"
 #include "ssz.h"
 #include <inttypes.h>
 #include <stdbool.h>
@@ -27,7 +28,25 @@ void ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t
   else
     buffer_append(&buffer->fixed, data);
 }
+
 void ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t data) {
+  const ssz_def_t* def = find_def(buffer->def, name);
+  if (def && def->type == SSZ_TYPE_UNION) {
+    bool found = false;
+    for (int i = 0; i < def->def.container.len; i++) {
+      if (def->def.container.elements + i == data.def) {
+        uint8_t selector = i;
+        found            = true;
+        buffer_splice(&data.fixed, 0, 0, bytes(&selector, 1));
+        break;
+      }
+    }
+    if (!found) {
+      log_error("ssz_add_builders: Uniontype %s not found in %s.%s\n", data.def->name, buffer->def->name, name);
+      return;
+    }
+  }
+
   ssz_ob_t element = ssz_builder_to_bytes(&data);
   ssz_add_bytes(buffer, name, element.bytes);
   free(element.bytes.data);
@@ -59,6 +78,17 @@ void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data) {
   buffer_append(bytes, data);
 }
 
+void ssz_add_uint256(ssz_builder_t* buffer, bytes_t data) {
+  buffer_grow(&buffer->fixed, buffer->fixed.data.len + 32);
+  uint8_t* ptr = buffer->fixed.data.data + buffer->fixed.data.len;
+  for (int i = 0; i < data.len; i++, ptr++) {
+    *ptr = data.data[data.len - i];
+  }
+  if (data.len < 32)
+    memset(ptr, 0, 32 - data.len);
+
+  buffer->fixed.data.len += 32;
+}
 void ssz_add_uint64(ssz_builder_t* buffer, uint64_t value) {
   uint8_t tmp[8];
   tmp[0] = value & 0xFF;
