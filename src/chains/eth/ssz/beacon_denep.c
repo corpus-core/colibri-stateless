@@ -16,6 +16,7 @@ const ssz_def_t BEACON_BLOCK_HEADER[5] = {
     SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block
     SSZ_BYTES32("bodyRoot")};    // the hash_tree_root of the block body
 
+#ifdef PROOFER
 // a checkpoint is a tuple of epoch and root
 static const ssz_def_t CHECKPOINT[] = {
     SSZ_UINT64("epoch"), // the epoch of the checkpoint
@@ -172,6 +173,8 @@ static const ssz_def_t SIGNED_BEACON_BLOCK[] = {
 
 static const ssz_def_t BEACON_BLOCK_BODY_CONTAINER   = SSZ_CONTAINER("beaconBlockBody", BEACON_BLOCK_BODY);
 static const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER = SSZ_CONTAINER("signedBeaconBlock", SIGNED_BEACON_BLOCK);
+
+#endif
 
 static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 

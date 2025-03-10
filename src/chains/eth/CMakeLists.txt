@@ -33,6 +33,7 @@ add_proofer(
     proofer/proof_receipt.c
     proofer/eth_req.c
     proofer/beacon_cache.c
+    proofer/eth_tools.c
   DEPS util eth_verifier
   PROOF eth_proofer_execute
 )

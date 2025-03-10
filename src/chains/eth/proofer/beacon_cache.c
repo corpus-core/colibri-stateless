@@ -2,7 +2,6 @@
 #include "eth_req.h"
 #include "json.h"
 #include "proofer.h"
-#include "ssz_types.h"
 #include <inttypes.h>
 #include <string.h>
 #ifdef PROOFER_CACHE

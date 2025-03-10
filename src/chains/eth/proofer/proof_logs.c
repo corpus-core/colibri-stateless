@@ -1,13 +1,13 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "eth_req.h"
+#include "eth_tools.h"
 #include "json.h"
 #include "logger.h"
 #include "patricia.h"
 #include "proofer.h"
 #include "rlp.h"
 #include "ssz.h"
-#include "ssz_types.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -153,7 +153,6 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
 static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* blocks, json_t logs) {
 
   buffer_t         tmp         = {0};
-  ssz_builder_t    c4_req      = ssz_builder_for_type(ETH_SSZ_VERIFY_REQUEST);
   ssz_builder_t    block_list  = ssz_builder_for_type(ETH_SSZ_VERIFY_LOGS_PROOF);
   uint32_t         block_count = get_block_count(blocks);
   const ssz_def_t* block_def   = block_list.def->def.vector.type;
@@ -180,13 +179,11 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
     ssz_add_dynamic_list_builders(&block_list, block_count, block_ssz);
   }
 
-  // build the request
-  ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
-  ssz_add_builders(&c4_req, "data", ssz_builder_from(ssz_from_json(logs, eth_ssz_verification_type(ETH_SSZ_DATA_LOGS))));
-  ssz_add_builders(&c4_req, "proof", block_list);
-  ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
-
-  ctx->proof = ssz_builder_to_bytes(&c4_req).bytes;
+  ctx->proof = eth_create_proof_request(
+      ctx->chain_id,
+      FROM_JSON(logs, ETH_SSZ_DATA_LOGS),
+      block_list,
+      NULL_SSZ_BUILDER);
 
   buffer_free(&tmp);
   return C4_SUCCESS;

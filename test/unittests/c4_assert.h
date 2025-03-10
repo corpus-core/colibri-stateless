@@ -6,7 +6,6 @@
 #include "plugin.h"
 #include "proofer.h"
 #include "ssz.h"
-#include "ssz_types.h"
 #include "state.h"
 #include "sync_committee.h"
 #include "unity.h"

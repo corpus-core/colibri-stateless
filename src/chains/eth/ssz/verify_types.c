@@ -316,7 +316,6 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, &ETH_LOGS_BLOCK_CONTAINER);
     case ETH_SSZ_VERIFY_STATE_PROOF:
       return &ETH_STATE_PROOF_CONTAINER;
-
     case ETH_SSZ_DATA_HASH32:
       return C4_REQUEST_DATA_UNION + 1;
     case ETH_SSZ_DATA_BYTES:

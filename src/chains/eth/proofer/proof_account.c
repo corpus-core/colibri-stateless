@@ -1,6 +1,7 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "eth_req.h"
+#include "eth_tools.h"
 #include "json.h"
 #include "proofer.h"
 #include "ssz.h"
@@ -47,7 +48,6 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   json_t        json_code         = {0};
   buffer_t      tmp               = {0};
   ssz_builder_t eth_account_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF);
-  ssz_builder_t c4_req            = ssz_builder_for_type(ETH_SSZ_VERIFY_REQUEST);
   ssz_builder_t eth_state_proof   = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
   ssz_builder_t eth_data          = {0};
 
@@ -89,15 +89,14 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
     ssz_add_uint256(&eth_data, json_as_bytes(json_get(json_at(json_get(eth_proof, "storageProof"), 0), "value"), &tmp));
   }
 
-  // build the request
-  ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
-  ssz_add_builders(&c4_req, "data", eth_data);
-  ssz_add_builders(&c4_req, "proof", eth_account_proof);
-  ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
+  ctx->proof = eth_create_proof_request(
+      ctx->chain_id,
+      eth_data,
+      eth_account_proof,
+      NULL_SSZ_BUILDER);
 
   // empty sync_data
   buffer_free(&tmp);
-  ctx->proof = ssz_builder_to_bytes(&c4_req).bytes;
   return C4_SUCCESS;
 }
 

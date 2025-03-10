@@ -1,11 +1,11 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "eth_req.h"
+#include "eth_tools.h"
 #include "json.h"
 #include "logger.h"
 #include "proofer.h"
 #include "ssz.h"
-#include "ssz_types.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -15,7 +15,6 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
 
   buffer_t      tmp          = {0};
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF);
-  ssz_builder_t c4_req       = ssz_builder_for_type(ETH_SSZ_VERIFY_REQUEST);
   uint32_t      tx_index     = json_get_uint32(tx_data, "transactionIndex");
   ssz_ob_t      raw          = ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index);
 
@@ -29,14 +28,13 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
   ssz_add_bytes(&eth_tx_proof, "sync_committee_bits", ssz_get(&block_data->sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&eth_tx_proof, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
 
-  // build the request
-  ssz_add_bytes(&c4_req, "version", bytes(c4_version_bytes, 4));
-  ssz_add_builders(&c4_req, "data", ssz_builder_from(ssz_from_json(tx_data, eth_ssz_verification_type(ETH_SSZ_DATA_TX))));
-  ssz_add_builders(&c4_req, "proof", eth_tx_proof);
-  ssz_add_bytes(&c4_req, "sync_data", bytes(NULL, 1));
+  ctx->proof = eth_create_proof_request(
+      ctx->chain_id,
+      FROM_JSON(tx_data, ETH_SSZ_DATA_TX),
+      eth_tx_proof,
+      NULL_SSZ_BUILDER);
 
   buffer_free(&tmp);
-  ctx->proof = ssz_builder_to_bytes(&c4_req).bytes;
   return C4_SUCCESS;
 }
 

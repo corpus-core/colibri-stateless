@@ -107,6 +107,11 @@ if(COVERAGE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
 endif()
 
+# Disable warnings about implicit void* casting
+if(CMAKE_C_COMPILER_ID MATCHES "Clang" OR CMAKE_C_COMPILER_ID MATCHES "GNU")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-incompatible-pointer-types")
+endif()
+
 # Output settings
 set(OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 

@@ -3,8 +3,8 @@
 #include "eth_req.h"
 #include "json.h"
 #include "proofer.h"
-#include "ssz_types.h"
 #include <inttypes.h>
+#include <stdlib.h>
 #include <string.h>
 
 static c4_status_t get_beacon_header_by_hash(proofer_ctx_t* ctx, char* hash, json_t* header) {
