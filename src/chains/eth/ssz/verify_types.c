@@ -287,7 +287,7 @@ static const ssz_def_t C4_REQUEST[] = {
 
 static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQUEST);
 
-static inline __attribute__((const)) size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
+static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
   for (size_t i = 0; i < len; i++) {
     if (array[i].type >= SSZ_TYPE_CONTAINER && array[i].def.container.elements == target) return i;
   }
