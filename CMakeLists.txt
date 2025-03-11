@@ -204,3 +204,115 @@ add_custom_target(valgrind
 generate_verifiers_header()
 generate_proofers_header()
 
+# Combined static library target
+if(NOT EMBEDDED)
+    # Add an option to enable/disable combined static library
+    option(COMBINED_STATIC_LIB "Build a combined static library" OFF)
+    
+    if(COMBINED_STATIC_LIB)
+        # Helper function to recursively collect all static library dependencies
+        function(get_all_library_dependencies target result_var dependency_set)
+            # Get the target's dependencies
+            get_target_property(target_deps ${target} LINK_LIBRARIES)
+            if(target_deps)
+                foreach(dep ${target_deps})
+                    # Only process if it's a CMake target (not a path or keyword like optimized/debug)
+                    if(TARGET ${dep})
+                        # Get the type of the dependency
+                        get_target_property(dep_type ${dep} TYPE)
+                        
+                        # Only include STATIC_LIBRARY targets and skip if already processed
+                        if(dep_type STREQUAL "STATIC_LIBRARY" AND NOT ${dep} IN_LIST ${dependency_set})
+                            # Add the dependency to our set to avoid duplicates
+                            set(${dependency_set} ${${dependency_set}} ${dep} PARENT_SCOPE)
+                            
+                            # Recursively get this dependency's dependencies
+                            get_all_library_dependencies(${dep} ${result_var} ${dependency_set})
+                        endif()
+                    endif()
+                endforeach()
+            endif()
+            
+            # Pass the result back to parent scope
+            set(${result_var} ${${dependency_set}} PARENT_SCOPE)
+        endfunction()
+        
+        # Initialize the list of libraries to combine
+        set(ALL_LIBS_TO_COMBINE "")
+        set(LIBS_DEPENDENCY_SET "")
+        
+        # Start with main libraries based on build options
+        if(VERIFIER)
+            list(APPEND ALL_LIBS_TO_COMBINE verifier)
+            get_all_library_dependencies(verifier ALL_LIBS_TO_COMBINE LIBS_DEPENDENCY_SET)
+        endif()
+        
+        if(PROOFER)
+            list(APPEND ALL_LIBS_TO_COMBINE proofer)
+            get_all_library_dependencies(proofer ALL_LIBS_TO_COMBINE LIBS_DEPENDENCY_SET)
+        endif()
+        
+        # Remove duplicates
+        list(REMOVE_DUPLICATES ALL_LIBS_TO_COMBINE)
+        
+        message(STATUS "Libraries to combine: ${ALL_LIBS_TO_COMBINE}")
+        
+        # Create the combined static library
+        add_library(c4_combined STATIC)
+        
+        # Get all object files from the target libraries
+        foreach(lib ${ALL_LIBS_TO_COMBINE})
+            # Get sources, include dirs and compile definitions
+            get_target_property(lib_sources ${lib} SOURCES)
+            get_target_property(lib_include_dirs ${lib} INCLUDE_DIRECTORIES)
+            get_target_property(lib_compile_defs ${lib} COMPILE_DEFINITIONS)
+            
+            # If include directories exist, add them to the combined library
+            if(lib_include_dirs)
+                target_include_directories(c4_combined PRIVATE ${lib_include_dirs})
+            endif()
+            
+            # If compile definitions exist, add them to the combined library
+            if(lib_compile_defs)
+                target_compile_definitions(c4_combined PRIVATE ${lib_compile_defs})
+            endif()
+            
+            # Add the sources to the combined library (using object library approach)
+            if(lib_sources)
+                target_sources(c4_combined PRIVATE $<TARGET_OBJECTS:${lib}>)
+            endif()
+        endforeach()
+        
+        # Set output properties for the combined library
+        set_target_properties(c4_combined PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
+            OUTPUT_NAME "c4"
+        )
+        
+        # Alternative approach using ar for combining libraries
+        # Create a string with all the library file paths
+        set(AR_LIBRARY_FILES "")
+        foreach(lib ${ALL_LIBS_TO_COMBINE})
+            set(AR_LIBRARY_FILES "${AR_LIBRARY_FILES} $<TARGET_FILE:${lib}>")
+        endforeach()
+        
+        # Add a custom command to create the combined library using ar
+        add_custom_command(
+            OUTPUT ${OUTPUT_DIRECTORY}/libc4_combined.a
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${OUTPUT_DIRECTORY}
+            COMMAND ${CMAKE_AR} crs ${OUTPUT_DIRECTORY}/libc4_combined.a ${AR_LIBRARY_FILES}
+            DEPENDS ${ALL_LIBS_TO_COMBINE}
+            COMMENT "Creating combined static library using ar"
+        )
+        
+        # Add a custom target for the combined library
+        add_custom_target(c4_combined_lib ALL DEPENDS ${OUTPUT_DIRECTORY}/libc4_combined.a)
+        
+        # Install the combined library
+        install(TARGETS c4_combined
+            ARCHIVE DESTINATION lib
+            LIBRARY DESTINATION lib
+        )
+    endif()
+endif()
+
