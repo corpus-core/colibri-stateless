@@ -29,6 +29,7 @@ add_proofer(
     proofer/proof_account.c
     proofer/proof_transaction.c
     proofer/proof_logs.c
+    proofer/proof_call.c
     proofer/beacon.c
     proofer/proof_receipt.c
     proofer/eth_req.c

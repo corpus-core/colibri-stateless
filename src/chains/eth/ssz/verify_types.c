@@ -250,9 +250,73 @@ static const ssz_def_t ETH_ACCOUNT_PROOF[] = {
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected
     SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};             // the state proof of the account
 
-static const ssz_def_t ETH_ACCOUNT_PROOF_CONTAINER     = SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF);
-static const ssz_def_t ETH_TRANSACTION_PROOF_CONTAINER = SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF);
-static const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER   = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
+// 1. **Patricia Merkle Proof** for the Account Object in the execution layer (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
+// 2. **State Proof** is a SSZ Merkle Proof from the StateRoot to the ExecutionPayload over the BeaconBlockBody to its root hash which is part of the header.
+// 3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
+// 4. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+
+// ```mermaid
+// flowchart TB
+//     subgraph "ExecutionLayer"
+//         class ExecutionLayer transparent
+
+//         subgraph "Account"
+//             balance --> account
+//             nonce --> account
+//             codeHash --> account
+//             storageHash --> account
+//         end
+
+//         subgraph "Storage"
+//             key1 --..PM..-->storageHash
+//             key2 --..PM..-->storageHash
+//             key3 --..PM..-->storageHash
+//         end
+//     end
+
+//     subgraph "ConsensusLayer"
+//         subgraph "ExecutionPayload"
+//             account --..PM..--> stateRoot
+//         end
+
+//         subgraph "BeaconBlockBody"
+//             stateRoot --SSZ D:5--> executionPayload
+//             m[".."]
+//         end
+
+//         subgraph "BeaconBlockHeader"
+//             slot
+//             proposerIndex
+//             parentRoot
+//             s[stateRoot]
+//             executionPayload  --SSZ D:4--> bodyRoot
+//         end
+
+//     end
+
+// ```
+static const ssz_def_t ETH_CALL_STORAGE[] = {
+    SSZ_LIST("proof", ssz_bytes_1024, 256), // Patricia merkle proof of the storage value
+    SSZ_BYTES32("key"),                     // the key of the account
+    SSZ_BYTES32("value"),                   // the key of the account
+};
+static const ssz_def_t ETH_CALL_STORAGE_CONTAINER = SSZ_CONTAINER("EthCallStorage", ETH_CALL_STORAGE);
+static const ssz_def_t ETH_CALL_ACCOUNT[]         = {
+    SSZ_LIST("accountProof", ssz_bytes_1024, 256),         // Patricia merkle proof
+    SSZ_ADDRESS("address"),                                // the address of the account
+    SSZ_BYTES32("balance"),                                // the balance of the account
+    SSZ_BYTES32("codeHash"),                               // the code hash of the account
+    SSZ_BYTES("code", 4096),                               // the code of the contract
+    SSZ_BYTES32("nonce"),                                  // the nonce of the account
+    SSZ_BYTES32("storageHash"),                            // the storage hash of the account
+    SSZ_LIST("storage", ETH_CALL_STORAGE_CONTAINER, 4096), // the storage proofs of the selected
+};
+static const ssz_def_t ETH_CALL_ACCOUNT_CONTAINER = SSZ_CONTAINER("EthCallAccount", ETH_CALL_ACCOUNT);
+static const ssz_def_t ETH_CALL_PROOF[]           = {
+    SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256), // used accounts
+    SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};        // the state proof of the account
+
+static const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
 
 // A List of possible types of data matching the Proofs
 static const ssz_def_t C4_REQUEST_DATA_UNION[] = {
@@ -270,8 +334,9 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("BlockHashProof", BLOCK_HASH_PROOF),
     SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF),
     SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF),
-    SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF),      // a Proof of a TransactionReceipt
-    SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256)}; // a Proof for multiple Receipts and txs
+    SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF),     // a Proof of a TransactionReceipt
+    SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256), // a Proof for multiple Receipts and txs
+    SSZ_CONTAINER("CallProof", ETH_CALL_PROOF)};          // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 static const ssz_def_t C4_REQUEST_SYNCDATA_UNION[] = {
@@ -314,6 +379,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_RECEIPT_PROOF);
     case ETH_SSZ_VERIFY_LOGS_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, &ETH_LOGS_BLOCK_CONTAINER);
+    case ETH_SSZ_VERIFY_CALL_PROOF:
+      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_CALL_PROOF);
     case ETH_SSZ_VERIFY_STATE_PROOF:
       return &ETH_STATE_PROOF_CONTAINER;
     case ETH_SSZ_DATA_HASH32:
