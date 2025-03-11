@@ -84,6 +84,7 @@ json_t json_parse(const char* data) {
 }
 
 json_t json_next_value(json_t val, bytes_t* property_name, json_next_t type) {
+  if (val.type == JSON_TYPE_INVALID || val.type == JSON_TYPE_NOT_FOUND) return val;
   const char* start = next_non_whitespace_token(val.start + (type == JSON_NEXT_FIRST ? 1 : val.len));
   if (!start) return json(JSON_TYPE_INVALID, start, 0);
   if (type != JSON_NEXT_FIRST) {
@@ -171,6 +172,7 @@ bytes_t json_as_bytes(json_t val, buffer_t* buffer) {
     uint64_to_be(buffer->data.data, json_as_uint64(val));
     return buffer->data;
   }
+  if (val.type != JSON_TYPE_STRING) return NULL_BYTES;
 
   buffer_grow(buffer, val.len / 2);
   buffer->data.len = val.len;
