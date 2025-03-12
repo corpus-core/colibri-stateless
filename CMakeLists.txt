@@ -9,6 +9,7 @@ option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but more memory)" ON)
 option(PROOFER_CACHE "Caches blockhashes and maps)" ON)
 option(CHAIN_ETH "includes all ETH engine" ON)
+option(EVMONE "if true evmone is included in the build" OFF)
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -79,6 +80,9 @@ endif()
 # Feature flags and compiler settings
 if (PROOFER_CACHE) 
     add_definitions(-DPROOFER_CACHE)
+endif()
+if (EVMONE) 
+    add_definitions(-DEVMONE)
 endif()
 if (PROOFER) 
     add_definitions(-DPROOFER)
@@ -243,75 +247,102 @@ if(NOT EMBEDDED)
         
         # Start with main libraries based on build options
         if(VERIFIER)
+            # Include the verifier target itself
             list(APPEND ALL_LIBS_TO_COMBINE verifier)
-            get_all_library_dependencies(verifier ALL_LIBS_TO_COMBINE LIBS_DEPENDENCY_SET)
+            get_all_library_dependencies(verifier LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
         endif()
         
         if(PROOFER)
+            # Include the proofer target itself
             list(APPEND ALL_LIBS_TO_COMBINE proofer)
-            get_all_library_dependencies(proofer ALL_LIBS_TO_COMBINE LIBS_DEPENDENCY_SET)
+            get_all_library_dependencies(proofer LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
         endif()
+        
+        # Combine all discovered dependencies with the main targets
+        list(APPEND ALL_LIBS_TO_COMBINE ${LIBS_DEPENDENCY_SET})
         
         # Remove duplicates
         list(REMOVE_DUPLICATES ALL_LIBS_TO_COMBINE)
         
         message(STATUS "Libraries to combine: ${ALL_LIBS_TO_COMBINE}")
         
-        # Create the combined static library
-        add_library(c4_combined STATIC)
-        
-        # Get all object files from the target libraries
-        foreach(lib ${ALL_LIBS_TO_COMBINE})
-            # Get sources, include dirs and compile definitions
-            get_target_property(lib_sources ${lib} SOURCES)
-            get_target_property(lib_include_dirs ${lib} INCLUDE_DIRECTORIES)
-            get_target_property(lib_compile_defs ${lib} COMPILE_DEFINITIONS)
-            
-            # If include directories exist, add them to the combined library
-            if(lib_include_dirs)
-                target_include_directories(c4_combined PRIVATE ${lib_include_dirs})
-            endif()
-            
-            # If compile definitions exist, add them to the combined library
-            if(lib_compile_defs)
-                target_compile_definitions(c4_combined PRIVATE ${lib_compile_defs})
-            endif()
-            
-            # Add the sources to the combined library (using object library approach)
-            if(lib_sources)
-                target_sources(c4_combined PRIVATE $<TARGET_OBJECTS:${lib}>)
-            endif()
-        endforeach()
+        # Create a direct static library target instead of a custom command
+        add_library(c4_combined STATIC "${CMAKE_CURRENT_BINARY_DIR}/dummy.c")
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dummy.c" "/* Dummy file for combined library */\n")
         
         # Set output properties for the combined library
         set_target_properties(c4_combined PROPERTIES
-            LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
+            ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIRECTORY}"
             OUTPUT_NAME "c4"
         )
         
-        # Alternative approach using ar for combining libraries
-        # Create a string with all the library file paths
-        set(AR_LIBRARY_FILES "")
+        # Add dependencies to ensure libraries are built first
         foreach(lib ${ALL_LIBS_TO_COMBINE})
-            set(AR_LIBRARY_FILES "${AR_LIBRARY_FILES} $<TARGET_FILE:${lib}>")
+            add_dependencies(c4_combined ${lib})
         endforeach()
         
-        # Add a custom command to create the combined library using ar
-        add_custom_command(
-            OUTPUT ${OUTPUT_DIRECTORY}/libc4_combined.a
-            COMMAND ${CMAKE_COMMAND} -E make_directory ${OUTPUT_DIRECTORY}
-            COMMAND ${CMAKE_AR} crs ${OUTPUT_DIRECTORY}/libc4_combined.a ${AR_LIBRARY_FILES}
-            DEPENDS ${ALL_LIBS_TO_COMBINE}
-            COMMENT "Creating combined static library using ar"
+        # Create script header content at configure time
+        set(SCRIPT_HEADER "#!/bin/bash
+set -e
+echo \"Creating combined library...\"
+rm -rf \"${CMAKE_BINARY_DIR}/combine_work\"
+mkdir -p \"${CMAKE_BINARY_DIR}/combine_work\"
+mkdir -p \"${OUTPUT_DIRECTORY}\"
+rm -f \"${OUTPUT_DIRECTORY}/libc4.a\"
+
+# Create an empty archive with a dummy file
+echo \"/* Dummy object */\" > \"${CMAKE_BINARY_DIR}/dummy.c\"
+${CMAKE_C_COMPILER} -c \"${CMAKE_BINARY_DIR}/dummy.c\" -o \"${CMAKE_BINARY_DIR}/dummy.o\"
+${CMAKE_AR} crs \"${OUTPUT_DIRECTORY}/libc4.a\" \"${CMAKE_BINARY_DIR}/dummy.o\"
+rm -f \"${CMAKE_BINARY_DIR}/dummy.o\"
+
+# Process each library
+")
+
+        # Create script commands for each library using generator expressions
+        set(SCRIPT_LIBRARY_COMMANDS "")
+        foreach(lib ${ALL_LIBS_TO_COMBINE})
+            string(APPEND SCRIPT_LIBRARY_COMMANDS "
+echo \"Processing ${lib}\"
+mkdir -p \"${CMAKE_BINARY_DIR}/combine_work/${lib}\"
+cd \"${CMAKE_BINARY_DIR}/combine_work/${lib}\"
+${CMAKE_AR} x \"$<TARGET_FILE:${lib}>\"
+if ls *.o > /dev/null 2>&1; then
+  ${CMAKE_AR} rs \"${OUTPUT_DIRECTORY}/libc4.a\" *.o
+else
+  echo \"No object files found in ${lib}\"
+fi
+")
+        endforeach()
+
+        # Create script footer
+        set(SCRIPT_FOOTER "
+echo \"Running ranlib\"
+${CMAKE_RANLIB} \"${OUTPUT_DIRECTORY}/libc4.a\"
+echo \"Cleaning up\"
+rm -rf \"${CMAKE_BINARY_DIR}/combine_work\"
+echo \"Combined library created at: ${OUTPUT_DIRECTORY}/libc4.a\"
+")
+
+        # Use file(GENERATE) to expand generator expressions at generate time
+        file(GENERATE 
+            OUTPUT "${CMAKE_BINARY_DIR}/combine_libs.sh"
+            CONTENT "${SCRIPT_HEADER}${SCRIPT_LIBRARY_COMMANDS}${SCRIPT_FOOTER}"
+            FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
         )
         
-        # Add a custom target for the combined library
-        add_custom_target(c4_combined_lib ALL DEPENDS ${OUTPUT_DIRECTORY}/libc4_combined.a)
+        # Add custom command to run the script after c4_combined target is built
+        add_custom_command(
+            TARGET c4_combined POST_BUILD
+            COMMAND "${CMAKE_BINARY_DIR}/combine_libs.sh"
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+            COMMENT "Combining static libraries"
+            VERBATIM
+        )
         
         # Install the combined library
         install(TARGETS c4_combined
             ARCHIVE DESTINATION lib
-            LIBRARY DESTINATION lib
         )
     endif()
 endif()

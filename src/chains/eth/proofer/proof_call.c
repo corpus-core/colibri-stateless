@@ -148,7 +148,7 @@ c4_status_t c4_proof_call(proofer_ctx_t* ctx) {
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
   uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
-  log_info("target_block: %l", target_block);
+  //  log_info("target_block: %l", target_block);
   TRY_ASYNC(eth_debug_trace_call(ctx, tx, &trace, target_block));
   TRY_ASYNC_CATCH(get_eth_proofs(ctx, tx, trace, target_block, &accounts, &call_result), ssz_buffer_free(&accounts));
 
