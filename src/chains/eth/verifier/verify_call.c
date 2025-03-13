@@ -40,7 +40,6 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   ssz_ob_t  sync_committee_bits      = ssz_get(&state_proof, "sync_committee_bits");
   ssz_ob_t  sync_committee_signature = ssz_get(&state_proof, "sync_committee_signature");
   bytes_t   call_result              = NULL_BYTES;
-  json_t    tx                       = json_at(ctx->args, 0);
 
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
 
