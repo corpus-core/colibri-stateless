@@ -125,7 +125,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       ctx->executor,
       &host_interface,
       &child,
-      0, // Revision (0 for latest)
+      14, // Revision (0 for latest)
       msg,
       code,
       code_size);
@@ -286,7 +286,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
       executor,
       &host_interface,
       &context,
-      0, // Revision (0 for latest)
+      14, // OSAKA-Version
       &message,
       code.data,
       code.len);

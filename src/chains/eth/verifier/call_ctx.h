@@ -68,7 +68,8 @@ static void get_src_storage(evmone_context_t* ctx, const address_t address, cons
   for (int i = 0; i < len; i++) {
     ssz_ob_t entry = ssz_at(storage, i);
     if (memcmp(ssz_get(&entry, "key").bytes.data, key, 32) == 0) {
-      memcpy(result, ssz_get(&entry, "values").bytes.data, 32);
+      bytes_t value = ssz_get(&entry, "value").bytes;
+      memcpy(result, value.data, 32);
       return;
     }
   }
