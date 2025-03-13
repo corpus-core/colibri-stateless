@@ -306,7 +306,7 @@ static const ssz_def_t ETH_CALL_ACCOUNT[]         = {
     SSZ_ADDRESS("address"),                                // the address of the account
     SSZ_BYTES32("balance"),                                // the balance of the account
     SSZ_BYTES32("codeHash"),                               // the code hash of the account
-    SSZ_BYTES("code", 4096),                               // the code of the contract
+    SSZ_BYTES("code", 4194304),                            // the code of the contract
     SSZ_BYTES32("nonce"),                                  // the nonce of the account
     SSZ_BYTES32("storageHash"),                            // the storage hash of the account
     SSZ_LIST("storage", ETH_CALL_STORAGE_CONTAINER, 4096), // the storage proofs of the selected

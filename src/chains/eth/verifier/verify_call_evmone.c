@@ -1,4 +1,5 @@
 #include "bytes.h"
+#include "call_ctx.h"
 #include "crypto.h"
 #include "eth_verify.h"
 #include "evmone_c_wrapper.h"
@@ -12,7 +13,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 /* Define the call kinds enum to match evmone_message's anonymous enum */
 typedef enum {
   CALL_KIND_CALL         = 0,
@@ -23,94 +23,115 @@ typedef enum {
 } evmone_call_kind;
 
 /* EVM Host interface implementation */
-
-// Context for EVM execution
-typedef struct evmone_context {
-  // State - Use a more generic type until we define patricia implementation details
-  void* state; // Will hold state information
-  // Current block info
-  uint64_t  block_number;
-  bytes32_t block_hash;
-  uint64_t  timestamp;
-  // Transaction info
-  bytes32_t tx_origin;
-  uint64_t  gas_price;
-  // For storing results
-  bool    success;
-  bytes_t output;
-} evmone_context_t;
+static const struct evmone_host_interface host_interface;
 
 // Check if an account exists
 static bool host_account_exists(void* context, const evmc_address* addr) {
-  evmone_context_t* ctx = (evmone_context_t*) context;
-  // TODO: Implement account existence check using patricia_state_t
-  // For now, return true to indicate all accounts exist
-  return true;
+  evmone_context_t*  ctx = (evmone_context_t*) context;
+  changed_account_t* ac  = get_changed_account(ctx, addr->bytes);
+  if (ac) return ac->deleted;
+  return get_src_account(ctx, addr->bytes).def != NULL;
 }
 
 // Get storage value for an account
 static evmc_bytes32 host_get_storage(void* context, const evmc_address* addr, const evmc_bytes32* key) {
-  evmone_context_t* ctx    = (evmone_context_t*) context;
-  evmc_bytes32      result = {0};
-  // TODO: Implement storage access using patricia_state_t
+  evmone_context_t*  ctx     = (evmone_context_t*) context;
+  evmc_bytes32       result  = {0};
+  changed_storage_t* storage = get_changed_storage(ctx, addr->bytes, key->bytes);
+  if (storage)
+    memcpy(result.bytes, storage->value, 32);
+  else
+    get_src_storage(ctx, addr->bytes, key->bytes, result.bytes);
   return result;
 }
 
 // Set storage value for an account
 static evmone_storage_status host_set_storage(void* context, const evmc_address* addr, const evmc_bytes32* key, const evmc_bytes32* value) {
-  evmone_context_t* ctx = (evmone_context_t*) context;
-  // TODO: Implement storage modification using patricia_state_t
-  return EVMONE_STORAGE_UNCHANGED;
+  evmone_context_t* ctx             = (evmone_context_t*) context;
+  evmc_bytes32      current_value   = host_get_storage(context, addr, key);
+  bool              created_account = false;
+  bool              created_storage = false;
+  if (memcmp(current_value.bytes, value->bytes, 32) == 0) return EVMONE_STORAGE_UNCHANGED;
+
+  set_changed_storage(ctx, addr->bytes, key->bytes, value->bytes, &created_account, &created_storage);
+  if (created_account) return EVMONE_STORAGE_ADDED;
+  if (bytes_all_zero(bytes(value->bytes, 32))) return EVMONE_STORAGE_DELETED;
+  if (!created_storage) return EVMONE_STORAGE_MODIFIED_AGAIN;
+  if (created_storage && bytes_all_zero(bytes(current_value.bytes, 32))) return EVMONE_STORAGE_ADDED;
+
+  return EVMONE_STORAGE_MODIFIED;
 }
 
 // Get account balance
 static evmc_bytes32 host_get_balance(void* context, const evmc_address* addr) {
-  evmone_context_t* ctx    = (evmone_context_t*) context;
-  evmc_bytes32      result = {0};
-  // TODO: Implement balance retrieval from patricia_state_t
+  evmone_context_t*  ctx    = (evmone_context_t*) context;
+  evmc_bytes32       result = {0};
+  changed_account_t* acc    = get_changed_account(ctx, addr->bytes);
+  if (acc)
+    memcpy(result.bytes, acc->balance, 32);
+  else {
+    ssz_ob_t account = get_src_account(ctx, addr->bytes);
+    if (account.def) memcpy(result.bytes, ssz_get(&account, "balance").bytes.data, 32);
+  }
+
   return result;
 }
 
 // Get code size for an account
 static size_t host_get_code_size(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
-  // TODO: Implement code size retrieval
-  return 0;
+  return get_code(ctx, addr->bytes).len;
 }
 
 // Get code hash for an account
 static evmc_bytes32 host_get_code_hash(void* context, const evmc_address* addr) {
   evmone_context_t* ctx    = (evmone_context_t*) context;
   evmc_bytes32      result = {0};
-  // TODO: Implement code hash retrieval
+  keccak(get_code(ctx, addr->bytes), result.bytes);
   return result;
 }
 
 // Copy code from an account
 static size_t host_copy_code(void* context, const evmc_address* addr, size_t code_offset, uint8_t* buffer_data, size_t buffer_size) {
-  evmone_context_t* ctx = (evmone_context_t*) context;
-  // TODO: Implement code copying
-  return 0;
+  evmone_context_t* ctx       = (evmone_context_t*) context;
+  bytes_t           code      = get_code(ctx, addr->bytes);
+  size_t            copy_size = code.len - code_offset;
+  if (buffer_size < copy_size) copy_size = buffer_size;
+  memcpy(buffer_data, code.data + code_offset, copy_size);
+  return copy_size;
 }
 
 // Handle selfdestruct operation
 static void host_selfdestruct(void* context, const evmc_address* addr, const evmc_address* beneficiary) {
-  evmone_context_t* ctx = (evmone_context_t*) context;
-  // TODO: Implement selfdestruct logic
+  evmone_context_t*  ctx = (evmone_context_t*) context;
+  bool               created;
+  changed_account_t* acc = create_changed_account(ctx, addr->bytes, &created);
+  while (acc->storage) {
+    changed_storage_t* storage = acc->storage;
+    acc->storage               = storage->next;
+    free(storage);
+  }
+  acc->deleted = true;
 }
 
 // Handle call to another contract
 static void host_call(void* context, const struct evmone_message* msg, const uint8_t* code, size_t code_size, struct evmone_result* result) {
-  evmone_context_t* ctx = (evmone_context_t*) context;
-  // TODO: Implement call logic
+  evmone_context_t* ctx   = (evmone_context_t*) context;
+  evmone_context_t  child = *ctx;
+  child.parent            = ctx;
+  child.changed_accounts  = NULL;
+  // Execute the code
+  evmone_result exec_result = evmone_execute(
+      ctx->executor,
+      &host_interface,
+      &child,
+      0, // Revision (0 for latest)
+      msg,
+      code,
+      code_size);
 
-  // Set some defaults for the result
-  result->status_code    = 0; // Success
-  result->gas_left       = 0;
-  result->gas_refund     = 0;
-  result->output_data    = NULL;
-  result->output_size    = 0;
-  result->create_address = NULL;
+  context_free(&child);
+  *result = exec_result;
 }
 
 // Get transaction context
@@ -125,6 +146,7 @@ static evmc_bytes32 host_get_tx_context(void* context) {
 static evmc_bytes32 host_get_block_hash(void* context, int64_t number) {
   evmone_context_t* ctx    = (evmone_context_t*) context;
   evmc_bytes32      result = {0};
+
   // TODO: Implement block hash retrieval logic
   return result;
 }
@@ -138,6 +160,7 @@ static void host_emit_log(void* context, const evmc_address* addr, const uint8_t
 // Track account access for gas metering
 static void host_access_account(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
+
   // TODO: Implement account access tracking
 }
 
@@ -148,7 +171,7 @@ static void host_access_storage(void* context, const evmc_address* addr, const e
 }
 
 // Set up the host interface with all our callback functions
-static const evmone_host_interface host_interface = {
+static const struct evmone_host_interface host_interface = {
     .account_exists = host_account_exists,
     .get_storage    = host_get_storage,
     .set_storage    = host_set_storage,
@@ -164,16 +187,6 @@ static const evmone_host_interface host_interface = {
     .access_account = host_access_account,
     .access_storage = host_access_storage,
 };
-
-static bytes_t get_code(ssz_ob_t accounts, bytes_t address) {
-  for (int i = 0; i < ssz_len(accounts); i++) {
-    ssz_ob_t account = ssz_at(accounts, i);
-    bytes_t  addr    = ssz_get(&account, "address").bytes;
-    if (addr.len == address.len && memcmp(addr.data, address.data, address.len) == 0)
-      return ssz_get(&account, "code").bytes;
-  }
-  return (bytes_t) {0};
-}
 
 /**
  * Initialize an evmone_message from JSON transaction data
@@ -235,24 +248,38 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   ssz_ob_t  sync_committee_bits      = ssz_get(&state_proof, "sync_committee_bits");
   ssz_ob_t  sync_committee_signature = ssz_get(&state_proof, "sync_committee_signature");
   buffer_t  buffer                   = {0};
-
+  address_t to                       = {0};
+  buffer_t  to_buf                   = stack_buffer(to);
   // TODO: Initialize the context with data from the state proof
 
   // Parse the transaction parameters from JSON
   json_t tx = json_at(ctx->args, 0);
+  if (json_get_bytes(tx, "to", &to_buf).len != 20) RETURN_VERIFY_ERROR(ctx, "Invalid transaction: to address is not 20 bytes");
+
+  void* executor = evmone_create_executor();
 
   // Initialize our EVM context with state from the proof
-  evmone_context_t context = {0};
+  evmone_context_t context = {
+      .executor         = executor,
+      .ctx              = ctx,
+      .src_accounts     = accounts,
+      .changed_accounts = NULL,
+      .block_number     = 0,
+      .block_hash       = {0},
+      .timestamp        = 0,
+      .tx_origin        = {0},
+      .output           = NULL_BYTES,
+      .gas_price        = 0,
+      .success          = false,
+      .parent           = NULL,
+  };
 
   // Get the code to execute from the account state
-  bytes_t code = get_code(accounts, json_get_bytes(tx, "to", &buffer));
+  bytes_t code = get_code(&context, to);
 
   // Initialize the EVM message
   evmone_message message;
   set_message(&message, tx, &buffer);
-
-  // Create the EVM executor
-  void* executor = evmone_create_executor();
 
   // Execute the code
   evmone_result result = evmone_execute(

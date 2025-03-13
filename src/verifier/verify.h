@@ -36,11 +36,11 @@ void             c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* 
 
 #pragma endregion
 #ifdef MESSAGES
-#define RETURN_VERIFY_ERROR(ctx, msg)                                             \
-  do {                                                                            \
-    ctx->state.error = ctx->state.error == NULL ? msg : strdup(ctx->state.error); \
-    ctx->success     = false;                                                     \
-    return false;                                                                 \
+#define RETURN_VERIFY_ERROR(ctx, msg)                                                                           \
+  do {                                                                                                          \
+    ctx->state.error = ctx->state.error == NULL ? strdup(msg) : bprintf(NULL, "%s\n%s", ctx->state.error, msg); \
+    ctx->success     = false;                                                                                   \
+    return false;                                                                                               \
   } while (0)
 #else
 #define RETURN_VERIFY_ERROR(ctx, msg) \
