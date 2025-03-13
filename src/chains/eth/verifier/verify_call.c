@@ -44,7 +44,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
 
 #ifdef EVMONE
-  if (!eth_run_call_evmone(ctx, accounts, tx, &call_result)) RETURN_VERIFY_ERROR(ctx, "Failed to run call");
+  if (!eth_run_call_evmone(ctx, accounts, json_at(ctx->args, 0), &call_result)) RETURN_VERIFY_ERROR(ctx, "Failed to run call");
   if (!bytes_eq(call_result, ctx->data.bytes)) RETURN_VERIFY_ERROR(ctx, "Call result mismatch");
   free(call_result.data);
 #endif
