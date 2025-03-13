@@ -56,7 +56,7 @@ typedef struct evmone_message {
   size_t         input_size;
   evmc_bytes32   value;
   evmc_bytes32   create_salt;
-  uint64_t       code_address; /* Used for code identification */
+  evmc_address   code_address; /* Address of the code to execute (for DELEGATECALL) */
 } evmone_message;
 
 /* Storage status enum - maps to EVMC's storage statuses */

@@ -42,8 +42,6 @@ typedef struct evmone_context {
   bytes32_t tx_origin;
   uint64_t  gas_price;
   // For storing results
-  bool                   success;
-  bytes_t                output;
   struct evmone_context* parent;
 } evmone_context_t;
 
@@ -63,7 +61,7 @@ static ssz_ob_t get_src_account(evmone_context_t* ctx, const address_t address) 
 static void get_src_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result) {
   ssz_ob_t account = get_src_account(ctx, address);
   if (!account.def) return;
-  ssz_ob_t storage = ssz_get(&account, "storage");
+  ssz_ob_t storage = ssz_get(&account, "storageProof");
   uint32_t len     = ssz_len(storage);
   for (int i = 0; i < len; i++) {
     ssz_ob_t entry = ssz_at(storage, i);

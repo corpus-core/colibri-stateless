@@ -123,7 +123,7 @@ public:
     c_msg.input_size   = msg.input_size;
     c_msg.value        = *reinterpret_cast<const evmc_bytes32*>(&msg.value);
     c_msg.create_salt  = *reinterpret_cast<const evmc_bytes32*>(&msg.create2_salt);
-    c_msg.code_address = reinterpret_cast<uint64_t>(&msg.code_address);
+    c_msg.code_address = *reinterpret_cast<const evmc_address*>(&msg.code_address);
 
     evmone_result c_result{};
     m_adapter.c_interface->call(m_adapter.context, &c_msg, nullptr, 0, &c_result);
@@ -280,6 +280,7 @@ extern "C" evmone_result evmone_execute(
   cpp_msg.input_size   = msg->input_size;
   cpp_msg.value        = *reinterpret_cast<const evmc_bytes32*>(&msg->value);
   cpp_msg.create2_salt = *reinterpret_cast<const evmc_bytes32*>(&msg->create_salt);
+  cpp_msg.code_address = *reinterpret_cast<const evmc_address*>(&msg->code_address);
 
   // Execute using the VM's execute function directly
   evmc_result cpp_result = vm->execute(vm, interface, context,

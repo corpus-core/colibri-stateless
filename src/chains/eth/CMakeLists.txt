@@ -6,7 +6,9 @@ set(VERIFIER_SOURCES
   verifier/verify_tx_proof.c
   verifier/verify_receipt_proof.c
   verifier/verify_logs_proof.c
+  verifier/verify_call.c
   verifier/eth_tx.c
+  verifier/eth_account.c
   verifier/eth_verify.c
   verifier/patricia_trie.c
   verifier/patricia.c
@@ -15,11 +17,12 @@ set(VERIFIER_SOURCES
   ssz/beacon_types.c
   ssz/beacon_denep.c
   ssz/beacon_electra.c
+
 )
 set(VERIFIER_DEPS util)
 
 if(EVMONE)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call_evmone.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES}  verifier/call_evmone.c)
   set(VERIFIER_DEPS util evmone_wrapper)
 else()
   set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c)

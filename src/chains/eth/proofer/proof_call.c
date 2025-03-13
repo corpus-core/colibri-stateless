@@ -73,19 +73,19 @@ static void add_account(ssz_builder_t* builder, json_t values, bytes_t address, 
   ssz_add_bytes(&account, "nonce", json_as_bytes(json_get(values, "nonce"), &buf));
   ssz_add_bytes(&account, "storageHash", json_as_bytes(json_get(values, "storageHash"), &buf));
 
-  ssz_builder_t storage_list = ssz_builder_for_def(ssz_get_def(account.def, "storage"));
+  ssz_builder_t storage_list = ssz_builder_for_def(ssz_get_def(account.def, "storageProof"));
   json_t        storage      = json_get(values, "storageProof");
   int           storage_len  = json_len(storage);
   int           idx          = 0;
 
   json_for_each_value(storage, val) {
     ssz_builder_t storage_key = ssz_builder_for_def(storage_list.def->def.vector.type);
-    add_dynamic_byte_list(json_get(val, "proof"), &storage_key, "proof");
     ssz_add_bytes(&storage_key, "key", json_as_bytes(json_get(val, "key"), &buf));
     ssz_add_bytes(&storage_key, "value", json_as_bytes(json_get(val, "value"), &buf));
+    add_dynamic_byte_list(json_get(val, "proof"), &storage_key, "proof");
     ssz_add_dynamic_list_builders(&storage_list, storage_len, storage_key);
   }
-  ssz_add_builders(&account, "storage", storage_list);
+  ssz_add_builders(&account, "storageProof", storage_list);
   ssz_add_dynamic_list_builders(builder, accounts_len, account);
 
   buffer_free(&buf);
