@@ -47,7 +47,7 @@ android {
         }
     }
     
-    ndkVersion = "23.1.7779620" // Adjust to your NDK version
+    ndkVersion = "25.2.9519653" // Updated to newer NDK with better C++20 support
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8

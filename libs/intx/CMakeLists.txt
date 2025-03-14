@@ -16,34 +16,7 @@ FetchContent_MakeAvailable(intx)
 message(STATUS "CMAKE_SYSTEM_NAME: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "ANDROID: ${ANDROID}")
 
-# Patch intx.hpp for Android compatibility
-if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android")
-    message(STATUS "Building for Android, applying intx compatibility patch")
-    # Get the path to the downloaded intx.hpp file
-    set(INTX_HPP_PATH "${intx_SOURCE_DIR}/include/intx/intx.hpp")
-    
-    # Patch the intx.hpp file to replace the clz function with our patched version
-    if(EXISTS "${INTX_HPP_PATH}")
-        # Read the original file
-        file(READ "${INTX_HPP_PATH}" INTX_HPP_CONTENT)
-        
-        # Replace the problematic function (using regular expression)
-        string(REGEX REPLACE "inline constexpr unsigned clz\\(std::unsigned_integral auto x\\) noexcept[^}]+\\}"
-                             "// C++20 concept implementation removed for Android compatibility" 
-                             PATCHED_CONTENT "${INTX_HPP_CONTENT}")
-        
-        # Write the patched content back
-        file(WRITE "${INTX_HPP_PATH}" "${PATCHED_CONTENT}")
-        
-        # Now append our patched implementation
-        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/intx_patch.hpp" PATCH_CONTENT)
-        file(APPEND "${INTX_HPP_PATH}" "\n// Patched implementation for Android compatibility\n${PATCH_CONTENT}\n")
-        
-        message(STATUS "Patched intx.hpp for Android compatibility")
-    else()
-        message(WARNING "Could not find intx.hpp at ${INTX_HPP_PATH}")
-    endif()
-endif()
+# Using modern NDK with better C++20 support instead of patching
 
 # Add the wrapper library
 add_library(intx_wrapper
