@@ -30,8 +30,8 @@ target_include_directories(intx_wrapper
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Use C++17 to match intx requirements
-target_compile_features(intx_wrapper PRIVATE cxx_std_17)
+# Use C++20 to match intx requirements
+target_compile_features(intx_wrapper PRIVATE cxx_std_20)
 
 # Export C interface
 set_target_properties(intx_wrapper PROPERTIES
