@@ -75,15 +75,15 @@ char* c4_req_mockname(data_request_t* req) {
     switch (buf.data.data[i]) {
       case '/':
       case '.':
-      case ' ':
       case ',':
+      case ' ':
       case ':':
       case '=':
       case '?':
+      case '"':
       case '&':
       case '[':
       case ']':
-      case '"':
       case '{':
       case '}':
         buf.data.data[i] = '_';
@@ -92,6 +92,7 @@ char* c4_req_mockname(data_request_t* req) {
         break;
     }
   }
+  if (buf.data.len > 100) buf.data.len = 100;
   bprintf(&buf, ".%s", req->encoding == C4_DATA_ENCODING_SSZ ? "ssz" : "json");
   return (char*) buf.data.data;
 }

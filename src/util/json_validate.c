@@ -6,13 +6,7 @@
 #define TEST_DEF "{tests:[{name?:bytes32,type?:address,len?:blocknumber}]}"
 char* test2 = "[address,[bytes32],block," TEST_DEF "]";
 
-#define ERROR(fmt, ...)                 \
-  do {                                  \
-    buffer_t buf = {0};                 \
-    bprintf(&buf, fmt, ##__VA_ARGS__);  \
-    return (const char*) buf.data.data; \
-  } while (0)
-
+#define ERROR(fmt, ...) return bprintf(NULL, fmt, ##__VA_ARGS__)
 static const char* find_end(const char* pos, char start, char end) {
   int level = 1;
   for (; *pos; pos++) {
@@ -78,10 +72,23 @@ static const char* check_array(json_t val, const char* def, const char* error_pr
 
 static const char* check_object(json_t ob, const char* def, const char* error_prefix) {
   if (ob.type != JSON_TYPE_OBJECT) ERROR("%sExpected object", error_prefix);
-  const char* next     = def;
-  const char* name     = NULL;
-  int         name_len = 0;
-  int         item_len = 0;
+  const char* next      = def;
+  const char* name      = NULL;
+  int         name_len  = 0;
+  int         item_len  = 0;
+  bytes_t     prop_name = NULL_BYTES;
+
+  if (def[1] == '*' && def[2] == ':') {
+    next += 3;
+    while (*next && isspace(*next)) next++;
+    const char* item_def = next_type(next, &next, &item_len);
+    json_for_each_property(ob, val, prop_name) {
+      const char* err = json_validate(val, item_def, error_prefix ? error_prefix : "");
+      if (err) ERROR("%s.%s%s", error_prefix, *err == '.' ? "" : ":", err);
+    }
+    return NULL;
+  }
+
   while ((name = next_name(def + 1, &next, &name_len))) {
     if (!next) ERROR("%sExpected object", error_prefix);
     bool optional = next && *next == '?';
@@ -90,9 +97,8 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
     if (*next != ':') ERROR("%sExpected in def :", error_prefix);
     next++;
     while (*next && isspace(*next)) next++;
-    const char* item_def  = next_type(next, &next, &item_len);
-    bytes_t     prop_name = NULL_BYTES;
-    bool        found     = false;
+    const char* item_def = next_type(next, &next, &item_len);
+    bool        found    = false;
     json_for_each_property(ob, val, prop_name) {
       if (prop_name.len == name_len && prop_name.data && memcmp(prop_name.data, name, name_len) == 0) {
         found = true;
@@ -120,6 +126,7 @@ static const char* check_hex(json_t val, int len, bool isuint, const char* error
 
   if (len > 0 && (l % 2 || l / 2 != len)) ERROR("%sExpected hex string with fixed size (%d) but got %d bytes", error_prefix, len, l / 2);
   if (isuint && (l == 0 || (val.start[3] == '0' && l > 1))) ERROR("%sno leading zeros allowed for uint", error_prefix);
+  if (isuint && l / 2 > 32) ERROR("%sexpected uint with max 32 bytes length, but got %d bytes ", error_prefix, l / 2);
   return NULL;
 }
 

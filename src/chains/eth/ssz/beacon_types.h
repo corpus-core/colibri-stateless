@@ -19,13 +19,14 @@ typedef enum {
   ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST = 10,
   ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE      = 11,
   ETH_SSZ_VERIFY_STATE_PROOF              = 12,
+  ETH_SSZ_VERIFY_CALL_PROOF               = 13,
   // data types
-  ETH_SSZ_DATA_HASH32  = 13,
-  ETH_SSZ_DATA_BYTES   = 14,
-  ETH_SSZ_DATA_UINT256 = 15,
-  ETH_SSZ_DATA_TX      = 16,
-  ETH_SSZ_DATA_RECEIPT = 17,
-  ETH_SSZ_DATA_LOGS    = 18
+  ETH_SSZ_DATA_HASH32  = 14,
+  ETH_SSZ_DATA_BYTES   = 15,
+  ETH_SSZ_DATA_UINT256 = 16,
+  ETH_SSZ_DATA_TX      = 17,
+  ETH_SSZ_DATA_RECEIPT = 18,
+  ETH_SSZ_DATA_LOGS    = 19
 } eth_ssz_type_t;
 
 const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork);

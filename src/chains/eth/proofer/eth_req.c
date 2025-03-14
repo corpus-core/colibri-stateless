@@ -9,10 +9,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define JSON_TX_FIELDS       "{transactionIndex:hexuint,blockNumber:hexuint,hash:bytes32,blockHash:bytes32,from:address,gas:hexuint,gasPrice:hexuint,input:bytes,nonce:hexuint,to:address,value:hexuint,type:hexuint,v:hexuint,r:bytes32,s:bytes32}"
-#define JSON_LOG_FIELDS      "{address:address,topics:[bytes32],data:bytes,blockNumber:hexuint,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,logIndex:hexuint,removed:bool}"
-#define JSON_RECEIPTS_FIELDS "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
-
+#define JSON_TX_FIELDS        "{transactionIndex:hexuint,blockNumber:hexuint,hash:bytes32,blockHash:bytes32,from:address,gas:hexuint,gasPrice:hexuint,input:bytes,nonce:hexuint,to:address,value:hexuint,type:hexuint,v:hexuint,r:bytes32,s:bytes32}"
+#define JSON_LOG_FIELDS       "{address:address,topics:[bytes32],data:bytes,blockNumber:hexuint,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,logIndex:hexuint,removed:bool}"
+#define JSON_RECEIPTS_FIELDS  "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
+#define JSON_ETH_PROOF_FIELDS "{accountProof:[bytes],storageProof:[{key:hexuint,value:hexuint,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
+#define JSON_TRACE_FIELDS     "{*:{balance?:hexuint,code?:bytes,nonce?:uint,storage?:{*:bytes32}}}"
 c4_status_t get_eth_tx(proofer_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   uint8_t  tmp[200];
   buffer_t buf = stack_buffer(tmp);
@@ -34,6 +35,46 @@ c4_status_t eth_get_logs(proofer_ctx_t* ctx, json_t params, json_t* logs) {
   buffer_t buf = stack_buffer(tmp);
   TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), logs));
   CHECK_JSON(*logs, "[" JSON_LOG_FIELDS "]", "Invalid results for Logs: ");
+  return C4_SUCCESS;
+}
+
+c4_status_t eth_get_proof(proofer_ctx_t* ctx, json_t address, json_t storage_key, json_t* proof, uint64_t block_number) {
+  buffer_t buffer = {0};
+  bprintf(&buffer, "[%J,", address);
+  if (storage_key.type == JSON_TYPE_STRING)
+    bprintf(&buffer, "[%J]", storage_key);
+  else if (storage_key.type == JSON_TYPE_ARRAY)
+    bprintf(&buffer, "%J", storage_key);
+  else
+    bprintf(&buffer, "[]");
+  bprintf(&buffer, ",\"0x%lx\"]", block_number);
+
+  TRY_ASYNC_FINAL(
+      c4_send_eth_rpc(ctx, "eth_getProof", (const char*) buffer.data.data, proof),
+      buffer_free(&buffer));
+  CHECK_JSON(*proof, JSON_ETH_PROOF_FIELDS, "Invalid results for eth_getProof: ");
+  return C4_SUCCESS;
+}
+
+c4_status_t eth_get_code(proofer_ctx_t* ctx, json_t address, json_t* code, uint64_t block_number) {
+  char     tmp[120];
+  buffer_t buf = stack_buffer(tmp);
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getCode", bprintf(&buf, "[%J,\"lastest\"]", address), code));
+  CHECK_JSON(*code, "bytes", "Invalid results for Code: ");
+  return C4_SUCCESS;
+}
+
+c4_status_t eth_debug_trace_call(proofer_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number) {
+  buffer_t buf = {0};
+  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "debug_traceCall", bprintf(&buf, "[%J,\"0x%lx\",{\"tracer\":\"prestateTracer\"}]", tx, block_number), trace), buffer_free(&buf));
+  CHECK_JSON(*trace, JSON_TRACE_FIELDS, "Invalid results for trace: ");
+  return C4_SUCCESS;
+}
+
+c4_status_t eth_call(proofer_ctx_t* ctx, json_t tx, json_t* result, uint64_t block_number) {
+  buffer_t buf = {0};
+  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_call", bprintf(&buf, "[%J,\"0x%lx\"]", tx, block_number), result), buffer_free(&buf));
+  CHECK_JSON(*result, "bytes", "Invalid results for call: ");
   return C4_SUCCESS;
 }
 

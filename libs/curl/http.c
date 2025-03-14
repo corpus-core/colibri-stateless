@@ -23,7 +23,7 @@ curl_config_t curl_config = {0};
 
 const char* CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
-#define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://rpc.ankr.com/eth\"]," \
+#define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\",\"https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd\"]," \
                        "\"beacon_api\":[\"https://lodestar-mainnet.chainsafe.io\"]}"
 
 char* cache_dir = NULL;

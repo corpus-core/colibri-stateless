@@ -107,6 +107,7 @@ bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes
     sync_ctx.chain_id     = chain_id;
     if (trusted_blockhash) {
       if (!update_light_client_update(&sync_ctx, &client_update_ob, trusted_blockhash)) {
+        c4_state_free(&sync_ctx.state);
         success = false;
         break;
       }
@@ -114,11 +115,12 @@ bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes
     else {
       c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0}, chain_id);
       if (sync_ctx.state.error) {
+        c4_state_free(&sync_ctx.state);
         success = false;
         break;
       }
     }
-
+    c4_state_free(&sync_ctx.state);
     pos += length + 8;
   }
 

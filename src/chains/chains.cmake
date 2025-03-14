@@ -43,7 +43,7 @@ function(add_proofer)
     # Parse arguments
     set(options "")
     set(oneValueArgs NAME PROOF)
-    set(multiValueArgs SOURCES DEPS)
+    set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(PROOFER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     # Add the library
@@ -54,7 +54,7 @@ function(add_proofer)
 
     
     # Link dependencies
-    target_link_libraries(${PROOFER_NAME} PUBLIC ${PROOFER_DEPS})
+    target_link_libraries(${PROOFER_NAME} PUBLIC ${PROOFER_DEPENDS})
     target_link_libraries(proofer PUBLIC ${PROOFER_NAME})
 
     # Get the current global list

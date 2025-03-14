@@ -22,7 +22,6 @@ set(SRC
   memzero.c
   sha3.c
 #  hmac_drbg.c
-#  ripemd160.c
 #  base58.c
 #  hasher.c
   sha2.c
@@ -42,5 +41,11 @@ set(SRC
 
 )
 
+
+if(PRECOMPILES_RIPEMD160)
+  set(SRC ${SRC} ripemd160.c)
+endif()
+
 add_library(crypto STATIC ${SRC} )
+target_include_directories(crypto PUBLIC .)
 

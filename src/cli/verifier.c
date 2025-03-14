@@ -160,7 +160,10 @@ int main(int argc, char* argv[]) {
       method = argv[i];
     else {
       if (args.data.len > 1) buffer_add_chars(&args, ",");
-      bprintf(&args, "\"%s\"", argv[i]);
+      if (*argv[i] == '{' || *argv[i] == '[' || strcmp(argv[i], "true") == 0 || strcmp(argv[i], "false") == 0)
+        bprintf(&args, "%s", argv[i]);
+      else
+        bprintf(&args, "\"%s\"", argv[i]);
     }
   }
   buffer_add_chars(&args, "]");

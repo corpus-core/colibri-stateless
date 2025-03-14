@@ -10,23 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static c4_status_t get_eth_proof(proofer_ctx_t* ctx, json_t address, json_t storage_key, json_t* proof, uint64_t block_number) {
-  char     tmp[300];
-  buffer_t buffer = stack_buffer(tmp);
-  bprintf(&buffer, "[%J,[", address);
-  if (storage_key.len && storage_key.len < 70)
-    bprintf(&buffer, "%J", storage_key);
-  bprintf(&buffer, "],\"0x%lx\"]", block_number);
-
-  return c4_send_eth_rpc(ctx, "eth_getProof", tmp, proof);
-}
-
-static c4_status_t get_eth_code(proofer_ctx_t* ctx, json_t address, json_t* code, uint64_t block_number) {
-  char     tmp[120];
-  buffer_t buf = stack_buffer(tmp);
-  return c4_send_eth_rpc(ctx, "eth_getCode", bprintf(&buf, "[%J,\"lastest\"]", address), code);
-}
-
 static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, char* name) {
   const ssz_def_t* account_proof_container = eth_ssz_verification_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF);
   ssz_builder_t    list                    = {0};
@@ -52,7 +35,7 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   ssz_builder_t eth_data          = {0};
 
   // make sure we have the full code
-  if (strcmp(ctx->method, "eth_getCode") == 0) TRY_ASYNC(get_eth_code(ctx, address, &json_code, 0));
+  if (strcmp(ctx->method, "eth_getCode") == 0) TRY_ASYNC(eth_get_code(ctx, address, &json_code, 0));
 
   // build the state proof
   ssz_add_bytes(&eth_state_proof, "state_proof", state_proof);
@@ -115,7 +98,7 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
     CHECK_JSON(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
-  TRY_ASYNC(get_eth_proof(ctx, address, storage_keys,
+  TRY_ASYNC(eth_get_proof(ctx, address, storage_keys,
                           &eth_proof, ssz_get_uint64(&block.execution, "blockNumber")));
 
   bytes_t state_proof = ssz_create_proof(block.body, body_root, ssz_gindex(block.body.def, 2, "executionPayload", "stateRoot"));

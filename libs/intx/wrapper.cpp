@@ -17,7 +17,21 @@ void intx_init_value(intx_uint256_t* value, unsigned long long val) {
 
 int intx_from_string(intx_uint256_t* value, const char* str, int base) {
   try {
-    intx::uint256 cpp_value = intx::from_string<intx::uint256>(str, base);
+    // The intx library doesn't support base parameter directly
+    // Need to handle hex prefix for base 16
+    std::string input_str = str;
+
+    if (base == 16 && input_str.substr(0, 2) != "0x") {
+      input_str = "0x" + input_str; // Add 0x prefix for hex if not present
+    }
+    else if (base != 10) {
+      // For other bases, we'd need custom implementation
+      // For now, only support base 10 and 16
+      intx_init(value);
+      return 0;
+    }
+
+    intx::uint256 cpp_value = intx::from_string<intx::uint256>(input_str);
     to_c(cpp_value, value);
     return 1; // Success
   } catch (...) {
@@ -170,4 +184,45 @@ void intx_exp(intx_uint256_t* result, const intx_uint256_t* base, const intx_uin
 int intx_is_zero(const intx_uint256_t* value) {
   intx::uint256 cpp_value = to_cpp(value);
   return cpp_value == 0;
+}
+
+// Add this implementation
+void intx_modexp(intx_uint256_t* result, const intx_uint256_t* base, const intx_uint256_t* exponent, const intx_uint256_t* modulus) {
+  intx::uint256 b = to_cpp(base);
+  intx::uint256 e = to_cpp(exponent);
+  intx::uint256 m = to_cpp(modulus);
+
+  if (m == 0) {
+    to_c(intx::uint256(0), result);
+    return;
+  }
+
+  intx::uint256 res = 1;
+  b                 = b % m;
+
+  while (e > 0) {
+    if (e & 1) {
+      res = (res * b) % m;
+    }
+    e >>= 1;
+    b = (b * b) % m;
+  }
+
+  to_c(res, result);
+}
+
+// Add this implementation to wrapper.cpp
+void intx_from_bytes(intx_uint256_t* result, const bytes_t bytes) {
+  // Clear the result first
+  memset(result->bytes, 0, 32);
+
+  // Copy data with proper alignment (big-endian)
+  if (bytes.len <= 32) {
+    // Small input: right-align in the 32 bytes
+    memcpy(result->bytes + (32 - bytes.len), bytes.data, bytes.len);
+  }
+  else {
+    // Input too large: take only the most significant 32 bytes
+    memcpy(result->bytes, bytes.data + (bytes.len - 32), 32);
+  }
 }

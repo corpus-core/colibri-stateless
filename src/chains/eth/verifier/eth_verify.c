@@ -25,6 +25,8 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
     verify_logs_proof(ctx);
   else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF)))
     verify_account_proof(ctx);
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF)))
+    verify_call_proof(ctx);
   else if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok
   else {

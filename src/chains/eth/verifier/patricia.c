@@ -103,9 +103,9 @@ static int handle_node(bytes_t* raw, uint8_t** k, bytes_t* expected_val, int las
   return 1;
 }
 
-int patricia_verify(bytes32_t root, bytes_t* p, ssz_ob_t proof, bytes_t* expected) {
+int patricia_verify(bytes32_t root, bytes_t path, ssz_ob_t proof, bytes_t* expected) {
   int       result     = 1;
-  uint8_t*  nibbles    = patricia_to_nibbles(*p, 0);
+  uint8_t*  nibbles    = patricia_to_nibbles(path, 0);
   uint8_t*  key        = nibbles;
   bytes_t   last_value = NULL_BYTES;
   bytes32_t expected_hash;

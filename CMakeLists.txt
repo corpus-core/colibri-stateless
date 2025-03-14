@@ -9,6 +9,8 @@ option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but more memory)" ON)
 option(PROOFER_CACHE "Caches blockhashes and maps)" ON)
 option(CHAIN_ETH "includes all ETH engine" ON)
+option(EVMONE "if true evmone is included in the build" OFF)
+option(EVMLIGHT "if true evmlight is included in the build" ON)
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -19,8 +21,35 @@ option(COVERAGE "Enable coverage" OFF)
 option(SHAREDLIB "Build shared library" OFF)
 option(STATIC_MEMORY "if true, the memory will be statically allocated (only for embedded systems)" OFF)
 
+
+option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
+
 # Additional include path (for embedded targets etc)
 set(INCLUDE "" CACHE STRING "Additional directory to include in build")
+
+
+
+if (EVMLIGHT OR EVMONE)
+    if (EVMONE) 
+       set(EVMLIGHT OFF)
+       add_definitions(-DEVMONE)
+    else()
+        add_definitions(-DEVMLIGHT)
+    endif()
+    set(EVM ON)
+    add_definitions(-DEVM -DINTX)
+    set(INTX ON)
+
+    if (EVMLIGHT)
+        add_definitions(-DEVMLIGHT)
+    endif()
+    if (PRECOMPILES_RIPEMD160)
+        add_definitions(-DPRECOMPILED_RIPEMD160)
+    endif()
+endif()
+
+
+
 
 if(EMBEDDED)
     # Force embedded-friendly options
@@ -203,4 +232,143 @@ add_custom_target(valgrind
 # Generate headers at the end
 generate_verifiers_header()
 generate_proofers_header()
+
+# Combined static library target
+if(NOT EMBEDDED)
+    # Add an option to enable/disable combined static library
+    option(COMBINED_STATIC_LIB "Build a combined static library" OFF)
+    
+    if(COMBINED_STATIC_LIB)
+        # Helper function to recursively collect all static library dependencies
+        function(get_all_library_dependencies target result_var dependency_set)
+            # Get the target's dependencies
+            get_target_property(target_deps ${target} LINK_LIBRARIES)
+            if(target_deps)
+                foreach(dep ${target_deps})
+                    # Only process if it's a CMake target (not a path or keyword like optimized/debug)
+                    if(TARGET ${dep})
+                        # Get the type of the dependency
+                        get_target_property(dep_type ${dep} TYPE)
+                        
+                        # Only include STATIC_LIBRARY targets and skip if already processed
+                        if(dep_type STREQUAL "STATIC_LIBRARY" AND NOT ${dep} IN_LIST ${dependency_set})
+                            # Add the dependency to our set to avoid duplicates
+                            set(${dependency_set} ${${dependency_set}} ${dep} PARENT_SCOPE)
+                            
+                            # Recursively get this dependency's dependencies
+                            get_all_library_dependencies(${dep} ${result_var} ${dependency_set})
+                        endif()
+                    endif()
+                endforeach()
+            endif()
+            
+            # Pass the result back to parent scope
+            set(${result_var} ${${dependency_set}} PARENT_SCOPE)
+        endfunction()
+        
+        # Initialize the list of libraries to combine
+        set(ALL_LIBS_TO_COMBINE "")
+        set(LIBS_DEPENDENCY_SET "")
+        
+        # Start with main libraries based on build options
+        if(VERIFIER)
+            # Include the verifier target itself
+            list(APPEND ALL_LIBS_TO_COMBINE verifier)
+            get_all_library_dependencies(verifier LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
+        endif()
+        
+        if(PROOFER)
+            # Include the proofer target itself
+            list(APPEND ALL_LIBS_TO_COMBINE proofer)
+            get_all_library_dependencies(proofer LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
+        endif()
+        
+        # Combine all discovered dependencies with the main targets
+        list(APPEND ALL_LIBS_TO_COMBINE ${LIBS_DEPENDENCY_SET})
+        
+        # Remove duplicates
+        list(REMOVE_DUPLICATES ALL_LIBS_TO_COMBINE)
+        
+        message(STATUS "Libraries to combine: ${ALL_LIBS_TO_COMBINE}")
+        
+        # Create a direct static library target instead of a custom command
+        add_library(c4_combined STATIC "${CMAKE_CURRENT_BINARY_DIR}/dummy.c")
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dummy.c" "/* Dummy file for combined library */\n")
+        
+        # Set output properties for the combined library
+        set_target_properties(c4_combined PROPERTIES
+            ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIRECTORY}"
+            OUTPUT_NAME "c4"
+        )
+        
+        # Add dependencies to ensure libraries are built first
+        foreach(lib ${ALL_LIBS_TO_COMBINE})
+            add_dependencies(c4_combined ${lib})
+        endforeach()
+        
+        # Create script header content at configure time
+        set(SCRIPT_HEADER "#!/bin/bash
+set -e
+echo \"Creating combined library...\"
+rm -rf \"${CMAKE_BINARY_DIR}/combine_work\"
+mkdir -p \"${CMAKE_BINARY_DIR}/combine_work\"
+mkdir -p \"${OUTPUT_DIRECTORY}\"
+rm -f \"${OUTPUT_DIRECTORY}/libc4.a\"
+
+# Create an empty archive with a dummy file
+echo \"/* Dummy object */\" > \"${CMAKE_BINARY_DIR}/dummy.c\"
+${CMAKE_C_COMPILER} -c \"${CMAKE_BINARY_DIR}/dummy.c\" -o \"${CMAKE_BINARY_DIR}/dummy.o\"
+${CMAKE_AR} crs \"${OUTPUT_DIRECTORY}/libc4.a\" \"${CMAKE_BINARY_DIR}/dummy.o\"
+rm -f \"${CMAKE_BINARY_DIR}/dummy.o\"
+
+# Process each library
+")
+
+        # Create script commands for each library using generator expressions
+        set(SCRIPT_LIBRARY_COMMANDS "")
+        foreach(lib ${ALL_LIBS_TO_COMBINE})
+            string(APPEND SCRIPT_LIBRARY_COMMANDS "
+echo \"Processing ${lib}\"
+mkdir -p \"${CMAKE_BINARY_DIR}/combine_work/${lib}\"
+cd \"${CMAKE_BINARY_DIR}/combine_work/${lib}\"
+${CMAKE_AR} x \"$<TARGET_FILE:${lib}>\"
+if ls *.o > /dev/null 2>&1; then
+  ${CMAKE_AR} rs \"${OUTPUT_DIRECTORY}/libc4.a\" *.o
+else
+  echo \"No object files found in ${lib}\"
+fi
+")
+        endforeach()
+
+        # Create script footer
+        set(SCRIPT_FOOTER "
+echo \"Running ranlib\"
+${CMAKE_RANLIB} \"${OUTPUT_DIRECTORY}/libc4.a\"
+echo \"Cleaning up\"
+rm -rf \"${CMAKE_BINARY_DIR}/combine_work\"
+echo \"Combined library created at: ${OUTPUT_DIRECTORY}/libc4.a\"
+")
+
+        # Use file(GENERATE) to expand generator expressions at generate time
+        file(GENERATE 
+            OUTPUT "${CMAKE_BINARY_DIR}/combine_libs.sh"
+            CONTENT "${SCRIPT_HEADER}${SCRIPT_LIBRARY_COMMANDS}${SCRIPT_FOOTER}"
+            FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+        )
+        
+        # Add custom command to run the script after c4_combined target is built
+        add_custom_command(
+            TARGET c4_combined POST_BUILD
+            COMMAND "${CMAKE_BINARY_DIR}/combine_libs.sh"
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+            COMMENT "Combining static libraries"
+            VERBATIM
+        )
+        
+        # Install the combined library
+        install(TARGETS c4_combined
+            ARCHIVE DESTINATION lib
+        )
+    endif()
+endif()
 

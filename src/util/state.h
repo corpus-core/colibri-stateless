@@ -118,6 +118,16 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state);
     }                                                        \
   } while (0)
 
+#define CHECK_JSON_VERIFY(val, def, error_prefix)            \
+  do {                                                       \
+    const char* err = json_validate(val, def, error_prefix); \
+    if (err) {                                               \
+      ctx->state.error = (char*) err;                        \
+      ctx->success     = false;                              \
+      return false;                                          \
+    }                                                        \
+  } while (0)
+
 #define RETRY_REQUEST(req)                                     \
   do {                                                         \
     req->node_exclude_mask |= (1 << req->response_node_index); \
