@@ -14,9 +14,11 @@ FetchContent_MakeAvailable(intx)
 
 # Debug output to verify Android detection
 message(STATUS "CMAKE_SYSTEM_NAME: ${CMAKE_SYSTEM_NAME}")
+message(STATUS "ANDROID: ${ANDROID}")
 
 # Patch intx.hpp for Android compatibility
-if(ANDROID)
+if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+    message(STATUS "Building for Android, applying intx compatibility patch")
     # Get the path to the downloaded intx.hpp file
     set(INTX_HPP_PATH "${intx_SOURCE_DIR}/include/intx/intx.hpp")
     

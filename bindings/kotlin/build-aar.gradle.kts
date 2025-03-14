@@ -114,23 +114,3 @@ afterEvaluate {
         }
     }
 }
-
-android {
-    externalNativeBuild {
-        cmake {
-            // Pass arguments to CMake
-            arguments(
-                "-DGENERATE_JAVA_SOURCES=OFF", 
-                "-DKOTLIN=true", 
-                "-DCURL=false",
-                // Force C++20 with concepts
-                "-DCMAKE_CXX_STANDARD=20", 
-                "-DCMAKE_CXX_STANDARD_REQUIRED=ON"
-            )
-            // Add compiler flags for C++20 support
-            cppFlags += "-std=c++20"
-            // Specify ABIs to build for
-            abiFilters("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-        }
-    }
-}
