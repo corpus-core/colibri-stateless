@@ -99,7 +99,7 @@ if(DEFINED SWIFT_X86_BUILD)
             -c "Add :CFBundleName string c4_swift"
             -c "Add :CFBundleVersion string 1.0"
             -c "Add :CFBundleShortVersionString string 1.0"
-            -c "Add :MinimumOSVersion string 13.0"
+            -c "Add :MinimumOSVersion string 12.0"
             -c "Add :CFBundleExecutable string c4_swift"
             ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/Info.plist
         COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string FMWK" 
@@ -107,7 +107,7 @@ if(DEFINED SWIFT_X86_BUILD)
             -c "Add :CFBundleName string c4_swift"
             -c "Add :CFBundleVersion string 1.0"
             -c "Add :CFBundleShortVersionString string 1.0"
-            -c "Add :MinimumOSVersion string 13.0"
+            -c "Add :MinimumOSVersion string 12.0"
             -c "Add :CFBundleExecutable string c4_swift"
             ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/Info.plist
         

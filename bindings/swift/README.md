@@ -2,7 +2,7 @@
 
 # Swift Bindings for Colibri
 
-The Colibri bindings for Swift are built using CMake and Swift Package Manager. It can be used in iOS (13.0+) and macOS (10.15+) applications.
+The Colibri bindings for Swift are built using CMake and Swift Package Manager. It can be used in iOS (12.0+) and macOS (10.15+) applications.
 
 ## Usage
 
@@ -15,7 +15,7 @@ import PackageDescription
 let package = Package(
     name: "YourApp",
     platforms: [
-        .iOS(.v13),
+        .iOS(.v12),
         .macOS(.v10_15)
     ],
     dependencies: [

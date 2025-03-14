@@ -1,69 +1,31 @@
-# Use ExternalProject for evmone - no Hunter initialization
-include(ExternalProject)
+cmake_minimum_required(VERSION 3.10)
 
-# Define the external project for evmone
-ExternalProject_Add(
-    evmone_external
-    GIT_REPOSITORY https://github.com/corpus-core/evmone.git
-    GIT_SHALLOW TRUE
-    CMAKE_ARGS
-        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DBUILD_SHARED_LIBS=OFF
-        -DEVMONE_TESTING=OFF
-        # Pass compiler settings
-        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-        # Pass toolchain for cross-compilation if defined
-        $<$<BOOL:${CMAKE_TOOLCHAIN_FILE}>:-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}>
-        # Disable Hunter warnings
-        -DCMAKE_WARN_DEPRECATED=OFF
-    # Skip install step
-    INSTALL_COMMAND ""
+project(evmone-wrapper)
+
+# Create a simple standalone library with just the C wrapper
+add_library(evmone_wrapper STATIC evmone_c_wrapper.cpp)
+
+# Set include directories
+target_include_directories(evmone_wrapper PUBLIC 
+  ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Get properties about the external project
-ExternalProject_Get_Property(evmone_external SOURCE_DIR BINARY_DIR)
-
-# Create our wrapper library
-add_library(evmone_wrapper STATIC 
-    ${CMAKE_CURRENT_SOURCE_DIR}/evmone_c_wrapper.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/evmone_c_wrapper.h
-)
-
-# Set properties
+# Set C++11 standard
 set_target_properties(evmone_wrapper PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
+  CXX_STANDARD 11
+  CXX_STANDARD_REQUIRED TRUE
+  CXX_EXTENSIONS FALSE
 )
 
-# Add include directories - make EVMC includes PUBLIC so they propagate
-target_include_directories(evmone_wrapper 
-    PRIVATE
-        ${SOURCE_DIR}/include       # evmone private headers
-    PUBLIC
-        ${SOURCE_DIR}/evmc/include  # EVMC headers needed by clients
-        ${BINARY_DIR}/evmc/include  # Generated EVMC headers
-        ${CMAKE_CURRENT_SOURCE_DIR} # Our wrapper header
+# Create an interface library for dependency tracking
+add_library(evmone INTERFACE)
+set_target_properties(evmone PROPERTIES
+  INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-# Link with the built libraries
-target_link_libraries(evmone_wrapper PRIVATE
-    ${BINARY_DIR}/lib/libevmone-standalone.a
-)
-
-# Add dependency to ensure evmone is built before the wrapper
-add_dependencies(evmone_wrapper evmone_external)
-
-# Create alias for convenience
-add_library(evmone ALIAS evmone_wrapper)
-
-# Install targets
+# Install the library and header
 install(TARGETS evmone_wrapper
-    ARCHIVE DESTINATION lib
-    INCLUDES DESTINATION include
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
 )
-
-install(FILES evmone_c_wrapper.h
-    DESTINATION include
-)
+install(FILES evmone_c_wrapper.h DESTINATION include)

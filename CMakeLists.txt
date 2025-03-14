@@ -9,8 +9,8 @@ option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but more memory)" ON)
 option(PROOFER_CACHE "Caches blockhashes and maps)" ON)
 option(CHAIN_ETH "includes all ETH engine" ON)
-option(EVMONE "if true evmone is included in the build" OFF)
-option(EVMLIGHT "if true evmlight is included in the build" ON)
+option(EVMONE "if true evmone is included in the build" ON)
+option(EVMLIGHT "if true evmlight is included in the build" OFF)
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -87,7 +87,7 @@ if(SWIFT)
 
     # Set common iOS build settings
     set(CMAKE_SYSTEM_NAME "iOS")
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment version" FORCE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum iOS deployment version" FORCE)
     set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO)
     set(CMAKE_IOS_INSTALL_COMBINED NO)
     
