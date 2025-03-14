@@ -7,62 +7,13 @@ message(STATUS "Applying intx patch for Android compatibility")
 set(INTX_HPP_PATH "${intx_SOURCE_DIR}/include/intx/intx.hpp")
 
 if(EXISTS "${INTX_HPP_PATH}")
-    # Read the original file
-    file(READ "${INTX_HPP_PATH}" INTX_HPP_CONTENT)
-    
-    # First, add include for our fallback implementation at the top of the file
-    # Find the first include
-    string(FIND "${INTX_HPP_CONTENT}" "#include" FIRST_INCLUDE_POS)
-    if(FIRST_INCLUDE_POS EQUAL -1)
-        message(WARNING "Could not find includes in intx.hpp")
-        return()
-    endif()
-    
-    # Get the content before and after the first include
-    string(SUBSTRING "${INTX_HPP_CONTENT}" 0 ${FIRST_INCLUDE_POS} CONTENT_BEFORE_INCLUDES)
-    string(SUBSTRING "${INTX_HPP_CONTENT}" ${FIRST_INCLUDE_POS} -1 CONTENT_FROM_INCLUDES)
-    
-    # Add our include
-    set(INCLUDE_FALLBACK "// Include fallback implementation for countl_zero on Android
+    # Create the fallback header include line
+    set(FALLBACK_INCLUDE "// Include fallback implementation for countl_zero on Android
 #include \"${CMAKE_CURRENT_SOURCE_DIR}/countl_zero_fallback.hpp\"
 ")
     
-    # Combine parts with our include
-    set(INTX_HPP_CONTENT "${CONTENT_BEFORE_INCLUDES}${INCLUDE_FALLBACK}${CONTENT_FROM_INCLUDES}")
-    
-    # Find the location of the problematic function
-    string(FIND "${INTX_HPP_CONTENT}" "inline constexpr unsigned clz(std::unsigned_integral auto x) noexcept" START_POS)
-    
-    if(START_POS EQUAL -1)
-        message(WARNING "Could not find the function to patch. The file format may have changed.")
-        return()
-    endif()
-    
-    # Find the end of the function (closing brace)
-    string(FIND "${INTX_HPP_CONTENT}" "}" END_POS ${START_POS})
-    if(END_POS EQUAL -1)
-        message(WARNING "Could not find the end of the function to patch.")
-        return()
-    endif()
-    
-    # Count character until the end of line after the closing brace
-    string(FIND "${INTX_HPP_CONTENT}" "\n" EOL_POS ${END_POS})
-    if(EOL_POS EQUAL -1)
-        # If no newline found, use the end of the string
-        string(LENGTH "${INTX_HPP_CONTENT}" EOL_POS)
-    else()
-        # Include the newline in the replaced segment
-        math(EXPR EOL_POS "${EOL_POS} + 1")
-    endif()
-    
-    # Calculate the length of the segment to replace
-    math(EXPR SEGMENT_LENGTH "${EOL_POS} - ${START_POS}")
-    
-    # Extract the segment to be replaced
-    string(SUBSTRING "${INTX_HPP_CONTENT}" ${START_POS} ${SEGMENT_LENGTH} SEGMENT_TO_REPLACE)
-    
-    # Create the replacement segment with a comment explaining the patch
-    set(REPLACEMENT_SEGMENT "// Replaced C++20 concepts version with explicit overloads for Android compatibility
+    # Create the replacement for the C++20 concepts version
+    set(REPLACEMENT_FUNCTION "// Replaced C++20 concepts version with explicit overloads for Android compatibility
 inline constexpr unsigned clz(uint8_t x) noexcept
 {
     return static_cast<unsigned>(std::countl_zero(x));
@@ -83,11 +34,61 @@ inline constexpr unsigned clz(uint64_t x) noexcept
     return static_cast<unsigned>(std::countl_zero(x));
 }")
     
-    # Replace the segment in the content
-    string(REPLACE "${SEGMENT_TO_REPLACE}" "${REPLACEMENT_SEGMENT}" PATCHED_CONTENT "${INTX_HPP_CONTENT}")
+    # Create a new output file path
+    set(OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/intx_patched.hpp")
+    file(REMOVE "${OUTPUT_FILE}")
     
-    # Write the patched content back
-    file(WRITE "${INTX_HPP_PATH}" "${PATCHED_CONTENT}")
+    # Read the file line by line
+    file(STRINGS "${INTX_HPP_PATH}" LINES)
+    
+    # Insert our fallback include before the first real include
+    set(FALLBACK_INCLUDED FALSE)
+    set(REPLACING_FUNCTION FALSE)
+    set(FUNCTION_REPLACED FALSE)
+    
+    foreach(LINE IN LISTS LINES)
+        # Check if we should insert our fallback include
+        if(NOT FALLBACK_INCLUDED AND LINE MATCHES "^#include")
+            # Write our fallback include before the first real include
+            file(APPEND "${OUTPUT_FILE}" "${FALLBACK_INCLUDE}\n")
+            set(FALLBACK_INCLUDED TRUE)
+        endif()
+        
+        # Check if this is the line with the problematic function
+        if(LINE MATCHES "inline constexpr unsigned clz\\(std::unsigned_integral auto x\\) noexcept")
+            # Start replacing the function
+            set(REPLACING_FUNCTION TRUE)
+            # Write our replacement
+            file(APPEND "${OUTPUT_FILE}" "${REPLACEMENT_FUNCTION}\n")
+            set(FUNCTION_REPLACED TRUE)
+            # Skip this line
+            continue()
+        endif()
+        
+        # If we're in the process of replacing the function, check if we've reached the end
+        if(REPLACING_FUNCTION AND LINE MATCHES "}")
+            # We've reached the end of the function, stop replacing
+            set(REPLACING_FUNCTION FALSE)
+            # Skip this line
+            continue()
+        endif()
+        
+        # If we're replacing the function, skip all lines until we reach the end
+        if(REPLACING_FUNCTION)
+            continue()
+        endif()
+        
+        # Otherwise, write the line as is
+        file(APPEND "${OUTPUT_FILE}" "${LINE}\n")
+    endforeach()
+    
+    # Check if we were able to replace the function
+    if(NOT FUNCTION_REPLACED)
+        message(WARNING "Could not find the function to replace in intx.hpp")
+    endif()
+    
+    # Replace the original file with our patched version
+    file(RENAME "${OUTPUT_FILE}" "${INTX_HPP_PATH}")
     
     message(STATUS "Successfully patched intx.hpp for Android compatibility")
 else()

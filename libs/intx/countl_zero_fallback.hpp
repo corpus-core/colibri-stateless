@@ -14,7 +14,7 @@ namespace std {
 
 inline constexpr int countl_zero(uint8_t x) noexcept {
   if (x == 0) return 8;
-  static constexpr int clz_lookup[16] = {
+  constexpr int clz_lookup[] = {
       4, 3, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0};
   int n = 0;
   if ((x & 0xF0) == 0) {
