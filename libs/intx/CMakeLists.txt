@@ -18,6 +18,11 @@ message(STATUS "ANDROID: ${ANDROID}")
 
 # Using modern NDK with better C++20 support instead of patching
 
+# Patch intx.hpp for Android compatibility
+if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+    include(${CMAKE_CURRENT_SOURCE_DIR}/intx_patch.cmake)
+endif()
+
 # Add the wrapper library
 add_library(intx_wrapper
     ${CMAKE_CURRENT_SOURCE_DIR}/wrapper.cpp
@@ -38,6 +43,14 @@ target_include_directories(intx_wrapper
 
 # Use C++20 to match intx requirements
 target_compile_features(intx_wrapper PRIVATE cxx_std_20)
+
+# Add compile definitions for Android to help with C++20 compatibility
+if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+    target_compile_definitions(intx_wrapper PRIVATE 
+        # Ensure our fallback implementations are used on Android
+        INTX_ANDROID_COMPAT
+    )
+endif()
 
 # Export C interface
 set_target_properties(intx_wrapper PROPERTIES
