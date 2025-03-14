@@ -87,7 +87,7 @@ if(SWIFT)
 
     # Set common iOS build settings
     set(CMAKE_SYSTEM_NAME "iOS")
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment version" FORCE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum iOS deployment version" FORCE)
     set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO)
     set(CMAKE_IOS_INSTALL_COMBINED NO)
     

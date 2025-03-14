@@ -316,14 +316,14 @@ jobs:
 
       - name: Build x86_64 (Simulator)
         run: |
-          cmake -DSWIFT=true -B build_x86 -DCMAKE_OSX_ARCHITECTURES=x86_64 .
+          cmake -DSWIFT=true -B build_x86 -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DEVMONE=true .
           cd build_x86
           make
           cd ..
 
       - name: Build arm64 (Device)
         run: |
-          cmake -DSWIFT=true -DCMAKE_OSX_ARCHITECTURES=arm64 -DSWIFT_X86_BUILD=$(pwd)/build_x86 -B build .
+          cmake -DSWIFT=true -DCMAKE_OSX_ARCHITECTURES=arm64 -DSWIFT_X86_BUILD=$(pwd)/build_x86 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DEVMONE=true -B build .
           cd build
           make
           cd ..

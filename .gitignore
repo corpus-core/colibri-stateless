@@ -11,3 +11,4 @@ test/embedded/sdcard.img
 test/embedded/memory_map.txt
 
 /build_x86
+/build_*
