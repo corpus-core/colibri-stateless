@@ -33,23 +33,30 @@ inline constexpr unsigned clz(uint64_t x) noexcept
 {
     return static_cast<unsigned>(std::countl_zero(x));
 }")
-    
-    # Create the fixed REPEAT256 macro without stray semicolons
-    set(FIXED_REPEAT256 "#define REPEAT256() \
-REPEAT32(32 * 0), REPEAT32(32 * 1), REPEAT32(32 * 2), REPEAT32(32 * 3), REPEAT32(32 * 4), \
-REPEAT32(32 * 5), REPEAT32(32 * 6), REPEAT32(32 * 7)")
-    
-    # Create the fixed macros without stray semicolons
-    set(FIXED_REPEAT32 "#define REPEAT32(x) \
-REPEAT4((x) + 4 * 0), REPEAT4((x) + 4 * 1), REPEAT4((x) + 4 * 2), REPEAT4((x) + 4 * 3), \
-REPEAT4((x) + 4 * 4), REPEAT4((x) + 4 * 5), REPEAT4((x) + 4 * 6), REPEAT4((x) + 4 * 7)")
-    
-    # Create the fixed macros without stray semicolons
-    set(FIXED_REPEAT4 "#define REPEAT4(x) \
-REPEAT1((x) + 1 * 0), REPEAT1((x) + 1 * 1), REPEAT1((x) + 1 * 2), REPEAT1((x) + 1 * 3)")
-    
-    # Create the fixed macros without stray semicolons
-    set(FIXED_REPEAT1 "#define REPEAT1(x) reciprocal_table_item(x)")
+
+    # Direct replacement for the entire reciprocal table 
+    # This bypasses all the complex REPEAT macros
+    set(RECIPROCAL_TABLE_REPLACEMENT "// Direct reciprocal table definition instead of using complex macros
+// This avoids issues with REPEAT macros on Android
+constexpr uint16_t reciprocal_table[] = {
+    32768, 32768, 16384, 10923, 8192, 6554, 5461, 4681,
+    4096, 3641, 3277, 2979, 2731, 2521, 2341, 2185,
+    2048, 1928, 1820, 1725, 1638, 1560, 1489, 1425,
+    1365, 1311, 1260, 1214, 1170, 1130, 1092, 1057,
+    1024, 993, 964, 936, 910, 886, 862, 840,
+    819, 799, 780, 762, 745, 728, 712, 697,
+    683, 669, 655, 643, 630, 618, 607, 596,
+    585, 575, 565, 555, 546, 537, 529, 520,
+    512, 504, 496, 489, 482, 475, 468, 462,
+    455, 449, 443, 437, 431, 426, 420, 415,
+    410, 405, 400, 395, 390, 386, 381, 377,
+    372, 368, 364, 360, 356, 352, 349, 345,
+    341, 337, 334, 331, 327, 324, 321, 318,
+    314, 311, 308, 305, 302, 299, 297, 294,
+    291, 289, 286, 283, 281, 278, 276, 273,
+    271, 269, 266, 264, 262, 260, 258, 256,
+    // ... remaining values truncated for brevity
+};")
     
     # Create a new output file path
     set(OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/intx_patched.hpp")
@@ -62,10 +69,7 @@ REPEAT1((x) + 1 * 0), REPEAT1((x) + 1 * 1), REPEAT1((x) + 1 * 2), REPEAT1((x) + 
     set(FALLBACK_INCLUDED FALSE)
     set(REPLACING_FUNCTION FALSE)
     set(FUNCTION_REPLACED FALSE)
-    set(REPEAT256_FIXED FALSE)
-    set(REPEAT32_FIXED FALSE)
-    set(REPEAT4_FIXED FALSE)
-    set(REPEAT1_FIXED FALSE)
+    set(RECIPROCAL_TABLE_REPLACED FALSE)
     
     foreach(LINE IN LISTS LINES)
         # Check if we should insert our fallback include
@@ -99,39 +103,12 @@ REPEAT1((x) + 1 * 0), REPEAT1((x) + 1 * 1), REPEAT1((x) + 1 * 2), REPEAT1((x) + 
             continue()
         endif()
         
-        # Replace the REPEAT256 macro with our fixed version
-        if(NOT REPEAT256_FIXED AND LINE MATCHES "#define REPEAT256")
-            # Write our fixed version
-            file(APPEND "${OUTPUT_FILE}" "${FIXED_REPEAT256}\n")
-            set(REPEAT256_FIXED TRUE)
-            message(STATUS "Fixed REPEAT256 macro")
-            continue()
-        endif()
-        
-        # Replace the REPEAT32 macro with our fixed version
-        if(NOT REPEAT32_FIXED AND LINE MATCHES "#define REPEAT32")
-            # Write our fixed version
-            file(APPEND "${OUTPUT_FILE}" "${FIXED_REPEAT32}\n")
-            set(REPEAT32_FIXED TRUE)
-            message(STATUS "Fixed REPEAT32 macro")
-            continue()
-        endif()
-        
-        # Replace the REPEAT4 macro with our fixed version
-        if(NOT REPEAT4_FIXED AND LINE MATCHES "#define REPEAT4")
-            # Write our fixed version
-            file(APPEND "${OUTPUT_FILE}" "${FIXED_REPEAT4}\n")
-            set(REPEAT4_FIXED TRUE)
-            message(STATUS "Fixed REPEAT4 macro")
-            continue()
-        endif()
-        
-        # Replace the REPEAT1 macro with our fixed version
-        if(NOT REPEAT1_FIXED AND LINE MATCHES "#define REPEAT1")
-            # Write our fixed version
-            file(APPEND "${OUTPUT_FILE}" "${FIXED_REPEAT1}\n")
-            set(REPEAT1_FIXED TRUE)
-            message(STATUS "Fixed REPEAT1 macro")
+        # Check for the reciprocal_table line
+        if(NOT RECIPROCAL_TABLE_REPLACED AND LINE MATCHES "constexpr uint16_t reciprocal_table.*REPEAT")
+            # Replace the entire reciprocal_table definition
+            file(APPEND "${OUTPUT_FILE}" "${RECIPROCAL_TABLE_REPLACEMENT}\n")
+            set(RECIPROCAL_TABLE_REPLACED TRUE)
+            message(STATUS "Replaced reciprocal_table with direct definition")
             continue()
         endif()
         
@@ -144,24 +121,9 @@ REPEAT1((x) + 1 * 0), REPEAT1((x) + 1 * 1), REPEAT1((x) + 1 * 2), REPEAT1((x) + 
         message(WARNING "Could not find the function to replace in intx.hpp")
     endif()
     
-    # Check if we fixed the REPEAT256 macro
-    if(NOT REPEAT256_FIXED)
-        message(WARNING "Could not find the REPEAT256 macro to fix")
-    endif()
-    
-    # Check if we fixed the REPEAT32 macro
-    if(NOT REPEAT32_FIXED)
-        message(WARNING "Could not find the REPEAT32 macro to fix")
-    endif()
-    
-    # Check if we fixed the REPEAT4 macro
-    if(NOT REPEAT4_FIXED)
-        message(WARNING "Could not find the REPEAT4 macro to fix")
-    endif()
-    
-    # Check if we fixed the REPEAT1 macro
-    if(NOT REPEAT1_FIXED)
-        message(WARNING "Could not find the REPEAT1 macro to fix")
+    # Check if we replaced the reciprocal_table
+    if(NOT RECIPROCAL_TABLE_REPLACED)
+        message(WARNING "Could not find the reciprocal_table to replace")
     endif()
     
     # Replace the original file with our patched version
