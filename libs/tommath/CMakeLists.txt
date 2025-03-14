@@ -15,15 +15,11 @@ FetchContent_MakeAvailable(libtommath)
 # Ensure it's built as a static library
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 
-# Make sure the include directory is properly exposed
-# (This helps IDEs find the headers)
-if(TARGET tommath)
-    set_target_properties(tommath PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "${libtommath_SOURCE_DIR}")
+# The correct target name is 'libtommath', not 'tommath'
+if(NOT TARGET libtommath)
+    message(FATAL_ERROR "LibTomMath target 'libtommath' not found")
 endif()
 
-# Export the tommath target so it can be used with target_link_libraries
-# in other parts of your project
-if(NOT TARGET tommath)
-    message(FATAL_ERROR "LibTomMath target 'tommath' not found")
-endif() 
+# Create an alias 'tommath' that points to 'libtommath'
+# This makes it easier to use throughout your project
+add_library(tommath ALIAS libtommath) 

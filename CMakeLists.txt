@@ -10,6 +10,7 @@ option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but more memory)" ON
 option(PROOFER_CACHE "Caches blockhashes and maps)" ON)
 option(CHAIN_ETH "includes all ETH engine" ON)
 option(EVMONE "if true evmone is included in the build" OFF)
+option(EVMLIGHT "if true evmlight is included in the build" ON)
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -20,8 +21,35 @@ option(COVERAGE "Enable coverage" OFF)
 option(SHAREDLIB "Build shared library" OFF)
 option(STATIC_MEMORY "if true, the memory will be statically allocated (only for embedded systems)" OFF)
 
+
+option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
+
 # Additional include path (for embedded targets etc)
 set(INCLUDE "" CACHE STRING "Additional directory to include in build")
+
+
+
+if (EVMLIGHT OR EVMONE)
+    if (EVMONE) 
+       set(EVMLIGHT OFF)
+       add_definitions(-DEVMONE)
+    else()
+        add_definitions(-DEVMLIGHT)
+    endif()
+    set(EVM ON)
+    add_definitions(-DEVM -DINTX)
+    set(INTX ON)
+
+    if (EVMLIGHT)
+        add_definitions(-DEVMLIGHT)
+    endif()
+    if (PRECOMPILES_RIPEMD160)
+        add_definitions(-DPRECOMPILED_RIPEMD160)
+    endif()
+endif()
+
+
+
 
 if(EMBEDDED)
     # Force embedded-friendly options
@@ -80,9 +108,6 @@ endif()
 # Feature flags and compiler settings
 if (PROOFER_CACHE) 
     add_definitions(-DPROOFER_CACHE)
-endif()
-if (EVMONE) 
-    add_definitions(-DEVMONE)
 endif()
 if (PROOFER) 
     add_definitions(-DPROOFER)

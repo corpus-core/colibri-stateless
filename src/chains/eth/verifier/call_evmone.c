@@ -5,6 +5,7 @@
 #include "evmone_c_wrapper.h"
 #include "json.h"
 #include "patricia.h"
+#include "precompiles.h"
 #include "rlp.h"
 #include "ssz.h"
 #include "sync_committee.h"
@@ -199,6 +200,22 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   debug_print_address("call to", &msg->destination);
   debug_print_address("code from", &msg->code_address);
   EVM_LOG("call gas: %lld, depth: %d, is_static: %s", msg->gas, msg->depth, msg->is_static ? "true" : "false");
+
+  if (bytes_all_zero(bytes(msg->code_address.bytes, 19)) && msg->code_address.bytes[19]) {
+    buffer_t     output     = {0};
+    uint64_t     gas_used   = 0;
+    pre_result_t pre_result = eth_execute_precompile(msg->code_address.bytes, bytes(msg->input_data, msg->input_size), &output, &gas_used);
+    result->output_data     = output.data.data;
+    result->output_size     = output.data.len;
+    result->gas_left        = msg->gas - gas_used;
+    result->gas_refund      = 0;
+    result->status_code     = pre_result;
+    if (pre_result != PRE_SUCCESS) {
+      EVM_LOG("Precompile failed with status code: %d", pre_result);
+      result->gas_left = 0;
+    }
+    return;
+  }
 
   // If code isn't provided (which happens during DELEGATECALL and CALLCODE),
   // we need to fetch it from the account specified by code_address

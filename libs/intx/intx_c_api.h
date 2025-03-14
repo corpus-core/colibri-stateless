@@ -4,11 +4,18 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* Define a struct to hold uint256 values directly (no pointers) */
+#ifndef BYTES_T_DEFINED
+#include <stdint.h>
+typedef struct {
+  uint8_t* data;
+  uint32_t len;
+} bytes_t;
+#define BYTES_T_DEFINED
+#endif /* Define a struct to hold uint256 values directly (no pointers) */
 typedef struct {
   unsigned char bytes[32]; /* 256 bits = 32 bytes */
 } intx_uint256_t;
+typedef intx_uint256_t uint256_t;
 
 /* Initialization functions */
 void intx_init(intx_uint256_t* value);
@@ -43,6 +50,12 @@ int intx_gte(const intx_uint256_t* a, const intx_uint256_t* b);
 /* Other useful operations */
 void intx_exp(intx_uint256_t* result, const intx_uint256_t* base, const intx_uint256_t* exponent);
 int  intx_is_zero(const intx_uint256_t* value);
+
+/* New function declaration */
+void intx_modexp(intx_uint256_t* result, const intx_uint256_t* base, const intx_uint256_t* exponent, const intx_uint256_t* modulus);
+
+/* Add this declaration to intx_c_api.h */
+void intx_from_bytes(intx_uint256_t* result, const bytes_t bytes);
 
 #ifdef __cplusplus
 }

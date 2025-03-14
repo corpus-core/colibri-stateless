@@ -22,10 +22,9 @@ set(VERIFIER_SOURCES
 set(VERIFIER_DEPS util)
 
 if(EVMONE)
+  add_subdirectory(precompiles)
   set(VERIFIER_SOURCES ${VERIFIER_SOURCES}  verifier/call_evmone.c)
-  set(VERIFIER_DEPS util evmone_wrapper)
-else()
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c)
+  set(VERIFIER_DEPS util evmone_wrapper eth_precompiles)
 endif()
 
 
