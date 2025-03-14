@@ -34,6 +34,11 @@ inline constexpr unsigned clz(uint64_t x) noexcept
     return static_cast<unsigned>(std::countl_zero(x));
 }")
     
+    # Create the fixed REPEAT256 macro without stray semicolons
+    set(FIXED_REPEAT256 "#define REPEAT256() \
+REPEAT32(32 * 0), REPEAT32(32 * 1), REPEAT32(32 * 2), REPEAT32(32 * 3), REPEAT32(32 * 4), \
+REPEAT32(32 * 5), REPEAT32(32 * 6), REPEAT32(32 * 7)")
+    
     # Create a new output file path
     set(OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/intx_patched.hpp")
     file(REMOVE "${OUTPUT_FILE}")
@@ -41,10 +46,11 @@ inline constexpr unsigned clz(uint64_t x) noexcept
     # Read the file line by line
     file(STRINGS "${INTX_HPP_PATH}" LINES)
     
-    # Insert our fallback include before the first real include
+    # Patch tracking variables
     set(FALLBACK_INCLUDED FALSE)
     set(REPLACING_FUNCTION FALSE)
     set(FUNCTION_REPLACED FALSE)
+    set(REPEAT256_FIXED FALSE)
     
     foreach(LINE IN LISTS LINES)
         # Check if we should insert our fallback include
@@ -54,7 +60,7 @@ inline constexpr unsigned clz(uint64_t x) noexcept
             set(FALLBACK_INCLUDED TRUE)
         endif()
         
-        # Check if this is the line with the problematic function
+        # Check if this is the line with the problematic C++20 concepts function
         if(LINE MATCHES "inline constexpr unsigned clz\\(std::unsigned_integral auto x\\) noexcept")
             # Start replacing the function
             set(REPLACING_FUNCTION TRUE)
@@ -78,6 +84,15 @@ inline constexpr unsigned clz(uint64_t x) noexcept
             continue()
         endif()
         
+        # Replace the REPEAT256 macro with our fixed version
+        if(NOT REPEAT256_FIXED AND LINE MATCHES "#define REPEAT256")
+            # Write our fixed version
+            file(APPEND "${OUTPUT_FILE}" "${FIXED_REPEAT256}\n")
+            set(REPEAT256_FIXED TRUE)
+            message(STATUS "Fixed REPEAT256 macro")
+            continue()
+        endif()
+        
         # Otherwise, write the line as is
         file(APPEND "${OUTPUT_FILE}" "${LINE}\n")
     endforeach()
@@ -85,6 +100,11 @@ inline constexpr unsigned clz(uint64_t x) noexcept
     # Check if we were able to replace the function
     if(NOT FUNCTION_REPLACED)
         message(WARNING "Could not find the function to replace in intx.hpp")
+    endif()
+    
+    # Check if we fixed the REPEAT256 macro
+    if(NOT REPEAT256_FIXED)
+        message(WARNING "Could not find the REPEAT256 macro to fix")
     endif()
     
     # Replace the original file with our patched version
