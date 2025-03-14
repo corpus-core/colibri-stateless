@@ -33,6 +33,8 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCURL=OFF \
+            -DEVMONE=OFF \
+            -DEVMLIGHT=OFF \
             -DPROOFER=OFF \
             -DCLI=OFF \
             -DINCLUDE=test/embedded
