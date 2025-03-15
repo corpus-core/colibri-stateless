@@ -83,10 +83,41 @@ else()
     set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/libkeccak.a")
 endif()
 
+# Add commands to copy the libraries to a predictable location
+add_custom_command(
+    TARGET evmone_external
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/libs/evmone/lib
+    COMMAND ${CMAKE_COMMAND} -E copy ${EVMONE_LIB_PATH} ${CMAKE_BINARY_DIR}/libs/evmone/lib/
+    COMMENT "Copying evmone library to standard location"
+)
+
+add_custom_command(
+    TARGET ethhash_external
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/libs/evmone/lib
+    COMMAND ${CMAKE_COMMAND} -E copy ${KECCAK_LIB_PATH} ${CMAKE_BINARY_DIR}/libs/evmone/lib/
+    COMMENT "Copying keccak library to standard location"
+)
+
+# Update paths to use the copied libraries
+if(WIN32)
+    set(EVMONE_LIB_PATH "${CMAKE_BINARY_DIR}/libs/evmone/lib/evmone.lib")
+    set(KECCAK_LIB_PATH "${CMAKE_BINARY_DIR}/libs/evmone/lib/keccak.lib")
+else()
+    set(EVMONE_LIB_PATH "${CMAKE_BINARY_DIR}/libs/evmone/lib/libevmone.a")
+    set(KECCAK_LIB_PATH "${CMAKE_BINARY_DIR}/libs/evmone/lib/libkeccak.a")
+endif()
+
 # Link with the built libraries
 target_link_libraries(evmone_wrapper PRIVATE
     ${EVMONE_LIB_PATH}
     ${KECCAK_LIB_PATH}
+)
+
+# Make wrapper library export its dependencies
+set_target_properties(evmone_wrapper PROPERTIES
+    INTERFACE_LINK_LIBRARIES "${EVMONE_LIB_PATH};${KECCAK_LIB_PATH}"
 )
 
 # Add dependency to ensure evmone is built before the wrapper
