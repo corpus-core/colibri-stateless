@@ -74,10 +74,19 @@ target_include_directories(evmone_wrapper
         ${CMAKE_CURRENT_SOURCE_DIR} # Our wrapper header
 )
 
+# Set platform-specific library name and path
+if(WIN32)
+    set(EVMONE_LIB_PATH "${BINARY_DIR}/lib/evmone.lib")
+    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/keccak.lib")
+else()
+    set(EVMONE_LIB_PATH "${BINARY_DIR}/lib/libevmone.a")
+    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/libkeccak.a")
+endif()
+
 # Link with the built libraries
 target_link_libraries(evmone_wrapper PRIVATE
-    ${BINARY_DIR}/lib/libevmone.a
-    ${ethhash_BINARY_DIR}/lib/keccak/libkeccak.a
+    ${EVMONE_LIB_PATH}
+    ${KECCAK_LIB_PATH}
 )
 
 # Add dependency to ensure evmone is built before the wrapper

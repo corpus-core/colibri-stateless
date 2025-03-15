@@ -31,8 +31,20 @@ typedef enum {
   CALL_KIND_CREATE2      = 4
 } evmone_call_kind;
 
+typedef struct evm_res_ptr {
+  struct evmone_result result;
+  struct evm_res_ptr*  next;
+} evm_res_ptr_t;
+
 /* EVM Host interface implementation */
 static const struct evmone_host_interface host_interface;
+
+static void add_evm_result(evmone_context_t* ctx, struct evmone_result* result) {
+  evm_res_ptr_t* new_result = malloc(sizeof(evm_res_ptr_t));
+  new_result->result        = *result;
+  new_result->next          = ctx->results;
+  ctx->results              = new_result;
+}
 
 // Debug function to print address as hex
 static void debug_print_address(const char* prefix, const evmc_address* addr) {
@@ -214,6 +226,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       EVM_LOG("Precompile failed with status code: %d", pre_result);
       result->gas_left = 0;
     }
+    add_evm_result(ctx, result);
     return;
   }
 
@@ -268,9 +281,15 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       fprintf(stderr, "\n");
     }
   }
+  add_evm_result(ctx, &exec_result);
+
+  if (exec_result.status_code == 0) {
+    context_apply(&child);
+  }
   EVM_LOG("========/child call complete ====");
 
   context_free(&child);
+
   *result = exec_result;
 }
 
@@ -449,6 +468,7 @@ bool eth_run_call_evmone(verify_ctx_t* ctx, ssz_ob_t accounts, json_t tx, bytes_
       .tx_origin        = {0},
       .gas_price        = 0,
       .parent           = NULL,
+      .results          = NULL,
   };
 
   bytes_t code = get_code(&context, to);
@@ -509,13 +529,21 @@ bool eth_run_call_evmone(verify_ctx_t* ctx, ssz_ob_t accounts, json_t tx, bytes_
       case -3: error_msg = "Out of memory"; break;
     }
     EVM_LOG("Error details: %s", error_msg);
+    ctx->state.error = strdup(error_msg);
   }
 
   // Clean up resources
   evmone_release_result(&result);
   evmone_destroy_executor(executor);
   buffer_free(&buffer);
+  while (context.results) {
+    evm_res_ptr_t* res  = (evm_res_ptr_t*) context.results;
+    evm_res_ptr_t* next = res->next;
+    evmone_release_result(&res->result);
+    context.results = next;
+  }
+  context_free(&context);
   EVM_LOG("=== EVM call verification complete ===");
 
-  return true;
+  return ctx->state.error == NULL;
 }

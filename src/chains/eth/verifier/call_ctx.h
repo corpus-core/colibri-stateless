@@ -43,6 +43,7 @@ typedef struct evmone_context {
   uint64_t  gas_price;
   // For storing results
   struct evmone_context* parent;
+  void*                  results;
 } evmone_context_t;
 
 static ssz_ob_t get_src_account(evmone_context_t* ctx, const address_t address) {
@@ -172,6 +173,19 @@ static void context_free(evmone_context_t* ctx) {
   }
 }
 
+static void context_apply(evmone_context_t* ctx) {
+  if (!ctx->parent) return;
+  bool created;
+  for (changed_account_t* acc = ctx->changed_accounts; acc; acc = acc->next) {
+    changed_account_t* parent_acc = create_changed_account(ctx->parent, acc->address, &created);
+    memcpy(parent_acc->balance, acc->balance, 32);
+    parent_acc->code      = acc->code;
+    parent_acc->free_code = acc->free_code;
+
+    for (changed_storage_t* s = acc->storage; s; s = s->next)
+      set_changed_storage(ctx->parent, acc->address, s->key, s->value, &created, &created);
+  }
+}
 #ifdef __cplusplus
 }
 #endif
