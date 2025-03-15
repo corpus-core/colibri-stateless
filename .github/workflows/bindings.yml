@@ -326,7 +326,7 @@ jobs:
 
       - name: Build
         run: |
-          cmake -DSWIFT=true -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} -B build_${{ matrix.arch }} .
+          cmake -DSWIFT=true -B build_${{ matrix.arch }} .
           cd build_${{ matrix.arch }}
           make
           cd ..
