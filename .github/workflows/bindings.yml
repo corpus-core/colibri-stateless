@@ -305,8 +305,18 @@ jobs:
       #      -PmavenUsername=${{ secrets.MAVEN_USERNAME }} \
       #      -PmavenPassword=${{ secrets.MAVEN_PASSWORD }}
 
-  swift:
-    runs-on: macos-latest
+  build-swift:
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+        include:
+          - arch: x86_64
+            runner: macos-12
+          - arch: arm64
+            runner: macos-14
+
+    runs-on: ${{ matrix.runner }}
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -314,16 +324,41 @@ jobs:
       - name: Install CMake
         run: brew install cmake
 
-      - name: Build x86_64 (Simulator)
+      - name: Build
         run: |
-          cmake -DSWIFT=true -B build_x86 -DCMAKE_OSX_ARCHITECTURES=x86_64 .
-          cd build_x86
+          cmake -DSWIFT=true -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} -B build_${{ matrix.arch }} .
+          cd build_${{ matrix.arch }}
           make
           cd ..
 
-      - name: Build arm64 (Device)
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build_${{ matrix.arch }}
+          path: build_${{ matrix.arch }}
+
+  package-swift:
+    needs: build-swift
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Download x86_64 Build
+        uses: actions/download-artifact@v4
+        with:
+          name: build_x86_64
+          path: build_x86_64
+
+      - name: Download arm64 Build
+        uses: actions/download-artifact@v4
+        with:
+          name: build_arm64
+          path: build_arm64
+
+      - name: Create XCFramework
         run: |
-          cmake -DSWIFT=true -DCMAKE_OSX_ARCHITECTURES=arm64 -DSWIFT_X86_BUILD=$(pwd)/build_x86 -B build .
+          cmake -DSWIFT=true -DSWIFT_X86_BUILD=$(pwd)/build_x86_64 -DSWIFT_ARM_BUILD=$(pwd)/build_arm64 -B build .
           cd build
           make
           cd ..
