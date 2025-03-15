@@ -1,5 +1,31 @@
 # Use ExternalProject for evmone - no Hunter initialization
 include(ExternalProject)
+include(FetchContent)
+
+
+
+ExternalProject_Add(
+    ethhash_external
+    GIT_REPOSITORY https://github.com/chfast/ethash.git
+    GIT_SHALLOW TRUE
+    CMAKE_ARGS
+        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        -DBUILD_SHARED_LIBS=OFF
+        -DEVMONE_TESTING=OFF
+        # Pass compiler settings
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        # Pass toolchain for cross-compilation if defined
+        $<$<BOOL:${CMAKE_TOOLCHAIN_FILE}>:-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}>
+        # Disable Hunter warnings
+        -DCMAKE_WARN_DEPRECATED=OFF
+    # Skip install step
+    INSTALL_COMMAND ""
+
+)
+ExternalProject_Get_Property(ethhash_external SOURCE_DIR BINARY_DIR)
+set(ethhash_SOURCE_DIR ${SOURCE_DIR})
+set(ethhash_BINARY_DIR ${BINARY_DIR})
 
 # Define the external project for evmone
 ExternalProject_Add(
@@ -10,6 +36,7 @@ ExternalProject_Add(
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DBUILD_SHARED_LIBS=OFF
         -DEVMONE_TESTING=OFF
+        -DEVMONE_PRECOMPILES=OFF
         # Pass compiler settings
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
@@ -49,7 +76,8 @@ target_include_directories(evmone_wrapper
 
 # Link with the built libraries
 target_link_libraries(evmone_wrapper PRIVATE
-    ${BINARY_DIR}/lib/libevmone-standalone.a
+    ${BINARY_DIR}/lib/libevmone.a
+    ${ethhash_BINARY_DIR}/lib/keccak/libkeccak.a
 )
 
 # Add dependency to ensure evmone is built before the wrapper
