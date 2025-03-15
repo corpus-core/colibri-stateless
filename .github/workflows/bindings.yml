@@ -455,7 +455,7 @@ jobs:
           docker build -t colibri-server -f bindings/docker/Dockerfile .
 
   create-release:
-    needs: [swift, emscripten, build-publish-aar, build-publish-jar]
+    needs: [package-swift, emscripten, build-publish-aar, build-publish-jar]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
