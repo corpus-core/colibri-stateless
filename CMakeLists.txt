@@ -168,6 +168,9 @@ endif()
 
 if(KOTLIN)
     add_subdirectory(bindings/kotlin)
+    if(EVMONE AND TARGET c4_java AND TARGET evmone_dependencies)
+        add_dependencies(c4_java evmone_dependencies)
+    endif()
 endif()
 
 if(SWIFT)

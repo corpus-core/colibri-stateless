@@ -27,6 +27,17 @@ ExternalProject_Get_Property(ethhash_external SOURCE_DIR BINARY_DIR)
 set(ethhash_SOURCE_DIR ${SOURCE_DIR})
 set(ethhash_BINARY_DIR ${BINARY_DIR})
 
+# Create an imported target for keccak
+if(WIN32)
+    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/Release/keccak.lib")
+else()
+    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/libkeccak.a")
+endif()
+
+add_library(keccak STATIC IMPORTED)
+set_target_properties(keccak PROPERTIES IMPORTED_LOCATION ${KECCAK_LIB_PATH})
+add_dependencies(keccak ethhash_external)
+
 # Define the external project for evmone
 ExternalProject_Add(
     evmone_external
@@ -77,21 +88,20 @@ target_include_directories(evmone_wrapper
 # Set platform-specific library name and path
 if(WIN32)
     set(EVMONE_LIB_PATH "${BINARY_DIR}/lib/Release/evmone.lib")
-    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/Release/keccak.lib")
 else()
     set(EVMONE_LIB_PATH "${BINARY_DIR}/lib/libevmone.a")
-    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/libkeccak.a")
 endif()
 
-# Add commands to copy the libraries to a predictable location
-add_custom_command(
-    TARGET evmone_external
-    POST_BUILD
+# Target to copy keccak library to a predictable location
+add_custom_target(
+    copy_keccak
+    DEPENDS keccak
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/libs/evmone/lib
-    COMMAND ${CMAKE_COMMAND} -E copy ${EVMONE_LIB_PATH} ${CMAKE_BINARY_DIR}/libs/evmone/lib/
-    COMMENT "Copying evmone library to standard location"
+    COMMAND ${CMAKE_COMMAND} -E copy ${KECCAK_LIB_PATH} ${CMAKE_BINARY_DIR}/libs/evmone/lib/
+    COMMENT "Copying keccak library to standard location"
 )
 
+# Update custom command to depend on the new target
 add_custom_command(
     TARGET ethhash_external
     POST_BUILD
@@ -100,19 +110,10 @@ add_custom_command(
     COMMENT "Copying keccak library to standard location"
 )
 
-# Update paths to use the copied libraries
-if(WIN32)
-    set(EVMONE_LIB_PATH "${CMAKE_BINARY_DIR}/libs/evmone/lib/evmone.lib")
-    set(KECCAK_LIB_PATH "${CMAKE_BINARY_DIR}/libs/evmone/lib/keccak.lib")
-else()
-    set(EVMONE_LIB_PATH "${CMAKE_BINARY_DIR}/libs/evmone/lib/libevmone.a")
-    set(KECCAK_LIB_PATH "${CMAKE_BINARY_DIR}/libs/evmone/lib/libkeccak.a")
-endif()
-
 # Link with the built libraries
 target_link_libraries(evmone_wrapper PRIVATE
     ${EVMONE_LIB_PATH}
-    ${KECCAK_LIB_PATH}
+    keccak
 )
 
 # Make wrapper library export its dependencies
@@ -121,7 +122,7 @@ set_target_properties(evmone_wrapper PROPERTIES
 )
 
 # Add dependency to ensure evmone is built before the wrapper
-add_dependencies(evmone_wrapper evmone_external)
+add_dependencies(evmone_wrapper evmone_external copy_keccak)
 
 # Create alias for convenience
 add_library(evmone ALIAS evmone_wrapper)
@@ -134,4 +135,10 @@ install(TARGETS evmone_wrapper
 
 install(FILES evmone_c_wrapper.h
     DESTINATION include
+)
+
+# Create a global dependency hook that can be used by other parts of the project
+add_custom_target(evmone_dependencies ALL
+    DEPENDS ethhash_external copy_keccak
+    COMMENT "Ensuring all evmone dependencies are built"
 )
