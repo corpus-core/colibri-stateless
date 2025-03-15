@@ -540,6 +540,7 @@ bool eth_run_call_evmone(verify_ctx_t* ctx, ssz_ob_t accounts, json_t tx, bytes_
     evm_res_ptr_t* res  = (evm_res_ptr_t*) context.results;
     evm_res_ptr_t* next = res->next;
     evmone_release_result(&res->result);
+    free(res);
     context.results = next;
   }
   context_free(&context);
