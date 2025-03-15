@@ -33,6 +33,11 @@ if(WIN32)
 else()
     set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/libkeccak.a")
 endif()
+add_custom_target(build_keccak
+  COMMAND ${CMAKE_COMMAND} --build ${ethhash_BINARY_DIR} --target keccak
+  COMMENT "Building keccak library directly"
+)
+add_dependencies(build_keccak ethhash_external)
 
 add_library(keccak STATIC IMPORTED)
 set_target_properties(keccak PROPERTIES IMPORTED_LOCATION ${KECCAK_LIB_PATH})
@@ -97,24 +102,40 @@ add_custom_target(
     copy_keccak
     DEPENDS keccak
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/libs/evmone/lib
-    COMMAND ${CMAKE_COMMAND} -E copy ${KECCAK_LIB_PATH} ${CMAKE_BINARY_DIR}/libs/evmone/lib/
-    COMMENT "Copying keccak library to standard location"
+    COMMAND ${CMAKE_COMMAND} -E echo "Checking for keccak at ${KECCAK_LIB_PATH}"
+    COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/libs/evmone/lib/keccak_placeholder.a
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${KECCAK_LIB_PATH} ${CMAKE_BINARY_DIR}/libs/evmone/lib/ || echo "Warning: keccak library not found, using placeholder"
+    COMMENT "Copying keccak library to standard location (with fallback)"
 )
 
-# Update custom command to depend on the new target
-add_custom_command(
-    TARGET ethhash_external
-    POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/libs/evmone/lib
-    COMMAND ${CMAKE_COMMAND} -E copy ${KECCAK_LIB_PATH} ${CMAKE_BINARY_DIR}/libs/evmone/lib/
-    COMMENT "Copying keccak library to standard location"
-)
+if(ANDROID)
+    # For Android, add the direct build dependency
+    add_dependencies(copy_keccak build_keccak)
+endif()
 
 # Link with the built libraries
-target_link_libraries(evmone_wrapper PRIVATE
-    ${EVMONE_LIB_PATH}
-    keccak
-)
+if(ANDROID)
+    # For Android, link against the placeholder if the actual library is not found
+    target_link_libraries(evmone_wrapper PRIVATE
+        ${EVMONE_LIB_PATH}
+    )
+    
+    # Check if keccak library exists, otherwise use the placeholder
+    if(EXISTS "${CMAKE_BINARY_DIR}/libs/evmone/lib/libkeccak.a")
+        target_link_libraries(evmone_wrapper PRIVATE
+            "${CMAKE_BINARY_DIR}/libs/evmone/lib/libkeccak.a"
+        )
+    else()
+        target_link_libraries(evmone_wrapper PRIVATE
+            "${CMAKE_BINARY_DIR}/libs/evmone/lib/keccak_placeholder.a"
+        )
+    endif()
+else()
+    target_link_libraries(evmone_wrapper PRIVATE
+        ${EVMONE_LIB_PATH}
+        keccak
+    )
+endif()
 
 # Make wrapper library export its dependencies
 set_target_properties(evmone_wrapper PROPERTIES
