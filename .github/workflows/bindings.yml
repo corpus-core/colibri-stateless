@@ -305,17 +305,8 @@ jobs:
       #      -PmavenUsername=${{ secrets.MAVEN_USERNAME }} \
       #      -PmavenPassword=${{ secrets.MAVEN_PASSWORD }}
 
-  build-swift:
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
-        include:
-          - arch: x86_64
-            runner: macos-13
-          - arch: arm64
-            runner: macos-latest
-
-    runs-on: ${{ matrix.runner }}
+  build_swift_x86_64:
+    runs-on: macos-13
 
     steps:
       - name: Checkout Repository
@@ -326,19 +317,19 @@ jobs:
 
       - name: Build
         run: |
-          cmake -DSWIFT=true -B build_${{ matrix.arch }} .
-          cd build_${{ matrix.arch }}
+          cmake -DSWIFT=true -B build_swift_x86_64 .
+          cd build_swift_x86_64
           make
           cd ..
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build_${{ matrix.arch }}
-          path: build_${{ matrix.arch }}
+          name: build_swift_x86_64
+          path: build_swift_x86_64
 
   package-swift:
-    needs: build-swift
+    needs: build_swift_x86_64
     runs-on: macos-latest
     steps:
       - name: Checkout Repository
@@ -347,18 +338,12 @@ jobs:
       - name: Download x86_64 Build
         uses: actions/download-artifact@v4
         with:
-          name: build_x86_64
-          path: build_x86_64
-
-      - name: Download arm64 Build
-        uses: actions/download-artifact@v4
-        with:
-          name: build_arm64
-          path: build_arm64
+          name: build_swift_x86_64
+          path: build_swift_x86_64
 
       - name: Create XCFramework
         run: |
-          cmake -DSWIFT=true -DSWIFT_X86_BUILD=$(pwd)/build_x86_64 -DSWIFT_ARM_BUILD=$(pwd)/build_arm64 -B build .
+          cmake -DSWIFT=true -DSWIFT_X86_BUILD=$(pwd)/build_swift_x86_64  -B build .
           cd build
           make
           cd ..
