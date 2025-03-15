@@ -76,8 +76,8 @@ target_include_directories(evmone_wrapper
 
 # Set platform-specific library name and path
 if(WIN32)
-    set(EVMONE_LIB_PATH "${BINARY_DIR}/lib/evmone.lib")
-    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/keccak.lib")
+    set(EVMONE_LIB_PATH "${BINARY_DIR}/lib/Release/evmone.lib")
+    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/Release/keccak.lib")
 else()
     set(EVMONE_LIB_PATH "${BINARY_DIR}/lib/libevmone.a")
     set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/libkeccak.a")
