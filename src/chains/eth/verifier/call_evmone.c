@@ -180,7 +180,7 @@ static size_t host_copy_code(void* context, const evmc_address* addr, size_t cod
   bytes_t code      = get_code(ctx, addr->bytes);
   size_t  copy_size = code.len - code_offset;
   if (buffer_size < copy_size) copy_size = buffer_size;
-  memcpy(buffer_data, code.data + code_offset, copy_size);
+  if (code.data) memcpy(buffer_data, code.data + code_offset, copy_size);
 
   EVM_LOG("copy_code result: copied %zu bytes", copy_size);
   return copy_size;
