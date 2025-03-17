@@ -31,10 +31,15 @@ android {
                     "-DCURL=false",
                     // Force C++20 with concepts
                     "-DCMAKE_CXX_STANDARD=20", 
-                    "-DCMAKE_CXX_STANDARD_REQUIRED=ON"
+                    "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+                    // Additional flags to help with Android NDK C++20 compilation
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_TOOLCHAIN=clang"
                 )
                 // Add compiler flags for C++20 support
                 cppFlags += "-std=c++20"
+                // Work around NDK C++20 issues with explicit flags
+                cppFlags += "-Wno-c++20-extensions -Wno-c++20-designator"
                 // Specify ABIs to build for
                 abiFilters("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             }
@@ -47,7 +52,7 @@ android {
         }
     }
     
-    ndkVersion = "25.2.9519653" // Updated to newer NDK with better C++20 support
+    ndkVersion = "28.1.12816819" // Latest stable version
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8

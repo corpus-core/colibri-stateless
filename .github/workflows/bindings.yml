@@ -283,7 +283,7 @@ jobs:
 
       - name: Install Android SDK and NDK
         run: |
-          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" "build-tools;33.0.0" "ndk;25.2.9519653"
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" "build-tools;33.0.0" "ndk;28.1.12816819"
 
       - name: Build AAR
         run: |
