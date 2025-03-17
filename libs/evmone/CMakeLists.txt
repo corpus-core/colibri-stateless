@@ -5,13 +5,22 @@ include(FetchContent)
 cmake_policy(SET CMP0169 OLD)
 
 # set the compiler options
-if(MSVC) # clang-cl
-    add_compile_options(
-        -Wno-exit-time-destructors
-        -Wno-global-constructors
-        $<$<COMPILE_LANGUAGE:CXX>:-Wno-c++98-compat-pedantic>
-        $<$<COMPILE_LANGUAGE:CXX>:-Wno-old-style-cast>
-    )
+if(MSVC)
+    if(CMAKE_CXX_COMPILER_ID MATCHES Clang) # clang-cl
+        add_compile_options(
+            -Wno-exit-time-destructors
+            -Wno-global-constructors
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-c++98-compat-pedantic>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-old-style-cast>
+        )
+    else()
+        # MSVC-specific warning suppressions
+        add_compile_options(
+            /wd4324  # structure was padded due to alignment specifier
+            /wd4245  # conversion from 'type1' to 'type2', signed/unsigned mismatch
+            /wd4146  # unary minus operator applied to unsigned type, result still unsigned
+        )
+    endif()
 elseif(CMAKE_CXX_COMPILER_ID MATCHES Clang)
     set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Og")
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Og")
