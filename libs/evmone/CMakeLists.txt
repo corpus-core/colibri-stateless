@@ -121,160 +121,19 @@ FetchContent_GetProperties(evmone_external)
 if(NOT evmone_external_POPULATED)
     FetchContent_Populate(evmone_external)
     
-    # First, create the fallback implementation files
-    # Create aligned_alloc fallback for Android
-    file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/aligned_alloc_fallback.hpp "
-        #pragma once
-        #include <cstdlib>
-        #include <memory>
-
-        namespace evmone_compat {
-            inline void* aligned_alloc(size_t alignment, size_t size) {
-                // Use posix_memalign which is more widely available
-                void* ptr = nullptr;
-                if (posix_memalign(&ptr, alignment, size) != 0) {
-                    return nullptr;
-                }
-                return ptr;
-            }
-        }
-    ")
+    # Copy compatibility files to the source directory
+    file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/compat/aligned_alloc_fallback.hpp 
+         DESTINATION ${evmone_external_SOURCE_DIR}/lib/evmone/)
     
-    # Create a comprehensive iOS compatibility header
-    file(WRITE ${evmone_external_SOURCE_DIR}/evmc/include/evmc/ios_compat.hpp "
-        #pragma once
-        
-        // This is a compatibility header for iOS to handle C++17 features
-        // that are only available from iOS 12.0+
-        
-        #include <optional>
-        #include <variant>
-        #include <utility>
-        
-        #ifdef __APPLE__
-        
-        // Wrapper for std::optional::value()
-        namespace ios_compat {
-            template <typename T>
-            inline T get_optional_value(const std::optional<T>& opt) {
-                return *opt;
-            }
-            
-            // Wrapper for std::get<I>(variant)
-            template <typename T, typename... Types>
-            inline T& get_variant(std::variant<Types...>& v) {
-                return *std::get_if<T>(&v);
-            }
-            
-            template <typename T, typename... Types>
-            inline const T& get_variant(const std::variant<Types...>& v) {
-                return *std::get_if<T>(&v);
-            }
-        }
-        
-        // Override problematic C++17 features with our compatibility versions
-        #define value() operator*()
-        #define std::get<EOF1Header> ios_compat::get_variant<EOF1Header>
-        
-        #endif
-    ")
+    file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/compat/ios_compat.hpp 
+         DESTINATION ${evmone_external_SOURCE_DIR}/evmc/include/evmc/)
     
-    # Create a compiler pre-include header
-    file(WRITE ${evmone_external_SOURCE_DIR}/ios_preinclude.h "
-        // This header is pre-included to ensure iOS compatibility
-        #ifdef __APPLE__
-        #include \"evmc/include/evmc/ios_compat.hpp\"
-        #endif
-    ")
-    
-    # Patch execution_state.hpp for Android compatibility
-    if(EXISTS ${evmone_external_SOURCE_DIR}/lib/evmone/execution_state.hpp)
-        file(READ ${evmone_external_SOURCE_DIR}/lib/evmone/execution_state.hpp EXECUTION_STATE_CONTENT)
-        
-        # Include our fallback header
-        string(REGEX REPLACE 
-            "#include <memory>" 
-            "#include <memory>\n#include \"aligned_alloc_fallback.hpp\"" 
-            TEMP_CONTENT "${EXECUTION_STATE_CONTENT}")
-            
-        # Replace std::aligned_alloc with evmone_compat::aligned_alloc
-        string(REGEX REPLACE 
-            "std::aligned_alloc\\(alignment, size\\)" 
-            "evmone_compat::aligned_alloc(alignment, size)" 
-            PATCHED_EXECUTION_STATE_CONTENT "${TEMP_CONTENT}")
-            
-        file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/execution_state.hpp "${PATCHED_EXECUTION_STATE_CONTENT}")
-        message(STATUS "Patched execution_state.hpp to replace std::aligned_alloc")
-    endif()
-    
-    # Patch evmc.hpp for iOS compatibility
-    if(EXISTS ${evmone_external_SOURCE_DIR}/evmc/include/evmc/evmc.hpp)
-        file(READ ${evmone_external_SOURCE_DIR}/evmc/include/evmc/evmc.hpp EVMC_CONTENT)
-        
-        # Always include our compatibility header for Apple platforms
-        string(REGEX REPLACE 
-            "#include <optional>" 
-            "#include <optional>\n#ifdef __APPLE__\n#include \"ios_compat.hpp\"\n#endif" 
-            TEMP_CONTENT "${EVMC_CONTENT}")
-        
-        # Replace optional::value() calls directly with the operator* approach
-        string(REGEX REPLACE 
-            "from_hex<T>\\(s\\)\\.value\\(\\)" 
-            "*from_hex<T>(s)" 
-            PATCHED_EVMC_CONTENT "${TEMP_CONTENT}")
-        
-        file(WRITE ${evmone_external_SOURCE_DIR}/evmc/include/evmc/evmc.hpp "${PATCHED_EVMC_CONTENT}")
-        message(STATUS "Patched evmc.hpp to handle iOS compatibility")
-    endif()
-    
-    # Patch eof.cpp for std::get compatibility
-    if(EXISTS ${evmone_external_SOURCE_DIR}/lib/evmone/eof.cpp)
-        file(READ ${evmone_external_SOURCE_DIR}/lib/evmone/eof.cpp EOF_CONTENT)
-        
-        # Replace all instances of std::get to use std::get_if instead which works on iOS 13.0+
-        string(REGEX REPLACE 
-            "std::get<EOF1Header>\\(error_or_header\\)" 
-            "*std::get_if<EOF1Header>(&error_or_header)" 
-            TEMP_EOF_CONTENT "${EOF_CONTENT}")
-            
-        string(REGEX REPLACE 
-            "std::get<InstructionValidationResult>\\(instr_validation_result_or_error\\)" 
-            "*std::get_if<InstructionValidationResult>(&instr_validation_result_or_error)" 
-            TEMP_EOF_CONTENT2 "${TEMP_EOF_CONTENT}")
-            
-        string(REGEX REPLACE 
-            "std::get<int32_t>\\(msh_or_error\\)" 
-            "*std::get_if<int32_t>(&msh_or_error)" 
-            TEMP_EOF_CONTENT3 "${TEMP_EOF_CONTENT2}")
-            
-        string(REGEX REPLACE 
-            "std::get<EOFSectionHeaders>\\(section_headers_or_error\\)" 
-            "*std::get_if<EOFSectionHeaders>(&section_headers_or_error)" 
-            PATCHED_EOF_CONTENT "${TEMP_EOF_CONTENT3}")
-            
-        # Generic replacement for other std::get instances we might have missed
-        string(REGEX REPLACE 
-            "std::get<([^>]+)>\\(([^\\)]+)\\)" 
-            "*std::get_if<\\1>(&\\2)" 
-            FINAL_EOF_CONTENT "${PATCHED_EOF_CONTENT}")
-        
-        file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/eof.cpp "${FINAL_EOF_CONTENT}")
-        message(STATUS "Patched eof.cpp to handle iOS compatibility")
-    endif()
-    
-    # Patch instructions_calls.cpp for std::get compatibility
-    if(EXISTS ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp)
-        file(READ ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp CALLS_CONTENT)
-        
-        # First patch the specific instances we're seeing in the errors
-        string(REGEX REPLACE 
-            "const auto& code_addr = std::get<evmc::address>\\(target_addr_or_result\\)" 
-            "const auto* addr_ptr = std::get_if<evmc::address>(&target_addr_or_result);\n    const auto& code_addr = *addr_ptr" 
-            PATCHED_CALLS_CONTENT_1 "${CALLS_CONTENT}")
-        
-        file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp "${PATCHED_CALLS_CONTENT_1}")
-        message(STATUS "Patched instructions_calls.cpp to handle iOS compatibility")
-    endif()
+    # Apply patches using the CMake scripts
+    set(SOURCE_DIR ${evmone_external_SOURCE_DIR})
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_execution_state.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_evmc.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_eof.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_instructions_calls.cmake)
     
     # Now create the CMakeLists.txt file
     file(WRITE ${evmone_external_SOURCE_DIR}/CMakeLists.txt "
@@ -282,6 +141,11 @@ if(NOT evmone_external_POPULATED)
         if(APPLE)
             set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"Minimum deployment target\" FORCE)
             # Enable aligned_alloc fallback for iOS
+            add_definitions(-DUSE_ALIGNED_ALLOC_FALLBACK)
+        endif()
+
+        # Windows-specific settings
+        if(MSVC OR WIN32)
             add_definitions(-DUSE_ALIGNED_ALLOC_FALLBACK)
         endif()
 
