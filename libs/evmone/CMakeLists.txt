@@ -143,22 +143,51 @@ if(NOT evmone_external_POPULATED)
         #define aligned_alloc evmone_compat::aligned_alloc
     ")
     
-    # Create iOS compatibility header for optional value() method
+    # Create a comprehensive iOS compatibility header
     file(WRITE ${evmone_external_SOURCE_DIR}/evmc/include/evmc/ios_compat.hpp "
         #pragma once
         
-        // This is a compatibility header for iOS to handle std::optional::value()
-        // which is only available from iOS 12.0+
+        // This is a compatibility header for iOS to handle C++17 features
+        // that are only available from iOS 12.0+
         
         #include <optional>
+        #include <variant>
+        #include <utility>
         
+        #ifdef __APPLE__
+        
+        // Wrapper for std::optional::value()
         namespace ios_compat {
             template <typename T>
             inline T get_optional_value(const std::optional<T>& opt) {
-                // For iOS compatibility, avoid calling .value() directly
                 return *opt;
             }
+            
+            // Wrapper for std::get<I>(variant)
+            template <typename T, typename... Types>
+            inline T& get_variant(std::variant<Types...>& v) {
+                return *std::get_if<T>(&v);
+            }
+            
+            template <typename T, typename... Types>
+            inline const T& get_variant(const std::variant<Types...>& v) {
+                return *std::get_if<T>(&v);
+            }
         }
+        
+        // Override problematic C++17 features with our compatibility versions
+        #define value() operator*()
+        #define std::get<EOF1Header> ios_compat::get_variant<EOF1Header>
+        
+        #endif
+    ")
+    
+    # Create a compiler pre-include header
+    file(WRITE ${evmone_external_SOURCE_DIR}/ios_preinclude.h "
+        // This header is pre-included to ensure iOS compatibility
+        #ifdef __APPLE__
+        #include \"evmc/include/evmc/ios_compat.hpp\"
+        #endif
     ")
     
     # Patch execution_state.hpp for Android compatibility
@@ -196,6 +225,8 @@ if(NOT evmone_external_POPULATED)
         # Set deployment target for iOS builds
         if(APPLE)
             set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"Minimum deployment target\" FORCE)
+            # Force include our compatibility header for Apple platforms
+            add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/ios_preinclude.h)
         endif()
 
         add_definitions(-DPROJECT_VERSION=\\\"0.14.1\\\")
