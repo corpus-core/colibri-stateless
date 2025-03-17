@@ -120,7 +120,7 @@ else()
             COMMENT "Building blst using build script with Android NDK toolchain"
             VERBATIM
         )
-    elseif(SWIFT_CROSS)
+    elseif(SWIFT)
         # iOS build configuration
         if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
             add_custom_command(

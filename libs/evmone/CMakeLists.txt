@@ -1,71 +1,132 @@
 # Use ExternalProject for evmone - no Hunter initialization
-include(ExternalProject)
 include(FetchContent)
 
+# Ensure CMake allows FetchContent_Populate()
+cmake_policy(SET CMP0169 OLD)
+
+# set the compiler options
+if(MSVC) # clang-cl
+    add_compile_options(
+        -Wno-exit-time-destructors
+        -Wno-global-constructors
+        $<$<COMPILE_LANGUAGE:CXX>:-Wno-c++98-compat-pedantic>
+        $<$<COMPILE_LANGUAGE:CXX>:-Wno-old-style-cast>
+    )
+elseif(CMAKE_CXX_COMPILER_ID MATCHES Clang)
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Og")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Og")
+    set(CMAKE_C_FLAGS_COVERAGE "${CMAKE_C_FLAGS_DEBUG} -fprofile-instr-generate -fcoverage-mapping")
+    set(CMAKE_CXX_FLAGS_COVERAGE "${CMAKE_CXX_FLAGS_DEBUG} -fprofile-instr-generate -fcoverage-mapping")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES GNU)
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -Og")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Og")
+    set(CMAKE_C_FLAGS_COVERAGE "${CMAKE_C_FLAGS_DEBUG} --coverage")
+    set(CMAKE_CXX_FLAGS_COVERAGE "${CMAKE_CXX_FLAGS_DEBUG} --coverage")
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
+    # Setup options for x86_64 micro-architecture levels.
+    # https://clang.llvm.org/docs/UsersManual.html#x86
+
+    set(EVMONE_X86_64_ARCH_LEVEL_INIT 2)
+    if(APPLE)
+        # On macos with Apple Silicon CPU (arm64) the x86 is emulated and SSE4.2 is not available.
+        set(EVMONE_X86_64_ARCH_LEVEL_INIT 1)
+    endif()
+
+    set(EVMONE_X86_64_ARCH_LEVEL ${EVMONE_X86_64_ARCH_LEVEL_INIT} CACHE STRING "The x86_64 micro-architecture level")
+    if(EVMONE_X86_64_ARCH_LEVEL GREATER_EQUAL 1 AND EVMONE_X86_64_ARCH_LEVEL LESS_EQUAL 4)
+        message(STATUS "x86_64 micro-architecture level: ${EVMONE_X86_64_ARCH_LEVEL}")
+        if(EVMONE_X86_64_ARCH_LEVEL GREATER_EQUAL 2)
+            add_compile_options(-march=x86-64-v${EVMONE_X86_64_ARCH_LEVEL})
+        endif()
+    else()
+        message(FATAL_ERROR "Invalid EVMONE_X86_64_ARCH_LEVEL: ${EVMONE_X86_64_ARCH_LEVEL}")
+    endif()
+endif()
 
 
-ExternalProject_Add(
+
+# include keccak
+FetchContent_Declare(
     ethhash_external
     GIT_REPOSITORY https://github.com/chfast/ethash.git
     GIT_SHALLOW TRUE
-    CMAKE_ARGS
-        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DBUILD_SHARED_LIBS=OFF
-        -DEVMONE_TESTING=OFF
-        # Pass compiler settings
-        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-        # Pass toolchain for cross-compilation if defined
-        $<$<BOOL:${CMAKE_TOOLCHAIN_FILE}>:-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}>
-        # Disable Hunter warnings
-        -DCMAKE_WARN_DEPRECATED=OFF
-    # Skip install step
-    INSTALL_COMMAND ""
-
 )
-ExternalProject_Get_Property(ethhash_external SOURCE_DIR BINARY_DIR)
-set(ethhash_SOURCE_DIR ${SOURCE_DIR})
-set(ethhash_BINARY_DIR ${BINARY_DIR})
 
-# Create an imported target for keccak
-if(WIN32)
-    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/Release/keccak.lib")
-else()
-    set(KECCAK_LIB_PATH "${ethhash_BINARY_DIR}/lib/keccak/libkeccak.a")
+FetchContent_GetProperties(ethhash_external)
+if(NOT ethhash_external_POPULATED)
+    FetchContent_Populate(ethhash_external)
+    # Eigene CMakeLists.txt anlegen
+    file(WRITE ${ethhash_external_SOURCE_DIR}/CMakeLists.txt "
+        add_library(keccak STATIC
+            lib/keccak/keccak.c
+        )
+        target_include_directories(keccak PUBLIC include)
+    ")
 endif()
-add_custom_target(build_keccak
-  COMMAND ${CMAKE_COMMAND} --build ${ethhash_BINARY_DIR} --target keccak
-  COMMENT "Building keccak library directly"
-)
-add_dependencies(build_keccak ethhash_external)
+add_subdirectory(${ethhash_external_SOURCE_DIR} ${ethhash_external_BINARY_DIR} EXCLUDE_FROM_ALL)
 
-add_library(keccak STATIC IMPORTED)
-set_target_properties(keccak PROPERTIES IMPORTED_LOCATION ${KECCAK_LIB_PATH})
-add_dependencies(keccak ethhash_external)
 
-# Define the external project for evmone
-ExternalProject_Add(
+
+
+# include evmone
+FetchContent_Declare(
     evmone_external
-    GIT_REPOSITORY https://github.com/corpus-core/evmone.git
+    GIT_REPOSITORY https://github.com/ethereum/evmone.git
     GIT_SHALLOW TRUE
-    CMAKE_ARGS
-        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DBUILD_SHARED_LIBS=OFF
-        -DEVMONE_TESTING=OFF
-        -DEVMONE_PRECOMPILES=OFF
-        # Pass compiler settings
-        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-        # Pass toolchain for cross-compilation if defined
-        $<$<BOOL:${CMAKE_TOOLCHAIN_FILE}>:-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}>
-        # Disable Hunter warnings
-        -DCMAKE_WARN_DEPRECATED=OFF
-    # Skip install step
-    INSTALL_COMMAND ""
+    RECURSE TRUE
 )
 
-# Get properties about the external project
-ExternalProject_Get_Property(evmone_external SOURCE_DIR BINARY_DIR)
+FetchContent_GetProperties(evmone_external)
+if(NOT evmone_external_POPULATED)
+    FetchContent_Populate(evmone_external)
+    # Eigene CMakeLists.txt anlegen
+    file(WRITE ${evmone_external_SOURCE_DIR}/CMakeLists.txt "
+
+        add_definitions(-DPROJECT_VERSION=\"0.14.1\")
+
+        add_library(evmone STATIC
+            include/evmone/evmone.h
+            lib/evmone/advanced_analysis.cpp
+            lib/evmone/advanced_analysis.hpp
+            lib/evmone/advanced_execution.cpp
+            lib/evmone/advanced_execution.hpp
+            lib/evmone/advanced_instructions.cpp
+            lib/evmone/baseline.hpp
+            lib/evmone/baseline_analysis.cpp
+            lib/evmone/baseline_execution.cpp
+            lib/evmone/baseline_instruction_table.cpp
+            lib/evmone/baseline_instruction_table.hpp
+            lib/evmone/constants.hpp
+            lib/evmone/delegation.cpp
+            lib/evmone/delegation.hpp
+            lib/evmone/eof.cpp
+            lib/evmone/eof.hpp
+            lib/evmone/instructions.hpp
+            lib/evmone/instructions_calls.cpp
+            lib/evmone/instructions_opcodes.hpp
+            lib/evmone/instructions_storage.cpp
+            lib/evmone/instructions_traits.hpp
+            lib/evmone/instructions_xmacro.hpp
+            lib/evmone/tracing.cpp
+            lib/evmone/tracing.hpp
+            lib/evmone/vm.cpp
+            lib/evmone/vm.hpp        
+        )
+        target_include_directories(evmone PUBLIC include evmc/include)
+        target_compile_features(evmone PUBLIC cxx_std_20)
+        target_link_libraries(evmone PUBLIC intx::intx PRIVATE keccak)
+
+        if(EVMONE_X86_64_ARCH_LEVEL GREATER_EQUAL 2)
+            # Add CPU architecture runtime check. The EVMONE_X86_64_ARCH_LEVEL has a valid value.
+            target_sources(evmone PRIVATE lib/evmone/cpu_check.cpp)
+            set_source_files_properties(lib/evmone/cpu_check.cpp PROPERTIES COMPILE_DEFINITIONS EVMONE_X86_64_ARCH_LEVEL=${EVMONE_X86_64_ARCH_LEVEL})
+        endif()
+    ")
+endif()
+add_subdirectory(${evmone_external_SOURCE_DIR} ${evmone_external_BINARY_DIR})
+
 
 # Create our wrapper library
 add_library(evmone_wrapper STATIC 
@@ -83,70 +144,13 @@ set_target_properties(evmone_wrapper PROPERTIES
 # Add include directories - make EVMC includes PUBLIC so they propagate
 target_include_directories(evmone_wrapper 
     PRIVATE
-        ${SOURCE_DIR}/include       # evmone private headers
+        ${evmone_external_SOURCE_DIR}/include       # evmone private headers
     PUBLIC
-        ${SOURCE_DIR}/evmc/include  # EVMC headers needed by clients
-        ${BINARY_DIR}/evmc/include  # Generated EVMC headers
+        ${evmone_external_SOURCE_DIR}/evmc/include  # EVMC headers needed by clients
         ${CMAKE_CURRENT_SOURCE_DIR} # Our wrapper header
 )
 
-# Set platform-specific library name and path
-if(WIN32)
-    set(EVMONE_LIB_PATH "${BINARY_DIR}/lib/Release/evmone.lib")
-else()
-    set(EVMONE_LIB_PATH "${BINARY_DIR}/lib/libevmone.a")
-endif()
-
-# Target to copy keccak library to a predictable location
-add_custom_target(
-    copy_keccak
-    DEPENDS keccak
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/libs/evmone/lib
-    COMMAND ${CMAKE_COMMAND} -E echo "Checking for keccak at ${KECCAK_LIB_PATH}"
-    COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/libs/evmone/lib/keccak_placeholder.a
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${KECCAK_LIB_PATH} ${CMAKE_BINARY_DIR}/libs/evmone/lib/ || echo "Warning: keccak library not found, using placeholder"
-    COMMENT "Copying keccak library to standard location (with fallback)"
-)
-
-if(ANDROID)
-    # For Android, add the direct build dependency
-    add_dependencies(copy_keccak build_keccak)
-endif()
-
-# Link with the built libraries
-if(ANDROID)
-    # For Android, link against the placeholder if the actual library is not found
-    target_link_libraries(evmone_wrapper PRIVATE
-        ${EVMONE_LIB_PATH}
-    )
-    
-    # Check if keccak library exists, otherwise use the placeholder
-    if(EXISTS "${CMAKE_BINARY_DIR}/libs/evmone/lib/libkeccak.a")
-        target_link_libraries(evmone_wrapper PRIVATE
-            "${CMAKE_BINARY_DIR}/libs/evmone/lib/libkeccak.a"
-        )
-    else()
-        target_link_libraries(evmone_wrapper PRIVATE
-            "${CMAKE_BINARY_DIR}/libs/evmone/lib/keccak_placeholder.a"
-        )
-    endif()
-else()
-    target_link_libraries(evmone_wrapper PRIVATE
-        ${EVMONE_LIB_PATH}
-        keccak
-    )
-endif()
-
-# Make wrapper library export its dependencies
-set_target_properties(evmone_wrapper PROPERTIES
-    INTERFACE_LINK_LIBRARIES "${EVMONE_LIB_PATH};${KECCAK_LIB_PATH}"
-)
-
-# Add dependency to ensure evmone is built before the wrapper
-add_dependencies(evmone_wrapper evmone_external copy_keccak)
-
-# Create alias for convenience
-add_library(evmone ALIAS evmone_wrapper)
+target_link_libraries(evmone_wrapper PUBLIC evmone keccak)
 
 # Install targets
 install(TARGETS evmone_wrapper
@@ -158,8 +162,3 @@ install(FILES evmone_c_wrapper.h
     DESTINATION include
 )
 
-# Create a global dependency hook that can be used by other parts of the project
-add_custom_target(evmone_dependencies ALL
-    DEPENDS ethhash_external copy_keccak
-    COMMENT "Ensuring all evmone dependencies are built"
-)

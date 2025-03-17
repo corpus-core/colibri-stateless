@@ -66,7 +66,37 @@ if(EMBEDDED)
 endif()
 
 if(SWIFT)
+    # Set SDK paths based on target architecture
+    if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+        execute_process(
+            COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        set(IOS_PLATFORM "SIMULATOR64")
+        set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+    elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+        execute_process(
+            COMMAND xcrun --sdk iphoneos --show-sdk-path
+            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        set(IOS_PLATFORM "OS64")
+        set(TARGET_TRIPLE "arm64-apple-ios")
+    endif()
 
+    # Set common iOS build settings
+    set(CMAKE_SYSTEM_NAME "iOS")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment version" FORCE)
+    set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO)
+    set(CMAKE_IOS_INSTALL_COMBINED NO)
+    
+    # Set iOS-specific compiler and linker flags
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
+    
     # Disable CURL for iOS builds
     set(CURL OFF)
 endif()
@@ -168,9 +198,6 @@ endif()
 
 if(KOTLIN)
     add_subdirectory(bindings/kotlin)
-    if(EVMONE AND TARGET c4_java AND TARGET evmone_dependencies)
-        add_dependencies(c4_java evmone_dependencies)
-    endif()
 endif()
 
 if(SWIFT)
