@@ -60,18 +60,25 @@ static c4_status_t create_eth_call_proof(proofer_ctx_t* ctx, ssz_builder_t accou
 }
 
 static void add_account(ssz_builder_t* builder, json_t values, bytes_t address, json_t code, int accounts_len) {
-  builder->def          = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF), "accounts");
-  bytes_t       key     = {0};
-  buffer_t      buf     = {0};
-  ssz_builder_t account = ssz_builder_for_def(builder->def->def.vector.type);
+  builder->def                  = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF), "accounts");
+  bytes_t          key          = {0};
+  buffer_t         buf          = {0};
+  ssz_builder_t    account      = ssz_builder_for_def(builder->def->def.vector.type);
+  const ssz_def_t* code_def     = ssz_get_def(account.def, "code");
+  bool             include_code = true;
 
   add_dynamic_byte_list(json_get(values, "accountProof"), &account, "accountProof");
   ssz_add_bytes(&account, "address", address);
-  ssz_add_bytes(&account, "balance", json_as_bytes(json_get(values, "balance"), &buf));
-  ssz_add_bytes(&account, "codeHash", json_as_bytes(json_get(values, "codeHash"), &buf));
-  ssz_add_bytes(&account, "code", code.type == JSON_TYPE_NOT_FOUND ? NULL_BYTES : json_as_bytes(code, &buf));
-  ssz_add_bytes(&account, "nonce", json_as_bytes(json_get(values, "nonce"), &buf));
-  ssz_add_bytes(&account, "storageHash", json_as_bytes(json_get(values, "storageHash"), &buf));
+
+  ssz_builder_t code_builder = ssz_builder_for_def(ssz_get_def(code_def, code.type == JSON_TYPE_NOT_FOUND || !include_code ? "code_used" : "code"));
+  if (code.type == JSON_TYPE_NOT_FOUND)
+    ssz_add_uint8(&code_builder, 0);
+  else if (!include_code)
+    ssz_add_uint8(&code_builder, 1);
+  else
+    json_as_bytes(code, &code_builder.fixed);
+
+  ssz_add_builders(&account, "code", code_builder);
 
   ssz_builder_t storage_list = ssz_builder_for_def(ssz_get_def(account.def, "storageProof"));
   json_t        storage      = json_get(values, "storageProof");
@@ -81,7 +88,6 @@ static void add_account(ssz_builder_t* builder, json_t values, bytes_t address, 
   json_for_each_value(storage, val) {
     ssz_builder_t storage_key = ssz_builder_for_def(storage_list.def->def.vector.type);
     ssz_add_bytes(&storage_key, "key", json_as_bytes(json_get(val, "key"), &buf));
-    ssz_add_bytes(&storage_key, "value", json_as_bytes(json_get(val, "value"), &buf));
     add_dynamic_byte_list(json_get(val, "proof"), &storage_key, "proof");
     ssz_add_dynamic_list_builders(&storage_list, storage_len, storage_key);
   }

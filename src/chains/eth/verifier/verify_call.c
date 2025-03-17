@@ -16,11 +16,19 @@
 bool eth_run_call_evmone(verify_ctx_t* ctx, ssz_ob_t accounts, json_t tx, bytes_t* call_result);
 
 static bool verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root) {
-  uint32_t  len  = ssz_len(accounts);
-  bytes32_t root = {0};
+  uint32_t  len                 = ssz_len(accounts);
+  bytes32_t root                = {0};
+  bytes32_t code_hash_exepected = {0};
   for (uint32_t i = 0; i < len; i++) {
     ssz_ob_t acc = ssz_at(accounts, i);
-    if (!eth_verify_account_proof_exec(ctx, &acc, root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify account proof");
+    if (!eth_verify_account_proof_exec(ctx, &acc, root, ETH_ACCOUNT_CODE_HASH, code_hash_exepected)) RETURN_VERIFY_ERROR(ctx, "Failed to verify account proof");
+    ssz_ob_t code = ssz_get(&acc, "code");
+    if (code.def->type == SSZ_TYPE_LIST) {
+      bytes32_t code_hash_passed = {0};
+      keccak(code.bytes, code_hash_passed);
+      if (memcmp(code_hash_exepected, code_hash_passed, 32) != 0) RETURN_VERIFY_ERROR(ctx, "Code hash mismatch");
+    }
+
     if (bytes_all_zero(bytes(state_root, 32)))
       memcpy(state_root, root, 32);
     else if (memcmp(state_root, root, 32) != 0)

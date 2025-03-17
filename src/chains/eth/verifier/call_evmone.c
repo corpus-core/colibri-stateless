@@ -142,7 +142,7 @@ static evmc_bytes32 host_get_balance(void* context, const evmc_address* addr) {
     memcpy(result.bytes, acc->balance, 32);
   else {
     ssz_ob_t account = get_src_account(ctx, addr->bytes);
-    if (account.def) memcpy(result.bytes, ssz_get(&account, "balance").bytes.data, 32);
+    if (account.def) eth_get_account_value(account, ETH_ACCOUNT_BALANCE, result.bytes);
   }
 
   debug_print_bytes32("get_balance result", &result);

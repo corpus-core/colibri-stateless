@@ -25,8 +25,7 @@ static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 
 // represents the storage proof of a key
 static const ssz_def_t ETH_STORAGE_PROOF[] = {
-    SSZ_BYTES32("key"), // the key to be proven
-    SSZ_BYTES32("value"),
+    SSZ_BYTES32("key"),                      // the key to be proven
     SSZ_LIST("proof", ssz_bytes_1024, 1024), // Patricia merkle proof
 };
 
@@ -243,12 +242,13 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
 static const ssz_def_t ETH_ACCOUNT_PROOF[] = {
     SSZ_LIST("accountProof", ssz_bytes_1024, 256),              // Patricia merkle proof
     SSZ_ADDRESS("address"),                                     // the address of the account
-    SSZ_BYTES32("balance"),                                     // the balance of the account
-    SSZ_BYTES32("codeHash"),                                    // the code hash of the account
-    SSZ_BYTES32("nonce"),                                       // the nonce of the account
-    SSZ_BYTES32("storageHash"),                                 // the storage hash of the account
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected
     SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};             // the state proof of the account
+
+static const ssz_def_t ETH_CODE_UNION[] = {
+    SSZ_BOOLEAN("code_used"),   // no code delivered
+    SSZ_BYTES("code", 4194304), // the code of the contract
+};
 
 // 1. **Patricia Merkle Proof** for the Account Object in the execution layer (balance, nonce, codeHash, storageHash) and the storage values with its own Proofs. (using eth_getProof): Result StateRoot
 // 2. **State Proof** is a SSZ Merkle Proof from the StateRoot to the ExecutionPayload over the BeaconBlockBody to its root hash which is part of the header.
@@ -299,11 +299,7 @@ static const ssz_def_t ETH_ACCOUNT_PROOF[] = {
 static const ssz_def_t ETH_CALL_ACCOUNT[] = {
     SSZ_LIST("accountProof", ssz_bytes_1024, 256),               // Patricia merkle proof
     SSZ_ADDRESS("address"),                                      // the address of the account
-    SSZ_BYTES32("balance"),                                      // the balance of the account
-    SSZ_BYTES32("codeHash"),                                     // the code hash of the account
-    SSZ_BYTES("code", 4194304),                                  // the code of the contract
-    SSZ_BYTES32("nonce"),                                        // the nonce of the account
-    SSZ_BYTES32("storageHash"),                                  // the storage hash of the account
+    SSZ_UNION("code", ETH_CODE_UNION),                           // the code of the contract
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 4096), // the storage proofs of the selected
 };
 static const ssz_def_t ETH_CALL_ACCOUNT_CONTAINER = SSZ_CONTAINER("EthCallAccount", ETH_CALL_ACCOUNT);
