@@ -195,7 +195,7 @@ if(NOT evmone_external_POPULATED)
         file(READ ${evmone_external_SOURCE_DIR}/lib/evmone/execution_state.hpp EXECUTION_STATE_CONTENT)
         string(REGEX REPLACE 
             "#include <memory>" 
-            "#include <memory>\n#if defined(USE_ALIGNED_ALLOC_FALLBACK) || defined(__ANDROID__) || defined(ANDROID)\n#include \"aligned_alloc_fallback.hpp\"\n#endif" 
+            "#include <memory>\n#if defined(USE_ALIGNED_ALLOC_FALLBACK) || defined(__ANDROID__) || defined(ANDROID) || defined(__APPLE__)\n#include \"aligned_alloc_fallback.hpp\"\n#endif" 
             PATCHED_EXECUTION_STATE_CONTENT "${EXECUTION_STATE_CONTENT}")
         file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/execution_state.hpp "${PATCHED_EXECUTION_STATE_CONTENT}")
     endif()
@@ -255,20 +255,36 @@ if(NOT evmone_external_POPULATED)
         message(STATUS "Patched eof.cpp to handle iOS compatibility")
     endif()
     
+    # Patch instructions_calls.cpp for std::get compatibility
+    if(EXISTS ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp)
+        file(READ ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp CALLS_CONTENT)
+        
+        # Replace all instances of std::get<evmc::address> with std::get_if
+        string(REGEX REPLACE 
+            "std::get<evmc::address>\\(target_addr_or_result\\)" 
+            "*std::get_if<evmc::address>(&target_addr_or_result)" 
+            PATCHED_CALLS_CONTENT "${CALLS_CONTENT}")
+        
+        # Generic replacement for any other std::get instances
+        string(REGEX REPLACE 
+            "std::get<([^>]+)>\\(([^\\)]+)\\)" 
+            "*std::get_if<\\1>(&\\2)" 
+            FINAL_CALLS_CONTENT "${PATCHED_CALLS_CONTENT}")
+        
+        file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp "${FINAL_CALLS_CONTENT}")
+        message(STATUS "Patched instructions_calls.cpp to handle iOS compatibility")
+    endif()
+    
     # Now create the CMakeLists.txt file
     file(WRITE ${evmone_external_SOURCE_DIR}/CMakeLists.txt "
         # Set deployment target for iOS builds
         if(APPLE)
             set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"Minimum deployment target\" FORCE)
-            # We don't need to force include since we've already patched the files directly
+            # Enable aligned_alloc fallback for iOS
+            add_definitions(-DUSE_ALIGNED_ALLOC_FALLBACK)
         endif()
 
         add_definitions(-DPROJECT_VERSION=\\\"0.14.1\\\")
-
-        # Add compiler definition to include our fallback header for certain platforms
-        if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL \"Android\")
-            add_definitions(-DUSE_ALIGNED_ALLOC_FALLBACK)
-        endif()
 
         add_library(evmone STATIC
             include/evmone/evmone.h
