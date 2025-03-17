@@ -26,7 +26,7 @@ static int count_nibbles(uint8_t* a) {
 
 static uint8_t* patricia_to_nibbles(bytes_t p, bool prefix) {
   size_t   count   = 0;
-  uint8_t* nibbles = malloc(1 + (p.len << 1));
+  uint8_t* nibbles = calloc(1 + (p.len << 1), 1);
   for (size_t i = 0; i < p.len; i++) {
     nibbles[count++] = p.data[i] >> 4;
     nibbles[count++] = p.data[i] & 0x0F;
