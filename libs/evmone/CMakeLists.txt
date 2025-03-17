@@ -118,7 +118,6 @@ if(NOT evmone_external_POPULATED)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_instructions_calls.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_baseline_analysis.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_consteval.cmake)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_delegation.cmake)
     
     # Now create the CMakeLists.txt file
     file(WRITE ${evmone_external_SOURCE_DIR}/CMakeLists.txt "
