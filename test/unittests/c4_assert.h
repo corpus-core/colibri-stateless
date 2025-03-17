@@ -136,7 +136,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
           sprintf(tmp, "%s/%s", dirname, filename);
           free(filename);
           bytes_t content = read_testdata(tmp);
-          TEST_ASSERT_NOT_NULL_MESSAGE(content.data, "Die not find the testdata!");
+          TEST_ASSERT_NOT_NULL_MESSAGE(content.data, bprintf(NULL, "Did not find the testdata: %s", tmp));
           req->response = content;
         }
         break;
