@@ -220,13 +220,26 @@ if(NOT evmone_external_POPULATED)
         message(STATUS "Patched evmc.hpp to handle iOS compatibility")
     endif()
     
+    # Patch eof.cpp for std::get compatibility
+    if(EXISTS ${evmone_external_SOURCE_DIR}/lib/evmone/eof.cpp)
+        file(READ ${evmone_external_SOURCE_DIR}/lib/evmone/eof.cpp EOF_CONTENT)
+        
+        # Replace std::get with std::get_if
+        string(REGEX REPLACE 
+            "std::get<EOF1Header>\\(error_or_header\\)" 
+            "*std::get_if<EOF1Header>(&error_or_header)" 
+            PATCHED_EOF_CONTENT "${EOF_CONTENT}")
+        
+        file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/eof.cpp "${PATCHED_EOF_CONTENT}")
+        message(STATUS "Patched eof.cpp to handle iOS compatibility")
+    endif()
+    
     # Now create the CMakeLists.txt file
     file(WRITE ${evmone_external_SOURCE_DIR}/CMakeLists.txt "
         # Set deployment target for iOS builds
         if(APPLE)
             set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"Minimum deployment target\" FORCE)
-            # Force include our compatibility header for Apple platforms
-            add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/ios_preinclude.h)
+            # We don't need to force include since we've already patched the files directly
         endif()
 
         add_definitions(-DPROJECT_VERSION=\\\"0.14.1\\\")

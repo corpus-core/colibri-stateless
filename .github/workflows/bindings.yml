@@ -316,7 +316,8 @@ jobs:
 
       - name: Build x86_64 (Simulator)
         run: |
-          cmake -DSWIFT=true -B build_x86 -DCMAKE_OSX_ARCHITECTURES=x86_64 -DIOS_SIMULATOR=ON .
+          xcrun --sdk iphonesimulator --show-sdk-path
+          cmake -DSWIFT=true -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=$(xcrun --sdk iphonesimulator --show-sdk-path) -B build_x86 -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 .
           cd build_x86
           make
           cd ..
