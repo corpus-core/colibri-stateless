@@ -7,27 +7,6 @@ if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
 
-# Set deployment target before any targets are created
-if(APPLE)
-    # Detect iOS simulator build
-    if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR 
-       EXISTS "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform" OR
-       EXISTS "/Applications/Xcode_*.app/Contents/Developer/Platforms/iPhoneSimulator.platform" OR
-       DEFINED IOS_SIMULATOR OR DEFINED IOS_PLATFORM)
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment target" FORCE)
-        message(STATUS "Setting iOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
-        # For diagnostics, try to determine if this is iOS
-        if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR DEFINED IOS_SIMULATOR OR DEFINED IOS_PLATFORM)
-            message(STATUS "iOS platform detected: ${CMAKE_SYSTEM_NAME}")
-        else()
-            message(STATUS "Possible iOS build detected, but CMAKE_SYSTEM_NAME is: ${CMAKE_SYSTEM_NAME}")
-        endif()
-    elseif(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
-        # For regular macOS x86_64 builds
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target" FORCE)
-        message(STATUS "Setting macOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
-    endif()
-endif()
 
 # set the compiler options
 if(MSVC)
@@ -128,12 +107,17 @@ if(NOT evmone_external_POPULATED)
     file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/compat/ios_compat.hpp 
          DESTINATION ${evmone_external_SOURCE_DIR}/evmc/include/evmc/)
     
+    file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/compat/cpp20_compat.hpp 
+         DESTINATION ${evmone_external_SOURCE_DIR}/lib/evmone/)
+    
     # Apply patches using the CMake scripts
     set(SOURCE_DIR ${evmone_external_SOURCE_DIR})
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_execution_state.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_evmc.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_eof.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_instructions_calls.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_baseline_analysis.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_consteval.cmake)
     
     # Now create the CMakeLists.txt file
     file(WRITE ${evmone_external_SOURCE_DIR}/CMakeLists.txt "

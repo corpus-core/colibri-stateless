@@ -66,6 +66,30 @@ if(EMBEDDED)
 endif()
 
 if(SWIFT)
+
+    # Set deployment target before any targets are created
+    if(APPLE)
+        # Detect iOS simulator build
+        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR 
+        EXISTS "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform" OR
+        EXISTS "/Applications/Xcode_*.app/Contents/Developer/Platforms/iPhoneSimulator.platform" OR
+        DEFINED IOS_SIMULATOR OR DEFINED IOS_PLATFORM)
+            set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment target" FORCE)
+            message(STATUS "Setting iOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+            # For diagnostics, try to determine if this is iOS
+            if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR DEFINED IOS_SIMULATOR OR DEFINED IOS_PLATFORM)
+                message(STATUS "iOS platform detected: ${CMAKE_SYSTEM_NAME}")
+            else()
+                message(STATUS "Possible iOS build detected, but CMAKE_SYSTEM_NAME is: ${CMAKE_SYSTEM_NAME}")
+            endif()
+        elseif(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+            # For regular macOS x86_64 builds
+            set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target" FORCE)
+            message(STATUS "Setting macOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        endif()
+    endif()
+
+
     # Set SDK paths based on target architecture
     if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
         execute_process(
