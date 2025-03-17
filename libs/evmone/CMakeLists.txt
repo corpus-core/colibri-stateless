@@ -40,7 +40,7 @@ if(APPLE AND CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
        EXISTS "/Applications/Xcode_*.app/Contents/Developer/Platforms/iPhoneSimulator.platform")
         set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment target")
         message(STATUS "Setting iOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
-    else
+    else()
         # For regular macOS x86_64 builds
         set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target")
         message(STATUS "Setting macOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
