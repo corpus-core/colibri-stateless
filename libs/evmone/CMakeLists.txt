@@ -138,9 +138,6 @@ if(NOT evmone_external_POPULATED)
                 return ptr;
             }
         }
-        
-        // Define a macro to replace std::aligned_alloc with our implementation
-        #define aligned_alloc evmone_compat::aligned_alloc
     ")
     
     # Create a comprehensive iOS compatibility header
@@ -193,11 +190,21 @@ if(NOT evmone_external_POPULATED)
     # Patch execution_state.hpp for Android compatibility
     if(EXISTS ${evmone_external_SOURCE_DIR}/lib/evmone/execution_state.hpp)
         file(READ ${evmone_external_SOURCE_DIR}/lib/evmone/execution_state.hpp EXECUTION_STATE_CONTENT)
+        
+        # Include our fallback header
         string(REGEX REPLACE 
             "#include <memory>" 
-            "#include <memory>\n#if defined(USE_ALIGNED_ALLOC_FALLBACK) || defined(__ANDROID__) || defined(ANDROID) || defined(__APPLE__)\n#include \"aligned_alloc_fallback.hpp\"\n#endif" 
-            PATCHED_EXECUTION_STATE_CONTENT "${EXECUTION_STATE_CONTENT}")
+            "#include <memory>\n#include \"aligned_alloc_fallback.hpp\"" 
+            TEMP_CONTENT "${EXECUTION_STATE_CONTENT}")
+            
+        # Replace std::aligned_alloc with evmone_compat::aligned_alloc
+        string(REGEX REPLACE 
+            "std::aligned_alloc\\(alignment, size\\)" 
+            "evmone_compat::aligned_alloc(alignment, size)" 
+            PATCHED_EXECUTION_STATE_CONTENT "${TEMP_CONTENT}")
+            
         file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/execution_state.hpp "${PATCHED_EXECUTION_STATE_CONTENT}")
+        message(STATUS "Patched execution_state.hpp to replace std::aligned_alloc")
     endif()
     
     # Patch evmc.hpp for iOS compatibility
@@ -259,19 +266,13 @@ if(NOT evmone_external_POPULATED)
     if(EXISTS ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp)
         file(READ ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp CALLS_CONTENT)
         
-        # Replace all instances of std::get<evmc::address> with std::get_if
+        # First patch the specific instances we're seeing in the errors
         string(REGEX REPLACE 
-            "std::get<evmc::address>\\(target_addr_or_result\\)" 
-            "*std::get_if<evmc::address>(&target_addr_or_result)" 
-            PATCHED_CALLS_CONTENT "${CALLS_CONTENT}")
+            "const auto& code_addr = std::get<evmc::address>\\(target_addr_or_result\\)" 
+            "const auto* addr_ptr = std::get_if<evmc::address>(&target_addr_or_result);\n    const auto& code_addr = *addr_ptr" 
+            PATCHED_CALLS_CONTENT_1 "${CALLS_CONTENT}")
         
-        # Generic replacement for any other std::get instances
-        string(REGEX REPLACE 
-            "std::get<([^>]+)>\\(([^\\)]+)\\)" 
-            "*std::get_if<\\1>(&\\2)" 
-            FINAL_CALLS_CONTENT "${PATCHED_CALLS_CONTENT}")
-        
-        file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp "${FINAL_CALLS_CONTENT}")
+        file(WRITE ${evmone_external_SOURCE_DIR}/lib/evmone/instructions_calls.cpp "${PATCHED_CALLS_CONTENT_1}")
         message(STATUS "Patched instructions_calls.cpp to handle iOS compatibility")
     endif()
     
