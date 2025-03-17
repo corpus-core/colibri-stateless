@@ -33,6 +33,20 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES GNU)
     set(CMAKE_CXX_FLAGS_COVERAGE "${CMAKE_CXX_FLAGS_DEBUG} --coverage")
 endif()
 
+# Set minimum iOS/macOS deployment target for x86_64 cross-compilation
+if(APPLE AND CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+    # Set minimum deployment target for iOS Simulator
+    if(EXISTS "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform" OR
+       EXISTS "/Applications/Xcode_*.app/Contents/Developer/Platforms/iPhoneSimulator.platform")
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment target")
+        message(STATUS "Setting iOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    else
+        # For regular macOS x86_64 builds
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target")
+        message(STATUS "Setting macOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    endif()
+endif()
+
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
     # Setup options for x86_64 micro-architecture levels.
     # https://clang.llvm.org/docs/UsersManual.html#x86
