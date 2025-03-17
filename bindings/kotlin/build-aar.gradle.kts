@@ -51,8 +51,7 @@ android {
             path = file("../../CMakeLists.txt")
         }
     }
-    
-    ndkVersion = "28.1.12816819" // Latest stable version
+    ndkVersion = "26.1.10909125" // Latest stable version
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
