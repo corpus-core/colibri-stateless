@@ -316,7 +316,7 @@ jobs:
 
       - name: Build x86_64 (Simulator)
         run: |
-          cmake -DSWIFT=true -B build_x86 -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 .
+          cmake -DSWIFT=true -B build_x86 -DCMAKE_OSX_ARCHITECTURES=x86_64 .
           cd build_x86
           make
           cd ..

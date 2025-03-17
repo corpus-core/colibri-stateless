@@ -7,6 +7,21 @@ if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
 
+# Set deployment target before any targets are created
+if(APPLE)
+    # Detect iOS simulator build
+    if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR 
+       EXISTS "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform" OR
+       EXISTS "/Applications/Xcode_*.app/Contents/Developer/Platforms/iPhoneSimulator.platform")
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment target" FORCE)
+        message(STATUS "Setting iOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    elseif(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+        # For regular macOS x86_64 builds
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target" FORCE)
+        message(STATUS "Setting macOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    endif()
+endif()
+
 # set the compiler options
 if(MSVC)
     if(CMAKE_CXX_COMPILER_ID MATCHES Clang) # clang-cl
@@ -34,20 +49,6 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES GNU)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Og")
     set(CMAKE_C_FLAGS_COVERAGE "${CMAKE_C_FLAGS_DEBUG} --coverage")
     set(CMAKE_CXX_FLAGS_COVERAGE "${CMAKE_CXX_FLAGS_DEBUG} --coverage")
-endif()
-
-# Set minimum iOS/macOS deployment target for x86_64 cross-compilation
-if(APPLE AND CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
-    # Set minimum deployment target for iOS Simulator
-    if(EXISTS "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform" OR
-       EXISTS "/Applications/Xcode_*.app/Contents/Developer/Platforms/iPhoneSimulator.platform")
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment target")
-        message(STATUS "Setting iOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
-    else()
-        # For regular macOS x86_64 builds
-        set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target")
-        message(STATUS "Setting macOS deployment target to ${CMAKE_OSX_DEPLOYMENT_TARGET}")
-    endif()
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64)
@@ -85,6 +86,11 @@ if(NOT ethhash_external_POPULATED)
     FetchContent_Populate(ethhash_external)
     # Eigene CMakeLists.txt anlegen
     file(WRITE ${ethhash_external_SOURCE_DIR}/CMakeLists.txt "
+        # Set deployment target for iOS builds
+        if(APPLE)
+            set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"Minimum deployment target\" FORCE)
+        endif()
+
         add_library(keccak STATIC
             lib/keccak/keccak.c
         )
@@ -109,8 +115,12 @@ if(NOT evmone_external_POPULATED)
     FetchContent_Populate(evmone_external)
     # Eigene CMakeLists.txt anlegen
     file(WRITE ${evmone_external_SOURCE_DIR}/CMakeLists.txt "
+        # Set deployment target for iOS builds
+        if(APPLE)
+            set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"Minimum deployment target\" FORCE)
+        endif()
 
-        add_definitions(-DPROJECT_VERSION=\"0.14.1\")
+        add_definitions(-DPROJECT_VERSION=\\\"0.14.1\\\")
 
         add_library(evmone STATIC
             include/evmone/evmone.h
