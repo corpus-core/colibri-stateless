@@ -7,9 +7,10 @@ if(CURL)
     add_subdirectory(curl)
 endif()
 
-if(EVMONE)
-    add_subdirectory(evmone)
-endif()
 if (INTX)
     add_subdirectory(intx)
+endif()
+
+if(EVMONE)
+    add_subdirectory(evmone)
 endif()
