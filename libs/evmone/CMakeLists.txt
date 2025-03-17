@@ -1,8 +1,11 @@
 # Use ExternalProject for evmone - no Hunter initialization
 include(FetchContent)
 
-# Ensure CMake allows FetchContent_Populate()
-cmake_policy(SET CMP0169 OLD)
+# Ensure CMake allows FetchContent_Populate() if policy exists
+# CMP0169 was introduced in CMake 3.27
+if(POLICY CMP0169)
+  cmake_policy(SET CMP0169 OLD)
+endif()
 
 # set the compiler options
 if(MSVC)
