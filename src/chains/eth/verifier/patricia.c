@@ -58,7 +58,7 @@ static int handle_node(bytes_t* raw, uint8_t** k, int last_node, bytes_t* last_v
         rlp_decode(&node, (**k) - 1, &node);
         *k += 1;
         node = bytes(node.data + node.len, val.data + val.len - node.data); // decode the embedded node
-        return handle_node(&node, k, *(*k + 1) == 0xFF, last_val, next_hash, depth);
+        return handle_node(&node, k, **k == 0xFF || *(*k + 1) == 0xFF, last_val, next_hash, depth);
       }
       else if (val.len != 32) // we got a NULL, which means value does not exists
         return 2;
