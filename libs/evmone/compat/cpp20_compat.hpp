@@ -22,6 +22,18 @@ template <typename Container, typename OutputIt>
 OutputIt ranges_copy(const Container& container, OutputIt d_first) {
   return std::copy(container.begin(), container.end(), d_first);
 }
+
+// Replacement for std::ranges::max_element
+template <typename Container>
+auto ranges_max_element(const Container& container) {
+  return std::max_element(container.begin(), container.end());
+}
+
+// Replacement for std::ranges::find
+template <typename Container, typename T>
+auto ranges_find(const Container& container, const T& value) {
+  return std::find(container.begin(), container.end(), value);
+}
 } // namespace cpp20_compat
 
 // Define replacements for consteval functions (will be handled in a patch)
