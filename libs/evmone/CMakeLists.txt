@@ -122,6 +122,41 @@ if(NOT evmone_external_POPULATED)
 
         add_definitions(-DPROJECT_VERSION=\\\"0.14.1\\\")
 
+        # Add fallback for aligned_alloc on platforms that don't support it natively
+        # Android, some embedded platforms, and old C++ standard libraries don't have std::aligned_alloc
+        file(WRITE \${CMAKE_CURRENT_SOURCE_DIR}/lib/evmone/aligned_alloc_fallback.hpp \"
+            #pragma once
+            #include <cstdlib>
+            #include <memory>
+
+            namespace evmone_compat {
+                inline void* aligned_alloc(size_t alignment, size_t size) {
+                    // Use posix_memalign which is more widely available
+                    void* ptr = nullptr;
+                    if (posix_memalign(&ptr, alignment, size) != 0) {
+                        return nullptr;
+                    }
+                    return ptr;
+                }
+            }
+            
+            // Define a macro to replace std::aligned_alloc with our implementation
+            #define aligned_alloc evmone_compat::aligned_alloc
+        \")
+
+        # Add compiler definition to include our fallback header for certain platforms
+        if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL \"Android\")
+            add_definitions(-DUSE_ALIGNED_ALLOC_FALLBACK)
+        endif()
+        
+        # Patch execution_state.hpp to include our fallback header when needed
+        file(READ \${CMAKE_CURRENT_SOURCE_DIR}/lib/evmone/execution_state.hpp EXECUTION_STATE_CONTENT)
+        string(REGEX REPLACE 
+            \"#include <memory>\" 
+            \"#include <memory>\\n#if defined(USE_ALIGNED_ALLOC_FALLBACK) || defined(__ANDROID__) || defined(ANDROID)\\n#include \\\"aligned_alloc_fallback.hpp\\\"\\n#endif\" 
+            PATCHED_EXECUTION_STATE_CONTENT \"\${EXECUTION_STATE_CONTENT}\")
+        file(WRITE \${CMAKE_CURRENT_SOURCE_DIR}/lib/evmone/execution_state.hpp \"\${PATCHED_EXECUTION_STATE_CONTENT}\")
+
         add_library(evmone STATIC
             include/evmone/evmone.h
             lib/evmone/advanced_analysis.cpp
