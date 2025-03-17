@@ -31,7 +31,6 @@ if(DEFINED SWIFT_X86_BUILD)
         )
     endif()
 
-
     # Define the list of libraries with their paths
     set(C4_LIBRARIES
         "libs/crypto/libcrypto.a"
@@ -45,32 +44,20 @@ if(DEFINED SWIFT_X86_BUILD)
         "bindings/swift/libc4_swift_binding.a"
     )
     
-    # Generate copy commands for simulator libraries
-    set(SIMULATOR_COPY_COMMANDS "")
+    # Create response files for libtool
+    set(SIMULATOR_LIBS_FILE "${CMAKE_BINARY_DIR}/simulator_libs.txt")
+    set(DEVICE_LIBS_FILE "${CMAKE_BINARY_DIR}/device_libs.txt")
+    
+    file(WRITE ${SIMULATOR_LIBS_FILE} "")
+    file(WRITE ${DEVICE_LIBS_FILE} "")
+    
     foreach(lib IN LISTS C4_LIBRARIES)
         get_filename_component(lib_name ${lib} NAME)
-        set(SIMULATOR_COPY_COMMANDS "${SIMULATOR_COPY_COMMANDS}
-        COMMAND ${CMAKE_COMMAND} -E copy ${SWIFT_X86_BUILD}/${lib} ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/lib/${lib_name}")
+        file(APPEND ${SIMULATOR_LIBS_FILE} "${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/lib/${lib_name}\n")
+        file(APPEND ${DEVICE_LIBS_FILE} "${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/lib/${lib_name}\n")
     endforeach()
     
-    # Generate copy commands for device libraries
-    set(DEVICE_COPY_COMMANDS "")
-    foreach(lib IN LISTS C4_LIBRARIES)
-        get_filename_component(lib_name ${lib} NAME)
-        set(DEVICE_COPY_COMMANDS "${DEVICE_COPY_COMMANDS}
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/${lib} ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/lib/${lib_name}")
-    endforeach()
-    
-    # Generate libtool arguments
-    set(SIMULATOR_LIBTOOL_ARGS "")
-    set(DEVICE_LIBTOOL_ARGS "")
-    foreach(lib IN LISTS C4_LIBRARIES)
-        get_filename_component(lib_name ${lib} NAME)
-        set(SIMULATOR_LIBTOOL_ARGS "${SIMULATOR_LIBTOOL_ARGS} ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/lib/${lib_name}")
-        set(DEVICE_LIBTOOL_ARGS "${DEVICE_LIBTOOL_ARGS} ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/lib/${lib_name}")
-    endforeach()
-
-    # Create XCFramework from separate architecture builds
+    # Initial setup command - Uses VERBATIM
     add_custom_command(
         OUTPUT ${CMAKE_BINARY_DIR}/c4_swift.xcframework
         # Create base directories
@@ -78,16 +65,27 @@ if(DEFINED SWIFT_X86_BUILD)
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/lib
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/lib
-        
-        # Copy simulator (x86_64) libraries
-        ${SIMULATOR_COPY_COMMANDS}
-            
-        # Copy device (arm64) libraries
-        ${DEVICE_COPY_COMMANDS}
-        
-        # Create combined static libraries
-        COMMAND libtool -static -o ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/c4_swift ${SIMULATOR_LIBTOOL_ARGS}
-        COMMAND libtool -static -o ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/c4_swift ${DEVICE_LIBTOOL_ARGS}
+        COMMENT "Starting XCFramework build"
+        VERBATIM
+    )
+    
+    # Add library copy commands
+    foreach(lib IN LISTS C4_LIBRARIES)
+        get_filename_component(lib_name ${lib} NAME)
+        add_custom_command(
+            OUTPUT ${CMAKE_BINARY_DIR}/c4_swift.xcframework
+            COMMAND ${CMAKE_COMMAND} -E copy ${SWIFT_X86_BUILD}/${lib} ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/lib/${lib_name}
+            COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/${lib} ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/lib/${lib_name}
+            APPEND
+        )
+    endforeach()
+    
+    # Add remaining commands
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/c4_swift.xcframework
+        # Create combined static libraries using response files
+        COMMAND libtool -static -o ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/c4_swift @${SIMULATOR_LIBS_FILE}
+        COMMAND libtool -static -o ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/c4_swift @${DEVICE_LIBS_FILE}
         
         # Copy headers
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/Headers
@@ -119,8 +117,8 @@ if(DEFINED SWIFT_X86_BUILD)
             -framework ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework
             -output ${CMAKE_BINARY_DIR}/c4_swift.xcframework
         
-        COMMENT "Creating XCFramework from separate architecture builds"
-        VERBATIM
+        APPEND
+        COMMENT "Finalizing XCFramework"
     )
 
     # Add custom targets
@@ -136,7 +134,6 @@ if(DEFINED SWIFT_X86_BUILD)
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/swift_build.timestamp
         DEPENDS ${CMAKE_BINARY_DIR}/c4_swift.xcframework
         COMMENT "Setting up Swift package"
-        VERBATIM
     )
 
     add_custom_target(swift_package ALL
