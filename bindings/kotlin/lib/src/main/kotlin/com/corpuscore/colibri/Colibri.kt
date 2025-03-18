@@ -97,7 +97,7 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             
             // Create the proofer context with properly formatted JSON args
-            val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, "[${args.joinToString(",") { formatArg(it) }}]", chainId, includeCode ? 1 : 0)
+            val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, "[${args.joinToString(",") { formatArg(it) }}]", chainId, if (includeCode) 1 else 0)
 
             try {
                 while (true) {
