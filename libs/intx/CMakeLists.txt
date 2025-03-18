@@ -12,10 +12,6 @@ FetchContent_Declare(
 # Make the content available
 FetchContent_MakeAvailable(intx)
 
-# Debug output to verify Android detection
-message(STATUS "CMAKE_SYSTEM_NAME: ${CMAKE_SYSTEM_NAME}")
-message(STATUS "ANDROID: ${ANDROID}")
-
 # Using modern NDK with better C++20 support instead of patching
 
 # Patch intx.hpp for Android compatibility
