@@ -57,6 +57,14 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state) {
   return NULL;
 }
 
+c4_status_t c4_state_add_error(c4_state_t* state, const char* error) {
+  if (state->error)
+    state->error = bprintf(NULL, "%s\n%s", state->error, error);
+  else
+    state->error = strdup(error);
+  return C4_ERROR;
+}
+
 #ifdef TEST
 char* c4_req_mockname(data_request_t* req) {
   buffer_t buf = {0};

@@ -149,67 +149,7 @@ void* verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_
 char* verify_execute_json_status(void* ptr) {
   buffer_t         buf    = {0};
   c4_verify_ctx_t* ctx    = (c4_verify_ctx_t*) ptr;
-  data_request_t*  req    = c4_state_get_pending_request(&(ctx->ctx.state));
-  c4_status_t      status = ctx->ctx.state.error ? C4_ERROR : (req ? C4_PENDING : C4_SUCCESS);
-
-  // initialise the trusted blocks
-  if (status == C4_SUCCESS && !ctx->initialised) {
-    status = c4_set_trusted_blocks(&(ctx->ctx.state), ctx->trusted_blocks, ctx->ctx.chain_id);
-    if (status == C4_SUCCESS) ctx->initialised = true;
-  }
-
-  // do we have some client updates to handle?
-  if (status == C4_SUCCESS && ctx->ctx.first_missing_period) {
-    buffer_t url = {0};
-    bprintf(&url, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", (uint32_t) ctx->ctx.first_missing_period - 1, (uint32_t) (ctx->ctx.last_missing_period - ctx->ctx.first_missing_period + 1));
-    data_request_t* req = c4_state_get_data_request_by_url(&(ctx->ctx.state), (char*) url.data.data);
-    buffer_free(&url);
-    if (req) {
-      if (req->error) {
-        buffer_t error       = {0};
-        ctx->ctx.state.error = bprintf(&buf, "Error fetching the client updates: %s", req->error);
-      }
-      else if (!c4_handle_client_updates(req->response, ctx->ctx.chain_id, NULL))
-        ctx->ctx.state.error = strdup("Error handling the client updates");
-
-      ctx->ctx.first_missing_period = 0;
-    }
-    else
-      ctx->ctx.state.error = strdup("No response to client update handle");
-
-    status = ctx->ctx.state.error ? C4_ERROR : C4_SUCCESS;
-  }
-
-  // verify the proof
-  if (status == C4_SUCCESS) {
-    c4_verify(&ctx->ctx);
-    if (!ctx->ctx.success) {
-      if (ctx->ctx.first_missing_period) {
-        buffer_t url = {0};
-        bprintf(&url, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", (uint32_t) ctx->ctx.first_missing_period - 1, (uint32_t) (ctx->ctx.last_missing_period - ctx->ctx.first_missing_period + 1));
-
-        data_request_t* req = malloc(sizeof(data_request_t));
-        *req                = (data_request_t) {
-                           .encoding = C4_DATA_ENCODING_SSZ,
-                           .error    = NULL,
-                           .id       = {0},
-                           .method   = C4_DATA_METHOD_GET,
-                           .payload  = {0},
-                           .response = {0},
-                           .type     = C4_DATA_TYPE_BEACON_API,
-                           .url      = (char*) url.data.data,
-                           .chain_id = ctx->ctx.chain_id};
-        c4_state_add_request(&(ctx->ctx.state), req);
-        if (ctx->ctx.state.error) {
-          free(ctx->ctx.state.error);
-          ctx->ctx.state.error = NULL;
-        }
-        status = C4_PENDING;
-      }
-      else
-        status = C4_ERROR;
-    }
-  }
+  c4_status_t      status = c4_verify(&ctx->ctx);
 
   bprintf(&buf, "{\"status\": \"%s\",", status_to_string(status));
   switch (status) {

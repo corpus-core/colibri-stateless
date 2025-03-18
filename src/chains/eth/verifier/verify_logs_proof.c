@@ -76,7 +76,7 @@ static bool verify_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, bytes32_t 
   return true;
 }
 
-static bool verif_block(verify_ctx_t* ctx, ssz_ob_t block) {
+static c4_status_t verif_block(verify_ctx_t* ctx, ssz_ob_t block) {
   ssz_ob_t  header                   = ssz_get(&block, "header");
   ssz_ob_t  sync_committee_bits      = ssz_get(&block, "sync_committee_bits");
   ssz_ob_t  sync_committee_signature = ssz_get(&block, "sync_committee_signature");
@@ -86,12 +86,10 @@ static bool verif_block(verify_ctx_t* ctx, ssz_ob_t block) {
 
   // verify each tx and get the receipt root
   for (int i = 0; i < tx_count; i++) {
-    if (!verify_tx(ctx, block, ssz_at(txs, i), receipt_root)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
+    if (!verify_tx(ctx, block, ssz_at(txs, i), receipt_root)) THROW_ERROR("invalid receipt proof!");
   }
-  if (!verify_merkle_proof(ctx, block, receipt_root)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
-  if (!c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
-
-  return true;
+  if (!verify_merkle_proof(ctx, block, receipt_root)) THROW_ERROR("invalid tx proof!");
+  return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0);
 }
 
 static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index, uint32_t block_count) {
@@ -118,7 +116,7 @@ bool verify_logs_proof(verify_ctx_t* ctx) {
 
   // verify each block we have a proof for
   for (int i = 0; i < block_count; i++) {
-    if (!verif_block(ctx, ssz_at(ctx->proof, i))) RETURN_VERIFY_ERROR(ctx, "invalid block!");
+    if (verif_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
   }
 
   // make sure we have a proof for each log

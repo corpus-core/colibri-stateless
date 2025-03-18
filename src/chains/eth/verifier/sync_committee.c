@@ -35,7 +35,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update, byte
     if (!bytes_all_zero(bytes(trusted_blockhash, 32)) && memcmp(trusted_blockhash, blockhash, 32)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash!");
   }
   else {
-    if (!c4_verify_blockroot_signature(ctx, &header, &sync_bits, &signature, slot)) RETURN_VERIFY_ERROR(ctx, "invalid signature in light client update!");
+    if (c4_verify_blockroot_signature(ctx, &header, &sync_bits, &signature, slot) != C4_SUCCESS) return false;
   }
 
   // create merkle root from proof
@@ -65,66 +65,33 @@ bool c4_update_from_sync_data(verify_ctx_t* ctx) {
     RETURN_VERIFY_ERROR(ctx, "unknown sync_data type!");
 }
 
-bool c4_handle_client_updates(bytes_t client_updates, chain_id_t chain_id, bytes32_t trusted_blockhash) {
+bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates, bytes32_t trusted_blockhash) {
 
+  uint64_t length  = 0;
   bool     success = true;
-  buffer_t updates = {0};
   if (client_updates.len && client_updates.data[0] == '{') {
     json_t json = json_parse((char*) client_updates.data);
     json_t msg  = json_get(json, "message");
-    if (msg.start) return false;
+    if (msg.start) {
+      ctx->state.error = bprintf(NULL, "Invalid client updates: %j", msg);
+      return false;
+    };
   }
-
-  uint32_t pos = 0;
-  while (pos < client_updates.len) {
-    updates.data.len = 0;
-    if (client_updates.len - pos < 8 + 4) {
-      success = false;
-      break;
-    }
+  for (uint32_t pos = 0; pos + 12 < client_updates.len; pos += length + 8) {
     uint64_t length = uint64_from_le(client_updates.data + pos);
     if (pos + 8 + length > client_updates.len) {
       success = false;
       break;
     }
-    buffer_grow(&updates, length + 100);
-    buffer_append(&updates, bytes(NULL, 19)); // 3 offsets + 3 union bytes +  4 version
-    memcpy(updates.data.data, c4_version_bytes, 4);
-    uint64_to_le(updates.data.data + 4, 16);  // offset for data
-    uint64_to_le(updates.data.data + 8, 17);  // offset for proof
-    uint64_to_le(updates.data.data + 12, 18); // offset for sync
-    updates.data.data[18] = 1;                // union type for lightclient updates
 
-    ssz_builder_t builder     = {0};
-    builder.def               = eth_ssz_verification_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST); // union type for lightclient updates
-    ssz_ob_t client_update_ob = {.bytes = bytes(client_updates.data + pos + 8 + 4, length - 4), .def = eth_ssz_verification_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE)};
-    ssz_add_dynamic_list_bytes(&builder, 1, client_update_ob.bytes);
-    bytes_t list_data = ssz_builder_to_bytes(&builder).bytes;
-    buffer_append(&updates, list_data);
-    free(list_data.data);
-
-    verify_ctx_t sync_ctx = {0};
-    sync_ctx.chain_id     = chain_id;
-    if (trusted_blockhash) {
-      if (!update_light_client_update(&sync_ctx, &client_update_ob, trusted_blockhash)) {
-        c4_state_free(&sync_ctx.state);
-        success = false;
-        break;
-      }
+    ssz_ob_t client_update_ob = {
+        .bytes = bytes(client_updates.data + pos + 8 + 4, length - 4),
+        .def   = eth_ssz_verification_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE)};
+    if (!update_light_client_update(ctx, &client_update_ob, trusted_blockhash)) {
+      success = false;
+      break;
     }
-    else {
-      c4_verify_from_bytes(&sync_ctx, updates.data, NULL, (json_t) {0}, chain_id);
-      if (sync_ctx.state.error) {
-        c4_state_free(&sync_ctx.state);
-        success = false;
-        break;
-      }
-    }
-    c4_state_free(&sync_ctx.state);
-    pos += length + 8;
   }
-
-  buffer_free(&updates);
 
   // each entry:
   //  - 8 bytes (uint64) length

@@ -60,7 +60,7 @@ bool verify_account_proof(verify_ctx_t* ctx) {
   if (!eth_verify_account_proof_exec(ctx, &ctx->proof, state_root, field, value)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
   ssz_verify_single_merkle_proof(state_merkle_proof.bytes, state_root, STATE_ROOT_GINDEX, body_root);
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
-  if (!c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
+  if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
   if (field && !verify_data(ctx, verified_address.data, field, value)) RETURN_VERIFY_ERROR(ctx, "invalid account data!");
 
   ctx->success = true;

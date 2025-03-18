@@ -86,9 +86,9 @@ static bool req_header(c4_state_t* state, json_t slot, chain_id_t chain_id, json
   return false;
 }
 
-static bool req_client_update(c4_state_t* state, uint32_t period, chain_id_t chain_id, bytes_t* data) {
+static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count, chain_id_t chain_id, bytes_t* data) {
   buffer_t tmp = {0};
-  bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=1", period);
+  bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", period, count);
 
   data_request_t* req = c4_state_get_data_request_by_url(state, (char*) tmp.data.data);
   if (req) buffer_free(&tmp);
@@ -180,8 +180,9 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
   return true;
 }
 
-c4_status_t c4_set_trusted_blocks(c4_state_t* state, json_t blocks, chain_id_t chain_id) {
-  c4_chain_state_t chain_state        = c4_get_chain_state(chain_id);
+c4_status_t c4_set_trusted_blocks(verify_ctx_t* ctx, json_t blocks) {
+  c4_chain_state_t chain_state        = c4_get_chain_state(ctx->chain_id);
+  c4_state_t*      state              = &ctx->state;
   json_t           data               = {0};
   bool             success            = false;
   bytes_t          client_update      = {0};
@@ -189,20 +190,20 @@ c4_status_t c4_set_trusted_blocks(c4_state_t* state, json_t blocks, chain_id_t c
   bytes32_t        blockhash          = {0};
   if (chain_state.len == 0 && (blocks.len == 0 || json_len(blocks) == 0)) {
     // we need to fetch the last client update
-    success = req_header(state, (json_t) {0}, chain_id, &data);
+    success = req_header(state, (json_t) {0}, ctx->chain_id, &data);
     if (success) {
       uint64_t slot   = json_get_uint64(data, "slot");
       uint32_t period = (slot >> 13) - 1;
-      req_client_update(state, period, chain_id, &client_update);
-      success = req_client_update(state, period - 20, chain_id, &client_update_past);
+      req_client_update(state, period, 1, ctx->chain_id, &client_update);
+      success = req_client_update(state, period - 20, 1, ctx->chain_id, &client_update_past);
     }
   }
   else if (chain_state.len == 0) {
     // we need to resolve the client update for the given blockhash.
-    success = req_header(state, json_at(blocks, 0), chain_id, &data);
+    success = req_header(state, json_at(blocks, 0), ctx->chain_id, &data);
     if (success) {
       uint64_t period = (json_get_uint64(data, "slot") >> 13) - 1;
-      success         = req_client_update(state, period, chain_id, &client_update);
+      success         = req_client_update(state, period, 1, ctx->chain_id, &client_update);
     }
   }
   else {
@@ -211,16 +212,16 @@ c4_status_t c4_set_trusted_blocks(c4_state_t* state, json_t blocks, chain_id_t c
 #ifndef C4_STATIC_MEMORY
   free(chain_state.blocks);
 #endif
-  if (success && client_update.len && !c4_handle_client_updates(client_update, chain_id, blockhash))
+  if (success && client_update.len && !c4_handle_client_updates(ctx, client_update, blockhash))
     state->error = strdup("Failed to handle client updates");
-  if (success && client_update_past.len && !c4_handle_client_updates(client_update_past, chain_id, blockhash))
+  if (success && client_update_past.len && !c4_handle_client_updates(ctx, client_update_past, blockhash))
     state->error = strdup("Failed to handle client updates");
   return state->error ? C4_ERROR : (c4_state_get_pending_request(state) ? C4_PENDING : C4_SUCCESS);
 }
 
-const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
+static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t period) {
   storage_plugin_t storage_conf = {0};
-  c4_chain_state_t chain_state  = c4_get_chain_state(chain_id);
+  c4_chain_state_t chain_state  = c4_get_chain_state(ctx->chain_id);
   uint32_t         last_period  = 0;
 #ifdef C4_STATIC_MEMORY
   buffer_t validators = stack_buffer(sync_buffer);
@@ -245,7 +246,7 @@ const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
   free(chain_state.blocks);
 #endif
   char name[100];
-  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
+  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, period);
 
   if (found && storage_conf.get) storage_conf.get(name, &validators);
 #ifdef BLS_DESERIALIZE
@@ -269,4 +270,27 @@ const c4_sync_state_t c4_get_validators(uint32_t period, chain_id_t chain_id) {
       .current_period = period,
       .last_period    = last_period,
       .validators     = validators.data};
+}
+
+const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_state_t* target_state) {
+  c4_sync_state_t sync_state = get_validators_from_cache(ctx, period);
+
+  if (sync_state.validators.data == NULL) {
+    if (sync_state.last_period == 0)                           // no state at all
+      TRY_ASYNC(c4_set_trusted_blocks(ctx, json_parse("[]"))); // TODO get the trusted blocks from config
+    else {
+      bytes_t client_update = {0};
+      if (req_client_update(&ctx->state, sync_state.last_period, sync_state.current_period - sync_state.last_period, ctx->chain_id, &client_update)) {
+        if (!c4_handle_client_updates(ctx, client_update, NULL))
+          return c4_state_get_pending_request(&ctx->state) ? C4_PENDING : c4_state_add_error(&ctx->state, "Failed to handle client updates");
+      }
+      else
+        return C4_PENDING;
+    }
+    sync_state = get_validators_from_cache(ctx, period);
+    if (sync_state.validators.data == NULL) return c4_state_add_error(&ctx->state, "Failed to get validators");
+  }
+
+  *target_state = sync_state;
+  return C4_SUCCESS;
 }

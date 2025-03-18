@@ -28,23 +28,8 @@ export interface DataRequest {
 }
 
 async function initialize_storage(conf: Config) {
+    // TODO handle trusted_block_hashes
     const c4w = await getC4w();
-    let ptr = 0;
-    while (true) {
-        const free_buffers: number[] = [];
-        try {
-            const state = as_json(c4w._c4w_init_chain(BigInt(conf.chainId), as_char_ptr(JSON.stringify(conf.trusted_block_hashes || []), c4w), ptr), c4w, true);
-            if (state.error) {
-                throw new Error(state.error);
-            }
-            ptr = state.req_ptr;
-            if (state.req_ptr && state.requests.length)
-                await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, conf)));
-            else return;
-        } finally {
-            free_buffers.forEach(ptr => c4w._free(ptr));
-        }
-    }
 }
 
 async function fetch_rpc(urls: string[], method: string, params: any[], as_proof: boolean = false) {
@@ -187,30 +172,37 @@ export default class C4Client {
 
     async verifyProof(method: string, args: any[], proof: Uint8Array): Promise<any> {
         const c4w = await getC4w();
-        if (!c4w.storage.get("states_" + this.config.chainId)) await initialize_storage(this.config);
+        const free_buffers: number[] = [];
+        let ctx = 0;
 
-        for (let i = 0; i < 5; i++) {
-            const free_buffers: number[] = [];
-            const result = as_json(c4w._c4w_verify_proof(
+        try {
+            // Call the C function
+            ctx = c4w._c4w_create_verify_ctx(
                 copy_to_c(proof, c4w, free_buffers),
                 proof.length,
                 as_char_ptr(method, c4w, free_buffers),
                 as_char_ptr(JSON.stringify(args), c4w, free_buffers),
                 BigInt(this.config.chainId)
-            ), c4w, true);
-            free_buffers.forEach(ptr => c4w._free(ptr));
-            if (result.result !== undefined) return result.result;
-            if (result.client_updates) {
-                for (const update of result.client_updates) {
-                    await handle_request(update, this.config);
-                    c4w._c4w_handle_client_updates(update.req_ptr, BigInt(this.config.chainId));
-                    c4w._c4w_req_free(update.req_ptr);
+            );
+
+            while (true) {
+                const state = as_json(c4w._c4w_verify_proof(ctx), c4w, true);
+
+                switch (state.status) {
+                    case "success":
+                        return state.result;
+                    case "error":
+                        throw new Error(state.error);
+                    case "waiting": {
+                        await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
+                        break;
+                    }
                 }
-                continue;
             }
-            throw new Error(result.error);
+        } finally {
+            free_buffers.forEach(ptr => c4w._free(ptr));
+            if (ctx) c4w._c4w_free_verify_ctx(ctx);
         }
-        throw new Error('too many updates');
     }
 
     async rpc(method: string, args: any[]): Promise<any> {

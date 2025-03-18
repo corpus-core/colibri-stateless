@@ -6,9 +6,10 @@ export interface C4W {
     _c4w_get_pending_data_request: (proofCtx: number) => number;
     _c4w_req_set_response: (reqPtr: number, data: number, len: number, node_index: number) => void;
     _c4w_req_set_error: (reqPtr: number, error: number, node_index: number) => void;
-    _c4w_verify_proof: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint) => number;
-    _c4w_handle_client_updates: (update_ptr: number, chain_id: bigint) => boolean;
-    _c4w_init_chain: (chain_id: bigint, trusted_block_hashes: number, requests: number) => number;
+
+    _c4w_create_verify_ctx: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint) => number;
+    _c4w_free_verify_ctx: (verifyCtx: number) => void;
+    _c4w_verify_proof: (verifyCtx: number) => number;
     _c4w_req_free: (reqPtr: number) => void;
     _init_storage: () => void;
     HEAPU8: Uint8Array;
