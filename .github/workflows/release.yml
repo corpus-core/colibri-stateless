@@ -13,72 +13,111 @@ permissions:
   actions: read
 
 jobs:
-  create-release:
+  check-workflows-and-tag:
     runs-on: ubuntu-latest
-    # Only run if the triggering commit has a tag starting with v AND both workflows succeeded
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_commit.ref, 'refs/tags/v')
-
+    outputs:
+      should_release: ${{ steps.check_release.outputs.should_release }}
+      tag_name: ${{ steps.check_tag.outputs.tag_name }}
     steps:
-      - name: Debug Info
+      - name: Debug Workflow Info
         run: |
-          echo "Current commit: ${{ github.event.workflow_run.head_sha }}"
-          echo "Current ref: ${{ github.event.workflow_run.head_commit.ref }}"
+          echo "Workflow run ID: ${{ github.event.workflow_run.id }}"
           echo "Workflow name: ${{ github.event.workflow_run.name }}"
-          echo "Workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "Head SHA: ${{ github.event.workflow_run.head_sha }}"
+          echo "Head branch: ${{ github.event.workflow_run.head_branch }}"
+          echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
 
-      - name: Extract tag name
-        id: extract_tag
+      # Check if this is a tag commit and which workflows have run
+      - name: Check workflows completion and tag
+        id: check_release
         run: |
-          # Check for tags associated with this commit
-          tags=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags" | \
-            jq -r '.[] | select(.object.sha == "${{ github.event.workflow_run.head_sha }}") | .ref' | \
-            sed 's|refs/tags/||')
+          # Only proceed if the triggering workflow succeeded
+          if [[ "${{ github.event.workflow_run.conclusion }}" != "success" ]]; then
+            echo "Triggering workflow did not succeed"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
-          # Get the first tag that starts with v
-          for tag in $tags; do
-            if [[ $tag == v* ]]; then
-              echo "Found tag: $tag"
-              echo "tag=$tag" >> $GITHUB_OUTPUT
-              break
+          # Get head SHA for this run
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          echo "Commit SHA: $HEAD_SHA"
+
+          # Check if both workflows have completed successfully for this SHA
+          echo "Checking CMake workflow..."
+          CMAKE_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/cmake.yml/runs?status=completed&head_sha=$HEAD_SHA")
+
+          CMAKE_SUCCESS=$(echo "$CMAKE_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
+          echo "CMake successful runs: $CMAKE_SUCCESS"
+
+          echo "Checking Bindings workflow..."
+          BINDINGS_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/bindings.yml/runs?status=completed&head_sha=$HEAD_SHA")
+
+          BINDINGS_SUCCESS=$(echo "$BINDINGS_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
+          echo "Bindings successful runs: $BINDINGS_SUCCESS"
+
+          # Check if this commit has any tags
+          echo "Checking for tags..."
+          TAGS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags")
+
+          # Find tags that point to this commit
+          MATCHING_TAGS=$(echo "$TAGS" | jq -r ".[] | select(.object.sha == \"$HEAD_SHA\") | .ref" | sed 's|refs/tags/||')
+          echo "Matching tags: $MATCHING_TAGS"
+
+          # Make decision
+          if [[ "$CMAKE_SUCCESS" -gt 0 && "$BINDINGS_SUCCESS" -gt 0 && -n "$MATCHING_TAGS" ]]; then
+            # Both workflows succeeded and there's at least one tag - proceed with release
+            echo "Both workflows succeeded and tag found - should create release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          else
+            # Conditions not met - don't proceed
+            echo "Not all conditions met for release:"
+            echo "- CMake success: $CMAKE_SUCCESS (need > 0)"
+            echo "- Bindings success: $BINDINGS_SUCCESS (need > 0)"
+            echo "- Tags found: $MATCHING_TAGS"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Find appropriate tag
+        id: check_tag
+        if: steps.check_release.outputs.should_release == 'true'
+        run: |
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+
+          # Fetch all tags that point to this commit
+          TAGS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags")
+
+          # Find tags that point to this commit
+          MATCHING_TAGS=$(echo "$TAGS" | jq -r ".[] | select(.object.sha == \"$HEAD_SHA\") | .ref" | sed 's|refs/tags/||')
+
+          # Try to find a version tag first (starts with v)
+          for TAG in $MATCHING_TAGS; do
+            if [[ "$TAG" == v* ]]; then
+              echo "Using version tag: $TAG"
+              echo "tag_name=$TAG" >> $GITHUB_OUTPUT
+              exit 0
             fi
           done
 
-          if [[ -z "$tag" ]]; then
-            echo "No valid tag found for this commit"
-            exit 1
-          fi
+          # If no version tag found, use the first tag
+          TAG=$(echo "$MATCHING_TAGS" | head -n 1)
+          echo "No version tag found, using first tag: $TAG"
+          echo "tag_name=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Check if both workflows completed
-        id: check_workflows
+  create-release:
+    needs: check-workflows-and-tag
+    if: needs.check-workflows-and-tag.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug Info
         run: |
-          # Check if CMake workflow has completed
-          cmake_runs=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/cmake.yml/runs?status=completed&head_sha=${{ github.event.workflow_run.head_sha }}")
+          echo "Creating release for tag: ${{ needs.check-workflows-and-tag.outputs.tag_name }}"
 
-          cmake_success=$(echo "$cmake_runs" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
-
-          # Check if Bindings workflow has completed
-          bindings_runs=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/bindings.yml/runs?status=completed&head_sha=${{ github.event.workflow_run.head_sha }}")
-
-          bindings_success=$(echo "$bindings_runs" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
-
-          echo "CMake successful runs: $cmake_success"
-          echo "Bindings successful runs: $bindings_success"
-
-          # Proceed only if both workflows have successful runs for this commit
-          if [[ "$cmake_success" -gt 0 && "$bindings_success" -gt 0 ]]; then
-            echo "both_completed=true" >> $GITHUB_OUTPUT
-          else
-            echo "both_completed=false" >> $GITHUB_OUTPUT
-          fi
-
-      # Only proceed if both workflows have completed successfully
+      # Download CMake workflow artifacts
       - name: Download CMake Workflow Artifacts
-        if: steps.check_workflows.outputs.both_completed == 'true'
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -90,14 +129,12 @@ jobs:
           search_artifacts: true
 
       - name: Verify Downloaded CMake Artifacts
-        if: steps.check_workflows.outputs.both_completed == 'true'
         run: |
           echo "Listing downloaded CMake artifacts:"
           find artifacts/cmake -type f | sort
 
       # Download bindings artifacts
       - name: Download Swift Package
-        if: steps.check_workflows.outputs.both_completed == 'true'
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -110,7 +147,6 @@ jobs:
           search_artifacts: true
 
       - name: Download WASM Package
-        if: steps.check_workflows.outputs.both_completed == 'true'
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -123,7 +159,6 @@ jobs:
           search_artifacts: true
 
       - name: Download AAR Package
-        if: steps.check_workflows.outputs.both_completed == 'true'
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -136,7 +171,6 @@ jobs:
           search_artifacts: true
 
       - name: Download JAR Package
-        if: steps.check_workflows.outputs.both_completed == 'true'
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -149,7 +183,6 @@ jobs:
           search_artifacts: true
 
       - name: Prepare Release Files
-        if: steps.check_workflows.outputs.both_completed == 'true'
         run: |
           cd artifacts
 
@@ -195,10 +228,9 @@ jobs:
           ls -la release_files/
 
       - name: Create Release
-        if: steps.check_workflows.outputs.both_completed == 'true'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.extract_tag.outputs.tag }}
+          tag_name: ${{ needs.check-workflows-and-tag.outputs.tag_name }}
           files: artifacts/release_files/*
           generate_release_notes: true
           draft: false
