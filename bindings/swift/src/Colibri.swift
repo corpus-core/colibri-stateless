@@ -7,6 +7,7 @@ public class Colibri {
     public var beacon_apis: [String] = ["https://beaconcha.in/api/v1"]
     public var trustedBlockHases: [String] = []
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
+    public var includeCode: Bool = false
 
     public init() {}
 
@@ -33,7 +34,7 @@ public class Colibri {
             free(paramsCStr)
         }
         
-        let ctx = create_proofer_ctx(methodPtr, paramsPtr, chainId)
+        let ctx = create_proofer_ctx(methodPtr, paramsPtr, chainId, includeCode ? 1 : 0)
         defer { free_proofer_ctx(ctx) }
 
         while true {

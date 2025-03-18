@@ -142,7 +142,7 @@ static evmc_bytes32 host_get_balance(void* context, const evmc_address* addr) {
     memcpy(result.bytes, acc->balance, 32);
   else {
     ssz_ob_t account = get_src_account(ctx, addr->bytes);
-    if (account.def) memcpy(result.bytes, ssz_get(&account, "balance").bytes.data, 32);
+    if (account.def) eth_get_account_value(account, ETH_ACCOUNT_BALANCE, result.bytes);
   }
 
   debug_print_bytes32("get_balance result", &result);
@@ -444,23 +444,24 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
 }
 
 // Function to verify call proof
-bool eth_run_call_evmone(verify_ctx_t* ctx, ssz_ob_t accounts, json_t tx, bytes_t* call_result) {
+c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result) {
   buffer_t  buffer = {0};
   address_t to     = {0};
   buffer_t  to_buf = stack_buffer(to);
 
   // Check if the transaction has a "to" address
-  if (json_get_bytes(tx, "to", &to_buf).len != 20) RETURN_VERIFY_ERROR(ctx, "Invalid transaction: to address is not 20 bytes");
+  if (json_get_bytes(tx, "to", &to_buf).len != 20) THROW_ERROR("Invalid transaction: to address is not 20 bytes");
 
   EVM_LOG("Creating EVM executor...");
   void* executor = evmone_create_executor();
-  if (!executor) RETURN_VERIFY_ERROR(ctx, "Error: Failed to create executor");
+  if (!executor) THROW_ERROR("Error: Failed to create executor");
 
   // Initialize our EVM context with state from the proof
   evmone_context_t context = {
       .executor         = executor,
       .ctx              = ctx,
       .src_accounts     = accounts,
+      .call_codes       = call_codes,
       .changed_accounts = NULL,
       .block_number     = 0,
       .block_hash       = {0},
@@ -546,5 +547,5 @@ bool eth_run_call_evmone(verify_ctx_t* ctx, ssz_ob_t accounts, json_t tx, bytes_
   context_free(&context);
   EVM_LOG("=== EVM call verification complete ===");
 
-  return ctx->state.error == NULL;
+  return ctx->state.error == NULL ? C4_SUCCESS : C4_ERROR;
 }

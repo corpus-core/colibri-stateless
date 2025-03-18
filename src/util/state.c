@@ -27,7 +27,7 @@ data_request_t* c4_state_get_data_request_by_id(c4_state_t* state, bytes32_t id)
 data_request_t* c4_state_get_data_request_by_url(c4_state_t* state, char* url) {
   data_request_t* data_request = state->requests;
   while (data_request) {
-    if (strcmp(data_request->url, url) == 0) return data_request;
+    if (data_request->url && strcmp(data_request->url, url) == 0) return data_request;
     data_request = data_request->next;
   }
   return NULL;
@@ -55,6 +55,14 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state) {
     data_request = data_request->next;
   }
   return NULL;
+}
+
+c4_status_t c4_state_add_error(c4_state_t* state, const char* error) {
+  if (state->error)
+    state->error = bprintf(NULL, "%s\n%s", state->error, error);
+  else
+    state->error = strdup(error);
+  return C4_ERROR;
 }
 
 #ifdef TEST

@@ -9,8 +9,13 @@
 extern "C" {
 #endif
 typedef struct node node_t;
+typedef enum {
+  PATRICIA_INVALID      = 0,
+  PATRICIA_FOUND        = 1,
+  PATRICIA_NOT_EXISTING = 2,
+} patricia_result_t;
 
-int patricia_verify(bytes32_t root, bytes_t path, ssz_ob_t proof, bytes_t* expected);
+patricia_result_t patricia_verify(bytes32_t root, bytes_t path, ssz_ob_t proof, bytes_t* last_value);
 
 ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path);
 void     patricia_set_value(node_t** root, bytes_t path, bytes_t value);

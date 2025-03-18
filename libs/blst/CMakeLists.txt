@@ -17,6 +17,7 @@ FetchContent_Declare(
     blst
     GIT_REPOSITORY https://github.com/supranational/blst
     GIT_TAG v0.3.13
+    GIT_SHALLOW TRUE
 )
 
 FetchContent_MakeAvailable(blst)

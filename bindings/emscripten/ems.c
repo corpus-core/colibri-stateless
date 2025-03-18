@@ -7,8 +7,8 @@
 #include <string.h>
 #include <time.h>
 
-proofer_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id) {
-  return c4_proofer_create(method, args, chain_id);
+proofer_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id, uint32_t flags) {
+  return c4_proofer_create(method, args, chain_id, flags);
 }
 
 void EMSCRIPTEN_KEEPALIVE c4w_free_proof_ctx(proofer_ctx_t* ctx) {
@@ -109,42 +109,60 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
   ctx->response_node_index = node_index;
 }
 
-char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id) {
-  verify_ctx_t ctx = {0};
-  buffer_t     buf = {0};
-  c4_verify_from_bytes(&ctx, bytes(proof, proof_len), method, json_parse(args), chain_id);
-
-  if (ctx.success)
-    bprintf(&buf, "{\"result\": %z}", ctx.data);
-  else if (ctx.first_missing_period) {
-    char url[200] = {0};
-    sprintf(url, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", (uint32_t) ctx.first_missing_period - 1, (uint32_t) (ctx.last_missing_period - ctx.first_missing_period + 1));
-    data_request_t* req = malloc(sizeof(data_request_t));
-    *req                = (data_request_t) {
-                       .encoding = C4_DATA_ENCODING_SSZ,
-                       .error    = NULL,
-                       .id       = {0},
-                       .method   = C4_DATA_METHOD_GET,
-                       .payload  = {0},
-                       .response = {0},
-                       .type     = C4_DATA_TYPE_BEACON_API,
-                       .url      = url,
-                       .chain_id = chain_id};
-    sha256(bytes((uint8_t*) url, strlen(url)), req->id);
-    bprintf(&buf, "{\"error\": \"%s\", \"client_updates\": [", ctx.state.error);
-    add_data_request(&buf, req);
-    bprintf(&buf, "]}");
+void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id) {
+  verify_ctx_t* ctx        = calloc(1, sizeof(verify_ctx_t));
+  chain_type_t  chain_type = c4_chain_type(chain_id);
+  if (chain_type != c4_get_chain_type_from_req(bytes(proof, proof_len))) {
+    ctx->state.error = strdup("chain type does not match the proof");
+    return ctx;
   }
-  else
-    bprintf(&buf, "{\"error\": \"%s\"}", ctx.state.error);
-
-  if (ctx.state.error) free(ctx.state.error);
-
-  return (char*) buf.data.data;
+  ssz_ob_t req = {.bytes = bytes_dup(bytes(proof, proof_len)), .def = c4_get_request_type(chain_type)};
+  if (!ssz_is_valid(req, true, &ctx->state)) return ctx;
+  ctx->chain_id  = chain_id;
+  ctx->data      = ssz_get(&req, "data");
+  ctx->proof     = ssz_get(&req, "proof");
+  ctx->sync_data = ssz_get(&req, "sync_data");
+  ctx->method    = method ? strdup(method) : NULL;
+  ctx->args      = args ? json_parse(strdup(args)) : ((json_t) {0});
+  return (void*) ctx;
+}
+void EMSCRIPTEN_KEEPALIVE c4w_free_verify_ctx(void* ptr) {
+  verify_ctx_t* ctx = (verify_ctx_t*) ptr;
+  if (ctx->method) free((char*) ctx->method);
+  if (ctx->args.start) free((char*) ctx->args.start);
+  c4_state_free(&(ctx->state));
+  free(ctx);
 }
 
-bool EMSCRIPTEN_KEEPALIVE c4w_handle_client_updates(data_request_t* client_update, uint64_t chain_id) {
-  return c4_handle_client_updates(client_update->response, chain_id, NULL);
+char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
+  verify_ctx_t* ctx    = {0};
+  buffer_t      result = {0};
+  c4_status_t   status = c4_verify(ctx);
+  bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
+  switch (status) {
+    case C4_SUCCESS:
+      bprintf(&result, "\"result\": %z", ctx->data);
+      break;
+    case C4_ERROR:
+      bprintf(&result, "\"error\": %\"s\"", ctx->state.error);
+      break;
+    case C4_PENDING: {
+      bprintf(&result, "\"requests\": [");
+      data_request_t* data_request = c4_state_get_pending_request(&ctx->state);
+      while (data_request) {
+        if (!data_request->response.data && !data_request->error) {
+          if (result.data.data[result.data.len - 1] != '[') bprintf(&result, ",");
+          add_data_request(&result, data_request);
+        }
+        data_request = data_request->next;
+      }
+
+      bprintf(&result, "]");
+      break;
+    }
+  }
+  bprintf(&result, "}");
+  return buffer_as_string(result);
 }
 
 void EMSCRIPTEN_KEEPALIVE c4w_req_free(data_request_t* client_update) {
@@ -157,33 +175,6 @@ uint8_t* EMSCRIPTEN_KEEPALIVE c4w_buffer_alloc(buffer_t* buf, size_t len) {
   buffer_grow(buf, len + 1);
   buf->data.len = len;
   return buf->data.data;
-}
-
-char* EMSCRIPTEN_KEEPALIVE c4w_init_chain(uint64_t chain_id, char* trusted_block_hashes, data_request_t* requests) {
-  buffer_t   buf    = {0};
-  json_t     blocks = json_parse(trusted_block_hashes ? trusted_block_hashes : "[]");
-  c4_state_t state  = {0};
-  state.requests    = requests;
-
-  c4_status_t status = c4_set_trusted_blocks(&state, blocks, chain_id);
-  if (state.error) {
-    bprintf(&buf, "{\"error\": \"%s\"}", state.error);
-    c4_state_free(&state);
-    return (char*) buf.data.data;
-  }
-
-  bprintf(&buf, "{\"req_ptr\": %d, \"requests\": [", (uint32_t) state.requests);
-  requests = state.requests;
-  while (requests) {
-    if (!requests->error && !requests->response.data) {
-      if (buf.data.data[buf.data.len - 1] != '[') bprintf(&buf, ",");
-      add_data_request(&buf, requests);
-    }
-    requests = requests->next;
-  }
-
-  if (!c4_state_get_pending_request(&state)) c4_state_free(&state);
-  return bprintf(&buf, "]}");
 }
 
 static bool file_get(char* key, buffer_t* buffer) {

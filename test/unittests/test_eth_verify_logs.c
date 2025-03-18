@@ -12,7 +12,7 @@ void tearDown(void) {
 }
 
 void test_balance() {
-  verify_count("eth_getLogs1", "eth_getLogs", "[{\"address\":[\"0xdac17f958d2ee523a2206206994597c13d831ec7\"],\"fromBlock\":\"0x14d7970\",\"toBlock\":\"0x14d7970\"}]", C4_CHAIN_MAINNET, 1);
+  verify("eth_getLogs1", "eth_getLogs", "[{\"address\":[\"0xdac17f958d2ee523a2206206994597c13d831ec7\"],\"fromBlock\":\"0x14d7970\",\"toBlock\":\"0x14d7970\"}]", C4_CHAIN_MAINNET);
 }
 
 int main(void) {

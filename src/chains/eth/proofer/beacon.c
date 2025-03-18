@@ -9,7 +9,7 @@
 
 static c4_status_t get_beacon_header_by_hash(proofer_ctx_t* ctx, char* hash, json_t* header) {
 
-  json_t result;
+  json_t result = {0};
   char   path[100];
   sprintf(path, "eth/v1/beacon/headers/%s", hash);
 

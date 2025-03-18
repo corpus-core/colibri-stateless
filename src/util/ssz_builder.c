@@ -82,7 +82,7 @@ void ssz_add_uint256(ssz_builder_t* buffer, bytes_t data) {
   buffer_grow(&buffer->fixed, buffer->fixed.data.len + 32);
   uint8_t* ptr = buffer->fixed.data.data + buffer->fixed.data.len;
   for (int i = 0; i < data.len; i++, ptr++) {
-    *ptr = data.data[data.len - i];
+    *ptr = data.data[data.len - i - 1];
   }
   if (data.len < 32)
     memset(ptr, 0, 32 - data.len);

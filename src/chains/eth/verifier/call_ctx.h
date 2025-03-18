@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "bytes.h"
+#include "eth_account.h"
 #include "ssz.h"
 #include "verify.h"
 #include <stdlib.h>
@@ -34,6 +35,7 @@ typedef struct evmone_context {
   verify_ctx_t*      ctx;
   ssz_ob_t           src_accounts;
   changed_account_t* changed_accounts;
+  call_code_t*       call_codes;
   // Current block info
   uint64_t  block_number;
   bytes32_t block_hash;
@@ -67,8 +69,7 @@ static void get_src_storage(evmone_context_t* ctx, const address_t address, cons
   for (int i = 0; i < len; i++) {
     ssz_ob_t entry = ssz_at(storage, i);
     if (memcmp(ssz_get(&entry, "key").bytes.data, key, 32) == 0) {
-      bytes_t value = ssz_get(&entry, "value").bytes;
-      memcpy(result, value.data, 32);
+      if (!eth_get_storage_value(entry, result)) memset(result, 0, 32);
       return;
     }
   }
@@ -123,9 +124,9 @@ static changed_account_t* create_changed_account(evmone_context_t* ctx, const ad
     }
   }
   else if (old_account.def) {
-    bytes_t code = ssz_get(&old_account, "code").bytes;
-    memcpy(acc->balance, ssz_get(&old_account, "balance").bytes.data, 32);
-    acc->code = code.len == 0 ? NULL_BYTES : code;
+    ssz_ob_t code = ssz_get(&old_account, "code");
+    if (code.def && code.def->type == SSZ_TYPE_LIST && code.bytes.len > 0) acc->code = code.bytes;
+    eth_get_account_value(old_account, ETH_ACCOUNT_BALANCE, acc->balance);
   }
   return acc;
 }
@@ -151,7 +152,18 @@ static bytes_t get_code(evmone_context_t* ctx, const address_t address) {
   changed_account_t* changed_account = get_changed_account(ctx, address);
   if (changed_account) return changed_account->code;
   ssz_ob_t account = get_src_account(ctx, address);
-  return account.def ? ssz_get(&account, "code").bytes : NULL_BYTES;
+  if (!account.def) return NULL_BYTES;
+  bytes32_t code_hash = {0};
+  eth_get_account_value(account, ETH_ACCOUNT_CODE_HASH, code_hash);
+  for (call_code_t* call_code = ctx->call_codes; call_code; call_code = call_code->next) {
+    if (memcmp(call_code->hash, code_hash, 32) == 0)
+      return call_code->code;
+  }
+
+  ssz_ob_t code = ssz_get(&account, "code");
+  if (code.def && code.def->type == SSZ_TYPE_LIST) return code.bytes;
+  return NULL_BYTES;
+  //  return account.def ? ssz_get(&account, "code").bytes : NULL_BYTES;
 }
 
 static void changed_account_free(changed_account_t* acc) {

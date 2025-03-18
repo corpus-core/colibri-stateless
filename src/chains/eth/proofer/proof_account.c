@@ -46,10 +46,6 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   // build the account proof
   add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &eth_account_proof, "accountProof");
   ssz_add_bytes(&eth_account_proof, "address", json_as_bytes(address, &tmp));
-  ssz_add_bytes(&eth_account_proof, "balance", json_as_bytes(json_get(eth_proof, "balance"), &tmp));
-  ssz_add_bytes(&eth_account_proof, "codeHash", json_as_bytes(json_get(eth_proof, "codeHash"), &tmp));
-  ssz_add_bytes(&eth_account_proof, "nonce", json_as_bytes(json_get(eth_proof, "nonce"), &tmp));
-  ssz_add_bytes(&eth_account_proof, "storageHash", json_as_bytes(json_get(eth_proof, "storageHash"), &tmp));
   ssz_add_bytes(&eth_account_proof, "storageProof", bytes(tmp.data.data, 0)); // for now, we add an empty list
   ssz_add_builders(&eth_account_proof, "state_proof", eth_state_proof);
 

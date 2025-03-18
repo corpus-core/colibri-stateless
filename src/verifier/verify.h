@@ -21,8 +21,6 @@ typedef struct {
   ssz_ob_t   proof;
   ssz_ob_t   data;
   ssz_ob_t   sync_data;
-  uint64_t   first_missing_period;
-  uint64_t   last_missing_period;
   bool       success;
   c4_state_t state;
   chain_id_t chain_id;
@@ -31,8 +29,8 @@ typedef struct {
 const ssz_def_t* c4_get_request_type(chain_type_t chain_type);
 chain_type_t     c4_get_chain_type_from_req(bytes_t request);
 const ssz_def_t* c4_get_req_type_from_req(bytes_t request);
-void             c4_verify(verify_ctx_t* ctx);
-void             c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id);
+c4_status_t      c4_verify(verify_ctx_t* ctx);
+c4_status_t      c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id);
 
 #pragma endregion
 #ifdef MESSAGES

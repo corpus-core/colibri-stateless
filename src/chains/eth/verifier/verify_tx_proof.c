@@ -51,7 +51,7 @@ bool verify_tx_proof(verify_ctx_t* ctx) {
   if (!c4_tx_verify_tx_data(ctx, ctx->data, raw.bytes, block_hash.bytes.data, ssz_uint64(block_number))) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
   if (!c4_tx_verify_tx_hash(ctx, raw.bytes)) RETURN_VERIFY_ERROR(ctx, "invalid tx hash!");
   if (!verify_merkle_proof(ctx, tx_proof, block_hash.bytes, block_number.bytes, raw.bytes, ssz_uint32(tx_index), body_root.bytes.data)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
-  if (!c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
+  if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
 
   ctx->success = true;
   return true;

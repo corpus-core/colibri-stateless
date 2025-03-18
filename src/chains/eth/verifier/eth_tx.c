@@ -335,6 +335,7 @@ bool c4_tx_verify_receipt_proof(verify_ctx_t* ctx, ssz_ob_t receipt_proof, uint3
   bytes32_t tmp      = {0};
   buffer_t  path_buf = stack_buffer(tmp);
 
-  if (!patricia_verify(receipt_root, c4_eth_create_tx_path(tx_index, &path_buf), receipt_proof, receipt_raw)) RETURN_VERIFY_ERROR(ctx, "invalid account proof on execution layer!");
+  if (patricia_verify(receipt_root, c4_eth_create_tx_path(tx_index, &path_buf), receipt_proof, receipt_raw) != PATRICIA_FOUND)
+    RETURN_VERIFY_ERROR(ctx, "invalid account proof on execution layer!");
   return true;
 }

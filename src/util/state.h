@@ -60,7 +60,7 @@ data_request_t* c4_state_get_data_request_by_url(c4_state_t* state, char* url);
 bool            c4_state_is_pending(data_request_t* req);
 void            c4_state_add_request(c4_state_t* state, data_request_t* data_request);
 data_request_t* c4_state_get_pending_request(c4_state_t* state);
-
+c4_status_t     c4_state_add_error(c4_state_t* state, const char* error);
 // executes the function and returns the state if it was not successful
 #define TRY_ASYNC(fn)                      \
   do {                                     \
@@ -102,11 +102,12 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state);
     }                                \
   } while (0)
 
-#define THROW_ERROR(fmt, ...)                             \
-  do {                                                    \
-    buffer_t buf     = {0};                               \
-    ctx->state.error = bprintf(&buf, fmt, ##__VA_ARGS__); \
-    return C4_ERROR;                                      \
+#define THROW_ERROR(msg) return c4_state_add_error(&ctx->state, msg)
+
+#define THROW_ERROR_WITH(fmt, ...)                                                                       \
+  do {                                                                                                   \
+    ctx->state.error = bprintf(NULL, "%s" fmt, ctx->state.error ? ctx->state.error : "", ##__VA_ARGS__); \
+    return C4_ERROR;                                                                                     \
   } while (0)
 
 #define CHECK_JSON(val, def, error_prefix)                   \

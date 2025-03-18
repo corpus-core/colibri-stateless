@@ -48,12 +48,15 @@ static bool calculate_signing_message(verify_ctx_t* ctx, uint64_t slot, bytes32_
   return true;
 }
 
-bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot) {
+c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot) {
   bytes32_t       root       = {0};
   c4_sync_state_t sync_state = {0};
 
   if (slot == 0) slot = ssz_get_uint64(header, "slot");
-  if (slot == 0) RETURN_VERIFY_ERROR(ctx, "slot is missing in beacon header!");
+  if (slot == 0) THROW_ERROR("slot is missing in beacon header!");
+
+  // get the validators and make sure we have the right ones for the requested period
+  TRY_ASYNC(c4_get_validators(ctx, slot >> 13, &sync_state));
 
   // compute blockhash
   ssz_hash_tree_root(*header, root);
@@ -61,16 +64,7 @@ bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t
   // compute signing message and store it in root again
   calculate_signing_message(ctx, slot, root, root);
 
-  // get the validators and make sure we have the right ones for the requested period
-  sync_state = c4_get_validators(slot >> 13, ctx->chain_id);
-  if (sync_state.validators.data == NULL) {
-    ctx->first_missing_period = sync_state.last_period + 1;
-    ctx->last_missing_period  = sync_state.current_period;
-    ctx->success              = false;
-    ctx->state.error          = strdup("sync_committee transitions required to verify");
-    return false;
-  }
-
+  // verify the signature
   bool valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
 
 #ifndef C4_STATIC_MEMORY
@@ -78,9 +72,9 @@ bool c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t
 #endif
 
   if (!valid)
-    RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
+    THROW_ERROR("invalid blockhash signature!");
 
-  return true;
+  return C4_SUCCESS;
 }
 
 static bool verify_beacon_header(ssz_ob_t* header, bytes32_t exec_blockhash, bytes_t blockhash_proof) {
@@ -104,7 +98,7 @@ bool verify_blockhash_proof(verify_ctx_t* ctx) {
   if (ssz_is_error(sync_committee_bits) || sync_committee_bits.bytes.len != 64 || ssz_is_error(sync_committee_signature) || sync_committee_signature.bytes.len != 96) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing sync committee bits or signature!");
   if (!ctx->data.def || !ssz_is_type(&ctx->data, &ssz_bytes32) || ctx->data.bytes.data == NULL || ctx->data.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid data, data is not a bytes32!");
   if (!verify_beacon_header(&header, ctx->data.bytes.data, blockhash_proof.bytes)) RETURN_VERIFY_ERROR(ctx, "invalid merkle proof for blockhash!");
-  if (!c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0)) RETURN_VERIFY_ERROR(ctx, "invalid blockhash signature!");
+  if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
 
   ctx->success = true;
   return true;

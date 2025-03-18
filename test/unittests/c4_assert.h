@@ -118,7 +118,7 @@ static void set_state(chain_id_t chain_id, char* dirname) {
   }
   free(state_content.data);
 }
-static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count) {
+static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, proofer_flags_t flags) {
   char tmp[1024];
 
   set_state(chain_id, dirname);
@@ -126,7 +126,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
   bytes_t proof_data = {0};
 
   // proofer
-  proofer_ctx_t*  proof_ctx = c4_proofer_create(method, args, chain_id);
+  proofer_ctx_t*  proof_ctx = c4_proofer_create(method, args, chain_id, flags);
   data_request_t* req;
   while (proof_data.data == NULL) {
     switch (c4_proofer_execute(proof_ctx)) {
@@ -135,8 +135,9 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
           char* filename = c4_req_mockname(req);
           sprintf(tmp, "%s/%s", dirname, filename);
           free(filename);
+          //          printf("read : %s\n     %s\n", tmp, req->payload.data ? (char*) req->payload.data : "");
           bytes_t content = read_testdata(tmp);
-          TEST_ASSERT_NOT_NULL_MESSAGE(content.data, "Die not find the testdata!");
+          TEST_ASSERT_NOT_NULL_MESSAGE(content.data, bprintf(NULL, "Did not find the testdata: %s", tmp));
           req->response = content;
         }
         break;
@@ -154,27 +155,30 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 
   for (int n = 0; n < count; n++) {
     // now verify
-    bool success = false;
-    for (int i = 0; i < 2; i++) {
-      verify_ctx_t verify_ctx = {0};
-      c4_verify_from_bytes(&verify_ctx, proof_ctx->proof, method, json_parse(args), chain_id);
+    bool         success    = false;
+    verify_ctx_t verify_ctx = {0};
+    for (int i = 0; i < 10; i++) {
+      c4_status_t status = i == 0 ? c4_verify_from_bytes(&verify_ctx, proof_ctx->proof, method, json_parse(args), chain_id) : c4_verify(&verify_ctx);
+      if (status == C4_PENDING) {
+        for (data_request_t* req = c4_state_get_pending_request(&verify_ctx.state); req; req = c4_state_get_pending_request(&verify_ctx.state)) {
+          char* filename = c4_req_mockname(req);
+          sprintf(tmp, "%s/%s", dirname, filename);
+          free(filename);
+          printf("read : %s\n     %s", tmp, req->payload.data);
+          bytes_t content = read_testdata(tmp);
+          TEST_ASSERT_NOT_NULL_MESSAGE(content.data, bprintf(NULL, "Did not find the testdata: %s", tmp));
+          req->response = content;
+        }
+        continue;
+      }
 
       if (verify_ctx.success) {
         success = true;
         break;
       }
-
-      else if (!verify_ctx.first_missing_period) {
+      else if (status == C4_ERROR) {
         TEST_FAIL_MESSAGE(verify_ctx.state.error);
         break;
-      }
-      else {
-        char test_filename[1024];
-        sprintf(test_filename, "%s/sync_data_%d.ssz", dirname, (uint32_t) verify_ctx.last_missing_period);
-        bytes_t content = read_testdata(test_filename);
-        TEST_ASSERT_NOT_NULL_MESSAGE(content.data, "sync_data is missing");
-        c4_handle_client_updates(content, chain_id, NULL);
-        free(content.data);
       }
     }
     TEST_ASSERT_TRUE_MESSAGE(success, "not able to verify"); //    TEST_FAIL_MESSAGE("not able to verify");
@@ -183,5 +187,5 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 }
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
-  verify_count(dirname, method, args, chain_id, 1);
+  verify_count(dirname, method, args, chain_id, 1, C4_PROOFER_FLAG_INCLUDE_CODE);
 }
