@@ -1,0 +1,206 @@
+name: Release Creation
+
+on:
+  workflow_run:
+    workflows: ["CMake on multiple platforms", "Bindings Pipeline"]
+    types:
+      - completed
+    branches: [main, dev]
+
+permissions:
+  contents: write
+  checks: read
+  actions: read
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    # Only run if the triggering commit has a tag starting with v AND both workflows succeeded
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_commit.ref, 'refs/tags/v')
+
+    steps:
+      - name: Debug Info
+        run: |
+          echo "Current commit: ${{ github.event.workflow_run.head_sha }}"
+          echo "Current ref: ${{ github.event.workflow_run.head_commit.ref }}"
+          echo "Workflow name: ${{ github.event.workflow_run.name }}"
+          echo "Workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
+
+      - name: Extract tag name
+        id: extract_tag
+        run: |
+          # Check for tags associated with this commit
+          tags=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/tags" | \
+            jq -r '.[] | select(.object.sha == "${{ github.event.workflow_run.head_sha }}") | .ref' | \
+            sed 's|refs/tags/||')
+
+          # Get the first tag that starts with v
+          for tag in $tags; do
+            if [[ $tag == v* ]]; then
+              echo "Found tag: $tag"
+              echo "tag=$tag" >> $GITHUB_OUTPUT
+              break
+            fi
+          done
+
+          if [[ -z "$tag" ]]; then
+            echo "No valid tag found for this commit"
+            exit 1
+          fi
+
+      - name: Check if both workflows completed
+        id: check_workflows
+        run: |
+          # Check if CMake workflow has completed
+          cmake_runs=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/cmake.yml/runs?status=completed&head_sha=${{ github.event.workflow_run.head_sha }}")
+
+          cmake_success=$(echo "$cmake_runs" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
+
+          # Check if Bindings workflow has completed
+          bindings_runs=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/bindings.yml/runs?status=completed&head_sha=${{ github.event.workflow_run.head_sha }}")
+
+          bindings_success=$(echo "$bindings_runs" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
+
+          echo "CMake successful runs: $cmake_success"
+          echo "Bindings successful runs: $bindings_success"
+
+          # Proceed only if both workflows have successful runs for this commit
+          if [[ "$cmake_success" -gt 0 && "$bindings_success" -gt 0 ]]; then
+            echo "both_completed=true" >> $GITHUB_OUTPUT
+          else
+            echo "both_completed=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Only proceed if both workflows have completed successfully
+      - name: Download CMake Workflow Artifacts
+        if: steps.check_workflows.outputs.both_completed == 'true'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: cmake.yml
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/cmake
+          check_artifacts: true
+          search_artifacts: true
+
+      - name: Verify Downloaded CMake Artifacts
+        if: steps.check_workflows.outputs.both_completed == 'true'
+        run: |
+          echo "Listing downloaded CMake artifacts:"
+          find artifacts/cmake -type f | sort
+
+      # Download bindings artifacts
+      - name: Download Swift Package
+        if: steps.check_workflows.outputs.both_completed == 'true'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: bindings.yml
+          name: swift_package
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/swift_package
+          check_artifacts: true
+          search_artifacts: true
+
+      - name: Download WASM Package
+        if: steps.check_workflows.outputs.both_completed == 'true'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: bindings.yml
+          name: c4-wasm
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/wasm
+          check_artifacts: true
+          search_artifacts: true
+
+      - name: Download AAR Package
+        if: steps.check_workflows.outputs.both_completed == 'true'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: bindings.yml
+          name: colibri-aar
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/aar
+          check_artifacts: true
+          search_artifacts: true
+
+      - name: Download JAR Package
+        if: steps.check_workflows.outputs.both_completed == 'true'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: bindings.yml
+          name: colibri-jar
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/jar
+          check_artifacts: true
+          search_artifacts: true
+
+      - name: Prepare Release Files
+        if: steps.check_workflows.outputs.both_completed == 'true'
+        run: |
+          cd artifacts
+
+          # Create release files directory
+          mkdir -p release_files
+
+          # Zip Swift package if not already zipped
+          if [ -d "swift_package" ] && [ "$(ls -A swift_package)" ]; then
+            cd swift_package
+            zip -r ../colibri-swift-package.zip ./*
+            cd ..
+            mv colibri-swift-package.zip release_files/
+          else
+            echo "Warning: Swift package directory is empty or does not exist"
+          fi
+
+          # Move WASM files
+          if [ -d "wasm" ] && [ "$(ls -A wasm)" ]; then
+            mv wasm/*.zip release_files/ 2>/dev/null || echo "No zip files in wasm directory"
+          else
+            echo "Warning: WASM directory is empty or does not exist"
+          fi
+
+          # Move AAR files
+          if [ -d "aar" ] && [ "$(ls -A aar)" ]; then
+            mv aar/*.aar release_files/ 2>/dev/null || echo "No aar files in aar directory"
+          else
+            echo "Warning: AAR directory is empty or does not exist"
+          fi
+
+          # Move JAR files
+          if [ -d "jar" ] && [ "$(ls -A jar)" ]; then
+            mv jar/*.jar release_files/ 2>/dev/null || echo "No jar files in jar directory"
+          else
+            echo "Warning: JAR directory is empty or does not exist"
+          fi
+
+          # Move CMake artifacts
+          find cmake -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release_files/ \; 2>/dev/null || echo "No CMake artifacts found"
+
+          # List all collected release files
+          echo "Collected release files:"
+          ls -la release_files/
+
+      - name: Create Release
+        if: steps.check_workflows.outputs.both_completed == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.extract_tag.outputs.tag }}
+          files: artifacts/release_files/*
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
