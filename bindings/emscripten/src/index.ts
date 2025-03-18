@@ -13,6 +13,7 @@ export interface Config {
     trusted_block_hashes: string[];
     cache?: Cache;
     debug?: boolean;
+    include_code?: boolean;
     verify?: (method: string, args: any[]) => boolean;
 }
 
@@ -136,6 +137,10 @@ export default class C4Client {
         }
     }
 
+    private get flags(): number {
+        return this.config.include_code ? 1 : 0;
+    }
+
 
     async createProof(method: string, args: any[]): Promise<Uint8Array> {
         const c4w = await getC4w();
@@ -147,7 +152,8 @@ export default class C4Client {
             ctx = c4w._c4w_create_proof_ctx(
                 as_char_ptr(method, c4w, free_buffers),
                 as_char_ptr(JSON.stringify(args), c4w, free_buffers),
-                BigInt(this.config.chainId)
+                BigInt(this.config.chainId),
+                this.flags
             );
 
             while (true) {

@@ -15,9 +15,10 @@ typedef struct {
  * @param method the method to prove (eth_getTransactionByHash, eth_getBlockByHash, etc.)
  * @param params the params of the method as jsons array like '["0x2af8e0202a3d4887781b4da03e6238f49f3a176835bc8c98525768d43af4aa24"]'
  * @param chain_id the chain id mainnet: 1, sepolia: 11155111, etc.
+ * @param flags the flags to pass to the proofer ()
  * @return a new proofer_ctx_t
  */
-proofer_t* create_proofer_ctx(char* method, char* params, uint64_t chain_id);
+proofer_t* create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags);
 
 /**
  * executes the proofer_t and returns the status as json string.

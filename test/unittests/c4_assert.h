@@ -118,7 +118,7 @@ static void set_state(chain_id_t chain_id, char* dirname) {
   }
   free(state_content.data);
 }
-static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count) {
+static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, proofer_flags_t flags) {
   char tmp[1024];
 
   set_state(chain_id, dirname);
@@ -126,7 +126,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
   bytes_t proof_data = {0};
 
   // proofer
-  proofer_ctx_t*  proof_ctx = c4_proofer_create(method, args, chain_id);
+  proofer_ctx_t*  proof_ctx = c4_proofer_create(method, args, chain_id, flags);
   data_request_t* req;
   while (proof_data.data == NULL) {
     switch (c4_proofer_execute(proof_ctx)) {
@@ -187,5 +187,5 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 }
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
-  verify_count(dirname, method, args, chain_id, 1);
+  verify_count(dirname, method, args, chain_id, 1, C4_PROOFER_FLAG_INCLUDE_CODE);
 }

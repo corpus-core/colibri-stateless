@@ -17,8 +17,8 @@ typedef struct {
   bool         initialised;
 } c4_verify_ctx_t;
 
-proofer_t* create_proofer_ctx(char* method, char* params, uint64_t chain_id) {
-  return (void*) c4_proofer_create(method, params, chain_id);
+proofer_t* create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
+  return (void*) c4_proofer_create(method, params, chain_id, flags);
 }
 
 static const char* status_to_string(c4_status_t status) {

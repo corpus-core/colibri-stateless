@@ -78,7 +78,7 @@ bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates, bytes32
     };
   }
   for (uint32_t pos = 0; pos + 12 < client_updates.len; pos += length + 8) {
-    uint64_t length = uint64_from_le(client_updates.data + pos);
+    length = uint64_from_le(client_updates.data + pos);
     if (pos + 8 + length > client_updates.len) {
       success = false;
       break;

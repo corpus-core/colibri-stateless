@@ -8,12 +8,19 @@ extern "C" {
 #include "../util/chains.h"
 #include "../util/state.h"
 
+typedef enum {
+  C4_PROOFER_FLAG_INCLUDE_CODE = 1 << 0,
+} proofer_flag_types_t;
+
+typedef uint32_t proofer_flags_t;
+
 typedef struct {
-  char*      method;
-  json_t     params;
-  bytes_t    proof;
-  chain_id_t chain_id;
-  c4_state_t state;
+  char*           method;
+  json_t          params;
+  bytes_t         proof;
+  chain_id_t      chain_id;
+  c4_state_t      state;
+  proofer_flags_t flags;
 } proofer_ctx_t;
 
 // generic proofer context
@@ -41,10 +48,10 @@ typedef struct {
 // ....
 // ```
 
-proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id); // create a new proofer context
-void           c4_proofer_free(proofer_ctx_t* ctx);                                // cleanup for the ctx
-c4_status_t    c4_proofer_execute(proofer_ctx_t* ctx);                             // tries to create the proof, but if there are pending requests, they need to fetched before calling it again.
-c4_status_t    c4_proofer_status(proofer_ctx_t* ctx);                              // returns the status of the proofer
+proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id, proofer_flags_t flags); // create a new proofer context
+void           c4_proofer_free(proofer_ctx_t* ctx);                                                       // cleanup for the ctx
+c4_status_t    c4_proofer_execute(proofer_ctx_t* ctx);                                                    // tries to create the proof, but if there are pending requests, they need to fetched before calling it again.
+c4_status_t    c4_proofer_status(proofer_ctx_t* ctx);                                                     // returns the status of the proofer
 
 // proofer functions
 

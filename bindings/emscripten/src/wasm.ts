@@ -1,6 +1,6 @@
 
 export interface C4W {
-    _c4w_create_proof_ctx: (method: number, args: number, chainId: bigint) => number;
+    _c4w_create_proof_ctx: (method: number, args: number, chainId: bigint, flags: number) => number;
     _c4w_free_proof_ctx: (proofCtx: number) => void;
     _c4w_execute_proof_ctx: (proofCtx: number) => number;
     _c4w_get_pending_data_request: (proofCtx: number) => number;

@@ -59,13 +59,13 @@ static c4_status_t create_eth_call_proof(proofer_ctx_t* ctx, ssz_builder_t accou
   return C4_SUCCESS;
 }
 
-static void add_account(ssz_builder_t* builder, json_t values, bytes_t address, json_t code, int accounts_len) {
+static void add_account(proofer_ctx_t* ctx, ssz_builder_t* builder, json_t values, bytes_t address, json_t code, int accounts_len) {
   builder->def                  = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF), "accounts");
   bytes_t          key          = {0};
   buffer_t         buf          = {0};
   ssz_builder_t    account      = ssz_builder_for_def(builder->def->def.vector.type);
   const ssz_def_t* code_def     = ssz_get_def(account.def, "code");
-  bool             include_code = true;
+  bool             include_code = ctx->flags & C4_PROOFER_FLAG_INCLUDE_CODE;
 
   add_dynamic_byte_list(json_get(values, "accountProof"), &account, "accountProof");
   ssz_add_bytes(&account, "address", address);
@@ -132,6 +132,7 @@ static c4_status_t get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, u
     TRY_ADD_ASYNC(status, res);
 
     if (res == C4_SUCCESS) add_account(
+        ctx,
         builder, eth_proof,
         bytes(address, hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)))),
         code,

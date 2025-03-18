@@ -35,6 +35,7 @@ typedef struct evmone_context {
   verify_ctx_t*      ctx;
   ssz_ob_t           src_accounts;
   changed_account_t* changed_accounts;
+  call_code_t*       call_codes;
   // Current block info
   uint64_t  block_number;
   bytes32_t block_hash;
@@ -152,6 +153,13 @@ static bytes_t get_code(evmone_context_t* ctx, const address_t address) {
   if (changed_account) return changed_account->code;
   ssz_ob_t account = get_src_account(ctx, address);
   if (!account.def) return NULL_BYTES;
+  bytes32_t code_hash = {0};
+  eth_get_account_value(account, ETH_ACCOUNT_CODE_HASH, code_hash);
+  for (call_code_t* call_code = ctx->call_codes; call_code; call_code = call_code->next) {
+    if (memcmp(call_code->hash, code_hash, 32) == 0)
+      return call_code->code;
+  }
+
   ssz_ob_t code = ssz_get(&account, "code");
   if (code.def && code.def->type == SSZ_TYPE_LIST) return code.bytes;
   return NULL_BYTES;

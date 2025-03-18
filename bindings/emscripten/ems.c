@@ -7,8 +7,8 @@
 #include <string.h>
 #include <time.h>
 
-proofer_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id) {
-  return c4_proofer_create(method, args, chain_id);
+proofer_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id, uint32_t flags) {
+  return c4_proofer_create(method, args, chain_id, flags);
 }
 
 void EMSCRIPTEN_KEEPALIVE c4w_free_proof_ctx(proofer_ctx_t* ctx) {

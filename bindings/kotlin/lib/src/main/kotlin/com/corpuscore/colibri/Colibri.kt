@@ -16,7 +16,8 @@ class Colibri(
     var chainId: BigInteger = BigInteger.ONE, // Default value
     var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
     var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
-    var trustedBlockHashes: Array<String> = arrayOf() // Default empty array
+    var trustedBlockHashes: Array<String> = arrayOf(), // Default empty array
+    var includeCode: Boolean = false // Default value
 ) {
     companion object {
         init {
@@ -32,6 +33,7 @@ class Colibri(
         println("ETH RPCs: ${ethRpcs.joinToString(", ")}")
         println("Beacon APIs: ${beaconApis.joinToString(", ")}")
         println("Trusted Block Hashes: ${trustedBlockHashes.joinToString(", ")}")
+        println("Include Code: $includeCode")
     }
 
     private suspend fun fetchRequest(servers: Array<String>, request: JSONObject) {
@@ -95,7 +97,7 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             
             // Create the proofer context with properly formatted JSON args
-            val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, "[${args.joinToString(",") { formatArg(it) }}]", chainId)
+            val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, "[${args.joinToString(",") { formatArg(it) }}]", chainId, includeCode ? 1 : 0)
 
             try {
                 while (true) {

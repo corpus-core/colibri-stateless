@@ -19,6 +19,7 @@ int main(int argc, char* argv[]) {
                     "  -t <testname>   : generates test files in test/data/<testname>\n"
                     "  -x <cachedir>   : caches all reguests in the cache directory\n"
                     "  -o <outputfile> : ssz file with the proof ( default to stdout )\n"
+                    "  -i              : include code in the proof\n"
                     "\n",
             argv[0]);
     exit(EXIT_FAILURE);
@@ -27,6 +28,7 @@ int main(int argc, char* argv[]) {
   char*      method     = NULL;
   buffer_t   buffer     = {0};
   char*      outputfile = NULL;
+  uint32_t   flags      = 0;
   chain_id_t chain_id   = C4_CHAIN_MAINNET;
   buffer_add_chars(&buffer, "[");
 
@@ -39,6 +41,9 @@ int main(int argc, char* argv[]) {
             break;
           case 'o':
             outputfile = argv[++i];
+            break;
+          case 'i':
+            flags |= C4_PROOFER_FLAG_INCLUDE_CODE;
             break;
 #ifdef TEST
 #ifdef USE_CURL
@@ -68,7 +73,7 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&buffer, "]");
 
-  proofer_ctx_t*  ctx = c4_proofer_create(method, (char*) buffer.data.data, chain_id);
+  proofer_ctx_t*  ctx = c4_proofer_create(method, (char*) buffer.data.data, chain_id, flags);
   data_request_t* req;
   while (true) {
     switch (c4_proofer_execute(ctx)) {
