@@ -116,8 +116,40 @@ jobs:
         run: |
           echo "Creating release for tag: ${{ needs.check-workflows-and-tag.outputs.tag_name }}"
 
-      # Download CMake workflow artifacts
+      # List available artifacts first for diagnostics
+      - name: List Available CMake Artifacts
+        run: |
+          echo "Trigger commit SHA: ${{ github.event.workflow_run.head_sha }}"
+          echo "Current workflow SHA: ${{ github.sha }}"
+          echo "Listing available artifacts for CMake workflow..."
+          # Get the workflow ID for cmake.yml
+          WORKFLOW_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/cmake.yml" | \
+            jq -r '.id')
+          echo "CMake workflow ID: $WORKFLOW_ID"
+
+          # List all runs for this commit
+          RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$WORKFLOW_ID/runs?head_sha=${{ github.event.workflow_run.head_sha }}")
+
+          RUN_IDS=$(echo "$RUNS" | jq '.workflow_runs[].id')
+          echo "Found runs with IDs: $RUN_IDS"
+
+          # Check artifacts for each run
+          for RUN_ID in $RUN_IDS; do
+            echo "Checking artifacts for run $RUN_ID..."
+            ARTIFACTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts")
+            
+            ARTIFACT_COUNT=$(echo "$ARTIFACTS" | jq '.total_count')
+            ARTIFACT_NAMES=$(echo "$ARTIFACTS" | jq -r '.artifacts[].name')
+            
+            echo "Found $ARTIFACT_COUNT artifacts: $ARTIFACT_NAMES"
+          done
+
+      # Download CMake workflow artifacts - with correct commit SHA
       - name: Download CMake Workflow Artifacts
+        id: download_cmake
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -125,16 +157,22 @@ jobs:
           workflow_conclusion: success
           commit: ${{github.event.workflow_run.head_sha}}
           path: artifacts/cmake
-          check_artifacts: true
-          search_artifacts: true
 
+      # Check if we managed to download artifacts
       - name: Verify Downloaded CMake Artifacts
         run: |
-          echo "Listing downloaded CMake artifacts:"
-          find artifacts/cmake -type f | sort
+          echo "Checking for CMake artifacts..."
+          if [ -d "artifacts/cmake" ] && [ "$(find artifacts/cmake -type f | wc -l)" -gt 0 ]; then
+            echo "Listing downloaded CMake artifacts:"
+            find artifacts/cmake -type f | sort
+          else
+            echo "WARNING: No CMake artifacts were downloaded. Creating empty directory."
+            mkdir -p artifacts/cmake
+          fi
 
-      # Download bindings artifacts
+      # Download bindings artifacts - start with Swift package
       - name: Download Swift Package
+        id: download_swift
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -143,10 +181,19 @@ jobs:
           workflow_conclusion: success
           commit: ${{github.event.workflow_run.head_sha}}
           path: artifacts/swift_package
-          check_artifacts: true
-          search_artifacts: true
+
+      - name: Verify Swift Package
+        run: |
+          if [ -d "artifacts/swift_package" ] && [ "$(find artifacts/swift_package -type f | wc -l)" -gt 0 ]; then
+            echo "Swift package artifacts found:"
+            find artifacts/swift_package -type f | head -5 # Show just the first few for brevity
+          else
+            echo "WARNING: No Swift package artifacts were downloaded."
+            mkdir -p artifacts/swift_package
+          fi
 
       - name: Download WASM Package
+        id: download_wasm
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -155,10 +202,19 @@ jobs:
           workflow_conclusion: success
           commit: ${{github.event.workflow_run.head_sha}}
           path: artifacts/wasm
-          check_artifacts: true
-          search_artifacts: true
+
+      - name: Verify WASM Package
+        run: |
+          if [ -d "artifacts/wasm" ] && [ "$(find artifacts/wasm -type f | wc -l)" -gt 0 ]; then
+            echo "WASM artifacts found:"
+            find artifacts/wasm -type f
+          else
+            echo "WARNING: No WASM artifacts were downloaded."
+            mkdir -p artifacts/wasm
+          fi
 
       - name: Download AAR Package
+        id: download_aar
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -167,10 +223,19 @@ jobs:
           workflow_conclusion: success
           commit: ${{github.event.workflow_run.head_sha}}
           path: artifacts/aar
-          check_artifacts: true
-          search_artifacts: true
+
+      - name: Verify AAR Package
+        run: |
+          if [ -d "artifacts/aar" ] && [ "$(find artifacts/aar -type f | wc -l)" -gt 0 ]; then
+            echo "AAR artifacts found:"
+            find artifacts/aar -type f
+          else
+            echo "WARNING: No AAR artifacts were downloaded."
+            mkdir -p artifacts/aar
+          fi
 
       - name: Download JAR Package
+        id: download_jar
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
@@ -179,8 +244,16 @@ jobs:
           workflow_conclusion: success
           commit: ${{github.event.workflow_run.head_sha}}
           path: artifacts/jar
-          check_artifacts: true
-          search_artifacts: true
+
+      - name: Verify JAR Package
+        run: |
+          if [ -d "artifacts/jar" ] && [ "$(find artifacts/jar -type f | wc -l)" -gt 0 ]; then
+            echo "JAR artifacts found:"
+            find artifacts/jar -type f
+          else
+            echo "WARNING: No JAR artifacts were downloaded."
+            mkdir -p artifacts/jar
+          fi
 
       - name: Prepare Release Files
         run: |
@@ -189,50 +262,154 @@ jobs:
           # Create release files directory
           mkdir -p release_files
 
+          # Check if we have any files to include in the release
+          TOTAL_FILES=0
+
           # Zip Swift package if not already zipped
           if [ -d "swift_package" ] && [ "$(ls -A swift_package)" ]; then
             cd swift_package
             zip -r ../colibri-swift-package.zip ./*
             cd ..
-            mv colibri-swift-package.zip release_files/
+            if [ -f "colibri-swift-package.zip" ]; then
+              mv colibri-swift-package.zip release_files/
+              echo "Added Swift package to release"
+              TOTAL_FILES=$((TOTAL_FILES+1))
+            fi
           else
             echo "Warning: Swift package directory is empty or does not exist"
           fi
 
           # Move WASM files
           if [ -d "wasm" ] && [ "$(ls -A wasm)" ]; then
-            mv wasm/*.zip release_files/ 2>/dev/null || echo "No zip files in wasm directory"
+            find wasm -name "*.zip" -exec cp {} release_files/ \;
+            NUM_FILES=$(find release_files -name "*wasm*.zip" | wc -l)
+            if [ "$NUM_FILES" -gt 0 ]; then
+              echo "Added $NUM_FILES WASM files to release"
+              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
+            else
+              echo "No WASM zip files found to add to release"
+            fi
           else
             echo "Warning: WASM directory is empty or does not exist"
           fi
 
           # Move AAR files
           if [ -d "aar" ] && [ "$(ls -A aar)" ]; then
-            mv aar/*.aar release_files/ 2>/dev/null || echo "No aar files in aar directory"
+            find aar -name "*.aar" -exec cp {} release_files/ \;
+            NUM_FILES=$(find release_files -name "*.aar" | wc -l)
+            if [ "$NUM_FILES" -gt 0 ]; then
+              echo "Added $NUM_FILES AAR files to release"
+              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
+            else
+              echo "No AAR files found to add to release"
+            fi
           else
             echo "Warning: AAR directory is empty or does not exist"
           fi
 
           # Move JAR files
           if [ -d "jar" ] && [ "$(ls -A jar)" ]; then
-            mv jar/*.jar release_files/ 2>/dev/null || echo "No jar files in jar directory"
+            find jar -name "*.jar" -exec cp {} release_files/ \;
+            NUM_FILES=$(find release_files -name "*.jar" | wc -l)
+            if [ "$NUM_FILES" -gt 0 ]; then
+              echo "Added $NUM_FILES JAR files to release"
+              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
+            else
+              echo "No JAR files found to add to release"
+            fi
           else
             echo "Warning: JAR directory is empty or does not exist"
           fi
 
           # Move CMake artifacts
-          find cmake -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release_files/ \; 2>/dev/null || echo "No CMake artifacts found"
+          if [ -d "cmake" ] && [ "$(find cmake -type f \( -name "*.zip" -o -name "*.tar.gz" \) | wc -l)" -gt 0 ]; then
+            find cmake -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release_files/ \;
+            NUM_FILES=$(find release_files -name "*.zip" -o -name "*.tar.gz" | wc -l)
+            if [ "$NUM_FILES" -gt 0 ]; then
+              echo "Added CMake artifacts to release"
+              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
+            else
+              echo "No CMake artifacts found to add to release"
+            fi
+          else
+            echo "Warning: No CMake artifacts found"
+          fi
 
           # List all collected release files
-          echo "Collected release files:"
+          echo "Collected $TOTAL_FILES release files:"
           ls -la release_files/
 
+          # Create a dummy file if no artifacts were found (to prevent release creation failure)
+          if [ "$TOTAL_FILES" -eq 0 ]; then
+            echo "WARNING: No artifacts were found for release. Creating a placeholder file."
+            echo "This is a placeholder file. No artifacts were found for this release." > release_files/README.txt
+          fi
+
       - name: Create Release
+        id: create_release
+        continue-on-error: true
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.check-workflows-and-tag.outputs.tag_name }}
           files: artifacts/release_files/*
           generate_release_notes: true
           draft: false
+          body: |
+            # Colibri Release ${{ needs.check-workflows-and-tag.outputs.tag_name }}
+
+            This release includes binaries and libraries for multiple platforms.
+
+            ## Included Artifacts
+
+            - CMake builds (various platforms)
+            - Swift package
+            - WASM package
+            - Android AAR
+            - JVM JAR
+
+            If some artifacts are missing, they may not have been successfully built in the pipeline.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Summary
+        if: always()
+        run: |
+          echo "## Release Creation Result" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.create_release.outcome }}" == "success" ]; then
+            echo "✅ Successfully created release for tag ${{ needs.check-workflows-and-tag.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Failed to create release for tag ${{ needs.check-workflows-and-tag.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "### Artifact Summary" >> $GITHUB_STEP_SUMMARY
+
+          if [ -d "artifacts/cmake" ] && [ "$(find artifacts/cmake -type f | wc -l)" -gt 0 ]; then
+            echo "- ✅ CMake artifacts: $(find artifacts/cmake -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No CMake artifacts found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "artifacts/swift_package" ] && [ "$(find artifacts/swift_package -type f | wc -l)" -gt 0 ]; then
+            echo "- ✅ Swift package: $(find artifacts/swift_package -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No Swift package found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "artifacts/wasm" ] && [ "$(find artifacts/wasm -type f | wc -l)" -gt 0 ]; then
+            echo "- ✅ WASM package: $(find artifacts/wasm -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No WASM package found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "artifacts/aar" ] && [ "$(find artifacts/aar -type f | wc -l)" -gt 0 ]; then
+            echo "- ✅ AAR package: $(find artifacts/aar -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No AAR package found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "artifacts/jar" ] && [ "$(find artifacts/jar -type f | wc -l)" -gt 0 ]; then
+            echo "- ✅ JAR package: $(find artifacts/jar -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No JAR package found" >> $GITHUB_STEP_SUMMARY
+          fi
