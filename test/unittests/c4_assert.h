@@ -267,7 +267,7 @@ static void run_rpc_test(char* dirname, proofer_flags_t flags) {
   chain_id_t chain_id        = (chain_id_t) json_get_uint64(test, "chain_id");
   char*      expected_result = bprintf(NULL, "%J", json_get(test, "expected_result"));
 
-  verify_count(dirname, method, args, C4_CHAIN_MAINNET, 1, flags, expected_result);
+  verify_count(dirname, method, args, chain_id, 1, flags, expected_result);
 
   free(method);
   free(args);
