@@ -48,7 +48,7 @@ typedef struct evmone_context {
   void*                  results;
 } evmone_context_t;
 
-static ssz_ob_t get_src_account(evmone_context_t* ctx, const address_t address) {
+static ssz_ob_t get_src_account(evmone_context_t* ctx, const address_t address, bool allow_missing) {
   size_t len = ssz_len(ctx->src_accounts);
   for (int i = 0; i < len; i++) {
     ssz_ob_t account = ssz_at(ctx->src_accounts, i);
@@ -57,12 +57,14 @@ static ssz_ob_t get_src_account(evmone_context_t* ctx, const address_t address) 
       return account;
   }
   if (ctx->parent)
-    return get_src_account(ctx->parent, address);
+    return get_src_account(ctx->parent, address, allow_missing);
+  if (!ctx->ctx->state.error && !allow_missing) ctx->ctx->state.error = bprintf(NULL, "Missing account proof for 0x%x", bytes(address, 20));
+
   return (ssz_ob_t) {0};
 }
 
 static void get_src_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result) {
-  ssz_ob_t account = get_src_account(ctx, address);
+  ssz_ob_t account = get_src_account(ctx, address, false);
   if (!account.def) return;
   ssz_ob_t storage = ssz_get(&account, "storageProof");
   uint32_t len     = ssz_len(storage);
@@ -73,8 +75,7 @@ static void get_src_storage(evmone_context_t* ctx, const address_t address, cons
       return;
     }
   }
-  if (ctx->parent)
-    get_src_storage(ctx->parent, address, key, result);
+  if (!ctx->ctx->state.error) ctx->ctx->state.error = bprintf(NULL, "Missing account proof for account 0x%x and storage key 0x%x", bytes(address, 20), bytes(key, 32));
 }
 
 static changed_account_t* get_changed_account(evmone_context_t* ctx, const address_t address) {
@@ -105,7 +106,7 @@ static changed_account_t* create_changed_account(evmone_context_t* ctx, const ad
   }
   changed_account_t* parent_acc  = ctx->parent ? get_changed_account(ctx->parent, address) : NULL;
   *created                       = parent_acc == NULL;
-  ssz_ob_t           old_account = get_src_account(ctx, address);
+  ssz_ob_t           old_account = get_src_account(ctx, address, true);
   changed_account_t* acc         = calloc(1, sizeof(changed_account_t));
   memcpy(acc->address, address, 20);
   acc->next             = ctx->changed_accounts;
@@ -151,7 +152,7 @@ static void set_changed_storage(evmone_context_t* ctx, const address_t addr, con
 static bytes_t get_code(evmone_context_t* ctx, const address_t address) {
   changed_account_t* changed_account = get_changed_account(ctx, address);
   if (changed_account) return changed_account->code;
-  ssz_ob_t account = get_src_account(ctx, address);
+  ssz_ob_t account = get_src_account(ctx, address, false);
   if (!account.def) return NULL_BYTES;
   bytes32_t code_hash = {0};
   eth_get_account_value(account, ETH_ACCOUNT_CODE_HASH, code_hash);

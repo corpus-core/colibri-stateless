@@ -72,7 +72,8 @@ static bool host_account_exists(void* context, const evmc_address* addr) {
   debug_print_address("account_exists for", addr);
   changed_account_t* ac = get_changed_account(ctx, addr->bytes);
   if (ac) return ac->deleted;
-  bool exists = get_src_account(ctx, addr->bytes).def != NULL;
+  bool exists = get_src_account(ctx, addr->bytes, false).def != NULL;
+  // TODO existance check over the values of the account!
   EVM_LOG("account_exists result: %s", exists ? "true" : "false");
   return exists;
 }
@@ -141,7 +142,7 @@ static evmc_bytes32 host_get_balance(void* context, const evmc_address* addr) {
   if (acc)
     memcpy(result.bytes, acc->balance, 32);
   else {
-    ssz_ob_t account = get_src_account(ctx, addr->bytes);
+    ssz_ob_t account = get_src_account(ctx, addr->bytes, false);
     if (account.def) eth_get_account_value(account, ETH_ACCOUNT_BALANCE, result.bytes);
   }
 
@@ -497,7 +498,10 @@ c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_
     print_hex(stderr, bytes(result.output_data, result.output_size), "[EVM] Output data: 0x", "\n");
 
   // copy result
-  *call_result = result.output_size ? bytes_dup(bytes(result.output_data, result.output_size)) : NULL_BYTES;
+  if (!ctx->state.error)
+    *call_result = result.output_size ? bytes_dup(bytes(result.output_data, result.output_size)) : NULL_BYTES;
+  else
+    *call_result = NULL_BYTES;
 
   // Process the execution result
   if (result.status_code == 0) { // Success
