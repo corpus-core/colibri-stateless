@@ -11,10 +11,11 @@
 #include "unity.h"
 #include "verify.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#define C4_PROOFER_FLAG_NO_CACHE (1 << 30)
 #define ASSERT_HEX_STRING_EQUAL(expected_hex, actual_array, size, message)              \
   do {                                                                                  \
     uint8_t expected_bytes[size];                                                       \
@@ -98,30 +99,41 @@ static bytes_t read_testdata(const char* filename) {
 }
 
 static void set_state(chain_id_t chain_id, char* dirname) {
-  char test_filename[1024];
+  char dir_path[2024];
+  sprintf(dir_path, "%s/%s", TESTDATA_DIR, dirname);
 
-  // load state into mock storage
-  sprintf(test_filename, "%s/states_%llu", dirname, (unsigned long long) chain_id);
-  bytes_t state_content = read_testdata(test_filename);
-  if (!state_content.data) return;
-  sprintf(test_filename, "states_%llu", (unsigned long long) chain_id);
-  file_set(test_filename, state_content);
+  DIR* dir = opendir(dir_path);
+  if (!dir) return;
 
-  c4_trusted_block_t* blocks = (void*) state_content.data;
-  int                 len    = state_content.len / sizeof(c4_trusted_block_t);
-  for (int i = 0; i < len; i++) {
-    sprintf(test_filename, "%s/sync_%llu_%d", dirname, (unsigned long long) chain_id, blocks[i].period);
-    bytes_t block_content = read_testdata(test_filename);
-    sprintf(test_filename, "sync_%llu_%d", (unsigned long long) chain_id, blocks[i].period);
-    file_set(test_filename, block_content);
-    free(block_content.data);
+  struct dirent* entry;
+  while ((entry = readdir(dir)) != NULL) {
+    char* filename = entry->d_name;
+
+    // Skip files containing a period
+    if (strchr(filename, '.') != NULL) continue;
+
+    // Skip . and .. directory entries
+    if (strcmp(filename, ".") == 0 || strcmp(filename, "..") == 0) continue;
+
+    // Read the file content - read_testdata already adds TESTDATA_DIR
+    char rel_path[1024];
+    sprintf(rel_path, "%s/%s", dirname, filename);
+    bytes_t content = read_testdata(rel_path);
+
+    if (content.data) {
+      // Store in file cache
+      file_set(filename, content);
+      free(content.data);
+    }
   }
-  free(state_content.data);
+
+  closedir(dir);
 }
-static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, proofer_flags_t flags) {
+static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, proofer_flags_t flags, char* expected_result) {
   char tmp[1024];
 
-  set_state(chain_id, dirname);
+  if ((flags & C4_PROOFER_FLAG_NO_CACHE) == 0)
+    set_state(chain_id, dirname);
 
   bytes_t proof_data = {0};
 
@@ -164,7 +176,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
           char* filename = c4_req_mockname(req);
           sprintf(tmp, "%s/%s", dirname, filename);
           free(filename);
-          printf("read : %s\n     %s", tmp, req->payload.data);
+          //          printf("read : %s\n     %s", tmp, req->payload.data);
           bytes_t content = read_testdata(tmp);
           TEST_ASSERT_NOT_NULL_MESSAGE(content.data, bprintf(NULL, "Did not find the testdata: %s", tmp));
           req->response = content;
@@ -173,6 +185,11 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
       }
 
       if (verify_ctx.success) {
+        if (expected_result) {
+          char* result = ssz_dump_to_str(verify_ctx.data, false, true);
+          TEST_ASSERT_EQUAL_STRING_MESSAGE(expected_result, result, "wrong result");
+          free(result);
+        }
         success = true;
         break;
       }
@@ -188,5 +205,23 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 }
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
-  verify_count(dirname, method, args, chain_id, 1, C4_PROOFER_FLAG_INCLUDE_CODE);
+  verify_count(dirname, method, args, chain_id, 1, C4_PROOFER_FLAG_INCLUDE_CODE, NULL);
+}
+
+static void run_rpc_test(char* dirname, proofer_flags_t flags) {
+  char test_filename[1024];
+  sprintf(test_filename, "%s/test.json", dirname);
+  bytes_t    test_content    = read_testdata(test_filename);
+  json_t     test            = json_parse((char*) test_content.data);
+  char*      method          = bprintf(NULL, "%j", json_get(test, "method"));
+  char*      args            = json_new_string(json_get(test, "params"));
+  chain_id_t chain_id        = (chain_id_t) json_get_uint64(test, "chain_id");
+  char*      expected_result = bprintf(NULL, "%J", json_get(test, "expected_result"));
+
+  verify_count(dirname, method, args, C4_CHAIN_MAINNET, 1, flags, expected_result);
+
+  free(method);
+  free(args);
+  free(expected_result);
+  free(test_content.data);
 }
