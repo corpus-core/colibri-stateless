@@ -50,22 +50,25 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   ssz_add_builders(&eth_account_proof, "state_proof", eth_state_proof);
 
   // build the data
-
-  if (strcmp(ctx->method, "eth_getBalance") == 0) {
-    eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_UINT256);
-    ssz_add_uint256(&eth_data, json_as_bytes(json_get(eth_proof, "balance"), &tmp));
-  }
-  else if (strcmp(ctx->method, "eth_getCode") == 0) {
+  if (strcmp(ctx->method, "eth_getCode") == 0) {
+    // the code is always included
     eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES);
     json_as_bytes(json_code, &eth_data.fixed);
   }
-  else if (strcmp(ctx->method, "eth_getNonce") == 0) {
-    eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_UINT256);
-    ssz_add_uint256(&eth_data, json_as_bytes(json_get(eth_proof, "nonce"), &tmp));
-  }
-  else if (strcmp(ctx->method, "eth_getStorageAt") == 0) {
-    eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_UINT256);
-    ssz_add_uint256(&eth_data, json_as_bytes(json_get(json_at(json_get(eth_proof, "storageProof"), 0), "value"), &tmp));
+  else if (ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA) {
+    // the data is only included if the flag is set
+    if (strcmp(ctx->method, "eth_getBalance") == 0) {
+      eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_UINT256);
+      ssz_add_uint256(&eth_data, json_as_bytes(json_get(eth_proof, "balance"), &tmp));
+    }
+    else if (strcmp(ctx->method, "eth_getNonce") == 0) {
+      eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_UINT256);
+      ssz_add_uint256(&eth_data, json_as_bytes(json_get(eth_proof, "nonce"), &tmp));
+    }
+    else if (strcmp(ctx->method, "eth_getStorageAt") == 0) {
+      eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_UINT256);
+      ssz_add_uint256(&eth_data, json_as_bytes(json_get(json_at(json_get(eth_proof, "storageProof"), 0), "value"), &tmp));
+    }
   }
 
   ctx->proof = eth_create_proof_request(

@@ -7,7 +7,7 @@
 static const char* eth_account_methods[] = {
     "eth_getBalance",
     "eth_getCode",
-    "eth_getNonce",
+    "eth_getTransactionCount",
     "eth_getProof",
     "eth_getStorageAt",
     NULL};

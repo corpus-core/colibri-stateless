@@ -1,4 +1,5 @@
 
+#include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_account.h"
@@ -29,6 +30,28 @@ static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_accou
   bytes_t   req_address    = json_as_bytes(json_at(ctx->args, 0), &address_buf);
   if (req_address.data && (req_address.len != 20 || memcmp(req_address.data, verified_address, 20) != 0)) RETURN_VERIFY_ERROR(ctx, "proof does not match the address in request");
   if (!data.def) RETURN_VERIFY_ERROR(ctx, "invalid data!");
+  if (data.def->type == SSZ_TYPE_NONE) {
+    switch (field) {
+      case ETH_ACCOUNT_CODE_HASH: RETURN_VERIFY_ERROR(ctx, "no code included!");
+      case ETH_ACCOUNT_STORAGE_HASH: {
+        ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_HASH32);
+        buffer_append(&builder.fixed, bytes(value, 32));
+        ctx->data = ssz_builder_to_bytes(&builder);
+        break;
+      }
+      case ETH_ACCOUNT_BALANCE:
+      case ETH_ACCOUNT_NONCE: {
+        ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+        ssz_add_uint256(&builder, bytes(value, 32));
+        ctx->data = ssz_builder_to_bytes(&builder);
+        break;
+      }
+      default:
+        RETURN_VERIFY_ERROR(ctx, "invalid data!");
+    }
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+    data = ctx->data;
+  }
 
   memset(expected_value, 0, 32);
   if (field == ETH_ACCOUNT_CODE_HASH)
