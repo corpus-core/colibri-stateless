@@ -11,7 +11,12 @@
 #include "unity.h"
 #include "verify.h"
 
+#ifdef _MSC_VER
+#include <windows.h>
+#else
 #include <dirent.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,6 +104,49 @@ static bytes_t read_testdata(const char* filename) {
 }
 
 static void set_state(chain_id_t chain_id, char* dirname) {
+#ifdef _MSC_VER
+  // Windows-specific implementation
+  char dir_path[2024];
+  sprintf(dir_path, "%s/%s", TESTDATA_DIR, dirname);
+
+  // Convert forward slashes to backslashes for Windows
+  for (char* p = dir_path; *p; p++) {
+    if (*p == '/') *p = '\\';
+  }
+
+  // Add wildcard for FindFirstFile
+  char search_path[2048];
+  sprintf(search_path, "%s\\*", dir_path);
+
+  WIN32_FIND_DATAA find_data;
+  HANDLE           find_handle = FindFirstFileA(search_path, &find_data);
+
+  if (find_handle == INVALID_HANDLE_VALUE) return;
+
+  do {
+    char* filename = find_data.cFileName;
+
+    // Skip files containing a period
+    if (strchr(filename, '.') != NULL) continue;
+
+    // Skip . and .. directory entries
+    if (strcmp(filename, ".") == 0 || strcmp(filename, "..") == 0) continue;
+
+    // Read the file content
+    char rel_path[1024];
+    sprintf(rel_path, "%s/%s", dirname, filename);
+    bytes_t content = read_testdata(rel_path);
+
+    if (content.data) {
+      // Store in file cache
+      file_set(filename, content);
+      free(content.data);
+    }
+  } while (FindNextFileA(find_handle, &find_data));
+
+  FindClose(find_handle);
+#else
+  // Unix/Linux implementation
   char dir_path[2024];
   sprintf(dir_path, "%s/%s", TESTDATA_DIR, dirname);
 
@@ -128,6 +176,7 @@ static void set_state(chain_id_t chain_id, char* dirname) {
   }
 
   closedir(dir);
+#endif
 }
 static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, proofer_flags_t flags, char* expected_result) {
   char tmp[1024];
