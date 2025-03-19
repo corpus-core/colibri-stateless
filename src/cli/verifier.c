@@ -24,6 +24,7 @@ int main(int argc, char* argv[]) {
   chain_id_t chain_id       = C4_CHAIN_MAINNET;
   buffer_t   args           = {0};
   char*      input          = NULL;
+  char*      test_dir       = NULL;
   buffer_t   trusted_blocks = {0};
   buffer_add_chars(&args, "[");
   buffer_add_chars(&trusted_blocks, "[");
@@ -40,9 +41,9 @@ int main(int argc, char* argv[]) {
             bprintf(&trusted_blocks, "\"%s\"", argv[++i]);
             break;
 #ifdef TEST
-#ifdef CURL
+#ifdef USE_CURL
           case 't':
-            curl_set_test_dir(argv[++i]);
+            test_dir = curl_set_test_dir(argv[++i]);
             break;
 #endif
 #endif
@@ -88,6 +89,14 @@ int main(int argc, char* argv[]) {
   }
 #endif
   if (ctx.success) {
+    if (test_dir) {
+      char* filename = bprintf(NULL, "%s/test.json", test_dir);
+      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"expected_result\": %Z\n}",
+                               method, args, chain_id, ctx.data);
+      bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
+      free(filename);
+      free(content);
+    }
     ssz_dump_to_file(stdout, ctx.data, false, true);
     fflush(stdout);
     return EXIT_SUCCESS;

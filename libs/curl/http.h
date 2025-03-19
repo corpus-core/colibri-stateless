@@ -12,8 +12,8 @@ void curl_fetch_all(c4_state_t* state);
 void curl_set_config(json_t config);
 
 #ifdef TEST
-void curl_set_test_dir(const char* dir);
-void curl_set_cache_dir(const char* dir);
+char* curl_set_test_dir(const char* dir);
+void  curl_set_cache_dir(const char* dir);
 #endif
 
 #ifdef __cplusplus

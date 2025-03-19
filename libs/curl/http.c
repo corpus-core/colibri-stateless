@@ -60,10 +60,12 @@ static void  test_write_file(const char* filename, bytes_t data) {
   buffer_free(&buf);
 }
 
-void curl_set_test_dir(const char* dir) {
+char* curl_set_test_dir(const char* dir) {
   buffer_t buf = {0};
   REQ_TEST_DIR = bprintf(&buf, "%s/%s", TESTDATA_DIR, dir);
   MKDIR(REQ_TEST_DIR);
+  setenv("C4_STATES_DIR", REQ_TEST_DIR, true);
+  return REQ_TEST_DIR;
   //  if (MKDIR(REQ_TEST_DIR) != 0) perror("Error creating directory");
 }
 #endif
