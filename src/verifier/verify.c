@@ -2,6 +2,7 @@
 #include "../util/json.h"
 #include "../util/ssz.h"
 #include VERIFIERS_PATH
+#include <stdlib.h>
 #include <string.h>
 
 const ssz_def_t* c4_get_request_type(chain_type_t chain_type) {
@@ -49,4 +50,12 @@ chain_type_t c4_get_chain_type_from_req(bytes_t request) {
 
 const ssz_def_t* c4_get_req_type_from_req(bytes_t request) {
   return c4_get_request_type(c4_get_chain_type_from_req(request));
+}
+
+void c4_verify_free_data(verify_ctx_t* ctx) {
+  if (ctx->flags & VERIFY_FLAG_FREE_DATA) {
+    free(ctx->data.bytes.data);
+    ctx->data.bytes.data = NULL;
+  }
+  c4_state_free(&ctx->state);
 }

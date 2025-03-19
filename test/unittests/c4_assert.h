@@ -182,6 +182,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
       }
     }
     TEST_ASSERT_TRUE_MESSAGE(success, "not able to verify"); //    TEST_FAIL_MESSAGE("not able to verify");
+    c4_verify_free_data(&verify_ctx);
   }
   c4_proofer_free(proof_ctx);
 }

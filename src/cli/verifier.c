@@ -80,11 +80,7 @@ int main(int argc, char* argv[]) {
       status == C4_PENDING;
       status = c4_verify(&ctx))
 #ifdef USE_CURL
-    for (
-        data_request_t* req = c4_state_get_pending_request(&ctx.state);
-        req;
-        req = c4_state_get_pending_request(&ctx.state))
-      curl_fetch(req);
+    curl_fetch_all(&ctx.state);
 #else
   {
     fprintf(stderr, "require data, but no curl installed");

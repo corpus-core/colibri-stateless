@@ -10,6 +10,7 @@ extern "C" {
 
 typedef enum {
   C4_PROOFER_FLAG_INCLUDE_CODE = 1 << 0,
+  C4_PROOFER_FLAG_INCLUDE_DATA = 1 << 1,
 } proofer_flag_types_t;
 
 typedef uint32_t proofer_flags_t;

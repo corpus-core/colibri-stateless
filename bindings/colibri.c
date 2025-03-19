@@ -183,6 +183,6 @@ void verify_free_ctx(void* ptr) {
   if (ctx->trusted_blocks.start) free((char*) ctx->trusted_blocks.start);
   if (ctx->ctx.method) free((char*) ctx->ctx.method);
   if (ctx->ctx.args.start) free((char*) ctx->ctx.args.start);
-  c4_state_free(&(ctx->ctx.state));
+  c4_verify_free_data(&(ctx->ctx));
   free(ctx);
 }

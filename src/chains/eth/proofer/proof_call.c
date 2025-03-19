@@ -32,7 +32,7 @@ static c4_status_t create_eth_call_proof(proofer_ctx_t* ctx, ssz_builder_t accou
   buffer_t      tmp             = {0};
   ssz_builder_t eth_call_proof  = ssz_builder_for_type(ETH_SSZ_VERIFY_CALL_PROOF);
   ssz_builder_t eth_state_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
-  ssz_builder_t eth_data        = ssz_builder_for_type(ETH_SSZ_DATA_BYTES);
+  ssz_builder_t eth_data        = ssz_builder_for_type(ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA ? ETH_SSZ_DATA_BYTES : ETH_SSZ_DATA_NONE);
 
   // build the state proof
   ssz_add_bytes(&eth_state_proof, "state_proof", state_proof);
@@ -44,8 +44,8 @@ static c4_status_t create_eth_call_proof(proofer_ctx_t* ctx, ssz_builder_t accou
   ssz_add_builders(&eth_call_proof, "accounts", account_proofs);
   ssz_add_builders(&eth_call_proof, "state_proof", eth_state_proof);
 
-  // build the data
-  json_as_bytes(call_result, &eth_data.fixed);
+  // build the data if data is included
+  if (ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA) json_as_bytes(call_result, &eth_data.fixed);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
@@ -107,6 +107,11 @@ static c4_status_t get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, u
   json_for_each_property(trace, values, account) accounts_len++;
 
   json_for_each_property(trace, values, account) {
+    hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
+    if (bytes_all_zero(bytes(address, 20))) {
+      accounts_len--;
+      continue;
+    }
     buffer_t keys = {0};
     bprintf(&keys, "[");
     json_t  storage = json_get(values, "storage");
@@ -134,12 +139,13 @@ static c4_status_t get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, u
     if (res == C4_SUCCESS) add_account(
         ctx,
         builder, eth_proof,
-        bytes(address, hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)))),
+        bytes(address, 20),
         code,
         accounts_len);
   }
 
-  TRY_ADD_ASYNC(status, eth_call(ctx, tx, call_result, block_number));
+  if (ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA)
+    TRY_ADD_ASYNC(status, eth_call(ctx, tx, call_result, block_number));
 
   return status;
 }

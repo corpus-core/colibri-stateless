@@ -20,6 +20,7 @@ int main(int argc, char* argv[]) {
                     "  -x <cachedir>   : caches all reguests in the cache directory\n"
                     "  -o <outputfile> : ssz file with the proof ( default to stdout )\n"
                     "  -i              : include code in the proof\n"
+                    "  -d              : include data in the proof\n"
                     "\n",
             argv[0]);
     exit(EXIT_FAILURE);
@@ -44,6 +45,9 @@ int main(int argc, char* argv[]) {
             break;
           case 'i':
             flags |= C4_PROOFER_FLAG_INCLUDE_CODE;
+            break;
+          case 'd':
+            flags |= C4_PROOFER_FLAG_INCLUDE_DATA;
             break;
 #ifdef TEST
 #ifdef USE_CURL
@@ -90,14 +94,12 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
 
       case C4_PENDING:
-        while ((req = c4_state_get_pending_request(&ctx->state))) {
 #ifdef USE_CURL
-          curl_fetch(req);
+        curl_fetch_all(&ctx->state);
 #else
-          if (req) fprintf(stderr, "CURL not enabled\n");
-          exit(EXIT_FAILURE);
+        if (req) fprintf(stderr, "CURL not enabled\n");
+        exit(EXIT_FAILURE);
 #endif
-        }
         break;
     }
   }

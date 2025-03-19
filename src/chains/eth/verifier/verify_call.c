@@ -1,3 +1,4 @@
+#include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_account.h"
@@ -48,7 +49,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   ssz_ob_t     sync_committee_signature = ssz_get(&state_proof, "sync_committee_signature");
   bytes_t      call_result              = NULL_BYTES;
   call_code_t* call_codes               = NULL;
-
+  bool         match                    = false;
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
 
   if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) return false;
@@ -57,12 +58,18 @@ bool verify_call_proof(verify_ctx_t* ctx) {
 #else
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
-  bool match = call_result.data && bytes_eq(call_result, ctx->data.bytes);
+  if (call_result.data && (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE)) {
+    ctx->data = (ssz_ob_t) {.bytes = call_result, .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+    match = true;
+  }
+  else {
+    match = call_result.data && bytes_eq(call_result, ctx->data.bytes);
+    free(call_result.data);
+  }
   eth_free_codes(call_codes);
-  free(call_result.data);
   if (call_status != C4_SUCCESS) return false;
   if (!match) RETURN_VERIFY_ERROR(ctx, "Call result mismatch");
-
   if (!verify_accounts(ctx, accounts, state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
   ssz_verify_single_merkle_proof(state_merkle_proof.bytes, state_root, STATE_ROOT_GINDEX, body_root);
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
