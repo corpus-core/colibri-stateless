@@ -77,8 +77,7 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&buffer, "]");
 
-  proofer_ctx_t*  ctx = c4_proofer_create(method, (char*) buffer.data.data, chain_id, flags);
-  data_request_t* req;
+  proofer_ctx_t* ctx = c4_proofer_create(method, (char*) buffer.data.data, chain_id, flags);
   while (true) {
     switch (c4_proofer_execute(ctx)) {
       case C4_SUCCESS:
@@ -97,7 +96,7 @@ int main(int argc, char* argv[]) {
 #ifdef USE_CURL
         curl_fetch_all(&ctx->state);
 #else
-        if (req) fprintf(stderr, "CURL not enabled\n");
+        fprintf(stderr, "CURL not enabled\n");
         exit(EXIT_FAILURE);
 #endif
         break;
