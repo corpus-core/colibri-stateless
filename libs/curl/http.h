@@ -8,6 +8,7 @@ extern "C" {
 #include "../../src/proofer/proofer.h"
 
 void curl_fetch(data_request_t* req);
+void curl_fetch_all(c4_state_t* state);
 void curl_set_config(json_t config);
 
 #ifdef TEST
