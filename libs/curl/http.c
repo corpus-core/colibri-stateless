@@ -244,22 +244,138 @@ void curl_set_config(json_t config) {
 }
 
 void curl_fetch_all(c4_state_t* state) {
-  int len = 0;
-  int i   = 0;
-  for (data_request_t* req = state->requests; req; req = req->next) {
-    if (req->response.data == NULL && req->error == NULL) len++;
-  }
-  curl_request_t* requests = calloc(len, sizeof(curl_request_t));
-  for (data_request_t* req = state->requests; req; req = req->next) {
-    if (req->response.data || req->error) continue;
-    requests[i].request = req;
-    i++;
-  }
+  bool retry = true;
 
-  for (i = 0; i < len; i++) {
-    curl_handle(&requests[i]);
-    curl_request_free(&requests[i]);
-  }
+  while (retry) {
+    retry               = false;
+    CURLM* multi_handle = curl_multi_init();
+    if (!multi_handle) return;
 
-  free(requests);
+    int running_handles = 0;
+    int request_count   = 0;
+
+    // Set up all requests that need processing and add them to the multi handle
+    for (data_request_t* req = state->requests; req; req = req->next) {
+      if (req->response.data) continue; // Skip if already has response
+
+      curl_request_t* creq = (curl_request_t*) malloc(sizeof(curl_request_t));
+      if (!creq) continue;
+
+      memset(creq, 0, sizeof(curl_request_t));
+      creq->request = req;
+
+      if (!configure_request(creq)) {
+        free(creq);
+        continue;
+      }
+
+      if (!configure_curl(creq)) {
+        curl_request_free(creq);
+        free(creq);
+        continue;
+      }
+
+      curl_multi_add_handle(multi_handle, creq->curl);
+      curl_easy_setopt(creq->curl, CURLOPT_PRIVATE, creq);
+      request_count++;
+    }
+
+    // Only proceed if we have requests to process
+    if (request_count > 0) {
+      // Start the transfers
+      curl_multi_perform(multi_handle, &running_handles);
+
+      // Wait for all transfers to complete
+      while (running_handles) {
+        int       numfds = 0;
+        CURLMcode mc     = curl_multi_wait(multi_handle, NULL, 0, 1000, &numfds);
+        if (mc != CURLM_OK) break;
+
+        // Check if any transfers are complete
+        curl_multi_perform(multi_handle, &running_handles);
+      }
+
+      // Process results
+      CURLMsg* message;
+      int      pending;
+
+      while ((message = curl_multi_info_read(multi_handle, &pending))) {
+        if (message->msg == CURLMSG_DONE) {
+          CURL*           easy_handle = message->easy_handle;
+          curl_request_t* creq        = NULL;
+
+          curl_easy_getinfo(easy_handle, CURLINFO_PRIVATE, &creq);
+
+          if (creq) {
+            if (message->data.result == CURLE_OK) {
+              // Success case
+              creq->request->response = creq->buffer.data;
+              creq->buffer            = (buffer_t) {0};
+#ifdef TEST
+              if (creq->request->response.data && REQ_TEST_DIR) {
+                char* test_filename = c4_req_mockname(creq->request);
+                test_write_file(test_filename, creq->request->response);
+                free(test_filename);
+              }
+              if (cache_dir && creq->request->response.data) write_cache(creq->request);
+#endif
+            }
+            else {
+              // Error case - store error but mark for retry if possible
+              char* error_msg = bprintf(NULL, "%s : %s", curl_easy_strerror(message->data.result), bprintf(&creq->buffer, " "));
+
+              // Check if we need to keep retrying with different nodes
+              if (creq->request->type != C4_DATA_TYPE_REST_API) {
+                json_t servers = {0};
+
+                // Get the appropriate server list
+                switch (creq->request->type) {
+                  case C4_DATA_TYPE_ETH_RPC:
+                    servers = json_get(curl_config.config, "eth_rpc");
+                    break;
+                  case C4_DATA_TYPE_BEACON_API:
+                    servers = json_get(curl_config.config, "beacon_api");
+                    break;
+                  default:
+                    break;
+                }
+
+                // Calculate if we have more nodes to try
+                int node_count = 0;
+                json_for_each_value(servers, server) {
+                  node_count++;
+                }
+
+                // If we have more nodes to try
+                if (creq->request->response_node_index < node_count) {
+                  // Store this error as the last error
+                  if (creq->request->error) free(creq->request->error);
+                  creq->request->error = error_msg;
+
+                  // We need to retry
+                  retry = true;
+                }
+                else {
+                  // No more nodes to try, set final error
+                  creq->request->error = error_msg;
+                }
+              }
+              else {
+                // REST API doesn't retry with different nodes
+                creq->request->error = error_msg;
+              }
+            }
+
+            curl_multi_remove_handle(multi_handle, easy_handle);
+            free(creq->url);
+            buffer_free(&creq->buffer);
+            curl_easy_cleanup(easy_handle);
+            free(creq);
+          }
+        }
+      }
+    }
+
+    curl_multi_cleanup(multi_handle);
+  }
 }
