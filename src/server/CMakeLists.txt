@@ -1,4 +1,8 @@
-add_executable(server server.c)
+add_executable(server 
+  server.c
+  handlers.c
+  http_client.c
+)
 set_target_properties(server PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
