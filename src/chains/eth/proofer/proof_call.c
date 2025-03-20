@@ -97,21 +97,22 @@ static void add_account(proofer_ctx_t* ctx, ssz_builder_t* builder, json_t value
   buffer_free(&buf);
 }
 
-static c4_status_t get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, json_t* call_result) {
+static c4_status_t get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner, json_t* call_result) {
   c4_status_t status       = C4_SUCCESS;
   json_t      eth_proof    = {0};
   bytes_t     account      = {0};
   uint8_t     address[20]  = {0};
   int         accounts_len = 0;
 
-  json_for_each_property(trace, values, account) accounts_len++;
+  json_for_each_property(trace, values, account) {
+    hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
+    if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
+    accounts_len++;
+  }
 
   json_for_each_property(trace, values, account) {
     hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
-    if (bytes_all_zero(bytes(address, 20))) {
-      accounts_len--;
-      continue;
-    }
+    if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
     buffer_t keys = {0};
     bprintf(&keys, "[");
     json_t  storage = json_get(values, "storage");
@@ -161,9 +162,10 @@ c4_status_t c4_proof_call(proofer_ctx_t* ctx) {
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
   uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
+  bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;
   //  log_info("target_block: %l", target_block);
   TRY_ASYNC(eth_debug_trace_call(ctx, tx, &trace, target_block));
-  TRY_ASYNC_CATCH(get_eth_proofs(ctx, tx, trace, target_block, &accounts, &call_result), ssz_buffer_free(&accounts));
+  TRY_ASYNC_CATCH(get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data, &call_result), ssz_buffer_free(&accounts));
 
   return create_eth_call_proof(
       ctx, accounts, call_result, &block, body_root,
