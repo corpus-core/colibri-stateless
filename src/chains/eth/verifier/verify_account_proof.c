@@ -34,6 +34,7 @@ static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_accou
     switch (field) {
       case ETH_ACCOUNT_CODE_HASH: RETURN_VERIFY_ERROR(ctx, "no code included!");
       case ETH_ACCOUNT_STORAGE_HASH: {
+
         ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_HASH32);
         buffer_append(&builder.fixed, bytes(value, 32));
         ctx->data = ssz_builder_to_bytes(&builder);

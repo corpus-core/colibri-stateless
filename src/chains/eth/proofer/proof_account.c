@@ -26,6 +26,20 @@ static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, cha
   buffer_free(&tmp);
 }
 
+static ssz_builder_t create_storage_proof(proofer_ctx_t* ctx, const ssz_def_t* def, json_t storage_list) {
+  ssz_builder_t storage_proof = {.def = def};
+  bytes32_t     tmp;
+  buffer_t      tmp_buffer = stack_buffer(tmp);
+  int           len        = json_len(storage_list);
+  json_for_each_value(storage_list, entry) {
+    ssz_builder_t storage_builder = {.def = def->def.vector.type};
+    ssz_add_bytes(&storage_builder, "key", json_as_bytes(json_get(entry, "key"), &tmp_buffer));
+    add_dynamic_byte_list(json_get(entry, "proof"), &storage_builder, "proof");
+    ssz_add_dynamic_list_builders(&storage_proof, len, storage_builder);
+  }
+  return storage_proof;
+}
+
 static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof, beacon_block_t* block_data, bytes32_t body_root, bytes_t state_proof, json_t address) {
 
   json_t        json_code         = {0};
@@ -46,7 +60,7 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   // build the account proof
   add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &eth_account_proof, "accountProof");
   ssz_add_bytes(&eth_account_proof, "address", json_as_bytes(address, &tmp));
-  ssz_add_bytes(&eth_account_proof, "storageProof", bytes(tmp.data.data, 0)); // for now, we add an empty list
+  ssz_add_builders(&eth_account_proof, "storageProof", create_storage_proof(ctx, ssz_get_def(eth_account_proof.def, "storageProof"), json_get(eth_proof, "storageProof")));
   ssz_add_builders(&eth_account_proof, "state_proof", eth_state_proof);
 
   // build the data
@@ -66,8 +80,10 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
       ssz_add_uint256(&eth_data, json_as_bytes(json_get(eth_proof, "nonce"), &tmp));
     }
     else if (strcmp(ctx->method, "eth_getStorageAt") == 0) {
-      eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_UINT256);
-      ssz_add_uint256(&eth_data, json_as_bytes(json_get(json_at(json_get(eth_proof, "storageProof"), 0), "value"), &tmp));
+      eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_HASH32);
+      bytes_t val  = json_as_bytes(json_get(json_at(json_get(eth_proof, "storageProof"), 0), "value"), &tmp);
+      if (val.len < 32) buffer_append(&eth_data.fixed, bytes(NULL, 32 - val.len));
+      buffer_append(&eth_data.fixed, val);
     }
   }
 
@@ -92,7 +108,7 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
   bytes32_t      body_root;
 
   if (is_storage_at)
-    CHECK_JSON(ctx->params, "[address,[bytes32],block]", "Invalid arguments for eth_getStorageAt: ");
+    CHECK_JSON(ctx->params, "[address,bytes32,block]", "Invalid arguments for eth_getStorageAt: ");
   else
     CHECK_JSON(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
 

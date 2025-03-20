@@ -31,7 +31,8 @@ static bool is_equal(ssz_ob_t expect, bytes_t* list, int index) {
   return value.len == exp.len && memcmp(exp.data, value.data, exp.len) == 0;
 }
 
-static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash) {
+static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash, bytes32_t value) {
+  if (value) memset(value, 0, 32);
   int len = ssz_len(storage_proofs);
   if (len != 0 && memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0) RETURN_VERIFY_ERROR(ctx, "invalid storage proof because an empty storage hash can not have values!");
   for (int i = 0; i < len; i++) {
@@ -44,6 +45,8 @@ static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t
     keccak(key.bytes, path);
     if (patricia_verify(root, bytes(path, 32), proof, &leaf) == PATRICIA_INVALID) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
     if (memcmp(root, storage_hash, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid storage root!");
+    if (value && i == 0 && rlp_decode(&leaf, 0, &leaf) == RLP_ITEM)
+      memcpy(value + 32 - leaf.len, leaf.data, leaf.len);
   }
 
   return true;
@@ -90,7 +93,7 @@ bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t
     }
   }
 
-  if (!verify_storage(ctx, ssz_get(proof, "storageProof"), storage_hash)) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
+  if (!verify_storage(ctx, ssz_get(proof, "storageProof"), storage_hash, field == ETH_ACCOUNT_STORAGE_HASH ? value : NULL)) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
 
   return true;
 }
