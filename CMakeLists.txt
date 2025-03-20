@@ -11,6 +11,7 @@ option(PROOFER_CACHE "Caches blockhashes and maps)" OFF)
 option(CHAIN_ETH "includes all ETH engine" ON)
 option(EVMONE "if true evmone is included in the build" ON)
 option(EVMLIGHT "if true evmlight is included in the build" OFF)
+option(SERVER "if true, the server is included in the build" OFF)
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
