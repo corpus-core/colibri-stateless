@@ -20,14 +20,14 @@ option(TEST "Build tests" OFF)
 option(COVERAGE "Enable coverage" OFF)
 option(SHAREDLIB "Build shared library" OFF)
 option(STATIC_MEMORY "if true, the memory will be statically allocated (only for embedded systems)" OFF)
-
 # precompiles
 option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
 
 # Additional include path (for embedded targets etc)
 set(INCLUDE "" CACHE STRING "Additional directory to include in build")
 
-
+# Add option for the HTTP server
+option(HTTP_SERVER "Build the HTTP server using libuv and llhttp" OFF)
 
 if (EVMLIGHT OR EVMONE)
     if (EVMONE) 

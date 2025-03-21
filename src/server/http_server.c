@@ -1,0 +1,164 @@
+#include "llhttp.h"
+#include "server.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <uv.h>
+
+static http_handler* handlers = NULL;
+static int           handlers_count;
+
+void c4_register_http_handler(http_handler handler) {
+  handlers                   = realloc(handlers, (handlers_count + 1) * sizeof(http_handler));
+  handlers[handlers_count++] = handler;
+}
+
+static void on_close(uv_handle_t* handle) {
+  client_t* client = (client_t*) handle->data;
+  free(client->request.path);
+  free(client->request.content_type);
+  free(client->request.accept);
+  free(client->request.payload);
+  free(client);
+}
+
+static int on_url(llhttp_t* parser, const char* at, size_t length) {
+  client_t* client     = parser->data;
+  client->request.path = strndup(at, length);
+  return 0;
+}
+
+static int on_method(llhttp_t* parser, const char* at, size_t length) {
+  client_t* client = parser->data;
+  if (strncasecmp(at, "GET", length) == 0)
+    client->request.method = C4_DATA_METHOD_GET;
+  else if (strncasecmp(at, "POST", length) == 0)
+    client->request.method = C4_DATA_METHOD_POST;
+  else if (strncasecmp(at, "PUT", length) == 0)
+    client->request.method = C4_DATA_METHOD_PUT;
+  else if (strncasecmp(at, "DELETE", length) == 0)
+    client->request.method = C4_DATA_METHOD_DELETE;
+
+  return 0;
+}
+
+static int on_header_field(llhttp_t* parser, const char* at, size_t length) {
+  client_t* client = parser->data;
+  strncpy(client->current_header, at, length);
+  client->current_header[length] = '\0';
+  return 0;
+}
+
+static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
+  client_t* client = parser->data;
+  if (strcasecmp(client->current_header, "Content-Type") == 0) {
+    client->request.content_type = strndup(at, length);
+  }
+  else if (strcasecmp(client->current_header, "Accept") == 0) {
+    client->request.accept = strndup(at, length);
+  }
+  return 0;
+}
+
+static int on_body(llhttp_t* parser, const char* at, size_t length) {
+  client_t* client        = parser->data;
+  client->request.payload = malloc(length);
+  memcpy(client->request.payload, at, length);
+  client->request.payload_len = length;
+  return 0;
+}
+
+static char* method_str(data_request_method_t method) {
+  switch (method) {
+    case C4_DATA_METHOD_GET:
+      return "GET";
+    case C4_DATA_METHOD_POST:
+      return "POST";
+    case C4_DATA_METHOD_PUT:
+      return "PUT";
+    case C4_DATA_METHOD_DELETE:
+      return "DELETE";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+static int on_message_complete(llhttp_t* parser) {
+  client_t* client = parser->data;
+  printf("[%s] %s (%d)\n", method_str(client->request.method), client->request.path, (int) client->request.payload_len);
+  for (int i = 0; i < handlers_count; i++) {
+    if (handlers[i](client)) {
+      return 0;
+    }
+  }
+  c4_http_respond(client, 405, "text/plain", bytes("Method not allowed", 19));
+  return 0;
+}
+
+static void alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
+  buf->base = malloc(suggested_size);
+  buf->len  = suggested_size;
+}
+
+static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
+  if (nread > 0) {
+    client_t* client = stream->data;
+    llhttp_execute(&client->parser, buf->base, nread);
+  }
+  else if (nread < 0) {
+    uv_close((uv_handle_t*) stream, on_close);
+  }
+  free(buf->base);
+}
+
+static char* status_text(int status) {
+  switch (status) {
+    case 200:
+      return "OK";
+    case 404:
+      return "Not Found";
+    case 400:
+      return "Bad Request";
+    case 401:
+      return "Unauthorized";
+    case 403:
+      return "Forbidden";
+    default:
+      return "Internal Server Error";
+  }
+}
+
+void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body) {
+  char     tmp[500];
+  uv_buf_t uvbuf[] = {
+      {.base = tmp, .len = 0},
+      {.base = (char*) body.data, .len = body.len}};
+  uvbuf[0].len = snprintf(tmp, sizeof(tmp), "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n", status, status_text(status), content_type, body.len);
+  uv_write(&client->write_req, (uv_stream_t*) &client->handle, uvbuf, 2, NULL);
+  uv_close((uv_handle_t*) &client->handle, on_close);
+}
+
+void c4_on_new_connection(uv_stream_t* server, int status) {
+  uv_loop_t* loop   = server->loop;
+  client_t*  client = calloc(1, sizeof(client_t));
+  uv_tcp_init(loop, &client->handle);
+  client->handle.data = client;
+
+  llhttp_settings_init(&client->settings);
+  client->settings.on_url              = on_url;
+  client->settings.on_method           = on_method;
+  client->settings.on_header_field     = on_header_field;
+  client->settings.on_header_value     = on_header_value;
+  client->settings.on_body             = on_body;
+  client->settings.on_message_complete = on_message_complete;
+
+  llhttp_init(&client->parser, HTTP_REQUEST, &client->settings);
+  client->parser.data = client;
+
+  if (uv_accept(server, (uv_stream_t*) &client->handle) == 0) {
+    uv_read_start((uv_stream_t*) &client->handle, alloc_buffer, on_read);
+  }
+  else {
+    uv_close((uv_handle_t*) &client->handle, on_close);
+  }
+}
