@@ -14,3 +14,7 @@ endif()
 if(EVMONE)
     add_subdirectory(evmone)
 endif()
+
+if (SERVER)
+    add_subdirectory(civetweb)
+endif()

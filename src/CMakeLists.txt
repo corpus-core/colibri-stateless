@@ -13,3 +13,7 @@ add_subdirectory(chains)
 if(CLI)
     add_subdirectory(cli)
 endif()
+
+if (SERVER)
+    add_subdirectory(server)
+endif()
