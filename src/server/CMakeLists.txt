@@ -5,6 +5,7 @@ add_executable(server
   http_client.c
   http_server.c
   proof_handler.c
+  cache.c
 )
 
 target_link_libraries(server PRIVATE libuv llhttp proofer util verifier CURL::libcurl)

@@ -9,6 +9,7 @@ bindings/kotlin/lib/build
 bindings/kotlin/.gradle
 test/embedded/sdcard.img
 test/embedded/memory_map.txt
+/.memcached
 
 /build_x86
 /build_*
