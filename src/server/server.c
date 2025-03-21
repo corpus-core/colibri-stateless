@@ -46,16 +46,20 @@ int main(void) {
   // Set up the endpoint handlers
   mg_set_request_handler(ctx, "/api/", lodestar_api_handler, NULL);
   mg_set_request_handler(ctx, "/test", test_api_handler, NULL);
+  mg_set_request_handler(ctx, "/statemachine", statemachine_handler, NULL);
 
   printf("Server started on port 8080\n");
   printf("Try accessing: http://localhost:8080/api/blocks/head\n");
   printf("Or test with:  http://localhost:8080/test\n");
+  printf("Try state machine demo: http://localhost:8080/statemachine\n");
   printf("Press Enter to stop the server\n");
+  printf("All HTTP handlers use non-blocking callbacks allowing multiple parallel requests\n");
 
   // Main event loop - process pending requests and check for Enter key
   int running = 1;
   while (running) {
-    // Process any pending HTTP client requests
+    // Process any pending HTTP client requests - this is where callbacks are invoked
+    // when response data becomes available from remote servers
     process_pending_requests();
 
     // Check if there's input waiting

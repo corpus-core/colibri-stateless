@@ -1,123 +1,101 @@
 #include "handlers.h"
 #include "http_client.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-// Direct HTTP request to a test API that's known to work
-int test_api_handler(struct mg_connection* conn, void* cbdata) {
-  // Buffer to store the response
-  char*  response_buffer      = NULL;
-  size_t response_buffer_size = 0;
+// Callback for test_api_handler
+static void test_api_callback(http_client_status_t status, struct pending_request* req, void* user_data) {
+  struct mg_connection* conn = (struct mg_connection*) user_data;
 
-  // Try connecting to a simple test API
-  char                  error_buffer[256] = {0};
-  struct mg_connection* client            = mg_download(
-      "httpbin.org", 80, 0,
-      error_buffer, sizeof(error_buffer),
-      "GET /json HTTP/1.1\r\n"
-                 "Host: httpbin.org\r\n"
-                 "User-Agent: civetweb-test/1.0\r\n"
-                 "Accept: */*\r\n"
-                 "Connection: close\r\n\r\n");
+  if (status == HTTP_CLIENT_SUCCESS) {
+    // Successfully received response
+    printf("Received response from httpbin.org\n");
 
-  if (client == NULL) {
-    printf("Error connecting to httpbin: %s\n", error_buffer);
-    mg_printf(conn,
-              "HTTP/1.1 502 Bad Gateway\r\n"
-              "Content-Type: text/plain\r\n"
-              "Connection: close\r\n\r\n"
-              "Error connecting to test API: %s",
-              error_buffer);
-    return 1;
-  }
+    // Get the response data - prefer to get just the body if possible
+    const char* body     = http_request_get_body(req);
+    size_t      body_len = http_request_get_body_length(req);
 
-  // Read the response
-  const struct mg_response_info* ri = mg_get_response_info(client);
-  if (ri) {
-    printf("Response status: %d %s\n", ri->status_code, ri->status_text);
-    for (int i = 0; i < ri->num_headers; i++) {
-      printf("Header: %s: %s\n", ri->http_headers[i].name, ri->http_headers[i].value);
-    }
-  }
-
-  // Read data from client
-  response_buffer_size = 16384;
-  response_buffer      = (char*) malloc(response_buffer_size);
-  if (!response_buffer) {
-    mg_close_connection(client);
-    mg_printf(conn,
-              "HTTP/1.1 500 Internal Server Error\r\n"
-              "Content-Type: text/plain\r\n"
-              "Connection: close\r\n\r\n"
-              "Memory allocation failed");
-    return 1;
-  }
-
-  size_t bytes_read  = 0;
-  size_t total_bytes = 0;
-  char   read_buffer[4096];
-
-  while ((bytes_read = mg_read(client, read_buffer, sizeof(read_buffer) - 1)) > 0) {
-    // Resize buffer if needed
-    if (total_bytes + bytes_read + 1 > response_buffer_size) {
-      size_t new_size   = response_buffer_size * 2;
-      char*  new_buffer = (char*) realloc(response_buffer, new_size);
-      if (!new_buffer) {
-        free(response_buffer);
-        mg_close_connection(client);
-        mg_printf(conn,
-                  "HTTP/1.1 500 Internal Server Error\r\n"
-                  "Content-Type: text/plain\r\n"
-                  "Connection: close\r\n\r\n"
-                  "Memory allocation failed");
-        return 1;
-      }
-      response_buffer      = new_buffer;
-      response_buffer_size = new_size;
-    }
-
-    // Copy data
-    memcpy(response_buffer + total_bytes, read_buffer, bytes_read);
-    total_bytes += bytes_read;
-    response_buffer[total_bytes] = '\0';
-  }
-
-  mg_close_connection(client);
-
-  // Send response to original client
-  if (total_bytes > 0) {
-    printf("Received %zu bytes from httpbin\n", total_bytes);
-
-    // Check if we have headers
-    const char* body_start = strstr(response_buffer, "\r\n\r\n");
-    if (body_start) {
-      // We have headers, forward the whole response
-      mg_write(conn, response_buffer, total_bytes);
+    // Fallback to full buffer if body extraction failed
+    if (!body || body_len == 0) {
+      body     = http_request_get_buffer(req);
+      body_len = http_request_get_buffer_length(req);
+      printf("Using full response buffer as body extraction failed\n");
     }
     else {
-      // No headers, construct our own
+      printf("Successfully extracted response body (%zu bytes)\n", body_len);
+    }
+
+    if (body && body_len > 0) {
+      // Send response to client with proper headers
       mg_printf(conn,
                 "HTTP/1.1 200 OK\r\n"
                 "Content-Type: application/json\r\n"
                 "Content-Length: %zu\r\n"
                 "Connection: close\r\n\r\n",
-                total_bytes);
-      mg_write(conn, response_buffer, total_bytes);
+                body_len);
+      mg_write(conn, body, body_len);
+    }
+    else {
+      // No data received
+      mg_printf(conn,
+                "HTTP/1.1 204 No Content\r\n"
+                "Content-Type: text/plain\r\n"
+                "Connection: close\r\n\r\n"
+                "No data received from httpbin");
     }
   }
   else {
+    // Error handling
+    const char* error_msg = "Unknown error";
+
+    switch (status) {
+      case HTTP_CLIENT_CONNECTION_ERROR:
+        error_msg = "Connection error";
+        break;
+      case HTTP_CLIENT_TIMEOUT:
+        error_msg = "Request timed out";
+        break;
+      case HTTP_CLIENT_MEMORY_ERROR:
+        error_msg = "Memory allocation failed";
+        break;
+      case HTTP_CLIENT_READ_ERROR:
+        error_msg = "Error reading from server";
+        break;
+      case HTTP_CLIENT_NO_RESPONSE:
+        error_msg = "No response from server";
+        break;
+      default:
+        error_msg = "Unknown error";
+        break;
+    }
+
     mg_printf(conn,
-              "HTTP/1.1 204 No Content\r\n"
+              "HTTP/1.1 502 Bad Gateway\r\n"
               "Content-Type: text/plain\r\n"
               "Connection: close\r\n\r\n"
-              "No data received from httpbin");
+              "Error accessing test API: %s",
+              error_msg);
   }
+}
 
-  free(response_buffer);
+// Direct HTTP request to a test API that's known to work - Non-blocking version
+int test_api_handler(struct mg_connection* conn, void* cbdata) {
+  printf("Starting test_api_handler using non-blocking approach\n");
+
+  // Start a non-blocking HTTP request with callback
+  start_http_request_cb(
+      conn,
+      "http://httpbin.org/json",
+      test_api_callback,
+      conn // Pass the original connection as user data
+  );
+
+  // Return immediately, response will be sent from the callback
   return 1;
 }
 
-// Try Lodestar API with the mg_download helper function
+// Try Lodestar API with direct mg_download call for testing
 int lodestar_api_handler(struct mg_connection* conn, void* cbdata) {
   const struct mg_request_info* ri = mg_get_request_info(conn);
 
@@ -129,129 +107,440 @@ int lodestar_api_handler(struct mg_connection* conn, void* cbdata) {
   // Extract path component after /api/
   const char* path = ri->request_uri + 5;
 
-  // Buffer to store the response
-  char*  response_buffer      = NULL;
-  size_t response_buffer_size = 0;
+  // Parse URL components for httpbin.org
+  char host[256]          = "httpbin.org";
+  int  port               = 443;
+  int  use_ssl            = 1;
+  char request_path[1024] = "/";
 
-  // Construct target URL path
-  char target_path[1024];
-  snprintf(target_path, sizeof(target_path), "/eth/v2/beacon/%s", path);
+  // Use the path from the request or default to /get
+  if (*path) {
+    snprintf(request_path, sizeof(request_path), "/%s", path);
+  }
+  else {
+    strcpy(request_path, "/get");
+  }
 
-  printf("Forwarding to: https://lodestar-mainnet.chainsafe.io%s\n", target_path);
+  printf("TESTING - Using mg_download directly: %s:%d%s (SSL: %s)\n",
+         host, port, request_path, use_ssl ? "yes" : "no");
 
-  // Try connecting using mg_download
-  char                  error_buffer[256] = {0};
-  struct mg_connection* client            = mg_download(
-      "lodestar-mainnet.chainsafe.io", 443, 1, // using SSL
-      error_buffer, sizeof(error_buffer),
-      "GET %s HTTP/1.1\r\n"
-                 "Host: lodestar-mainnet.chainsafe.io\r\n"
-                 "User-Agent: curl/8.7.1\r\n"
-                 "Accept: */*\r\n"
-                 "Connection: close\r\n\r\n",
-      target_path);
+  // NOTE: We're using mg_download directly here instead of our non-blocking implementation
+  // because our custom SSL handling in the non-blocking approach has issues.
+  // This is a temporary solution - in a production environment, we would need to:
+  // 1. Fix the SSL handling in our non-blocking implementation
+  // 2. OR implement a state machine that uses mg_download but doesn't block the main thread
+  // 3. OR use a dedicated thread pool for handling HTTPS requests
+  // The current implementation blocks the server thread while waiting for the response,
+  // which is not ideal for a production server.
 
-  if (client == NULL) {
-    printf("Error connecting to Lodestar API: %s\n", error_buffer);
+  // Try direct download with mg_download (blocking)
+  char error_buffer[256] = {0};
+
+  // Create the HTTP request
+  char request[2048];
+  snprintf(request, sizeof(request),
+           "GET %s HTTP/1.1\r\n"
+           "Host: %s\r\n"
+           "User-Agent: CivetWeb-Client/1.0\r\n"
+           "Accept: */*\r\n"
+           "Connection: close\r\n"
+           "\r\n",
+           request_path, host);
+
+  printf("Sending request:\n%s\n", request);
+
+  // Use mg_download to make the request
+  struct mg_connection* remote_conn = mg_download(
+      host,                 // Host
+      port,                 // Port
+      use_ssl,              // Use SSL
+      error_buffer,         // Error buffer
+      sizeof(error_buffer), // Error buffer size
+      "%s",                 // Format string
+      request               // The request itself
+  );
+
+  if (remote_conn == NULL) {
+    // Error handling
+    printf("Error from mg_download: %s\n", error_buffer);
     mg_printf(conn,
               "HTTP/1.1 502 Bad Gateway\r\n"
               "Content-Type: text/plain\r\n"
               "Connection: close\r\n\r\n"
-              "Error connecting to Lodestar API: %s",
+              "Error accessing API: %s",
+              error_buffer);
+    return 1;
+  }
+
+  printf("Connection established, reading response...\n");
+
+  // Read the response data
+  char response_buffer[16384] = {0};
+  int  total_bytes_read       = 0;
+  int  bytes_read;
+  int  response_code = 0;
+
+  // Read data in chunks
+  while ((bytes_read = mg_read(remote_conn,
+                               response_buffer + total_bytes_read,
+                               sizeof(response_buffer) - total_bytes_read - 1)) > 0) {
+    total_bytes_read += bytes_read;
+    response_buffer[total_bytes_read] = '\0'; // Null-terminate
+
+    printf("Read %d bytes (total: %d)\n", bytes_read, total_bytes_read);
+
+    // Check if we've got headers yet
+    if (response_code == 0) {
+      // Try to parse status code
+      if (strncmp(response_buffer, "HTTP/", 5) == 0) {
+        // Find the status code after "HTTP/x.x "
+        char* status_start = strchr(response_buffer, ' ');
+        if (status_start) {
+          response_code = atoi(status_start + 1);
+          printf("HTTP status code: %d\n", response_code);
+        }
+      }
+    }
+
+    // Check if buffer is getting full
+    if (sizeof(response_buffer) - total_bytes_read - 1 < 1024) {
+      printf("Buffer getting full, stopping\n");
+      break;
+    }
+  }
+
+  printf("Finished reading, got %d bytes total\n", total_bytes_read);
+
+  // Close the connection
+  mg_close_connection(remote_conn);
+
+  if (total_bytes_read <= 0) {
+    // No data received
+    printf("No data received\n");
+    mg_printf(conn,
+              "HTTP/1.1 502 Bad Gateway\r\n"
+              "Content-Type: text/plain\r\n"
+              "Connection: close\r\n\r\n"
+              "No data received from API");
+    return 1;
+  }
+
+  // Extract the body
+  const char* body = strstr(response_buffer, "\r\n\r\n");
+  if (body) {
+    // Normal HTTP response with headers
+    body += 4;
+    int body_size = response_buffer + total_bytes_read - body;
+    printf("Found body: %d bytes\n", body_size);
+
+    mg_printf(conn,
+              "HTTP/1.1 %d OK\r\n"
+              "Content-Type: application/json\r\n"
+              "Content-Length: %d\r\n"
+              "Connection: close\r\n\r\n",
+              response_code, body_size);
+    mg_write(conn, body, body_size);
+  }
+  else if (response_buffer[0] == '{') {
+    // Raw JSON response without headers
+    printf("Response appears to be raw JSON without headers\n");
+
+    mg_printf(conn,
+              "HTTP/1.1 %d OK\r\n"
+              "Content-Type: application/json\r\n"
+              "Content-Length: %d\r\n"
+              "Connection: close\r\n\r\n",
+              response_code, total_bytes_read);
+    mg_write(conn, response_buffer, total_bytes_read);
+  }
+  else {
+    printf("Failed to find body separator in response\n");
+    // For debugging, print part of the response
+    printf("Response preview: %.100s\n", response_buffer);
+
+    mg_printf(conn,
+              "HTTP/1.1 502 Bad Gateway\r\n"
+              "Content-Type: text/plain\r\n"
+              "Connection: close\r\n\r\n"
+              "Failed to extract response body");
+  }
+
+  return 1;
+}
+
+// State machine for handling multiple sequential HTTP requests
+typedef enum {
+  STATE_INITIAL,        // Initial state
+  STATE_FIRST_REQUEST,  // First API request in progress
+  STATE_SECOND_REQUEST, // Second API request in progress
+  STATE_DONE            // All processing complete
+} state_machine_state_t;
+
+// Context data for state machine handler
+typedef struct state_machine_context {
+  struct mg_connection* client_conn;    // Original client connection
+  state_machine_state_t state;          // Current state
+  char*                 first_response; // Buffer for first response
+  size_t                first_response_len;
+  char*                 second_response; // Buffer for second response
+  size_t                second_response_len;
+} state_machine_context_t;
+
+// Forward declaration for the state machine callbacks
+static void state_machine_first_callback(http_client_status_t status, struct pending_request* req, void* user_data);
+static void state_machine_second_callback(http_client_status_t status, struct pending_request* req, void* user_data);
+
+// First callback in the state machine
+static void state_machine_first_callback(http_client_status_t status, struct pending_request* req, void* user_data) {
+  state_machine_context_t* context = (state_machine_context_t*) user_data;
+
+  printf("First request callback - status: %d\n", status);
+
+  if (status == HTTP_CLIENT_SUCCESS) {
+    // Successfully received response from first API
+    // Try to get just the body first
+    const char* buffer     = http_request_get_body(req);
+    size_t      buffer_len = http_request_get_body_length(req);
+
+    // If body extraction failed, use full response
+    if (!buffer || buffer_len == 0) {
+      buffer     = http_request_get_buffer(req);
+      buffer_len = http_request_get_buffer_length(req);
+    }
+
+    // Store the response
+    context->first_response = (char*) malloc(buffer_len + 1);
+    if (context->first_response) {
+      memcpy(context->first_response, buffer, buffer_len);
+      context->first_response[buffer_len] = '\0';
+      context->first_response_len         = buffer_len;
+      printf("Stored first response: %zu bytes\n", buffer_len);
+
+      // Transition to next state - make second request
+      context->state = STATE_SECOND_REQUEST;
+
+      // Start the second request (to a different API)
+      printf("Starting second API request...\n");
+      start_http_request_cb(
+          context->client_conn,
+          "http://httpbin.org/uuid",
+          state_machine_second_callback,
+          context);
+    }
+    else {
+      // Memory allocation failed
+      mg_printf(context->client_conn,
+                "HTTP/1.1 500 Internal Server Error\r\n"
+                "Content-Type: text/plain\r\n"
+                "Connection: close\r\n\r\n"
+                "Memory allocation failed");
+
+      // Clean up and set done state
+      context->state = STATE_DONE;
+      free(context);
+    }
+  }
+  else {
+    // Error handling - send error response to client
+    mg_printf(context->client_conn,
+              "HTTP/1.1 502 Bad Gateway\r\n"
+              "Content-Type: text/plain\r\n"
+              "Connection: close\r\n\r\n"
+              "Error fetching data from first API");
+
+    // Clean up and set done state
+    context->state = STATE_DONE;
+    free(context);
+  }
+}
+
+// Second callback in the state machine
+static void state_machine_second_callback(http_client_status_t status, struct pending_request* req, void* user_data) {
+  state_machine_context_t* context = (state_machine_context_t*) user_data;
+
+  printf("Second request callback - status: %d\n", status);
+
+  if (status == HTTP_CLIENT_SUCCESS) {
+    // Successfully received response from second API
+    // Try to get just the body first
+    const char* buffer     = http_request_get_body(req);
+    size_t      buffer_len = http_request_get_body_length(req);
+
+    // If body extraction failed, use full response
+    if (!buffer || buffer_len == 0) {
+      buffer     = http_request_get_buffer(req);
+      buffer_len = http_request_get_buffer_length(req);
+    }
+
+    // Store the response
+    context->second_response = (char*) malloc(buffer_len + 1);
+    if (context->second_response) {
+      memcpy(context->second_response, buffer, buffer_len);
+      context->second_response[buffer_len] = '\0';
+      context->second_response_len         = buffer_len;
+      printf("Stored second response: %zu bytes\n", buffer_len);
+
+      // Process both responses and send combined result to client
+      mg_printf(context->client_conn,
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/json\r\n"
+                "Connection: close\r\n\r\n"
+                "{\n"
+                "  \"first_api\": %.*s,\n"
+                "  \"second_api\": %.*s\n"
+                "}\n",
+                (int) context->first_response_len,
+                context->first_response,
+                (int) context->second_response_len,
+                context->second_response);
+    }
+    else {
+      // Memory allocation failed
+      mg_printf(context->client_conn,
+                "HTTP/1.1 500 Internal Server Error\r\n"
+                "Content-Type: text/plain\r\n"
+                "Connection: close\r\n\r\n"
+                "Memory allocation failed");
+    }
+  }
+  else {
+    // Error handling - at least return the first response
+    mg_printf(context->client_conn,
+              "HTTP/1.1 206 Partial Content\r\n"
+              "Content-Type: application/json\r\n"
+              "Connection: close\r\n\r\n"
+              "{\n"
+              "  \"first_api\": %.*s,\n"
+              "  \"second_api\": null,\n"
+              "  \"error\": \"Failed to fetch data from second API\"\n"
+              "}\n",
+              (int) context->first_response_len,
+              context->first_response);
+  }
+
+  // Clean up resources
+  if (context->first_response) {
+    free(context->first_response);
+  }
+  if (context->second_response) {
+    free(context->second_response);
+  }
+
+  // Set state to done
+  context->state = STATE_DONE;
+  free(context);
+}
+
+// State machine handler that demonstrates using callbacks with the HTTP client
+int statemachine_handler(struct mg_connection* conn, void* cbdata) {
+  // Use direct mg_download for testing
+  char error_buffer[256] = {0};
+  char host[]            = "httpbin.org";
+  int  port              = 443; // Change to HTTPS port
+  int  use_ssl           = 1;   // Enable SSL
+
+  printf("STATEMACHINE: Using direct mg_download for https://httpbin.org/json\n");
+
+  // Create HTTP request
+  char request[512];
+  snprintf(request, sizeof(request),
+           "GET /json HTTP/1.1\r\n"
+           "Host: httpbin.org\r\n"
+           "User-Agent: CivetWeb-Client/1.0\r\n"
+           "Accept: */*\r\n"
+           "Connection: close\r\n"
+           "\r\n");
+
+  // Use mg_download to make the request
+  struct mg_connection* remote_conn = mg_download(
+      host,                 // Host
+      port,                 // Port
+      use_ssl,              // Use SSL
+      error_buffer,         // Error buffer
+      sizeof(error_buffer), // Error buffer size
+      "%s",                 // Format string
+      request               // The request itself
+  );
+
+  if (remote_conn == NULL) {
+    mg_printf(conn,
+              "HTTP/1.1 502 Bad Gateway\r\n"
+              "Content-Type: text/plain\r\n"
+              "Connection: close\r\n\r\n"
+              "Error accessing httpbin.org: %s",
               error_buffer);
     return 1;
   }
 
   // Read the response
-  const struct mg_response_info* response_info = mg_get_response_info(client);
-  if (response_info) {
-    printf("Response status: %d %s\n", response_info->status_code, response_info->status_text);
-    for (int i = 0; i < response_info->num_headers; i++) {
-      printf("Header: %s: %s\n",
-             response_info->http_headers[i].name,
-             response_info->http_headers[i].value);
-    }
-  }
-  else {
-    printf("Failed to get response info\n");
+  char response_buffer[16384] = {0};
+  int  total_bytes_read       = 0;
+  int  bytes_read;
+
+  // Add more debugging
+  printf("Connection established, reading response...\n");
+
+  while ((bytes_read = mg_read(remote_conn,
+                               response_buffer + total_bytes_read,
+                               sizeof(response_buffer) - total_bytes_read - 1)) > 0) {
+    total_bytes_read += bytes_read;
+    response_buffer[total_bytes_read] = '\0';
+    printf("Read %d bytes (total: %d)\n", bytes_read, total_bytes_read);
   }
 
-  // Read data from client
-  response_buffer_size = 16384;
-  response_buffer      = (char*) malloc(response_buffer_size);
-  if (!response_buffer) {
-    mg_close_connection(client);
+  printf("Finished reading, got %d bytes total\n", total_bytes_read);
+  mg_close_connection(remote_conn);
+
+  if (total_bytes_read <= 0) {
+    // No data received
+    printf("No data received\n");
     mg_printf(conn,
-              "HTTP/1.1 500 Internal Server Error\r\n"
+              "HTTP/1.1 502 Bad Gateway\r\n"
               "Content-Type: text/plain\r\n"
               "Connection: close\r\n\r\n"
-              "Memory allocation failed");
+              "No data received from httpbin.org");
     return 1;
   }
 
-  size_t bytes_read  = 0;
-  size_t total_bytes = 0;
-  char   read_buffer[4096];
+  // Extract the body
+  const char* body = strstr(response_buffer, "\r\n\r\n");
+  if (body) {
+    // Normal HTTP response with headers
+    body += 4;
+    int body_size = response_buffer + total_bytes_read - body;
+    printf("Found body: %d bytes\n", body_size);
 
-  while ((bytes_read = mg_read(client, read_buffer, sizeof(read_buffer) - 1)) > 0) {
-    printf("Read %zu bytes from Lodestar\n", bytes_read);
-
-    // Resize buffer if needed
-    if (total_bytes + bytes_read + 1 > response_buffer_size) {
-      size_t new_size   = response_buffer_size * 2;
-      char*  new_buffer = (char*) realloc(response_buffer, new_size);
-      if (!new_buffer) {
-        free(response_buffer);
-        mg_close_connection(client);
-        mg_printf(conn,
-                  "HTTP/1.1 500 Internal Server Error\r\n"
-                  "Content-Type: text/plain\r\n"
-                  "Connection: close\r\n\r\n"
-                  "Memory allocation failed");
-        return 1;
-      }
-      response_buffer      = new_buffer;
-      response_buffer_size = new_size;
-    }
-
-    // Copy data
-    memcpy(response_buffer + total_bytes, read_buffer, bytes_read);
-    total_bytes += bytes_read;
-    response_buffer[total_bytes] = '\0';
+    mg_printf(conn,
+              "HTTP/1.1 200 OK\r\n"
+              "Content-Type: application/json\r\n"
+              "Content-Length: %d\r\n"
+              "Connection: close\r\n\r\n",
+              body_size);
+    mg_write(conn, body, body_size);
   }
+  else if (response_buffer[0] == '{') {
+    // Raw JSON response without headers
+    printf("Response appears to be raw JSON without headers\n");
 
-  printf("Done reading from Lodestar, got %zu bytes\n", total_bytes);
-  mg_close_connection(client);
-
-  // Send response to original client
-  if (total_bytes > 0) {
-    printf("Sending %zu bytes to client\n", total_bytes);
-
-    // Check if we have headers
-    const char* body_start = strstr(response_buffer, "\r\n\r\n");
-    if (body_start) {
-      // We have headers, forward the whole response
-      mg_write(conn, response_buffer, total_bytes);
-    }
-    else {
-      // No headers, construct our own
-      mg_printf(conn,
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: application/json\r\n"
-                "Content-Length: %zu\r\n"
-                "Connection: close\r\n\r\n",
-                total_bytes);
-      mg_write(conn, response_buffer, total_bytes);
-    }
+    mg_printf(conn,
+              "HTTP/1.1 200 OK\r\n"
+              "Content-Type: application/json\r\n"
+              "Content-Length: %d\r\n"
+              "Connection: close\r\n\r\n",
+              total_bytes_read);
+    mg_write(conn, response_buffer, total_bytes_read);
   }
   else {
+    printf("Failed to find body separator in response\n");
+    // For debugging, print part of the response
+    printf("Response preview: %.100s\n", response_buffer);
+
     mg_printf(conn,
-              "HTTP/1.1 204 No Content\r\n"
+              "HTTP/1.1 502 Bad Gateway\r\n"
               "Content-Type: text/plain\r\n"
               "Connection: close\r\n\r\n"
-              "No data received from Lodestar API");
+              "Failed to extract response body");
   }
 
-  free(response_buffer);
   return 1;
 }
