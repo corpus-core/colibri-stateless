@@ -2,6 +2,7 @@
 #include "../util/json.h"
 #include "../util/state.h"
 #include PROOFERS_PATH
+#include "logger.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -35,32 +36,38 @@ static cache_entry_t* global_cache          = NULL;
 static uint64_t       global_cache_max_size = 1024 * 1024 * 100; // 10MB
 
 void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key) {
+  uint64_t key_start = *((uint64_t*) key); // optimize cache-loopus by first checking the first word before doing a memcmp
   for (cache_entry_t* entry = ctx->cache; entry; entry = entry->next) {
-    if (memcmp(entry->key, key, 32) == 0) return entry->value;
+    if (*((uint64_t*) entry->key) == key_start && memcmp(entry->key, key, 32) == 0) return entry->value;
   }
   // if we are running in the worker-thread, we don't access the global cache anymore
-  if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED) return NULL;
+  if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED) {
+    log_warn("[CACHEMISS] trying to access the global cache with cachekey %x, but we are running in the worker-thread. Make sure you tried to access in queue thread first!", bytes(key, 32));
+    return NULL;
+  }
+
   for (cache_entry_t* entry = global_cache; entry; entry = entry->next) {
-    if (memcmp(entry->key, key, 32) == 0) {
+    if (*((uint64_t*) entry->key) == key_start && memcmp(entry->key, key, 32) == 0) {
       cache_entry_t* new_entry = calloc(1, sizeof(cache_entry_t));
       *new_entry               = *entry;
-      new_entry->value         = entry->clone(entry->value);
       new_entry->timestamp     = 0;
       new_entry->next          = ctx->cache;
+      new_entry->src           = entry;
       ctx->cache               = new_entry;
+      entry->use_counter++;
       return new_entry->value;
     }
   }
   return NULL;
 }
-void c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t ttl, cache_clone_cb clone, cache_free_cb free) {
+
+void c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t ttl, cache_free_cb free) {
   cache_entry_t* entry = calloc(1, sizeof(cache_entry_t));
   memcpy(entry->key, key, 32);
   entry->value     = value;
   entry->size      = size;
   entry->timestamp = ttl;
   entry->free      = free;
-  entry->clone     = clone;
   entry->next      = ctx->cache;
   ctx->cache       = entry;
 }
@@ -68,7 +75,7 @@ void c4_proofer_cache_cleanup(uint64_t now) {
   uint64_t        size = 0;
   cache_entry_t** prev = &global_cache;
   for (cache_entry_t* entry = *prev; entry; prev = &((*prev)->next), entry = *prev) {
-    if (entry->timestamp < now || size + entry->size > global_cache_max_size) {
+    if ((entry->timestamp < now || size + entry->size > global_cache_max_size) && entry->use_counter == 0) {
       cache_entry_t* next = entry->next;
       if (entry->free) entry->free(entry->value);
       free(entry);
@@ -106,11 +113,14 @@ void c4_proofer_free(proofer_ctx_t* ctx) {
     cache_entry_t* next = ctx->cache->next;
     if (ctx->cache->timestamp && !c4_proofer_cache_get(ctx, ctx->cache->key)) {
       // add it to global cache
-      ctx->cache->next = global_cache;
-      global_cache     = ctx->cache;
+      ctx->cache->src         = NULL;
+      ctx->cache->use_counter = 0;
+      ctx->cache->next        = global_cache;
+      global_cache            = ctx->cache;
     }
     else {
       // free cache
+      if (ctx->cache->src) ctx->cache->src->use_counter--;
       if (ctx->cache->free) ctx->cache->free(ctx->cache->value);
       free(ctx->cache);
     }

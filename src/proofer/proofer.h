@@ -19,15 +19,15 @@ typedef uint32_t proofer_flags_t;
 
 #ifdef PROOFER_CACHE
 typedef void (*cache_free_cb)(void*);
-typedef void* (*cache_clone_cb)(void*);
 typedef struct cache_entry {
   bytes32_t           key;       // cache key
   void*               value;     // cache value
   uint32_t            size;      // cache value size in order to
   uint64_t            timestamp; // cache timestamp to be removed after ttl. if this timestamp is 0. the entry will live only in the proofer_ctx, otherwise it will be stored in the global cache when proofer_free is called.
-  cache_clone_cb      clone;     // the function to free the value.
   cache_free_cb       free;      // the function to free the value.
-  struct cache_entry* next;      // next cache entry
+  uint32_t            use_counter;
+  struct cache_entry* next; // next cache entry
+  struct cache_entry* src;  // previous cache entry
 } cache_entry_t;
 #endif
 typedef struct {
@@ -75,7 +75,7 @@ c4_status_t    c4_proofer_status(proofer_ctx_t* ctx);                           
 #ifdef PROOFER_CACHE
 uint64_t current_ms();
 void*    c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key);
-void     c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t ttl, cache_clone_cb clone, cache_free_cb free);
+void     c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t ttl, cache_free_cb free);
 void     c4_proofer_cache_cleanup(uint64_t now);
 #endif
 

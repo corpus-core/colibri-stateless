@@ -24,3 +24,12 @@ bytes_t eth_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_bu
   *c4_req.fixed.data.data = (uint8_t) c4_chain_type(chain_id);
   return ssz_builder_to_bytes(&c4_req).bytes;
 }
+
+#ifdef PROOFER_CACHE
+uint8_t* c4_eth_receipt_cachekey(bytes32_t target, bytes32_t blockhash) {
+  if (target != blockhash) memcpy(target, blockhash, 32);
+  target[0] = 'R';
+  target[1] = 'T';
+  return target;
+}
+#endif

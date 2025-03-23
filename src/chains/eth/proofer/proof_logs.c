@@ -102,7 +102,10 @@ static c4_status_t get_receipts(proofer_ctx_t* ctx, proof_logs_block_t* blocks) 
     TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block->beacon_block));
 #ifdef PROOFER_CACHE
     // we get the merkle tree from the cache if available now so we can use it later in the worker thread
-    if (status == C4_SUCCESS && block->beacon_block.execution.bytes.data && c4_proofer_cache_get(ctx, ssz_get(&block->beacon_block.execution, "receiptsRoot").bytes.data)) continue;
+    bytes32_t cachekey;
+    if (status == C4_SUCCESS && block->beacon_block.execution.bytes.data &&
+        c4_proofer_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, ssz_get(&block->beacon_block.execution, "receiptsRoot").bytes.data)))
+      continue;
 #endif
 
     TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block->block_receipts));
@@ -135,8 +138,8 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
   block->block_hash = ssz_get(&block->beacon_block.execution, "blockHash").bytes;
 
 #ifdef PROOFER_CACHE
-  bytes_t cachekey = ssz_get(&block->beacon_block.execution, "receiptsRoot").bytes;
-  root             = (node_t*) c4_proofer_cache_get(ctx, cachekey.data);
+  bytes32_t cachekey;
+  root = (node_t*) c4_proofer_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, block->block_hash.data));
   if (!root) {
     REQUEST_WORKER_THREAD(ctx);
     int len = 0;
@@ -150,18 +153,16 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
       len++;
 #endif
     }
-
-    // create receipts proofs
-    for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
-      tx->proof  = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx->tx_index, &buf));
-      tx->raw_tx = ssz_at(ssz_get(&block->beacon_block.execution, "transactions"), tx->tx_index).bytes;
-    }
-
 #ifdef PROOFER_CACHE
-    c4_proofer_cache_set(ctx, cachekey.data, root, 500 * len + 200, current_ms() + 200 * 1000, NULL, (cache_free_cb) patricia_node_free);
+    c4_proofer_cache_set(ctx, cachekey, root, 500 * len + 200, current_ms() + 200 * 1000, (cache_free_cb) patricia_node_free);
   }
 #endif
 
+  // create receipts proofs
+  for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
+    tx->proof  = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx->tx_index, &buf));
+    tx->raw_tx = ssz_at(ssz_get(&block->beacon_block.execution, "transactions"), tx->tx_index).bytes;
+  }
   // create multiproof for the transactions
   proof_create_multiproof(ctx, block);
 #ifndef PROOFER_CACHE
