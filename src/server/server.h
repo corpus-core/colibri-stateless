@@ -47,7 +47,7 @@ typedef struct request_t {
 
 } request_t;
 
-void c4_process_next_step(request_t* req);
+void c4_proofer_handle_request(request_t* req);
 void c4_start_curl_requests(request_t* req);
 bool c4_check_retry_request(request_t* req);
 void c4_init_curl(uv_timer_t* timer);

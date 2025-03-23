@@ -20,6 +20,7 @@ patricia_result_t patricia_verify(bytes32_t root, bytes_t path, ssz_ob_t proof, 
 ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path);
 void     patricia_set_value(node_t** root, bytes_t path, bytes_t value);
 void     patricia_node_free(node_t* node);
+node_t*  patricia_clone_tree(node_t* node);
 bytes_t  patricia_get_root(node_t* node);
 
 #ifdef TEST
