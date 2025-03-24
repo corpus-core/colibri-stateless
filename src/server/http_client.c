@@ -6,9 +6,16 @@ typedef struct {
   size_t count;
 } server_list_t;
 
-static CURLM* multi_handle;
-static mc_t*  memcache_client;
-const char*   CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
+typedef struct pending_request {
+  single_request_t*       request;
+  struct pending_request* next;
+  struct pending_request* same_requests;
+} pending_request_t;
+
+static pending_request_t* pending_requests = NULL;
+static CURLM*             multi_handle;
+static mc_t*              memcache_client;
+const char*               CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 static const server_list_t eth_rpc_servers = {
     .urls = (char*[]) {
@@ -21,7 +28,68 @@ static const server_list_t beacon_api_servers = {
     .urls = (char*[]) {
         "https://lodestar-mainnet.chainsafe.io/"},
     .count = 1};
+
 static void handle_successful_response(single_request_t* r, data_request_t* data_req);
+static void memcache_get_cb(void* data, char* value, size_t value_len);
+
+static pending_request_t* pending_find(single_request_t* req) {
+  pending_request_t* current = pending_requests;
+  while (current) {
+    if (current->request == req) return current;
+    current = current->next;
+  }
+  return NULL;
+}
+
+static inline bool pending_request_matches(data_request_t* in, data_request_t* pending) {
+  if (in->type != pending->type || in->encoding != pending->encoding || in->method != pending->method) return false;
+  if ((in->url == NULL) != (pending->url != NULL)) return false;
+  if (in->url && strcmp(in->url, pending->url) != 0) return false;
+  if (in->payload.len != pending->payload.len) return false;
+  if (in->payload.len && memcmp(in->payload.data, pending->payload.data, in->payload.len) != 0) return false;
+  return true;
+}
+
+static pending_request_t* pending_find_matching(single_request_t* req) {
+  data_request_t*    in      = req->req;
+  pending_request_t* current = pending_requests;
+  while (current) {
+    if (pending_request_matches(in, current->request->req)) return current;
+    current = current->next;
+  }
+  return NULL;
+}
+
+static void pending_add(single_request_t* req) {
+  pending_request_t* new_request = (pending_request_t*) calloc(1, sizeof(pending_request_t));
+  new_request->request           = req;
+  new_request->next              = pending_requests;
+  pending_requests               = new_request;
+}
+static void pending_add_to_same_requests(pending_request_t* pending, single_request_t* req) {
+  pending_request_t* new_request = (pending_request_t*) calloc(1, sizeof(pending_request_t));
+  new_request->request           = req;
+  new_request->next              = pending->same_requests;
+  pending->same_requests         = new_request;
+}
+
+static void pending_remove(single_request_t* req) {
+  pending_request_t* current = pending_requests;
+  pending_request_t* prev    = NULL;
+  while (current) {
+    if (current->request == req) {
+      if (prev)
+        prev->next = current->next;
+      else
+        pending_requests = current->next;
+      free(current);
+      return;
+    }
+    prev    = current;
+    current = current->next;
+  }
+}
+
 // Prüft abgeschlossene Übertragungen
 static void check_multi_info() {
   CURLMsg* msg;
@@ -34,19 +102,31 @@ static void check_multi_info() {
       for (size_t i = 0; i < req->request_count; i++) {
         if (req->requests[i].curl == easy) {
           // set response
-          CURLcode res = msg->data.result;
+          single_request_t*  r       = req->requests + i;
+          pending_request_t* pending = pending_find(r);
+          CURLcode           res     = msg->data.result;
           if (res == CURLE_OK) {
-            printf("recv: [%p] %s : %d\n", easy, req->requests[i].req->url, req->requests[i].buffer.data.len);
-            req->requests[i].req->response = req->requests[i].buffer.data;
-            handle_successful_response(&req->requests[i], req->requests[i].req);
-            req->requests[i].buffer = (buffer_t) {0};
+            printf("recv: [%p] %s : %d\n", easy, r->req->url, r->buffer.data.len);
+            r->req->response = r->buffer.data;
+            handle_successful_response(r, r->req);
+            r->buffer = (buffer_t) {0};
           }
           else {
-            req->requests[i].req->error = bprintf(NULL, "%s : %s", curl_easy_strerror(res), bprintf(&req->requests[i].buffer, " "));
-            printf("recv: [%p] %s : %s\n", easy, req->requests[i].req->url, req->requests[i].req->error);
+            r->req->error = bprintf(NULL, "%s : %s", curl_easy_strerror(res), bprintf(&r->buffer, " "));
+            printf("recv: [%p] %s : %s\n", easy, r->req->url, r->req->error);
+          }
+          if (pending) {
+            pending_request_t* same = pending->same_requests;
+            pending_remove(r);
+            while (same) {
+              memcache_get_cb(same->request, (char*) r->req->response.data, r->req->response.len);
+              pending_request_t* next = same->next;
+              free(same);
+              same = next;
+            }
           }
 
-          req->requests[i].curl = NULL; // setting it to NULL marks it as done
+          r->curl = NULL; // setting it to NULL marks it as done
           break;
         }
       }
@@ -140,11 +220,11 @@ static void c4_add_request_response(request_t* req) {
 static uint32_t get_request_ttl(data_request_t* req) {
   switch (req->type) {
     case C4_DATA_TYPE_BEACON_API:
-      if (strcmp(req->url, "eth/v2/beacon/blocks/head") == 0) return 12 * 10000;
-      return 30000; // 30 seconds
+      if (strcmp(req->url, "eth/v2/beacon/blocks/head") == 0) return 12;
+      return 3600 * 24; // 1day
     case C4_DATA_TYPE_ETH_RPC:
       // ETH RPC responses can be cached longer
-      return 30000; // 5 minutes
+      return 3600 * 24; // 1day
     case C4_DATA_TYPE_REST_API:
       // REST API responses vary, use a default
       return 60; // 1 minute
@@ -180,9 +260,12 @@ static void handle_successful_response(single_request_t* r, data_request_t* data
 
 // Callback for memcache get operations
 static void memcache_get_cb(void* data, char* value, size_t value_len) {
-  single_request_t* r = (single_request_t*) data;
+  single_request_t*  r       = (single_request_t*) data;
+  pending_request_t* pending = value == NULL ? pending_find_matching(r) : NULL;
 
-  if (value) {
+  if (pending)
+    pending_add_to_same_requests(pending, r);
+  else if (value) {
     printf("cache: %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     char* cache_key = generate_cache_key(r->req);
     char* fname     = bprintf(NULL, "%s_from_cache", cache_key);
@@ -208,6 +291,7 @@ static void memcache_get_cb(void* data, char* value, size_t value_len) {
   }
   else {
     // Cache miss - proceed with normal request handling
+    pending_add(r);
     server_list_t* servers  = get_server_list(r->req->type);
     char*          base_url = servers ? servers->urls[r->req->response_node_index] : NULL;
     char*          req_url  = r->req->url;
