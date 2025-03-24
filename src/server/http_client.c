@@ -29,8 +29,8 @@ static const server_list_t beacon_api_servers = {
         "https://lodestar-mainnet.chainsafe.io/"},
     .count = 1};
 
-static void handle_successful_response(single_request_t* r, data_request_t* data_req);
-static void memcache_get_cb(void* data, char* value, size_t value_len);
+static void cache_response(single_request_t* r);
+static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
 
 static pending_request_t* pending_find(single_request_t* req) {
   pending_request_t* current = pending_requests;
@@ -91,7 +91,7 @@ static void pending_remove(single_request_t* req) {
 }
 
 // Prüft abgeschlossene Übertragungen
-static void check_multi_info() {
+static void handle_curl_events() {
   CURLMsg* msg;
   int      msgs_left;
   while ((msg = curl_multi_info_read(multi_handle, &msgs_left))) {
@@ -99,16 +99,16 @@ static void check_multi_info() {
       CURL*      easy = msg->easy_handle;
       request_t* req;
       curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
+      if (!req) continue;
       for (size_t i = 0; i < req->request_count; i++) {
         if (req->requests[i].curl == easy) {
-          // set response
           single_request_t*  r       = req->requests + i;
           pending_request_t* pending = pending_find(r);
           CURLcode           res     = msg->data.result;
           if (res == CURLE_OK) {
             printf("recv: [%p] %s : %d\n", easy, r->req->url, r->buffer.data.len);
             r->req->response = r->buffer.data;
-            handle_successful_response(r, r->req);
+            cache_response(r);
             r->buffer = (buffer_t) {0};
           }
           else {
@@ -119,7 +119,7 @@ static void check_multi_info() {
             pending_request_t* same = pending->same_requests;
             pending_remove(r);
             while (same) {
-              memcache_get_cb(same->request, (char*) r->req->response.data, r->req->response.len);
+              trigger_uncached_curl_request(same->request, (char*) r->req->response.data, r->req->response.len);
               pending_request_t* next = same->next;
               free(same);
               same = next;
@@ -152,13 +152,13 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
   if (events & UV_READABLE) flags |= CURL_CSELECT_IN;
   if (events & UV_WRITABLE) flags |= CURL_CSELECT_OUT;
   curl_multi_socket_action(multi_handle, handle->io_watcher.fd, flags, &running_handles);
-  check_multi_info();
+  handle_curl_events();
 }
 
 static void timer_cb(uv_timer_t* handle) {
   int running_handles;
   curl_multi_socket_action(multi_handle, CURL_SOCKET_TIMEOUT, 0, &running_handles);
-  check_multi_info();
+  handle_curl_events();
 }
 
 // Timer-Callback für curl
@@ -249,30 +249,28 @@ static char* generate_cache_key(data_request_t* req) {
 }
 
 // Function to handle successful response and cache it
-static void handle_successful_response(single_request_t* r, data_request_t* data_req) {
-  // Cache the response
-  char*    key = generate_cache_key(data_req);
-  uint32_t ttl = get_request_ttl(data_req);
-  bytes_write(data_req->response, fopen(key, "wb"), true);
-  memcache_set(memcache_client, key, 64, (char*) r->buffer.data.data, r->buffer.data.len, ttl, NULL, NULL);
-  free(key);
+static void cache_response(single_request_t* r) {
+  uint32_t ttl = get_request_ttl(r->req);
+  if (ttl > 0) {
+    char* key = generate_cache_key(r->req);
+    memcache_set(memcache_client, key, 64, (char*) r->buffer.data.data, r->buffer.data.len, ttl, NULL, NULL);
+    free(key);
+  }
 }
 
 // Callback for memcache get operations
-static void memcache_get_cb(void* data, char* value, size_t value_len) {
+static void trigger_uncached_curl_request(void* data, char* value, size_t value_len) {
   single_request_t*  r       = (single_request_t*) data;
   pending_request_t* pending = value == NULL ? pending_find_matching(r) : NULL;
 
-  if (pending)
+  if (pending) { // there is a pending request asking for the same result
     pending_add_to_same_requests(pending, r);
-  else if (value) {
-    printf("cache: %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
-    char* cache_key = generate_cache_key(r->req);
-    char* fname     = bprintf(NULL, "%s_from_cache", cache_key);
-    bytes_write(bytes(value, value_len), fopen(fname, "wb"), true);
-    free(cache_key);
-    free(fname);
+    printf("join : %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    // callback will be called when the pending-request is done
+  }
+  else if (value) { // there is a cached response
     // Cache hit - create response from cached data
+    printf("cache: %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     r->req->response = bytes_dup(bytes(value, value_len));
     r->curl          = NULL; // Mark as done
 
@@ -285,9 +283,8 @@ static void memcache_get_cb(void* data, char* value, size_t value_len) {
         break;
       }
     }
-    if (all_done) {
-      parent->cb(parent);
-    }
+    if (all_done) parent->cb(parent);
+    // if !all_done, the callback will be called when the last one is done
   }
   else {
     // Cache miss - proceed with normal request handling
@@ -312,9 +309,9 @@ static void memcache_get_cb(void* data, char* value, size_t value_len) {
     }
 
     struct curl_slist* headers = NULL;
-    headers                    = curl_slist_append(headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
     if (r->req->payload.len && r->req->payload.data)
       headers = curl_slist_append(headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
+    headers = curl_slist_append(headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
     headers = curl_slist_append(headers, "charsets: utf-8");
     headers = curl_slist_append(headers, "User-Agent: c4 curl ");
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headers);
@@ -325,10 +322,11 @@ static void memcache_get_cb(void* data, char* value, size_t value_len) {
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r->parent);
     curl_multi_add_handle(multi_handle, easy);
     printf("send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    // callback will be called when the request by handle_curl_events when all are done.
   }
 }
 
-static void init_curl_requests(request_t* req) {
+static void trigger_cached_curl_requests(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
@@ -336,11 +334,11 @@ static void init_curl_requests(request_t* req) {
 
     // Check cache first
     char* key = generate_cache_key(pending);
-    int   ret = memcache_get(memcache_client, key, strlen(key), r, memcache_get_cb);
+    int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
     free(key);
     if (ret) {
       printf("CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
-      memcache_get_cb(r, NULL, 0);
+      trigger_uncached_curl_request(r, NULL, 0);
     }
   }
 }
@@ -359,28 +357,31 @@ void c4_add_request(client_t* client, data_request_t* req, void* data, http_requ
   res->req             = r;
   res->client          = client;
 
-  init_curl_requests(r);
+  trigger_cached_curl_requests(r);
 }
 
 void c4_start_curl_requests(request_t* req) {
   int            len = 0, i = 0;
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   for (data_request_t* r = ctx->state.requests; r; r = r->next) {
-    if (r->response.data == NULL && r->error == NULL) len++;
+    if (c4_state_is_pending(r)) len++;
   }
   req->requests      = (single_request_t*) calloc(len, sizeof(single_request_t));
   req->request_count = len;
 
   for (data_request_t* r = ctx->state.requests; r; r = r->next) {
-    if (r->response.data == NULL && r->error == NULL) req->requests[i++].req = r;
+    if (c4_state_is_pending(r)) req->requests[i++].req = r;
   }
 
-  init_curl_requests(req);
+  trigger_cached_curl_requests(req);
 }
+
 static void free_single_request(single_request_t* r) {
   buffer_free(&r->buffer);
   free(r->url);
 }
+
+// we cleanup aftwe curl and retry if needed.
 bool c4_check_retry_request(request_t* req) {
   if (!req->request_count) return false;
   int retry_requests = 0;
@@ -406,8 +407,6 @@ bool c4_check_retry_request(request_t* req) {
     }
   }
 
-  //  free(req->pending_handles);
-  //  req->pending_handles = NULL;
   if (retry_requests == 0) {
     for (int i = 0; i < req->request_count; i++) free_single_request(req->requests + i);
     free(req->requests);
@@ -427,7 +426,7 @@ bool c4_check_retry_request(request_t* req) {
     req->requests      = pendings;
     req->request_count = retry_requests;
 
-    init_curl_requests(req);
+    trigger_cached_curl_requests(req);
 
     return true;
   }
