@@ -102,7 +102,15 @@ proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id
   ctx->flags                  = flags;
   return ctx;
 }
-
+#ifdef PROOFER_CACHE
+static cache_entry_t* find_cache_entry(cache_entry_t* cache, bytes32_t key) {
+  uint64_t key_start = *((uint64_t*) key); // optimize cache-loopus by first checking the first word before doing a memcmp
+  for (cache_entry_t* entry = cache; entry; entry = entry->next) {
+    if (*((uint64_t*) entry->key) == key_start && memcmp(entry->key, key, 32) == 0) return entry;
+  }
+  return NULL;
+}
+#endif
 void c4_proofer_free(proofer_ctx_t* ctx) {
   c4_state_free(&ctx->state);
   if (ctx->method) free(ctx->method);
@@ -111,7 +119,7 @@ void c4_proofer_free(proofer_ctx_t* ctx) {
 #ifdef PROOFER_CACHE
   while (ctx->cache) {
     cache_entry_t* next = ctx->cache->next;
-    if (ctx->cache->timestamp && !c4_proofer_cache_get(ctx, ctx->cache->key)) {
+    if (ctx->cache->timestamp && !ctx->cache->src && !find_cache_entry(global_cache, ctx->cache->key)) {
       // add it to global cache
       ctx->cache->src         = NULL;
       ctx->cache->use_counter = 0;

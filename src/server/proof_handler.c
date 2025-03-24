@@ -46,7 +46,7 @@ void c4_proofer_handle_request(request_t* req) {
       return;
     case C4_ERROR: {
       buffer_t buf = {0};
-      bprintf(NULL, "{\"error\":\"%s\"}", ctx->state.error);
+      bprintf(&buf, "{\"error\":\"%s\"}", ctx->state.error);
       c4_http_respond(req->client, 500, "application/json", buf.data);
       buffer_free(&buf);
       proofer_request_free(req);
@@ -68,7 +68,7 @@ void c4_proofer_handle_request(request_t* req) {
   }
 }
 bool c4_handle_proof_request(client_t* client) {
-  if (client->request.method != C4_DATA_METHOD_POST || strncmp(client->request.path, "/proof/", 7) != 0)
+  if (client->request.method != C4_DATA_METHOD_POST /*|| strncmp(client->request.path, "/proof/", 7) != 0*/)
     return false;
 
   json_t rpc_req = json_parse((char*) client->request.payload);
@@ -83,7 +83,7 @@ bool c4_handle_proof_request(client_t* client) {
     return true;
   }
 
-  char*      method_str = json_new_string(method);
+  char*      method_str = bprintf(NULL, "%j", method);
   char*      params_str = bprintf(NULL, "%J", params);
   request_t* req        = calloc(1, sizeof(request_t));
   req->client           = client;

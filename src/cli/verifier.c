@@ -12,8 +12,46 @@
 #include <string.h>
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
+#include <curl/curl.h>
 #endif
 
+#ifdef USE_CURL
+static size_t write_data(void* ptr, size_t size, size_t nmemb, void* userdata) {
+  buffer_t* response_buffer = (buffer_t*) userdata;
+  buffer_append(response_buffer, bytes(ptr, size * nmemb));
+  return size * nmemb;
+}
+static bytes_t read_from_proofer(char* url, char* method, char* args, chain_id_t chain_id) {
+  buffer_t payload         = {0};
+  buffer_t response_buffer = {0};
+  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s}", method, args);
+  CURL* curl = curl_easy_init();
+  curl_easy_setopt(curl, CURLOPT_URL, url);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data.data);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, payload.data.len);
+  struct curl_slist* headers = NULL;
+  headers                    = curl_slist_append(headers, "Content-Type: application/json");
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
+  curl_easy_perform(curl);
+  curl_easy_cleanup(curl);
+
+  if (response_buffer.data.len == 0) {
+    fprintf(stderr, "proofer returned empty response\n");
+    exit(EXIT_FAILURE);
+  }
+  if (response_buffer.data.data[0] == '{') {
+    json_t json  = json_parse((char*) response_buffer.data.data);
+    json_t error = json_get(json, "error");
+    if (error.type == JSON_TYPE_STRING) {
+      fprintf(stderr, "proofer returned error: %s\n", json_new_string(error));
+    }
+    exit(EXIT_FAILURE);
+  }
+  return response_buffer.data;
+}
+#endif
 int main(int argc, char* argv[]) {
   if (argc == 1) {
     fprintf(stderr, "Usage: %s request.ssz \n", argv[0]);
@@ -73,7 +111,20 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "No input file provided\n");
     exit(EXIT_FAILURE);
   }
-  bytes_t request = bytes_read(input);
+  bytes_t request = {0};
+  if (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
+#ifdef USE_CURL
+    request = read_from_proofer(input, method, (char*) args.data.data, chain_id);
+#else
+    fprintf(stderr, "require data, but no curl installed");
+    exit(EXIT_FAILURE);
+#endif
+  }
+  else {
+    request = bytes_read(input);
+  }
+
+  bytes_read(input);
 
   verify_ctx_t ctx = {0};
   for (

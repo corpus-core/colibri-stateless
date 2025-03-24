@@ -17,7 +17,7 @@ static const server_list_t eth_rpc_servers = {
 
 static const server_list_t beacon_api_servers = {
     .urls = (char*[]) {
-        "https://lodestar-mainnet.chainsafe.io"},
+        "https://lodestar-mainnet.chainsafe.io/"},
     .count = 1};
 
 // Prüft abgeschlossene Übertragungen
@@ -29,17 +29,19 @@ static void check_multi_info() {
       CURL*      easy = msg->easy_handle;
       request_t* req;
       curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
-
       for (size_t i = 0; i < req->request_count; i++) {
         if (req->requests[i].curl == easy) {
           // set response
           CURLcode res = msg->data.result;
           if (res == CURLE_OK) {
+            printf("recv: [%p] %s : %d\n", easy, req->requests[i].req->url, req->requests[i].buffer.data.len);
             req->requests[i].req->response = req->requests[i].buffer.data;
             req->requests[i].buffer        = (buffer_t) {0};
           }
-          else
+          else {
             req->requests[i].req->error = bprintf(NULL, "%s : %s", curl_easy_strerror(res), bprintf(&req->requests[i].buffer, " "));
+            printf("recv: [%p] %s : %s\n", easy, req->requests[i].req->url, req->requests[i].req->error);
+          }
 
           req->requests[i].curl = NULL; // setting it to NULL marks it as done
           break;
@@ -152,6 +154,7 @@ static void init_curl_requests(request_t* req) {
     curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[pending->method]);
     curl_easy_setopt(easy, CURLOPT_PRIVATE, req);
     curl_multi_add_handle(multi_handle, easy);
+    printf("send: [%p] %s  %s\n", easy, r->url, pending->payload.data ? (char*) pending->payload.data : "");
   }
 }
 
@@ -164,8 +167,9 @@ void c4_start_curl_requests(request_t* req) {
   req->requests      = (single_request_t*) calloc(len, sizeof(single_request_t));
   req->request_count = len;
 
-  for (data_request_t* r = ctx->state.requests; r; r = r->next)
-    req->requests[i].req = r;
+  for (data_request_t* r = ctx->state.requests; r; r = r->next) {
+    if (r->response.data == NULL && r->error == NULL) req->requests[i++].req = r;
+  }
 
   init_curl_requests(req);
 }
