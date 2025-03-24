@@ -1,3 +1,4 @@
+#include "cache.h"
 #include "server.h"
 
 typedef struct {
@@ -6,6 +7,7 @@ typedef struct {
 } server_list_t;
 
 static CURLM* multi_handle;
+static mc_t*  memcache_client;
 const char*   CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 static const server_list_t eth_rpc_servers = {
@@ -19,7 +21,7 @@ static const server_list_t beacon_api_servers = {
     .urls = (char*[]) {
         "https://lodestar-mainnet.chainsafe.io/"},
     .count = 1};
-
+static void handle_successful_response(single_request_t* r, data_request_t* data_req);
 // Prüft abgeschlossene Übertragungen
 static void check_multi_info() {
   CURLMsg* msg;
@@ -36,7 +38,8 @@ static void check_multi_info() {
           if (res == CURLE_OK) {
             printf("recv: [%p] %s : %d\n", easy, req->requests[i].req->url, req->requests[i].buffer.data.len);
             req->requests[i].req->response = req->requests[i].buffer.data;
-            req->requests[i].buffer        = (buffer_t) {0};
+            handle_successful_response(&req->requests[i], req->requests[i].req);
+            req->requests[i].buffer = (buffer_t) {0};
           }
           else {
             req->requests[i].req->error = bprintf(NULL, "%s : %s", curl_easy_strerror(res), bprintf(&req->requests[i].buffer, " "));
@@ -118,15 +121,98 @@ static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) 
   return size * nmemb;
 }
 
-static void init_curl_requests(request_t* req) {
-  for (size_t i = 0; i < req->request_count; i++) {
-    single_request_t* r        = req->requests + i;
-    data_request_t*   pending  = r->req;
-    server_list_t*    servers  = get_server_list(pending->type);
-    char*             base_url = servers ? servers->urls[pending->response_node_index] : NULL;
-    char*             req_url  = pending->url;
-    CURL*             easy     = curl_easy_init();
-    r->curl                    = easy;
+typedef struct {
+  http_request_cb cb;
+  void*           data;
+  request_t*      req;
+  client_t*       client;
+} http_response_t;
+
+static void c4_add_request_response(request_t* req) {
+  http_response_t* res = (http_response_t*) req->ctx;
+  res->cb(req->client, res->data, req->requests->req);
+  free(res);
+  free(req->requests);
+  free(req);
+}
+
+// Function to determine TTL for different request types
+static uint32_t get_request_ttl(data_request_t* req) {
+  switch (req->type) {
+    case C4_DATA_TYPE_BEACON_API:
+      if (strcmp(req->url, "eth/v2/beacon/blocks/head") == 0) return 12 * 10000;
+      return 30000; // 30 seconds
+    case C4_DATA_TYPE_ETH_RPC:
+      // ETH RPC responses can be cached longer
+      return 30000; // 5 minutes
+    case C4_DATA_TYPE_REST_API:
+      // REST API responses vary, use a default
+      return 60; // 1 minute
+    default:
+      return 60; // Default 1 minute
+  }
+}
+
+// Function to generate cache key from request
+static char* generate_cache_key(data_request_t* req) {
+  buffer_t key = {0};
+  bprintf(&key, "%d:%s:%s:%s",
+          req->type,
+          req->url,
+          req->method == C4_DATA_METHOD_POST ? (char*) req->payload.data : "",
+          req->encoding == C4_DATA_ENCODING_JSON ? "json" : "ssz");
+  bytes32_t hash;
+  sha256(key.data, hash);
+  buffer_reset(&key);
+  bprintf(&key, "%x", bytes(hash, 32));
+  return (char*) key.data.data;
+}
+
+// Function to handle successful response and cache it
+static void handle_successful_response(single_request_t* r, data_request_t* data_req) {
+  // Cache the response
+  char*    key = generate_cache_key(data_req);
+  uint32_t ttl = get_request_ttl(data_req);
+  bytes_write(data_req->response, fopen(key, "wb"), true);
+  memcache_set(memcache_client, key, 64, (char*) r->buffer.data.data, r->buffer.data.len, ttl, NULL, NULL);
+  free(key);
+}
+
+// Callback for memcache get operations
+static void memcache_get_cb(void* data, char* value, size_t value_len) {
+  single_request_t* r = (single_request_t*) data;
+
+  if (value) {
+    printf("cache: %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    char* cache_key = generate_cache_key(r->req);
+    char* fname     = bprintf(NULL, "%s_from_cache", cache_key);
+    bytes_write(bytes(value, value_len), fopen(fname, "wb"), true);
+    free(cache_key);
+    free(fname);
+    // Cache hit - create response from cached data
+    r->req->response = bytes_dup(bytes(value, value_len));
+    r->curl          = NULL; // Mark as done
+
+    // Check if all requests are done
+    request_t* parent   = r->parent;
+    bool       all_done = true;
+    for (size_t i = 0; i < parent->request_count; i++) {
+      if (c4_state_is_pending(parent->requests[i].req)) {
+        all_done = false;
+        break;
+      }
+    }
+    if (all_done) {
+      parent->cb(parent);
+    }
+  }
+  else {
+    // Cache miss - proceed with normal request handling
+    server_list_t* servers  = get_server_list(r->req->type);
+    char*          base_url = servers ? servers->urls[r->req->response_node_index] : NULL;
+    char*          req_url  = r->req->url;
+    CURL*          easy     = curl_easy_init();
+    r->curl                 = easy;
 
     if (!base_url)
       r->url = strdup(req_url);
@@ -136,26 +222,60 @@ static void init_curl_requests(request_t* req) {
       r->url = bprintf(NULL, "%s%s", base_url, req_url);
 
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
-    if (pending->payload.len && pending->payload.data) {
-      curl_easy_setopt(easy, CURLOPT_POSTFIELDS, pending->payload.data);
-      curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) pending->payload.len);
+    if (r->req->payload.len && r->req->payload.data) {
+      curl_easy_setopt(easy, CURLOPT_POSTFIELDS, r->req->payload.data);
+      curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) r->req->payload.len);
     }
 
     struct curl_slist* headers = NULL;
-    headers                    = curl_slist_append(headers, pending->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
-    if (pending->payload.len && pending->payload.data)
-      headers = curl_slist_append(headers, pending->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
+    headers                    = curl_slist_append(headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
+    if (r->req->payload.len && r->req->payload.data)
+      headers = curl_slist_append(headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
     headers = curl_slist_append(headers, "charsets: utf-8");
     headers = curl_slist_append(headers, "User-Agent: c4 curl ");
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, curl_append);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &r->buffer);
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, (uint64_t) 120);
-    curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[pending->method]);
-    curl_easy_setopt(easy, CURLOPT_PRIVATE, req);
+    curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[r->req->method]);
+    curl_easy_setopt(easy, CURLOPT_PRIVATE, r->parent);
     curl_multi_add_handle(multi_handle, easy);
-    printf("send: [%p] %s  %s\n", easy, r->url, pending->payload.data ? (char*) pending->payload.data : "");
+    printf("send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
   }
+}
+
+static void init_curl_requests(request_t* req) {
+  for (size_t i = 0; i < req->request_count; i++) {
+    single_request_t* r       = req->requests + i;
+    data_request_t*   pending = r->req;
+    r->parent                 = req; // Set the parent pointer
+
+    // Check cache first
+    char* key = generate_cache_key(pending);
+    int   ret = memcache_get(memcache_client, key, strlen(key), r, memcache_get_cb);
+    free(key);
+    if (ret) {
+      printf("CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+      memcache_get_cb(r, NULL, 0);
+    }
+  }
+}
+
+void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb) {
+  http_response_t* res = (http_response_t*) calloc(1, sizeof(http_response_t));
+  request_t*       r   = (request_t*) calloc(1, sizeof(request_t));
+  r->client            = client;
+  r->cb                = c4_add_request_response;
+  r->requests          = (single_request_t*) calloc(1, sizeof(single_request_t));
+  r->requests->req     = req;
+  r->request_count     = 1;
+  r->ctx               = res;
+  res->cb              = cb;
+  res->data            = data;
+  res->req             = r;
+  res->client          = client;
+
+  init_curl_requests(r);
 }
 
 void c4_start_curl_requests(request_t* req) {
@@ -234,34 +354,34 @@ void c4_init_curl(uv_timer_t* timer) {
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, socket_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
+
+  // Initialize memcached client
+  memcache_client = memcache_new(10); // Pool size of 10 connections
+  if (!memcache_client) {
+    fprintf(stderr, "Failed to create memcached client\n");
+    return;
+  }
+
+  // Connect to memcached server using environment variables or defaults
+  const char* memcached_host = getenv("MEMCACHED_HOST");
+  const char* memcached_port = getenv("MEMCACHED_PORT");
+
+  if (!memcached_host) memcached_host = "127.0.0.1";
+  if (!memcached_port) memcached_port = "11211";
+
+  int port = atoi(memcached_port);
+  if (port <= 0) port = 11211; // Default if invalid port
+
+  if (memcache_connect(memcache_client, memcached_host, port) != 0) {
+    fprintf(stderr, "Failed to connect to memcached server at %s:%d\n", memcached_host, port);
+    memcache_free(&memcache_client);
+    return;
+  }
 }
 
 void c4_cleanup_curl() {
   curl_multi_cleanup(multi_handle);
-}
-typedef struct {
-  http_request_cb cb;
-  void*           data;
-} http_response_t;
-
-static void c4_add_request_response(request_t* req) {
-  http_response_t* res = (http_response_t*) req->ctx;
-  res->cb(req->client, res->data, req->requests->req);
-  free(res);
-  free(req->requests);
-  free(req);
-}
-void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb) {
-  http_response_t* res = calloc(1, sizeof(http_response_t));
-  request_t*       r   = calloc(1, sizeof(request_t));
-  r->client            = client;
-  r->cb                = c4_add_request_response;
-  r->requests          = calloc(1, sizeof(single_request_t));
-  r->requests->req     = req;
-  r->request_count     = 1;
-  r->ctx               = res;
-  res->cb              = cb;
-  res->data            = data;
-
-  init_curl_requests(r);
+  if (memcache_client) {
+    memcache_free(&memcache_client);
+  }
 }

@@ -22,7 +22,11 @@
     }                                                                \
   } while (0)
 
-int main() {
+int main(int argc, char* argv[]) {
+  // Force unbuffered output
+  setvbuf(stdout, NULL, _IONBF, 0);
+  setvbuf(stderr, NULL, _IONBF, 0);
+
   uv_timer_t         timer;
   uv_tcp_t           server;
   struct sockaddr_in addr;

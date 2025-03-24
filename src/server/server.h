@@ -26,17 +26,17 @@ typedef struct {
 } client_t;
 typedef bool (*http_handler)(client_t*);
 
+typedef struct request_t request_t;
+typedef void (*http_client_cb)(request_t*);
+typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
 // Struktur für jede aktive Anfrage
 typedef struct {
   char*           url;
   data_request_t* req;
   CURL*           curl; // list of pending handles
   buffer_t        buffer;
+  request_t*      parent; // pointer to parent request_t
 } single_request_t;
-
-typedef struct request_t request_t;
-typedef void (*http_client_cb)(request_t*);
-typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
 
 typedef struct request_t {
   client_t*         client; // client request
