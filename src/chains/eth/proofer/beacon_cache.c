@@ -5,12 +5,6 @@
 #include <inttypes.h>
 #include <string.h>
 #ifdef PROOFER_CACHE
-#if defined(_WIN32) || defined(WIN32)
-#include <windows.h>
-#else
-#include <sys/time.h>
-#endif
-
 typedef struct {
   uint64_t slot;
   uint64_t block_number;
@@ -28,25 +22,6 @@ static uint32_t max_entries = 1000;
 static buffer_t chains      = {0};
 #define CHAIN_SIZE sizeof(chain_blocks_t)
 #define BLOCK_SIZE sizeof(block_number_t)
-
-uint64_t current_ms() {
-  struct timeval te;
-#ifdef _WIN32
-  FILETIME       ft;
-  ULARGE_INTEGER li;
-  GetSystemTimeAsFileTime(&ft);
-  li.LowPart  = ft.dwLowDateTime;
-  li.HighPart = ft.dwHighDateTime;
-  // Convert to microseconds from Jan 1, 1601
-  // Then adjust to Unix epoch (Jan 1, 1970)
-  uint64_t unix_time = (li.QuadPart - 116444736000000000LL) / 10;
-  te.tv_sec          = unix_time / 1000000;
-  te.tv_usec         = unix_time % 1000000;
-#else
-  gettimeofday(&te, NULL);
-#endif
-  return te.tv_sec * 1000L + te.tv_usec / 1000;
-}
 
 uint64_t c4_beacon_cache_get_slot(json_t block, chain_id_t chain_id) {
   bytes32_t       blockhash    = {0};

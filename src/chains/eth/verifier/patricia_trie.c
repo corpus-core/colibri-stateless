@@ -355,6 +355,34 @@ bytes_t patricia_get_root(node_t* node) {
   return bytes(node->hash, 32);
 }
 
+static node_t* patricia_clone_node(node_t* node, node_t* parent) {
+  if (node == NULL) return NULL;
+  node_t* new_node = malloc(sizeof(node_t));
+  *new_node        = *node;
+  new_node->parent = parent;
+  switch (node->type) {
+    case NODE_TYPE_LEAF:
+      new_node->values.leaf.path  = bytes_dup(node->values.leaf.path);
+      new_node->values.leaf.value = bytes_dup(node->values.leaf.value);
+      break;
+    case NODE_TYPE_EXTENSION:
+      new_node->values.extension.path  = bytes_dup(node->values.extension.path);
+      new_node->values.extension.child = patricia_clone_node(node->values.extension.child, new_node);
+      break;
+    case NODE_TYPE_BRANCH:
+      new_node->values.branch.value = bytes_dup(node->values.branch.value);
+      for (int i = 0; i < 16; i++)
+        new_node->values.branch.children[i] = patricia_clone_node(node->values.branch.children[i], new_node);
+      break;
+  }
+
+  return new_node;
+}
+
+node_t* patricia_clone_tree(node_t* node) {
+  return patricia_clone_node(node, NULL);
+}
+
 #if defined(TEST) && defined(DEBUG)
 static void rlp_dump(node_t* node) {
   ssz_def_t     def     = SSZ_LIST("bytes", ssz_bytes_list, 1024);

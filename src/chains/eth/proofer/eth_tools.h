@@ -9,4 +9,8 @@
 
 bytes_t eth_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_builder_t proof, ssz_builder_t sync_data);
 
+#ifdef PROOFER_CACHE
+uint8_t* c4_eth_receipt_cachekey(bytes32_t target, bytes32_t blockhash);
+#endif
+
 #endif

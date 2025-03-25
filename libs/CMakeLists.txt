@@ -14,3 +14,8 @@ endif()
 if(EVMONE)
     add_subdirectory(evmone)
 endif()
+
+if (HTTP_SERVER)
+    add_subdirectory(libuv)
+    add_subdirectory(llhttp)
+endif()
