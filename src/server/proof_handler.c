@@ -88,7 +88,7 @@ bool c4_handle_proof_request(client_t* client) {
   request_t* req        = calloc(1, sizeof(request_t));
   req->client           = client;
   req->cb               = c4_proofer_handle_request;
-  req->ctx              = c4_proofer_create(method_str, params_str, C4_CHAIN_MAINNET, C4_PROOFER_FLAG_UV_SERVER_CTX);
+  req->ctx              = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX);
   free(method_str);
   free(params_str);
   c4_proofer_handle_request(req);

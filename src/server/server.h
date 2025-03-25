@@ -14,14 +14,24 @@ typedef struct {
 } http_request_t;
 
 typedef struct {
+  char* memcached_host;
+  int   memcached_port;
+  int   memcached_pool;
+  int   port;
+  int   loglevel;
+  int   req_timeout;
+  int   chain_id;
+  char* rpc_nodes;
+  char* beacon_nodes;
+} http_server_t;
+
+extern http_server_t http_server;
+typedef struct {
   uv_tcp_t          handle;
   llhttp_t          parser;
   llhttp_settings_t settings;
   http_request_t    request;
   uv_write_t        write_req;
-  uv_buf_t          response_buf;
-  char              buffer[4096];
-  size_t            buffer_len;
   char              current_header[128];
 } client_t;
 typedef bool (*http_handler)(client_t*);
@@ -56,8 +66,9 @@ void c4_on_new_connection(uv_stream_t* server, int status);
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body);
 void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
-
+void c4_configure(int argc, char* argv[]);
 // Handlers
 bool c4_handle_proof_request(client_t* client);
 bool c4_handle_status(client_t* client);
 bool c4_proxy(client_t* client);
+bool c4_handle_health_check(client_t* client);

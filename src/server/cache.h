@@ -24,16 +24,7 @@ typedef void (*memcache_cb)(void* data, char* value, size_t value_len);
  * @param pool_size Number of connection pool size
  * @return Newly created memcached client or NULL on error
  */
-mc_t* memcache_new(unsigned int pool_size);
-
-/**
- * Connect to a memcached server.
- * @param client The memcached client
- * @param host The host address of the memcached server
- * @param port The port of the memcached server
- * @return 0 on success, or an error code
- */
-int memcache_connect(mc_t* client, const char* host, int port);
+mc_t* memcache_new(unsigned int pool_size, const char* host, int port);
 
 /**
  * Free the memcached client and its resources.

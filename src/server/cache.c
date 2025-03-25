@@ -1,3 +1,4 @@
+#include "cache.h"
 #include "server.h"
 #include <assert.h>
 #include <stdio.h>
@@ -16,148 +17,105 @@
 #include <sys/socket.h>
 #endif
 
-// Memcached client structure
-typedef struct mc_s {
-  uv_loop_t*   loop;
-  uv_tcp_t**   connections;
-  unsigned int size;
-  unsigned int connected;
-  unsigned int connecting;
-  unsigned int available;
-  unsigned int head;
-  unsigned int tail;
-} mc_t;
-
+#define UV_TRY(cmd, msg, catch)                                  \
+  do {                                                           \
+    int r = cmd;                                                 \
+    if (r != 0) {                                                \
+      fprintf(stderr, ":: error %s: %s\n", msg, uv_strerror(r)); \
+      catch;                                                     \
+    }                                                            \
+  } while (0)
 // Connection structure
 typedef struct mc_conn_s {
-  mc_t*     client;
-  uv_tcp_t* tcp;
+  mc_t*    client;
+  void*    data;
+  uv_tcp_t tcp;
+  bool     in_use;
+  bool     reconnecting; // Flag to indicate if the connection is in the process of reconnecting
 } mc_conn_t;
 
-// Callback function type
-typedef void (*memcache_cb)(void* data, char* value, size_t value_len);
+// Memcached client structure
+typedef struct mc_s {
+  uv_loop_t*         loop;
+  mc_conn_t*         connections;
+  unsigned int       size;
+  unsigned int       connected;
+  unsigned int       connecting;
+  unsigned int       available;
+  struct sockaddr_in server_addr;
+} mc_t;
 
-// Request structure for get operations
-typedef struct {
-  mc_t*       client;
-  void*       data;
-  memcache_cb callback;
-  mc_conn_t*  connection;
-  uv_tcp_t*   tcp;
-  char*       key;
-  size_t      keylen;
-  uv_buf_t*   msg;
-  buffer_t    buffer;
-} mc_get_req_t;
+// memcache connecting
+static void on_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
+  buf->base = (char*) malloc(suggested_size);
+  buf->len  = suggested_size;
+}
+static void on_connection(uv_connect_t* req, int status) {
+  mc_conn_t* connection = (mc_conn_t*) req->data;
+  connection->tcp.data  = connection;
+  mc_t* client          = connection->client;
+  free(req);
 
-// Request structure for set operations
-typedef struct {
-  mc_t*       client;
-  void*       data;
-  memcache_cb callback;
-  mc_conn_t*  connection;
-  uv_tcp_t*   tcp;
-  char*       key;
-  size_t      keylen;
-  char*       value;
-  size_t      value_len;
-  uint32_t    ttl;
-  uv_buf_t*   msg;
-} mc_set_req_t;
+  client->connecting--;
+  connection->reconnecting = false;
 
-// Forward declarations
-static void       on_connection(uv_connect_t* req, int status);
-static void       on_get_write(uv_write_t* req, int status);
-static void       on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
-static void       on_set_write(uv_write_t* req, int status);
-static void       on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
-static void       on_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf);
-static mc_conn_t* mc_get_connection(mc_t* client);
-static void       mc_release_connection(mc_conn_t* connection);
+  if (status == 0) {
+    client->connected++;
+    client->available++;
+
+    if (client->connected == client->size)
+      printf(":: connected all connections to memcached server\n");
+  }
+  else {
+    printf(":: error connecting to %s:%d status: %d\n", http_server.memcached_host, http_server.memcached_port, status);
+  }
+}
 
 // Create a new memcached client
-mc_t* memcache_new(unsigned int pool_size) {
+mc_t* memcache_new(unsigned int pool_size, const char* host, int port) {
+  struct addrinfo hints = {0};
+  hints.ai_family       = AF_INET;     // IPv4
+  hints.ai_socktype     = SOCK_STREAM; // TCP
+
+  // resolve address
+  struct addrinfo* result;
+  int              r = getaddrinfo(host, NULL, &hints, &result);
+  if (r != 0) {
+    fprintf(stderr, "Failed to resolve hostname %s: %s\n", host, gai_strerror(r));
+    return NULL;
+  }
+  struct sockaddr_in addr;
+  memcpy(&addr, result->ai_addr, sizeof(struct sockaddr_in));
+  addr.sin_port = htons(port);
+  freeaddrinfo(result);
+
+  // create client
   mc_t* client = (mc_t*) calloc(1, sizeof(mc_t));
   if (!client) return NULL;
 
-  client->loop       = uv_default_loop();
-  client->size       = pool_size;
-  client->head       = 0;
-  client->tail       = 0;
-  client->available  = 0;
-  client->connected  = 0;
-  client->connecting = 0;
-
-  client->connections = (uv_tcp_t**) calloc(pool_size, sizeof(uv_tcp_t*));
+  client->loop        = uv_default_loop();
+  client->size        = pool_size;
+  client->server_addr = addr;
+  client->connecting  = pool_size;
+  client->connections = (mc_conn_t*) calloc(pool_size, sizeof(mc_conn_t));
   if (!client->connections) {
     free(client);
     return NULL;
   }
 
   for (unsigned int i = 0; i < pool_size; i++) {
-    uv_tcp_t* tcp = (uv_tcp_t*) calloc(1, sizeof(uv_tcp_t));
-    if (!tcp) continue;
-
-    if (uv_tcp_init(client->loop, tcp) != 0) {
-      free(tcp);
-      continue;
-    }
-
-    mc_conn_t* connection = (mc_conn_t*) calloc(1, sizeof(mc_conn_t));
-    if (!connection) {
-      uv_close((uv_handle_t*) tcp, NULL);
-      free(tcp);
-      continue;
-    }
-
-    connection->client = client;
-    connection->tcp    = tcp;
-    tcp->data          = connection;
-
-    client->connections[i] = tcp;
+    mc_conn_t* connection = client->connections + i;
+    UV_TRY(uv_tcp_init(client->loop, &connection->tcp), "error initializing tcp", continue);
+    connection->client   = client;
+    connection->tcp.data = connection;
+    uv_connect_t* req    = (uv_connect_t*) calloc(1, sizeof(uv_connect_t));
+    req->data            = connection;
+    UV_TRY(uv_tcp_connect(req, &connection->tcp, (const struct sockaddr*) &addr, on_connection),
+           "error connecting to memcached",
+           free(req));
   }
 
   return client;
-}
-
-// Connect to memcached server
-int memcache_connect(mc_t* client, const char* host, int port) {
-  if (!client) return -1;
-
-  // First resolve the hostname
-  struct addrinfo hints = {0};
-  hints.ai_family       = AF_INET;     // IPv4
-  hints.ai_socktype     = SOCK_STREAM; // TCP
-
-  struct addrinfo* result;
-  int              r = getaddrinfo(host, NULL, &hints, &result);
-  if (r != 0) {
-    fprintf(stderr, "Failed to resolve hostname %s: %s\n", host, gai_strerror(r));
-    return r;
-  }
-
-  // Get the first IPv4 address
-  struct sockaddr_in addr;
-  memcpy(&addr, result->ai_addr, sizeof(struct sockaddr_in));
-  addr.sin_port = htons(port);
-  freeaddrinfo(result);
-
-  client->connecting = client->size;
-
-  for (unsigned int i = 0; i < client->size; i++) {
-    uv_connect_t* req = (uv_connect_t*) calloc(1, sizeof(uv_connect_t));
-    if (!req) continue;
-
-    req->data = client->connections[i]->data;
-
-    r = uv_tcp_connect(req, client->connections[i], (const struct sockaddr*) &addr, on_connection);
-    if (r != 0) {
-      free(req);
-      continue;
-    }
-  }
-
-  return 0;
 }
 
 // Free the memcached client
@@ -166,88 +124,108 @@ void memcache_free(mc_t** client_p) {
 
   mc_t* client = *client_p;
 
-  for (unsigned int i = 0; i < client->size; i++) {
-    if (client->connections[i]) {
-      mc_conn_t* connection = (mc_conn_t*) client->connections[i]->data;
-      if (connection) free(connection);
-
-      uv_close((uv_handle_t*) client->connections[i], NULL);
-      free(client->connections[i]);
-    }
-  }
+  for (unsigned int i = 0; i < client->size; i++)
+    uv_close((uv_handle_t*) &client->connections[i].tcp, NULL);
 
   free(client->connections);
   free(client);
   *client_p = NULL;
 }
 
-// Get value from memcached
-int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb cb) {
-  if (!client) {
-    cb(data, NULL, 0);
-    return 0;
-  }
-  if (!key || keylen == 0 || !cb) return -1;
-
-  mc_conn_t* connection = mc_get_connection(client);
-  if (!connection) {
-    cb(data, NULL, 0);
-    return 0;
+static mc_conn_t* mc_get_connection(mc_t* client) {
+  if (!client || client->available == 0) return NULL;
+  printf(":: mc_get_connection available: %d\n", client->available);
+  for (int i = 0; i < client->size; i++) {
+    mc_conn_t* connection = client->connections + i;
+    if (!connection->in_use) {
+      client->available--;
+      connection->in_use = true;
+      return connection;
+    }
   }
 
-  mc_get_req_t* req_data = (mc_get_req_t*) calloc(1, sizeof(mc_get_req_t));
-  if (!req_data) {
-    mc_release_connection(connection);
-    return -1;
+  return NULL;
+}
+
+static void mc_release_connection(mc_conn_t* connection) {
+  if (!connection) return;
+  connection->in_use = false;
+  mc_t* client       = connection->client;
+  client->available++;
+  printf(":: mc_release_connection available: %d\n", client->available);
+}
+
+/// -------- SET ---------
+
+typedef struct {
+  mc_t*       client;
+  void*       data;
+  memcache_cb callback;
+  mc_conn_t*  connection;
+  uv_buf_t    msg[3];
+} mc_set_req_t;
+
+static void req_set_free(mc_set_req_t* req) {
+  free(req->msg[0].base);
+  free(req->msg[1].base);
+  free(req);
+}
+
+static void on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
+  mc_conn_t*    connection = (mc_conn_t*) stream->data;
+  mc_set_req_t* req_data   = (mc_set_req_t*) connection->data;
+
+  uv_read_stop(stream);
+
+  // Check for connection errors
+  if (nread < 0 && nread != UV_EOF) {
+    printf(":: connection error in set operation: %s\n", uv_strerror(nread));
   }
 
-  uv_write_t* req = (uv_write_t*) calloc(1, sizeof(uv_write_t));
-  if (!req) {
-    free(req_data);
-    mc_release_connection(connection);
-    return -1;
+  if (nread <= 0) {
+    if (buf->base) free(buf->base);
+    if (req_data->callback)
+      req_data->callback(req_data->data, NULL, 0);
+    mc_release_connection(req_data->connection);
+    req_set_free(req_data);
+    return;
   }
 
-  req_data->client     = client;
-  req_data->data       = data;
-  req_data->callback   = cb;
-  req_data->connection = connection;
-  req_data->tcp        = connection->tcp;
-  req_data->key        = strndup(key, keylen);
-  req_data->keylen     = keylen;
+  char* response  = buf->base;
+  response[nread] = '\0';
 
-  uv_buf_t* msg = (uv_buf_t*) calloc(3, sizeof(uv_buf_t));
-  if (!msg) {
-    free(req_data->key);
-    free(req_data);
-    free(req);
-    mc_release_connection(connection);
-    return -1;
+  // Check if the set was successful
+  if (strncmp(response, "STORED", 6) == 0) {
+    if (req_data->callback)
+      req_data->callback(req_data->data, req_data->msg[1].base, req_data->msg[1].len);
+  }
+  else {
+    if (req_data->callback)
+      req_data->callback(req_data->data, NULL, 0);
+  }
+  mc_release_connection(req_data->connection);
+  req_set_free(req_data);
+  free(buf->base);
+}
+
+static void on_set_write(uv_write_t* req, int status) {
+  mc_set_req_t* req_data = (mc_set_req_t*) req->data;
+  free(req);
+
+  if (status != 0) {
+    // error, just call the callback with NULL
+    req_data->callback(req_data->data, NULL, 0);
+    mc_release_connection(req_data->connection);
+    req_set_free(req_data);
+    return;
   }
 
-  msg[0].base = "get ";
-  msg[0].len  = 4;
-  msg[1].base = req_data->key;
-  msg[1].len  = req_data->keylen;
-  msg[2].base = "\r\n";
-  msg[2].len  = 2;
-
-  req_data->msg = msg;
-  req->data     = req_data;
-
-  connection->tcp->data = req_data;
-
-  int r = uv_write(req, (uv_stream_t*) connection->tcp, msg, 3, on_get_write);
+  int r = uv_read_start((uv_stream_t*) &req_data->connection->tcp, on_alloc, on_set_read);
   if (r != 0) {
-    free(req_data->key);
-    free(req_data->msg);
-    free(req_data);
-    free(req);
-    mc_release_connection(connection);
-    return r;
+    req_data->callback(req_data->data, NULL, 0);
+    mc_release_connection(req_data->connection);
+    req_set_free(req_data);
   }
-
-  return 0;
 }
 
 // Set value in memcached
@@ -271,148 +249,61 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
     return -1;
   }
 
-  req_data->client     = client;
-  req_data->data       = data;
-  req_data->callback   = cb;
-  req_data->connection = connection;
-  req_data->tcp        = connection->tcp;
-  req_data->key        = strndup(key, keylen);
-  req_data->keylen     = keylen;
-  req_data->value      = (char*) malloc(value_len); // Cast void* to char*
-  if (!req_data->value) {
-    free(req_data->key);
-    free(req_data);
-    free(req);
-    mc_release_connection(connection);
-    return -1;
-  }
-  memcpy(req_data->value, value, value_len); // Copy binary data
-  req_data->value_len = value_len;
-  req_data->ttl       = ttl;
+  req_data->client      = client;
+  req_data->data        = data;
+  req_data->callback    = cb;
+  req_data->connection  = connection;
+  buffer_t command_buf  = {0};
+  req_data->msg[0].base = bprintf(&command_buf, "set %s 0 %d %d\r\n", key, (uint32_t) ttl, (uint32_t) value_len);
+  req_data->msg[0].len  = command_buf.data.len;
+  req_data->msg[1].base = (char*) bytes_dup(bytes(value, value_len)).data;
+  req_data->msg[1].len  = value_len;
+  req_data->msg[2].base = "\r\n";
+  req_data->msg[2].len  = 2;
+  req->data             = req_data;
+  connection->data      = req_data;
 
-  char len_str[32];
-  sprintf(len_str, "%zu", value_len);
-
-  uv_buf_t* msg = (uv_buf_t*) calloc(7, sizeof(uv_buf_t));
-  if (!msg) {
-    free(req_data->key);
-    free(req_data->value);
-    free(req_data);
-    free(req);
-    mc_release_connection(connection);
-    return -1;
-  }
-
-  char flags_ttl[64];
-  sprintf(flags_ttl, " 0 %u ", ttl);
-
-  msg[0].base = "set ";
-  msg[0].len  = 4;
-  msg[1].base = req_data->key;
-  msg[1].len  = req_data->keylen;
-  msg[2].base = flags_ttl;
-  msg[2].len  = strlen(flags_ttl);
-  msg[3].base = strdup(len_str);
-  msg[3].len  = strlen(len_str);
-  msg[4].base = "\r\n";
-  msg[4].len  = 2;
-  msg[5].base = req_data->value;
-  msg[5].len  = req_data->value_len;
-  msg[6].base = "\r\n";
-  msg[6].len  = 2;
-
-  req_data->msg = msg;
-  req->data     = req_data;
-
-  connection->tcp->data = req_data;
-
-  int r = uv_write(req, (uv_stream_t*) connection->tcp, msg, 7, on_set_write);
+  int r = uv_write(req, (uv_stream_t*) &connection->tcp, req_data->msg, 3, on_set_write);
   if (r != 0) {
-    free(req_data->key);
-    free(req_data->value);
-    free(msg[3].base);
-    free(req_data->msg);
-    free(req_data);
-    free(req);
     mc_release_connection(connection);
+    req_set_free(req_data);
     return r;
   }
 
   return 0;
 }
 
-// Private functions
+/// -------- GET ---------
 
-static void on_connection(uv_connect_t* req, int status) {
-  mc_conn_t* connection = (mc_conn_t*) req->data;
-  mc_t*      client     = connection->client;
+// Request structure for get operations
+typedef struct {
+  mc_t*       client;
+  void*       data;
+  memcache_cb cb;
+  mc_conn_t*  connection;
+  char*       key; // key to get
+  size_t      keylen;
+  uv_buf_t    msg[3];
+  buffer_t    buffer; // data received
+} mc_get_req_t;
 
+static void req_get_free(mc_get_req_t* req) {
+  free(req->key);
+  buffer_free(&req->buffer);
   free(req);
-
-  client->connecting--;
-
-  if (status == 0) {
-    client->connected++;
-    client->available++;
-    client->tail = (client->tail + 1) % client->size;
-  }
-}
-
-static mc_conn_t* mc_get_connection(mc_t* client) {
-  if (!client || client->available == 0) return NULL;
-
-  mc_conn_t* connection = (mc_conn_t*) client->connections[client->head]->data;
-  client->head          = (client->head + 1) % client->size;
-  client->available--;
-
-  return connection;
-}
-
-static void mc_release_connection(mc_conn_t* connection) {
-  if (!connection) return;
-
-  mc_t* client = connection->client;
-  client->tail = (client->tail + 1) % client->size;
-  client->available++;
-}
-
-static void on_get_write(uv_write_t* req, int status) {
-  mc_get_req_t* req_data = (mc_get_req_t*) req->data;
-  if (!req_data) return;
-
-  free(req);
-
-  if (status != 0) {
-    if (req_data->callback) {
-      req_data->callback(req_data->data, NULL, 0);
-    }
-
-    free(req_data->key);
-    free(req_data->msg);
-    free(req_data);
-    mc_release_connection(req_data->connection);
-    return;
-  }
-
-  int r = uv_read_start((uv_stream_t*) req_data->tcp, on_alloc, on_get_read);
-  if (r != 0) {
-    if (req_data->callback) {
-      req_data->callback(req_data->data, NULL, 0);
-    }
-
-    free(req_data->key);
-    free(req_data->msg);
-    free(req_data);
-    mc_release_connection(req_data->connection);
-  }
 }
 
 static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-  mc_get_req_t* req_data = (mc_get_req_t*) stream->data;
+  mc_conn_t*    connection = (mc_conn_t*) stream->data;
+  mc_get_req_t* req_data   = (mc_get_req_t*) connection->data;
   if (!req_data) return;
 
   bool    done   = false;
   bytes_t result = NULL_BYTES;
+
+  // Check for connection errors
+  if (nread < 0 && nread != UV_EOF)
+    printf(":: connection error in get operation: %s\n", uv_strerror(nread));
 
   // fetch data
   if (nread == UV_EOF)
@@ -464,107 +355,83 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
     uv_read_stop(stream);
 
     // Call callback with result
-    if (req_data->callback) {
-      req_data->callback(req_data->data, (char*) result.data, result.len);
-    }
-
-    // Store connection before freeing req_data
-    mc_conn_t* connection = req_data->connection;
+    req_data->cb(req_data->data, (char*) result.data, result.len);
 
     // Clean up resources in correct order
     mc_release_connection(connection);
-    free(req_data->key);
-    buffer_free(&req_data->buffer);
-    free(req_data->msg);
-    free(req_data);
-
-    // Restore the original connection data
-    stream->data = connection;
+    req_get_free(req_data);
   }
 }
 
-static void on_set_write(uv_write_t* req, int status) {
-  mc_set_req_t* req_data = (mc_set_req_t*) req->data;
-
+static void on_get_write(uv_write_t* req, int status) {
+  mc_get_req_t* req_data = (mc_get_req_t*) req->data;
+  if (!req_data) return;
   free(req);
 
   if (status != 0) {
-    if (req_data->callback) {
-      req_data->callback(req_data->data, NULL, 0);
-    }
-
-    free(req_data->key);
-    free(req_data->value);
-    free(req_data->msg[3].base);
-    free(req_data->msg);
-    free(req_data);
+    printf(":: error writing get request: %s\n", uv_strerror(status));
+    req_data->cb(req_data->data, NULL, 0);
     mc_release_connection(req_data->connection);
+    req_get_free(req_data);
     return;
   }
 
-  int r = uv_read_start((uv_stream_t*) req_data->tcp, on_alloc, on_set_read);
+  int r = uv_read_start((uv_stream_t*) &req_data->connection->tcp, on_alloc, on_get_read);
   if (r != 0) {
-    if (req_data->callback) {
-      req_data->callback(req_data->data, NULL, 0);
-    }
-
-    free(req_data->key);
-    free(req_data->value);
-    free(req_data->msg[3].base);
-    free(req_data->msg);
-    free(req_data);
+    req_data->cb(req_data->data, NULL, 0);
     mc_release_connection(req_data->connection);
+    req_get_free(req_data);
   }
 }
 
-static void on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-  mc_set_req_t* req_data = (mc_set_req_t*) stream->data;
+// Get value from memcached
+int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb cb) {
+  if (!client) {
+    cb(data, NULL, 0);
+    return 0;
+  }
+  if (!key || keylen == 0 || !cb) return -1;
 
-  uv_read_stop(stream);
+  mc_conn_t* connection = mc_get_connection(client);
+  if (!connection) {
+    cb(data, NULL, 0);
+    return 0;
+  }
 
-  if (nread <= 0) {
-    if (buf->base) free(buf->base);
-    if (req_data->callback) {
-      req_data->callback(req_data->data, NULL, 0);
-    }
+  mc_get_req_t* req_data = (mc_get_req_t*) calloc(1, sizeof(mc_get_req_t));
+  if (!req_data) {
+    mc_release_connection(connection);
+    return -1;
+  }
 
-    free(req_data->key);
-    free(req_data->value);
-    free(req_data->msg[3].base);
-    free(req_data->msg);
+  uv_write_t* req = (uv_write_t*) calloc(1, sizeof(uv_write_t));
+  if (!req) {
     free(req_data);
-    stream->data = req_data->connection;
-    mc_release_connection(req_data->connection);
-    return;
+    mc_release_connection(connection);
+    return -1;
   }
 
-  char* response  = buf->base;
-  response[nread] = '\0';
+  req_data->client      = client;
+  req_data->data        = data;
+  req_data->cb          = cb;
+  req_data->connection  = connection;
+  req_data->key         = strndup(key, keylen);
+  req_data->keylen      = keylen;
+  req_data->msg[0].base = "get ";
+  req_data->msg[0].len  = 4;
+  req_data->msg[1].base = req_data->key;
+  req_data->msg[1].len  = req_data->keylen;
+  req_data->msg[2].base = "\r\n";
+  req_data->msg[2].len  = 2;
+  req->data             = req_data;
+  connection->data      = req_data;
 
-  // Check if the set was successful
-  if (strncmp(response, "STORED", 6) == 0) {
-    if (req_data->callback) {
-      req_data->callback(req_data->data, req_data->value, req_data->value_len);
-    }
+  int r = uv_write(req, (uv_stream_t*) &connection->tcp, req_data->msg, 3, on_get_write);
+  if (r != 0) {
+    mc_release_connection(connection);
+    req_get_free(req_data);
+    return r;
   }
-  else {
-    if (req_data->callback) {
-      req_data->callback(req_data->data, NULL, 0);
-    }
-  }
 
-  free(buf->base);
-  free(req_data->key);
-  free(req_data->value);
-  free(req_data->msg[3].base);
-  free(req_data->msg);
-  free(req_data);
-
-  stream->data = req_data->connection;
-  mc_release_connection(req_data->connection);
-}
-
-static void on_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
-  buf->base = (char*) malloc(suggested_size);
-  buf->len  = suggested_size;
+  return 0;
 }

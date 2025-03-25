@@ -23,6 +23,7 @@
   } while (0)
 
 int main(int argc, char* argv[]) {
+  c4_configure(argc, argv);
   // Force unbuffered output
   setvbuf(stdout, NULL, _IONBF, 0);
   setvbuf(stderr, NULL, _IONBF, 0);
@@ -30,7 +31,7 @@ int main(int argc, char* argv[]) {
   uv_timer_t         timer;
   uv_tcp_t           server;
   struct sockaddr_in addr;
-  int                port = 8080;
+  int                port = http_server.port;
   uv_loop_t*         loop = uv_default_loop();
 
   // register http-handler

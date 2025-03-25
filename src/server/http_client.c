@@ -17,17 +17,8 @@ static CURLM*             multi_handle;
 static mc_t*              memcache_client;
 const char*               CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
-static const server_list_t eth_rpc_servers = {
-    .urls = (char*[]) {
-        "https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/",
-        "https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S",
-        "https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd"},
-    .count = 3};
-
-static const server_list_t beacon_api_servers = {
-    .urls = (char*[]) {
-        "https://lodestar-mainnet.chainsafe.io/"},
-    .count = 1};
+static server_list_t eth_rpc_servers    = {0};
+static server_list_t beacon_api_servers = {0};
 
 static void cache_response(single_request_t* r);
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
@@ -432,6 +423,26 @@ bool c4_check_retry_request(request_t* req) {
   }
 }
 
+static void init_serverlist(server_list_t* list, char* servers) {
+  if (!servers) return;
+  char* servers_copy = strdup(servers);
+  int   count        = 0;
+  char* token        = strtok(servers_copy, ",");
+  while (token) {
+    count++;
+    token = strtok(NULL, ",");
+  }
+  list->urls  = (char**) calloc(count, sizeof(char*));
+  list->count = count;
+  count       = 0;
+  token       = strtok(servers_copy, ",");
+  while (token) {
+    list->urls[count++] = strdup(token);
+    token               = strtok(NULL, ",");
+  }
+  free(servers_copy);
+}
+
 void c4_init_curl(uv_timer_t* timer) {
   multi_handle = curl_multi_init();
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, socket_callback);
@@ -439,27 +450,14 @@ void c4_init_curl(uv_timer_t* timer) {
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
 
   // Initialize memcached client
-  memcache_client = memcache_new(10); // Pool size of 10 connections
+  memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port); // Pool size of 10 connections
   if (!memcache_client) {
     fprintf(stderr, "Failed to create memcached client\n");
     return;
   }
 
-  // Connect to memcached server using environment variables or defaults
-  const char* memcached_host = getenv("MEMCACHED_HOST");
-  const char* memcached_port = getenv("MEMCACHED_PORT");
-
-  if (!memcached_host) memcached_host = "127.0.0.1";
-  if (!memcached_port) memcached_port = "11211";
-
-  int port = atoi(memcached_port);
-  if (port <= 0) port = 11211; // Default if invalid port
-
-  if (memcache_connect(memcache_client, memcached_host, port) != 0) {
-    fprintf(stderr, "Failed to connect to memcached server at %s:%d\n", memcached_host, port);
-    memcache_free(&memcache_client);
-    return;
-  }
+  init_serverlist(&eth_rpc_servers, http_server.rpc_nodes);
+  init_serverlist(&beacon_api_servers, http_server.beacon_nodes);
 }
 
 void c4_cleanup_curl() {
