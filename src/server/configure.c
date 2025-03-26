@@ -80,6 +80,18 @@ void c4_configure(int argc, char* argv[]) {
     printf("%s\n", help_buffer.data.data);
     exit(0);
   }
+  else {
+    printf("Starting server with config:\n");
+    printf("  port          : %d\n", http_server.port);
+    printf("  memcached_host: %s\n", http_server.memcached_host);
+    printf("  memcached_port: %d\n", http_server.memcached_port);
+    printf("  memcached_pool: %d\n", http_server.memcached_pool);
+    printf("  loglevel      : %d\n", http_server.loglevel);
+    printf("  req_timeout   : %d\n", http_server.req_timeout);
+    printf("  chain_id      : %d\n", http_server.chain_id);
+    printf("  rpc_nodes     : %s\n", http_server.rpc_nodes);
+    printf("  beacon_nodes  : %s\n", http_server.beacon_nodes);
+  }
   buffer_free(&help_buffer);
 }
 

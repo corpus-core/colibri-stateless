@@ -134,7 +134,7 @@ void memcache_free(mc_t** client_p) {
 
 static mc_conn_t* mc_get_connection(mc_t* client) {
   if (!client || client->available == 0) return NULL;
-  printf(":: mc_get_connection available: %d\n", client->available);
+  //  printf(":: mc_get_connection available: %d\n", client->available);
   for (int i = 0; i < client->size; i++) {
     mc_conn_t* connection = client->connections + i;
     if (!connection->in_use) {
@@ -152,7 +152,7 @@ static void mc_release_connection(mc_conn_t* connection) {
   connection->in_use = false;
   mc_t* client       = connection->client;
   client->available++;
-  printf(":: mc_release_connection available: %d\n", client->available);
+  //  printf(":: mc_release_connection available: %d\n", client->available);
 }
 
 /// -------- SET ---------

@@ -97,14 +97,29 @@ static void handle_curl_events() {
           pending_request_t* pending = pending_find(r);
           CURLcode           res     = msg->data.result;
           if (res == CURLE_OK) {
-            printf("recv: [%p] %s : %d\n", easy, r->req->url, r->buffer.data.len);
+            printf("   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
             r->req->response = r->buffer.data;
             cache_response(r);
             r->buffer = (buffer_t) {0};
           }
           else {
             r->req->error = bprintf(NULL, "%s : %s", curl_easy_strerror(res), bprintf(&r->buffer, " "));
-            printf("recv: [%p] %s : %s\n", easy, r->req->url, r->req->error);
+            printf("   -> [%p] %s : ERROR = %s (code: %d)\n",
+                   easy, r->url ? r->url : r->req->url,
+                   curl_easy_strerror(res), res);
+
+            // Get more details about the error
+            long http_code = 0;
+            curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+            if (http_code > 0) {
+              printf("HTTP response code: %ld\n", http_code);
+            }
+
+            char* effective_url = NULL;
+            curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
+            if (effective_url) {
+              printf("Effective URL: %s\n", effective_url);
+            }
           }
           if (pending) {
             pending_request_t* same = pending->same_requests;
@@ -122,6 +137,8 @@ static void handle_curl_events() {
         }
       }
       curl_multi_remove_handle(multi_handle, easy);
+
+      // No need to extract headers from CURL - we already store them in the single_request_t
       curl_easy_cleanup(easy);
       bool all_done = true;
       for (size_t i = 0; i < req->request_count; i++) {
@@ -163,8 +180,26 @@ static int timer_callback(CURLM* multi, long timeout_ms, void* userp) {
 
 // Socket-Callback für curl
 static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, void* socketp) {
-  uv_poll_t* poll   = (socketp) ? (uv_poll_t*) socketp : calloc(1, sizeof(uv_poll_t));
-  int        events = 0;
+  uv_poll_t* poll;
+
+  if (socketp) {
+    poll = (uv_poll_t*) socketp;
+  }
+  else {
+    poll = (uv_poll_t*) calloc(1, sizeof(uv_poll_t));
+  }
+
+  if (what == CURL_POLL_REMOVE) {
+    if (poll) {
+      uv_poll_stop(poll);
+      // Close the handle and free its resources
+      uv_close((uv_handle_t*) poll, (uv_close_cb) free);
+      curl_multi_assign(multi_handle, s, NULL);
+    }
+    return 0;
+  }
+
+  int events = 0;
   if (what & CURL_POLL_IN) events |= UV_READABLE;
   if (what & CURL_POLL_OUT) events |= UV_WRITABLE;
   uv_poll_init_socket(uv_default_loop(), poll, s);
@@ -251,12 +286,43 @@ static void cache_response(single_request_t* r) {
 
 // Helper function to configure SSL settings for an easy handle
 static void configure_ssl_settings(CURL* easy) {
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);   // Disable SSL certificate verification
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);   // Disable hostname verification
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYSTATUS, 0L); // Disable OCSP verification
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);   // Allow self-signed certificates
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);   // Allow self-signed certificates
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYSTATUS, 0L); // Allow self-signed certificates
+  if (!easy) {
+    fprintf(stderr, "configure_ssl_settings: NULL easy handle passed\n");
+    return;
+  }
+
+  //  printf("Configuring SSL settings for handle %p\n", (void*) easy);
+
+  // Disable SSL verification for development/testing
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
+
+  // Don't use the specific SSL engine settings - can cause issues
+  // curl_easy_setopt(easy, CURLOPT_SSLENGINE, NULL);
+  // curl_easy_setopt(easy, CURLOPT_SSLENGINE_DEFAULT, 1L);
+
+  // Set SSL protocol version to be flexible - auto-negotiate
+  curl_easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_DEFAULT);
+
+  // Enable TLS 1.3 if available
+  curl_easy_setopt(easy, CURLOPT_SSL_OPTIONS, CURLSSLOPT_ALLOW_BEAST | CURLSSLOPT_NO_REVOKE);
+
+  // Disable SSL session reuse to avoid potential issues
+  curl_easy_setopt(easy, CURLOPT_SSL_SESSIONID_CACHE, 0L);
+
+  // Add debug callback to get detailed SSL connection info
+  curl_easy_setopt(easy, CURLOPT_VERBOSE, 1L);
+
+  // Set more permissive connection
+  curl_easy_setopt(easy, CURLOPT_FRESH_CONNECT, 1L); // Don't reuse connections
+  curl_easy_setopt(easy, CURLOPT_FORBID_REUSE, 1L);  // Explicitly forbid connection reuse
+}
+
+static void call_callback_if_done(request_t* req) {
+  for (size_t i = 0; i < req->request_count; i++) {
+    if (c4_state_is_pending(req->requests[i].req)) return;
+  }
+  req->cb(req);
 }
 
 // Callback for memcache get operations
@@ -275,47 +341,48 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     r->req->response = bytes_dup(bytes(value, value_len));
     r->curl          = NULL; // Mark as done
 
-    // Check if all requests are done
-    request_t* parent   = r->parent;
-    bool       all_done = true;
-    for (size_t i = 0; i < parent->request_count; i++) {
-      if (c4_state_is_pending(parent->requests[i].req)) {
-        all_done = false;
-        break;
-      }
-    }
-    if (all_done) parent->cb(parent);
-    // if !all_done, the callback will be called when the last one is done
+    call_callback_if_done(r->parent);
   }
   else {
     // Cache miss - proceed with normal request handling
-    pending_add(r);
     server_list_t* servers  = get_server_list(r->req->type);
     char*          base_url = servers ? servers->urls[r->req->response_node_index] : NULL;
     char*          req_url  = r->req->url;
-    CURL*          easy     = curl_easy_init();
-    r->curl                 = easy;
 
-    if (!base_url)
+    // Safeguard against NULL URLs
+    if (!req_url) req_url = "";
+    if (!base_url) base_url = "";
+
+    if (strlen(base_url) == 0 && strlen(req_url) > 0)
       r->url = strdup(req_url);
-    else if (!req_url)
+    else if (strlen(req_url) == 0 && strlen(base_url) > 0)
       r->url = strdup(base_url);
-    else
+    else if (strlen(req_url) > 0 && strlen(base_url) > 0)
       r->url = bprintf(NULL, "%s%s", base_url, req_url);
+    else {
+      printf(":: ERROR: Empty URL\n");
+      r->req->error = bprintf(NULL, "Empty URL");
+      call_callback_if_done(r->parent);
+      return;
+    }
 
+    pending_add(r);
+    CURL* easy = curl_easy_init();
+    r->curl    = easy;
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     if (r->req->payload.len && r->req->payload.data) {
       curl_easy_setopt(easy, CURLOPT_POSTFIELDS, r->req->payload.data);
       curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) r->req->payload.len);
     }
 
-    struct curl_slist* headers = NULL;
+    // Set up headers
+    r->headers = NULL; // Initialize headers
     if (r->req->payload.len && r->req->payload.data)
-      headers = curl_slist_append(headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
-    headers = curl_slist_append(headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
-    headers = curl_slist_append(headers, "charsets: utf-8");
-    headers = curl_slist_append(headers, "User-Agent: c4 curl ");
-    curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headers);
+      r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
+    r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
+    r->headers = curl_slist_append(r->headers, "charsets: utf-8");
+    r->headers = curl_slist_append(r->headers, "User-Agent: c4 curl ");
+    curl_easy_setopt(easy, CURLOPT_HTTPHEADER, r->headers);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, curl_append);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &r->buffer);
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, (uint64_t) 120);
@@ -323,7 +390,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r->parent);
 
     // Configure SSL settings for this easy handle
-    //    configure_ssl_settings(easy);
+    configure_ssl_settings(easy);
 
     curl_multi_add_handle(multi_handle, easy);
     printf("send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
@@ -384,6 +451,10 @@ void c4_start_curl_requests(request_t* req) {
 static void free_single_request(single_request_t* r) {
   buffer_free(&r->buffer);
   free(r->url);
+  if (r->headers) {
+    curl_slist_free_all(r->headers);
+    r->headers = NULL;
+  }
 }
 
 // we cleanup aftwe curl and retry if needed.
@@ -395,6 +466,7 @@ bool c4_check_retry_request(request_t* req) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
     server_list_t*    servers = get_server_list(pending->type);
+
     if (pending->error && servers && pending->response_node_index + 1 < servers->count) {
       int idx = pending->response_node_index + 1;
       for (int i = idx; i < servers->count; i++) {
@@ -404,6 +476,8 @@ bool c4_check_retry_request(request_t* req) {
           break;
       }
       if (idx < servers->count) {
+        printf(":: Retrying request with server %d: %s\n", idx,
+               servers->urls[idx] ? servers->urls[idx] : "NULL");
         free(pending->error);
         pending->response_node_index = idx;
         pending->error               = NULL;
@@ -420,12 +494,14 @@ bool c4_check_retry_request(request_t* req) {
     return false;
   }
   else {
+    printf(":: Retrying %d requests with different servers\n", retry_requests);
     single_request_t* pendings = (single_request_t*) calloc(retry_requests, sizeof(single_request_t));
     int               j        = 0;
     for (size_t i = 0; i < req->request_count && j < retry_requests; i++) {
       data_request_t* pending = req->requests[i].req;
-      if (!pending->error && !pending->response.data)
+      if (pending->error == NULL && !pending->response.data) {
         pendings[j++].req = pending;
+      }
     }
     for (int i = 0; i < req->request_count; i++) free_single_request(req->requests + i);
     req->requests      = pendings;
@@ -446,6 +522,7 @@ static void init_serverlist(server_list_t* list, char* servers) {
     count++;
     token = strtok(NULL, ",");
   }
+  memcpy(servers_copy, servers, strlen(servers) + 1);
   list->urls  = (char**) calloc(count, sizeof(char*));
   list->count = count;
   count       = 0;
@@ -458,8 +535,8 @@ static void init_serverlist(server_list_t* list, char* servers) {
 }
 
 void c4_init_curl(uv_timer_t* timer) {
-  // Initialize global curl state
-  curl_global_init(CURL_GLOBAL_DEFAULT);
+  // Initialize global curl state with SSL support
+  curl_global_init(CURL_GLOBAL_SSL | CURL_GLOBAL_DEFAULT);
 
   // Initialize multi handle
   multi_handle = curl_multi_init();
@@ -468,7 +545,7 @@ void c4_init_curl(uv_timer_t* timer) {
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
 
   // Initialize memcached client
-  memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port); // Pool size of 10 connections
+  memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
   if (!memcache_client) {
     fprintf(stderr, "Failed to create memcached client\n");
     return;
@@ -479,6 +556,8 @@ void c4_init_curl(uv_timer_t* timer) {
 }
 
 void c4_cleanup_curl() {
+  // Close all handles and let the cleanup function free the resources
+  curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, NULL);
   curl_multi_cleanup(multi_handle);
   curl_global_cleanup();
   if (memcache_client) {
