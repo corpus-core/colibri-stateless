@@ -97,14 +97,29 @@ static void handle_curl_events() {
           pending_request_t* pending = pending_find(r);
           CURLcode           res     = msg->data.result;
           if (res == CURLE_OK) {
-            printf("      [%p] %s : %d\n", easy, r->req->url, r->buffer.data.len);
+            printf("   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
             r->req->response = r->buffer.data;
             cache_response(r);
             r->buffer = (buffer_t) {0};
           }
           else {
             r->req->error = bprintf(NULL, "%s : %s", curl_easy_strerror(res), bprintf(&r->buffer, " "));
-            printf("recv: [%p] %s : %s\n", easy, r->req->url, r->req->error);
+            printf("   -> [%p] %s : ERROR = %s (code: %d)\n",
+                   easy, r->url ? r->url : r->req->url,
+                   curl_easy_strerror(res), res);
+
+            // Get more details about the error
+            long http_code = 0;
+            curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+            if (http_code > 0) {
+              printf("HTTP response code: %ld\n", http_code);
+            }
+
+            char* effective_url = NULL;
+            curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
+            if (effective_url) {
+              printf("Effective URL: %s\n", effective_url);
+            }
           }
           if (pending) {
             pending_request_t* same = pending->same_requests;
@@ -270,18 +285,25 @@ static void configure_ssl_settings(CURL* easy) {
   curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
   curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
 
-  // Try with GnuTLS specific option for certificate loading
-  curl_easy_setopt(easy, CURLOPT_SSLENGINE, NULL);
-  curl_easy_setopt(easy, CURLOPT_SSLENGINE_DEFAULT, 1L);
+  // Don't use the specific SSL engine settings - can cause issues
+  // curl_easy_setopt(easy, CURLOPT_SSLENGINE, NULL);
+  // curl_easy_setopt(easy, CURLOPT_SSLENGINE_DEFAULT, 1L);
 
-  // Set SSL protocol version
-  curl_easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+  // Set SSL protocol version to be flexible - auto-negotiate
+  curl_easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_DEFAULT);
+
+  // Enable TLS 1.3 if available
+  curl_easy_setopt(easy, CURLOPT_SSL_OPTIONS, CURLSSLOPT_ALLOW_BEAST | CURLSSLOPT_NO_REVOKE);
 
   // Disable SSL session reuse to avoid potential issues
   curl_easy_setopt(easy, CURLOPT_SSL_SESSIONID_CACHE, 0L);
 
-  // Add verbose debugging for SSL
+  // Add debug callback to get detailed SSL connection info
   curl_easy_setopt(easy, CURLOPT_VERBOSE, 1L);
+
+  // Set more permissive connection
+  curl_easy_setopt(easy, CURLOPT_FRESH_CONNECT, 1L); // Don't reuse connections
+  curl_easy_setopt(easy, CURLOPT_FORBID_REUSE, 1L);  // Explicitly forbid connection reuse
 }
 
 // Callback for memcache get operations
@@ -429,6 +451,7 @@ bool c4_check_retry_request(request_t* req) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
     server_list_t*    servers = get_server_list(pending->type);
+
     if (pending->error && servers && pending->response_node_index + 1 < servers->count) {
       int idx = pending->response_node_index + 1;
       for (int i = idx; i < servers->count; i++) {
@@ -438,6 +461,8 @@ bool c4_check_retry_request(request_t* req) {
           break;
       }
       if (idx < servers->count) {
+        printf("Retrying request with server %d: %s\n", idx,
+               servers->urls[idx] ? servers->urls[idx] : "NULL");
         free(pending->error);
         pending->response_node_index = idx;
         pending->error               = NULL;
@@ -454,12 +479,14 @@ bool c4_check_retry_request(request_t* req) {
     return false;
   }
   else {
+    printf("Retrying %d requests with different servers\n", retry_requests);
     single_request_t* pendings = (single_request_t*) calloc(retry_requests, sizeof(single_request_t));
     int               j        = 0;
     for (size_t i = 0; i < req->request_count && j < retry_requests; i++) {
       data_request_t* pending = req->requests[i].req;
-      if (!pending->error && !pending->response.data)
+      if (pending->error == NULL && !pending->response.data) {
         pendings[j++].req = pending;
+      }
     }
     for (int i = 0; i < req->request_count; i++) free_single_request(req->requests + i);
     req->requests      = pendings;
@@ -480,6 +507,7 @@ static void init_serverlist(server_list_t* list, char* servers) {
     count++;
     token = strtok(NULL, ",");
   }
+  memcpy(servers_copy, servers, strlen(servers) + 1);
   list->urls  = (char**) calloc(count, sizeof(char*));
   list->count = count;
   count       = 0;
