@@ -54,6 +54,7 @@
     - [EthReceiptProof](#ethreceiptproof)
     - [EthStateProof](#ethstateproof)
     - [EthStorageProof](#ethstorageproof)
+    - [EthSyncProof](#ethsyncproof)
     - [EthTransactionProof](#ethtransactionproof)
     - [EthTxData](#ethtxdata)
     - [ExecutionPayload](#executionpayload)
@@ -448,6 +449,10 @@ The js-module will be in the `build/emscripten` folder.
     Default: ON  
     Usage: `cmake -DFILE_STORAGE=ON` ..
 
+- **-DHTTP_SERVER**: Build the HTTP server using libuv and llhttp  
+    Default: OFF  
+    Usage: `cmake -DHTTP_SERVER=OFF` ..
+
 - **-DINTX_BUILD_TEST**: Build intx test program  
     Default: ON  
     Usage: `cmake -DINTX_BUILD_TEST=ON` ..
@@ -669,7 +674,7 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L338).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L350).
 
 ```python
 class C4Request(Container):
@@ -690,7 +695,8 @@ class C4Request(Container):
         EthTransactionProof,
         EthReceiptProof                # a Proof of a TransactionReceipt,
         List [EthLogsBlock, 256]       # a Proof for multiple Receipts and txs,
-        EthCallProof                   # a Proof for multiple accounts
+        EthCallProof,
+        EthSyncProof                   # Proof as input data for the sync committee transition used by zk
     ]
     sync_data: Union[                  # the sync data containing proofs for the transition between the two periods
         None,
@@ -1027,6 +1033,24 @@ represents the storage proof of a key
 class EthStorageProof(Container):
     key  : Bytes32                   # the key to be proven
     proof: List [bytes_1024, 1024]   # Patricia merkle proof
+```
+
+### EthSyncProof
+
+Proof as input data for the sync committee transition used by zk. This is a very compact proof mostly taken from the light client update.
+ the proof itself is a merkle proof using the given gindex to verify from the hash of the pubkey all the way down to the signing root.
+
+
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L312).
+
+```python
+class EthSyncProof(Container):
+    oldKeys               : Vector [blsPubky, 512]   # the old keys which produced the signature
+    newKeys               : Vector [blsPubky, 512]   # the new keys to be proven
+    syncCommitteeBits     : BitVector [512]          # the bits of the validators that signed the block
+    syncCommitteeSignature: ByteVector [96]          # the signature of the sync committee
+    gidx                  : Uint64                   # the general index from the signing root to the pubkeys of the next_synccommittee
+    proof                 : Vector [bytes32, 9]      # proof merkle proof from the signing root to the pubkeys of the next_synccommittee
 ```
 
 ### EthTransactionProof

@@ -307,13 +307,15 @@ static const ssz_def_t ETH_CALL_PROOF[]           = {
     SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256), // used accounts
     SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};        // the state proof of the account
 
+// Proof as input data for the sync committee transition used by zk. This is a very compact proof mostly taken from the light client update.
+// the proof itself is a merkle proof using the given gindex to verify from the hash of the pubkey all the way down to the signing root.
 static const ssz_def_t ETH_SYNC_PROOF[] = {
-    SSZ_VECTOR("oldKeys", ssz_bls_pubky, 512),
-    SSZ_VECTOR("newKeys", ssz_bls_pubky, 512),
+    SSZ_VECTOR("oldKeys", ssz_bls_pubky, 512),     // the old keys which produced the signature
+    SSZ_VECTOR("newKeys", ssz_bls_pubky, 512),     // the new keys to be proven
     SSZ_BIT_VECTOR("syncCommitteeBits", 512),      // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("syncCommitteeSignature", 96), // the signature of the sync committee
-    SSZ_UINT64("gidx"),
-    SSZ_VECTOR("proof", ssz_bytes32, 9)}; // proof
+    SSZ_UINT64("gidx"),                            // the general index from the signing root to the pubkeys of the next_synccommittee
+    SSZ_VECTOR("proof", ssz_bytes32, 9)};          // proof merkle proof from the signing root to the pubkeys of the next_synccommittee
 
 static const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
 
@@ -336,7 +338,7 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF),     // a Proof of a TransactionReceipt
     SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256), // a Proof for multiple Receipts and txs
     SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),
-    SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF),
+    SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF), // Proof as input data for the sync committee transition used by zk
 }; // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
