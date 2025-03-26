@@ -27,24 +27,28 @@ static const ssz_def_t FORK_DATA[] = {
 
 static const ssz_def_t FORK_DATA_CONTAINER = SSZ_CONTAINER("ForkDate", FORK_DATA);
 
-static bool calculate_signing_message(verify_ctx_t* ctx, uint64_t slot, bytes32_t blockhash, bytes32_t signing_message) {
-  uint8_t   buffer[64] = {0};
+bool eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain) {
+  uint8_t   buffer[36] = {0};
   bytes32_t root       = {0};
 
   // compute fork_data root hash to the seconf 32 bytes of bffer
-  buffer[0] = (uint8_t) c4_chain_fork_id(ctx->chain_id, (slot - 1) >> 5);
-  if (!c4_chain_genesis_validators_root(ctx->chain_id, buffer + 4)) RETURN_VERIFY_ERROR(ctx, "unsupported chain!");
+  buffer[0] = (uint8_t) c4_chain_fork_id(chain_id, (slot - 1) >> 5);
+  if (!c4_chain_genesis_validators_root(chain_id, buffer + 4)) false;
 
   ssz_hash_tree_root(ssz_ob(FORK_DATA_CONTAINER, bytes(buffer, 36)), root);
 
   // build domain by replacing the first 4 bytes with the sync committee domain which creates the domain-data in the 2nd 32 bytes of buffer
+  memset(domain, 0, 4);
+  memcpy(domain + 4, root, 28);
+  domain[0] = 7; // Domain-Type SYNC_COMMITTEE
+  return true;
+}
+
+static bool calculate_signing_message(verify_ctx_t* ctx, uint64_t slot, bytes32_t blockhash, bytes32_t signing_message) {
+  uint8_t buffer[64] = {0};
   memcpy(buffer, blockhash, 32);
-  memset(buffer + 32, 0, 4);
-  memcpy(buffer + 36, root, 28);
-  buffer[32] = 7; // Domain-Type SYNC_COMMITTEE
-
+  if (!eth_calculate_domain(ctx->chain_id, slot, buffer + 32)) RETURN_VERIFY_ERROR(ctx, "unsupported chain!");
   ssz_hash_tree_root(ssz_ob(SIGNING_DATA_CONTAINER, bytes(buffer, 64)), signing_message);
-
   return true;
 }
 

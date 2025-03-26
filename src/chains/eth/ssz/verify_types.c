@@ -307,6 +307,14 @@ static const ssz_def_t ETH_CALL_PROOF[]           = {
     SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256), // used accounts
     SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};        // the state proof of the account
 
+static const ssz_def_t ETH_SYNC_PROOF[] = {
+    SSZ_VECTOR("oldKeys", ssz_bls_pubky, 512),
+    SSZ_VECTOR("newKeys", ssz_bls_pubky, 512),
+    SSZ_BIT_VECTOR("syncCommitteeBits", 512),      // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("syncCommitteeSignature", 96), // the signature of the sync committee
+    SSZ_UINT64("gidx"),
+    SSZ_VECTOR("proof", ssz_bytes32, 9)}; // proof
+
 static const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
 
 // A List of possible types of data matching the Proofs
@@ -327,7 +335,9 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF),
     SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF),     // a Proof of a TransactionReceipt
     SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256), // a Proof for multiple Receipts and txs
-    SSZ_CONTAINER("CallProof", ETH_CALL_PROOF)};          // a Proof for multiple accounts
+    SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),
+    SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF),
+}; // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 static const ssz_def_t C4_REQUEST_SYNCDATA_UNION[] = {
@@ -372,6 +382,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, &ETH_LOGS_BLOCK_CONTAINER);
     case ETH_SSZ_VERIFY_CALL_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_CALL_PROOF);
+    case ETH_SSZ_VERIFY_SYNC_PROOF:
+      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_SYNC_PROOF);
     case ETH_SSZ_VERIFY_STATE_PROOF:
       return &ETH_STATE_PROOF_CONTAINER;
     case ETH_SSZ_DATA_NONE:

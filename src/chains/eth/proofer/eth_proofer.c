@@ -34,6 +34,8 @@ bool eth_proofer_execute(proofer_ctx_t* ctx) {
     c4_proof_logs(ctx);
   else if (strcmp(ctx->method, "eth_call") == 0)
     c4_proof_call(ctx);
+  else if (strcmp(ctx->method, "eth_proof_sync") == 0)
+    c4_proof_sync(ctx);
   else
     ctx->state.error = strdup("Unsupported method");
 

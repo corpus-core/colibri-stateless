@@ -49,6 +49,7 @@ add_proofer(
     proofer/eth_req.c
     proofer/beacon_cache.c
     proofer/eth_tools.c
+    proofer/proof_sync.c
   DEPENDS util eth_verifier
   PROOF eth_proofer_execute
 )
