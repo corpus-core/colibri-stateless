@@ -323,7 +323,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r->parent);
 
     // Configure SSL settings for this easy handle
-    //    configure_ssl_settings(easy);
+    configure_ssl_settings(easy);
 
     curl_multi_add_handle(multi_handle, easy);
     printf("send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
