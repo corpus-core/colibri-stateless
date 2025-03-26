@@ -249,6 +249,14 @@ static void cache_response(single_request_t* r) {
   }
 }
 
+// Helper function to configure SSL settings for an easy handle
+static void configure_ssl_settings(CURL* easy) {
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 2L);
+  curl_easy_setopt(easy, CURLOPT_CAINFO, NULL); // Use system default CA bundle
+  curl_easy_setopt(easy, CURLOPT_CAPATH, NULL); // Use system default CA path
+}
+
 // Callback for memcache get operations
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len) {
   single_request_t*  r       = (single_request_t*) data;
@@ -311,6 +319,10 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, (uint64_t) 120);
     curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[r->req->method]);
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r->parent);
+
+    // Configure SSL settings for this easy handle
+    configure_ssl_settings(easy);
+
     curl_multi_add_handle(multi_handle, easy);
     printf("send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     // callback will be called when the request by handle_curl_events when all are done.
@@ -444,17 +456,14 @@ static void init_serverlist(server_list_t* list, char* servers) {
 }
 
 void c4_init_curl(uv_timer_t* timer) {
+  // Initialize global curl state
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+
+  // Initialize multi handle
   multi_handle = curl_multi_init();
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, socket_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
-
-  // Initialize SSL/TLS settings
-  curl_global_init(CURL_GLOBAL_DEFAULT);
-  curl_easy_setopt(multi_handle, CURLOPT_SSL_VERIFYPEER, 1L);
-  curl_easy_setopt(multi_handle, CURLOPT_SSL_VERIFYHOST, 2L);
-  curl_easy_setopt(multi_handle, CURLOPT_CAINFO, NULL); // Use system default CA bundle
-  curl_easy_setopt(multi_handle, CURLOPT_CAPATH, NULL); // Use system default CA path
 
   // Initialize memcached client
   memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port); // Pool size of 10 connections
