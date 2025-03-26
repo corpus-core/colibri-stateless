@@ -137,12 +137,30 @@ static char* status_text(int status) {
 }
 
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body) {
+  if (!client) {
+    fprintf(stderr, "ERROR: Attempted to respond to NULL client\n");
+    return;
+  }
+
+  if (!uv_is_active((uv_handle_t*) &client->handle)) {
+    fprintf(stderr, "ERROR: Attempted to write to inactive client handle\n");
+    return;
+  }
+
   char     tmp[500];
   uv_buf_t uvbuf[] = {
       {.base = tmp, .len = 0},
       {.base = (char*) body.data, .len = body.len}};
-  uvbuf[0].len = snprintf(tmp, sizeof(tmp), "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n", status, status_text(status), content_type, body.len);
-  uv_write(&client->write_req, (uv_stream_t*) &client->handle, uvbuf, 2, NULL);
+
+  uvbuf[0].len = snprintf(tmp, sizeof(tmp), "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
+                          status, status_text(status), content_type, body.len);
+
+  int result = uv_write(&client->write_req, (uv_stream_t*) &client->handle, uvbuf, 2, NULL);
+
+  if (result < 0) {
+    fprintf(stderr, "ERROR: Failed to write HTTP response: %s\n", uv_strerror(result));
+  }
+
   uv_close((uv_handle_t*) &client->handle, on_close);
 }
 

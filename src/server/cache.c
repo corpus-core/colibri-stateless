@@ -47,8 +47,29 @@ typedef struct mc_s {
 
 // memcache connecting
 static void on_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
-  buf->base = (char*) malloc(suggested_size);
-  buf->len  = suggested_size;
+  if (!handle || !buf) {
+    fprintf(stderr, "Error: on_alloc called with invalid parameters\n");
+    if (buf) {
+      buf->base = NULL;
+      buf->len  = 0;
+    }
+    return;
+  }
+
+  // Cap the allocation size to prevent excessive memory usage
+  size_t safe_size = suggested_size;
+  if (safe_size > 64 * 1024) {
+    safe_size = 64 * 1024; // Limit to 64KB
+  }
+
+  buf->base = (char*) malloc(safe_size);
+  if (!buf->base) {
+    fprintf(stderr, "Error: Failed to allocate memory in on_alloc\n");
+    buf->len = 0;
+    return;
+  }
+
+  buf->len = safe_size;
 }
 static void on_connection(uv_connect_t* req, int status) {
   mc_conn_t* connection = (mc_conn_t*) req->data;
@@ -133,15 +154,72 @@ void memcache_free(mc_t** client_p) {
 }
 
 static mc_conn_t* mc_get_connection(mc_t* client) {
-  if (!client || client->available == 0) return NULL;
-  //  printf(":: mc_get_connection available: %d\n", client->available);
-  for (int i = 0; i < client->size; i++) {
-    mc_conn_t* connection = client->connections + i;
-    if (!connection->in_use) {
-      client->available--;
-      connection->in_use = true;
-      return connection;
+  if (!client) {
+    fprintf(stderr, "Error: mc_get_connection called with NULL client\n");
+    return NULL;
+  }
+
+  // If no connections are available, log it
+  if (client->available == 0) {
+    fprintf(stderr, "Warning: No available connections in pool (size: %d, connected: %d)\n",
+            client->size, client->connected);
+
+    // Debug output for all connections
+    for (unsigned int i = 0; i < client->size; i++) {
+      fprintf(stderr, "Connection %d: in_use=%d, reconnecting=%d\n",
+              i, client->connections[i].in_use, client->connections[i].reconnecting);
     }
+    return NULL;
+  }
+
+  // Find an available connection
+  for (unsigned int i = 0; i < client->size; i++) {
+    mc_conn_t* connection = client->connections + i;
+
+    // Skip connections that are in use or reconnecting
+    if (connection->in_use || connection->reconnecting) {
+      continue;
+    }
+
+    // Verify the connection handle is still valid before returning
+    if (!uv_is_active((uv_handle_t*) &connection->tcp)) {
+      fprintf(stderr, "Warning: Connection %d has inactive handle, attempting to reconnect\n", i);
+
+      // Try to reconnect the socket
+      connection->reconnecting = true;
+      int err                  = uv_tcp_init(client->loop, &connection->tcp);
+      if (err != 0) {
+        fprintf(stderr, "Error reinitializing TCP connection: %s\n", uv_strerror(err));
+        connection->reconnecting = false;
+        continue;
+      }
+
+      connection->tcp.data = connection;
+      uv_connect_t* req    = (uv_connect_t*) calloc(1, sizeof(uv_connect_t));
+      if (!req) {
+        fprintf(stderr, "Error allocating connect request\n");
+        connection->reconnecting = false;
+        continue;
+      }
+
+      req->data = connection;
+      err       = uv_tcp_connect(req, &connection->tcp, (const struct sockaddr*) &client->server_addr, on_connection);
+      if (err != 0) {
+        fprintf(stderr, "Error reconnecting: %s\n", uv_strerror(err));
+        free(req);
+        connection->reconnecting = false;
+        continue;
+      }
+
+      client->connecting++;
+      // Skip this connection since we're now reconnecting it
+      continue;
+    }
+
+    // Connection looks valid, mark it as in use
+    client->available--;
+    connection->in_use = true;
+    return connection;
   }
 
   return NULL;
@@ -172,58 +250,117 @@ static void req_set_free(mc_set_req_t* req) {
 }
 
 static void on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-  mc_conn_t*    connection = (mc_conn_t*) stream->data;
-  mc_set_req_t* req_data   = (mc_set_req_t*) connection->data;
+  // Safety check for stream
+  if (!stream) {
+    fprintf(stderr, "Error: on_set_read called with null stream\n");
+    if (buf && buf->base) free(buf->base);
+    return;
+  }
 
+  mc_conn_t* connection = (mc_conn_t*) stream->data;
+  // Check if connection is valid
+  if (!connection) {
+    fprintf(stderr, "Error: Invalid connection in on_set_read\n");
+    if (buf && buf->base) free(buf->base);
+    return;
+  }
+
+  mc_set_req_t* req_data = (mc_set_req_t*) connection->data;
+  // Check if request data is valid
+  if (!req_data) {
+    fprintf(stderr, "Error: Invalid request data in on_set_read\n");
+    if (buf && buf->base) free(buf->base);
+    mc_release_connection(connection);
+    return;
+  }
+
+  // Stop reading first to prevent race conditions
   uv_read_stop(stream);
 
   // Check for connection errors
   if (nread < 0 && nread != UV_EOF) {
-    printf(":: connection error in set operation: %s\n", uv_strerror(nread));
+    fprintf(stderr, "Connection error in set operation: %s\n", uv_strerror(nread));
   }
 
-  if (nread <= 0) {
-    if (buf->base) free(buf->base);
-    if (req_data->callback)
-      req_data->callback(req_data->data, NULL, 0);
-    mc_release_connection(req_data->connection);
-    req_set_free(req_data);
-    return;
+  bool success = false;
+  if (nread > 0 && buf && buf->base) {
+    char* response  = buf->base;
+    response[nread] = '\0';
+
+    // Check if the set was successful
+    if (strncmp(response, "STORED", 6) == 0) {
+      success = true;
+    }
+    else {
+      fprintf(stderr, "Memcached SET error: %s\n", response);
+    }
   }
 
-  char* response  = buf->base;
-  response[nread] = '\0';
-
-  // Check if the set was successful
-  if (strncmp(response, "STORED", 6) == 0) {
-    if (req_data->callback)
+  // Call callback with appropriate result
+  if (req_data->callback) {
+    if (success) {
       req_data->callback(req_data->data, req_data->msg[1].base, req_data->msg[1].len);
-  }
-  else {
-    if (req_data->callback)
+    }
+    else {
       req_data->callback(req_data->data, NULL, 0);
+    }
   }
+
+  // Release connection before freeing request to avoid race conditions
   mc_release_connection(req_data->connection);
   req_set_free(req_data);
-  free(buf->base);
+
+  if (buf && buf->base) {
+    free(buf->base);
+  }
 }
 
 static void on_set_write(uv_write_t* req, int status) {
+  // Check if request is valid
+  if (!req) {
+    fprintf(stderr, "Error: on_set_write called with NULL request\n");
+    return;
+  }
+
   mc_set_req_t* req_data = (mc_set_req_t*) req->data;
+  if (!req_data) {
+    fprintf(stderr, "Error: Invalid request data in on_set_write\n");
+    free(req);
+    return;
+  }
+
+  // Store connection reference for safety
+  mc_conn_t* connection = req_data->connection;
+  if (!connection) {
+    fprintf(stderr, "Error: NULL connection in on_set_write\n");
+    if (req_data->callback) {
+      req_data->callback(req_data->data, NULL, 0);
+    }
+    req_set_free(req_data);
+    free(req);
+    return;
+  }
+
   free(req);
 
   if (status != 0) {
+    fprintf(stderr, "Error writing to memcached: %s\n", uv_strerror(status));
     // error, just call the callback with NULL
-    req_data->callback(req_data->data, NULL, 0);
-    mc_release_connection(req_data->connection);
+    if (req_data->callback) {
+      req_data->callback(req_data->data, NULL, 0);
+    }
+    mc_release_connection(connection);
     req_set_free(req_data);
     return;
   }
 
-  int r = uv_read_start((uv_stream_t*) &req_data->connection->tcp, on_alloc, on_set_read);
+  int r = uv_read_start((uv_stream_t*) &connection->tcp, on_alloc, on_set_read);
   if (r != 0) {
-    req_data->callback(req_data->data, NULL, 0);
-    mc_release_connection(req_data->connection);
+    fprintf(stderr, "Error starting read: %s\n", uv_strerror(r));
+    if (req_data->callback) {
+      req_data->callback(req_data->data, NULL, 0);
+    }
+    mc_release_connection(connection);
     req_set_free(req_data);
   }
 }
@@ -294,92 +431,174 @@ static void req_get_free(mc_get_req_t* req) {
 }
 
 static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-  mc_conn_t*    connection = (mc_conn_t*) stream->data;
-  mc_get_req_t* req_data   = (mc_get_req_t*) connection->data;
-  if (!req_data) return;
+  // Safety check for stream
+  if (!stream) {
+    fprintf(stderr, "Error: on_get_read called with null stream\n");
+    if (buf && buf->base) free(buf->base);
+    return;
+  }
+
+  mc_conn_t* connection = (mc_conn_t*) stream->data;
+  // Check if connection is valid
+  if (!connection) {
+    fprintf(stderr, "Error: Invalid connection in on_get_read\n");
+    if (buf && buf->base) free(buf->base);
+    return;
+  }
+
+  mc_get_req_t* req_data = (mc_get_req_t*) connection->data;
+  // Check if request data is valid
+  if (!req_data) {
+    fprintf(stderr, "Error: Invalid request data in on_get_read\n");
+    if (buf && buf->base) free(buf->base);
+    mc_release_connection(connection);
+    return;
+  }
 
   bool    done   = false;
   bytes_t result = NULL_BYTES;
 
+  // Stop reading first to prevent any race conditions
+  uv_read_stop(stream);
+
   // Check for connection errors
-  if (nread < 0 && nread != UV_EOF)
-    printf(":: connection error in get operation: %s\n", uv_strerror(nread));
-
-  // fetch data
-  if (nread == UV_EOF)
+  if (nread < 0 && nread != UV_EOF) {
+    fprintf(stderr, "Connection error in get operation: %s\n", uv_strerror(nread));
     done = true;
-  else if (nread < 0)
-    done = true;
-  else
-    buffer_append(&req_data->buffer, bytes(buf->base, nread));
-
-  free(buf->base);
-
-  // check if we have the complete response
-  char* response   = (char*) req_data->buffer.data.data;
-  char* end_header = NULL;
-  for (int i = 0; i + 1 < req_data->buffer.data.len; i++) {
-    if (response[i] == '\r' && response[i + 1] == '\n') {
-      end_header = &response[i];
-      break;
-    }
   }
-  if (req_data->buffer.data.len >= 3 && strncmp(response, "END", 3) == 0)
+  else if (nread == UV_EOF) {
     done = true;
-  else if (end_header) {
-    size_t value_len = 0;
-    char   key[256];
-    char   flags[32];
-    char   cas[32];
+  }
+  else if (nread > 0 && buf && buf->base) {
+    // Only append data if we have valid buffer and positive read length
+    buffer_append(&req_data->buffer, bytes(buf->base, nread));
+  }
 
-    // Create a null-terminated copy of the header for sscanf
-    size_t header_len = end_header - response;
-    char*  header     = (char*) malloc(header_len + 1);
-    if (header) {
-      memcpy(header, response, header_len);
-      header[header_len] = '\0';
+  if (buf && buf->base) {
+    free(buf->base);
+  }
 
-      if (sscanf(header, "VALUE %s %s %zu %s", key, flags, &value_len, cas) >= 3) {
-        size_t expected_buffer_len = header_len + value_len + 2;
-        if (req_data->buffer.data.len >= expected_buffer_len) {
-          done   = true;
-          result = bytes_slice(req_data->buffer.data, header_len + 2, value_len);
-        }
+  // Only proceed with parsing if we have data
+  if (!done && req_data->buffer.data.len > 0) {
+    char* response   = (char*) req_data->buffer.data.data;
+    char* end_header = NULL;
+
+    // Find end of header
+    for (int i = 0; i + 1 < req_data->buffer.data.len; i++) {
+      if (response[i] == '\r' && response[i + 1] == '\n') {
+        end_header = &response[i];
+        break;
       }
-      free(header);
+    }
+
+    // Check for "END" response (cache miss)
+    if (req_data->buffer.data.len >= 3 && strncmp(response, "END", 3) == 0) {
+      done = true;
+    }
+    else if (end_header) {
+      size_t value_len = 0;
+      char   key[256]  = {0};
+      char   flags[32] = {0};
+      char   cas[32]   = {0};
+
+      // Create a null-terminated copy of the header for sscanf
+      size_t header_len = end_header - response;
+      char*  header     = (char*) malloc(header_len + 1);
+      if (header) {
+        memcpy(header, response, header_len);
+        header[header_len] = '\0';
+
+        if (sscanf(header, "VALUE %s %s %zu %s", key, flags, &value_len, cas) >= 3) {
+          size_t expected_buffer_len = header_len + value_len + 2;
+          if (req_data->buffer.data.len >= expected_buffer_len) {
+            done   = true;
+            result = bytes_slice(req_data->buffer.data, header_len + 2, value_len);
+          }
+        }
+        free(header);
+      }
     }
   }
 
   if (done) {
-    // Stop reading before calling callback to prevent potential re-entrancy issues
-    uv_read_stop(stream);
+    // Make a local copy of callback and data before releasing connection
+    memcache_cb cb      = req_data->cb;
+    void*       cb_data = req_data->data;
+
+    // Release connection first to make it available for reuse
+    mc_release_connection(connection);
 
     // Call callback with result
-    req_data->cb(req_data->data, (char*) result.data, result.len);
+    if (cb) {
+      cb(cb_data, (char*) result.data, result.len);
+    }
 
-    // Clean up resources in correct order
-    mc_release_connection(connection);
+    // Clean up request data
     req_get_free(req_data);
+  }
+  else {
+    // Continue reading if we need more data
+    int r = uv_read_start(stream, on_alloc, on_get_read);
+    if (r != 0) {
+      fprintf(stderr, "Error restarting read: %s\n", uv_strerror(r));
+
+      // Call callback with error
+      if (req_data->cb) {
+        req_data->cb(req_data->data, NULL, 0);
+      }
+
+      // Cleanup resources
+      mc_release_connection(connection);
+      req_get_free(req_data);
+    }
   }
 }
 
 static void on_get_write(uv_write_t* req, int status) {
+  // Check if request is valid
+  if (!req) {
+    fprintf(stderr, "Error: on_get_write called with NULL request\n");
+    return;
+  }
+
   mc_get_req_t* req_data = (mc_get_req_t*) req->data;
-  if (!req_data) return;
+  if (!req_data) {
+    fprintf(stderr, "Error: Invalid request data in on_get_write\n");
+    free(req);
+    return;
+  }
+
+  // Store connection reference for safety
+  mc_conn_t* connection = req_data->connection;
+  if (!connection) {
+    fprintf(stderr, "Error: NULL connection in on_get_write\n");
+    if (req_data->cb) {
+      req_data->cb(req_data->data, NULL, 0);
+    }
+    req_get_free(req_data);
+    free(req);
+    return;
+  }
+
   free(req);
 
   if (status != 0) {
-    printf(":: error writing get request: %s\n", uv_strerror(status));
-    req_data->cb(req_data->data, NULL, 0);
-    mc_release_connection(req_data->connection);
+    fprintf(stderr, "Error writing GET request to memcached: %s\n", uv_strerror(status));
+    if (req_data->cb) {
+      req_data->cb(req_data->data, NULL, 0);
+    }
+    mc_release_connection(connection);
     req_get_free(req_data);
     return;
   }
 
-  int r = uv_read_start((uv_stream_t*) &req_data->connection->tcp, on_alloc, on_get_read);
+  int r = uv_read_start((uv_stream_t*) &connection->tcp, on_alloc, on_get_read);
   if (r != 0) {
-    req_data->cb(req_data->data, NULL, 0);
-    mc_release_connection(req_data->connection);
+    fprintf(stderr, "Error starting read after GET request: %s\n", uv_strerror(r));
+    if (req_data->cb) {
+      req_data->cb(req_data->data, NULL, 0);
+    }
+    mc_release_connection(connection);
     req_get_free(req_data);
   }
 }
