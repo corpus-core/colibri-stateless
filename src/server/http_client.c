@@ -251,10 +251,12 @@ static void cache_response(single_request_t* r) {
 
 // Helper function to configure SSL settings for an easy handle
 static void configure_ssl_settings(CURL* easy) {
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 1L);
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 2L);
-  curl_easy_setopt(easy, CURLOPT_CAINFO, NULL); // Use system default CA bundle
-  curl_easy_setopt(easy, CURLOPT_CAPATH, NULL); // Use system default CA path
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);   // Disable SSL certificate verification
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);   // Disable hostname verification
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYSTATUS, 0L); // Disable OCSP verification
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);   // Allow self-signed certificates
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);   // Allow self-signed certificates
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYSTATUS, 0L); // Allow self-signed certificates
 }
 
 // Callback for memcache get operations
@@ -321,7 +323,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r->parent);
 
     // Configure SSL settings for this easy handle
-    configure_ssl_settings(easy);
+    //    configure_ssl_settings(easy);
 
     curl_multi_add_handle(multi_handle, easy);
     printf("send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
