@@ -306,6 +306,13 @@ static void configure_ssl_settings(CURL* easy) {
   curl_easy_setopt(easy, CURLOPT_FORBID_REUSE, 1L);  // Explicitly forbid connection reuse
 }
 
+static void call_callback_if_done(request_t* req) {
+  for (size_t i = 0; i < req->request_count; i++) {
+    if (c4_state_is_pending(req->requests[i].req)) return;
+  }
+  req->cb(req);
+}
+
 // Callback for memcache get operations
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len) {
   single_request_t*  r       = (single_request_t*) data;
@@ -322,26 +329,13 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     r->req->response = bytes_dup(bytes(value, value_len));
     r->curl          = NULL; // Mark as done
 
-    // Check if all requests are done
-    request_t* parent   = r->parent;
-    bool       all_done = true;
-    for (size_t i = 0; i < parent->request_count; i++) {
-      if (c4_state_is_pending(parent->requests[i].req)) {
-        all_done = false;
-        break;
-      }
-    }
-    if (all_done) parent->cb(parent);
-    // if !all_done, the callback will be called when the last one is done
+    call_callback_if_done(r->parent);
   }
   else {
     // Cache miss - proceed with normal request handling
-    pending_add(r);
     server_list_t* servers  = get_server_list(r->req->type);
     char*          base_url = servers ? servers->urls[r->req->response_node_index] : NULL;
     char*          req_url  = r->req->url;
-    CURL*          easy     = curl_easy_init();
-    r->curl                 = easy;
 
     // Safeguard against NULL URLs
     if (!req_url) req_url = "";
@@ -353,12 +347,18 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
       r->url = strdup(base_url);
     else if (strlen(req_url) > 0 && strlen(base_url) > 0)
       r->url = bprintf(NULL, "%s%s", base_url, req_url);
-    else
-      r->url = strdup("http://localhost/"); // Fallback URL if both are empty
+    else {
+      printf(":: ERROR: Empty URL\n");
+      r->req->error = bprintf(NULL, "Empty URL");
+      call_callback_if_done(r->parent);
+      return;
+    }
 
-    printf("URL construction: base_url=%s, req_url=%s, final=%s\n",
-           base_url, req_url, r->url ? r->url : "NULL");
+    r->url = strdup("http://localhost/"); // Fallback URL if both are empty
 
+    pending_add(r);
+    CURL* easy = curl_easy_init();
+    r->curl    = easy;
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     if (r->req->payload.len && r->req->payload.data) {
       curl_easy_setopt(easy, CURLOPT_POSTFIELDS, r->req->payload.data);
@@ -461,7 +461,7 @@ bool c4_check_retry_request(request_t* req) {
           break;
       }
       if (idx < servers->count) {
-        printf("Retrying request with server %d: %s\n", idx,
+        printf(":: Retrying request with server %d: %s\n", idx,
                servers->urls[idx] ? servers->urls[idx] : "NULL");
         free(pending->error);
         pending->response_node_index = idx;
@@ -479,7 +479,7 @@ bool c4_check_retry_request(request_t* req) {
     return false;
   }
   else {
-    printf("Retrying %d requests with different servers\n", retry_requests);
+    printf(":: Retrying %d requests with different servers\n", retry_requests);
     single_request_t* pendings = (single_request_t*) calloc(retry_requests, sizeof(single_request_t));
     int               j        = 0;
     for (size_t i = 0; i < req->request_count && j < retry_requests; i++) {
