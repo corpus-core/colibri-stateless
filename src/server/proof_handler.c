@@ -102,6 +102,19 @@ bool c4_handle_status(client_t* client) {
 }
 
 static void c4_proxy_callback(client_t* client, void* data, data_request_t* req) {
+  // Check if client is still valid before responding
+  if (!client || client->being_closed) {
+    fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding proxy response\n");
+    // Clean up resources
+    if (req) {
+      free(req->url);
+      free(req->response.data);
+      free(req->error);
+      free(req);
+    }
+    return;
+  }
+
   if (req->response.data)
     c4_http_respond(client, 200, "application/json", req->response);
   else {

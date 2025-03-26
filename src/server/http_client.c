@@ -332,8 +332,23 @@ typedef struct {
 } http_response_t;
 
 static void c4_add_request_response(request_t* req) {
+  if (!req || !req->ctx) {
+    fprintf(stderr, "ERROR: Invalid request or context in c4_add_request_response\n");
+    return;
+  }
+
   http_response_t* res = (http_response_t*) req->ctx;
-  res->cb(req->client, res->data, req->requests->req);
+
+  // Check that client is still valid and not being closed
+  if (!res->client || res->client->being_closed) {
+    fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding response\n");
+  }
+  else {
+    // Client is still valid, deliver the response
+    res->cb(req->client, res->data, req->requests->req);
+  }
+
+  // Clean up resources regardless of client state
   free(res);
   free(req->requests);
   free(req);
@@ -506,6 +521,17 @@ static void trigger_cached_curl_requests(request_t* req) {
 }
 
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb) {
+  // Check if client is valid and not being closed
+  if (!client || client->being_closed) {
+    fprintf(stderr, "ERROR: Attempted to add request to invalid or closing client\n");
+    // Clean up resources since we won't be processing this request
+    if (req) {
+      free(req->url);
+      free(req);
+    }
+    return;
+  }
+
   http_response_t* res = (http_response_t*) calloc(1, sizeof(http_response_t));
   request_t*       r   = (request_t*) calloc(1, sizeof(request_t));
   r->client            = client;

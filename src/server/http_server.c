@@ -8,6 +8,19 @@
 static http_handler* handlers = NULL;
 static int           handlers_count;
 
+// Function prototypes
+static void  on_close(uv_handle_t* handle);
+static void  on_write_complete(uv_write_t* req, int status);
+static int   on_url(llhttp_t* parser, const char* at, size_t length);
+static int   on_method(llhttp_t* parser, const char* at, size_t length);
+static int   on_header_field(llhttp_t* parser, const char* at, size_t length);
+static int   on_header_value(llhttp_t* parser, const char* at, size_t length);
+static int   on_body(llhttp_t* parser, const char* at, size_t length);
+static int   on_message_complete(llhttp_t* parser);
+static void  alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf);
+static void  on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
+static char* status_text(int status);
+
 void c4_register_http_handler(http_handler handler) {
   handlers                   = (http_handler*) realloc(handlers, (handlers_count + 1) * sizeof(http_handler));
   handlers[handlers_count++] = handler;
@@ -149,11 +162,13 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
     return;
   }
 
+  // Mark as being closed to prevent multiple attempts
   client->being_closed = true;
 
   if (!uv_is_active((uv_handle_t*) &client->handle)) {
     fprintf(stderr, "ERROR: Attempted to write to inactive client handle - closing directly\n");
-    uv_close((uv_handle_t*) &client->handle, on_close);
+
+    // Instead of trying to close directly, simply return as the client is already marked as closing
     return;
   }
 
@@ -165,12 +180,28 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
   uvbuf[0].len = snprintf(tmp, sizeof(tmp), "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
                           status, status_text(status), content_type, body.len);
 
-  int result = uv_write(&client->write_req, (uv_stream_t*) &client->handle, uvbuf, 2, NULL);
+  // Set up a write callback to safely close the handle after writing
+  uv_write_t* write_req = &client->write_req;
+
+  int result = uv_write(write_req, (uv_stream_t*) &client->handle, uvbuf, 2, on_write_complete);
 
   if (result < 0) {
     fprintf(stderr, "ERROR: Failed to write HTTP response: %s\n", uv_strerror(result));
+    // If write fails, close the handle now
+    uv_close((uv_handle_t*) &client->handle, on_close);
+  }
+  // If write succeeds, the handle will be closed in the on_write_complete callback
+}
+
+// Callback for when a write completes - close the handle safely
+static void on_write_complete(uv_write_t* req, int status) {
+  client_t* client = (client_t*) req->handle->data;
+
+  if (status < 0) {
+    fprintf(stderr, "ERROR: Write completed with error: %s\n", uv_strerror(status));
   }
 
+  // Close the handle now that writing is done
   uv_close((uv_handle_t*) &client->handle, on_close);
 }
 
