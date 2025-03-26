@@ -251,12 +251,16 @@ static void cache_response(single_request_t* r) {
 
 // Helper function to configure SSL settings for an easy handle
 static void configure_ssl_settings(CURL* easy) {
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);   // Disable SSL certificate verification
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);   // Disable hostname verification
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYSTATUS, 0L); // Disable OCSP verification
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);   // Allow self-signed certificates
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);   // Allow self-signed certificates
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYSTATUS, 0L); // Allow self-signed certificates
+  // Disable SSL verification for development/testing
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYSTATUS, 0L);
+
+  // Set SSL protocol version
+  curl_easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+
+  // Disable SSL session reuse to avoid potential issues
+  curl_easy_setopt(easy, CURLOPT_SSL_SESSIONID_CACHE, 0L);
 }
 
 // Callback for memcache get operations
@@ -458,8 +462,8 @@ static void init_serverlist(server_list_t* list, char* servers) {
 }
 
 void c4_init_curl(uv_timer_t* timer) {
-  // Initialize global curl state
-  curl_global_init(CURL_GLOBAL_DEFAULT);
+  // Initialize global curl state with SSL support
+  curl_global_init(CURL_GLOBAL_SSL | CURL_GLOBAL_DEFAULT);
 
   // Initialize multi handle
   multi_handle = curl_multi_init();
@@ -468,7 +472,7 @@ void c4_init_curl(uv_timer_t* timer) {
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
 
   // Initialize memcached client
-  memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port); // Pool size of 10 connections
+  memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
   if (!memcache_client) {
     fprintf(stderr, "Failed to create memcached client\n");
     return;
