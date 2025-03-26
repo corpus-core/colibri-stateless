@@ -181,41 +181,6 @@ static mc_conn_t* mc_get_connection(mc_t* client) {
       continue;
     }
 
-    // Verify the connection handle is still valid before returning
-    if (!uv_is_active((uv_handle_t*) &connection->tcp)) {
-      fprintf(stderr, "Warning: Connection %d has inactive handle, attempting to reconnect\n", i);
-
-      // Try to reconnect the socket
-      connection->reconnecting = true;
-      int err                  = uv_tcp_init(client->loop, &connection->tcp);
-      if (err != 0) {
-        fprintf(stderr, "Error reinitializing TCP connection: %s\n", uv_strerror(err));
-        connection->reconnecting = false;
-        continue;
-      }
-
-      connection->tcp.data = connection;
-      uv_connect_t* req    = (uv_connect_t*) calloc(1, sizeof(uv_connect_t));
-      if (!req) {
-        fprintf(stderr, "Error allocating connect request\n");
-        connection->reconnecting = false;
-        continue;
-      }
-
-      req->data = connection;
-      err       = uv_tcp_connect(req, &connection->tcp, (const struct sockaddr*) &client->server_addr, on_connection);
-      if (err != 0) {
-        fprintf(stderr, "Error reconnecting: %s\n", uv_strerror(err));
-        free(req);
-        connection->reconnecting = false;
-        continue;
-      }
-
-      client->connecting++;
-      // Skip this connection since we're now reconnecting it
-      continue;
-    }
-
     // Connection looks valid, mark it as in use
     client->available--;
     connection->in_use = true;
