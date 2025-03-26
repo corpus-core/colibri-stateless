@@ -137,6 +137,8 @@ static void handle_curl_events() {
         }
       }
       curl_multi_remove_handle(multi_handle, easy);
+
+      // No need to extract headers from CURL - we already store them in the single_request_t
       curl_easy_cleanup(easy);
       bool all_done = true;
       for (size_t i = 0; i < req->request_count; i++) {
@@ -363,13 +365,14 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
       curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) r->req->payload.len);
     }
 
-    struct curl_slist* headers = NULL;
+    // Set up headers
+    r->headers = NULL; // Initialize headers
     if (r->req->payload.len && r->req->payload.data)
-      headers = curl_slist_append(headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
-    headers = curl_slist_append(headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
-    headers = curl_slist_append(headers, "charsets: utf-8");
-    headers = curl_slist_append(headers, "User-Agent: c4 curl ");
-    curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headers);
+      r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
+    r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
+    r->headers = curl_slist_append(r->headers, "charsets: utf-8");
+    r->headers = curl_slist_append(r->headers, "User-Agent: c4 curl ");
+    curl_easy_setopt(easy, CURLOPT_HTTPHEADER, r->headers);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, curl_append);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &r->buffer);
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, (uint64_t) 120);
@@ -438,6 +441,10 @@ void c4_start_curl_requests(request_t* req) {
 static void free_single_request(single_request_t* r) {
   buffer_free(&r->buffer);
   free(r->url);
+  if (r->headers) {
+    curl_slist_free_all(r->headers);
+    r->headers = NULL;
+  }
 }
 
 // we cleanup aftwe curl and retry if needed.
