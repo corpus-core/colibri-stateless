@@ -189,6 +189,16 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
     poll = (uv_poll_t*) calloc(1, sizeof(uv_poll_t));
   }
 
+  if (what == CURL_POLL_REMOVE) {
+    if (poll) {
+      uv_poll_stop(poll);
+      // Close the handle and free its resources
+      uv_close((uv_handle_t*) poll, (uv_close_cb) free);
+      curl_multi_assign(multi_handle, s, NULL);
+    }
+    return 0;
+  }
+
   int events = 0;
   if (what & CURL_POLL_IN) events |= UV_READABLE;
   if (what & CURL_POLL_OUT) events |= UV_WRITABLE;
@@ -546,6 +556,8 @@ void c4_init_curl(uv_timer_t* timer) {
 }
 
 void c4_cleanup_curl() {
+  // Close all handles and let the cleanup function free the resources
+  curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, NULL);
   curl_multi_cleanup(multi_handle);
   curl_global_cleanup();
   if (memcache_client) {
