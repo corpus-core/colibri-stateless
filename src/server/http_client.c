@@ -83,63 +83,94 @@ static void pending_remove(single_request_t* req) {
 
 // Prüft abgeschlossene Übertragungen
 static void handle_curl_events() {
+  if (!multi_handle) {
+    return;
+  }
+
   CURLMsg* msg;
   int      msgs_left;
   while ((msg = curl_multi_info_read(multi_handle, &msgs_left))) {
-    if (msg->msg == CURLMSG_DONE) {
-      CURL*      easy = msg->easy_handle;
-      request_t* req;
-      curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
-      if (!req) continue;
-      for (size_t i = 0; i < req->request_count; i++) {
-        if (req->requests[i].curl == easy) {
-          single_request_t*  r       = req->requests + i;
-          pending_request_t* pending = pending_find(r);
-          CURLcode           res     = msg->data.result;
-          if (res == CURLE_OK) {
-            printf("   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
-            r->req->response = r->buffer.data;
-            cache_response(r);
-            r->buffer = (buffer_t) {0};
-          }
-          else {
-            r->req->error = bprintf(NULL, "%s : %s", curl_easy_strerror(res), bprintf(&r->buffer, " "));
-            printf("   -> [%p] %s : ERROR = %s (code: %d)\n",
-                   easy, r->url ? r->url : r->req->url,
-                   curl_easy_strerror(res), res);
+    if (!msg || msg->msg != CURLMSG_DONE) {
+      continue;
+    }
 
-            // Get more details about the error
-            long http_code = 0;
-            curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
-            if (http_code > 0) {
-              printf("HTTP response code: %ld\n", http_code);
-            }
+    CURL* easy = msg->easy_handle;
+    if (!easy) {
+      continue;
+    }
 
-            char* effective_url = NULL;
-            curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
-            if (effective_url) {
-              printf("Effective URL: %s\n", effective_url);
-            }
-          }
-          if (pending) {
-            pending_request_t* same = pending->same_requests;
-            pending_remove(r);
-            while (same) {
-              trigger_uncached_curl_request(same->request, (char*) r->req->response.data, r->req->response.len);
-              pending_request_t* next = same->next;
-              free(same);
-              same = next;
-            }
-          }
-
-          r->curl = NULL; // setting it to NULL marks it as done
-          break;
-        }
-      }
+    request_t* req = NULL;
+    CURLcode   res = curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
+    if (res != CURLE_OK || !req) {
       curl_multi_remove_handle(multi_handle, easy);
-
-      // No need to extract headers from CURL - we already store them in the single_request_t
       curl_easy_cleanup(easy);
+      continue;
+    }
+
+    // Process completed request
+    bool found = false;
+    for (size_t i = 0; i < req->request_count; i++) {
+      if (req->requests[i].curl == easy) {
+        single_request_t* r = &req->requests[i];
+        found               = true;
+
+        // Find pending request
+        pending_request_t* pending = pending_find(r);
+        CURLcode           res     = msg->data.result;
+
+        if (res == CURLE_OK) {
+          printf("   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
+          r->req->response = r->buffer.data;
+          cache_response(r);
+          r->buffer = (buffer_t) {0};
+        }
+        else {
+          r->req->error = bprintf(NULL, "%s : %s", curl_easy_strerror(res), bprintf(&r->buffer, " "));
+          printf("   -> [%p] %s : ERROR = %s (code: %d)\n",
+                 easy, r->url ? r->url : r->req->url,
+                 curl_easy_strerror(res), res);
+
+          // Get more details about the error
+          long http_code = 0;
+          curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+          if (http_code > 0) {
+            printf("HTTP response code: %ld\n", http_code);
+          }
+
+          char* effective_url = NULL;
+          curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
+          if (effective_url) {
+            printf("Effective URL: %s\n", effective_url);
+          }
+        }
+
+        // Process any waiting requests
+        if (pending) {
+          pending_request_t* same = pending->same_requests;
+          pending_remove(r);
+          while (same) {
+            pending_request_t* next = same->next;
+            if (same->request) {
+              trigger_uncached_curl_request(same->request,
+                                            r->req->response.data ? (char*) r->req->response.data : NULL,
+                                            r->req->response.len);
+            }
+            free(same);
+            same = next;
+          }
+        }
+
+        r->curl = NULL; // setting it to NULL marks it as done
+        break;
+      }
+    }
+
+    // Clean up the easy handle
+    curl_multi_remove_handle(multi_handle, easy);
+    curl_easy_cleanup(easy);
+
+    // Call the callback if all requests are done
+    if (found) {
       bool all_done = true;
       for (size_t i = 0; i < req->request_count; i++) {
         if (req->requests[i].curl) {
@@ -147,25 +178,58 @@ static void handle_curl_events() {
           break;
         }
       }
-      if (all_done)
+      if (all_done && req->cb) {
         req->cb(req);
+      }
     }
   }
 }
 
 // Poll-Callback für Socket-Ereignisse
 static void poll_cb(uv_poll_t* handle, int status, int events) {
-  int running_handles;
+  // Check if handle has been marked as closing/invalid
+  if (!handle || !handle->data) {
+    return;
+  }
+
+  // Check if there was an error
+  if (status < 0) {
+    fprintf(stderr, "Socket poll error: %s\n", uv_strerror(status));
+    return;
+  }
+
   int flags = 0;
   if (events & UV_READABLE) flags |= CURL_CSELECT_IN;
   if (events & UV_WRITABLE) flags |= CURL_CSELECT_OUT;
-  curl_multi_socket_action(multi_handle, handle->io_watcher.fd, flags, &running_handles);
+
+  int           running_handles;
+  curl_socket_t socket = handle->io_watcher.fd;
+
+  // Make sure the socket is valid
+  if (socket < 0) {
+    return;
+  }
+
+  CURLMcode rc = curl_multi_socket_action(multi_handle, socket, flags, &running_handles);
+  if (rc != CURLM_OK) {
+    fprintf(stderr, "curl_multi_socket_action error: %s\n", curl_multi_strerror(rc));
+  }
+
   handle_curl_events();
 }
 
 static void timer_cb(uv_timer_t* handle) {
-  int running_handles;
-  curl_multi_socket_action(multi_handle, CURL_SOCKET_TIMEOUT, 0, &running_handles);
+  // Check if handle is valid
+  if (!handle) {
+    return;
+  }
+
+  int       running_handles;
+  CURLMcode rc = curl_multi_socket_action(multi_handle, CURL_SOCKET_TIMEOUT, 0, &running_handles);
+  if (rc != CURLM_OK) {
+    fprintf(stderr, "curl_multi_socket_action error in timer: %s\n", curl_multi_strerror(rc));
+  }
+
   handle_curl_events();
 }
 
@@ -180,30 +244,63 @@ static int timer_callback(CURLM* multi, long timeout_ms, void* userp) {
 
 // Socket-Callback für curl
 static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, void* socketp) {
-  uv_poll_t* poll;
+  uv_poll_t* poll = (uv_poll_t*) socketp;
 
-  if (socketp) {
-    poll = (uv_poll_t*) socketp;
-  }
-  else {
-    poll = (uv_poll_t*) calloc(1, sizeof(uv_poll_t));
-  }
-
+  // Handle remove case first
   if (what == CURL_POLL_REMOVE) {
     if (poll) {
+      // Stop polling before closing
       uv_poll_stop(poll);
-      // Close the handle and free its resources
+
+      // Mark the poll handle as closing to prevent reuse
+      poll->data = NULL;
+
+      // Close and free the handle
       uv_close((uv_handle_t*) poll, (uv_close_cb) free);
+
+      // Clear the socket association in curl
       curl_multi_assign(multi_handle, s, NULL);
     }
     return 0;
   }
 
+  // If we don't have a poll handle yet, create one
+  if (!poll) {
+    poll = (uv_poll_t*) calloc(1, sizeof(uv_poll_t));
+    if (!poll) {
+      fprintf(stderr, "Failed to allocate poll handle\n");
+      return 0; // Return error
+    }
+
+    // Store a flag to indicate this is an active handle
+    poll->data = (void*) 1;
+
+    // Initialize the poll handle
+    int err = uv_poll_init_socket(uv_default_loop(), poll, s);
+    if (err != 0) {
+      fprintf(stderr, "Failed to initialize poll handle: %s\n", uv_strerror(err));
+      free(poll);
+      return 0;
+    }
+  }
+
+  // Determine which events to monitor
   int events = 0;
   if (what & CURL_POLL_IN) events |= UV_READABLE;
   if (what & CURL_POLL_OUT) events |= UV_WRITABLE;
-  uv_poll_init_socket(uv_default_loop(), poll, s);
-  uv_poll_start(poll, events, poll_cb);
+
+  // Start polling for events
+  int err = uv_poll_start(poll, events, poll_cb);
+  if (err != 0) {
+    fprintf(stderr, "Failed to start polling: %s\n", uv_strerror(err));
+    if (!socketp) {
+      // Only free if we just created it and failed to start
+      uv_close((uv_handle_t*) poll, (uv_close_cb) free);
+      return 0;
+    }
+  }
+
+  // Associate this poll handle with the socket in curl
   curl_multi_assign(multi_handle, s, poll);
   return 0;
 }
@@ -235,8 +332,23 @@ typedef struct {
 } http_response_t;
 
 static void c4_add_request_response(request_t* req) {
+  if (!req || !req->ctx) {
+    fprintf(stderr, "ERROR: Invalid request or context in c4_add_request_response\n");
+    return;
+  }
+
   http_response_t* res = (http_response_t*) req->ctx;
-  res->cb(req->client, res->data, req->requests->req);
+
+  // Check that client is still valid and not being closed
+  if (!res->client || res->client->being_closed) {
+    fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding response\n");
+  }
+  else {
+    // Client is still valid, deliver the response
+    res->cb(req->client, res->data, req->requests->req);
+  }
+
+  // Clean up resources regardless of client state
   free(res);
   free(req->requests);
   free(req);
@@ -291,15 +403,9 @@ static void configure_ssl_settings(CURL* easy) {
     return;
   }
 
-  //  printf("Configuring SSL settings for handle %p\n", (void*) easy);
-
   // Disable SSL verification for development/testing
   curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
   curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
-
-  // Don't use the specific SSL engine settings - can cause issues
-  // curl_easy_setopt(easy, CURLOPT_SSLENGINE, NULL);
-  // curl_easy_setopt(easy, CURLOPT_SSLENGINE_DEFAULT, 1L);
 
   // Set SSL protocol version to be flexible - auto-negotiate
   curl_easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_DEFAULT);
@@ -310,12 +416,11 @@ static void configure_ssl_settings(CURL* easy) {
   // Disable SSL session reuse to avoid potential issues
   curl_easy_setopt(easy, CURLOPT_SSL_SESSIONID_CACHE, 0L);
 
-  // Add debug callback to get detailed SSL connection info
-  curl_easy_setopt(easy, CURLOPT_VERBOSE, 1L);
+  // Uncomment for debugging SSL issues
+  // curl_easy_setopt(easy, CURLOPT_VERBOSE, 1L);
 
-  // Set more permissive connection
-  curl_easy_setopt(easy, CURLOPT_FRESH_CONNECT, 1L); // Don't reuse connections
-  curl_easy_setopt(easy, CURLOPT_FORBID_REUSE, 1L);  // Explicitly forbid connection reuse
+  // Enable connection timeout to avoid hanging connections
+  curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, 30L);
 }
 
 static void call_callback_if_done(request_t* req) {
@@ -416,6 +521,17 @@ static void trigger_cached_curl_requests(request_t* req) {
 }
 
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb) {
+  // Check if client is valid and not being closed
+  if (!client || client->being_closed) {
+    fprintf(stderr, "ERROR: Attempted to add request to invalid or closing client\n");
+    // Clean up resources since we won't be processing this request
+    if (req) {
+      free(req->url);
+      free(req);
+    }
+    return;
+  }
+
   http_response_t* res = (http_response_t*) calloc(1, sizeof(http_response_t));
   request_t*       r   = (request_t*) calloc(1, sizeof(request_t));
   r->client            = client;

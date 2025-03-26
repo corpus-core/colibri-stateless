@@ -33,6 +33,7 @@ typedef struct {
   http_request_t    request;
   uv_write_t        write_req;
   char              current_header[128];
+  bool              being_closed; // Flag to track if this client is being closed
 } client_t;
 typedef bool (*http_handler)(client_t*);
 

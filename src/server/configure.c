@@ -96,10 +96,10 @@ void c4_configure(int argc, char* argv[]) {
 }
 
 static void config() {
-  http_server.port           = 8080;
+  http_server.port           = 8090;
   http_server.memcached_host = "localhost";
   http_server.memcached_port = 11211;
-  http_server.memcached_pool = 10;
+  http_server.memcached_pool = 20;
   http_server.loglevel       = 0;
   http_server.req_timeout    = 120;
   http_server.chain_id       = 1;
