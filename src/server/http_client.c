@@ -279,7 +279,7 @@ static void configure_ssl_settings(CURL* easy) {
     return;
   }
 
-  printf("Configuring SSL settings for handle %p\n", (void*) easy);
+  //  printf("Configuring SSL settings for handle %p\n", (void*) easy);
 
   // Disable SSL verification for development/testing
   curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
