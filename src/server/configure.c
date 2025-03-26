@@ -97,7 +97,7 @@ static void config() {
   get_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
   get_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");
   get_int(&http_server.memcached_port, "MEMCACHED_PORT", "memcached_port", 'P', "port of the memcached server", 1, 65535);
-  get_int(&http_server.memcached_pool, "MEMCACHED_POOL", "memcached_pool", 'p', "pool size of the memcached server", 1, 100);
+  get_int(&http_server.memcached_pool, "MEMCACHED_POOL", "memcached_pool", 'S', "pool size of the memcached server", 1, 100);
   get_int(&http_server.loglevel, "LOG_LEVEL", "log_level", 'l', "log level", 0, 3);
   get_int(&http_server.req_timeout, "REQUEST_TIMEOUT", "req_timeout", 't', "request timeout", 1, 300);
   get_int(&http_server.chain_id, "CHAIN_ID", "chain_id", 'c', "chain id", 1, 0xFFFFFFF);
