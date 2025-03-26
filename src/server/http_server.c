@@ -15,6 +15,8 @@ void c4_register_http_handler(http_handler handler) {
 
 static void on_close(uv_handle_t* handle) {
   client_t* client = (client_t*) handle->data;
+  if (!client) return;
+
   free(client->request.path);
   free(client->request.content_type);
   free(client->request.accept);
@@ -142,15 +144,16 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
     return;
   }
 
+  if (client->being_closed) {
+    fprintf(stderr, "ERROR: Attempted to respond to a client that is already being closed\n");
+    return;
+  }
+
+  client->being_closed = true;
+
   if (!uv_is_active((uv_handle_t*) &client->handle)) {
-    fprintf(stderr, "ERROR: Attempted to write to inactive client handle\n");
-    // Client handle is invalid, so we can't use the normal close mechanism
-    // Instead, manually clean up the client resources
-    free(client->request.path);
-    free(client->request.content_type);
-    free(client->request.accept);
-    free(client->request.payload);
-    free(client);
+    fprintf(stderr, "ERROR: Attempted to write to inactive client handle - closing directly\n");
+    uv_close((uv_handle_t*) &client->handle, on_close);
     return;
   }
 
@@ -179,7 +182,8 @@ void c4_on_new_connection(uv_stream_t* server, int status) {
   uv_loop_t* loop   = server->loop;
   client_t*  client = (client_t*) calloc(1, sizeof(client_t));
   uv_tcp_init(loop, &client->handle);
-  client->handle.data = client;
+  client->handle.data  = client;
+  client->being_closed = false;
 
   llhttp_settings_init(&client->settings);
   client->settings.on_url              = on_url;

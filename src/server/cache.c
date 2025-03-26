@@ -192,10 +192,24 @@ static mc_conn_t* mc_get_connection(mc_t* client) {
 
 static void mc_release_connection(mc_conn_t* connection) {
   if (!connection) return;
+
+  // No-op if the connection is already marked as not in use
+  if (!connection->in_use) {
+    fprintf(stderr, "Warning: Attempt to release a connection that is not marked as in-use\n");
+    return;
+  }
+
+  // Clear the connection's data pointer to prevent any callbacks from using it
+  connection->data = NULL;
+
+  // Mark the connection as not in use
   connection->in_use = false;
-  mc_t* client       = connection->client;
-  client->available++;
-  //  printf(":: mc_release_connection available: %d\n", client->available);
+
+  // Update the client's available count
+  mc_t* client = connection->client;
+  if (client) {
+    client->available++;
+  }
 }
 
 /// -------- SET ---------
@@ -206,9 +220,14 @@ typedef struct {
   memcache_cb callback;
   mc_conn_t*  connection;
   uv_buf_t    msg[3];
+  bool        has_been_freed; // Flag to prevent double-free
 } mc_set_req_t;
 
 static void req_set_free(mc_set_req_t* req) {
+  if (!req || req->has_been_freed) {
+    return; // Prevent double-free
+  }
+  req->has_been_freed = true;
   free(req->msg[0].base);
   free(req->msg[1].base);
   free(req);
@@ -232,10 +251,9 @@ static void on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
 
   mc_set_req_t* req_data = (mc_set_req_t*) connection->data;
   // Check if request data is valid
-  if (!req_data) {
-    fprintf(stderr, "Error: Invalid request data in on_set_read\n");
+  if (!req_data || req_data->has_been_freed) {
+    fprintf(stderr, "Error: Invalid or already freed request data in on_set_read\n");
     if (buf && buf->base) free(buf->base);
-    mc_release_connection(connection);
     return;
   }
 
@@ -261,19 +279,49 @@ static void on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
     }
   }
 
-  // Call callback with appropriate result
-  if (req_data->callback) {
-    if (success) {
-      req_data->callback(req_data->data, req_data->msg[1].base, req_data->msg[1].len);
+  // Make local copies to use after freeing the request
+  memcache_cb callback      = req_data->callback;
+  void*       callback_data = req_data->data;
+
+  // For successful operation, make a copy of the data that will be passed to callback
+  char*  result_data = NULL;
+  size_t result_len  = 0;
+
+  if (success && req_data->msg[1].base && req_data->msg[1].len > 0) {
+    result_data = (char*) malloc(req_data->msg[1].len);
+    if (result_data) {
+      memcpy(result_data, req_data->msg[1].base, req_data->msg[1].len);
+      result_len = req_data->msg[1].len;
     }
     else {
-      req_data->callback(req_data->data, NULL, 0);
+      // If we couldn't allocate memory, we can't pass the data to the callback
+      success = false;
     }
   }
 
+  // Mark the request as being handled
+  req_data->has_been_freed = true;
+
   // Release connection before freeing request to avoid race conditions
-  mc_release_connection(req_data->connection);
+  mc_release_connection(connection);
+
+  // Free the request data
   req_set_free(req_data);
+
+  // Call callback with appropriate result after all cleanups
+  if (callback) {
+    if (success && result_data) {
+      callback(callback_data, result_data, result_len);
+    }
+    else {
+      callback(callback_data, NULL, 0);
+    }
+  }
+
+  // Free our local copy
+  if (result_data) {
+    free(result_data);
+  }
 
   if (buf && buf->base) {
     free(buf->base);
@@ -288,8 +336,8 @@ static void on_set_write(uv_write_t* req, int status) {
   }
 
   mc_set_req_t* req_data = (mc_set_req_t*) req->data;
-  if (!req_data) {
-    fprintf(stderr, "Error: Invalid request data in on_set_write\n");
+  if (!req_data || req_data->has_been_freed) {
+    fprintf(stderr, "Error: Invalid or already freed request data in on_set_write\n");
     free(req);
     return;
   }
@@ -298,11 +346,22 @@ static void on_set_write(uv_write_t* req, int status) {
   mc_conn_t* connection = req_data->connection;
   if (!connection) {
     fprintf(stderr, "Error: NULL connection in on_set_write\n");
-    if (req_data->callback) {
-      req_data->callback(req_data->data, NULL, 0);
-    }
+
+    // Make a local copy of callback and data
+    memcache_cb callback      = req_data->callback;
+    void*       callback_data = req_data->data;
+
+    // Mark as freed
+    req_data->has_been_freed = true;
+
+    // Free resources
     req_set_free(req_data);
     free(req);
+
+    // Call callback with error after cleanup
+    if (callback) {
+      callback(callback_data, NULL, 0);
+    }
     return;
   }
 
@@ -310,23 +369,44 @@ static void on_set_write(uv_write_t* req, int status) {
 
   if (status != 0) {
     fprintf(stderr, "Error writing to memcached: %s\n", uv_strerror(status));
-    // error, just call the callback with NULL
-    if (req_data->callback) {
-      req_data->callback(req_data->data, NULL, 0);
-    }
+
+    // Make a local copy of callback and data
+    memcache_cb callback      = req_data->callback;
+    void*       callback_data = req_data->data;
+
+    // Mark as freed
+    req_data->has_been_freed = true;
+
+    // Release connection and free resources
     mc_release_connection(connection);
     req_set_free(req_data);
+
+    // Call callback with error after cleanup
+    if (callback) {
+      callback(callback_data, NULL, 0);
+    }
     return;
   }
 
   int r = uv_read_start((uv_stream_t*) &connection->tcp, on_alloc, on_set_read);
   if (r != 0) {
     fprintf(stderr, "Error starting read: %s\n", uv_strerror(r));
-    if (req_data->callback) {
-      req_data->callback(req_data->data, NULL, 0);
-    }
+
+    // Make a local copy of callback and data
+    memcache_cb callback      = req_data->callback;
+    void*       callback_data = req_data->data;
+
+    // Mark as freed
+    req_data->has_been_freed = true;
+
+    // Release connection and free resources
     mc_release_connection(connection);
     req_set_free(req_data);
+
+    // Call callback with error after cleanup
+    if (callback) {
+      callback(callback_data, NULL, 0);
+    }
   }
 }
 
@@ -386,10 +466,15 @@ typedef struct {
   char*       key; // key to get
   size_t      keylen;
   uv_buf_t    msg[3];
-  buffer_t    buffer; // data received
+  buffer_t    buffer;         // data received
+  bool        has_been_freed; // Flag to prevent double-free
 } mc_get_req_t;
 
 static void req_get_free(mc_get_req_t* req) {
+  if (!req || req->has_been_freed) {
+    return; // Prevent double-free
+  }
+  req->has_been_freed = true;
   free(req->key);
   buffer_free(&req->buffer);
   free(req);
@@ -413,10 +498,9 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
 
   mc_get_req_t* req_data = (mc_get_req_t*) connection->data;
   // Check if request data is valid
-  if (!req_data) {
-    fprintf(stderr, "Error: Invalid request data in on_get_read\n");
+  if (!req_data || req_data->has_been_freed) {
+    fprintf(stderr, "Error: Invalid or already freed request data in on_get_read\n");
     if (buf && buf->base) free(buf->base);
-    mc_release_connection(connection);
     return;
   }
 
@@ -490,16 +574,36 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
     memcache_cb cb      = req_data->cb;
     void*       cb_data = req_data->data;
 
+    // Local copy of the result to ensure it's valid after we free req_data
+    char*  result_data = NULL;
+    size_t result_len  = 0;
+
+    if (result.data && result.len > 0) {
+      result_data = (char*) malloc(result.len);
+      if (result_data) {
+        memcpy(result_data, result.data, result.len);
+        result_len = result.len;
+      }
+    }
+
+    // Mark the request as being handled
+    req_data->has_been_freed = true;
+
     // Release connection first to make it available for reuse
     mc_release_connection(connection);
 
+    // Free the request data before calling the callback
+    req_get_free(req_data);
+
     // Call callback with result
-    if (cb) {
-      cb(cb_data, (char*) result.data, result.len);
+    if (cb && cb_data) {
+      cb(cb_data, result_data, result_len);
     }
 
-    // Clean up request data
-    req_get_free(req_data);
+    // Free our local copy
+    if (result_data) {
+      free(result_data);
+    }
   }
   else {
     // Continue reading if we need more data
@@ -507,14 +611,23 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
     if (r != 0) {
       fprintf(stderr, "Error restarting read: %s\n", uv_strerror(r));
 
-      // Call callback with error
-      if (req_data->cb) {
-        req_data->cb(req_data->data, NULL, 0);
-      }
+      // Make a local copy of callback and data
+      memcache_cb cb      = req_data->cb;
+      void*       cb_data = req_data->data;
 
-      // Cleanup resources
+      // Mark the request as being handled
+      req_data->has_been_freed = true;
+
+      // Release the connection
       mc_release_connection(connection);
+
+      // Free the request data
       req_get_free(req_data);
+
+      // Call callback with error
+      if (cb && cb_data) {
+        cb(cb_data, NULL, 0);
+      }
     }
   }
 }
@@ -527,8 +640,8 @@ static void on_get_write(uv_write_t* req, int status) {
   }
 
   mc_get_req_t* req_data = (mc_get_req_t*) req->data;
-  if (!req_data) {
-    fprintf(stderr, "Error: Invalid request data in on_get_write\n");
+  if (!req_data || req_data->has_been_freed) {
+    fprintf(stderr, "Error: Invalid or already freed request data in on_get_write\n");
     free(req);
     return;
   }
@@ -537,11 +650,22 @@ static void on_get_write(uv_write_t* req, int status) {
   mc_conn_t* connection = req_data->connection;
   if (!connection) {
     fprintf(stderr, "Error: NULL connection in on_get_write\n");
-    if (req_data->cb) {
-      req_data->cb(req_data->data, NULL, 0);
-    }
+
+    // Make a local copy of callback and data
+    memcache_cb cb      = req_data->cb;
+    void*       cb_data = req_data->data;
+
+    // Mark as freed
+    req_data->has_been_freed = true;
+
+    // Free resources
     req_get_free(req_data);
     free(req);
+
+    // Call callback with error after cleanup
+    if (cb) {
+      cb(cb_data, NULL, 0);
+    }
     return;
   }
 
@@ -549,22 +673,44 @@ static void on_get_write(uv_write_t* req, int status) {
 
   if (status != 0) {
     fprintf(stderr, "Error writing GET request to memcached: %s\n", uv_strerror(status));
-    if (req_data->cb) {
-      req_data->cb(req_data->data, NULL, 0);
-    }
+
+    // Make a local copy of callback and data
+    memcache_cb cb      = req_data->cb;
+    void*       cb_data = req_data->data;
+
+    // Mark as freed
+    req_data->has_been_freed = true;
+
+    // Release connection and free resources
     mc_release_connection(connection);
     req_get_free(req_data);
+
+    // Call callback with error after cleanup
+    if (cb) {
+      cb(cb_data, NULL, 0);
+    }
     return;
   }
 
   int r = uv_read_start((uv_stream_t*) &connection->tcp, on_alloc, on_get_read);
   if (r != 0) {
     fprintf(stderr, "Error starting read after GET request: %s\n", uv_strerror(r));
-    if (req_data->cb) {
-      req_data->cb(req_data->data, NULL, 0);
-    }
+
+    // Make a local copy of callback and data
+    memcache_cb cb      = req_data->cb;
+    void*       cb_data = req_data->data;
+
+    // Mark as freed
+    req_data->has_been_freed = true;
+
+    // Release connection and free resources
     mc_release_connection(connection);
     req_get_free(req_data);
+
+    // Call callback with error after cleanup
+    if (cb) {
+      cb(cb_data, NULL, 0);
+    }
   }
 }
 
