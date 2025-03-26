@@ -34,6 +34,35 @@ typedef struct mc_conn_s {
   bool     reconnecting; // Flag to indicate if the connection is in the process of reconnecting
 } mc_conn_t;
 
+// Define the operation types
+typedef enum mc_op_type {
+  QUEUE_OP_GET = 1,
+  QUEUE_OP_SET = 2
+} mc_op_type_t;
+
+// Simple queued operation structure - NO callback list, just basic fields
+typedef struct mc_queued_op_s {
+  mc_op_type_t type;
+  union {
+    struct {
+      char*       key;
+      size_t      keylen;
+      void*       data;
+      memcache_cb cb;
+    } get;
+    struct {
+      char*       key;
+      size_t      keylen;
+      char*       value;
+      size_t      value_len;
+      uint32_t    ttl;
+      void*       data;
+      memcache_cb cb;
+    } set;
+  } op;
+  struct mc_queued_op_s* next;
+} mc_queued_op_t;
+
 // Memcached client structure
 typedef struct mc_s {
   uv_loop_t*         loop;
@@ -43,6 +72,10 @@ typedef struct mc_s {
   unsigned int       connecting;
   unsigned int       available;
   struct sockaddr_in server_addr;
+  mc_queued_op_t*    queue_head;     // Operation queue head
+  mc_queued_op_t*    queue_tail;     // Operation queue tail
+  unsigned int       queue_size;     // Current queue size
+  unsigned int       max_queue_size; // Maximum queue size (limit)
 } mc_t;
 
 // memcache connecting
@@ -114,11 +147,16 @@ mc_t* memcache_new(unsigned int pool_size, const char* host, int port) {
   mc_t* client = (mc_t*) calloc(1, sizeof(mc_t));
   if (!client) return NULL;
 
-  client->loop        = uv_default_loop();
-  client->size        = pool_size;
-  client->server_addr = addr;
-  client->connecting  = pool_size;
-  client->connections = (mc_conn_t*) calloc(pool_size, sizeof(mc_conn_t));
+  client->loop           = uv_default_loop();
+  client->size           = pool_size;
+  client->server_addr    = addr;
+  client->connecting     = pool_size;
+  client->connections    = (mc_conn_t*) calloc(pool_size, sizeof(mc_conn_t));
+  client->queue_head     = NULL;
+  client->queue_tail     = NULL;
+  client->queue_size     = 0;
+  client->max_queue_size = pool_size * 10; // Allow 10x the pool size for queued operations
+
   if (!client->connections) {
     free(client);
     return NULL;
@@ -139,12 +177,48 @@ mc_t* memcache_new(unsigned int pool_size, const char* host, int port) {
   return client;
 }
 
+// Function to clean up the operation queue - simplified version
+static void mc_cleanup_queue(mc_t* client) {
+  if (!client) return;
+
+  mc_queued_op_t* current = client->queue_head;
+  while (current) {
+    mc_queued_op_t* next = current->next;
+
+    if (current->type == QUEUE_OP_GET) {
+      free(current->op.get.key);
+      // Call callback with NULL to indicate failure
+      if (current->op.get.cb) {
+        current->op.get.cb(current->op.get.data, NULL, 0);
+      }
+    }
+    else { // QUEUE_OP_SET
+      free(current->op.set.key);
+      free(current->op.set.value);
+      if (current->op.set.cb) {
+        current->op.set.cb(current->op.set.data, NULL, 0);
+      }
+    }
+
+    free(current);
+    current = next;
+  }
+
+  client->queue_head = NULL;
+  client->queue_tail = NULL;
+  client->queue_size = 0;
+}
+
 // Free the memcached client
 void memcache_free(mc_t** client_p) {
   if (!client_p || !*client_p) return;
 
   mc_t* client = *client_p;
 
+  // Clean up any queued operations
+  mc_cleanup_queue(client);
+
+  // Close connections
   for (unsigned int i = 0; i < client->size; i++)
     uv_close((uv_handle_t*) &client->connections[i].tcp, NULL);
 
@@ -190,6 +264,81 @@ static mc_conn_t* mc_get_connection(mc_t* client) {
   return NULL;
 }
 
+// Helper function to find if a GET operation with the same key exists in the queue
+static mc_queued_op_t* mc_find_queued_get(mc_t* client, const char* key, size_t keylen) {
+  if (!client || !client->queue_head || !key || keylen == 0) return NULL;
+
+  mc_queued_op_t* op = client->queue_head;
+  while (op != NULL) {
+    if (op->type == QUEUE_OP_GET &&
+        op->op.get.keylen == keylen &&
+        memcmp(op->op.get.key, key, keylen) == 0) {
+      return op;
+    }
+    op = op->next;
+  }
+  return NULL;
+}
+
+// Function to add an operation to the queue
+static int mc_queue_operation(mc_t* client, mc_queued_op_t* op) {
+  if (!client || !op) return -1;
+
+  // Check if queue is full (safety limit to prevent memory exhaustion)
+  if (client->queue_size >= client->max_queue_size) {
+    fprintf(stderr, "Memcached operation queue is full (%d operations waiting)\n",
+            client->queue_size);
+    return -1;
+  }
+
+  // Add to queue
+  op->next = NULL;
+  if (client->queue_tail) {
+    client->queue_tail->next = op;
+  }
+  else {
+    client->queue_head = op;
+  }
+  client->queue_tail = op;
+  client->queue_size++;
+
+  return 0;
+}
+
+// Function to process the next operation from the queue
+static void mc_process_queue(mc_t* client) {
+  if (!client || !client->queue_head || client->available == 0) return;
+
+  mc_queued_op_t* op = client->queue_head;
+  client->queue_head = op->next;
+  if (!client->queue_head) {
+    client->queue_tail = NULL;
+  }
+  client->queue_size--;
+
+  int result = 0;
+  if (op->type == QUEUE_OP_GET) {
+    result = memcache_get(client, op->op.get.key, op->op.get.keylen, op->op.get.data, op->op.get.cb);
+    free(op->op.get.key);
+  }
+  else { // QUEUE_OP_SET
+    result = memcache_set(client, op->op.set.key, op->op.set.keylen,
+                          op->op.set.value, op->op.set.value_len,
+                          op->op.set.ttl, op->op.set.data, op->op.set.cb);
+    free(op->op.set.key);
+    free(op->op.set.value);
+  }
+
+  free(op);
+
+  // If the operation processing freed up a connection and we have more operations,
+  // process the next one
+  if (result == 0 && client->queue_head && client->available > 0) {
+    mc_process_queue(client);
+  }
+}
+
+// Modify mc_release_connection to process queued operations
 static void mc_release_connection(mc_conn_t* connection) {
   if (!connection) return;
 
@@ -209,6 +358,11 @@ static void mc_release_connection(mc_conn_t* connection) {
   mc_t* client = connection->client;
   if (client) {
     client->available++;
+
+    // Process the next queued operation if any
+    if (client->queue_head) {
+      mc_process_queue(client);
+    }
   }
 }
 
@@ -416,11 +570,53 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
   if (!client || !key || keylen == 0 || !value) return -1;
 
   mc_conn_t* connection = mc_get_connection(client);
-  if (!connection) return -1;
+  if (!connection) {
+    // No connections available, queue the operation
+    mc_queued_op_t* op = (mc_queued_op_t*) calloc(1, sizeof(mc_queued_op_t));
+    if (!op) {
+      if (cb) cb(data, NULL, 0);
+      return -1;
+    }
 
+    op->type       = QUEUE_OP_SET;
+    op->op.set.key = strndup(key, keylen);
+    if (!op->op.set.key) {
+      free(op);
+      if (cb) cb(data, NULL, 0);
+      return -1;
+    }
+    op->op.set.keylen = keylen;
+    op->op.set.value  = strndup(value, value_len);
+    if (!op->op.set.value) {
+      free(op->op.set.key);
+      free(op);
+      if (cb) cb(data, NULL, 0);
+      return -1;
+    }
+    op->op.set.value_len = value_len;
+    op->op.set.ttl       = ttl;
+    op->op.set.data      = data;
+    op->op.set.cb        = cb;
+
+    // Try to add to queue
+    int result = mc_queue_operation(client, op);
+    if (result != 0) {
+      // Queue is full or other error, clean up and fail
+      free(op->op.set.key);
+      free(op->op.set.value);
+      free(op);
+      if (cb) cb(data, NULL, 0);
+      return -1;
+    }
+
+    return 0;
+  }
+
+  // Use existing connection
   mc_set_req_t* req_data = (mc_set_req_t*) calloc(1, sizeof(mc_set_req_t));
   if (!req_data) {
     mc_release_connection(connection);
+    if (cb) cb(data, NULL, 0);
     return -1;
   }
 
@@ -428,6 +624,7 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
   if (!req) {
     free(req_data);
     mc_release_connection(connection);
+    if (cb) cb(data, NULL, 0);
     return -1;
   }
 
@@ -449,7 +646,8 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
   if (r != 0) {
     mc_release_connection(connection);
     req_set_free(req_data);
-    return r;
+    if (cb) cb(data, NULL, 0);
+    return -1;
   }
 
   return 0;
@@ -689,7 +887,6 @@ static void on_get_write(uv_write_t* req, int status) {
     if (cb) {
       cb(cb_data, NULL, 0);
     }
-    return;
   }
 
   int r = uv_read_start((uv_stream_t*) &connection->tcp, on_alloc, on_get_read);
@@ -717,20 +914,50 @@ static void on_get_write(uv_write_t* req, int status) {
 // Get value from memcached
 int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb cb) {
   if (!client) {
-    cb(data, NULL, 0);
+    if (cb) cb(data, NULL, 0);
     return 0;
   }
   if (!key || keylen == 0 || !cb) return -1;
 
   mc_conn_t* connection = mc_get_connection(client);
   if (!connection) {
-    cb(data, NULL, 0);
+    // No connections available, queue the operation
+    mc_queued_op_t* op = (mc_queued_op_t*) calloc(1, sizeof(mc_queued_op_t));
+    if (!op) {
+      cb(data, NULL, 0);
+      return -1;
+    }
+
+    // Initialize the operation
+    op->type       = QUEUE_OP_GET;
+    op->op.get.key = strndup(key, keylen);
+    if (!op->op.get.key) {
+      free(op);
+      cb(data, NULL, 0);
+      return -1;
+    }
+    op->op.get.keylen = keylen;
+    op->op.get.data   = data;
+    op->op.get.cb     = cb;
+
+    // Try to add to queue
+    int result = mc_queue_operation(client, op);
+    if (result != 0) {
+      // Queue is full or other error, clean up and fail
+      free(op->op.get.key);
+      free(op);
+      cb(data, NULL, 0);
+      return -1;
+    }
+
     return 0;
   }
 
+  // Rest of the function remains unchanged - existing implementation for when a connection is available
   mc_get_req_t* req_data = (mc_get_req_t*) calloc(1, sizeof(mc_get_req_t));
   if (!req_data) {
     mc_release_connection(connection);
+    cb(data, NULL, 0);
     return -1;
   }
 
@@ -738,6 +965,7 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
   if (!req) {
     free(req_data);
     mc_release_connection(connection);
+    cb(data, NULL, 0);
     return -1;
   }
 
@@ -760,8 +988,20 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
   if (r != 0) {
     mc_release_connection(connection);
     req_get_free(req_data);
-    return r;
+    cb(data, NULL, 0);
+    return -1;
   }
 
   return 0;
 }
+
+// Check and potentially process queued operations whenever a connection becomes available
+static void mc_connection_available(mc_t* client) {
+  // If we have queued operations and available connections, process them
+  if (client->queue_head && client->available > 0) {
+    mc_process_queue(client);
+  }
+}
+
+// Call mc_connection_available when a connection becomes available
+// This needs to be called in places where connections are freed/become available
