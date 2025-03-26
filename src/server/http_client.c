@@ -97,7 +97,7 @@ static void handle_curl_events() {
           pending_request_t* pending = pending_find(r);
           CURLcode           res     = msg->data.result;
           if (res == CURLE_OK) {
-            printf("recv: [%p] %s : %d\n", easy, r->req->url, r->buffer.data.len);
+            printf("      [%p] %s : %d\n", easy, r->req->url, r->buffer.data.len);
             r->req->response = r->buffer.data;
             cache_response(r);
             r->buffer = (buffer_t) {0};
