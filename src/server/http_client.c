@@ -354,8 +354,6 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
       return;
     }
 
-    r->url = strdup("http://localhost/"); // Fallback URL if both are empty
-
     pending_add(r);
     CURL* easy = curl_easy_init();
     r->curl    = easy;
