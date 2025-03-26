@@ -449,6 +449,13 @@ void c4_init_curl(uv_timer_t* timer) {
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
 
+  // Initialize SSL/TLS settings
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl_easy_setopt(multi_handle, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(multi_handle, CURLOPT_SSL_VERIFYHOST, 2L);
+  curl_easy_setopt(multi_handle, CURLOPT_CAINFO, NULL); // Use system default CA bundle
+  curl_easy_setopt(multi_handle, CURLOPT_CAPATH, NULL); // Use system default CA path
+
   // Initialize memcached client
   memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port); // Pool size of 10 connections
   if (!memcache_client) {
@@ -462,6 +469,7 @@ void c4_init_curl(uv_timer_t* timer) {
 
 void c4_cleanup_curl() {
   curl_multi_cleanup(multi_handle);
+  curl_global_cleanup();
   if (memcache_client) {
     memcache_free(&memcache_client);
   }
