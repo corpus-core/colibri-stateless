@@ -388,15 +388,9 @@ static void configure_ssl_settings(CURL* easy) {
     return;
   }
 
-  //  printf("Configuring SSL settings for handle %p\n", (void*) easy);
-
   // Disable SSL verification for development/testing
   curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
   curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
-
-  // Don't use the specific SSL engine settings - can cause issues
-  // curl_easy_setopt(easy, CURLOPT_SSLENGINE, NULL);
-  // curl_easy_setopt(easy, CURLOPT_SSLENGINE_DEFAULT, 1L);
 
   // Set SSL protocol version to be flexible - auto-negotiate
   curl_easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_DEFAULT);
@@ -407,12 +401,11 @@ static void configure_ssl_settings(CURL* easy) {
   // Disable SSL session reuse to avoid potential issues
   curl_easy_setopt(easy, CURLOPT_SSL_SESSIONID_CACHE, 0L);
 
-  // Add debug callback to get detailed SSL connection info
-  curl_easy_setopt(easy, CURLOPT_VERBOSE, 1L);
+  // Uncomment for debugging SSL issues
+  // curl_easy_setopt(easy, CURLOPT_VERBOSE, 1L);
 
-  // Set more permissive connection
-  curl_easy_setopt(easy, CURLOPT_FRESH_CONNECT, 1L); // Don't reuse connections
-  curl_easy_setopt(easy, CURLOPT_FORBID_REUSE, 1L);  // Explicitly forbid connection reuse
+  // Enable connection timeout to avoid hanging connections
+  curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, 30L);
 }
 
 static void call_callback_if_done(request_t* req) {

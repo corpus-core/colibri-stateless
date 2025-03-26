@@ -9,7 +9,7 @@ static http_handler* handlers = NULL;
 static int           handlers_count;
 
 void c4_register_http_handler(http_handler handler) {
-  handlers                   = realloc(handlers, (handlers_count + 1) * sizeof(http_handler));
+  handlers                   = (http_handler*) realloc(handlers, (handlers_count + 1) * sizeof(http_handler));
   handlers[handlers_count++] = handler;
 }
 
@@ -144,6 +144,13 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
 
   if (!uv_is_active((uv_handle_t*) &client->handle)) {
     fprintf(stderr, "ERROR: Attempted to write to inactive client handle\n");
+    // Client handle is invalid, so we can't use the normal close mechanism
+    // Instead, manually clean up the client resources
+    free(client->request.path);
+    free(client->request.content_type);
+    free(client->request.accept);
+    free(client->request.payload);
+    free(client);
     return;
   }
 
