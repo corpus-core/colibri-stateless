@@ -163,8 +163,16 @@ static int timer_callback(CURLM* multi, long timeout_ms, void* userp) {
 
 // Socket-Callback für curl
 static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, void* socketp) {
-  uv_poll_t* poll   = (socketp) ? (uv_poll_t*) socketp : calloc(1, sizeof(uv_poll_t));
-  int        events = 0;
+  uv_poll_t* poll;
+
+  if (socketp) {
+    poll = (uv_poll_t*) socketp;
+  }
+  else {
+    poll = (uv_poll_t*) calloc(1, sizeof(uv_poll_t));
+  }
+
+  int events = 0;
   if (what & CURL_POLL_IN) events |= UV_READABLE;
   if (what & CURL_POLL_OUT) events |= UV_WRITABLE;
   uv_poll_init_socket(uv_default_loop(), poll, s);
@@ -251,16 +259,29 @@ static void cache_response(single_request_t* r) {
 
 // Helper function to configure SSL settings for an easy handle
 static void configure_ssl_settings(CURL* easy) {
+  if (!easy) {
+    fprintf(stderr, "configure_ssl_settings: NULL easy handle passed\n");
+    return;
+  }
+
+  printf("Configuring SSL settings for handle %p\n", (void*) easy);
+
   // Disable SSL verification for development/testing
   curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
   curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYSTATUS, 0L);
+
+  // Try with GnuTLS specific option for certificate loading
+  curl_easy_setopt(easy, CURLOPT_SSLENGINE, NULL);
+  curl_easy_setopt(easy, CURLOPT_SSLENGINE_DEFAULT, 1L);
 
   // Set SSL protocol version
   curl_easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
 
   // Disable SSL session reuse to avoid potential issues
   curl_easy_setopt(easy, CURLOPT_SSL_SESSIONID_CACHE, 0L);
+
+  // Add verbose debugging for SSL
+  curl_easy_setopt(easy, CURLOPT_VERBOSE, 1L);
 }
 
 // Callback for memcache get operations
@@ -300,12 +321,21 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     CURL*          easy     = curl_easy_init();
     r->curl                 = easy;
 
-    if (!base_url)
+    // Safeguard against NULL URLs
+    if (!req_url) req_url = "";
+    if (!base_url) base_url = "";
+
+    if (strlen(base_url) == 0 && strlen(req_url) > 0)
       r->url = strdup(req_url);
-    else if (!req_url)
+    else if (strlen(req_url) == 0 && strlen(base_url) > 0)
       r->url = strdup(base_url);
-    else
+    else if (strlen(req_url) > 0 && strlen(base_url) > 0)
       r->url = bprintf(NULL, "%s%s", base_url, req_url);
+    else
+      r->url = strdup("http://localhost/"); // Fallback URL if both are empty
+
+    printf("URL construction: base_url=%s, req_url=%s, final=%s\n",
+           base_url, req_url, r->url ? r->url : "NULL");
 
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     if (r->req->payload.len && r->req->payload.data) {
