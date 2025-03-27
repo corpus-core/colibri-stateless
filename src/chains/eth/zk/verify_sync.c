@@ -1,0 +1,48 @@
+#include "zk_util.h"
+#include <stdbool.h>
+
+uint64_t verify_sync_proof(bytes_t sync_proof) {
+  bytes_t  old_keys       = {.data = sync_proof.data + 18, .len = 512 * 48};
+  bytes_t  new_keys       = {.data = sync_proof.data + old_keys.len + 18, .len = 512 * 48};
+  bytes_t  signature_bits = {.data = new_keys.data + new_keys.len, .len = 64};
+  bytes_t  signature      = {.data = signature_bits.data + 64, .len = 96};
+  uint64_t gidx           = get_uint64_le(signature.data + 96);
+  bytes_t  proof          = {.data = signature.data + 96 + 8, .len = 10 * 32};
+  bytes_t  slot_bytes     = {.data = proof.data + proof.len, .len = 8};
+  bytes_t  proposer_bytes = {.data = proof.data + proof.len + 8, .len = 8};
+
+  // the hash at the merkleproof index 7 is the hash of slot and propoer_index, so we use to verify them
+  if (!verify_slot(slot_bytes.data, proposer_bytes.data, proof.data + 32 * 7)) return 0;
+
+  bytes32_t root;
+  create_root_hash(new_keys, root);                                            // the root-hash of the next public keys
+  verify_merkle_proof(proof, root, gidx, root);                                // run the merkle proof all the way down to the signing root
+  return blst_verify(root, signature.data, old_keys.data, signature_bits.data) // check the signature
+             ? get_uint64_le(slot_bytes.data) >> 13                            // return the verified perios
+             : 0;                                                              // or 0 for failure
+}
+
+int main(int argc, char** argv) {
+  printf("start...\n");
+  bytes_t sync_proof = {.data = NULL, .len = 0};
+  uint8_t buffer[1024];
+  size_t  read = 0;
+  FILE*   file = fopen(argv[1], "rb");
+  if (!file) {
+    printf("Failed to open file: %s\n", argv[1]);
+    return 1;
+  }
+  // read all from stdin
+  while ((read = fread(buffer, 1, 1024, file)) > 0) {
+    sync_proof.data = realloc(sync_proof.data, sync_proof.len + read);
+    memcpy(sync_proof.data + sync_proof.len, buffer, read);
+    sync_proof.len += read;
+  }
+  fclose(file);
+  if (verify_sync_proof(sync_proof)) {
+    printf("Proof is valid\n");
+  }
+  else {
+    printf("Proof is invalid\n");
+  }
+}
