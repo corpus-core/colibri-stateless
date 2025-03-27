@@ -1,6 +1,8 @@
 #include "zk_util.h"
 #include <stdbool.h>
 
+// main verify-method for the sync proof
+// it returns the period if successful or 0 for failure
 uint64_t verify_sync_proof(bytes_t sync_proof) {
   bytes_t  old_keys       = {.data = sync_proof.data + 18, .len = 512 * 48};
   bytes_t  new_keys       = {.data = sync_proof.data + old_keys.len + 18, .len = 512 * 48};
@@ -16,14 +18,13 @@ uint64_t verify_sync_proof(bytes_t sync_proof) {
 
   bytes32_t root;
   create_root_hash(new_keys, root);                                            // the root-hash of the next public keys
-  verify_merkle_proof(proof, root, gidx, root);                                // run the merkle proof all the way down to the signing root
+  verify_merkle_proof(proof, gidx, root);                                      // run the merkle proof all the way down to the signing root
   return blst_verify(root, signature.data, old_keys.data, signature_bits.data) // check the signature
              ? get_uint64_le(slot_bytes.data) >> 13                            // return the verified perios
              : 0;                                                              // or 0 for failure
 }
 
 int main(int argc, char** argv) {
-  printf("start...\n");
   bytes_t sync_proof = {.data = NULL, .len = 0};
   uint8_t buffer[1024];
   size_t  read = 0;
@@ -39,10 +40,9 @@ int main(int argc, char** argv) {
     sync_proof.len += read;
   }
   fclose(file);
-  if (verify_sync_proof(sync_proof)) {
-    printf("Proof is valid\n");
-  }
-  else {
+  uint64_t period = verify_sync_proof(sync_proof);
+  if (period)
+    printf("Proof is valid for period %d\n", (uint32_t) period);
+  else
     printf("Proof is invalid\n");
-  }
 }

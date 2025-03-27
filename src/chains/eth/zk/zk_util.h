@@ -14,14 +14,6 @@ typedef struct {
 typedef uint8_t bytes32_t[32];
 #define bytes(ptr, length) \
   (bytes_t) { .data = (uint8_t*) ptr, .len = length }
-
-static void print_hex(char* prefix, bytes_t data, char* suffix) {
-  if (prefix) printf("%s", prefix);
-  for (uint32_t i = 0; i < data.len; i++)
-    printf("%02x", data.data[i]);
-  if (suffix) printf("%s", suffix);
-}
-
 static inline uint64_t get_uint64_le(uint8_t* data) {
   return (uint64_t) (data[0]) |
          ((uint64_t) (data[1]) << 8) |
@@ -68,6 +60,7 @@ typedef struct {
   blst_fp x, y;
 } blst_p1_affine;
 
+// veriries a BLS Signature
 static int blst_verify(uint8_t message_hash[32],   /**< 32 bytes hashed message */
                        uint8_t signature[96],      /**< 96 bytes signature */
                        uint8_t public_keys[24576], /**< 48 bytes public key array */
@@ -105,6 +98,7 @@ static int blst_verify(uint8_t message_hash[32],   /**< 32 bytes hashed message 
   return blst_pairing_finalverify(ctx, NULL);
 }
 
+// hashes 2 hashes together using sha256
 static void sha256_Merkle(bytes32_t left, bytes32_t right, bytes32_t out) {
   SHA256_CTX ctx = {0};
   sha256_init(&ctx);
@@ -113,17 +107,14 @@ static void sha256_Merkle(bytes32_t left, bytes32_t right, bytes32_t out) {
   sha256_final(out, &ctx);
 }
 
-static void verify_merkle_proof(bytes_t proof_data, bytes32_t leaf, uint32_t gindex, bytes32_t out) {
-  uint32_t len = proof_data.len >> 5;
-  if (out != leaf) memcpy(out, leaf, 32);
-  print_hex("leaf: ", bytes(leaf, 32), "\n");
-
+// runs the merkle proof from leaf to root
+// the initial leaf value must be set at out before calling.
+static void verify_merkle_proof(bytes_t proof_data, uint32_t gindex, bytes32_t out) {
   for (uint32_t i = 0; i < proof_data.len; i += 32, gindex >>= 1) {
     if (gindex & 1)
       sha256_Merkle(proof_data.data + i, out, out);
     else
       sha256_Merkle(out, proof_data.data + i, out);
-    print_hex(" -> ", bytes(out, 32), "\n");
   }
 }
 
@@ -141,11 +132,12 @@ static void _root_hash(bytes_t keys, bytes32_t out, uint32_t gindex) {
   }
   sha256_Merkle(left, right, out);
 }
+
+// calculate the root hash of the pubkeys
 static void create_root_hash(bytes_t keys, bytes32_t out) {
   _root_hash(keys, out, 1);
-  print_hex("root_has new_keys: ", bytes(out, 32), "\n");
 }
-
+// hashes the 2 values together and compares it with the hash from the proof
 static int verify_slot(uint8_t slot[8], uint8_t proposer[8], uint8_t proof[32]) {
   bytes32_t slot_hash     = {0};
   bytes32_t proposer_hash = {0};
