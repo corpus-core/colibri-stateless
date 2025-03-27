@@ -37,6 +37,8 @@ typedef struct {
   ssz_ob_t signature;
   gindex_t gidx;
   bytes_t  proof;
+  bytes_t  slot;
+  bytes_t  proposer_index;
 } period_data_t;
 
 static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_data_t* period) {
@@ -53,11 +55,13 @@ static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_da
   ssz_ob_t new_sync_keys  = ssz_get(&new_update, "nextSyncCommittee");
   ssz_ob_t sync_aggregate = ssz_get(&new_update, "syncAggregate");
   ssz_ob_t light_header   = ssz_get(&new_update, "attestedHeader");
+  ssz_ob_t header         = ssz_get(&light_header, "beacon");
   period->old_pubkeys     = ssz_get(&old_sync_keys, "pubkeys");
   period->new_pubkeys     = ssz_get(&new_sync_keys, "pubkeys");
   period->signature_bits  = ssz_get(&sync_aggregate, "syncCommitteeBits");
   period->signature       = ssz_get(&sync_aggregate, "syncCommitteeSignature");
-  ssz_ob_t header         = ssz_get(&light_header, "beacon");
+  period->slot            = ssz_get(&header, "slot").bytes;
+  period->proposer_index  = ssz_get(&header, "proposerIndex").bytes;
   bytes_t  state_proof    = ssz_get(&new_update, "nextSyncCommitteeBranch").bytes;
   ssz_ob_t aggrgated_pub  = ssz_get(&new_sync_keys, "aggregatePubkey");
 
@@ -78,10 +82,11 @@ static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_da
   ssz_ob_t signing_data = ssz_builder_to_bytes(&signgin_data_builder);
   gindex_t state_gidx   = ssz_gindex(signing_data.def, 2, "BeaconBlockHeader", "stateRoot");
   bytes_t  header_proof = ssz_create_proof(signing_data, domain, state_gidx);
-  bytes_t  full_proof   = bytes(malloc(header_proof.len + state_proof.len + 32), header_proof.len + state_proof.len);
+  bytes_t  full_proof   = bytes(malloc(header_proof.len + state_proof.len + 32), header_proof.len + state_proof.len + 32);
   memcpy(full_proof.data, aggregate, 32);
   memcpy(full_proof.data + 32, state_proof.data, state_proof.len);
   memcpy(full_proof.data + 32 + state_proof.len, header_proof.data, header_proof.len);
+  memcpy(full_proof.data + 32 + state_proof.len + header_proof.len, domain, 32);
   free(header_proof.data);
   free(signing_data.bytes.data);
   period->proof = full_proof;
@@ -98,6 +103,8 @@ static c4_status_t create_proof(proofer_ctx_t* ctx, period_data_t* period) {
   ssz_add_bytes(&proof, "syncCommitteeSignature", period->signature.bytes);
   ssz_add_uint64(&proof, period->gidx);
   ssz_add_bytes(&proof, "proof", period->proof);
+  ssz_add_bytes(&proof, "slot", period->slot);
+  ssz_add_bytes(&proof, "proposerIndex", period->proposer_index);
   free(period->proof.data);
 
   ctx->proof = eth_create_proof_request(
