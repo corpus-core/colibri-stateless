@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "cache.h"
 #include "server.h"
 #include <assert.h>
