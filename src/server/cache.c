@@ -138,7 +138,10 @@ static void req_free(void* req_void) {
 // uv_close callback for memcached connections
 static void on_conn_close(uv_handle_t* handle) {
   mc_conn_t* connection = (mc_conn_t*) handle->data;
-  fprintf(stderr, "DEBUG: on_conn_close called for conn %p (current data: %p)\n", connection, connection ? connection->data : NULL);
+  // --- START CHANGE ---
+  // Comment out debug print
+  // fprintf(stderr, "DEBUG: on_conn_close called for conn %p (current data: %p)\n", connection, connection ? connection->data : NULL);
+  // --- END CHANGE ---
   // Note: We don't free the connection struct itself here,
   // that happens in memcache_free after the loop.
 }
@@ -406,7 +409,10 @@ static void req_set_free(mc_set_req_t* req) {
   if (!req) {
     return; // Prevent double-free
   }
-  fprintf(stderr, "DEBUG: req_set_free freeing req %p\n", req);
+  // --- START CHANGE ---
+  // Comment out debug print
+  // fprintf(stderr, "DEBUG: req_set_free freeing req %p\n", req);
+  // --- END CHANGE ---
   free(req->msg[0].base);
   free(req->msg[1].base);
   // Free the associated write request if it hasn't been freed yet
@@ -659,7 +665,10 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
 
   // Associate req_data with connection *AFTER* most allocations
   connection->data = req_data;
-  fprintf(stderr, "DEBUG: memcache_set assigned req %p to conn %p\n", req_data, connection);
+  // --- START CHANGE ---
+  // Comment out debug print
+  // fprintf(stderr, "DEBUG: memcache_set assigned req %p to conn %p\n", req_data, connection);
+  // --- END CHANGE ---
 
   // --- Allocation Path 3: write request struct ---
   uv_write_t* req = (uv_write_t*) calloc(1, sizeof(uv_write_t));
@@ -697,7 +706,10 @@ static void req_get_free(mc_get_req_t* req) {
   if (!req) {
     return; // Prevent double-free
   }
-  fprintf(stderr, "DEBUG: req_get_free freeing req %p\n", req);
+  // --- START CHANGE ---
+  // Comment out debug print
+  // fprintf(stderr, "DEBUG: req_get_free freeing req %p\n", req);
+  // --- END CHANGE ---
   free(req->key);
   buffer_free(&req->buffer);
   // Free the associated write request if it hasn't been freed yet
@@ -1043,7 +1055,10 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
 
   req->data        = req_data;
   connection->data = req_data;
-  fprintf(stderr, "DEBUG: memcache_get assigned req %p to conn %p\n", req_data, connection);
+  // --- START CHANGE ---
+  // Comment out debug print
+  // fprintf(stderr, "DEBUG: memcache_get assigned req %p to conn %p\n", req_data, connection);
+  // --- END CHANGE ---
 
   int r = uv_write(req, (uv_stream_t*) &connection->tcp, req_data->msg, 3, on_get_write);
   if (r != 0) {
@@ -1083,7 +1098,10 @@ static void mc_release_connection(mc_conn_t* connection) {
   if (connection->in_use) {
     connection->in_use = false;
     client->available++;
-    fprintf(stderr, "DEBUG: Releasing connection %p, available now %d\n", connection, client->available);
+    // --- START CHANGE ---
+    // Comment out debug print
+    // fprintf(stderr, "DEBUG: Releasing connection %p, available now %d\n", connection, client->available);
+    // --- END CHANGE ---
 
     // Clear associated request data as it's being handled by the caller
     connection->data = NULL;
