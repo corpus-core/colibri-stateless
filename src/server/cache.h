@@ -51,12 +51,10 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
  * @param value The value to set
  * @param value_len Length of the value
  * @param ttl Time-to-live in seconds
- * @param data User-provided context data that will be passed to the callback
- * @param cb Callback function to be called on completion
  * @return 0 on success, or an error code
  */
 int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t value_len,
-                 uint32_t ttl, void* data, memcache_cb cb);
+                 uint32_t ttl);
 
 #ifdef __cplusplus
 }
