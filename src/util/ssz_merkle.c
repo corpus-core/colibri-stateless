@@ -276,12 +276,11 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
       uint32_t bit_len = ssz_len(ob);
       uint32_t chunks  = (bit_len + 255) >> 8;
       if (index < chunks) {
-        uint32_t rest = ob.bytes.len - (index << 5);
-        memcpy(out, ob.bytes.data + (index << 5), rest > 32 ? 32 : rest);
-        if (index == chunks - 1 && bit_len % 8) {
-          bit_len = bit_len % 256; // bits in the last chunk
-          out[bit_len >> 3] &= 0xff >> (8 - (bit_len % 8));
-        }
+        uint32_t rest = ob.bytes.len - (index << 5) - (bit_len % 8 ? 0 : 1);
+        if (rest > 32) rest = 32;
+        memcpy(out, ob.bytes.data + (index << 5), rest);
+        if (index == chunks - 1 && bit_len % 8)
+          out[rest - 1] -= 1 << (bit_len % 8);
       }
       return;
     }
@@ -325,6 +324,9 @@ static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
   if (subtree_depth == 0) {
     if (ctx->proof) ctx->last_gindex = ssz_add_gindex(ctx->root_gindex, gindex); // global gindex
     set_leaf(ctx->ob, index, out, ctx);
+    //    char* s = bprintf(NULL, " [%l] LEAF : %x \n", gindex, bytes(out, 32));
+    //    printf("%s", s);
+    //    free(s);
   }
   else {
 
@@ -344,6 +346,9 @@ static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
 #ifdef PRECOMPILE_ZERO_HASHES
     }
 #endif
+    //    char* s = bprintf(NULL, " [%l]  %x   <= %x  %x\n", gindex, bytes(out, 32), bytes(temp, 32), bytes(temp + 32, 32));
+    //    printf("%s", s);
+    //    free(s);
   }
 
   if (ctx->proof) {

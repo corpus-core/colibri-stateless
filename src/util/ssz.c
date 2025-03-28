@@ -191,7 +191,7 @@ uint32_t ssz_len(ssz_ob_t ob) {
         if (last_bit & (1 << i))
           return ((ob.bytes.len - 1) * 8) + i;
       }
-      return ob.bytes.len * 8;
+      return ob.bytes.len * 8; // this should never happen, since the spec requires to set a bit in the last byte
     }
     default: return 0;
   }
