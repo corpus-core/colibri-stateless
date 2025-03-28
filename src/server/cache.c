@@ -554,9 +554,6 @@ static void on_set_read_discard(uv_stream_t* stream, ssize_t nread, const uv_buf
     free(buf->base);
   }
 
-  // Set connection data to NULL before releasing/freeing
-  connection->data = NULL;
-
   // Mark the request as being handled (important for req_free)
   req_data->has_been_freed = true;
 
