@@ -80,7 +80,12 @@ static void pending_remove(single_request_t* req) {
     current = current->next;
   }
 }
-
+static void call_callback_if_done(request_t* req) {
+  for (size_t i = 0; i < req->request_count; i++) {
+    if (c4_state_is_pending(req->requests[i].req)) return;
+  }
+  req->cb(req);
+}
 // Prüft abgeschlossene Übertragungen
 static void handle_curl_events() {
   if (!multi_handle) {
@@ -90,98 +95,54 @@ static void handle_curl_events() {
   CURLMsg* msg;
   int      msgs_left;
   while ((msg = curl_multi_info_read(multi_handle, &msgs_left))) {
-    if (!msg || msg->msg != CURLMSG_DONE) {
-      continue;
-    }
+    if (!msg || msg->msg != CURLMSG_DONE) continue;
 
     CURL* easy = msg->easy_handle;
-    if (!easy) {
-      continue;
+    if (!easy) continue;
+
+    single_request_t*  r       = NULL;
+    CURLcode           res     = curl_easy_getinfo(easy, CURLINFO_PRIVATE, &r);
+    pending_request_t* pending = pending_find(r);
+
+    if (msg->data.result == CURLE_OK) {
+      printf("   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
+      r->req->response = r->buffer.data; // set the response
+      cache_response(r);                 // and write to cache
+      r->buffer = (buffer_t) {0};        // reset the buffer, so we don't clean up the data
+    }
+    else {
+      long  http_code     = 0;
+      char* effective_url = NULL;
+      curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+      curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
+      r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, curl_easy_strerror(res), bprintf(&r->buffer, " ")); // create error message
+      printf("   -> [%p] %s : ERROR = %s (http code: %d)\n",
+             // and log
+             easy, effective_url ? effective_url : (r->url ? r->url : r->req->url),
+             curl_easy_strerror(res), (uint32_t) http_code);
     }
 
-    request_t* req = NULL;
-    CURLcode   res = curl_easy_getinfo(easy, CURLINFO_PRIVATE, &req);
-    if (res != CURLE_OK || !req) {
-      curl_multi_remove_handle(multi_handle, easy);
-      curl_easy_cleanup(easy);
-      continue;
-    }
-
-    // Process completed request
-    bool found = false;
-    for (size_t i = 0; i < req->request_count; i++) {
-      if (req->requests[i].curl == easy) {
-        single_request_t* r = &req->requests[i];
-        found               = true;
-
-        // Find pending request
-        pending_request_t* pending = pending_find(r);
-        CURLcode           res     = msg->data.result;
-
-        if (res == CURLE_OK) {
-          printf("   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
-          r->req->response = r->buffer.data;
-          cache_response(r);
-          r->buffer = (buffer_t) {0};
-        }
-        else {
-          r->req->error = bprintf(NULL, "%s : %s", curl_easy_strerror(res), bprintf(&r->buffer, " "));
-          printf("   -> [%p] %s : ERROR = %s (code: %d)\n",
-                 easy, r->url ? r->url : r->req->url,
-                 curl_easy_strerror(res), res);
-
-          // Get more details about the error
-          long http_code = 0;
-          curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
-          if (http_code > 0) {
-            printf("HTTP response code: %ld\n", http_code);
-          }
-
-          char* effective_url = NULL;
-          curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
-          if (effective_url) {
-            printf("Effective URL: %s\n", effective_url);
-          }
-        }
-
-        // Process any waiting requests
-        if (pending) {
-          pending_request_t* same = pending->same_requests;
-          pending_remove(r);
-          while (same) {
-            pending_request_t* next = same->next;
-            if (same->request) {
-              trigger_uncached_curl_request(same->request,
-                                            r->req->response.data ? (char*) r->req->response.data : NULL,
-                                            r->req->response.len);
-            }
-            free(same);
-            same = next;
-          }
-        }
-
-        r->curl = NULL; // setting it to NULL marks it as done
-        break;
+    // Process any waiting requests
+    if (pending) {
+      pending_request_t* same = pending->same_requests;
+      pending_remove(r);
+      while (same) {
+        pending_request_t* next = same->next;
+        if (same->request)
+          trigger_uncached_curl_request(same->request, r->req->response.data ? (char*) r->req->response.data : NULL, r->req->response.len);
+        free(same);
+        same = next;
       }
     }
+
+    r->curl = NULL; // setting it to NULL marks it as done
 
     // Clean up the easy handle
     curl_multi_remove_handle(multi_handle, easy);
     curl_easy_cleanup(easy);
 
-    // Call the callback if all requests are done
-    if (found) {
-      bool all_done = true;
-      for (size_t i = 0; i < req->request_count; i++) {
-        if (req->requests[i].curl) {
-          all_done = false;
-          break;
-        }
-      }
-      if (all_done && req->cb) {
-        req->cb(req);
-      }
-    }
+    // continuue with the callback
+    call_callback_if_done(r->parent);
   }
 }
 
@@ -423,13 +384,6 @@ static void configure_ssl_settings(CURL* easy) {
   curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, 30L);
 }
 
-static void call_callback_if_done(request_t* req) {
-  for (size_t i = 0; i < req->request_count; i++) {
-    if (c4_state_is_pending(req->requests[i].req)) return;
-  }
-  req->cb(req);
-}
-
 // Callback for memcache get operations
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len) {
   single_request_t*  r       = (single_request_t*) data;
@@ -492,7 +446,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &r->buffer);
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, (uint64_t) 120);
     curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[r->req->method]);
-    curl_easy_setopt(easy, CURLOPT_PRIVATE, r->parent);
+    curl_easy_setopt(easy, CURLOPT_PRIVATE, r);
 
     // Configure SSL settings for this easy handle
     configure_ssl_settings(easy);
