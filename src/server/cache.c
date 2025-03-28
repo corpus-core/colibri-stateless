@@ -136,11 +136,6 @@ static void req_free(void* req_void) {
 static void on_conn_close(uv_handle_t* handle) {
   mc_conn_t* connection = (mc_conn_t*) handle->data;
   fprintf(stderr, "DEBUG: on_conn_close called for conn %p (current data: %p)\n", connection, connection ? connection->data : NULL);
-  if (connection && connection->data) {
-    // Attempt to free the request data associated with the connection
-    req_free(connection->data);
-    connection->data = NULL; // Avoid double free attempts elsewhere
-  }
   // Note: We don't free the connection struct itself here,
   // that happens in memcache_free after the loop.
 }
@@ -492,6 +487,9 @@ static void on_set_read_discard(uv_stream_t* stream, ssize_t nread, const uv_buf
     return;
   }
 
+  // Get req_data BEFORE releasing connection
+  mc_set_req_t* req_data = (mc_set_req_t*) connection->data;
+
   // Stop reading, we got the response (or an error)
   uv_read_stop(stream);
 
@@ -499,6 +497,13 @@ static void on_set_read_discard(uv_stream_t* stream, ssize_t nread, const uv_buf
   if (nread < 0 && nread != UV_EOF) {
     fprintf(stderr, "Connection error discarding set response: %s\n", uv_strerror(nread));
     // Don't free req_data or release connection here, let on_conn_close handle it
+    // Release the connection even on error
+    mc_release_connection(connection); // This sets connection->data = NULL
+
+    // Now free the request data if it was valid
+    if (req_data) {
+      req_set_free(req_data);
+    }
   }
   // We don't care about the actual response ("STORED", "ERROR", etc.)
 
@@ -507,8 +512,15 @@ static void on_set_read_discard(uv_stream_t* stream, ssize_t nread, const uv_buf
     free(buf->base);
   }
 
-  // DO NOT free req_data or release connection here.
-  // on_conn_close will handle req_data cleanup when the connection is eventually closed.
+  // Release the connection back to the pool (if not already released due to error)
+  if (nread >= 0 || nread == UV_EOF) { // Only if no error previously handled release/free
+    mc_release_connection(connection); // This sets connection->data = NULL
+
+    // Now free the request data
+    if (req_data) { // Check if req_data was valid before freeing
+      req_set_free(req_data);
+    }
+  }
 }
 
 static void on_set_write(uv_write_t* req, int status) {
@@ -709,21 +721,22 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
     return;
   }
 
+  // Get req_data BEFORE potential release
   mc_get_req_t* req_data = (mc_get_req_t*) connection->data;
+
   // Check if request data is valid
   if (!req_data /* Removed: || req_data->has_been_freed */) {
     fprintf(stderr, "Error: Invalid request data in on_get_read\n");
     if (buf && buf->base) free(buf->base);
     uv_read_stop(stream); // Stop reading if request is bad
     // Don't release connection, let on_conn_close handle it if needed
+    // Release connection even if request data was bad? Maybe not safe. Log and return.
+    // mc_release_connection(connection); // Avoid releasing if state is unknown
     return;
   }
 
   bool    done   = false;
   bytes_t result = NULL_BYTES;
-
-  // Stop reading first to prevent any race conditions - only stop if done/error
-  // uv_read_stop(stream); // Moved down
 
   // Check for connection errors
   if (nread < 0 && nread != UV_EOF) {
@@ -732,6 +745,8 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
     uv_read_stop(stream); // Stop reading on error
   }
   else if (nread == UV_EOF) {
+    // Consider EOF without proper END protocol message an error/incomplete response
+    fprintf(stderr, "Warning: EOF received during get operation before END\n");
     done = true;
     uv_read_stop(stream); // Stop reading on EOF
   }
@@ -751,7 +766,7 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
     char* end_header = NULL;
 
     // Find end of header
-    for (int i = 0; i + 1 < req_data->buffer.data.len; i++) {
+    for (size_t i = 0; i + 1 < req_data->buffer.data.len; i++) { // Use size_t for index
       if (response[i] == '\r' && response[i + 1] == '\n') {
         end_header = &response[i];
         break;
@@ -759,15 +774,18 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
     }
 
     // Check for "END" response (cache miss)
-    if (req_data->buffer.data.len >= 3 && strncmp(response, "END", 3) == 0) {
+    // Need to check for "\r\n" after END for robustness
+    char* end_marker = (char*) memmem(response, req_data->buffer.data.len, "END\r\n", 5);
+    if (end_marker == response) { // END is at the very beginning
       done = true;
       uv_read_stop(stream); // Stop reading if protocol END received
     }
-    else if (end_header) {
+    else if (end_header) { // Found a potential header line
       size_t value_len = 0;
-      char   key[256]  = {0};
+      char   key[256]  = {0}; // Ensure buffer is large enough or dynamically size
       char   flags[32] = {0};
-      char   cas[32]   = {0};
+      // Optional CAS value
+      // char   cas[32]   = {0};
 
       // Create a null-terminated copy of the header for sscanf
       size_t header_len = end_header - response;
@@ -776,69 +794,67 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
         memcpy(header, response, header_len);
         header[header_len] = '\0';
 
-        if (sscanf(header, "VALUE %s %s %zu %s", key, flags, &value_len, cas) >= 3) {
-          size_t header_data_offset = header_len + 2; // Offset of data after header + \r\n
-          // Check if we have received the complete value data based on header
-          if (req_data->buffer.data.len >= header_data_offset + value_len) {
-            // Now check for the final "\r\nEND\r\n" or just "\r\n" after value
-            // Memcached protocol is a bit ambiguous here, but usually there's a final END
-            // Let's assume we stop reading once we have the declared value length
-            done   = true;
-            result = bytes_slice(req_data->buffer.data, header_data_offset, value_len);
-            uv_read_stop(stream); // Stop reading, we got the value
+        // Parse header: VALUE <key> <flags> <bytes> [<cas unique>]\r\n
+        // sscanf might be fragile; consider manual parsing for robustness
+        // We primarily need the <bytes> field (value_len)
+        int scan_res = sscanf(header, "VALUE %255s %31s %zu", key, flags, &value_len);
+
+        if (scan_res >= 3) {                                              // Successfully parsed key, flags, and value_len
+          size_t header_data_offset = header_len + 2;                     // Offset of data after header + \r\n
+          size_t expected_total_len = header_data_offset + value_len + 7; // + \r\nEND\r\n (worst case)
+
+          // Check if we have received the complete value data AND the trailing \r\nEND\r\n
+          char* end_of_value = (char*) req_data->buffer.data.data + header_data_offset + value_len;
+          if (req_data->buffer.data.len >= header_data_offset + value_len + 2 && // Check for at least \r\n after value
+              memcmp(end_of_value, "\r\n", 2) == 0) {
+
+            // Check for END\r\n after the value's \r\n
+            if (req_data->buffer.data.len >= header_data_offset + value_len + 7 &&
+                memcmp(end_of_value + 2, "END\r\n", 5) == 0) {
+              done   = true;
+              result = bytes_slice(req_data->buffer.data, header_data_offset, value_len);
+              uv_read_stop(stream); // Stop reading, we got the value and END
+            }
+            // Handle cases where just \r\n exists after value (maybe lenient servers?)
+            // Or if we only have value + \r\n but not END yet - continue reading?
+            // For now, require END\r\n
           }
+          // If not enough data yet for value + \r\nEND\r\n, continue reading (done remains false)
+        }
+        else {
+          fprintf(stderr, "Warning: Failed to parse memcached VALUE header: '%s'\n", header);
+          // Treat as error? Or maybe just END not found yet? Let's treat as error for now.
+          done = true;
+          uv_read_stop(stream);
         }
         free(header);
       }
+      else {
+        // Failed to allocate header copy - treat as error
+        fprintf(stderr, "Error: Failed to allocate memory for header parsing\n");
+        done = true;
+        uv_read_stop(stream);
+      }
     }
+    // If no END and no valid VALUE header found yet, continue reading (done remains false)
   }
 
   if (done) {
-    // Make a local copy of callback and data before potentially freeing req_data
-    memcache_cb cb      = req_data->cb;
-    void*       cb_data = req_data->data;
+    // Store callback and data locally BEFORE releasing connection/freeing req_data
+    memcache_cb cb      = req_data ? req_data->cb : NULL;
+    void*       cb_data = req_data ? req_data->data : NULL;
 
-    // Local copy of the result to ensure it's valid
-    char*  result_data = NULL;
-    size_t result_len  = 0;
+    // Release the connection back to the pool
+    mc_release_connection(connection); // This sets connection->data = NULL
 
-    if (result.data && result.len > 0) {
-      result_data = (char*) malloc(result.len);
-      if (result_data) {
-        memcpy(result_data, result.data, result.len);
-        result_len = result.len;
-      }
+    // Call the user callback (if valid)
+    if (cb) {
+      cb(cb_data, (char*) result.data, result.len);
     }
 
-    // DO NOT free req_data or release connection here.
-    // Call callback with result
-    if (cb && cb_data) {
-      cb(cb_data, result_data, result_len);
-    }
-
-    // Free our local copy of the result data
-    if (result_data) {
-      free(result_data);
-    }
-    // DO NOT release connection here
-    // mc_release_connection(connection); // REMOVED
-  }
-  else {
-    // Continue reading if we need more data and no error occurred
-    int r = uv_read_start(stream, on_alloc, on_get_read);
-    if (r != 0) {
-      fprintf(stderr, "Error restarting read: %s\n", uv_strerror(r));
-      uv_read_stop(stream); // Ensure reading is stopped on error
-
-      // Make a local copy of callback and data
-      memcache_cb cb      = req_data->cb;
-      void*       cb_data = req_data->data;
-
-      // Call callback with error
-      if (cb && cb_data) {
-        cb(cb_data, NULL, 0);
-      }
-      // DO NOT free req_data or release connection here. Let on_conn_close handle it.
+    // Now free the request data
+    if (req_data) { // Check if req_data was valid before freeing
+      req_get_free(req_data);
     }
   }
 }
@@ -1050,3 +1066,34 @@ static void mc_connection_available(mc_t* client) {
 
 // Call mc_connection_available when a connection becomes available
 // This needs to be called in places where connections are freed/become available
+
+// --- START NEW FUNCTION ---
+// Helper function to release a connection back to the pool
+static void mc_release_connection(mc_conn_t* connection) {
+  if (!connection || !connection->client) {
+    fprintf(stderr, "Error: mc_release_connection called with invalid connection/client\n");
+    return;
+  }
+  mc_t* client = connection->client;
+
+  // Only release if it was actually in use
+  if (connection->in_use) {
+    connection->in_use = false;
+    client->available++;
+    fprintf(stderr, "DEBUG: Releasing connection %p, available now %d\n", connection, client->available);
+
+    // Clear associated request data as it's being handled by the caller
+    connection->data = NULL;
+
+    // If there are queued operations, try to process one now
+    if (client->queue_head) {
+      mc_process_queue(client);
+    }
+  }
+  else {
+    fprintf(stderr, "DEBUG: mc_release_connection called on connection %p already released or never used?\n", connection);
+    // Still clear data just in case
+    connection->data = NULL;
+  }
+}
+// --- END NEW FUNCTION ---
