@@ -173,33 +173,9 @@ static void handle_curl_events() {
 
     r->curl = NULL; // setting it to NULL marks it as done
 
-    // Clean up the easy handle - DEFER THIS to cleanup_context
+    // Clean up the easy handle
     curl_multi_remove_handle(multi_handle, easy);
-
-    // Try to find the socket and context to initiate cleanup - REMOVED this block
-    // RE-ADD logic to mark context as done
-    curl_socket_t sockfd = -1;
-    curl_easy_getinfo(easy, CURLINFO_ACTIVESOCKET, &sockfd);
-    if (sockfd != -1) {
-      void* socketp = NULL;
-      curl_multi_assign(multi_handle, sockfd, &socketp);
-      curl_poll_context_t* context = (curl_poll_context_t*) socketp;
-      if (context) {
-        fprintf(stderr, "DEBUG: Marking context %p (easy %p) as done processing.\n", context, easy);
-        context->is_done_processing = true;
-        // Check if uv_close was already called by CURL_POLL_REMOVE
-        if (context->poll_handle.data == NULL) {
-          fprintf(stderr, "DEBUG: Poll handle %p already closing for easy %p, cleanup deferred to uv_close callback.\n", &context->poll_handle, easy);
-        }
-      }
-      else {
-        // This might happen if socket closes extremely quickly before CURL_POLL_REMOVE runs?
-        fprintf(stderr, "WARNING: Could not find context for socket %d (easy %p) in CURLMSG_DONE. is_done_processing not set! Potential leak if CURL_POLL_REMOVE doesn't run.\n", (int) sockfd, easy);
-      }
-    }
-    else {
-      fprintf(stderr, "WARNING: CURLINFO_ACTIVESOCKET failed for completed handle %p in CURLMSG_DONE. Cannot mark context. Potential leak if CURL_POLL_REMOVE doesn't run.\n", easy);
-    }
+    curl_easy_cleanup(easy); // Cleanup the easy handle immediately
 
     // continuue with the callback
     call_callback_if_done(r->parent);
@@ -268,76 +244,46 @@ static int timer_callback(CURLM* multi, long timeout_ms, void* userp) {
 
 // Socket-Callback für curl
 static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, void* socketp) {
-  // curl_poll_context_t* context = (curl_poll_context_t*) socketp;
   curl_poll_context_t* context = (curl_poll_context_t*) socketp;
 
   // Handle remove case first
   if (what == CURL_POLL_REMOVE) {
-    // if (context) {
     if (context) {
-      // Check if the handle is not already being closed (by CURLMSG_DONE path)
-      // if (context->poll_handle.data != NULL) {
+      // Check if the handle is not already being closed
       if (context->poll_handle.data != NULL) {
-        // fprintf(stderr, "DEBUG: Closing poll handle %p via CURL_POLL_REMOVE for socket %d\n", &context->poll_handle, (int) s);
-        // fprintf(stderr, "DEBUG: Closing poll handle %p via CURL_POLL_REMOVE for socket %d\n", poll, (int) s);
         fprintf(stderr, "DEBUG: Initiating close for poll handle %p via CURL_POLL_REMOVE for socket %d\n", &context->poll_handle, (int) s);
-        // Stop polling before closing
-        // uv_poll_stop(&context->poll_handle);
-        uv_poll_stop(&context->poll_handle);
-
-        // Mark the poll handle as closing/invalid by setting data to NULL
-        // context->poll_handle.data = NULL;
-        context->poll_handle.data = NULL;
-
-        // Close the handle using our custom callback for cleanup
-        // uv_close((uv_handle_t*) &context->poll_handle, cleanup_context);
-        // Use the simpler callback
-        // uv_close((uv_handle_t*) &context->poll_handle, free_poll_context);
-        // Use standard free
+        // uv_poll_stop(&context->poll_handle); // REMOVED - uv_close should handle stopping
+        context->poll_handle.data = NULL; // Mark as closing/invalid
         uv_close((uv_handle_t*) &context->poll_handle, cleanup_easy_handle_and_context);
-
-        // Clear the socket association in curl
+        // Clear the socket association in curl *only if we initiated close now*
         curl_multi_assign(multi_handle, s, NULL);
       }
       else {
-        // fprintf(stderr, "DEBUG: Ignoring CURL_POLL_REMOVE for socket %d, context %p (already closing)\n", (int) s, poll);
-        // Keep this debug message as it might be relevant if cleanup issues persist
-        fprintf(stderr, "DEBUG: Ignoring CURL_POLL_REMOVE for socket %d, poll %p (already closing)\n", (int) s, context);
+        fprintf(stderr, "DEBUG: Ignoring CURL_POLL_REMOVE for already closing poll handle associated with socket %d\n", (int) s);
+        // curl_multi_assign is NOT called here
       }
     }
+    // curl_multi_assign is NOT called if context was initially NULL
     return 0;
   }
 
-  // If we don't have a context/poll handle yet, create one
-  // if (!context) {
+  // If we don't have a context/poll handle yet (socketp was NULL), create one
   if (!context) {
-    // context = (curl_poll_context_t*) calloc(1, sizeof(curl_poll_context_t));
-    // poll = (uv_poll_t*) calloc(1, sizeof(uv_poll_t));
     context = (curl_poll_context_t*) calloc(1, sizeof(curl_poll_context_t));
-    // if (!context) {
     if (!context) {
       fprintf(stderr, "Failed to allocate poll context\n");
-      return -1; // Return error (as per libcurl docs for socket_callback)
+      return -1;
     }
-    // context->easy_handle = easy; // Store the easy handle - REMOVED
-    context->easy_handle        = easy;
-    context->is_done_processing = false;
-
-    // Initialize the poll handle
-    // int err = uv_poll_init_socket(uv_default_loop(), &context->poll_handle, s);
-    // int err = uv_poll_init_socket(uv_default_loop(), poll, s);
-    int err = uv_poll_init_socket(uv_default_loop(), &context->poll_handle, s);
+    context->easy_handle = easy;
+    int err              = uv_poll_init_socket(uv_default_loop(), &context->poll_handle, s);
     if (err != 0) {
       fprintf(stderr, "Failed to initialize poll handle: %s\n", uv_strerror(err));
-      // free(context);
       free(context);
-      return -1; // Return error
+      return -1;
     }
-    // Store the context pointer in the handle's data field for poll_cb check
-    // context->poll_handle.data = context;
-    // Store the poll pointer in its own data field for the active check
-    // poll->data = poll;
-    context->poll_handle.data = context;
+    context->poll_handle.data = context; // Mark as active
+    // Associate the *new* context with the socket in curl
+    curl_multi_assign(multi_handle, s, context);
   }
 
   // Determine which events to monitor
@@ -345,33 +291,21 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   if (what & CURL_POLL_IN) events |= UV_READABLE;
   if (what & CURL_POLL_OUT) events |= UV_WRITABLE;
 
-  // Start polling for events
-  // int err = uv_poll_start(&context->poll_handle, events, poll_cb);
+  // Start or update polling for events
   int err = uv_poll_start(&context->poll_handle, events, poll_cb);
   if (err != 0) {
     fprintf(stderr, "Failed to start polling: %s\n", uv_strerror(err));
-    if (!socketp) {
-      // Only cleanup if we just created it and failed to start
-      // Need to properly close the handle before freeing context
-      // context->poll_handle.data = NULL; // Mark invalid
-      // poll->data = NULL; // Mark invalid
-      context->poll_handle.data = NULL;
-      // uv_close((uv_handle_t*) &context->poll_handle, cleanup_context); // Use cleanup to free context
-      // Use the simpler callback
-      // uv_close((uv_handle_t*) &context->poll_handle, free_poll_context);
-      // Use standard free
+    // If starting polling failed, we should clean up the context/handle
+    // Only do this if we *just* created the context in this call (!socketp check equivalent)
+    if (!socketp) {                     // Check if context was created in this call
+      context->poll_handle.data = NULL; // Mark as invalid before closing
       uv_close((uv_handle_t*) &context->poll_handle, cleanup_easy_handle_and_context);
-      // Return error after initiating close
-      return -1;
     }
-    // If socketp existed (update scenario), maybe just return error?
     // Libcurl docs suggest returning -1 on failure.
     return -1;
   }
 
-  // Associate this context with the socket in curl
-  // curl_multi_assign(multi_handle, s, context);
-  curl_multi_assign(multi_handle, s, context);
+  // Note: curl_multi_assign was already called when creating the context
   return 0;
 }
 
