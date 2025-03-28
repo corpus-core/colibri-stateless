@@ -135,6 +135,7 @@ static void req_free(void* req_void) {
 // uv_close callback for memcached connections
 static void on_conn_close(uv_handle_t* handle) {
   mc_conn_t* connection = (mc_conn_t*) handle->data;
+  fprintf(stderr, "DEBUG: on_conn_close called for conn %p (current data: %p)\n", connection, connection ? connection->data : NULL);
   if (connection && connection->data) {
     // Attempt to free the request data associated with the connection
     req_free(connection->data);
@@ -405,6 +406,8 @@ static void mc_process_queue(mc_t* client) {
 static void mc_release_connection(mc_conn_t* connection) {
   if (!connection) return;
 
+  fprintf(stderr, "DEBUG: mc_release_connection called for conn %p (current data: %p)\n", connection, connection->data);
+
   // No-op if the connection is already marked as not in use
   if (!connection->in_use) {
     fprintf(stderr, "Warning: Attempt to release a connection that is not marked as in-use\n");
@@ -435,6 +438,7 @@ static void req_set_free(mc_set_req_t* req) {
   if (!req || req->has_been_freed) {
     return; // Prevent double-free
   }
+  fprintf(stderr, "DEBUG: req_set_free freeing req %p\n", req);
   req->has_been_freed = true;
   free(req->msg[0].base);
   free(req->msg[1].base);
@@ -699,6 +703,7 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
 
   req->data        = req_data;
   connection->data = req_data;
+  fprintf(stderr, "DEBUG: memcache_set assigned req %p to conn %p\n", req_data, connection);
 
   int r = uv_write(req, (uv_stream_t*) &connection->tcp, req_data->msg, 3, on_set_write);
   if (r != 0) {
@@ -716,6 +721,7 @@ static void req_get_free(mc_get_req_t* req) {
   if (!req || req->has_been_freed) {
     return; // Prevent double-free
   }
+  fprintf(stderr, "DEBUG: req_get_free freeing req %p\n", req);
   req->has_been_freed = true;
   free(req->key);
   buffer_free(&req->buffer);
@@ -1049,6 +1055,7 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
 
   req->data        = req_data;
   connection->data = req_data;
+  fprintf(stderr, "DEBUG: memcache_get assigned req %p to conn %p\n", req_data, connection);
 
   int r = uv_write(req, (uv_stream_t*) &connection->tcp, req_data->msg, 3, on_get_write);
   if (r != 0) {
