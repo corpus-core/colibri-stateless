@@ -175,9 +175,6 @@ static void handle_curl_events() {
 
     // Clean up the easy handle - DEFER THIS to cleanup_context
     curl_multi_remove_handle(multi_handle, easy);
-    // curl_easy_cleanup(easy); // REMOVED: Cleanup happens after uv_close callback
-    // Re-introduce cleanup here, after multi_remove
-    curl_easy_cleanup(easy);
 
     // Try to find the socket and context to initiate cleanup - REMOVED this block
     // RE-ADD logic to mark context as done
