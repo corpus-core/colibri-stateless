@@ -110,6 +110,8 @@ typedef struct {
 // Forward declarations for static free functions
 static void req_get_free(mc_get_req_t* req);
 static void req_set_free(mc_set_req_t* req);
+// Forward declaration for connection release function
+static void mc_release_connection(mc_conn_t* connection);
 
 // Generic free function for request data
 static void req_free(void* req_void) {
