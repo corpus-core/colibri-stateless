@@ -42,16 +42,25 @@ static void cleanup_easy_handle_and_context(uv_handle_t* handle) {
   if (context) {
     // Only cleanup easy handle if CURLMSG_DONE was processed
     if (context->is_done_processing && context->easy_handle) {
-      fprintf(stderr, "DEBUG: Cleaning up easy handle %p in uv_close callback\n", context->easy_handle);
+      // --- START CHANGE ---
+      // Comment out debug print
+      // fprintf(stderr, "DEBUG: Cleaning up easy handle %p in uv_close callback\n", context->easy_handle);
+      // --- END CHANGE ---
       curl_easy_cleanup(context->easy_handle);
       context->easy_handle = NULL; // Prevent double free if called unexpectedly
     }
     else if (!context->is_done_processing && context->easy_handle) {
-      fprintf(stderr, "WARNING: uv_close callback invoked for easy handle %p BEFORE CURLMSG_DONE was processed. Easy handle NOT cleaned up here.\n", context->easy_handle);
+      // --- START CHANGE ---
+      // Comment out this warning as cleanup now happens reliably in CURLMSG_DONE handler
+      // fprintf(stderr, "WARNING: uv_close callback invoked for easy handle %p BEFORE CURLMSG_DONE was processed. Easy handle NOT cleaned up here.\n", context->easy_handle);
+      // --- END CHANGE ---
       // This might indicate a potential leak if CURLMSG_DONE never arrives for this handle.
     }
     // Free the context struct itself
-    fprintf(stderr, "DEBUG: Freeing poll context %p (handle %p)\n", context, handle);
+    // --- START CHANGE ---
+    // Comment out debug print
+    // fprintf(stderr, "DEBUG: Freeing poll context %p (handle %p)\n", context, handle);
+    // --- END CHANGE ---
     free(context);
   }
   else {
@@ -251,7 +260,10 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
     if (context) {
       // Check if the handle is not already being closed
       if (context->poll_handle.data != NULL) {
-        fprintf(stderr, "DEBUG: Initiating close for poll handle %p via CURL_POLL_REMOVE for socket %d\n", &context->poll_handle, (int) s);
+        // --- START CHANGE ---
+        // Comment out debug print
+        // fprintf(stderr, "DEBUG: Initiating close for poll handle %p via CURL_POLL_REMOVE for socket %d\n", &context->poll_handle, (int) s);
+        // --- END CHANGE ---
         // uv_poll_stop(&context->poll_handle); // REMOVED - uv_close should handle stopping
         context->poll_handle.data = NULL; // Mark as closing/invalid
         uv_close((uv_handle_t*) &context->poll_handle, cleanup_easy_handle_and_context);
@@ -259,7 +271,10 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
         curl_multi_assign(multi_handle, s, NULL);
       }
       else {
-        fprintf(stderr, "DEBUG: Ignoring CURL_POLL_REMOVE for already closing poll handle associated with socket %d\n", (int) s);
+        // --- START CHANGE ---
+        // Comment out debug print
+        // fprintf(stderr, "DEBUG: Ignoring CURL_POLL_REMOVE for already closing poll handle associated with socket %d\n", (int) s);
+        // --- END CHANGE ---
         // curl_multi_assign is NOT called here
       }
     }
