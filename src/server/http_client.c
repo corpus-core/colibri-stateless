@@ -463,7 +463,7 @@ static void cache_response(single_request_t* r) {
     char* key = generate_cache_key(r->req);
     if (key) { // Check if key generation succeeded
                // Use r->req->response directly instead of r->buffer
-      memcache_set(memcache_client, key, strlen(key), (char*) r->req->response.data, r->req->response.len, ttl, NULL, NULL);
+      memcache_set(memcache_client, key, strlen(key), (char*) r->req->response.data, r->req->response.len, ttl);
       free(key);
     }
   }
