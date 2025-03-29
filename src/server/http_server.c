@@ -112,6 +112,7 @@ static int on_message_complete(llhttp_t* parser) {
 }
 
 static void alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
+  if (suggested_size > 4096) suggested_size = 4096; // we don't expect more than 4096 bytes
   buf->base = (char*) malloc(suggested_size);
   buf->len  = suggested_size;
 }
