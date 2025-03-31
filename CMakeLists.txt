@@ -48,6 +48,10 @@ if (EVMLIGHT OR EVMONE)
     endif()
 endif()
 
+if (HTTP_SERVER)
+    add_definitions(-DHTTP_SERVER)
+    add_definitions(-DC4_PROOFER_USE_UV_TIME)
+endif()
 
 
 

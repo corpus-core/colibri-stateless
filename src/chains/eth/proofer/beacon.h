@@ -26,8 +26,6 @@ ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 
 c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result);
 c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, ssz_ob_t* result);
-uint64_t    c4_beacon_cache_get_slot(json_t block, chain_id_t chain_id);
-void        c4_beacon_cache_update(chain_id_t chain_id, uint64_t slot, uint64_t block_number, bytes32_t blockhash, bool is_latest);
 #ifdef __cplusplus
 }
 #endif

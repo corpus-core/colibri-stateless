@@ -154,7 +154,7 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
 #endif
     }
 #ifdef PROOFER_CACHE
-    c4_proofer_cache_set(ctx, cachekey, root, 500 * len + 200, current_ms() + 200 * 1000, (cache_free_cb) patricia_node_free);
+    c4_proofer_cache_set(ctx, cachekey, root, 500 * len + 200, 200 * 1000, (cache_free_cb) patricia_node_free);
   }
 #endif
 

@@ -95,7 +95,7 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
   bool    cache_hit    = receipt_tree != NULL;
   if (!cache_hit) REQUEST_WORKER_THREAD(ctx);
   ssz_ob_t receipt_proof = create_receipts_proof(block_receipts, tx_index, &receipt, &receipt_tree);
-  if (!cache_hit) c4_proofer_cache_set(ctx, cachekey, receipt_tree, 100000, current_ms() + 200000, (cache_free_cb) patricia_node_free);
+  if (!cache_hit) c4_proofer_cache_set(ctx, cachekey, receipt_tree, 100000, 200000, (cache_free_cb) patricia_node_free);
 #else
   ssz_ob_t receipt_proof = create_receipts_proof(block_receipts, tx_index, &receipt, NULL);
 #endif

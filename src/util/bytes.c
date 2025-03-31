@@ -263,6 +263,7 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           buffer_add_chars(buf, va_arg(args, const char*));
           break;
         case 'x':
+        case 'b':
           buffer_add_hex_chars(buf, va_arg(args, bytes_t), NULL, NULL);
           break;
         case 'u': {

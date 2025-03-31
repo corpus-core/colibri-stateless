@@ -19,7 +19,7 @@ static void c4_proofer_execute_after(uv_work_t* req, int status) {
 }
 
 static void proofer_request_free(request_t* req) {
-  c4_proofer_free(req->ctx);
+  c4_proofer_free((proofer_ctx_t*) req->ctx);
   free(req);
 }
 
@@ -28,7 +28,7 @@ void c4_proofer_handle_request(request_t* req) {
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED && c4_proofer_status(ctx) == C4_PENDING && c4_state_get_pending_request(&ctx->state) == NULL) {
     // no data are required and no pending request, so we can execute the proofer in the worker thread
-    proof_work_t* work = calloc(1, sizeof(proof_work_t));
+    proof_work_t* work = (proof_work_t*) calloc(1, sizeof(proof_work_t));
     work->req_obj      = req;
     work->ctx          = ctx;
     work->req.data     = work;
@@ -85,7 +85,7 @@ bool c4_handle_proof_request(client_t* client) {
 
   char*      method_str = bprintf(NULL, "%j", method);
   char*      params_str = bprintf(NULL, "%J", params);
-  request_t* req        = calloc(1, sizeof(request_t));
+  request_t* req        = (request_t*) calloc(1, sizeof(request_t));
   req->client           = client;
   req->cb               = c4_proofer_handle_request;
   req->ctx              = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX);
@@ -131,7 +131,7 @@ static void c4_proxy_callback(client_t* client, void* data, data_request_t* req)
 
 bool c4_proxy(client_t* client) {
   if (strncmp(client->request.path, "/beacon/", 8) != 0) return false;
-  data_request_t* req = calloc(1, sizeof(data_request_t));
+  data_request_t* req = (data_request_t*) calloc(1, sizeof(data_request_t));
   req->url            = bprintf(NULL, "/eth/v1/beacon/%s", client->request.path + 8);
   req->method         = C4_DATA_METHOD_GET;
   req->chain_id       = C4_CHAIN_MAINNET;
