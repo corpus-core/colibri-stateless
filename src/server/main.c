@@ -25,7 +25,6 @@
 
 // Timer callback for proofer cache cleanup
 static void on_proofer_cleanup_timer(uv_timer_t* handle) {
-  printf("Running periodic proofer cache cleanup...\n");
   c4_proofer_cache_cleanup(current_ms(), 0);
 }
 
