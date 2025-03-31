@@ -31,8 +31,8 @@ static void on_proofer_cleanup_timer(uv_timer_t* handle) {
 int main(int argc, char* argv[]) {
   c4_configure(argc, argv);
   // Force unbuffered output
-  setvbuf(stdout, NULL, _IONBF, 0);
-  setvbuf(stderr, NULL, _IONBF, 0);
+  //  setvbuf(stdout, NULL, _IONBF, 0);
+  //  setvbuf(stderr, NULL, _IONBF, 0);
 
   uv_timer_t         curl_timer;
   uv_timer_t         proofer_cleanup_timer;
