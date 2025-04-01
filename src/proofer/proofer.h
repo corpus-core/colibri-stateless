@@ -77,8 +77,9 @@ uint64_t current_ms();
 uint64_t current_unix_ms();
 
 void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key);
-void  c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t ttl, cache_free_cb free);
+void  c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free);
 void  c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size);
+void  c4_proofer_cache_invalidate(bytes32_t key);
 #endif
 
 #define REQUEST_WORKER_THREAD(ctx)                                                                        \

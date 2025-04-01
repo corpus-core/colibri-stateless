@@ -84,7 +84,15 @@ void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key) {
   for (size_t i = 0; i < global_cache_array.count; ++i) {
     cache_entry_t* entry = &global_cache_array.entries[i]; // Get pointer to entry in array
     if (*((uint64_t*) entry->key) == key_start && memcmp(entry->key, key, 32) == 0) {
-      // Found in global cache - copy it to local cache
+
+      // >> Add check: Skip if entry has been invalidated (timestamp set to 0)
+      if (entry->timestamp == 0) {
+        log_debug("Found matching key %b in global cache, but it was invalidated. Treating as miss.", bytes(key, 32));
+        continue; // Skip this entry, check next
+      }
+      // << End added check
+
+      // Found valid entry in global cache - copy it to local cache
       cache_entry_t* new_entry = (cache_entry_t*) calloc(1, sizeof(cache_entry_t));
       if (!new_entry) {
         log_error("Failed to allocate memory for cache entry copy");
@@ -215,7 +223,7 @@ static bool add_entry_to_global_cache(cache_entry_t* entry_to_add) {
   global_cache_array.count++;
   global_cache_array.current_size += global_entry->size; // Use global_entry->size
 
-  log_info("Added cache entry %b to global cache", bytes(global_entry->key, 32));
+  log_debug("Added cache entry %b to global cache", bytes(global_entry->key, 32));
 
   return true;
 }
@@ -230,6 +238,18 @@ static cache_entry_t* find_global_cache_entry(bytes32_t key) {
     }
   }
   return NULL; // Not found
+}
+
+// Invalidate a specific entry in the global cache by setting its timestamp to 0
+void c4_proofer_cache_invalidate(bytes32_t key) {
+  cache_entry_t* entry = find_global_cache_entry(key);
+  if (entry) {
+    log_info("Invalidating global cache entry %b", bytes(key, 32));
+    entry->timestamp = 0; // Mark as immediately expired/invalid
+  }
+  else {
+    log_debug("Attempted to invalidate key %b, but it was not found in global cache.", bytes(key, 32));
+  }
 }
 
 #endif

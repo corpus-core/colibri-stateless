@@ -69,6 +69,7 @@ int main(int argc, char* argv[]) {
 
   // Initialize curl right before starting the event loop, passing the renamed timer handle
   c4_init_curl(&curl_timer);
+  c4_watch_beacon_events();
 
   UV_CHECK("Event loop", uv_run(loop, UV_RUN_DEFAULT));
 
