@@ -1,4 +1,5 @@
 #include "cache.h"
+#include "logger.h"
 #include "server.h"
 #include <stddef.h> // Added for offsetof
 
@@ -150,7 +151,7 @@ static void handle_curl_events() {
     pending_request_t* pending = pending_find(r);
 
     if (msg->data.result == CURLE_OK) {
-      printf("   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
+      fprintf(stderr, "   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
       r->req->response = r->buffer.data; // set the response
       cache_response(r);                 // and write to cache
       r->buffer = (buffer_t) {0};        // reset the buffer, so we don't clean up the data
@@ -161,10 +162,10 @@ static void handle_curl_events() {
       curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
       r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, curl_easy_strerror(res), bprintf(&r->buffer, " ")); // create error message
-      printf("   -> [%p] %s : ERROR = %s (http code: %d)\n",
-             // and log
-             easy, effective_url ? effective_url : (r->url ? r->url : r->req->url),
-             curl_easy_strerror(res), (uint32_t) http_code);
+      fprintf(stderr, "   -> [%p] %s : ERROR = %s (http code: %d)\n",
+              // and log
+              easy, effective_url ? effective_url : (r->url ? r->url : r->req->url),
+              curl_easy_strerror(res), (uint32_t) http_code);
     }
 
     // Process any waiting requests
@@ -453,12 +454,12 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
   if (pending) { // there is a pending request asking for the same result
     pending_add_to_same_requests(pending, r);
-    printf("join : %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    fprintf(stderr, "join : %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     // callback will be called when the pending-request is done
   }
   else if (value) { // there is a cached response
     // Cache hit - create response from cached data
-    printf("cache: %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    fprintf(stderr, "cache: %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     r->req->response = bytes_dup(bytes(value, value_len));
     r->curl          = NULL; // Mark as done
 
@@ -481,7 +482,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     else if (strlen(req_url) > 0 && strlen(base_url) > 0)
       r->url = bprintf(NULL, "%s%s", base_url, req_url);
     else {
-      printf(":: ERROR: Empty URL\n");
+      fprintf(stderr, ":: ERROR: Empty URL\n");
       r->req->error = bprintf(NULL, "Empty URL");
       call_callback_if_done(r->parent);
       return;
@@ -514,7 +515,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     configure_ssl_settings(easy);
 
     curl_multi_add_handle(multi_handle, easy);
-    printf("send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    fprintf(stderr, "send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     // callback will be called when the request by handle_curl_events when all are done.
   }
 }
@@ -530,7 +531,7 @@ static void trigger_cached_curl_requests(request_t* req) {
     int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
     free(key);
     if (ret) {
-      printf("CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+      fprintf(stderr, "CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
       trigger_uncached_curl_request(r, NULL, 0);
     }
   }
@@ -608,8 +609,8 @@ bool c4_check_retry_request(request_t* req) {
           break;
       }
       if (idx < servers->count) {
-        printf(":: Retrying request with server %d: %s\n", idx,
-               servers->urls[idx] ? servers->urls[idx] : "NULL");
+        fprintf(stderr, ":: Retrying request with server %d: %s\n", idx,
+                servers->urls[idx] ? servers->urls[idx] : "NULL");
         free(pending->error);
         pending->response_node_index = idx;
         pending->error               = NULL;
@@ -626,7 +627,7 @@ bool c4_check_retry_request(request_t* req) {
     return false;
   }
   else {
-    printf(":: Retrying %d requests with different servers\n", retry_requests);
+    fprintf(stderr, ":: Retrying %d requests with different servers\n", retry_requests);
     single_request_t* pendings = (single_request_t*) calloc(retry_requests, sizeof(single_request_t));
     int               j        = 0;
     for (size_t i = 0; i < req->request_count && j < retry_requests; i++) {

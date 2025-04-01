@@ -102,7 +102,7 @@ static char* method_str(data_request_method_t method) {
 static int on_message_complete(llhttp_t* parser) {
   client_t* client = (client_t*) parser->data;
   char*     pl     = client->request.payload_len ? bprintf(NULL, "%J", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) client->request.payload, .len = client->request.payload_len}) : NULL;
-  printf("[%s] %s %s\n", method_str(client->request.method), client->request.path, pl ? pl : "");
+  fprintf(stderr, "[%s] %s %s\n", method_str(client->request.method), client->request.path, pl ? pl : "");
   if (pl) free(pl);
   for (int i = 0; i < handlers_count; i++) {
     if (handlers[i](client)) return 0;

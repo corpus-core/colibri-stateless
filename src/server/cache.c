@@ -186,10 +186,10 @@ static void on_connection(uv_connect_t* req, int status) {
     client->available++;
 
     if (client->connected == client->size)
-      printf(":: connected all connections to memcached server\n");
+      fprintf(stderr, ":: connected all connections to memcached server\n");
   }
   else {
-    printf(":: error connecting to %s:%d status: %d\n", http_server.memcached_host, http_server.memcached_port, status);
+    fprintf(stderr, ":: error connecting to %s:%d status: %d\n", http_server.memcached_host, http_server.memcached_port, status);
   }
 }
 

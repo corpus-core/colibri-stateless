@@ -75,23 +75,23 @@ void c4_configure(int argc, char* argv[]) {
   config();
 
   if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-    printf("Usage: %s [options]\n", args[0]);
-    printf("  -h, --help                                 show this help message\n");
-    printf("%s\n", help_buffer.data.data);
+    fprintf(stderr, "Usage: %s [options]\n", args[0]);
+    fprintf(stderr, "  -h, --help                                 show this help message\n");
+    fprintf(stderr, "%s\n", help_buffer.data.data);
     exit(0);
   }
   else {
-    printf("Starting server with config:\n");
-    printf("  port          : %d\n", http_server.port);
-    printf("  memcached_host: %s\n", http_server.memcached_host);
-    printf("  memcached_port: %d\n", http_server.memcached_port);
-    printf("  memcached_pool: %d\n", http_server.memcached_pool);
-    printf("  loglevel      : %d\n", http_server.loglevel);
-    printf("  req_timeout   : %d\n", http_server.req_timeout);
-    printf("  chain_id      : %d\n", http_server.chain_id);
-    printf("  rpc_nodes     : %s\n", http_server.rpc_nodes);
-    printf("  beacon_nodes  : %s\n", http_server.beacon_nodes);
-    printf("  beacon_events : %d\n", http_server.stream_beacon_events);
+    fprintf(stderr, "Starting server with config:\n");
+    fprintf(stderr, "  port          : %d\n", http_server.port);
+    fprintf(stderr, "  memcached_host: %s\n", http_server.memcached_host);
+    fprintf(stderr, "  memcached_port: %d\n", http_server.memcached_port);
+    fprintf(stderr, "  memcached_pool: %d\n", http_server.memcached_pool);
+    fprintf(stderr, "  loglevel      : %d\n", http_server.loglevel);
+    fprintf(stderr, "  req_timeout   : %d\n", http_server.req_timeout);
+    fprintf(stderr, "  chain_id      : %d\n", http_server.chain_id);
+    fprintf(stderr, "  rpc_nodes     : %s\n", http_server.rpc_nodes);
+    fprintf(stderr, "  beacon_nodes  : %s\n", http_server.beacon_nodes);
+    fprintf(stderr, "  beacon_events : %d\n", http_server.stream_beacon_events);
   }
   buffer_free(&help_buffer);
 }
