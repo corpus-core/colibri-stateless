@@ -10,12 +10,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
 #include <curl/curl.h>
-#endif
 
-#ifdef USE_CURL
 static size_t write_data(void* ptr, size_t size, size_t nmemb, void* userdata) {
   buffer_t* response_buffer = (buffer_t*) userdata;
   buffer_append(response_buffer, bytes(ptr, size * nmemb));
@@ -52,9 +51,17 @@ static bytes_t read_from_proofer(char* url, char* method, char* args, chain_id_t
   return response_buffer.data;
 }
 #endif
+
 int main(int argc, char* argv[]) {
-  if (argc == 1) {
-    fprintf(stderr, "Usage: %s request.ssz \n", argv[0]);
+  if (argc == 1 || strcmp(argv[1], "-h") == 0) {
+    fprintf(stderr, "Usage: %s <OPTIONS> <method> <args> \n", argv[0]);
+    fprintf(stderr, "OPTIONS: \n");
+    fprintf(stderr, "  -c <chain_id> \n");
+    fprintf(stderr, "  -b <block_hash> trusted blockhash\n");
+    fprintf(stderr, "  -t <test_dir>  test directory\n");
+    fprintf(stderr, "  -i <proof_file> proof file\n");
+    fprintf(stderr, "  -p url of the proofer\n");
+    fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
   }
 
@@ -74,6 +81,10 @@ int main(int argc, char* argv[]) {
           case 'c':
             chain_id = atoi(argv[++i]);
             break;
+          case 'i':
+          case 'p':
+            input = argv[++i];
+            break;
           case 'b':
             if (trusted_blocks.data.len > 1) buffer_add_chars(&trusted_blocks, ",");
             bprintf(&trusted_blocks, "\"%s\"", argv[++i]);
@@ -90,11 +101,7 @@ int main(int argc, char* argv[]) {
             exit(EXIT_FAILURE);
         }
       }
-      if (input == NULL && strlen(argv[i]) == 1)
-        input = argv[i];
     }
-    else if (input == NULL)
-      input = argv[i];
     else if (method == NULL)
       method = argv[i];
     else {
@@ -108,8 +115,9 @@ int main(int argc, char* argv[]) {
   buffer_add_chars(&args, "]");
   buffer_add_chars(&trusted_blocks, "]");
   if (input == NULL) {
-    fprintf(stderr, "No input file provided\n");
-    exit(EXIT_FAILURE);
+    input = getenv("C4_PROOFER");
+    if (input == NULL)
+      input = "https://c4.incubed.net";
   }
   bytes_t request = {0};
   if (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
@@ -120,11 +128,8 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
 #endif
   }
-  else {
+  else
     request = bytes_read(input);
-  }
-
-  bytes_read(input);
 
   verify_ctx_t ctx = {0};
   for (
@@ -148,7 +153,7 @@ int main(int argc, char* argv[]) {
       free(filename);
       free(content);
     }
-    ssz_dump_to_file(stdout, ctx.data, false, true);
+    ssz_dump_to_file_no_quotes(stdout, ctx.data);
     fflush(stdout);
     return EXIT_SUCCESS;
   }

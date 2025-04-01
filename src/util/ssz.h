@@ -116,6 +116,7 @@ size_t ssz_fixed_length(const ssz_def_t* def);
 /** dumps the object to a file */
 void  ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_as_hex);
 char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex);
+void  ssz_dump_to_file_no_quotes(FILE* f, ssz_ob_t ob);
 
 /** hashes the object */
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out);

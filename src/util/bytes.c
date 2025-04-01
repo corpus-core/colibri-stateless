@@ -137,6 +137,7 @@ void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data) 
 void buffer_free(buffer_t* buffer) {
   if (buffer->data.data && buffer->allocated > 0)
     free(buffer->data.data);
+  buffer->data.data = NULL;
 }
 
 void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix) {
