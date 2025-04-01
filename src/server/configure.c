@@ -48,15 +48,15 @@ static int get_int(int* target, char* env_name, char* arg_nane, char shortcut, c
   add_help_line(shortcut, arg_nane, env_name, descr, default_value);
   free(default_value);
   char* env_value = getenv(env_name);
-  char* arg_value = get_arg(arg_nane, shortcut, true);
+  char* arg_value = get_arg(arg_nane, shortcut, max != 1);
   int   val       = 0;
   bool  set       = false;
   if (env_value) {
-    val = atoi(env_value);
+    val = max == 1 ? (strcmp(env_value, "true") == 0) : atoi(env_value);
     set = true;
   }
   if (arg_value) {
-    val = atoi(arg_value);
+    val = max == 1 ? (strcmp(arg_value, "true") == 0) : atoi(arg_value);
     set = true;
   }
   if (!set) return 0;
@@ -91,20 +91,22 @@ void c4_configure(int argc, char* argv[]) {
     printf("  chain_id      : %d\n", http_server.chain_id);
     printf("  rpc_nodes     : %s\n", http_server.rpc_nodes);
     printf("  beacon_nodes  : %s\n", http_server.beacon_nodes);
+    printf("  beacon_events : %d\n", http_server.stream_beacon_events);
   }
   buffer_free(&help_buffer);
 }
 
 static void config() {
-  http_server.port           = 8090;
-  http_server.memcached_host = "localhost";
-  http_server.memcached_port = 11211;
-  http_server.memcached_pool = 20;
-  http_server.loglevel       = 0;
-  http_server.req_timeout    = 120;
-  http_server.chain_id       = 1;
-  http_server.rpc_nodes      = "https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/,https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S,https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd";
-  http_server.beacon_nodes   = "https://lodestar-mainnet.chainsafe.io/";
+  http_server.port                 = 8090;
+  http_server.memcached_host       = "localhost";
+  http_server.memcached_port       = 11211;
+  http_server.memcached_pool       = 20;
+  http_server.loglevel             = 0;
+  http_server.req_timeout          = 120;
+  http_server.chain_id             = 1;
+  http_server.rpc_nodes            = "https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/,https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S,https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd";
+  http_server.beacon_nodes         = "https://lodestar-mainnet.chainsafe.io/";
+  http_server.stream_beacon_events = 0;
 
   get_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
   get_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");
@@ -115,4 +117,5 @@ static void config() {
   get_int(&http_server.chain_id, "CHAIN_ID", "chain_id", 'c', "chain id", 1, 0xFFFFFFF);
   get_string(&http_server.rpc_nodes, "RPC", "rpc", 'r', "list of rpc endpoints");
   get_string(&http_server.beacon_nodes, "BEACON", "beacon", 'b', "list of beacon nodes api endpoints");
+  get_int(&http_server.stream_beacon_events, "BEACON_EVENTS", "beacon_events", 'e', "activates beacon event streaming", 0, 1);
 }

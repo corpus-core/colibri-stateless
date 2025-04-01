@@ -8,7 +8,8 @@
 #include <string.h>
 #include <uv.h>
 
-#define BEACON_WATCHER_URL    "https://lodestar-mainnet.chainsafe.io/eth/v1/events?topics=head,finalized_checkpoint"
+static char* BEACON_WATCHER_URL = NULL;
+// #define BEACON_WATCHER_URL    "https://lodestar-mainnet.chainsafe.io/eth/v1/events?topics=head,finalized_checkpoint"
 #define ACCEPT_HEADER         "Accept: text/event-stream"
 #define CACHE_CONTROL_HEADER  "Cache-Control: no-cache"
 #define INACTIVITY_TIMEOUT_MS 30000
@@ -330,6 +331,9 @@ static void check_multi_info() {
 // --- Public Function ---
 
 void c4_watch_beacon_events() {
+  if (!http_server.stream_beacon_events) return;
+  if (BEACON_WATCHER_URL == NULL)
+    BEACON_WATCHER_URL = bprintf(NULL, "%seth/v1/events?topics=head,finalized_checkpoint", http_server.beacon_nodes);
   if (watcher_state.is_running) {
     log_warn("Beacon watcher already running.");
     return;
@@ -453,7 +457,7 @@ static void start_beacon_watch() {
   // Start the inactivity timer ONLY after successfully adding the handle
   uv_timer_start(&watcher_state.inactivity_timer, (uv_timer_cb) on_inactivity_timeout, INACTIVITY_TIMEOUT_MS, 0);
 
-  log_info("Beacon watcher connection initiated and added to multi handle.");
+  log_debug("Beacon watcher connection initiated and added to multi handle.");
 }
 
 static void stop_beacon_watch() {

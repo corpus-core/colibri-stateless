@@ -23,6 +23,7 @@ typedef struct {
   int   chain_id;
   char* rpc_nodes;
   char* beacon_nodes;
+  int   stream_beacon_events;
 } http_server_t;
 
 extern http_server_t http_server;

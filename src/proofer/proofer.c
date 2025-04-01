@@ -244,7 +244,7 @@ static cache_entry_t* find_global_cache_entry(bytes32_t key) {
 void c4_proofer_cache_invalidate(bytes32_t key) {
   cache_entry_t* entry = find_global_cache_entry(key);
   if (entry) {
-    log_info("Invalidating global cache entry %b", bytes(key, 32));
+    log_debug("Invalidating global cache entry %b", bytes(key, 32));
     entry->timestamp = 0; // Mark as immediately expired/invalid
   }
   else {
