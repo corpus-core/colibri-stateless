@@ -103,7 +103,7 @@ void c4_beacon_cache_update_blockdata(proofer_ctx_t* ctx, beacon_block_t* beacon
 #endif
 
 static c4_status_t get_finality_check_points(proofer_ctx_t* ctx, json_t* result) {
-  TRY_ASYNC(c4_send_beacon_json(ctx, "eth/v1/beacon/states/head/finality_checkpoints", NULL, result));
+  TRY_ASYNC(c4_send_beacon_json(ctx, "eth/v1/beacon/states/head/finality_checkpoints", NULL, 0, result));
   *result = json_get(*result, "data");
   return C4_SUCCESS;
 }
@@ -115,7 +115,7 @@ static c4_status_t get_beacon_header_by_parent_hash(proofer_ctx_t* ctx, char* ha
   char     path[200];
   sprintf(path, "eth/v1/beacon/headers?parent_root=%s", hash);
 
-  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, &result));
+  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, DEFAULT_TTL, &result));
 
   json_t val = json_get(result, "data");
   if (val.type == JSON_TYPE_ARRAY)
@@ -135,14 +135,17 @@ static c4_status_t get_block(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* blo
   char     path[200];
   buffer_t buffer   = stack_buffer(path);
   bool     has_hash = b && !bytes_all_zero(bytes(b->root, 32));
+  uint32_t ttl      = 6; // 6s for head-requests
   if (!b || (b->slot == 0 && !has_hash))
     buffer_add_chars(&buffer, "eth/v2/beacon/blocks/head");
-  else if (has_hash)
+  else if (has_hash) {
     bprintf(&buffer, "eth/v2/beacon/blocks/0x%x", bytes(b->root, 32));
+    ttl = DEFAULT_TTL;
+  }
   else
     bprintf(&buffer, "eth/v2/beacon/blocks/%l", b->slot);
 
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB), block));
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB), ttl, block));
   *block = ssz_get(block, "message");
   return C4_SUCCESS;
 }
@@ -192,7 +195,7 @@ c4_status_t c4_eth_get_sigblock_and_parent(proofer_ctx_t* ctx, beacon_head_t* si
 static c4_status_t eth_get_block(proofer_ctx_t* ctx, json_t block, bool full_tx, json_t* result) {
   uint8_t  tmp[200] = {0};
   buffer_t buffer   = stack_buffer(tmp);
-  return c4_send_eth_rpc(ctx, (char*) (block.len == 68 ? "eth_getBlockByHash" : "eth_getBlockByNumber"), bprintf(&buffer, "[%J,%s]", block, full_tx ? "true" : "false"), result);
+  return c4_send_eth_rpc(ctx, (char*) (block.len == 68 ? "eth_getBlockByHash" : "eth_getBlockByNumber"), bprintf(&buffer, "[%J,%s]", block, full_tx ? "true" : "false"), block.len == 68 ? DEFAULT_TTL : 12, result);
 }
 static c4_status_t get_beacon_header_from_eth_block(proofer_ctx_t* ctx, json_t eth_block, json_t* header, bytes32_t root, bytes32_t parent_root) {
   char   tmp[100] = {0};
@@ -349,7 +352,7 @@ ssz_builder_t c4_proof_add_header(ssz_ob_t block, bytes32_t body_root) {
   return beacon_header;
 }
 
-c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, json_t* result) {
+c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -378,6 +381,7 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, jso
     data_request->encoding = C4_DATA_ENCODING_JSON;
     data_request->method   = C4_DATA_METHOD_GET;
     data_request->type     = C4_DATA_TYPE_BEACON_API;
+    data_request->ttl      = ttl;
     c4_state_add_request(&ctx->state, data_request);
     return C4_PENDING;
   }
@@ -385,7 +389,7 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, jso
   return C4_SUCCESS;
 }
 
-c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, ssz_ob_t* result) {
+c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -412,6 +416,7 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, cons
     data_request->encoding = C4_DATA_ENCODING_SSZ;
     data_request->method   = C4_DATA_METHOD_GET;
     data_request->type     = C4_DATA_TYPE_BEACON_API;
+    data_request->ttl      = ttl;
     c4_state_add_request(&ctx->state, data_request);
     return C4_PENDING;
   }

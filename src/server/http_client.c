@@ -376,19 +376,21 @@ static void c4_add_request_response(request_t* req) {
 
 // Function to determine TTL for different request types
 static uint32_t get_request_ttl(data_request_t* req) {
-  switch (req->type) {
-    case C4_DATA_TYPE_BEACON_API:
-      if (strcmp(req->url, "eth/v2/beacon/blocks/head") == 0) return 12;
-      return 3600 * 24; // 1day
-    case C4_DATA_TYPE_ETH_RPC:
-      // ETH RPC responses can be cached longer
-      return 3600 * 24; // 1day
-    case C4_DATA_TYPE_REST_API:
-      // REST API responses vary, use a default
-      return 60; // 1 minute
-    default:
-      return 60; // Default 1 minute
-  }
+  return req->ttl;
+  /*  switch (req->type) {
+      case C4_DATA_TYPE_BEACON_API:
+        if (strcmp(req->url, "eth/v2/beacon/blocks/head") == 0) return 12;
+        return 3600 * 24; // 1day
+      case C4_DATA_TYPE_ETH_RPC:
+        // ETH RPC responses can be cached longer
+        return 3600 * 24; // 1day
+      case C4_DATA_TYPE_REST_API:
+        // REST API responses vary, use a default
+        return 60; // 1 minute
+      default:
+        return 60; // Default 1 minute
+    }
+    */
 }
 
 // Function to generate cache key from request

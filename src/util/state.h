@@ -47,6 +47,7 @@ typedef struct data_request {
   char*                   error;
   struct data_request*    next;
   bytes32_t               id;
+  uint32_t                ttl;
 } data_request_t;
 
 typedef struct {
