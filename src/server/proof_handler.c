@@ -147,7 +147,7 @@ static void handle_new_head_cb(request_t* req) {
   beacon_head_t* b   = (beacon_head_t*) ctx->proof.data;
   ssz_ob_t       sig_block, data_block;
 
-  switch (c4_eth_get_sigblock_and_parent(ctx, b, NULL, &sig_block, &data_block)) {
+  switch (c4_eth_get_signblock_and_parent(ctx, b->root, NULL, &sig_block, &data_block)) {
     case C4_SUCCESS: {
       bytes32_t cache_key = {0};
       sprintf((char*) cache_key, "Slatest");

@@ -27,7 +27,7 @@ typedef struct {
 } beacon_block_t;
 
 // get the beacon block for the given eth block number or hash
-c4_status_t c4_eth_get_sigblock_and_parent(proofer_ctx_t* ctx, beacon_head_t* b, beacon_head_t* parent_block, ssz_ob_t* sig_block, ssz_ob_t* data_block);
+c4_status_t c4_eth_get_signblock_and_parent(proofer_ctx_t* ctx, bytes32_t sig_root, bytes32_t data_root, ssz_ob_t* sig_block, ssz_ob_t* data_block);
 c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
 
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
