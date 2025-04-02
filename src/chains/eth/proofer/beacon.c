@@ -169,7 +169,7 @@ c4_status_t c4_eth_get_sigblock_and_parent(proofer_ctx_t* ctx, beacon_head_t* si
   if (data_hash) parent = *data_hash;
 
   if (!data_hash) {
-    if (sign_hash->slot)
+    if (sign_hash->slot && false)
       parent.slot = sign_hash->slot - 1; // we try to fetch the parent
     else if (status == C4_SUCCESS)
       memcpy(parent.root, ssz_get(sig_block, "parentRoot").bytes.data, 32);
