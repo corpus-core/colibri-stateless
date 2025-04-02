@@ -63,9 +63,9 @@ int main(int argc, char* argv[]) {
   // Initialize and start the new proofer cleanup timer
   UV_CHECK("Proofer Cleanup Timer initialization", uv_timer_init(loop, &proofer_cleanup_timer));
   UV_CHECK("Proofer Cleanup Timer start", uv_timer_start(&proofer_cleanup_timer, on_proofer_cleanup_timer, cleanup_interval_ms, cleanup_interval_ms));
-  printf("Started proofer cache cleanup timer with interval %llu ms\n", cleanup_interval_ms);
+  fprintf(stderr, "Started proofer cache cleanup timer with interval %llu ms\n", cleanup_interval_ms);
 
-  printf("C4 Server running on port %d\n", port);
+  fprintf(stderr, "C4 Server running on port %d\n", port);
 
   // Initialize curl right before starting the event loop, passing the renamed timer handle
   c4_init_curl(&curl_timer);
