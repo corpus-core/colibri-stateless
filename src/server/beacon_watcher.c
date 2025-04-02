@@ -43,7 +43,6 @@ char* strnstr(const char* haystack, const char* needle, size_t len) {
 #endif               // HAVE_STRNSTR guard
 
 static char* BEACON_WATCHER_URL = NULL;
-// #define BEACON_WATCHER_URL    "https://lodestar-mainnet.chainsafe.io/eth/v1/events?topics=head,finalized_checkpoint"
 #define ACCEPT_HEADER         "Accept: text/event-stream"
 #define CACHE_CONTROL_HEADER  "Cache-Control: no-cache"
 #define INACTIVITY_TIMEOUT_MS 30000
@@ -199,9 +198,10 @@ static void on_reconnect_timer(uv_timer_t* handle) {
 // TODO: Implement actual logic here (e.g., parse JSON, call invalidate)
 static void handle_beacon_event(char* event, char* data) {
   log_info("Beacon Event Received: Type='%s'", event);
-  if (strcmp(event, "head") == 0) {
+  if (strcmp(event, "head") == 0)
     c4_handle_new_head(json_parse(data));
-  }
+  else if (strcmp(event, "finalized_checkpoint") == 0)
+    c4_handle_finalized_checkpoint(json_parse(data));
   else {
     log_warn("Unsupported Beacon Event Received: Type='%s'", event);
   }

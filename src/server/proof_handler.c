@@ -196,3 +196,33 @@ void c4_handle_new_head(json_t head) {
   ctx->proof            = bytes(b, sizeof(beacon_head_t));
   handle_new_head_cb(req);
 }
+
+static void c4_handle_finalized_checkpoint_cb(request_t* req) {
+  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+
+  switch (c4_eth_update_finality(ctx)) {
+    case C4_SUCCESS: {
+      proofer_request_free(req);
+      return;
+    }
+    case C4_ERROR: {
+      log_error("Error fetching sigblock and parent: %s", ctx->state.error);
+      proofer_request_free(req);
+      return;
+    }
+    case C4_PENDING:
+      if (c4_state_get_pending_request(&ctx->state)) // there are pending requests, let's take care of them first
+        c4_start_curl_requests(req);
+      else {
+        log_error("Error fetching sigblock and parent: %s", ctx->state.error);
+        proofer_request_free(req);
+      }
+  }
+}
+
+void c4_handle_finalized_checkpoint(json_t checkpoint) {
+  request_t* req = (request_t*) calloc(1, sizeof(request_t));
+  req->cb        = c4_handle_finalized_checkpoint_cb;
+  req->ctx       = calloc(1, sizeof(proofer_ctx_t));
+  req->cb(req);
+}

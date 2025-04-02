@@ -9,6 +9,7 @@
 extern "C" {
 #endif
 
+#define FINALITY_KEY "FinalityRoots"
 // beacon block including the relevant parts for the proof
 
 typedef struct {
@@ -35,7 +36,8 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, jso
 c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, ssz_ob_t* result);
 
 #ifdef PROOFER_CACHE
-void c4_beacon_cache_update_blockdata(proofer_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root);
+c4_status_t c4_eth_update_finality(proofer_ctx_t* ctx);
+void        c4_beacon_cache_update_blockdata(proofer_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root);
 #endif
 
 #ifdef __cplusplus

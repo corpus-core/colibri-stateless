@@ -76,4 +76,5 @@ bool c4_handle_status(client_t* client);
 bool c4_proxy(client_t* client);
 bool c4_handle_health_check(client_t* client);
 void c4_handle_new_head(json_t head);
+void c4_handle_finalized_checkpoint(json_t checkpoint);
 void c4_watch_beacon_events();

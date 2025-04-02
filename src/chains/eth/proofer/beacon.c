@@ -13,6 +13,10 @@ static inline void create_cache_block_key(bytes32_t key, json_t block) {
   buffer_t buffer = {.allocated = -32, .data = {.data = key, .len = 0}};
   if (strncmp(block.start, "\"latest\"", 8) == 0)
     sprintf((char*) key + 1, "%s", "latest");
+  else if (strncmp(block.start, "\"safe\"", 6) == 0 || strncmp(block.start, "\"finalized\"", 12) == 0) {
+    sprintf((char*) key, FINALITY_KEY);
+    return;
+  }
   else if (block.start[1] == '0' && block.start[2] == 'x') {
     json_as_bytes(block, &buffer);
     if (block.len < 68) memmove(key + 1, key, buffer.data.len);
@@ -24,7 +28,9 @@ static inline void create_cache_block_key(bytes32_t key, json_t block) {
 static beacon_head_t* c4_beacon_cache_get_slot(proofer_ctx_t* ctx, json_t block) {
   bytes32_t key = {0};
   create_cache_block_key(key, block);
-  return (beacon_head_t*) c4_proofer_cache_get(ctx, key);
+  beacon_head_t* cached = (beacon_head_t*) c4_proofer_cache_get(ctx, key);
+  if (cached && strncmp(block.start, "\"finalized\"", 12) == 0) return cached + 1;
+  return cached;
 }
 static bool c4_beacon_cache_get_blockdata(proofer_ctx_t* ctx, bytes32_t block_root, beacon_block_t* beacon_block) {
   bytes32_t key = {0};
@@ -96,6 +102,12 @@ void c4_beacon_cache_update_blockdata(proofer_ctx_t* ctx, beacon_block_t* beacon
 
 #endif
 
+static c4_status_t get_finality_check_points(proofer_ctx_t* ctx, json_t* result) {
+  TRY_ASYNC(c4_send_beacon_json(ctx, "eth/v1/beacon/states/head/finality_checkpoints", NULL, result));
+  *result = json_get(*result, "data");
+  return C4_SUCCESS;
+}
+
 static c4_status_t get_beacon_header_by_parent_hash(proofer_ctx_t* ctx, char* hash, json_t* header, bytes32_t root) {
 
   json_t   result = {0};
@@ -108,25 +120,6 @@ static c4_status_t get_beacon_header_by_parent_hash(proofer_ctx_t* ctx, char* ha
   json_t val = json_get(result, "data");
   if (val.type == JSON_TYPE_ARRAY)
     val = json_at(val, 0);
-  if (root) json_get_bytes(val, "root", &buffer);
-  val     = json_get(val, "header");
-  *header = json_get(val, "message");
-
-  if (!header->start) THROW_ERROR("Invalid header!");
-
-  return C4_SUCCESS;
-}
-
-static c4_status_t get_beacon_header_by_hash(proofer_ctx_t* ctx, char* hash, json_t* header, bytes32_t root) {
-
-  json_t   result = {0};
-  buffer_t buffer = {.allocated = -32, .data = {.data = root, .len = 0}};
-  char     path[100];
-  sprintf(path, "eth/v1/beacon/headers/%s", hash);
-
-  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, &result));
-
-  json_t val = json_get(result, "data");
   if (root) json_get_bytes(val, "root", &buffer);
   val     = json_get(val, "header");
   *header = json_get(val, "message");
@@ -156,11 +149,23 @@ static c4_status_t get_block(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* blo
 
 c4_status_t c4_eth_get_sigblock_and_parent(proofer_ctx_t* ctx, beacon_head_t* sign_hash, beacon_head_t* data_hash, ssz_ob_t* sig_block, ssz_ob_t* data_block) {
 
-  c4_status_t status        = C4_SUCCESS;
-  json_t      parent_header = {0};
-  bytes32_t   parent_hash   = {0};
+  c4_status_t   status            = C4_SUCCESS;
+  json_t        parent_header     = {0};
+  bytes32_t     parent_hash       = {0};
+  beacon_head_t sign_hash_created = {0};
+  beacon_head_t parent            = {0};
+
+  if (!sign_hash) {
+    // we need to find the signing block first
+    json_t   header   = {0};
+    char     tmp[100] = {0};
+    buffer_t buffer   = stack_buffer(tmp);
+    bprintf(&buffer, "0x%x", bytes(data_hash->root, 32));
+    TRY_ASYNC(get_beacon_header_by_parent_hash(ctx, tmp, &header, sign_hash_created.root));
+    sign_hash = &sign_hash_created;
+  }
+
   TRY_ADD_ASYNC(status, get_block(ctx, sign_hash, sig_block));
-  beacon_head_t parent = {0};
   if (data_hash) parent = *data_hash;
 
   if (!data_hash) {
@@ -171,23 +176,15 @@ c4_status_t c4_eth_get_sigblock_and_parent(proofer_ctx_t* ctx, beacon_head_t* si
     else
       return status;
   }
-
-  /*
-    if (b->slot) {
-      char slot_chars[10] = {0};
-      sprintf(slot_chars, "%" PRIu64, parent.slot);
-      TRY_ADD_ASYNC(status, get_beacon_header_by_hash(ctx, slot_chars, &parent_header, parent_hash));
-    }
-  */
   TRY_ADD_ASYNC(status, get_block(ctx, &parent, data_block));
 
-  if (status == C4_SUCCESS && sign_hash->slot && parent_header.type == JSON_TYPE_OBJECT && memcmp(ssz_get(sig_block, "parentRoot").bytes.data, parent_hash, 32) != 0) {
-    // this means
+  //  if (status == C4_SUCCESS && sign_hash->slot && parent_header.type == JSON_TYPE_OBJECT && memcmp(ssz_get(sig_block, "parentRoot").bytes.data, parent_hash, 32) != 0) {
+  // this means
 
-    // TODO check the parent_hash
-    // the only issues here, we would need to calculate the root_hash since we only have the body
-    // but this is expensive
-  }
+  // TODO check the parent_hash
+  // the only issues here, we would need to calculate the root_hash since we only have the body
+  // but this is expensive
+  // }
 
   return status;
 }
@@ -254,12 +251,43 @@ static inline c4_status_t eth_get_by_hash(proofer_ctx_t* ctx, json_t block_hash,
   return c4_eth_get_sigblock_and_parent(ctx, &sign_hash, &data_hash, sig_block, data_block);
 }
 
-static inline c4_status_t eth_get_final(proofer_ctx_t* ctx, bool safe, ssz_ob_t* sig_block, ssz_ob_t* data_block) {
+static inline c4_status_t eth_get_final_hash(proofer_ctx_t* ctx, bool safe, beacon_head_t* hash) {
+  json_t        result        = {0};
+  beacon_head_t hashes[2]     = {0};
+  buffer_t      buf_justified = {.allocated = -32, .data = {.data = hashes[0].root, .len = 0}};
+  buffer_t      buf_finalized = {.allocated = -32, .data = {.data = hashes[1].root, .len = 0}};
 
-  // TODO handle safe block
+  //  uint8_t* root = safe ? blockroot : blockroot + 32;
+  TRY_ASYNC(get_finality_check_points(ctx, &result));
+  json_get_bytes(json_get(result, "current_justified"), "root", &buf_justified);
+  json_get_bytes(json_get(result, "finalized"), "root", &buf_finalized);
+
+#ifdef PROOFER_CACHE
+  bytes32_t key = {0};
+  sprintf((char*) key, FINALITY_KEY);
+  c4_proofer_cache_set(ctx, key, bytes_dup(bytes(hashes, sizeof(hashes))).data, sizeof(hashes), 1000 * 60 * 7, free); // 6 min
+#endif
+  *hash = hashes[safe ? 0 : 1];
   return C4_SUCCESS;
 }
+static inline c4_status_t eth_get_final(proofer_ctx_t* ctx, bool safe, ssz_ob_t* sig_block, ssz_ob_t* data_block, beacon_block_t* beacon_block) {
+  beacon_head_t hash = {0};
+  TRY_ASYNC(eth_get_final_hash(ctx, safe, &hash));
+#ifdef PROOFER_CACHE
+  if (c4_beacon_cache_get_blockdata(ctx, hash.root, beacon_block)) return C4_SUCCESS;
+#endif
+  return c4_eth_get_sigblock_and_parent(ctx, NULL, &hash, sig_block, data_block);
+}
 
+#ifdef PROOFER_CACHE
+c4_status_t c4_eth_update_finality(proofer_ctx_t* ctx) {
+  bytes32_t     key  = {0};
+  beacon_head_t hash = {0};
+  sprintf((char*) key, FINALITY_KEY);
+  c4_proofer_cache_invalidate(key);
+  return eth_get_final_hash(ctx, false, &hash);
+}
+#endif
 // main beacn_block method
 c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
   ssz_ob_t sig_block, data_block, sig_body;
@@ -267,14 +295,16 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
   beacon_head_t* cached = c4_beacon_cache_get_slot(ctx, block);
   if (cached && c4_beacon_cache_get_blockdata(ctx, cached->root, beacon_block))
     return C4_SUCCESS;
+  else if (cached)
+    TRY_ASYNC(c4_eth_get_sigblock_and_parent(ctx, NULL, cached, &sig_block, &data_block));
   else {
 #endif
     if (strncmp(block.start, "\"latest\"", 8) == 0) // latest
       TRY_ASYNC(eth_get_latest(ctx, &sig_block, &data_block));
     else if (strncmp(block.start, "\"safe\"", 6) == 0)
-      TRY_ASYNC(eth_get_final(ctx, true, &sig_block, &data_block));
+      TRY_ASYNC(eth_get_final(ctx, true, &sig_block, &data_block, beacon_block));
     else if (strncmp(block.start, "\"finalized\"", 12) == 0)
-      TRY_ASYNC(eth_get_final(ctx, false, &sig_block, &data_block));
+      TRY_ASYNC(eth_get_final(ctx, false, &sig_block, &data_block, beacon_block));
     else if (block.type == JSON_TYPE_STRING && block.len == 68) // blockhash
       TRY_ASYNC(eth_get_by_hash(ctx, block, &sig_block, &data_block));
     else if (block.type == JSON_TYPE_STRING && block.len > 4 && block.start[1] == '0' && block.start[2] == 'x') // blocknumber
@@ -285,6 +315,9 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
 #ifdef PROOFER_CACHE
   }
 #endif
+
+  // if the beacon block is already cached, we can return
+  if (beacon_block->slot) return C4_SUCCESS;
 
   sig_body                     = ssz_get(&sig_block, "body");
   beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
