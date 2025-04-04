@@ -34,6 +34,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCURL=OFF \
             -DEVMONE=OFF \
+            -DETH_BLOCK=OFF \
+            -DETH_TX=OFF \
+            -DETH_RECEIPT=ON \
+            -DETH_LOGS=OFF \
+            -DETH_CALL=OFF \
+            -DETH_ACCOUNT=OFF \
             -DEVMLIGHT=OFF \
             -DPROOFER=OFF \
             -DCLI=OFF \
