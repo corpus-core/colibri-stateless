@@ -13,7 +13,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Running verify with arguments: $@"
-../build/bin/verify proof.ssz -t "$@"
+../build/bin/verify -i proof.ssz -t "$@"
 
 # Check if verify command was successful
 if [ $? -ne 0 ]; then

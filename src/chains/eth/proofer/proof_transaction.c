@@ -23,6 +23,7 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
   ssz_add_uint32(&eth_tx_proof, tx_index);
   ssz_add_uint64(&eth_tx_proof, json_get_uint64(tx_data, "blockNumber"));
   ssz_add_bytes(&eth_tx_proof, "blockHash", json_get_bytes(tx_data, "blockHash", &tmp));
+  ssz_add_uint64(&eth_tx_proof, ssz_get_uint64(&block_data->execution, "baseFeePerGas"));
   ssz_add_bytes(&eth_tx_proof, "proof", tx_proof);
   ssz_add_builders(&eth_tx_proof, "header", c4_proof_add_header(block_data->header, body_root));
   ssz_add_bytes(&eth_tx_proof, "sync_committee_bits", ssz_get(&block_data->sync_aggregate, "syncCommitteeBits").bytes);
@@ -30,7 +31,7 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, json_t tx_data, beaco
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
-      FROM_JSON(tx_data, ETH_SSZ_DATA_TX),
+      (ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA) ? FROM_JSON(tx_data, ETH_SSZ_DATA_TX) : NULL_SSZ_BUILDER,
       eth_tx_proof,
       NULL_SSZ_BUILDER);
 
@@ -54,9 +55,10 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
 
-  bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 3,
+  bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 4,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
+                                               ssz_gindex(block.body.def, 2, "executionPayload", "baseFeePerGas"),
                                                ssz_gindex(block.body.def, 3, "executionPayload", "transactions", tx_index)
 
   );

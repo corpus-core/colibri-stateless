@@ -22,6 +22,8 @@ bool c4_tx_verify_receipt_proof(verify_ctx_t* ctx, ssz_ob_t receipt_proof, uint3
 bool c4_tx_verify_log_data(verify_ctx_t* ctx, ssz_ob_t log, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw);
 
 bytes_t c4_eth_create_tx_path(uint32_t tx_index, buffer_t* buf);
+bool    c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t raw_tx,
+                                  bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number, uint32_t transaction_index, uint64_t base_fee);
 
 #ifdef __cplusplus
 }

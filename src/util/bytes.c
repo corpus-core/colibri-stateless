@@ -137,6 +137,7 @@ void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data) 
 void buffer_free(buffer_t* buffer) {
   if (buffer->data.data && buffer->allocated > 0)
     free(buffer->data.data);
+  buffer->data.data = NULL;
 }
 
 void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix) {
@@ -263,6 +264,7 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           buffer_add_chars(buf, va_arg(args, const char*));
           break;
         case 'x':
+        case 'b':
           buffer_add_hex_chars(buf, va_arg(args, bytes_t), NULL, NULL);
           break;
         case 'u': {

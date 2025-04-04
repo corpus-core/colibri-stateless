@@ -262,6 +262,7 @@ bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def) {
 typedef struct {
   buffer_t buf;
   bool     write_unit_as_hex;
+  bool     no_quotes;
 } ssz_dump_t;
 
 static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
@@ -279,7 +280,7 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
       if (ctx->write_unit_as_hex) { // eth rpc requires hex representation of uints, represented as a bigendian without leading zeros
         bytes32_t tmp = {0};
         for (int i = 0; i < def->def.uint.len; i++) tmp[i] = ob.bytes.data[def->def.uint.len - 1 - i];
-        bprintf(buf, "\"0x%u\"", bytes(tmp, def->def.uint.len));
+        bprintf(buf, ctx->no_quotes ? "0x%u" : "\"0x%u\"", bytes(tmp, def->def.uint.len));
       }
       else
         switch (def->def.uint.len) {
@@ -291,16 +292,17 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
             bytes32_t tmp = {0};
             for (int i = 0; i < 32; i++)
               tmp[i] = ob.bytes.data[31 - i];
-            bprintf(buf, "\"0x%x\"", bytes_remove_leading_zeros(bytes(tmp, 32)));
+            bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", bytes_remove_leading_zeros(bytes(tmp, 32)));
             break;
           }
-          default: bprintf(buf, "\"0x%x\"", ob.bytes);
+          default: bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
         }
       break;
     case SSZ_TYPE_NONE: buffer_add_chars(buf, "null"); break;
     case SSZ_TYPE_BOOLEAN: buffer_add_chars(buf, ob.bytes.data[0] ? "true" : "false"); break;
     case SSZ_TYPE_CONTAINER: {
-      close_char = '}';
+      ctx->no_quotes = false;
+      close_char     = '}';
       buffer_add_chars(buf, "{\n");
       for (int i = 0; i < def->def.container.len; i++) {
         dump(ctx, ssz_get(&ob, (char*) def->def.container.elements[i].name), def->def.container.elements[i].name, intend + 2);
@@ -309,19 +311,16 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
       break;
     }
     case SSZ_TYPE_BIT_VECTOR:
-      bprintf(buf, "\"0x%x\"", ob.bytes);
-      break;
     case SSZ_TYPE_BIT_LIST: {
-      bprintf(buf, "\"0x%x\"", ob.bytes);
-      //      uint32_t len = ssz_len(ob);
-      //      bprintf(buf, "\"0x%x\"", bytes(ob.bytes.data, len >> 3));
+      bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
       break;
     }
     case SSZ_TYPE_VECTOR:
     case SSZ_TYPE_LIST: {
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
-        bprintf(buf, "\"0x%x\"", ob.bytes);
+        bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
       else {
+        ctx->no_quotes = false;
         buffer_add_chars(buf, "[\n");
         for (int i = 0; i < ssz_len(ob); i++) {
           dump(ctx, ssz_at(ob, i), false, intend + 2);
@@ -364,8 +363,19 @@ void ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_a
   ssz_dump_t ctx = {
       .buf               = {0},
       .write_unit_as_hex = write_unit_as_hex,
+
   };
   dump(&ctx, ob, include_name ? ob.def->name : NULL, 0);
+  bytes_write(ctx.buf.data, f, false);
+  buffer_free(&ctx.buf);
+}
+void ssz_dump_to_file_no_quotes(FILE* f, ssz_ob_t ob) {
+  ssz_dump_t ctx = {
+      .buf               = {0},
+      .write_unit_as_hex = true,
+      .no_quotes         = true,
+  };
+  dump(&ctx, ob, NULL, 0);
   bytes_write(ctx.buf.data, f, false);
   buffer_free(&ctx.buf);
 }

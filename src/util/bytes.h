@@ -103,6 +103,20 @@ void    buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
   (bytes_t) { .data = parent.data + offet, .len = length }
 #define bytes_all_zero(a) bytes_all_equal(a, 0)
 
+static inline uint64_t min64(uint64_t a, uint64_t b) {
+  return a < b ? a : b;
+}
+
+static inline uint64_t max64(uint64_t a, uint64_t b) {
+  return a > b ? a : b;
+}
+
+static inline uint64_t clamp64(uint64_t value, uint64_t min, uint64_t max) {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,5 +1,6 @@
+#include "beacon.h"
+#include "logger.h"
 #include "server.h"
-
 typedef struct {
   uv_work_t      req;
   request_t*     req_obj;
@@ -19,7 +20,7 @@ static void c4_proofer_execute_after(uv_work_t* req, int status) {
 }
 
 static void proofer_request_free(request_t* req) {
-  c4_proofer_free(req->ctx);
+  c4_proofer_free((proofer_ctx_t*) req->ctx);
   free(req);
 }
 
@@ -28,7 +29,7 @@ void c4_proofer_handle_request(request_t* req) {
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED && c4_proofer_status(ctx) == C4_PENDING && c4_state_get_pending_request(&ctx->state) == NULL) {
     // no data are required and no pending request, so we can execute the proofer in the worker thread
-    proof_work_t* work = calloc(1, sizeof(proof_work_t));
+    proof_work_t* work = (proof_work_t*) calloc(1, sizeof(proof_work_t));
     work->req_obj      = req;
     work->ctx          = ctx;
     work->req.data     = work;
@@ -85,7 +86,7 @@ bool c4_handle_proof_request(client_t* client) {
 
   char*      method_str = bprintf(NULL, "%j", method);
   char*      params_str = bprintf(NULL, "%J", params);
-  request_t* req        = calloc(1, sizeof(request_t));
+  request_t* req        = (request_t*) calloc(1, sizeof(request_t));
   req->client           = client;
   req->cb               = c4_proofer_handle_request;
   req->ctx              = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX);
@@ -131,7 +132,7 @@ static void c4_proxy_callback(client_t* client, void* data, data_request_t* req)
 
 bool c4_proxy(client_t* client) {
   if (strncmp(client->request.path, "/beacon/", 8) != 0) return false;
-  data_request_t* req = calloc(1, sizeof(data_request_t));
+  data_request_t* req = (data_request_t*) calloc(1, sizeof(data_request_t));
   req->url            = bprintf(NULL, "/eth/v1/beacon/%s", client->request.path + 8);
   req->method         = C4_DATA_METHOD_GET;
   req->chain_id       = C4_CHAIN_MAINNET;
@@ -139,4 +140,89 @@ bool c4_proxy(client_t* client) {
   req->encoding       = C4_DATA_ENCODING_JSON;
   c4_add_request(client, req, NULL, c4_proxy_callback);
   return true;
+}
+
+static void handle_new_head_cb(request_t* req) {
+  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+  beacon_head_t* b   = (beacon_head_t*) ctx->proof.data;
+  ssz_ob_t       sig_block, data_block;
+
+  switch (c4_eth_get_signblock_and_parent(ctx, b->root, NULL, &sig_block, &data_block)) {
+    case C4_SUCCESS: {
+      bytes32_t cache_key = {0};
+      sprintf((char*) cache_key, "Slatest");
+      c4_proofer_cache_invalidate(cache_key);
+      beacon_block_t* beacon_block = (beacon_block_t*) calloc(1, sizeof(beacon_block_t));
+      ssz_ob_t        sig_body     = ssz_get(&sig_block, "body");
+      beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
+      beacon_block->header         = data_block;
+      beacon_block->body           = ssz_get(&data_block, "body");
+      beacon_block->execution      = ssz_get(&beacon_block->body, "executionPayload");
+      beacon_block->sync_aggregate = ssz_get(&sig_body, "syncAggregate");
+      bytes_t  root_hash           = ssz_get(&sig_block, "parentRoot").bytes;
+      ssz_ob_t execution           = ssz_get(&sig_body, "executionPayload");
+      c4_beacon_cache_update_blockdata(ctx, beacon_block, ssz_get_uint64(&execution, "timestamp"), root_hash.data);
+      proofer_request_free(req);
+      return;
+    }
+    case C4_ERROR: {
+      log_error("Error fetching sigblock and parent: %s", ctx->state.error);
+      proofer_request_free(req);
+      return;
+    }
+    case C4_PENDING:
+      if (c4_state_get_pending_request(&ctx->state)) // there are pending requests, let's take care of them first
+        c4_start_curl_requests(req);
+      else {
+        log_error("Error fetching sigblock and parent: %s", ctx->state.error);
+        proofer_request_free(req);
+      }
+
+      return;
+  }
+}
+
+void c4_handle_new_head(json_t head) {
+
+  beacon_head_t* b      = (beacon_head_t*) calloc(1, sizeof(beacon_head_t));
+  buffer_t       buffer = stack_buffer(b->root);
+  b->slot               = json_get_uint64(head, "slot");
+  bytes_t        root   = json_get_bytes(head, "block", &buffer);
+  request_t*     req    = (request_t*) calloc(1, sizeof(request_t));
+  proofer_ctx_t* ctx    = (proofer_ctx_t*) calloc(1, sizeof(proofer_ctx_t));
+  req->client           = NULL;
+  req->cb               = handle_new_head_cb;
+  req->ctx              = ctx;
+  ctx->proof            = bytes(b, sizeof(beacon_head_t));
+  handle_new_head_cb(req);
+}
+
+static void c4_handle_finalized_checkpoint_cb(request_t* req) {
+  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+
+  switch (c4_eth_update_finality(ctx)) {
+    case C4_SUCCESS: {
+      proofer_request_free(req);
+      return;
+    }
+    case C4_ERROR: {
+      log_error("Error fetching sigblock and parent: %s", ctx->state.error);
+      proofer_request_free(req);
+      return;
+    }
+    case C4_PENDING:
+      if (c4_state_get_pending_request(&ctx->state)) // there are pending requests, let's take care of them first
+        c4_start_curl_requests(req);
+      else {
+        log_error("Error fetching sigblock and parent: %s", ctx->state.error);
+        proofer_request_free(req);
+      }
+  }
+}
+
+void c4_handle_finalized_checkpoint(json_t checkpoint) {
+  request_t* req = (request_t*) calloc(1, sizeof(request_t));
+  req->cb        = c4_handle_finalized_checkpoint_cb;
+  req->ctx       = calloc(1, sizeof(proofer_ctx_t));
+  req->cb(req);
 }
