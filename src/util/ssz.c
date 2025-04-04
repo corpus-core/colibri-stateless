@@ -301,7 +301,8 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
     case SSZ_TYPE_NONE: buffer_add_chars(buf, "null"); break;
     case SSZ_TYPE_BOOLEAN: buffer_add_chars(buf, ob.bytes.data[0] ? "true" : "false"); break;
     case SSZ_TYPE_CONTAINER: {
-      close_char = '}';
+      ctx->no_quotes = false;
+      close_char     = '}';
       buffer_add_chars(buf, "{\n");
       for (int i = 0; i < def->def.container.len; i++) {
         dump(ctx, ssz_get(&ob, (char*) def->def.container.elements[i].name), def->def.container.elements[i].name, intend + 2);
@@ -319,6 +320,7 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
         bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
       else {
+        ctx->no_quotes = false;
         buffer_add_chars(buf, "[\n");
         for (int i = 0; i < ssz_len(ob); i++) {
           dump(ctx, ssz_at(ob, i), false, intend + 2);

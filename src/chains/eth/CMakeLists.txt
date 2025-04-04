@@ -7,6 +7,7 @@ set(VERIFIER_SOURCES
   verifier/verify_receipt_proof.c
   verifier/verify_logs_proof.c
   verifier/verify_call.c
+  verifier/verify_block.c
   verifier/eth_tx.c
   verifier/eth_account.c
   verifier/eth_verify.c
@@ -49,6 +50,7 @@ add_proofer(
     proofer/eth_req.c
     proofer/eth_tools.c
     proofer/proof_sync.c
+    proofer/proof_block.c
   DEPENDS util eth_verifier
   PROOF eth_proofer_execute
 )

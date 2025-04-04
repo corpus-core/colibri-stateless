@@ -21,6 +21,35 @@ static const ssz_def_t SYNC_AGGREGATE[] = {
     SSZ_BIT_VECTOR("syncCommitteeBits", 512),       // the bits of the validators that signed the block (each bit represents a validator)
     SSZ_BYTE_VECTOR("syncCommitteeSignature", 96)}; // the signature of the sync committee
 
+static const ssz_def_t WITHDRAWAL[] = {
+    SSZ_UINT64("index"),
+    SSZ_UINT64("validatorIndex"),
+    SSZ_ADDRESS("address"),
+    SSZ_UINT64("amount"),
+};
+
+const ssz_def_t DENEP_WITHDRAWAL_CONTAINER = SSZ_CONTAINER("withdrawal", WITHDRAWAL);
+
+// the block header of the execution layer proved within the beacon block
+const ssz_def_t DENEP_EXECUTION_PAYLOAD[] = {
+    SSZ_BYTES32("parentHash"),                                 // the hash of the parent block
+    SSZ_ADDRESS("feeRecipient"),                               // the address of the fee recipient
+    SSZ_BYTES32("stateRoot"),                                  // the merkle root of the state at the end of the block
+    SSZ_BYTES32("receiptsRoot"),                               // the merkle root of the transactionreceipts
+    SSZ_BYTE_VECTOR("logsBloom", 256),                         // the bloom filter of the logs
+    SSZ_BYTES32("prevRandao"),                                 // the randao of the previous block
+    SSZ_UINT64("blockNumber"),                                 // the block number
+    SSZ_UINT64("gasLimit"),                                    // the gas limit of the block
+    SSZ_UINT64("gasUsed"),                                     // the gas used of the block
+    SSZ_UINT64("timestamp"),                                   // the timestamp of the block
+    SSZ_BYTES("extraData", 32),                                // the extra data of the block
+    SSZ_UINT256("baseFeePerGas"),                              // the base fee per gas of the block
+    SSZ_BYTES32("blockHash"),                                  // the hash of the block
+    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576), // the list of transactions
+    SSZ_LIST("withdrawals", DENEP_WITHDRAWAL_CONTAINER, 16),   // the list of withdrawels
+    SSZ_UINT64("blobGasUsed"),                                 // the gas used for the blob transactions
+    SSZ_UINT64("excessBlobGas")};                              // the excess blob gas of the block
+
 #ifdef PROOFER
 // a checkpoint is a tuple of epoch and root
 static const ssz_def_t CHECKPOINT[] = {
@@ -98,35 +127,6 @@ static const ssz_def_t SIGNED_VOLUNTARY_EXIT[] = {
     SSZ_BYTE_VECTOR("signature", 96),
 };
 
-static const ssz_def_t WITHDRAWAL[] = {
-    SSZ_UINT64("index"),
-    SSZ_UINT64("validatorIndex"),
-    SSZ_ADDRESS("address"),
-    SSZ_UINT64("amount"),
-};
-
-static const ssz_def_t WITHDRAWAL_CONTAINER = SSZ_CONTAINER("withdrawal", WITHDRAWAL);
-
-// the block header of the execution layer proved within the beacon block
-static const ssz_def_t EXECUTION_PAYLOAD[] = {
-    SSZ_BYTES32("parentHash"),                                 // the hash of the parent block
-    SSZ_ADDRESS("feeRecipient"),                               // the address of the fee recipient
-    SSZ_BYTES32("stateRoot"),                                  // the merkle root of the state at the end of the block
-    SSZ_BYTES32("receiptsRoot"),                               // the merkle root of the transactionreceipts
-    SSZ_BYTE_VECTOR("logsBloom", 256),                         // the bloom filter of the logs
-    SSZ_BYTES32("prevRandao"),                                 // the randao of the previous block
-    SSZ_UINT64("blockNumber"),                                 // the block number
-    SSZ_UINT64("gasLimit"),                                    // the gas limit of the block
-    SSZ_UINT64("gasUsed"),                                     // the gas used of the block
-    SSZ_UINT64("timestamp"),                                   // the timestamp of the block
-    SSZ_BYTES("extraData", 32),                                // the extra data of the block
-    SSZ_UINT256("baseFeePerGas"),                              // the base fee per gas of the block
-    SSZ_BYTES32("blockHash"),                                  // the hash of the block
-    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576), // the list of transactions
-    SSZ_LIST("withdrawals", WITHDRAWAL_CONTAINER, 16),         // the list of withdrawels
-    SSZ_UINT64("blobGasUsed"),                                 // the gas used for the blob transactions
-    SSZ_UINT64("excessBlobGas")};                              // the excess blob gas of the block
-
 static const ssz_def_t BLS_TO_EXECUTION_CHANGE[] = {
     SSZ_UINT64("validatorIndex"),
     SSZ_BYTE_VECTOR("fromBlsPubkey", 48),
@@ -155,7 +155,7 @@ static const ssz_def_t BEACON_BLOCK_BODY[]                      = {
     SSZ_LIST("deposits", DEPOSIT_CONTAINER, MAX_DEPOSITS),
     SSZ_LIST("voluntaryExits", SIGNED_VOLUNTARY_EXIT_CONTAINER, MAX_VOLUNTARY_EXITS),
     SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),
-    SSZ_CONTAINER("executionPayload", EXECUTION_PAYLOAD),
+    SSZ_CONTAINER("executionPayload", DENEP_EXECUTION_PAYLOAD),
     SSZ_LIST("blsToExecutionChanges", SIGNED_BLS_TO_EXECUTION_CHANGE_CONTAINER, MAX_BLS_TO_EXECUTION_CHANGES),
     SSZ_LIST("blobKzgCommitments", ssz_bls_pubky, 4096),
 };

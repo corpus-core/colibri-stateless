@@ -1,4 +1,3 @@
-
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
@@ -52,7 +51,7 @@ static const rlp_def_t tx_1_defs[] = {
     {"value", 1},
     {"input", 0},
     {"accessList", 2},
-    {"v", 1},
+    {"yParity", 1},
     {"r", 1},
     {"s", 1},
 };
@@ -67,7 +66,7 @@ static const rlp_def_t tx_2_defs[] = {
     {"value", 1},
     {"input", 0},
     {"accessList", 2},
-    {"v", 1},
+    {"yParity", 1},
     {"r", 1},
     {"s", 1},
 };
@@ -141,7 +140,7 @@ bool c4_tx_create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8_t* addre
   keccak(buf.data, raw_hash);
   buffer_free(&buf);
 
-  if (type == TX_TYPE_EIP4844) RETURN_VERIFY_ERROR(ctx, "invalid tx data, EIP4844 not supported (yet)!");
+  //  if (type == TX_TYPE_EIP4844) RETURN_VERIFY_ERROR(ctx, "invalid tx data, EIP4844 not supported (yet)!");
 
   uint8_t sig[65]    = {0};
   uint8_t pubkey[64] = {0};
@@ -210,7 +209,6 @@ bool c4_tx_verify_tx_data(verify_ctx_t* ctx, ssz_ob_t tx_data, bytes_t serialize
   bytes_t from_address = ssz_get(&tx_data, "from").bytes;
   if (!c4_tx_create_from_address(ctx, serialized_tx, address)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, wrong signature!");
   if (from_address.len != 20 || memcmp(from_address.data, address, 20) != 0) RETURN_VERIFY_ERROR(ctx, "invalid from address!");
-  // TODO verify signature (from-address)
   return true;
 }
 
@@ -337,5 +335,117 @@ bool c4_tx_verify_receipt_proof(verify_ctx_t* ctx, ssz_ob_t receipt_proof, uint3
 
   if (patricia_verify(receipt_root, c4_eth_create_tx_path(tx_index, &path_buf), receipt_proof, receipt_raw) != PATRICIA_FOUND)
     RETURN_VERIFY_ERROR(ctx, "invalid account proof on execution layer!");
+  return true;
+}
+
+// Returns the decoded bytes. On error, adds message to ctx->state and returns NULL_BYTES.
+static bytes_t get_rlp_field(verify_ctx_t* ctx, bytes_t rlp_list, const rlp_type_defs_t* defs, const char* field_name, rlp_type_t expected_type) {
+  bytes_t result_bytes = NULL_BYTES;
+  for (int i = 0; i < defs->len; i++) {
+    if (strcmp(defs->defs[i].name, field_name)) continue;
+    rlp_type_t decoded_type = rlp_decode(&rlp_list, i, &result_bytes);
+
+    // Check if decoded type matches expected type
+    if (decoded_type != expected_type) {
+      char err_buf[120];
+      if (decoded_type <= RLP_SUCCESS) { // Includes RLP_SUCCESS, RLP_OUT_OF_RANGE, RLP_NOT_FOUND
+        snprintf(err_buf, sizeof(err_buf), "RLP decode failed or type mismatch for field '%s': expected type %d, decode result %d", field_name, expected_type, decoded_type);
+      }
+      else { // Decoded type is RLP_ITEM or RLP_LIST but not the expected one
+        snprintf(err_buf, sizeof(err_buf), "RLP type mismatch for field '%s': expected %d, got %d", field_name, expected_type, decoded_type);
+      }
+      c4_state_add_error(&ctx->state, err_buf);
+      return NULL_BYTES; // Return NULL_BYTES on error
+    }
+    // Success
+    return result_bytes;
+  }
+  return NULL_BYTES; // Return NULL_BYTES on error
+}
+
+bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t raw_tx,
+                               bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number,
+                               uint32_t transaction_index, uint64_t base_fee) {
+  if (!ctx || !buffer || !buffer->def || !raw_tx.data || raw_tx.len == 0) return false; // Invalid input
+  address_t from_address  = {0};
+  tx_type_t type          = 0;
+  bytes_t   serialized_tx = raw_tx; // Keep original for 'from' address calculation
+  if (!get_and_remove_tx_type(ctx, &raw_tx, &type)) RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: invalid tx type");
+
+  // 2. Decode RLP list payload
+  bytes_t                rlp_list = raw_tx;
+  const rlp_type_defs_t* defs_ptr = &tx_type_defs[type];
+  if (rlp_decode(&rlp_list, 0, &rlp_list) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: invalid RLP list");
+  int num_fields = rlp_decode(&rlp_list, -1, NULL);
+  if (num_fields != defs_ptr->len) RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: RLP field count mismatch");
+  // Calculate 'from' address
+  if (!c4_tx_create_from_address(ctx, serialized_tx, from_address)) return false;
+
+  // Validate and determine v/yParity values
+  bytes_t  rlp_y_parity = get_rlp_field(ctx, rlp_list, defs_ptr, "yParity", RLP_ITEM);
+  bytes_t  rlp_v        = get_rlp_field(ctx, rlp_list, defs_ptr, "v", RLP_ITEM);
+  uint8_t  y_parity     = rlp_y_parity.len ? rlp_y_parity.data[0] : 0;
+  uint8_t  v            = rlp_v.len ? rlp_v.data[0] : 0;
+  uint32_t chain_id     = (uint32_t) bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "chainId", RLP_ITEM));
+  if (type == TX_TYPE_LEGACY) {
+    y_parity = (v - 1) % 2;
+    chain_id = v < 28 ? 1 : (v - 35 - y_parity) / 2;
+  }
+  else
+    v = y_parity;
+
+  bytes_t blob_hashes = {0};
+  if (type == TX_TYPE_EIP4844) {
+    bytes_t inner_list = get_rlp_field(ctx, rlp_list, defs_ptr, "blobVersionedHashes", RLP_LIST);
+    int     num_hashes = rlp_decode(&inner_list, -1, NULL);
+    if (num_hashes < 0 || num_hashes > 16) RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: Invalid number of blob hashes");
+    if (num_hashes > 0) {
+      blob_hashes.data = malloc(num_hashes * 32);
+      blob_hashes.len  = num_hashes * 32;
+      for (int h = 0; h < num_hashes; ++h) {
+        bytes_t hash_item = {0};
+        if (rlp_decode(&inner_list, h, &hash_item) != RLP_ITEM || hash_item.len != 32) {
+          buffer_free(blob_hashes.data);
+          RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: Invalid blob hash item in RLP list");
+        }
+        memcpy(blob_hashes.data + h * 32, hash_item.data, 32);
+      }
+    }
+  }
+
+  // calculate gas price
+  uint64_t gas_price = bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "gasPrice", RLP_ITEM));
+  if (type >= TX_TYPE_EIP1559)
+    gas_price = base_fee + min64(
+                               bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "maxPriorityFeePerGas", RLP_ITEM)),
+                               bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "maxFeePerGas", RLP_ITEM)) - base_fee);
+
+  // --- Add fields to SSZ Builder IN ORDER OF ETH_TX_DATA DEFINITION ---
+
+  ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
+  ssz_add_uint64(buffer, block_number);
+  ssz_add_bytes(buffer, "hash", bytes(tx_hash, 32));
+  ssz_add_uint32(buffer, transaction_index);
+  ssz_add_uint8(buffer, (uint8_t) type);
+  ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "nonce", RLP_ITEM)));
+  ssz_add_bytes(buffer, "input", get_rlp_field(ctx, rlp_list, defs_ptr, "input", RLP_ITEM));
+  ssz_add_bytes(buffer, "r", get_rlp_field(ctx, rlp_list, defs_ptr, "r", RLP_ITEM));
+  ssz_add_bytes(buffer, "s", get_rlp_field(ctx, rlp_list, defs_ptr, "s", RLP_ITEM));
+  ssz_add_uint32(buffer, chain_id);
+  ssz_add_uint8(buffer, v);
+  ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "gas", RLP_ITEM)));
+  ssz_add_bytes(buffer, "from", bytes(from_address, 20));
+  ssz_add_bytes(buffer, "to", get_rlp_field(ctx, rlp_list, defs_ptr, "to", RLP_ITEM)); // Already validated length
+  ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list, defs_ptr, "value", RLP_ITEM));
+  ssz_add_uint64(buffer, gas_price);
+  ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "maxFeePerGas", RLP_ITEM)));
+  ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "maxPriorityFeePerGas", RLP_ITEM)));
+  ssz_add_bytes(buffer, "accessList", NULL_BYTES); // Add empty list for now
+  ssz_add_bytes(buffer, "blobVersionedHashes", blob_hashes);
+  ssz_add_uint8(buffer, y_parity);
+
+  // Free buffer used for blob hashes if it was allocated
+  if (blob_hashes.data) free(blob_hashes.data);
+
   return true;
 }

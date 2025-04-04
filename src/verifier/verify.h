@@ -42,11 +42,11 @@ void             c4_verify_free_data(verify_ctx_t* ctx);
 
 #pragma endregion
 #ifdef MESSAGES
-#define RETURN_VERIFY_ERROR(ctx, msg)                                                                           \
-  do {                                                                                                          \
-    ctx->state.error = ctx->state.error == NULL ? strdup(msg) : bprintf(NULL, "%s\n%s", ctx->state.error, msg); \
-    ctx->success     = false;                                                                                   \
-    return false;                                                                                               \
+#define RETURN_VERIFY_ERROR(ctx, msg)     \
+  do {                                    \
+    c4_state_add_error(&ctx->state, msg); \
+    ctx->success = false;                 \
+    return false;                         \
   } while (0)
 #else
 #define RETURN_VERIFY_ERROR(ctx, msg) \

@@ -34,7 +34,7 @@ void ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t dat
   if (def && def->type == SSZ_TYPE_UNION) {
     bool found = false;
     for (int i = 0; i < def->def.container.len; i++) {
-      if (def->def.container.elements + i == data.def) {
+      if (def->def.container.elements + i == data.def || (data.def->type == SSZ_TYPE_CONTAINER && def->def.container.elements[i].def.container.elements == data.def->def.container.elements)) {
         uint8_t selector = i;
         found            = true;
         buffer_splice(&data.fixed, 0, 0, bytes(&selector, 1));
@@ -59,12 +59,28 @@ void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_
 
 void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data) {
   const ssz_def_t* def = find_def(buffer->def, name);
-  if (!def) return;
+  if (!def) {
+    printf("ssz_add_bytes: name %s not found in %s\n", name, buffer->def->name);
+    return;
+  }
   buffer_t* bytes        = &(buffer->fixed);
   size_t    fixed_length = 0;
 
+  // check offset
+  size_t offset = 0;
+  for (int i = 0; i < buffer->def->def.container.len; i++) {
+    if (buffer->def->def.container.elements + i == def) {
+      if (offset != buffer->fixed.data.len) {
+        printf("ssz_add_bytes: %d ( +%d ) %s\n", buffer->fixed.data.len, data.len, name);
+        printf("ssz_add_bytes:    offset mismatch %zu != %d\n", offset, buffer->fixed.data.len);
+      }
+      break;
+    }
+    offset += ssz_fixed_length(buffer->def->def.container.elements + i);
+  }
+
   if (ssz_is_dynamic(def)) {
-    size_t offset = 0;
+    offset = 0;
     for (int i = 0; i < buffer->def->def.container.len; i++)
       offset += ssz_fixed_length(buffer->def->def.container.elements + i);
     ssz_add_uint32(buffer, offset + buffer->dynamic.data.len);

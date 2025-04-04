@@ -12,7 +12,7 @@ void tearDown(void) {
 }
 
 void test_balance() {
-  verify("eth_getTransactionReceipt1", "eth_getTransactionReceipt", "[\"0x5f41c75eabb3fee183e0896859a82c81635dbb40edf5630fa29555e8d6c3e7f1\"]", C4_CHAIN_MAINNET);
+  verify("eth_getTransactionReceipt1", "eth_getTransactionReceipt", "[\"0x1c6a9f182ee398a34d6e4a28bbb55f8f5b10101d60589279b26cec199f021d99\"]", C4_CHAIN_MAINNET);
 }
 
 int main(void) {
