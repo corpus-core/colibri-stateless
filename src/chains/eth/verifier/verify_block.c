@@ -87,6 +87,21 @@ static void set_data(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t parent_root, b
   bytes_write(ctx->data.bytes, fopen("data.ssz", "wb"), true);
 }
 
+static bool matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_block) {
+  if (req_block.type != JSON_TYPE_STRING || req_block.len < 6) RETURN_VERIFY_ERROR(ctx, "invalid blocknumber");
+  if (req_block.start[1] != '0' || req_block.start[2] != 'x') return true;
+  if (req_block.len == 68) { // hash
+    bytes32_t hash = {0};
+    buffer_t  buf  = stack_buffer(hash);
+    json_as_bytes(req_block, &buf);
+    if (memcmp(hash, ssz_get(&block, "blockHash").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "blockhash mismatch");
+    return true;
+  }
+  else if (ssz_get_uint64(&block, "blockNumber") == json_as_uint64(req_block))
+    RETURN_VERIFY_ERROR(ctx, "blocknumber mismatch");
+  return true;
+}
+
 bool verify_block_proof(verify_ctx_t* ctx) {
 
   json_t    block_number             = json_at(ctx->args, 0);
@@ -107,7 +122,7 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
   ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), exec_root);
   set_data(ctx, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
-  if (ctx->state.error) return false;
+  if (ctx->state.error || !matches_blocknumber(ctx, execution_payload, block_number)) return false;
 
   ctx->success = true;
   return true;
