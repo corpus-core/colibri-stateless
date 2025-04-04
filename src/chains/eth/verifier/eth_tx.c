@@ -413,6 +413,34 @@ bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t
     }
   }
 
+  // access list
+  bytes_t       access_list         = get_rlp_field(ctx, rlp_list, defs_ptr, "accessList", RLP_LIST);
+  ssz_builder_t access_list_builder = ssz_builder_for_def(ssz_get_def(buffer->def, "accessList"));
+  if (access_list.len > 0) {
+    int entries = rlp_decode(&access_list, -1, NULL);
+    for (int i = 0; i < entries; i++) {
+      ssz_builder_t entry_builder = ssz_builder_for_def(access_list_builder.def->def.vector.type);
+
+      bytes_t entry   = {0};
+      bytes_t address = {0};
+      bytes_t keys    = {0};
+      rlp_decode(&access_list, i, &entry);
+      rlp_decode(&entry, 0, &address);
+      ssz_add_bytes(&entry_builder, "address", address);
+      rlp_decode(&entry, 1, &keys);
+      int     num_keys     = rlp_decode(&keys, -1, NULL);
+      bytes_t storage_keys = bytes(malloc(num_keys * 32), num_keys * 32);
+      for (int k = 0; k < num_keys; k++) {
+        bytes_t key = {0};
+        rlp_decode(&keys, k, &key);
+        memcpy(storage_keys.data + k * 32, key.data, 32);
+      }
+      ssz_add_bytes(&entry_builder, "storageKeys", storage_keys);
+      free(storage_keys.data);
+      ssz_add_dynamic_list_builders(&access_list_builder, entries, entry_builder);
+    }
+  }
+
   // calculate gas price
   uint64_t gas_price = bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "gasPrice", RLP_ITEM));
   if (type >= TX_TYPE_EIP1559)
@@ -440,7 +468,7 @@ bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t
   ssz_add_uint64(buffer, gas_price);
   ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "maxFeePerGas", RLP_ITEM)));
   ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list, defs_ptr, "maxPriorityFeePerGas", RLP_ITEM)));
-  ssz_add_bytes(buffer, "accessList", NULL_BYTES); // Add empty list for now
+  ssz_add_builders(buffer, "accessList", access_list_builder); // Add empty list for now
   ssz_add_bytes(buffer, "blobVersionedHashes", blob_hashes);
   ssz_add_uint8(buffer, y_parity);
 
