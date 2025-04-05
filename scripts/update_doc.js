@@ -212,6 +212,11 @@ function get_cmake_options() {
             path: 'general',
             default: 'Release',
             description: 'Build type (Debug, Release, RelWithDebInfo, MinSizeRel)',
+        },
+        INCLUDE: {
+            path: 'general',
+            default: '',
+            description: 'Path to additional CMakeLists.txt Dir, which will included into the build, allowing to extend the binaries.',
         }
     };
 

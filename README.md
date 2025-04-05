@@ -255,22 +255,23 @@ The js-module will be in the `build/emscripten` folder.
 
 | Flag | descr  | default |
 | :--- | :----- | :----- |
-| **BLS_DESERIALIZE** | Store BLS keys deserialized |   |
-| **CHAIN_ETH** | includes all ETH engine | ON  |
+| **BLS_DESERIALIZE** | Store BLS keys deserialized. It is faster but uses 25k more memory in cache per period. | ON  |
+| **CHAIN_ETH** | includes the ETH verification support | ON  |
 | **CLI** | Build command line tools | ON  |
 | **CMAKE_BUILD_TYPE** | Build type (Debug, Release, RelWithDebInfo, MinSizeRel) | Release  |
 | **COMBINED_STATIC_LIB** | Build a combined static library | OFF  |
-| **COVERAGE** | Enable coverage | OFF  |
+| **COVERAGE** | Enable coverage tracking | OFF  |
 | **CURL** | Enable CURL support | ON  |
 | **EMBEDDED** | Build for embedded target | OFF  |
 | **HTTP_SERVER** | Build the HTTP server using libuv and llhttp | OFF  |
+| **INCLUDE** | Path to additional CMakeLists.txt Dir, which will included into the build, allowing to extend the binaries. |   |
 | **KOTLIN** | Build Kotlin bindings | OFF  |
 | **PROOFER** | Build the proofer library | ON  |
-| **PROOFER_CACHE** | Caches blockhashes and maps |   |
+| **PROOFER_CACHE** | Caches blockhashes and maps, which makes a lot of sense on a server | OFF  |
 | **SHAREDLIB** | Build shared library | OFF  |
-| **STATIC_MEMORY** | if true, the memory will be statically allocated |   |
+| **STATIC_MEMORY** | if true, the memory will be statically allocated, which only makes sense for embedded systems | OFF  |
 | **SWIFT** | Build Swift bindings | OFF  |
-| **TEST** | Build tests | OFF  |
+| **TEST** | Build the unit tests | OFF  |
 | **VERIFIER** | Build the verifier library | ON  |
 | **WASM** | Build WebAssembly target | OFF  |
 
