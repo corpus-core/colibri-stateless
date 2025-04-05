@@ -9,6 +9,7 @@ option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but 25k more memory in cache per period)" ON)
 option(PROOFER_CACHE "Caches blockhashes and maps)" OFF)
 option(CHAIN_ETH "includes all ETH engine" ON)
+
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)

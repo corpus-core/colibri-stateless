@@ -61,12 +61,3 @@ install(TARGETS intx_wrapper
 )
 
 # Build the test program (optional - can be controlled with an option)
-option(INTX_BUILD_TEST "Build intx test program" ON)
-if(INTX_BUILD_TEST)
-    add_executable(test_intx ${CMAKE_CURRENT_SOURCE_DIR}/test_intx.c)
-    target_link_libraries(test_intx PRIVATE intx_wrapper)
-    set_target_properties(test_intx PROPERTIES
-        C_STANDARD 99
-        C_STANDARD_REQUIRED ON
-    )
-endif() 

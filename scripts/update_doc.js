@@ -209,16 +209,16 @@ function get_cmake_options() {
 
     let options = {
         CMAKE_BUILD_TYPE: {
+            path: 'general',
             default: 'Release',
-            description: 'Build type',
-            options: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'],
+            description: 'Build type (Debug, Release, RelWithDebInfo, MinSizeRel)',
         }
     };
 
     ['../src', '../libs', '../CMakeLists.txt'].forEach(read_dir)
 
     return Object.values(options).map(o => o.path).filter((p, i, a) => a.indexOf(p) == i).map(path => {
-        return '### ' + (path || 'Cmake') + '\n\n' +
+        return '#### ' + (path || 'Cmake') + '\n\n' +
             '| Flag | descr  | default |\n' +
             '| :--- | :----- | :----- |\n' +
             Object.keys(options).sort().filter(k => options[k].path == path).map(

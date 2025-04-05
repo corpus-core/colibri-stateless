@@ -17,12 +17,9 @@
 - [Building](#building)
     - [Build Javascript bindings (WASM)](#build-javascript-bindings-(wasm))
     - [CMake Options](#cmake-options)
-    - [undefined](#undefined)
-    - [src](#src)
-    - [eth](#eth)
-    - [general](#general)
-    - [util](#util)
-    - [intx](#intx)
+        - [general](#general)
+        - [eth](#eth)
+        - [util](#util)
     - [Running on embedded devices](#running-on-embedded-devices)
         - [Embedded Tests](#embedded-tests)
         - [CI Workflows](#ci-workflows)
@@ -254,45 +251,14 @@ The js-module will be in the `build/emscripten` folder.
 
 ### CMake Options
 
-### Cmake
-
-| Flag | descr  | default |
-| :--- | :----- | :----- |
-| **CMAKE_BUILD_TYPE** | Build type | Release  |
-
-
-
-### src
-
-| Flag | descr  | default |
-| :--- | :----- | :----- |
-| **MESSAGES** | if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory | ON  |
-
-
-
-### eth
-
-| Flag | descr  | default |
-| :--- | :----- | :----- |
-| **ETH_ACCOUNT** | support eth account verification | ON  |
-| **ETH_BLOCK** | support eth block verification | ON  |
-| **ETH_CALL** | support eth call verification | ON  |
-| **ETH_LOGS** | support eth logs verification | ON  |
-| **ETH_RECEIPT** | support eth receipt verification | ON  |
-| **ETH_TX** | support eth Transaction verification | ON  |
-| **EVMLIGHT** | if true evmlight is included in the build | OFF  |
-| **EVMONE** | if true evmone is included in the build | ON  |
-| **PRECOMPILES_RIPEMD160** | Precompile ripemd160 | ON  |
-
-
-
-### general
+#### general
 
 | Flag | descr  | default |
 | :--- | :----- | :----- |
 | **BLS_DESERIALIZE** | Store BLS keys deserialized |   |
 | **CHAIN_ETH** | includes all ETH engine | ON  |
 | **CLI** | Build command line tools | ON  |
+| **CMAKE_BUILD_TYPE** | Build type (Debug, Release, RelWithDebInfo, MinSizeRel) | Release  |
 | **COMBINED_STATIC_LIB** | Build a combined static library | OFF  |
 | **COVERAGE** | Enable coverage | OFF  |
 | **CURL** | Enable CURL support | ON  |
@@ -310,20 +276,29 @@ The js-module will be in the `build/emscripten` folder.
 
 
 
-### util
+#### eth
+
+| Flag | descr  | default |
+| :--- | :----- | :----- |
+| **ETH_ACCOUNT** | support eth account verification | ON  |
+| **ETH_BLOCK** | support eth block verification | ON  |
+| **ETH_CALL** | support eth call verification | ON  |
+| **ETH_LOGS** | support eth logs verification | ON  |
+| **ETH_RECEIPT** | support eth receipt verification | ON  |
+| **ETH_TX** | support eth Transaction verification | ON  |
+| **EVMLIGHT** | if true evmlight is included in the build | OFF  |
+| **EVMONE** | if true evmone is included in the build | ON  |
+| **PRECOMPILES_RIPEMD160** | Precompile ripemd160 | ON  |
+
+
+
+#### util
 
 | Flag | descr  | default |
 | :--- | :----- | :----- |
 | **FILE_STORAGE** | if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR | ON  |
+| **MESSAGES** | if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory | ON  |
 | **PRECOMPILE_ZERO_HASHES** | if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the proofer, but not in the verfier | ON  |
-
-
-
-### intx
-
-| Flag | descr  | default |
-| :--- | :----- | :----- |
-| **INTX_BUILD_TEST** | Build intx test program | ON  |
 
 
 ### Running on embedded devices
