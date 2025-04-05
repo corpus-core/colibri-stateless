@@ -189,30 +189,30 @@ All requests send to the verifier are encoded using SSZ. The request itself is s
 In order to proof the RPC-Request, the  proofer will use different proofs.
 
 
-| rpc-Method                              | status | Data                                             | Proof                                           |
-| :-------------------------------------- | :----- | :----------------------------------------------- | :---------------------------------------------- |
-| `eth_blobBaseFee`                       | ✖️     | Uint64                                           | [EthBlockHeaderProof](#ethblockheaderproof)     |
-| `eth_call`                              | ✅     | Bytes                                            | [EthCallProof](#ethcallproof)                   |
-| `eth_createAccessList`                  | ✖️     | [EthAccessData](#ethaccessdata)                  | [EthCallProof](#ethcallproof)                   |
-| `eth_estimateGas`                       | ✖️     | Uint64                                           | [EthCallProof](#ethcallproof)                   |
-| `eth_feeHistory`                        | ✖️     |                                                  |                                                 |
-| `eth_gasPrice`                          | ✖️     |                                                  |                                                 |
-| `eth_getBalance`                        | ✅     | Uint256                                          | [EthAccountProof](#ethaccountproof)             |
-| `eth_getBlockByHash`                    | ✅     | [EthBlockData](#ethblockdata)                    | [EthBlockProof](#ethblockproof)                 |
-| `eth_getBlockByNumber`                  | ✅     | [EthBlockData](#ethblockdata)                    | [EthBlockProof](#ethblockproof)                 |
-| `eth_getBlockReceipts`                  | ✖️     |                                                  |                                                 |
-| `eth_getBlockTransactionCountByHash`    | ✖️     |                                                  |                                                 |
-| `eth_getBlockTransactionCountByNumber`  | ✖️     |                                                  |                                                 |
-| `eth_getCode`                           | ✅     | Bytes                                            | [EthAccountProof](#ethaccountproof)             |
-| `eth_FilterChanges`                     | ✖️     |                                                  |                                                 |
-| `eth_FilterLogs`                        | ✖️     |                                                  |                                                 |
-| `eth_getLogs`                           | ✅     | List<[EthReceiptDataLog](#ethreceiptdatalog)>    | List<[EthLogsBlock](#ethlogsblock)>             |
-| `eth_getTransactionCount`               | ✅     | Uint256                                          | [EthAccountProof](#ethaccountproof)             |
-| `eth_getStorageAt`                      | ✅     | Bytes32                                          | [EthAccountProof](#ethaccountproof)             |
-| `eth_getProof`                          | ✖️     |                                                  |                                                 |
-| `eth_getTransactionReceipt`             | ✅     | [EthReceiptData](#ethreceiptdata)                | [EthReceiptProof](#ethreceiptproof)             |
-| `eth_getTransactionByHash`              | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
-| `eth_getTransactionByBlockHashAndIndex` | ✖️     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
+| rpc-Method                                                                                | status | Data                                             | Proof                                           |
+| :---------------------------------------------------------------------------------------- | :----- | :----------------------------------------------- | :---------------------------------------------- |
+| `eth_blobBaseFee`                                                                         | ✖️     | Uint64                                           | [EthBlockHeaderProof](#ethblockheaderproof)     |
+| [`eth_call`](https://docs.alchemy.com/reference/eth-call)                                 | ✅     | Bytes                                            | [EthCallProof](#ethcallproof)                   |
+| [`eth_createAccessList`](https://docs.alchemy.com/reference/eth-createaccesslist)         | ✖️     | [EthAccessData](#ethaccessdata)                  | [EthCallProof](#ethcallproof)                   |
+| [`eth_estimateGas`](https://docs.alchemy.com/reference/eth-estimategas)                   | ✖️     | Uint64                                           | [EthCallProof](#ethcallproof)                   |
+| [`eth_feeHistory`](https://docs.alchemy.com/reference/eth-feehistory)                     | ✖️     |                                                  |                                                 |
+| [`eth_gasPrice`](https://docs.alchemy.com/reference/eth-gasprice)                         | ✖️     |                                                  |                                                 |
+| [`eth_getBalance`](https://docs.alchemy.com/reference/eth-getbalance)                     | ✅     | Uint256                                          | [EthAccountProof](#ethaccountproof)             |
+| [`eth_getBlockByHash`](https://docs.alchemy.com/reference/eth-getblockbyhash)             | ✅     | [EthBlockData](#ethblockdata)                    | [EthBlockProof](#ethblockproof)                 |
+| [`eth_getBlockByNumber`](https://docs.alchemy.com/reference/eth-getblockbynumber)         | ✅     | [EthBlockData](#ethblockdata)                    | [EthBlockProof](#ethblockproof)                 |
+| [`eth_getBlockReceipts`](https://docs.alchemy.com/reference/eth-getblockreceipts)         | ✖️     |                                                  |                                                 |
+| [`eth_getBlockTransactionCountByHash`](https://docs.alchemy.com/reference/eth-getblocktransactioncountbyhash) | ✖️     |                                                  |                                                 |
+| [`eth_getBlockTransactionCountByNumber`](https://docs.alchemy.com/reference/eth-getblocktransactioncountbynumber) | ✖️     |                                                  |                                                 |
+| [`eth_getCode`](https://docs.alchemy.com/reference/eth-getcode)                           | ✅     | Bytes                                            | [EthAccountProof](#ethaccountproof)             |
+| [`eth_FilterChanges`](https://docs.alchemy.com/reference/eth-getfilterchanges)            | ✖️     |                                                  |                                                 |
+| [`eth_FilterLogs`](https://docs.alchemy.com/reference/eth-getfilterlogs)                  | ✖️     |                                                  |                                                 |
+| [`eth_getLogs`](https://docs.alchemy.com/reference/eth-getlogs)                           | ✅     | List<[EthReceiptDataLog](#ethreceiptdatalog)>    | List<[EthLogsBlock](#ethlogsblock)>             |
+| [`eth_getTransactionCount`](https://docs.alchemy.com/reference/eth-gettransactioncount)   | ✅     | Uint256                                          | [EthAccountProof](#ethaccountproof)             |
+| [`eth_getStorageAt`](https://docs.alchemy.com/reference/eth-getstorageat)                 | ✅     | Bytes32                                          | [EthAccountProof](#ethaccountproof)             |
+| [`eth_getProof`](https://docs.alchemy.com/reference/eth-getproof)                         | ✖️     |                                                  |                                                 |
+| [`eth_getTransactionReceipt`](https://docs.alchemy.com/reference/eth-gettransactionreceipt) | ✅     | [EthReceiptData](#ethreceiptdata)                | [EthReceiptProof](#ethreceiptproof)             |
+| [`eth_getTransactionByHash`](https://docs.alchemy.com/reference/eth-gettransactionbyhash) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
+| [`eth_getTransactionByBlockHashAndIndex`](https://docs.alchemy.com/reference/eth-gettransactionbyblockhashandindex) | ✖️     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
 
 
 ## Building
