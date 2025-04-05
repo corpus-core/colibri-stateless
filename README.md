@@ -281,14 +281,14 @@ The js-module will be in the `build/emscripten` folder.
 
 | Flag | descr  | default |
 | :--- | :----- | :----- |
-| **ETH_ACCOUNT** | support eth account verification | ON  |
-| **ETH_BLOCK** | support eth block verification | ON  |
-| **ETH_CALL** | support eth call verification | ON  |
-| **ETH_LOGS** | support eth logs verification | ON  |
-| **ETH_RECEIPT** | support eth receipt verification | ON  |
-| **ETH_TX** | support eth Transaction verification | ON  |
-| **EVMLIGHT** | if true evmlight is included in the build | OFF  |
-| **EVMONE** | if true evmone is included in the build | ON  |
+| **ETH_ACCOUNT** | support eth account verification. eth_getBalance, eth_getStorageAt, eth_getProof, eth_getCode, eth_getTransactionCount | ON  |
+| **ETH_BLOCK** | support eth block verification. eth_getBlockByHash, eth_getBlockByNumber, eth_getBlockTransactionCountByHash, eth_getBlockTransactionCountByNumber, eth_getUncleCountByBlockHash, eth_getUncleCountByBlockNumber | ON  |
+| **ETH_CALL** | support eth call verification. eth_call, eth_estimateGas | ON  |
+| **ETH_LOGS** | support eth logs verification. eth_getLogs | ON  |
+| **ETH_RECEIPT** | support eth receipt verification. eth_getTransactionReceipt | ON  |
+| **ETH_TX** | support eth Transaction verification. eth_getTransactionByHash, eth_getTransactionByBlockHashAndIndex, eth_getTransactionByBlockNumberAndIndex | ON  |
+| **EVMLIGHT** | uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas. | OFF  |
+| **EVMONE** | uses evmone to verify eth_calls | ON  |
 | **PRECOMPILES_RIPEMD160** | Precompile ripemd160 | ON  |
 
 

@@ -1,13 +1,13 @@
-option(ETH_ACCOUNT  "support eth account verification" ON)
-option(ETH_TX  "support eth Transaction verification" ON)
-option(ETH_BLOCK  "support eth block verification" ON)
-option(ETH_RECEIPT  "support eth receipt verification" ON)
-option(ETH_LOGS  "support eth logs verification" ON)
-option(ETH_CALL  "support eth call verification" ON)
+option(ETH_ACCOUNT  "support eth account verification. eth_getBalance, eth_getStorageAt, eth_getProof, eth_getCode, eth_getTransactionCount" ON)
+option(ETH_TX  "support eth Transaction verification. eth_getTransactionByHash, eth_getTransactionByBlockHashAndIndex, eth_getTransactionByBlockNumberAndIndex" ON)
+option(ETH_BLOCK  "support eth block verification. eth_getBlockByHash, eth_getBlockByNumber, eth_getBlockTransactionCountByHash, eth_getBlockTransactionCountByNumber, eth_getUncleCountByBlockHash, eth_getUncleCountByBlockNumber" ON)
+option(ETH_RECEIPT  "support eth receipt verification. eth_getTransactionReceipt" ON)
+option(ETH_LOGS  "support eth logs verification. eth_getLogs" ON)
+option(ETH_CALL  "support eth call verification. eth_call, eth_estimateGas" ON)
 
 
-option(EVMONE "if true evmone is included in the build" ON)
-option(EVMLIGHT "if true evmlight is included in the build" OFF)
+option(EVMONE "uses evmone to verify eth_calls" ON)
+option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas." OFF)
 # precompiles
 option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
 
