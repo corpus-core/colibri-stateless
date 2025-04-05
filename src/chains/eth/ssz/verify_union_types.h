@@ -18,13 +18,13 @@ static const ssz_def_t C4_REQUEST_DATA_UNION[] = {
 // A List of possible types of proofs matching the Data
 static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF),
-    SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF),
-    SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF),     // a Proof of a TransactionReceipt
-    SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256), // a Proof for multiple Receipts and txs
-    SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),
-    SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF),   // Proof as input data for the sync committee transition used by zk
-    SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF), // Proof for BlockData
+    SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF),         // a Proof of an Account like eth_getBalance or eth_getStorageAt
+    SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF), // a Proof of a Transaction like eth_getTransactionByHash
+    SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF),         // a Proof of a TransactionReceipt
+    SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256),     // a Proof for multiple Receipts and txs
+    SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),               // a Proof of a Call like eth_call
+    SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF),               // Proof as input data for the sync committee transition used by zk
+    SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),             // Proof for BlockData
 }; // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.

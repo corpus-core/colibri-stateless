@@ -745,11 +745,11 @@ class C4Request(Container):
     ]
     proof    : Union[                  # the proof of the data
         None
-        EthAccountProof
-        EthTransactionProof
+        EthAccountProof                # a Proof of an Account like eth_getBalance or eth_getStorageAt
+        EthTransactionProof            # a Proof of a Transaction like eth_getTransactionByHash
         EthReceiptProof                # a Proof of a TransactionReceipt
         List [EthLogsBlock, 256]       # a Proof for multiple Receipts and txs
-        EthCallProof
+        EthCallProof                   # a Proof of a Call like eth_call
         EthSyncProof                   # Proof as input data for the sync committee transition used by zk
         EthBlockProof                  # Proof for BlockData
     ]
@@ -1290,27 +1290,27 @@ the transaction data
 
 ```python
 class EthTxData(Container):
-    blockHash           : Bytes32             # the blockHash of the execution block containing the transaction
-    blockNumber         : Uint64              # the number of the execution block containing the transaction
-    hash                : Bytes32             # the blockHash of the execution block containing the transaction
-    transactionIndex    : Uint32              # the index of the transaction in the block
-    type                : Uint8               # the type of the transaction
-    nonce               : Uint64              # the nonce of the transaction
-    input               : Bytes[1073741824]   # the raw transaction payload
-    r                   : Bytes32             # the r value of the transaction
-    s                   : Bytes32             # the s value of the transaction
-    chainId             : Uint32              # the s value of the transaction
-    v                   : Uint8               # the v value of the transaction
-    gas                 : Uint64              # the gas limnit
-    from                : Address             # the sender of the transaction
-    to                  : Bytes[20]           # the target of the transaction
-    value               : Uint256             # the value of the transaction
-    gasPrice            : Uint64
-    maxFeePerGas        : Uint64
-    maxPriorityFeePerGas: Uint64
-    accessList          : List [EthAccessListData, 256]
-    blobVersionedHashes : List [bytes32, 16]
-    yParity             : Uint8
+    blockHash           : Bytes32                         # the blockHash of the execution block containing the transaction
+    blockNumber         : Uint64                          # the number of the execution block containing the transaction
+    hash                : Bytes32                         # the blockHash of the execution block containing the transaction
+    transactionIndex    : Uint32                          # the index of the transaction in the block
+    type                : Uint8                           # the type of the transaction
+    nonce               : Uint64                          # the nonce of the transaction
+    input               : Bytes[1073741824]               # the raw transaction payload
+    r                   : Bytes32                         # the r value of the transaction
+    s                   : Bytes32                         # the s value of the transaction
+    chainId             : Uint32                          # the s value of the transaction
+    v                   : Uint8                           # the v value of the transaction
+    gas                 : Uint64                          # the gas limnit
+    from                : Address                         # the sender of the transaction
+    to                  : Bytes[20]                       # the target of the transaction
+    value               : Uint256                         # the value of the transaction
+    gasPrice            : Uint64                          # the gas price of the transaction
+    maxFeePerGas        : Uint64                          # the maxFeePerGas of the transaction
+    maxPriorityFeePerGas: Uint64                          # the maxPriorityFeePerGas of the transaction
+    accessList          : List [EthAccessListData, 256]   # the access list of the transaction
+    blobVersionedHashes : List [bytes32, 16]              # the blobVersionedHashes of the transaction
+    yParity             : Uint8                           # the yParity of the transaction
 ```
 ## License
 

@@ -13,27 +13,27 @@ static const ssz_def_t ETH_ACCESS_LIST_DATA_CONTAINER = SSZ_CONTAINER("AccessLis
 
 // the transaction data
 static const ssz_def_t ETH_TX_DATA[] = {
-    SSZ_BYTES32("blockHash"),       // the blockHash of the execution block containing the transaction
-    SSZ_UINT64("blockNumber"),      // the number of the execution block containing the transaction
-    SSZ_BYTES32("hash"),            // the blockHash of the execution block containing the transaction
-    SSZ_UINT32("transactionIndex"), // the index of the transaction in the block
-    SSZ_UINT8("type"),              // the type of the transaction
-    SSZ_UINT64("nonce"),            // the nonce of the transaction
-    SSZ_BYTES("input", 1073741824), // the raw transaction payload
-    SSZ_BYTES32("r"),               // the r value of the transaction
-    SSZ_BYTES32("s"),               // the s value of the transaction
-    SSZ_UINT32("chainId"),          // the s value of the transaction
-    SSZ_UINT8("v"),                 // the v value of the transaction
-    SSZ_UINT64("gas"),              // the gas limnit
-    SSZ_ADDRESS("from"),            // the sender of the transaction
-    SSZ_BYTES("to", 20),            // the target of the transaction
-    SSZ_UINT256("value"),           // the value of the transaction
-    SSZ_UINT64("gasPrice"),
-    SSZ_UINT64("maxFeePerGas"),
-    SSZ_UINT64("maxPriorityFeePerGas"),
-    SSZ_LIST("accessList", ETH_ACCESS_LIST_DATA_CONTAINER, 256),
-    SSZ_LIST("blobVersionedHashes", ssz_bytes32, 16),
-    SSZ_UINT8("yParity")};
+    SSZ_BYTES32("blockHash"),                                    // the blockHash of the execution block containing the transaction
+    SSZ_UINT64("blockNumber"),                                   // the number of the execution block containing the transaction
+    SSZ_BYTES32("hash"),                                         // the blockHash of the execution block containing the transaction
+    SSZ_UINT32("transactionIndex"),                              // the index of the transaction in the block
+    SSZ_UINT8("type"),                                           // the type of the transaction
+    SSZ_UINT64("nonce"),                                         // the nonce of the transaction
+    SSZ_BYTES("input", 1073741824),                              // the raw transaction payload
+    SSZ_BYTES32("r"),                                            // the r value of the transaction
+    SSZ_BYTES32("s"),                                            // the s value of the transaction
+    SSZ_UINT32("chainId"),                                       // the s value of the transaction
+    SSZ_UINT8("v"),                                              // the v value of the transaction
+    SSZ_UINT64("gas"),                                           // the gas limnit
+    SSZ_ADDRESS("from"),                                         // the sender of the transaction
+    SSZ_BYTES("to", 20),                                         // the target of the transaction
+    SSZ_UINT256("value"),                                        // the value of the transaction
+    SSZ_UINT64("gasPrice"),                                      // the gas price of the transaction
+    SSZ_UINT64("maxFeePerGas"),                                  // the maxFeePerGas of the transaction
+    SSZ_UINT64("maxPriorityFeePerGas"),                          // the maxPriorityFeePerGas of the transaction
+    SSZ_LIST("accessList", ETH_ACCESS_LIST_DATA_CONTAINER, 256), // the access list of the transaction
+    SSZ_LIST("blobVersionedHashes", ssz_bytes32, 16),            // the blobVersionedHashes of the transaction
+    SSZ_UINT8("yParity")};                                       // the yParity of the transaction
 
 // a log entry in the receipt
 static const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
