@@ -734,27 +734,27 @@ the main container defining the incoming data processed by the verifier
 class C4Request(Container):
     version  : ByteVector [4]          # the [domain, major, minor, patch] version of the request, domaon=1 = eth
     data     : Union[                  # the data to proof
-        None,
-        Bytes32                        # the blochash  which is used for blockhash proof,
-        Bytes[1073741824]              # the bytes of the data,
-        Uint256                        # the balance of an account,
-        EthTxData                      # the transaction data,
-        EthReceiptData                 # the transaction receipt,
-        List [EthReceiptDataLog, 1024] # result of eth_getLogs,
+        None
+        Bytes32                        # the blochash  which is used for blockhash proof
+        Bytes[1073741824]              # the bytes of the data
+        Uint256                        # the balance of an account
+        EthTxData                      # the transaction data
+        EthReceiptData                 # the transaction receipt
+        List [EthReceiptDataLog, 1024] # result of eth_getLogs
         EthBlockData                   # the block data
     ]
     proof    : Union[                  # the proof of the data
-        None,
-        EthAccountProof,
-        EthTransactionProof,
-        EthReceiptProof                # a Proof of a TransactionReceipt,
-        List [EthLogsBlock, 256]       # a Proof for multiple Receipts and txs,
-        EthCallProof,
-        EthSyncProof                   # Proof as input data for the sync committee transition used by zk,
+        None
+        EthAccountProof
+        EthTransactionProof
+        EthReceiptProof                # a Proof of a TransactionReceipt
+        List [EthLogsBlock, 256]       # a Proof for multiple Receipts and txs
+        EthCallProof
+        EthSyncProof                   # Proof as input data for the sync committee transition used by zk
         EthBlockProof                  # Proof for BlockData
     ]
     sync_data: Union[                  # the sync data containing proofs for the transition between the two periods
-        None,
+        None
         List [LightClientUpdate, 512]  # this light client update can be fetched directly from the beacon chain API
     ]
 ```
@@ -880,7 +880,7 @@ class EthCallAccount(Container):
     accountProof: List [bytes_1024, 256]         # Patricia merkle proof
     address     : Address                        # the address of the account
     code        : Union[                         # the code of the contract
-        Boolean                                  # no code delivered,
+        Boolean                                  # no code delivered
         Bytes[4194304]                           # the code of the contract
     ]
     storageProof: List [EthStorageProof, 4096]   # the storage proofs of the selected

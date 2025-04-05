@@ -67,7 +67,7 @@ function handle(file, lines) {
             if (union) {
                 const s = defs[defs.length - 2]
                 defs[defs.length - 2] = s.substring(0, s.length - 2)
-                    + (s.substr(-2) == '[]' ? '[\n    ' : ',\n    ')
+                    + (s.substr(-2) == '[]' ? '[\n    ' : '\n    ')
                     + t + (comment ? ' # ' + comment : '') + '\n]'
             }
             else {
@@ -149,7 +149,8 @@ if (inlineUnions) {
                         const splits = v[i].split('<union>')
                         const unionName = splits[0].split(':')[1].trim()
                         const unionContent = getUnionContent(unionName)
-                        v[i] = splits[0].replace(unionName, '').trimEnd() + ' Union[ ' + splits[1] + '\n' + unionContent.slice(1).map(_ => '    ' + _).join('\n')
+                        v[i] = splits[0].replace(unionName, '').trimEnd() + ' Union[ '
+                            + splits[1] + '\n' + unionContent.slice(1).map(_ => '    ' + _).join('\n')
                     }
                 }
             }
