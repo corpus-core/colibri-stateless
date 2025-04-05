@@ -83,8 +83,6 @@ static void set_data(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t parent_root, b
   ssz_add_bytes(&data, "blobGasUsed", ssz_get(&block, "blobGasUsed").bytes);
   ctx->data = ssz_builder_to_bytes(&data);
   ctx->flags |= VERIFY_FLAG_FREE_DATA;
-
-  bytes_write(ctx->data.bytes, fopen("data.ssz", "wb"), true);
 }
 
 static bool matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_block) {
