@@ -7,7 +7,7 @@ const type_defs = [
     "chains/eth/ssz/verify_types.c",
 ]
 
-let types = {}
+let files = {}
 
 type_defs.forEach(f => handle(f, fs.readFileSync('../src/' + f, 'utf8').split('\n')))
 
@@ -19,6 +19,9 @@ function toCamelCase(str) {
 }
 
 function handle(file, lines) {
+    let types = {}
+    let title = ''
+    let file_description = ''
     let defs = []
     let union = false
     let comment = ''
@@ -28,7 +31,12 @@ function handle(file, lines) {
         const splits = line.split('//')
         if (splits.length > 1) {
             line = splits[0]
-            comment = ((comment || '') + '\n' + splits.slice(1).join('//')).trim()
+            if (!title && splits[1].trim().startsWith('title: '))
+                title = splits[1].trim().split('title: ')[1].trim()
+            else if (!file_description && splits[1].trim().startsWith('description: '))
+                file_description = splits[1].trim().split('description: ')[1].trim()
+            else
+                comment = ((comment || '') + '\n' + splits.slice(1).join('//')).trim()
         }
         let match = line.match(/const\s+ssz_def_t\s+(\w+)\[.*/);
         if (match) {
@@ -39,7 +47,7 @@ function handle(file, lines) {
             type_name = toCamelCase(type_name)
             types[type_name] = defs
 
-            defs.push('### ' + (union ? 'Union ' : '') + type_name)
+            defs.push('#### ' + (union ? 'Union ' : '') + type_name)
             defs.push('');
             if (comment) defs.push(comment + '\n')
             defs.push(`\n The Type is defined in [${file}](https://github.com/corpus-core/c4/blob/main/src/${file}#L${line_number}).\n`)
@@ -72,6 +80,7 @@ function handle(file, lines) {
             comment = ''
         }
     }
+    files[file] = { types, title, file_description }
 }
 
 function linked(name, prefix) {
@@ -119,31 +128,33 @@ function align(lines, divider = ' # ') {
 
 const inlineUnions = true
 if (inlineUnions) {
-    function getUnionContent(name) {
-        const start = types[name].indexOf('```python')
-        const end = types[name].indexOf('```', start)
-        let content = types[name].slice(start + 1, end).join('\n').split('\n')
+    for (let file of Object.values(files)) {
+        let types = file.types
+        function getUnionContent(name) {
+            const start = types[name].indexOf('```python')
+            const end = types[name].indexOf('```', start)
+            let content = types[name].slice(start + 1, end).join('\n').split('\n')
 
-        if (content[0].indexOf(' = ') > 0)
-            content[0] = content[0].split(' = ')[1]
-        return content
-    }
-    const unionTypes = Object.keys(types).filter(k => types[k][0].startsWith('### Union'))
-    Object.entries(types).forEach(([k, v]) => {
-        if (!unionTypes.includes(k)) {
-            for (let i = 0; i < v.length; i++) {
-                if (v[i].indexOf('<union>') > 0) {
-                    const splits = v[i].split('<union>')
-                    const unionName = splits[0].split(':')[1].trim()
-                    const unionContent = getUnionContent(unionName)
-                    v[i] = splits[0].replace(unionName, '').trimEnd() + ' Union[ ' + splits[1] + '\n' + unionContent.slice(1).map(_ => '    ' + _).join('\n')
+            if (content[0].indexOf(' = ') > 0)
+                content[0] = content[0].split(' = ')[1]
+            return content
+        }
+        const unionTypes = Object.keys(types).filter(k => types[k][0].startsWith('#### Union'))
+        Object.entries(types).forEach(([k, v]) => {
+            if (!unionTypes.includes(k)) {
+                for (let i = 0; i < v.length; i++) {
+                    if (v[i].indexOf('<union>') > 0) {
+                        const splits = v[i].split('<union>')
+                        const unionName = splits[0].split(':')[1].trim()
+                        const unionContent = getUnionContent(unionName)
+                        v[i] = splits[0].replace(unionName, '').trimEnd() + ' Union[ ' + splits[1] + '\n' + unionContent.slice(1).map(_ => '    ' + _).join('\n')
+                    }
                 }
             }
-        }
-    })
-    unionTypes.forEach(k => delete types[k])
+        })
+        unionTypes.forEach(k => delete types[k])
+    }
 }
-
 
 function replace_section(readme, section, content) {
     let level = '#'.repeat(section.indexOf(' ')) + ' '
@@ -223,7 +234,7 @@ function get_cmake_options() {
     ['../src', '../libs', '../CMakeLists.txt'].forEach(read_dir)
 
     return Object.values(options).map(o => o.path).filter((p, i, a) => a.indexOf(p) == i).map(path => {
-        return '#### ' + (path || 'Cmake') + '\n\n' +
+        return '#### ' + (path || 'Cmake') + ' options \n\n' +
             '| Flag | descr  | default |\n' +
             '| :--- | :----- | :----- |\n' +
             Object.keys(options).sort().filter(k => options[k].path == path).map(
@@ -243,15 +254,19 @@ function get_cmake_options() {
 }
 
 
-const keys = Object.keys(types).sort()
-const table = keys.map(k => `- [${k}](#${types[k][0].substr(4).toLowerCase().replace(/ /g, '-')})`).join('\n')
-
 
 // update readme
 
 let readme = fs.readFileSync('../README.md', 'utf8').split('\n')
 
-replace_section(readme, '## SSZ Types', keys.map(k => align(align(types[k], ': '), ' # ').join('\n')).join('\n\n'))
+
+for (let file of Object.values(files)) {
+    console.log('### ' + file.title.trim())
+    replace_section(readme, '### ' + file.title.trim(),
+        file.file_description + '\n\n' +
+        Object.keys(file.types).sort().map(k => align(align(file.types[k], ': '), ' # ').join('\n')).join('\n\n'))
+}
+
 replace_section(readme, '### CMake Options', get_cmake_options())
 replace_section(readme, '## Index', createToC(readme))
 fs.writeFileSync('../README.md', readme.join('\n'))

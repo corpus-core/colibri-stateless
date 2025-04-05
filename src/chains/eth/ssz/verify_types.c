@@ -1,3 +1,6 @@
+// title: Verification Types
+// description: The SSZ type defintions used in the proofs..
+
 #include "beacon_types.h"
 #include "ssz.h"
 #include <stdio.h>

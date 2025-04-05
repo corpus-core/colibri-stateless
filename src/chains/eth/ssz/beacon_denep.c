@@ -1,3 +1,6 @@
+// title: Beacon Types
+// description: The  SSZ types for the Beacon chain for the Denep Fork.
+
 #include "beacon_types.h"
 
 #define MAX_PROPOSER_SLASHINGS       16
