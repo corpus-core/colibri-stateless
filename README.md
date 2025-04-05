@@ -248,130 +248,39 @@ The js-module will be in the `build/emscripten` folder.
 
 ### CMake Options
 
-- **-DBLS_DESERIALIZE**: Store BLS keys deserialized  
-    Default: undefined  
-    Usage: `cmake -DBLS_DESERIALIZE=undefined` ..
-
-- **-DCHAIN_ETH**: includes all ETH engine  
-    Default: ON  
-    Usage: `cmake -DCHAIN_ETH=ON` ..
-
-- **-DCLI**: Build command line tools  
-    Default: ON  
-    Usage: `cmake -DCLI=ON` ..
-
-- **-DCMAKE_BUILD_TYPE**: Build type  
-    Default: Release  
-    Options: Debug, Release, RelWithDebInfo, MinSizeRel  
-    Usage: `cmake -DCMAKE_BUILD_TYPE=Release` ..
-
-- **-DCOMBINED_STATIC_LIB**: Build a combined static library  
-    Default: OFF  
-    Usage: `cmake -DCOMBINED_STATIC_LIB=OFF` ..
-
-- **-DCOVERAGE**: Enable coverage  
-    Default: OFF  
-    Usage: `cmake -DCOVERAGE=OFF` ..
-
-- **-DCURL**: Enable CURL support  
-    Default: ON  
-    Usage: `cmake -DCURL=ON` ..
-
-- **-DEMBEDDED**: Build for embedded target  
-    Default: OFF  
-    Usage: `cmake -DEMBEDDED=OFF` ..
-
-- **-DETH_ACCOUNT**: support eth account verification  
-    Default: ON  
-    Usage: `cmake -DETH_ACCOUNT=ON` ..
-
-- **-DETH_BLOCK**: support eth block verification  
-    Default: ON  
-    Usage: `cmake -DETH_BLOCK=ON` ..
-
-- **-DETH_CALL**: support eth call verification  
-    Default: ON  
-    Usage: `cmake -DETH_CALL=ON` ..
-
-- **-DETH_LOGS**: support eth logs verification  
-    Default: ON  
-    Usage: `cmake -DETH_LOGS=ON` ..
-
-- **-DETH_RECEIPT**: support eth receipt verification  
-    Default: ON  
-    Usage: `cmake -DETH_RECEIPT=ON` ..
-
-- **-DETH_TX**: support eth Transaction verification  
-    Default: ON  
-    Usage: `cmake -DETH_TX=ON` ..
-
-- **-DEVMLIGHT**: if true evmlight is included in the build  
-    Default: OFF  
-    Usage: `cmake -DEVMLIGHT=OFF` ..
-
-- **-DEVMONE**: if true evmone is included in the build  
-    Default: ON  
-    Usage: `cmake -DEVMONE=ON` ..
-
-- **-DFILE_STORAGE**: if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR  
-    Default: ON  
-    Usage: `cmake -DFILE_STORAGE=ON` ..
-
-- **-DHTTP_SERVER**: Build the HTTP server using libuv and llhttp  
-    Default: OFF  
-    Usage: `cmake -DHTTP_SERVER=OFF` ..
-
-- **-DINTX_BUILD_TEST**: Build intx test program  
-    Default: ON  
-    Usage: `cmake -DINTX_BUILD_TEST=ON` ..
-
-- **-DKOTLIN**: Build Kotlin bindings  
-    Default: OFF  
-    Usage: `cmake -DKOTLIN=OFF` ..
-
-- **-DMESSAGES**: if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory  
-    Default: ON  
-    Usage: `cmake -DMESSAGES=ON` ..
-
-- **-DPRECOMPILES_RIPEMD160**: Precompile ripemd160  
-    Default: ON  
-    Usage: `cmake -DPRECOMPILES_RIPEMD160=ON` ..
-
-- **-DPRECOMPILE_ZERO_HASHES**: if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the proofer, but not in the verfier  
-    Default: ON  
-    Usage: `cmake -DPRECOMPILE_ZERO_HASHES=ON` ..
-
-- **-DPROOFER**: Build the proofer library  
-    Default: ON  
-    Usage: `cmake -DPROOFER=ON` ..
-
-- **-DPROOFER_CACHE**: Caches blockhashes and maps  
-    Default: undefined  
-    Usage: `cmake -DPROOFER_CACHE=undefined` ..
-
-- **-DSHAREDLIB**: Build shared library  
-    Default: OFF  
-    Usage: `cmake -DSHAREDLIB=OFF` ..
-
-- **-DSTATIC_MEMORY**: if true, the memory will be statically allocated  
-    Default: undefined  
-    Usage: `cmake -DSTATIC_MEMORY=undefined` ..
-
-- **-DSWIFT**: Build Swift bindings  
-    Default: OFF  
-    Usage: `cmake -DSWIFT=OFF` ..
-
-- **-DTEST**: Build tests  
-    Default: OFF  
-    Usage: `cmake -DTEST=OFF` ..
-
-- **-DVERIFIER**: Build the verifier library  
-    Default: ON  
-    Usage: `cmake -DVERIFIER=ON` ..
-
-- **-DWASM**: Build WebAssembly target  
-    Default: OFF  
-    Usage: `cmake -DWASM=OFF` ..
+| Flag | descr  | default |
+| :--- | :----- | :----- |
+| **BLS_DESERIALIZE** | Store BLS keys deserialized |   |
+| **CHAIN_ETH** | includes all ETH engine | ON  |
+| **CLI** | Build command line tools | ON  |
+| **CMAKE_BUILD_TYPE** | Build type | Release  |
+| **COMBINED_STATIC_LIB** | Build a combined static library | OFF  |
+| **COVERAGE** | Enable coverage | OFF  |
+| **CURL** | Enable CURL support | ON  |
+| **EMBEDDED** | Build for embedded target | OFF  |
+| **ETH_ACCOUNT** | support eth account verification | ON  |
+| **ETH_BLOCK** | support eth block verification | ON  |
+| **ETH_CALL** | support eth call verification | ON  |
+| **ETH_LOGS** | support eth logs verification | ON  |
+| **ETH_RECEIPT** | support eth receipt verification | ON  |
+| **ETH_TX** | support eth Transaction verification | ON  |
+| **EVMLIGHT** | if true evmlight is included in the build | OFF  |
+| **EVMONE** | if true evmone is included in the build | ON  |
+| **FILE_STORAGE** | if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR | ON  |
+| **HTTP_SERVER** | Build the HTTP server using libuv and llhttp | OFF  |
+| **INTX_BUILD_TEST** | Build intx test program | ON  |
+| **KOTLIN** | Build Kotlin bindings | OFF  |
+| **MESSAGES** | if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory | ON  |
+| **PRECOMPILES_RIPEMD160** | Precompile ripemd160 | ON  |
+| **PRECOMPILE_ZERO_HASHES** | if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the proofer, but not in the verfier | ON  |
+| **PROOFER** | Build the proofer library | ON  |
+| **PROOFER_CACHE** | Caches blockhashes and maps |   |
+| **SHAREDLIB** | Build shared library | OFF  |
+| **STATIC_MEMORY** | if true, the memory will be statically allocated |   |
+| **SWIFT** | Build Swift bindings | OFF  |
+| **TEST** | Build tests | OFF  |
+| **VERIFIER** | Build the verifier library | ON  |
+| **WASM** | Build WebAssembly target | OFF  |
 
 
 ### Running on embedded devices
