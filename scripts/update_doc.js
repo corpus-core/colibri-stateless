@@ -196,6 +196,7 @@ function get_cmake_options() {
                 if (line.trim().startsWith('option(')) {
                     let [name, description, val] = cmake_tokens(line.split('(')[1].split(')')[0].trim())
                     options[name] = {
+                        path: dir == '../CMakeLists.txt' ? 'general' : dir.split('/').at(-2),
                         default: val,
                         description: description
                     }
@@ -216,12 +217,21 @@ function get_cmake_options() {
 
     ['../src', '../libs', '../CMakeLists.txt'].forEach(read_dir)
 
-    return '| Flag | descr  | default |\n' +
-        '| :--- | :----- | :----- |\n' +
-        Object.keys(options).sort().map(
-            name => `| **${name}** | ${options[name].description} | ${options[name].default || ''}  |`
-        )
-            .join('\n') + '\n\n'
+    return Object.values(options).map(o => o.path).filter((p, i, a) => a.indexOf(p) == i).map(path => {
+        return '### ' + path + '\n\n' +
+            '| Flag | descr  | default |\n' +
+            '| :--- | :----- | :----- |\n' +
+            Object.keys(options).sort().filter(k => options[k].path == path).map(
+                name => `| **${name}** | ${options[name].description} | ${options[name].default || ''}  |`
+            )
+                .join('\n') + '\n\n'
+
+    }).join('\n\n')
+
+
+
+
+
 
 
 
