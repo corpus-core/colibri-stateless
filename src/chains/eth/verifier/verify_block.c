@@ -97,7 +97,7 @@ static bool matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_bl
     if (memcmp(hash, ssz_get(&block, "blockHash").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "blockhash mismatch");
     return true;
   }
-  else if (ssz_get_uint64(&block, "blockNumber") == json_as_uint64(req_block))
+  else if (ssz_get_uint64(&block, "blockNumber") != json_as_uint64(req_block))
     RETURN_VERIFY_ERROR(ctx, "blocknumber mismatch");
   return true;
 }

@@ -211,14 +211,15 @@ static inline c4_status_t eth_get_by_number(proofer_ctx_t* ctx, uint64_t block_n
 
 static inline c4_status_t eth_get_by_hash(proofer_ctx_t* ctx, json_t block_hash, bytes32_t data_root) {
   // get the eth block from the blockhash or blocknumber
-  json_t eth_block = {0};
-  json_t header    = {0};
+  json_t    eth_block   = {0};
+  json_t    header      = {0};
+  bytes32_t parent_root = {0};
 
   // eth_getBlockByHash
   TRY_ASYNC(eth_get_block(ctx, block_hash, false, &eth_block));
 
   // get the beacon block matching the parent hash
-  return get_beacon_header_from_eth_block(ctx, eth_block, &header, data_root, NULL);
+  return get_beacon_header_from_eth_block(ctx, eth_block, &header, data_root, parent_root);
 }
 
 static inline c4_status_t eth_get_final_hash(proofer_ctx_t* ctx, bool safe, bytes32_t hash) {
