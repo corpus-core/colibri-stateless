@@ -282,12 +282,14 @@ static void verify(char* dirname, char* method, char* args, chain_id_t chain_id)
 static void run_rpc_test(char* dirname, proofer_flags_t flags) {
   char test_filename[1024];
   sprintf(test_filename, "%s/test.json", dirname);
-  bytes_t    test_content    = read_testdata(test_filename);
-  json_t     test            = json_parse((char*) test_content.data);
-  char*      method          = bprintf(NULL, "%j", json_get(test, "method"));
-  char*      args            = json_new_string(json_get(test, "params"));
-  chain_id_t chain_id        = (chain_id_t) json_get_uint64(test, "chain_id");
-  char*      expected_result = normalize_newlines(bprintf(NULL, "%J", json_get(test, "expected_result")));
+  bytes_t    test_content        = read_testdata(test_filename);
+  json_t     test                = json_parse((char*) test_content.data);
+  char*      method              = bprintf(NULL, "%j", json_get(test, "method"));
+  char*      args                = json_new_string(json_get(test, "params"));
+  chain_id_t chain_id            = (chain_id_t) json_get_uint64(test, "chain_id");
+  char*      expected_result_src = bprintf(NULL, "%J", json_get(test, "expected_result"));
+  char*      expected_result     = normalize_newlines(expected_result_src);
+  free(expected_result_src);
 
   verify_count(dirname, method, args, chain_id, 1, flags, expected_result);
 
