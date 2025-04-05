@@ -451,7 +451,7 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L558).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L532).
 
 ```python
 class C4Request(Container):
@@ -628,16 +628,18 @@ class EthAccountProof(Container):
 
 ### EthBlockData
 
+display the block data , which is based on the execution payload
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L502).
+
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L476).
 
 ```python
 class EthBlockData(Container):
     number               : Uint64                         # the blocknumber
     hash                 : Bytes32                        # the blockhash
     transactions         : Union[                         # the transactions
-        transactions     : List [bytes32, 4096]           # the transactions hashes
-        transactions     : List [EthTxData, 4096]         # the transactions data
+        as_hashes        : List [bytes32, 4096]           # the transactions hashes
+        as_data          : List [EthTxData, 4096]         # the transactions data
     logsBloom            : ByteVector [256]               # the logsBloom
     receiptsRoot         : Bytes32                        # the receiptsRoot
     extraData            : Bytes[32]                      # the extraData
@@ -664,12 +666,12 @@ class EthBlockData(Container):
 ### EthBlockDataTransactionUntion
 
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L497).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L470).
 
 ```python
 class EthBlockDataTransactionUntion(Container):
-    transactions: List [bytes32, 4096]     # the transactions hashes
-    transactions: List [EthTxData, 4096]   # the transactions data
+    as_hashes: List [bytes32, 4096]     # the transactions hashes
+    as_data  : List [EthTxData, 4096]   # the transactions data
 ```
 
 ### EthBlockProof

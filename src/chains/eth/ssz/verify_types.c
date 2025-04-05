@@ -465,40 +465,14 @@ static const ssz_def_t ETH_BLOCK_PROOF[] = {
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),               // the header of the beacon block
     SSZ_BIT_VECTOR("sync_committee_bits", 512),                 // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("sync_committee_signature", 96)};           // the signature of the sync committee
-/*
-number:"0x1528ddc",
-hash:"0x9fbf17a5e8ccde50e33504db280d01188859ca698542030b2e43ffe11a6d7558",
-transactions:[],
-logsBloom:"0xfffbef5ae97b9ade5e7c62f6b6fbdf27bfbbb1f7cfb2ded75acf8f1a3ffff457bd7fff7ebb1f7dfef573dfffc47fdf7fef3da37dfc93bf617fdbf7ee1cfffbfb57f1e7bb8b6fc9adc96ed35bf2667debde9ddaff5fffdf7f777f3fcfbdfaeeb8bcfeef7eae75e77bbfeb5eeb4f3f6fffaffb7d6f72575cdbe7ffbcfe3fef3d6daef76b6b75d3df785d7fdafceeb2f6662779dcdbb7ffffbabfeb4efe77bdbefeabbdbcefbffbeebfeff36bcf7fbaffcfbd16cdf6f33777ebedffc5ee7cffbdf0eca97d672bfbfaffcf27b69ffe3efb2fafeff77df7fffcfebba90bafeafd6f73cffaaff9f475d7ff7bddd6dab47fd7e27f64e7cb8fff28dd9d6d8dfe395d9eab",
-receiptsRoot:"0x21b6d4d5ab8415ccaf69254b8e72cdf23b6fdea6eb3d0a4ab9a8276df94d9a20",
-extraData:"0x546974616e2028746974616e6275696c6465722e78797a29",
-withdrawalsRoot:"0xd7628c1029f98c74a7ea2dee50cd730b0f1a21896a8148c73dfac69b9f0167d7",
-baseFeePerGas:"0x7ce92fe1",
-nonce:"0x0000000000000000",
-miner:"0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
-withdrawals:[],
-excessBlobGas:"0xd20000",
-difficulty:"0x0",
-gasLimit:"0x2255100",
-gasUsed:"0x146d555",
-uncles:[
-],
-parentBeaconBlockRoot:"0x5145dbdbc87a32b16c83ab68bc2e273f4b3c368beb5b451f8dd7f4455021aacf",
-size:"0x15861",
-sha3Uncles:"0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-transactionsRoot:"0xed9eba655dddbd8b13ac02eb412f248ea78fc0c41aa7ec161adc92d475a9eb03",
-stateRoot:"0x0a4450f7682d819abe407243abd3051890b75ed117ccfa1c752a94b7238423da",
-mixHash:"0xbea3a39102b3fb6a7bb228e243636ccd7741c79bcced70ccdca05e53719a639e",
-parentHash:"0x2c0ba2cbb92345ef9e08c40dde99d33e7550b8c957106bd7edeb2f3abc36c5b2",
-blobGasUsed:"0xc0000",
-timestamp:"0x67ee5457"
-*/
+
 static const ssz_def_t ETH_TX_DATA_CONTAINER               = SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA);
 static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNTION[] = {
-    SSZ_LIST("transactions", ssz_bytes32, 4096),           // the transactions hashes
-    SSZ_LIST("transactions", ETH_TX_DATA_CONTAINER, 4096), // the transactions data
+    SSZ_LIST("as_hashes", ssz_bytes32, 4096),         // the transactions hashes
+    SSZ_LIST("as_data", ETH_TX_DATA_CONTAINER, 4096), // the transactions data
 };
 
+// display the block data , which is based on the execution payload
 static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_UINT64("number"),                                         // the blocknumber
     SSZ_BYTES32("hash"),                                          // the blockhash
