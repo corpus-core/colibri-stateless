@@ -728,7 +728,7 @@ The SSZ union type defintions defining datastructure of a proof for eth.
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [chains/eth/ssz/verify_union_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_union_types.h#L36).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L44).
 
 ```python
 class C4Request(Container):
