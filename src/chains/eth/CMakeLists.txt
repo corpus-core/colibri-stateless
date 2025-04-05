@@ -5,6 +5,34 @@ option(ETH_RECEIPT  "support eth receipt verification" ON)
 option(ETH_LOGS  "support eth logs verification" ON)
 option(ETH_CALL  "support eth call verification" ON)
 
+
+option(EVMONE "if true evmone is included in the build" ON)
+option(EVMLIGHT "if true evmlight is included in the build" OFF)
+# precompiles
+option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
+
+
+
+if (EVMLIGHT OR EVMONE)
+    if (EVMONE) 
+       set(EVMLIGHT OFF)
+       add_definitions(-DEVMONE)
+    else()
+        add_definitions(-DEVMLIGHT)
+    endif()
+    set(EVM ON)
+    add_definitions(-DEVM -DINTX)
+    set(INTX ON)
+
+    if (EVMLIGHT)
+        add_definitions(-DEVMLIGHT)
+    endif()
+    if (PRECOMPILES_RIPEMD160)
+        add_definitions(-DPRECOMPILED_RIPEMD160)
+    endif()
+endif()
+
+
 set(VERIFIER_SOURCES
   verifier/sync_committee.c
   verifier/sync_committee_state.c

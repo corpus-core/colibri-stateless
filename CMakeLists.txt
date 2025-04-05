@@ -9,8 +9,6 @@ option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized (faster but 25k more memory in cache per period)" ON)
 option(PROOFER_CACHE "Caches blockhashes and maps)" OFF)
 option(CHAIN_ETH "includes all ETH engine" ON)
-option(EVMONE "if true evmone is included in the build" ON)
-option(EVMLIGHT "if true evmlight is included in the build" OFF)
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -20,8 +18,6 @@ option(TEST "Build tests" OFF)
 option(COVERAGE "Enable coverage" OFF)
 option(SHAREDLIB "Build shared library" OFF)
 option(STATIC_MEMORY "if true, the memory will be statically allocated (only for embedded systems)" OFF)
-# precompiles
-option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
 
 # Additional include path (for embedded targets etc)
 set(INCLUDE "" CACHE STRING "Additional directory to include in build")
@@ -29,30 +25,10 @@ set(INCLUDE "" CACHE STRING "Additional directory to include in build")
 # Add option for the HTTP server
 option(HTTP_SERVER "Build the HTTP server using libuv and llhttp" OFF)
 
-if (EVMLIGHT OR EVMONE)
-    if (EVMONE) 
-       set(EVMLIGHT OFF)
-       add_definitions(-DEVMONE)
-    else()
-        add_definitions(-DEVMLIGHT)
-    endif()
-    set(EVM ON)
-    add_definitions(-DEVM -DINTX)
-    set(INTX ON)
-
-    if (EVMLIGHT)
-        add_definitions(-DEVMLIGHT)
-    endif()
-    if (PRECOMPILES_RIPEMD160)
-        add_definitions(-DPRECOMPILED_RIPEMD160)
-    endif()
-endif()
-
 if (HTTP_SERVER)
     add_definitions(-DHTTP_SERVER)
     add_definitions(-DC4_PROOFER_USE_UV_TIME)
 endif()
-
 
 
 if(EMBEDDED)

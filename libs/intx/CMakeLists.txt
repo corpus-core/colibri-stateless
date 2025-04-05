@@ -20,7 +20,7 @@ if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android")
 endif()
 
 # Add the wrapper library
-add_library(intx_wrapper
+add_library(intx_wrapper STATIC EXCLUDE_FROM_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/wrapper.cpp
 )
 

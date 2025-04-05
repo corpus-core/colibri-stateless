@@ -40,11 +40,15 @@
     - [BlsToExecutionChange](#blstoexecutionchange)
     - [C4Request](#c4request)
     - [Checkpoint](#checkpoint)
+    - [DenepExecutionPayload](#denepexecutionpayload)
     - [Deposit](#deposit)
     - [DepositData](#depositdata)
     - [Eth1Data](#eth1data)
     - [EthAccessListData](#ethaccesslistdata)
     - [EthAccountProof](#ethaccountproof)
+    - [EthBlockData](#ethblockdata)
+    - [EthBlockDataTransactionUntion](#ethblockdatatransactionuntion)
+    - [EthBlockProof](#ethblockproof)
     - [EthCallAccount](#ethcallaccount)
     - [EthCallProof](#ethcallproof)
     - [EthLogsBlock](#ethlogsblock)
@@ -57,7 +61,6 @@
     - [EthSyncProof](#ethsyncproof)
     - [EthTransactionProof](#ethtransactionproof)
     - [EthTxData](#ethtxdata)
-    - [ExecutionPayload](#executionpayload)
     - [ExecutionPayloadHeader](#executionpayloadheader)
     - [IndexAttestation](#indexattestation)
     - [LightClientHeader](#lightclientheader)
@@ -308,6 +311,30 @@ The js-module will be in the `build/emscripten` folder.
     Default: OFF  
     Usage: `cmake -DEMBEDDED=OFF` ..
 
+- **-DETH_ACCOUNT**: support eth account verification  
+    Default: ON  
+    Usage: `cmake -DETH_ACCOUNT=ON` ..
+
+- **-DETH_BLOCK**: support eth block verification  
+    Default: ON  
+    Usage: `cmake -DETH_BLOCK=ON` ..
+
+- **-DETH_CALL**: support eth call verification  
+    Default: ON  
+    Usage: `cmake -DETH_CALL=ON` ..
+
+- **-DETH_LOGS**: support eth logs verification  
+    Default: ON  
+    Usage: `cmake -DETH_LOGS=ON` ..
+
+- **-DETH_RECEIPT**: support eth receipt verification  
+    Default: ON  
+    Usage: `cmake -DETH_RECEIPT=ON` ..
+
+- **-DETH_TX**: support eth Transaction verification  
+    Default: ON  
+    Usage: `cmake -DETH_TX=ON` ..
+
 - **-DEVMLIGHT**: if true evmlight is included in the build  
     Default: OFF  
     Usage: `cmake -DEVMLIGHT=OFF` ..
@@ -423,7 +450,7 @@ The project includes several GitHub Actions workflows:
 an attestation is a list of aggregation bits, a data and a signature
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L73).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L102).
 
 ```python
 class Attestation(Container):
@@ -437,7 +464,7 @@ class Attestation(Container):
 the data of an attestation
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L32).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L61).
 
 ```python
 class AttestationData(Container):
@@ -453,7 +480,7 @@ class AttestationData(Container):
 an attester slashing is a list of two index attestations
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L60).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L89).
 
 ```python
 class AttesterSlashing(Container):
@@ -491,7 +518,7 @@ class BeaconBlockBody(Container):
     deposits             : List [Deposit, MAX_DEPOSITS]
     voluntaryExits       : List [SignedVoluntaryExit, MAX_VOLUNTARY_EXITS]
     syncAggregate        : SyncAggregate
-    executionPayload     : ExecutionPayload
+    executionPayload     : DenepExecutionPayload
     blsToExecutionChanges: List [SignedBlsToExecutionChange, MAX_BLS_TO_EXECUTION_CHANGES]
     blobKzgCommitments   : List [blsPubky, 4096]
 ```
@@ -545,7 +572,7 @@ class BlsToExecutionChange(Container):
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L481).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L558).
 
 ```python
 class C4Request(Container):
@@ -557,7 +584,8 @@ class C4Request(Container):
         Uint256                        # the balance of an account,
         EthTxData                      # the transaction data,
         EthReceiptData                 # the transaction receipt,
-        List [EthReceiptDataLog, 1024] # result of eth_getLogs
+        List [EthReceiptDataLog, 1024] # result of eth_getLogs,
+        EthBlockData                   # the block data
     ]
     proof    : Union[                  # the proof of the data
         None,
@@ -567,7 +595,8 @@ class C4Request(Container):
         EthReceiptProof                # a Proof of a TransactionReceipt,
         List [EthLogsBlock, 256]       # a Proof for multiple Receipts and txs,
         EthCallProof,
-        EthSyncProof                   # Proof as input data for the sync committee transition used by zk
+        EthSyncProof                   # Proof as input data for the sync committee transition used by zk,
+        EthBlockProof                  # Proof for BlockData
     ]
     sync_data: Union[                  # the sync data containing proofs for the transition between the two periods
         None,
@@ -580,7 +609,7 @@ class C4Request(Container):
 a checkpoint is a tuple of epoch and root
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L26).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L55).
 
 ```python
 class Checkpoint(Container):
@@ -588,10 +617,38 @@ class Checkpoint(Container):
     root : Bytes32   # the root of the checkpoint
 ```
 
+### DenepExecutionPayload
+
+the block header of the execution layer proved within the beacon block
+
+
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L34).
+
+```python
+class DenepExecutionPayload(Container):
+    parentHash   : Bytes32                             # the hash of the parent block
+    feeRecipient : Address                             # the address of the fee recipient
+    stateRoot    : Bytes32                             # the merkle root of the state at the end of the block
+    receiptsRoot : Bytes32                             # the merkle root of the transactionreceipts
+    logsBloom    : ByteVector [256]                    # the bloom filter of the logs
+    prevRandao   : Bytes32                             # the randao of the previous block
+    blockNumber  : Uint64                              # the block number
+    gasLimit     : Uint64                              # the gas limit of the block
+    gasUsed      : Uint64                              # the gas used of the block
+    timestamp    : Uint64                              # the timestamp of the block
+    extraData    : Bytes[32]                           # the extra data of the block
+    baseFeePerGas: Uint256                             # the base fee per gas of the block
+    blockHash    : Bytes32                             # the hash of the block
+    transactions : List [transactionsBytes, 1048576]   # the list of transactions
+    withdrawals  : List [DenepWithdrawal, 16]          # the list of withdrawels
+    blobGasUsed  : Uint64                              # the gas used for the blob transactions
+    excessBlobGas: Uint64                              # the excess blob gas of the block
+```
+
 ### Deposit
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L86).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L115).
 
 ```python
 class Deposit(Container):
@@ -602,7 +659,7 @@ class Deposit(Container):
 ### DepositData
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L79).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L108).
 
 ```python
 class DepositData(Container):
@@ -617,7 +674,7 @@ class DepositData(Container):
 the eth1 data is a deposit root, a deposit count and a block hash
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L66).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L95).
 
 ```python
 class Eth1Data(Container):
@@ -680,7 +737,7 @@ class EthAccessListData(Container):
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L242).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L243).
 
 ```python
 class EthAccountProof(Container):
@@ -688,6 +745,71 @@ class EthAccountProof(Container):
     address     : Address                       # the address of the account
     storageProof: List [EthStorageProof, 256]   # the storage proofs of the selected
     state_proof : EthStateProof                 # the state proof of the account
+```
+
+### EthBlockData
+
+
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L502).
+
+```python
+class EthBlockData(Container):
+    number               : Uint64                         # the blocknumber
+    hash                 : Bytes32                        # the blockhash
+    transactions         : Union[                         # the transactions
+        transactions     : List [bytes32, 4096]           # the transactions hashes
+        transactions     : List [EthTxData, 4096]         # the transactions data
+    logsBloom            : ByteVector [256]               # the logsBloom
+    receiptsRoot         : Bytes32                        # the receiptsRoot
+    extraData            : Bytes[32]                      # the extraData
+    withdrawalsRoot      : Bytes32                        # the withdrawalsRoot
+    baseFeePerGas        : Uint256                        # the baseFeePerGas
+    nonce                : ByteVector [8]                 # the nonce
+    miner                : Address                        # the miner
+    withdrawals          : List [DenepWithdrawal, 4096]   # the withdrawals
+    excessBlobGas        : Uint64                         # the excessBlobGas
+    difficulty           : Uint64                         # the difficulty
+    gasLimit             : Uint64                         # the gasLimit
+    gasUsed              : Uint64                         # the gasUsed
+    timestamp            : Uint64                         # the timestamp
+    mixHash              : Bytes32                        # the mixHash
+    parentHash           : Bytes32                        # the parentHash
+    uncles               : List [bytes32, 4096]           # the transactions hashes
+    parentBeaconBlockRoot: Bytes32                        # the parentBeaconBlockRoot
+    sha3Uncles           : Bytes32                        # the sha3Uncles of the uncles
+    transactionsRoot     : Bytes32                        # the transactionsRoot
+    stateRoot            : Bytes32                        # the stateRoot
+    blobGasUsed          : Uint64                         # the gas used for the blob transactions
+```
+
+### EthBlockDataTransactionUntion
+
+
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L497).
+
+```python
+class EthBlockDataTransactionUntion(Container):
+    transactions: List [bytes32, 4096]     # the transactions hashes
+    transactions: List [EthTxData, 4096]   # the transactions data
+```
+
+### EthBlockProof
+
+the stateRoot proof is used as part of different other types since it contains all relevant
+ proofs to validate the stateRoot of the execution layer
+
+
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L462).
+
+```python
+class EthBlockProof(Container):
+    executionPayload        : Union[                # the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+        DenepExecutionPayload
+    ]
+    proof                   : List [bytes32, 256]   # the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+    header                  : BeaconBlockHeader     # the header of the beacon block
+    sync_committee_bits     : BitVector [512]       # the bits of the validators that signed the block
+    sync_committee_signature: ByteVector [96]       # the signature of the sync committee
 ```
 
 ### EthCallAccount
@@ -731,7 +853,7 @@ class EthAccountProof(Container):
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L299).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L300).
 
 ```python
 class EthCallAccount(Container):
@@ -747,7 +869,7 @@ class EthCallAccount(Container):
 ### EthCallProof
 
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L306).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L307).
 
 ```python
 class EthCallProof(Container):
@@ -1014,7 +1136,7 @@ Proof as input data for the sync committee transition used by zk. This is a very
  So in total, we need to verify 1035 hashes and 1 bls signature.
 
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L443).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L444).
 
 ```python
 class EthSyncProof(Container):
@@ -1023,7 +1145,9 @@ class EthSyncProof(Container):
     syncCommitteeBits     : BitVector [512]          # the bits of the validators that signed the block
     syncCommitteeSignature: ByteVector [96]          # the signature of the sync committee
     gidx                  : Uint64                   # the general index from the signing root to the pubkeys of the next_synccommittee
-    proof                 : Vector [bytes32, 9]      # proof merkle proof from the signing root to the pubkeys of the next_synccommittee
+    proof                 : Vector [bytes32, 10]     # proof merkle proof from the signing root to the pubkeys of the next_synccommittee
+    slot                  : Uint64                   # the slot of the block
+    proposerIndex         : Uint64
 ```
 
 ### EthTransactionProof
@@ -1065,6 +1189,7 @@ class EthTransactionProof(Container):
     transactionIndex        : Uint32               # the index of the transaction in the block
     blockNumber             : Uint64               # the number of the execution block containing the transaction
     blockHash               : Bytes32              # the blockHash of the execution block containing the transaction
+    baseFeePerGas           : Uint64               # the baseFeePerGas
     proof                   : List [bytes32, 64]   # the multi proof of the transaction, blockNumber and blockHash
     header                  : BeaconBlockHeader    # the header of the beacon block
     sync_committee_bits     : BitVector [512]      # the bits of the validators that signed the block
@@ -1085,7 +1210,7 @@ class EthTxData(Container):
     hash                : Bytes32             # the blockHash of the execution block containing the transaction
     transactionIndex    : Uint32              # the index of the transaction in the block
     type                : Uint8               # the type of the transaction
-    nonce               : Uint64              # the gasPrice of the transaction
+    nonce               : Uint64              # the nonce of the transaction
     input               : Bytes[1073741824]   # the raw transaction payload
     r                   : Bytes32             # the r value of the transaction
     s                   : Bytes32             # the s value of the transaction
@@ -1100,35 +1225,7 @@ class EthTxData(Container):
     maxPriorityFeePerGas: Uint64
     accessList          : List [EthAccessListData, 256]
     blobVersionedHashes : List [bytes32, 16]
-    yParity             : Uint8               # the gasPrice of the transaction
-```
-
-### ExecutionPayload
-
-the block header of the execution layer proved within the beacon block
-
-
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L111).
-
-```python
-class ExecutionPayload(Container):
-    parentHash   : Bytes32                             # the hash of the parent block
-    feeRecipient : Address                             # the address of the fee recipient
-    stateRoot    : Bytes32                             # the merkle root of the state at the end of the block
-    receiptsRoot : Bytes32                             # the merkle root of the transactionreceipts
-    logsBloom    : ByteVector [256]                    # the bloom filter of the logs
-    prevRandao   : Bytes32                             # the randao of the previous block
-    blockNumber  : Uint64                              # the block number
-    gasLimit     : Uint64                              # the gas limit of the block
-    gasUsed      : Uint64                              # the gas used of the block
-    timestamp    : Uint64                              # the timestamp of the block
-    extraData    : Bytes[32]                           # the extra data of the block
-    baseFeePerGas: Uint256                             # the base fee per gas of the block
-    blockHash    : Bytes32                             # the hash of the block
-    transactions : List [transactionsBytes, 1048576]   # the list of transactions
-    withdrawals  : List [Withdrawal, 16]               # the list of withdrawels
-    blobGasUsed  : Uint64                              # the gas used for the blob transactions
-    excessBlobGas: Uint64                              # the excess blob gas of the block
+    yParity             : Uint8
 ```
 
 ### ExecutionPayloadHeader
@@ -1164,7 +1261,7 @@ class ExecutionPayloadHeader(Container):
 an index attestation is a list of attesting indices, a data and a signature
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L41).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L70).
 
 ```python
 class IndexAttestation(Container):
@@ -1211,7 +1308,7 @@ class LightClientUpdate(Container):
 a proposer slashing is a list of two signed beacon block headers
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L54).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L83).
 
 ```python
 class ProposerSlashing(Container):
@@ -1235,7 +1332,7 @@ class SignedBeaconBlock(Container):
 a signed beacon block header is a beacon block header and a signature
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L48).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L77).
 
 ```python
 class SignedBeaconBlockheader(Container):
@@ -1257,7 +1354,7 @@ class SignedBlsToExecutionChange(Container):
 ### SignedVoluntaryExit
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L96).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L125).
 
 ```python
 class SignedVoluntaryExit(Container):
@@ -1294,7 +1391,7 @@ class SyncCommittee(Container):
 ### VoluntaryExit
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L91).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L120).
 
 ```python
 class VoluntaryExit(Container):
@@ -1305,7 +1402,7 @@ class VoluntaryExit(Container):
 ### Withdrawal
 
 
- The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L101).
+ The Type is defined in [chains/eth/ssz/beacon_denep.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/beacon_denep.c#L24).
 
 ```python
 class Withdrawal(Container):

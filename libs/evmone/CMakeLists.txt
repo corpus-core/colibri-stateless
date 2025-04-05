@@ -174,11 +174,11 @@ if(NOT evmone_external_POPULATED)
         endif()
     ")
 endif()
-add_subdirectory(${evmone_external_SOURCE_DIR} ${evmone_external_BINARY_DIR})
+add_subdirectory(${evmone_external_SOURCE_DIR} ${evmone_external_BINARY_DIR} EXCLUDE_FROM_ALL)
 
 
 # Create our wrapper library
-add_library(evmone_wrapper STATIC 
+add_library(evmone_wrapper STATIC  EXCLUDE_FROM_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/evmone_c_wrapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/evmone_c_wrapper.h
 )
