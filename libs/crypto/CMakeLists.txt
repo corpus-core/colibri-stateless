@@ -31,7 +31,7 @@ set(SRC
 #  pbkdf2.c
 #  rfc6979.c
 
-
+  ripemd160.c
 #  bip39.c
 #  bip39_english.c
 
@@ -41,10 +41,6 @@ set(SRC
 
 )
 
-
-if(PRECOMPILES_RIPEMD160)
-  set(SRC ${SRC} ripemd160.c)
-endif()
 
 add_library(crypto STATIC ${SRC} )
 target_include_directories(crypto PUBLIC .)

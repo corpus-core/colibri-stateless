@@ -212,7 +212,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   debug_print_address("call from", &msg->sender);
   debug_print_address("call to", &msg->destination);
   debug_print_address("code from", &msg->code_address);
-  EVM_LOG("call gas: %lld, depth: %d, is_static: %s", msg->gas, msg->depth, msg->is_static ? "true" : "false");
+  EVM_LOG("call gas: %zu, depth: %d, is_static: %s", (size_t) msg->gas, msg->depth, msg->is_static ? "true" : "false");
 
   if (bytes_all_zero(bytes(msg->code_address.bytes, 19)) && msg->code_address.bytes[19]) {
     buffer_t     output     = {0};
@@ -271,7 +271,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       execution_code,
       execution_code_size);
 
-  EVM_LOG("Child call complete. Status: %d, Gas left: %llu", exec_result.status_code, exec_result.gas_left);
+  EVM_LOG("Child call complete. Status: %d, Gas left: %zu", exec_result.status_code, (size_t) exec_result.gas_left);
   if (exec_result.output_data && exec_result.output_size > 0) {
     EVM_LOG("Child call output (%zu bytes): 0x", exec_result.output_size);
     if (EVM_DEBUG) {
@@ -309,7 +309,7 @@ static evmc_bytes32 host_get_tx_context(void* context) {
 // Get block hash for a specific block number
 static evmc_bytes32 host_get_block_hash(void* context, int64_t number) {
   evmone_context_t* ctx = (evmone_context_t*) context;
-  EVM_LOG("get_block_hash for block number: %lld", number);
+  EVM_LOG("get_block_hash for block number: %zu", (size_t) number);
 
   evmc_bytes32 result = {0};
   // TODO: Implement block hash retrieval logic
@@ -491,8 +491,8 @@ c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_
       code.len);
 
   EVM_LOG("Result status code: %d", result.status_code);
-  EVM_LOG("Gas left: %llu", result.gas_left);
-  EVM_LOG("Gas refund: %llu", result.gas_refund);
+  EVM_LOG("Gas left: %zu", (size_t) result.gas_left);
+  EVM_LOG("Gas refund: %zu", (size_t) result.gas_refund);
 
   if (EVM_DEBUG && result.output_data && result.output_size > 0)
     print_hex(stderr, bytes(result.output_data, result.output_size), "[EVM] Output data: 0x", "\n");

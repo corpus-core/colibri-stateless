@@ -50,7 +50,7 @@ c4_status_t eth_get_proof(proofer_ctx_t* ctx, json_t address, json_t storage_key
   bprintf(&buffer, ",\"0x%lx\"]", block_number);
 
   TRY_ASYNC_FINAL(
-      c4_send_eth_rpc(ctx, "eth_getProof", (const char*) buffer.data.data, 12, proof),
+      c4_send_eth_rpc(ctx, "eth_getProof", (char*) buffer.data.data, 12, proof),
       buffer_free(&buffer));
   CHECK_JSON(*proof, JSON_ETH_PROOF_FIELDS, "Invalid results for eth_getProof: ");
   return C4_SUCCESS;
