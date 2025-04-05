@@ -14,7 +14,13 @@
         - [Patricia Merkle Proof](#patricia-merkle-proof)
         - [SSZ Merkle Proof](#ssz-merkle-proof)
 - [RPC Proofs](#rpc-proofs)
-    - [eth_getBalance](#eth_getbalance)
+    - [eth_blobBaseFee](#eth_blobbasefee)
+    - [eth_call](#eth_call)
+    - [eth_createAccessList](#eth_createaccesslist)
+    - [eth_estimateGas](#eth_estimategas)
+    - [eth_feeHistory](#eth_feehistory)
+    - [eth_gasPrice](#eth_gasprice)
+    - [✅ eth_getBalance](#✅-eth_getbalance)
     - [eth_getCode](#eth_getcode)
     - [eth_getTransactionCount](#eth_gettransactioncount)
     - [eth_getStorageAt](#eth_getstorageat)
@@ -22,7 +28,6 @@
     - [eth_getTransactionReceipt](#eth_gettransactionreceipt)
     - [eth_getTransactionByHash](#eth_gettransactionbyhash)
     - [eth_getTransactionByBlockHashAndIndex](#eth_gettransactionbyblockhashandindex)
-    - [eth_call](#eth_call)
 - [Building](#building)
     - [Build Javascript bindings (WASM)](#build-javascript-bindings-(wasm))
     - [CMake Options](#cmake-options)
@@ -197,52 +202,31 @@ All requests send to the verifier are encoded using SSZ. The request itself is s
 
 In order to proof the RPC-Request, the  proofer will use different proofs.
 
-### eth_getBalance
 
-- Data: Uint256
-- Proof: [EthAccountProof](#ethaccountproof)
-
-### eth_getCode
-
-- Data: Bytes
-- Proof: [EthAccountProof](#ethaccountproof)
-
-### eth_getTransactionCount
-
-- Data: Uint256
-- Proof: [EthAccountProof](#ethaccountproof)
-
-### eth_getStorageAt
-
-- Data: Bytes32
-- Proof: [EthAccountProof](#ethaccountproof)
-
-### eth_getProof
-
-not implemented yet
-
-### eth_getTransactionReceipt
-
-- Data: [EthReceiptData](#ethreceiptdata)
-- Proof: [EthReceiptProof](#ethreceiptproof)
-
-### eth_getTransactionByHash
-
-- Data: [EthTransactionData](#ethtransactiondata)
-- Proof: [EthTransactionProof](#ethtransactionproof)
-
-### eth_getTransactionByBlockHashAndIndex
-
-- Data: [EthTransactionData](#ethtransactiondata)
-- Proof: [EthTransactionProof](#ethtransactionproof)
-
-### eth_call
-
-- Data: Bytes
-- Proof: [EthTransactionProof](#ethtransactionproof)
-
-
-
+| rpc-Method                              | status          | descr   | Data                                             | Proof                                                     |
+| :-------------------------------------- | :-------------- | :------ | :----------------------------------------------- | :-------------------------------------------------------- |
+| `eth_blobBaseFee`                       | ✖️  |         | Uint64                                           | [EthBlockHeaderProof](#ethblockheaderproof)               |
+| `eth_call`                              | ✅ (precompiles 0x5 - 0xa still needed)|         | Bytes                                            | [EthCallProof](#ethcallproof)                             |
+| `eth_createAccessList`                  | ✖️  |         | [EthAccessData](#ethaccessdata)                  | [EthCallProof](#ethcallproof)                             |
+| `eth_estimateGas`                       | ✖️  |         | Uint64                                           | [EthCallProof](#ethcallproof)                             |
+| `eth_feeHistory`                        | ✖️  |         | N/A                                              | N/A                                                       |
+| `eth_gasPrice`                          | ✖️  |         | N/A                                              | N/A                                                       |
+| `eth_getBalance`                        | ✅     |         | Uint256                                          | [EthAccountProof](#ethaccountproof)                       |
+| `eth_getBlockByHash`                    | ✅     |         | [EthBlockData](#ethblockdata)                    | [EthBlockProof](#ethblockproof)                           |
+| `eth_getBlockByNumber`                  | ✅     |         | [EthBlockData](#ethblockdata)                    | [EthBlockProof](#ethblockproof)                           |
+| `eth_getBlockReceipts`                  | ✖️  |         | N/A                                              | N/A                                                       |
+| `eth_getBlockTransactionCountByHash`    | ✖️  |         | N/A                                              | N/A                                                       |
+| `eth_getBlockTransactionCountByNumber`  | ✖️  |         | N/A                                              | N/A                                                       |
+| `eth_getCode`                           | ✅     |         | Bytes                                            | [EthAccountProof](#ethaccountproof)                       |
+| `eth_FilterChanges`                     | ✖️  |         | N/A                                              | N/A                                                       |
+| `eth_FilterLogs`                        | ✖️  |         | N/A                                              | N/A                                                       |
+| `eth_getLogs`                           | ✅     |         | List<[EthReceiptDataLog](#ethreceiptdatalog)>    | List<[EthLogsBlock](#ethlogsblock)>                       |
+| `eth_getTransactionCount`               | ✅     |         | Uint256                                          | [EthAccountProof](#ethaccountproof)                       |
+| `eth_getStorageAt`                      | ✅     |         | Bytes32                                          | [EthAccountProof](#ethaccountproof)                       |
+| `eth_getProof`                          | ✖️  |         | N/A                                              | N/A                                                       |
+| `eth_getTransactionReceipt`             | ✅     |         | [EthReceiptData](#ethreceiptdata)                | [EthReceiptProof](#ethreceiptproof)                       |
+| `eth_getTransactionByHash`              | ✅     |         | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)               |
+| `eth_getTransactionByBlockHashAndIndex` | ✖️  |         | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)               |
 
 
 ## Building
