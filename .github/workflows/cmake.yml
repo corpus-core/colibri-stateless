@@ -35,8 +35,8 @@ jobs:
             -DCURL=OFF \
             -DEVMONE=OFF \
             -DETH_BLOCK=OFF \
-            -DETH_TX=OFF \
-            -DETH_RECEIPT=ON \
+            -DETH_TX=1 \
+            -DETH_RECEIPT=OFF \
             -DETH_LOGS=OFF \
             -DETH_CALL=OFF \
             -DETH_ACCOUNT=OFF \
