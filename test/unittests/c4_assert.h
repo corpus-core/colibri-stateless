@@ -103,6 +103,28 @@ static bytes_t read_testdata(const char* filename) {
   return data.data;
 }
 
+// Normalizes line endings in a string by removing '\r' characters.
+// Allocates a new string which must be freed by the caller.
+static char* normalize_newlines(const char* input) {
+  if (!input) {
+    return NULL;
+  }
+  size_t len    = strlen(input);
+  char*  output = (char*) malloc(len + 1); // Allocate enough space (max possible)
+  if (!output) {
+    perror("Failed to allocate memory in normalize_newlines");
+    return NULL; // Allocation failed
+  }
+  char* op = output;
+  for (const char* ip = input; *ip != '\0'; ++ip) {
+    if (*ip != '\r') {
+      *op++ = *ip;
+    }
+  }
+  *op = '\0'; // Null-terminate the output string
+  return output;
+}
+
 static void set_state(chain_id_t chain_id, char* dirname) {
 #ifdef _MSC_VER
   // Windows-specific implementation
@@ -265,7 +287,7 @@ static void run_rpc_test(char* dirname, proofer_flags_t flags) {
   char*      method          = bprintf(NULL, "%j", json_get(test, "method"));
   char*      args            = json_new_string(json_get(test, "params"));
   chain_id_t chain_id        = (chain_id_t) json_get_uint64(test, "chain_id");
-  char*      expected_result = bprintf(NULL, "%J", json_get(test, "expected_result"));
+  char*      expected_result = normalize_newlines(bprintf(NULL, "%J", json_get(test, "expected_result")));
 
   verify_count(dirname, method, args, chain_id, 1, flags, expected_result);
 
