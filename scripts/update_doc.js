@@ -4,7 +4,9 @@ const fs = require('fs');
 
 const type_defs = [
     "chains/eth/ssz/beacon_denep.c",
-    "chains/eth/ssz/verify_types.c",
+    "chains/eth/ssz/verify_union_types.h",
+    "chains/eth/ssz/verify_proof_types.h",
+    "chains/eth/ssz/verify_data_types.h",
 ]
 
 let files = {}
