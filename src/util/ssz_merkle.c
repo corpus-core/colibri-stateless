@@ -206,6 +206,7 @@ ssz_ob_t ssz_get(ssz_ob_t* ob, const char* name) {
   for (int i = 0; i < ob->def->def.container.len; i++) {
     if (strcmp(ob->def->def.container.elements[i].name, name) == 0) return ssz_get_field(ob, i);
   }
+  log_error("ssz_get: %s not found in %s", name, ob->def->name);
   return (ssz_ob_t) {0};
 }
 

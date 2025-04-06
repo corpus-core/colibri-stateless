@@ -21,6 +21,13 @@ c4_status_t get_eth_tx(proofer_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
   return C4_SUCCESS;
 }
+c4_status_t get_eth_tx_by_hash_and_index(proofer_ctx_t* ctx, json_t block_hash, uint32_t index, json_t* tx_data) {
+  uint8_t  tmp[200];
+  buffer_t buf = stack_buffer(tmp);
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByBlockHashAndIndex", bprintf(&buf, "[%J,%d]", block_hash, index), DEFAULT_TTL, tx_data));
+  CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
+  return C4_SUCCESS;
+}
 
 c4_status_t eth_getBlockReceipts(proofer_ctx_t* ctx, json_t block, json_t* receipts_array) {
   uint8_t  tmp[200];

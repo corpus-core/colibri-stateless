@@ -50,6 +50,23 @@ static bool create_eth_tx_data(verify_ctx_t* ctx, bytes_t raw, bytes32_t block_h
   ctx->flags |= VERIFY_FLAG_FREE_DATA;
   return true;
 }
+static bool verify_args(verify_ctx_t* ctx, bytes_t raw, uint32_t tx_index, bytes32_t block_hash) {
+  if (ctx->method == NULL) return true;
+  if (strcmp(ctx->method, "eth_getTransactionByHash") == 0) {
+    if (!c4_tx_verify_tx_hash(ctx, raw)) RETURN_VERIFY_ERROR(ctx, "invalid tx hash!");
+  }
+  else if (strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0) {
+    bytes32_t tmp            = {0};
+    buffer_t  buf            = stack_buffer(tmp);
+    bytes_t   req_block_hash = json_as_bytes(json_at(ctx->args, 0), &buf);
+    if (req_block_hash.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid block hash!");
+    if (memcmp(req_block_hash.data, block_hash, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid block hash!");
+    if (json_as_uint32(json_at(ctx->args, 1)) != tx_index) RETURN_VERIFY_ERROR(ctx, "invalid tx index!");
+  }
+  else
+    RETURN_VERIFY_ERROR(ctx, "invalid method for tx proof!");
+  return true;
+}
 
 bool verify_tx_proof(verify_ctx_t* ctx) {
   ssz_ob_t raw                      = ssz_get(&ctx->proof, "transaction");
@@ -66,7 +83,7 @@ bool verify_tx_proof(verify_ctx_t* ctx) {
   if (ssz_is_error(header) || ssz_is_error(raw) || ssz_is_error(tx_index) || ssz_is_error(body_root) || body_root.bytes.len != 32 || ssz_is_error(tx_proof) || ssz_is_error(block_hash) || block_hash.bytes.len != 32 || ssz_is_error(block_number)) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing header or blockhash_proof!");
   if (ssz_is_error(sync_committee_bits) || sync_committee_bits.bytes.len != 64 || ssz_is_error(sync_committee_signature) || sync_committee_signature.bytes.len != 96) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing sync committee bits or signature!");
 
-  if (!c4_tx_verify_tx_hash(ctx, raw.bytes)) RETURN_VERIFY_ERROR(ctx, "invalid tx hash!");
+  if (!verify_args(ctx, raw.bytes, ssz_uint32(tx_index), block_hash.bytes.data)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
   if (!verify_merkle_proof(ctx, tx_proof, block_hash.bytes, block_number.bytes, base_fee_per_gas.bytes, raw.bytes, ssz_uint32(tx_index), body_root.bytes.data)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
   if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
   if (ctx->data.def->type == SSZ_TYPE_NONE) {

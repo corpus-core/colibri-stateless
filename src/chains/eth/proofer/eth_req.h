@@ -29,6 +29,8 @@ c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, uint
 
 c4_status_t eth_call(proofer_ctx_t* ctx, json_t tx, json_t* result, uint64_t block_number);
 
+c4_status_t get_eth_tx_by_hash_and_index(proofer_ctx_t* ctx, json_t block_hash, uint32_t index, json_t* tx_data);
+
 #ifdef __cplusplus
 }
 #endif
