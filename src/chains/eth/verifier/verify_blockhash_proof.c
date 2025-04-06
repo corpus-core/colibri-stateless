@@ -56,7 +56,7 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
   bytes32_t       root       = {0};
   c4_sync_state_t sync_state = {0};
 
-  if (slot == 0) slot = ssz_get_uint64(header, "slot");
+  if (slot == 0) slot = ssz_get_uint64(header, "slot") + 1;
   if (slot == 0) THROW_ERROR("slot is missing in beacon header!");
 
   // get the validators and make sure we have the right ones for the requested period

@@ -14,10 +14,9 @@
 static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, uint32_t tx_index, json_t tx_data, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof) {
 
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF);
-  ssz_ob_t      raw          = ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index);
 
   // build the proof
-  ssz_add_bytes(&eth_tx_proof, "transaction", raw.bytes);
+  ssz_add_bytes(&eth_tx_proof, "transaction", ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index).bytes);
   ssz_add_uint32(&eth_tx_proof, tx_index);
   ssz_add_bytes(&eth_tx_proof, "blockNumber", ssz_get(&block_data->execution, "blockNumber").bytes);
   ssz_add_bytes(&eth_tx_proof, "blockHash", ssz_get(&block_data->execution, "blockHash").bytes);
@@ -44,6 +43,7 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   uint32_t       tx_index     = 0;
   json_t         block_number = {0};
   c4_status_t    status       = C4_SUCCESS;
+
   if (strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0) {
     tx_index     = json_as_uint32(json_at(ctx->params, 1));
     block_number = json_at(ctx->params, 0);
@@ -58,7 +58,6 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
     if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') THROW_ERROR("Invalid block number");
   }
 
-  if (block_number.type != JSON_TYPE_STRING) return C4_PENDING;
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
   if (status != C4_SUCCESS) return status;
 
