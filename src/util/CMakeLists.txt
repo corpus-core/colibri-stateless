@@ -3,10 +3,6 @@ if(FILE_STORAGE AND NOT WASM)
     add_definitions(-DFILE_STORAGE)
 endif()
 
-option(MESSAGES "if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory" ON)
-if(MESSAGES)
-    add_definitions(-DMESSAGES)
-endif()
 
 option(PRECOMPILE_ZERO_HASHES "if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the proofer, but not in the verfier" ON)
 if(PRECOMPILE_ZERO_HASHES)
