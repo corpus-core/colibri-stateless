@@ -17,8 +17,8 @@ extern "C" {
 
 #ifndef BYTES_T_DEFINED
 typedef struct {
-  uint8_t* data COUNTED_BY(len);
   uint32_t      len;
+  uint8_t* data COUNTED_BY(len);
 } bytes_t;
 #define BYTES_T_DEFINED
 #endif
