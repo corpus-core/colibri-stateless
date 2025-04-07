@@ -200,7 +200,7 @@ In order to proof the RPC-Request, the  proofer will use different proofs.
 | rpc-Method                                                                                | status | Data                                             | Proof                                           |
 | :---------------------------------------------------------------------------------------- | :----- | :----------------------------------------------- | :---------------------------------------------- |
 | [`eth_blockNumber`](https://docs.alchemy.com/reference/eth-blocknumber)                   | ✖️     | Uint64                                           |                    |
-| [`eth_feeHistoryr`](https://docs.alchemy.com/reference/eth-feehistory)                    | ✖️     |                                             |                    |
+| [`eth_feeHistorry`](https://docs.alchemy.com/reference/eth-feehistory)                    | ✖️     |                                             |                    |
 | [`eth_chainId`](https://docs.alchemy.com/reference/eth-chainid)                           | ✅     | Uint64                                           |                    |
 | [`eth_accounts`](https://docs.alchemy.com/reference/eth-accounts)                         | ✅     | [address]]                                       |                    |
 | `eth_blobBaseFee`                                                                         | ✖️     | Uint64                                           | [EthBlockHeaderProof](#ethblockheaderproof)     |
@@ -225,6 +225,7 @@ In order to proof the RPC-Request, the  proofer will use different proofs.
 | [`eth_getTransactionReceipt`](https://docs.alchemy.com/reference/eth-gettransactionreceipt) | ✅     | [EthReceiptData](#ethreceiptdata)                | [EthReceiptProof](#ethreceiptproof)             |
 | [`eth_getTransactionByHash`](https://docs.alchemy.com/reference/eth-gettransactionbyhash) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
 | [`eth_getTransactionByBlockHashAndIndex`](https://docs.alchemy.com/reference/eth-gettransactionbyblockhashandindex) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
+| [`eth_getTransactionByBlockNumberAndIndex`](https://docs.alchemy.com/reference/eth-gettransactionbyblocknumberandindex) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
 | [`eth_getUncleByBlockHash`](https://docs.alchemy.com/reference/eth-getunclesbyblockhashandindex)   | ✅     |                                                  |                                                 |
 | [`eth_getUncleByBlockNumber`](https://docs.alchemy.com/reference/eth-getunclesbyblocknumberandindex)   | ✅     |                                                  |                                                 |
 | [`eth_getUncleCountByBlockHash`](https://docs.alchemy.com/reference/eth-getunclesbyblockhashandindex)   | ✅     |                                                  |                                                 |

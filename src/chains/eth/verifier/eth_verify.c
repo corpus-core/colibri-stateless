@@ -20,6 +20,7 @@ static const char* proofable_methods[] = {
     "eth_getTransactionReceipt",
     "eth_getTransactionByHash",
     "eth_getTransactionByBlockHashAndIndex",
+    "eth_getTransactionByBlockNumberAndIndex",
 };
 static const char* local_methods[] = {
     "eth_chainId",

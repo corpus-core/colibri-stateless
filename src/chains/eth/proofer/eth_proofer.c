@@ -26,7 +26,7 @@ bool eth_proofer_execute(proofer_ctx_t* ctx) {
 
   if (includes(eth_account_methods, ctx->method))
     c4_proof_account(ctx);
-  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0)
+  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0)
     c4_proof_transaction(ctx);
   else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
     c4_proof_receipt(ctx);

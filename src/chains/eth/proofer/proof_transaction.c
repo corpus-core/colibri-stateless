@@ -44,7 +44,7 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   json_t         block_number = {0};
   c4_status_t    status       = C4_SUCCESS;
 
-  if (strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0) {
+  if (strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0) {
     tx_index     = json_as_uint32(json_at(ctx->params, 1));
     block_number = json_at(ctx->params, 0);
     if ((ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA))
