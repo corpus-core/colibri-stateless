@@ -7,13 +7,6 @@ typedef struct {
   uint8_t* data;
   uint32_t len;
 } bytes_t;
-typedef enum {
-  METHOD_UNDEFINED     = 0,
-  METHOD_PROOFABLE     = 1,
-  METHOD_UNPROOFABLE   = 2,
-  METHOD_NOT_SUPPORTED = 3,
-  METHOD_LOCAL         = 4
-} method_type_t;
 
 #define BYTES_T_DEFINED
 #endif
@@ -112,4 +105,4 @@ void verify_free_ctx(void* ctx);
  * @param method the method
  * @return the method type
  */
-method_type_t c4_get_method_type(chain_id_t chain_id, char* method);
+int c4_get_method_type(uint64_t chain_id, char* method);
