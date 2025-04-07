@@ -177,3 +177,7 @@ void verify_free_ctx(void* ptr) {
   c4_verify_free_data(&(ctx->ctx));
   free(ctx);
 }
+
+int c4_get_method_support(uint64_t chain_id, char* method) {
+  return (int) c4_get_method_type((chain_id_t) chain_id, method);
+}

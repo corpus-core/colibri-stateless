@@ -105,4 +105,4 @@ void verify_free_ctx(void* ctx);
  * @param method the method
  * @return the method type
  */
-int c4_get_method_type(uint64_t chain_id, char* method);
+int c4_get_method_support(uint64_t chain_id, char* method);
