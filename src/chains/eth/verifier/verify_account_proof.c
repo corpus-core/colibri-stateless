@@ -8,6 +8,7 @@
 #include "rlp.h"
 #include "ssz.h"
 #include "sync_committee.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -136,7 +137,11 @@ bool verify_account_proof(verify_ctx_t* ctx) {
   eth_account_field_t field                    = get_field(ctx);
   bytes32_t           value                    = {0};
   uint32_t            storage_keys_len         = ssz_len(ssz_get(&ctx->proof, "storageProof"));
-  bytes_t             values                   = field == ETH_ACCOUNT_PROOF ? bytes(alloca(32 * storage_keys_len), 32 * storage_keys_len) : bytes(value, 32);
+#ifdef _MSC_VER
+  bytes_t values = field == ETH_ACCOUNT_PROOF ? bytes(_alloca(32 * storage_keys_len), 32 * storage_keys_len) : bytes(value, 32);
+#else
+  bytes_t values = field == ETH_ACCOUNT_PROOF ? bytes(alloca(32 * storage_keys_len), 32 * storage_keys_len) : bytes(value, 32);
+#endif
 
   if (!eth_verify_account_proof_exec(ctx, &ctx->proof, state_root, field == ETH_ACCOUNT_PROOF ? ETH_ACCOUNT_STORAGE_HASH : field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
   ssz_verify_single_merkle_proof(state_merkle_proof.bytes, state_root, STATE_ROOT_GINDEX, body_root);
