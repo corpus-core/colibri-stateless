@@ -125,6 +125,7 @@ void EMSCRIPTEN_KEEPALIVE c4w_free_verify_ctx(void* ptr) {
   c4w_verify_ctx_t* ctx = (c4w_verify_ctx_t*) ptr;
   if (ctx->verify.method) free((char*) ctx->verify.method);
   if (ctx->verify.args.len) free((char*) ctx->verify.args.start);
+  if (ctx->proof.data) free(ctx->proof.data);
   c4_verify_free_data(&ctx->verify);
   free(ctx);
 }
