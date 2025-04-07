@@ -37,7 +37,6 @@ static bytes_t get_leaf(ssz_ob_t proof) {
   else
     return NULL_BYTES;
 
-  print_hex(stderr, node, "LEAF: ", "\n");
   return node;
 }
 

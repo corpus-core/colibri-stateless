@@ -217,7 +217,7 @@ In order to proof the RPC-Request, the  proofer will use different proofs.
 | [`eth_getLogs`](https://docs.alchemy.com/reference/eth-getlogs)                           | ✅     | List<[EthReceiptDataLog](#ethreceiptdatalog)>    | List<[EthLogsBlock](#ethlogsblock)>             |
 | [`eth_getTransactionCount`](https://docs.alchemy.com/reference/eth-gettransactioncount)   | ✅     | Uint256                                          | [EthAccountProof](#ethaccountproof)             |
 | [`eth_getStorageAt`](https://docs.alchemy.com/reference/eth-getstorageat)                 | ✅     | Bytes32                                          | [EthAccountProof](#ethaccountproof)             |
-| [`eth_getProof`](https://docs.alchemy.com/reference/eth-getproof)                         | ✖️     |                                                  |                                                 |
+| [`eth_getProof`](https://docs.alchemy.com/reference/eth-getproof)                         | ✅     |                                                  |                                                 |
 | [`eth_getTransactionReceipt`](https://docs.alchemy.com/reference/eth-gettransactionreceipt) | ✅     | [EthReceiptData](#ethreceiptdata)                | [EthReceiptProof](#ethreceiptproof)             |
 | [`eth_getTransactionByHash`](https://docs.alchemy.com/reference/eth-gettransactionbyhash) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
 | [`eth_getTransactionByBlockHashAndIndex`](https://docs.alchemy.com/reference/eth-gettransactionbyblockhashandindex) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |

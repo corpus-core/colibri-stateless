@@ -79,6 +79,10 @@ static void reset_local_filecache() {
       .set             = file_set,
       .max_sync_states = 3};
   c4_set_storage_config(&plgn);
+
+#ifdef PROOFER_CACHE
+  c4_proofer_cache_cleanup(UINT64_MAX, 0);
+#endif
 }
 
 static bytes_t read_testdata(const char* filename) {
@@ -235,6 +239,8 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
         break;
     }
   }
+
+  bytes_write(proof_ctx->proof, fopen("_proof.ssz", "w"), true);
 
   for (int n = 0; n < count; n++) {
     // now verify
