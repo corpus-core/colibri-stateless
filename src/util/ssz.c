@@ -317,15 +317,14 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
     }
     case SSZ_TYPE_BIT_VECTOR:
     case SSZ_TYPE_BIT_LIST: {
-      if (def == &ssz_string_def)
-        bprintf(buf, ctx->no_quotes ? "%J" : "\"%J\"", (json_t) {.type = JSON_TYPE_OBJECT, .start = ob.bytes.data, .len = ob.bytes.len});
-      else
-        bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
+      bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
       break;
     }
     case SSZ_TYPE_VECTOR:
     case SSZ_TYPE_LIST: {
-      if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
+      if (def == &ssz_string_def)
+        bprintf(buf, ctx->no_quotes ? "%J" : "\"%J\"", (json_t) {.type = JSON_TYPE_OBJECT, .start = ob.bytes.data, .len = ob.bytes.len});
+      else if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
         bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
       else {
         ctx->no_quotes = false;
