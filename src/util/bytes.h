@@ -1,4 +1,3 @@
-
 #ifndef bytes_h__
 #define bytes_h__
 
@@ -9,10 +8,17 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#if defined(__clang__) || defined(__GNUC__)
+#define COUNTED_BY(len_field) __attribute__((counted_by_or_null(len_field)))
+#else
+#define COUNTED_BY(len_field)
+#endif
+
 #ifndef BYTES_T_DEFINED
 typedef struct {
-  uint8_t* data;
-  uint32_t len;
+  uint8_t* data COUNTED_BY(len);
+  uint32_t      len;
 } bytes_t;
 #define BYTES_T_DEFINED
 #endif
