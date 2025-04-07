@@ -240,7 +240,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
     }
   }
 
-  bytes_write(proof_ctx->proof, fopen("_proof.ssz", "w"), true);
+  //  bytes_write(proof_ctx->proof, fopen("_proof.ssz", "w"), true);
 
   for (int n = 0; n < count; n++) {
     // now verify
