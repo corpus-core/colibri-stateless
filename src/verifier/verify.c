@@ -9,7 +9,7 @@ const ssz_def_t* c4_get_request_type(chain_type_t chain_type) {
   return request_container(chain_type);
 }
 
-c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id) {
+c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id) {
   chain_type_t chain_type = c4_chain_type(chain_id);
   memset(ctx, 0, sizeof(verify_ctx_t));
   if (request.len == 0) {
@@ -51,6 +51,11 @@ c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* metho
   ctx->chain_id = chain_id; // ssz_get_uint64(&req, "chainId");
   ctx->method   = method;
   ctx->args     = args;
+  return C4_SUCCESS;
+}
+
+c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id) {
+  TRY_ASYNC(c4_verify_init(ctx, request, method, args, chain_id));
   return c4_verify(ctx);
 }
 

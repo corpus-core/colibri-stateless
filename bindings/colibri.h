@@ -7,6 +7,14 @@ typedef struct {
   uint8_t* data;
   uint32_t len;
 } bytes_t;
+typedef enum {
+  METHOD_UNDEFINED     = 0,
+  METHOD_PROOFABLE     = 1,
+  METHOD_UNPROOFABLE   = 2,
+  METHOD_NOT_SUPPORTED = 3,
+  METHOD_LOCAL         = 4
+} method_type_t;
+
 #define BYTES_T_DEFINED
 #endif
 
@@ -97,3 +105,11 @@ char* verify_execute_json_status(void* ctx);
  * frees the verification context
  */
 void verify_free_ctx(void* ctx);
+
+/**
+ * gets the method type of a json-rpc-method
+ * @param chain_id the chain id
+ * @param method the method
+ * @return the method type
+ */
+method_type_t c4_get_method_type(chain_id_t chain_id, char* method);

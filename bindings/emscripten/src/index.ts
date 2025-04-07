@@ -28,6 +28,12 @@ export interface DataRequest {
     req_ptr: number;
 }
 
+export enum MethodType {
+    PROOFABLE = 1,
+    UNPROOFABLE = 2,
+    NOT_SUPPORTED = 3,
+    LOCAL = 4
+}
 async function initialize_storage(conf: Config) {
     // TODO handle trusted_block_hashes
     const c4w = await getC4w();
@@ -132,7 +138,8 @@ export default class C4Client {
                 chainId: 1, // Default chainId
                 beacon_apis: ["https://lodestar-mainnet.chainsafe.io"], // Default beacon API
                 rpcs: ["https://rpc.ankr.com/eth"], // Default RPC
-                trusted_block_hashes: []
+                trusted_block_hashes: [],
+                proofer: ["https://c4.incubed.net"],
             }, ...config
         }
     }
@@ -141,7 +148,26 @@ export default class C4Client {
         return this.config.include_code ? 1 : 0;
     }
 
+    /**
+     * checks, whether the rpc-method is supported or proofable.
+     * @param method - The method to check
+     * @returns The method type
+     */
+    async getMethodSupport(method: string): Promise<MethodType> {
+        const c4w = await getC4w();
+        const free_buffers: number[] = [];
+        const method_type = c4w._c4w_get_method_type(BigInt(this.config.chainId), as_char_ptr(method, c4w, free_buffers));
+        free_buffers.forEach(ptr => c4w._free(ptr));
+        return method_type;
+    }
 
+
+    /**
+     * creates a proof for the given method and arguments
+     * @param method - The method to create a proof for
+     * @param args - The arguments to create a proof for
+     * @returns The proof
+     */
     async createProof(method: string, args: any[]): Promise<Uint8Array> {
         const c4w = await getC4w();
         const free_buffers: number[] = [];
@@ -176,6 +202,13 @@ export default class C4Client {
         }
     }
 
+    /**
+     * verifies a proof for the given method and arguments
+     * @param method - The method to verify the proof for
+     * @param args - The arguments to verify the proof for
+     * @param proof - The proof to verify
+     * @returns The result
+     */
     async verifyProof(method: string, args: any[], proof: Uint8Array): Promise<any> {
         const c4w = await getC4w();
         const free_buffers: number[] = [];
@@ -211,14 +244,35 @@ export default class C4Client {
         }
     }
 
+    /**
+     * executes a rpc-method, which includes 
+     * -creating or fetching the proof
+     * -verifying the proof
+     * -returning the result
+     * @param method - The method to execute
+     * @param args - The arguments to execute the method with
+     * @returns The result
+     */
     async rpc(method: string, args: any[]): Promise<any> {
-        // skip verify
-        if (this.config.verify && !this.config.verify(method, args))
-            return await fetch_rpc(this.config.rpcs, method, args, false);
+        const method_type = await this.getMethodSupport(method);
+        let proof = new Uint8Array();
+        switch (method_type) {
+            case MethodType.PROOFABLE: {
+                if (this.config.verify && !this.config.verify(method, args))
+                    return await fetch_rpc(this.config.rpcs, method, args, false);
 
-        let proof = this.config.proofer && this.config.proofer.length
-            ? await fetch_rpc(this.config.proofer, method, args, true)
-            : await this.createProof(method, args);
+                proof = this.config.proofer && this.config.proofer.length
+                    ? await fetch_rpc(this.config.proofer, method, args, true)
+                    : await this.createProof(method, args);
+                break;
+            }
+            case MethodType.UNPROOFABLE:
+                return await fetch_rpc(this.config.rpcs, method, args, false);
+            case MethodType.NOT_SUPPORTED:
+                throw new Error(`Method ${method} is not supported`);
+            case MethodType.LOCAL:
+                break;
+        }
 
         return this.verifyProof(method, args, proof);
     }

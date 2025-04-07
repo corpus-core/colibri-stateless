@@ -7,6 +7,11 @@
 #include <string.h>
 #include <time.h>
 
+typedef struct {
+  bytes_t      proof;
+  verify_ctx_t verify;
+} c4w_verify_ctx_t;
+
 proofer_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id, uint32_t flags) {
   return c4_proofer_create(method, args, chain_id, flags);
 }
@@ -110,41 +115,34 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
 }
 
 void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id) {
-  verify_ctx_t* ctx        = calloc(1, sizeof(verify_ctx_t));
-  chain_type_t  chain_type = c4_chain_type(chain_id);
-  if (chain_type != c4_get_chain_type_from_req(bytes(proof, proof_len))) {
-    ctx->state.error = strdup("chain type does not match the proof");
-    return ctx;
-  }
-  ssz_ob_t req = {.bytes = bytes_dup(bytes(proof, proof_len)), .def = c4_get_request_type(chain_type)};
-  if (!ssz_is_valid(req, true, &ctx->state)) return ctx;
-  ctx->chain_id  = chain_id;
-  ctx->data      = ssz_get(&req, "data");
-  ctx->proof     = ssz_get(&req, "proof");
-  ctx->sync_data = ssz_get(&req, "sync_data");
-  ctx->method    = method ? strdup(method) : NULL;
-  ctx->args      = args ? json_parse(strdup(args)) : ((json_t) {0});
+  c4w_verify_ctx_t* ctx = calloc(1, sizeof(c4w_verify_ctx_t));
+  ctx->proof            = bytes_dup(bytes(proof, proof_len));
+  c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id);
+
   return (void*) ctx;
 }
 void EMSCRIPTEN_KEEPALIVE c4w_free_verify_ctx(void* ptr) {
-  verify_ctx_t* ctx = (verify_ctx_t*) ptr;
-  if (ctx->method) free((char*) ctx->method);
-  if (ctx->args.start) free((char*) ctx->args.start);
-  c4_verify_free_data(ctx);
+  c4w_verify_ctx_t* ctx = (c4w_verify_ctx_t*) ptr;
+  if (ctx->verify.method) free((char*) ctx->verify.method);
+  if (ctx->verify.args.len) free((char*) ctx->verify.args.start);
+  c4_verify_free_data(&ctx->verify);
   free(ctx);
+}
+method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* method) {
+  return c4_get_method_type((chain_id_t) chain_id, method);
 }
 
 char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
-  verify_ctx_t* ctx    = {0};
+  verify_ctx_t* ctx    = &((c4w_verify_ctx_t*) ptr)->verify;
   buffer_t      result = {0};
   c4_status_t   status = c4_verify(ctx);
   bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
   switch (status) {
     case C4_SUCCESS:
-      bprintf(&result, "\"result\": %z", ctx->data);
+      bprintf(&result, "\"result\": %Z", ctx->data);
       break;
     case C4_ERROR:
-      bprintf(&result, "\"error\": %\"s\"", ctx->state.error);
+      bprintf(&result, "\"error\": \"%s\"", ctx->state.error);
       break;
     case C4_PENDING: {
       bprintf(&result, "\"requests\": [");
