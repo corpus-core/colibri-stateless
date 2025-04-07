@@ -271,6 +271,7 @@ The js-module will be in the `build/emscripten` folder.
 | **HTTP_SERVER** | Build the HTTP server using libuv and llhttp | OFF  |
 | **INCLUDE** | Path to additional CMakeLists.txt Dir, which will included into the build, allowing to extend the binaries. |   |
 | **KOTLIN** | Build Kotlin bindings | OFF  |
+| **MESSAGES** | if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory | ON  |
 | **PROOFER** | Build the proofer library | ON  |
 | **PROOFER_CACHE** | Caches blockhashes and maps, which makes a lot of sense on a server | OFF  |
 | **SHAREDLIB** | Build shared library | OFF  |
@@ -292,6 +293,7 @@ The js-module will be in the `build/emscripten` folder.
 | **ETH_LOGS** | support eth logs verification. eth_getLogs | ON  |
 | **ETH_RECEIPT** | support eth receipt verification. eth_getTransactionReceipt | ON  |
 | **ETH_TX** | support eth Transaction verification. eth_getTransactionByHash, eth_getTransactionByBlockHashAndIndex, eth_getTransactionByBlockNumberAndIndex | ON  |
+| **ETH_UTIL** | support eth utils like eth_chainId or web3_sha3 | ON  |
 | **EVMLIGHT** | uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas. | OFF  |
 | **EVMONE** | uses evmone to verify eth_calls | ON  |
 | **PRECOMPILES_RIPEMD160** | Precompile ripemd160 | ON  |
@@ -303,7 +305,6 @@ The js-module will be in the `build/emscripten` folder.
 | Flag | descr  | default |
 | :--- | :----- | :----- |
 | **FILE_STORAGE** | if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR | ON  |
-| **MESSAGES** | if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory | ON  |
 | **PRECOMPILE_ZERO_HASHES** | if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the proofer, but not in the verfier | ON  |
 
 
