@@ -405,7 +405,7 @@ bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t
       for (int h = 0; h < num_hashes; ++h) {
         bytes_t hash_item = {0};
         if (rlp_decode(&inner_list, h, &hash_item) != RLP_ITEM || hash_item.len != 32) {
-          buffer_free(blob_hashes.data);
+          free(blob_hashes.data);
           RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: Invalid blob hash item in RLP list");
         }
         memcpy(blob_hashes.data + h * 32, hash_item.data, 32);

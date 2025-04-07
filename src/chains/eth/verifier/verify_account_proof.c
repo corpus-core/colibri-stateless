@@ -1,4 +1,3 @@
-
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
@@ -9,7 +8,6 @@
 #include "rlp.h"
 #include "ssz.h"
 #include "sync_committee.h"
-#include <alloca.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
