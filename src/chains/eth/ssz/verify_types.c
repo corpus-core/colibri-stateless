@@ -5,6 +5,7 @@
 #include "ssz.h"
 #include <stdio.h>
 #include <stdlib.h>
+static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
@@ -21,8 +22,10 @@ static const ssz_def_t C4_REQUEST_DATA_UNION[] = {
     SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),          // the transaction data
     SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),         // the transaction receipt
     SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024), // result of eth_getLogs
-    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA)};            // the block data
+    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),             // the block data
+    SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),             // the result of an eth_getProof
 
+};
 // A List of possible types of proofs matching the Data
 static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,
@@ -98,6 +101,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return C4_REQUEST_DATA_UNION + 6;
     case ETH_SSZ_DATA_BLOCK:
       return C4_REQUEST_DATA_UNION + 7;
+    case ETH_SSZ_DATA_PROOF:
+      return C4_REQUEST_DATA_UNION + 8;
     default: return NULL;
   }
 }

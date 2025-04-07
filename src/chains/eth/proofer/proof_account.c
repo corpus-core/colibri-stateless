@@ -100,15 +100,18 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
 
 c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
   bool           is_storage_at = strcmp(ctx->method, "eth_getStorageAt") == 0;
+  bool           is_proof      = strcmp(ctx->method, "eth_getProof") == 0;
   json_t         address       = json_at(ctx->params, 0);
-  json_t         storage_keys  = is_storage_at ? json_at(ctx->params, 1) : (json_t) {0};
-  json_t         block_number  = json_at(ctx->params, is_storage_at ? 2 : 1);
+  json_t         storage_keys  = is_storage_at || is_proof ? json_at(ctx->params, 1) : (json_t) {0};
+  json_t         block_number  = json_at(ctx->params, is_storage_at || is_proof ? 2 : 1);
   json_t         eth_proof     = {0};
   beacon_block_t block         = {0};
   bytes32_t      body_root;
 
   if (is_storage_at)
     CHECK_JSON(ctx->params, "[address,bytes32,block]", "Invalid arguments for eth_getStorageAt: ");
+  else if (is_proof)
+    CHECK_JSON(ctx->params, "[address,[bytes32],block]", "Invalid arguments for eth_getProof: ");
   else
     CHECK_JSON(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
 

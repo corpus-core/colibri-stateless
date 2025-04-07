@@ -125,8 +125,10 @@ static const char* check_hex(json_t val, int len, bool isuint, const char* error
   }
 
   if (len > 0 && (l % 2 || l / 2 != len)) ERROR("%sExpected hex string with fixed size (%d) but got %d bytes", error_prefix, len, l / 2);
-  if (isuint && (l == 0 || (val.start[3] == '0' && l > 1))) ERROR("%sno leading zeros allowed for uint", error_prefix);
+  if (isuint && (l == 0 || (val.start[3] == '0' && l > 1)))
+    ERROR("%sno leading zeros allowed for uint", error_prefix);
   if (isuint && l / 2 > 32) ERROR("%sexpected uint with max 32 bytes length, but got %d bytes ", error_prefix, l / 2);
+  if (len < 0 && l / 2 > (-len)) ERROR("%sexpected uint with max %d bytes length, but got %d bytes ", error_prefix, -len, l / 2);
   return NULL;
 }
 
@@ -141,6 +143,7 @@ const char* json_validate(json_t val, const char* def, const char* error_prefix)
   if (strncmp(def, "bytes32", 7) == 0) return check_hex(val, 32, false, error_prefix ? error_prefix : "");
   if (strncmp(def, "address", 7) == 0) return check_hex(val, 20, false, error_prefix);
   if (strncmp(def, "hexuint", 7) == 0) return check_hex(val, 0, true, error_prefix);
+  if (strncmp(def, "hex32", 5) == 0) return check_hex(val, -32, false, error_prefix);
   if (strncmp(def, "bytes", 5) == 0) return check_hex(val, 0, false, error_prefix);
   if (strncmp(def, "uint", 4) == 0) return val.type == JSON_TYPE_NUMBER ? NULL : strdup("Expected uint");
   if (strncmp(def, "bool", 4) == 0) return val.type == JSON_TYPE_BOOLEAN ? NULL : strdup("Expected boolean");

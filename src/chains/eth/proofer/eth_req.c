@@ -12,7 +12,7 @@
 #define JSON_TX_FIELDS        "{transactionIndex:hexuint,blockNumber:hexuint,hash:bytes32,blockHash:bytes32,from:address,gas:hexuint,gasPrice:hexuint,input:bytes,nonce:hexuint,to:address,value:hexuint,type:hexuint,v:hexuint,r:bytes32,s:bytes32}"
 #define JSON_LOG_FIELDS       "{address:address,topics:[bytes32],data:bytes,blockNumber:hexuint,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,logIndex:hexuint,removed:bool}"
 #define JSON_RECEIPTS_FIELDS  "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
-#define JSON_ETH_PROOF_FIELDS "{accountProof:[bytes],storageProof:[{key:hexuint,value:hexuint,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
+#define JSON_ETH_PROOF_FIELDS "{accountProof:[bytes],storageProof:[{key:hex32,value:hex32,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
 #define JSON_TRACE_FIELDS     "{*:{balance?:hexuint,code?:bytes,nonce?:uint,storage?:{*:bytes32}}}"
 c4_status_t get_eth_tx(proofer_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   uint8_t  tmp[200];

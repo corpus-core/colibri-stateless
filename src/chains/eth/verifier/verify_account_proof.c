@@ -9,6 +9,7 @@
 #include "rlp.h"
 #include "ssz.h"
 #include "sync_committee.h"
+#include <alloca.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -20,10 +21,27 @@ static eth_account_field_t get_field(verify_ctx_t* ctx) {
   if (ctx->method && strcmp(ctx->method, "eth_getStorageAt") == 0) return ETH_ACCOUNT_STORAGE_HASH;
   if (ctx->method && strcmp(ctx->method, "eth_getCode") == 0) return ETH_ACCOUNT_CODE_HASH;
   if (ctx->method && strcmp(ctx->method, "eth_getTransactionCount") == 0) return ETH_ACCOUNT_NONCE;
+  if (ctx->method && strcmp(ctx->method, "eth_getProof") == 0) return ETH_ACCOUNT_PROOF;
   return ETH_ACCOUNT_NONE;
 }
 
-static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_account_field_t field, bytes32_t value) {
+static bytes_t get_leaf(ssz_ob_t proof) {
+  bytes_t node = ssz_at(proof, ssz_len(proof) - 1).bytes;
+  if (rlp_decode(&node, 0, &node) != RLP_LIST) return NULL_BYTES;
+  int len = rlp_decode(&node, -1, NULL);
+
+  if (len == 17)
+    rlp_decode(&node, 16, &node);
+  else if (len == 2)
+    rlp_decode(&node, 1, &node);
+  else
+    return NULL_BYTES;
+
+  print_hex(stderr, node, "LEAF: ", "\n");
+  return node;
+}
+
+static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_account_field_t field, bytes_t values) {
   ssz_ob_t  data           = ctx->data;
   bytes32_t expected_value = {0};
   buffer_t  address_buf    = stack_buffer(expected_value);
@@ -36,14 +54,52 @@ static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_accou
       case ETH_ACCOUNT_STORAGE_HASH: {
 
         ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_HASH32);
-        buffer_append(&builder.fixed, bytes(value, 32));
+        buffer_append(&builder.fixed, values);
         ctx->data = ssz_builder_to_bytes(&builder);
         break;
       }
       case ETH_ACCOUNT_BALANCE:
       case ETH_ACCOUNT_NONCE: {
         ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
-        ssz_add_uint256(&builder, bytes(value, 32));
+        ssz_add_uint256(&builder, values);
+        ctx->data = ssz_builder_to_bytes(&builder);
+        break;
+      }
+      case ETH_ACCOUNT_PROOF: {
+        ssz_builder_t builder       = ssz_builder_for_type(ETH_SSZ_DATA_PROOF);
+        ssz_ob_t      storage_proof = ssz_get(&ctx->proof, "storageProof");
+        bytes_t       account       = get_leaf(ssz_get(&ctx->proof, "accountProof"));
+        bytes_t       value         = {0};
+        if (account.data && rlp_decode(&account, 0, &account) == RLP_LIST && rlp_decode(&account, -1, NULL) == 4) {
+          ssz_builder_t storage_list_builder = ssz_builder_for_def(ssz_get_def(builder.def, "storageProof"));
+          for (int i = 0; i < values.len / 32; i++) {
+            ssz_builder_t storage_builder = ssz_builder_for_def(storage_list_builder.def->def.vector.type);
+            ssz_ob_t      storage         = ssz_at(storage_proof, i);
+            ssz_add_bytes(&storage_builder, "key", ssz_get(&storage, "key").bytes);
+            ssz_add_bytes(&storage_builder, "value", bytes(values.data + i * 32, 32));
+            ssz_add_bytes(&storage_builder, "proof", ssz_get(&storage, "proof").bytes);
+            ssz_add_dynamic_list_builders(&storage_list_builder, values.len / 32, storage_builder);
+          }
+          rlp_decode(&account, 1, &value);
+          ssz_add_uint256(&builder, value); // balance
+          rlp_decode(&account, 3, &value);
+          ssz_add_bytes(&builder, "codeHash", value);
+          rlp_decode(&account, 0, &value);
+          ssz_add_uint256(&builder, value); // nonce
+          rlp_decode(&account, 2, &value);
+          ssz_add_bytes(&builder, "storageHash", value);
+          ssz_add_bytes(&builder, "accountProof", ssz_get(&ctx->proof, "accountProof").bytes);
+          ssz_add_builders(&builder, "storageProof", storage_list_builder);
+        }
+        else {
+          ssz_add_bytes(&builder, "balance", bytes(0, 32));
+          ssz_add_bytes(&builder, "codeHash", bytes(EMPTY_HASH, 32));
+          ssz_add_bytes(&builder, "nonce", bytes(0, 32));
+          ssz_add_bytes(&builder, "storageHash", bytes(EMPTY_ROOT_HASH, 32));
+          ssz_add_bytes(&builder, "accountProof", ssz_get(&ctx->proof, "accountProof").bytes);
+          ssz_add_bytes(&builder, "storageProof", NULL_BYTES);
+        }
+
         ctx->data = ssz_builder_to_bytes(&builder);
         break;
       }
@@ -57,6 +113,8 @@ static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_accou
   memset(expected_value, 0, 32);
   if (field == ETH_ACCOUNT_CODE_HASH)
     keccak(data.bytes, expected_value);
+  else if (field == ETH_ACCOUNT_PROOF) // we already took the proof from the verifified account.
+    return true;
   else if (data.bytes.len > 32)
     RETURN_VERIFY_ERROR(ctx, "invalid data!");
   else if (data.def->type == SSZ_TYPE_UINT) {
@@ -66,7 +124,7 @@ static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_accou
   else
     memcpy(expected_value + 32 - data.bytes.len, data.bytes.data, data.bytes.len);
 
-  return memcmp(expected_value, value, 32) == 0;
+  return memcmp(expected_value, values.data, 32) == 0;
 }
 
 bool verify_account_proof(verify_ctx_t* ctx) {
@@ -80,12 +138,14 @@ bool verify_account_proof(verify_ctx_t* ctx) {
   bytes_t             verified_address         = ssz_get(&ctx->proof, "address").bytes;
   eth_account_field_t field                    = get_field(ctx);
   bytes32_t           value                    = {0};
+  uint32_t            storage_keys_len         = ssz_len(ssz_get(&ctx->proof, "storageProof"));
+  bytes_t             values                   = field == ETH_ACCOUNT_PROOF ? bytes(alloca(32 * storage_keys_len), 32 * storage_keys_len) : bytes(value, 32);
 
-  if (!eth_verify_account_proof_exec(ctx, &ctx->proof, state_root, field, value)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
+  if (!eth_verify_account_proof_exec(ctx, &ctx->proof, state_root, field == ETH_ACCOUNT_PROOF ? ETH_ACCOUNT_STORAGE_HASH : field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
   ssz_verify_single_merkle_proof(state_merkle_proof.bytes, state_root, STATE_ROOT_GINDEX, body_root);
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
   if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
-  if (field && !verify_data(ctx, verified_address.data, field, value)) RETURN_VERIFY_ERROR(ctx, "invalid account data!");
+  if (field && !verify_data(ctx, verified_address.data, field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account data!");
 
   ctx->success = true;
   return true;

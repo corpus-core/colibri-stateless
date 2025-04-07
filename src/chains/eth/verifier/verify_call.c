@@ -22,7 +22,7 @@ static bool verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t stat
   bytes32_t code_hash_exepected = {0};
   for (uint32_t i = 0; i < len; i++) {
     ssz_ob_t acc = ssz_at(accounts, i);
-    if (!eth_verify_account_proof_exec(ctx, &acc, root, ETH_ACCOUNT_CODE_HASH, code_hash_exepected)) RETURN_VERIFY_ERROR(ctx, "Failed to verify account proof");
+    if (!eth_verify_account_proof_exec(ctx, &acc, root, ETH_ACCOUNT_CODE_HASH, bytes(code_hash_exepected, 32))) RETURN_VERIFY_ERROR(ctx, "Failed to verify account proof");
     ssz_ob_t code = ssz_get(&acc, "code");
     if (code.def->type == SSZ_TYPE_LIST) {
       bytes32_t code_hash_passed = {0};

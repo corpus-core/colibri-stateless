@@ -14,9 +14,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-static const uint8_t* EMPTY_HASH      = (uint8_t*) "\xc5\xd2\x46\x01\x86\xf7\x23\x3c\x92\x7e\x7d\xb2\xdc\xc7\x03\xc0\xe5\x00\xb6\x53\xca\x82\x27\x3b\x7b\xfa\xd8\x04\x5d\x85\xa4\x70";
-static const uint8_t* EMPTY_ROOT_HASH = (uint8_t*) "\x56\xe8\x1f\x17\x1b\xcc\x55\xa6\xff\x83\x45\xe6\x92\xc0\xf8\x6e\x5b\x48\xe0\x1b\x99\x6c\xad\xc0\x01\x62\x2f\xb5\xe3\x63\xb4\x21";
-static void           remove_leading_zeros(bytes_t* value) {
+const uint8_t* EMPTY_HASH      = (uint8_t*) "\xc5\xd2\x46\x01\x86\xf7\x23\x3c\x92\x7e\x7d\xb2\xdc\xc7\x03\xc0\xe5\x00\xb6\x53\xca\x82\x27\x3b\x7b\xfa\xd8\x04\x5d\x85\xa4\x70";
+const uint8_t* EMPTY_ROOT_HASH = (uint8_t*) "\x56\xe8\x1f\x17\x1b\xcc\x55\xa6\xff\x83\x45\xe6\x92\xc0\xf8\x6e\x5b\x48\xe0\x1b\x99\x6c\xad\xc0\x01\x62\x2f\xb5\xe3\x63\xb4\x21";
+static void    remove_leading_zeros(bytes_t* value) {
   while (value->len > 0 && value->data[0] == 0) {
     value->data++;
     value->len--;
@@ -31,8 +31,8 @@ static bool is_equal(ssz_ob_t expect, bytes_t* list, int index) {
   return value.len == exp.len && memcmp(exp.data, value.data, exp.len) == 0;
 }
 
-static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash, bytes32_t value) {
-  if (value) memset(value, 0, 32);
+static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash, bytes_t values) {
+  if (values.data) memset(values.data, 0, 32);
   int len = ssz_len(storage_proofs);
   if (len != 0 && memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0) RETURN_VERIFY_ERROR(ctx, "invalid storage proof because an empty storage hash can not have values!");
   for (int i = 0; i < len; i++) {
@@ -45,14 +45,14 @@ static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t
     keccak(key.bytes, path);
     if (patricia_verify(root, bytes(path, 32), proof, &leaf) == PATRICIA_INVALID) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
     if (memcmp(root, storage_hash, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid storage root!");
-    if (value && i == 0 && rlp_decode(&leaf, 0, &leaf) == RLP_ITEM)
-      memcpy(value + 32 - leaf.len, leaf.data, leaf.len);
+    if (values.data && values.len >= (i + 1) * 32 && rlp_decode(&leaf, 0, &leaf) == RLP_ITEM)
+      memcpy(values.data + (i + 1) * 32 - leaf.len, leaf.data, leaf.len);
   }
 
   return true;
 }
 
-bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t state_root, eth_account_field_t field, bytes32_t value) {
+bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t state_root, eth_account_field_t field, bytes_t values) {
   ssz_ob_t  account_proof = ssz_get(proof, "accountProof");
   ssz_ob_t  address       = ssz_get(proof, "address");
   bytes32_t address_hash  = {0};
@@ -64,13 +64,13 @@ bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t
 
   switch (field) {
     case ETH_ACCOUNT_CODE_HASH:
-      memcpy(value, EMPTY_HASH, 32);
+      memcpy(values.data, EMPTY_HASH, 32);
       break;
     case ETH_ACCOUNT_STORAGE_HASH:
-      memcpy(value, EMPTY_ROOT_HASH, 32);
+      memcpy(values.data, EMPTY_ROOT_HASH, 32);
       break;
     default:
-      memset(value, 0, 32);
+      memset(values.data, 0, 32);
       break;
   }
 
@@ -89,11 +89,11 @@ bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t
     if (field) {
       if (rlp_decode(&rlp_account, field - 1, &field_value) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid account proof on execution layer!");
       if (field_value.len > 32) RETURN_VERIFY_ERROR(ctx, "invalid account proof on execution layer!");
-      memcpy(value + 32 - field_value.len, field_value.data, field_value.len);
+      memcpy(values.data + 32 - field_value.len, field_value.data, field_value.len);
     }
   }
 
-  if (!verify_storage(ctx, ssz_get(proof, "storageProof"), storage_hash, field == ETH_ACCOUNT_STORAGE_HASH ? value : NULL)) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
+  if (!verify_storage(ctx, ssz_get(proof, "storageProof"), storage_hash, field == ETH_ACCOUNT_STORAGE_HASH ? values : NULL_BYTES)) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
 
   return true;
 }

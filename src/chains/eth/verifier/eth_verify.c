@@ -9,6 +9,7 @@
 
 static const char* proofable_methods[] = {
     "eth_call",
+    "eth_getProof",
     "eth_getBalance",
     "eth_getBlockByHash",
     "eth_getBlockByNumber",

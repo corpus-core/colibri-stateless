@@ -30,7 +30,8 @@ typedef enum {
   ETH_SSZ_DATA_TX      = 20,
   ETH_SSZ_DATA_RECEIPT = 21,
   ETH_SSZ_DATA_LOGS    = 22,
-  ETH_SSZ_DATA_BLOCK   = 23
+  ETH_SSZ_DATA_BLOCK   = 23,
+  ETH_SSZ_DATA_PROOF   = 24
 } eth_ssz_type_t;
 
 const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork);

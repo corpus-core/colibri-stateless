@@ -99,3 +99,21 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_BYTES32("stateRoot"),                                     // the stateRoot
     SSZ_UINT64("blobGasUsed"),                                    // the gas used for the blob transactions
 };
+
+// represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
+static const ssz_def_t ETH_STORAGE_PROOF_DATA[] = {
+    SSZ_BYTES32("key"),                     // the key
+    SSZ_BYTES32("value"),                   // the value
+    SSZ_LIST("proof", ssz_bytes_1024, 1024) // Patricia merkle proof
+};
+
+static const ssz_def_t ETH_STORAGE_PROOF_DATA_CONTAINER = SSZ_CONTAINER("StorageProofData", ETH_STORAGE_PROOF_DATA);
+
+static const ssz_def_t ETH_PROOF_DATA[] = {
+    SSZ_UINT256("balance"),
+    SSZ_BYTES32("codeHash"),
+    SSZ_UINT256("nonce"),
+    SSZ_BYTES32("storageHash"),
+    SSZ_LIST("accountProof", ssz_bytes_1024, 256),                   // Patricia merkle proof
+    SSZ_LIST("storageProof", ETH_STORAGE_PROOF_DATA_CONTAINER, 256), // the storage proofs of the selected
+};

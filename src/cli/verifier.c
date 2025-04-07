@@ -167,7 +167,7 @@ int main(int argc, char* argv[]) {
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
       char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"expected_result\": %Z\n}",
-                               method, args, chain_id, ctx.data);
+                               ctx.method, ctx.args, chain_id, ctx.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       free(filename);
       free(content);

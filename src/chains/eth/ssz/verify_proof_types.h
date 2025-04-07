@@ -14,8 +14,6 @@ static const ssz_def_t ETH_STATE_PROOF[] = {
 
 static const ssz_def_t ETH_STATE_PROOF_CONTAINER = SSZ_CONTAINER("StateProof", ETH_STATE_PROOF);
 
-static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
-
 // represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 static const ssz_def_t ETH_STORAGE_PROOF[] = {
     SSZ_BYTES32("key"),                      // the key to be proven
