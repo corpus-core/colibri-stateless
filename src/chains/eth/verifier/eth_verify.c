@@ -23,7 +23,14 @@ static const char* proofable_methods[] = {
 };
 static const char* local_methods[] = {
     "eth_chainId",
-};
+    "eth_accounts",
+    "eth_getUncleByBlockHashAndIndex",
+    "eth_getUncleByBlockNumberAndIndex",
+    "eth_getBlockTransactionCountByHash",
+    "eth_getBlockTransactionCountByNumber",
+    "eth_protocolVersion",
+    "web3_clientVersion",
+    "web3_sha3"};
 
 method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method) {
   if (chain_id != C4_CHAIN_MAINNET) return METHOD_UNDEFINED;

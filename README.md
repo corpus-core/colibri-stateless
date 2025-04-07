@@ -200,7 +200,9 @@ In order to proof the RPC-Request, the  proofer will use different proofs.
 | rpc-Method                                                                                | status | Data                                             | Proof                                           |
 | :---------------------------------------------------------------------------------------- | :----- | :----------------------------------------------- | :---------------------------------------------- |
 | [`eth_blockNumber`](https://docs.alchemy.com/reference/eth-blocknumber)                   | ✖️     | Uint64                                           |                    |
+| [`eth_feeHistoryr`](https://docs.alchemy.com/reference/eth-feehistory)                    | ✖️     |                                             |                    |
 | [`eth_chainId`](https://docs.alchemy.com/reference/eth-chainid)                           | ✅     | Uint64                                           |                    |
+| [`eth_accounts`](https://docs.alchemy.com/reference/eth-accounts)                         | ✅     | [address]]                                       |                    |
 | `eth_blobBaseFee`                                                                         | ✖️     | Uint64                                           | [EthBlockHeaderProof](#ethblockheaderproof)     |
 | [`eth_call`](https://docs.alchemy.com/reference/eth-call)                                 | ✅     | Bytes                                            | [EthCallProof](#ethcallproof)                   |
 | [`eth_createAccessList`](https://docs.alchemy.com/reference/eth-createaccesslist)         | ✖️     | [EthAccessData](#ethaccessdata)                  | [EthCallProof](#ethcallproof)                   |
@@ -223,6 +225,19 @@ In order to proof the RPC-Request, the  proofer will use different proofs.
 | [`eth_getTransactionReceipt`](https://docs.alchemy.com/reference/eth-gettransactionreceipt) | ✅     | [EthReceiptData](#ethreceiptdata)                | [EthReceiptProof](#ethreceiptproof)             |
 | [`eth_getTransactionByHash`](https://docs.alchemy.com/reference/eth-gettransactionbyhash) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
 | [`eth_getTransactionByBlockHashAndIndex`](https://docs.alchemy.com/reference/eth-gettransactionbyblockhashandindex) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
+| [`eth_getUncleByBlockHash`](https://docs.alchemy.com/reference/eth-getunclesbyblockhashandindex)   | ✅     |                                                  |                                                 |
+| [`eth_getUncleByBlockNumber`](https://docs.alchemy.com/reference/eth-getunclesbyblocknumberandindex)   | ✅     |                                                  |                                                 |
+| [`eth_getUncleCountByBlockHash`](https://docs.alchemy.com/reference/eth-getunclesbyblockhashandindex)   | ✅     |                                                  |                                                 |
+| [`eth_getUncleCountByBlockNumber`](https://docs.alchemy.com/reference/eth-getunclesbyblocknumberandindex)   | ✅     |                                                  |                                                 |
+| [`eth_maxPriorityFeePerGas`](https://docs.alchemy.com/reference/eth-maxpriorityfeepergas)   | ✖️     |                                                  |                                                 |
+| [`eth_protocolVersion`](https://docs.alchemy.com/reference/eth-protocolversion)   | ✅     |  Uint256                                                |                                                 |
+| [`eth_sendRawTransaction`](https://docs.alchemy.com/reference/eth-sendrawtransaction)   | ✖️     |                                                  |                                                 |
+| [`web3_clientVersion`](https://docs.alchemy.com/reference/web3-clientversion)   | ✅     |                                                  |                                                 |
+| [`web3_sha3`](https://docs.alchemy.com/reference/web3-sha3)   | ✅     | Bytes32                                      |                                                 |
+
+
+web3_clientVersion
+
 
 
 ## Building

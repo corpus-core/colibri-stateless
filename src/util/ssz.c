@@ -16,6 +16,7 @@ const ssz_def_t ssz_uint256_def = SSZ_UINT("", 32);
 const ssz_def_t ssz_bytes32     = SSZ_BYTES32("bytes32");
 const ssz_def_t ssz_bls_pubky   = SSZ_BYTE_VECTOR("bls_pubky", 48);
 const ssz_def_t ssz_bytes_list  = SSZ_BYTES("bytes", 1024 << 8);
+const ssz_def_t ssz_string_def  = SSZ_BYTES("bytes", 1024 << 8);
 const ssz_def_t ssz_none        = SSZ_NONE;
 
 static bool is_basic_type(const ssz_def_t* def) {
@@ -316,7 +317,10 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
     }
     case SSZ_TYPE_BIT_VECTOR:
     case SSZ_TYPE_BIT_LIST: {
-      bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
+      if (def == &ssz_string_def)
+        bprintf(buf, ctx->no_quotes ? "%J" : "\"%J\"", (json_t) {.type = JSON_TYPE_OBJECT, .start = ob.bytes.data, .len = ob.bytes.len});
+      else
+        bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
       break;
     }
     case SSZ_TYPE_VECTOR:

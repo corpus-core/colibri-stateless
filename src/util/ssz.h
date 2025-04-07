@@ -138,6 +138,7 @@ extern const ssz_def_t ssz_uint256_def;
 extern const ssz_def_t ssz_bytes32;
 extern const ssz_def_t ssz_bls_pubky;
 extern const ssz_def_t ssz_bytes_list;
+extern const ssz_def_t ssz_string_def;
 extern const ssz_def_t ssz_none;
 
 #define SSZ_BOOLEAN(property)       \
