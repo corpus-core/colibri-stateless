@@ -68,8 +68,10 @@
         - [EthAccessListData](#ethaccesslistdata)
         - [EthBlockData](#ethblockdata)
         - [EthBlockDataTransactionUntion](#ethblockdatatransactionuntion)
+        - [EthProofData](#ethproofdata)
         - [EthReceiptData](#ethreceiptdata)
         - [EthReceiptDataLog](#ethreceiptdatalog)
+        - [EthStorageProofData](#ethstorageproofdata)
         - [EthTxData](#ethtxdata)
 - [License](#license)
 
@@ -217,7 +219,7 @@ In order to proof the RPC-Request, the  proofer will use different proofs.
 | [`eth_getLogs`](https://docs.alchemy.com/reference/eth-getlogs)                           | ✅     | List<[EthReceiptDataLog](#ethreceiptdatalog)>    | List<[EthLogsBlock](#ethlogsblock)>             |
 | [`eth_getTransactionCount`](https://docs.alchemy.com/reference/eth-gettransactioncount)   | ✅     | Uint256                                          | [EthAccountProof](#ethaccountproof)             |
 | [`eth_getStorageAt`](https://docs.alchemy.com/reference/eth-getstorageat)                 | ✅     | Bytes32                                          | [EthAccountProof](#ethaccountproof)             |
-| [`eth_getProof`](https://docs.alchemy.com/reference/eth-getproof)                         | ✅     |                                                  |                                                 |
+| [`eth_getProof`](https://docs.alchemy.com/reference/eth-getproof)                         | ✅     | [EthProofData](#ethproofdata)                   | [EthAccountProof](#ethaccountproof)             |
 | [`eth_getTransactionReceipt`](https://docs.alchemy.com/reference/eth-gettransactionreceipt) | ✅     | [EthReceiptData](#ethreceiptdata)                | [EthReceiptProof](#ethreceiptproof)             |
 | [`eth_getTransactionByHash`](https://docs.alchemy.com/reference/eth-gettransactionbyhash) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
 | [`eth_getTransactionByBlockHashAndIndex`](https://docs.alchemy.com/reference/eth-gettransactionbyblockhashandindex) | ✅     | [EthTransactionData](#ethtransactiondata)        | [EthTransactionProof](#ethtransactionproof)     |
@@ -731,7 +733,7 @@ The SSZ union type defintions defining datastructure of a proof for eth.
 the main container defining the incoming data processed by the verifier
 
 
- The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L44).
+ The Type is defined in [chains/eth/ssz/verify_types.c](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_types.c#L47).
 
 ```python
 class C4Request(Container):
@@ -745,6 +747,7 @@ class C4Request(Container):
         EthReceiptData                 # the transaction receipt
         List [EthReceiptDataLog, 1024] # result of eth_getLogs
         EthBlockData                   # the block data
+        EthProofData                   # the result of an eth_getProof
     ]
     proof    : Union[                  # the proof of the data
         None
@@ -806,7 +809,7 @@ The SSZ type defintions used in the proofs.
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L174).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L172).
 
 ```python
 class EthAccountProof(Container):
@@ -822,7 +825,7 @@ the stateRoot proof is used as part of different other types since it contains a
  proofs to validate the stateRoot of the execution layer
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L393).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L391).
 
 ```python
 class EthBlockProof(Container):
@@ -876,7 +879,7 @@ class EthBlockProof(Container):
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L231).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L229).
 
 ```python
 class EthCallAccount(Container):
@@ -892,7 +895,7 @@ class EthCallAccount(Container):
 #### EthCallProof
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L238).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L236).
 
 ```python
 class EthCallProof(Container):
@@ -903,7 +906,7 @@ class EthCallProof(Container):
 #### EthLogsBlock
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L77).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L75).
 
 ```python
 class EthLogsBlock(Container):
@@ -919,7 +922,7 @@ class EthLogsBlock(Container):
 #### EthLogsTx
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L70).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L68).
 
 ```python
 class EthLogsTx(Container):
@@ -962,7 +965,7 @@ represents the proof for a transaction receipt
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L59).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L57).
 
 ```python
 class EthReceiptProof(Container):
@@ -998,7 +1001,7 @@ class EthStateProof(Container):
 represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L20).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L18).
 
 ```python
 class EthStorageProof(Container):
@@ -1114,7 +1117,7 @@ Proof as input data for the sync committee transition used by zk. This is a very
  So in total, we need to verify 1035 hashes and 1 bls signature.
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L375).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L373).
 
 ```python
 class EthSyncProof(Container):
@@ -1159,7 +1162,7 @@ represents the account and storage values, including the Merkle proof, of the sp
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L117).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L115).
 
 ```python
 class EthTransactionProof(Container):
@@ -1240,6 +1243,21 @@ class EthBlockDataTransactionUntion(Container):
     as_data  : List [EthTxData, 4096]   # the transactions data
 ```
 
+#### EthProofData
+
+
+ The Type is defined in [chains/eth/ssz/verify_data_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_data_types.h#L112).
+
+```python
+class EthProofData(Container):
+    balance     : Uint256
+    codeHash    : Bytes32
+    nonce       : Uint256
+    storageHash : Bytes32
+    accountProof: List [bytes_1024, 256]            # Patricia merkle proof
+    storageProof: List [EthStorageProofData, 256]   # the storage proofs of the selected
+```
+
 #### EthReceiptData
 
 the transaction data
@@ -1282,6 +1300,20 @@ class EthReceiptDataLog(Container):
     removed         : Boolean             # whether the log was removed
     topics          : List [bytes32, 8]   # the topics of the log
     data            : Bytes[1073741824]   # the data of the log
+```
+
+#### EthStorageProofData
+
+represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
+
+
+ The Type is defined in [chains/eth/ssz/verify_data_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_data_types.h#L104).
+
+```python
+class EthStorageProofData(Container):
+    key  : Bytes32                   # the key
+    value: Bytes32                   # the value
+    proof: List [bytes_1024, 1024]   # Patricia merkle proof
 ```
 
 #### EthTxData
