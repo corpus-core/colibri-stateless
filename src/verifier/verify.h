@@ -33,12 +33,21 @@ typedef struct {
   verify_flags_t flags;
 } verify_ctx_t;
 
+typedef enum {
+  METHOD_UNDEFINED     = 0,
+  METHOD_PROOFABLE     = 1,
+  METHOD_UNPROOFABLE   = 2,
+  METHOD_NOT_SUPPORTED = 3,
+  METHOD_LOCAL         = 4
+} method_type_t;
+
 const ssz_def_t* c4_get_request_type(chain_type_t chain_type);
 chain_type_t     c4_get_chain_type_from_req(bytes_t request);
 const ssz_def_t* c4_get_req_type_from_req(bytes_t request);
 c4_status_t      c4_verify(verify_ctx_t* ctx);
 c4_status_t      c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id);
 void             c4_verify_free_data(verify_ctx_t* ctx);
+method_type_t    c4_get_method_type(chain_id_t chain_id, char* method);
 
 #pragma endregion
 #ifdef MESSAGES

@@ -12,7 +12,7 @@ function(add_verifier)
 
     # Parse arguments
     set(options "")
-    set(oneValueArgs NAME GET_REQ_TYPE VERIFY)
+    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(VERIFIER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -30,7 +30,7 @@ function(add_verifier)
     get_property(CURRENT_PROPERTIES CACHE VERIFIER_PROPERTIES PROPERTY VALUE)
     
     # Append to the global list
-    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}")
+    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}")
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
 endfunction()
 
@@ -84,9 +84,10 @@ function(generate_verifiers_header)
         list(GET parts 0 name)
         list(GET parts 1 get_req_type)
         list(GET parts 2 verify)
-        
+        list(GET parts 3 method_type)
         file(APPEND ${VERIFIERS_H} "const ssz_def_t* ${get_req_type}(chain_type_t chain_type);\n")
-        file(APPEND ${VERIFIERS_H} "bool ${verify}(verify_ctx_t* ctx);\n\n")
+        file(APPEND ${VERIFIERS_H} "bool ${verify}(verify_ctx_t* ctx);\n")
+        file(APPEND ${VERIFIERS_H} "method_type_t ${method_type}(chain_id_t chain_id, char* method);\n\n")
     endforeach()
 
     # Add request_container function
@@ -109,6 +110,18 @@ function(generate_verifiers_header)
     endforeach()
     file(APPEND ${VERIFIERS_H} "  return false;\n")
     file(APPEND ${VERIFIERS_H} "}\n\n")
+
+    # Add request_container function
+    file(APPEND ${VERIFIERS_H} "method_type_t c4_get_method_type(chain_id_t chain_id, char* method) {\n")
+    file(APPEND ${VERIFIERS_H} "  method_type_t type = METHOD_UNDEFINED;\n")
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 3 method_type)
+        file(APPEND ${VERIFIERS_H} "  if (!type) type = ${method_type}(chain_id, method);\n")
+    endforeach()
+    file(APPEND ${VERIFIERS_H} "  return type;\n")
+    file(APPEND ${VERIFIERS_H} "}\n\n")
+
 
     # Close header guard
     file(APPEND ${VERIFIERS_H} "#endif // VERIFIERS_H\n")

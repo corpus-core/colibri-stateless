@@ -4,6 +4,7 @@ option(ETH_BLOCK  "support eth block verification. eth_getBlockByHash, eth_getBl
 option(ETH_RECEIPT  "support eth receipt verification. eth_getTransactionReceipt" ON)
 option(ETH_LOGS  "support eth logs verification. eth_getLogs" ON)
 option(ETH_CALL  "support eth call verification. eth_call, eth_estimateGas" ON)
+option(ETH_UTIL  "support eth utils like eth_chainId or web3_sha3" ON)
 
 
 option(EVMONE "uses evmone to verify eth_calls" ON)
@@ -86,7 +87,10 @@ if(ETH_CALL)
   endif()
   
 endif()
-
+if(ETH_UTIL)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_local.c)
+  add_definitions(-DETH_UTIL)
+endif()
 
 add_verifier(
   NAME eth_verifier
@@ -94,6 +98,7 @@ add_verifier(
   DEPENDS ${VERIFIER_DEPS}
   GET_REQ_TYPE c4_eth_get_request_type
   VERIFY c4_eth_verify
+  METHOD_TYPE c4_eth_get_method_type
 )
 
 add_proofer(

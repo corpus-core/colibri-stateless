@@ -197,6 +197,8 @@ In order to proof the RPC-Request, the  proofer will use different proofs.
 
 | rpc-Method                                                                                | status | Data                                             | Proof                                           |
 | :---------------------------------------------------------------------------------------- | :----- | :----------------------------------------------- | :---------------------------------------------- |
+| [`eth_blockNumber`](https://docs.alchemy.com/reference/eth-blocknumber)                   | ✖️     | Uint64                                           |                    |
+| [`eth_chainId`](https://docs.alchemy.com/reference/eth-chainid)                           | ✅     | Uint64                                           |                    |
 | `eth_blobBaseFee`                                                                         | ✖️     | Uint64                                           | [EthBlockHeaderProof](#ethblockheaderproof)     |
 | [`eth_call`](https://docs.alchemy.com/reference/eth-call)                                 | ✅     | Bytes                                            | [EthCallProof](#ethcallproof)                   |
 | [`eth_createAccessList`](https://docs.alchemy.com/reference/eth-createaccesslist)         | ✖️     | [EthAccessData](#ethaccessdata)                  | [EthCallProof](#ethcallproof)                   |

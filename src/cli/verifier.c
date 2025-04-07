@@ -119,17 +119,36 @@ int main(int argc, char* argv[]) {
     if (input == NULL)
       input = "https://c4.incubed.net";
   }
-  bytes_t request = {0};
-  if (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
+  bytes_t       request     = {0};
+  method_type_t method_type = c4_get_method_type(chain_id, method);
+  switch (method_type) {
+    case METHOD_UNDEFINED:
+      fprintf(stderr, "method not known: %s\n", method);
+      exit(EXIT_FAILURE);
+    case METHOD_NOT_SUPPORTED:
+      fprintf(stderr, "method not supported: %s\n", method);
+      exit(EXIT_FAILURE);
+    case METHOD_PROOFABLE:
+      if (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
 #ifdef USE_CURL
-    request = read_from_proofer(input, method, (char*) args.data.data, chain_id);
+        request = read_from_proofer(input, method, (char*) args.data.data, chain_id);
 #else
-    fprintf(stderr, "require data, but no curl installed");
-    exit(EXIT_FAILURE);
+        fprintf(stderr, "require data, but no curl installed");
+        exit(EXIT_FAILURE);
 #endif
+      }
+      else
+        request = bytes_read(input);
+
+      break;
+    case METHOD_LOCAL:
+      request = NULL_BYTES;
+      break;
+    case METHOD_UNPROOFABLE:
+      fprintf(stderr, "method not proofable: %s\n", method);
+      exit(EXIT_FAILURE);
+      break;
   }
-  else
-    request = bytes_read(input);
 
   verify_ctx_t ctx = {0};
   for (

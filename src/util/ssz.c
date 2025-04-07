@@ -9,10 +9,14 @@
 #include <string.h>
 
 // predefined types
-const ssz_def_t ssz_uint8      = SSZ_UINT("", 1);
-const ssz_def_t ssz_bytes32    = SSZ_BYTES32("bytes32");
-const ssz_def_t ssz_bls_pubky  = SSZ_BYTE_VECTOR("bls_pubky", 48);
-const ssz_def_t ssz_bytes_list = SSZ_BYTES("bytes", 1024 << 8);
+const ssz_def_t ssz_uint8       = SSZ_UINT("", 1);
+const ssz_def_t ssz_uint32_def  = SSZ_UINT("", 4);
+const ssz_def_t ssz_uint64_def  = SSZ_UINT("", 8);
+const ssz_def_t ssz_uint256_def = SSZ_UINT("", 32);
+const ssz_def_t ssz_bytes32     = SSZ_BYTES32("bytes32");
+const ssz_def_t ssz_bls_pubky   = SSZ_BYTE_VECTOR("bls_pubky", 48);
+const ssz_def_t ssz_bytes_list  = SSZ_BYTES("bytes", 1024 << 8);
+const ssz_def_t ssz_none        = SSZ_NONE;
 
 static bool is_basic_type(const ssz_def_t* def) {
   return def->type == SSZ_TYPE_UINT || def->type == SSZ_TYPE_BOOLEAN || def->type == SSZ_TYPE_NONE;
