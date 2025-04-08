@@ -11,5 +11,10 @@ FetchContent_Declare(
 # Lade und bereite Unity vor
 FetchContent_MakeAvailable(unity)
 
+# Suppress MSVC warning C4711 for unity target
+if(MSVC)
+    target_compile_options(unity PRIVATE /wd4711)
+endif()
+
 # Füge das Verzeichnis mit den Unit-Tests hinzu
 add_subdirectory(unittests)
