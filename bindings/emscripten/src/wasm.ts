@@ -4,8 +4,8 @@ export interface C4W {
     _c4w_free_proof_ctx: (proofCtx: number) => void;
     _c4w_execute_proof_ctx: (proofCtx: number) => number;
     _c4w_get_pending_data_request: (proofCtx: number) => number;
-    _c4w_c4_req_set_response: (reqPtr: number, data: number, len: number, node_index: number) => void;
-    _c4w_c4_req_set_error: (reqPtr: number, error: number, node_index: number) => void;
+    _c4w_req_set_response: (reqPtr: number, data: number, len: number, node_index: number) => void;
+    _c4w_req_set_error: (reqPtr: number, error: number, node_index: number) => void;
     _c4w_get_method_type: (chain_id: bigint, method: number) => number;
 
     _c4w_create_verify_ctx: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint) => number;

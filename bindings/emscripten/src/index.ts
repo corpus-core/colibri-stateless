@@ -85,7 +85,7 @@ export async function handle_request(req: DataRequest, conf: Config) {
         const data = conf.cache.get(req);
         if (data) {
             if (conf.debug) log(`::: ${path} (len=${data.length} bytes) CACHED`);
-            c4w._c4w_c4_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, 0);
+            c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, 0);
             return;
         }
     }
@@ -110,7 +110,7 @@ export async function handle_request(req: DataRequest, conf: Config) {
 
             const bytes = await response.blob().then(blob => blob.arrayBuffer());
             const data = new Uint8Array(bytes);
-            c4w._c4w_c4_req_set_response(req.req_ptr,
+            c4w._c4w_req_set_response(req.req_ptr,
                 copy_to_c(data, c4w), data.length, node_index);
             if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
 
@@ -121,7 +121,7 @@ export async function handle_request(req: DataRequest, conf: Config) {
         }
         node_index++;
     }
-    c4w._c4w_c4_req_set_error(req.req_ptr, as_char_ptr(last_error, c4w, free_buffers), 0);
+    c4w._c4w_req_set_error(req.req_ptr, as_char_ptr(last_error, c4w, free_buffers), 0);
     free_buffers.forEach(ptr => c4w._free(ptr));
     if (conf.debug) log(`::: ${path} (Error: ${last_error})`);
 }
