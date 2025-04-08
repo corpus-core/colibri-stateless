@@ -46,7 +46,7 @@ static int get_string(char** target, char* env_name, char* arg_nane, char shortc
 static int get_int(int* target, char* env_name, char* arg_nane, char shortcut, char* descr, int min, int max) {
   char* default_value = bprintf(NULL, "%d", *target);
   add_help_line(shortcut, arg_nane, env_name, descr, default_value);
-  free(default_value);
+  safe_free(default_value);
   char* env_value = getenv(env_name);
   char* arg_value = get_arg(arg_nane, shortcut, max != 1);
   int   val       = 0;

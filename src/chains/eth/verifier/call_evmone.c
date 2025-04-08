@@ -40,7 +40,7 @@ typedef struct evm_res_ptr {
 static const struct evmone_host_interface host_interface;
 
 static void add_evm_result(evmone_context_t* ctx, struct evmone_result* result) {
-  evm_res_ptr_t* new_result = malloc(sizeof(evm_res_ptr_t));
+  evm_res_ptr_t* new_result = safe_malloc(sizeof(evm_res_ptr_t));
   new_result->result        = *result;
   new_result->next          = ctx->results;
   ctx->results              = new_result;
@@ -198,7 +198,7 @@ static void host_selfdestruct(void* context, const evmc_address* addr, const evm
   while (acc->storage) {
     changed_storage_t* storage = acc->storage;
     acc->storage               = storage->next;
-    free(storage);
+    safe_free(storage);
   }
   acc->deleted = true;
 
@@ -545,7 +545,7 @@ c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_
     evm_res_ptr_t* res  = (evm_res_ptr_t*) context.results;
     evm_res_ptr_t* next = res->next;
     evmone_release_result(&res->result);
-    free(res);
+    safe_free(res);
     context.results = next;
   }
   context_free(&context);

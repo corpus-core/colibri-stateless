@@ -47,6 +47,12 @@ void     buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char
 void     buffer_free(buffer_t* buffer);
 void     buffer_grow(buffer_t* buffer, size_t min_len);
 
+// Safe memory allocation wrappers
+void* safe_malloc(size_t size);
+void* safe_calloc(size_t num, size_t size);
+void* safe_realloc(void* ptr, size_t new_size);
+void  safe_free(void* ptr);
+
 /**
  * writes to the buffer. the format is similar to printf. but those are the supported formats:
  *

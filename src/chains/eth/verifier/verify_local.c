@@ -52,7 +52,7 @@ static ssz_ob_t eth_protocolVersion(verify_ctx_t* ctx) {
 
 static ssz_ob_t web3_clientVersion(verify_ctx_t* ctx) {
   bytes_t result = bytes(malloc(19), 18);
-  strcpy(result.data, "C4/v1.0.0-alpha.1");
+  strcpy((char*) result.data, "C4/v1.0.0-alpha.1");
   return (ssz_ob_t) {.def = &ssz_string_def, .bytes = result};
 }
 

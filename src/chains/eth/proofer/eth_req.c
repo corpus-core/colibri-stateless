@@ -165,7 +165,7 @@ c4_status_t c4_send_eth_rpc(proofer_ctx_t* ctx, char* method, char* params, uint
       THROW_ERROR(data_request->error ? data_request->error : "Data request failed");
   }
   else {
-    data_request = calloc(1, sizeof(data_request_t));
+    data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     memcpy(data_request->id, id, 32);
     data_request->payload  = buffer.data;
     data_request->encoding = C4_DATA_ENCODING_JSON;

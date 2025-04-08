@@ -65,7 +65,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   }
   else {
     match = call_result.data && bytes_eq(call_result, ctx->data.bytes);
-    free(call_result.data);
+    safe_free(call_result.data);
   }
   eth_free_codes(call_codes);
   if (call_status != C4_SUCCESS) return false;

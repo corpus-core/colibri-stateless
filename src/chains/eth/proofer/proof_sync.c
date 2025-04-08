@@ -20,7 +20,7 @@ static c4_status_t req_client_update(proofer_ctx_t* ctx, uint32_t period, uint32
     ctx->state.error = strdup(req->error);
     return C4_ERROR;
   }
-  data_request_t* new_req = calloc(1, sizeof(data_request_t));
+  data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
   new_req->chain_id       = chain_id;
   new_req->url            = (char*) tmp.data.data;
   new_req->encoding       = C4_DATA_ENCODING_SSZ;
@@ -87,8 +87,8 @@ static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_da
   memcpy(full_proof.data + 32, state_proof.data, state_proof.len);
   memcpy(full_proof.data + 32 + state_proof.len, header_proof.data, header_proof.len);
   memcpy(full_proof.data + 32 + state_proof.len + header_proof.len, domain, 32);
-  free(header_proof.data);
-  free(signing_data.bytes.data);
+  safe_free(header_proof.data);
+  safe_free(signing_data.bytes.data);
   period->proof = full_proof;
   period->gidx  = ssz_add_gindex(state_gidx, NEXT_SYNC_COMMITTEE_GINDEX) * 2; // header -> stateRoot -> .... next_sync ->  pubKeys
 
@@ -105,7 +105,7 @@ static c4_status_t create_proof(proofer_ctx_t* ctx, period_data_t* period) {
   ssz_add_bytes(&proof, "proof", period->proof);
   ssz_add_bytes(&proof, "slot", period->slot);
   ssz_add_bytes(&proof, "proposerIndex", period->proposer_index);
-  free(period->proof.data);
+  safe_free(period->proof.data);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,

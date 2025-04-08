@@ -169,8 +169,8 @@ int main(int argc, char* argv[]) {
       char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"expected_result\": %Z\n}",
                                ctx.method, ctx.args, chain_id, ctx.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
-      free(filename);
-      free(content);
+      safe_free(filename);
+      safe_free(content);
     }
     ssz_dump_to_file_no_quotes(stdout, ctx.data);
     fflush(stdout);

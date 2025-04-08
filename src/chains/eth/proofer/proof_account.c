@@ -22,7 +22,7 @@ static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, cha
 
   ssz_ob_t list_ob = ssz_builder_to_bytes(&list);
   ssz_add_bytes(builder, name, list_ob.bytes);
-  free(list_ob.bytes.data);
+  safe_free(list_ob.bytes.data);
   buffer_free(&tmp);
 }
 
@@ -123,7 +123,7 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
 
   TRY_ASYNC_FINAL(
       create_eth_account_proof(ctx, eth_proof, &block, body_root, state_proof, address),
-      free(state_proof.data));
+      safe_free(state_proof.data));
 
   return C4_SUCCESS;
 }

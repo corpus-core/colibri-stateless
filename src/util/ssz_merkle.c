@@ -327,7 +327,7 @@ static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
     set_leaf(ctx->ob, index, out, ctx);
     //    char* s = bprintf(NULL, " [%l] LEAF : %x \n", gindex, bytes(out, 32));
     //    printf("%s", s);
-    //    free(s);
+    //   safe_free(s);
   }
   else {
 
@@ -349,7 +349,7 @@ static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
 #endif
     //    char* s = bprintf(NULL, " [%l]  %x   <= %x  %x\n", gindex, bytes(out, 32), bytes(temp, 32), bytes(temp + 32, 32));
     //    printf("%s", s);
-    //    free(s);
+    //   safe_free(s);
   }
 
   if (ctx->proof) {
@@ -437,7 +437,7 @@ bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, bytes32_t root_hash, 
 
 bytes_t ssz_create_multi_proof(ssz_ob_t root, bytes32_t root_hash, int gindex_len, ...) {
 
-  gindex_t* gindex = malloc(gindex_len * sizeof(gindex_t));
+  gindex_t* gindex = safe_malloc(gindex_len * sizeof(gindex_t));
   va_list   args;
   va_start(args, gindex_len);
   for (int i = 0; i < gindex_len; i++)
@@ -445,7 +445,7 @@ bytes_t ssz_create_multi_proof(ssz_ob_t root, bytes32_t root_hash, int gindex_le
   va_end(args);
 
   bytes_t proof = ssz_create_multi_proof_for_gindexes(root, root_hash, gindex, gindex_len);
-  free(gindex);
+  safe_free(gindex);
   return proof;
 }
 

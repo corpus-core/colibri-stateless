@@ -16,12 +16,12 @@ static void c4_proofer_execute_worker(uv_work_t* req) {
 static void c4_proofer_execute_after(uv_work_t* req, int status) {
   proof_work_t* work = (proof_work_t*) req->data;
   c4_proofer_handle_request(work->req_obj);
-  free(req);
+  safe_free(req);
 }
 
 static void proofer_request_free(request_t* req) {
   c4_proofer_free((proofer_ctx_t*) req->ctx);
-  free(req);
+  safe_free(req);
 }
 
 void c4_proofer_handle_request(request_t* req) {
@@ -29,7 +29,7 @@ void c4_proofer_handle_request(request_t* req) {
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED && c4_proofer_status(ctx) == C4_PENDING && c4_state_get_pending_request(&ctx->state) == NULL) {
     // no data are required and no pending request, so we can execute the proofer in the worker thread
-    proof_work_t* work = (proof_work_t*) calloc(1, sizeof(proof_work_t));
+    proof_work_t* work = (proof_work_t*) safe_calloc(1, sizeof(proof_work_t));
     work->req_obj      = req;
     work->ctx          = ctx;
     work->req.data     = work;
@@ -86,12 +86,12 @@ bool c4_handle_proof_request(client_t* client) {
 
   char*      method_str = bprintf(NULL, "%j", method);
   char*      params_str = bprintf(NULL, "%J", params);
-  request_t* req        = (request_t*) calloc(1, sizeof(request_t));
+  request_t* req        = (request_t*) safe_calloc(1, sizeof(request_t));
   req->client           = client;
   req->cb               = c4_proofer_handle_request;
   req->ctx              = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX);
-  free(method_str);
-  free(params_str);
+  safe_free(method_str);
+  safe_free(params_str);
   c4_proofer_handle_request(req);
   return true;
 }
@@ -108,10 +108,10 @@ static void c4_proxy_callback(client_t* client, void* data, data_request_t* req)
     fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding proxy response\n");
     // Clean up resources
     if (req) {
-      free(req->url);
-      free(req->response.data);
-      free(req->error);
-      free(req);
+      safe_free(req->url);
+      safe_free(req->response.data);
+      safe_free(req->error);
+      safe_free(req);
     }
     return;
   }
@@ -124,15 +124,15 @@ static void c4_proxy_callback(client_t* client, void* data, data_request_t* req)
     c4_http_respond(client, 500, "application/json", buf.data);
     buffer_free(&buf);
   }
-  free(req->url);
-  free(req->response.data);
-  free(req->error);
-  free(req);
+  safe_free(req->url);
+  safe_free(req->response.data);
+  safe_free(req->error);
+  safe_free(req);
 }
 
 bool c4_proxy(client_t* client) {
   if (strncmp(client->request.path, "/beacon/", 8) != 0) return false;
-  data_request_t* req = (data_request_t*) calloc(1, sizeof(data_request_t));
+  data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
   req->url            = bprintf(NULL, "/eth/v1/beacon/%s", client->request.path + 8);
   req->method         = C4_DATA_METHOD_GET;
   req->chain_id       = C4_CHAIN_MAINNET;
@@ -152,7 +152,7 @@ static void handle_new_head_cb(request_t* req) {
       bytes32_t cache_key = {0};
       sprintf((char*) cache_key, "Slatest");
       c4_proofer_cache_invalidate(cache_key);
-      beacon_block_t* beacon_block = (beacon_block_t*) calloc(1, sizeof(beacon_block_t));
+      beacon_block_t* beacon_block = (beacon_block_t*) safe_calloc(1, sizeof(beacon_block_t));
       ssz_ob_t        sig_body     = ssz_get(&sig_block, "body");
       beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
       beacon_block->header         = data_block;
@@ -184,12 +184,12 @@ static void handle_new_head_cb(request_t* req) {
 
 void c4_handle_new_head(json_t head) {
 
-  beacon_head_t* b      = (beacon_head_t*) calloc(1, sizeof(beacon_head_t));
+  beacon_head_t* b      = (beacon_head_t*) safe_calloc(1, sizeof(beacon_head_t));
   buffer_t       buffer = stack_buffer(b->root);
   b->slot               = json_get_uint64(head, "slot");
   bytes_t        root   = json_get_bytes(head, "block", &buffer);
-  request_t*     req    = (request_t*) calloc(1, sizeof(request_t));
-  proofer_ctx_t* ctx    = (proofer_ctx_t*) calloc(1, sizeof(proofer_ctx_t));
+  request_t*     req    = (request_t*) safe_calloc(1, sizeof(request_t));
+  proofer_ctx_t* ctx    = (proofer_ctx_t*) safe_calloc(1, sizeof(proofer_ctx_t));
   req->client           = NULL;
   req->cb               = handle_new_head_cb;
   req->ctx              = ctx;
@@ -221,8 +221,8 @@ static void c4_handle_finalized_checkpoint_cb(request_t* req) {
 }
 
 void c4_handle_finalized_checkpoint(json_t checkpoint) {
-  request_t* req = (request_t*) calloc(1, sizeof(request_t));
+  request_t* req = (request_t*) safe_calloc(1, sizeof(request_t));
   req->cb        = c4_handle_finalized_checkpoint_cb;
-  req->ctx       = calloc(1, sizeof(proofer_ctx_t));
+  req->ctx       = safe_calloc(1, sizeof(proofer_ctx_t));
   req->cb(req);
 }

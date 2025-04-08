@@ -107,7 +107,7 @@ static changed_account_t* create_changed_account(evmone_context_t* ctx, const ad
   changed_account_t* parent_acc  = ctx->parent ? get_changed_account(ctx->parent, address) : NULL;
   *created                       = parent_acc == NULL;
   ssz_ob_t           old_account = get_src_account(ctx, address, true);
-  changed_account_t* acc         = calloc(1, sizeof(changed_account_t));
+  changed_account_t* acc         = safe_calloc(1, sizeof(changed_account_t));
   memcpy(acc->address, address, 20);
   acc->next             = ctx->changed_accounts;
   ctx->changed_accounts = acc;
@@ -117,7 +117,7 @@ static changed_account_t* create_changed_account(evmone_context_t* ctx, const ad
     acc->code                       = parent_acc->code;
     changed_storage_t** storage_ptr = &acc->storage;
     for (changed_storage_t* s = parent_acc->storage; s != NULL; s = s->next) {
-      *storage_ptr = calloc(1, sizeof(changed_storage_t));
+      *storage_ptr = safe_calloc(1, sizeof(changed_storage_t));
       memcpy((*storage_ptr)->key, s->key, 32);
       memcpy((*storage_ptr)->value, s->value, 32);
       (*storage_ptr)->next = NULL;
@@ -142,7 +142,7 @@ static void set_changed_storage(evmone_context_t* ctx, const address_t addr, con
   else {
     changed_account_t* account = create_changed_account(ctx, addr, account_created);
     *storage_created           = true;
-    changed_storage_t* storage = calloc(1, sizeof(changed_storage_t));
+    changed_storage_t* storage = safe_calloc(1, sizeof(changed_storage_t));
     memcpy(storage->key, key, 32);
     memcpy(storage->value, value, 32);
     storage->next    = account->storage;
@@ -171,11 +171,11 @@ static void changed_account_free(changed_account_t* acc) {
   while (acc->storage) {
     changed_storage_t* storage = acc->storage;
     acc->storage               = storage->next;
-    free(storage);
+    safe_free(storage);
   }
   if (acc->code.data && acc->free_code)
-    free(acc->code.data);
-  free(acc);
+    safe_free(acc->code.data);
+  safe_free(acc);
 }
 
 static void context_free(evmone_context_t* ctx) {

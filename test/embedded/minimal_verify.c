@@ -28,7 +28,7 @@ static void test_memory_allocation(size_t size) {
   snprintf(buf, sizeof(buf), "Attempting to allocate %zu bytes", size);
   semihosting_print(buf);
 
-  void* test_memory = malloc(size);
+  void* test_memory = safe_malloc(size);
   if (test_memory) {
     snprintf(buf, sizeof(buf), "Successfully allocated %zu bytes of memory", size);
     semihosting_print(buf);
@@ -45,7 +45,7 @@ static void test_memory_allocation(size_t size) {
       semihosting_print("Memory content verification failed!");
     }
 
-    free(test_memory);
+    safe_free(test_memory);
     semihosting_print("Memory freed successfully");
   }
   else {
@@ -93,10 +93,10 @@ int main(void) {
   snprintf(buf, sizeof(buf), "Attempting to allocate verification buffer of %zu bytes", verification_buffer_size);
   semihosting_print(buf);
 
-  void* verification_buffer = malloc(verification_buffer_size);
+  void* verification_buffer = safe_malloc(verification_buffer_size);
   if (verification_buffer) {
     semihosting_print("Successfully allocated verification buffer");
-    free(verification_buffer);
+    safe_free(verification_buffer);
   }
   else {
     semihosting_print("Failed to allocate verification buffer");

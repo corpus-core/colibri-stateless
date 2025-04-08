@@ -18,7 +18,7 @@ void test_sync() {
   verify_ctx_t ctx    = {0};
   ctx.chain_id        = C4_CHAIN_MAINNET;
   TEST_ASSERT_TRUE_MESSAGE(c4_handle_client_updates(&ctx, update, NULL), "Failed to update");
-  free(update.data);
+  safe_free(update.data);
 }
 
 int main(void) {

@@ -163,7 +163,7 @@ static void on_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) 
     safe_size = 64 * 1024; // Limit to 64KB
   }
 
-  buf->base = (char*) malloc(safe_size);
+  buf->base = (char*) safe_malloc(safe_size);
   if (!buf->base) {
     fprintf(stderr, "Error: Failed to allocate memory in on_alloc\n");
     buf->len = 0;
@@ -176,7 +176,7 @@ static void on_connection(uv_connect_t* req, int status) {
   mc_conn_t* connection = (mc_conn_t*) req->data;
   connection->tcp.data  = connection;
   mc_t* client          = connection->client;
-  free(req);
+  safe_free(req);
 
   client->connecting--;
   connection->reconnecting = false;
@@ -212,21 +212,21 @@ mc_t* memcache_new(unsigned int pool_size, const char* host, int port) {
   freeaddrinfo(result);
 
   // create client
-  mc_t* client = (mc_t*) calloc(1, sizeof(mc_t));
+  mc_t* client = (mc_t*) safe_calloc(1, sizeof(mc_t));
   if (!client) return NULL;
 
   client->loop           = uv_default_loop();
   client->size           = pool_size;
   client->server_addr    = addr;
   client->connecting     = pool_size;
-  client->connections    = (mc_conn_t*) calloc(pool_size, sizeof(mc_conn_t));
+  client->connections    = (mc_conn_t*) safe_calloc(pool_size, sizeof(mc_conn_t));
   client->queue_head     = NULL;
   client->queue_tail     = NULL;
   client->queue_size     = 0;
   client->max_queue_size = pool_size * 10; // Allow 10x the pool size for queued operations
 
   if (!client->connections) {
-    free(client);
+    safe_free(client);
     return NULL;
   }
 
@@ -235,11 +235,11 @@ mc_t* memcache_new(unsigned int pool_size, const char* host, int port) {
     UV_TRY(uv_tcp_init(client->loop, &connection->tcp), "error initializing tcp", continue);
     connection->client   = client;
     connection->tcp.data = connection;
-    uv_connect_t* req    = (uv_connect_t*) calloc(1, sizeof(uv_connect_t));
+    uv_connect_t* req    = (uv_connect_t*) safe_calloc(1, sizeof(uv_connect_t));
     req->data            = connection;
     UV_TRY(uv_tcp_connect(req, &connection->tcp, (const struct sockaddr*) &addr, on_connection),
            "error connecting to memcached",
-           free(req));
+           safe_free(req));
   }
 
   return client;
@@ -254,18 +254,18 @@ static void mc_cleanup_queue(mc_t* client) {
     mc_queued_op_t* next = current->next;
 
     if (current->type == QUEUE_OP_GET) {
-      free(current->op.get.key);
+      safe_free(current->op.get.key);
       // Call callback with NULL to indicate failure
       if (current->op.get.cb) {
         current->op.get.cb(current->op.get.data, NULL, 0);
       }
     }
     else { // QUEUE_OP_SET
-      free(current->op.set.key);
-      free(current->op.set.value);
+      safe_free(current->op.set.key);
+      safe_free(current->op.set.value);
     }
 
-    free(current);
+    safe_free(current);
     current = next;
   }
 
@@ -287,8 +287,8 @@ void memcache_free(mc_t** client_p) {
   for (unsigned int i = 0; i < client->size; i++)
     uv_close((uv_handle_t*) &client->connections[i].tcp, on_conn_close);
 
-  free(client->connections);
-  free(client);
+  safe_free(client->connections);
+  safe_free(client);
   *client_p = NULL;
 }
 
@@ -384,17 +384,17 @@ static void mc_process_queue(mc_t* client) {
   int result = 0;
   if (op->type == QUEUE_OP_GET) {
     result = memcache_get(client, op->op.get.key, op->op.get.keylen, op->op.get.data, op->op.get.cb);
-    free(op->op.get.key);
+    safe_free(op->op.get.key);
   }
   else { // QUEUE_OP_SET
     result = memcache_set(client, op->op.set.key, op->op.set.keylen,
                           op->op.set.value, op->op.set.value_len,
                           op->op.set.ttl);
-    free(op->op.set.key);
-    free(op->op.set.value);
+    safe_free(op->op.set.key);
+    safe_free(op->op.set.value);
   }
 
-  free(op);
+  safe_free(op);
 
   // If the operation processing freed up a connection and we have more operations,
   // process the next one
@@ -413,21 +413,21 @@ static void req_set_free(mc_set_req_t* req) {
   // Comment out debug print
   // fprintf(stderr, "DEBUG: req_set_free freeing req %p\n", req);
   // --- END CHANGE ---
-  free(req->msg[0].base);
-  free(req->msg[1].base);
+  safe_free(req->msg[0].base);
+  safe_free(req->msg[1].base);
   // Free the associated write request if it hasn't been freed yet
   if (req->write_req) {
-    free(req->write_req);
+    safe_free(req->write_req);
     req->write_req = NULL; // Avoid double free if somehow called again
   }
-  free(req);
+  safe_free(req);
 }
 
 static void on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
   // Safety check for stream
   if (!stream) {
     fprintf(stderr, "Error: on_set_read called with null stream\n");
-    if (buf && buf->base) free(buf->base);
+    if (buf && buf->base) safe_free(buf->base);
     return;
   }
 
@@ -435,7 +435,7 @@ static void on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
   // Check if connection is valid
   if (!connection) {
     fprintf(stderr, "Error: Invalid connection in on_set_read\n");
-    if (buf && buf->base) free(buf->base);
+    if (buf && buf->base) safe_free(buf->base);
     return;
   }
 
@@ -443,7 +443,7 @@ static void on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
   // Check if request data is valid
   if (!req_data || req_data->has_been_freed) {
     fprintf(stderr, "Error: Invalid or already freed request data in on_set_read\n");
-    if (buf && buf->base) free(buf->base);
+    if (buf && buf->base) safe_free(buf->base);
     return;
   }
 
@@ -484,7 +484,7 @@ static void on_set_read_discard(uv_stream_t* stream, ssize_t nread, const uv_buf
   // Safety check for stream
   if (!stream) {
     fprintf(stderr, "Error: on_set_read_discard called with null stream\n");
-    if (buf && buf->base) free(buf->base);
+    if (buf && buf->base) safe_free(buf->base);
     return;
   }
 
@@ -492,7 +492,7 @@ static void on_set_read_discard(uv_stream_t* stream, ssize_t nread, const uv_buf
   // Check if connection is valid
   if (!connection) {
     fprintf(stderr, "Error: Invalid connection in on_set_read_discard\n");
-    if (buf && buf->base) free(buf->base);
+    if (buf && buf->base) safe_free(buf->base);
     return;
   }
 
@@ -518,7 +518,7 @@ static void on_set_read_discard(uv_stream_t* stream, ssize_t nread, const uv_buf
 
   // Free the buffer provided by on_alloc
   if (buf && buf->base) {
-    free(buf->base);
+    safe_free(buf->base);
   }
 
   // Release the connection back to the pool (if not already released due to error)
@@ -542,7 +542,7 @@ static void on_set_write(uv_write_t* req, int status) {
   mc_set_req_t* req_data = (mc_set_req_t*) req->data;
   if (!req_data || req_data->has_been_freed) {
     fprintf(stderr, "Error: Invalid or already freed request data in on_set_write\n");
-    free(req); // Free the write request struct itself
+    safe_free(req); // Free the write request struct itself
     return;
   }
 
@@ -566,7 +566,7 @@ static void on_set_write(uv_write_t* req, int status) {
     return; // Return added as we don't proceed to read
   }
 
-  free(req); // Free the write request struct itself
+  safe_free(req); // Free the write request struct itself
 
   if (status != 0) {
     fprintf(stderr, "Error writing SET to memcached: %s\n", uv_strerror(status));
@@ -592,7 +592,7 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
   mc_conn_t* connection = mc_get_connection(client);
   if (!connection) {
     // No connections available, queue the operation
-    mc_queued_op_t* op = (mc_queued_op_t*) calloc(1, sizeof(mc_queued_op_t));
+    mc_queued_op_t* op = (mc_queued_op_t*) safe_calloc(1, sizeof(mc_queued_op_t));
     if (!op) {
       return -1;
     }
@@ -600,14 +600,14 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
     op->type       = QUEUE_OP_SET;
     op->op.set.key = strndup(key, keylen);
     if (!op->op.set.key) {
-      free(op);
+      safe_free(op);
       return -1;
     }
     op->op.set.keylen = keylen;
     op->op.set.value  = strndup(value, value_len);
     if (!op->op.set.value) {
-      free(op->op.set.key);
-      free(op);
+      safe_free(op->op.set.key);
+      safe_free(op);
       return -1;
     }
     op->op.set.value_len = value_len;
@@ -617,9 +617,9 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
     int result = mc_queue_operation(client, op);
     if (result != 0) {
       // Queue is full or other error, clean up and fail
-      free(op->op.set.key);
-      free(op->op.set.value);
-      free(op);
+      safe_free(op->op.set.key);
+      safe_free(op->op.set.value);
+      safe_free(op);
       return -1;
     }
 
@@ -627,7 +627,7 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
   }
 
   // Use existing connection
-  mc_set_req_t* req_data = (mc_set_req_t*) calloc(1, sizeof(mc_set_req_t));
+  mc_set_req_t* req_data = (mc_set_req_t*) safe_calloc(1, sizeof(mc_set_req_t));
   if (!req_data) {
     if (connection) {
       connection->in_use = false; // Make connection available
@@ -648,9 +648,9 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
 
   // --- Allocation Path 2: value buffer ---
   req_data->msg[1].base = (char*) bytes_dup(bytes(value, value_len)).data;
-  if (!req_data->msg[1].base) {  // Check allocation success for value dup
-    free(req_data->msg[0].base); // Free command buffer
-    free(req_data);              // Free req_data struct
+  if (!req_data->msg[1].base) {       // Check allocation success for value dup
+    safe_free(req_data->msg[0].base); // Free command buffer
+    safe_free(req_data);              // Free req_data struct
     if (connection) {
       connection->in_use = false; // Make connection available
       mc_process_queue(client);   // Try to process queue
@@ -671,7 +671,7 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
   // --- END CHANGE ---
 
   // --- Allocation Path 3: write request struct ---
-  uv_write_t* req = (uv_write_t*) calloc(1, sizeof(uv_write_t));
+  uv_write_t* req = (uv_write_t*) safe_calloc(1, sizeof(uv_write_t));
   if (!req) {
     req_set_free(req_data); // Free buffers inside req_data
     if (connection) {
@@ -691,7 +691,7 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
   if (r != 0) {
     fprintf(stderr, "Error uv_write in memcache_set: %s\n", uv_strerror(r));
     req_data->write_req = NULL; // Nullify pointer in req_data
-    free(req);                  // Free the uv_write_t struct
+    safe_free(req);             // Free the uv_write_t struct
     // DO NOT free req_data (on_conn_close handles it)
     // DO NOT touch connection (assume it's bad)
     return -1;
@@ -710,21 +710,21 @@ static void req_get_free(mc_get_req_t* req) {
   // Comment out debug print
   // fprintf(stderr, "DEBUG: req_get_free freeing req %p\n", req);
   // --- END CHANGE ---
-  free(req->key);
+  safe_free(req->key);
   buffer_free(&req->buffer);
   // Free the associated write request if it hasn't been freed yet
   if (req->write_req) {
-    free(req->write_req);
+    safe_free(req->write_req);
     req->write_req = NULL; // Avoid double free
   }
-  free(req);
+  safe_free(req);
 }
 
 static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
   // Safety check for stream
   if (!stream) {
     fprintf(stderr, "Error: on_get_read called with null stream\n");
-    if (buf && buf->base) free(buf->base);
+    if (buf && buf->base) safe_free(buf->base);
     return;
   }
 
@@ -732,7 +732,7 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
   // Check if connection is valid
   if (!connection) {
     fprintf(stderr, "Error: Invalid connection in on_get_read\n");
-    if (buf && buf->base) free(buf->base);
+    if (buf && buf->base) safe_free(buf->base);
     return;
   }
 
@@ -742,7 +742,7 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
   // Check if request data is valid
   if (!req_data /* Removed: || req_data->has_been_freed */) {
     fprintf(stderr, "Error: Invalid request data in on_get_read\n");
-    if (buf && buf->base) free(buf->base);
+    if (buf && buf->base) safe_free(buf->base);
     uv_read_stop(stream); // Stop reading if request is bad
     // Don't release connection, let on_conn_close handle it if needed
     // Release connection even if request data was bad? Maybe not safe. Log and return.
@@ -772,7 +772,7 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
 
   // Free the read buffer now, we've appended its content or handled error
   if (buf && buf->base) {
-    free(buf->base);
+    safe_free(buf->base);
   }
 
   // Only proceed with parsing if we have data and aren't already done due to error/EOF
@@ -804,7 +804,7 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
 
       // Create a null-terminated copy of the header for sscanf
       size_t header_len = end_header - response;
-      char*  header     = (char*) malloc(header_len + 1);
+      char*  header     = (char*) safe_malloc(header_len + 1);
       if (header) {
         memcpy(header, response, header_len);
         header[header_len] = '\0';
@@ -842,7 +842,7 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
           done = true;
           uv_read_stop(stream);
         }
-        free(header);
+        safe_free(header);
       }
       else {
         // Failed to allocate header copy - treat as error
@@ -884,7 +884,7 @@ static void on_get_write(uv_write_t* req, int status) {
   mc_get_req_t* req_data = (mc_get_req_t*) req->data;
   if (!req_data || req_data->has_been_freed) {
     fprintf(stderr, "Error: Invalid or already freed request data in on_get_write\n");
-    free(req); // Free the write request struct itself
+    safe_free(req); // Free the write request struct itself
     return;
   }
 
@@ -901,7 +901,7 @@ static void on_get_write(uv_write_t* req, int status) {
 
     // Free resources
     req_get_free(req_data);
-    free(req); // Free the write request struct itself
+    safe_free(req); // Free the write request struct itself
 
     // Call callback with error after cleanup
     if (req_data->cb) {
@@ -910,7 +910,7 @@ static void on_get_write(uv_write_t* req, int status) {
     return;
   }
 
-  free(req); // Free the write request struct itself
+  safe_free(req); // Free the write request struct itself
 
   if (status != 0) {
     fprintf(stderr, "Error writing GET request to memcached: %s\n", uv_strerror(status));
@@ -973,7 +973,7 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
   mc_conn_t* connection = mc_get_connection(client);
   if (!connection) {
     // No connections available, queue the operation
-    mc_queued_op_t* op = (mc_queued_op_t*) calloc(1, sizeof(mc_queued_op_t));
+    mc_queued_op_t* op = (mc_queued_op_t*) safe_calloc(1, sizeof(mc_queued_op_t));
     if (!op) {
       cb(data, NULL, 0);
       return -1;
@@ -983,7 +983,7 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
     op->type       = QUEUE_OP_GET;
     op->op.get.key = strndup(key, keylen);
     if (!op->op.get.key) {
-      free(op);
+      safe_free(op);
       cb(data, NULL, 0);
       return -1;
     }
@@ -995,8 +995,8 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
     int result = mc_queue_operation(client, op);
     if (result != 0) {
       // Queue is full or other error, clean up and fail
-      free(op->op.get.key);
-      free(op);
+      safe_free(op->op.get.key);
+      safe_free(op);
       cb(data, NULL, 0);
       return -1;
     }
@@ -1005,7 +1005,7 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
   }
 
   // Rest of the function remains unchanged - existing implementation for when a connection is available
-  mc_get_req_t* req_data = (mc_get_req_t*) calloc(1, sizeof(mc_get_req_t));
+  mc_get_req_t* req_data = (mc_get_req_t*) safe_calloc(1, sizeof(mc_get_req_t));
   if (!req_data) {
     if (connection) {
       connection->in_use = false; // Make connection available
@@ -1021,7 +1021,7 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
   req_data->connection = connection;
   req_data->key        = strndup(key, keylen);
   if (!req_data->key) { // Check allocation success for key dup
-    free(req_data);
+    safe_free(req_data);
     if (connection) {
       connection->in_use = false; // Make connection available
       mc_process_queue(client);   // Try to process queue
@@ -1039,7 +1039,7 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
   req_data->msg[2].len  = 2;
   req_data->write_req   = NULL; // Initialize to NULL
 
-  uv_write_t* req = (uv_write_t*) calloc(1, sizeof(uv_write_t));
+  uv_write_t* req = (uv_write_t*) safe_calloc(1, sizeof(uv_write_t));
   if (!req) {
     req_get_free(req_data); // Frees key
     if (connection) {
@@ -1064,7 +1064,7 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
   if (r != 0) {
     fprintf(stderr, "Error uv_write in memcache_get: %s\n", uv_strerror(r));
     req_data->write_req = NULL;
-    free(req);
+    safe_free(req);
     // DO NOT free req_data (on_conn_close handles it)
     // DO NOT touch connection (assume it's bad)
     cb(data, NULL, 0); // Call user callback with error

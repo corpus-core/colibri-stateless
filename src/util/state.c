@@ -5,14 +5,14 @@ void c4_state_free(c4_state_t* state) {
   data_request_t* data_request = state->requests;
   while (data_request) {
     data_request_t* next = data_request->next;
-    if (data_request->url) free(data_request->url);
-    if (data_request->error) free(data_request->error);
-    if (data_request->payload.data) free(data_request->payload.data);
-    if (data_request->response.data) free(data_request->response.data);
-    free(data_request);
+    if (data_request->url) safe_free(data_request->url);
+    if (data_request->error) safe_free(data_request->error);
+    if (data_request->payload.data) safe_free(data_request->payload.data);
+    if (data_request->response.data) safe_free(data_request->response.data);
+    safe_free(data_request);
     data_request = next;
   }
-  if (state->error) free(state->error);
+  if (state->error) safe_free(state->error);
 }
 
 data_request_t* c4_state_get_data_request_by_id(c4_state_t* state, bytes32_t id) {

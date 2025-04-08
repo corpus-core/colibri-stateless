@@ -48,16 +48,16 @@ static void file_delete(char* filename) {
   for (_cached_t* val = _file_cache; val; prev = &val->next, val = val->next) {
     if (strcmp(val->filename, filename) == 0) {
       *prev = val->next;
-      free(val->filename);
-      free(val->data.data);
-      free(val);
+      safe_free(val->filename);
+      safe_free(val->data.data);
+      safe_free(val);
       return;
     }
   }
 }
 
 static void file_set(char* key, bytes_t value) {
-  _cached_t* n = calloc(1, sizeof(_cached_t));
+  _cached_t* n = safe_calloc(1, sizeof(_cached_t));
   n->filename  = strdup(key);
   n->data      = bytes_dup(value);
   n->next      = _file_cache;
@@ -67,9 +67,9 @@ static void file_set(char* key, bytes_t value) {
 static void reset_local_filecache() {
   while (_file_cache) {
     _cached_t* next = _file_cache->next;
-    free(_file_cache->filename);
-    free(_file_cache->data.data);
-    free(_file_cache);
+    safe_free(_file_cache->filename);
+    safe_free(_file_cache->data.data);
+    safe_free(_file_cache);
     _file_cache = next;
   }
 
@@ -114,7 +114,7 @@ static char* normalize_newlines(const char* input) {
     return NULL;
   }
   size_t len    = strlen(input);
-  char*  output = (char*) malloc(len + 1); // Allocate enough space (max possible)
+  char*  output = (char*) safe_malloc(len + 1); // Allocate enough space (max possible)
   if (!output) {
     perror("Failed to allocate memory in normalize_newlines");
     return NULL; // Allocation failed
@@ -166,7 +166,7 @@ static void set_state(chain_id_t chain_id, char* dirname) {
     if (content.data) {
       // Store in file cache
       file_set(filename, content);
-      free(content.data);
+      safe_free(content.data);
     }
   } while (FindNextFileA(find_handle, &find_data));
 
@@ -197,7 +197,7 @@ static void set_state(chain_id_t chain_id, char* dirname) {
     if (content.data) {
       // Store in file cache
       file_set(filename, content);
-      free(content.data);
+      safe_free(content.data);
     }
   }
 
@@ -221,7 +221,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
         while ((req = c4_state_get_pending_request(&proof_ctx->state))) {
           char* filename = c4_req_mockname(req);
           sprintf(tmp, "%s/%s", dirname, filename);
-          free(filename);
+          safe_free(filename);
           //          printf("read : %s\n     %s\n", tmp, req->payload.data ? (char*) req->payload.data : "");
           bytes_t content = read_testdata(tmp);
           TEST_ASSERT_NOT_NULL_MESSAGE(content.data, bprintf(NULL, "Did not find the testdata: %s", tmp));
@@ -252,7 +252,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
         for (data_request_t* req = c4_state_get_pending_request(&verify_ctx.state); req; req = c4_state_get_pending_request(&verify_ctx.state)) {
           char* filename = c4_req_mockname(req);
           sprintf(tmp, "%s/%s", dirname, filename);
-          free(filename);
+          safe_free(filename);
           //          printf("read : %s\n     %s", tmp, req->payload.data);
           bytes_t content = read_testdata(tmp);
           TEST_ASSERT_NOT_NULL_MESSAGE(content.data, bprintf(NULL, "Did not find the testdata: %s", tmp));
@@ -265,7 +265,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
         if (expected_result) {
           char* result = ssz_dump_to_str(verify_ctx.data, false, true);
           TEST_ASSERT_EQUAL_STRING_MESSAGE(expected_result, result, "wrong result");
-          free(result);
+          safe_free(result);
         }
         success = true;
         break;
@@ -295,12 +295,12 @@ static void run_rpc_test(char* dirname, proofer_flags_t flags) {
   chain_id_t chain_id            = (chain_id_t) json_get_uint64(test, "chain_id");
   char*      expected_result_src = bprintf(NULL, "%J", json_get(test, "expected_result"));
   char*      expected_result     = normalize_newlines(expected_result_src);
-  free(expected_result_src);
+  safe_free(expected_result_src);
 
   verify_count(dirname, method, args, chain_id, 1, flags, expected_result);
 
-  free(method);
-  free(args);
-  free(expected_result);
-  free(test_content.data);
+  safe_free(method);
+  safe_free(args);
+  safe_free(expected_result);
+  safe_free(test_content.data);
 }

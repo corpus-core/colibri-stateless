@@ -93,7 +93,7 @@ void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key) {
       // << End added check
 
       // Found valid entry in global cache - copy it to local cache
-      cache_entry_t* new_entry = (cache_entry_t*) calloc(1, sizeof(cache_entry_t));
+      cache_entry_t* new_entry = (cache_entry_t*) safe_calloc(1, sizeof(cache_entry_t));
       if (!new_entry) {
         log_error("Failed to allocate memory for cache entry copy");
         return NULL; // Allocation failed
@@ -115,7 +115,7 @@ void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key) {
 }
 
 void c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free) {
-  cache_entry_t* entry = (cache_entry_t*) calloc(1, sizeof(cache_entry_t));
+  cache_entry_t* entry = (cache_entry_t*) safe_calloc(1, sizeof(cache_entry_t));
   memcpy(entry->key, key, 32);
   entry->value     = value;
   entry->size      = size;
@@ -177,7 +177,7 @@ static bool add_entry_to_global_cache(cache_entry_t* entry_to_add) {
     c4_proofer_cache_cleanup(current_ms(), entry_to_add->size);
   // Ensure initial allocation
   if (global_cache_array.entries == NULL) {
-    global_cache_array.entries = (cache_entry_t*) malloc(GLOBAL_CACHE_INITIAL_CAPACITY * sizeof(cache_entry_t));
+    global_cache_array.entries = (cache_entry_t*) safe_malloc(GLOBAL_CACHE_INITIAL_CAPACITY * sizeof(cache_entry_t));
     if (!global_cache_array.entries) {
       log_error("Failed to allocate initial global cache array");
       return false; // Allocation failed
@@ -189,7 +189,7 @@ static bool add_entry_to_global_cache(cache_entry_t* entry_to_add) {
   // Check if resize is needed
   else if (global_cache_array.count >= global_cache_array.capacity) {
     size_t         new_capacity = global_cache_array.capacity > 0 ? global_cache_array.capacity * 2 : GLOBAL_CACHE_INITIAL_CAPACITY; // Double the capacity, handle 0 start
-    cache_entry_t* new_entries  = (cache_entry_t*) realloc(global_cache_array.entries, new_capacity * sizeof(cache_entry_t));
+    cache_entry_t* new_entries  = (cache_entry_t*) safe_realloc(global_cache_array.entries, new_capacity * sizeof(cache_entry_t));
     if (!new_entries) {
       log_error("Failed to reallocate global cache array from %d to %d entries", global_cache_array.capacity, new_capacity);
       // Keep the old array, but cannot add the new entry
@@ -257,11 +257,11 @@ void c4_proofer_cache_invalidate(bytes32_t key) {
 proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id, proofer_flags_t flags) {
   json_t params_json = json_parse(params);
   if (params_json.type != JSON_TYPE_ARRAY) return NULL;
-  char* params_str = (char*) malloc(params_json.len + 1);
+  char* params_str = (char*) safe_malloc(params_json.len + 1);
   memcpy(params_str, params_json.start, params_json.len);
   params_str[params_json.len] = 0;
   params_json.start           = params_str;
-  proofer_ctx_t* ctx          = (proofer_ctx_t*) calloc(1, sizeof(proofer_ctx_t));
+  proofer_ctx_t* ctx          = (proofer_ctx_t*) safe_calloc(1, sizeof(proofer_ctx_t));
   ctx->method                 = strdup(method);
   ctx->params                 = params_json;
   ctx->chain_id               = chain_id;
@@ -271,9 +271,9 @@ proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id
 
 void c4_proofer_free(proofer_ctx_t* ctx) {
   c4_state_free(&ctx->state);
-  if (ctx->method) free(ctx->method);
-  if (ctx->params.start) free((void*) ctx->params.start);
-  if (ctx->proof.data) free(ctx->proof.data);
+  if (ctx->method) safe_free(ctx->method);
+  if (ctx->params.start) safe_free((void*) ctx->params.start);
+  if (ctx->proof.data) safe_free(ctx->proof.data);
 #ifdef PROOFER_CACHE
   while (ctx->cache) {
     cache_entry_t* next                = ctx->cache->next;
@@ -314,12 +314,12 @@ void c4_proofer_free(proofer_ctx_t* ctx) {
         current_local_entry->free(current_local_entry->value);
     }
     // Free the local linked-list node structure itself
-    free(current_local_entry);
+    safe_free(current_local_entry);
     ctx->cache = next; // Move to the next node in the local list
   }
 #endif // PROOFER_CACHE
-  // Finally, free the context itself
-  free(ctx);
+       // Finally, free the context itself
+  safe_free(ctx);
 }
 
 c4_status_t c4_proofer_status(proofer_ctx_t* ctx) {

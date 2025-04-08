@@ -97,33 +97,33 @@ void patricia_node_free(node_t* node) {
     for (int i = 0; i < 16; i++)
       patricia_node_free(node->values.branch.children[i]);
     if (node->values.branch.value.data)
-      free(node->values.branch.value.data);
+      safe_free(node->values.branch.value.data);
   }
   else if (node->type == NODE_TYPE_EXTENSION) {
     if (node->values.extension.path.data)
-      free(node->values.extension.path.data);
+      safe_free(node->values.extension.path.data);
     patricia_node_free(node->values.extension.child);
   }
   else if (node->type == NODE_TYPE_LEAF) {
     if (node->values.leaf.value.data)
-      free(node->values.leaf.value.data);
+      safe_free(node->values.leaf.value.data);
     if (node->values.leaf.path.data)
-      free(node->values.leaf.path.data);
+      safe_free(node->values.leaf.path.data);
   }
-  free(node);
+  safe_free(node);
 }
 
 static nibbles_t path_to_nibbles(bytes_t path, bool include_prefix) {
   int      odd         = include_prefix ? ((path.data[0] & 0x10) >> 4) : 0;
   int      nibbles_len = path.len * 2 - (include_prefix ? (odd ? 1 : 2) : 0);
-  uint8_t* nibbles     = calloc(nibbles_len, 1);
+  uint8_t* nibbles     = safe_calloc(nibbles_len, 1);
   for (int i = 0; i < nibbles_len; i++)
     nibbles[i] = path.data[(i + (include_prefix << 1) - odd) >> 1] >> ((i + odd) % 2 ? 0 : 4) & 0xf;
   return bytes(nibbles, nibbles_len);
 }
 
 static bytes_t nibbles_to_path(nibbles_t nibbles, bool is_leaf) {
-  uint8_t* path = calloc((nibbles.len >> 1) + 1, 1);
+  uint8_t* path = safe_calloc((nibbles.len >> 1) + 1, 1);
   path[0]       = ((is_leaf << 1) + (nibbles.len & 1)) << 4;
   int pos       = (nibbles.len & 1) ? 1 : 2;
   for (int i = 0; i < nibbles.len; i++, pos++)
@@ -132,7 +132,7 @@ static bytes_t nibbles_to_path(nibbles_t nibbles, bool is_leaf) {
 }
 
 static node_t* create_leaf(node_t* parent, nibbles_t nibbles, bytes_t value) {
-  node_t* leaf            = calloc(1, sizeof(node_t));
+  node_t* leaf            = safe_calloc(1, sizeof(node_t));
   leaf->type              = NODE_TYPE_LEAF;
   leaf->values.leaf.path  = nibbles_to_path(nibbles, true);
   leaf->values.leaf.value = value;
@@ -145,7 +145,7 @@ static node_t* convert_to_branch(node_t* parent, nibbles_t path, int idx1, node_
   if (path.len > 0) {
     parent->type                   = NODE_TYPE_EXTENSION;
     parent->values.extension.path  = nibbles_to_path(path, false);
-    parent->values.extension.child = calloc(1, sizeof(node_t));
+    parent->values.extension.child = safe_calloc(1, sizeof(node_t));
     branch                         = parent->values.extension.child;
     branch->parent                 = parent;
   }
@@ -184,7 +184,7 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
       if (offset == nibbles.len) {
         // update the value of the branch
         if (parent->values.branch.value.data)
-          free(parent->values.branch.value.data);
+          safe_free(parent->values.branch.value.data);
         parent->values.branch.value = bytes_dup(value);
         node_update_hash(parent, true, NULL);
         return;
@@ -209,7 +209,7 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
         parent = parent->values.extension.child;                                                     // with the child
       }
       else if (same == leaf_nibble_len && same == remaining.len && parent->type == NODE_TYPE_LEAF) { // if it's a leaf and path mathes
-        if (parent->values.leaf.value.data) free(parent->values.leaf.value.data);                    // clean up the old value
+        if (parent->values.leaf.value.data) safe_free(parent->values.leaf.value.data);               // clean up the old value
         parent->values.leaf.value = bytes_dup(value);                                                // we update the value
         node_update_hash(parent, true, NULL);
         return;
@@ -226,7 +226,7 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
         int       matching         = same;
 
         // cleanup old path memory
-        free(parent->values.extension.path.data);
+        safe_free(parent->values.extension.path.data);
 
         // handle existing node
         if (current_node_len == matching && parent->type == NODE_TYPE_LEAF) {
@@ -243,9 +243,9 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
           }
         }
         else if (current_node_len > matching) {
-          old_leaf                   = malloc(sizeof(node_t)); // we create a new extension
-          *old_leaf                  = *parent;                // with the current values
-          old_leaf->values.leaf.path =                         // just adjusting the path
+          old_leaf                   = safe_malloc(sizeof(node_t)); // we create a new extension
+          *old_leaf                  = *parent;                     // with the current values
+          old_leaf->values.leaf.path =                              // just adjusting the path
               nibbles_to_path(remaining_nibbles(leaf_nibbles, same + 1), old_leaf->type == NODE_TYPE_LEAF);
           old_idx = leaf_nibbles.data[matching];
         }
@@ -263,7 +263,7 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
         //        print_hex(stdout, leaf_nibbles, "leaf_nibbles: ", "\n");
 
         if (leaf_nibbles.len == same + 1) {            // the current extension is not needed anymore, since it would have a path length=0
-          free(parent->values.leaf.path.data);         // so we remove the old path
+         safe_free(parent->values.leaf.path.data);         // so we remove the old path
           if (parent->type == NODE_TYPE_EXTENSION)     // and put the child in the new branch
             old_leaf = parent->values.extension.child; // keeping value as they are
           else                                         //
@@ -272,9 +272,9 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
         else if (leaf_nibbles.len == same && same < remaining.len) { // the path matches, but there is more to come
         }
         else {
-          old_leaf  = malloc(sizeof(node_t));    // we create a new extension
+          old_leaf  =safe_malloc(sizeof(node_t));    // we create a new extension
           *old_leaf = *parent;                   // with the current values
-          free(old_leaf->values.leaf.path.data); //
+         safe_free(old_leaf->values.leaf.path.data); //
           old_leaf->values.leaf.path =           // just adjusting the path
               nibbles_to_path(remaining_nibbles(leaf_nibbles, same + 1), old_leaf->type == NODE_TYPE_LEAF);
         }
@@ -292,7 +292,7 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
           */
         convert_to_branch(parent, slice_nibbles(leaf_nibbles, 0, same),
                           old_idx, old_leaf, new_idx, new_leaf, branch_value);
-        free(leaf_nibbles.data);
+        safe_free(leaf_nibbles.data);
         return;
       }
     }
@@ -302,7 +302,7 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
 void patricia_set_value(node_t** root, bytes_t path, bytes_t value) {
   nibbles_t nibbles = path_to_nibbles(path, false);
   if (*root == NULL) {
-    *root                      = calloc(1, sizeof(node_t));
+    *root                      = safe_calloc(1, sizeof(node_t));
     (*root)->type              = NODE_TYPE_LEAF;
     (*root)->values.leaf.path  = nibbles_to_path(nibbles, true);
     (*root)->values.leaf.value = bytes_dup(value);
@@ -310,7 +310,7 @@ void patricia_set_value(node_t** root, bytes_t path, bytes_t value) {
   }
   else
     set_value(*root, nibbles, value);
-  free(nibbles.data);
+  safe_free(nibbles.data);
 }
 
 ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
@@ -342,7 +342,7 @@ ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
       offset += same;
     }
   }
-  free(nibbles.data);
+  safe_free(nibbles.data);
 
   // fix offsets in builder
   for (int i = 0; i < len; i++)
@@ -357,7 +357,7 @@ bytes_t patricia_get_root(node_t* node) {
 
 static node_t* patricia_clone_node(node_t* node, node_t* parent) {
   if (node == NULL) return NULL;
-  node_t* new_node = malloc(sizeof(node_t));
+  node_t* new_node = safe_malloc(sizeof(node_t));
   *new_node        = *node;
   new_node->parent = parent;
   switch (node->type) {

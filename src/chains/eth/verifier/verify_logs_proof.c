@@ -18,8 +18,8 @@
 static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t receipt_root) {
   ssz_ob_t  txs          = ssz_get(&block, "txs");
   int       tx_count     = ssz_len(txs);
-  uint8_t*  leafes       = calloc(3 + tx_count, 32);
-  gindex_t* gindexes     = calloc(3 + tx_count, sizeof(gindex_t));
+  uint8_t*  leafes       = safe_calloc(3 + tx_count, 32);
+  gindex_t* gindexes     = safe_calloc(3 + tx_count, sizeof(gindex_t));
   bytes_t   block_number = ssz_get(&block, "blockNumber").bytes;
   bytes_t   block_hash   = ssz_get(&block, "blockHash").bytes;
   ssz_ob_t  header       = ssz_get(&block, "header");
@@ -43,8 +43,8 @@ static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t rec
   }
 
   bool merkle_proof_match = ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, (3 + tx_count) * 32), gindexes, root_hash);
-  free(leafes);
-  free(gindexes);
+  safe_free(leafes);
+  safe_free(gindexes);
 
   if (!merkle_proof_match)
     RETURN_VERIFY_ERROR(ctx, "invalid tx proof, missing nodes!");
