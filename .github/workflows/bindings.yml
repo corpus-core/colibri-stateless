@@ -383,13 +383,13 @@ jobs:
 
       - name: Run tests
         run: |
-          cd build/emscripten
+          cd bindings/emscripten
           npm test
           cd ../../
 
       - name: Create WASM Package
         run: |
-          cd bindings/emscripten
+          cd build/emscripten
           zip -r ../../colibri-wasm.zip ./*
           cd ../..
 
