@@ -21,7 +21,6 @@ c4_status_t c4_proof_block(proofer_ctx_t* ctx) {
   // create merkle proof
   bytes_t execution_payload_proof = ssz_create_proof(block.body, body_root, ssz_gindex(block.body.def, 1, "executionPayload"));
 
-  printf("gindex: %d\n", (int) ssz_gindex(block.body.def, 1, "executionPayload"));
   // build the proof
   ssz_add_builders(&block_proof, "executionPayload", (ssz_builder_t) {.def = block.execution.def, .fixed = {.data = bytes_dup(block.execution.bytes)}});
   ssz_add_bytes(&block_proof, "proof", execution_payload_proof);
