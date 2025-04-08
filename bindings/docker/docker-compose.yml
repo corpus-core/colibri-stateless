@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ../../  # Set build context to project root
+      dockerfile: bindings/docker/Dockerfile # Path to Dockerfile relative to context
+    ports:
+      - "8090:8090"
+    # You can override default configuration using environment variables here
+    environment:
+    #   - PORT=8080
+       - MEMCACHED_HOST=memcached # Use the service name as the hostname
+    #   - MEMCACHED_PORT=11211 # Default port is usually correct
+    #   - LOG_LEVEL=1
+    #   - REQUEST_TIMEOUT=60
+    #   - CHAIN_ID=1
+    #   - RPC="https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID"
+    #   - BEACON="https://beaconcha.in/api/v1/node/YOUR_NODE_ID"
+    #   - BEACON_EVENTS=1
+    depends_on:
+      memcached:
+        condition: service_healthy # Wait for memcached to be healthy
+
+  memcached:
+    image: memcached:alpine
+    ports:
+      - "11211:11211" # Expose memcached port if needed for direct access
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo stats | nc 127.0.0.1 11211"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    # You can override default configuration using environment variables here
+    # environment:
+    #   - PORT=8080
+    #   - MEMCACHED_HOST=memcached
+    #   - MEMCACHED_PORT=11211
+    #   - LOG_LEVEL=1
+    #   - REQUEST_TIMEOUT=60
+    #   - CHAIN_ID=1
+    #   - RPC="https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID"
+    #   - BEACON="https://beaconcha.in/api/v1/node/YOUR_NODE_ID"
+    #   - BEACON_EVENTS=1 
