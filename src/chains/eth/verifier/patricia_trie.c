@@ -91,7 +91,7 @@ static void node_update_hash(node_t* node, bool follow_parent, ssz_builder_t* bu
     node_update_hash(node->parent, true, NULL);
 }
 
-void patricia_node_free(node_t* node) {
+INTERNAL void patricia_node_free(node_t* node) {
   if (!node) return;
   if (node->type == NODE_TYPE_BRANCH) {
     for (int i = 0; i < 16; i++)
@@ -299,7 +299,7 @@ static void set_value(node_t* parent, nibbles_t nibbles, bytes_t value) {
   }
 }
 
-void patricia_set_value(node_t** root, bytes_t path, bytes_t value) {
+INTERNAL void patricia_set_value(node_t** root, bytes_t path, bytes_t value) {
   nibbles_t nibbles = path_to_nibbles(path, false);
   if (*root == NULL) {
     *root                      = safe_calloc(1, sizeof(node_t));
@@ -313,7 +313,7 @@ void patricia_set_value(node_t** root, bytes_t path, bytes_t value) {
   safe_free(nibbles.data);
 }
 
-ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
+INTERNAL ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
   ssz_def_t     def     = SSZ_LIST("bytes", ssz_bytes_list, 1024);
   ssz_builder_t builder = {0};
   buffer_t      buf     = {0};
@@ -351,7 +351,7 @@ ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
   return ssz_builder_to_bytes(&builder);
 }
 
-bytes_t patricia_get_root(node_t* node) {
+INTERNAL bytes_t patricia_get_root(node_t* node) {
   return bytes(node->hash, 32);
 }
 
@@ -379,7 +379,7 @@ static node_t* patricia_clone_node(node_t* node, node_t* parent) {
   return new_node;
 }
 
-node_t* patricia_clone_tree(node_t* node) {
+INTERNAL node_t* patricia_clone_tree(node_t* node) {
   return patricia_clone_node(node, NULL);
 }
 

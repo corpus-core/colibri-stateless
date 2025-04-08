@@ -109,7 +109,7 @@ static bool get_and_remove_tx_type(verify_ctx_t* ctx, bytes_t* raw_tx, tx_type_t
   return true;
 }
 
-bool c4_tx_create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8_t* address) {
+INTERNAL bool c4_tx_create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8_t* address) {
   buffer_t  buf      = {0};
   bytes32_t raw_hash = {0};
   bytes_t   last_item;
@@ -158,7 +158,7 @@ bool c4_tx_create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8_t* addre
   return true;
 }
 
-bool c4_tx_verify_tx_data(verify_ctx_t* ctx, ssz_ob_t tx_data, bytes_t serialized_tx, bytes32_t block_hash, uint64_t block_number) {
+INTERNAL bool c4_tx_verify_tx_data(verify_ctx_t* ctx, ssz_ob_t tx_data, bytes_t serialized_tx, bytes32_t block_hash, uint64_t block_number) {
   // check tx_type
 
   bytes_t   raw_tx = serialized_tx;
@@ -212,7 +212,7 @@ bool c4_tx_verify_tx_data(verify_ctx_t* ctx, ssz_ob_t tx_data, bytes_t serialize
   return true;
 }
 
-bool c4_tx_verify_tx_hash(verify_ctx_t* ctx, bytes_t raw) {
+INTERNAL bool c4_tx_verify_tx_hash(verify_ctx_t* ctx, bytes_t raw) {
   if (ctx->method == NULL) return true;
   if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getTransactionReceipt") == 0) {
     json_t expected_hash = json_at(ctx->args, 0);
@@ -243,7 +243,7 @@ static bool matches(ssz_ob_t log, bytes_t logs) {
   return true;
 }
 
-bool c4_tx_verify_log_data(verify_ctx_t* ctx, ssz_ob_t log, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw) {
+INTERNAL bool c4_tx_verify_log_data(verify_ctx_t* ctx, ssz_ob_t log, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw) {
   bytes32_t tx_hash = {0};
   bytes_t   val     = {0};
   bytes_t   logs    = {0};
@@ -265,7 +265,7 @@ bool c4_tx_verify_log_data(verify_ctx_t* ctx, ssz_ob_t log, bytes32_t block_hash
   RETURN_VERIFY_ERROR(ctx, "missing the log within the tx");
 }
 
-bool c4_tx_verify_receipt_data(verify_ctx_t* ctx, ssz_ob_t receipt_data, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw) {
+INTERNAL bool c4_tx_verify_receipt_data(verify_ctx_t* ctx, ssz_ob_t receipt_data, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw) {
   bytes32_t tmp     = {0};
   tx_type_t type    = 0;
   bytes_t   val     = {0};
@@ -314,7 +314,7 @@ bool c4_tx_verify_receipt_data(verify_ctx_t* ctx, ssz_ob_t receipt_data, bytes32
   return true;
 }
 
-bytes_t c4_eth_create_tx_path(uint32_t tx_index, buffer_t* buf) {
+INTERNAL bytes_t c4_eth_create_tx_path(uint32_t tx_index, buffer_t* buf) {
   bytes32_t tmp     = {0};
   buffer_t  val_buf = stack_buffer(tmp);
   bytes_t   path    = {.data = buf->data.data, .len = 0};
@@ -329,7 +329,7 @@ bytes_t c4_eth_create_tx_path(uint32_t tx_index, buffer_t* buf) {
   return buf->data;
 }
 
-bool c4_tx_verify_receipt_proof(verify_ctx_t* ctx, ssz_ob_t receipt_proof, uint32_t tx_index, bytes32_t receipt_root, bytes_t* receipt_raw) {
+INTERNAL bool c4_tx_verify_receipt_proof(verify_ctx_t* ctx, ssz_ob_t receipt_proof, uint32_t tx_index, bytes32_t receipt_root, bytes_t* receipt_raw) {
   bytes32_t tmp      = {0};
   buffer_t  path_buf = stack_buffer(tmp);
 
@@ -363,9 +363,9 @@ static bytes_t get_rlp_field(verify_ctx_t* ctx, bytes_t rlp_list, const rlp_type
   return NULL_BYTES; // Return NULL_BYTES on error
 }
 
-bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t raw_tx,
-                               bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number,
-                               uint32_t transaction_index, uint64_t base_fee) {
+INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t raw_tx,
+                                        bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number,
+                                        uint32_t transaction_index, uint64_t base_fee) {
   if (!ctx || !buffer || !buffer->def || !raw_tx.data || raw_tx.len == 0) return false; // Invalid input
   address_t from_address  = {0};
   tx_type_t type          = 0;

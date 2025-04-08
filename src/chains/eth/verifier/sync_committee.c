@@ -48,7 +48,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update, byte
   return c4_set_sync_period(slot, blockhash, ssz_get(&sync_committee, "pubkeys").bytes, ctx->chain_id);
 }
 
-bool c4_update_from_sync_data(verify_ctx_t* ctx) {
+INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return true;
 
@@ -65,7 +65,7 @@ bool c4_update_from_sync_data(verify_ctx_t* ctx) {
     RETURN_VERIFY_ERROR(ctx, "unknown sync_data type!");
 }
 
-bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates, bytes32_t trusted_blockhash) {
+INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates, bytes32_t trusted_blockhash) {
 
   uint64_t length  = 0;
   bool     success = true;

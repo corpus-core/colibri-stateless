@@ -117,7 +117,7 @@ static int handle_node(bytes_t* raw, uint8_t** k, int last_node, bytes_t* last_v
   return 1;
 }
 
-patricia_result_t patricia_verify(bytes32_t root, bytes_t path, ssz_ob_t proof, bytes_t* expected) {
+INTERNAL patricia_result_t patricia_verify(bytes32_t root, bytes_t path, ssz_ob_t proof, bytes_t* expected) {
   int       result     = 1;
   uint8_t*  nibbles    = patricia_to_nibbles(path, 0);
   uint8_t*  key        = nibbles;

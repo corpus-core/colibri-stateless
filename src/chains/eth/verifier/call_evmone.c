@@ -445,7 +445,7 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
 }
 
 // Function to verify call proof
-c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result) {
+INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result) {
   buffer_t  buffer = {0};
   address_t to     = {0};
   buffer_t  to_buf = stack_buffer(to);

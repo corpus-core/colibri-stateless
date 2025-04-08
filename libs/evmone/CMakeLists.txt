@@ -174,7 +174,10 @@ if(NOT evmone_external_POPULATED)
 
         # Suppress specific warnings for evmone target if using Clang or GCC
         if(CMAKE_CXX_COMPILER_ID MATCHES \"Clang|GNU\")
-            target_compile_options(evmone PUBLIC -Wno-deprecated-literal-operator)
+            target_compile_options(evmone PUBLIC 
+                -Wno-deprecated-literal-operator
+                -Wno-unknown-attributes
+            )
         endif()
     ")
 endif()
