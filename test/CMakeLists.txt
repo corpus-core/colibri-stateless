@@ -13,7 +13,11 @@ FetchContent_MakeAvailable(unity)
 
 # Suppress MSVC warning C4711 for unity target
 if(MSVC)
-    target_compile_options(unity PRIVATE /wd4711)
+    target_compile_options(unity PRIVATE 
+        /wd4711 # automatic inline expansion
+        /wd4061 # enumerator in switch of enum is not explicitly handled
+        /wd5045 # Spectre mitigation info
+    )
 endif()
 
 # Füge das Verzeichnis mit den Unit-Tests hinzu
