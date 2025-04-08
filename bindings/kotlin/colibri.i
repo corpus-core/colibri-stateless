@@ -21,7 +21,7 @@ typedef struct bytes_t {
 %}
 
 // Add typemap for char* return values that need to be freed
-%typemap(out) char* verify_execute_json_status, char* proofer_execute_json_status {
+%typemap(out) char* c4_verify_execute_json_status, char* c4_proofer_execute_json_status {
     if ($1) {
         $result = (*jenv)->NewStringUTF(jenv, (const char *)$1);
         free($1);  // Free the dynamically allocated string
@@ -32,7 +32,7 @@ typedef struct bytes_t {
 // Instead, we need to map it to byte[] in Java but keep the struct definition for C
 %ignore bytes_t;
 
-// For req_set_response - converting Java byte[] to bytes_t
+// For c4_req_set_response - converting Java byte[] to bytes_t
 %typemap(jni) bytes_t "jbyteArray"
 %typemap(jtype) bytes_t "byte[]"
 %typemap(jstype) bytes_t "byte[]"

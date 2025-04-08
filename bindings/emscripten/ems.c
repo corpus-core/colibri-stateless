@@ -104,12 +104,12 @@ char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(proofer_ctx_t* ctx) {
   return buffer_as_string(result);
 }
 
-void EMSCRIPTEN_KEEPALIVE c4w_req_set_response(data_request_t* ctx, void* data, size_t len, uint16_t node_index) {
+void EMSCRIPTEN_KEEPALIVE c4w_c4_req_set_response(data_request_t* ctx, void* data, size_t len, uint16_t node_index) {
   ctx->response            = bytes(data, len);
   ctx->response_node_index = node_index;
 }
 
-void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, uint16_t node_index) {
+void EMSCRIPTEN_KEEPALIVE c4w_c4_req_set_error(data_request_t* ctx, char* error, uint16_t node_index) {
   ctx->error               = strdup(error);
   ctx->response_node_index = node_index;
 }

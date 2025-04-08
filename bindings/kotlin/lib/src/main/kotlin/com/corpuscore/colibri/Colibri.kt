@@ -67,7 +67,7 @@ class Colibri(
                 }
 
                 if (response.status.isSuccess()) {
-                    c4.req_set_response(request.getLong("req_ptr"), response.readBytes(), index)
+                    c4.c4_req_set_response(request.getLong("req_ptr"), response.readBytes(), index)
                     return
                 }
                 else {
@@ -79,7 +79,7 @@ class Colibri(
             index++
         }
 
-        c4.req_set_error(request.getLong("req_ptr"), lastError, 0)
+        c4.c4_req_set_error(request.getLong("req_ptr"), lastError, 0)
     }
 
     private fun formatArg(arg: Any): String = when (arg) {
@@ -97,16 +97,16 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             
             // Create the proofer context with properly formatted JSON args
-            val ctx = com.corpuscore.colibri.c4.create_proofer_ctx(method, "[${args.joinToString(",") { formatArg(it) }}]", chainId, if (includeCode) 1 else 0)
+            val ctx = com.corpuscore.colibri.c4.c4_create_proofer_ctx(method, "[${args.joinToString(",") { formatArg(it) }}]", chainId, if (includeCode) 1 else 0)
 
             try {
                 while (true) {
                     // Execute the proofer and get the JSON status
-                    val state = JSONObject(com.corpuscore.colibri.c4.proofer_execute_json_status(ctx))
+                    val state = JSONObject(com.corpuscore.colibri.c4.c4_proofer_execute_json_status(ctx))
 
                     when (state.getString("status")) {
                         "success" -> {
-                            return@withContext com.corpuscore.colibri.c4.proofer_get_proof(ctx) as ByteArray
+                            return@withContext com.corpuscore.colibri.c4.c4_proofer_get_proof(ctx) as ByteArray
                         }
                         "error" -> {
                             throw RuntimeException(state.getString("error")) 
@@ -123,7 +123,7 @@ class Colibri(
                     }
                 }
             } finally {
-                com.corpuscore.colibri.c4.free_proofer_ctx(ctx)
+                com.corpuscore.colibri.c4.c4_free_proofer_ctx(ctx)
             }
             
             // This line should never be reached due to the infinite loop and return/throw statements above
@@ -134,13 +134,13 @@ class Colibri(
     suspend fun verifyProof(proof: ByteArray, method: String, args: Array<Any>): JSONObject {
         return withContext(Dispatchers.IO) {
             val jsonArgs = "[${args.joinToString(",") { formatArg(it) }}]"
-            val ctx = com.corpuscore.colibri.c4.verify_create_ctx(proof, method, jsonArgs, chainId, "[${trustedBlockHashes.joinToString(",") { formatArg(it) }}]")
+            val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, "[${trustedBlockHashes.joinToString(",") { formatArg(it) }}]")
 
 
             try {
                 while (true) {
                     // Execute the proofer and get the JSON status
-                    val stateString = com.corpuscore.colibri.c4.verify_execute_json_status(ctx)
+                    val stateString = com.corpuscore.colibri.c4.c4_verify_execute_json_status(ctx)
                     val state = JSONObject(stateString)
 
                     when (state.getString("status")) {
@@ -162,7 +162,7 @@ class Colibri(
                     }
                 }
             } finally {
-                com.corpuscore.colibri.c4.verify_free_ctx(ctx)
+                com.corpuscore.colibri.c4.c4_verify_free_ctx(ctx)
             }
             
             // This line should never be reached due to the infinite loop and return/throw statements above

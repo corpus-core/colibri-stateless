@@ -5,10 +5,10 @@
 extern "C" {
 #endif
 
+#include "common.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-
 #if defined(__clang__) || defined(__GNUC__)
 #define COUNTED_BY(len_field) __attribute__((counted_by_or_null(len_field)))
 #else
@@ -114,20 +114,6 @@ void    buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
 #define bytes_slice(parent, offet, length) \
   (bytes_t) { .data = parent.data + offet, .len = length }
 #define bytes_all_zero(a) bytes_all_equal(a, 0)
-
-static inline uint64_t min64(uint64_t a, uint64_t b) {
-  return a < b ? a : b;
-}
-
-static inline uint64_t max64(uint64_t a, uint64_t b) {
-  return a > b ? a : b;
-}
-
-static inline uint64_t clamp64(uint64_t value, uint64_t min, uint64_t max) {
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
-}
 
 #ifdef __cplusplus
 }

@@ -18,7 +18,7 @@ typedef struct {
   bool         initialised;
 } c4_verify_ctx_t;
 
-proofer_t* create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
+proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
   return (void*) c4_proofer_create(method, params, chain_id, flags);
 }
 
@@ -77,7 +77,7 @@ static void add_data_request(buffer_t* result, data_request_t* data_request) {
   bprintf(result, "\"type\": \"%s\"}", data_request_type_to_string(data_request->type));
 }
 
-char* proofer_execute_json_status(proofer_t* proofer) {
+char* c4_proofer_execute_json_status(proofer_t* proofer) {
   buffer_t       result = {0};
   proofer_ctx_t* ctx    = (proofer_ctx_t*) proofer;
   c4_status_t    status = c4_proofer_execute(ctx);
@@ -108,27 +108,27 @@ char* proofer_execute_json_status(proofer_t* proofer) {
   return buffer_as_string(result);
 }
 
-void free_proofer_ctx(proofer_t* ctx) {
+void c4_free_proofer_ctx(proofer_t* ctx) {
   c4_proofer_free((proofer_ctx_t*) ctx);
 }
-void req_set_response(void* req_ptr, bytes_t data, uint16_t node_index) {
+void c4_req_set_response(void* req_ptr, bytes_t data, uint16_t node_index) {
   data_request_t* ctx      = (data_request_t*) req_ptr;
   ctx->response            = bytes(data.data, data.len);
   ctx->response_node_index = node_index;
 }
 
-void req_set_error(void* req_ptr, char* error, uint16_t node_index) {
+void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index) {
   data_request_t* ctx      = (data_request_t*) req_ptr;
   ctx->error               = strdup(error);
   ctx->response_node_index = node_index;
 }
 
-bytes_t proofer_get_proof(proofer_t* proofer) {
+bytes_t c4_proofer_get_proof(proofer_t* proofer) {
   proofer_ctx_t* ctx = (proofer_ctx_t*) proofer;
   return ctx->proof;
 }
 
-void* verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes) {
+void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes) {
   c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
   ctx->proof           = bytes_dup(proof);
   c4_status_t status   = c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t) {0}), (chain_id_t) chain_id);
@@ -136,7 +136,7 @@ void* verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_
   return (void*) ctx;
 }
 
-char* verify_execute_json_status(void* ptr) {
+char* c4_verify_execute_json_status(void* ptr) {
   buffer_t         buf    = {0};
   c4_verify_ctx_t* ctx    = (c4_verify_ctx_t*) ptr;
   c4_status_t      status = c4_verify(&ctx->ctx);
@@ -168,7 +168,7 @@ char* verify_execute_json_status(void* ptr) {
   return buffer_as_string(buf);
 }
 
-void verify_free_ctx(void* ptr) {
+void c4_verify_free_ctx(void* ptr) {
   c4_verify_ctx_t* ctx = (c4_verify_ctx_t*) ptr;
   if (ctx->proof.data) free(ctx->proof.data);
   if (ctx->trusted_blocks.start) free((char*) ctx->trusted_blocks.start);
