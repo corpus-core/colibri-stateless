@@ -148,7 +148,7 @@ c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_codes, ssz_
 
     if (code.def->type == SSZ_TYPE_BOOLEAN && code.bytes.data[0] == 0) continue; // no code which might be relevant for us
 
-    call_code_t* ac = (call_code_t*) calloc(1, sizeof(call_code_t));
+    call_code_t* ac = (call_code_t*) safe_calloc(1, sizeof(call_code_t));
     eth_get_account_value(acc, ETH_ACCOUNT_CODE_HASH, ac->hash);
 
     // fetch from cache
@@ -196,7 +196,7 @@ c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_codes, ssz_
       }
       else {
         // we need to fecth the code from rpc
-        data_request_t* req = (data_request_t*) calloc(1, sizeof(data_request_t));
+        data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
         req->chain_id       = ctx->chain_id;
         req->encoding       = C4_DATA_ENCODING_JSON;
         req->type           = C4_DATA_TYPE_ETH_RPC;
@@ -205,7 +205,7 @@ c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_codes, ssz_
         memcpy(req->id, hash, 32);
         c4_state_add_request(&ctx->state, req);
         if (status != C4_ERROR) status = C4_PENDING;
-        free(ac);
+        safe_free(ac);
         ac = NULL;
       }
     }
@@ -227,8 +227,8 @@ c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_codes, ssz_
 void eth_free_codes(call_code_t* call_codes) {
   while (call_codes) {
     call_code_t* next = call_codes->next;
-    if (call_codes->free) free(call_codes->code.data);
-    free(call_codes);
+    if (call_codes->free) safe_free(call_codes->code.data);
+    safe_free(call_codes);
     call_codes = next;
   }
 }

@@ -111,7 +111,7 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
   TRY_ASYNC_FINAL(
       create_eth_receipt_proof(ctx, &block, body_root, receipt_proof, receipt, state_proof),
 
-      free(state_proof.data);
-      free(receipt_proof.bytes.data));
+      safe_free(state_proof.data);
+      safe_free(receipt_proof.bytes.data));
   return C4_SUCCESS;
 }

@@ -3,6 +3,7 @@
 #include "./json.h"
 #include "ssz.h"
 #include <ctype.h>
+#include <errno.h> // For errno
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -10,6 +11,44 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+// --- Safe Memory Allocation Wrappers ---
+
+void* safe_malloc(size_t size) {
+  void* ptr = malloc(size);
+  if (size > 0 && ptr == NULL) {
+    fprintf(stderr, "Error: Memory allocation failed (malloc) for size %zu bytes: %s. Exiting.\\n", size, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  return ptr;
+}
+
+void* safe_calloc(size_t num, size_t size) {
+  void* ptr = calloc(num, size);
+  if (num > 0 && size > 0 && ptr == NULL) {
+    fprintf(stderr, "Error: Memory allocation failed (calloc) for %zu items of size %zu bytes: %s. Exiting.\\n", num, size, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  return ptr;
+}
+
+void* safe_realloc(void* ptr, size_t new_size) {
+  void* new_ptr = realloc(ptr, new_size);
+  // Note:safe_realloc(NULL, size) is equivalent tosafe_malloc(size)
+  // safe_realloc(ptr, 0) is equivalent tosafe_free(ptr) and may return NULL
+  if (new_size > 0 && new_ptr == NULL) {
+    fprintf(stderr, "Error: Memory allocation failed (realloc) for new size %zu bytes: %s. Exiting.\\n", new_size, strerror(errno));
+    // Important: The original block ptr is NOT freed by realloc if it fails
+    exit(EXIT_FAILURE);
+  }
+  return new_ptr;
+}
+
+void safe_free(void* ptr) {
+  free(ptr); // safe_free(NULL) is safe and does nothing
+}
+
+// --- End Safe Memory Allocation Wrappers ---
 
 uint32_t uint32_from_le(uint8_t* data) {
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -91,14 +130,14 @@ void uint32_to_le(uint8_t* data, uint32_t value) {
 
 void buffer_grow(buffer_t* buffer, size_t min_len) {
   if (buffer->data.data == NULL) {
-    if (buffer->allocated > min_len) min_len = (size_t) buffer->allocated;
-    buffer->data.data = malloc(min_len);
+    if (buffer->allocated > 0 && (size_t) buffer->allocated > min_len) min_len = (size_t) buffer->allocated;
+    buffer->data.data = safe_malloc(min_len);
     buffer->allocated = (int32_t) min_len;
   }
-  else if (buffer->allocated >= 0 && buffer->allocated < min_len) {
+  else if (buffer->allocated >= 0 && (size_t) buffer->allocated < min_len) {
     size_t new_len = (size_t) buffer->allocated;
     while (new_len < min_len) new_len = (new_len + 1) * 3 / 2;
-    buffer->data.data = realloc(buffer->data.data, new_len);
+    buffer->data.data = safe_realloc(buffer->data.data, new_len);
     buffer->allocated = (int32_t) new_len;
   }
 }
@@ -136,8 +175,10 @@ void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data) 
 
 void buffer_free(buffer_t* buffer) {
   if (buffer->data.data && buffer->allocated > 0)
-    free(buffer->data.data);
+    safe_free(buffer->data.data);
   buffer->data.data = NULL;
+  buffer->allocated = 0;
+  buffer->data.len  = 0;
 }
 
 void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix) {
@@ -200,7 +241,12 @@ void buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* su
 }
 
 bytes_t bytes_dup(bytes_t data) {
-  bytes_t result = {.data = malloc(data.len), .len = data.len};
+  bytes_t result = {.data = safe_malloc(data.len), .len = data.len};
+  if (!result.data && data.len > 0) {
+    // This case should technically not be reached if safe_malloc exits on failure,
+    // but kept for conceptual completeness or if safe_malloc behaviour changes.
+    return NULL_BYTES; // Indicate failure if malloc fails
+  }
   memcpy(result.data, data.data, data.len);
   return result;
 }
@@ -323,13 +369,13 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
         case 'z': {
           char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, false);
           buffer_add_chars(buf, s);
-          free(s);
+          safe_free(s);
           break;
         }
         case 'Z': {
           char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, true);
           buffer_add_chars(buf, s);
-          free(s);
+          safe_free(s);
           break;
         }
       }

@@ -75,7 +75,7 @@ static bool req_header(c4_state_t* state, json_t slot, chain_id_t chain_id, json
     state->error = strdup(req->error);
     return false;
   }
-  data_request_t* new_req = calloc(1, sizeof(data_request_t));
+  data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
   new_req->chain_id       = chain_id;
   new_req->url            = (char*) tmp.data.data;
   new_req->encoding       = C4_DATA_ENCODING_JSON;
@@ -100,7 +100,7 @@ static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count
     state->error = strdup(req->error);
     return false;
   }
-  data_request_t* new_req = calloc(1, sizeof(data_request_t));
+  data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
   new_req->chain_id       = chain_id;
   new_req->url            = (char*) tmp.data.data;
   new_req->encoding       = C4_DATA_ENCODING_SSZ;
@@ -159,9 +159,9 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
   state.blocks = (c4_trusted_block_t*) state_buffer;
 #else
   if (allocated_len == 0)
-    state.blocks = calloc(sizeof(c4_trusted_block_t), 1);
+    state.blocks = safe_calloc(sizeof(c4_trusted_block_t), 1);
   else if (allocated_len < state.len + 1)
-    state.blocks = realloc(state.blocks, sizeof(c4_trusted_block_t) * (state.len + 1));
+    state.blocks = safe_realloc(state.blocks, sizeof(c4_trusted_block_t) * (state.len + 1));
 #endif
   state.blocks[state.len].slot   = slot;
   state.blocks[state.len].period = period;
@@ -174,7 +174,7 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
   storage_conf.set(name, bytes(state.blocks, state.len * sizeof(c4_trusted_block_t)));
 
 #ifndef C4_STATIC_MEMORY
-  free(state.blocks);
+  safe_free(state.blocks);
 #endif
 
   return true;
@@ -210,7 +210,7 @@ c4_status_t c4_set_trusted_blocks(verify_ctx_t* ctx, json_t blocks) {
     // we need to check if the blocks are in the cache
   }
 #ifndef C4_STATIC_MEMORY
-  free(chain_state.blocks);
+  safe_free(chain_state.blocks);
 #endif
   if (success && client_update.len && !c4_handle_client_updates(ctx, client_update, blockhash))
     state->error = strdup("Failed to handle client updates");
@@ -243,7 +243,7 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
     last_period = p > last_period && p <= period ? p : last_period;
   }
 #ifndef C4_STATIC_MEMORY
-  free(chain_state.blocks);
+  safe_free(chain_state.blocks);
 #endif
   char name[100];
   sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, period);

@@ -49,12 +49,12 @@ void ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t dat
 
   ssz_ob_t element = ssz_builder_to_bytes(&data);
   ssz_add_bytes(buffer, name, element.bytes);
-  free(element.bytes.data);
+  safe_free(element.bytes.data);
 }
 void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_builder_t data) {
   ssz_ob_t element = ssz_builder_to_bytes(&data);
   ssz_add_dynamic_list_bytes(buffer, num_elements, element.bytes);
-  free(element.bytes.data);
+  safe_free(element.bytes.data);
 }
 
 void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data) {
@@ -168,7 +168,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def) {
       for (int i = 0; i < def->def.container.len; i++) {
         ssz_ob_t ob = ssz_from_json(json_get(json, def->def.container.elements[i].name), def->def.container.elements + i);
         ssz_add_bytes(&buf, def->def.container.elements[i].name, ob.bytes);
-        free(ob.bytes.data);
+        safe_free(ob.bytes.data);
       }
       return ssz_builder_to_bytes(&buf);
     case SSZ_TYPE_UINT: {
@@ -210,7 +210,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def) {
         for (int i = 0; i < def->def.vector.len; i++) {
           ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type);
           buffer_append(&buf.fixed, ob.bytes);
-          free(ob.bytes.data);
+          safe_free(ob.bytes.data);
         }
         return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
       }
@@ -224,14 +224,14 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def) {
           ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type);
           ssz_add_uint32(&buf, 4 * len + buf.dynamic.data.len);
           buffer_append(&buf.dynamic, ob.bytes);
-          free(ob.bytes.data);
+          safe_free(ob.bytes.data);
         }
       else {
         buffer_grow(&buf.fixed, len * ssz_fixed_length(def->def.vector.type));
         for (int i = 0; i < len; i++) {
           ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type);
           buffer_append(&buf.fixed, ob.bytes);
-          free(ob.bytes.data);
+          safe_free(ob.bytes.data);
         }
       }
       return ssz_builder_to_bytes(&buf);

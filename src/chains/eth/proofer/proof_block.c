@@ -25,7 +25,7 @@ c4_status_t c4_proof_block(proofer_ctx_t* ctx) {
   // build the proof
   ssz_add_builders(&block_proof, "executionPayload", (ssz_builder_t) {.def = block.execution.def, .fixed = {.data = bytes_dup(block.execution.bytes)}});
   ssz_add_bytes(&block_proof, "proof", execution_payload_proof);
-  free(execution_payload_proof.data);
+  safe_free(execution_payload_proof.data);
   ssz_add_builders(&block_proof, "header", c4_proof_add_header(block.header, body_root));
   ssz_add_bytes(&block_proof, "sync_committee_bits", ssz_get(&block.sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&block_proof, "sync_committee_signature", ssz_get(&block.sync_aggregate, "syncCommitteeSignature").bytes);

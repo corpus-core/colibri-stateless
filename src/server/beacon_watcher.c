@@ -120,11 +120,11 @@ static void parse_sse_buffer() {
       size_t line_len = next_newline - current_line;
 
       if (strncmp(current_line, "event:", 6) == 0) {
-        free(event_type);                                     // Free previous if any
+        safe_free(event_type);                                // Free previous if any
         event_type = strndup(current_line + 7, line_len - 7); // Skip "event: "
       }
       else if (strncmp(current_line, "data:", 5) == 0) {
-        free(event_data);                                     // Free previous if any
+        safe_free(event_data);                                // Free previous if any
         event_data = strndup(current_line + 6, line_len - 6); // Skip "data: "
       }
       // Ignore other lines (like comments starting with ':')
@@ -135,15 +135,15 @@ static void parse_sse_buffer() {
     // If we have both event and data, call the handler
     if (event_type && event_data) {
       handle_beacon_event(event_type, event_data);
-      free(event_type);
-      free(event_data);
+      safe_free(event_type);
+      safe_free(event_data);
       event_type = NULL;
       event_data = NULL;
     }
     else {
       // Malformed event? Log or ignore. Free any partial data.
-      free(event_type);
-      free(event_data);
+      safe_free(event_type);
+      safe_free(event_data);
     }
 
     // Advance processed length past the event block and the "\n\n"
@@ -258,7 +258,7 @@ static void free_curl_context(beacon_curl_context_t* context) {
   if (context) {
     // Ensure handle->data is NULL before free to prevent use-after-free in poll_cb
     context->poll_handle.data = NULL;
-    free(context);
+    safe_free(context);
   }
 }
 
@@ -273,7 +273,7 @@ static int beacon_socket_callback(CURL* easy, curl_socket_t s, int action, void*
     case CURL_POLL_INOUT:
       if (!context) {
         // Create new context if none exists for this socket
-        context         = (beacon_curl_context_t*) calloc(1, sizeof(beacon_curl_context_t));
+        context         = (beacon_curl_context_t*) safe_calloc(1, sizeof(beacon_curl_context_t));
         context->sockfd = s;
         uv_poll_init_socket(loop, &context->poll_handle, s);
         context->poll_handle.data = context; // Link context to handle data

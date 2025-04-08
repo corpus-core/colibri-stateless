@@ -88,7 +88,7 @@ static void run_test(const char* file, const char* testname) {
 
   buffer_free(&tmp1);
   buffer_free(&tmp2);
-  free((void*) data.start);
+  safe_free((void*) data.start);
 }
 
 void test_receipt_tree() {
@@ -124,8 +124,8 @@ void test_receipt_tree() {
   patricia_node_free(root);
   buffer_free(&buf);
   buffer_free(&receipts_buf);
-  free((void*) receipts.start);
-  free((void*) block.start);
+  safe_free((void*) receipts.start);
+  safe_free((void*) block.start);
 }
 
 void test_basic() {

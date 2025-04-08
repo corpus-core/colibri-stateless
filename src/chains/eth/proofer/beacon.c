@@ -52,7 +52,7 @@ void c4_beacon_cache_update_blockdata(proofer_ctx_t* ctx, beacon_block_t* beacon
 
   // cache the block
   size_t full_size = sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
-  void*  cached    = malloc(full_size);
+  void*  cached    = safe_malloc(full_size);
   memcpy(cached, beacon_block, sizeof(beacon_block_t));
   memcpy(cached + sizeof(beacon_block_t), beacon_block->header.bytes.data, beacon_block->header.bytes.len);
   memcpy(cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len, beacon_block->sync_aggregate.bytes.data, beacon_block->sync_aggregate.bytes.len);
@@ -347,7 +347,7 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, uin
       THROW_ERROR(data_request->error ? data_request->error : "Data request failed");
   }
   else {
-    data_request = (data_request_t*) calloc(1, sizeof(data_request_t));
+    data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     memcpy(data_request->id, id, 32);
     data_request->url      = (char*) buffer.data.data;
     data_request->encoding = C4_DATA_ENCODING_JSON;
@@ -382,7 +382,7 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, cons
       THROW_ERROR(data_request->error ? data_request->error : "Data request failed");
   }
   else {
-    data_request = (data_request_t*) calloc(1, sizeof(data_request_t));
+    data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     memcpy(data_request->id, id, 32);
     data_request->url      = (char*) buffer.data.data;
     data_request->encoding = C4_DATA_ENCODING_SSZ;

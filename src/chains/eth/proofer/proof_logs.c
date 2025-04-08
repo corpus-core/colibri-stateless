@@ -46,14 +46,14 @@ static inline uint32_t get_block_count(proof_logs_block_t* blocks) {
 static void free_blocks(proof_logs_block_t* blocks) {
   while (blocks) {
     while (blocks->txs) {
-      if (blocks->txs->proof.bytes.data) free(blocks->txs->proof.bytes.data);
+      if (blocks->txs->proof.bytes.data) safe_free(blocks->txs->proof.bytes.data);
       proof_logs_tx_t* next = blocks->txs->next;
-      free(blocks->txs);
+      safe_free(blocks->txs);
       blocks->txs = next;
     }
-    if (blocks->proof.data) free(blocks->proof.data);
+    if (blocks->proof.data) safe_free(blocks->proof.data);
     proof_logs_block_t* next = blocks->next;
-    free(blocks);
+    safe_free(blocks);
     blocks = next;
   }
 }
@@ -75,7 +75,7 @@ static inline void add_blocks(proof_logs_block_t** blocks, json_t logs) {
     uint32_t            tx_index     = json_get_uint32(log, "transactionIndex");
     proof_logs_block_t* block        = find_block(*blocks, block_number);
     if (!block) {
-      block               = calloc(1, sizeof(proof_logs_block_t));
+      block               = safe_calloc(1, sizeof(proof_logs_block_t));
       block->block_number = block_number;
       block->next         = *blocks;
       *blocks             = block;
@@ -83,7 +83,7 @@ static inline void add_blocks(proof_logs_block_t** blocks, json_t logs) {
 
     proof_logs_tx_t* tx = find_tx(block, tx_index);
     if (!tx) {
-      tx           = calloc(1, sizeof(proof_logs_tx_t));
+      tx           = safe_calloc(1, sizeof(proof_logs_tx_t));
       tx->tx_index = tx_index;
       tx->next     = block->txs;
       block->txs   = tx;
@@ -116,7 +116,7 @@ static c4_status_t get_receipts(proofer_ctx_t* ctx, proof_logs_block_t* blocks) 
 static c4_status_t proof_create_multiproof(proofer_ctx_t* ctx, proof_logs_block_t* block) {
 
   int       i      = 0;
-  gindex_t* gindex = calloc(3 + block->tx_count, sizeof(gindex_t));
+  gindex_t* gindex = safe_calloc(3 + block->tx_count, sizeof(gindex_t));
   gindex[0]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockNumber");
   gindex[1]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockHash");
   gindex[2]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "receiptsRoot");
@@ -124,7 +124,7 @@ static c4_status_t proof_create_multiproof(proofer_ctx_t* ctx, proof_logs_block_
     gindex[i + 3] = ssz_gindex(block->beacon_block.body.def, 3, "executionPayload", "transactions", tx->tx_index);
 
   block->proof = ssz_create_multi_proof_for_gindexes(block->beacon_block.body, block->body_root, gindex, 3 + block->tx_count);
-  free(gindex);
+  safe_free(gindex);
 
   return C4_SUCCESS;
 }

@@ -33,10 +33,10 @@ static const uint8_t blst_dst[]   = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_
 static const size_t  blst_dst_len = sizeof(blst_dst) - 1;
 #ifdef BLS_DESERIALIZE
 bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys, uint8_t* out) {
-  blst_p1_affine* pubkeys = out ? (blst_p1_affine*) out : (blst_p1_affine*) malloc(num_public_keys * sizeof(blst_p1_affine));
+  blst_p1_affine* pubkeys = out ? (blst_p1_affine*) out : (blst_p1_affine*) safe_malloc(num_public_keys * sizeof(blst_p1_affine));
   for (int i = 0; i < num_public_keys; i++) {
     if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * 48) != BLST_SUCCESS) {
-      free(pubkeys);
+      safe_free(pubkeys);
       return NULL_BYTES;
     }
   }
@@ -80,18 +80,18 @@ bool blst_verify(bytes32_t       message_hash,    /**< 32 bytes hashed message *
   if (blst_p2_deserialize(&sig, signature) != BLST_SUCCESS) return false;
 
   // Pairing...
-  blst_pairing* ctx = (blst_pairing*) malloc(blst_pairing_sizeof());
+  blst_pairing* ctx = (blst_pairing*) safe_malloc(blst_pairing_sizeof());
   if (!ctx) return false;
   blst_pairing_init(ctx, true, blst_dst, blst_dst_len);
   if (blst_pairing_aggregate_pk_in_g1(ctx, &pubkey_aggregated, &sig, message_hash, 32, NULL, 0) != BLST_SUCCESS) {
-    free(ctx);
+    safe_free(ctx);
     return false;
   }
   blst_pairing_commit(ctx);
   bool result = blst_pairing_finalverify(ctx, NULL);
 
   // cleanup
-  free(ctx);
+  safe_free(ctx);
   return result;
 }
 

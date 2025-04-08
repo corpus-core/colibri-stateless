@@ -53,10 +53,10 @@ int main(void) {
   print_status("This is a printf test");
 
   // Test memory allocation
-  void* test_memory = malloc(1024);
+  void* test_memory = safe_malloc(1024);
   if (test_memory) {
     semihosting_write("Successfully allocated 1KB of memory");
-    free(test_memory);
+    safe_free(test_memory);
   }
   else {
     semihosting_write("Failed to allocate memory");

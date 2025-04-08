@@ -82,7 +82,7 @@ const ssz_def_t* c4_get_req_type_from_req(bytes_t request) {
 
 void c4_verify_free_data(verify_ctx_t* ctx) {
   if (ctx->flags & VERIFY_FLAG_FREE_DATA) {
-    free(ctx->data.bytes.data);
+    safe_free(ctx->data.bytes.data);
     ctx->data.bytes.data = NULL;
   }
   c4_state_free(&ctx->state);

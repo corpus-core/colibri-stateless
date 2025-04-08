@@ -70,6 +70,6 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   );
   TRY_ASYNC_FINAL(
       create_eth_tx_proof(ctx, tx_index, tx_data, &block, body_root, state_proof),
-      free(state_proof.data));
+      safe_free(state_proof.data));
   return C4_SUCCESS;
 }

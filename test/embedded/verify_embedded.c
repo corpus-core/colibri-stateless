@@ -167,7 +167,7 @@ int main(void) {
   // Check if JSON params were parsed
   if (params.type == JSON_TYPE_INVALID) {
     debug_print("Failed to parse JSON parameters");
-    if (proof_buf.data.data) free(proof_buf.data.data);
+    if (proof_buf.data.data) safe_free(proof_buf.data.data);
     return TEST_FAILED_VERIFY;
   }
 
@@ -177,7 +177,7 @@ int main(void) {
 
   // Cleanup
   debug_print("Cleaning up...");
-  if (proof_buf.data.data) free(proof_buf.data.data);
+  if (proof_buf.data.data) safe_free(proof_buf.data.data);
 
   // Check verification result
   if (!verify_ctx.success || verify_ctx.state.error) {

@@ -47,8 +47,8 @@ void test_block_body() {
                           state_root.data, 32, "invalid stateroot");
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(body_root, root, 32, "root hash must be the same after merkle proof");
   TEST_ASSERT_EQUAL_MESSAGE(9, proof.len / 32, "invalid prooflength");
-  free(proof.data);
-  free(data.data);
+  safe_free(proof.data);
+  safe_free(data.data);
 }
 
 void test_hash_root() {
@@ -87,7 +87,7 @@ void test_hash_root() {
   leaf[0]         = 2;
   //  ssz_verify_merkle_proof(proof.data, leaf, 12, root2);
   ssz_verify_single_merkle_proof(proof, leaf, 12, root2);
-  free(proof.data);
+  safe_free(proof.data);
 
   //  printf("gindex: %d\n", gindex);
   //  print_hex(stdout, bytes(root2, 32), "ProotRoot: 0x", "\n");
@@ -113,7 +113,7 @@ void test_hash_root() {
 
   ssz_verify_multi_merkle_proof(multi_proof, bytes(leafes, sizeof(leafes)), gindexes, root2);
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(root, root2, 32, "root hash must be the same after merkle proof");
-  free(multi_proof.data);
+  safe_free(multi_proof.data);
 }
 
 void test_hash_body() {
@@ -123,7 +123,7 @@ void test_hash_body() {
   bytes32_t root  = {0};
   ssz_hash_tree_root(block, root);
   ASSERT_HEX_STRING_EQUAL("ef0d785cb18cb409d4ec8ae1a2f815542b66425716623b16192389e38af32ba7", root, 32, "invalid blockhash");
-  free(data.data);
+  safe_free(data.data);
 }
 
 int main(void) {

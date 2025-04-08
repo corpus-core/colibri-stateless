@@ -133,7 +133,7 @@ c4_status_t     c4_state_add_error(c4_state_t* state, const char* error);
 #define RETRY_REQUEST(req)                                     \
   do {                                                         \
     req->node_exclude_mask |= (1 << req->response_node_index); \
-    free(req->response.data);                                  \
+    safe_free(req->response.data);                             \
     req->response = NULL_BYTES;                                \
     return C4_PENDING;                                         \
   } while (0)

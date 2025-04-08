@@ -62,7 +62,7 @@ static void cleanup_easy_handle_and_context(uv_handle_t* handle) {
     // Comment out debug print
     // fprintf(stderr, "DEBUG: Freeing poll context %p (handle %p)\n", context, handle);
     // --- END CHANGE ---
-    free(context);
+    safe_free(context);
   }
   else {
     fprintf(stderr, "WARNING: cleanup_easy_handle_and_context called with handle not part of a context?\n");
@@ -98,13 +98,13 @@ static pending_request_t* pending_find_matching(single_request_t* req) {
 }
 
 static void pending_add(single_request_t* req) {
-  pending_request_t* new_request = (pending_request_t*) calloc(1, sizeof(pending_request_t));
+  pending_request_t* new_request = (pending_request_t*) safe_calloc(1, sizeof(pending_request_t));
   new_request->request           = req;
   new_request->next              = pending_requests;
   pending_requests               = new_request;
 }
 static void pending_add_to_same_requests(pending_request_t* pending, single_request_t* req) {
-  pending_request_t* new_request = (pending_request_t*) calloc(1, sizeof(pending_request_t));
+  pending_request_t* new_request = (pending_request_t*) safe_calloc(1, sizeof(pending_request_t));
   new_request->request           = req;
   new_request->next              = pending->same_requests;
   pending->same_requests         = new_request;
@@ -119,7 +119,7 @@ static void pending_remove(single_request_t* req) {
         prev->next = current->next;
       else
         pending_requests = current->next;
-      free(current);
+      safe_free(current);
       return;
     }
     prev    = current;
@@ -176,7 +176,7 @@ static void handle_curl_events() {
         pending_request_t* next = same->next;
         if (same->request)
           trigger_uncached_curl_request(same->request, r->req->response.data ? (char*) r->req->response.data : NULL, r->req->response.len);
-        free(same);
+        safe_free(same);
         same = next;
       }
     }
@@ -285,7 +285,7 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
 
   // If we don't have a context/poll handle yet (socketp was NULL), create one
   if (!context) {
-    context = (curl_poll_context_t*) calloc(1, sizeof(curl_poll_context_t));
+    context = (curl_poll_context_t*) safe_calloc(1, sizeof(curl_poll_context_t));
     if (!context) {
       fprintf(stderr, "Failed to allocate poll context\n");
       return -1;
@@ -294,7 +294,7 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
     int err              = uv_poll_init_socket(uv_default_loop(), &context->poll_handle, s);
     if (err != 0) {
       fprintf(stderr, "Failed to initialize poll handle: %s\n", uv_strerror(err));
-      free(context);
+      safe_free(context);
       return -1;
     }
     context->poll_handle.data = context; // Mark as active
@@ -369,9 +369,9 @@ static void c4_add_request_response(request_t* req) {
   }
 
   // Clean up resources regardless of client state
-  free(res);
-  free(req->requests);
-  free(req);
+  safe_free(res);
+  safe_free(req->requests);
+  safe_free(req);
 }
 
 // Function to determine TTL for different request types
@@ -416,7 +416,7 @@ static void cache_response(single_request_t* r) {
     if (key) { // Check if key generation succeeded
                // Use r->req->response directly instead of r->buffer
       memcache_set(memcache_client, key, strlen(key), (char*) r->req->response.data, r->req->response.len, ttl);
-      free(key);
+      safe_free(key);
     }
   }
   // Note: r->buffer should already be empty or transferred to r->req->response in handle_curl_events
@@ -531,7 +531,7 @@ static void trigger_cached_curl_requests(request_t* req) {
     // Check cache first
     char* key = generate_cache_key(pending);
     int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
-    free(key);
+    safe_free(key);
     if (ret) {
       fprintf(stderr, "CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
       trigger_uncached_curl_request(r, NULL, 0);
@@ -545,17 +545,17 @@ void c4_add_request(client_t* client, data_request_t* req, void* data, http_requ
     fprintf(stderr, "ERROR: Attempted to add request to invalid or closing client\n");
     // Clean up resources since we won't be processing this request
     if (req) {
-      free(req->url);
-      free(req);
+      safe_free(req->url);
+      safe_free(req);
     }
     return;
   }
 
-  http_response_t* res = (http_response_t*) calloc(1, sizeof(http_response_t));
-  request_t*       r   = (request_t*) calloc(1, sizeof(request_t));
+  http_response_t* res = (http_response_t*) safe_calloc(1, sizeof(http_response_t));
+  request_t*       r   = (request_t*) safe_calloc(1, sizeof(request_t));
   r->client            = client;
   r->cb                = c4_add_request_response;
-  r->requests          = (single_request_t*) calloc(1, sizeof(single_request_t));
+  r->requests          = (single_request_t*) safe_calloc(1, sizeof(single_request_t));
   r->requests->req     = req;
   r->request_count     = 1;
   r->ctx               = res;
@@ -573,7 +573,7 @@ void c4_start_curl_requests(request_t* req) {
   for (data_request_t* r = ctx->state.requests; r; r = r->next) {
     if (c4_state_is_pending(r)) len++;
   }
-  req->requests      = (single_request_t*) calloc(len, sizeof(single_request_t));
+  req->requests      = (single_request_t*) safe_calloc(len, sizeof(single_request_t));
   req->request_count = len;
 
   for (data_request_t* r = ctx->state.requests; r; r = r->next) {
@@ -585,7 +585,7 @@ void c4_start_curl_requests(request_t* req) {
 
 static void free_single_request(single_request_t* r) {
   buffer_free(&r->buffer);
-  free(r->url);
+  safe_free(r->url);
   if (r->headers) {
     curl_slist_free_all(r->headers);
     r->headers = NULL;
@@ -613,7 +613,7 @@ bool c4_check_retry_request(request_t* req) {
       if (idx < servers->count) {
         fprintf(stderr, ":: Retrying request with server %d: %s\n", idx,
                 servers->urls[idx] ? servers->urls[idx] : "NULL");
-        free(pending->error);
+        safe_free(pending->error);
         pending->response_node_index = idx;
         pending->error               = NULL;
         retry_requests++;
@@ -623,14 +623,14 @@ bool c4_check_retry_request(request_t* req) {
 
   if (retry_requests == 0) {
     for (int i = 0; i < req->request_count; i++) free_single_request(req->requests + i);
-    free(req->requests);
+    safe_free(req->requests);
     req->request_count = 0;
     req->requests      = NULL;
     return false;
   }
   else {
     fprintf(stderr, ":: Retrying %d requests with different servers\n", retry_requests);
-    single_request_t* pendings = (single_request_t*) calloc(retry_requests, sizeof(single_request_t));
+    single_request_t* pendings = (single_request_t*) safe_calloc(retry_requests, sizeof(single_request_t));
     int               j        = 0;
     for (size_t i = 0; i < req->request_count && j < retry_requests; i++) {
       data_request_t* pending = req->requests[i].req;
@@ -658,7 +658,7 @@ static void init_serverlist(server_list_t* list, char* servers) {
     token = strtok(NULL, ",");
   }
   memcpy(servers_copy, servers, strlen(servers) + 1);
-  list->urls  = (char**) calloc(count, sizeof(char*));
+  list->urls  = (char**) safe_calloc(count, sizeof(char*));
   list->count = count;
   count       = 0;
   token       = strtok(servers_copy, ",");
@@ -666,7 +666,7 @@ static void init_serverlist(server_list_t* list, char* servers) {
     list->urls[count++] = strdup(token);
     token               = strtok(NULL, ",");
   }
-  free(servers_copy);
+  safe_free(servers_copy);
 }
 
 void c4_init_curl(uv_timer_t* timer) {

@@ -26,7 +26,7 @@ static int count_nibbles(uint8_t* a) {
 
 static uint8_t* patricia_to_nibbles(bytes_t p, bool prefix) {
   size_t   count   = 0;
-  uint8_t* nibbles = calloc(1 + (p.len << 1), 1);
+  uint8_t* nibbles = safe_calloc(1 + (p.len << 1), 1);
   for (size_t i = 0; i < p.len; i++) {
     nibbles[count++] = p.data[i] >> 4;
     nibbles[count++] = p.data[i] & 0x0F;
@@ -75,7 +75,7 @@ static int handle_node(bytes_t* raw, uint8_t** k, int last_node, bytes_t* last_v
         int      match   = patricia_match_nibbles(pn, *k);
         int      np_len  = count_nibbles(pn);
         int      is_leaf = *val.data & 32;
-        free(pn);
+        safe_free(pn);
 
         if (match < np_len) return last_node ? 2 : 0;
 
@@ -144,6 +144,6 @@ patricia_result_t patricia_verify(bytes32_t root, bytes_t path, ssz_ob_t proof, 
   if (result && expected)
     *expected = result == 2 ? NULL_BYTES : last_value;
 
-  if (nibbles) free(nibbles);
+  if (nibbles) safe_free(nibbles);
   return result == 3 ? PATRICIA_FOUND : (patricia_result_t) result;
 }

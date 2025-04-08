@@ -35,7 +35,7 @@ const char* CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 char*       cache_dir = NULL;
 static void curl_request_free(curl_request_t* creq) {
-  free(creq->url);
+  safe_free(creq->url);
   buffer_free(&creq->buffer);
   curl_easy_cleanup(creq->curl);
 }
@@ -85,7 +85,7 @@ static void configure() {
   if (!content.data) content = bytes_read("c4_config.json");
   if (content.data) {
     curl_set_config(json_parse((char*) content.data));
-    free(content.data);
+    safe_free(content.data);
   }
   else
     curl_set_config(json_parse(DEFAULT_CONFIG));
@@ -209,7 +209,7 @@ static bool curl_handle(curl_request_t* creq) {
 
     if (curl_execute(creq)) break;
     // remove the last error and try again
-    if (last_error) free(last_error);
+    if (last_error) safe_free(last_error);
     last_error           = creq->request->error;
     creq->request->error = NULL;
     curl_request_free(creq);
@@ -219,15 +219,15 @@ static bool curl_handle(curl_request_t* creq) {
   if (creq->request->error && last_error) {
     char* src            = creq->request->error;
     creq->request->error = bprintf(NULL, "%s : %s", src, last_error);
-    free(src);
-    free(last_error);
+    safe_free(src);
+    safe_free(last_error);
   }
 
 #ifdef TEST
   if (creq->request->response.data && REQ_TEST_DIR) {
     char* test_filename = c4_req_mockname(creq->request);
     test_write_file(test_filename, creq->request->response);
-    free(test_filename);
+    safe_free(test_filename);
   }
   if (cache_dir && creq->request->response.data) write_cache(creq->request);
 #endif
@@ -241,7 +241,7 @@ void curl_fetch(data_request_t* req) {
 }
 
 void curl_set_config(json_t config) {
-  if (curl_config.config.start) free((void*) curl_config.config.start);
+  if (curl_config.config.start) safe_free((void*) curl_config.config.start);
   curl_config.config = (json_t) {.len = config.len, .start = strdup(config.start), .type = config.type};
 }
 
@@ -260,20 +260,20 @@ void curl_fetch_all(c4_state_t* state) {
     for (data_request_t* req = state->requests; req; req = req->next) {
       if (req->response.data) continue; // Skip if already has response
 
-      curl_request_t* creq = (curl_request_t*) malloc(sizeof(curl_request_t));
+      curl_request_t* creq = (curl_request_t*) safe_malloc(sizeof(curl_request_t));
       if (!creq) continue;
 
       memset(creq, 0, sizeof(curl_request_t));
       creq->request = req;
 
       if (!configure_request(creq)) {
-        free(creq);
+        safe_free(creq);
         continue;
       }
 
       if (!configure_curl(creq)) {
         curl_request_free(creq);
-        free(creq);
+        safe_free(creq);
         continue;
       }
 
@@ -317,7 +317,7 @@ void curl_fetch_all(c4_state_t* state) {
               if (creq->request->response.data && REQ_TEST_DIR) {
                 char* test_filename = c4_req_mockname(creq->request);
                 test_write_file(test_filename, creq->request->response);
-                free(test_filename);
+                safe_free(test_filename);
               }
               if (cache_dir && creq->request->response.data) write_cache(creq->request);
 #endif
@@ -351,7 +351,7 @@ void curl_fetch_all(c4_state_t* state) {
                 // If we have more nodes to try
                 if (creq->request->response_node_index < node_count) {
                   // Store this error as the last error
-                  if (creq->request->error) free(creq->request->error);
+                  if (creq->request->error) safe_free(creq->request->error);
                   creq->request->error = error_msg;
 
                   // We need to retry
@@ -369,10 +369,10 @@ void curl_fetch_all(c4_state_t* state) {
             }
 
             curl_multi_remove_handle(multi_handle, easy_handle);
-            free(creq->url);
+            safe_free(creq->url);
             buffer_free(&creq->buffer);
             curl_easy_cleanup(easy_handle);
-            free(creq);
+            safe_free(creq);
           }
         }
       }

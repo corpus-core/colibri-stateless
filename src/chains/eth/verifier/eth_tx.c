@@ -400,12 +400,12 @@ bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t
     int     num_hashes = rlp_decode(&inner_list, -1, NULL);
     if (num_hashes < 0 || num_hashes > 16) RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: Invalid number of blob hashes");
     if (num_hashes > 0) {
-      blob_hashes.data = malloc(num_hashes * 32);
+      blob_hashes.data = safe_malloc(num_hashes * 32);
       blob_hashes.len  = num_hashes * 32;
       for (int h = 0; h < num_hashes; ++h) {
         bytes_t hash_item = {0};
         if (rlp_decode(&inner_list, h, &hash_item) != RLP_ITEM || hash_item.len != 32) {
-          free(blob_hashes.data);
+          safe_free(blob_hashes.data);
           RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: Invalid blob hash item in RLP list");
         }
         memcpy(blob_hashes.data + h * 32, hash_item.data, 32);
@@ -436,7 +436,7 @@ bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t
         memcpy(storage_keys.data + k * 32, key.data, 32);
       }
       ssz_add_bytes(&entry_builder, "storageKeys", storage_keys);
-      free(storage_keys.data);
+      safe_free(storage_keys.data);
       ssz_add_dynamic_list_builders(&access_list_builder, entries, entry_builder);
     }
   }
@@ -473,7 +473,7 @@ bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t
   ssz_add_uint8(buffer, y_parity);
 
   // Free buffer used for blob hashes if it was allocated
-  if (blob_hashes.data) free(blob_hashes.data);
+  if (blob_hashes.data) safe_free(blob_hashes.data);
 
   return true;
 }

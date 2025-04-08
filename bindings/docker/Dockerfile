@@ -1,45 +1,46 @@
-# Build stage
-FROM emscripten/emsdk:latest as builder
+# Use a Debian image for the builder stage
+FROM debian:bookworm-slim AS builder
 
-# Install Node.js and npm
-RUN apt-get update && apt-get install -y \
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake \
+    clang \
+    git \
+    build-essential \
+    ca-certificates \
+    libcurl4-openssl-dev \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory for the build
+WORKDIR /build
+
+# Copy source code into the builder stage
+# We copy CMakeLists.txt first to leverage Docker layer caching for dependencies
+COPY CMakeLists.txt ./
+COPY src ./src
+COPY libs ./libs
+
+# Configure and build the server
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DPROOFER_CACHE=true . && make server
+
+# Use a small Debian image for the final stage
+FROM debian:bookworm-slim AS final
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy source files
-COPY . .
+# Copy the built server executable from the builder stage
+COPY --from=builder /build/bin/server /app/server
 
-# Create build directory and run cmake
-RUN rm -rf build && mkdir -p build && cd build && \
-    emcmake cmake -DWASM=true -DCLI=false -DTEST=false -DCURL=false -DPROOFER_CACHE=true -DCMAKE_BUILD_TYPE=MINSIZREL .. && \
-    make -j$(nproc)
+# Expose the default server port
+EXPOSE 8090
 
-# Runtime stage
-FROM node:18-slim
-
-# Create app directory
-WORKDIR /app
-
-# Copy only the necessary files from the builder
-COPY --from=builder /app/build/emscripten/* ./
-
-# Create cache directory
-RUN mkdir -p .cache && \
-    echo '{"type": "module"}' > package.json
-
-# Set environment variables
-ENV NODE_ENV=production
-ENV CACHE_DIR=.cache
-ENV CACHE_RAM_LIMIT=100
-ENV PORT=8545
-
-# Expose the default port
-EXPOSE 8545
-
-# Start the server
-CMD ["node", "server.js"] 
+# Default command to run the server
+CMD ["/app/server"]

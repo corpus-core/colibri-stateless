@@ -22,7 +22,7 @@ static void  on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
 static char* status_text(int status);
 
 void c4_register_http_handler(http_handler handler) {
-  handlers                   = (http_handler*) realloc(handlers, (handlers_count + 1) * sizeof(http_handler));
+  handlers                   = (http_handler*) safe_realloc(handlers, (handlers_count + 1) * sizeof(http_handler));
   handlers[handlers_count++] = handler;
 }
 
@@ -30,11 +30,11 @@ static void on_close(uv_handle_t* handle) {
   client_t* client = (client_t*) handle->data;
   if (!client) return;
 
-  free(client->request.path);
-  free(client->request.content_type);
-  free(client->request.accept);
-  free(client->request.payload);
-  free(client);
+  safe_free(client->request.path);
+  safe_free(client->request.content_type);
+  safe_free(client->request.accept);
+  safe_free(client->request.payload);
+  safe_free(client);
 }
 
 static int on_url(llhttp_t* parser, const char* at, size_t length) {
@@ -78,7 +78,7 @@ static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
 
 static int on_body(llhttp_t* parser, const char* at, size_t length) {
   client_t* client        = (client_t*) parser->data;
-  client->request.payload = (uint8_t*) malloc(length);
+  client->request.payload = (uint8_t*) safe_malloc(length);
   memcpy(client->request.payload, at, length);
   client->request.payload_len = length;
   return 0;
@@ -103,7 +103,7 @@ static int on_message_complete(llhttp_t* parser) {
   client_t* client = (client_t*) parser->data;
   char*     pl     = client->request.payload_len ? bprintf(NULL, "%J", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) client->request.payload, .len = client->request.payload_len}) : NULL;
   fprintf(stderr, "[%s] %s %s\n", method_str(client->request.method), client->request.path, pl ? pl : "");
-  if (pl) free(pl);
+  if (pl) safe_free(pl);
   for (int i = 0; i < handlers_count; i++) {
     if (handlers[i](client)) return 0;
   }
@@ -113,7 +113,7 @@ static int on_message_complete(llhttp_t* parser) {
 
 static void alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
   if (suggested_size > 4096) suggested_size = 4096; // we don't expect more than 4096 bytes
-  buf->base = (char*) malloc(suggested_size);
+  buf->base = (char*) safe_malloc(suggested_size);
   buf->len  = suggested_size;
 }
 
@@ -132,7 +132,7 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
     fprintf(stderr, "uv_read error: %s\n", reason);
     c4_http_respond(client, 500, "text/plain", bytes(reason, strlen(reason)));
   }
-  free(buf->base);
+  safe_free(buf->base);
 }
 
 static char* status_text(int status) {
@@ -212,7 +212,7 @@ void c4_on_new_connection(uv_stream_t* server, int status) {
     return;
   }
   uv_loop_t* loop   = server->loop;
-  client_t*  client = (client_t*) calloc(1, sizeof(client_t));
+  client_t*  client = (client_t*) safe_calloc(1, sizeof(client_t));
   uv_tcp_init(loop, &client->handle);
   client->handle.data  = client;
   client->being_closed = false;
