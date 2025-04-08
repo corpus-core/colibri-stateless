@@ -15,7 +15,7 @@
 // --- Safe Memory Allocation Wrappers ---
 
 void* safe_malloc(size_t size) {
-  void* ptr = safe_malloc(size);
+  void* ptr = malloc(size);
   if (size > 0 && ptr == NULL) {
     fprintf(stderr, "Error: Memory allocation failed (malloc) for size %zu bytes: %s. Exiting.\\n", size, strerror(errno));
     exit(EXIT_FAILURE);
@@ -24,7 +24,7 @@ void* safe_malloc(size_t size) {
 }
 
 void* safe_calloc(size_t num, size_t size) {
-  void* ptr = safe_calloc(num, size);
+  void* ptr = calloc(num, size);
   if (num > 0 && size > 0 && ptr == NULL) {
     fprintf(stderr, "Error: Memory allocation failed (calloc) for %zu items of size %zu bytes: %s. Exiting.\\n", num, size, strerror(errno));
     exit(EXIT_FAILURE);
@@ -33,7 +33,7 @@ void* safe_calloc(size_t num, size_t size) {
 }
 
 void* safe_realloc(void* ptr, size_t new_size) {
-  void* new_ptr = safe_realloc(ptr, new_size);
+  void* new_ptr = realloc(ptr, new_size);
   // Note:safe_realloc(NULL, size) is equivalent tosafe_malloc(size)
   // safe_realloc(ptr, 0) is equivalent tosafe_free(ptr) and may return NULL
   if (new_size > 0 && new_ptr == NULL) {
@@ -45,7 +45,7 @@ void* safe_realloc(void* ptr, size_t new_size) {
 }
 
 void safe_free(void* ptr) {
-  safe_free(ptr); // safe_free(NULL) is safe and does nothing
+  free(ptr); // safe_free(NULL) is safe and does nothing
 }
 
 // --- End Safe Memory Allocation Wrappers ---
