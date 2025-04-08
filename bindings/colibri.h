@@ -19,7 +19,7 @@ typedef struct {
  * @param flags the flags to pass to the proofer ()
  * @return a new proofer_ctx_t
  */
-proofer_t* create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags);
+proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags);
 
 /**
  * executes the proofer_t and returns the status as json string.
@@ -44,37 +44,37 @@ proofer_t* create_proofer_ctx(char* method, char* params, uint64_t chain_id, uin
  *  ]
  * }
  */
-char* proofer_execute_json_status(proofer_t* ctx);
+char* c4_proofer_execute_json_status(proofer_t* ctx);
 
 /**
  * gets the proof from the proofer_t
  * @param ctx the proofer_t
  * @return the proof as bytes_t
  */
-bytes_t proofer_get_proof(proofer_t* ctx);
+bytes_t c4_proofer_get_proof(proofer_t* ctx);
 
 /**
  * frees the proofer_ctx_t
  * @param ctx the proofer_ctx_t to free
  */
-void free_proofer_ctx(proofer_t* ctx);
+void c4_free_proofer_ctx(proofer_t* ctx);
 
 /**
  * creates the response of the data request by allocating  memory where the data should be copied to.
- * @param req_ptr the pointer to the data request ( as given in the json-string of proofer_execute_json_status)
+ * @param req_ptr the pointer to the data request ( as given in the json-string of c4_proofer_execute_json_status)
  * @param len the length of the data to be set as response
  * @param node_index the  index of the node the response came from.
  * @return the pointer to the allocated memory
  */
-void req_set_response(void* req_ptr, bytes_t data, uint16_t node_index);
+void c4_req_set_response(void* req_ptr, bytes_t data, uint16_t node_index);
 
 /**
  * sets the error of the data request
- * @param req_ptr the pointer to the data request ( as given in the json-string of proofer_execute_json_status)
+ * @param req_ptr the pointer to the data request ( as given in the json-string of c4_proofer_execute_json_status)
  * @param error the error message
  * @param node_index the  index of the node the error came from.
  */
-void req_set_error(void* req_ptr, char* error, uint16_t node_index);
+void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
 
 /**
  * verifies the proof created by the proofer_ctx_t
@@ -85,19 +85,19 @@ void req_set_error(void* req_ptr, char* error, uint16_t node_index);
  * @param chain_id the chain id
  * @return the result of the verification as json string ( needs to be freed by the caller )
  */
-void* verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes);
+void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes);
 
 /**
  * verifies the proof created by the proofer_ctx_t and returns the result as json string.
  * @param ctx the context of the proof
  * @return the result of the verification as json string ( needs to be freed by the caller )
  */
-char* verify_execute_json_status(void* ctx);
+char* c4_verify_execute_json_status(void* ctx);
 
 /**
  * frees the verification context
  */
-void verify_free_ctx(void* ctx);
+void c4_verify_free_ctx(void* ctx);
 
 /**
  * gets the method type of a json-rpc-method

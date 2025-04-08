@@ -381,6 +381,12 @@ jobs:
           emcmake cmake -B build -DWASM=true -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
           cmake --build build
 
+      - name: Run tests
+        run: |
+          cd bindings/emscripten
+          npm test
+          cd ../../
+
       - name: Create WASM Package
         run: |
           cd build/emscripten

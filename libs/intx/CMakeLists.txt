@@ -40,6 +40,11 @@ target_include_directories(intx_wrapper
 # Use C++20 to match intx requirements
 target_compile_features(intx_wrapper PRIVATE cxx_std_20)
 
+# Suppress specific warnings for intx dependency if using Clang or GCC
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(intx_wrapper PRIVATE -Wno-deprecated-literal-operator)
+endif()
+
 # Add compile definitions for Android to help with C++20 compatibility
 if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android")
     target_compile_definitions(intx_wrapper PRIVATE 

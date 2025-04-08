@@ -52,7 +52,7 @@ static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t
   return true;
 }
 
-bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t state_root, eth_account_field_t field, bytes_t values) {
+INTERNAL bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t state_root, eth_account_field_t field, bytes_t values) {
   ssz_ob_t  account_proof = ssz_get(proof, "accountProof");
   ssz_ob_t  address       = ssz_get(proof, "address");
   bytes32_t address_hash  = {0};
@@ -133,7 +133,7 @@ void eth_get_account_value(ssz_ob_t account, eth_account_field_t field, bytes32_
   memcpy(value + 32 - last_value.len, last_value.data, last_value.len);
 }
 
-c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_codes, ssz_ob_t accounts) {
+INTERNAL c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_codes, ssz_ob_t accounts) {
   c4_status_t      status = C4_SUCCESS;
   storage_plugin_t cache  = {0};
   bytes32_t        hash   = {0};
@@ -224,7 +224,7 @@ c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_codes, ssz_
   return status;
 }
 
-void eth_free_codes(call_code_t* call_codes) {
+INTERNAL void eth_free_codes(call_code_t* call_codes) {
   while (call_codes) {
     call_code_t* next = call_codes->next;
     if (call_codes->free) safe_free(call_codes->code.data);

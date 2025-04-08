@@ -34,11 +34,11 @@ public class Colibri {
             free(paramsCStr)
         }
         
-        let ctx = create_proofer_ctx(methodPtr, paramsPtr, chainId, includeCode ? 1 : 0)
-        defer { free_proofer_ctx(ctx) }
+        let ctx = c4_create_proofer_ctx(methodPtr, paramsPtr, chainId, includeCode ? 1 : 0)
+        defer { c4_free_proofer_ctx(ctx) }
 
         while true {
-            guard let jsonStatusPtr = proofer_execute_json_status(ctx) else {
+            guard let jsonStatusPtr = c4_proofer_execute_json_status(ctx) else {
                 throw ColibriError.executionFailed
             }
             let jsonStatus = String(cString: jsonStatusPtr)
@@ -52,7 +52,7 @@ public class Colibri {
 
             switch status {
             case "success":
-                let proof = proofer_get_proof(ctx)
+                let proof = c4_proofer_get_proof(ctx)
                 // Create a new Data instance with copied bytes
                 let proofData = Data(bytes: UnsafeRawPointer(proof.data), count: Int(proof.len))
                 return proofData
@@ -107,11 +107,11 @@ public class Colibri {
             }
         }
         
-        let ctx = verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedBlockHasesCStr)
-        defer { verify_free_ctx(ctx) }
+        let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedBlockHasesCStr)
+        defer { c4_verify_free_ctx(ctx) }
 
         while true {
-            guard let jsonStatusPtr = verify_execute_json_status(ctx) else {
+            guard let jsonStatusPtr = c4_verify_execute_json_status(ctx) else {
                 throw ColibriError.executionFailed
             }
             let jsonStatus = String(cString: jsonStatusPtr)
@@ -205,7 +205,7 @@ public class Colibri {
                                         bytes = bytes_t(data: mutablePtr, len: UInt32(responseData.count))
                                     }
                                 }
-                                req_set_response(reqPtr, bytes, Int32(index))
+                                c4_req_set_response(reqPtr, bytes, Int32(index))
                                 return
                             } else {
                                 lastError = "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
@@ -218,7 +218,7 @@ public class Colibri {
                     // If we get here, all servers failed
                     let errorPtr = lastError.withCString { strdup($0) }
                     if let errorCStr = errorPtr {
-                        req_set_error(reqPtr, errorCStr, 0)
+                        c4_req_set_error(reqPtr, errorCStr, 0)
                         free(errorCStr)
                     }
                 }

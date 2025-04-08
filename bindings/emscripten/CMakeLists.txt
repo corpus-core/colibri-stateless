@@ -72,3 +72,12 @@ add_dependencies(compile_typescript install_node_modules)
 
 # Ensure the TypeScript compilation happens before the main build
 add_dependencies(c4w compile_typescript)
+
+# Add a custom target to run npm tests
+add_custom_target(test
+    COMMAND npm test
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/emscripten
+#    DEPENDS compile_typescript
+    COMMENT "Running npm tests"
+)
+

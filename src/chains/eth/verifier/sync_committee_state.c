@@ -21,7 +21,7 @@ static uint8_t sync_buffer[C4_STATIC_KEYS_48_SIZE];
 #endif
 #endif
 
-c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
+INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
   c4_chain_state_t state = {0};
   char             name[100];
   storage_plugin_t storage_conf = {0};
@@ -109,7 +109,7 @@ static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count
   return false;
 }
 
-bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, chain_id_t chain_id) {
+INTERNAL bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, chain_id_t chain_id) {
   storage_plugin_t storage_conf  = {0};
   uint32_t         period        = (slot >> 13) + 1;
   c4_chain_state_t state         = c4_get_chain_state(chain_id);
@@ -180,7 +180,7 @@ bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, 
   return true;
 }
 
-c4_status_t c4_set_trusted_blocks(verify_ctx_t* ctx, json_t blocks) {
+INTERNAL c4_status_t c4_set_trusted_blocks(verify_ctx_t* ctx, json_t blocks) {
   c4_chain_state_t chain_state        = c4_get_chain_state(ctx->chain_id);
   c4_state_t*      state              = &ctx->state;
   json_t           data               = {0};
@@ -272,7 +272,7 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
       .validators     = validators.data};
 }
 
-const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_state_t* target_state) {
+INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_state_t* target_state) {
   c4_sync_state_t sync_state = get_validators_from_cache(ctx, period);
 
   if (sync_state.validators.data == NULL) {

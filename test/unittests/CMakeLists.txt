@@ -21,6 +21,11 @@ foreach(test_source ${TEST_SOURCES})
     # Verknüpfe die Testausführbare mit Unity und deinem Code
     target_link_libraries(${test_name} unity verifier proofer)
 
+    # Suppress MSVC warning C4113 for test targets
+    if(MSVC)
+        target_compile_options(${test_name} PRIVATE /wd4113)
+    endif()
+
 #    target_compile_definitions(${test_name} PRIVATE TESTDATA_DIR="${CMAKE_SOURCE_DIR}/test/data")
 
     # Füge den Test zu CTest hinzu

@@ -4,7 +4,9 @@
     "description": "Colibri is a stateless and trustless ethereum client, which is optimized for the mobile apps or embedded devices, because it does not hols the state, but verifies on demand.",
     "main": "index.js",
     "type": "module",
-    "scripts": {},
+    "scripts": {
+        "test": "node --test test/*.test.mjs"
+    },
     "repository": {
         "type": "git",
         "url": "git+https://github.com/corpus-core/c4.git"
