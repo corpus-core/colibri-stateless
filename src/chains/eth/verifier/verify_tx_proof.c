@@ -64,9 +64,7 @@ static bool verify_args(verify_ctx_t* ctx, bytes_t raw, uint32_t tx_index, bytes
     if (json_as_uint32(json_at(ctx->args, 1)) != tx_index) RETURN_VERIFY_ERROR(ctx, "invalid tx index!");
   }
   else if (strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0) {
-    bytes32_t tmp           = {0};
-    buffer_t  buf           = stack_buffer(tmp);
-    uint64_t  req_block_num = json_as_uint64(json_at(ctx->args, 0));
+    uint64_t req_block_num = json_as_uint64(json_at(ctx->args, 0));
     if (!req_block_num) RETURN_VERIFY_ERROR(ctx, "invalid block number!");
     if (req_block_num != ssz_get_uint64(&ctx->proof, "blockNumber")) RETURN_VERIFY_ERROR(ctx, "invalid block number!");
     if (json_as_uint32(json_at(ctx->args, 1)) != tx_index) RETURN_VERIFY_ERROR(ctx, "invalid tx index!");
