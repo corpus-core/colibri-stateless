@@ -10,6 +10,8 @@ bindings/kotlin/.gradle
 test/embedded/sdcard.img
 test/embedded/memory_map.txt
 /.memcached
+bindings/emscripten/webpack/dist
+bindings/emscripten/webpack/node_modules
 
 /build_x86
 /build_*

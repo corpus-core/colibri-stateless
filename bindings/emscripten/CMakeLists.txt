@@ -9,9 +9,9 @@ ELSE (CMAKE_BUILD_TYPE MATCHES Debug)
    set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -O3 ")
 ENDIF (CMAKE_BUILD_TYPE MATCHES Debug)
 
-if (WASM_EMBED)
+#if (WASM_EMBED)
    set(EMC_PROPS "${EMC_PROPS} -s SINGLE_FILE=1")
-endif(WASM_EMBED)
+#endif(WASM_EMBED)
 
 # Define a custom output directory for Emscripten and TypeScript artifacts
 set(EMSCRIPTEN_OUTPUT_DIR "${CMAKE_BINARY_DIR}/emscripten")

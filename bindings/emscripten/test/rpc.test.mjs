@@ -55,7 +55,7 @@ function create_cache(dir) {
 }
 
 
-test('Basic Test Suite', async (t) => {
+test('RPC-Proof Test Suite', async (t) => {
     await t.test('should load Emscripten module', async () => {
         const c4 = new Colibri();
         const result = await c4.getMethodSupport('eth_getTransactionByHash');

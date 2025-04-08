@@ -5,7 +5,12 @@
     "main": "index.js",
     "type": "module",
     "scripts": {
-        "test": "node --test test/*.test.mjs"
+        "test": "npm run test:node && npm run test:webpack",
+        "test:node": "node --test test/*.test.mjs",
+        "test:webpack": "npm run webpack:install && npm run webpack:build",
+        "webpack:install": "cd webpack && npm install --legacy-peer-deps",
+        "webpack:build": "cd webpack && npm run build",
+        "webpack:start": "cd webpack && npm run start"
     },
     "repository": {
         "type": "git",
