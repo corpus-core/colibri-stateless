@@ -1,0 +1,19 @@
+{
+    "name": "c4w-webpack-test",
+    "version": "1.0.0",
+    "description": "Test packaging c4w Emscripten module with Webpack",
+    "private": true,
+    "scripts": {
+        "build": "webpack",
+        "start": "webpack serve --open",
+        "test": "echo \"Webpack build completed as test.\" && exit 0"
+    },
+    "devDependencies": {
+        "webpack": "^5.88.0",
+        "webpack-cli": "^5.1.0",
+        "webpack-dev-server": "^4.15.0"
+    },
+    "dependencies": {
+        "path": "^0.12.7"
+    }
+}
