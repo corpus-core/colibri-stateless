@@ -389,7 +389,7 @@ jobs:
 
       - name: Create WASM Package
         run: |
-          cd build/emscripten
+          cd bindings/emscripten
           zip -r ../../colibri-wasm.zip ./*
           cd ../..
 
