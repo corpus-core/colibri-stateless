@@ -74,5 +74,10 @@ typedef struct bytes_t {
 %typemap(javain) proofer_t* "$javainput"
 %typemap(javaout) proofer_t* { return $jnicall; }
 
+// --- Add native bridge initialization function ---
+// This function is implemented in jni_bridge.c, not the core library.
+// We declare it here so SWIG generates the JNI wrapper for it in c4JNI.
+%native(nativeInitializeBridge) void nativeInitializeBridge();
+
 // Now include the full header
 %include "colibri.h"

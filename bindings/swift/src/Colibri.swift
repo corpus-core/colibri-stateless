@@ -1,10 +1,20 @@
 import Foundation
 // The C header is imported via -import-objc-header flag
 
+// Add the MethodType enum
+public enum MethodType: Int {
+    case PROOFABLE = 1
+    case UNPROOFABLE = 2
+    case NOT_SUPPORTED = 3
+    case LOCAL = 4
+    case UNKNOWN = 0 // Add an unknown case for safety
+}
+
 public class Colibri {
     // Configuration with defaults
-    public var eth_rpcs: [String] = ["https://mainnet.infura.io/v3/YOUR_API_KEY"]
-    public var beacon_apis: [String] = ["https://beaconcha.in/api/v1"]
+    public var eth_rpcs: [String] = []
+    public var beacon_apis: [String] = []
+    public var proofers: [String] = ["https://c4.incubed.net"]
     public var trustedBlockHases: [String] = []
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
@@ -15,6 +25,22 @@ public class Colibri {
         // Placeholder for initialization if needed
     }
 
+    // Add the getMethodSupport function
+    public func getMethodSupport(method: String) async throws -> MethodType {
+        let methodPtr = method.withCString { strdup($0) }
+        guard let methodCStr = methodPtr else {
+            throw ColibriError.invalidInput
+        }
+        defer { free(methodCStr) }
+
+        let typeRaw = c4_get_method_type(chainId, methodCStr)
+        guard let type = MethodType(rawValue: Int(typeRaw)) else {
+             // Handle cases where the C function might return an unexpected value
+            print("Warning: Unknown method type raw value \(typeRaw) returned from c4_get_method_type for method \(method)")
+            return .UNKNOWN // Or throw an error, depending on desired strictness
+        }
+        return type
+    }
 
     // Create proof asynchronously
     public func createProof(method: String, params: String) async throws -> Data {
@@ -143,6 +169,59 @@ public class Colibri {
         }
     }
 
+    // Implement the rpc method
+    public func rpc(method: String, params: String) async throws -> Any {
+        let methodType = try await getMethodSupport(method: method)
+        var proof = Data()
+
+        switch methodType {
+        case .PROOFABLE:
+            // Assuming params is a JSON string representing an array or object
+            // We prefer fetching from a proofer if available
+            if !proofers.isEmpty {
+                 proof = try await fetchRpc(urls: proofers, method: method, params: params, asProof: true)
+            } else {
+                 proof = try await createProof(method: method, params: params)
+            }
+            // Verification happens below, after the switch
+
+        case .UNPROOFABLE:
+            let responseData = try await fetchRpc(urls: eth_rpcs, method: method, params: params, asProof: false)
+            // Parse JSON response
+            do {
+                guard let jsonResponse = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+                    throw ColibriError.invalidJSON
+                }
+                if let error = jsonResponse["error"] as? [String: Any] {
+                     let errorMessage = error["message"] as? String ?? "Unknown RPC error"
+                     throw ColibriError.rpcError(errorMessage)
+                }
+                guard let result = jsonResponse["result"] else {
+                    throw ColibriError.invalidJSON // Result field is missing
+                }
+                return result
+            } catch let error as ColibriError {
+                 throw error // Re-throw Colibri specific errors
+            } catch {
+                 throw ColibriError.invalidJSON // Catch JSON parsing errors
+            }
+
+        case .NOT_SUPPORTED:
+            throw ColibriError.methodNotSupported(method)
+
+        case .LOCAL:
+            // For local methods, we still call verify with empty proof
+            proof = Data()
+            // Verification happens below, after the switch
+
+        case .UNKNOWN:
+             throw ColibriError.unknownMethodType(method)
+        }
+
+        // Verify the proof (either created/fetched for PROOFABLE, or empty for LOCAL)
+        return try await verifyProof(proof: proof, method: method, params: params)
+    }
+
     // Helper function to handle pending requests
     private func handleRequests(_ requests: [[String: Any]]) async throws {
         await withTaskGroup(of: Void.self) { group in
@@ -225,6 +304,74 @@ public class Colibri {
             }
         }
     }
+
+    // Add the fetchRpc helper function
+    private func fetchRpc(urls: [String], method: String, params: String, asProof: Bool) async throws -> Data {
+        var lastError: Error = ColibriError.rpcError("All nodes failed") // Initialize with a default error
+
+        // Prepare JSON RPC request body data once
+        let jsonRpcBody: [String: Any] = [
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": try JSONSerialization.jsonObject(with: params.data(using: .utf8) ?? Data()) // Assume params is valid JSON string
+        ]
+        let httpBody = try JSONSerialization.data(withJSONObject: jsonRpcBody)
+
+        for urlString in urls {
+            guard let url = URL(string: urlString) else {
+                print("Warning: Invalid URL string: \(urlString)")
+                lastError = ColibriError.invalidURL
+                continue // Try the next URL
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.httpBody = httpBody
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(asProof ? "application/octet-stream" : "application/json", forHTTPHeaderField: "Accept")
+            // Add a timeout
+            request.timeoutInterval = 30 // 30 seconds timeout
+
+            do {
+                 print("Fetching \(method) from \(urlString)")
+                let (responseData, response) = try await URLSession.shared.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw ColibriError.rpcError("Invalid response received")
+                }
+                
+                print("Response status code from \(urlString): \(httpResponse.statusCode)")
+
+                if (200...299).contains(httpResponse.statusCode) {
+                     if !asProof {
+                         // Basic check if it's likely JSON before returning Data
+                         if responseData.isEmpty || responseData.first != UInt8(ascii: "{") {
+                             print("Warning: Expected JSON response from \(urlString), but received non-JSON data.")
+                             // Fallthrough to return Data, caller will handle parsing error
+                         }
+                     }
+                    return responseData // Success
+                } else {
+                    let responseBodyString = String(data: responseData, encoding: .utf8) ?? "Non-UTF8 response body"
+                    lastError = ColibriError.httpError(statusCode: httpResponse.statusCode, details: responseBodyString)
+                    print("HTTP error \(httpResponse.statusCode) from \(urlString): \(responseBodyString)")
+                    // Continue to try the next URL
+                }
+            } catch let error as URLError where error.code == .timedOut {
+                 lastError = ColibriError.rpcError("Request to \(urlString) timed out")
+                 print("Request timed out for \(urlString)")
+                 // Continue to try the next URL
+            } catch {
+                 lastError = ColibriError.rpcError("Network or other error fetching from \(urlString): \(error.localizedDescription)")
+                 print("Error fetching from \(urlString): \(error)")
+                // Continue to try the next URL
+            }
+        }
+        // If loop finishes without returning, all URLs failed
+        throw lastError
+    }
+
     // Helper extension for safe byte copying
     private extension Data {
         func copyBytes() -> [UInt8] {
@@ -241,5 +388,9 @@ public enum ColibriError: Error {
     case proofError(String)
     case unknownStatus(String)
     case invalidURL
+    case rpcError(String) // Added for RPC specific errors
+    case httpError(statusCode: Int, details: String) // Added for HTTP errors
+    case methodNotSupported(String) // Added for unsupported methods
+    case unknownMethodType(String) // Added for unknown method types
 }
 
