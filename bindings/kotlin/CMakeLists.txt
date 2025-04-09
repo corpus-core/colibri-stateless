@@ -42,6 +42,7 @@ set(CMAKE_SWIG_FLAGS "-module" "c4" "-package" "com.corpuscore.colibri" "-I${CMA
 set(SWIG_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/colibri.i
     ${CMAKE_CURRENT_SOURCE_DIR}/../colibri.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/jni_bridge.c
 )
 
 if(GENERATE_JAVA_SOURCES)

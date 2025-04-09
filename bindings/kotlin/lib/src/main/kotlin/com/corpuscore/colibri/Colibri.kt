@@ -29,18 +29,50 @@ enum class MethodType(val value: Int) {
 // Custom Exception for Colibri errors
 class ColibriException(message: String) : RuntimeException(message)
 
+// Interface for storage operations callback
+interface ColibriStorage {
+    fun get(key: String): ByteArray? // Return nullable ByteArray
+    fun set(key: String, value: ByteArray)
+    fun delete(key: String) // Changed 'del' to 'delete' for Kotlin convention
+}
+
+// Singleton object to hold the user-provided storage implementation
+object StorageBridge {
+    var implementation: ColibriStorage? = null
+}
+
+// Type alias for the request handler callback
+typealias RequestHandler = (requestDetails: Map<String, Any?>) -> ByteArray?
+
 class Colibri(
     var chainId: BigInteger = BigInteger.ONE, // Default value
     var proofers: Array<String> = arrayOf("https://c4.incubed.net"), // Default value
     var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
     var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
     var trustedBlockHashes: Array<String> = arrayOf(), // Default empty array
-    var includeCode: Boolean = false // Default value
+    var includeCode: Boolean = false, // Default value
+    var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
     companion object {
         init {
             // This will trigger the native library loading
             NativeLoader
+            // Initialize the JNI bridge for storage callbacks
+            // This call must happen after NativeLoader ensures the library is loaded.
+            try {
+                com.corpuscore.colibri.c4.nativeInitializeBridge()
+                println("JNI Storage Bridge Initialized.")
+            } catch (e: UnsatisfiedLinkError) {
+                println("Error initializing JNI Storage Bridge: ${e.message}. Check native library loading and JNI function name.")
+                // Depending on requirements, you might re-throw or handle this failure.
+            }
+        }
+
+        // Static method to register the storage implementation
+        fun registerStorage(storage: ColibriStorage) {
+            StorageBridge.implementation = storage
+            println("ColibriStorage implementation registered.")
+            // Optionally, trigger C-side re-configuration if needed, but likely handled at init.
         }
     }
     private val client = HttpClient(CIO) {
@@ -68,6 +100,9 @@ class Colibri(
     }
 
     private suspend fun fetchRequest(servers: Array<String>, request: JSONObject) {
+        // Define reqPtr before the loop so it's accessible in the final error case
+        val reqPtr = request.getLong("req_ptr") // Assume req_ptr always exists
+
         var index = 0
         var lastError = ""
         for (server in servers) {
@@ -81,6 +116,23 @@ class Colibri(
                 index++
                 continue
             }
+
+            // --- Mocking Hook --- 
+            if (requestHandler != null) {
+                // Create a map representation of the request for the handler
+                val requestDetails = mutableMapOf<String, Any?>()
+                request.keys().forEach { key -> requestDetails[key] = request.get(key) }
+                // Convert JSONObject/JSONArray within the details to maps/lists if necessary for easier handling?
+                // For now, pass raw org.json objects within the map.
+
+                val mockResponse = requestHandler!!(requestDetails)
+                if (mockResponse != null) {
+                    println("fetchRequest: Mock response provided for req_ptr $reqPtr (size: ${mockResponse.size})")
+                    com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, mockResponse, index) // Use mock response
+                    return // Skip actual network request
+                }
+            }
+            // --- End Mocking Hook ---
 
             try {
                 val response: HttpResponse = client.request(url) {
@@ -99,7 +151,6 @@ class Colibri(
 
                 if (response.status.isSuccess()) {
                     // Ensure req_ptr is treated as a pointer value (Long)
-                    val reqPtr = request.getLong("req_ptr")
                     com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, response.readBytes(), index)
                     return
                 }
@@ -112,7 +163,6 @@ class Colibri(
             index++
         }
         // Ensure req_ptr is treated as a pointer value (Long)
-        val reqPtr = request.getLong("req_ptr")
         com.corpuscore.colibri.c4.c4_req_set_error(reqPtr, lastError, 0)
     }
 
