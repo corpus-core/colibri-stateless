@@ -20,7 +20,7 @@ static jmethodID g_storageDeleteMethod   = NULL;
 static JNIEnv* getJniEnv() {
   JNIEnv* env = NULL;
   if (g_vm == NULL) {
-    fprintf(stderr, "JNI Bridge Error: JavaVM not initialized.\n");
+    // fprintf(stderr, "JNI Bridge Error: JavaVM not initialized.\n"); // Too noisy potentially
     return NULL;
   }
   // Check if the current thread is attached to the VM
@@ -59,10 +59,22 @@ static JNIEnv* getJniEnv() {
 // Bridge for storage_plugin_t->get
 static bool bridge_storage_get(char* key, buffer_t* buffer) {
   JNIEnv* env = getJniEnv();
-  if (!env || !g_storageBridgeInstance || !g_storageGetMethod) {
+  if (!env || !g_storageBridgeClass || !g_storageGetMethod) {
     fprintf(stderr, "JNI get bridge error: JNI Env or bridge components not ready.\n");
     return false; // Indicate failure
   }
+
+  // Get the singleton instance *dynamically* on each call
+  jfieldID implField = (*env)->GetStaticFieldID(env, g_storageBridgeClass, "implementation", "Lcom/corpuscore/colibri/ColibriStorage;");
+  if (!implField) {
+    fprintf(stderr, "JNI get bridge error: Cannot find 'implementation' field.\n");
+    return false;
+  }
+  jobject storageImpl = (*env)->GetStaticObjectField(env, g_storageBridgeClass, implField);
+  if (!storageImpl) {
+    fprintf(stderr, "JNI get bridge info: Storage implementation not registered yet.\n");
+    return false;
+  } // Not an error, just not set
 
   jstring jKey = (*env)->NewStringUTF(env, key);
   if (!jKey) {
@@ -71,9 +83,10 @@ static bool bridge_storage_get(char* key, buffer_t* buffer) {
   }
 
   // Call the Kotlin StorageBridge.implementation.get(key) method
-  jbyteArray jResultBytes = (jbyteArray) (*env)->CallObjectMethod(env, g_storageBridgeInstance, g_storageGetMethod, jKey);
+  jbyteArray jResultBytes = (jbyteArray) (*env)->CallObjectMethod(env, storageImpl, g_storageGetMethod, jKey);
 
-  (*env)->DeleteLocalRef(env, jKey); // Clean up local reference
+  (*env)->DeleteLocalRef(env, jKey);        // Clean up local reference
+  (*env)->DeleteLocalRef(env, storageImpl); // Clean up dynamic instance ref
 
   if ((*env)->ExceptionCheck(env)) {
     fprintf(stderr, "JNI get bridge error: Exception occurred during Kotlin 'get' call for key '%s'.\n", key);
@@ -114,8 +127,20 @@ static bool bridge_storage_get(char* key, buffer_t* buffer) {
 // Bridge for storage_plugin_t->set
 static void bridge_storage_set(char* key, bytes_t value) {
   JNIEnv* env = getJniEnv();
-  if (!env || !g_storageBridgeInstance || !g_storageSetMethod) {
+  if (!env || !g_storageBridgeClass || !g_storageSetMethod) {
     fprintf(stderr, "JNI set bridge error: JNI Env or bridge components not ready.\n");
+    return;
+  }
+
+  // Get the singleton instance *dynamically*
+  jfieldID implField = (*env)->GetStaticFieldID(env, g_storageBridgeClass, "implementation", "Lcom/corpuscore/colibri/ColibriStorage;");
+  if (!implField) {
+    fprintf(stderr, "JNI set bridge error: Cannot find 'implementation' field.\n");
+    return;
+  }
+  jobject storageImpl = (*env)->GetStaticObjectField(env, g_storageBridgeClass, implField);
+  if (!storageImpl) {
+    fprintf(stderr, "JNI set bridge warning: Storage implementation not registered when 'set' called.\n");
     return;
   }
 
@@ -134,11 +159,12 @@ static void bridge_storage_set(char* key, bytes_t value) {
   (*env)->SetByteArrayRegion(env, jValue, 0, (jsize) value.len, (const jbyte*) value.data);
 
   // Call the Kotlin StorageBridge.implementation.set(key, value) method
-  (*env)->CallVoidMethod(env, g_storageBridgeInstance, g_storageSetMethod, jKey, jValue);
+  (*env)->CallVoidMethod(env, storageImpl, g_storageSetMethod, jKey, jValue);
 
   // Clean up local references
   (*env)->DeleteLocalRef(env, jKey);
   (*env)->DeleteLocalRef(env, jValue);
+  (*env)->DeleteLocalRef(env, storageImpl); // Clean up dynamic instance ref
 
   if ((*env)->ExceptionCheck(env)) {
     fprintf(stderr, "JNI set bridge error: Exception occurred during Kotlin 'set' call for key '%s'.\n", key);
@@ -150,8 +176,20 @@ static void bridge_storage_set(char* key, bytes_t value) {
 // Bridge for storage_plugin_t->del
 static void bridge_storage_del(char* key) {
   JNIEnv* env = getJniEnv();
-  if (!env || !g_storageBridgeInstance || !g_storageDeleteMethod) {
+  if (!env || !g_storageBridgeClass || !g_storageDeleteMethod) {
     fprintf(stderr, "JNI delete bridge error: JNI Env or bridge components not ready.\n");
+    return;
+  }
+
+  // Get the singleton instance *dynamically*
+  jfieldID implField = (*env)->GetStaticFieldID(env, g_storageBridgeClass, "implementation", "Lcom/corpuscore/colibri/ColibriStorage;");
+  if (!implField) {
+    fprintf(stderr, "JNI delete bridge error: Cannot find 'implementation' field.\n");
+    return;
+  }
+  jobject storageImpl = (*env)->GetStaticObjectField(env, g_storageBridgeClass, implField);
+  if (!storageImpl) {
+    fprintf(stderr, "JNI delete bridge warning: Storage implementation not registered when 'delete' called.\n");
     return;
   }
 
@@ -162,9 +200,10 @@ static void bridge_storage_del(char* key) {
   }
 
   // Call the Kotlin StorageBridge.implementation.delete(key) method
-  (*env)->CallVoidMethod(env, g_storageBridgeInstance, g_storageDeleteMethod, jKey);
+  (*env)->CallVoidMethod(env, storageImpl, g_storageDeleteMethod, jKey);
 
-  (*env)->DeleteLocalRef(env, jKey); // Clean up local reference
+  (*env)->DeleteLocalRef(env, jKey);        // Clean up local reference
+  (*env)->DeleteLocalRef(env, storageImpl); // Clean up dynamic instance ref
 
   if ((*env)->ExceptionCheck(env)) {
     fprintf(stderr, "JNI delete bridge error: Exception occurred during Kotlin 'delete' call for key '%s'.\n", key);

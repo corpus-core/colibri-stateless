@@ -55,13 +55,14 @@ class Colibri(
 ) {
     companion object {
         init {
+//            println("Colibri: Initializing ...")
             // This will trigger the native library loading
-            NativeLoader
+            NativeLoader.loadLibrary()
             // Initialize the JNI bridge for storage callbacks
             // This call must happen after NativeLoader ensures the library is loaded.
             try {
                 com.corpuscore.colibri.c4.nativeInitializeBridge()
-                println("JNI Storage Bridge Initialized.")
+       //         println("JNI Storage Bridge Initialized.")
             } catch (e: UnsatisfiedLinkError) {
                 println("Error initializing JNI Storage Bridge: ${e.message}. Check native library loading and JNI function name.")
                 // Depending on requirements, you might re-throw or handle this failure.
@@ -71,7 +72,7 @@ class Colibri(
         // Static method to register the storage implementation
         fun registerStorage(storage: ColibriStorage) {
             StorageBridge.implementation = storage
-            println("ColibriStorage implementation registered.")
+//            println("ColibriStorage implementation registered.")
             // Optionally, trigger C-side re-configuration if needed, but likely handled at init.
         }
     }
@@ -100,17 +101,21 @@ class Colibri(
     }
 
     private suspend fun fetchRequest(servers: Array<String>, request: JSONObject) {
+
         // Define reqPtr before the loop so it's accessible in the final error case
         val reqPtr = request.getLong("req_ptr") // Assume req_ptr always exists
+//        println("fetchRequest:  for req_ptr $reqPtr)")
 
         var index = 0
         var lastError = ""
         for (server in servers) {
-            val exclude_mask = request.getInt("exclude_mask")
-            val uri = request.getString("url")
-            val payload = request.getJSONObject("payload")
-            val url = if (uri.isNotEmpty()) server + "/" + uri else server
-            val method = request.getString("method")
+            // Ensure all necessary fields are present or handle missing keys gracefully
+            val exclude_mask = request.optInt("exclude_mask", 0)
+            val uri = request.optString("url", "")
+            val payload = request.optJSONObject("payload") // Use optJSONObject to handle missing payload gracefully
+            val url = if (uri.isNotEmpty()) server.removeSuffix("/") + "/" + uri.removePrefix("/") else server
+            val method = request.optString("method", "POST") // Default to POST if missing
+            val encoding = request.optString("encoding", "json") // Default to json
 
             if (exclude_mask and (1 shl index) != 0) {
                 index++
@@ -127,7 +132,7 @@ class Colibri(
 
                 val mockResponse = requestHandler!!(requestDetails)
                 if (mockResponse != null) {
-                    println("fetchRequest: Mock response provided for req_ptr $reqPtr (size: ${mockResponse.size})")
+//                    println("fetchRequest: Mock response provided for req_ptr $reqPtr (size: ${mockResponse.size})")
                     com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, mockResponse, index) // Use mock response
                     return // Skip actual network request
                 }
@@ -143,7 +148,7 @@ class Colibri(
                         accept(ContentType.Application.OctetStream)
                     }
 
-                    if (!payload.isEmpty()) {
+                    if (payload != null && !payload.isEmpty()) {
                         contentType(ContentType.Application.Json)
                         setBody(payload.toString())
                     }
@@ -181,6 +186,16 @@ class Colibri(
         is Array<*> -> "[${arg.joinToString(",") { formatArg(it) }}]"  // Handle nested arrays (pass nulls as "null")
         is List<*> -> "[${arg.joinToString(",") { formatArg(it) }}]" // Also handle Lists
         null -> "null" // Represent null explicitly in JSON
+        // Handle Map type by converting to JSON object string
+        is Map<*, *> -> {
+            val entries = arg.entries.joinToString(",") { (key, value) ->
+                // Keys must be quoted strings in JSON
+                val formattedKey = formatArg(key?.toString()) // Format key as JSON string
+                val formattedValue = formatArg(value) // Format value recursively
+                "$formattedKey: $formattedValue"
+            }
+            "{$entries}"
+        }
         else -> "\"${arg.toString().replace("\\", "\\\\").replace("\"", "\\\"")}\"" // Quote and escape others
     }
 
@@ -196,8 +211,15 @@ class Colibri(
             val ctx = com.corpuscore.colibri.c4.c4_create_proofer_ctx(method, jsonArgs, chainId, if (includeCode) 1 else 0)
                 ?: throw ColibriException("Failed to create proofer context for method $method")
 
+            // Add iteration limit to prevent infinite loops
+            val maxIterations = 50
+            var iteration = 0
+
             try {
-                while (true) {
+                while (iteration < maxIterations) {
+                    iteration++
+//                    println("getProof: Iteration $iteration/$maxIterations")
+
                     // Execute the proofer and get the JSON status
                      val statusJsonPtr = com.corpuscore.colibri.c4.c4_proofer_execute_json_status(ctx)
                          ?: throw ColibriException("Proofer execution returned null status for method $method")
@@ -226,6 +248,7 @@ class Colibri(
                             throw ColibriException("Proofer error for method $method: ${state.optString("error", "Unknown error")}")
                         }
                         "pending" -> {
+//                            println("pending")
                             // Handle pending requests
                              val requests = state.optJSONArray("requests") ?: JSONArray() // Handle missing requests array
                             for (i in 0 until requests.length()) {
@@ -245,7 +268,12 @@ class Colibri(
                          else -> throw ColibriException("Unknown proofer status: ${state.getString("status")}")
                     }
                 }
+
+                // If loop finishes without success or error
+                throw ColibriException("getProof exceeded max iterations ($maxIterations) for method $method without reaching success or error state.")
+
             } finally {
+//                println("getProof: Freeing proofer context")
                 com.corpuscore.colibri.c4.c4_free_proofer_ctx(ctx)
             }
             // Add throw here to satisfy compiler about return type guarantees
@@ -277,14 +305,14 @@ class Colibri(
 
         for (url in urls) {
             try {
-                println("fetchRpc: Sending $method to $url (Accept: ${if (asProof) "application/octet-stream" else "application/json"})")
+//                println("fetchRpc: Sending $method to $url (Accept: ${if (asProof) "application/octet-stream" else "application/json"})")
                 val response: HttpResponse = client.post(url) {
                     contentType(ContentType.Application.Json)
                     setBody(requestBody)
                     accept(if (asProof) ContentType.Application.OctetStream else ContentType.Application.Json)
                 }
 
-                 println("fetchRpc: Response from $url: Status ${response.status}")
+//                println("fetchRpc: Response from $url: Status ${response.status}")
 
                 if (response.status.isSuccess()) {
                     val responseBytes = response.readBytes()
@@ -337,9 +365,17 @@ class Colibri(
             val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedHashesJson)
                  ?: throw ColibriException("Failed to create verifier context for method $method")
 
+            // Add iteration limit to prevent infinite loops
+            val maxIterations = 50
+            var iteration = 0
+
             try {
-                while (true) {
+                while (iteration < maxIterations) {
+                    iteration++
+//                    println("verifyProof: Iteration $iteration/$maxIterations")
+
                     // Execute the verifier and get the JSON status
+                    // Again, assuming SWIG handles char* return correctly. **VERIFY THIS**.
                     val statusJsonPtr = com.corpuscore.colibri.c4.c4_verify_execute_json_status(ctx)
                          ?: throw ColibriException("Verifier execution returned null status for method $method")
                      val stateString = statusJsonPtr.toString() // Convert SWIG C pointer/object to string
@@ -361,9 +397,8 @@ class Colibri(
                                  if (result == JSONObject.NULL) {
                                       return@withContext null
                                  }
-                                 // Convert JSONArray to List<Any?> and JSONObject to Map<String, Any?> for more Kotlin-idiomatic return?
-                                 // Or just return the raw org.json types? Let's return raw for now.
-                                 return@withContext result
+                                 // Convert JSONArray to List<Any?> and JSONObject to Map<String, Any?> for more Kotlin-idiomatic return
+                                 return@withContext convertJsonToJava(result) // Use the helper
                              } else {
                                 // Success status but no result field - interpret as null or void success?
                                 return@withContext null
@@ -390,7 +425,12 @@ class Colibri(
                          else -> throw ColibriException("Unknown verifier status: ${state.getString("status")}")
                     }
                 }
+
+                // If loop finishes without success or error
+                throw ColibriException("verifyProof exceeded max iterations ($maxIterations) for method $method without reaching success or error state.")
+
             } finally {
+//                println("verifyProof: Freeing verifier context")
                 com.corpuscore.colibri.c4.c4_verify_free_ctx(ctx)
             }
         }
@@ -401,13 +441,13 @@ class Colibri(
          val methodType = getMethodSupport(method)
          var proof: ByteArray = byteArrayOf() // Initialize empty proof
 
-         println("rpc: Method $method, Type: $methodType, Args: ${formatArgsArray(args)}")
+//         println("rpc: Method $method, Type: $methodType, Args: ${formatArgsArray(args)}")
 
          when (methodType) {
              MethodType.PROOFABLE -> {
                  // TODO: Implement optional verify hook if needed
                  if (proofers.isNotEmpty()) {
-                     println("rpc: Fetching proof for $method from proofer...")
+                  //   println("rpc: Fetching proof for $method from proofer...")
                      proof = try {
                           fetchRpc(proofers, method, formatArgsArray(args), true)
                      } catch (e: Exception) {
@@ -417,16 +457,16 @@ class Colibri(
                      }
 
                  } else {
-                     println("rpc: Creating proof locally for $method...")
+//                     println("rpc: Creating proof locally for $method...")
                      proof = getProof(method, args)
                  }
-                 println("rpc: Obtained proof (${proof.size} bytes) for $method.")
+//                 println("rpc: Obtained proof (${proof.size} bytes) for $method.")
                  // Verification happens below
              }
              MethodType.UNPROOFABLE -> {
-                 println("rpc: Method $method is UNPROOFABLE, fetching directly...")
+//                 println("rpc: Method $method is UNPROOFABLE, fetching directly...")
                  val responseData = fetchRpc(ethRpcs, method, formatArgsArray(args), false)
-                 println("rpc: Fetched direct response (${responseData.size} bytes) for $method.")
+//                 println("rpc: Fetched direct response (${responseData.size} bytes) for $method.")
                  // Parse JSON response
                  return try {
                       val jsonString = responseData.toString(Charsets.UTF_8)
@@ -456,7 +496,7 @@ class Colibri(
                  throw ColibriException("Method $method is not supported")
              }
              MethodType.LOCAL -> {
-                 println("rpc: Method $method is LOCAL, proceeding with verification (empty proof).")
+//                 println("rpc: Method $method is LOCAL, proceeding with verification (empty proof).")
                  proof = byteArrayOf() // Ensure proof is empty for local verification
                  // Verification happens below
              }
@@ -467,7 +507,30 @@ class Colibri(
          }
 
          // Verify the proof (either created/fetched for PROOFABLE, or empty for LOCAL)
-         println("rpc: Verifying proof for $method...")
+//         println("rpc: Verifying proof for $method...")
          return verifyProof(proof, method, args)
      }
+}
+
+// Helper function to convert org.json types to standard Java/Kotlin types
+internal fun convertJsonToJava(jsonValue: Any?): Any? {
+    return when (jsonValue) {
+        is JSONObject -> {
+            val map = mutableMapOf<String, Any?>()
+            jsonValue.keys().forEach { key ->
+                map[key] = convertJsonToJava(jsonValue.get(key))
+            }
+            map
+        }
+        is JSONArray -> {
+            val list = mutableListOf<Any?>()
+            for (i in 0 until jsonValue.length()) {
+                list.add(convertJsonToJava(jsonValue.get(i)))
+            }
+            list
+        }
+        JSONObject.NULL -> null
+        // Basic types are returned as-is by org.json
+        else -> jsonValue
+    }
 }
