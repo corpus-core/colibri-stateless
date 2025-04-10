@@ -1,3 +1,10 @@
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.Exec
+import org.gradle.api.DefaultTask
+
 plugins {
     id("java-library")
     id("org.jetbrains.kotlin.jvm") version "1.9.24"
@@ -9,17 +16,28 @@ plugins {
 val nativeTestBuildDir = project.layout.buildDirectory.dir("native-test")
 
 // Task to create the host build directory
-val createNativeTestDir by tasks.register("createNativeTestDir") {
-    doLast {
-        nativeTestBuildDir.get().asFile.mkdirs()
-        println("Created directory for host native build: ${nativeTestBuildDir.get().asFile.absolutePath}")
+// Make configuration cache compatible by declaring outputs
+abstract class CreateNativeTestDirTask : DefaultTask() { // Use abstract class
+    @get:OutputDirectory // Declare the output directory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun createDir() {
+        outputDir.get().asFile.mkdirs()
+        println("Created directory for host native build: ${outputDir.get().asFile.absolutePath}")
     }
+}
+
+val createNativeTestDir by tasks.register<CreateNativeTestDirTask>("createNativeTestDir") {
+    outputDir.set(nativeTestBuildDir) // Assign the provider to the property
 }
 
 // Task to configure the native build using CMake (for host)
 // Assumes root CMakeLists.txt can handle non-Android builds.
 val configureNativeTestBuild by tasks.register<Exec>("configureNativeTestBuild") {
     dependsOn(createNativeTestDir)
+    // Declare the output directory of the previous task as an input using inputs.files
+    inputs.files(createNativeTestDir)
     workingDir(nativeTestBuildDir.get().asFile)
     val cmakeListsDir = project.projectDir.resolve("../..").normalize()
     // Arguments for HOST build (NO ANDROID args)

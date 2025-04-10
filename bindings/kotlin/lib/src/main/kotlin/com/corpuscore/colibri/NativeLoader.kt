@@ -33,8 +33,8 @@ object NativeLoader {
              println("NativeLoader: System.loadLibrary('c4_java') FAILED: ${e.message}")
              // Optional: Fallback to JAR extraction logic if needed, but likely error is path setup
              // throw e // Re-throw if you only want to use java.library.path
-             // --- JAR EXTRACTION LOGIC (currently commented out for path testing) ---
-             /*
+             // --- JAR EXTRACTION LOGIC (Re-activating fallback) ---
+             
              val osArchIdentifier = getOsArchIdentifier()
              if (osArchIdentifier.startsWith("unknown")) {
                  throw UnsatisfiedLinkError("NativeLoader: Unsupported OS/Arch combination: $osArchIdentifier")
@@ -54,35 +54,42 @@ object NativeLoader {
 
              // Create a temporary directory using createTempFile
              val tmpFile = File.createTempFile("libc4_java-", ".$libExtension") // Use createTempFile for safety
-             val tmpDir = tmpFile.parentFile // Get parent dir if needed for cleanup?
+             // val tmpDir = tmpFile.parentFile // Get parent dir if needed for cleanup?
              val tmpLib = tmpFile // Use the created temp file directly
 
-             tmpLib.delete() // Delete the empty file created by createTempFile
+             // tmpLib.delete() // Delete the empty file created by createTempFile - **Incorrect, keep the file handle**
              println("NativeLoader: created tempfile: $tmpLib")
              println("NativeLoader: reading: $libraryPath")
 
-             NativeLoader::class.java.getResourceAsStream(libraryPath)?.use { input ->
-                 FileOutputStream(tmpLib).use { output ->
-                     input.copyTo(output)
+             try {
+                 NativeLoader::class.java.getResourceAsStream(libraryPath)?.use { input ->
+                     FileOutputStream(tmpLib).use { output ->
+                         input.copyTo(output)
+                     }
+                     println("NativeLoader: Extracted library to temporary file: ${tmpLib.absolutePath}")
+                 } ?: throw UnsatisfiedLinkError("NativeLoader: Could not find native library resource at path: $libraryPath")
+                 println("NativeLoader: copied successfully: $libraryPath")
+                 
+                 // Ensure the extracted file exists before loading
+                 if (!tmpLib.exists() || tmpLib.length() == 0L) { // Also check if file is empty
+                     throw UnsatisfiedLinkError("NativeLoader: Failed to extract library to ${tmpLib.absolutePath}")
                  }
-                 println("NativeLoader: Extracted library to temporary file: ${tmpLib.absolutePath}")
-             } ?: throw UnsatisfiedLinkError("NativeLoader: Could not find native library resource at path: $libraryPath")
-             println("NativeLoader: copied successfully: $libraryPath")
-             
-             // Ensure the extracted file exists before loading
-             if (!tmpLib.exists()) {
-                 throw UnsatisfiedLinkError("NativeLoader: Failed to extract library to ${tmpLib.absolutePath}")
-             }
 
-             println("NativeLoader: Library loading... from ${tmpLib.absolutePath}")
-             System.load(tmpLib.absolutePath)
-             println("NativeLoader: Library loaded successfully from ${tmpLib.absolutePath}")
-             loaded = true
+                 println("NativeLoader: Library loading... from ${tmpLib.absolutePath}")
+                 System.load(tmpLib.absolutePath)
+                 println("NativeLoader: Library loaded successfully from ${tmpLib.absolutePath}")
+                 loaded = true
+                 
+                 // Clean up the temporary files when the JVM exits
+                 tmpLib.deleteOnExit()
+             } catch (extractLoadError: Throwable) {
+                  println("NativeLoader: JAR Extraction/Load FAILED: ${extractLoadError.message}")
+                  // Chain the original error with the extraction error for better context
+                  extractLoadError.addSuppressed(e)
+                  throw extractLoadError // Throw the extraction/load error
+             }
              
-             // Clean up the temporary files when the JVM exits
-             tmpLib.deleteOnExit()
-             */
-             throw e // Re-throw the original error if only path is used
+             // throw e // Removed: Don't re-throw original if fallback was attempted
         }
     }
 } 
