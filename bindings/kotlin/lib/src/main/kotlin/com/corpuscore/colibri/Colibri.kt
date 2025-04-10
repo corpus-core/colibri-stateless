@@ -55,14 +55,14 @@ class Colibri(
 ) {
     companion object {
         init {
-            println("Colibri: Initializing ...")
+//            println("Colibri: Initializing ...")
             // This will trigger the native library loading
             NativeLoader.loadLibrary()
             // Initialize the JNI bridge for storage callbacks
             // This call must happen after NativeLoader ensures the library is loaded.
             try {
                 com.corpuscore.colibri.c4.nativeInitializeBridge()
-                println("JNI Storage Bridge Initialized.")
+       //         println("JNI Storage Bridge Initialized.")
             } catch (e: UnsatisfiedLinkError) {
                 println("Error initializing JNI Storage Bridge: ${e.message}. Check native library loading and JNI function name.")
                 // Depending on requirements, you might re-throw or handle this failure.
@@ -72,7 +72,7 @@ class Colibri(
         // Static method to register the storage implementation
         fun registerStorage(storage: ColibriStorage) {
             StorageBridge.implementation = storage
-            println("ColibriStorage implementation registered.")
+//            println("ColibriStorage implementation registered.")
             // Optionally, trigger C-side re-configuration if needed, but likely handled at init.
         }
     }
@@ -132,7 +132,7 @@ class Colibri(
 
                 val mockResponse = requestHandler!!(requestDetails)
                 if (mockResponse != null) {
-                    println("fetchRequest: Mock response provided for req_ptr $reqPtr (size: ${mockResponse.size})")
+//                    println("fetchRequest: Mock response provided for req_ptr $reqPtr (size: ${mockResponse.size})")
                     com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, mockResponse, index) // Use mock response
                     return // Skip actual network request
                 }
@@ -218,7 +218,7 @@ class Colibri(
             try {
                 while (iteration < maxIterations) {
                     iteration++
-                    println("getProof: Iteration $iteration/$maxIterations")
+//                    println("getProof: Iteration $iteration/$maxIterations")
 
                     // Execute the proofer and get the JSON status
                      val statusJsonPtr = com.corpuscore.colibri.c4.c4_proofer_execute_json_status(ctx)
@@ -248,7 +248,7 @@ class Colibri(
                             throw ColibriException("Proofer error for method $method: ${state.optString("error", "Unknown error")}")
                         }
                         "pending" -> {
-                            println("pending")
+//                            println("pending")
                             // Handle pending requests
                              val requests = state.optJSONArray("requests") ?: JSONArray() // Handle missing requests array
                             for (i in 0 until requests.length()) {
@@ -273,7 +273,7 @@ class Colibri(
                 throw ColibriException("getProof exceeded max iterations ($maxIterations) for method $method without reaching success or error state.")
 
             } finally {
-                println("getProof: Freeing proofer context")
+//                println("getProof: Freeing proofer context")
                 com.corpuscore.colibri.c4.c4_free_proofer_ctx(ctx)
             }
             // Add throw here to satisfy compiler about return type guarantees
@@ -447,7 +447,7 @@ class Colibri(
              MethodType.PROOFABLE -> {
                  // TODO: Implement optional verify hook if needed
                  if (proofers.isNotEmpty()) {
-                     println("rpc: Fetching proof for $method from proofer...")
+                  //   println("rpc: Fetching proof for $method from proofer...")
                      proof = try {
                           fetchRpc(proofers, method, formatArgsArray(args), true)
                      } catch (e: Exception) {
