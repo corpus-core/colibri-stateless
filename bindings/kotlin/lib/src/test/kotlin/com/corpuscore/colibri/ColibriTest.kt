@@ -21,7 +21,7 @@ class ColibriTest {
             val payload = requestDetails["payload"] as? JSONObject // Assuming raw JSONObject is passed
             val encoding = requestDetails["encoding"] as? String ?: "bin" // Default or get from details
 
-            println("createMockRequestHandler: url: $url, payload: $payload, encoding: $encoding")
+//            println("createMockRequestHandler: url: $url, payload: $payload, encoding: $encoding")
 
             if (url.isNotEmpty()) {
                 name = url
@@ -67,7 +67,7 @@ class ColibriTest {
                 }
             }
 
-            println("createMockRequestHandler: Generated name before sanitize: $name")
+//            println("createMockRequestHandler: Generated name before sanitize: $name")
 
             // Sanitize character by character, replacing each forbidden char with exactly one underscore
             val forbiddenChars = setOf('/', '\\', '.', ',', ' ', ':', '"', '&', '=', '[', ']', '{', '}', '?')
@@ -77,7 +77,7 @@ class ColibriTest {
                 }
             }
             name = sanitizedName
-            println("createMockRequestHandler: Generated name after sanitize: $name")
+//            println("createMockRequestHandler: Generated name after sanitize: $name")
 
             // Truncate if too long
             if (name.length > 100) name = name.substring(0, 100)
@@ -89,22 +89,22 @@ class ColibriTest {
 
             val responseFile = File(testDataDir, fileName)
             if (responseFile.exists()) {
-                println("MockRequestHandler: Reading mock response from ${responseFile.absolutePath}")
+       //         println("MockRequestHandler: Reading mock response from ${responseFile.absolutePath}")
                 responseFile.readBytes()
             } else {
-                println("MockRequestHandler: Mock response file NOT FOUND: ${responseFile.absolutePath}")
+       //         println("MockRequestHandler: Mock response file NOT FOUND: ${responseFile.absolutePath}")
                 // --- Fallback Logic ---
                 var fallbackResponse: ByteArray? = null
                 if (payload != null && payload.has("method")) {
                     val methodName = payload.getString("method")
-                    println("MockRequestHandler: Trying fallback using method name: $methodName")
+       //             println("MockRequestHandler: Trying fallback using method name: $methodName")
                     try {
                         val filesInDir = testDataDir.listFiles()
                         val matchingFiles = filesInDir?.filter { it.isFile && it.name.startsWith(methodName) }
 
                         if (matchingFiles != null && matchingFiles.size == 1) {
                             val fallbackFile = matchingFiles.first()
-                            println("MockRequestHandler: Found unique fallback file: ${fallbackFile.absolutePath}")
+       //                     println("MockRequestHandler: Found unique fallback file: ${fallbackFile.absolutePath}")
                             fallbackResponse = fallbackFile.readBytes()
                         } else if (matchingFiles != null && matchingFiles.size > 1) {
                             println("MockRequestHandler: Found multiple files starting with '$methodName', fallback failed.")
@@ -128,16 +128,16 @@ class ColibriTest {
         private val cache = mutableMapOf<String, ByteArray>()
 
         override fun get(key: String): ByteArray? {
-            println("InMemoryStorage: GET '$key'")
+       //         println("InMemoryStorage: GET '$key'")
             // 1. Check internal cache first (for data set during test)
             if (cache.containsKey(key)) {
-                 println("InMemoryStorage: Found '$key' in cache.")
+              //   println("InMemoryStorage: Found '$key' in cache.")
                 return cache[key]?.clone() // Return clone
             }
             // 2. Fallback to reading from the test directory file
             val file = File(testDir, key) // Assuming key is the filename
             if (file.exists() && file.isFile) {
-                 println("InMemoryStorage: Reading '$key' from file ${file.absolutePath}")
+             //    println("InMemoryStorage: Reading '$key' from file ${file.absolutePath}")
                 return try {
                      file.readBytes()
                  } catch (e: Exception) {
@@ -151,12 +151,12 @@ class ColibriTest {
         }
 
         override fun set(key: String, value: ByteArray) {
-            println("InMemoryStorage: SET '$key' (${value.size} bytes) -> Storing in cache ONLY.")
+       //     println("InMemoryStorage: SET '$key' (${value.size} bytes) -> Storing in cache ONLY.")
             cache[key] = value.clone() // Store clone in cache, DO NOT write to disk
         }
 
         override fun delete(key: String) {
-            println("InMemoryStorage: DELETE '$key' from cache.")
+         //   println("InMemoryStorage: DELETE '$key' from cache.")
             cache.remove(key)
         }
 
@@ -225,18 +225,18 @@ class ColibriTest {
 
             // Run the test logic within runBlocking for suspend functions
             runBlocking {
-                println("Creating proof for ${testDir.name}...")
+//                println("Creating proof for ${testDir.name}...")
                 val proof = colibri.getProof(method, params)
                 assertTrue("Proof should not be empty for ${testDir.name}", proof.isNotEmpty())
-                println("Proof created (size: ${proof.size}). Verifying...")
+//                println("Proof created (size: ${proof.size}). Verifying...")
 
                 val result = colibri.verifyProof(proof, method, params)
-                println("Verification result: $result")
+//                println("Verification result: $result")
 
                 // Compare result with expected_result (needs careful comparison of Any? and org.json)
                 // Convert expected result from org.json to Kotlin types for comparison
                 var expectedResult: Any? = convertJsonToJava(expectedResultJson) // Make it var
-                println("Original Expected result: $expectedResult")
+//                println("Original Expected result: $expectedResult")
 
                 // --- Adjustment for eth_getBlockByNumber(true) ---
                 // If the method is eth_getBlockByNumber and the second param is true,
@@ -244,7 +244,7 @@ class ColibriTest {
                 // Adjust the expected result to match this behavior for the test to pass.
                 if (method == "eth_getBlockByNumber" && params.size > 1 && params.getOrNull(1) == true) {
                      if (expectedResult is MutableMap<*, *> && expectedResult.containsKey("transactions")) {
-                         println("Adjusting expected result for eth_getBlockByNumber(true) to compare only tx hashes.")
+//                         println("Adjusting expected result for eth_getBlockByNumber(true) to compare only tx hashes.")
                          val expectedTxs = expectedResult["transactions"] as? List<*>
                          if (expectedTxs != null && expectedTxs.all { it is Map<*, *> }) {
                              @Suppress("UNCHECKED_CAST")
@@ -256,16 +256,16 @@ class ColibriTest {
                                 @Suppress("UNCHECKED_CAST")
                                 val mutableExpectedResult = expectedResult as MutableMap<String, Any?>
                                 mutableExpectedResult["transactions"] = expectedTxHashes
-                                println("Adjusted Expected result: $expectedResult")
+//                                println("Adjusted Expected result: $expectedResult")
                              } else {
-                                 println("Warning: Could not mutate expectedResult directly.")
+//                                 println("Warning: Could not mutate expectedResult directly.")
                                  // Attempt to create a mutable copy if possible
                                  try {
                                       @Suppress("UNCHECKED_CAST")
                                       val mutableCopy = (expectedResult as Map<String, Any?>).toMutableMap()
                                       mutableCopy["transactions"] = expectedTxHashes
                                       expectedResult = mutableCopy // Reassign to the modified copy
-                                      println("Adjusted Expected result (from copy): $expectedResult")
+//                                      println("Adjusted Expected result (from copy): $expectedResult")
                                  } catch (e: Exception) {
                                       println("Error creating mutable copy for adjustment: ${e.message}")
                                  }

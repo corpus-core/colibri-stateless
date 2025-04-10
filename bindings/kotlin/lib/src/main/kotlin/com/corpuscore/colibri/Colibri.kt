@@ -104,7 +104,7 @@ class Colibri(
 
         // Define reqPtr before the loop so it's accessible in the final error case
         val reqPtr = request.getLong("req_ptr") // Assume req_ptr always exists
-        println("fetchRequest:  for req_ptr $reqPtr)")
+//        println("fetchRequest:  for req_ptr $reqPtr)")
 
         var index = 0
         var lastError = ""
@@ -305,14 +305,14 @@ class Colibri(
 
         for (url in urls) {
             try {
-                println("fetchRpc: Sending $method to $url (Accept: ${if (asProof) "application/octet-stream" else "application/json"})")
+//                println("fetchRpc: Sending $method to $url (Accept: ${if (asProof) "application/octet-stream" else "application/json"})")
                 val response: HttpResponse = client.post(url) {
                     contentType(ContentType.Application.Json)
                     setBody(requestBody)
                     accept(if (asProof) ContentType.Application.OctetStream else ContentType.Application.Json)
                 }
 
-                 println("fetchRpc: Response from $url: Status ${response.status}")
+//                println("fetchRpc: Response from $url: Status ${response.status}")
 
                 if (response.status.isSuccess()) {
                     val responseBytes = response.readBytes()
@@ -372,7 +372,7 @@ class Colibri(
             try {
                 while (iteration < maxIterations) {
                     iteration++
-                    println("verifyProof: Iteration $iteration/$maxIterations")
+//                    println("verifyProof: Iteration $iteration/$maxIterations")
 
                     // Execute the verifier and get the JSON status
                     // Again, assuming SWIG handles char* return correctly. **VERIFY THIS**.
@@ -430,7 +430,7 @@ class Colibri(
                 throw ColibriException("verifyProof exceeded max iterations ($maxIterations) for method $method without reaching success or error state.")
 
             } finally {
-                println("verifyProof: Freeing verifier context")
+//                println("verifyProof: Freeing verifier context")
                 com.corpuscore.colibri.c4.c4_verify_free_ctx(ctx)
             }
         }
@@ -441,7 +441,7 @@ class Colibri(
          val methodType = getMethodSupport(method)
          var proof: ByteArray = byteArrayOf() // Initialize empty proof
 
-         println("rpc: Method $method, Type: $methodType, Args: ${formatArgsArray(args)}")
+//         println("rpc: Method $method, Type: $methodType, Args: ${formatArgsArray(args)}")
 
          when (methodType) {
              MethodType.PROOFABLE -> {
@@ -457,16 +457,16 @@ class Colibri(
                      }
 
                  } else {
-                     println("rpc: Creating proof locally for $method...")
+//                     println("rpc: Creating proof locally for $method...")
                      proof = getProof(method, args)
                  }
-                 println("rpc: Obtained proof (${proof.size} bytes) for $method.")
+//                 println("rpc: Obtained proof (${proof.size} bytes) for $method.")
                  // Verification happens below
              }
              MethodType.UNPROOFABLE -> {
-                 println("rpc: Method $method is UNPROOFABLE, fetching directly...")
+//                 println("rpc: Method $method is UNPROOFABLE, fetching directly...")
                  val responseData = fetchRpc(ethRpcs, method, formatArgsArray(args), false)
-                 println("rpc: Fetched direct response (${responseData.size} bytes) for $method.")
+//                 println("rpc: Fetched direct response (${responseData.size} bytes) for $method.")
                  // Parse JSON response
                  return try {
                       val jsonString = responseData.toString(Charsets.UTF_8)
@@ -496,7 +496,7 @@ class Colibri(
                  throw ColibriException("Method $method is not supported")
              }
              MethodType.LOCAL -> {
-                 println("rpc: Method $method is LOCAL, proceeding with verification (empty proof).")
+//                 println("rpc: Method $method is LOCAL, proceeding with verification (empty proof).")
                  proof = byteArrayOf() // Ensure proof is empty for local verification
                  // Verification happens below
              }
@@ -507,7 +507,7 @@ class Colibri(
          }
 
          // Verify the proof (either created/fetched for PROOFABLE, or empty for LOCAL)
-         println("rpc: Verifying proof for $method...")
+//         println("rpc: Verifying proof for $method...")
          return verifyProof(proof, method, args)
      }
 }
