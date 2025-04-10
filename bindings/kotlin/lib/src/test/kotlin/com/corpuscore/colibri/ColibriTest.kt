@@ -21,28 +21,70 @@ class ColibriTest {
             val payload = requestDetails["payload"] as? JSONObject // Assuming raw JSONObject is passed
             val encoding = requestDetails["encoding"] as? String ?: "bin" // Default or get from details
 
+            println("createMockRequestHandler: url: $url, payload: $payload, encoding: $encoding")
+
             if (url.isNotEmpty()) {
                 name = url
             } else if (payload != null && payload.has("method")) {
                 // Reconstruct name from payload like in JS
-                name = payload.getString("method")
-                val params = payload.optJSONArray("params") // Assuming params is JSONArray
-                if (params != null) {
-                    for (i in 0 until params.length()) {
-                        val param = params.get(i)
-                        name += "_" + (param as? String ?: param.toString()) // Simple param stringification
+                val methodName = payload.getString("method")
+                name = methodName // Start with method name
+                val paramsJson = payload.optJSONArray("params") // Assuming params is JSONArray
+
+                if (paramsJson != null) {
+                    // *** Special handling based on observed existing filename for debug_traceCall ***
+                    if (methodName == "debug_traceCall" && paramsJson.length() > 0) {
+                        val firstParam = paramsJson.optJSONObject(0) // Get the first param, assume it's the object
+                        if (firstParam != null) {
+                            // Manually construct string fragments in TO -> DATA order based on expected filename
+                            val toValue = firstParam.optString("to", "")
+                            val dataValue = firstParam.optString("data", "")
+                            // Construct the fragment mimicking the expected sanitized name structure
+                            // Example: __to__0xVALUE__data__0xVALUE
+                            // Note: Prepending underscores based on how sanitization likely acted on {"to":"0x..","data":"0x.."}
+                            name += "___to___${toValue}___data___${dataValue}" 
+                            // We explicitly DO NOT include other parameters for this specific case
+                        } else {
+                            // Fallback if first param isn't an object - use default stringification for first param only?
+                            name += "_" + paramsJson.opt(0)?.toString() ?: "null"
+                        }
+                    } else {
+                        // Default handling for other methods (or if debug_traceCall has no params)
+                        // Stringify ALL parameters (might need refinement for other cases too)
+                        val mappedParams = (0 until paramsJson.length()).map { i ->
+                            val param = paramsJson.get(i)
+                            val paramString = when (param) {
+                                is String -> param
+                                is JSONObject -> param.toString() // Use default toString for now
+                                is JSONArray -> param.toString()
+                                JSONObject.NULL -> "null"
+                                else -> param.toString()
+                            }
+                            "_" + paramString
+                        }.joinToString("")
+                        name += mappedParams
                     }
                 }
             }
 
-            // Sanitize name (replace special chars with _)
-            name = name.replace(Regex("[/\\\\., :\"&=\\[\\]{}]"), "_")
+            println("createMockRequestHandler: Generated name before sanitize: $name")
+
+            // Sanitize character by character, replacing each forbidden char with exactly one underscore
+            val forbiddenChars = setOf('/', '\\', '.', ',', ' ', ':', '"', '&', '=', '[', ']', '{', '}', '?')
+            val sanitizedName = buildString(name.length) {
+                for (char in name) {
+                    append(if (char in forbiddenChars) '_' else char)
+                }
+            }
+            name = sanitizedName
+            println("createMockRequestHandler: Generated name after sanitize: $name")
 
             // Truncate if too long
             if (name.length > 100) name = name.substring(0, 100)
 
             // Add encoding extension
-            val extension = if (encoding == "json") "json" else "bin" // Match JS logic closer? or use encoding directly? Check JS cache impl
+            // Use the encoding directly as the extension (e.g., ssz, json, bin)
+            val extension = encoding // Use the actual encoding string
             val fileName = "$name.$extension"
 
             val responseFile = File(testDataDir, fileName)
@@ -177,28 +219,6 @@ class ColibriTest {
                 assertEquals("Result mismatch for ${testDir.name}", expectedResult, result)
                 println("--- Test Passed: ${testDir.name} ---")
             }
-        }
-    }
-
-     // Helper from Colibri.kt to convert org.json types to standard Java/Kotlin types for comparison
-    private fun convertJsonToJava(jsonValue: Any?): Any? {
-        return when (jsonValue) {
-            is JSONObject -> {
-                val map = mutableMapOf<String, Any?>()
-                jsonValue.keys().forEach { key ->
-                    map[key] = convertJsonToJava(jsonValue.opt(key)) // Use opt for safety
-                }
-                map
-            }
-            is JSONArray -> {
-                val list = mutableListOf<Any?>()
-                for (i in 0 until jsonValue.length()) {
-                    list.add(convertJsonToJava(jsonValue.opt(i))) // Use opt for safety
-                }
-                list
-            }
-            JSONObject.NULL -> null
-            else -> jsonValue // Basic types (String, Int, Boolean, Long, Double) are returned directly
         }
     }
 }

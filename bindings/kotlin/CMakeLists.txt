@@ -8,6 +8,11 @@ include(UseSWIG)
 find_package(Java REQUIRED)
 include(UseJava)
 
+# Ensure RPATH is handled for macOS builds of this specific library
+if(APPLE)
+   set(CMAKE_MACOSX_RPATH TRUE)
+endif()
+
 # Set Java include directories
 if(ANDROID)
     # Use Android NDK's JNI headers

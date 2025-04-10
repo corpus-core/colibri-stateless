@@ -19,6 +19,7 @@ typedef struct {
 } c4_verify_ctx_t;
 
 proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
+  //  fprintf(stderr, "c4_create_proofer_ctx: %s, %s\n", method, params);
   return (void*) c4_proofer_create(method, params, chain_id, flags);
 }
 
@@ -29,7 +30,7 @@ static const char* status_to_string(c4_status_t status) {
     case C4_ERROR:
       return "error";
     case C4_PENDING:
-      return "waiting";
+      return "pending";
   }
 }
 
@@ -87,7 +88,7 @@ char* c4_proofer_execute_json_status(proofer_t* proofer) {
       bprintf(&result, "\"result\": \"0x%lx\", \"result_len\": %d", (uint64_t) ctx->proof.data, ctx->proof.len);
       break;
     case C4_ERROR:
-      bprintf(&result, "\"error\": %\"s\"", ctx->state.error);
+      bprintf(&result, "\"error\": \"%s\"", ctx->state.error);
       break;
     case C4_PENDING: {
       bprintf(&result, "\"requests\": [");
@@ -105,6 +106,7 @@ char* c4_proofer_execute_json_status(proofer_t* proofer) {
     }
   }
   bprintf(&result, "}");
+  //  fprintf(stderr, "c4_proofer_execute_json_status result: %s\n", result.data.data);
   return buffer_as_string(result);
 }
 
@@ -112,12 +114,14 @@ void c4_free_proofer_ctx(proofer_t* ctx) {
   c4_proofer_free((proofer_ctx_t*) ctx);
 }
 void c4_req_set_response(void* req_ptr, bytes_t data, uint16_t node_index) {
+  //  fprintf(stderr, "c4_req_set_response: %p\n : %d\n", req_ptr, data.len);
   data_request_t* ctx      = (data_request_t*) req_ptr;
-  ctx->response            = bytes(data.data, data.len);
+  ctx->response            = bytes_dup(bytes(data.data, data.len));
   ctx->response_node_index = node_index;
 }
 
 void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index) {
+  //  fprintf(stderr, "c4_req_set_error: %p : %s\n", req_ptr, error);
   data_request_t* ctx      = (data_request_t*) req_ptr;
   ctx->error               = strdup(error);
   ctx->response_node_index = node_index;

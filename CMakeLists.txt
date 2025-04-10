@@ -54,7 +54,9 @@ if(SWIFT)
 
     # Set deployment target before any targets are created
     if(APPLE)
-        # Detect iOS simulator build
+        # Set RPATH handling for macOS/iOS
+        set(CMAKE_MACOSX_RPATH TRUE)
+
         if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR 
         EXISTS "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform" OR
         EXISTS "/Applications/Xcode_*.app/Contents/Developer/Platforms/iPhoneSimulator.platform" OR

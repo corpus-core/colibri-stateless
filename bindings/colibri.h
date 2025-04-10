@@ -3,11 +3,11 @@
 
 typedef void proofer_t;
 #ifndef BYTES_T_DEFINED
-typedef struct {
-  uint8_t* data;
-  uint32_t len;
-} bytes_t;
 
+typedef struct {
+  uint32_t len;
+  uint8_t* data;
+} bytes_t;
 #define BYTES_T_DEFINED
 #endif
 

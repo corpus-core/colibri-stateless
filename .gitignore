@@ -12,6 +12,7 @@ test/embedded/memory_map.txt
 /.memcached
 bindings/emscripten/webpack/dist
 bindings/emscripten/webpack/node_modules
-
+bindings/kotlin/*.log
 /build_x86
 /build_*
+/build-*
