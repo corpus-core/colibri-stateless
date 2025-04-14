@@ -60,6 +60,7 @@
         - [EthLogsBlock](#ethlogsblock)
         - [EthLogsTx](#ethlogstx)
         - [EthReceiptProof](#ethreceiptproof)
+        - [EthStateBlockEnum](#ethstateblockenum)
         - [EthStateProof](#ethstateproof)
         - [EthStorageProof](#ethstorageproof)
         - [EthSyncProof](#ethsyncproof)
@@ -831,7 +832,7 @@ The SSZ type defintions used in the proofs.
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L172).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L180).
 
 ```python
 class EthAccountProof(Container):
@@ -847,7 +848,7 @@ the stateRoot proof is used as part of different other types since it contains a
  proofs to validate the stateRoot of the execution layer
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L391).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L399).
 
 ```python
 class EthBlockProof(Container):
@@ -901,7 +902,7 @@ class EthBlockProof(Container):
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L229).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L237).
 
 ```python
 class EthCallAccount(Container):
@@ -917,7 +918,7 @@ class EthCallAccount(Container):
 #### EthCallProof
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L236).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L244).
 
 ```python
 class EthCallProof(Container):
@@ -928,7 +929,7 @@ class EthCallProof(Container):
 #### EthLogsBlock
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L75).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L83).
 
 ```python
 class EthLogsBlock(Container):
@@ -944,7 +945,7 @@ class EthLogsBlock(Container):
 #### EthLogsTx
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L68).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L76).
 
 ```python
 class EthLogsTx(Container):
@@ -987,7 +988,7 @@ represents the proof for a transaction receipt
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L57).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L65).
 
 ```python
 class EthReceiptProof(Container):
@@ -1002,17 +1003,35 @@ class EthReceiptProof(Container):
     sync_committee_signature: ByteVector [96]         # the signature of the sync committee
 ```
 
+#### EthStateBlockEnum
+
+definition of an enum depending on the requested block
+
+
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L8).
+
+```python
+class EthStateBlockEnum(Container):
+               : None      # no block-proof for latest
+    blockHash  : Bytes32   # proof for the right blockhash
+    blockNumber: Uint64    # proof for the right blocknumber
+```
+
 #### EthStateProof
 
 the stateRoot proof is used as part of different other types since it contains all relevant
  proofs to validate the stateRoot of the execution layer
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L9).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L16).
 
 ```python
 class EthStateProof(Container):
-    state_proof             : List [bytes32, 256]   # the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+    block                   : Union[                # the block to be proven
+                            : None                  # no block-proof for latest
+        blockHash           : Bytes32               # proof for the right blockhash
+        blockNumber         : Uint64                # proof for the right blocknumber
+    proof                   : List [bytes32, 256]   # the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
     header                  : BeaconBlockHeader     # the header of the beacon block
     sync_committee_bits     : BitVector [512]       # the bits of the validators that signed the block
     sync_committee_signature: ByteVector [96]       # the signature of the sync committee
@@ -1023,7 +1042,7 @@ class EthStateProof(Container):
 represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L18).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L26).
 
 ```python
 class EthStorageProof(Container):
@@ -1139,7 +1158,7 @@ Proof as input data for the sync committee transition used by zk. This is a very
  So in total, we need to verify 1035 hashes and 1 bls signature.
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L373).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L381).
 
 ```python
 class EthSyncProof(Container):
@@ -1184,7 +1203,7 @@ represents the account and storage values, including the Merkle proof, of the sp
  ```
 
 
- The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L115).
+ The Type is defined in [chains/eth/ssz/verify_proof_types.h](https://github.com/corpus-core/c4/blob/main/src/chains/eth/ssz/verify_proof_types.h#L123).
 
 ```python
 class EthTransactionProof(Container):
