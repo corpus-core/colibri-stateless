@@ -18,7 +18,6 @@ void test_tx() {
   char* expected_result = "\"0x0000000000000000000000000000000000000000000000000011c04f6834033e\"";
 
   verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROOFER_FLAG_INCLUDE_CODE, expected_result);
-  verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROOFER_FLAG_INCLUDE_CODE | C4_PROOFER_FLAG_INCLUDE_DATA, expected_result);
 }
 
 void test_calls() {

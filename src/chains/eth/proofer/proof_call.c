@@ -27,27 +27,18 @@ static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, cha
   buffer_free(&tmp);
 }
 
-static c4_status_t create_eth_call_proof(proofer_ctx_t* ctx, ssz_builder_t account_proofs, json_t call_result, beacon_block_t* block_data, json_t block_number) {
+static c4_status_t create_eth_call_proof(proofer_ctx_t* ctx, ssz_builder_t account_proofs, beacon_block_t* block_data, json_t block_number) {
 
-  buffer_t      tmp            = {0};
   ssz_builder_t eth_call_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_CALL_PROOF);
-  ssz_builder_t eth_data       = ssz_builder_for_type(ETH_SSZ_DATA_NONE);
-
-  // build the account proof
   ssz_add_builders(&eth_call_proof, "accounts", account_proofs);
   ssz_add_builders(&eth_call_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data));
 
-  // build the data if data is included
-  if (ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA) json_as_bytes(call_result, &eth_data.fixed);
-
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
-      eth_data,
+      NULL_SSZ_BUILDER,
       eth_call_proof,
       NULL_SSZ_BUILDER);
 
-  // cleanup
-  buffer_free(&tmp);
   return C4_SUCCESS;
 }
 
@@ -89,7 +80,7 @@ static void add_account(proofer_ctx_t* ctx, ssz_builder_t* builder, json_t value
   buffer_free(&buf);
 }
 
-static c4_status_t get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner, json_t* call_result) {
+static c4_status_t get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner) {
   c4_status_t status       = C4_SUCCESS;
   json_t      eth_proof    = {0};
   bytes_t     account      = {0};
@@ -137,9 +128,6 @@ static c4_status_t get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, u
         accounts_len);
   }
 
-  if (ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA)
-    TRY_ADD_ASYNC(status, eth_call(ctx, tx, call_result, block_number));
-
   return status;
 }
 
@@ -148,7 +136,6 @@ c4_status_t c4_proof_call(proofer_ctx_t* ctx) {
   json_t         block_number = json_at(ctx->params, 1);
   beacon_block_t block        = {0};
   json_t         trace        = {0};
-  json_t         call_result  = {0};
   ssz_builder_t  accounts     = {0};
   bytes32_t      body_root;
 
@@ -156,7 +143,7 @@ c4_status_t c4_proof_call(proofer_ctx_t* ctx) {
   uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
   bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;
   TRY_ASYNC(eth_debug_trace_call(ctx, tx, &trace, target_block));
-  TRY_ASYNC_CATCH(get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data, &call_result), ssz_buffer_free(&accounts));
+  TRY_ASYNC_CATCH(get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data), ssz_buffer_free(&accounts));
 
-  return create_eth_call_proof(ctx, accounts, call_result, &block, block_number);
+  return create_eth_call_proof(ctx, accounts, &block, block_number);
 }

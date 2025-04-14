@@ -12,7 +12,6 @@ void tearDown(void) {
 }
 
 void test_nonce() {
-  run_rpc_test("eth_getTransactionCount1", C4_PROOFER_FLAG_INCLUDE_DATA);
   run_rpc_test("eth_getTransactionCount1", 0);
   run_rpc_test("eth_getTransactionCount1", C4_PROOFER_FLAG_NO_CACHE);
 }

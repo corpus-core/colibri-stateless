@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, uint32_t tx_index, json_t tx_data, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof) {
+static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, uint32_t tx_index, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof) {
 
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF);
 
@@ -28,7 +28,7 @@ static c4_status_t create_eth_tx_proof(proofer_ctx_t* ctx, uint32_t tx_index, js
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
-      (ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA) ? FROM_JSON(tx_data, ETH_SSZ_DATA_TX) : NULL_SSZ_BUILDER,
+      NULL_SSZ_BUILDER,
       eth_tx_proof,
       NULL_SSZ_BUILDER);
 
@@ -47,8 +47,6 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   if (strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0) {
     tx_index     = json_as_uint32(json_at(ctx->params, 1));
     block_number = json_at(ctx->params, 0);
-    if ((ctx->flags & C4_PROOFER_FLAG_INCLUDE_DATA))
-      TRY_ADD_ASYNC(status, get_eth_tx_by_hash_and_index(ctx, block_number, tx_index, &tx_data));
   }
   else {
     if (txhash.type != JSON_TYPE_STRING || txhash.len != 68 || txhash.start[1] != '0' || txhash.start[2] != 'x') THROW_ERROR("Invalid hash");
@@ -69,7 +67,7 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
 
   );
   TRY_ASYNC_FINAL(
-      create_eth_tx_proof(ctx, tx_index, tx_data, &block, body_root, state_proof),
+      create_eth_tx_proof(ctx, tx_index, &block, body_root, state_proof),
       safe_free(state_proof.data));
   return C4_SUCCESS;
 }

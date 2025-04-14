@@ -10,9 +10,8 @@ extern "C" {
 
 typedef enum {
   C4_PROOFER_FLAG_INCLUDE_CODE       = 1 << 0, // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed (default)
-  C4_PROOFER_FLAG_INCLUDE_DATA       = 1 << 1, // includes the result of the rpc-request as data in the proof even if it those data can be calculated from the proof. (default: false)
-  C4_PROOFER_FLAG_UV_SERVER_CTX      = 1 << 2, // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROOFER_FLAG_UV_WORKER_REQUIRED flag.
-  C4_PROOFER_FLAG_UV_WORKER_REQUIRED = 1 << 3, // requests the proof execution to run in a worker thread instead of the main eventloop.
+  C4_PROOFER_FLAG_UV_SERVER_CTX      = 1 << 1, // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROOFER_FLAG_UV_WORKER_REQUIRED flag.
+  C4_PROOFER_FLAG_UV_WORKER_REQUIRED = 1 << 2, // requests the proof execution to run in a worker thread instead of the main eventloop.
 } proofer_flag_types_t;
 
 typedef uint32_t proofer_flags_t;
