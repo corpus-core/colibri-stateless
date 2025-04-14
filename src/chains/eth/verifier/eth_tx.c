@@ -158,60 +158,6 @@ INTERNAL bool c4_tx_create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8
   return true;
 }
 
-INTERNAL bool c4_tx_verify_tx_data(verify_ctx_t* ctx, ssz_ob_t tx_data, bytes_t serialized_tx, bytes32_t block_hash, uint64_t block_number) {
-  // check tx_type
-
-  bytes_t   raw_tx = serialized_tx;
-  tx_type_t type   = 0;
-  if (!get_and_remove_tx_type(ctx, &raw_tx, &type)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing type!");
-
-  // check data
-  rlp_type_defs_t defs = tx_type_defs[type];
-  if (rlp_decode(&raw_tx, 0, &raw_tx) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
-  int len = rlp_decode(&raw_tx, -1, &raw_tx);
-  if (len != defs.len) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing fields!");
-  bytes32_t tmp = {0};
-
-  for (int i = 0; i < len; i++) {
-    rlp_def_t  def       = defs.defs[i];
-    bytes_t    rlp_value = {0};
-    ssz_ob_t   ssz_value = ssz_get(&tx_data, def.name);
-    rlp_type_t rlp_type  = rlp_decode(&raw_tx, i, &rlp_value);
-    if (rlp_type != (def.len == 2 ? RLP_LIST : RLP_ITEM)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing fields!");
-    switch (def.len) {
-      case 20:
-      case 0:
-        if (ssz_value.bytes.len != rlp_value.len || memcmp(ssz_value.bytes.data, rlp_value.data, rlp_value.len) != 0) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing fields!");
-        break;
-      case 1:
-        memset(tmp, 0, 32);
-        if (ssz_value.def->type == SSZ_TYPE_VECTOR && ssz_value.bytes.len <= 32)
-          memcpy(tmp, rlp_value.data, rlp_value.len);
-        else {
-          for (int i = 0; i < rlp_value.len; i++)
-            tmp[i] = rlp_value.data[rlp_value.len - i - 1];
-        }
-        if (memcmp(ssz_value.bytes.data, tmp, ssz_value.bytes.len) != 0) RETURN_VERIFY_ERROR(ctx, "invalid tx data, wrong uint!");
-        break;
-      case 2: // list TODO
-        break;
-    }
-  }
-  if (((uint64_t) type) != ssz_get(&tx_data, "type").bytes.data[0]) RETURN_VERIFY_ERROR(ctx, "invalid tx data, type mismatch!");
-
-  // check blocknumber and blockHash
-  uint64_t exp_block_number = ssz_get_uint64(&tx_data, "blockNumber");
-  bytes_t  exp_block_hash   = ssz_get(&tx_data, "blockHash").bytes;
-  if (exp_block_number != block_number) RETURN_VERIFY_ERROR(ctx, "invalid tx data, block number mismatch!");
-  if (exp_block_hash.len != 32 || memcmp(exp_block_hash.data, block_hash, 32)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, block number mismatch!");
-
-  uint8_t address[20]  = {0};
-  bytes_t from_address = ssz_get(&tx_data, "from").bytes;
-  if (!c4_tx_create_from_address(ctx, serialized_tx, address)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, wrong signature!");
-  if (from_address.len != 20 || memcmp(from_address.data, address, 20) != 0) RETURN_VERIFY_ERROR(ctx, "invalid from address!");
-  return true;
-}
-
 INTERNAL bool c4_tx_verify_tx_hash(verify_ctx_t* ctx, bytes_t raw) {
   if (ctx->method == NULL) return true;
   if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getTransactionReceipt") == 0) {
