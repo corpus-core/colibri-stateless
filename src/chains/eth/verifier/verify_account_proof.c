@@ -110,7 +110,6 @@ static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_accou
         RETURN_VERIFY_ERROR(ctx, "invalid data!");
     }
     ctx->flags |= VERIFY_FLAG_FREE_DATA;
-    data = ctx->data;
   }
   else if (field == ETH_ACCOUNT_CODE_HASH) {
     keccak(data.bytes, expected_value);
@@ -125,7 +124,6 @@ static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_accou
 bool verify_account_proof(verify_ctx_t* ctx) {
   bytes32_t           state_root               = {0};
   ssz_ob_t            state_proof              = ssz_get(&ctx->proof, "state_proof");
-  ssz_ob_t            state_merkle_proof       = ssz_get(&state_proof, "proof");
   ssz_ob_t            header                   = ssz_get(&state_proof, "header");
   ssz_ob_t            sync_committee_bits      = ssz_get(&state_proof, "sync_committee_bits");
   ssz_ob_t            sync_committee_signature = ssz_get(&state_proof, "sync_committee_signature");
