@@ -2,6 +2,7 @@
 #include "eth_account.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
 #include "patricia.h"
@@ -231,4 +232,39 @@ INTERNAL void eth_free_codes(call_code_t* call_codes) {
     safe_free(call_codes);
     call_codes = next;
   }
+}
+
+gindex_t eth_get_gindex_for_block(fork_id_t fork, json_t block) {
+  if (block.type != JSON_TYPE_STRING || strncmp(block.start, "\"0x", 3)) return 0;
+  return block.len == 68 ? GINDEX_BLOCHASH : GINDEX_BLOCKUMBER;
+}
+
+bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t state_root) {
+  bytes32_t body_root          = {0};
+  json_t    block_number       = json_len(ctx->args) ? json_at(ctx->args, json_len(ctx->args) - 1) : (json_t) {0};
+  ssz_ob_t  state_merkle_proof = ssz_get(&state_proof, "proof");
+  ssz_ob_t  header             = ssz_get(&state_proof, "header");
+  ssz_ob_t  block              = ssz_get(&state_proof, "block");
+  gindex_t  gindex[2]          = {STATE_ROOT_GINDEX, block.bytes.len == 8 ? GINDEX_BLOCKUMBER : GINDEX_BLOCHASH};
+  uint8_t   leafes[64]         = {0};
+  memcpy(leafes, state_root, 32);
+  memcpy(leafes + 32, block.bytes.data, block.bytes.len);
+  ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, block.def->type == SSZ_TYPE_NONE ? 32 : 64), gindex, body_root);
+  if (block_number.type == JSON_TYPE_STRING && strncmp(block_number.start, "\"0x", 3) == 0) {
+    if (block_number.len == 68) {
+      if (block.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
+      hex_to_bytes(block_number.start + 3, 64, bytes(leafes, 32));
+      if (memcmp(leafes, block.bytes.data, 32) == 0) RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
+    }
+    else {
+      if (block.bytes.len != 8) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
+      if (ssz_uint64(block) != json_as_uint64(block_number)) RETURN_VERIFY_ERROR(ctx, "wrong blocknumber");
+    }
+  }
+  else if (block.bytes.len)
+    RETURN_VERIFY_ERROR(ctx, "Expected a blocknumber or blockhash as blocknumber");
+
+  if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
+
+  return true;
 }

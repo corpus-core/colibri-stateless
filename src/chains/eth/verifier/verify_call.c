@@ -43,7 +43,6 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   bytes32_t    state_root               = {0};
   ssz_ob_t     state_proof              = ssz_get(&ctx->proof, "state_proof");
   ssz_ob_t     accounts                 = ssz_get(&ctx->proof, "accounts");
-  ssz_ob_t     state_merkle_proof       = ssz_get(&state_proof, "state_proof");
   ssz_ob_t     header                   = ssz_get(&state_proof, "header");
   ssz_ob_t     sync_committee_bits      = ssz_get(&state_proof, "sync_committee_bits");
   ssz_ob_t     sync_committee_signature = ssz_get(&state_proof, "sync_committee_signature");
@@ -71,8 +70,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   if (call_status != C4_SUCCESS) return false;
   if (!match) RETURN_VERIFY_ERROR(ctx, "Call result mismatch");
   if (!verify_accounts(ctx, accounts, state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
-  ssz_verify_single_merkle_proof(state_merkle_proof.bytes, state_root, STATE_ROOT_GINDEX, body_root);
-  if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
+  if (!eth_verify_state_proof(ctx, state_proof, state_root)) false;
   if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
 
   ctx->success = true;

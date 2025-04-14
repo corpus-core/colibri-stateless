@@ -4,10 +4,18 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
+// definition of an enum depending on the requested block
+static const ssz_def_t ETH_STATE_BLOCK_ENUM[] = {
+    SSZ_NONE,                 // no block-proof for latest
+    SSZ_BYTES32("blockHash"), // proof for the right blockhash
+    SSZ_UINT64("blockNumber") // proof for the right blocknumber
+};
+
 // the stateRoot proof is used as part of different other types since it contains all relevant
 // proofs to validate the stateRoot of the execution layer
 static const ssz_def_t ETH_STATE_PROOF[] = {
-    SSZ_LIST("state_proof", ssz_bytes32, 256),        // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+    SSZ_UNION("block", ETH_STATE_BLOCK_ENUM),         // the block to be proven
+    SSZ_LIST("proof", ssz_bytes32, 256),              // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
     SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee

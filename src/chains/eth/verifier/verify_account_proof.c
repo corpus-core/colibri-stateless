@@ -2,6 +2,7 @@
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_account.h"
+#include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
 #include "patricia.h"
@@ -109,31 +110,20 @@ static bool verify_data(verify_ctx_t* ctx, address_t verified_address, eth_accou
         RETURN_VERIFY_ERROR(ctx, "invalid data!");
     }
     ctx->flags |= VERIFY_FLAG_FREE_DATA;
-    data = ctx->data;
   }
-
-  memset(expected_value, 0, 32);
-  if (field == ETH_ACCOUNT_CODE_HASH)
+  else if (field == ETH_ACCOUNT_CODE_HASH) {
     keccak(data.bytes, expected_value);
-  else if (field == ETH_ACCOUNT_PROOF) // we already took the proof from the verifified account.
-    return true;
-  else if (data.bytes.len > 32)
-    RETURN_VERIFY_ERROR(ctx, "invalid data!");
-  else if (data.def->type == SSZ_TYPE_UINT) {
-    for (int i = 0; i < data.bytes.len; i++)
-      expected_value[31 - i] = data.bytes.data[i];
+    if (memcmp(expected_value, values.data, 32)) RETURN_VERIFY_ERROR(ctx, "invalid code hash!");
   }
   else
-    memcpy(expected_value + 32 - data.bytes.len, data.bytes.data, data.bytes.len);
+    RETURN_VERIFY_ERROR(ctx, "invalid usage of account proof data!");
 
-  return memcmp(expected_value, values.data, 32) == 0;
+  return true;
 }
 
 bool verify_account_proof(verify_ctx_t* ctx) {
-  bytes32_t           body_root                = {0};
   bytes32_t           state_root               = {0};
   ssz_ob_t            state_proof              = ssz_get(&ctx->proof, "state_proof");
-  ssz_ob_t            state_merkle_proof       = ssz_get(&state_proof, "state_proof");
   ssz_ob_t            header                   = ssz_get(&state_proof, "header");
   ssz_ob_t            sync_committee_bits      = ssz_get(&state_proof, "sync_committee_bits");
   ssz_ob_t            sync_committee_signature = ssz_get(&state_proof, "sync_committee_signature");
@@ -148,8 +138,7 @@ bool verify_account_proof(verify_ctx_t* ctx) {
 #endif
 
   if (!eth_verify_account_proof_exec(ctx, &ctx->proof, state_root, field == ETH_ACCOUNT_PROOF ? ETH_ACCOUNT_STORAGE_HASH : field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
-  ssz_verify_single_merkle_proof(state_merkle_proof.bytes, state_root, STATE_ROOT_GINDEX, body_root);
-  if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
+  if (!eth_verify_state_proof(ctx, state_proof, state_root)) return false;
   if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
   if (field && !verify_data(ctx, verified_address.data, field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account data!");
 
