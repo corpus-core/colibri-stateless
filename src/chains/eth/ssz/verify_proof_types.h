@@ -7,37 +7,12 @@
 // The Beacon Chain is the consensus layer of Ethereum. These Proofs aim at providing proofs for the ethereum RPC-API.
 // This includes the stateRoot proof, the storage proof, the receipt proof, the logs proof, the transaction proof, the account proof, the code proof and the sync proof.
 
-// ## State Proof
-//
-// The State Proof is a proof that the stateRoot of the execution layer is valid.
-// It is used to verify the stateRoot of the execution layer.
-// It is a merkle proof from the stateRoot to the executionPayload.state down to the blockBodyRoot hash.
-
 // definition of an enum depending on the requested block
 static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
     SSZ_NONE,                 // no block-proof for latest
     SSZ_BYTES32("blockHash"), // proof for the right blockhash
     SSZ_UINT64("blockNumber") // proof for the right blocknumber
 };
-
-// the stateRoot proof is used as part of different other types since it contains all relevant
-// proofs to validate the stateRoot of the execution layer
-static const ssz_def_t ETH_STATE_PROOF[] = {
-    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),        // the block to be proven
-    SSZ_LIST("proof", ssz_bytes32, 256),              // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
-    SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
-    SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee
-
-static const ssz_def_t ETH_STATE_PROOF_CONTAINER = SSZ_CONTAINER("StateProof", ETH_STATE_PROOF);
-
-// represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
-static const ssz_def_t ETH_STORAGE_PROOF[] = {
-    SSZ_BYTES32("key"),                      // the key to be proven
-    SSZ_LIST("proof", ssz_bytes_1024, 1024), // Patricia merkle proof
-};
-
-static const ssz_def_t ETH_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof", ETH_STORAGE_PROOF);
 
 // ## Receipt Proof
 //
@@ -48,6 +23,7 @@ static const ssz_def_t ETH_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof
 // 3. The **SSZ Multi Merkle Proof** from the Transactions, Receipts, BlockNumber and BlockHash of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
 // 4. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
 // 5. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+//
 // ```mermaid
 // flowchart TB
 //     subgraph "ExecutionPayload"
@@ -123,6 +99,7 @@ static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH
 // 2. The **SSZ Merkle Proof** from the Transactions of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
 // 3. **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
 // 4. **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+//
 // ```mermaid
 // flowchart TB
 //     subgraph "ExecutionPayload"
@@ -208,6 +185,25 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
 //
 // ```
 
+// the stateRoot proof is used as part of different other types since it contains all relevant
+// proofs to validate the stateRoot of the execution layer
+static const ssz_def_t ETH_STATE_PROOF[] = {
+    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),        // the block to be proven
+    SSZ_LIST("proof", ssz_bytes32, 256),              // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee
+
+static const ssz_def_t ETH_STATE_PROOF_CONTAINER = SSZ_CONTAINER("StateProof", ETH_STATE_PROOF);
+
+// represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
+static const ssz_def_t ETH_STORAGE_PROOF[] = {
+    SSZ_BYTES32("key"),                      // the key to be proven
+    SSZ_LIST("proof", ssz_bytes_1024, 1024), // Patricia merkle proof
+};
+
+static const ssz_def_t ETH_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof", ETH_STORAGE_PROOF);
+
 // the main proof data for an account.
 static const ssz_def_t ETH_ACCOUNT_PROOF[] = {
     SSZ_LIST("accountProof", ssz_bytes_1024, 256),              // Patricia merkle proof
@@ -219,6 +215,7 @@ static const ssz_def_t ETH_CODE_UNION[] = {
     SSZ_BOOLEAN("code_used"),   // no code delivered
     SSZ_BYTES("code", 4194304), // the code of the contract
 };
+
 // ## Call Proof
 //
 // eth_call returns the result of the call. In order to proof that the result is correct, we need
@@ -291,6 +288,7 @@ static const ssz_def_t ETH_CALL_PROOF[] = {
 // the proof itself is a merkle proof using the given gindex to verify from the hash of the pubkey all the way down to the signing root.
 //
 // The following diagram shows the Structure of the Merkle Tree leading to the SigningRoot:
+//
 // ```mermaid
 // flowchart BT
 //     classDef noBorder fill:none,stroke:none;

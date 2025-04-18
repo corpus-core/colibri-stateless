@@ -1,17 +1,20 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
-// title: Data Types
-// description: The SSZ type defintions used in the data or the result of rpc-calls.
+// # Ethereum Execution Proofs
 
-// Entry in the access list of a transaction
+// ## Call Proof
+
+// Entry in the access list of a transaction or call.
 static const ssz_def_t ETH_ACCESS_LIST_DATA[] = {
     SSZ_ADDRESS("address"),
     SSZ_LIST("storageKeys", ssz_bytes32, 256),
 };
 static const ssz_def_t ETH_ACCESS_LIST_DATA_CONTAINER = SSZ_CONTAINER("AccessListData", ETH_ACCESS_LIST_DATA);
 
-// the transaction data
+// ## Transaction Proof
+
+// the transaction data as result of an eth_getTransactionByHash rpc-call.
 static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_BYTES32("blockHash"),                                    // the blockHash of the execution block containing the transaction
     SSZ_UINT64("blockNumber"),                                   // the number of the execution block containing the transaction
@@ -35,6 +38,8 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_LIST("blobVersionedHashes", ssz_bytes32, 16),            // the blobVersionedHashes of the transaction
     SSZ_UINT8("yParity")};                                       // the yParity of the transaction
 
+// ## Logs Proof
+
 // a log entry in the receipt
 static const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
     SSZ_BYTES32("blockHash"),           // the blockHash of the execution block containing the transaction
@@ -48,6 +53,8 @@ static const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
     SSZ_BYTES("data", 1073741824),      // the data of the log
 };
 static const ssz_def_t ETH_RECEIPT_DATA_LOG_CONTAINER = SSZ_CONTAINER("Log", ETH_RECEIPT_DATA_LOG);
+
+// ## Receipt Proof
 
 // the transaction data
 static const ssz_def_t ETH_RECEIPT_DATA[] = {
@@ -66,39 +73,43 @@ static const ssz_def_t ETH_RECEIPT_DATA[] = {
     SSZ_UINT64("effectiveGasPrice"),                       // the effective gas price of the transaction
 }; // the gasPrice of the transaction
 
-static const ssz_def_t ETH_TX_DATA_CONTAINER               = SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA);
-static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNTION[] = {
+static const ssz_def_t ETH_TX_DATA_CONTAINER              = SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA);
+static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNION[] = {
     SSZ_LIST("as_hashes", ssz_bytes32, 4096),         // the transactions hashes
     SSZ_LIST("as_data", ETH_TX_DATA_CONTAINER, 4096), // the transactions data
 };
 
+// ## Block Proof
+
 // display the block data , which is based on the execution payload
 static const ssz_def_t ETH_BLOCK_DATA[] = {
-    SSZ_UINT64("number"),                                         // the blocknumber
-    SSZ_BYTES32("hash"),                                          // the blockhash
-    SSZ_UNION("transactions", ETH_BLOCK_DATA_TRANSACTION_UNTION), // the transactions
-    SSZ_BYTE_VECTOR("logsBloom", 256),                            // the logsBloom
-    SSZ_BYTES32("receiptsRoot"),                                  // the receiptsRoot
-    SSZ_BYTES("extraData", 32),                                   // the extraData
-    SSZ_BYTES32("withdrawalsRoot"),                               // the withdrawalsRoot
-    SSZ_UINT256("baseFeePerGas"),                                 // the baseFeePerGas
-    SSZ_BYTE_VECTOR("nonce", 8),                                  // the nonce
-    SSZ_ADDRESS("miner"),                                         // the miner
-    SSZ_LIST("withdrawals", DENEP_WITHDRAWAL_CONTAINER, 4096),    // the withdrawals
-    SSZ_UINT64("excessBlobGas"),                                  // the excessBlobGas
-    SSZ_UINT64("difficulty"),                                     // the difficulty
-    SSZ_UINT64("gasLimit"),                                       // the gasLimit
-    SSZ_UINT64("gasUsed"),                                        // the gasUsed
-    SSZ_UINT64("timestamp"),                                      // the timestamp
-    SSZ_BYTES32("mixHash"),                                       // the mixHash
-    SSZ_BYTES32("parentHash"),                                    // the parentHash
-    SSZ_LIST("uncles", ssz_bytes32, 4096),                        // the transactions hashes
-    SSZ_BYTES32("parentBeaconBlockRoot"),                         // the parentBeaconBlockRoot
-    SSZ_BYTES32("sha3Uncles"),                                    // the sha3Uncles of the uncles
-    SSZ_BYTES32("transactionsRoot"),                              // the transactionsRoot
-    SSZ_BYTES32("stateRoot"),                                     // the stateRoot
-    SSZ_UINT64("blobGasUsed"),                                    // the gas used for the blob transactions
+    SSZ_UINT64("number"),                                        // the blocknumber
+    SSZ_BYTES32("hash"),                                         // the blockhash
+    SSZ_UNION("transactions", ETH_BLOCK_DATA_TRANSACTION_UNION), // the transactions
+    SSZ_BYTE_VECTOR("logsBloom", 256),                           // the logsBloom
+    SSZ_BYTES32("receiptsRoot"),                                 // the receiptsRoot
+    SSZ_BYTES("extraData", 32),                                  // the extraData
+    SSZ_BYTES32("withdrawalsRoot"),                              // the withdrawalsRoot
+    SSZ_UINT256("baseFeePerGas"),                                // the baseFeePerGas
+    SSZ_BYTE_VECTOR("nonce", 8),                                 // the nonce
+    SSZ_ADDRESS("miner"),                                        // the miner
+    SSZ_LIST("withdrawals", DENEP_WITHDRAWAL_CONTAINER, 4096),   // the withdrawals
+    SSZ_UINT64("excessBlobGas"),                                 // the excessBlobGas
+    SSZ_UINT64("difficulty"),                                    // the difficulty
+    SSZ_UINT64("gasLimit"),                                      // the gasLimit
+    SSZ_UINT64("gasUsed"),                                       // the gasUsed
+    SSZ_UINT64("timestamp"),                                     // the timestamp
+    SSZ_BYTES32("mixHash"),                                      // the mixHash
+    SSZ_BYTES32("parentHash"),                                   // the parentHash
+    SSZ_LIST("uncles", ssz_bytes32, 4096),                       // the transactions hashes
+    SSZ_BYTES32("parentBeaconBlockRoot"),                        // the parentBeaconBlockRoot
+    SSZ_BYTES32("sha3Uncles"),                                   // the sha3Uncles of the uncles
+    SSZ_BYTES32("transactionsRoot"),                             // the transactionsRoot
+    SSZ_BYTES32("stateRoot"),                                    // the stateRoot
+    SSZ_UINT64("blobGasUsed"),                                   // the gas used for the blob transactions
 };
+
+// ## Account Proof
 
 // represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 static const ssz_def_t ETH_STORAGE_PROOF_DATA[] = {

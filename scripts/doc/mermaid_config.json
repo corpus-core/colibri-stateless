@@ -1,0 +1,9 @@
+{
+    "theme": "dark",
+    "themeVariables": {
+        "primaryColor": "#1f1f1f",
+        "primaryTextColor": "#f0f0f0",
+        "lineColor": "#aaaaaa",
+        "background": "transparent"
+    }
+}

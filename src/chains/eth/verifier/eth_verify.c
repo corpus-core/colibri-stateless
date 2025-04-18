@@ -7,31 +7,63 @@
 #include "verify.h"
 #include <string.h>
 
+// # Ethereum Execution Proofs
+
+// ## Supported RPC-Methods
+//
+// The following table shows the supported RPC-Methods for the Ethereum Execution Proofs.
+//
+
 static const char* proofable_methods[] = {
-    "eth_call",
-    "eth_getProof",
-    "eth_getBalance",
-    "eth_getBlockByHash",
-    "eth_getBlockByNumber",
-    "eth_getCode",
-    "eth_getLogs",
-    "eth_getTransactionCount",
-    "eth_getStorageAt",
-    "eth_getTransactionReceipt",
-    "eth_getTransactionByHash",
-    "eth_getTransactionByBlockHashAndIndex",
-    "eth_getTransactionByBlockNumberAndIndex",
+    RPC_METHOD("eth_call", Bytes, EthCallProof),
+    RPC_METHOD("eth_getProof", EthProofData, EthAccountProof),
+    RPC_METHOD("eth_getBalance", Uint256, EthAccountProof),
+    RPC_METHOD("eth_getBlockByHash", EthBlockData, EthBlockProof),
+    RPC_METHOD("eth_getBlockByNumber", EthBlockData, EthBlockProof),
+    RPC_METHOD("eth_getCode", Bytes, EthAccountProof),
+    RPC_METHOD("eth_getLogs", ListEthReceiptDataLog, ListEthLogsBlock),
+    RPC_METHOD("eth_getTransactionCount", Uint256, EthAccountProof),
+    RPC_METHOD("eth_getStorageAt", Bytes32, EthAccountProof),
+    RPC_METHOD("eth_getTransactionReceipt", EthReceiptData, EthReceiptProof),
+    RPC_METHOD("eth_getTransactionByHash", EthTransactionData, EthTransactionProof),
+    RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTransactionData, EthTransactionProof),
+    RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTransactionData, EthTransactionProof),
 };
 static const char* local_methods[] = {
-    "eth_chainId",
-    "eth_accounts",
-    "eth_getUncleByBlockHashAndIndex",
-    "eth_getUncleByBlockNumberAndIndex",
-    "eth_getBlockTransactionCountByHash",
-    "eth_getBlockTransactionCountByNumber",
-    "eth_protocolVersion",
-    "web3_clientVersion",
-    "web3_sha3"};
+    RPC_METHOD("eth_chainId", Uint64, Void),
+    RPC_METHOD("eth_accounts", ListAddress, Void),
+    RPC_METHOD("eth_protocolVersion", Uint256, Void),
+    RPC_METHOD("web3_clientVersion", String, Void),
+    RPC_METHOD("web3_sha3", Bytes32, Void),
+};
+
+static const char* not_verifieable_yet_methods[] = {
+    RPC_METHOD("eth_getUncleByBlockHashAndIndex", Void, Void),
+    RPC_METHOD("eth_getUncleByBlockNumberAndIndex", Void, Void),
+    RPC_METHOD("eth_getBlockTransactionCountByHash", Void, Void),
+    RPC_METHOD("eth_getBlockTransactionCountByNumber", Void, Void),
+    RPC_METHOD("eth_blockNumber", Uint64, Void),
+    RPC_METHOD("eth_feeHistory", Void, Void),
+    RPC_METHOD("eth_blobBaseFee", Uint64, EthBlockHeaderProof),
+    RPC_METHOD("eth_createAccessList", EthAccessData, EthCallProof),
+    RPC_METHOD("eth_estimateGas", Uint64, EthCallProof),
+    RPC_METHOD("eth_gasPrice", Void, Void),
+    RPC_METHOD("eth_getBlockReceipts", Void, Void),
+    RPC_METHOD("eth_newPendingTransactionFilter", Void, Void),
+    RPC_METHOD("eth_newFilter", Void, Void),
+    RPC_METHOD("eth_newBlockFilter", Void, Void),
+    RPC_METHOD("eth_getFilterChanges", Void, Void),
+    RPC_METHOD("eth_getFilterLogs", Void, Void),
+    RPC_METHOD("eth_uninstallFilter", Void, Void),
+    RPC_METHOD("eth_subscribe", Void, Void),
+    RPC_METHOD("eth_unsubscribe", Void, Void),
+    RPC_METHOD("eth_getUncleByBlockHash", Void, Void),
+    RPC_METHOD("eth_getUncleByBlockNumber", Void, Void),
+    RPC_METHOD("eth_getUncleCountByBlockHash", Void, Void),
+    RPC_METHOD("eth_getUncleCountByBlockNumber", Void, Void),
+    RPC_METHOD("eth_maxPriorityFeePerGas", Void, Void),
+    RPC_METHOD("eth_sendRawTransaction", Void, Void),
+};
 
 method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method) {
   if (chain_id != C4_CHAIN_MAINNET) return METHOD_UNDEFINED;

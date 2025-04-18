@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#define RPC_METHOD(name, data, proof) name
 #include "../util/bytes.h"
 #include "../util/chains.h"
 #include "../util/crypto.h"

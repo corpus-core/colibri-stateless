@@ -10,8 +10,28 @@ static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
-#include "beacon_types.h"
-#include "ssz.h"
+// # Ethereum Execution Proofs
+
+// ## Ethereum Main Proof Request
+//
+// The proofs are always wrapped into a ssz-container with the name `C4Request`.
+// This Container holds the a version (4 bytes) and unions for different proof types.
+//
+//  The 4 `Version` Bytes are encoded as `dom, major, minor, patch`.
+//  - 0 : `domain` . describe which chain-type is used. 1 =  ethereum
+//  - 1 : `major` . the major version of the proofer.
+//  - 2 : `minor` . the minor version of the proofer.
+//  - 3 : `patch` . the patch version of the proofer.
+//
+// the `data` union can hold different types which represents the final data to be verified.
+//
+// the `proof` union can hold different types which represents the proof of the data.
+//
+// the `sync_data` union hold optional data used to update the sync_committee.
+// Most of the time this is empty since syncing the pubkey only is used whenever it is needed. But the structure
+// allows to include those sync_proofs enabling a fully stateless proof.
+//
+//
 
 // A List of possible types of data matching the Proofs
 static const ssz_def_t C4_REQUEST_DATA_UNION[] = {

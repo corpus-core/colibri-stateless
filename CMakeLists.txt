@@ -228,7 +228,7 @@ endif()
 
 add_custom_target(doc 
     COMMAND ${CMAKE_COMMAND} -E echo "Generating documentation..."
-    COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/update_doc.js
+    COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/doc/index.js
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/scripts
     COMMENT "Running update_doc.js to generate documentation"
 )

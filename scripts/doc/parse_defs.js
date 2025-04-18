@@ -26,6 +26,7 @@ function add_section(line, sections) {
             children: [],
             open: true,
             types: [],
+            rpcs: [],
             parent_title: null,
         }
         for (let i = sections.length - 1; i >= 0; i--) {
@@ -64,6 +65,23 @@ function get_typename(type, args) {
     }
 }
 
+function add_rpc(line, sections, comment) {
+    let section = sections.at(-1)
+    if (!section) return false
+    if (line.includes('proofable_methods[] = ')) section.rpc_state = 'proofable';
+    if (line.includes('local_methods[] = ')) section.rpc_state = 'local';
+    if (line.includes('not_verifieable_yet_methods[] = ')) section.rpc_state = 'not_verifieable';
+    if (line.includes('RPC_METHOD')) {
+        const args = line.split('(')[1].split(')')[0].split(',').map(arg => arg.trim());
+        const method = args[0].replace(/["']/g, '');
+        const data_type = args[1] == 'Void' ? '' : args[1];
+        const proof_type = args[2] == 'Void' ? '' : args[2];
+        section.rpcs.push({ method, data_type, proof_type, comment, status: section.rpc_state });
+        return true
+    }
+    return false
+
+}
 function parse_ssz_file(file) {
     const lines = fs.readFileSync(get_full_src_path(file), 'utf8').split('\n');
 
@@ -76,6 +94,10 @@ function parse_ssz_file(file) {
     for (let line of lines) {
         line_number++
         if (add_section(line, sections)) continue
+        if (add_rpc(line, sections, comment)) {
+            comment = ''
+            continue
+        }
 
         // handle comments
         const splits = line.split('//')
@@ -121,7 +143,7 @@ function parse_ssz_file(file) {
             comment = ''
         }
     }
-    return { types, sections }
+    return { types, sections: sections.filter(s => s.parent_title == null) }
 }
 
 function assign_path(section, parent_dir) {
@@ -135,6 +157,30 @@ function assign_path(section, parent_dir) {
         assign_path(child, parent_dir + '/' + name)
 }
 
+function add_sections(old_sections, new_sections) {
+    for (let section of new_sections) {
+        let found = old_sections.find(s => s.title == section.title)
+        if (found) {
+            add_sections(found.children, section.children)
+            found.content = [...found.content, ...section.content]
+            found.types = [...found.types, ...section.types]
+        }
+        else
+            old_sections.push(section)
+    }
+}
+
+function create_rpc_table(section) {
+    section.children.forEach(child => create_rpc_table(child))
+    if (!section.rpcs || section.rpcs.length == 0) return
+    section.content.push('')
+    section.content.push('| Method | Status | Data Type | Proof Type |');
+    section.content.push('| :----- | :----- | :-------- | :--------- |');
+    for (let rpc of section.rpcs)
+        section.content.push(`| [${rpc.method}](https://docs.alchemy.com/reference/${rpc.method.replace(/_/g, '-').toLowerCase()}) | ${rpc.status == 'proofable' ? '✅' : (rpc.status == 'local' ? '🟢' : '❌')} | ${rpc.data_type ? '[' + rpc.data_type + ']()' : ''} | ${rpc.proof_type ? '[' + rpc.proof_type + ']()' : ''} |`);
+    section.content.push('')
+
+}
 
 function parse_ssz_files(files) {
     let types = {}
@@ -142,14 +188,16 @@ function parse_ssz_files(files) {
     for (let file of files) {
         const { types: t, sections: s } = parse_ssz_file(file)
         types = { ...types, ...t }
-        sections = [...sections, ...s.filter(s => s.parent_title == null)]
+        add_sections(sections, s)
     }
+
 
     // assign paths to sections
     for (let section of sections) assign_path(section, '')
     for (let type of Object.values(types)) create_type(type, types)
+    sections.forEach(create_rpc_table)
 
-    return { types, sections }
+    return sections
 }
 
 function add_members(content, members, types, level = '    ', is_union = false) {

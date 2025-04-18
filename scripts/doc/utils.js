@@ -1,4 +1,5 @@
 const fs = require('fs')
+const { replace_mermaid } = require('./mermaid')
 
 function toCamelCase(str) {
     str = str.trim().replace('ssz_', '').replace('SSZ_', '')
@@ -53,13 +54,16 @@ function get_main_path_in_summary(lines, pos) {
 function write_section(section) {
     if (section.content.length > 0) {
         let path = get_doc_path(section.full_path)
+        console.log('writing ' + section.full_path)
         let dir = path.substring(0, path.lastIndexOf('/'))
+        let content = [...section.content,
+        ...section.types.map(type => ['', ...type.content]).flat()
+        ]
+
         fs.mkdirSync(dir, { recursive: true })
         fs.writeFileSync(path,
             '# ' + section.title + '\n\n'
-            + section.content.join('\n') + "\n\n"
-            + section.types.map(type => type.content.join('\n')).join('\n\n')
-        )
+            + replace_mermaid(content, dir).join('\n'))
     }
     for (let child of section.children)
         write_section(child)
