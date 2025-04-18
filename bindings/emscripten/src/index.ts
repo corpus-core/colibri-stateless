@@ -5,6 +5,12 @@ export interface Cache {
     get(req: DataRequest): Uint8Array | undefined;
     set(req: DataRequest, data: Uint8Array): void;
 }
+
+interface RequestArguments {
+    readonly method: string;
+    readonly params?: readonly unknown[] | object;
+}
+
 export interface Config {
     chainId: number;
     beacon_apis: string[],
@@ -277,10 +283,25 @@ export default class C4Client {
         return this.verifyProof(method, args, proof);
     }
 
+
     static async register_storage(storage: C4Storage) {
         const c4w = await getC4w();
         c4w.storage = storage;
     }
+
+    async request(args: RequestArguments) {
+        const res = await this.rpc(args.method, args.params as any || []);
+        return res;
+    }
+
+    on(event: string, callback: (data: any) => void) {
+    }
+
+    removeListener(event: string, callback: (data: any) => void) {
+    }
+
+
+
 }
 
 

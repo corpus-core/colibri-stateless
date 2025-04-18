@@ -147,8 +147,6 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
 // ```mermaid
 // flowchart TB
 //     subgraph "ExecutionLayer"
-//         class ExecutionLayer transparent
-//
 //         subgraph "Account"
 //             balance --> account
 //             nonce --> account
@@ -182,7 +180,9 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
 //         end
 //
 //     end
-//
+//     classDef transparentStyle fill:transparent
+//     class ExecutionLayer transparentStyle
+//     class ConsensusLayer transparentStyle
 // ```
 
 // the stateRoot proof is used as part of different other types since it contains all relevant
@@ -264,6 +264,9 @@ static const ssz_def_t ETH_CODE_UNION[] = {
 //         end
 //
 //     end
+//     classDef transparentStyle fill:transparent
+//     class ExecutionLayer transparentStyle
+//     class ConsensusLayer transparentStyle
 //
 // ```
 
@@ -333,48 +336,48 @@ static const ssz_def_t ETH_CALL_PROOF[] = {
 //
 //     class val_mode noBorder
 //
-//     blockheaderhash --> SigningRoot
+//     blockheaderhash ==> SigningRoot
 //     Domain --> SigningRoot
-//     4{4} --> blockheaderhash
+//     4{4} ==> blockheaderhash
 //     5{5} --> blockheaderhash
 //     8{8} --> 4
-//     9{9} --> 4
-//     10{10} --> 5
-//     11{11} --> 5
-//     Slot --> 8
-//     proposerIndex --> 8
+//     9{9} ==> 4
+//     10{10} -.-> 5
+//     11{11} -.-> 5
+//     Slot -.-> 8
+//     proposerIndex -.-> 8
 //     parentRoot --> 9
-//     stateRoot --> 9
-//     bodyRoot --> 10
-//     21{"zero"} --> 10
-//     22{"zero"} --> 11
-//     23{"zero"} --> 11
+//     stateRoot ==> 9
+//     bodyRoot -.-> 10
+//     21{"zero"} -.-> 10
+//     22{"zero"} -.-> 11
+//     23{"zero"} -.-> 11
 //
 //
 //     38{38} --> stateRoot
-//     39{39} --> stateRoot
+//     39{39} ==> stateRoot
 //
 //
-//     76{76} --> 38
-//     77{77} --> 38
-//     78{78} --> 39
+//     76{76} -.-> 38
+//     77{77} -.-> 38
+//     78{78} ==> 39
 //     79{79} --> 39
 //
 //     156{156} -->78
-//     157{157} -->78
+//     157{157} ==>78
 //
 //     158("...") --> 79
 //
 //     314{314} --> 157
-//     315{315} --> 157
+//     315{315} ==> 157
 //
-//     finalized_checkpoint --> 314
-//     inactivity_scores --> 314
+//     finalized_checkpoint -.-> 314
+//     inactivity_scores -.-> 314
 //     current_sync_committee --> 315
-//     next_sync_committee --> 315
+//     next_sync_committee ==> 315
 //
 //
-//     pubkeys --> next_sync_committee
+//     pubkeys ==> next_sync_committee
 //     aggregate_pubkey --> next_sync_committee
 //
 //     2524{2524} --> pubkeys
