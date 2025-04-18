@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 const fs = require('fs');
-const { toCamelCase, get_full_src_path, align } = require('./utils');
+const path = require('path');
+const { toCamelCase, get_full_src_path, align, get_doc_path } = require('./utils');
 
 
 
@@ -28,6 +29,7 @@ function add_section(line, sections) {
             types: [],
             rpcs: [],
             parent_title: null,
+            path: null,
         }
         for (let i = sections.length - 1; i >= 0; i--) {
             if (sections[i].level < section.level) {
@@ -76,7 +78,13 @@ function add_rpc(line, sections, comment) {
         const method = args[0].replace(/["']/g, '');
         const data_type = args[1] == 'Void' ? '' : args[1];
         const proof_type = args[2] == 'Void' ? '' : args[2];
-        section.rpcs.push({ method, data_type, proof_type, comment, status: section.rpc_state });
+        section.rpcs.push({
+            method,
+            data_type,
+            proof_type,
+            comment,
+            status: section.rpc_state,
+        });
         return true
     }
     return false
@@ -164,6 +172,7 @@ function add_sections(old_sections, new_sections) {
             add_sections(found.children, section.children)
             found.content = [...found.content, ...section.content]
             found.types = [...found.types, ...section.types]
+            found.rpcs = [...found.rpcs, ...section.rpcs];
         }
         else
             old_sections.push(section)
@@ -173,13 +182,36 @@ function add_sections(old_sections, new_sections) {
 function create_rpc_table(section) {
     section.children.forEach(child => create_rpc_table(child))
     if (!section.rpcs || section.rpcs.length == 0) return
-    section.content.push('')
-    section.content.push('| Method | Status | Data Type | Proof Type |');
-    section.content.push('| :----- | :----- | :-------- | :--------- |');
-    for (let rpc of section.rpcs)
-        section.content.push(`| [${rpc.method}](https://docs.alchemy.com/reference/${rpc.method.replace(/_/g, '-').toLowerCase()}) | ${rpc.status == 'proofable' ? '✅' : (rpc.status == 'local' ? '🟢' : '❌')} | ${rpc.data_type ? '[' + rpc.data_type + ']()' : ''} | ${rpc.proof_type ? '[' + rpc.proof_type + ']()' : ''} |`);
-    section.content.push('')
 
+    section.content.push('')
+    section.content.push('<table>');
+    section.content.push('  <thead>');
+    section.content.push('    <tr>');
+    section.content.push('      <th width="35%">Method</th>');
+    section.content.push('      <th width="5%" style="text-align: center;">Status</th>');
+    section.content.push('      <th width="30%">Data Type</th>');
+    section.content.push('      <th width="30%">Proof Type</th>');
+    section.content.push('    </tr>');
+    section.content.push('  </thead>');
+    section.content.push('  <tbody>');
+
+    for (let rpc of section.rpcs) {
+        const methodLink = `<a href="https://docs.alchemy.com/reference/${rpc.method.replace(/_/g, '-').toLowerCase()}" target="_blank" rel="noopener noreferrer">${rpc.method}</a>`;
+        const statusIcon = rpc.status == 'proofable' ? '✅' : (rpc.status == 'local' ? '🟢' : '❌');
+        const dataTypeHtml = rpc.data_type ? `<a href="">${rpc.data_type}</a>` : '';
+        const proofTypeHtml = rpc.proof_type ? `<a href="">${rpc.proof_type}</a>` : '';
+
+        section.content.push('    <tr>');
+        section.content.push(`      <td>${methodLink}</td>`);
+        section.content.push(`      <td style="text-align: center;">${statusIcon}</td>`);
+        section.content.push(`      <td>${dataTypeHtml}</td>`);
+        section.content.push(`      <td>${proofTypeHtml}</td>`);
+        section.content.push('    </tr>');
+    }
+
+    section.content.push('  </tbody>');
+    section.content.push('</table>');
+    section.content.push('')
 }
 
 function parse_ssz_files(files) {
@@ -191,8 +223,6 @@ function parse_ssz_files(files) {
         add_sections(sections, s)
     }
 
-
-    // assign paths to sections
     for (let section of sections) assign_path(section, '')
     for (let type of Object.values(types)) create_type(type, types)
     sections.forEach(create_rpc_table)
