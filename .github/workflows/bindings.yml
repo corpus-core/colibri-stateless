@@ -375,6 +375,8 @@ jobs:
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.3
 
       - name: Build with Emscripten
         run: |
