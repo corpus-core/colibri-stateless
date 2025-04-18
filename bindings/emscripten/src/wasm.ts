@@ -1,4 +1,3 @@
-
 export interface C4W {
     _c4w_create_proof_ctx: (method: number, args: number, chainId: bigint, flags: number) => number;
     _c4w_free_proof_ctx: (proofCtx: number) => void;
@@ -46,6 +45,15 @@ export async function getC4w(): Promise<C4W> {
             module.storage = await get_default_storage();
             module._init_storage();
             modulePromise = null; // Reset the promise after loading
+            // --- Debug Logging Start ---
+            console.log("C4W Module Loaded:", module);
+            if (module && module.HEAPU8) {
+                console.log("C4W HEAPU8 Type:", typeof module.HEAPU8);
+                console.log("C4W HEAPU8 Length:", module.HEAPU8.length);
+            } else {
+                console.error("C4W HEAPU8 is missing or invalid!");
+            }
+            // --- Debug Logging End ---
             return module;
         });
     }
