@@ -15,6 +15,17 @@ const link_dirs = [
     'introduction',
     'specifications',
 ]
+
+const extern_types = {
+    BeaconBlockHeader: 'https://ethereum.github.io/consensus-specs/specs/phase0/beacon-chain/#beaconblockheader',
+    DenepExecutionPayload: 'https://ethereum.github.io/consensus-specs/specs/deneb/beacon-chain/#executionpayload',
+    LightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate'
+}
+
+
+
+
+
 const summary = read_summary()
 summary.set_sections(parse_ssz_files(type_defs))
 summary.set_sections(get_cmake_options())
@@ -23,5 +34,6 @@ summary.write()
 // update links
 let links = {}
 link_dirs.forEach(dir => find_links_in_dir(dir, links))
+Object.keys(extern_types).forEach(type => links[type] = { url: extern_types[type] })
 link_dirs.forEach(dir => replace_links_in_dir(dir, links))
 

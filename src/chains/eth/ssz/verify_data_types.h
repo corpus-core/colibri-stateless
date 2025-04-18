@@ -3,7 +3,7 @@
 
 // # Ethereum Execution Proofs
 
-// ## Call Proof
+// ## Transaction Proof
 
 // Entry in the access list of a transaction or call.
 static const ssz_def_t ETH_ACCESS_LIST_DATA[] = {
@@ -11,8 +11,6 @@ static const ssz_def_t ETH_ACCESS_LIST_DATA[] = {
     SSZ_LIST("storageKeys", ssz_bytes32, 256),
 };
 static const ssz_def_t ETH_ACCESS_LIST_DATA_CONTAINER = SSZ_CONTAINER("AccessListData", ETH_ACCESS_LIST_DATA);
-
-// ## Transaction Proof
 
 // the transaction data as result of an eth_getTransactionByHash rpc-call.
 static const ssz_def_t ETH_TX_DATA[] = {

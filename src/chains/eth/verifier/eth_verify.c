@@ -21,13 +21,13 @@ static const char* proofable_methods[] = {
     RPC_METHOD("eth_getBlockByHash", EthBlockData, EthBlockProof),
     RPC_METHOD("eth_getBlockByNumber", EthBlockData, EthBlockProof),
     RPC_METHOD("eth_getCode", Bytes, EthAccountProof),
-    RPC_METHOD("eth_getLogs", ListEthReceiptDataLog, ListEthLogsBlock),
+    RPC_METHOD("eth_getLogs", ListEthReceiptDataLog, ListEthLogsBlock), // - currently everthing except the logIndex is verified
     RPC_METHOD("eth_getTransactionCount", Uint256, EthAccountProof),
     RPC_METHOD("eth_getStorageAt", Bytes32, EthAccountProof),
     RPC_METHOD("eth_getTransactionReceipt", EthReceiptData, EthReceiptProof),
-    RPC_METHOD("eth_getTransactionByHash", EthTransactionData, EthTransactionProof),
-    RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTransactionData, EthTransactionProof),
-    RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTransactionData, EthTransactionProof),
+    RPC_METHOD("eth_getTransactionByHash", EthTxData, EthTransactionProof),
+    RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTxData, EthTransactionProof),
+    RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTxData, EthTransactionProof),
 };
 static const char* local_methods[] = {
     RPC_METHOD("eth_chainId", Uint64, Void),
@@ -73,7 +73,10 @@ method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method) {
   for (int i = 0; i < sizeof(local_methods) / sizeof(local_methods[0]); i++) {
     if (strcmp(method, local_methods[i]) == 0) return METHOD_LOCAL;
   }
-  return METHOD_NOT_SUPPORTED;
+  for (int i = 0; i < sizeof(not_verifieable_yet_methods) / sizeof(not_verifieable_yet_methods[0]); i++) {
+    if (strcmp(method, not_verifieable_yet_methods[i]) == 0) return METHOD_UNPROOFABLE;
+  }
+  return METHOD_UNDEFINED;
 }
 
 const ssz_def_t* c4_eth_get_request_type(chain_type_t chain_type) {

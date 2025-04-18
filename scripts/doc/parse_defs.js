@@ -102,16 +102,16 @@ function parse_ssz_file(file) {
     for (let line of lines) {
         line_number++
         if (add_section(line, sections)) continue
-        if (add_rpc(line, sections, comment)) {
-            comment = ''
-            continue
-        }
 
         // handle comments
         const splits = line.split('//')
         if (splits.length > 1) {
             line = splits[0]
             comment = ((comment || '') + '\n' + splits.slice(1).join('//')).trim()
+        }
+        if (add_rpc(line, sections, comment)) {
+            comment = ''
+            continue
         }
 
         // handle type definitions
@@ -179,39 +179,69 @@ function add_sections(old_sections, new_sections) {
     }
 }
 
-function create_rpc_table(section) {
-    section.children.forEach(child => create_rpc_table(child))
+function create_rpc_table(section, sections) {
+    section.children.forEach(child => create_rpc_table(child, sections))
     if (!section.rpcs || section.rpcs.length == 0) return
+
+    function html_link(type) {
+        if (!type) return ''
+        let prefix = ''
+        let postfix = ''
+        if (type.startsWith('List')) {
+            prefix = 'List ['
+            postfix = ']'
+            type = type.substring(4)
+        }
+
+        return `${prefix}<a href="">${type}</a>${postfix}`
+    }
 
     section.content.push('')
     section.content.push('<table>');
     section.content.push('  <thead>');
     section.content.push('    <tr>');
-    section.content.push('      <th width="35%">Method</th>');
-    section.content.push('      <th width="5%" style="text-align: center;">Status</th>');
-    section.content.push('      <th width="30%">Data Type</th>');
-    section.content.push('      <th width="30%">Proof Type</th>');
+    section.content.push('      <th>Method</th>');
+    section.content.push('      <th width="80" align="center">Status</th>');
+    section.content.push('      <th>Data Type</th>');
+    section.content.push('      <th>Proof Type</th>');
     section.content.push('    </tr>');
     section.content.push('  </thead>');
     section.content.push('  <tbody>');
 
     for (let rpc of section.rpcs) {
-        const methodLink = `<a href="https://docs.alchemy.com/reference/${rpc.method.replace(/_/g, '-').toLowerCase()}" target="_blank" rel="noopener noreferrer">${rpc.method}</a>`;
+        const link = `https://docs.alchemy.com/reference/${rpc.method.replace(/_/g, '-').toLowerCase()}`
+        const methodLink = `<a href="${link}" target="_blank" rel="noopener noreferrer">${rpc.method}</a>`;
         const statusIcon = rpc.status == 'proofable' ? '✅' : (rpc.status == 'local' ? '🟢' : '❌');
-        const dataTypeHtml = rpc.data_type ? `<a href="">${rpc.data_type}</a>` : '';
-        const proofTypeHtml = rpc.proof_type ? `<a href="">${rpc.proof_type}</a>` : '';
 
         section.content.push('    <tr>');
         section.content.push(`      <td>${methodLink}</td>`);
         section.content.push(`      <td style="text-align: center;">${statusIcon}</td>`);
-        section.content.push(`      <td>${dataTypeHtml}</td>`);
-        section.content.push(`      <td>${proofTypeHtml}</td>`);
+        section.content.push(`      <td>${html_link(rpc.data_type)}</td>`);
+        section.content.push(`      <td>${html_link(rpc.proof_type)}</td>`);
         section.content.push('    </tr>');
+
+        let s = find_section_for_type(sections, rpc.proof_type)
+        if (s) {
+            if (!s.content.length || !s.content.at(-1).startsWith('- '))
+                s.content.push('\nThis Proof is used for the following RPC-Methods:\n')
+            s.content.push(`- [${rpc.method}](${link}) ${rpc.comment}`.trim())
+        }
     }
 
     section.content.push('  </tbody>');
     section.content.push('</table>');
     section.content.push('')
+}
+
+function find_section_for_type(sections, type) {
+    if (!type) return null
+    if (type.startsWith('List')) type = type.substring(4)
+    for (let section of sections) {
+        if (section.types.find(t => t.type == type)) return section
+        const found = find_section_for_type(section.children, type)
+        if (found) return found
+    }
+    return null
 }
 
 function parse_ssz_files(files) {
@@ -225,7 +255,7 @@ function parse_ssz_files(files) {
 
     for (let section of sections) assign_path(section, '')
     for (let type of Object.values(types)) create_type(type, types)
-    sections.forEach(create_rpc_table)
+    sections.forEach(s => create_rpc_table(s, sections))
 
     return sections
 }
@@ -245,6 +275,16 @@ function add_members(content, members, types, level = '    ', is_union = false) 
     })
 }
 
+function add_references(content, members, types) {
+    for (let member of members) {
+        if (member.type == 'Union')
+            add_references(content, types[member.type_name].members, types)
+        else if (member.type == 'List' || member.type == 'Vector')
+            content.push(toCamelCase(member.args[0]))
+        else if (member.type == 'Container')
+            content.push(member.type_name)
+    }
+}
 
 function create_type(type, types) {
     let content = []
@@ -263,6 +303,18 @@ function create_type(type, types) {
 
     type.content = align(content, ' : ')
     type.content = align(type.content, ' # ')
+
+    let refs = []
+    add_references(refs, type.members, types)
+    refs = refs.filter((_, i, arr) => arr.indexOf(_) === i).filter(_ => types[_])
+    if (refs.length > 0) {
+        type.content.push('')
+        type.content.push('**Referenced Types**')
+        type.content.push('')
+        for (let ref of refs)
+            type.content.push(`- [${ref}]()`)
+        type.content.push('')
+    }
 
 
 }

@@ -56,30 +56,32 @@ function replace_links_in_file(file, links) {
 
         if (label && links[label]) {
             const targetLinkInfo = links[label]
-            const targetFilePath = get_doc_path(targetLinkInfo.file)
-            const currentDirPath = path.dirname(filePath)
+            let url = targetLinkInfo.url
+            if (!url) {
+                const targetFilePath = get_doc_path(targetLinkInfo.file)
+                const currentDirPath = path.dirname(filePath)
 
-            let relativePath = path.relative(currentDirPath, targetFilePath)
-            // Ensure relative path starts with './' if needed for relative links
-            if (!relativePath.startsWith('.') && !relativePath.startsWith('/')) {
-                relativePath = './' + relativePath;
+                let relativePath = path.relative(currentDirPath, targetFilePath)
+                // Ensure relative path starts with './' if needed for relative links
+                if (!relativePath.startsWith('.') && !relativePath.startsWith('/')) {
+                    relativePath = './' + relativePath;
+                }
+                // Remove .md extension for GitBook style links
+                relativePath = relativePath.replace(/\.md$/i, '');
+
+                const anchor = targetLinkInfo.anchor;
+                url = `${relativePath}.md#${anchor}`
             }
-            // Remove .md extension for GitBook style links
-            relativePath = relativePath.replace(/\.md$/i, '');
-
-            const anchor = targetLinkInfo.anchor;
             let newLink;
 
             // Generate the replacement link in the original format
-            if (mdLabel) {
-                newLink = `[${label}](${relativePath}.md#${anchor})`;
-            } else { // htmlLabel must be defined
-                newLink = `<a href="${relativePath}#${anchor}">${label}</a>`;
-            }
+            if (mdLabel)
+                newLink = `[${label}](${url})`;
+            else  // htmlLabel must be defined
+                newLink = `<a href="${url}">${label}</a>`;
 
-            if (newLink !== match) {
+            if (newLink !== match)
                 modified = true;
-            }
             return newLink;
         } else {
             // If label not found in links, or label is somehow empty, remove the link syntax
