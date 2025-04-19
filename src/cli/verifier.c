@@ -72,7 +72,6 @@ int main(int argc, char* argv[]) {
   char*      test_dir       = NULL;
   buffer_t   trusted_blocks = {0};
   buffer_add_chars(&args, "[");
-  buffer_add_chars(&trusted_blocks, "[");
 
   for (int i = 1; i < argc; i++) {
     if (*argv[i] == '-') {
@@ -86,8 +85,13 @@ int main(int argc, char* argv[]) {
             input = argv[++i];
             break;
           case 'b':
-            if (trusted_blocks.data.len > 1) buffer_add_chars(&trusted_blocks, ",");
-            bprintf(&trusted_blocks, "\"%s\"", argv[++i]);
+            buffer_grow(&trusted_blocks, trusted_blocks.data.len + 32);
+            if (hex_to_bytes(argv[++i], -1, bytes(trusted_blocks.data.data + trusted_blocks.data.len, 32)) == 32)
+              trusted_blocks.data.len += 32;
+            else {
+              fprintf(stderr, "invalid blockhash: %s\n", argv[--i]);
+              exit(EXIT_FAILURE);
+            }
             break;
 #ifdef TEST
 #ifdef USE_CURL
@@ -113,12 +117,13 @@ int main(int argc, char* argv[]) {
     }
   }
   buffer_add_chars(&args, "]");
-  buffer_add_chars(&trusted_blocks, "]");
   if (input == NULL) {
     input = getenv("C4_PROOFER");
     if (input == NULL)
       input = "https://c4.incubed.net";
   }
+  if (trusted_blocks.data.len > 0)
+    c4_eth_set_trusted_blockhashes(chain_id, trusted_blocks.data);
   bytes_t       request     = {0};
   method_type_t method_type = c4_get_method_type(chain_id, method);
   switch (method_type) {

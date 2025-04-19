@@ -44,7 +44,9 @@ main().then(console.log).catch(console.error);
 
 ## Building
 
-In order to build the Javascript bindings, you need to have [emscripten installed](https://emscripten.org/docs/getting_started/downloads.html). 
+In order to build the Javascript bindings, you need to have [emscripten installed](https://emscripten.org/docs/getting_started/downloads.html).
+
+**Important:** This project has been tested and is known to work with Emscripten SDK version **4.0.3**. Using `latest` or other versions may lead to unexpected build issues. We recommend using version 4.0.3 for stability.
 
 ```sh
 git clone https://github.com/corpus-core/c4.git

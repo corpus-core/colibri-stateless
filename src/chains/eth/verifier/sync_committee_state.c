@@ -54,8 +54,9 @@ void c4_eth_set_trusted_blockhashes(chain_id_t chain_id, bytes_t blockhashes) {
   if (state.len == 0) {
     char             name[100];
     storage_plugin_t storage_conf = {0};
-    state.blocks                  = safe_calloc(blockhashes.len / 32, sizeof(c4_trusted_block_t));
-    state.len                     = blockhashes.len / 32;
+    c4_get_storage_config(&storage_conf);
+    state.blocks = safe_calloc(blockhashes.len / 32, sizeof(c4_trusted_block_t));
+    state.len    = blockhashes.len / 32;
     for (int i = 0; i < state.len; i++)
       memcpy(state.blocks[i].blockhash, blockhashes.data + i * 32, 32);
     sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
@@ -231,7 +232,7 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
       success = req_client_update(state, period - 20, 1, ctx->chain_id, &client_update_past);
     }
   }
-  else if (trusted_blocks_len(chain_state) == 0) {
+  else if (trusted_blocks_len(chain_state)) {
     char     name[100];
     buffer_t tmp = stack_buffer(name);
     for (int i = 0; i < chain_state.len; i++) { // currently we only support one trusted block
@@ -245,7 +246,7 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
     // we need to resolve the client update for the given blockhash.
     success = req_header(state, (json_t) {.type = JSON_TYPE_STRING, .start = name, .len = tmp.data.len}, ctx->chain_id, &data);
     if (success) {
-      uint64_t period = (json_get_uint64(data, "slot") >> 13) - 1;
+      uint64_t period = (json_get_uint64(data, "slot") >> 13);
       success         = req_client_update(state, period, 1, ctx->chain_id, &client_update);
     }
   }
@@ -317,8 +318,10 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
   c4_sync_state_t sync_state = get_validators_from_cache(ctx, period);
 
   if (sync_state.validators.data == NULL) {
-    if (sync_state.last_period == 0) // there is nothing we can start syncing from
+    if (sync_state.last_period == 0) { // there is nothing we can start syncing from
       TRY_ASYNC(init_sync_state(ctx));
+      return c4_get_validators(ctx, period, target_state);
+    }
     else {
       bytes_t client_update = {0};
       if (req_client_update(&ctx->state, sync_state.last_period, sync_state.current_period - sync_state.last_period, ctx->chain_id, &client_update)) {
