@@ -1,11 +1,17 @@
 // Import the Emscripten-generated module
-import { getC4w, as_char_ptr, as_json, as_bytes, copy_to_c, Storage as C4Storage } from "./wasm.js";
+import { getC4w, as_char_ptr, as_json, as_bytes, copy_to_c, Storage as C4Storage, C4W } from "./wasm.js";
+
+// custom cache implementation  allowing to cache requests in the browser
 export interface Cache {
+    // checks, whether the request is cacheable
     cacheable(req: DataRequest): boolean;
+    // gets the cached data for the request
     get(req: DataRequest): Uint8Array | undefined;
+    // sets the cached data for the request
     set(req: DataRequest, data: Uint8Array): void;
 }
 
+// EIP-1193 request arguments.
 interface RequestArguments {
     readonly method: string;
     readonly params?: readonly unknown[] | object;
@@ -133,6 +139,19 @@ export async function handle_request(req: DataRequest, conf: Config) {
 }
 
 
+function check_trusted_blockhashes(trusted_block_hashes: string[], c4w: C4W, chainId: number) {
+    const blockhashes = new Uint8Array(32 * trusted_block_hashes.length);
+    for (let i = 0; i < trusted_block_hashes.length; i++) {
+        if (trusted_block_hashes[i].length != 66 || !trusted_block_hashes[i].startsWith("0x")) throw new Error("Invalid trustedblockhash : " + trusted_block_hashes[i]);
+        for (let j = 0; j < 32; j++)
+            blockhashes[i * 32 + j] = parseInt(trusted_block_hashes[i].slice(2 + j * 2, 4 + j * 2), 16);
+    }
+    const ptr = copy_to_c(blockhashes, c4w);
+    c4w._c4w_set_trusted_blockhashes(BigInt(chainId), ptr, blockhashes.length);
+    c4w._free(ptr);
+    trusted_block_hashes.length = 0;
+}
+
 export default class C4Client {
 
 
@@ -220,7 +239,12 @@ export default class C4Client {
         const free_buffers: number[] = [];
         let ctx = 0;
 
+
         try {
+
+            if (this.config.trusted_block_hashes && this.config.trusted_block_hashes.length > 0)
+                check_trusted_blockhashes(this.config.trusted_block_hashes, c4w, this.config.chainId);
+
             // Call the C function
             ctx = c4w._c4w_create_verify_ctx(
                 copy_to_c(proof, c4w, free_buffers),

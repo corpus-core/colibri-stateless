@@ -48,6 +48,24 @@ INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
   return state;
 }
 
+void c4_eth_set_trusted_blockhashes(chain_id_t chain_id, bytes_t blockhashes) {
+  if (blockhashes.len == 0 || blockhashes.data == NULL || blockhashes.len % 32 != 0 || chain_id == 0) return;
+  c4_chain_state_t state = c4_get_chain_state(chain_id);
+  if (state.len == 0) {
+    char             name[100];
+    storage_plugin_t storage_conf = {0};
+    state.blocks                  = safe_calloc(blockhashes.len / 32, sizeof(c4_trusted_block_t));
+    state.len                     = blockhashes.len / 32;
+    for (int i = 0; i < state.len; i++)
+      memcpy(state.blocks[i].blockhash, blockhashes.data + i * 32, 32);
+    sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
+    storage_conf.set(name, bytes(state.blocks, state.len * sizeof(c4_trusted_block_t)));
+  }
+#ifndef C4_STATIC_MEMORY
+  safe_free(state.blocks);
+#endif
+}
+
 static bool req_header(c4_state_t* state, json_t slot, chain_id_t chain_id, json_t* data) {
   buffer_t tmp = {0};
   if (slot.type == JSON_TYPE_STRING)
@@ -86,6 +104,13 @@ static bool req_header(c4_state_t* state, json_t slot, chain_id_t chain_id, json
   return false;
 }
 
+static inline int trusted_blocks_len(c4_chain_state_t chain_state) {
+  int len = 0;
+  for (int i = 0; i < chain_state.len; i++)
+    len += chain_state.blocks[i].slot ? 0 : 1;
+  return len;
+}
+
 static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count, chain_id_t chain_id, bytes_t* data) {
   buffer_t tmp = {0};
   bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", period, count);
@@ -115,6 +140,14 @@ INTERNAL bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t val
   c4_chain_state_t state         = c4_get_chain_state(chain_id);
   uint32_t         allocated_len = state.len;
   char             name[100];
+
+  // check if we had only trusted blocks
+  if (trusted_blocks_len(state)) {
+    safe_free(state.blocks);
+    state.blocks  = NULL;
+    state.len     = 0;
+    allocated_len = 0;
+  }
 
   c4_get_storage_config(&storage_conf);
 
@@ -180,7 +213,7 @@ INTERNAL bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t val
   return true;
 }
 
-INTERNAL c4_status_t c4_set_trusted_blocks(verify_ctx_t* ctx, json_t blocks) {
+static c4_status_t init_sync_state(verify_ctx_t* ctx) {
   c4_chain_state_t chain_state        = c4_get_chain_state(ctx->chain_id);
   c4_state_t*      state              = &ctx->state;
   json_t           data               = {0};
@@ -188,8 +221,8 @@ INTERNAL c4_status_t c4_set_trusted_blocks(verify_ctx_t* ctx, json_t blocks) {
   bytes_t          client_update      = {0};
   bytes_t          client_update_past = {0};
   bytes32_t        blockhash          = {0};
-  if (chain_state.len == 0 && (blocks.len == 0 || json_len(blocks) == 0)) {
-    // we need to fetch the last client update
+
+  if (chain_state.len == 0) { // no trusted blockhashes, so we need to fetch the last client update
     success = req_header(state, (json_t) {0}, ctx->chain_id, &data);
     if (success) {
       uint64_t slot   = json_get_uint64(data, "slot");
@@ -198,17 +231,25 @@ INTERNAL c4_status_t c4_set_trusted_blocks(verify_ctx_t* ctx, json_t blocks) {
       success = req_client_update(state, period - 20, 1, ctx->chain_id, &client_update_past);
     }
   }
-  else if (chain_state.len == 0) {
+  else if (trusted_blocks_len(chain_state) == 0) {
+    char     name[100];
+    buffer_t tmp = stack_buffer(name);
+    for (int i = 0; i < chain_state.len; i++) { // currently we only support one trusted block
+      if (!chain_state.blocks[i].slot) {
+        bprintf(&tmp, "\"0x%x\"", bytes(chain_state.blocks[i].blockhash, 32));
+        memcpy(blockhash, chain_state.blocks[i].blockhash, 32);
+        break;
+      }
+    }
+
     // we need to resolve the client update for the given blockhash.
-    success = req_header(state, json_at(blocks, 0), ctx->chain_id, &data);
+    success = req_header(state, (json_t) {.type = JSON_TYPE_STRING, .start = name, .len = tmp.data.len}, ctx->chain_id, &data);
     if (success) {
       uint64_t period = (json_get_uint64(data, "slot") >> 13) - 1;
       success         = req_client_update(state, period, 1, ctx->chain_id, &client_update);
     }
   }
-  else {
-    // we need to check if the blocks are in the cache
-  }
+
 #ifndef C4_STATIC_MEMORY
   safe_free(chain_state.blocks);
 #endif
@@ -276,8 +317,8 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
   c4_sync_state_t sync_state = get_validators_from_cache(ctx, period);
 
   if (sync_state.validators.data == NULL) {
-    if (sync_state.last_period == 0)                           // no state at all
-      TRY_ASYNC(c4_set_trusted_blocks(ctx, json_parse("[]"))); // TODO get the trusted blocks from config
+    if (sync_state.last_period == 0) // there is nothing we can start syncing from
+      TRY_ASYNC(init_sync_state(ctx));
     else {
       bytes_t client_update = {0};
       if (req_client_update(&ctx->state, sync_state.last_period, sync_state.current_period - sync_state.last_period, ctx->chain_id, &client_update)) {

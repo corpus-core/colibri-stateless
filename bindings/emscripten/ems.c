@@ -74,6 +74,10 @@ static void add_data_request(buffer_t* result, data_request_t* data_request) {
   bprintf(result, "\"type\": \"%s\"}", data_request_type_to_string(data_request->type));
 }
 
+void EMSCRIPTEN_KEEPALIVE c4w_set_trusted_blockhashes(uint64_t chain_id, uint8_t* blockhashes, int len) {
+  c4_eth_set_trusted_blockhashes(chain_id, bytes(blockhashes, len));
+}
+
 char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(proofer_ctx_t* ctx) {
   buffer_t    result = {0};
   c4_status_t status = c4_proofer_execute(ctx);

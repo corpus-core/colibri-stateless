@@ -6,7 +6,7 @@ export interface C4W {
     _c4w_req_set_response: (reqPtr: number, data: number, len: number, node_index: number) => void;
     _c4w_req_set_error: (reqPtr: number, error: number, node_index: number) => void;
     _c4w_get_method_type: (chain_id: bigint, method: number) => number;
-
+    _c4w_set_trusted_blockhashes: (chain_id: bigint, blockhashes: number, len: number) => void;
     _c4w_create_verify_ctx: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint) => number;
     _c4w_free_verify_ctx: (verifyCtx: number) => void;
     _c4w_verify_proof: (verifyCtx: number) => number;
