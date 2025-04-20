@@ -20,7 +20,7 @@ The Colibri Class implements the EIP-1193 Interface, so any library supporting E
 
 Right now Subscription and Filters have not been implemented, so in case you need those features, jus use a different Provider for those tasks and the verify the found logs using Colibri. But those features will be implemented in one of the next releases.
 
-### EthersJs 6.x"
+### EthersJs 6.x
 ```javascript
 import { BrowserProvider } from "ethers";
 import Colibri from "@corpus-core/colibri-stateless";
@@ -40,7 +40,7 @@ async function main() {
 
 main().catch(console.error);
 ```
-### EthersJs 5.x"
+### EthersJs 5.x
 ```javascript
 import * as ethers from "ethers";
 import Colibri from "@corpus-core/colibri-stateless";
