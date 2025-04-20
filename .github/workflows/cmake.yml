@@ -278,11 +278,11 @@ jobs:
           # sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
           # sudo update-alternatives --install /usr/bin/scan-build scan-build /usr/bin/scan-build-19 100
           # Verify the version being used
-          clang --version
-          scan-build --version
+          clang-19 --version
+          scan-build-19 --version
 
       - name: List Checkers
-        run: scan-build --help 2>&1
+        run: scan-build-19 --help 2>&1
 
       - name: Configure CMake with Scan-Build
         run: |
@@ -303,14 +303,14 @@ jobs:
             -analyzer-config strict-mode=true"
 
           # Apply scan-build to CMake configuration
-          scan-build $SCAN_BUILD_OPTS cmake -DCMAKE_BUILD_TYPE=DEBUG  -DTEST=true -DCURL=false ..
+          scan-build-19 $SCAN_BUILD_OPTS cmake -DCMAKE_BUILD_TYPE=DEBUG  -DTEST=true -DCURL=false ..
 
       - name: Run Scan-Build
         id: scan-build
         run: |
           cd build
           # Run scan-build with the same options
-          scan-build \
+          scan-build-19 \
             --force-analyze-debug-code \
             --status-bugs \
             -v \
