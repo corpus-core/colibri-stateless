@@ -201,7 +201,7 @@ class ColibriTest {
 
             val chainId = testConf.optBigInteger("chain", BigInteger.ONE) // Assuming chainId is in test.json
             val method = testConf.getString("method")
-            val trusted_blockhash = testConf.get("trusted_blockhash")
+            val trusted_blockhash = testConf.optString("trusted_blockhash", null) // Use optString
             val paramsJson = testConf.getJSONArray("params")
             val expectedResultJson = testConf.get("expected_result") // Can be any JSON type
 
