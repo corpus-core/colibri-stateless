@@ -268,10 +268,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Clang Tools
+      - name: Install Newer Clang Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-tools clang
+          # Example: Try installing clang-19 (adjust version as needed)
+          sudo apt-get install -y clang-tools-19 clang-19
+          # Optional: Update alternatives to make clang-19 the default clang/scan-build
+          # sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 100
+          # sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100
+          # sudo update-alternatives --install /usr/bin/scan-build scan-build /usr/bin/scan-build-19 100
+          # Verify the version being used
+          clang --version
+          scan-build --version
 
       - name: List Checkers
         run: scan-build --help 2>&1
