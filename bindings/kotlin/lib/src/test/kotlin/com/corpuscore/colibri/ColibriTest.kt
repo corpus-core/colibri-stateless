@@ -201,6 +201,7 @@ class ColibriTest {
 
             val chainId = testConf.optBigInteger("chain", BigInteger.ONE) // Assuming chainId is in test.json
             val method = testConf.getString("method")
+            val trusted_blockhash = testConf.get("trusted_blockhash")
             val paramsJson = testConf.getJSONArray("params")
             val expectedResultJson = testConf.get("expected_result") // Can be any JSON type
 
@@ -222,6 +223,10 @@ class ColibriTest {
             // Create Colibri instance with mock request handler
             val mockHandler = createMockRequestHandler(testDir)
             val colibri = Colibri(chainId = chainId, requestHandler = mockHandler)
+
+            if (trusted_blockhash != null) {
+                colibri.trustedBlockHashes = arrayOf(trusted_blockhash)
+            }
 
             // Run the test logic within runBlocking for suspend functions
             runBlocking {

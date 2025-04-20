@@ -110,9 +110,7 @@ static bytes_t read_testdata(const char* filename) {
 // Normalizes line endings in a string by removing '\r' characters.
 // Allocates a new string which must be freed by the caller.
 static char* normalize_newlines(const char* input) {
-  if (!input) {
-    return NULL;
-  }
+  if (!input) return NULL;
   size_t len    = strlen(input);
   char*  output = (char*) safe_malloc(len + 1); // Allocate enough space (max possible)
   if (!output) {
@@ -121,7 +119,7 @@ static char* normalize_newlines(const char* input) {
   }
   char* op = output;
   for (const char* ip = input; *ip != '\0'; ++ip) {
-    if (*ip != '\r') {
+    if (*ip != '\r' && *ip != '\n' && *ip != ' ') {
       *op++ = *ip;
     }
   }
@@ -263,9 +261,14 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 
       if (verify_ctx.success) {
         if (expected_result) {
-          char* result = ssz_dump_to_str(verify_ctx.data, false, true);
-          TEST_ASSERT_EQUAL_STRING_MESSAGE(expected_result, result, "wrong result");
+          char* result                     = ssz_dump_to_str(verify_ctx.data, false, true);
+          char* normalized_result          = normalize_newlines(result);
+          char* normalized_expected_result = normalize_newlines(expected_result);
+
+          TEST_ASSERT_EQUAL_STRING_MESSAGE(normalized_expected_result, normalized_result, "wrong result");
           safe_free(result);
+          safe_free(normalized_result);
+          safe_free(normalized_expected_result);
         }
         success = true;
         break;
@@ -288,14 +291,20 @@ static void verify(char* dirname, char* method, char* args, chain_id_t chain_id)
 static void run_rpc_test(char* dirname, proofer_flags_t flags) {
   char test_filename[1024];
   sprintf(test_filename, "%s/test.json", dirname);
-  bytes_t    test_content        = read_testdata(test_filename);
-  json_t     test                = json_parse((char*) test_content.data);
-  char*      method              = bprintf(NULL, "%j", json_get(test, "method"));
-  char*      args                = json_new_string(json_get(test, "params"));
-  chain_id_t chain_id            = (chain_id_t) json_get_uint64(test, "chain_id");
-  char*      expected_result_src = bprintf(NULL, "%J", json_get(test, "expected_result"));
-  char*      expected_result     = normalize_newlines(expected_result_src);
-  safe_free(expected_result_src);
+  bytes_t    test_content      = read_testdata(test_filename);
+  json_t     test              = json_parse((char*) test_content.data);
+  char*      method            = bprintf(NULL, "%j", json_get(test, "method"));
+  char*      args              = json_new_string(json_get(test, "params"));
+  json_t     trusted_blockhash = json_get(test, "trusted_blockhash");
+  chain_id_t chain_id          = (chain_id_t) json_get_uint64(test, "chain_id");
+  char*      expected_result   = bprintf(NULL, "%J", json_get(test, "expected_result"));
+
+  if (trusted_blockhash.type == JSON_TYPE_STRING) {
+    bytes32_t trusted_blockhash_bytes;
+    buffer_t  buf = stack_buffer(trusted_blockhash_bytes);
+    json_as_bytes(trusted_blockhash, &buf);
+    c4_eth_set_trusted_blockhashes(chain_id, bytes(trusted_blockhash_bytes, 32));
+  }
 
   verify_count(dirname, method, args, chain_id, 1, flags, expected_result);
 

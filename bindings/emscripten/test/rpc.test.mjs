@@ -70,17 +70,25 @@ test('RPC-Proof Test Suite', async (t) => {
             const cache = {}
             Colibri.register_storage({
                 get: (key) => {
-                    return cache[key] ?? fs.readFileSync(`${testdir}/${test}/${key}`);
+                    try {
+                        return cache[key] ?? fs.readFileSync(`${testdir}/${test}/${key}`);
+                    } catch (e) {
+                        return null;
+                    }
                 },
                 set: async (key, value) => {
                     cache[key] = value;
                 },
-                dek: (key) => {
+                del: (key) => {
+                    delete cache[key];
                 }
             })
 
             let test_conf = JSON.parse(fs.readFileSync(`${testdir}/${test}/test.json`, 'utf8'));
-            const c4 = new Colibri({ chain: test_conf.chain, cache: create_cache(`${testdir}/${test}`) });
+            let conf = { chain: test_conf.chain, cache: create_cache(`${testdir}/${test}`) }
+            if (test_conf.trusted_blockhash)
+                conf.trusted_block_hashes = [test_conf.trusted_blockhash]
+            const c4 = new Colibri(conf);
             const proof = await c4.createProof(test_conf.method, test_conf.params)
             assert.strictEqual(proof.length > 0, true, 'Proof should be non-empty');
             const result = await c4.verifyProof(test_conf.method, test_conf.params, proof);

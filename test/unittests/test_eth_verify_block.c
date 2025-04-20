@@ -19,9 +19,14 @@ void test_block_by_hash() {
   run_rpc_test("eth_getBlockByHash1", C4_PROOFER_FLAG_NO_CACHE);
 }
 
+void test_block_by_trusted_hash() {
+  run_rpc_test("trusted_block1", C4_PROOFER_FLAG_NO_CACHE);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_block_by_number);
   RUN_TEST(test_block_by_hash);
+  RUN_TEST(test_block_by_trusted_hash);
   return UNITY_END();
 }
