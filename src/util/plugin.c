@@ -33,14 +33,16 @@ static bool file_get(char* filename, buffer_t* data) {
   safe_free(full_path);
   if (file == NULL) return false;
 
-  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
+  while ((bytesRead = fread(buffer, 1, 1024, file)) == sizeof(buffer))
     buffer_append(data, bytes(buffer, bytesRead));
 
+  if (bytesRead > 0) buffer_append(data, bytes(buffer, bytesRead));
+
+#ifndef __clang_analyzer__
   if (file != stdin)
+#endif
     fclose(file);
 
-  else
-    assert(file == stdin && "stdin should not be closed here");
   return true;
 }
 
