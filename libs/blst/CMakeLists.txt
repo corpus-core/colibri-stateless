@@ -77,7 +77,7 @@ elseif(EMBEDDED)
 elseif(WIN32)
     add_custom_command(
         OUTPUT ${BLST_LIB}
-        COMMAND ${CMAKE_COMMAND} -E env CFLAGS=${EXTRA_C_FLAGS}-ffunction-sections\ -fdata-sections\ /wd4210 ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
+        COMMAND ${CMAKE_COMMAND} -E env CFLAGS="${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections /wd4210" ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
         COMMAND ${CMAKE_COMMAND} -E echo "Checking if blst.lib exists"
         COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/blst.lib ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
