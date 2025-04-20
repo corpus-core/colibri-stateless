@@ -3,21 +3,22 @@ package com.corpuscore.colibri
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.util.Locale
 
 object NativeLoader {
     private var loaded = false
 
     // Helper function matching the build script logic for directory naming
     private fun getOsArchIdentifier(): String {
-        val osName = System.getProperty("os.name").toLowerCase()
-        val osArch = System.getProperty("os.arch").toLowerCase()
+        val osName = System.getProperty("os.name", "generic").lowercase(Locale.ENGLISH)
+        val osArch = System.getProperty("os.arch", "generic").lowercase(Locale.ENGLISH)
         // Match the directory names used in build-jar.gradle.kts and CI
         return when {
             osName.contains("mac") && osArch == "aarch64" -> "darwin-aarch64"
             osName.contains("mac") && osArch == "x86_64" -> "darwin-x86_64" // Added x86_64 mac
-            osName.contains("linux") && osArch == "amd64" -> "linux-x86-64"
+            osName.contains("linux") && osArch == "amd64" -> "linux-x86_64"
             osName.contains("linux") && osArch == "aarch64" -> "linux-aarch64"
-            osName.contains("win") -> "win32-x86-64" // Assuming x64 only for now
+            osName.contains("win") -> "win32-x86_64" // Assuming x64 only for now
             else -> "unknown-${osName}-${osArch}" // More informative unknown
         }
     }

@@ -2,6 +2,7 @@
 #include "./compat.h" /* Include our compatibility header for PRI* macros */
 #include "./json.h"
 #include "ssz.h"
+#include <assert.h>
 #include <ctype.h>
 #include <errno.h> // For errno
 #include <stdarg.h>
@@ -11,7 +12,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 // --- Safe Memory Allocation Wrappers ---
 
 void* safe_malloc(size_t size) {
@@ -265,13 +265,21 @@ bytes_t bytes_read(char* filename) {
   FILE* file = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
   if (file == NULL) return NULL_BYTES;
 
-  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
+  while ((bytesRead = fread(buffer, 1, 1024, file)) == sizeof(buffer))
     buffer_append(&data, bytes(buffer, bytesRead));
-
+  if (bytesRead > 0) buffer_append(&data, bytes(buffer, bytesRead));
   buffer_append(&data, bytes(NULL, 1));
   data.data.len--;
 
+  if (ferror(file)) {
+    fprintf(stderr, "Error reading file: %s\n", filename);
+    buffer_free(&data);
+    data.data = NULL_BYTES;
+  }
+
+#ifndef __clang_analyzer__
   if (file != stdin)
+#endif
     fclose(file);
   return data.data;
 }

@@ -9,7 +9,9 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#if defined(__clang__) || defined(__GNUC__)
+
+// Only define the attribute if the clang analyzer is running
+#ifdef __clang_analyzer__
 #define COUNTED_BY(len_field) __attribute__((counted_by_or_null(len_field)))
 #else
 #define COUNTED_BY(len_field)

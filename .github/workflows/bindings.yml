@@ -96,10 +96,10 @@ jobs:
         run: cmake --build build-windows --config Release --target c4_java
 
       - name: Create native-libs directory
-        run: mkdir bindings\kotlin\native-libs\win32-x86-64
+        run: mkdir bindings\kotlin\native-libs\win32-x86_64
 
       - name: Copy library
-        run: copy build-windows\bindings\kotlin\Release\c4_java.dll bindings\kotlin\native-libs\win32-x86-64\
+        run: copy build-windows\bindings\kotlin\Release\c4_java.dll bindings\kotlin\native-libs\win32-x86_64\
 
       - name: Upload native-libs
         uses: actions/upload-artifact@v4 # Updated to v4
@@ -124,10 +124,10 @@ jobs:
         run: cmake --build build-linux --target c4_java
 
       - name: Create native-libs directory
-        run: mkdir -p bindings/kotlin/native-libs/linux-x86-64
+        run: mkdir -p bindings/kotlin/native-libs/linux-x86_64
 
       - name: Copy library
-        run: cp build-linux/bindings/kotlin/libc4_java.so bindings/kotlin/native-libs/linux-x86-64/
+        run: cp build-linux/bindings/kotlin/libc4_java.so bindings/kotlin/native-libs/linux-x86_64/
 
       - name: Upload native-libs
         uses: actions/upload-artifact@v4 # Updated to v4
