@@ -1,4 +1,6 @@
 #include "plugin.h"
+#include "bytes.h"
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +38,9 @@ static bool file_get(char* filename, buffer_t* data) {
 
   if (file != stdin)
     fclose(file);
+
+  else
+    assert(file == stdin && "stdin should not be closed here");
   return true;
 }
 

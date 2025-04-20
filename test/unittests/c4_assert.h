@@ -95,14 +95,24 @@ static bytes_t read_testdata(const char* filename) {
 
   FILE* file = fopen((char*) path.data.data, "rb");
   buffer_free(&path);
-  if (file == NULL) {
-    //    fprintf(stderr, "Error opening file: %s\n", filename);
-    return NULL_BYTES;
-  }
+  if (file == NULL) return NULL_BYTES;
 
-  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
+  while ((bytesRead = fread(buffer, 1, sizeof(buffer), file)) == sizeof(buffer))
     buffer_append(&data, bytes(buffer, bytesRead));
 
+  // Handle the last partial read or error/EOF
+  if (bytesRead > 0) buffer_append(&data, bytes(buffer, bytesRead));
+
+  // Explicitly check for read errors *after* the loop
+  if (ferror(file)) {
+    fprintf(stderr, "Error reading file: %s\n", filename);
+    // Clear buffer if error occurred, as data might be incomplete/corrupt
+    buffer_free(&data);
+    fclose(file);      // Still close the file
+    return NULL_BYTES; // Indicate error
+  }
+
+  // No error, just EOF (or successful full read if file size was multiple of buffer)
   fclose(file);
   return data.data;
 }
