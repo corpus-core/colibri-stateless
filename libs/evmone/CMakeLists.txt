@@ -172,13 +172,14 @@ if(NOT evmone_external_POPULATED)
             set_source_files_properties(lib/evmone/cpu_check.cpp PROPERTIES COMPILE_DEFINITIONS EVMONE_X86_64_ARCH_LEVEL=${EVMONE_X86_64_ARCH_LEVEL})
         endif()
 
-        # Suppress specific warnings for evmone target if using Clang or GCC
-        if(CMAKE_CXX_COMPILER_ID MATCHES \"Clang|GNU\")
-            target_compile_options(evmone PUBLIC 
-                -Wno-deprecated-literal-operator
-                -Wno-unknown-attributes
-            )
-        endif()
+        # Suppress specific warnings for evmone target based on compiler
+        target_compile_options(evmone PUBLIC
+            # Suppress for Clang
+            $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-Wno-deprecated-literal-operator>
+            $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-Wno-unknown-attributes>
+            # Suppress for GCC (GNU)
+            $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-attributes>
+        )
     ")
 endif()
 add_subdirectory(${evmone_external_SOURCE_DIR} ${evmone_external_BINARY_DIR} EXCLUDE_FROM_ALL)
