@@ -4,6 +4,8 @@ import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.tasks.Exec
 import org.gradle.api.DefaultTask
+import java.io.File
+import java.util.Locale
 
 plugins {
     id("java-library")
@@ -119,7 +121,7 @@ sourceSets {
 
 // --- Task to copy locally built native library --- 
 // Detect Host OS and Arch to determine library name and path
-val hostOs = System.getProperty("os.name").toLowerCase()
+val hostOs = System.getProperty("os.name").lowercase(Locale.ENGLISH)
 val hostArch = System.getProperty("os.arch")
 val libExtension = when {
     hostOs.contains("win") -> "dll"
@@ -133,9 +135,9 @@ val localLibName = "${libPrefix}c4_java.$libExtension"
 val osArchIdentifier = when {
     hostOs.contains("mac") && hostArch == "aarch64" -> "darwin-aarch64"
     hostOs.contains("mac") && hostArch == "x86_64" -> "darwin-x86_64" // Assuming this might exist
-    hostOs.contains("linux") && hostArch == "amd64" -> "linux-x86-64"
+    hostOs.contains("linux") && hostArch == "amd64" -> "linux-x86_64"
     hostOs.contains("linux") && hostArch == "aarch64" -> "linux-aarch64"
-    hostOs.contains("win") -> "win32-x86-64"
+    hostOs.contains("win") -> "win32-x86_64"
     else -> "unknown"
 }
 

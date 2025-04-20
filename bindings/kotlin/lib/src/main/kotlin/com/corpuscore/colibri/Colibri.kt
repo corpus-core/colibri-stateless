@@ -115,7 +115,6 @@ class Colibri(
             val payload = request.optJSONObject("payload") // Use optJSONObject to handle missing payload gracefully
             val url = if (uri.isNotEmpty()) server.removeSuffix("/") + "/" + uri.removePrefix("/") else server
             val method = request.optString("method", "POST") // Default to POST if missing
-            val encoding = request.optString("encoding", "json") // Default to json
 
             if (exclude_mask and (1 shl index) != 0) {
                 index++
@@ -222,7 +221,9 @@ class Colibri(
 
                     // Execute the proofer and get the JSON status
                      val statusJsonPtr = com.corpuscore.colibri.c4.c4_proofer_execute_json_status(ctx)
-                         ?: throw ColibriException("Proofer execution returned null status for method $method")
+                     if (statusJsonPtr == null) {
+                        throw ColibriException("Proofer execution returned null status for method $method")
+                     }
                      val stateString = statusJsonPtr.toString() // Convert SWIG C pointer/object to string if needed
                      // TODO: Verify how SWIG handles string return. Assuming it's direct or needs .toString()
 
@@ -276,8 +277,6 @@ class Colibri(
 //                println("getProof: Freeing proofer context")
                 com.corpuscore.colibri.c4.c4_free_proofer_ctx(ctx)
             }
-            // Add throw here to satisfy compiler about return type guarantees
-            throw ColibriException("Reached end of withContext unexpectedly in getProof")
         }
     }
 
@@ -377,7 +376,9 @@ class Colibri(
                     // Execute the verifier and get the JSON status
                     // Again, assuming SWIG handles char* return correctly. **VERIFY THIS**.
                     val statusJsonPtr = com.corpuscore.colibri.c4.c4_verify_execute_json_status(ctx)
-                         ?: throw ColibriException("Verifier execution returned null status for method $method")
+                    if (statusJsonPtr == null) {
+                        throw ColibriException("Verifier execution returned null status for method $method")
+                    }
                      val stateString = statusJsonPtr.toString() // Convert SWIG C pointer/object to string
                      // TODO: Verify how SWIG handles string return.
 
