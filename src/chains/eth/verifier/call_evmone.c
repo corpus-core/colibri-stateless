@@ -9,6 +9,7 @@
 #include "rlp.h"
 #include "ssz.h"
 #include "sync_committee.h"
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -428,7 +429,7 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
   EVM_LOG("Message initialized:");
   EVM_LOG("  kind: %d", message->kind);
   EVM_LOG("  is_static: %s", message->is_static ? "true" : "false");
-  EVM_LOG("  gas: %lld", message->gas);
+  EVM_LOG("  gas: %" PRId64, message->gas);
   debug_print_address("  destination", &message->destination);
   debug_print_address("  sender", &message->sender);
   debug_print_address("  code_address", &message->code_address);
