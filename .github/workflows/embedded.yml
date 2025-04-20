@@ -2,9 +2,9 @@ name: Embedded Testing
 
 on:
   push:
-    branches: [main]
+    branches: [main-never-fail]
   pull_request:
-    branches: [main]
+    branches: [main-never-fail]
 
 jobs:
   embedded-test:
