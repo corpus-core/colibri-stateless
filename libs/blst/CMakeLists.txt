@@ -52,7 +52,6 @@ if(EMSCRIPTEN)
     add_custom_command(
         OUTPUT ${BLST_LIB}
         COMMAND ${EMCC} -I.. -fexceptions -include stddef.h
-                -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=[$intArrayFromString]
                 -o ${BLST_LIB}
                 -c ${blst_SOURCE_DIR}/src/server.c
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
