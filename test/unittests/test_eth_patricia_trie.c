@@ -29,8 +29,9 @@ static json_t read_test(const char* filename) {
     return (json_t) {.type = JSON_TYPE_NOT_FOUND, .start = NULL, .len = 0};
   }
 
-  while ((bytesRead = fread(buffer, 1, 1024, file)) > 0)
+  while ((bytesRead = fread(buffer, 1, 1024, file)) == sizeof(buffer))
     buffer_append(&data, bytes(buffer, bytesRead));
+  if (bytesRead > 0) buffer_append(&data, bytes(buffer, bytesRead));
 
   fclose(file);
   return json_parse((char*) data.data.data);
