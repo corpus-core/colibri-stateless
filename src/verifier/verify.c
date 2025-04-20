@@ -27,11 +27,11 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request, char* method, jso
       return C4_ERROR;
     }
     ctx->data.def             = &ssz_none;
-    ctx->data.bytes.data      = &ssz_none;
+    ctx->data.bytes.data      = (void*) &ssz_none;
     ctx->proof.def            = &ssz_none;
-    ctx->proof.bytes.data     = &ssz_none;
+    ctx->proof.bytes.data     = (void*) &ssz_none;
     ctx->sync_data.def        = &ssz_none;
-    ctx->sync_data.bytes.data = &ssz_none;
+    ctx->sync_data.bytes.data = (void*) &ssz_none;
   }
   else {
     if (chain_type != c4_get_chain_type_from_req(request)) {
