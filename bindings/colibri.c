@@ -143,7 +143,7 @@ void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t cha
       for (int i = 0; i < json_len(trusted_blocks); i++) {
         json_t hash = json_at(trusted_blocks, i);
         if (hash.type == JSON_TYPE_STRING && hash.len == 68)
-          hex_to_bytes(hash.start, hash.len, bytes(hash_bytes.data + i * 32, 32));
+          hex_to_bytes(hash.start + 1, hash.len - 2, bytes(hash_bytes.data + i * 32, 32));
       }
       c4_eth_set_trusted_blockhashes(chain_id, hash_bytes);
       safe_free(hash_bytes.data);
