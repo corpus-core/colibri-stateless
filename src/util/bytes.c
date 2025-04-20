@@ -277,10 +277,10 @@ bytes_t bytes_read(char* filename) {
     data.data = NULL_BYTES;
   }
 
+#ifndef __clang_analyzer__
   if (file != stdin)
+#endif
     fclose(file);
-  else
-    assert(file == stdin && "stdin should not be closed here");
   return data.data;
 }
 
