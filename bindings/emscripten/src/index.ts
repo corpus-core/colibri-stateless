@@ -164,7 +164,7 @@ export default class C4Client {
                 beacon_apis: ["https://lodestar-mainnet.chainsafe.io"], // Default beacon API
                 rpcs: ["https://rpc.ankr.com/eth"], // Default RPC
                 trusted_block_hashes: [],
-                proofer: ["https://c4.incubed.net"],
+                proofer: ["https://mainnet.colibri-proof.tech"],
             }, ...config
         }
     }
