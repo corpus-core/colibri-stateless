@@ -279,7 +279,6 @@ jobs:
           # sudo update-alternatives --install /usr/bin/scan-build scan-build /usr/bin/scan-build-19 100
           # Verify the version being used
           clang-19 --version
-          scan-build-19 --version
 
       - name: List Checkers
         run: scan-build-19 --help 2>&1
