@@ -32,7 +32,10 @@ option(HTTP_SERVER "Build the HTTP server using libuv and llhttp" OFF)
 
 if (HTTP_SERVER)
     add_definitions(-DHTTP_SERVER)
-    add_definitions(-DC4_PROOFER_USE_UV_TIME)
+    # Only add UV time definition if cache is also enabled, matching libuv link condition
+    if (PROOFER_CACHE)
+        add_definitions(-DC4_PROOFER_USE_UV_TIME)
+    endif()
 endif()
 
 
