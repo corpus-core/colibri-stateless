@@ -8,6 +8,7 @@ add_executable(server
   cache.c
   configure.c
   beacon_watcher.c
+  store.c
 )
 
 target_link_libraries(server PRIVATE libuv llhttp proofer util verifier CURL::libcurl)

@@ -1,0 +1,142 @@
+#include "server.h"
+#include <stdlib.h> // für malloc, free, realloc
+#include <string.h> // für memcpy
+#include <fcntl.h>  // für O_RDONLY
+
+// Vorwärtsdeklarationen der Callbacks
+static void on_store_open(uv_fs_t *req);
+static void on_store_read(uv_fs_t *req);
+static void on_store_close(uv_fs_t *req);
+
+// Struktur zur Kapselung des Zustands für eine Leseoperation
+typedef struct {
+    uv_fs_t open_req;
+    uv_fs_t read_req;
+    uv_fs_t close_req;
+    uv_buf_t iov;           // Aktueller Lesepuffer für uv_fs_read
+    char read_buf[1024];    // Fester Puffer für uv_fs_read
+    buffer_t data;
+    int fd;                 // Dateideskriptor
+    void* user_ptr;         // Benutzerdefinierter Zeiger
+    handle_stored_data_cb user_cb; // Benutzerdefinierter Callback
+    char* file_path;
+    uint64_t period;
+} store_read_context_t;
+
+static void free_store_read_context(store_read_context_t* ctx) {
+    buffer_free(&ctx->data);
+    free(ctx->file_path);
+    free(ctx);
+}
+
+// --- Implementierung der Callbacks ---
+
+// Callback nach dem Schließen der Datei
+static void on_store_close(uv_fs_t *req) {
+    store_read_context_t *ctx = req->data;
+    if (req->result < 0) 
+        fprintf(stderr, "Fehler beim Schließen der Datei '%s': %s\n", ctx->file_path, uv_strerror((int)req->result));
+    uv_fs_req_cleanup(req);
+    free_store_read_context(ctx);
+}
+
+// Callback nach dem Lesen von Daten
+static void on_store_read(uv_fs_t *req) {
+    store_read_context_t *ctx = req->data;
+
+    if (req->result < 0) {
+        ctx->user_cb(ctx->user_ptr,ctx->period,  NULL_BYTES,uv_strerror((int)req->result));
+        uv_fs_close(req->loop, &ctx->close_req, ctx->fd, on_store_close);
+        uv_fs_req_cleanup(req);
+    } else if (req->result == 0) {
+        ctx->user_cb(ctx->user_ptr, ctx->period,  ctx->data.data,NULL);
+        uv_fs_close(req->loop, &ctx->close_req, ctx->fd, on_store_close);
+        uv_fs_req_cleanup(req);
+    } else {
+        buffer_append(&ctx->data,bytes(ctx->read_buf, (size_t)req->result));
+        // Erneut lesen (vom aktuellen Offset)
+        // Wir übergeben denselben Request (read_req), libuv erlaubt das.
+        // Der Offset -1 bedeutet: Lese von der aktuellen Dateiposition.
+        ctx->iov = uv_buf_init(ctx->read_buf, sizeof(ctx->read_buf));
+        uv_fs_read(req->loop, &ctx->read_req, ctx->fd, &ctx->iov, 1, -1, on_store_read);
+    }
+}
+
+// Callback nach dem Öffnen der Datei
+static void on_store_open(uv_fs_t *req) {
+    store_read_context_t *ctx = req->data;
+
+    if (req->result >= 0) {
+        ctx->fd = req->result; // File Descriptor speichern
+        ctx->read_req.data = ctx; // Kontext an Read-Request binden
+        ctx->iov = uv_buf_init(ctx->read_buf, sizeof(ctx->read_buf));
+        int r = uv_fs_read(req->loop, &ctx->read_req, ctx->fd, &ctx->iov, 1, -1, on_store_read);
+        if (r < 0) {
+            ctx->user_cb(ctx->user_ptr, ctx->period,  NULL_BYTES, uv_strerror(r)); // if we call the cb here, is there a chance it gets called again in the  on_close_store?
+            uv_fs_close(req->loop, &ctx->close_req, ctx->fd, on_store_close);
+        }
+    } else {
+        ctx->user_cb(ctx->user_ptr, ctx->period,  NULL_BYTES,  uv_strerror((int)req->result));
+        free_store_read_context(ctx);
+    }
+    uv_fs_req_cleanup(req); // Open-Request aufräumen
+}
+
+
+// Typdefinition für den Benutzer-Callback (angenommen, existiert bereits oder wird in server.h definiert)
+// typedef void (*handle_stored_data)(void* uptr, bytes_t data);
+
+
+bool c4_get_from_store(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb) {
+    if (!http_server.period_store) {
+        cb(uptr,period,NULL_BYTES,"period_store not configured!");
+        return false;
+    }
+
+    buffer_t buf = {0};
+    char* fname  = NULL;
+
+    switch (type) {
+        case STORE_TYPE_BLOCK_HEADER:
+          fname="headers.ssz";
+          break;
+        case STORE_TYPE_BLOCK_ROOT:
+        case STORE_TYPE_BLOCK_ROOTS:
+          fname="blocks.ssz";
+          break;
+        case STORE_TYPE_LCU:
+          fname="lcu.ssz";
+          break;
+        default:
+          cb(uptr,period,NULL_BYTES,"invalid store_type!");
+          return false;
+    }
+
+
+    // Kontext für diese Operation allokieren
+    store_read_context_t *ctx = safe_calloc(1,sizeof(store_read_context_t));
+    ctx->file_path = bprintf(&buf,"%s/%l/%l/%s", http_server.period_store, chain_id, period, fname);
+    ctx->fd = -1; // Ungültiger FD initial
+    ctx->period = period;
+    ctx->user_ptr = uptr;
+    ctx->user_cb = cb;
+    ctx->open_req.data = ctx; // Wichtig: Kontext an den Request binden!
+    ctx->read_req.data = ctx; // Auch für spätere Verwendung setzen
+    ctx->close_req.data = ctx; // Auch für spätere Verwendung setzen
+
+
+    // Asynchronen Öffnungsvorgang starten
+    // Wir verwenden den Default-Loop, was in Servern üblich ist,
+    // solange der Server auf einem einzigen Thread läuft oder der Loop
+    // thread-sicher verwendet wird.
+    int r = uv_fs_open(uv_default_loop(), &ctx->open_req, ctx->file_path, O_RDONLY, 0, on_store_open);
+
+    if (r < 0) {
+        cb(uptr,period,NULL_BYTES,uv_strerror(r));
+        free_store_read_context(ctx);
+        return false; // Operation konnte nicht gestartet werden
+    }
+
+    // Operation wurde erfolgreich gestartet, Ergebnis kommt asynchron via Callback cb
+    return true;
+}

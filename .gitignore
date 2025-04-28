@@ -16,3 +16,4 @@ bindings/kotlin/*.log
 /build_x86
 /build_*
 /build-*
+.data

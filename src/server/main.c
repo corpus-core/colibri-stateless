@@ -44,6 +44,7 @@ int main(int argc, char* argv[]) {
 
   // register http-handler
   c4_register_http_handler(c4_handle_proof_request);
+  c4_register_http_handler(c4_handle_lcu);
   c4_register_http_handler(c4_proxy);
   c4_register_http_handler(c4_handle_status);
 
