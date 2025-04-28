@@ -123,6 +123,7 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
     llhttp_errno_t err = llhttp_execute(&(client->parser), buf->base, nread);
     if (err != HPE_OK) {
       const char* reason = llhttp_get_error_reason(&(client->parser));
+      if (reason == NULL) reason = "Unsurpotted Method!";
       fprintf(stderr, "llhttp error: %s\n", reason);
       c4_http_respond(client, 400, "text/plain", bytes(reason, strlen(reason)));
     }

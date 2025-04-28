@@ -265,7 +265,7 @@ static void handle_lcu_result(void *u_ptr, uint64_t period,  bytes_t data, char*
     if (!ctx->error) ctx->error=strdup(error);
   }
   else 
-    ctx->found[i]=data;
+    ctx->found[i]= bytes_dup( data );
   if (ctx->results<ctx->count) return;
   if (ctx->error)  {
     char* json = bprintf(NULL,"{\"error\":\"%s\"}",ctx->error);
@@ -284,6 +284,8 @@ static void handle_lcu_result(void *u_ptr, uint64_t period,  bytes_t data, char*
   for (i=0;i<ctx->count;i++) {
     if (ctx->found[i].data) safe_free(ctx->found[i].data);
   }
+  safe_free(ctx->found);
+  safe_free(ctx);
 }
 
 bool c4_handle_lcu(client_t* client) {
