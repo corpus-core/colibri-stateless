@@ -4,8 +4,9 @@ add_executable(server
   main.c
   http_client.c
   http_server.c
-  proof_handler.c
-  lcu_handler.c
+  handle_proof.c
+  handle_lcu.c
+  handle_headers.c
   cache.c
   configure.c
   beacon_watcher.c
