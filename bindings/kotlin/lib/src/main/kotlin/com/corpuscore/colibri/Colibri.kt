@@ -414,7 +414,14 @@ class Colibri(
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
                                  val type = request.optString("type", "eth_rpc")
-                                val servers = if (type == "beacon_api") beaconApis else ethRpcs
+                                // Prioritize proofers if not empty and type is beacon_api
+                                val servers = if (type == "beacon_api" && proofers.isNotEmpty()) {
+                                     proofers
+                                } else if (type == "beacon_api") {
+                                     beaconApis
+                                 } else {
+                                     ethRpcs
+                                 }
                                  try {
                                      fetchRequest(servers, request)
                                  } catch (e: Exception) {
