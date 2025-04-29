@@ -89,7 +89,7 @@ public class Colibri {
                 guard let requests = statusDict["requests"] as? [[String: Any]] else {
                     throw ColibriError.invalidJSON
                 }
-                try await handleRequests(requests)
+                try await handleRequests(requests, useProoferFallback: false)
             default:
                 throw ColibriError.unknownStatus(status)
             }
@@ -136,33 +136,38 @@ public class Colibri {
         let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedBlockHasesCStr)
         defer { c4_verify_free_ctx(ctx) }
 
+        var iteration = 0
+        let maxIterations = 10 // Define a default maxIterations
         while true {
-            guard let jsonStatusPtr = c4_verify_execute_json_status(ctx) else {
-                throw ColibriError.executionFailed
+            iteration += 1
+//            print("verifyProof: Iteration \(iteration)/\(maxIterations)")
+            guard let statusJsonPtr = c4_verify_execute_json_status(ctx) else {
+                throw ColibriError("Verifier execution returned null status for method \(method)")
             }
-            let jsonStatus = String(cString: jsonStatusPtr)
-            free(jsonStatusPtr)
+            let statusJsonString = String(cString: statusJsonPtr)
+            free(statusJsonPtr)
 
-            let statusData = jsonStatus.data(using: String.Encoding.utf8)!
-            guard let statusDict = try JSONSerialization.jsonObject(with: statusData) as? [String: Any],
-                  let status = statusDict["status"] as? String else {
-                throw ColibriError.invalidJSON
+            guard let state = try? JSONSerialization.jsonObject(with: Data(statusJsonString.utf8), options: []) as? [String: Any] else {
+                throw ColibriError("Failed to parse verifier status JSON: \(statusJsonString)")
+            }
+
+            guard let status = state["status"] as? String else {
+                throw ColibriError("Missing or invalid status in verifier response")
             }
 
             switch status {
             case "success":
-                guard let result = statusDict["result"] else {
-                    throw ColibriError.invalidJSON
-                }
-                return result
+                // Success: return the result (could be any JSON type)
+                return state["result"] // Returns Any? which matches function signature
             case "error":
-                let errorMsg = statusDict["error"] as? String ?? "Unknown error"
-                throw ColibriError.proofError(errorMsg)
+                let errorMsg = state["error"] as? String ?? "Unknown verifier error"
+                throw ColibriError("Verifier error for method \(method): \(errorMsg)")
             case "pending":
-                guard let requests = statusDict["requests"] as? [[String: Any]] else {
-                    throw ColibriError.invalidJSON
+                guard let requests = state["requests"] as? [[String: Any]] else {
+                    throw ColibriError("Missing or invalid 'requests' array in pending state")
                 }
-                try await handleRequests(requests)
+                // Call handleRequests, enabling the proofer fallback logic
+                try await handleRequests(requests, useProoferFallback: true)
             default:
                 throw ColibriError.unknownStatus(status)
             }
@@ -223,7 +228,7 @@ public class Colibri {
     }
 
     // Helper function to handle pending requests
-    private func handleRequests(_ requests: [[String: Any]]) async throws {
+    private func handleRequests(_ requests: [[String: Any]], useProoferFallback: Bool = false) async throws {
         await withTaskGroup(of: Void.self) { group in
             for request in requests {
                 group.addTask {
@@ -234,8 +239,17 @@ public class Colibri {
                         return
                     }
                     
-                    // Select appropriate server list based on request type
-                    let servers = request["type"] as? String == "beacon" ? self.beacon_apis : self.eth_rpcs
+                    // Determine server list based on the flag and request type
+                    let requestType = request["type"] as? String
+                    let servers: [String]
+                    if useProoferFallback && requestType == "beacon" && !self.proofers.isEmpty {
+                        servers = self.proofers
+                    } else if requestType == "beacon" {
+                        servers = self.beacon_apis
+                    } else {
+                        servers = self.eth_rpcs
+                    }
+                    
                     var lastError = "No servers available"
                     
                     // Try each server in the list
