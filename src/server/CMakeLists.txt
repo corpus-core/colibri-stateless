@@ -5,6 +5,7 @@ add_executable(server
   http_client.c
   http_server.c
   proof_handler.c
+  lcu_handler.c
   cache.c
   configure.c
   beacon_watcher.c

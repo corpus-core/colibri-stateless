@@ -131,9 +131,10 @@ static void c4_proxy_callback(client_t* client, void* data, data_request_t* req)
 }
 
 bool c4_proxy(client_t* client) {
-  if (strncmp(client->request.path, "/beacon/", 8) != 0) return false;
+  const char* path = "/eth/v1/beacon/headers/";
+  if (strncmp(client->request.path, path, strlen(path)) != 0) return false;
   data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-  req->url            = bprintf(NULL, "/eth/v1/beacon/%s", client->request.path + 8);
+  req->url            = strdup(client->request.path + 1);
   req->method         = C4_DATA_METHOD_GET;
   req->chain_id       = C4_CHAIN_MAINNET;
   req->type           = C4_DATA_TYPE_BEACON_API;
@@ -225,91 +226,4 @@ void c4_handle_finalized_checkpoint(json_t checkpoint) {
   req->cb        = c4_handle_finalized_checkpoint_cb;
   req->ctx       = safe_calloc(1, sizeof(proofer_ctx_t));
   req->cb(req);
-}
-
-
-static uint64_t get_query(char* query, char* param) {
-  char* found = strstr(query,param);
-  if (!found) return 0;
-  found +=strlen(param);
-  if (*found=='=') found++; else return 0;
-  char tmp[20]={0};
-  for (int i=0;i<sizeof(tmp);i++) {
-    if (!found[i] || found[i]=='&') break;
-    tmp[i]=found[i]; 
-  }
-  return (uint64_t) atoll(tmp);
-}
-
-
-
-
-
-typedef struct {
-  bytes_t* found;
-  uint64_t start_period;
-  uint32_t count;
-  uint32_t results;
-  client_t* client;
-  char* error;
-} lcu_ctx_t;
-
-static void handle_lcu_result(void *u_ptr, uint64_t period,  bytes_t data, char* error) {
-  lcu_ctx_t* ctx = u_ptr;
-  uint32_t i = period- ctx->start_period;
-  ctx->results++;
-  if (period<ctx->start_period || period>= ctx->start_period+ctx->count) {
-    if (!ctx->error) ctx->error=strdup("Invalid period!");
-  }
-  else if (error){
-    if (!ctx->error) ctx->error=strdup(error);
-  }
-  else 
-    ctx->found[i]= bytes_dup( data );
-  if (ctx->results<ctx->count) return;
-  if (ctx->error)  {
-    char* json = bprintf(NULL,"{\"error\":\"%s\"}",ctx->error);
-    c4_http_respond(ctx->client, 500, "application/json", bytes((uint8_t*) error, strlen(error)));
-    free(json);
-  }
-  else {
-    buffer_t result = {0};
-    for (i=0;i<ctx->count;i++) 
-      buffer_append(&result,ctx->found[i]);
-    c4_http_respond(ctx->client, 200, "application/octet-stream", result.data);
-    buffer_free(&result);
-  }
-
-  safe_free(ctx->error);
-  for (i=0;i<ctx->count;i++) {
-    if (ctx->found[i].data) safe_free(ctx->found[i].data);
-  }
-  safe_free(ctx->found);
-  safe_free(ctx);
-}
-
-bool c4_handle_lcu(client_t* client) {
-
-  const char* path = "/eth/v1/beacon/light_client/updates?";
-  if (strncmp(client->request.path, path, strlen(path)) != 0) return false;
-  char* query = client->request.path + strlen(path);
-  uint64_t start = get_query(query,"start_period");
-  uint64_t count = get_query(query,"count");
-
-  if (!start || !count) {
-    char* error="{\"error\":\"Invalid arguments\"}";
-    c4_http_respond(client, 500, "application/json", bytes((uint8_t*) error, strlen(error)));
-    return true;
-  }
-
-  lcu_ctx_t* ctx = safe_calloc(1, sizeof(lcu_ctx_t));
-  ctx->client=client;
-  ctx->start_period = start;
-  ctx->count = (uint32_t) count;
-  ctx->found = safe_calloc(count , sizeof(bytes_t));
-
-  for (int i=0;i<count;i++) 
-     c4_get_from_store(http_server.chain_id, start +i, STORE_TYPE_LCU, 0, ctx, handle_lcu_result);
-
-  return true;
 }

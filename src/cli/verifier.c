@@ -137,6 +137,7 @@ int main(int argc, char* argv[]) {
       if (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
 #ifdef USE_CURL
         request = read_from_proofer(input, method, (char*) args.data.data, chain_id);
+        curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[]}", input)));
 #else
         fprintf(stderr, "require data, but no curl installed");
         exit(EXIT_FAILURE);
