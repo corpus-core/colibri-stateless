@@ -330,7 +330,7 @@ c4_status_t c4_proofer_status(proofer_ctx_t* ctx) {
 }
 
 c4_status_t c4_proofer_execute(proofer_ctx_t* ctx) {
-  // we alkways check the state first, so we don't execute if the result or error is already there.
+  // we always check the state first, so we don't execute if the result or error is already there.
   if (c4_state_get_pending_request(&ctx->state)) return C4_PENDING;
   if (ctx->state.error) return C4_ERROR;
   if (ctx->proof.data) return C4_SUCCESS;
