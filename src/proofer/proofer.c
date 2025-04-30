@@ -335,6 +335,7 @@ c4_status_t c4_proofer_execute(proofer_ctx_t* ctx) {
   if (ctx->state.error) return C4_ERROR;
   if (ctx->proof.data) return C4_SUCCESS;
 
+  // execute the proofer. The return value does not matter, we always check the state again after execution.
   proofer_execute(ctx);
 
   return c4_proofer_status(ctx);
