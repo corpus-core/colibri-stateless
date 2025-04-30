@@ -5,7 +5,13 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import Colibri, { MethodType } from '../../../build/emscripten/index.js';
+import path from 'path';
+import { modulePath } from './test_config.js';
+
+// Dynamically import the module using the path from test_config.js
+const ColibriModule = await import(modulePath);
+const Colibri = ColibriModule.default; // Assuming Colibri is the default export
+const MethodType = ColibriModule.MethodType; // Assuming MethodType is a named export
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const testdir = join(__dirname, '../../../test/data');

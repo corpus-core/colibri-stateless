@@ -207,27 +207,52 @@ The constructor of the colibri client accepts a configuration-object, which may 
 
 ## Building
 
-In order to build the Javascript bindings from source, you need to have [emscripten installed](https://emscripten.org/docs/getting_started/downloads.html).
+In order to build the Javascript bindings from source, you need to have [emscripten installed](https://emscripten.org/docs/getting_started/downloads.html) and the `EMSDK` environment variable pointing to its installation directory.
 
 *The Colibri JS-Binding has been tested with Version 4.0.3. Using latest or other versions may result in unexpected issues. For example Version 4.0.7 is not working. So make sure you select the right version when installing!*
 
-```sh
-git clone https://github.com/corpus-core/colibri-stateless.git && cd colibri-stateless
-mkdir build && cd build
-emcmake cmake -DWASM=true -DCURL=false ..
-make -j
-```
+**Recommended Method: Using CMake Presets**
 
-Of course, building your own version allows you to use any of the [cmake flags options](../building/cmake-colibri-lib.md). So you can choose which chains or which Proofs schouls be supported allowing a very small wasm build.
+This project includes a `CMakePresets.json` file for easier configuration.
 
-like 
-```sh
-emcmake cmake -DWASM=true -DCURL=false -DETH_ACCOUNT=1 -DETH_CALL=0 -DETH_LOGS=0 -DETH_BLOCK=0 -DETH_TX=0 -DETH_RECEIPT=0 -DETH_UTIL=0 ..
-```
+1.  **Set Environment Variable:** Ensure the `EMSDK` environment variable points to your Emscripten SDK directory.
+    ```sh
+    export EMSDK=/path/to/your/emsdk
+    ```
+2.  **Configure using Preset:** Use the `wasm` preset. 
+    *   **In VS Code/Cursor:** Select the `[wasm]` configure preset via the status bar or command palette (`CMake: Select Configure Preset`).
+    *   **On the Command Line:**
+        ```sh
+        # Configure (from the project root)
+        cmake --preset wasm -S . 
+        # The binary directory (e.g., build/wasm) is defined in the preset
+        ```
+3.  **Build:**
+    *   **In VS Code/Cursor:** Use the build button or the command palette (`CMake: Build`). Make sure the `[wasm]` build preset is selected.
+    *   **On the Command Line:**
+        ```sh
+        # Build (using the build directory from the preset)
+        cmake --build build/wasm -j
+        ```
 
-this would turn off all code which is not needed dramticly decreasing the size, if all you want to do is verify accountProofs (like eth_getBalance).
+This preset automatically sets `-DWASM=true`, `-DCURL=false`, and the correct toolchain file based on your `EMSDK` variable. You can create custom presets in `CMakeUserPresets.json` if you need different CMake flags (e.g., `-DETH_ACCOUNT=1`).
 
-After calling `make`, The js-module will be in the `build/emscripten` folder.
+**Alternative Method: Manual `emcmake`**
+
+If you prefer not to use presets or your environment doesn't support them well:
+
+1.  **Set Environment Variable:** Ensure `EMSDK` is set and the Emscripten environment is active (e.g., via `source ./emsdk_env.sh`).
+2.  **Configure and Build:**
+    ```sh
+    git clone https://github.com/corpus-core/colibri-stateless.git && cd colibri-stateless
+    mkdir build/wasm-manual && cd build/wasm-manual # Use a dedicated build dir
+    # Ensure EMSDK is set correctly before running emcmake
+    emcmake cmake -DWASM=true -DCURL=false <other_flags> ../..
+    make -j
+    ```
+    Replace `<other_flags>` with any additional CMake options you need (like `-DETH_ACCOUNT=1`).
+
+After a successful build (using either method), the JS/WASM module will be in the configured build directory's `emscripten` subfolder (e.g., `build/wasm/emscripten`).
 
 
 ## Concept
