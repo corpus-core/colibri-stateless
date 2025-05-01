@@ -30,12 +30,13 @@ typedef struct cache_entry {
 } cache_entry_t;
 #endif
 typedef struct {
-  char*           method;
-  json_t          params;
-  bytes_t         proof;
-  chain_id_t      chain_id;
-  c4_state_t      state;
-  proofer_flags_t flags;
+  char*           method;       // rpc-method
+  json_t          params;       // rpc- params
+  bytes_t         proof;        // result or proof as bytes
+  chain_id_t      chain_id;     // target chain
+  c4_state_t      state;        // proofer ctx state, holind errors and requests.
+  proofer_flags_t flags;        // proofer flags
+  bytes_t         client_state; // optional client_state representing the synced periods and trusted blockhashes
 #ifdef PROOFER_CACHE
   cache_entry_t* cache;
 #endif

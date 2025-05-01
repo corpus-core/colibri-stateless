@@ -1,6 +1,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "plugin.h"
 #include "ssz.h"
 #include "state.h"
 #include "sync_committee.h"
@@ -20,10 +21,10 @@ static size_t write_data(void* ptr, size_t size, size_t nmemb, void* userdata) {
   buffer_append(response_buffer, bytes(ptr, size * nmemb));
   return size * nmemb;
 }
-static bytes_t read_from_proofer(char* url, char* method, char* args, chain_id_t chain_id) {
+static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t state, chain_id_t chain_id) {
   buffer_t payload         = {0};
   buffer_t response_buffer = {0};
-  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s}", method, args);
+  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\"}", method, args, state);
   CURL* curl = curl_easy_init();
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data.data);
@@ -136,8 +137,15 @@ int main(int argc, char* argv[]) {
     case METHOD_PROOFABLE:
       if (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
 #ifdef USE_CURL
-        request = read_from_proofer(input, method, (char*) args.data.data, chain_id);
+        char name[100];
+        sprintf(name, "states_%d", (uint32_t) chain_id);
+        buffer_t         state = {0};
+        storage_plugin_t storage;
+        c4_get_storage_config(&storage);
+        storage.get(name, &state);
+        request = read_from_proofer(input, method, (char*) args.data.data, state.data, chain_id);
         curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[]}", input)));
+        buffer_free(&state);
 #else
         fprintf(stderr, "require data, but no curl installed");
         exit(EXIT_FAILURE);

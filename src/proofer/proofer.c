@@ -274,6 +274,7 @@ void c4_proofer_free(proofer_ctx_t* ctx) {
   if (ctx->method) safe_free(ctx->method);
   if (ctx->params.start) safe_free((void*) ctx->params.start);
   if (ctx->proof.data) safe_free(ctx->proof.data);
+  if (ctx->client_state.data) safe_free(ctx->client_state.data);
 #ifdef PROOFER_CACHE
   while (ctx->cache) {
     cache_entry_t* next                = ctx->cache->next;

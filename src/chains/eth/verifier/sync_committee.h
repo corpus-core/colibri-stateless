@@ -18,9 +18,10 @@ typedef struct {
 } c4_sync_state_t;
 
 typedef struct {
-  uint64_t  slot;
+  uint8_t   slot_bytes[8];
   bytes32_t blockhash;
-  uint32_t  period;
+  uint8_t   period_bytes[4];
+  uint8_t   flags[4];
 } c4_trusted_block_t;
 
 typedef struct {
@@ -34,6 +35,7 @@ bool              c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_upd
 bool              c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, chain_id_t chain_id);
 c4_chain_state_t  c4_get_chain_state(chain_id_t chain_id); // make sure to free the chain_state.blocks after use
 void              c4_eth_set_trusted_blockhashes(chain_id_t chain_id, bytes_t blockhashes);
+uint32_t          c4_eth_get_last_period(bytes_t state);
 
 #ifdef __cplusplus
 }
