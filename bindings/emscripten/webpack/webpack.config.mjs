@@ -1,6 +1,16 @@
-const path = require('path');
+import path from 'path';
+// import HtmlWebpackPlugin from 'html-webpack-plugin';
+import CopyPlugin from "copy-webpack-plugin";
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-module.exports = {
+// Import the generated config to get the build directory path
+import { emscriptenBuildDir } from './webpack_build_config.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+export default {
     // Entry point for the application
     entry: './src/index.js',
     output: {
@@ -23,12 +33,11 @@ module.exports = {
         port: 9000, // Port for the dev server
     },
     resolve: {
-        // Define an alias to easily import the Emscripten module
+        // Enable importing JS files without specifying their extension
+        extensions: ['.js'],
         alias: {
-            // '@c4w' will now resolve to the Emscripten build output directory
-            // Adjust this path if your CMake build output directory is different
-            // This assumes the build directory is <workspace>/build/emscripten
-            '@c4w': path.resolve(__dirname, '../../../build/emscripten/')
+            // Use the dynamically determined path from the generated config
+            '@c4w': emscriptenBuildDir
         },
         // Needed for resolving '.wasm' files if not using default rules
         // extensions: ['.js', '.wasm'],
