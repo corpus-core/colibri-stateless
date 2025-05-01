@@ -19,6 +19,17 @@ set(EMSCRIPTEN_OUTPUT_DIR "${CMAKE_BINARY_DIR}/emscripten")
 # Ensure the directory exists
 file(MAKE_DIRECTORY ${EMSCRIPTEN_OUTPUT_DIR})
 
+# Get absolute path for Webpack config
+get_filename_component(EMSCRIPTEN_OUTPUT_DIR_ABS ${EMSCRIPTEN_OUTPUT_DIR} ABSOLUTE)
+
+# Configure the Webpack helper file
+set(WEBPACK_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/webpack/webpack_build_config.js.in")
+set(WEBPACK_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/webpack/webpack_build_config.mjs")
+configure_file(
+  ${WEBPACK_CONFIG_TEMPLATE}
+  ${WEBPACK_CONFIG_OUTPUT}
+  @ONLY
+)
 
 add_executable(c4w ems.c)
 target_link_libraries(c4w proofer verifier)
@@ -60,24 +71,49 @@ add_custom_target(install_node_modules ALL
 )
 
 # Add a custom target to compile TypeScript
-add_custom_target(compile_typescript ALL
+add_custom_command(
+    OUTPUT ${EMSCRIPTEN_OUTPUT_DIR}/index.js
     COMMAND ${CMAKE_COMMAND} -E echo "Compiling TypeScript..."
     COMMAND npx tsc --outDir ${EMSCRIPTEN_OUTPUT_DIR} --declaration
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/emscripten
+    DEPENDS ${CMAKE_SOURCE_DIR}/bindings/emscripten/node_modules/timestamp
     COMMENT "Building TypeScript sources"
+)
+
+# Add a custom target that depends on the TypeScript output file.
+# Building this target will trigger the add_custom_command above.
+add_custom_target(compile_typescript
+    DEPENDS ${EMSCRIPTEN_OUTPUT_DIR}/index.js
 )
 
 # Ensure the TypeScript compilation happens after node modules are installed
 add_dependencies(compile_typescript install_node_modules)
 
-# Ensure the TypeScript compilation happens before the main build
+# Ensure the main target c4w depends on the TypeScript compilation finishing
 add_dependencies(c4w compile_typescript)
+
+# Define the full path to the generated JS module relative to the test directory
+# We need to calculate the relative path from the test directory to the module
+file(RELATIVE_PATH REL_MODULE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/test" # From this directory
+    "${EMSCRIPTEN_OUTPUT_DIR}/index.js" # To this file
+)
+set(EMSCRIPTEN_MODULE_PATH "${REL_MODULE_PATH}") # Use relative path for easier import
+
+# Configure the test helper file using the relative path
+set(TEST_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/test/test_config.js.in")
+set(TEST_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/test/test_config.js") # Output next to tests
+configure_file(
+  ${TEST_CONFIG_TEMPLATE}
+  ${TEST_CONFIG_OUTPUT}
+  @ONLY
+)
 
 # Add a custom target to run npm tests
 add_custom_target(test
     COMMAND npm test
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/emscripten
-#    DEPENDS compile_typescript
+    DEPENDS ${EMSCRIPTEN_OUTPUT_DIR}/index.js
     COMMENT "Running npm tests"
 )
 
