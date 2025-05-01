@@ -395,3 +395,38 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, cons
 
   return C4_SUCCESS;
 }
+
+c4_status_t c4_send_internal_request(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result) {
+  bytes32_t id     = {0};
+  buffer_t  buffer = {0};
+  buffer_add_chars(&buffer, path);
+  if (query) {
+    buffer_add_chars(&buffer, "?");
+    buffer_add_chars(&buffer, query);
+  }
+  sha256(buffer.data, id);
+  data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
+  if (data_request) {
+    buffer_free(&buffer);
+    if (c4_state_is_pending(data_request)) return C4_PENDING;
+    if (!data_request->error && data_request->response.data) {
+      *result = data_request->response;
+      return C4_SUCCESS;
+    }
+    else
+      THROW_ERROR(data_request->error ? data_request->error : "Data request failed");
+  }
+  else {
+    data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+    memcpy(data_request->id, id, 32);
+    data_request->url      = (char*) buffer.data.data;
+    data_request->encoding = C4_DATA_ENCODING_SSZ;
+    data_request->method   = C4_DATA_METHOD_GET;
+    data_request->type     = C4_DATA_TYPE_INTERN;
+    data_request->ttl      = ttl;
+    c4_state_add_request(&ctx->state, data_request);
+    return C4_PENDING;
+  }
+
+  return C4_SUCCESS;
+}
