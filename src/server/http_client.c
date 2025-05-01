@@ -174,7 +174,7 @@ static void handle_curl_events() {
       pending_remove(r);
       while (same) {
         pending_request_t* next = same->next;
-        if (same->request)
+        if (same->request) // finish the request either by returning the response or by triggering a new request in case this request failed
           trigger_uncached_curl_request(same->request, r->req->response.data ? (char*) r->req->response.data : NULL, r->req->response.len);
         safe_free(same);
         same = next;
@@ -375,22 +375,8 @@ static void c4_add_request_response(request_t* req) {
 }
 
 // Function to determine TTL for different request types
-static uint32_t get_request_ttl(data_request_t* req) {
+static inline uint32_t get_request_ttl(data_request_t* req) {
   return req->ttl;
-  /*  switch (req->type) {
-      case C4_DATA_TYPE_BEACON_API:
-        if (strcmp(req->url, "eth/v2/beacon/blocks/head") == 0) return 12;
-        return 3600 * 24; // 1day
-      case C4_DATA_TYPE_ETH_RPC:
-        // ETH RPC responses can be cached longer
-        return 3600 * 24; // 1day
-      case C4_DATA_TYPE_REST_API:
-        // REST API responses vary, use a default
-        return 60; // 1 minute
-      default:
-        return 60; // Default 1 minute
-    }
-    */
 }
 
 // Function to generate cache key from request
@@ -452,7 +438,12 @@ static void configure_ssl_settings(CURL* easy) {
 // Callback for memcache get operations
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len) {
   single_request_t*  r       = (single_request_t*) data;
-  pending_request_t* pending = value == NULL ? pending_find_matching(r) : NULL;
+  pending_request_t* pending = value == NULL ? pending_find_matching(r) : NULL; // is there a pending request asking for the same result
+
+  if (r->req->type == C4_DATA_TYPE_INTERN && !value) { // this is an internal request, so we need to handle it differently
+    c4_handle_internal_request(r);
+    return;
+  }
 
   if (pending) { // there is a pending request asking for the same result
     pending_add_to_same_requests(pending, r);
@@ -470,7 +461,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   else {
     // Cache miss - proceed with normal request handling
     server_list_t* servers  = get_server_list(r->req->type);
-    char*          base_url = servers ? servers->urls[r->req->response_node_index] : NULL;
+    char*          base_url = servers && servers->count > r->req->response_node_index ? servers->urls[r->req->response_node_index] : NULL;
     char*          req_url  = r->req->url;
 
     // Safeguard against NULL URLs
@@ -527,7 +518,10 @@ static void trigger_cached_curl_requests(request_t* req) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
     r->parent                 = req; // Set the parent pointer
-
+    if (!pending->ttl) {             // not cached, so we trigger a uncached request
+      trigger_uncached_curl_request(r, NULL, 0);
+      continue;
+    }
     // Check cache first
     char* key = generate_cache_key(pending);
     int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);

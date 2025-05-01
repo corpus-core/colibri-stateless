@@ -8,7 +8,9 @@
             "binaryDir": "${sourceDir}/build/default",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "1"
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
+                "HTTP_SERVER": "1",
+                "PROOFER_CACHE": "1"
             }
         },
         {

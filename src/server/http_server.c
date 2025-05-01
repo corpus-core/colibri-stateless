@@ -99,11 +99,15 @@ static char* method_str(data_request_method_t method) {
   }
 }
 
-static int on_message_complete(llhttp_t* parser) {
-  client_t* client = (client_t*) parser->data;
-  char*     pl     = client->request.payload_len ? bprintf(NULL, "%J", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) client->request.payload, .len = client->request.payload_len}) : NULL;
+static void log_request(client_t* client) {
+  char* pl = client->request.payload_len ? bprintf(NULL, "%J", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) client->request.payload, .len = client->request.payload_len}) : NULL;
   fprintf(stderr, "[%s] %s %s\n", method_str(client->request.method), client->request.path, pl ? pl : "");
   if (pl) safe_free(pl);
+}
+
+static int on_message_complete(llhttp_t* parser) {
+  client_t* client = (client_t*) parser->data;
+  log_request(client);
   for (int i = 0; i < handlers_count; i++) {
     if (handlers[i](client)) return 0;
   }
@@ -131,6 +135,11 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
   else if (nread < 0) {
     const char* reason = uv_strerror(nread);
     fprintf(stderr, "uv_read error: %s\n", reason);
+    c4_http_respond(client, 500, "text/plain", bytes(reason, strlen(reason)));
+  }
+  else {
+    fprintf(stderr, "uv_read stopped: \n");
+    const char* reason = "incomplete request";
     c4_http_respond(client, 500, "text/plain", bytes(reason, strlen(reason)));
   }
   safe_free(buf->base);

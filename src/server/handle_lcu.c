@@ -11,7 +11,7 @@ typedef struct {
 } lcu_ctx_t;
 
 // extracts query parameters as uint64
-static uint64_t get_query(char* query, char* param) {
+uint64_t c4_get_query(char* query, char* param) {
   char* found = strstr(query, param);
   if (!found) return 0;
   found += strlen(param);
@@ -70,8 +70,8 @@ bool c4_handle_lcu(client_t* client) {
   const char* path = "/eth/v1/beacon/light_client/updates?";
   if (strncmp(client->request.path, path, strlen(path)) != 0) return false;
   char*    query = client->request.path + strlen(path);
-  uint64_t start = get_query(query, "start_period");
-  uint64_t count = get_query(query, "count");
+  uint64_t start = c4_get_query(query, "start_period");
+  uint64_t count = c4_get_query(query, "count");
 
   if (!start || !count) {
     char* error = "{\"error\":\"Invalid arguments\"}";
