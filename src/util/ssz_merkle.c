@@ -74,6 +74,14 @@ gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...) {
     else if (def->type == SSZ_TYPE_LIST) {
       leafes = is_basic_type(def->def.vector.type) ? ((def->def.vector.len * ssz_fixed_length(def->def.vector.type) + 31) >> 5) * 2 : def->def.vector.len * 2;
       idx    = (uint64_t) va_arg(args, int);
+      def    = def->def.vector.type;
+    }
+    else if (def->type == SSZ_TYPE_VECTOR) {
+      leafes = is_basic_type(def->def.vector.type)
+                   ? ((def->def.vector.len * ssz_fixed_length(def->def.vector.type) + 31) >> 5)
+                   : def->def.vector.len;
+      idx    = (uint64_t) va_arg(args, int);
+      def    = def->def.vector.type;
     }
 
     if (leafes == 0) {
