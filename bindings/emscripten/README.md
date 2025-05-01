@@ -28,7 +28,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri();
+    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for ethers (v6)
     const provider = new BrowserProvider(client);
@@ -48,7 +48,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri();
+    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for ethers (v6)
     const provider = new ethers.providers.Web3Provider(client);
@@ -70,7 +70,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri();
+    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for web3.js
     const web3 = new Web3(client);
@@ -93,7 +93,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the Colibri client
-    const colibriClient = new Colibri();
+    const colibriClient = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
 
     // Create a viem Public Client using Colibri as a custom EIP-1193 transport
     const viemClient = createPublicClient({

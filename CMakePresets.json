@@ -19,6 +19,7 @@
             "binaryDir": "${sourceDir}/build/testing",
             "cacheVariables": {
                 "TEST": "1",
+                "COVERAGE": "1",
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1"
             }
