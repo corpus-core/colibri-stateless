@@ -82,11 +82,14 @@ void  c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size);
 void  c4_proofer_cache_invalidate(bytes32_t key);
 #endif
 
-#define REQUEST_WORKER_THREAD(ctx)                                                                        \
+#define REQUEST_WORKER_THREAD_CATCH(ctx, cleanup)                                                         \
   if (ctx->flags & C4_PROOFER_FLAG_UV_SERVER_CTX && !(ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED)) { \
     ctx->flags |= C4_PROOFER_FLAG_UV_WORKER_REQUIRED;                                                     \
+    cleanup;                                                                                              \
     return C4_PENDING;                                                                                    \
   }
+
+#define REQUEST_WORKER_THREAD(ctx) REQUEST_WORKER_THREAD_CATCH(ctx, );
 
 #ifdef __cplusplus
 }

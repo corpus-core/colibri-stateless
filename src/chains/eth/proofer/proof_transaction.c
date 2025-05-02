@@ -79,6 +79,6 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   TRY_ASYNC_FINAL(
       create_eth_tx_proof(ctx, tx_index, &block, body_root, state_proof, block_proof),
       safe_free(state_proof.data);
-      safe_free(block_proof.historic_proof.data));
+      c4_free_block_proof(&block_proof));
   return C4_SUCCESS;
 }

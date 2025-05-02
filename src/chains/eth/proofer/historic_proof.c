@@ -120,3 +120,8 @@ void ssz_add_blockroot_proof(ssz_builder_t* builder, beacon_block_t* block_data,
     ssz_add_bytes(builder, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
   }
 }
+
+void c4_free_block_proof(blockroot_proof_t* block_proof) {
+  safe_free(block_proof->historic_proof.data);
+  safe_free(block_proof->proof_header.data);
+}
