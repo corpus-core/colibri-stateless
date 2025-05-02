@@ -13,7 +13,7 @@ typedef struct {
   ssz_ob_t sync_aggregate;
   bytes_t  historic_proof;
   gindex_t gindex;
-  ssz_ob_t proof_header;
+  bytes_t  proof_header;
 } blockroot_proof_t;
 
 c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block_proof, uint64_t slot);

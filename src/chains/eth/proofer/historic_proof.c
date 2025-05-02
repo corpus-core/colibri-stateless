@@ -61,6 +61,7 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
   gindex_t  summaries_gidx = 32 + 27;                                                      // the gindex of the field for thesummaries in the state
   gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // the gindex of the single summary-object we need to proof
   gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
+  bytes32_t body_root      = {0};
 
   // create summary-list
   json_for_each_value(json_get(data, "historical_summaries"), entry) {
@@ -78,10 +79,14 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
   json_for_each_value(json_get(data, "proof"), entry)         // add the proof from the root of the list to the root of the state.
       buffer_append(&full_proof, json_as_bytes(entry, &buf)); // as provided by lodestar
 
+  // calc header
+  ssz_hash_tree_root(block.body, body_root);
   block_proof->historic_proof = full_proof.data;
   block_proof->gindex         = ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
   block_proof->sync_aggregate = block.sync_aggregate;
-  block_proof->proof_header   = block.header;
+  block_proof->proof_header   = bytes(safe_malloc(112), 112);
+  memcpy(block_proof->proof_header.data, block.header.bytes.data, 112 - 32);
+  memcpy(block_proof->proof_header.data + 112 - 32, body_root, 32);
 
   safe_free(block_idx_proof.data);
   safe_free(period_idx_proof.data);
@@ -103,7 +108,7 @@ void ssz_add_blockroot_proof(ssz_builder_t* builder, beacon_block_t* block_data,
   if (block_proof.historic_proof.data) {
     ssz_builder_t bp = ssz_builder_for_def(ssz_get_def(builder->def, "historic_proof")->def.container.elements + 1);
     ssz_add_bytes(&bp, "proof", block_proof.historic_proof);
-    ssz_add_bytes(&bp, "header", block_proof.proof_header.bytes);
+    ssz_add_bytes(&bp, "header", block_proof.proof_header);
     ssz_add_uint64(&bp, (uint64_t) block_proof.gindex);
     ssz_add_builders(builder, "historic_proof", bp);
     ssz_add_bytes(builder, "sync_committee_bits", ssz_get(&block_proof.sync_aggregate, "syncCommitteeBits").bytes);

@@ -91,7 +91,7 @@ bool verify_tx_proof(verify_ctx_t* ctx) {
 
   if (!verify_args(ctx, raw.bytes, ssz_uint32(tx_index), block_hash.bytes.data)) return false;
   if (!verify_merkle_proof(ctx, tx_proof, block_hash.bytes, block_number.bytes, base_fee_per_gas.bytes, raw.bytes, ssz_uint32(tx_index), body_root.bytes.data)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
-  if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
+  if (c4_verify_blockroot(ctx, header, ctx->proof) != C4_SUCCESS) return false;
   if (ctx->data.def->type != SSZ_TYPE_NONE) RETURN_VERIFY_ERROR(ctx, "data must be empty!");
   if (!create_eth_tx_data(ctx, raw.bytes, block_hash.bytes.data, ssz_uint64(block_number), ssz_uint64(base_fee_per_gas), ssz_uint32(tx_index))) return false;
 
