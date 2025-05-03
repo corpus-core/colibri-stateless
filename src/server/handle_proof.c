@@ -11,6 +11,7 @@ typedef struct {
 static void c4_proofer_execute_worker(uv_work_t* req) {
   proof_work_t* work = (proof_work_t*) req->data;
   c4_proofer_execute(work->ctx);
+  work->ctx->flags &= ~C4_PROOFER_FLAG_UV_WORKER_REQUIRED;
 }
 
 static void c4_proofer_execute_after(uv_work_t* req, int status) {

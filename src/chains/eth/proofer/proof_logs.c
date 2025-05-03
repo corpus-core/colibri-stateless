@@ -140,6 +140,8 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
 
   block->block_hash = ssz_get(&block->beacon_block.execution, "blockHash").bytes;
 
+  TRY_ASYNC(c4_check_historic_proof(ctx, &block->block_proof, block->beacon_block.slot));
+
 #ifdef PROOFER_CACHE
   bytes32_t cachekey;
   root = (node_t*) c4_proofer_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, block->block_hash.data));
@@ -218,7 +220,6 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
 c4_status_t c4_proof_logs(proofer_ctx_t* ctx) {
   json_t              logs   = {0};
   proof_logs_block_t* blocks = NULL;
-  c4_status_t         status = C4_SUCCESS;
   TRY_ASYNC(eth_get_logs(ctx, ctx->params, &logs));
 
   add_blocks(&blocks, logs);
@@ -229,12 +230,6 @@ c4_status_t c4_proof_logs(proofer_ctx_t* ctx) {
   // create the merkle proofs for all the blocks
   for (proof_logs_block_t* block = blocks; block; block = block->next)
     TRY_ASYNC_CATCH(proof_block(ctx, block), free_blocks(blocks));
-
-  // check the blocks, if we need to fetch the historic blockroot proof
-  for (proof_logs_block_t* block = blocks; block; block = block->next)
-    TRY_ADD_ASYNC(status, c4_check_historic_proof(ctx, &block->block_proof, block->beacon_block.slot));
-
-  TRY_ASYNC_CATCH(status, free_blocks(blocks));
 
   // serialize the proof
   serialize_log_proof(ctx, blocks, logs);

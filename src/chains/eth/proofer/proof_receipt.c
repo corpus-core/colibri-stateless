@@ -46,8 +46,10 @@ static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, 
   bytes32_t tmp          = {0};
   buffer_t  receipts_buf = {0};
   buffer_t  buf          = stack_buffer(tmp);
-  if (root_var && *root_var)
-    root = *root_var;
+  if (root_var && *root_var) {
+    root     = *root_var;
+    *receipt = json_at(block_receipts, tx_index);
+  }
   else
     json_for_each_value(block_receipts, r) {
       uint32_t index = json_get_uint32(r, "transactionIndex");
