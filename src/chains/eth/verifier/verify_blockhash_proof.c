@@ -52,6 +52,26 @@ static bool calculate_signing_message(verify_ctx_t* ctx, uint64_t slot, bytes32_
   return true;
 }
 
+c4_status_t c4_verify_blockroot(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof) {
+  ssz_ob_t sync_committee_bits      = ssz_get(&block_proof, "sync_committee_bits");
+  ssz_ob_t sync_committee_signature = ssz_get(&block_proof, "sync_committee_signature");
+  ssz_ob_t historic_proof           = ssz_get(&block_proof, "historic_proof");
+  if (historic_proof.bytes.len == 0)
+    return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0);
+
+  bytes32_t block_root   = {0};
+  bytes32_t state_root   = {0};
+  ssz_ob_t  proof_header = ssz_get(&historic_proof, "header");
+
+  ssz_hash_tree_root(header, block_root);
+  ssz_verify_single_merkle_proof(ssz_get(&historic_proof, "proof").bytes, block_root, ssz_get_uint64(&historic_proof, "gindex"), state_root);
+
+  if (memcmp(state_root, ssz_get(&proof_header, "stateRoot").bytes.data, 32))
+    THROW_ERROR("invalid state root for historic proof!");
+
+  return c4_verify_blockroot_signature(ctx, &proof_header, &sync_committee_bits, &sync_committee_signature, 0);
+}
+
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot) {
   bytes32_t       root       = {0};
   c4_sync_state_t sync_state = {0};

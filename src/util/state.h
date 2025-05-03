@@ -11,9 +11,10 @@ extern "C" {
 #include "json.h"
 #include <string.h>
 typedef enum {
-  C4_DATA_TYPE_BEACON_API = 0,
-  C4_DATA_TYPE_ETH_RPC    = 1,
-  C4_DATA_TYPE_REST_API   = 2
+  C4_DATA_TYPE_BEACON_API = 0, // Handled by the beacon API
+  C4_DATA_TYPE_ETH_RPC    = 1, // Handled by the eth RPC
+  C4_DATA_TYPE_REST_API   = 2, // Handled by the REST API
+  C4_DATA_TYPE_INTERN     = 3  // Handled internally within the proofer server
 } data_request_type_t;
 
 typedef enum {

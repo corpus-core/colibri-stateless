@@ -35,7 +35,7 @@ ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 
 c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result);
 c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result);
-
+c4_status_t c4_send_internal_request(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result);
 #ifdef PROOFER_CACHE
 c4_status_t c4_eth_update_finality(proofer_ctx_t* ctx);
 void        c4_beacon_cache_update_blockdata(proofer_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root);

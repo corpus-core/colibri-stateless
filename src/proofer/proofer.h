@@ -30,12 +30,13 @@ typedef struct cache_entry {
 } cache_entry_t;
 #endif
 typedef struct {
-  char*           method;
-  json_t          params;
-  bytes_t         proof;
-  chain_id_t      chain_id;
-  c4_state_t      state;
-  proofer_flags_t flags;
+  char*           method;       // rpc-method
+  json_t          params;       // rpc- params
+  bytes_t         proof;        // result or proof as bytes
+  chain_id_t      chain_id;     // target chain
+  c4_state_t      state;        // proofer ctx state, holind errors and requests.
+  proofer_flags_t flags;        // proofer flags
+  bytes_t         client_state; // optional client_state representing the synced periods and trusted blockhashes
 #ifdef PROOFER_CACHE
   cache_entry_t* cache;
 #endif
@@ -81,11 +82,14 @@ void  c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size);
 void  c4_proofer_cache_invalidate(bytes32_t key);
 #endif
 
-#define REQUEST_WORKER_THREAD(ctx)                                                                        \
+#define REQUEST_WORKER_THREAD_CATCH(ctx, cleanup)                                                         \
   if (ctx->flags & C4_PROOFER_FLAG_UV_SERVER_CTX && !(ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED)) { \
     ctx->flags |= C4_PROOFER_FLAG_UV_WORKER_REQUIRED;                                                     \
+    cleanup;                                                                                              \
     return C4_PENDING;                                                                                    \
   }
+
+#define REQUEST_WORKER_THREAD(ctx) REQUEST_WORKER_THREAD_CATCH(ctx, );
 
 #ifdef __cplusplus
 }

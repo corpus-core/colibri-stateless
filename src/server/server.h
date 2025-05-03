@@ -42,7 +42,7 @@ typedef bool (*http_handler)(client_t*);
 typedef struct request_t request_t;
 typedef void (*http_client_cb)(request_t*);
 typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
-typedef void (*handle_stored_data_cb)(void *u_ptr, uint64_t period, bytes_t data, char* error);
+typedef void (*handle_stored_data_cb)(void* u_ptr, uint64_t period, bytes_t data, char* error);
 // Struktur für jede aktive Anfrage
 typedef struct {
   char*              url;
@@ -63,12 +63,11 @@ typedef struct request_t {
 } request_t;
 
 typedef enum {
-  STORE_TYPE_BLOCK_ROOTS=1,
-  STORE_TYPE_BLOCK_ROOT=2,
-  STORE_TYPE_BLOCK_HEADER=3,
-  STORE_TYPE_LCU=4,
-}
-store_type_t;
+  STORE_TYPE_BLOCK_ROOTS  = 1,
+  STORE_TYPE_BLOCK_ROOT   = 2,
+  STORE_TYPE_BLOCK_HEADER = 3,
+  STORE_TYPE_LCU          = 4,
+} store_type_t;
 
 void c4_proofer_handle_request(request_t* req);
 void c4_start_curl_requests(request_t* req);
@@ -81,13 +80,14 @@ void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
 void c4_configure(int argc, char* argv[]);
 // Handlers
-bool c4_handle_proof_request(client_t* client);
-bool c4_handle_status(client_t* client);
-bool c4_proxy(client_t* client);
-bool c4_handle_lcu(client_t* client);
-bool c4_handle_health_check(client_t* client);
-void c4_handle_new_head(json_t head);
-void c4_handle_finalized_checkpoint(json_t checkpoint);
-void c4_watch_beacon_events();
-
-bool c4_get_from_store(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb) ;
+bool     c4_handle_proof_request(client_t* client);
+bool     c4_handle_status(client_t* client);
+bool     c4_proxy(client_t* client);
+bool     c4_handle_lcu(client_t* client);
+bool     c4_handle_health_check(client_t* client);
+void     c4_handle_new_head(json_t head);
+void     c4_handle_finalized_checkpoint(json_t checkpoint);
+void     c4_watch_beacon_events();
+uint64_t c4_get_query(char* query, char* param);
+void     c4_handle_internal_request(single_request_t* r);
+bool     c4_get_from_store(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);

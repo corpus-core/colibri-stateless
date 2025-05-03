@@ -2,6 +2,7 @@
 #include "beacon_types.h"
 #include "eth_req.h"
 #include "eth_tools.h"
+#include "historic_proof.h"
 #include "json.h"
 #include "logger.h"
 #include "patricia.h"
@@ -13,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, beacon_block_t* block_data, bytes32_t body_root, ssz_ob_t receipt_proof, json_t receipt, bytes_t tx_proof) {
+static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, beacon_block_t* block_data, bytes32_t body_root, ssz_ob_t receipt_proof, json_t receipt, bytes_t tx_proof, blockroot_proof_t block_proof) {
 
   buffer_t      tmp          = {0};
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_RECEIPT_PROOF);
@@ -27,8 +28,7 @@ static c4_status_t create_eth_receipt_proof(proofer_ctx_t* ctx, beacon_block_t* 
   ssz_add_bytes(&eth_tx_proof, "receipt_proof", receipt_proof.bytes);
   ssz_add_bytes(&eth_tx_proof, "block_proof", tx_proof);
   ssz_add_builders(&eth_tx_proof, "header", c4_proof_add_header(block_data->header, body_root));
-  ssz_add_bytes(&eth_tx_proof, "sync_committee_bits", ssz_get(&block_data->sync_aggregate, "syncCommitteeBits").bytes);
-  ssz_add_bytes(&eth_tx_proof, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
+  ssz_add_blockroot_proof(&eth_tx_proof, block_data, block_proof);
 
   buffer_free(&tmp);
 
@@ -46,8 +46,10 @@ static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, 
   bytes32_t tmp          = {0};
   buffer_t  receipts_buf = {0};
   buffer_t  buf          = stack_buffer(tmp);
-  if (root_var && *root_var)
-    root = *root_var;
+  if (root_var && *root_var) {
+    root     = *root_var;
+    *receipt = json_at(block_receipts, tx_index);
+  }
   else
     json_for_each_value(block_receipts, r) {
       uint32_t index = json_get_uint32(r, "transactionIndex");
@@ -68,13 +70,14 @@ static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, 
 }
 
 c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
-  json_t         txhash         = json_at(ctx->params, 0);
-  json_t         tx_data        = {0};
-  json_t         block_receipts = {0};
-  beacon_block_t block          = {0};
-  json_t         receipt        = {0};
-  bytes32_t      body_root      = {0};
-  c4_status_t    status         = C4_SUCCESS;
+  json_t            txhash         = json_at(ctx->params, 0);
+  json_t            tx_data        = {0};
+  json_t            block_receipts = {0};
+  beacon_block_t    block          = {0};
+  json_t            receipt        = {0};
+  bytes32_t         body_root      = {0};
+  blockroot_proof_t block_proof    = {0};
+  c4_status_t       status         = C4_SUCCESS;
 
   CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
 
@@ -87,13 +90,15 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
   TRY_ASYNC(status);
 
+  TRY_ASYNC(c4_check_historic_proof(ctx, &block_proof, block.slot));
+
 // now we should have all data required to create the proof
 #ifdef PROOFER_CACHE
   bytes32_t cachekey;
   c4_eth_receipt_cachekey(cachekey, ssz_get(&(block.execution), "blockHash").bytes.data);
   node_t* receipt_tree = (node_t*) c4_proofer_cache_get(ctx, cachekey);
   bool    cache_hit    = receipt_tree != NULL;
-  if (!cache_hit) REQUEST_WORKER_THREAD(ctx);
+  if (!cache_hit) REQUEST_WORKER_THREAD_CATCH(ctx, c4_free_block_proof(&block_proof));
   ssz_ob_t receipt_proof = create_receipts_proof(block_receipts, tx_index, &receipt, &receipt_tree);
   if (!cache_hit) c4_proofer_cache_set(ctx, cachekey, receipt_tree, 100000, 200000, (cache_free_cb) patricia_node_free);
 #else
@@ -109,9 +114,10 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
   );
 
   TRY_ASYNC_FINAL(
-      create_eth_receipt_proof(ctx, &block, body_root, receipt_proof, receipt, state_proof),
+      create_eth_receipt_proof(ctx, &block, body_root, receipt_proof, receipt, state_proof, block_proof),
 
       safe_free(state_proof.data);
-      safe_free(receipt_proof.bytes.data));
+      safe_free(receipt_proof.bytes.data);
+      c4_free_block_proof(&block_proof));
   return C4_SUCCESS;
 }

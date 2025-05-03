@@ -2,6 +2,7 @@
 #include "beacon_types.h"
 #include "eth_req.h"
 #include "eth_tools.h"
+#include "historic_proof.h"
 #include "json.h"
 #include "logger.h"
 #include "patricia.h"
@@ -32,6 +33,7 @@ typedef struct proof_logs_block {
   uint32_t                 tx_count;
   beacon_block_t           beacon_block;
   bytes32_t                body_root;
+  blockroot_proof_t        block_proof;
 } proof_logs_block_t;
 
 static inline uint32_t get_block_count(proof_logs_block_t* blocks) {
@@ -52,6 +54,7 @@ static void free_blocks(proof_logs_block_t* blocks) {
       blocks->txs = next;
     }
     if (blocks->proof.data) safe_free(blocks->proof.data);
+    c4_free_block_proof(&blocks->block_proof);
     proof_logs_block_t* next = blocks->next;
     safe_free(blocks);
     blocks = next;
@@ -137,6 +140,8 @@ static c4_status_t proof_block(proofer_ctx_t* ctx, proof_logs_block_t* block) {
 
   block->block_hash = ssz_get(&block->beacon_block.execution, "blockHash").bytes;
 
+  TRY_ASYNC(c4_check_historic_proof(ctx, &block->block_proof, block->beacon_block.slot));
+
 #ifdef PROOFER_CACHE
   bytes32_t cachekey;
   root = (node_t*) c4_proofer_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, block->block_hash.data));
@@ -188,8 +193,7 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
     ssz_add_bytes(&block_ssz, "blockHash", block->block_hash);
     ssz_add_bytes(&block_ssz, "proof", block->proof);
     ssz_add_builders(&block_ssz, "header", c4_proof_add_header(block->beacon_block.header, block->body_root));
-    ssz_add_bytes(&block_ssz, "sync_committee_bits", ssz_get(&block->beacon_block.sync_aggregate, "syncCommitteeBits").bytes);
-    ssz_add_bytes(&block_ssz, "sync_committee_signature", ssz_get(&block->beacon_block.sync_aggregate, "syncCommitteeSignature").bytes);
+    ssz_add_blockroot_proof(&block_ssz, &block->beacon_block, block->block_proof);
 
     ssz_builder_t tx_list = ssz_builder_for_def(txs_def);
     for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
@@ -221,6 +225,9 @@ c4_status_t c4_proof_logs(proofer_ctx_t* ctx) {
   add_blocks(&blocks, logs);
   TRY_ASYNC_CATCH(get_receipts(ctx, blocks), free_blocks(blocks));
 
+  // now we have all the blockreceipts and the beaconblock.
+
+  // create the merkle proofs for all the blocks
   for (proof_logs_block_t* block = blocks; block; block = block->next)
     TRY_ASYNC_CATCH(proof_block(ctx, block), free_blocks(blocks));
 

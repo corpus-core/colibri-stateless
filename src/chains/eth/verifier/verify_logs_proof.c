@@ -77,19 +77,17 @@ static bool verify_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, bytes32_t 
 }
 
 static c4_status_t verif_block(verify_ctx_t* ctx, ssz_ob_t block) {
-  ssz_ob_t  header                   = ssz_get(&block, "header");
-  ssz_ob_t  sync_committee_bits      = ssz_get(&block, "sync_committee_bits");
-  ssz_ob_t  sync_committee_signature = ssz_get(&block, "sync_committee_signature");
-  ssz_ob_t  txs                      = ssz_get(&block, "txs");
-  bytes32_t receipt_root             = {0};
-  uint32_t  tx_count                 = ssz_len(txs);
+  ssz_ob_t  header       = ssz_get(&block, "header");
+  ssz_ob_t  txs          = ssz_get(&block, "txs");
+  bytes32_t receipt_root = {0};
+  uint32_t  tx_count     = ssz_len(txs);
 
   // verify each tx and get the receipt root
   for (int i = 0; i < tx_count; i++) {
     if (!verify_tx(ctx, block, ssz_at(txs, i), receipt_root)) THROW_ERROR("invalid receipt proof!");
   }
   if (!verify_merkle_proof(ctx, block, receipt_root)) THROW_ERROR("invalid tx proof!");
-  return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0);
+  return c4_verify_blockroot(ctx, header, block);
 }
 
 static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index, uint32_t block_count) {

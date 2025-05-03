@@ -115,6 +115,7 @@ add_proofer(
     proofer/eth_tools.c
     proofer/proof_sync.c
     proofer/proof_block.c
+    proofer/historic_proof.c
   DEPENDS util eth_verifier
   PROOF eth_proofer_execute
 )

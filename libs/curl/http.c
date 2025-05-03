@@ -131,6 +131,8 @@ static bool configure_request(curl_request_t* creq) {
       break;
     case C4_DATA_TYPE_REST_API:
       break;
+    case C4_DATA_TYPE_INTERN:
+      return_error(req, "can not handle internal requests");
   }
 
   if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) return_error(req, "Invalid servers in config");

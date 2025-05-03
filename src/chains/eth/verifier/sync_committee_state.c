@@ -21,6 +21,17 @@ static uint8_t sync_buffer[C4_STATIC_KEYS_48_SIZE];
 #endif
 #endif
 
+uint32_t c4_eth_get_last_period(bytes_t state) {
+  c4_trusted_block_t* blocks      = (c4_trusted_block_t*) state.data;
+  uint32_t            len         = state.len / sizeof(c4_trusted_block_t);
+  uint32_t            last_period = 0;
+  for (int i = 0; i < len; i++) {
+    uint32_t p = uint32_from_le(blocks[i].period_bytes);
+    if (!last_period || last_period > p) last_period = p;
+  }
+  return last_period;
+}
+
 INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
   c4_chain_state_t state = {0};
   char             name[100];
@@ -108,7 +119,7 @@ static bool req_header(c4_state_t* state, json_t slot, chain_id_t chain_id, json
 static inline int trusted_blocks_len(c4_chain_state_t chain_state) {
   int len = 0;
   for (int i = 0; i < chain_state.len; i++)
-    len += chain_state.blocks[i].slot ? 0 : 1;
+    len += uint64_from_le(chain_state.blocks[i].slot_bytes) ? 0 : 1;
   return len;
 }
 
@@ -159,7 +170,7 @@ INTERNAL bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t val
 
     // find the oldest and latest period
     for (int i = 0; i < state.len; i++) {
-      uint32_t p = state.blocks[i].period;
+      uint32_t p = uint32_from_le(state.blocks[i].period_bytes);
       if (p > latest || latest == 0)
         latest = p;
       if (p < oldest || oldest == 0) {
@@ -173,7 +184,7 @@ INTERNAL bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t val
       uint32_t oldest_2nd       = 0;
       int      oldest_2nd_index = 0;
       for (int i = 0; i < state.len; i++) {
-        uint32_t p = state.blocks[i].period;
+        uint32_t p = uint32_from_le(state.blocks[i].period_bytes);
         if (p > oldest && p < latest && (p < oldest_2nd || oldest_2nd == 0)) {
           oldest_2nd       = p;
           oldest_2nd_index = i;
@@ -197,8 +208,8 @@ INTERNAL bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t val
   else if (allocated_len < state.len + 1)
     state.blocks = safe_realloc(state.blocks, sizeof(c4_trusted_block_t) * (state.len + 1));
 #endif
-  state.blocks[state.len].slot   = slot;
-  state.blocks[state.len].period = period;
+  uint64_to_le(state.blocks[state.len].slot_bytes, slot);
+  uint32_to_le(state.blocks[state.len].period_bytes, period);
   memcpy(state.blocks[state.len].blockhash, blockhash, 32);
   state.len++;
 
@@ -236,7 +247,7 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
     char     name[100];
     buffer_t tmp = stack_buffer(name);
     for (int i = 0; i < chain_state.len; i++) { // currently we only support one trusted block
-      if (!chain_state.blocks[i].slot) {
+      if (!uint64_from_le(chain_state.blocks[i].slot_bytes)) {
         bprintf(&tmp, "\"0x%x\"", bytes(chain_state.blocks[i].blockhash, 32));
         memcpy(blockhash, chain_state.blocks[i].blockhash, 32);
         break;
@@ -280,7 +291,7 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
   c4_get_storage_config(&storage_conf);
 
   for (uint32_t i = 0; i < chain_state.len; i++) {
-    uint32_t p = chain_state.blocks[i].period;
+    uint32_t p = uint32_from_le(chain_state.blocks[i].period_bytes);
     if (p == period) found = true;
     last_period = p > last_period && p <= period ? p : last_period;
   }

@@ -11,6 +11,7 @@ typedef struct {
 static void c4_proofer_execute_worker(uv_work_t* req) {
   proof_work_t* work = (proof_work_t*) req->data;
   c4_proofer_execute(work->ctx);
+  work->ctx->flags &= ~C4_PROOFER_FLAG_UV_WORKER_REQUIRED;
 }
 
 static void c4_proofer_execute_after(uv_work_t* req, int status) {
@@ -77,19 +78,23 @@ bool c4_handle_proof_request(client_t* client) {
     c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Invalid request\"}", 27));
     return true;
   }
-  json_t method = json_get(rpc_req, "method");
-  json_t params = json_get(rpc_req, "params");
+  json_t method       = json_get(rpc_req, "method");
+  json_t params       = json_get(rpc_req, "params");
+  json_t client_state = json_get(rpc_req, "c4");
   if (method.type != JSON_TYPE_STRING || params.type != JSON_TYPE_ARRAY) {
     c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Invalid request\"}", 27));
     return true;
   }
 
-  char*      method_str = bprintf(NULL, "%j", method);
-  char*      params_str = bprintf(NULL, "%J", params);
-  request_t* req        = (request_t*) safe_calloc(1, sizeof(request_t));
-  req->client           = client;
-  req->cb               = c4_proofer_handle_request;
-  req->ctx              = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX);
+  buffer_t   client_state_buf = {0};
+  char*      method_str       = bprintf(NULL, "%j", method);
+  char*      params_str       = bprintf(NULL, "%J", params);
+  request_t* req              = (request_t*) safe_calloc(1, sizeof(request_t));
+  req->client                 = client;
+  req->cb                     = c4_proofer_handle_request;
+  req->ctx                    = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX);
+  if (client_state.type == JSON_TYPE_STRING) ((proofer_ctx_t*) req->ctx)->client_state = json_as_bytes(client_state, &client_state_buf);
+
   safe_free(method_str);
   safe_free(params_str);
   c4_proofer_handle_request(req);
