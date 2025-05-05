@@ -42,14 +42,14 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
   uint32_t       block_period  = slot >> 13; // the period of the target block
   bytes_t        blocks        = {0};
 
-  if (!ctx->client_state.len) return C4_SUCCESS;                     // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
-  uint32_t state_period = c4_eth_get_last_period(ctx->client_state); // this is the oldest period we have in the client state
-  if (!state_period) return C4_SUCCESS;                              // the client does not have a state yet, so he might as well get the head and verify the block.
-  if (block_period >= state_period) return C4_SUCCESS;               // the target block is within the current range of the client
+  if (!ctx->client_state.len || !(ctx->flags & C4_PROOFER_FLAG_CHAIN_STORE)) return C4_SUCCESS; // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
+  uint32_t state_period = c4_eth_get_last_period(ctx->client_state);                            // this is the oldest period we have in the client state
+  if (!state_period) return C4_SUCCESS;                                                         // the client does not have a state yet, so he might as well get the head and verify the block.
+  if (block_period >= state_period) return C4_SUCCESS;                                          // the target block is within the current range of the client
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
   TRY_ADD_ASYNC(status, c4_send_beacon_json(ctx, bprintf(&buf, "eth/v1/lodestar/historical_summaries/0x%b", ssz_get(&block.header, "stateRoot").bytes), NULL, 120, &history_proof));
-  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, "eth/period_store", bprintf(&buf2, "period=%d&type=1", block_period), 0, &blocks)); // get the blockd
+  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "chain_store/%d/%d/blocks.ssz", (uint32_t) ctx->chain_id, block_period), NULL, 0, &blocks)); // get the blockd
   if (status != C4_SUCCESS) return status;
 
   json_t    data           = json_get(history_proof, "data"); // the the main json-object

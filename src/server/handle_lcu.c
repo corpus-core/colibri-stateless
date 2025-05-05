@@ -86,7 +86,7 @@ bool c4_handle_lcu(client_t* client) {
   ctx->found        = safe_calloc(count, sizeof(bytes_t));
 
   for (int i = 0; i < count; i++)
-    c4_get_from_store(http_server.chain_id, start + i, STORE_TYPE_LCU, 0, ctx, handle_lcu_result);
+    c4_get_from_store_by_type(http_server.chain_id, start + i, STORE_TYPE_LCU, 0, ctx, handle_lcu_result);
 
   return true;
 }

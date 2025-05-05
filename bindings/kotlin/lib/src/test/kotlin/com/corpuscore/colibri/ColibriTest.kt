@@ -199,6 +199,12 @@ class ColibriTest {
             val testJsonFile = File(testDir, "test.json")
             val testConf = JSONObject(testJsonFile.readText())
 
+            // skip test if testConf.requires_chain_store is true
+            if (testConf.optBoolean("requires_chain_store", false)) {
+                 println("Skipping test ${testDir.name} because requires_chain_store is true.")
+                 continue // Skip to the next test directory
+            }
+
             val chainId = testConf.optBigInteger("chain", BigInteger.ONE) // Assuming chainId is in test.json
             val method = testConf.getString("method")
             val trusted_blockhash = testConf.optString("trusted_blockhash", null) // Use optString
