@@ -44,6 +44,7 @@ int main(int argc, char* argv[]) {
           case 'o':
             outputfile = argv[++i];
             break;
+#ifdef USE_CURL
           case 'd': {
             curl_set_chain_store(argv[++i]);
             flags |= C4_PROOFER_FLAG_CHAIN_STORE;
@@ -51,6 +52,7 @@ int main(int argc, char* argv[]) {
             client_state = bytes_read(path);
             break;
           }
+#endif
           case 'i':
             flags |= C4_PROOFER_FLAG_INCLUDE_CODE;
             break;
