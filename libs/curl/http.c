@@ -26,9 +26,9 @@ typedef struct {
   char*           url;
 } curl_request_t;
 
-curl_config_t curl_config = {0};
-
-const char* CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
+curl_config_t curl_config    = {0};
+static char*  chain_store    = NULL;
+const char*   CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 #define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\",\"https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd\"]," \
                        "\"beacon_api\":[\"https://lodestar-mainnet.chainsafe.io\"]}"
@@ -43,6 +43,10 @@ static void curl_request_free(curl_request_t* creq) {
 void curl_set_cache_dir(const char* dir) {
   cache_dir = strdup(dir);
   MKDIR(cache_dir);
+}
+
+void curl_set_chain_store(const char* dir) {
+  chain_store = bprintf(NULL, "[\"file://%s\"]", dir);
 }
 
 #define return_error(req, msg) \
@@ -131,8 +135,12 @@ static bool configure_request(curl_request_t* creq) {
       break;
     case C4_DATA_TYPE_REST_API:
       break;
-    case C4_DATA_TYPE_INTERN:
-      return_error(req, "can not handle internal requests");
+    case C4_DATA_TYPE_INTERN: {
+      json_t store = json_get(curl_config.config, "chain_store");
+      if (store.type != JSON_TYPE_ARRAY && !chain_store) return_error(req, "can not handle internal requests because no chain_store is configured");
+      servers = store.type == JSON_TYPE_ARRAY ? store : json_parse(chain_store);
+      break;
+    }
   }
 
   if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) return_error(req, "Invalid servers in config");
@@ -154,7 +162,10 @@ static bool configure_request(curl_request_t* creq) {
       bprintf(&url, "%j", server);
       if (req->url && *req->url) {
         buffer_add_chars(&url, "/");
-        buffer_add_chars(&url, req->url);
+        if (req->type == C4_DATA_TYPE_INTERN && strncmp(req->url, "chain_store/", 12) == 0)
+          buffer_add_chars(&url, req->url + 12);
+        else
+          buffer_add_chars(&url, req->url);
       }
       creq->url = (char*) url.data.data;
       return true;

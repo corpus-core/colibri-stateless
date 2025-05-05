@@ -90,4 +90,5 @@ void     c4_handle_finalized_checkpoint(json_t checkpoint);
 void     c4_watch_beacon_events();
 uint64_t c4_get_query(char* query, char* param);
 void     c4_handle_internal_request(single_request_t* r);
-bool     c4_get_from_store(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
+bool     c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb);
+bool     c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);

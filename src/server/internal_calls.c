@@ -21,16 +21,10 @@ static void call_store_cb(void* u_ptr, uint64_t period, bytes_t data, char* erro
 }
 
 static bool call_store(single_request_t* r) {
-  const char* path = "eth/period_store?";
+  const char* path = "chain_store/";
   if (strncmp(r->req->url, path, strlen(path))) return false;
-  char*    query  = r->req->url + strlen(path);
-  uint64_t period = c4_get_query(query, "period");
-  uint64_t type   = c4_get_query(query, "type");
-  uint32_t slot   = c4_get_query(query, "slot");
-  if (period == 0 || type == 0)
-    throw_error(r, "Invalid period or type", false);
-  else
-    c4_get_from_store(http_server.chain_id, period, type, slot, r, call_store_cb);
+  char* query = r->req->url + strlen(path);
+  c4_get_from_store(r->req->url + strlen(path), r, call_store_cb);
   return true;
 }
 

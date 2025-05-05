@@ -273,9 +273,10 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
 }
 
 static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t period) {
-  storage_plugin_t storage_conf = {0};
-  c4_chain_state_t chain_state  = c4_get_chain_state(ctx->chain_id);
-  uint32_t         last_period  = 0;
+  storage_plugin_t storage_conf   = {0};
+  c4_chain_state_t chain_state    = c4_get_chain_state(ctx->chain_id);
+  uint32_t         last_period    = 0;
+  uint32_t         highest_period = 0;
 #ifdef C4_STATIC_MEMORY
   buffer_t validators = stack_buffer(sync_buffer);
 #else
@@ -293,7 +294,8 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
   for (uint32_t i = 0; i < chain_state.len; i++) {
     uint32_t p = uint32_from_le(chain_state.blocks[i].period_bytes);
     if (p == period) found = true;
-    last_period = p > last_period && p <= period ? p : last_period;
+    last_period    = p > last_period && p <= period ? p : last_period;
+    highest_period = p > highest_period ? p : highest_period;
   }
 #ifndef C4_STATIC_MEMORY
   safe_free(chain_state.blocks);
@@ -322,6 +324,7 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
       .deserialized   = validators.data.data && validators.data.len > 512 * 48,
       .current_period = period,
       .last_period    = last_period,
+      .highest_period = highest_period,
       .validators     = validators.data};
 }
 
@@ -330,6 +333,7 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
 
   if (sync_state.validators.data == NULL) {
     if (sync_state.last_period == 0) { // there is nothing we can start syncing from
+      if (sync_state.highest_period) THROW_ERROR("the last sync state is higher than the required period, but we cannot sync backwards");
       TRY_ASYNC(init_sync_state(ctx));
       return c4_get_validators(ctx, period, target_state);
     }

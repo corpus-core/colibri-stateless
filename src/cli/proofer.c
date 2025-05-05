@@ -15,11 +15,12 @@ int main(int argc, char* argv[]) {
   if (argc < 2) {
     fprintf(stderr, "Usage: %s [options] <method> <params> > proof.ssz\n"
                     "\n"
-                    "  -c <chain_id>   : selected chain (default MAINNET = 1)\n"
-                    "  -t <testname>   : generates test files in test/data/<testname>\n"
-                    "  -x <cachedir>   : caches all reguests in the cache directory\n"
-                    "  -o <outputfile> : ssz file with the proof ( default to stdout )\n"
-                    "  -i              : include code in the proof\n"
+                    "  -c <chain_id>    : selected chain (default MAINNET = 1)\n"
+                    "  -t <testname>    : generates test files in test/data/<testname>\n"
+                    "  -x <cachedir>    : caches all reguests in the cache directory\n"
+                    "  -o <outputfile>  : ssz file with the proof ( default to stdout )\n"
+                    "  -d <chain_store> : use chain_data from the chain_store found within the path\n"
+                    "  -i               : include code in the proof\n"
                     "\n",
             argv[0]);
     exit(EXIT_FAILURE);
@@ -31,6 +32,7 @@ int main(int argc, char* argv[]) {
   uint32_t   flags      = 0;
   chain_id_t chain_id   = C4_CHAIN_MAINNET;
   buffer_add_chars(&buffer, "[");
+  bytes_t client_state = {0};
 
   for (int i = 1; i < argc; i++) {
     if (*argv[i] == '-') {
@@ -42,6 +44,15 @@ int main(int argc, char* argv[]) {
           case 'o':
             outputfile = argv[++i];
             break;
+#ifdef USE_CURL
+          case 'd': {
+            curl_set_chain_store(argv[++i]);
+            flags |= C4_PROOFER_FLAG_CHAIN_STORE;
+            char* path   = bprintf(NULL, "./states_%l", (uint64_t) chain_id);
+            client_state = bytes_read(path);
+            break;
+          }
+#endif
           case 'i':
             flags |= C4_PROOFER_FLAG_INCLUDE_CODE;
             break;
@@ -74,6 +85,7 @@ int main(int argc, char* argv[]) {
   buffer_add_chars(&buffer, "]");
 
   proofer_ctx_t* ctx = c4_proofer_create(method, (char*) buffer.data.data, chain_id, flags);
+  ctx->client_state  = client_state;
   while (true) {
     switch (c4_proofer_execute(ctx)) {
       case C4_SUCCESS:

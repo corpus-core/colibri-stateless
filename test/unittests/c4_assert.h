@@ -218,10 +218,14 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
   if ((flags & C4_PROOFER_FLAG_NO_CACHE) == 0)
     set_state(chain_id, dirname);
 
-  bytes_t proof_data = {0};
+  bytes_t  proof_data   = {0};
+  buffer_t tmp_buf      = stack_buffer(tmp);
+  buffer_t client_state = {0};
+  file_get(bprintf(&tmp_buf, "states_%l", (uint64_t) chain_id), &client_state);
 
   // proofer
-  proofer_ctx_t*  proof_ctx = c4_proofer_create(method, args, chain_id, flags);
+  proofer_ctx_t* proof_ctx = c4_proofer_create(method, args, chain_id, flags);
+  proof_ctx->client_state  = client_state.data;
   data_request_t* req;
   while (proof_data.data == NULL) {
     switch (c4_proofer_execute(proof_ctx)) {
@@ -295,7 +299,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 }
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
-  verify_count(dirname, method, args, chain_id, 1, C4_PROOFER_FLAG_INCLUDE_CODE, NULL);
+  verify_count(dirname, method, args, chain_id, 1, C4_PROOFER_FLAG_INCLUDE_CODE | C4_PROOFER_FLAG_CHAIN_STORE, NULL);
 }
 
 static void run_rpc_test(char* dirname, proofer_flags_t flags) {

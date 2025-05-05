@@ -84,14 +84,13 @@ static void on_store_open(uv_fs_t* req) {
   uv_fs_req_cleanup(req);
 }
 
-bool c4_get_from_store(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb) {
+bool c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb) {
   if (!http_server.period_store) {
     cb(uptr, period, NULL_BYTES, "period_store not configured!");
     return false;
   }
 
-  buffer_t buf   = {0};
-  char*    fname = NULL;
+  char* fname = NULL;
 
   switch (type) {
     case STORE_TYPE_BLOCK_HEADER:
@@ -109,10 +108,31 @@ bool c4_get_from_store(chain_id_t chain_id, uint64_t period, store_type_t type, 
       return false;
   }
 
+  char     tmp[200] = {0};
+  buffer_t buf      = stack_buffer(tmp);
+  return c4_get_from_store(bprintf(&buf, "%l/%d/%s", (uint64_t) chain_id, (uint32_t) period, fname), uptr, cb);
+}
+
+static uint32_t get_period_from_path(char* path) {
+  char  tmp[50]        = {0};
+  char* period_end_str = strrchr(path, '/');
+  if (period_end_str == NULL || period_end_str == path)
+    return 0;
+  char* period_start_str = period_end_str - 1;
+  while (period_start_str >= path && *period_start_str != '/')
+    period_start_str--;
+
+  if (period_start_str > path && period_start_str < period_end_str && period_start_str[0] == '/' && period_end_str - period_start_str < sizeof(tmp)) {
+    memcpy(tmp, period_start_str + 1, period_end_str - period_start_str - 1);
+    return atoi(tmp);
+  }
+  return 0;
+}
+bool c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb) {
   store_read_context_t* ctx = safe_calloc(1, sizeof(store_read_context_t));
-  ctx->file_path            = bprintf(&buf, "%s/%l/%l/%s", http_server.period_store, chain_id, period, fname);
+  ctx->file_path            = bprintf(NULL, "%s/%s", http_server.period_store, path);
   ctx->fd                   = -1;
-  ctx->period               = period;
+  ctx->period               = get_period_from_path(ctx->file_path);
   ctx->user_ptr             = uptr;
   ctx->user_cb              = cb;
   ctx->open_req.data        = ctx;
@@ -121,7 +141,7 @@ bool c4_get_from_store(chain_id_t chain_id, uint64_t period, store_type_t type, 
 
   int r = uv_fs_open(uv_default_loop(), &ctx->open_req, ctx->file_path, O_RDONLY, 0, on_store_open);
   if (r < 0) {
-    cb(uptr, period, NULL_BYTES, uv_strerror(r));
+    cb(uptr, ctx->period, NULL_BYTES, uv_strerror(r));
     free_store_read_context(ctx);
     return false;
   }

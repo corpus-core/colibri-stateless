@@ -91,6 +91,7 @@ test('RPC-Proof Test Suite', async (t) => {
             })
 
             let test_conf = JSON.parse(fs.readFileSync(`${testdir}/${test}/test.json`, 'utf8'));
+            if (test_conf.requires_chain_store) return;
             let conf = { chain: test_conf.chain, cache: create_cache(`${testdir}/${test}`) }
             if (test_conf.trusted_blockhash)
                 conf.trusted_block_hashes = [test_conf.trusted_blockhash]
