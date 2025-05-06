@@ -7,9 +7,11 @@ add_executable(server
   handle_proof.c
   handle_lcu.c
   handle_headers.c
+  handle_health.c
   cache.c
   configure.c
   beacon_watcher.c
+  head_update.c
   store.c
   internal_calls.c
 )

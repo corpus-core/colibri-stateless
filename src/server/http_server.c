@@ -35,6 +35,8 @@ static void on_close(uv_handle_t* handle) {
   safe_free(client->request.accept);
   safe_free(client->request.payload);
   safe_free(client);
+  http_server.stats.last_request_time = current_ms();
+  http_server.stats.total_requests++;
 }
 
 static int on_url(llhttp_t* parser, const char* at, size_t length) {
@@ -108,6 +110,8 @@ static void log_request(client_t* client) {
 static int on_message_complete(llhttp_t* parser) {
   client_t* client = (client_t*) parser->data;
   log_request(client);
+  http_server.stats.open_requests++;
+
   for (int i = 0; i < handlers_count; i++) {
     if (handlers[i](client)) return 0;
   }
@@ -163,6 +167,8 @@ static char* status_text(int status) {
 }
 
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body) {
+  http_server.stats.open_requests--;
+
   if (!client) {
     fprintf(stderr, "ERROR: Attempted to respond to NULL client\n");
     return;
@@ -237,8 +243,7 @@ void c4_on_new_connection(uv_stream_t* server, int status) {
 
   llhttp_init(&client->parser, HTTP_REQUEST, &client->settings);
   client->parser.data = client;
-
-  int err = uv_accept(server, (uv_stream_t*) &client->handle);
+  int err             = uv_accept(server, (uv_stream_t*) &client->handle);
   if (err == 0)
     err = uv_read_start((uv_stream_t*) &client->handle, alloc_buffer, on_read);
   if (err < 0) {

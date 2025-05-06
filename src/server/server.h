@@ -14,17 +14,26 @@ typedef struct {
 } http_request_t;
 
 typedef struct {
-  char* memcached_host;
-  int   memcached_port;
-  int   memcached_pool;
-  int   port;
-  int   loglevel;
-  int   req_timeout;
-  int   chain_id;
-  char* rpc_nodes;
-  char* beacon_nodes;
-  int   stream_beacon_events;
-  char* period_store;
+  uint64_t total_requests;
+  uint64_t total_errors;
+  uint64_t last_sync_event;
+  uint64_t last_request_time;
+  uint64_t open_requests;
+} server_stats_t;
+
+typedef struct {
+  char*          memcached_host;
+  int            memcached_port;
+  int            memcached_pool;
+  int            port;
+  int            loglevel;
+  int            req_timeout;
+  int            chain_id;
+  char*          rpc_nodes;
+  char*          beacon_nodes;
+  int            stream_beacon_events;
+  char*          period_store;
+  server_stats_t stats;
 } http_server_t;
 
 extern http_server_t http_server;
