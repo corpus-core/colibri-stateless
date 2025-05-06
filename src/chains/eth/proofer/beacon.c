@@ -376,7 +376,10 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, cons
     if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (!data_request->error && data_request->response.data) {
       *result = (ssz_ob_t) {.def = def, .bytes = data_request->response};
-      return ssz_is_valid(*result, true, &ctx->state) ? C4_SUCCESS : C4_ERROR;
+      if (def)
+        return ssz_is_valid(*result, true, &ctx->state) ? C4_SUCCESS : C4_ERROR;
+      else
+        return C4_SUCCESS;
     }
     else
       THROW_ERROR(data_request->error ? data_request->error : "Data request failed");

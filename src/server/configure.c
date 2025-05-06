@@ -108,7 +108,7 @@ static void config() {
   http_server.rpc_nodes            = "https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/,https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S,https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd";
   http_server.beacon_nodes         = "https://lodestar-mainnet.chainsafe.io/";
   http_server.stream_beacon_events = 0;
-  http_server.period_store         = "/var/lib/c4/data";
+  http_server.period_store         = NULL;
 
   get_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
   get_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");

@@ -134,6 +134,7 @@ static void parse_sse_buffer() {
 
     // If we have both event and data, call the handler
     if (event_type && event_data) {
+      http_server.stats.last_sync_event = current_ms();
       handle_beacon_event(event_type, event_data);
       safe_free(event_type);
       safe_free(event_data);
@@ -195,7 +196,6 @@ static void on_reconnect_timer(uv_timer_t* handle) {
 
 // --- User Handler ---
 
-// TODO: Implement actual logic here (e.g., parse JSON, call invalidate)
 static void handle_beacon_event(char* event, char* data) {
   log_info("Beacon Event Received: Type='%s'", event);
   if (strcmp(event, "head") == 0)
