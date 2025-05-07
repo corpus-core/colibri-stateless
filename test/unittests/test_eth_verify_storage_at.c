@@ -16,8 +16,13 @@ void test_nonce() {
   run_rpc_test("eth_getStorageAt1", C4_PROOFER_FLAG_NO_CACHE);
 }
 
+void test_nonce_electra() {
+  run_rpc_test("eth_getStorageAt_electra", C4_PROOFER_FLAG_NO_CACHE);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_nonce);
+  RUN_TEST(test_nonce_electra);
   return UNITY_END();
 }

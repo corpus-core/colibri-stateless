@@ -33,16 +33,6 @@ typedef enum {
 } chain_id_t;
 
 typedef enum {
-  C4_FORK_PHASE0    = 0,
-  C4_FORK_ALTAIR    = 1,
-  C4_FORK_BELLATRIX = 2,
-  C4_FORK_CAPELLA   = 3,
-  C4_FORK_DENEB     = 4,
-  C4_FORK_ELECTRA   = 5,
-  C4_FORK_FULU      = 6
-} fork_id_t;
-
-typedef enum {
   C4_CHAIN_TYPE_ETHEREUM  = 1,
   C4_CHAIN_TYPE_SOLANA    = 2,
   C4_CHAIN_TYPE_BITCOIN   = 3,
@@ -60,8 +50,6 @@ typedef enum {
   C4_CHAIN_TYPE_TELOS     = 15,
 } chain_type_t;
 
-bool         c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
-fork_id_t    c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
 chain_type_t c4_chain_type(chain_id_t chain_id);
 
 #ifdef __cplusplus

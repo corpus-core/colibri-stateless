@@ -5,6 +5,16 @@
 #include "ssz.h"
 
 typedef enum {
+  C4_FORK_PHASE0    = 0,
+  C4_FORK_ALTAIR    = 1,
+  C4_FORK_BELLATRIX = 2,
+  C4_FORK_CAPELLA   = 3,
+  C4_FORK_DENEB     = 4,
+  C4_FORK_ELECTRA   = 5,
+  C4_FORK_FULU      = 6
+} fork_id_t;
+
+typedef enum {
   // beacon
   ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER = 1,
   ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER   = 2,
@@ -34,6 +44,9 @@ typedef enum {
   ETH_SSZ_DATA_PROOF   = 24
 } eth_ssz_type_t;
 
+bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
+fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
+
 const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork);
 
 // forks
@@ -47,6 +60,14 @@ extern const ssz_def_t BEACON_BLOCK_HEADER[5];
 extern const ssz_def_t LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t DENEP_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
+extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
+extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
+
+#define epoch_for_slot(slot)  ((slot) >> 5)
+#define period_for_slot(slot) ((slot) >> 13)
+
+#define slot_for_epoch(epoch)   ((epoch) << 5)
+#define slot_for_period(period) ((period) << 13)
 
 #define ssz_builder_for_type(typename) \
   {.def = eth_ssz_verification_type(typename), .dynamic = {0}, .fixed = {0}}

@@ -5,7 +5,14 @@
 #include "ssz.h"
 #include <stdlib.h>
 
-#define NEXT_SYNC_COMMITTEE_GINDEX 55
+#define DENEP_NEXT_SYNC_COMMITTEE_GINDEX   55
+#define ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX 87
+
+static uint64_t next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
+  fork_id_t fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot));
+  return fork == C4_FORK_DENEB ? DENEP_NEXT_SYNC_COMMITTEE_GINDEX : ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX;
+}
+
 static c4_status_t req_client_update(proofer_ctx_t* ctx, uint32_t period, uint32_t count, chain_id_t chain_id, bytes_t* data) {
   buffer_t tmp = {0};
   bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", period, count);
@@ -90,7 +97,7 @@ static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_da
   safe_free(header_proof.data);
   safe_free(signing_data.bytes.data);
   period->proof = full_proof;
-  period->gidx  = ssz_add_gindex(state_gidx, NEXT_SYNC_COMMITTEE_GINDEX) * 2; // header -> stateRoot -> .... next_sync ->  pubKeys
+  period->gidx  = ssz_add_gindex(state_gidx, next_sync_committee_gindex(ctx->chain_id, ssz_get_uint64(&header, "slot"))) * 2; // header -> stateRoot -> .... next_sync ->  pubKeys
 
   return C4_SUCCESS;
 }

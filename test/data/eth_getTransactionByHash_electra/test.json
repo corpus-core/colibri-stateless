@@ -1,0 +1,32 @@
+{
+  "method":"eth_getTransactionByHash",
+  "params":["0x7e3e4bfb2ac3266669923de636d01911df73fa9d2ae43d72dcbe44f27dc01d10"],
+  "chain_id": 1,
+  "expected_result": {
+  "blockHash":"0xab1b9aa69db9cf56d9456ff8e9fb5101c99044dded2463e67af248d9c845dd74",
+  "blockNumber":"0x15648f5",
+  "hash":"0x7e3e4bfb2ac3266669923de636d01911df73fa9d2ae43d72dcbe44f27dc01d10",
+  "transactionIndex":"0xee",
+  "type":"0x2",
+  "nonce":"0x6278",
+  "input":"0x",
+  "r":"0xe94b9685c379788dce583da799f0f41f395bf8df026ce3e39d8c2f9c20777ad8",
+  "s":"0x431611ce6600ca5978e06605721b5ef19377ac3a988fc7efe85081ac2b69dd13",
+  "chainId":"0x1",
+  "v":"0x0",
+  "gas":"0x5208",
+  "from":"0xc12dc33e7f939f6dd3bdf2a94aaea1052a287710",
+  "to":"0x8051ef13007773c0c94118f2a7c34e2836fd4395",
+  "value":"0x11183fa095430",
+  "gasPrice":"0x6904d930",
+  "maxFeePerGas":"0x84f443e8",
+  "maxPriorityFeePerGas":"0x989680",
+  "accessList":[
+
+  ],
+  "blobVersionedHashes":[
+
+  ],
+  "yParity":"0x0"
+}
+}

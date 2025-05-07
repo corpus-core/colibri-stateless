@@ -292,6 +292,7 @@ void c4_handle_new_head(json_t head) {
   req->cb               = handle_new_head_cb;
   req->ctx              = ctx;
   ctx->proof            = bytes(b, sizeof(beacon_head_t));
+  ctx->chain_id         = http_server.chain_id;
   handle_new_head_cb(req);
 }
 

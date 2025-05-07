@@ -1,0 +1,6 @@
+{
+  "method":"eth_getBalance",
+  "params":["0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5","latest"],
+  "chain_id": 1,
+  "expected_result": "0x111310f9e55ed8646"
+}
