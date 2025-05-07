@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include "beacon_types.h"
 #include "verify.h"
 #define STATE_ROOT_GINDEX 802
 
