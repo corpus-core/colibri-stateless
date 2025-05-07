@@ -44,7 +44,9 @@ typedef struct {
   http_request_t    request;
   uv_write_t        write_req;
   char              current_header[128];
-  bool              being_closed; // Flag to track if this client is being closed
+  bool              being_closed;             // Flag to track if this client is being closed
+  bool              message_complete_reached; // True if on_message_complete was called for the current request
+  bool              keep_alive_idle;          // True if the connection is idle in keep-alive mode, awaiting next request
 } client_t;
 typedef bool (*http_handler)(client_t*);
 

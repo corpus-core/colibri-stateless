@@ -21,6 +21,48 @@ static void  alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* 
 static void  on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
 static char* status_text(int status);
 
+// Forward declaration
+static void on_close(uv_handle_t* handle);
+
+// Centralized function to close a client connection safely
+static void close_client_connection(client_t* client) {
+  if (client == NULL) {
+    return;
+  }
+
+  // Check if uv_close has already been called on this handle
+  if (uv_is_closing((uv_handle_t*) &client->handle)) {
+    // If it's already closing but our flag isn't set, set it for consistency.
+    if (!client->being_closed) client->being_closed = true;
+    return;
+  }
+
+  // Mark that we are initiating the close sequence now from application logic
+  client->being_closed = true;
+
+  // Optional: Log if we are closing an inactive handle, though uv_close handles it gracefully.
+  // if (!uv_is_active((uv_handle_t*)&client->handle)) {
+  //   fprintf(stderr, "Debug: Closing an inactive client handle %p via close_client_connection\n", (void*)client);
+  // }
+
+  uv_close((uv_handle_t*) &client->handle, on_close);
+}
+
+static void reset_client_request_data(client_t* client) {
+  safe_free(client->request.path);
+  client->request.path = NULL;
+  safe_free(client->request.content_type);
+  client->request.content_type = NULL;
+  safe_free(client->request.accept);
+  client->request.accept = NULL;
+  safe_free(client->request.payload);
+  client->request.payload     = NULL;
+  client->request.payload_len = 0;
+  // client->request.method is an enum, gets overwritten by parser.
+  memset(client->current_header, 0, sizeof(client->current_header));
+  client->message_complete_reached = false; // Reset for keep-alive
+}
+
 void c4_register_http_handler(http_handler handler) {
   handlers                   = (http_handler*) safe_realloc(handlers, (handlers_count + 1) * sizeof(http_handler));
   handlers[handlers_count++] = handler;
@@ -35,8 +77,6 @@ static void on_close(uv_handle_t* handle) {
   safe_free(client->request.accept);
   safe_free(client->request.payload);
   safe_free(client);
-  http_server.stats.last_request_time = current_ms();
-  http_server.stats.total_requests++;
 }
 
 static int on_url(llhttp_t* parser, const char* at, size_t length) {
@@ -108,10 +148,12 @@ static void log_request(client_t* client) {
 }
 
 static int on_message_complete(llhttp_t* parser) {
-  client_t* client = (client_t*) parser->data;
+  client_t* client                 = (client_t*) parser->data;
+  client->message_complete_reached = true; // Mark that message is complete
   log_request(client);
   http_server.stats.open_requests++;
-
+  http_server.stats.last_request_time = current_ms();
+  http_server.stats.total_requests++;
   for (int i = 0; i < handlers_count; i++) {
     if (handlers[i](client)) return 0;
   }
@@ -126,27 +168,79 @@ static void alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* b
 }
 
 static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-  client_t* client = (client_t*) stream->data;
+  client_t*   client                 = (client_t*) stream->data;
+  bool        should_call_responder  = false; // Renamed from should_close_client to be more specific
+  bool        immediate_close_needed = false; // If true, we close without trying to respond further
+  int         error_status_code      = 0;
+  const char* error_reason           = NULL;
+  char        temp_reason_buffer[256]; // For constructing error messages if needed
+
   if (nread > 0) {
-    llhttp_errno_t err = llhttp_execute(&(client->parser), buf->base, nread);
+    client->keep_alive_idle = false; // Activity detected, not idle anymore
+    llhttp_errno_t err      = llhttp_execute(&(client->parser), buf->base, nread);
     if (err != HPE_OK) {
-      const char* reason = llhttp_get_error_reason(&(client->parser));
-      if (reason == NULL) reason = "Unsurpotted Method!";
-      fprintf(stderr, "llhttp error: %s\n", reason);
-      c4_http_respond(client, 400, "text/plain", bytes(reason, strlen(reason)));
+      error_reason = llhttp_get_error_reason(&(client->parser));
+      if (error_reason == NULL || strlen(error_reason) == 0) {
+        // Provide a more generic error if llhttp_get_error_reason is unhelpful
+        snprintf(temp_reason_buffer, sizeof(temp_reason_buffer), "HTTP parsing error: %s", llhttp_errno_name(err));
+        error_reason = temp_reason_buffer;
+      }
+      fprintf(stderr, "llhttp error: %s (code: %d) on client %p\n", error_reason, err, (void*) client);
+      error_status_code      = 400; // Bad Request
+      should_call_responder  = true;
+      immediate_close_needed = true;
     }
   }
-  else if (nread < 0) {
-    const char* reason = uv_strerror(nread);
-    fprintf(stderr, "uv_read error: %s\n", reason);
-    c4_http_respond(client, 500, "text/plain", bytes(reason, strlen(reason)));
+  else if (nread == 0 || nread == UV_EOF) { // Graceful EOF or libuv's EOF signal (-4095)
+    if (client->keep_alive_idle) {
+      // Client closed an idle keep-alive connection. This is normal.
+      fprintf(stderr, "DEBUG: Client %p closed idle keep-alive connection (code: %zd).\n", (void*) client, nread);
+      immediate_close_needed = true;
+      // should_call_responder remains false, no error response needed.
+    }
+    else {
+      // EOF occurred unexpectedly (e.g., mid-request or before parser was reset for keep-alive idle state)
+      // Or, if message_complete_reached is false, it implies an incomplete request.
+      if (!client->message_complete_reached) { // Check if a message was even completed in this cycle
+        snprintf(temp_reason_buffer, sizeof(temp_reason_buffer), "Incomplete request: client connection ended prematurely (code: %zd)", nread);
+        error_reason = temp_reason_buffer;
+        fprintf(stderr, "WARN: %s on client %p\n", error_reason, (void*) client);
+        error_status_code     = 400;  // Bad Request
+        should_call_responder = true; // Try to send a 400 error
+      }
+      else {
+        // message_complete_reached is true, but keep_alive_idle was false.
+        // This could happen if EOF arrives right after on_message_complete but before on_write_complete could set keep_alive_idle.
+        // Or client closed a non-keep-alive connection after response was sent.
+        fprintf(stderr, "INFO: Client %p connection ended (code: %zd) after message completion processing.\n", (void*) client, nread);
+        // No error response needed if message was already handled.
+      }
+      immediate_close_needed = true;
+    }
   }
-  else {
-    fprintf(stderr, "uv_read stopped: \n");
-    const char* reason = "incomplete request";
-    c4_http_respond(client, 500, "text/plain", bytes(reason, strlen(reason)));
+  else { // nread < 0 and not UV_EOF (other libuv errors)
+    error_reason = uv_strerror(nread);
+    fprintf(stderr, "uv_read error: %s (code: %zd) on client %p\n", error_reason, nread, (void*) client);
+    error_status_code      = 500; // Internal Server Error (could be 400 for some client-side disconnects)
+    should_call_responder  = true;
+    immediate_close_needed = true;
   }
-  safe_free(buf->base);
+
+  if (buf && buf->base) { // Ensure buf and buf->base are valid before freeing
+    safe_free(buf->base); // Free the buffer allocated in alloc_buffer
+  }
+
+  if (should_call_responder && error_status_code != 0 && error_reason != NULL) {
+    // Attempt to inform client. c4_http_respond will handle inactive handles.
+    c4_http_respond(client, error_status_code, "text/plain", bytes(error_reason, strlen(error_reason)));
+    // If c4_http_respond itself initiated a close (e.g. handle inactive, write failed), immediate_close_needed might be redundant
+    // but close_client_connection is idempotent.
+  }
+
+  if (immediate_close_needed) {
+    close_client_connection(client);
+  }
+  // If !immediate_close_needed, reading continues, or on_message_complete will be called.
 }
 
 static char* status_text(int status) {
@@ -167,7 +261,15 @@ static char* status_text(int status) {
 }
 
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body) {
-  http_server.stats.open_requests--;
+  // Only decrement if on_message_complete was reached for this request cycle
+  if (client && client->message_complete_reached) {
+    http_server.stats.open_requests--;
+    // It will be reset in reset_client_request_data if connection is kept alive,
+    // or doesn't matter if connection is closed.
+    // For safety, and if not using reset_client_request_data in a path that calls this,
+    // reset it here too for the non-keep-alive case, though it's redundant if on_close frees the client.
+    // client->message_complete_reached = false; // Resetting here is an option, or in reset_client_request_data for keep-alive
+  }
 
   if (!client) {
     fprintf(stderr, "ERROR: Attempted to respond to NULL client\n");
@@ -179,59 +281,92 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
     return;
   }
 
-  // Mark as being closed to prevent multiple attempts
-  client->being_closed = true;
-
   if (!uv_is_active((uv_handle_t*) &client->handle)) {
-    fprintf(stderr, "ERROR: Attempted to write to inactive client handle - closing directly\n");
-
-    // Instead of trying to close directly, simply return as the client is already marked as closing
+    fprintf(stderr, "ERROR: Attempted to write to inactive client handle for client %p. Closing connection.\n", (void*) client);
+    close_client_connection(client);
     return;
   }
 
   char     tmp[500];
-  uv_buf_t uvbuf[] = {
-      {.base = tmp, .len = 0},
-      {.base = (char*) body.data, .len = body.len}};
+  uv_buf_t uvbuf[2]; // Declared to be filled
 
-  uvbuf[0].len = snprintf(tmp, sizeof(tmp), "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
-                          status, status_text(status), content_type, body.len);
+  const char* conn_header_val = llhttp_should_keep_alive(&client->parser) ? "keep-alive" : "close";
 
-  // Set up a write callback to safely close the handle after writing
+  uvbuf[0].base = tmp;
+  uvbuf[0].len  = snprintf(tmp, sizeof(tmp), "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: %s\r\n\r\n",
+                           status, status_text(status), content_type, body.len, conn_header_val);
+
+  uvbuf[1].base = (char*) body.data;
+  uvbuf[1].len  = body.len;
+
+  // Set client->being_closed based on the connection header *before* the write attempt.
+  // This informs on_write_complete whether to close or reset for keep-alive.
+  if (strcmp(conn_header_val, "close") == 0) {
+    client->being_closed = true;
+  }
+  // If it's "keep-alive", client->being_closed remains false (its initial state or from a previous keep-alive cycle),
+  // unless an error has already set it to true.
+
+  // Set up a write callback to safely close the handle after writing or reset for keep-alive
   uv_write_t* write_req = &client->write_req;
+  write_req->data       = client; // Ensure client is associated with write_req for on_write_complete
 
   int result = uv_write(write_req, (uv_stream_t*) &client->handle, uvbuf, 2, on_write_complete);
 
   if (result < 0) {
-    fprintf(stderr, "ERROR: Failed to write HTTP response: %s\n", uv_strerror(result));
-    // If write fails, close the handle now
-    uv_close((uv_handle_t*) &client->handle, on_close);
+    fprintf(stderr, "ERROR: Failed to write HTTP response for client %p: %s\n", (void*) client, uv_strerror(result));
+    close_client_connection(client);
+    // on_write_complete will not be called, so we must close here.
   }
-  // If write succeeds, the handle will be closed in the on_write_complete callback
+  // If write succeeds, on_write_complete will handle either closing or resetting for keep-alive.
 }
 
-// Callback for when a write completes - close the handle safely
+// Callback for when a write completes - close the handle safely or reset for keep-alive
 static void on_write_complete(uv_write_t* req, int status) {
-  client_t* client = (client_t*) req->handle->data;
+  client_t* client = (client_t*) req->data;
 
-  if (status < 0) {
-    fprintf(stderr, "ERROR: Write completed with error: %s\n", uv_strerror(status));
+  if (!client) {
+    fprintf(stderr, "ERROR: client_t is NULL in on_write_complete\n");
+    // Cannot do much here other than try to close the handle if req->handle is valid
+    if (req->handle) {
+      uv_close((uv_handle_t*) req->handle, NULL); // No specific on_close context
+    }
+    return;
   }
 
-  // Close the handle now that writing is done
-  uv_close((uv_handle_t*) &client->handle, on_close);
+  if (status < 0) {
+    fprintf(stderr, "ERROR: Write completed with error for client %p: %s\n", (void*) client, uv_strerror(status));
+    // Ensure `being_closed` is true if a write error occurs, so it's closed below.
+    client->being_closed = true;
+  }
+
+  // If client->being_closed is true (set by c4_http_respond for Connection:close, or due to write error),
+  // or if status itself is an error, then close.
+  if (client->being_closed) {
+    close_client_connection(client);
+  }
+  else {
+    // Keep-alive path: Reset client state for the next request
+    reset_client_request_data(client);
+    llhttp_reset(&client->parser);  // Reset parser for the next request on this connection
+    client->keep_alive_idle = true; // Now connection is idle, awaiting next keep-alive request
+    // The uv_read_start is presumably still active from c4_on_new_connection.
+  }
 }
 
 void c4_on_new_connection(uv_stream_t* server, int status) {
   if (status < 0) {
     fprintf(stderr, "New connection error %s\n", uv_strerror(status));
+    // No client object created yet to close.
     return;
   }
   uv_loop_t* loop   = server->loop;
   client_t*  client = (client_t*) safe_calloc(1, sizeof(client_t));
   uv_tcp_init(loop, &client->handle);
-  client->handle.data  = client;
-  client->being_closed = false;
+  client->handle.data              = client;
+  client->being_closed             = false;
+  client->message_complete_reached = false;
+  client->keep_alive_idle          = false; // Initial state for new connections
 
   llhttp_settings_init(&client->settings);
   client->settings.on_url              = on_url;
@@ -244,11 +379,16 @@ void c4_on_new_connection(uv_stream_t* server, int status) {
   llhttp_init(&client->parser, HTTP_REQUEST, &client->settings);
   client->parser.data = client;
   int err             = uv_accept(server, (uv_stream_t*) &client->handle);
-  if (err == 0)
+  if (err == 0) {
     err = uv_read_start((uv_stream_t*) &client->handle, alloc_buffer, on_read);
+  }
+
   if (err < 0) {
     const char* reason = uv_strerror(err);
-    fprintf(stderr, "uv_accept error %s\n", reason);
+    fprintf(stderr, "uv_accept/uv_read_start error for new client %p: %s\n", (void*) client, reason);
+    // Attempt to send an error response. c4_http_respond will handle inactive/problematic handles.
     c4_http_respond(client, 500, "text/plain", bytes(reason, strlen(reason)));
+    // Ensure closure, as c4_http_respond might return if handle is inactive without calling on_write_complete.
+    close_client_connection(client);
   }
 }
