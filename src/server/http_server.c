@@ -194,7 +194,7 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
   else if (nread == 0 || nread == UV_EOF) { // Graceful EOF or libuv's EOF signal (-4095)
     if (client->keep_alive_idle) {
       // Client closed an idle keep-alive connection. This is normal.
-      fprintf(stderr, "DEBUG: Client %p closed idle keep-alive connection (code: %zd).\n", (void*) client, nread);
+      //      fprintf(stderr, "DEBUG: Client %p closed idle keep-alive connection (code: %zd).\n", (void*) client, nread);
       immediate_close_needed = true;
       // should_call_responder remains false, no error response needed.
     }
