@@ -1,5 +1,6 @@
 
 #include "eth_account.h"
+#include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_tx.h"

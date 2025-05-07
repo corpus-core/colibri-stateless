@@ -9,7 +9,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NEXT_SYNC_COMMITTEE_GINDEX 55
+#define DENEP_NEXT_SYNC_COMMITTEE_GINDEX   55
+#define ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX 87
+
+static uint64_t next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
+  fork_id_t fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot));
+  return fork == C4_FORK_DENEB ? DENEP_NEXT_SYNC_COMMITTEE_GINDEX : ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX;
+}
 
 static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update, bytes32_t trusted_blockhash) {
   bytes32_t sync_root      = {0};
@@ -40,7 +46,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update, byte
 
   // create merkle root from proof
   ssz_hash_tree_root(sync_committee, sync_root);
-  ssz_verify_single_merkle_proof(merkle_proof.bytes, sync_root, NEXT_SYNC_COMMITTEE_GINDEX, merkle_root);
+  ssz_verify_single_merkle_proof(merkle_proof.bytes, sync_root, next_sync_committee_gindex(ctx->chain_id, slot), merkle_root);
 
   // verify the merkle root
   if (memcmp(merkle_root, state_root.bytes.data, 32)) RETURN_VERIFY_ERROR(ctx, "invalid merkle root in light client update!");

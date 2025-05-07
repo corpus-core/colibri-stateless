@@ -1,0 +1,6 @@
+{
+  "method":"eth_getStorageAt",
+  "params":["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48","0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3","latest"],
+  "chain_id": 1,
+  "expected_result": "0x00000000000000000000000043506849d7c04f9138d1a2050bbf3a0c054402dd"
+}

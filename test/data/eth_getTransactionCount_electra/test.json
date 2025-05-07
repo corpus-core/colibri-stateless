@@ -1,0 +1,6 @@
+{
+  "method":"eth_getTransactionCount",
+  "params":["0xdadB0d80178819F2319190D340ce9A924f783711","latest"],
+  "chain_id": 1,
+  "expected_result": "0x64b2"
+}

@@ -133,6 +133,18 @@ static c4_status_t get_beacon_header_by_parent_hash(proofer_ctx_t* ctx, bytes32_
   return C4_SUCCESS;
 }
 
+static c4_status_t determine_fork(proofer_ctx_t* ctx, ssz_ob_t* block) {
+  bytes_t data = block->bytes;
+  if (!data.data || data.len < 108) THROW_ERROR("Invalid block data!");
+  uint32_t offset = uint32_from_le(data.data);
+  if (offset > data.len - 8) THROW_ERROR("Invalid block data!");
+  uint64_t  slot = uint64_from_le(data.data + offset);
+  fork_id_t fork = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(slot));
+  block->def     = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, fork);
+  if (!block->def) THROW_ERROR("Invalid fork id!");
+  return ssz_is_valid(*block, true, &ctx->state) ? C4_SUCCESS : C4_ERROR;
+}
+
 static c4_status_t get_block(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* block) {
 
   bytes_t  block_data;
@@ -149,7 +161,9 @@ static c4_status_t get_block(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* blo
   else
     bprintf(&buffer, "eth/v2/beacon/blocks/%l", b->slot);
 
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB), ttl, block));
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, ttl, block));
+  TRY_ASYNC(determine_fork(ctx, block));
+
   *block = ssz_get(block, "message");
   return C4_SUCCESS;
 }

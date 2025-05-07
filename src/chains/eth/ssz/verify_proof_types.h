@@ -86,9 +86,9 @@ static const ssz_def_t ETH_RECEIPT_PROOF[] = {
 // represents one single transaction receipt with the required transaction and receipt-proof.
 // the proof contains the raw receipt as part of its last leaf.
 static const ssz_def_t ETH_LOGS_TX[] = {
-    SSZ_BYTES("transaction", 1073741824),  // the raw transaction payload
-    SSZ_UINT32("transactionIndex"),        // the index of the transaction in the block
-    SSZ_LIST("proof", ssz_bytes_1024, 64), // the Merklr Patricia Proof of the transaction receipt ending in the receipt root
+    SSZ_BYTES("transaction", 1073741824),   // the raw transaction payload
+    SSZ_UINT32("transactionIndex"),         // the index of the transaction in the block
+    SSZ_LIST("proof", ssz_bytes_1024, 256), // the Merklr Patricia Proof of the transaction receipt ending in the receipt root
 };
 static const ssz_def_t ETH_LOGS_TX_CONTAINER = SSZ_CONTAINER("LogsTx", ETH_LOGS_TX);
 
@@ -96,7 +96,7 @@ static const ssz_def_t ETH_LOGS_TX_CONTAINER = SSZ_CONTAINER("LogsTx", ETH_LOGS_
 static const ssz_def_t ETH_LOGS_BLOCK[] = {
     SSZ_UINT64("blockNumber"),                                   // the number of the execution block containing the transaction
     SSZ_BYTES32("blockHash"),                                    // the blockHash of the execution block containing the transaction
-    SSZ_LIST("proof", ssz_bytes32, 64),                          // the multi proof of the transaction, receipt_root,blockNumber and blockHash
+    SSZ_LIST("proof", ssz_bytes32, 1024),                        // the multi proof of the transaction, receipt_root,blockNumber and blockHash
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                // the header of the beacon block
     SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOF_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
     SSZ_BIT_VECTOR("sync_committee_bits", 512),                  // the bits of the validators that signed the block
