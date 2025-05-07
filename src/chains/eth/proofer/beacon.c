@@ -293,7 +293,7 @@ static inline c4_status_t eth_get_block_roots(proofer_ctx_t* ctx, json_t block, 
 
 // main beacn_block method
 c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
-  ssz_ob_t  sig_block, data_block, sig_body;
+  ssz_ob_t  sig_block = {0}, data_block = {0}, sig_body = {0};
   bytes32_t sig_root  = {0};
   bytes32_t data_root = {0};
 
