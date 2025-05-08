@@ -8,8 +8,8 @@ import {
   getC4w,
   Storage as C4Storage
 } from "./wasm.js";
-import { EventEmitter } from './eventEmitter';
-import { ConnectionState } from './connectionState';
+import { EventEmitter } from './eventEmitter.js';
+import { ConnectionState } from './connectionState.js';
 import {
   ProviderRpcError,
   RequestArguments,
@@ -17,7 +17,9 @@ import {
   Config as C4Config,
   DataRequest,
   MethodType,
-} from './types';
+  ProviderMessage
+} from './types.js';
+import { SubscriptionManager, RpcCaller, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager';
 
 // Helper function for chain ID formatting (can be used by ConnectionManager and C4Client)
 function formatChainId(value: any, debug?: boolean): string | null {
@@ -143,24 +145,42 @@ export default class C4Client {
   config: C4Config;
   private eventEmitter: EventEmitter;
   private connectionState: ConnectionState;
+  private subscriptionManager: SubscriptionManager;
 
   constructor(config?: Partial<C4Config>) {
     this.config = {
-      ...{
-        chainId: 1,                                               // Default chainId
-        beacon_apis: ["https://lodestar-mainnet.chainsafe.io"], // Default beacon API
-        rpcs: ["https://rpc.ankr.com/eth"],                     // Default RPC
-        trusted_block_hashes: [],
-        proofer: ["https://mainnet.colibri-proof.tech"],
-      },
-      ...config
-    }
+      // Defaults including pollingInterval if not provided
+      chainId: 1,
+      beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
+      rpcs: ["https://rpc.ankr.com/eth"],
+      trusted_block_hashes: [],
+      proofer: ["https://mainnet.colibri-proof.tech"],
+      pollingInterval: 12000, // Default here, can be overridden by user config
+      // ... other defaults like debug: false etc. might be useful
+      ...config // User config overrides defaults
+    };
+
     this.eventEmitter = new EventEmitter();
+
+    // Specific callback for ConnectionState for eth_chainId
+    const fetchChainIdForConnectionState = async () => this.rpc('eth_chainId', []);
+
+    // General RpcCaller for SubscriptionManager
+    const generalRpcCaller: RpcCaller = async (method: string, params: any[]) => {
+      return this.rpc(method, params);
+    };
+
     this.connectionState = new ConnectionState(
       { chainId: this.config.chainId, debug: this.config.debug },
-      async () => this.rpc('eth_chainId', []),
+      fetchChainIdForConnectionState, // Use the specific callback
       this.eventEmitter,
       formatChainId
+    );
+
+    this.subscriptionManager = new SubscriptionManager(
+      generalRpcCaller, // Use the general rpc caller
+      this.eventEmitter,
+      { debug: this.config.debug, pollingInterval: this.config.pollingInterval }
     );
   }
 
@@ -282,30 +302,33 @@ export default class C4Client {
    * @returns The result
    */
   async rpc(method: string, args: any[]): Promise<any> {
+    // eth_subscribe and eth_unsubscribe are handled by C4Client.request before this method is called.
+    // This rpc method is for the underlying data fetching/proving.
+
     const method_type = await this.getMethodSupport(method);
-    let proof = new Uint8Array();
+
     switch (method_type) {
       case MethodType.PROOFABLE: {
-        if (this.config.verify && !this.config.verify(method, args))
+        if (this.config.verify && !this.config.verify(method, args)) {
           return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
-
-        proof = this.config.proofer && this.config.proofer.length
+        }
+        const proof = this.config.proofer && this.config.proofer.length
           ? await fetch_rpc(this.config.proofer, { method, params: args, c4: await this.getProoferConfig() }, true)
           : await this.createProof(method, args);
-        break;
+        return this.verifyProof(method, args, proof);
       }
       case MethodType.UNPROOFABLE:
         return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
       case MethodType.NOT_SUPPORTED:
-        throw new ProviderRpcError(4200, `Method ${method} is not supported`);
+        throw new ProviderRpcError(4200, `Method ${method} is not supported by C4Client.rpc core`);
       case MethodType.LOCAL:
         if (method === 'eth_chainId') {
           return this.connectionState.currentChainId || formatChainId(this.config.chainId, this.config.debug);
         }
-        throw new ProviderRpcError(4200, `Method ${method} is LOCAL but not currently handled by C4Client.rpc`);
+        throw new ProviderRpcError(4200, `Method ${method} is LOCAL but not currently handled by C4Client.rpc core`);
     }
-
-    return this.verifyProof(method, args, proof);
+    // Should be unreachable if MethodType enum is comprehensive and handled
+    throw new ProviderRpcError(-32603, `Internal error: Unhandled method type for ${method} in C4Client.rpc core`);
   }
 
   static async register_storage(storage: C4Storage) {
@@ -318,14 +341,23 @@ export default class C4Client {
       await this.connectionState.attemptInitialConnection();
     }
 
-    try {
-      const paramsArray = Array.isArray(args.params) ? args.params : (args.params ? [args.params] : []);
-      const result = await this.rpc(args.method, paramsArray);
+    const { method, params } = args;
+    const paramsArray = Array.isArray(params) ? params : (params ? [params] : []);
 
-      this.connectionState.processSuccessfulRequest(args.method, result);
+    // Attempt to handle with SubscriptionManager first
+    const subscriptionResult = this.subscriptionManager.handleRequest(method, paramsArray);
+    if (subscriptionResult !== null) {
+      // If handleRequest returns a Promise, it means it's handling the request
+      return subscriptionResult;
+    }
+
+    // If not handled by SubscriptionManager, proceed with standard RPC call logic
+    try {
+      const result = await this.rpc(method, paramsArray);
+      this.connectionState.processSuccessfulRequest(method, result);
       return result;
     } catch (error: any) {
-      const providerError = ProviderRpcError.createError(error)
+      const providerError = ProviderRpcError.createError(error);
       this.connectionState.processFailedRequest(providerError);
       throw providerError;
     }

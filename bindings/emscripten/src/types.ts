@@ -75,6 +75,7 @@ export interface Config {
     debug?: boolean;
     include_code?: boolean;
     verify?: (method: string, args: any[]) => boolean;
+    pollingInterval?: number;
 }
 
 // Data request structure used internally
