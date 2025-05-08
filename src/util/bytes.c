@@ -345,7 +345,7 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
         }
         case 'l': {
           uint64_t value   = va_arg(args, uint64_t);
-          char     tmp[20] = {0};
+          char     tmp[22] = {0};
           if (*(p + 2) == 'x') {
             p++;
             if (!*(p + 1)) break;
