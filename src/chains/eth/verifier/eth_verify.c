@@ -28,6 +28,15 @@ static const char* proofable_methods[] = {
     RPC_METHOD("eth_getTransactionByHash", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTxData, EthTransactionProof),
+    RPC_METHOD("eth_blockNumber", Uint256, EthBlockNumberProof),
+    RPC_METHOD("eth_newPendingTransactionFilter", Void, Void),
+    RPC_METHOD("eth_newFilter", Void, Void),
+    RPC_METHOD("eth_newBlockFilter", Void, Void),
+    RPC_METHOD("eth_getFilterChanges", Void, Void),
+    RPC_METHOD("eth_getFilterLogs", Void, Void),
+    RPC_METHOD("eth_uninstallFilter", Uint256, Void),
+    RPC_METHOD("eth_subscribe", Uint256, Void),
+    RPC_METHOD("eth_unsubscribe", Uint256, Void),
 };
 static const char* local_methods[] = {
     RPC_METHOD("eth_chainId", Uint64, Void),
@@ -49,14 +58,6 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_estimateGas", Uint64, EthCallProof),
     RPC_METHOD("eth_gasPrice", Void, Void),
     RPC_METHOD("eth_getBlockReceipts", Void, Void),
-    RPC_METHOD("eth_newPendingTransactionFilter", Void, Void),
-    RPC_METHOD("eth_newFilter", Void, Void),
-    RPC_METHOD("eth_newBlockFilter", Void, Void),
-    RPC_METHOD("eth_getFilterChanges", Void, Void),
-    RPC_METHOD("eth_getFilterLogs", Void, Void),
-    RPC_METHOD("eth_uninstallFilter", Void, Void),
-    RPC_METHOD("eth_subscribe", Void, Void),
-    RPC_METHOD("eth_unsubscribe", Void, Void),
     RPC_METHOD("eth_getUncleByBlockHash", Void, Void),
     RPC_METHOD("eth_getUncleByBlockNumber", Void, Void),
     RPC_METHOD("eth_getUncleCountByBlockHash", Void, Void),
@@ -115,6 +116,8 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
 #ifdef ETH_BLOCK
       if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF)))
     verify_block_proof(ctx);
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF)))
+    verify_block_number_proof(ctx);
   else
 #endif
 #ifdef ETH_UTIL

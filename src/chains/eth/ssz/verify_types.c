@@ -56,12 +56,14 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),               // a Proof of a Call like eth_call
     SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF),               // Proof as input data for the sync committee transition used by zk
     SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),             // Proof for BlockData
+    SSZ_CONTAINER("BlockNumberProof", ETH_BLOCK_NUMBER_PROOF) // Proof for BlockNumber
 }; // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 static const ssz_def_t C4_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_LIST("LightClientUpdate", LIGHT_CLIENT_UPDATE_CONTAINER, 512)}; // this light client update can be fetched directly from the beacon chain API
+    SSZ_LIST("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE_CONTAINER, 512),      // this light client update can be fetched directly from the beacon chain API
+    SSZ_LIST("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER, 512)}; // this light client update can be fetched directly from the beacon chain API
 
 // the main container defining the incoming data processed by the verifier
 static const ssz_def_t C4_REQUEST[] = {
@@ -81,12 +83,18 @@ static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def
 #define ARRAY_IDX(a, target)  array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 #define ARRAY_TYPE(a, target) a + array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 
+const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork) {
+  switch (fork) {
+    case C4_FORK_DENEB:
+      return ARRAY_TYPE(C4_REQUEST_SYNCDATA_UNION, &DENEP_LIGHT_CLIENT_UPDATE_CONTAINER);
+    case C4_FORK_ELECTRA:
+      return ARRAY_TYPE(C4_REQUEST_SYNCDATA_UNION, &ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER);
+    default:
+      return NULL;
+  }
+}
 const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
   switch (type) {
-    case ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST:
-      return ARRAY_TYPE(C4_REQUEST_SYNCDATA_UNION, &LIGHT_CLIENT_UPDATE_CONTAINER);
-    case ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE:
-      return &LIGHT_CLIENT_UPDATE_CONTAINER;
     case ETH_SSZ_VERIFY_REQUEST:
       return &C4_REQUEST_CONTAINER;
     case ETH_SSZ_VERIFY_ACCOUNT_PROOF:
@@ -103,6 +111,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_SYNC_PROOF);
     case ETH_SSZ_VERIFY_BLOCK_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_PROOF);
+    case ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF:
+      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_NUMBER_PROOF);
     case ETH_SSZ_VERIFY_STATE_PROOF:
       return &ETH_STATE_PROOF_CONTAINER;
     case ETH_SSZ_DATA_NONE:

@@ -11,7 +11,6 @@ import { modulePath } from './test_config.js';
 // Dynamically import the module using the path from test_config.js
 const ColibriModule = await import(modulePath);
 const Colibri = ColibriModule.default; // Assuming Colibri is the default export
-const MethodType = ColibriModule.MethodType; // Assuming MethodType is a named export
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const testdir = join(__dirname, '../../../test/data');
@@ -65,7 +64,7 @@ test('RPC-Proof Test Suite', async (t) => {
     await t.test('should load Emscripten module', async () => {
         const c4 = new Colibri();
         const result = await c4.getMethodSupport('eth_getTransactionByHash');
-        assert.strictEqual(result, MethodType.PROOFABLE, 'Method should be proofable');
+        assert.strictEqual(result, 1 /*MethodType.PROOFABLE*/, 'Method should be proofable');
         console.log(result);
     });
 

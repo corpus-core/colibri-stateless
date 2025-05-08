@@ -20,28 +20,29 @@ typedef enum {
   ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER   = 2,
   ETH_SSZ_BEACON_BLOCK_HEADER           = 3,
   // verify
-  ETH_SSZ_VERIFY_REQUEST                  = 4,
-  ETH_SSZ_VERIFY_BLOCK_HASH_PROOF         = 5,
-  ETH_SSZ_VERIFY_ACCOUNT_PROOF            = 6,
-  ETH_SSZ_VERIFY_TRANSACTION_PROOF        = 7,
-  ETH_SSZ_VERIFY_RECEIPT_PROOF            = 8,
-  ETH_SSZ_VERIFY_LOGS_PROOF               = 9,
-  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST = 10,
-  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE      = 11,
-  ETH_SSZ_VERIFY_STATE_PROOF              = 12,
-  ETH_SSZ_VERIFY_CALL_PROOF               = 13,
-  ETH_SSZ_VERIFY_SYNC_PROOF               = 14,
-  ETH_SSZ_VERIFY_BLOCK_PROOF              = 15,
+  ETH_SSZ_VERIFY_REQUEST           = 4,
+  ETH_SSZ_VERIFY_BLOCK_HASH_PROOF  = 5,
+  ETH_SSZ_VERIFY_ACCOUNT_PROOF     = 6,
+  ETH_SSZ_VERIFY_TRANSACTION_PROOF = 7,
+  ETH_SSZ_VERIFY_RECEIPT_PROOF     = 8,
+  ETH_SSZ_VERIFY_LOGS_PROOF        = 9,
+  //  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST = 10,
+  //  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE      = 11,
+  ETH_SSZ_VERIFY_STATE_PROOF        = 12,
+  ETH_SSZ_VERIFY_CALL_PROOF         = 13,
+  ETH_SSZ_VERIFY_SYNC_PROOF         = 14,
+  ETH_SSZ_VERIFY_BLOCK_PROOF        = 15,
+  ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF = 16,
   // data types
-  ETH_SSZ_DATA_NONE    = 16,
-  ETH_SSZ_DATA_HASH32  = 17,
-  ETH_SSZ_DATA_BYTES   = 18,
-  ETH_SSZ_DATA_UINT256 = 19,
-  ETH_SSZ_DATA_TX      = 20,
-  ETH_SSZ_DATA_RECEIPT = 21,
-  ETH_SSZ_DATA_LOGS    = 22,
-  ETH_SSZ_DATA_BLOCK   = 23,
-  ETH_SSZ_DATA_PROOF   = 24
+  ETH_SSZ_DATA_NONE    = 17,
+  ETH_SSZ_DATA_HASH32  = 18,
+  ETH_SSZ_DATA_BYTES   = 19,
+  ETH_SSZ_DATA_UINT256 = 20,
+  ETH_SSZ_DATA_TX      = 21,
+  ETH_SSZ_DATA_RECEIPT = 22,
+  ETH_SSZ_DATA_LOGS    = 23,
+  ETH_SSZ_DATA_BLOCK   = 24,
+  ETH_SSZ_DATA_PROOF   = 25
 } eth_ssz_type_t;
 
 bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
@@ -52,12 +53,17 @@ const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork);
 // forks
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type);
 const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type);
+const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork);
 
 // c4 specific
 const ssz_def_t*       eth_ssz_verification_type(eth_ssz_type_t type);
 extern const ssz_def_t ssz_transactions_bytes;
 extern const ssz_def_t BEACON_BLOCK_HEADER[5];
-extern const ssz_def_t LIGHT_CLIENT_UPDATE[7];
+extern const ssz_def_t LIGHT_CLIENT_HEADER[3];
+extern const ssz_def_t SYNC_COMMITTEE[2];
+extern const ssz_def_t SYNC_AGGREGATE[2];
+extern const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE[7];
+extern const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t DENEP_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];

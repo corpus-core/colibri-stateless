@@ -14,14 +14,26 @@ static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
     SSZ_UINT64("blockNumber") // proof for the right blocknumber
 };
 
+// ## Historic Block Proof
+//
+// Since Clients usually have the public keys of the last sync period and are able to verify blocks, verifying a ollder block gets complicated, because you would need the public keys of the sync committee at that period, which ar hardly available.
+// In order to allow the verification of those historic blocks, we can use the the historic summaries of the current state.
+//
+// 1. take the blockroot to verify and together with the all the 8192 blockroots of that period and cretae a merkle proof for this list.
+// 2. using the current state, we get the list of all historic summaries holding the summar block_rooots of those lists and continue the merkle proof to the tree root hash of thid list.
+// 3. we then continue the merkle proof fomr the has tree root of the historic_summaries down to the state_root.
+// 4. with the blockheader of the current block associated with this state and mathching the state_root with the root of the merkler proof, we add the BLS-Signature of the sync_committee which can be easily verified by the client.
+//
+//
+
 // a proof using the historic summaries
 static const ssz_def_t ETH_HISTORIC_BLOCK_PROOF[] = {
     SSZ_LIST("proof", ssz_bytes32, 128),          // merkle proof from thr blotroot over the historic_summaries to the state
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER), // the header of the beacon block containing historic_summaries (usually close to head)
-    SSZ_UINT64("gindex")                          // gindex of the proof
+    SSZ_UINT64("gindex")                          // the combined gindex of the proof
 };
 
-static const ssz_def_t ETH_HISTORIC_BLOCK_PROOF_UNION[] = {
+static const ssz_def_t ETH_HISTORIC_BLOCK_PROOFS_UNION[] = {
     SSZ_NONE,                                                 // no block-proof for latest
     SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF) // proof for the right blocknumber
 };
@@ -63,16 +75,16 @@ static const ssz_def_t ETH_HISTORIC_BLOCK_PROOF_UNION[] = {
 
 // the main proof data for a receipt.
 static const ssz_def_t ETH_RECEIPT_PROOF[] = {
-    SSZ_BYTES("transaction", 1073741824),                        // the raw transaction payload
-    SSZ_UINT32("transactionIndex"),                              // the index of the transaction in the block
-    SSZ_UINT64("blockNumber"),                                   // the number of the execution block containing the transaction
-    SSZ_BYTES32("blockHash"),                                    // the blockHash of the execution block containing the transaction
-    SSZ_LIST("receipt_proof", ssz_bytes_1024, 64),               // the Merklr Patricia Proof of the transaction receipt ending in the receipt root
-    SSZ_LIST("block_proof", ssz_bytes32, 64),                    // the multi proof of the transaction, receipt_root,blockNumber and blockHash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                // the header of the beacon block
-    SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOF_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
-    SSZ_BIT_VECTOR("sync_committee_bits", 512),                  // the bits of the validators that signed the block
-    SSZ_BYTE_VECTOR("sync_committee_signature", 96)};            // the signature of the sync committee
+    SSZ_BYTES("transaction", 1073741824),                         // the raw transaction payload
+    SSZ_UINT32("transactionIndex"),                               // the index of the transaction in the block
+    SSZ_UINT64("blockNumber"),                                    // the number of the execution block containing the transaction
+    SSZ_BYTES32("blockHash"),                                     // the blockHash of the execution block containing the transaction
+    SSZ_LIST("receipt_proof", ssz_bytes_1024, 64),                // the Merklr Patricia Proof of the transaction receipt ending in the receipt root
+    SSZ_LIST("block_proof", ssz_bytes32, 64),                     // the multi proof of the transaction, receipt_root,blockNumber and blockHash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                 // the header of the beacon block
+    SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOFS_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),                   // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)};             // the signature of the sync committee
 
 // ## Logs Proof
 //
@@ -94,14 +106,14 @@ static const ssz_def_t ETH_LOGS_TX_CONTAINER = SSZ_CONTAINER("LogsTx", ETH_LOGS_
 
 // a single Block with its proof the all the receipts or txs required to proof for the logs.
 static const ssz_def_t ETH_LOGS_BLOCK[] = {
-    SSZ_UINT64("blockNumber"),                                   // the number of the execution block containing the transaction
-    SSZ_BYTES32("blockHash"),                                    // the blockHash of the execution block containing the transaction
-    SSZ_LIST("proof", ssz_bytes32, 1024),                        // the multi proof of the transaction, receipt_root,blockNumber and blockHash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                // the header of the beacon block
-    SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOF_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
-    SSZ_BIT_VECTOR("sync_committee_bits", 512),                  // the bits of the validators that signed the block
-    SSZ_BYTE_VECTOR("sync_committee_signature", 96),             // the signature of the sync committee
-    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256)};                // the transactions of the block
+    SSZ_UINT64("blockNumber"),                                    // the number of the execution block containing the transaction
+    SSZ_BYTES32("blockHash"),                                     // the blockHash of the execution block containing the transaction
+    SSZ_LIST("proof", ssz_bytes32, 1024),                         // the multi proof of the transaction, receipt_root,blockNumber and blockHash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                 // the header of the beacon block
+    SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOFS_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),                   // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96),              // the signature of the sync committee
+    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256)};                 // the transactions of the block
 
 static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH_LOGS_BLOCK);
 
@@ -139,16 +151,16 @@ static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH
 
 // the main proof data for a single transaction.
 static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
-    SSZ_BYTES("transaction", 1073741824),                        // the raw transaction payload
-    SSZ_UINT32("transactionIndex"),                              // the index of the transaction in the block
-    SSZ_UINT64("blockNumber"),                                   // the number of the execution block containing the transaction
-    SSZ_BYTES32("blockHash"),                                    // the blockHash of the execution block containing the transaction
-    SSZ_UINT64("baseFeePerGas"),                                 // the baseFeePerGas
-    SSZ_LIST("proof", ssz_bytes32, 64),                          // the multi proof of the transaction, blockNumber and blockHash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                // the header of the beacon block
-    SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOF_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
-    SSZ_BIT_VECTOR("sync_committee_bits", 512),                  // the bits of the validators that signed the block
-    SSZ_BYTE_VECTOR("sync_committee_signature", 96)};            // the signature of the sync committee
+    SSZ_BYTES("transaction", 1073741824),                         // the raw transaction payload
+    SSZ_UINT32("transactionIndex"),                               // the index of the transaction in the block
+    SSZ_UINT64("blockNumber"),                                    // the number of the execution block containing the transaction
+    SSZ_BYTES32("blockHash"),                                     // the blockHash of the execution block containing the transaction
+    SSZ_UINT64("baseFeePerGas"),                                  // the baseFeePerGas
+    SSZ_LIST("proof", ssz_bytes32, 64),                           // the multi proof of the transaction, blockNumber and blockHash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                 // the header of the beacon block
+    SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOFS_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),                   // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)};             // the signature of the sync committee
 
 // ## Account Proof
 //
@@ -446,7 +458,8 @@ static const ssz_def_t ETH_SYNC_PROOF[] = {
     SSZ_UINT64("slot"),                            // the slot of the block
     SSZ_UINT64("proposerIndex")};
 
-static const ssz_def_t LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", LIGHT_CLIENT_UPDATE);
+static const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE_CONTAINER   = SSZ_CONTAINER("LightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE);
+static const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE);
 
 static const ssz_def_t ETH_EXECUTION_PAYLOAD_UNION[] = {
     SSZ_CONTAINER("DenepExecutionPayload", DENEP_EXECUTION_PAYLOAD),
@@ -468,3 +481,12 @@ static const ssz_def_t ETH_BLOCK_PROOF[] = {
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),               // the header of the beacon block
     SSZ_BIT_VECTOR("sync_committee_bits", 512),                 // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("sync_committee_signature", 96)};           // the signature of the sync committee
+
+// for `eth_blockNumber` we need to proof the blocknumber and the timestamp of the latest block.
+static const ssz_def_t ETH_BLOCK_NUMBER_PROOF[] = {
+    SSZ_UINT64("blockNumber"),                        // the block number of the latest block
+    SSZ_UINT64("timestamp"),                          // the timestamp of the latest block
+    SSZ_LIST("proof", ssz_bytes32, 256),              // the multi merkle prooof from the executionPayload.blockNumber and executionPayload.timestamp  down to the blockBodyRoot hash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee

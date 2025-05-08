@@ -18,6 +18,7 @@ static uint64_t next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
 }
 
 static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update, bytes32_t trusted_blockhash) {
+
   bytes32_t sync_root      = {0};
   bytes32_t merkle_root    = {0};
   bytes32_t blockhash      = {0};
@@ -58,7 +59,8 @@ INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return true;
 
-  if (ctx->sync_data.def == eth_ssz_verification_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST)) {
+  if (ctx->sync_data.def == eth_get_light_client_update_list(C4_FORK_DENEB) ||
+      ctx->sync_data.def == eth_get_light_client_update_list(C4_FORK_ELECTRA)) {
     uint32_t updates_len = ssz_len(ctx->sync_data);
     for (uint32_t i = 0; i < updates_len; i++) {
       ssz_ob_t update = ssz_at(ctx->sync_data, i);
@@ -69,6 +71,14 @@ INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   }
   else
     RETURN_VERIFY_ERROR(ctx, "unknown sync_data type!");
+}
+
+fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
+  if (data.len < 4) return 0;
+  uint32_t offset = uint32_from_le(data.data);
+  if (offset + 8 > data.len) return 0;
+  uint64_t slot = uint64_from_le(data.data + offset);
+  return c4_chain_fork_id(chain_id, epoch_for_slot(slot));
 }
 
 INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates, bytes32_t trusted_blockhash) {
@@ -85,14 +95,20 @@ INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates
   }
   for (uint32_t pos = 0; pos + 12 < client_updates.len; pos += length + 8) {
     length = uint64_from_le(client_updates.data + pos);
-    if (pos + 8 + length > client_updates.len) {
+    if (pos + 8 + length > client_updates.len && length > 12) {
       success = false;
       break;
     }
-
+    bytes_t          client_update_bytes = bytes(client_updates.data + pos + 8 + 4, length - 4);
+    fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
+    const ssz_def_t* client_update_list  = eth_get_light_client_update_list(fork);
+    if (!client_update_list) {
+      success = false;
+      break;
+    }
     ssz_ob_t client_update_ob = {
-        .bytes = bytes(client_updates.data + pos + 8 + 4, length - 4),
-        .def   = eth_ssz_verification_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE)};
+        .bytes = client_update_bytes,
+        .def   = client_update_list->def.vector.type};
     if (!update_light_client_update(ctx, &client_update_ob, trusted_blockhash)) {
       success = false;
       break;
