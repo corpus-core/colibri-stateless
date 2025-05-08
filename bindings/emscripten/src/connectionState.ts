@@ -1,5 +1,5 @@
-import { EventEmitter } from './eventEmitter';
-import { ProviderRpcError, ProviderConnectInfo } from './types';
+import { EventEmitter } from './eventEmitter.js';
+import { ProviderRpcError, ProviderConnectInfo } from './types.js';
 
 // Helper function for chain ID formatting - intentionally kept separate for now
 // If this function is *only* used by ConnectionState, it could be moved inside or made local.

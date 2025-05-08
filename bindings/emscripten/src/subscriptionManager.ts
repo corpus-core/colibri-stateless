@@ -1,5 +1,5 @@
-import { EventEmitter } from './eventEmitter';
-import { ProviderRpcError, ProviderMessage } from './types'; // Removed unused Config, DataRequest, RequestArguments
+import { EventEmitter } from './eventEmitter.js';
+import { ProviderRpcError, ProviderMessage } from './types.js'; // Removed unused Config, DataRequest, RequestArguments
 
 const DEFAULT_POLLING_INTERVAL = 12000; // 12 seconds
 
