@@ -61,6 +61,7 @@ extern const ssz_def_t ssz_transactions_bytes;
 extern const ssz_def_t BEACON_BLOCK_HEADER[5];
 extern const ssz_def_t LIGHT_CLIENT_HEADER[3];
 extern const ssz_def_t SYNC_COMMITTEE[2];
+extern const ssz_def_t SYNC_AGGREGATE[2];
 extern const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t DENEP_EXECUTION_PAYLOAD[17];

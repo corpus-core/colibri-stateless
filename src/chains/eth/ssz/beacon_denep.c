@@ -20,7 +20,7 @@ const ssz_def_t BEACON_BLOCK_HEADER[5] = {
     SSZ_BYTES32("bodyRoot")};    // the hash_tree_root of the block body
 
 // the aggregates signature of the sync committee
-static const ssz_def_t SYNC_AGGREGATE[] = {
+const ssz_def_t SYNC_AGGREGATE[2] = {
     SSZ_BIT_VECTOR("syncCommitteeBits", 512),       // the bits of the validators that signed the block (each bit represents a validator)
     SSZ_BYTE_VECTOR("syncCommitteeSignature", 96)}; // the signature of the sync committee
 

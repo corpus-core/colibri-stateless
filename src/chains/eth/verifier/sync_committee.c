@@ -99,9 +99,9 @@ INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates
       success = false;
       break;
     }
-    bytes_t    client_update_bytes = bytes(client_updates.data + pos + 8 + 4, length - 4);
-    fork_id_t  fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
-    ssz_def_t* client_update_list  = eth_get_light_client_update_list(fork);
+    bytes_t          client_update_bytes = bytes(client_updates.data + pos + 8 + 4, length - 4);
+    fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
+    const ssz_def_t* client_update_list  = eth_get_light_client_update_list(fork);
     if (!client_update_list) {
       success = false;
       break;

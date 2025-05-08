@@ -56,11 +56,6 @@ static const ssz_def_t ELECTRA_EXECUTION_REQUESTS[] = {
     SSZ_LIST("consolidations", ELECTRA_CONSOLIDATION_REQUEST_CONTAINER, MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD)};
 const ssz_def_t ELECTRA_EXECUTION_REQUESTS_CONTAINER = SSZ_CONTAINER("ExecutionRequests", ELECTRA_EXECUTION_REQUESTS);
 
-// the aggregates signature of the sync committee
-static const ssz_def_t SYNC_AGGREGATE[] = {
-    SSZ_BIT_VECTOR("syncCommitteeBits", 512),       // the bits of the validators that signed the block (each bit represents a validator)
-    SSZ_BYTE_VECTOR("syncCommitteeSignature", 96)}; // the signature of the sync committee
-
 // a checkpoint is a tuple of epoch and root
 static const ssz_def_t CHECKPOINT[] = {
     SSZ_UINT64("epoch"), // the epoch of the checkpoint
