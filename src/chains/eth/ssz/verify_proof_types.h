@@ -24,7 +24,11 @@ static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
 // 3. we then continue the merkle proof fomr the has tree root of the historic_summaries down to the state_root.
 // 4. with the blockheader of the current block associated with this state and mathching the state_root with the root of the merkler proof, we add the BLS-Signature of the sync_committee which can be easily verified by the client.
 //
+// **Building the historic proof**
 //
+// In order to build a historic proof, we need data, which can not be provided directly by the standard beacon api. At the time of writing, only lodestar offers an endpoint providing the merkle proof and the the full list of historical summaries at [/eth/v1/lodestar/states/{state_id}/historical_summaries](https://github.com/ChainSafe/lodestar/blob/d8bc6b137888ca1114f7db4d5af9afb04fe00d85/packages/api/src/beacon/routes/lodestar.ts#L418).
+// For the blockroots itself, of course you get each single blockroot for all 8192 blocks of the period so you can build the merkle proof with a lot of requests to the header-endpoint, but this would take very long,
+// so fetching them all and caching all blockroots allows to build them fast and efficient. Those blockroots are then stored in the chain_store under `data/{chain_id}/{period}/blocks.ssz`. When starting the proofer with the -d option, it will use the fetched data.
 
 // a proof using the historic summaries
 static const ssz_def_t ETH_HISTORIC_BLOCK_PROOF[] = {
