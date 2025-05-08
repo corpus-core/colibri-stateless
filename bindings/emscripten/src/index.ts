@@ -16,10 +16,23 @@ import {
   Cache,
   Config as C4Config,
   DataRequest,
-  MethodType,
+  MethodType as C4MethodType,
   ProviderMessage
 } from './types.js';
 import { SubscriptionManager, RpcCaller, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
+
+// Re-export types needed by consumers of the C4Client module
+export {
+  ProviderRpcError,
+  RequestArguments,
+  Cache,
+  C4Config,
+  DataRequest,
+  C4MethodType as MethodType,
+  ProviderMessage,
+  EthSubscribeSubscriptionType,
+  EthNewFilterType
+};
 
 // Helper function for chain ID formatting (can be used by ConnectionManager and C4Client)
 function formatChainId(value: any, debug?: boolean): string | null {
@@ -200,12 +213,12 @@ export default class C4Client {
    * @param method - The method to check
    * @returns The method type
    */
-  async getMethodSupport(method: string): Promise<MethodType> {
+  async getMethodSupport(method: string): Promise<C4MethodType> {
     const c4w = await getC4w();
     const free_buffers: number[] = [];
     const method_type = c4w._c4w_get_method_type(BigInt(this.config.chainId), as_char_ptr(method, c4w, free_buffers));
     free_buffers.forEach(ptr => c4w._free(ptr));
-    return method_type;
+    return method_type as C4MethodType;
   }
 
   /**
@@ -308,7 +321,7 @@ export default class C4Client {
     const method_type = await this.getMethodSupport(method);
 
     switch (method_type) {
-      case MethodType.PROOFABLE: {
+      case C4MethodType.PROOFABLE: {
         if (this.config.verify && !this.config.verify(method, args)) {
           return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
         }
@@ -317,11 +330,11 @@ export default class C4Client {
           : await this.createProof(method, args);
         return this.verifyProof(method, args, proof);
       }
-      case MethodType.UNPROOFABLE:
+      case C4MethodType.UNPROOFABLE:
         return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
-      case MethodType.NOT_SUPPORTED:
+      case C4MethodType.NOT_SUPPORTED:
         throw new ProviderRpcError(4200, `Method ${method} is not supported by C4Client.rpc core`);
-      case MethodType.LOCAL:
+      case C4MethodType.LOCAL:
         if (method === 'eth_chainId') {
           return this.connectionState.currentChainId || formatChainId(this.config.chainId, this.config.debug);
         }
