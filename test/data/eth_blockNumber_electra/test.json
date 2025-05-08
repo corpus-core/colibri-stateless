@@ -1,0 +1,6 @@
+{
+  "method":"eth_blockNumber",
+  "params":[],
+  "chain_id": 1,
+  "expected_result": "0x1566aae"
+}

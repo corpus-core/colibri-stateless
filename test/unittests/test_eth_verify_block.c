@@ -27,11 +27,16 @@ void test_block_electra() {
   run_rpc_test("eth_getBlockByNumber_electra", C4_PROOFER_FLAG_NO_CACHE);
 }
 
+void test_block_number_electra() {
+  run_rpc_test("eth_blockNumber_electra", C4_PROOFER_FLAG_NO_CACHE);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_block_by_number);
   RUN_TEST(test_block_by_hash);
   RUN_TEST(test_block_by_trusted_hash);
   RUN_TEST(test_block_electra);
+  RUN_TEST(test_block_number_electra);
   return UNITY_END();
 }

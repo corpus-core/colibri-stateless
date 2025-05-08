@@ -188,6 +188,17 @@ static const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER = SSZ_CONTAINER("signedBeac
 
 #endif
 
+// the light client update is used to verify the transition between two periods of the SyncCommittee.
+// This data will be fetched directly through the beacon Chain API since it contains all required data.
+const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7] = {
+    SSZ_CONTAINER("attestedHeader", LIGHT_CLIENT_HEADER), // the header of the beacon block attested by the sync committee
+    SSZ_CONTAINER("nextSyncCommittee", SYNC_COMMITTEE),
+    SSZ_VECTOR("nextSyncCommitteeBranch", ssz_bytes32, 6), // will be 6 in electra
+    SSZ_CONTAINER("finalizedHeader", LIGHT_CLIENT_HEADER), // the header of the finalized beacon block
+    SSZ_VECTOR("finalityBranch", ssz_bytes32, 7),          // will be 7 in electra
+    SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),        // the aggregates signature of the sync committee
+    SSZ_UINT64("signatureSlot")};                          // the slot of the signature
+
 static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 
 // the block header of the execution layer proved within the beacon block

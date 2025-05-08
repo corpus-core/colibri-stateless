@@ -3,6 +3,7 @@
 #include "eth_verify.h"
 #include "proofer.h"
 #include "ssz.h"
+#include "sync_committee.h"
 #include <stdlib.h>
 
 #define DENEP_NEXT_SYNC_COMMITTEE_GINDEX   55
@@ -49,10 +50,12 @@ typedef struct {
 } period_data_t;
 
 static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_data_t* period) {
-  bytes32_t        domain    = {0};
-  bytes32_t        aggregate = {0};
-  const ssz_def_t* def       = eth_ssz_verification_type(ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE);
-  if (data.len < 12) THROW_ERROR("invalid client_update");
+  bytes32_t        domain          = {0};
+  bytes32_t        aggregate       = {0};
+  fork_id_t        fork            = c4_eth_get_fork_for_lcu(ctx->chain_id, data);
+  const ssz_def_t* update_list_def = eth_get_light_client_update_list(fork);
+  const ssz_def_t* def             = update_list_def ? update_list_def->def.vector.type : NULL;
+  if (data.len < 12 || !def) THROW_ERROR("invalid client_update");
   ssz_ob_t old_update = {.bytes = bytes(data.data + 12, uint64_from_le(data.data) - 4), .def = def};
   if (old_update.bytes.len + 24 > data.len) THROW_ERROR("invalid client_update");
   ssz_ob_t new_update = {.bytes = bytes(data.data + 24 + old_update.bytes.len, uint64_from_le(data.data + 12 + old_update.bytes.len) - 4), .def = def};

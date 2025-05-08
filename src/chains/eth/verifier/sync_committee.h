@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include "beacon_types.h"
 #include "bytes.h"
 #include "state.h"
 #include "verify.h"
@@ -37,6 +38,7 @@ bool              c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t
 c4_chain_state_t  c4_get_chain_state(chain_id_t chain_id); // make sure to free the chain_state.blocks after use
 void              c4_eth_set_trusted_blockhashes(chain_id_t chain_id, bytes_t blockhashes);
 uint32_t          c4_eth_get_last_period(bytes_t state);
+fork_id_t         c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data);
 
 #ifdef __cplusplus
 }

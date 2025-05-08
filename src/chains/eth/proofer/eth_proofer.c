@@ -36,6 +36,8 @@ bool eth_proofer_execute(proofer_ctx_t* ctx) {
     c4_proof_call(ctx);
   else if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0)
     c4_proof_block(ctx);
+  else if (strcmp(ctx->method, "eth_blockNumber") == 0)
+    c4_proof_block_number(ctx);
   else if (strcmp(ctx->method, "eth_proof_sync") == 0)
     c4_proof_sync(ctx);
   else

@@ -182,7 +182,7 @@ static const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER = SSZ_CONTAINER("signedBeac
 static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 
 // the public keys sync committee used within a period ( about 27h)
-static const ssz_def_t SYNC_COMMITTEE[] = {
+const ssz_def_t SYNC_COMMITTEE[] = {
     SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512), // the 512 pubkeys (each 48 bytes) of the validators in the sync committee
     SSZ_BYTE_VECTOR("aggregatePubkey", 48)};   // the aggregate pubkey (48 bytes) of the sync committee
 
@@ -207,14 +207,14 @@ static const ssz_def_t EXECUTION_PAYLOAD_HEADER[] = {
     SSZ_UINT64("excessBlobGas")};      // the excess blob gas of the block
 
 // the header of the light client update
-static const ssz_def_t LIGHT_CLIENT_HEADER[] = {
+const ssz_def_t LIGHT_CLIENT_HEADER[] = {
     SSZ_CONTAINER("beacon", BEACON_BLOCK_HEADER),         // the header of the beacon block
     SSZ_CONTAINER("execution", EXECUTION_PAYLOAD_HEADER), // the header of the execution layer proved within the beacon block
     SSZ_VECTOR("executionBranch", ssz_bytes32, 4)};       // the merkle proof of the execution layer proved within the beacon block
 
 // the light client update is used to verify the transition between two periods of the SyncCommittee.
 // This data will be fetched directly through the beacon Chain API since it contains all required data.
-const ssz_def_t LIGHT_CLIENT_UPDATE[7] = {
+const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE[7] = {
     SSZ_CONTAINER("attestedHeader", LIGHT_CLIENT_HEADER), // the header of the beacon block attested by the sync committee
     SSZ_CONTAINER("nextSyncCommittee", SYNC_COMMITTEE),
     SSZ_VECTOR("nextSyncCommitteeBranch", ssz_bytes32, 5), // will be 6 in electra

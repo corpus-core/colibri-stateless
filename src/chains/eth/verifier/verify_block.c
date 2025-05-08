@@ -16,6 +16,8 @@
 
 #define EXECUTION_PAYLOAD_ROOT_GINDEX 25
 
+#define GINDEX_BLOCKUMBER 806
+#define GINDEX_TIMESTAMP  809
 static const char* SHA3_UNCLUES = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
 
 static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_union_def, bool include_txs, ssz_ob_t txs, bytes32_t tx_root, uint64_t block_number, bytes32_t block_hash, uint64_t base_fee) {
@@ -122,6 +124,35 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   set_data(ctx, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
   if (ctx->state.error || !matches_blocknumber(ctx, execution_payload, block_number)) return false;
 
+  ctx->success = true;
+  return true;
+}
+
+static bool verify_block_number_merkle_proof(verify_ctx_t* ctx, bytes_t proof, bytes32_t root, bytes_t number, bytes_t timestamp) {
+  uint8_t  leafes[64] = {0};
+  gindex_t gindexes[] = {GINDEX_BLOCKUMBER, GINDEX_TIMESTAMP};
+  memcpy(leafes, number.data, number.len);
+  memcpy(leafes + 32, timestamp.data, timestamp.len);
+  return ssz_verify_multi_merkle_proof(proof, bytes(leafes, 64), gindexes, root);
+}
+
+bool verify_block_number_proof(verify_ctx_t* ctx) {
+
+  bytes32_t body_root                = {0};
+  ssz_ob_t  block_number             = ssz_get(&ctx->proof, "blockNumber");
+  ssz_ob_t  timestamp                = ssz_get(&ctx->proof, "timestamp");
+  ssz_ob_t  proof                    = ssz_get(&ctx->proof, "proof");
+  ssz_ob_t  header                   = ssz_get(&ctx->proof, "header");
+  ssz_ob_t  sync_committee_bits      = ssz_get(&ctx->proof, "sync_committee_bits");
+  ssz_ob_t  sync_committee_signature = ssz_get(&ctx->proof, "sync_committee_signature");
+
+  // calculate the tree root of the execution payload
+  if (!verify_block_number_merkle_proof(ctx, proof.bytes, body_root, block_number.bytes, timestamp.bytes)) return false;
+  if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
+  if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
+
+  // TODO check if the timestamp is not in the future and within the 30s of the current time
+  ctx->data    = block_number;
   ctx->success = true;
   return true;
 }
