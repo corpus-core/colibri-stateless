@@ -19,7 +19,7 @@ import {
   MethodType,
   ProviderMessage
 } from './types.js';
-import { SubscriptionManager, RpcCaller, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager';
+import { SubscriptionManager, RpcCaller, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
 
 // Helper function for chain ID formatting (can be used by ConnectionManager and C4Client)
 function formatChainId(value: any, debug?: boolean): string | null {
