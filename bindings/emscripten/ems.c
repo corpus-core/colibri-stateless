@@ -89,7 +89,7 @@ char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(proofer_ctx_t* ctx) {
       bprintf(&result, "\"result\": %l, \"result_len\": %d", (uint64_t) ctx->proof.data, ctx->proof.len);
       break;
     case C4_ERROR:
-      bprintf(&result, "\"error\": %\"s\"", ctx->state.error);
+      bprintf(&result, "\"error\": \"%S\"", ctx->state.error);
       break;
     case C4_PENDING: {
       bprintf(&result, "\"requests\": [");

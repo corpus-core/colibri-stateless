@@ -56,6 +56,7 @@ function formatChainId(value: any, debug?: boolean): string | null {
 async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false) {
   let last_error = "All nodes failed";
   for (const url of urls) {
+    console.log({ url, payload });
     const response = await fetch(url, {
       method: 'POST',
       body: JSON.stringify({ id: 1, jsonrpc: "2.0", ...payload }),
@@ -200,7 +201,7 @@ export default class C4Client {
   private async getProoferConfig() {
     const c4w = await getC4w();
     if (!c4w.storage) return '0x'
-    const state = c4w.storage.get('state_' + this.config.chainId)
+    const state = c4w.storage.get('states_' + this.config.chainId)
     return '0x' + (state ? Array.from(state).map(_ => _.toString(16).padStart(2, '0')).join('') : '')
   }
 
@@ -335,10 +336,7 @@ export default class C4Client {
       case C4MethodType.NOT_SUPPORTED:
         throw new ProviderRpcError(4200, `Method ${method} is not supported by C4Client.rpc core`);
       case C4MethodType.LOCAL:
-        if (method === 'eth_chainId') {
-          return this.connectionState.currentChainId || formatChainId(this.config.chainId, this.config.debug);
-        }
-        throw new ProviderRpcError(4200, `Method ${method} is LOCAL but not currently handled by C4Client.rpc core`);
+        return this.verifyProof(method, args, new Uint8Array());
     }
     // Should be unreachable if MethodType enum is comprehensive and handled
     throw new ProviderRpcError(-32603, `Internal error: Unhandled method type for ${method} in C4Client.rpc core`);
