@@ -43,6 +43,7 @@ void     uint64_to_le(uint8_t* data, uint64_t value);
 void     uint32_to_le(uint8_t* data, uint32_t value);
 uint32_t buffer_append(buffer_t* buffer, bytes_t data);
 void     buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data);
+void     buffer_add_chars_escaped(buffer_t* buffer, const char* data);
 void     buffer_add_chars(buffer_t* buffer, const char* data);
 void     buffer_add_be(buffer_t* buffer, uint64_t value, uint32_t len);
 void     buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix);

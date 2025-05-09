@@ -227,6 +227,22 @@ void buffer_add_chars(buffer_t* buffer, const char* data) {
   buffer->data.len -= 1;
 }
 
+void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
+  if (!data) return;
+  int len         = strlen(data);
+  int escaped_len = len;
+  for (int i = 0; i < len; i++) {
+    if (data[i] == '"' || data[i] == '\\') escaped_len++;
+  }
+  buffer_grow(buffer, buffer->data.len + escaped_len + 1);
+  for (int i = 0; i < len; i++) {
+    if (data[i] == '"' || data[i] == '\\')
+      buffer->data.data[buffer->data.len++] = '\\';
+    buffer->data.data[buffer->data.len++] = data[i];
+  }
+  buffer->data.data[buffer->data.len] = 0;
+}
+
 void buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix) {
   uint32_t len = data.len * 2 + (prefix ? strlen(prefix) : 0) + (suffix ? strlen(suffix) : 0);
   buffer_grow(buffer, buffer->data.len + len + 1);
@@ -316,6 +332,9 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
       switch (*(p + 1)) {
         case 's':
           buffer_add_chars(buf, va_arg(args, const char*));
+          break;
+        case 'S':
+          buffer_add_chars_escaped(buf, va_arg(args, const char*));
           break;
         case 'x':
         case 'b':
