@@ -59,7 +59,7 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
   buffer_t  full_proof     = {0};
   buffer_t  list_data      = {0};
   bytes32_t root           = {0};
-  gindex_t  summaries_gidx = (fork >= C4_FORK_CAPELLA ? 64 : 32) + 27;                     // the gindex of the field for thesummaries in the state. summaries have the index 27 in the state.
+  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                     // the gindex of the field for thesummaries in the state. summaries have the index 27 in the state.
   gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // the gindex of the single summary-object we need to proof
   gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
   bytes32_t body_root      = {0};
