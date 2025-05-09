@@ -33,8 +33,8 @@ static void verify_proof(char* name, bytes32_t leaf, bytes32_t root, bytes_t pro
 }
 
 c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block_proof, uint64_t slot) {
-  beacon_block_t block         = {0};
   c4_status_t    status        = C4_SUCCESS;
+  beacon_block_t block         = {0};
   json_t         history_proof = {0};
   uint8_t        tmp[200]      = {0};
   buffer_t       buf           = stack_buffer(tmp);
@@ -52,19 +52,19 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "chain_store/%d/%d/blocks.ssz", (uint32_t) ctx->chain_id, block_period), NULL, 0, &blocks)); // get the blockd
   if (status != C4_SUCCESS) return status;
 
-  fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot));
-  json_t    data           = json_get(history_proof, "data"); // the the main json-object
-  uint32_t  summary_idx    = block_period - 758;              // the index starting from the  cappella fork, where we got zhe first Summary entry.
-  uint32_t  block_idx      = slot % 8192;                     // idx within the period
+  fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot));  // current fork for the state
+  json_t    data           = json_get(history_proof, "data");                              // the the main json-object
+  uint32_t  summary_idx    = block_period - 758;                                           // the index starting from the  cappella fork, where we got zhe first Summary entry.
+  uint32_t  block_idx      = slot % 8192;                                                  // idx within the period
+  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                     // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
+  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // the gindex of the single summary-object we need to proof
+  gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
+  ssz_ob_t  blocks_ob      = {.bytes = blocks, .def = &BLOCKS};
   buffer_t  full_proof     = {0};
   buffer_t  list_data      = {0};
   bytes32_t root           = {0};
-  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                     // the gindex of the field for thesummaries in the state. summaries have the index 27 in the state.
-  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // the gindex of the single summary-object we need to proof
-  gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
   bytes32_t body_root      = {0};
   bytes32_t blocks_root    = {0};
-  ssz_ob_t  blocks_ob      = {.bytes = blocks, .def = &BLOCKS};
 
   // create summary-list
   json_for_each_value(json_get(data, "historical_summaries"), entry) {
@@ -110,15 +110,6 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
   safe_free(period_idx_proof.data);
   safe_free(list_data.data.data);
 
-  /*
-  buffer_t debug      = {0};
-  bytes_t  block_root = bytes_slice(blocks, 32 * block_idx, 32);
-  bprintf(&debug, "block_root: 0x%b\n", block_root);
-  ssz_verify_single_merkle_proof(block_proof->historic_proof, block_root.data, block_proof->gindex, root);
-  bprintf(&debug, "merkle_root: 0x%b\n", bytes(root, 32));
-  bprintf(&debug, "state_root: 0x%b\n", ssz_get(&block_proof->proof_header, "stateRoot").bytes);
-  printf("%s\n", (char*) debug.data.data);
-  */
   return C4_SUCCESS;
 }
 

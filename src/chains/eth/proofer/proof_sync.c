@@ -50,16 +50,21 @@ typedef struct {
 } period_data_t;
 
 static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_data_t* period) {
-  bytes32_t        domain          = {0};
-  bytes32_t        aggregate       = {0};
-  fork_id_t        fork            = c4_eth_get_fork_for_lcu(ctx->chain_id, data);
-  const ssz_def_t* update_list_def = eth_get_light_client_update_list(fork);
-  const ssz_def_t* def             = update_list_def ? update_list_def->def.vector.type : NULL;
-  if (data.len < 12 || !def) THROW_ERROR("invalid client_update");
-  ssz_ob_t old_update = {.bytes = bytes(data.data + 12, uint64_from_le(data.data) - 4), .def = def};
+  bytes32_t domain    = {0};
+  bytes32_t aggregate = {0};
+  if (data.len < 12) THROW_ERROR("invalid client_update");
+  ssz_ob_t old_update = {.bytes = bytes(data.data + 12, uint64_from_le(data.data) - 4), .def = NULL};
   if (old_update.bytes.len + 24 > data.len) THROW_ERROR("invalid client_update");
-  ssz_ob_t new_update = {.bytes = bytes(data.data + 24 + old_update.bytes.len, uint64_from_le(data.data + 12 + old_update.bytes.len) - 4), .def = def};
+  fork_id_t        fork            = c4_eth_get_fork_for_lcu(ctx->chain_id, old_update.bytes);
+  const ssz_def_t* update_list_def = eth_get_light_client_update_list(fork);
+  old_update.def                   = update_list_def ? update_list_def->def.vector.type : NULL;
+  if (!old_update.def) THROW_ERROR("invalid client_update");
+  ssz_ob_t new_update = {.bytes = bytes(data.data + 24 + old_update.bytes.len, uint64_from_le(data.data + 12 + old_update.bytes.len) - 4), .def = NULL};
   if (new_update.bytes.len + 24 + old_update.bytes.len > data.len) THROW_ERROR("invalid client_update");
+  fork            = c4_eth_get_fork_for_lcu(ctx->chain_id, new_update.bytes);
+  update_list_def = eth_get_light_client_update_list(fork);
+  new_update.def  = update_list_def ? update_list_def->def.vector.type : NULL;
+  if (!new_update.def) THROW_ERROR("invalid client_update");
 
   ssz_ob_t old_sync_keys  = ssz_get(&old_update, "nextSyncCommittee");
   ssz_ob_t new_sync_keys  = ssz_get(&new_update, "nextSyncCommittee");
@@ -85,7 +90,7 @@ static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_da
       SSZ_BYTES32("BeaconBlockHeader"),
       SSZ_BYTES32("domain")}; // the domain of the data to sign
   ssz_def_t SIGNING_DATA_CONTAINER   = SSZ_CONTAINER("SigningData", SIGNING_DATA);
-  SIGNING_DATA[0]                    = *eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_HEADER, C4_FORK_DENEB);
+  SIGNING_DATA[0]                    = *eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_HEADER, fork);
   ssz_builder_t signgin_data_builder = ssz_builder_for_def(&SIGNING_DATA_CONTAINER);
   ssz_add_bytes(&signgin_data_builder, "BeaconBlockHeader", header.bytes);
   ssz_add_bytes(&signgin_data_builder, "domain", bytes(domain, 32));
@@ -93,10 +98,9 @@ static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_da
   gindex_t state_gidx   = ssz_gindex(signing_data.def, 2, "BeaconBlockHeader", "stateRoot");
   bytes_t  header_proof = ssz_create_proof(signing_data, domain, state_gidx);
   bytes_t  full_proof   = bytes(malloc(header_proof.len + state_proof.len + 32), header_proof.len + state_proof.len + 32);
-  memcpy(full_proof.data, aggregate, 32);
-  memcpy(full_proof.data + 32, state_proof.data, state_proof.len);
-  memcpy(full_proof.data + 32 + state_proof.len, header_proof.data, header_proof.len);
-  memcpy(full_proof.data + 32 + state_proof.len + header_proof.len, domain, 32);
+  memcpy(full_proof.data, aggregate, 32);                                              // 1
+  memcpy(full_proof.data + 32, state_proof.data, state_proof.len);                     // 5 for deneb
+  memcpy(full_proof.data + 32 + state_proof.len, header_proof.data, header_proof.len); // 4
   safe_free(header_proof.data);
   safe_free(signing_data.bytes.data);
   period->proof = full_proof;
