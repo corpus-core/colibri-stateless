@@ -53,15 +53,17 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
   if (status != C4_SUCCESS) return status;
 
   json_t    data           = json_get(history_proof, "data"); // the the main json-object
-  uint32_t  summary_idx    = block_period - 758 - 0;          // the index starting from the  cappella fork, where we got zhe first Summary entry.
+  uint32_t  summary_idx    = block_period - 758;              // the index starting from the  cappella fork, where we got zhe first Summary entry.
   uint32_t  block_idx      = slot % 8192;                     // idx within the period
   buffer_t  full_proof     = {0};
   buffer_t  list_data      = {0};
   bytes32_t root           = {0};
-  gindex_t  summaries_gidx = 32 + 27;                                                      // the gindex of the field for thesummaries in the state
+  gindex_t  summaries_gidx = 64 + 27;                                                      // the gindex of the field for thesummaries in the state
   gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // the gindex of the single summary-object we need to proof
   gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
   bytes32_t body_root      = {0};
+  bytes32_t blocks_root    = {0};
+  ssz_ob_t  blocks_ob      = {.bytes = blocks, .def = &BLOCKS};
 
   // create summary-list
   json_for_each_value(json_get(data, "historical_summaries"), entry) {
@@ -70,8 +72,23 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
   }
 
   // create the proofs
-  bytes_t block_idx_proof  = ssz_create_proof((ssz_ob_t) {.bytes = blocks, .def = &BLOCKS}, root, block_gidx);
-  bytes_t period_idx_proof = ssz_create_proof((ssz_ob_t) {.bytes = list_data.data, .def = &SUMMARIES}, root, period_gidx);
+  ssz_ob_t summaries_ob           = {.bytes = list_data.data, .def = &SUMMARIES};
+  bytes_t  block_idx_proof        = ssz_create_proof(blocks_ob, blocks_root, block_gidx);
+  bytes_t  period_idx_proof       = ssz_create_proof(summaries_ob, root, period_gidx);
+  bytes_t  block_root_expected    = ssz_at(blocks_ob, block_idx).bytes;
+  ssz_ob_t summary_ob             = ssz_at(summaries_ob, summary_idx);
+  bytes_t  blocks_root_in_summary = ssz_get(&summary_ob, "block_summary_root").bytes;
+
+  if (memcmp(blocks_root, blocks_root_in_summary.data, 32) != 0) {
+    log_info("block_root_expected: 0x%b", block_root_expected);
+    log_info("blocks_root1: 0x%b", bytes(blocks_root, 32));
+    log_info("blocks_root_in_summary: 0x%b", blocks_root_in_summary);
+
+    safe_free(block_idx_proof.data);
+    safe_free(period_idx_proof.data);
+    safe_free(list_data.data.data);
+    THROW_ERROR("blocks_root mismatch");
+  }
 
   // combine the proofs
   buffer_append(&full_proof, block_idx_proof);

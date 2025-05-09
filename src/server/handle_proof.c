@@ -92,7 +92,7 @@ bool c4_handle_proof_request(client_t* client) {
   request_t* req              = (request_t*) safe_calloc(1, sizeof(request_t));
   req->client                 = client;
   req->cb                     = c4_proofer_handle_request;
-  req->ctx                    = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX);
+  req->ctx                    = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROOFER_FLAG_CHAIN_STORE : 0));
   if (client_state.type == JSON_TYPE_STRING) ((proofer_ctx_t*) req->ctx)->client_state = json_as_bytes(client_state, &client_state_buf);
 
   safe_free(method_str);
