@@ -52,8 +52,9 @@ INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
 #endif
 
   if (storage_conf.get(name, &tmp) && tmp.data.data) {
-    state.blocks = (c4_trusted_block_t*) tmp.data.data;
-    state.len    = tmp.data.len / sizeof(c4_trusted_block_t);
+    state.blocks          = (c4_trusted_block_t*) tmp.data.data;
+    state.len             = tmp.data.len / sizeof(c4_trusted_block_t);
+    state.last_checkpoint = tmp.data.len & sizeof(c4_trusted_block_t) == 8 ? uint64_from_le(tmp.data.data + tmp.data.len - 8) : 0;
   }
 
   return state;
@@ -321,11 +322,12 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
   if (validators.data.len == 0) validators.data.data = NULL; // just to make sure we mark it as not found, even if we are using static memory
 
   return (c4_sync_state_t) {
-      .deserialized   = validators.data.data && validators.data.len > 512 * 48,
-      .current_period = period,
-      .last_period    = last_period,
-      .highest_period = highest_period,
-      .validators     = validators.data};
+      .deserialized    = validators.data.data && validators.data.len > 512 * 48,
+      .current_period  = period,
+      .last_period     = last_period,
+      .highest_period  = highest_period,
+      .last_checkpoint = chain_state.last_checkpoint,
+      .validators      = validators.data};
 }
 
 INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_state_t* target_state) {

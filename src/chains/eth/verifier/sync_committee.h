@@ -16,6 +16,7 @@ typedef struct {
   uint32_t current_period;
   uint32_t highest_period;
   bytes_t  validators;
+  uint64_t last_checkpoint;
   bool     deserialized;
 } c4_sync_state_t;
 
@@ -29,6 +30,7 @@ typedef struct {
 typedef struct {
   c4_trusted_block_t* blocks;
   uint32_t            len;
+  uint64_t            last_checkpoint;
 } c4_chain_state_t;
 
 const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_state_t* state);
