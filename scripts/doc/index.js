@@ -8,6 +8,7 @@ const type_defs = [
     "chains/eth/ssz/verify_types.c",
     "chains/eth/ssz/verify_proof_types.h",
     "chains/eth/ssz/verify_data_types.h",
+    "chains/eth/ssz/threat_model.md",
 ]
 
 const link_dirs = [

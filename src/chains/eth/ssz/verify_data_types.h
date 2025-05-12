@@ -1,9 +1,9 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
-// # Ethereum Execution Proofs
+// : Ethereum Execution Proofs
 
-// ## Transaction Proof
+// :: Transaction Proof
 
 // Entry in the access list of a transaction or call.
 static const ssz_def_t ETH_ACCESS_LIST_DATA[] = {
@@ -36,7 +36,7 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_LIST("blobVersionedHashes", ssz_bytes32, 16),            // the blobVersionedHashes of the transaction
     SSZ_UINT8("yParity")};                                       // the yParity of the transaction
 
-// ## Logs Proof
+// :: Logs Proof
 
 // a log entry in the receipt
 static const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
@@ -52,7 +52,7 @@ static const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
 };
 static const ssz_def_t ETH_RECEIPT_DATA_LOG_CONTAINER = SSZ_CONTAINER("Log", ETH_RECEIPT_DATA_LOG);
 
-// ## Receipt Proof
+// :: Receipt Proof
 
 // the transaction data
 static const ssz_def_t ETH_RECEIPT_DATA[] = {
@@ -77,7 +77,7 @@ static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNION[] = {
     SSZ_LIST("as_data", ETH_TX_DATA_CONTAINER, 4096), // the transactions data
 };
 
-// ## Block Proof
+// :: Block Proof
 
 // display the block data , which is based on the execution payload
 static const ssz_def_t ETH_BLOCK_DATA[] = {
@@ -107,7 +107,7 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_UINT64("blobGasUsed"),                                   // the gas used for the blob transactions
 };
 
-// ## Account Proof
+// :: Account Proof
 
 // represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 static const ssz_def_t ETH_STORAGE_PROOF_DATA[] = {

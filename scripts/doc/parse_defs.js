@@ -7,18 +7,22 @@ const { toCamelCase, get_full_src_path, align, get_doc_path } = require('./utils
 
 
 function add_section(line, sections) {
+    const regex = /\/\/ (\:+) (.*)/g;
+    const m = regex.exec(line);
     let section = sections.at(-1)
     if (section && section.open) {
-        if (line.startsWith('//')) {
-            section.content.push(line.substring(3))
-            return true
+        if (m)
+            section.open = false
+        else {
+            if (line.startsWith('//')) {
+                section.content.push(line.substring(3))
+                return true
+            }
+            section.open = false
+            return false
         }
-        section.open = false
-        return false
     }
 
-    const regex = /\/\/ (\#+) (.*)/g;
-    const m = regex.exec(line);
     if (m) {
         const section = {
             title: m[2],
@@ -93,6 +97,7 @@ function add_rpc(line, sections, comment) {
 function parse_ssz_file(file) {
     const lines = fs.readFileSync(get_full_src_path(file), 'utf8').split('\n');
 
+    let is_markdown = file.endsWith('.md')
     let sections = []
     let def = { members: [] }
     let types = {}
@@ -101,6 +106,7 @@ function parse_ssz_file(file) {
 
     for (let line of lines) {
         line_number++
+        if (is_markdown) line = '// ' + line
         if (add_section(line, sections)) continue
 
         // handle comments

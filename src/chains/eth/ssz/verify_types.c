@@ -10,9 +10,9 @@ static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
-// # Ethereum Execution Proofs
+// : Ethereum Execution Proofs
 
-// ## Ethereum Main Proof Request
+// :: Ethereum Main Proof Request
 //
 // The proofs are always wrapped into a ssz-container with the name `C4Request`.
 // This Container holds the a version (4 bytes) and unions for different proof types.

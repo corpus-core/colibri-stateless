@@ -1,7 +1,7 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
-// # Ethereum Execution Proofs
+// : Ethereum Execution Proofs
 //
 // The Execution Layer of Ethereum depends on the Beacon Chain.
 // The Beacon Chain is the consensus layer of Ethereum. These Proofs aim at providing proofs for the ethereum RPC-API.
@@ -14,7 +14,7 @@ static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
     SSZ_UINT64("blockNumber") // proof for the right blocknumber
 };
 
-// ## Historic Block Proof
+// :: Historic Block Proof
 //
 // Since Clients usually have the public keys of the last sync period and are able to verify blocks, verifying a ollder block gets complicated, because you would need the public keys of the sync committee at that period, which ar hardly available.
 // In order to allow the verification of those historic blocks, we can use the the historic summaries of the current state.
@@ -42,7 +42,7 @@ static const ssz_def_t ETH_HISTORIC_BLOCK_PROOFS_UNION[] = {
     SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF) // proof for the right blocknumber
 };
 
-// ## Receipt Proof
+// :: Receipt Proof
 //
 // represents the proof for a transaction receipt
 //
@@ -90,7 +90,7 @@ static const ssz_def_t ETH_RECEIPT_PROOF[] = {
     SSZ_BIT_VECTOR("sync_committee_bits", 512),                   // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("sync_committee_signature", 96)};             // the signature of the sync committee
 
-// ## Logs Proof
+// :: Logs Proof
 //
 // eth_getLogs returns a list of log entries from different transaction receipts. So the proof must contain the receipt proofs for each transaction.
 //
@@ -121,7 +121,7 @@ static const ssz_def_t ETH_LOGS_BLOCK[] = {
 
 static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH_LOGS_BLOCK);
 
-// ## Transaction Proof
+// :: Transaction Proof
 //
 // represents the account and storage values, including the Merkle proof, of the specified account.
 //
@@ -166,7 +166,7 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
     SSZ_BIT_VECTOR("sync_committee_bits", 512),                   // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("sync_committee_signature", 96)};             // the signature of the sync committee
 
-// ## Account Proof
+// :: Account Proof
 //
 // represents the account and storage values, including the Merkle proof, of the specified account.
 //
@@ -247,7 +247,7 @@ static const ssz_def_t ETH_CODE_UNION[] = {
     SSZ_BYTES("code", 4194304), // the code of the contract
 };
 
-// ## Call Proof
+// :: Call Proof
 //
 // eth_call returns the result of the call. In order to proof that the result is correct, we need
 // to proof every single storage value and account..
@@ -315,7 +315,7 @@ static const ssz_def_t ETH_CALL_PROOF[] = {
     SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256), // used accounts
     SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};        // the state proof of the account
 
-// ## Sync Proof
+// :: Sync Proof
 //
 //
 // Proof as input data for the sync committee transition used by zk. This is a very compact proof mostly taken from the light client update.
@@ -469,7 +469,7 @@ static const ssz_def_t ETH_EXECUTION_PAYLOAD_UNION[] = {
     SSZ_CONTAINER("DenepExecutionPayload", DENEP_EXECUTION_PAYLOAD),
 };
 
-// ## Block Proof
+// :: Block Proof
 //
 // The Block Proof is a proof that the block is valid.
 // It is used to verify the block of the execution layer.

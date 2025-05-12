@@ -7,9 +7,9 @@
 #include "verify.h"
 #include <string.h>
 
-// # Ethereum Execution Proofs
+// : Ethereum Execution Proofs
 
-// ## Supported RPC-Methods
+// :: Supported RPC-Methods
 //
 // The following table shows the supported RPC-Methods for the Ethereum Execution Proofs.
 //
@@ -51,7 +51,6 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_getUncleByBlockNumberAndIndex", Void, Void),
     RPC_METHOD("eth_getBlockTransactionCountByHash", Void, Void),
     RPC_METHOD("eth_getBlockTransactionCountByNumber", Void, Void),
-    RPC_METHOD("eth_blockNumber", Uint64, Void),
     RPC_METHOD("eth_feeHistory", Void, Void),
     RPC_METHOD("eth_blobBaseFee", Uint64, EthBlockHeaderProof),
     RPC_METHOD("eth_createAccessList", EthAccessData, EthCallProof),
