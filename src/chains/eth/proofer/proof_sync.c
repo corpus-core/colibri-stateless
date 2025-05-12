@@ -116,9 +116,9 @@ static c4_status_t create_proof(proofer_ctx_t* ctx, period_data_t* period) {
   ssz_add_bytes(&proof, "syncCommitteeBits", period->signature_bits.bytes);
   ssz_add_bytes(&proof, "syncCommitteeSignature", period->signature.bytes);
   ssz_add_uint64(&proof, period->gidx);
-  ssz_add_bytes(&proof, "proof", period->proof);
   ssz_add_bytes(&proof, "slot", period->slot);
   ssz_add_bytes(&proof, "proposerIndex", period->proposer_index);
+  ssz_add_bytes(&proof, "proof", period->proof);
   safe_free(period->proof.data);
 
   ctx->proof = eth_create_proof_request(

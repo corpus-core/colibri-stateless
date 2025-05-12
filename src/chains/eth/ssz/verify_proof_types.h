@@ -458,9 +458,10 @@ static const ssz_def_t ETH_SYNC_PROOF[] = {
     SSZ_BIT_VECTOR("syncCommitteeBits", 512),      // the bits of the validators that signed the block
     SSZ_BYTE_VECTOR("syncCommitteeSignature", 96), // the signature of the sync committee
     SSZ_UINT64("gidx"),                            // the general index from the signing root to the pubkeys of the next_synccommittee
-    SSZ_VECTOR("proof", ssz_bytes32, 10),          // proof merkle proof from the signing root to the pubkeys of the next_synccommittee
     SSZ_UINT64("slot"),                            // the slot of the block
-    SSZ_UINT64("proposerIndex")};
+    SSZ_UINT64("proposerIndex"),
+    SSZ_LIST("proof", ssz_bytes32, 256) // proof merkle proof from the signing root to the pubkeys of the next_synccommittee
+};
 
 static const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE_CONTAINER   = SSZ_CONTAINER("LightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE);
 static const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE);

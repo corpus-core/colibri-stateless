@@ -1,6 +1,8 @@
 #include "zk_util.h"
 #include <stdbool.h>
 
+#define PROOF_OFFSET 49358
+
 // main verify-method for the sync proof
 // it returns the period if successful or 0 for failure
 uint64_t verify_sync_proof(bytes_t sync_proof) {
@@ -9,12 +11,12 @@ uint64_t verify_sync_proof(bytes_t sync_proof) {
   bytes_t  signature_bits = {.data = new_keys.data + new_keys.len, .len = 64};
   bytes_t  signature      = {.data = signature_bits.data + 64, .len = 96};
   uint64_t gidx           = get_uint64_le(signature.data + 96);
-  bytes_t  proof          = {.data = signature.data + 96 + 8, .len = 10 * 32};
-  bytes_t  slot_bytes     = {.data = proof.data + proof.len, .len = 8};
-  bytes_t  proposer_bytes = {.data = proof.data + proof.len + 8, .len = 8};
+  bytes_t  slot_bytes     = {.data = signature.data + 104, .len = 8};
+  bytes_t  proposer_bytes = {.data = slot_bytes.data + 8, .len = 8};
+  bytes_t  proof          = {.data = sync_proof.data + PROOF_OFFSET, .len = sync_proof.len - PROOF_OFFSET - 1};
 
   // the hash at the merkleproof index 7 is the hash of slot and propoer_index, so we use to verify them
-  if (!verify_slot(slot_bytes.data, proposer_bytes.data, proof.data + 32 * 7)) return 0;
+  if (!verify_slot(slot_bytes.data, proposer_bytes.data, proof.data + proof.len - 96)) return 0;
 
   bytes32_t root;
   create_root_hash(new_keys, root);                                            // the root-hash of the next public keys
