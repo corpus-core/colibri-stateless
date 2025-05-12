@@ -54,7 +54,7 @@ INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
   if (storage_conf.get(name, &tmp) && tmp.data.data) {
     state.blocks          = (c4_trusted_block_t*) tmp.data.data;
     state.len             = tmp.data.len / sizeof(c4_trusted_block_t);
-    state.last_checkpoint = tmp.data.len & sizeof(c4_trusted_block_t) == 8 ? uint64_from_le(tmp.data.data + tmp.data.len - 8) : 0;
+    state.last_checkpoint = (tmp.data.len % sizeof(c4_trusted_block_t) == 8) ? uint64_from_le(tmp.data.data + tmp.data.len - 8) : 0;
   }
 
   return state;
