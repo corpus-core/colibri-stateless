@@ -10,6 +10,11 @@ typedef struct {
 } bytes_t;
 #define BYTES_T_DEFINED
 #endif
+// : APIs
+
+// :: Public Bindings API
+//
+// This header file is used within most bindings and provide all the core functions. If you link diectly with colibri, you should include the colibri.h header.
 
 /**
  * creates a new proofer_ctx_t
@@ -25,6 +30,7 @@ proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, 
  * executes the proofer_t and returns the status as json string.
  * the resulting char* - ptr has to be freed by the caller.
  * The json-string has the following format:
+ * ```json
  * {
  *  "status": "success" | "error" | "pending",
  *  "error?": "in case of error, the error message",
@@ -43,6 +49,7 @@ proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, 
  *    }
  *  ]
  * }
+ * ```
  */
 char* c4_proofer_execute_json_status(proofer_t* ctx);
 

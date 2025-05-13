@@ -10,7 +10,7 @@ static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
-// : Ethereum Execution Proofs
+// : Ethereum
 
 // :: Ethereum Main Proof Request
 //

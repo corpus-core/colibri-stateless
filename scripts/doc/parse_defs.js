@@ -94,6 +94,60 @@ function add_rpc(line, sections, comment) {
     return false
 
 }
+
+function add_function_def(sections, line, doc_comment, file, line_number) {
+    let section = sections.at(-1)
+    if (!section) return
+    // proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags);
+    let fn = line.split('(')[0].trim().split(' ').at(-1)
+
+    section.content.push('\n## ' + fn)
+    section.content.push(`[${file.replace('../', '')}](https://github.com/corpus-core/colibri-stateless/blob/dev/src/${file}#L${line_number})`)
+    section.content.push('')
+    section.content.push(doc_comment.comment)
+    section.content.push('')
+
+    section.content.push('```c')
+    section.content.push(line)
+    section.content.push('```')
+
+    if (doc_comment.params && Object.keys(doc_comment.params).length > 0) {
+        section.content.push('**Parameters**')
+        section.content.push('')
+        for (let param of Object.keys(doc_comment.params)) {
+            section.content.push(`- **\`${param}\`** : ${doc_comment.params[param]}`)
+        }
+        section.content.push('')
+    }
+
+    if (doc_comment.returns) {
+        section.content.push('**Returns**')
+        section.content.push('')
+        section.content.push(doc_comment.returns)
+        section.content.push('')
+    }
+}
+
+function handle_doc_comment(line, doc_comment, sections, file, line_number) {
+    if (line.trim().startsWith('*/') && doc_comment) {
+        doc_comment.open = false
+        return true
+    }
+    else if (line.trim().startsWith('*') && doc_comment) {
+        line = line.trim().substring(2)
+        if (line.startsWith('@param')) doc_comment.params[line.split(' ')[1]] = line.split(' ').slice(2).join(' ')
+        else if (line.startsWith('@returns')) doc_comment.returns = line.split(' ').slice(1).join(' ')
+        else doc_comment.comment += '\n' + line
+    }
+    else if (doc_comment && doc_comment.open) {
+        doc_comment.comment += '\n' + line
+    }
+    else if (doc_comment && line.trim().endsWith(';')) {
+        add_function_def(sections, line, doc_comment, file, line_number)
+        return false
+    }
+    return true;
+}
 function parse_ssz_file(file) {
     const lines = fs.readFileSync(get_full_src_path(file), 'utf8').split('\n');
 
@@ -102,13 +156,23 @@ function parse_ssz_file(file) {
     let def = { members: [] }
     let types = {}
     let comment = ''
+    let doc_comment = null
     let line_number = 0
 
     for (let line of lines) {
         line_number++
         if (is_markdown) line = '// ' + line
         if (add_section(line, sections)) continue
-
+        if (line.trim().startsWith('/**')) doc_comment = {
+            open: true,
+            params: {},
+            returns: '',
+            comment: '',
+        }
+        else if (doc_comment) {
+            if (handle_doc_comment(line, doc_comment, sections, file, line_number)) continue
+            else doc_comment = null
+        }
         // handle comments
         const splits = line.split('//')
         if (splits.length > 1) {
@@ -161,7 +225,7 @@ function parse_ssz_file(file) {
 }
 
 function assign_path(section, parent_dir) {
-    let name = section.title.replace(/ /g, '-').toLowerCase()
+    let name = section.title.replace(/[ \/]/g, '-').toLowerCase()
     if (section.children.length > 0)
         section.path = parent_dir + '/' + name + '/README.md'
     else

@@ -15,6 +15,30 @@ const ssz_def_t* get_definition(char* typename) {
   exit(EXIT_FAILURE);
 }
 
+// : Bindings
+
+// :: CLI
+
+// ::: ssz
+// a simple tool converting a ssz-formated proof into json.
+//
+// ````sh
+//     # Convert a ssz-formated proof into json
+//     ssz -o block.json block_proof.ssz
+// ````
+//
+// ## Options
+//
+// | Option         | Argument        | Description                      | Default |
+// |----------------|-----------------|----------------------------------|---------|
+// | `-t`           | `<typename>`    | Type name                        |         |
+// | `-o`           | `<outfile>`     | Output file                      |         |
+// | `-h`           |                 | Show hash_tree_root of the SSZ   |         |
+// | `-n`           |                 | Show type name in JSON output    |         |
+// | `-s`           |                 | Show serialization (hex string)  |         |
+// | `<file.ssz>`   |                 | Input SSZ file                   |         |
+// | `<field1> ...` |                 | Fields to include in JSON output |         |
+
 int main(int argc, char* argv[]) {
   if (argc == 1) {
     fprintf(stderr, "Usage: %s -t <typename> -o <outfile> -nh <file.ssz> <field1> <field2> ...\n"

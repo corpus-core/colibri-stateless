@@ -1,10 +1,11 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
-// : Ethereum Execution Proofs
+// : Ethereum
 //
-// The Execution Layer of Ethereum depends on the Beacon Chain.
-// The Beacon Chain is the consensus layer of Ethereum. These Proofs aim at providing proofs for the ethereum RPC-API.
+// The Ethereum Mainnet uses a Execution Layer and and a Consensys Layer (Beacon Chain). This allows us to verify the execution layer data with the beacon chain data.
+// So all proofs will contain at least the BeaconBlockHeader and Signature from the BeaconChain. Depending on the requested Data additional Merkle Proofs within the BeaconChain and the ExecutionLayer are added.
+// These Proofs aim at verifying all relevant ethereum [RPC-methods](ethereum/supported-rpc-methods.md).
 // This includes the stateRoot proof, the storage proof, the receipt proof, the logs proof, the transaction proof, the account proof, the code proof and the sync proof.
 
 // definition of an enum depending on the requested block

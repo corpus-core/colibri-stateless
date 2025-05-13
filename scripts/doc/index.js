@@ -10,6 +10,18 @@ const type_defs = [
     "chains/eth/ssz/verify_data_types.h",
     "chains/eth/ssz/threat_model.md",
 ]
+const bindings = [
+    "cli/proofer.c",
+    "cli/ssz.c",
+    "cli/verifier.c",
+    "../bindings/emscripten/doc.md",
+    "../bindings/kotlin/doc.md",
+    "../bindings/swift/doc.md",
+]
+
+const api = [
+    "../bindings/colibri.h",
+]
 
 const link_dirs = [
     'developer-guide',
@@ -20,15 +32,15 @@ const link_dirs = [
 const extern_types = {
     BeaconBlockHeader: 'https://ethereum.github.io/consensus-specs/specs/phase0/beacon-chain/#beaconblockheader',
     DenepExecutionPayload: 'https://ethereum.github.io/consensus-specs/specs/deneb/beacon-chain/#executionpayload',
-    LightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate'
+    LightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
+    DenepLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate'
 }
-
-
-
 
 
 const summary = read_summary()
 summary.set_sections(parse_ssz_files(type_defs))
+summary.set_sections(parse_ssz_files(bindings))
+summary.set_sections(parse_ssz_files(api))
 summary.set_sections(get_cmake_options())
 summary.write()
 

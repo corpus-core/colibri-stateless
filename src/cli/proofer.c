@@ -11,6 +11,49 @@
 #include <stdlib.h>
 #include <string.h>
 
+// : Bindings
+
+// :: CLI
+// Colibri comes with a native comandline interface. The can be used to create proofs and verify them, which allows easy use within shellscripts, cronjobs or while testing or developing.
+//
+// ## Configuration
+//
+// while you can pass arguments to the the proofer or verifier, when it comes to configuring the backend apis, you can use create a config-file. colibri tools will try to find it in the following order:
+//
+// 1. look for a file with the path specified in the `C4_CONFIG` environment variable
+// 2. look in the current directory for a file named `c4_config.json`
+// 3. use defaults.
+//
+// this file is a json-file in the form:
+//
+// ````json
+// {
+//   "eth_rpc": ["https://nameless-sly-reel.quiknode.pro/<APIKEY>/", "https://eth-mainnet.g.alchemy.com/v2/<APIKEY>", "https://rpc.ankr.com/eth/<APIKEY>"],
+//   "beacon_api": ["https://lodestar-mainnet.chainsafe.io"]
+// }
+// ````
+
+// ::: proof
+// The proof command is used to create proofs for a given method and parameters. It works without any backend.
+//
+// ````sh
+//     # Create a proof for the eth_getBlockByNumber method
+//     proof -o block_proof.ssz eth_getBlockByNumber latest false
+// ````
+//
+// ## Options
+//
+// | Option         | Argument        | Description                                                                 | Default      |
+// |----------------|-----------------|-----------------------------------------------------------------------------|--------------|
+// | `-c`           | `<chain_id>`    | Selected chain                                                              | `MAINNET` (1)|
+// | `-t`           | `<testname>`    | Generates test files in `test/data/<testname>`                                |              |
+// | `-x`           | `<cachedir>`    | Caches all requests in the cache directory                                  |              |
+// | `-o`           | `<outputfile>`  | SSZ file with the proof                                                     | `stdout`     |
+// | `-d`           | `<chain_store>` | Use `chain_data` from the `chain_store` found within the path               |              |
+// | `-i`           |                 | Include code in the proof                                                   |              |
+// | `<method>`     |                 | The method to execute                                                       |              |
+// | `<params>`     |                 | Parameters for the method                                                   |              |
+
 int main(int argc, char* argv[]) {
   if (argc < 2) {
     fprintf(stderr, "Usage: %s [options] <method> <params> > proof.ssz\n"

@@ -22,6 +22,7 @@ static size_t write_data(void* ptr, size_t size, size_t nmemb, void* userdata) {
   return size * nmemb;
 }
 static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t state, chain_id_t chain_id) {
+  //  printf("reading from proofer: %s(%s) from %s\n", method, args, url);
   buffer_t payload         = {0};
   buffer_t response_buffer = {0};
   bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\"}", method, args, state);
@@ -53,6 +54,31 @@ static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t st
 }
 #endif
 
+// : Bindings
+
+// :: CLI
+
+// ::: verify
+// The verify command is used to verify a proof for a given method and parameters.
+// You can pass either a proof file as input or a url to a proofer-service. If non are specified the default proofer-service will be used.
+//
+// ````sh
+//     # Verify a proof for the eth_getBlockByNumber method
+//     verify -i block_proof.ssz eth_getBlockByNumber latest false
+// ````
+//
+// ## Options
+//
+// | Option         | Argument        | Description                | Default |
+// |----------------|-----------------|----------------------------|---------|
+// | `-c`           | `<chain_id>`    | Chain ID                   |         |
+// | `-b`           | `<block_hash>`  | Trusted blockhash          |         |
+// | `-t`           | `<test_dir>`    | Test directory             |         |
+// | `-i`           | `<proof_file>`  | Proof file to verify       |         |
+// | `-p`           | `<proofer_url>` | URL of the proofer         |         |
+// | `-h`           |                 | Display this help message  |         |
+// | `<method>`     |                 | Method to verify           |         |
+// | `<args>`       |                 | Arguments for the method   |         |
 int main(int argc, char* argv[]) {
   if (argc == 1 || strcmp(argv[1], "-h") == 0) {
     fprintf(stderr, "Usage: %s <OPTIONS> <method> <args> \n", argv[0]);
@@ -146,6 +172,7 @@ int main(int argc, char* argv[]) {
         request = read_from_proofer(input, method, (char*) args.data.data, state.data, chain_id);
         curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[]}", input)));
         buffer_free(&state);
+//        bytes_write(request, fopen("request.ssz", "w"), true);
 #else
         fprintf(stderr, "require data, but no curl installed");
         exit(EXIT_FAILURE);

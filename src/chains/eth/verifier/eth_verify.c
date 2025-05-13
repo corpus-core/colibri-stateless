@@ -7,7 +7,7 @@
 #include "verify.h"
 #include <string.h>
 
-// : Ethereum Execution Proofs
+// : Ethereum
 
 // :: Supported RPC-Methods
 //

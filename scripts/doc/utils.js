@@ -45,7 +45,7 @@ function get_main_path_in_summary(lines, pos) {
     for (let i = pos; i >= 0; i--) {
         if (lines[i].trim().startsWith('#')) {
             let title = lines[i].substring(lines[i].indexOf(' ') + 1).trim()
-            return title.replace(/ /g, '-').toLowerCase() + '/'
+            return title.replace(/[ \/]/g, '-').toLowerCase() + '/'
         }
     }
     return ''

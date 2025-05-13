@@ -1,4 +1,4 @@
-: Ethereum Execution Proofs
+: Ethereum
 
 :: Threat Model
 

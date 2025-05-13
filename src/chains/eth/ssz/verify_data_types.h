@@ -1,7 +1,7 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
-// : Ethereum Execution Proofs
+// : Ethereum
 
 // :: Transaction Proof
 
