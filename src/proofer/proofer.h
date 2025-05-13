@@ -8,6 +8,29 @@ extern "C" {
 #include "../util/chains.h"
 #include "../util/state.h"
 
+// : APIs
+
+// :: Internal APIs
+//
+// This header should be used only if you implement new verifiers or need direct access.
+// The internal APIs are not guranteed to be stable and can be changed or removed without prior notice.
+
+// ::: proofer.h
+// The proofer API is used to create proofs for a given method and parameters.
+//
+// Example:
+//
+// ```c
+// proofer_ctx_t ctx = {0};
+// c4_proofer_create(&ctx, "eth_getBlockByNumber", "latest", 1, C4_PROOFER_FLAG_INCLUDE_CODE);
+// while (c4_proofer_status(&ctx) == C4_PENDING) {
+//   c4_proofer_execute(&ctx);
+// }
+// ```
+
+/**
+ * a bitmask holding flags used during the proofer context.
+ */
 typedef enum {
   C4_PROOFER_FLAG_INCLUDE_CODE       = 1 << 0, // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed (default)
   C4_PROOFER_FLAG_UV_SERVER_CTX      = 1 << 1, // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROOFER_FLAG_UV_WORKER_REQUIRED flag.
@@ -15,6 +38,9 @@ typedef enum {
   C4_PROOFER_FLAG_CHAIN_STORE        = 1 << 3, // allows the proofer to use internal request with data from the chain stroe
 } proofer_flag_types_t;
 
+/**
+ * a bitmask holding flags used during the proofer context.
+ */
 typedef uint32_t proofer_flags_t;
 
 #ifdef PROOFER_CACHE
@@ -30,6 +56,10 @@ typedef struct cache_entry {
   bool                from_global_cache; // previous cache entry
 } cache_entry_t;
 #endif
+
+/**
+ * a struct holding the proofer context.
+ */
 typedef struct {
   char*           method;       // rpc-method
   json_t          params;       // rpc- params
@@ -39,7 +69,7 @@ typedef struct {
   proofer_flags_t flags;        // proofer flags
   bytes_t         client_state; // optional client_state representing the synced periods and trusted blockhashes
 #ifdef PROOFER_CACHE
-  cache_entry_t* cache;
+  cache_entry_t* cache; // cache for the proofer (only active in the server context)
 #endif
 } proofer_ctx_t;
 

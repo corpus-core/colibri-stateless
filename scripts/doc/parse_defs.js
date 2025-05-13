@@ -99,7 +99,8 @@ function add_function_def(sections, line, doc_comment, file, line_number) {
     let section = sections.at(-1)
     if (!section) return
     // proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags);
-    let fn = line.split('(')[0].trim().split(' ').at(-1)
+    let p = line.indexOf('(')
+    let fn = p >= 0 ? line.substring(0, p).trim().split(' ').at(-1) : line.trim().split(' ').at(-1).replace(';', '').trim()
 
     section.content.push('\n## ' + fn)
     section.content.push(`[${file.replace('../', '')}](https://github.com/corpus-core/colibri-stateless/blob/dev/src/${file}#L${line_number})`)
@@ -129,23 +130,26 @@ function add_function_def(sections, line, doc_comment, file, line_number) {
 }
 
 function handle_doc_comment(line, doc_comment, sections, file, line_number) {
-    if (line.trim().startsWith('*/') && doc_comment) {
+    if (line.trim().startsWith('*/')) {
         doc_comment.open = false
         return true
     }
-    else if (line.trim().startsWith('*') && doc_comment) {
+    else if (line.trim().startsWith('*')) {
         line = line.trim().substring(2)
         if (line.startsWith('@param')) doc_comment.params[line.split(' ')[1]] = line.split(' ').slice(2).join(' ')
-        else if (line.startsWith('@returns')) doc_comment.returns = line.split(' ').slice(1).join(' ')
+        else if (line.startsWith('@return')) doc_comment.returns = line.split(' ').slice(1).join(' ')
         else doc_comment.comment += '\n' + line
     }
     else if (doc_comment && doc_comment.open) {
         doc_comment.comment += '\n' + line
     }
-    else if (doc_comment && line.trim().endsWith(';')) {
-        add_function_def(sections, line, doc_comment, file, line_number)
+    else if (line.trim().endsWith(';')) {
+        doc_comment.statement += '\n' + line
+        add_function_def(sections, doc_comment.statement.trim(), doc_comment, file, line_number)
         return false
     }
+    else
+        doc_comment.statement += '\n' + line
     return true;
 }
 function parse_ssz_file(file) {
@@ -168,6 +172,7 @@ function parse_ssz_file(file) {
             params: {},
             returns: '',
             comment: '',
+            statement: '',
         }
         else if (doc_comment) {
             if (handle_doc_comment(line, doc_comment, sections, file, line_number)) continue
