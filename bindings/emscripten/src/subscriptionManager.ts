@@ -207,9 +207,8 @@ export class SubscriptionManager {
             if (currentVerifiableBlockNumber) {
                 let fromBlock = sub.lastPolledBlockNumber ? sub.lastPolledBlockNumber + 1n : currentVerifiableBlockNumber;
                 if (sub.kind === 'newHeads') { // For newHeads, we only care if the latest is newer
-                    if (!sub.lastPolledBlockNumber || currentVerifiableBlockNumber <= sub.lastPolledBlockNumber) {
-                        return []; // No new head yet for eth_subscribe('newHeads')
-                    }
+                    if (!sub.lastPolledBlockNumber) sub.lastPolledBlockNumber = currentVerifiableBlockNumber;
+                    if (currentVerifiableBlockNumber <= sub.lastPolledBlockNumber) return []; // No new head yet for eth_subscribe('newHeads')
                     // If new, target currentVerifiableBlockNumber for eth_getBlockByNumber
                     fromBlock = currentVerifiableBlockNumber;
                 }
