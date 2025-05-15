@@ -134,10 +134,11 @@ static c4_status_t get_beacon_header_by_parent_hash(proofer_ctx_t* ctx, bytes32_
 }
 
 static c4_status_t determine_fork(proofer_ctx_t* ctx, ssz_ob_t* block) {
-  if (!block || !block->bytes.data || block->bytes.len < 108) THROW_ERROR("Invalid block data!");
+  if (!block || !block->bytes.data) THROW_ERROR("no block data!");
+  if (block->bytes.len < 108) THROW_ERROR_WITH("Invalid block data len=%d !", block->bytes.len);
   bytes_t  data   = block->bytes;
   uint32_t offset = uint32_from_le(data.data);
-  if (offset > data.len - 8) THROW_ERROR("Invalid block data!");
+  if (offset > data.len - 8) THROW_ERROR_WITH("Invalid block data offset[%d] > data_len[%d] - 8 !", offset, data.len);
   uint64_t  slot = uint64_from_le(data.data + offset);
   fork_id_t fork = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(slot));
   block->def     = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, fork);
