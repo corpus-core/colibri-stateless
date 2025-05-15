@@ -23,6 +23,7 @@ const doc_files = [
     // api
     "verifier/verify.h",
     "proofer/proofer.h",
+    "util/bytes.h",
     "../bindings/colibri.h"
 ]
 

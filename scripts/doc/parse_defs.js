@@ -98,9 +98,10 @@ function add_rpc(line, sections, comment) {
 function add_function_def(sections, line, doc_comment, file, line_number) {
     let section = sections.at(-1)
     if (!section) return
+    const last_line = line.trim().split('\n').at(-1)
     // proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags);
-    let p = line.indexOf('(')
-    let fn = p >= 0 ? line.substring(0, p).trim().split(' ').at(-1) : line.trim().split(' ').at(-1).replace(';', '').trim()
+    let p = last_line.indexOf('(')
+    let fn = p >= 0 ? last_line.substring(0, p).trim().split(' ').at(-1) : last_line.trim().split(' ').at(-1).replace(';', '').trim()
 
     section.content.push('\n## ' + fn)
     section.content.push(`[${file.replace('../', '')}](https://github.com/corpus-core/colibri-stateless/blob/dev/src/${file}#L${line_number})`)
