@@ -227,18 +227,30 @@ void buffer_add_chars(buffer_t* buffer, const char* data) {
   buffer->data.len -= 1;
 }
 
+static inline int is_special_char(char c) {
+  return c == '"' || c == '\\' || c == '\n';
+}
+
 void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
   if (!data) return;
   int len         = strlen(data);
   int escaped_len = len;
   for (int i = 0; i < len; i++) {
-    if (data[i] == '"' || data[i] == '\\') escaped_len++;
+    if (is_special_char(data[i])) {
+      escaped_len++;
+      if (data[i] == '\n') escaped_len++;
+    }
   }
   buffer_grow(buffer, buffer->data.len + escaped_len + 1);
   for (int i = 0; i < len; i++) {
-    if (data[i] == '"' || data[i] == '\\')
+    if (is_special_char(data[i]))
       buffer->data.data[buffer->data.len++] = '\\';
-    buffer->data.data[buffer->data.len++] = data[i];
+    if (data[i] == '\n') {
+      buffer->data.data[buffer->data.len++] = '\\';
+      buffer->data.data[buffer->data.len++] = 'n';
+    }
+    else
+      buffer->data.data[buffer->data.len++] = data[i];
   }
   buffer->data.data[buffer->data.len] = 0;
 }
