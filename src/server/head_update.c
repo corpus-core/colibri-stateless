@@ -185,6 +185,7 @@ static c4_status_t handle_head(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* s
   bytes_t     block_roots = {0};
   bytes_t     lcu         = {0};
   TRY_ASYNC(c4_eth_get_signblock_and_parent(ctx, b->root, NULL, sig_block, data_block));
+#ifdef UPDATE_CHAIN_DATA
   fill_last_update(b->slot);
 
   if (head_update.last_slot == b->slot - 1) {
@@ -234,6 +235,8 @@ static c4_status_t handle_head(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* s
     head_update.last_lcu++;
     if (head_update.last_lcu < (b->slot >> 13)) return handle_head(ctx, b, sig_block, data_block);
   }
+#endif
+
   return C4_SUCCESS;
 
   //  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf1, "chain_store/%l/%d/blocks.ssz", http_server.chain_id, period), NULL, 0, &block_roots));
