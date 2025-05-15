@@ -25,6 +25,7 @@
     "maxFeePerGas": "0x8c0b1f6c",
     "maxPriorityFeePerGas": "0x0",
     "accessList": [],
+    "authorizationList": [],
     "blobVersionedHashes": [],
     "yParity": "0x1"
   }
