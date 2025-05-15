@@ -11,9 +11,6 @@ extern "C" {
 // : APIs
 
 // :: Internal APIs
-//
-// This header should be used only if you implement new verifiers or need direct access.
-// The internal APIs are not guranteed to be stable and can be changed or removed without prior notice.
 
 // ::: proofer.h
 // The proofer API is used to create proofs for a given method and parameters.
@@ -21,18 +18,34 @@ extern "C" {
 // Example:
 //
 // ```c
-// proofer_ctx_t ctx = {0};
-// c4_proofer_create(&ctx, "eth_getBlockByNumber", "latest", 1, C4_PROOFER_FLAG_INCLUDE_CODE);
-// while (c4_proofer_status(&ctx) == C4_PENDING) {
-//   c4_proofer_execute(&ctx);
+// proofer_ctx_t* ctx = c4_proofer_create("eth_getBlockByNumber", "[\"latest\", false]", C4_PROOFER_FLAG_INCLUDE_CODE);
+// to use run the c4_proofer_execute in a loop:
+// ```c
+// data_request_t* data_request = NULL;
+// bytes_t proof = {0};
+// char* error = NULL;
+// while (true) {
+//   switch (c4_proofer_status(ctx)) {
+//     case C4_SUCCESS:
+//       proof = bytes_dup(ctx->proof);
+//       break;
+//     case C4_PENDING:
+//       while ((data_request = c4_state_get_pending_request(&ctx->state))
+//          fetch_data(data_request);
+//       break;
+//     case C4_ERROR:
+//       error = strdup(ctx->state.error);
+//       break;
+//   }
 // }
+// c4_proofer_free(ctx);
 // ```
 
 /**
  * a bitmask holding flags used during the proofer context.
  */
 typedef enum {
-  C4_PROOFER_FLAG_INCLUDE_CODE       = 1 << 0, // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed (default)
+  C4_PROOFER_FLAG_INCLUDE_CODE       = 1 << 0, // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed
   C4_PROOFER_FLAG_UV_SERVER_CTX      = 1 << 1, // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROOFER_FLAG_UV_WORKER_REQUIRED flag.
   C4_PROOFER_FLAG_UV_WORKER_REQUIRED = 1 << 2, // requests the proof execution to run in a worker thread instead of the main eventloop.
   C4_PROOFER_FLAG_CHAIN_STORE        = 1 << 3, // allows the proofer to use internal request with data from the chain stroe
@@ -73,35 +86,36 @@ typedef struct {
 #endif
 } proofer_ctx_t;
 
-// generic proofer context
-// to use run the c4_proofer_execute in a loop:
+/**
+ * create a new proofer context
+ * @param method the rpc-method to proof
+ * @param params the rpc-params to proof
+ * @param chain_id the target chain
+ * @param flags the proofer flags
+ * @return the proofer context, which needs to get freed with c4_proofer_free
+ */
+proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id, proofer_flags_t flags);
 
-// ```c
-// data_request_t* data_request = NULL;
-// bytes_t proof = {0};
-// char* error = NULL;
-// while (true) {
-//   switch (c4_proofer_status(ctx)) {
-//     case C4_SUCCESS:
-//       proof = bytes_dup(ctx->proof);
-//       break;
-//     case C4_PENDING:
-//       while ((data_request = c4_state_get_pending_request(&ctx->state))
-//          fetch_data(data_request);
-//       break;
-//     case C4_ERROR:
-//       error = strdup(ctx->state.error);
-//       break;
-//   }
-// }
-// c4_proofer_free(ctx);
-// ....
-// ```
+/**
+ * cleanup for the ctx
+ * @param ctx the proofer context
+ */
+void c4_proofer_free(proofer_ctx_t* ctx);
 
-proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id, proofer_flags_t flags); // create a new proofer context
-void           c4_proofer_free(proofer_ctx_t* ctx);                                                       // cleanup for the ctx
-c4_status_t    c4_proofer_execute(proofer_ctx_t* ctx);                                                    // tries to create the proof, but if there are pending requests, they need to fetched before calling it again.
-c4_status_t    c4_proofer_status(proofer_ctx_t* ctx);                                                     // returns the status of the proofer
+/**
+ * tries to create the proof, but if there are pending requests, they need to fetched before calling it again.
+ * This function should be called until it returns C4_SUCCESS or C4_ERROR.
+ * @param ctx the proofer context
+ * @return the status of the proofer
+ */
+c4_status_t c4_proofer_execute(proofer_ctx_t* ctx);
+
+/**
+ * returns the status of the proofer
+ * @param ctx the proofer context
+ * @return the status of the proofer
+ */
+c4_status_t c4_proofer_status(proofer_ctx_t* ctx);
 
 #ifdef PROOFER_CACHE
 uint64_t current_ms();
