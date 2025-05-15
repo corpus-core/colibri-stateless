@@ -56,7 +56,6 @@ function formatChainId(value: any, debug?: boolean): string | null {
 async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false) {
   let last_error = "All nodes failed";
   for (const url of urls) {
-    console.log({ url, payload });
     const response = await fetch(url, {
       method: 'POST',
       body: JSON.stringify({ id: 1, jsonrpc: "2.0", ...payload }),
