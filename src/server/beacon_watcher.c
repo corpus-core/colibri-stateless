@@ -101,6 +101,8 @@ static void parse_sse_buffer() {
   while (true) {
     // Find the end of an event block (\n\n)
     char* event_end = strnstr(buf_data + processed_len, "\n\n", buf_len - processed_len);
+    if (!event_end) event_end = strnstr(buf_data + processed_len, "\r\n\r\n", buf_len - processed_len);
+    //    bytes_write(bytes(buf_data + processed_len, buf_len - processed_len), fopen("buf_data.txt", "w"), true);
     if (!event_end) {
       break; // No complete event found in the remaining buffer
     }
@@ -115,6 +117,7 @@ static void parse_sse_buffer() {
 
     while (current_line < event_end) {
       char* next_newline = strchr(current_line, '\n');
+      if (next_newline && next_newline[-1] == '\r') next_newline--;
       if (!next_newline) break; // Should not happen if event_end was found
 
       size_t line_len = next_newline - current_line;
@@ -130,6 +133,7 @@ static void parse_sse_buffer() {
       // Ignore other lines (like comments starting with ':')
 
       current_line = next_newline + 1;
+      if (*current_line == '\n') current_line++;
     }
 
     // If we have both event and data, call the handler
@@ -148,7 +152,9 @@ static void parse_sse_buffer() {
     }
 
     // Advance processed length past the event block and the "\n\n"
-    processed_len += event_block_len + 2;
+    processed_len += event_block_len;
+    // skip any trailing whitespace
+    while (processed_len < buf_len && buf_data[processed_len] && buf_data[processed_len] < 14) processed_len++;
   }
 
   // Remove processed data from the buffer
@@ -349,8 +355,12 @@ static void check_multi_info() {
       // Check if it's *our* watcher handle that finished
       if (easy == watcher_state.easy_handle) {
         CURLcode result = msg->data.result;
+        char*    error  = curl_easy_strerror(result);
+        if (watcher_state.error_buffer[0] != '\0')
+          log_warn("Beacon watcher  failed with %s", watcher_state.error_buffer);
+
         log_warn("Beacon watcher connection finished/failed with result: %d (%s)",
-                 result, curl_easy_strerror(result));
+                 result, error);
 
         // Ensure handle is properly cleaned up (stop_beacon_watch does this)
         stop_beacon_watch();

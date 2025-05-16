@@ -1,7 +1,7 @@
 #include "logger.h"
 #include "bytes.h"
 
-static log_level_t log_level = LOG_INFO;
+static log_level_t log_level = LOG_WARN;
 
 void c4_set_log_level(log_level_t level) {
   log_level = level;
