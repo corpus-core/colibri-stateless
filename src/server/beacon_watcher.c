@@ -376,8 +376,15 @@ static void check_multi_info() {
 
 void c4_watch_beacon_events() {
   if (!http_server.stream_beacon_events) return;
-  if (BEACON_WATCHER_URL == NULL)
-    BEACON_WATCHER_URL = bprintf(NULL, "%seth/v1/events?topics=head,finalized_checkpoint", http_server.beacon_nodes);
+  if (BEACON_WATCHER_URL == NULL) {
+    server_list_t* list = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+    if (list->count == 0) {
+      log_error("No beacon nodes configured!");
+      return;
+    }
+
+    BEACON_WATCHER_URL = bprintf(NULL, "%seth/v1/events?topics=head,finalized_checkpoint", list->urls[0]);
+  }
   if (watcher_state.is_running) {
     log_warn("Beacon watcher already running.");
     return;

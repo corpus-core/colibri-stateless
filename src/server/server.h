@@ -36,6 +36,11 @@ typedef struct {
   server_stats_t stats;
 } http_server_t;
 
+typedef struct {
+  char** urls;
+  size_t count;
+} server_list_t;
+
 extern http_server_t http_server;
 typedef struct {
   uv_tcp_t          handle;
@@ -91,15 +96,16 @@ void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
 void c4_configure(int argc, char* argv[]);
 // Handlers
-bool     c4_handle_proof_request(client_t* client);
-bool     c4_handle_status(client_t* client);
-bool     c4_proxy(client_t* client);
-bool     c4_handle_lcu(client_t* client);
-bool     c4_handle_health_check(client_t* client);
-void     c4_handle_new_head(json_t head);
-void     c4_handle_finalized_checkpoint(json_t checkpoint);
-void     c4_watch_beacon_events();
-uint64_t c4_get_query(char* query, char* param);
-void     c4_handle_internal_request(single_request_t* r);
-bool     c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb);
-bool     c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
+bool           c4_handle_proof_request(client_t* client);
+bool           c4_handle_status(client_t* client);
+bool           c4_proxy(client_t* client);
+bool           c4_handle_lcu(client_t* client);
+bool           c4_handle_health_check(client_t* client);
+void           c4_handle_new_head(json_t head);
+void           c4_handle_finalized_checkpoint(json_t checkpoint);
+void           c4_watch_beacon_events();
+uint64_t       c4_get_query(char* query, char* param);
+void           c4_handle_internal_request(single_request_t* r);
+bool           c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb);
+bool           c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
+server_list_t* c4_get_server_list(data_request_type_t type);

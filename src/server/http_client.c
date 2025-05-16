@@ -6,11 +6,6 @@
 // container_of macro to get the pointer to the containing struct
 #define container_of(ptr, type, member) ((type*) ((char*) (ptr) - offsetof(type, member)))
 
-typedef struct {
-  char** urls;
-  size_t count;
-} server_list_t;
-
 typedef struct pending_request {
   single_request_t*       request;
   struct pending_request* next;
@@ -80,7 +75,7 @@ static pending_request_t* pending_find(single_request_t* req) {
 
 static inline bool pending_request_matches(data_request_t* in, data_request_t* pending) {
   if (in->type != pending->type || in->encoding != pending->encoding || in->method != pending->method) return false;
-  if ((in->url == NULL) != (pending->url != NULL)) return false;
+  if ((in->url == NULL) != (pending->url == NULL)) return false;
   if (in->url && strcmp(in->url, pending->url) != 0) return false;
   if (in->payload.len != pending->payload.len) return false;
   if (in->payload.len && memcmp(in->payload.data, pending->payload.data, in->payload.len) != 0) return false;
@@ -146,26 +141,24 @@ static void handle_curl_events() {
     CURL* easy = msg->easy_handle;
     if (!easy) continue;
 
-    single_request_t*  r       = NULL;
-    CURLcode           res     = curl_easy_getinfo(easy, CURLINFO_PRIVATE, &r);
-    pending_request_t* pending = pending_find(r);
+    single_request_t*  r         = NULL;
+    CURLcode           res       = curl_easy_getinfo(easy, CURLINFO_PRIVATE, &r);
+    pending_request_t* pending   = pending_find(r);
+    long               http_code = 0;
+    if (msg->data.result == CURLE_OK) curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+    bool success = http_code >= 200 && http_code < 300;
 
-    if (msg->data.result == CURLE_OK) {
-      fprintf(stderr, "   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
+    if (success) {
+      fprintf(stderr, "   [curl ] %s  %s -> OK %d bytes\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len);
       r->req->response = r->buffer.data; // set the response
       cache_response(r);                 // and write to cache
       r->buffer = (buffer_t) {0};        // reset the buffer, so we don't clean up the data
     }
     else {
-      long  http_code     = 0;
       char* effective_url = NULL;
-      curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
       r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, curl_easy_strerror(res), bprintf(&r->buffer, " ")); // create error message
-      fprintf(stderr, "   -> [%p] %s : ERROR = %s (http code: %d)\n",
-              // and log
-              easy, effective_url ? effective_url : (r->url ? r->url : r->req->url),
-              curl_easy_strerror(res), (uint32_t) http_code);
+      fprintf(stderr, "   [curl ] %s  %s -> ERROR : %s\n", effective_url ? effective_url : (r->url ? r->url : r->req->url), r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
     }
 
     // Process any waiting requests
@@ -325,7 +318,7 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   return 0;
 }
 
-static server_list_t* get_server_list(data_request_type_t type) {
+server_list_t* c4_get_server_list(data_request_type_t type) {
   switch (type) {
     case C4_DATA_TYPE_ETH_RPC:
       return (server_list_t*) &eth_rpc_servers;
@@ -447,12 +440,12 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
   if (pending) { // there is a pending request asking for the same result
     pending_add_to_same_requests(pending, r);
-    fprintf(stderr, "join : %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    fprintf(stderr, "   [join] %s %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "");
     // callback will be called when the pending-request is done
   }
   else if (value) { // there is a cached response
     // Cache hit - create response from cached data
-    fprintf(stderr, "cache: %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    fprintf(stderr, "   [cache] %s %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "");
     r->req->response = bytes_dup(bytes(value, value_len));
     r->curl          = NULL; // Mark as done
 
@@ -460,7 +453,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   }
   else {
     // Cache miss - proceed with normal request handling
-    server_list_t* servers  = get_server_list(r->req->type);
+    server_list_t* servers  = c4_get_server_list(r->req->type);
     char*          base_url = servers && servers->count > r->req->response_node_index ? servers->urls[r->req->response_node_index] : NULL;
     char*          req_url  = r->req->url;
 
@@ -508,7 +501,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     configure_ssl_settings(easy);
 
     curl_multi_add_handle(multi_handle, easy);
-    fprintf(stderr, "send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    //    fprintf(stderr, "send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     // callback will be called when the request by handle_curl_events when all are done.
   }
 }
@@ -594,7 +587,7 @@ bool c4_check_retry_request(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
-    server_list_t*    servers = get_server_list(pending->type);
+    server_list_t*    servers = c4_get_server_list(pending->type);
 
     if (pending->error && servers && pending->response_node_index + 1 < servers->count) {
       int idx = pending->response_node_index + 1;
