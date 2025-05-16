@@ -513,10 +513,17 @@ static void start_beacon_watch() {
 
 static void stop_beacon_watch() {
   log_info("Stopping current beacon watch connection...");
-  // TODO: Stop timers, remove from multi_handle, curl_easy_cleanup
   if (watcher_state.easy_handle) {
-    // ... cleanup logic ...
+    if (beacon_multi_handle) {
+      curl_multi_remove_handle(beacon_multi_handle, watcher_state.easy_handle);
+    }
+    curl_easy_cleanup(watcher_state.easy_handle);
     watcher_state.easy_handle = NULL;
+
+    if (watcher_state.headers_list) {
+      curl_slist_free_all(watcher_state.headers_list);
+      watcher_state.headers_list = NULL;
+    }
   }
   uv_timer_stop(&watcher_state.inactivity_timer);
   uv_timer_stop(&watcher_state.reconnect_timer); // Stop pending reconnect too
