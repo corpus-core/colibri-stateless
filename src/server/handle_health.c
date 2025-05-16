@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
+#include <unistd.h>
 #elif defined(__APPLE__) && defined(__MACH__)
 #include <mach/mach.h>
 #elif defined(__FreeBSD__)
