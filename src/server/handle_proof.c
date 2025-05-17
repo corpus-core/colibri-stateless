@@ -23,7 +23,7 @@ static void c4_proofer_execute_after(uv_work_t* req, int status) {
 static void proofer_request_free(request_t* req) {
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   if (req->start_time)
-    c4_metrics_add_request(0, ctx->method, ctx->state.error ? strlen(ctx->state.error) : ctx->proof.len, current_ms() - req->start_time, ctx->state.error == NULL, false);
+    c4_metrics_add_request(C4_DATA_TYPE_INTERN, ctx->method, ctx->state.error ? strlen(ctx->state.error) : ctx->proof.len, current_ms() - req->start_time, ctx->state.error == NULL, false);
   c4_proofer_free((proofer_ctx_t*) req->ctx);
   safe_free(req);
 }
