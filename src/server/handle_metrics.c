@@ -22,19 +22,23 @@
 #endif
 
 typedef struct {
-  uint64_t  total_requests;  // total of number of requests
-  uint64_t  total_errors;    // total of number of errors
-  char**    names;           // list of method names
-  size_t    names_length;    // length of the list of method names
-  uint64_t* counters;        // list of counters for each method
-  uint64_t* total_sizes;     // list of total size for each method
-  uint64_t* total_durations; // list of total duration for each method
-  uint64_t* total_cached;    // total of number of cached requests
-} methode_counts_t;
+  char*    name;
+  uint64_t count;
+  uint64_t total_size;
+  uint64_t total_duration;
+  uint64_t total_cached;
+} method_entry_t;
 
-static methode_counts_t public_requests = {0};
-static methode_counts_t eth_requests    = {0};
-static methode_counts_t beacon_requests = {0};
+typedef struct {
+  uint64_t        total_requests; // total of number of requests
+  uint64_t        total_errors;   // total of number of errors
+  method_entry_t* entries;        // list of method entries
+  size_t          entries_length; // length of the list of method entries
+} methods_counts_t;
+
+static methods_counts_t public_requests = {0};
+static methods_counts_t eth_requests    = {0};
+static methods_counts_t beacon_requests = {0};
 
 void c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached) {
   if (!method) return;
@@ -60,7 +64,7 @@ void c4_metrics_add_request(data_request_type_t type, const char* method, uint64
       method = tmp;
     }
   }
-  methode_counts_t* metrics = NULL;
+  methods_counts_t* metrics = NULL;
   switch (type) {
     case C4_DATA_TYPE_BEACON_API:
       metrics = &beacon_requests;
@@ -74,31 +78,30 @@ void c4_metrics_add_request(data_request_type_t type, const char* method, uint64
   }
 
   int index = -1;
-  for (size_t i = 0; i < metrics->names_length; i++) {
-    if (strcmp(metrics->names[i], method) == 0) {
+  for (size_t i = 0; i < metrics->entries_length; i++) {
+    if (strcmp(metrics->entries[i].name, method) == 0) {
       index = i;
       break;
     }
   }
 
   if (index == -1) {
-    metrics->names_length++;
-    metrics->names                            = realloc(metrics->names, metrics->names_length * sizeof(char*));
-    metrics->names[metrics->names_length - 1] = strdup(method);
-    metrics->counters                         = realloc(metrics->counters, metrics->names_length * sizeof(uint64_t));
-    metrics->total_sizes                      = realloc(metrics->total_sizes, metrics->names_length * sizeof(uint64_t));
-    metrics->total_durations                  = realloc(metrics->total_durations, metrics->names_length * sizeof(uint64_t));
-    metrics->total_cached                     = realloc(metrics->total_cached, metrics->names_length * sizeof(uint64_t));
-    index                                     = metrics->names_length - 1;
-    metrics->total_cached[index]              = 0;
+    metrics->entries_length++;
+    metrics->entries                                             = realloc(metrics->entries, metrics->entries_length * sizeof(method_entry_t));
+    metrics->entries[metrics->entries_length - 1].name           = strdup(method);
+    metrics->entries[metrics->entries_length - 1].count          = 0;
+    metrics->entries[metrics->entries_length - 1].total_size     = 0;
+    metrics->entries[metrics->entries_length - 1].total_duration = 0;
+    metrics->entries[metrics->entries_length - 1].total_cached   = 0;
+    index                                                        = metrics->entries_length - 1;
   }
 
-  metrics->counters[index]++;
-  metrics->total_sizes[index] += size;
-  metrics->total_durations[index] += duration;
+  metrics->entries[index].count++;
+  metrics->entries[index].total_size += size;
+  metrics->entries[index].total_duration += duration;
   metrics->total_requests++;
   if (!success) metrics->total_errors++;
-  if (cached) metrics->total_cached[index]++;
+  if (cached) metrics->entries[index].total_cached++;
 }
 /**
  * Returns the current resident set size (RSS) of the process in bytes.
@@ -152,7 +155,7 @@ size_t get_current_rss(void) {
 }
 
 static void c4_write_prometheus_bucket_metrics(buffer_t*         data,
-                                               methode_counts_t* metrics,
+                                               methods_counts_t* metrics,
                                                const char*       bucket_type_name,
                                                const char*       bucket_description_prefix,
                                                bool*             method_metrics_described_flag) {
@@ -167,14 +170,14 @@ static void c4_write_prometheus_bucket_metrics(buffer_t*         data,
 
   // Calculate sum of cached entries for the bucket
   uint64_t bucket_total_cached = 0;
-  for (size_t i = 0; i < metrics->names_length; i++) {
-    bucket_total_cached += metrics->total_cached[i];
+  for (size_t i = 0; i < metrics->entries_length; i++) {
+    bucket_total_cached += metrics->entries[i].total_cached;
   }
   bprintf(data, "# HELP colibri_%s_cached_total Total number of cached %s requests.\n", bucket_type_name, bucket_description_prefix);
   bprintf(data, "# TYPE colibri_%s_cached_total counter\n", bucket_type_name);
   bprintf(data, "colibri_%s_cached_total %l\n\n", bucket_type_name, bucket_total_cached);
 
-  if (metrics->names_length > 0) {
+  if (metrics->entries_length > 0) {
     if (!(*method_metrics_described_flag)) {
       bprintf(data, "# HELP colibri_method_requests_total Total number of requests for a specific API method, partitioned by type (public, eth, beacon).\n");
       bprintf(data, "# TYPE colibri_method_requests_total counter\n");
@@ -186,13 +189,13 @@ static void c4_write_prometheus_bucket_metrics(buffer_t*         data,
       bprintf(data, "# TYPE colibri_method_cached_total counter\n\n");
       *method_metrics_described_flag = true;
     }
-    for (size_t i = 0; i < metrics->names_length; i++) {
+    for (size_t i = 0; i < metrics->entries_length; i++) {
       // TODO: Methodennamen escapen, falls sie Sonderzeichen enthalten können, die von Prometheus nicht erlaubt sind.
       // Für einfache Methodennamen ist dies normalerweise nicht erforderlich.
-      bprintf(data, "colibri_method_requests_total{type=\"%s\",method=\"%s\"} %l\n", bucket_type_name, metrics->names[i], metrics->counters[i]);
-      bprintf(data, "colibri_method_duration_milliseconds_total{type=\"%s\",method=\"%s\"} %l\n", bucket_type_name, metrics->names[i], metrics->total_durations[i]);
-      bprintf(data, "colibri_method_size_bytes_total{type=\"%s\",method=\"%s\"} %l\n", bucket_type_name, metrics->names[i], metrics->total_sizes[i]);
-      bprintf(data, "colibri_method_cached_total{type=\"%s\",method=\"%s\"} %l\n", bucket_type_name, metrics->names[i], metrics->total_cached[i]);
+      bprintf(data, "colibri_method_requests_total{type=\"%s\",method=\"%s\"} %l\n", bucket_type_name, metrics->entries[i].name, metrics->entries[i].count);
+      bprintf(data, "colibri_method_duration_milliseconds_total{type=\"%s\",method=\"%s\"} %l\n", bucket_type_name, metrics->entries[i].name, metrics->entries[i].total_duration);
+      bprintf(data, "colibri_method_size_bytes_total{type=\"%s\",method=\"%s\"} %l\n", bucket_type_name, metrics->entries[i].name, metrics->entries[i].total_size);
+      bprintf(data, "colibri_method_cached_total{type=\"%s\",method=\"%s\"} %l\n", bucket_type_name, metrics->entries[i].name, metrics->entries[i].total_cached);
     }
     bprintf(data, "\n"); // Leerzeile nach den Methoden dieses Typs
   }
