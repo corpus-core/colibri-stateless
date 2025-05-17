@@ -208,7 +208,20 @@ bool c4_handle_metrics(client_t* client) {
   buffer_t data                     = {0};
   size_t   current_rss              = get_current_rss();
   bool     method_metrics_described = false; // Flag, um HELP/TYPE für Methoden-Metriken nur einmal zu schreiben
+#ifdef PROOFER_CACHE
+  uint64_t entries = 0, size = 0, max_size = 0;
+  c4_proofer_cache_stats(&entries, &size, &max_size);
 
+  bprintf(&data, "# HELP colibri_proofer_cache_entries Current number of entries in the proofer cache.\n");
+  bprintf(&data, "# TYPE colibri_proofer_cache_entries gauge\n");
+  bprintf(&data, "colibri_proofer_cache_entries %l\n", entries);
+  bprintf(&data, "# HELP colibri_proofer_cache_size Current size of the proofer cache in bytes.\n");
+  bprintf(&data, "# TYPE colibri_proofer_cache_size gauge\n");
+  bprintf(&data, "colibri_proofer_cache_size %l\n", size);
+  bprintf(&data, "# HELP colibri_proofer_cache_max_size Maximum size of the proofer cache in bytes.\n");
+  bprintf(&data, "# TYPE colibri_proofer_cache_max_size gauge\n");
+  bprintf(&data, "colibri_proofer_cache_max_size %l\n", max_size);
+#endif
   // RSS Metrik
   bprintf(&data, "# HELP colibri_process_resident_memory_bytes Current resident set size (RSS) of the process in bytes.\n");
   bprintf(&data, "# TYPE colibri_process_resident_memory_bytes gauge\n");

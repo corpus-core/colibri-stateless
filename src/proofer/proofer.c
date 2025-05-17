@@ -124,6 +124,11 @@ void c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32
   entry->next      = ctx->cache;
   ctx->cache       = entry;
 }
+void c4_proofer_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size) {
+  *entries  = global_cache_array.count;
+  *size     = global_cache_array.current_size;
+  *max_size = global_cache_max_size;
+}
 
 void c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size) {
   if (!global_cache_array.entries || global_cache_array.count == 0) return; // Nothing to clean
