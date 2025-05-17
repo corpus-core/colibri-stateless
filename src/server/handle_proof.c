@@ -21,6 +21,9 @@ static void c4_proofer_execute_after(uv_work_t* req, int status) {
 }
 
 static void proofer_request_free(request_t* req) {
+  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+  if (req->start_time)
+    c4_metrics_add_request(0, ctx->method, ctx->state.error ? strlen(ctx->state.error) : ctx->proof.len, current_ms() - req->start_time, ctx->state.error == NULL, false);
   c4_proofer_free((proofer_ctx_t*) req->ctx);
   safe_free(req);
 }
@@ -90,6 +93,7 @@ bool c4_handle_proof_request(client_t* client) {
   char*      method_str       = bprintf(NULL, "%j", method);
   char*      params_str       = bprintf(NULL, "%J", params);
   request_t* req              = (request_t*) safe_calloc(1, sizeof(request_t));
+  req->start_time             = current_ms();
   req->client                 = client;
   req->cb                     = c4_proofer_handle_request;
   req->ctx                    = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROOFER_FLAG_CHAIN_STORE : 0));

@@ -67,6 +67,10 @@ typedef struct {
   buffer_t           buffer;
   request_t*         parent;  // pointer to parent request_t
   struct curl_slist* headers; // Store the headers list to free it later
+  uint64_t           start_time;
+  uint64_t           end_time;
+  bool               success;
+  bool               cached;
 } single_request_t;
 
 typedef struct request_t {
@@ -74,6 +78,7 @@ typedef struct request_t {
   void*             ctx;    // proofer
   single_request_t* requests;
   size_t            request_count; // count of handles
+  uint64_t          start_time;
   http_client_cb    cb;
 
 } request_t;
@@ -101,6 +106,7 @@ bool           c4_handle_status(client_t* client);
 bool           c4_proxy(client_t* client);
 bool           c4_handle_lcu(client_t* client);
 bool           c4_handle_health_check(client_t* client);
+bool           c4_handle_metrics(client_t* client);
 void           c4_handle_new_head(json_t head);
 void           c4_handle_finalized_checkpoint(json_t checkpoint);
 void           c4_watch_beacon_events();
@@ -109,3 +115,4 @@ void           c4_handle_internal_request(single_request_t* r);
 bool           c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb);
 bool           c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
+void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);

@@ -124,6 +124,25 @@ static void pending_remove(single_request_t* req) {
 static void call_callback_if_done(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
     if (c4_state_is_pending(req->requests[i].req)) return;
+    if (!req->requests[i].end_time) req->requests[i].end_time = current_ms();
+  }
+  uint8_t  tmp[1024];
+  buffer_t buffer = stack_buffer(tmp);
+
+  for (size_t i = 0; i < req->request_count; i++) {
+    single_request_t* r      = req->requests + i;
+    char*             method = r->req->url;
+    if (r->req->type == C4_DATA_TYPE_ETH_RPC) {
+      json_t json = json_get(json_parse((char*) r->req->payload.data), "method");
+      if (json.type == JSON_TYPE_STRING)
+        method = json_as_string(json, &buffer);
+    }
+    if (method)
+      c4_metrics_add_request(
+          r->req->type,
+          method, r->req->response.len,
+          r->end_time - r->start_time,
+          r->req->error == NULL, r->cached);
   }
   req->cb(req);
 }
@@ -174,7 +193,8 @@ static void handle_curl_events() {
       }
     }
 
-    r->curl = NULL; // setting it to NULL marks it as done
+    r->curl     = NULL; // setting it to NULL marks it as done
+    r->end_time = current_ms();
 
     // Clean up the easy handle
     curl_multi_remove_handle(multi_handle, easy);
@@ -448,7 +468,8 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     fprintf(stderr, "   [cache] %s %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "");
     r->req->response = bytes_dup(bytes(value, value_len));
     r->curl          = NULL; // Mark as done
-
+    r->cached        = true;
+    r->end_time      = current_ms();
     call_callback_if_done(r->parent);
   }
   else {
@@ -470,6 +491,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     else {
       fprintf(stderr, ":: ERROR: Empty URL\n");
       r->req->error = bprintf(NULL, "Empty URL");
+      r->end_time   = current_ms();
       call_callback_if_done(r->parent);
       return;
     }
@@ -507,9 +529,11 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 }
 
 static void trigger_cached_curl_requests(request_t* req) {
+  uint64_t start_time = current_ms();
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
+    r->start_time             = start_time;
     r->parent                 = req; // Set the parent pointer
     if (!pending->ttl) {             // not cached, so we trigger a uncached request
       trigger_uncached_curl_request(r, NULL, 0);
@@ -603,6 +627,7 @@ bool c4_check_retry_request(request_t* req) {
         safe_free(pending->error);
         pending->response_node_index = idx;
         pending->error               = NULL;
+        r->start_time                = current_ms();
         retry_requests++;
       }
     }

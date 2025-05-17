@@ -143,6 +143,7 @@ static char* method_str(data_request_method_t method) {
 
 static void log_request(client_t* client) {
   if (strcmp(client->request.path, "/healthcheck") == 0) return; // no healthcheck logging
+  if (strcmp(client->request.path, "/metrics") == 0) return;     // no metrics logging
   char* pl = client->request.payload_len ? bprintf(NULL, "%J", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) client->request.payload, .len = client->request.payload_len}) : NULL;
   fprintf(stderr, "[%s] %s %s\n", method_str(client->request.method), client->request.path, pl ? pl : "");
   if (pl) safe_free(pl);

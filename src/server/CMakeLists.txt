@@ -8,6 +8,7 @@ add_executable(server
   handle_lcu.c
   handle_headers.c
   handle_health.c
+  handle_metrics.c
   cache.c
   configure.c
   beacon_watcher.c
