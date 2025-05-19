@@ -21,6 +21,15 @@
 #include <unistd.h>
 #endif
 
+#if (defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD__)
+#include <sys/resource.h> // For getrusage()
+#endif
+
+// Forward declaration for c4_proofer_cache_stats if PROOFER_CACHE is defined
+#ifdef PROOFER_CACHE
+void c4_proofer_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
+#endif
+
 typedef struct {
   char*    name;
   uint64_t count;
@@ -35,6 +44,17 @@ typedef struct {
   method_entry_t* entries;        // list of method entries
   size_t          entries_length; // length of the list of method entries
 } methods_counts_t;
+
+typedef struct {
+  uint64_t page_faults_minor;        // Minor page faults
+  uint64_t page_faults_major;        // Major page faults (or total on Windows)
+  uint64_t ctx_switches_voluntary;   // Voluntary context switches
+  uint64_t ctx_switches_involuntary; // Involuntary context switches
+  uint64_t io_read_bytes;            // Bytes read from storage
+  uint64_t io_written_bytes;         // Bytes written to storage
+  uint64_t io_read_ops;              // Read operations
+  uint64_t io_write_ops;             // Write operations
+} process_platform_stats_t;
 
 static methods_counts_t public_requests = {0};
 static methods_counts_t eth_requests    = {0};
@@ -154,6 +174,206 @@ size_t get_current_rss(void) {
 #endif
 }
 
+/**
+ * Retrieves the total user and system CPU time consumed by the current process.
+ * Times are returned in seconds.
+ * Returns true on success, false on failure.
+ */
+static bool get_process_cpu_seconds(uint64_t* user_seconds, uint64_t* system_seconds) {
+  if (!user_seconds || !system_seconds) {
+    return false;
+  }
+
+#if defined(_WIN32)
+  FILETIME creation_time, exit_time, kernel_time_ft, user_time_ft;
+  if (GetProcessTimes(GetCurrentProcess(), &creation_time, &exit_time, &kernel_time_ft, &user_time_ft)) {
+    ULARGE_INTEGER kernel_ul, user_ul;
+    kernel_ul.LowPart  = kernel_time_ft.dwLowDateTime;
+    kernel_ul.HighPart = kernel_time_ft.dwHighDateTime;
+    user_ul.LowPart    = user_time_ft.dwLowDateTime;
+    user_ul.HighPart   = user_time_ft.dwHighDateTime;
+    // Convert 100-nanosecond intervals to seconds
+    *system_seconds = kernel_ul.QuadPart / 10000000ULL;
+    *user_seconds   = user_ul.QuadPart / 10000000ULL;
+    return true;
+  }
+  return false;
+
+#elif defined(__APPLE__) && defined(__MACH__)
+  struct mach_task_basic_info taskinfo;
+  mach_msg_type_number_t      count = MACH_TASK_BASIC_INFO_COUNT;
+  if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t) &taskinfo, &count) == KERN_SUCCESS) {
+    *user_seconds = taskinfo.user_time.seconds;
+    // Add microseconds for more precision if needed, but uint64_t for seconds is fine for Prometheus counters
+    // *user_seconds   += (uint64_t)(taskinfo.user_time.microseconds / 1000000.0);
+    *system_seconds = taskinfo.system_time.seconds;
+    // *system_seconds += (uint64_t)(taskinfo.system_time.microseconds / 1000000.0);
+    return true;
+  }
+  return false;
+
+#elif defined(__linux__) || defined(__linux) || defined(linux) || defined(__gnu_linux__)
+  FILE* fp = fopen("/proc/self/stat", "r");
+  if (fp == NULL) {
+    return false;
+  }
+  // Fields from proc(5) /proc/[pid]/stat:
+  // (14) utime  %lu (user time, measured in clock ticks)
+  // (15) stime  %lu (system time, measured in clock ticks)
+  unsigned long utime_ticks, stime_ticks;
+  // Scan for the required fields. The format string skips all preceding fields.
+  // %*s consumes a string, %*d a decimal, %*c a char, %*u an unsigned decimal.
+  int items = fscanf(fp, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %lu %lu", &utime_ticks, &stime_ticks);
+  fclose(fp);
+  if (items == 2) {
+    long clock_ticks_per_second = sysconf(_SC_CLK_TCK);
+    if (clock_ticks_per_second <= 0) return false; // Should not happen
+    *user_seconds   = utime_ticks / clock_ticks_per_second;
+    *system_seconds = stime_ticks / clock_ticks_per_second;
+    return true;
+  }
+  return false;
+
+#elif defined(__FreeBSD__)
+  struct rusage rusage_self;
+  if (getrusage(RUSAGE_SELF, &rusage_self) == 0) {
+    *user_seconds = rusage_self.ru_utime.tv_sec;
+    // *user_seconds += rusage_self.ru_utime.tv_usec / 1000000ULL;
+    *system_seconds = rusage_self.ru_stime.tv_sec;
+    // *system_seconds += rusage_self.ru_stime.tv_usec / 1000000ULL;
+    return true;
+  }
+  return false;
+
+#else
+  /* Unknown OS - return 0 or handle error */
+  *user_seconds   = 0;
+  *system_seconds = 0;
+  return false; // Unsupported
+#endif
+}
+
+static void c4_write_process_cpu_metrics(buffer_t* data) {
+  uint64_t cpu_user_seconds   = 0;
+  uint64_t cpu_system_seconds = 0;
+  if (get_process_cpu_seconds(&cpu_user_seconds, &cpu_system_seconds)) {
+    bprintf(data, "# HELP colibri_process_cpu_user_seconds_total Total CPU time spent in user mode by the process.\n");
+    bprintf(data, "# TYPE colibri_process_cpu_user_seconds_total counter\n");
+    bprintf(data, "colibri_process_cpu_user_seconds_total %l\n\n", cpu_user_seconds);
+
+    bprintf(data, "# HELP colibri_process_cpu_system_seconds_total Total CPU time spent in system mode by the process.\n");
+    bprintf(data, "# TYPE colibri_process_cpu_system_seconds_total counter\n");
+    bprintf(data, "colibri_process_cpu_system_seconds_total %l\n\n", cpu_system_seconds);
+  }
+}
+
+static bool get_process_platform_stats(process_platform_stats_t* stats) {
+  if (!stats) return false;
+  memset(stats, 0, sizeof(process_platform_stats_t)); // Initialize all to 0
+
+#if defined(__linux__) || defined(__linux) || defined(linux) || defined(__gnu_linux__)
+  // --- Page Faults (from /proc/self/stat) ---
+  // Re-use part of the logic from get_process_cpu_seconds for /proc/self/stat
+  FILE* fp_stat = fopen("/proc/self/stat", "r");
+  if (fp_stat) {
+    // Fields from proc(5) /proc/[pid]/stat:
+    // (10) minflt  %lu (Minor faults)
+    // (12) majflt  %lu (Major faults)
+    // (14) utime   %lu (user time)
+    // (15) stime   %lu (system time)
+    // We need to skip fields carefully. pid (1), comm (2) %s, state (3) %c, ppid (4), pgrp (5), session (6), tty_nr (7), tpgid (8), flags (9) %u
+    // then minflt (10) %lu, cminflt (11) %lu, majflt (12) %lu, cmajflt (13) %lu, utime (14) %lu, stime (15) %lu
+    unsigned long min_flt, maj_flt;
+    // The following fscanf will also read utime and stime, but we ignore them here as get_process_cpu_seconds handles them.
+    // We are interested in fields 10 and 12 for faults.
+    int items = fscanf(fp_stat, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %lu %*u %lu", &min_flt, &maj_flt);
+    fclose(fp_stat);
+    if (items == 2) {
+      stats->page_faults_minor = min_flt;
+      stats->page_faults_major = maj_flt;
+    }
+    else {
+      // Failed to parse, but don't make the whole function fail, some other stats might be available.
+    }
+  }
+
+  // --- Context Switches (from /proc/self/status) ---
+  FILE* fp_status = fopen("/proc/self/status", "r");
+  if (fp_status) {
+    char line[256];
+    while (fgets(line, sizeof(line), fp_status)) {
+      if (strncmp(line, "voluntary_ctxt_switches:", 24) == 0) {
+        sscanf(line + 24, "%lu", &stats->ctx_switches_voluntary);
+      }
+      if (strncmp(line, "nonvoluntary_ctxt_switches:", 27) == 0) {
+        sscanf(line + 27, "%lu", &stats->ctx_switches_involuntary);
+      }
+    }
+    fclose(fp_status);
+  }
+
+  // --- I/O Stats (from /proc/self/io) ---
+  FILE* fp_io = fopen("/proc/self/io", "r");
+  if (fp_io) {
+    char line[256];
+    while (fgets(line, sizeof(line), fp_io)) {
+      if (strncmp(line, "rchar:", 6) == 0) { // Bytes read (from storage)
+        sscanf(line + 6, "%lu", &stats->io_read_bytes);
+      }
+      else if (strncmp(line, "wchar:", 6) == 0) { // Bytes written (to storage)
+        sscanf(line + 6, "%lu", &stats->io_written_bytes);
+      }
+      else if (strncmp(line, "syscr:", 6) == 0) { // Read syscalls
+        sscanf(line + 6, "%lu", &stats->io_read_ops);
+      }
+      else if (strncmp(line, "syscw:", 6) == 0) { // Write syscalls
+        sscanf(line + 6, "%lu", &stats->io_write_ops);
+      }
+    }
+    fclose(fp_io);
+  }
+  return true; // Indicate success for Linux if files were processed, even if some parts failed.
+
+#elif (defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD__)
+  struct rusage usage;
+  if (getrusage(RUSAGE_SELF, &usage) == 0) {
+    stats->page_faults_minor        = usage.ru_minflt;
+    stats->page_faults_major        = usage.ru_majflt;
+    stats->ctx_switches_voluntary   = usage.ru_nvcsw;
+    stats->ctx_switches_involuntary = usage.ru_nivcsw;
+    // getrusage provides block operations, not byte counts directly for I/O.
+    // Map block operations to our _ops fields.
+    stats->io_read_ops  = usage.ru_inblock;
+    stats->io_write_ops = usage.ru_oublock;
+    // stats->io_read_bytes and stats->io_written_bytes remain 0 unless a different method is used.
+    return true;
+  }
+  return false;
+
+#elif defined(_WIN32)
+  // Page Faults
+  PROCESS_MEMORY_COUNTERS pmc;
+  if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+    stats->page_faults_major = pmc.PageFaultCount; // Total page faults
+    // stats->page_faults_minor remains 0 as Windows provides a combined count here.
+  } // Continue even if this fails, to try and get I/O counters
+
+  // I/O Counters
+  IO_COUNTERS io_counters;
+  if (GetProcessIoCounters(GetCurrentProcess(), &io_counters)) {
+    stats->io_read_ops      = io_counters.ReadOperationCount;
+    stats->io_write_ops     = io_counters.WriteOperationCount;
+    stats->io_read_bytes    = io_counters.ReadTransferCount;
+    stats->io_written_bytes = io_counters.WriteTransferCount;
+  }
+  // Context switches are not easily available, they will remain 0.
+  return true; // Return true if we attempted to get the stats for Windows
+
+#else
+  return false; // Unsupported OS
+#endif
+}
+
 static void c4_write_prometheus_bucket_metrics(buffer_t*         data,
                                                methods_counts_t* metrics,
                                                const char*       bucket_type_name,
@@ -209,8 +429,8 @@ bool c4_handle_metrics(client_t* client) {
   size_t   current_rss              = get_current_rss();
   bool     method_metrics_described = false; // Flag, um HELP/TYPE für Methoden-Metriken nur einmal zu schreiben
 #ifdef PROOFER_CACHE
-  uint64_t entries = 0, size = 0, max_size = 0;
-  c4_proofer_cache_stats(&entries, &size, &max_size);
+  uint64_t entries = 0, size = 0, max_size = 0, capacity = 0;
+  c4_proofer_cache_stats(&entries, &size, &max_size, &capacity);
 
   bprintf(&data, "# HELP colibri_proofer_cache_entries Current number of entries in the proofer cache.\n");
   bprintf(&data, "# TYPE colibri_proofer_cache_entries gauge\n");
@@ -221,11 +441,78 @@ bool c4_handle_metrics(client_t* client) {
   bprintf(&data, "# HELP colibri_proofer_cache_max_size Maximum size of the proofer cache in bytes.\n");
   bprintf(&data, "# TYPE colibri_proofer_cache_max_size gauge\n");
   bprintf(&data, "colibri_proofer_cache_max_size %l\n", max_size);
+  bprintf(&data, "# HELP colibri_proofer_cache_capacity Maximum capacity of the proofer cache in bytes.\n");
+  bprintf(&data, "# TYPE colibri_proofer_cache_capacity gauge\n");
+  bprintf(&data, "colibri_proofer_cache_capacity %l\n", capacity);
 #endif
   // RSS Metrik
   bprintf(&data, "# HELP colibri_process_resident_memory_bytes Current resident set size (RSS) of the process in bytes.\n");
   bprintf(&data, "# TYPE colibri_process_resident_memory_bytes gauge\n");
   bprintf(&data, "colibri_process_resident_memory_bytes %l\n\n", (uint64_t) current_rss);
+
+  // CPU Time Metriken
+  c4_write_process_cpu_metrics(&data);
+
+  // Erweiterte Prozess-Statistiken
+  process_platform_stats_t platform_stats = {0}; // Initialisieren mit Nullen
+  if (get_process_platform_stats(&platform_stats)) {
+    // Page Faults
+    bprintf(&data, "# HELP colibri_process_page_faults_minor_total Minor page faults.\n");
+    bprintf(&data, "# TYPE colibri_process_page_faults_minor_total counter\n");
+    bprintf(&data, "colibri_process_page_faults_minor_total %l\n\n", platform_stats.page_faults_minor);
+    bprintf(&data, "# HELP colibri_process_page_faults_major_total Major page faults (or total page faults on some OS).\n");
+    bprintf(&data, "# TYPE colibri_process_page_faults_major_total counter\n");
+    bprintf(&data, "colibri_process_page_faults_major_total %l\n\n", platform_stats.page_faults_major);
+
+    // Context Switches
+    bprintf(&data, "# HELP colibri_process_context_switches_voluntary_total Voluntary context switches.\n");
+    bprintf(&data, "# TYPE colibri_process_context_switches_voluntary_total counter\n");
+    bprintf(&data, "colibri_process_context_switches_voluntary_total %l\n\n", platform_stats.ctx_switches_voluntary);
+    bprintf(&data, "# HELP colibri_process_context_switches_involuntary_total Involuntary context switches.\n");
+    bprintf(&data, "# TYPE colibri_process_context_switches_involuntary_total counter\n");
+    bprintf(&data, "colibri_process_context_switches_involuntary_total %l\n\n", platform_stats.ctx_switches_involuntary);
+
+    // I/O Bytes
+    bprintf(&data, "# HELP colibri_process_io_read_bytes_total Bytes read by the process.\n");
+    bprintf(&data, "# TYPE colibri_process_io_read_bytes_total counter\n");
+    bprintf(&data, "colibri_process_io_read_bytes_total %l\n\n", platform_stats.io_read_bytes);
+    bprintf(&data, "# HELP colibri_process_io_written_bytes_total Bytes written by the process.\n");
+    bprintf(&data, "# TYPE colibri_process_io_written_bytes_total counter\n");
+    bprintf(&data, "colibri_process_io_written_bytes_total %l\n\n", platform_stats.io_written_bytes);
+
+    // I/O Operations
+    bprintf(&data, "# HELP colibri_process_io_read_operations_total Read operations performed by the process.\n");
+    bprintf(&data, "# TYPE colibri_process_io_read_operations_total counter\n");
+    bprintf(&data, "colibri_process_io_read_operations_total %l\n\n", platform_stats.io_read_ops);
+    bprintf(&data, "# HELP colibri_process_io_write_operations_total Write operations performed by the process.\n");
+    bprintf(&data, "# TYPE colibri_process_io_write_operations_total counter\n");
+    bprintf(&data, "colibri_process_io_write_operations_total %l\n\n", platform_stats.io_write_ops);
+  }
+
+  // Libuv Metriken
+  // Hinweis: Damit metrics_idle_time einen Wert liefert, muss der Loop mit
+  // uv_loop_configure(loop, UV_METRICS_IDLE_TIME, 1); konfiguriert worden sein.
+  uv_loop_t* loop = uv_default_loop(); // Annahme: Verwendung des Default-Loops
+  if (loop) {
+    uint64_t idle_time_ns = uv_metrics_idle_time(loop);
+    bprintf(&data, "# HELP colibri_libuv_idle_time_nanoseconds Time the event loop spent idle in the last report interval (nanoseconds).\n");
+    bprintf(&data, "# TYPE colibri_libuv_idle_time_nanoseconds gauge\n");
+    bprintf(&data, "colibri_libuv_idle_time_nanoseconds %l\n\n", idle_time_ns);
+
+    // Weitere mögliche libuv Metriken (als Info für Sie):
+    // int timeout = uv_backend_timeout(loop);
+    // bprintf(&data, "# INFO colibri_libuv_backend_timeout_milliseconds %d\n", timeout);
+
+    // uv_metrics_info_t metrics_info;
+    // if (uv_metrics_info(loop, &metrics_info) == 0) {
+    //   bprintf(&data, "# INFO colibri_libuv_loop_count %l\n", metrics_info.loop_count);
+    //   bprintf(&data, "# INFO colibri_libuv_events_waiting %l\n", metrics_info.events_waiting);
+    // }
+  }
+  else {
+    // Fallback oder Warnung, falls der Default-Loop nicht verfügbar ist (sollte nicht passieren, wenn libuv genutzt wird)
+    bprintf(&data, "# WARN libuv default_loop not available\n");
+  }
 
   // Public Requests
   c4_write_prometheus_bucket_metrics(&data, &public_requests, "public", "public (e.g. eth_getTransactionByHash)", &method_metrics_described);
