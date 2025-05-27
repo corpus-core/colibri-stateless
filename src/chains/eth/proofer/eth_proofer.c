@@ -1,4 +1,5 @@
 #include "eth_proofer.h"
+#include "beacon_types.h"
 #include "json.h"
 #include "state.h"
 #include <stdlib.h>
@@ -22,7 +23,8 @@ static const bool includes(const char** methods, const char* method) {
 }
 
 bool eth_proofer_execute(proofer_ctx_t* ctx) {
-  if (ctx->chain_id != C4_CHAIN_MAINNET) return false;
+  // check if we are supporting this chain
+  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ETHEREUM || c4_eth_get_chain_spec(ctx->chain_id) == NULL) return false;
 
   if (includes(eth_account_methods, ctx->method))
     c4_proof_account(ctx);
