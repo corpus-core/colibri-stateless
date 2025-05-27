@@ -225,7 +225,7 @@ export default class C4Client {
     };
 
     this.connectionState = new ConnectionState(
-      { chainId: this.config.chainId, debug: this.config.debug },
+      { chainId: parseInt(this.config.chainId + ''), debug: this.config.debug },
       fetchChainIdForConnectionState, // Use the specific callback
       this.eventEmitter,
       formatChainId
@@ -316,7 +316,7 @@ export default class C4Client {
     try {
 
       if (this.config.trusted_block_hashes && this.config.trusted_block_hashes.length > 0)
-        check_trusted_blockhashes(this.config.trusted_block_hashes, c4w, this.config.chainId);
+        check_trusted_blockhashes(this.config.trusted_block_hashes, c4w, parseInt(this.config.chainId as any));
 
       // Call the C function
       ctx = c4w._c4w_create_verify_ctx(
