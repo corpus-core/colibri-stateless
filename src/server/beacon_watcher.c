@@ -479,8 +479,10 @@ static void start_beacon_watch() {
   watcher_state.headers_list = curl_slist_append(watcher_state.headers_list, ACCEPT_HEADER);
   watcher_state.headers_list = curl_slist_append(watcher_state.headers_list, CACHE_CONTROL_HEADER);
   // Add Keep-Alive? Often default for HTTP/1.1, but can be explicit
-  // watcher_state.headers_list = curl_slist_append(watcher_state.headers_list, "Connection: keep-alive");
+  watcher_state.headers_list = curl_slist_append(watcher_state.headers_list, "Connection: keep-alive");
+
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_HTTPHEADER, watcher_state.headers_list);
+  curl_easy_setopt(watcher_state.easy_handle, CURLOPT_TCP_KEEPALIVE, 1L);
 
   // Follow redirects if necessary
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_FOLLOWLOCATION, 1L);
