@@ -148,11 +148,14 @@ static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count
 }
 
 INTERNAL bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t validators, chain_id_t chain_id) {
-  storage_plugin_t storage_conf  = {0};
-  uint32_t         period        = (slot >> 13) + 1;
-  c4_chain_state_t state         = c4_get_chain_state(chain_id);
-  uint32_t         allocated_len = state.len;
-  char             name[100];
+  const chain_spec_t* spec          = c4_eth_get_chain_spec(chain_id);
+  storage_plugin_t    storage_conf  = {0};
+  c4_chain_state_t    state         = c4_get_chain_state(chain_id);
+  uint32_t            allocated_len = state.len;
+  char                name[100];
+
+  if (!spec) return false;
+  uint32_t period = (slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
 
   // check if we had only trusted blocks
   if (trusted_blocks_len(state)) {
@@ -227,19 +230,22 @@ INTERNAL bool c4_set_sync_period(uint64_t slot, bytes32_t blockhash, bytes_t val
 }
 
 static c4_status_t init_sync_state(verify_ctx_t* ctx) {
-  c4_chain_state_t chain_state        = c4_get_chain_state(ctx->chain_id);
-  c4_state_t*      state              = &ctx->state;
-  json_t           data               = {0};
-  bool             success            = false;
-  bytes_t          client_update      = {0};
-  bytes_t          client_update_past = {0};
-  bytes32_t        blockhash          = {0};
+  c4_chain_state_t    chain_state        = c4_get_chain_state(ctx->chain_id);
+  c4_state_t*         state              = &ctx->state;
+  json_t              data               = {0};
+  bool                success            = false;
+  bytes_t             client_update      = {0};
+  bytes_t             client_update_past = {0};
+  bytes32_t           blockhash          = {0};
+  const chain_spec_t* spec               = c4_eth_get_chain_spec(ctx->chain_id);
+
+  if (!spec) THROW_ERROR("unsupported chain id!");
 
   if (chain_state.len == 0) { // no trusted blockhashes, so we need to fetch the last client update
     success = req_header(state, (json_t) {0}, ctx->chain_id, &data);
     if (success) {
       uint64_t slot   = json_get_uint64(data, "slot");
-      uint32_t period = (slot >> 13) - 1;
+      uint32_t period = (slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) - 1;
       req_client_update(state, period, 1, ctx->chain_id, &client_update);
       success = req_client_update(state, period - 20, 1, ctx->chain_id, &client_update_past);
     }
@@ -258,7 +264,7 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
     // we need to resolve the client update for the given blockhash.
     success = req_header(state, (json_t) {.type = JSON_TYPE_STRING, .start = name, .len = tmp.data.len}, ctx->chain_id, &data);
     if (success) {
-      uint64_t period = (json_get_uint64(data, "slot") >> 13);
+      uint64_t period = (json_get_uint64(data, "slot") >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits));
       success         = req_client_update(state, period, 1, ctx->chain_id, &client_update);
     }
   }

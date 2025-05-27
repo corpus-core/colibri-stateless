@@ -33,31 +33,33 @@ static void verify_proof(char* name, bytes32_t leaf, bytes32_t root, bytes_t pro
 }
 
 c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block_proof, uint64_t slot) {
-  c4_status_t    status        = C4_SUCCESS;
-  beacon_block_t block         = {0};
-  json_t         history_proof = {0};
-  uint8_t        tmp[200]      = {0};
-  buffer_t       buf           = stack_buffer(tmp);
-  buffer_t       buf2          = stack_buffer(tmp);
-  uint32_t       block_period  = slot >> 13; // the period of the target block
-  bytes_t        blocks        = {0};
+  c4_status_t         status        = C4_SUCCESS;
+  beacon_block_t      block         = {0};
+  json_t              history_proof = {0};
+  uint8_t             tmp[200]      = {0};
+  buffer_t            buf           = stack_buffer(tmp);
+  buffer_t            buf2          = stack_buffer(tmp);
+  const chain_spec_t* chain         = c4_eth_get_chain_spec(ctx->chain_id);
+  bytes_t             blocks        = {0};
 
-  if (!ctx->client_state.len || !(ctx->flags & C4_PROOFER_FLAG_CHAIN_STORE)) return C4_SUCCESS; // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
-  uint32_t state_period = c4_eth_get_last_period(ctx->client_state);                            // this is the oldest period we have in the client state
-  if (!state_period) return C4_SUCCESS;                                                         // the client does not have a state yet, so he might as well get the head and verify the block.
-  if (block_period >= state_period) return C4_SUCCESS;                                          // the target block is within the current range of the client
+  if (chain == NULL) THROW_ERROR("unsupported chain id!");
+  if (!ctx->client_state.len || !(ctx->flags & C4_PROOFER_FLAG_CHAIN_STORE)) return C4_SUCCESS;  // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
+  uint32_t state_period = c4_eth_get_last_period(ctx->client_state);                             // this is the oldest period we have in the client state
+  uint32_t block_period = slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits); // the period of the target block
+  if (!state_period) return C4_SUCCESS;                                                          // the client does not have a state yet, so he might as well get the head and verify the block.
+  if (block_period >= state_period) return C4_SUCCESS;                                           // the target block is within the current range of the client
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
   TRY_ADD_ASYNC(status, c4_send_beacon_json(ctx, bprintf(&buf, "eth/v1/lodestar/historical_summaries/0x%b", ssz_get(&block.header, "stateRoot").bytes), NULL, 120, &history_proof));
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "chain_store/%d/%d/blocks.ssz", (uint32_t) ctx->chain_id, block_period), NULL, 0, &blocks)); // get the blockd
   if (status != C4_SUCCESS) return status;
 
-  fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot));  // current fork for the state
-  json_t    data           = json_get(history_proof, "data");                              // the the main json-object
-  uint32_t  summary_idx    = block_period - 758;                                           // the index starting from the  cappella fork, where we got zhe first Summary entry.
-  uint32_t  block_idx      = slot % 8192;                                                  // idx within the period
-  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                     // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
-  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // the gindex of the single summary-object we need to proof
+  fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
+  json_t    data           = json_get(history_proof, "data");                                    // the the main json-object
+  uint32_t  summary_idx    = block_period - 758;                                                 // the index starting from the  cappella fork, where we got zhe first Summary entry.
+  uint32_t  block_idx      = slot % 8192;                                                        // idx within the period
+  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                           // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
+  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root");       // the gindex of the single summary-object we need to proof
   gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
   ssz_ob_t  blocks_ob      = {.bytes = blocks, .def = &BLOCKS};
   buffer_t  full_proof     = {0};
