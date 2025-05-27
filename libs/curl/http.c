@@ -161,7 +161,7 @@ static bool configure_request(curl_request_t* creq) {
       buffer_t url             = {0};
       bprintf(&url, "%j", server);
       if (req->url && *req->url) {
-        buffer_add_chars(&url, "/");
+        if (url.data.len > 0 && url.data.data[url.data.len - 1] != '/') buffer_add_chars(&url, "/");
         if (req->type == C4_DATA_TYPE_INTERN && strncmp(req->url, "chain_store/", 12) == 0)
           buffer_add_chars(&url, req->url + 12);
         else

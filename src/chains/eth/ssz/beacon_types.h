@@ -54,7 +54,7 @@ const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork);
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type);
 const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type);
 const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork);
-
+void             c4_chain_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version);
 // c4 specific
 const ssz_def_t*       eth_ssz_verification_type(eth_ssz_type_t type);
 extern const ssz_def_t ssz_transactions_bytes;
