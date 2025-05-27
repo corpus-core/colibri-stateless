@@ -110,9 +110,6 @@ int main(int argc, char* argv[]) {
           case 'c':
             chain_id = atoi(argv[++i]);
             break;
-          case 'o':
-            output = argv[++i];
-            break;
           case 'i':
           case 'p':
             input = argv[++i];
@@ -128,6 +125,9 @@ int main(int argc, char* argv[]) {
             break;
 #ifdef TEST
 #ifdef USE_CURL
+          case 'o':
+            output = argv[++i];
+            break;
           case 't':
             test_dir = curl_set_test_dir(argv[++i]);
             break;
