@@ -13,7 +13,8 @@
 #define ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX 87
 
 static uint64_t next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
-  fork_id_t fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot));
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  fork_id_t           fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
   return fork == C4_FORK_DENEB ? DENEP_NEXT_SYNC_COMMITTEE_GINDEX : ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX;
 }
 
@@ -77,8 +78,9 @@ fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
   if (data.len < 4) return 0;
   uint32_t offset = uint32_from_le(data.data);
   if (offset + 8 > data.len) return 0;
-  uint64_t slot = uint64_from_le(data.data + offset);
-  return c4_chain_fork_id(chain_id, epoch_for_slot(slot));
+  uint64_t            slot = uint64_from_le(data.data + offset);
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  return c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
 }
 
 INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates, bytes32_t trusted_blockhash) {

@@ -1,25 +1,28 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
-typedef struct {
-  chain_id_t      chain_id;
-  const uint64_t* fork_epochs;
-  const bytes32_t genesis_validators_root;
-} chain_data_t;
-
 static const uint64_t eth_mainnet_fork_epochs[] = {74240ULL, 144896ULL, 194048ULL, 269568ULL, 364032ULL, 0ULL};
 static const uint64_t eth_gnosis_fork_epochs[]  = {512ULL, 385536ULL, 648704ULL, 889856ULL, 1337856ULL, 0ULL};
 
-static const chain_data_t chain_data[] = {
-    {.chain_id                = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1ULL),
-     .fork_epochs             = eth_mainnet_fork_epochs,
-     .genesis_validators_root = "\x4b\x36\x3d\xb9\x4e\x28\x61\x20\xd7\x6e\xb9\x05\x34\x0f\xdd\x4e\x54\xbf\xe9\xf0\x6b\xf3\x3f\xf6\xcf\x5a\xd2\x7f\x51\x1b\xfe\x95"},
-    {.chain_id                = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
-     .fork_epochs             = eth_gnosis_fork_epochs,
-     .genesis_validators_root = "\xf5\xdc\xb5\x56\x4e\x82\x9a\xab\x27\x26\x4b\x9b\xec\xd5\xdf\xaa\x01\x70\x85\x61\x12\x24\xcb\x30\x36\xf5\x73\x36\x8d\xbb\x9d\x47"},
+static const chain_spec_t chain_data[] = {
+    {
+        .chain_id                = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1ULL),
+        .fork_epochs             = eth_mainnet_fork_epochs,
+        .genesis_validators_root = "\x4b\x36\x3d\xb9\x4e\x28\x61\x20\xd7\x6e\xb9\x05\x34\x0f\xdd\x4e\x54\xbf\xe9\xf0\x6b\xf3\x3f\xf6\xcf\x5a\xd2\x7f\x51\x1b\xfe\x95",
+        .slots_per_epoch_bits    = 5,
+        .epochs_per_period_bits  = 8,
+    },
+    {
+        .chain_id                = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
+        .fork_epochs             = eth_gnosis_fork_epochs,
+        .genesis_validators_root = "\xf5\xdc\xb5\x56\x4e\x82\x9a\xab\x27\x26\x4b\x9b\xec\xd5\xdf\xaa\x01\x70\x85\x61\x12\x24\xcb\x30\x36\xf5\x73\x36\x8d\xbb\x9d\x47",
+        .slots_per_epoch_bits    = 4,
+        .epochs_per_period_bits  = 9,
+
+    },
 };
 
-static inline const chain_data_t* get_chain_data(chain_id_t id) {
+const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id) {
   for (int i = 0; i < sizeof(chain_data) / sizeof(chain_data[0]); i++) {
     if (chain_data[i].chain_id == id)
       return chain_data + i;
@@ -38,7 +41,7 @@ const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork) {
 }
 
 bool c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root) {
-  const chain_data_t* data = get_chain_data(chain_id);
+  const chain_spec_t* data = c4_eth_get_chain_spec(chain_id);
   if (data) {
     memcpy(genesis_validators_root, data->genesis_validators_root, 32);
     return true;
@@ -47,7 +50,7 @@ bool c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_val
 }
 
 fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch) {
-  const chain_data_t* data = get_chain_data(chain_id);
+  const chain_spec_t* data = c4_eth_get_chain_spec(chain_id);
   if (!data) return C4_FORK_ALTAIR;
 
   int i = 0;

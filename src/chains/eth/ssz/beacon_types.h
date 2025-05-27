@@ -11,7 +11,9 @@ typedef enum {
   C4_FORK_CAPELLA   = 3,
   C4_FORK_DENEB     = 4,
   C4_FORK_ELECTRA   = 5,
-  C4_FORK_FULU      = 6
+  C4_FORK_FULU      = 6,
+
+  C4_FORK_INVALID = -1
 } fork_id_t;
 
 typedef enum {
@@ -45,10 +47,18 @@ typedef enum {
   ETH_SSZ_DATA_PROOF   = 25
 } eth_ssz_type_t;
 
-bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
-fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
+typedef struct {
+  chain_id_t      chain_id;
+  const uint64_t* fork_epochs;
+  const bytes32_t genesis_validators_root;
+  const int       slots_per_epoch_bits;   // 5 = 32 slots per epoch
+  const int       epochs_per_period_bits; // 8 = 256 epochs per period
+} chain_spec_t;
 
-const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork);
+bool                c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
+fork_id_t           c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
+const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id);
+const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork);
 
 // forks
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type);
@@ -69,11 +79,11 @@ extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
 
-#define epoch_for_slot(slot)  ((slot) >> 5)
-#define period_for_slot(slot) ((slot) >> 13)
+#define epoch_for_slot(slot, chain_spec)  ((slot) >> (chain_spec ? chain_spec->slots_per_epoch_bits : 5))
+#define period_for_slot(slot, chain_spec) ((slot) >> (chain_spec ? chain_spec->epochs_per_period_bits : 8))
 
-#define slot_for_epoch(epoch)   ((epoch) << 5)
-#define slot_for_period(period) ((period) << 13)
+#define slot_for_epoch(epoch, chain_spec)   ((epoch) << (chain_spec ? chain_spec->slots_per_epoch_bits : 5))
+#define slot_for_period(period, chain_spec) ((period) << (chain_spec ? chain_spec->epochs_per_period_bits : 8))
 
 #define ssz_builder_for_type(typename) \
   {.def = eth_ssz_verification_type(typename), .dynamic = {0}, .fixed = {0}}

@@ -1,4 +1,5 @@
 #include "beacon.h"
+#include "beacon_types.h"
 #include "logger.h"
 #include "server.h"
 #include <fcntl.h>
@@ -23,9 +24,10 @@ static void fill_last_update(uint64_t current_slot) {
   if (!http_server.period_store)
     return;
 
-  char     tmp[1000] = {0};
-  buffer_t buf       = stack_buffer(tmp);
-  uint32_t period    = current_slot >> 13;
+  char                tmp[1000] = {0};
+  const chain_spec_t* spec      = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
+  buffer_t            buf       = stack_buffer(tmp);
+  uint32_t            period    = current_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits);
   while (period && (!head_update.last_slot || !head_update.last_lcu)) {
 
     if (!head_update.last_slot) {
@@ -176,66 +178,16 @@ static void append_data(char* path, bytes_t data) {
 }
 
 static c4_status_t handle_head(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* sig_block, ssz_ob_t* data_block) {
-  c4_status_t status      = C4_SUCCESS;
-  uint32_t    period      = b->slot >> 13;
-  char        tmp[300]    = {0};
-  char        tmp2[300]   = {0};
-  buffer_t    buf1        = stack_buffer(tmp);
-  buffer_t    buf2        = stack_buffer(tmp2);
-  bytes_t     block_roots = {0};
-  bytes_t     lcu         = {0};
+  c4_status_t         status      = C4_SUCCESS;
+  const chain_spec_t* spec        = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
+  uint32_t            period      = b->slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits);
+  char                tmp[300]    = {0};
+  char                tmp2[300]   = {0};
+  buffer_t            buf1        = stack_buffer(tmp);
+  buffer_t            buf2        = stack_buffer(tmp2);
+  bytes_t             block_roots = {0};
+  bytes_t             lcu         = {0};
   TRY_ASYNC(c4_eth_get_signblock_and_parent(ctx, b->root, NULL, sig_block, data_block));
-#ifdef UPDATE_CHAIN_DATA
-  fill_last_update(b->slot);
-
-  if (head_update.last_slot == b->slot - 1) {
-    log_info("write event block for slot %l", head_update.last_slot + 1);
-    append_data(bprintf(&buf1, "%s/%l/%d/blocks.ssz", http_server.period_store, http_server.chain_id, period), bytes(b->root, 32));
-    head_update.last_slot++;
-    memcpy(head_update.last_block_root, b->root, 32);
-  }
-  else if (head_update.last_slot < b->slot - 1) {
-    json_t header = {0};
-    TRY_ASYNC(c4_send_beacon_json(ctx, bprintf(&buf1, "eth/v1/beacon/headers/%l", head_update.last_slot + 1), NULL, 0, &header));
-    buffer_reset(&buf1);
-    header = json_get(header, "data");
-    if (header.type != JSON_TYPE_OBJECT) {
-      log_info("write skipped block for slot %l", head_update.last_slot + 1);
-      append_data(bprintf(&buf1, "%s/%l/%d/blocks.ssz", http_server.period_store, http_server.chain_id, (head_update.last_slot + 1) >> 13), bytes(head_update.last_block_root, 32));
-      head_update.last_slot++;
-    }
-    else {
-      bytes_t root = json_get_bytes(header, "root", &buf1);
-      if (root.len == 32) {
-        log_info("write fetched block for slot %l", head_update.last_slot + 1);
-        append_data(bprintf(&buf2, "%s/%l/%d/blocks.ssz", http_server.period_store, http_server.chain_id, (head_update.last_slot + 1) >> 13), root);
-        head_update.last_slot++;
-        memcpy(head_update.last_block_root, root.data, 32);
-      }
-      else {
-        log_error("Invalid root length: %d", root.len);
-        return C4_SUCCESS;
-      }
-    }
-    return handle_head(ctx, b, sig_block, data_block);
-  }
-
-  if (head_update.last_lcu < (b->slot >> 13)) {
-    ssz_ob_t    lcu    = {0};
-    c4_status_t status = c4_send_beacon_ssz(ctx, bprintf(&buf1, "eth/v1/beacon/light_client/updates?start_period=%d&count=1", head_update.last_lcu + 1), NULL, NULL, 0, &lcu);
-    if (status == C4_ERROR) {
-      safe_free(ctx->state.error);
-      ctx->state.error = NULL;
-      return C4_SUCCESS;
-    }
-    else if (status == C4_PENDING)
-      return C4_PENDING;
-    buffer_reset(&buf1);
-    append_data(bprintf(&buf1, "%s/%l/%d/lcu.ssz", http_server.period_store, http_server.chain_id, head_update.last_lcu + 1), lcu.bytes);
-    head_update.last_lcu++;
-    if (head_update.last_lcu < (b->slot >> 13)) return handle_head(ctx, b, sig_block, data_block);
-  }
-#endif
 
   return C4_SUCCESS;
 

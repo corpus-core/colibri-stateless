@@ -29,11 +29,13 @@ static const ssz_def_t FORK_DATA[] = {
 static const ssz_def_t FORK_DATA_CONTAINER = SSZ_CONTAINER("ForkDate", FORK_DATA);
 
 bool eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain) {
-  uint8_t   buffer[36] = {0};
-  bytes32_t root       = {0};
+  uint8_t       buffer[36] = {0};
+  bytes32_t     root       = {0};
+  chain_spec_t* chain      = c4_eth_get_chain_spec(chain_id);
 
   // compute fork_data root hash to the seconf 32 bytes of bffer
-  c4_chain_fork_version(chain_id, c4_chain_fork_id(chain_id, epoch_for_slot(slot - 1)), buffer);
+  if (!chain) return false;
+  c4_chain_fork_version(chain_id, c4_chain_fork_id(chain_id, epoch_for_slot(slot - 1, chain)), buffer);
   if (!c4_chain_genesis_validators_root(chain_id, buffer + 4)) false;
 
   ssz_hash_tree_root(ssz_ob(FORK_DATA_CONTAINER, bytes(buffer, 36)), root);
@@ -74,14 +76,16 @@ c4_status_t c4_verify_blockroot(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t blo
 }
 
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot) {
-  bytes32_t       root       = {0};
-  c4_sync_state_t sync_state = {0};
+  bytes32_t           root       = {0};
+  c4_sync_state_t     sync_state = {0};
+  const chain_spec_t* spec       = c4_eth_get_chain_spec(ctx->chain_id);
 
   if (slot == 0) slot = ssz_get_uint64(header, "slot") + 1;
   if (slot == 0) THROW_ERROR("slot is missing in beacon header!");
+  if (!spec) THROW_ERROR("unsupported chain id!");
 
   // get the validators and make sure we have the right ones for the requested period
-  TRY_ASYNC(c4_get_validators(ctx, slot >> 13, &sync_state));
+  TRY_ASYNC(c4_get_validators(ctx, slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits), &sync_state));
 
   // compute blockhash
   ssz_hash_tree_root(*header, root);

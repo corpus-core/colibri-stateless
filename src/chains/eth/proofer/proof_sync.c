@@ -10,7 +10,8 @@
 #define ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX 87
 
 static uint64_t next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
-  fork_id_t fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot));
+  const chain_spec_t* chain = c4_eth_get_chain_spec(chain_id);
+  fork_id_t           fork  = c4_chain_fork_id(chain_id, epoch_for_slot(slot, chain));
   return fork == C4_FORK_DENEB ? DENEP_NEXT_SYNC_COMMITTEE_GINDEX : ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX;
 }
 
