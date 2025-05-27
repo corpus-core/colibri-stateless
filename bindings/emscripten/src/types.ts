@@ -66,7 +66,7 @@ export interface Cache {
 
 // C4Client configuration
 export interface Config {
-    chainId: number;
+    chainId: number | string;
     beacon_apis: string[];
     rpcs: string[];
     proofer?: string[];
