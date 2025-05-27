@@ -153,6 +153,42 @@ function check_trusted_blockhashes(trusted_block_hashes: string[], c4w: C4W, cha
   trusted_block_hashes.length = 0;
 }
 
+const default_config: {
+  [key: string]: {
+    alias: string[];
+    beacon_apis: string[];
+    rpcs: string[];
+    proofer: string[];
+  }
+} = {
+  '1': { // mainnet
+    alias: ["mainnet", "eth", "0x1"],
+    beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
+    rpcs: ["https://rpc.ankr.com/eth"],
+    proofer: ["https://mainnet.colibri-proof.tech"],
+  },
+  '100': { // gnosis
+    alias: ["gnosis", "xdai", "0x64"],
+    beacon_apis: ["https://gnosis.colibri-proof.tech"],
+    rpcs: ["https://rpc.ankr.com/gnosis"],
+    proofer: ["https://gnosis.colibri-proof.tech"],
+  },
+}
+
+function get_chain_id(chain_id: string): number {
+  const chain_id_num = parseInt(chain_id);
+  if (!isNaN(chain_id_num)) return chain_id_num;
+  for (const chain in default_config) {
+    if (default_config[chain].alias.includes(chain_id))
+      return parseInt(chain);
+  }
+  throw new Error("Invalid chain id: " + chain_id);
+}
+
+
+
+
+
 export default class C4Client {
 
   config: C4Config;
@@ -160,18 +196,23 @@ export default class C4Client {
   private connectionState: ConnectionState;
   private subscriptionManager: SubscriptionManager;
 
+
+
+
   constructor(config?: Partial<C4Config>) {
+    const chainId = config?.chainId ? get_chain_id(config?.chainId + '') : 1;
+    const chain_config = { ...default_config[chainId + ''] };
+
+
     this.config = {
-      // Defaults including pollingInterval if not provided
-      chainId: 1,
-      beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
-      rpcs: ["https://rpc.ankr.com/eth"],
       trusted_block_hashes: [],
-      proofer: ["https://mainnet.colibri-proof.tech"],
       pollingInterval: 12000, // Default here, can be overridden by user config
-      // ... other defaults like debug: false etc. might be useful
-      ...config // User config overrides defaults
-    };
+      rpcs: chain_config.rpcs || [],
+      beacon_apis: chain_config.beacon_apis || [],
+      proofer: chain_config.proofer || [],
+      ...config, // User config overrides defaults
+      chainId,
+    } as C4Config;
 
     this.eventEmitter = new EventEmitter();
 
@@ -184,7 +225,7 @@ export default class C4Client {
     };
 
     this.connectionState = new ConnectionState(
-      { chainId: this.config.chainId, debug: this.config.debug },
+      { chainId: parseInt(this.config.chainId + ''), debug: this.config.debug },
       fetchChainIdForConnectionState, // Use the specific callback
       this.eventEmitter,
       formatChainId
@@ -275,7 +316,7 @@ export default class C4Client {
     try {
 
       if (this.config.trusted_block_hashes && this.config.trusted_block_hashes.length > 0)
-        check_trusted_blockhashes(this.config.trusted_block_hashes, c4w, this.config.chainId);
+        check_trusted_blockhashes(this.config.trusted_block_hashes, c4w, parseInt(this.config.chainId as any));
 
       // Call the C function
       ctx = c4w._c4w_create_verify_ctx(

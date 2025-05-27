@@ -75,6 +75,7 @@ static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t st
 // | `-b`           | `<block_hash>`  | Trusted blockhash          |         |
 // | `-t`           | `<test_dir>`    | Test directory             |         |
 // | `-i`           | `<proof_file>`  | Proof file to verify       |         |
+// | `-o`           | `<proof_file>`  | Proof file to write        |         |
 // | `-p`           | `<proofer_url>` | URL of the proofer         |         |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
@@ -86,7 +87,8 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -c <chain_id> \n");
     fprintf(stderr, "  -b <block_hash> trusted blockhash\n");
     fprintf(stderr, "  -t <test_dir>  test directory\n");
-    fprintf(stderr, "  -i <proof_file> proof file\n");
+    fprintf(stderr, "  -i <proof_file> proof file to read\n");
+    fprintf(stderr, "  -o <proof_file> proof file to write\n");
     fprintf(stderr, "  -p url of the proofer\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
@@ -97,6 +99,7 @@ int main(int argc, char* argv[]) {
   buffer_t   args           = {0};
   char*      input          = NULL;
   char*      test_dir       = NULL;
+  char*      output         = NULL;
   buffer_t   trusted_blocks = {0};
   buffer_add_chars(&args, "[");
 
@@ -122,6 +125,9 @@ int main(int argc, char* argv[]) {
             break;
 #ifdef TEST
 #ifdef USE_CURL
+          case 'o':
+            output = argv[++i];
+            break;
           case 't':
             test_dir = curl_set_test_dir(argv[++i]);
             break;
@@ -147,7 +153,7 @@ int main(int argc, char* argv[]) {
   if (input == NULL) {
     input = getenv("C4_PROOFER");
     if (input == NULL)
-      input = "https://c4.incubed.net";
+      input = "https://mainnet.colibri-proof.tech";
   }
   if (trusted_blocks.data.len > 0)
     c4_eth_set_trusted_blockhashes(chain_id, trusted_blocks.data);
@@ -172,7 +178,7 @@ int main(int argc, char* argv[]) {
         request = read_from_proofer(input, method, (char*) args.data.data, state.data, chain_id);
         curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[]}", input)));
         buffer_free(&state);
-//        bytes_write(request, fopen("request.ssz", "w"), true);
+        if (output) bytes_write(request, fopen(output, "w"), true);
 #else
         fprintf(stderr, "require data, but no curl installed");
         exit(EXIT_FAILURE);

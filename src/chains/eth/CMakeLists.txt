@@ -12,7 +12,10 @@ option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and f
 # precompiles
 option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
 
-
+if(NOT MSVC)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-excess-initializers")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-excess-initializers")
+endif()
 
 if (EVMLIGHT OR EVMONE)
     if (EVMONE) 
