@@ -247,7 +247,7 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
       uint64_t slot   = json_get_uint64(data, "slot");
       uint32_t period = (slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) - 1;
       req_client_update(state, period, 1, ctx->chain_id, &client_update);
-      success = req_client_update(state, period - 20, 1, ctx->chain_id, &client_update_past);
+      success = req_client_update(state, period - 2, 1, ctx->chain_id, &client_update_past);
     }
   }
   else if (trusted_blocks_len(chain_state)) {
