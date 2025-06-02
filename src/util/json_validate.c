@@ -83,7 +83,7 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
     while (*next && isspace(*next)) next++;
     const char* item_def = next_type(next, &next, &item_len);
     json_for_each_property(ob, val, prop_name) {
-      const char* err = json_validate(val, item_def, error_prefix ? error_prefix : "");
+      const char* err = json_validate(val, item_def, "");
       if (err) ERROR("%s.%s%s", error_prefix, *err == '.' ? "" : ":", err);
     }
     return NULL;
@@ -103,7 +103,7 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
       if (prop_name.len == name_len && prop_name.data && memcmp(prop_name.data, name, name_len) == 0) {
         found = true;
         if (optional && val.type == JSON_TYPE_NULL) break;
-        const char* err = json_validate(val, item_def, error_prefix ? error_prefix : "");
+        const char* err = json_validate(val, item_def, "");
         if (err) ERROR("%s.%j%s%s", error_prefix, (json_t) {.type = JSON_TYPE_OBJECT, .start = name, .len = name_len}, *err == '.' ? "" : ":", err);
         break;
       }
