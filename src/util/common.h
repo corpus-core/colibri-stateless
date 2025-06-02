@@ -23,6 +23,14 @@
 
 #include <stdint.h>
 
+static inline uint32_t min32(uint32_t a, uint32_t b) {
+  return a < b ? a : b;
+}
+
+static inline uint32_t max32(uint32_t a, uint32_t b) {
+  return a > b ? a : b;
+}
+
 static inline uint64_t min64(uint64_t a, uint64_t b) {
   return a < b ? a : b;
 }
