@@ -91,6 +91,7 @@ add_subdirectory(${ethhash_external_SOURCE_DIR} ${ethhash_external_BINARY_DIR} E
 FetchContent_Declare(
     evmone_external
     GIT_REPOSITORY https://github.com/ethereum/evmone.git
+    GIT_TAG v0.15.0
     GIT_SHALLOW TRUE
     RECURSE TRUE
 )

@@ -203,14 +203,6 @@ export default class C4Client {
       this.config.proofStrategy = Strategy.VerifyIfPossible;
 
     this.eventEmitter = new EventEmitter();
-
-
-
-    // General RpcCaller for SubscriptionManager
-    const generalRpcCaller: RpcCaller = async (method: string, params: any[]) => {
-      return this.rpc(method, params);
-    };
-
     this.connectionState = new ConnectionState(
       { chainId: parseInt(this.config.chainId + ''), debug: this.config.debug },
       async () => this.rpc('eth_chainId', [], C4MethodType.LOCAL), // Use the specific callback
@@ -218,10 +210,10 @@ export default class C4Client {
     );
 
     this.subscriptionManager = new SubscriptionManager(
-      generalRpcCaller, // Use the general rpc caller
+      async (method: string, params: any[]) => this.rpc(method, params),
       this.eventEmitter,
       { debug: this.config.debug, pollingInterval: this.config.pollingInterval }
-    );
+    )
   }
 
   private async getProoferConfig() {
