@@ -102,7 +102,7 @@ export interface Config extends ChainConfig {
     chains: {
         [chainId: number]: ChainConfig;
     };
-    fallback_client?: EIP1193Client;
+    fallback_provider?: EIP1193Client;
     warningHandler: WarningHandler;
 }
 

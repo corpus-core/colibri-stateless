@@ -203,6 +203,30 @@ The constructor of the colibri client accepts a configuration-object, which may 
     new Colibri({ verify:  (method, args) => method != 'eth_blockNumber' })
     ```
 
+- `proofStrategy`- a strategy function used to determine how to handle proofs. Currently there are 3 default-implementations.
+
+    -  `Strategy.VerifiedOnly` - throws an exception if verifaction fails or a non verifieable function is called.
+    -  `Strategy.VerifyIfPossible` - Verifies only verifiable rpc methods and uses the fallbackhandler or rpcs if the method is not verifiable, but throws an exception if verifaction fails.
+    -  `Strategy.WarningWithFallback` - Always use the defaultprovider or rpcs to fetch the response and in parallel verifiy the response if possible. If the Verification fails, the warningHandler is called ( which still could throw an exception ). If it fails the response from the rpc-provider is used.
+
+
+    ```js
+    new Colibri({ proofStrategy: Strategy.VerifyIfPossible })
+    ```
+
+
+
+- `warningHandler`- a function to be called in case the warning-strategy is used and a verification-error happens. If not set, the default will simply use console.warn to log the error.
+    ```js
+    new Colibri({ warningHandler:  (req, error) => console.warn(`Verification Error: ${error}`) })
+    ```
+
+
+- `fallback_provider`- a EIP 1193 Provider used as fallback for all requests which are not verifieable, like eth_sendTransaction.
+    ```js
+    new Colibri({ fallback_provider: window.ethereum  })
+    ```
+
 
 
 ## Building

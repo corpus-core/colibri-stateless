@@ -25,9 +25,9 @@ function deepEqual(a: any, b: any): boolean {
 }
 
 function fetch_unverified_rpc(config: Config, req: RequestArguments, fetch_rpc: FetchRpc) {
-    const fallback_client = config.fallback_client;
-    if (fallback_client)
-        return fallback_client.request(req);
+    const fallback_provider = config.fallback_provider;
+    if (fallback_provider)
+        return fallback_provider.request(req);
 
     let conf = config.chains[config.chainId as number];
     let rpcs = conf?.rpcs || config.rpcs;

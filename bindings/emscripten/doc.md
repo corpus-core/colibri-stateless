@@ -143,7 +143,7 @@ The constructor of the colibri client accepts a configuration-object, which may 
 - `chainId` - the chain to be used (default is 1, whoich is mainnet).   
 
      ```js
-     new Colibri({ chainId: 0x7})
+     new Colibri({ chainId: 'gnosis'})
      ```
 - `beacon_apis` - urls for the beacon apis    
     An array of endpoints for accessing the beacon chain using the official [Eth Beacon Node API](https://ethereum.github.io/beacon-APIs/). The Array may contain more than one url, and if one API is not responding the next URL will work as fallback. This beacon API is currently used eitehr when building proofs directly or even if you are using a remote proofer, the LightClientUpdates (every 27h) will be fetched directly from the beacon API.   
@@ -200,6 +200,31 @@ The constructor of the colibri client accepts a configuration-object, which may 
 - `verify`- a function to decide which request should be verified and which should be fetched from the default RPC-Provider. It allows you to speed up performance for requests which are not critical.
     ```js
     new Colibri({ verify:  (method, args) => method != 'eth_blockNumber' })
+    ```
+
+
+- `proofStrategy`- a strategy function used to determine how to handle proofs. Currently there are 3 default-implementations.
+
+    -  `Strategy.VerifiedOnly` - throws an exception if verifaction fails or a non verifieable function is called.
+    -  `Strategy.VerifyIfPossible` - Verifies only verifiable rpc methods and uses the fallbackhandler or rpcs if the method is not verifiable, but throws an exception if verifaction fails.
+    -  `Strategy.WarningWithFallback` - Always use the defaultprovider or rpcs to fetch the response and in parallel verifiy the response if possible. If the Verification fails, the warningHandler is called ( which still could throw an exception ). If it fails the response from the rpc-provider is used.
+
+
+    ```js
+    new Colibri({ proofStrategy: Strategy.VerifyIfPossible })
+    ```
+
+
+
+- `warningHandler`- a function to be called in case the warning-strategy is used and a verification-error happens. If not set, the default will simply use console.warn to log the error.
+    ```js
+    new Colibri({ warningHandler:  (req, error) => console.warn(`Verification Error: ${error}`) })
+    ```
+
+
+- `fallback_provider`- a EIP 1193 Provider used as fallback for all requests which are not verifieable, like eth_sendTransaction.
+    ```js
+    new Colibri({ fallback_provider: window.ethereum  })
     ```
 
 
