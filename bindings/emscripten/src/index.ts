@@ -20,6 +20,9 @@ import {
   ProviderMessage
 } from './types.js';
 import { SubscriptionManager, RpcCaller, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
+import Strategy from './strategy.js';
+
+export { Strategy };
 
 // Re-export types needed by consumers of the C4Client module
 export {
@@ -355,11 +358,11 @@ export default class C4Client {
    * @param args - The arguments to execute the method with
    * @returns The result
    */
-  async rpc(method: string, args: any[]): Promise<any> {
+  async rpc(method: string, args: any[], method_type?: C4MethodType): Promise<any> {
     // eth_subscribe and eth_unsubscribe are handled by C4Client.request before this method is called.
     // This rpc method is for the underlying data fetching/proving.
-
-    const method_type = await this.getMethodSupport(method);
+    if (method_type === undefined)
+      method_type = await this.getMethodSupport(method);
 
     switch (method_type) {
       case C4MethodType.PROOFABLE: {
@@ -402,9 +405,14 @@ export default class C4Client {
       return subscriptionResult;
     }
 
+    let conf = this.config.chains[this.config.chainId as number];
+    let strategy = conf?.proofStrategy || this.config.proofStrategy;
+
     // If not handled by SubscriptionManager, proceed with standard RPC call logic
     try {
-      const result = await this.rpc(method, paramsArray);
+      const result = strategy
+        ? await strategy(this, args, this.config, fetch_rpc)
+        : await this.rpc(method, paramsArray);
       this.connectionState.processSuccessfulRequest(method, result);
       return result;
     } catch (error: any) {
