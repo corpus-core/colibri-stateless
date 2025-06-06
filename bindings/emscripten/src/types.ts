@@ -38,6 +38,18 @@ export class ProviderRpcError extends Error {
 
 }
 
+export interface ColibriClient {
+    rpc(method: string, params: any[], method_type?: MethodType): Promise<any>;
+    getMethodSupport(method: string): Promise<MethodType>;
+}
+
+export type FetchRpc = (urls: string[], payload: any, as_proof: boolean) => Promise<any>;
+export type ProofStrategy = (client: ColibriClient, req: RequestArguments, config: Config, fetch_rpc: FetchRpc) => Promise<any>;
+export type WarningHandler = (req: RequestArguments, message: string) => Promise<any>;
+
+
+
+
 // From EIP-1193: Request arguments
 export interface RequestArguments {
     readonly method: string;
@@ -64,18 +76,34 @@ export interface Cache {
     set(req: DataRequest, data: Uint8Array): void;
 }
 
-// C4Client configuration
-export interface Config {
-    chainId: number | string;
+export interface ChainConfig {
     beacon_apis: string[];
     rpcs: string[];
     proofer?: string[];
     trusted_block_hashes: string[];
+    verify?: (method: string, args: any[]) => boolean;
+    pollingInterval?: number;
+    proofStrategy?: ProofStrategy;
+}
+
+export interface EIP1193Client {
+    request(args: RequestArguments): Promise<unknown>
+    on(event: string, callback: (data: any) => void): this
+    removeListener(event: string, callback: (data: any) => void): this
+}
+
+
+// C4Client configuration
+export interface Config extends ChainConfig {
+    chainId: number | string;
     cache?: Cache;
     debug?: boolean;
     include_code?: boolean;
-    verify?: (method: string, args: any[]) => boolean;
-    pollingInterval?: number;
+    chains: {
+        [chainId: number]: ChainConfig;
+    };
+    fallback_client?: EIP1193Client;
+    warningHandler: WarningHandler;
 }
 
 // Data request structure used internally

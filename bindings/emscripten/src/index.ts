@@ -20,6 +20,9 @@ import {
   ProviderMessage
 } from './types.js';
 import { SubscriptionManager, RpcCaller, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
+import Strategy from './strategy.js';
+
+export { Strategy };
 
 // Re-export types needed by consumers of the C4Client module
 export {
@@ -33,25 +36,6 @@ export {
   EthSubscribeSubscriptionType,
   EthNewFilterType
 };
-
-// Helper function for chain ID formatting (can be used by ConnectionManager and C4Client)
-function formatChainId(value: any, debug?: boolean): string | null {
-  if (typeof value === 'string') {
-    if (value.startsWith('0x')) {
-      return value.toLowerCase();
-    }
-    const parsed = parseInt(value, 10);
-    if (!isNaN(parsed)) {
-      return '0x' + parsed.toString(16);
-    }
-  } else if (typeof value === 'number') {
-    return '0x' + value.toString(16);
-  }
-  if (debug) {
-    console.warn('Could not format chainId:', value);
-  }
-  return null;
-}
 
 async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false) {
   let last_error = "All nodes failed";
@@ -203,7 +187,6 @@ export default class C4Client {
     const chainId = config?.chainId ? get_chain_id(config?.chainId + '') : 1;
     const chain_config = { ...default_config[chainId + ''] };
 
-
     this.config = {
       trusted_block_hashes: [],
       pollingInterval: 12000, // Default here, can be overridden by user config
@@ -214,28 +197,23 @@ export default class C4Client {
       chainId,
     } as C4Config;
 
+    if (!this.config.warningHandler)
+      this.config.warningHandler = async (req: RequestArguments, message: string) => console.warn(message)
+    if (!this.config.proofStrategy)
+      this.config.proofStrategy = Strategy.VerifyIfPossible;
+
     this.eventEmitter = new EventEmitter();
-
-    // Specific callback for ConnectionState for eth_chainId
-    const fetchChainIdForConnectionState = async () => this.rpc('eth_chainId', []);
-
-    // General RpcCaller for SubscriptionManager
-    const generalRpcCaller: RpcCaller = async (method: string, params: any[]) => {
-      return this.rpc(method, params);
-    };
-
     this.connectionState = new ConnectionState(
       { chainId: parseInt(this.config.chainId + ''), debug: this.config.debug },
-      fetchChainIdForConnectionState, // Use the specific callback
-      this.eventEmitter,
-      formatChainId
+      async () => this.rpc('eth_chainId', [], C4MethodType.LOCAL), // Use the specific callback
+      this.eventEmitter
     );
 
     this.subscriptionManager = new SubscriptionManager(
-      generalRpcCaller, // Use the general rpc caller
+      async (method: string, params: any[]) => this.rpc(method, params),
       this.eventEmitter,
       { debug: this.config.debug, pollingInterval: this.config.pollingInterval }
-    );
+    )
   }
 
   private async getProoferConfig() {
@@ -355,11 +333,11 @@ export default class C4Client {
    * @param args - The arguments to execute the method with
    * @returns The result
    */
-  async rpc(method: string, args: any[]): Promise<any> {
+  async rpc(method: string, args: any[], method_type?: C4MethodType): Promise<any> {
     // eth_subscribe and eth_unsubscribe are handled by C4Client.request before this method is called.
     // This rpc method is for the underlying data fetching/proving.
-
-    const method_type = await this.getMethodSupport(method);
+    if (method_type === undefined)
+      method_type = await this.getMethodSupport(method);
 
     switch (method_type) {
       case C4MethodType.PROOFABLE: {
@@ -402,9 +380,14 @@ export default class C4Client {
       return subscriptionResult;
     }
 
+    let conf = this.config.chains[this.config.chainId as number];
+    let strategy = conf?.proofStrategy || this.config.proofStrategy;
+
     // If not handled by SubscriptionManager, proceed with standard RPC call logic
     try {
-      const result = await this.rpc(method, paramsArray);
+      const result = strategy
+        ? await strategy(this, args, this.config, fetch_rpc)
+        : await this.rpc(method, paramsArray);
       this.connectionState.processSuccessfulRequest(method, result);
       return result;
     } catch (error: any) {
