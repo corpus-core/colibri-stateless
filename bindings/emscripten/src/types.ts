@@ -103,7 +103,7 @@ export interface Config extends ChainConfig {
         [chainId: number]: ChainConfig;
     };
     fallback_client?: EIP1193Client;
-    warningHandler?: WarningHandler;
+    warningHandler: WarningHandler;
 }
 
 // Data request structure used internally

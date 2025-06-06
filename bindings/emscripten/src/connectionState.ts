@@ -6,6 +6,26 @@ import { ProviderRpcError, ProviderConnectInfo } from './types.js';
 // However, C4Client.rpc also uses it for its LOCAL eth_chainId case, so it might need broader access.
 // For this refactoring, we assume it's passed in or globally accessible if needed elsewhere.
 
+// Helper function for chain ID formatting (can be used by ConnectionManager and C4Client)
+function formatChainId(value: any, debug?: boolean): string | null {
+    if (typeof value === 'string') {
+        if (value.startsWith('0x')) {
+            return value.toLowerCase();
+        }
+        const parsed = parseInt(value, 10);
+        if (!isNaN(parsed)) {
+            return '0x' + parsed.toString(16);
+        }
+    } else if (typeof value === 'number') {
+        return '0x' + value.toString(16);
+    }
+    if (debug) {
+        console.warn('Could not format chainId:', value);
+    }
+    return null;
+}
+
+
 interface ConnectionStateConfig {
     chainId: number; // The configured default chainId
     debug?: boolean;
@@ -19,19 +39,16 @@ export class ConnectionState {
     private config: ConnectionStateConfig;
     private fetchRpcChainIdCallback: () => Promise<any>;
     private eventEmitter: EventEmitter;
-    private formatChainIdFunc: (value: any, debug?: boolean) => string | null;
 
     constructor(
         config: ConnectionStateConfig,
         fetchRpcChainIdCallback: () => Promise<any>,
-        eventEmitter: EventEmitter,
-        formatChainIdFunc: (value: any, debug?: boolean) => string | null
+        eventEmitter: EventEmitter
     ) {
         this.config = config;
         this.fetchRpcChainIdCallback = fetchRpcChainIdCallback;
         this.eventEmitter = eventEmitter;
-        this.formatChainIdFunc = formatChainIdFunc;
-        this._currentChainId = this.formatChainIdFunc(this.config.chainId, this.config.debug);
+        this._currentChainId = formatChainId(this.config.chainId, this.config.debug);
     }
 
     public get isConnected(): boolean {
@@ -56,7 +73,7 @@ export class ConnectionState {
 
         try {
             const result = await this.fetchRpcChainIdCallback();
-            const formattedChainId = this.formatChainIdFunc(result, this.config.debug);
+            const formattedChainId = formatChainId(result, this.config.debug);
 
             if (formattedChainId) {
                 this._isConnected = true;
@@ -89,17 +106,17 @@ export class ConnectionState {
             const updateAndEmitConnect = async () => {
                 let determinedChainId: string | null = null;
                 if (requestMethod === 'eth_chainId') {
-                    determinedChainId = this.formatChainIdFunc(requestResult, this.config.debug);
+                    determinedChainId = formatChainId(requestResult, this.config.debug);
                 } else {
                     try {
                         const chainIdResult = await this.fetchRpcChainIdCallback();
-                        determinedChainId = this.formatChainIdFunc(chainIdResult, this.config.debug);
+                        determinedChainId = formatChainId(chainIdResult, this.config.debug);
                     } catch (e) {
                         if (this.config.debug) console.warn('[CS] Failed to fetch chainId for connect event, using current _currentChainId as fallback.', e);
                         determinedChainId = this._currentChainId;
                     }
                 }
-                this._currentChainId = determinedChainId || this.formatChainIdFunc(this.config.chainId, this.config.debug);
+                this._currentChainId = determinedChainId || formatChainId(this.config.chainId, this.config.debug);
                 this.eventEmitter.emit('connect', { chainId: this._currentChainId } as ProviderConnectInfo);
             };
 
@@ -107,7 +124,7 @@ export class ConnectionState {
                 if (this.config.debug) console.error("[CS] Error during background processing for connect event:", err);
             });
         } else if (requestMethod === 'eth_chainId') {
-            const newChainId = this.formatChainIdFunc(requestResult, this.config.debug);
+            const newChainId = formatChainId(requestResult, this.config.debug);
             if (newChainId && this._currentChainId !== newChainId) {
                 const oldChainId = this._currentChainId;
                 this._currentChainId = newChainId;
