@@ -1,5 +1,4 @@
-import { ColibriClient, RequestArguments, Config, FetchRpc } from './types';
-import { MethodType } from './types';
+import { ColibriClient, RequestArguments, Config, FetchRpc, MethodType } from './types.js';
 
 function argsToArray(args: any): any[] {
     return Array.isArray(args) ? args : (args ? [args] : []);
