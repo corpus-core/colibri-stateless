@@ -9,6 +9,8 @@
 #define MAX_DEPOSITS                 16
 #define MAX_VOLUNTARY_EXITS          16
 #define MAX_BLS_TO_EXECUTION_CHANGES 16
+#define LIMIT_WITHDRAWELS_MAINNET    16
+#define LIMIT_WITHDRAWELS_GNOSIS     8
 
 const ssz_def_t ssz_transactions_bytes = SSZ_BYTES("Bytes", 1073741824);
 // the header of a beacon block
@@ -35,23 +37,43 @@ const ssz_def_t DENEP_WITHDRAWAL_CONTAINER = SSZ_CONTAINER("withdrawal", WITHDRA
 
 // the block header of the execution layer proved within the beacon block
 const ssz_def_t DENEP_EXECUTION_PAYLOAD[] = {
-    SSZ_BYTES32("parentHash"),                                 // the hash of the parent block
-    SSZ_ADDRESS("feeRecipient"),                               // the address of the fee recipient
-    SSZ_BYTES32("stateRoot"),                                  // the merkle root of the state at the end of the block
-    SSZ_BYTES32("receiptsRoot"),                               // the merkle root of the transactionreceipts
-    SSZ_BYTE_VECTOR("logsBloom", 256),                         // the bloom filter of the logs
-    SSZ_BYTES32("prevRandao"),                                 // the randao of the previous block
-    SSZ_UINT64("blockNumber"),                                 // the block number
-    SSZ_UINT64("gasLimit"),                                    // the gas limit of the block
-    SSZ_UINT64("gasUsed"),                                     // the gas used of the block
-    SSZ_UINT64("timestamp"),                                   // the timestamp of the block
-    SSZ_BYTES("extraData", 32),                                // the extra data of the block
-    SSZ_UINT256("baseFeePerGas"),                              // the base fee per gas of the block
-    SSZ_BYTES32("blockHash"),                                  // the hash of the block
-    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576), // the list of transactions
-    SSZ_LIST("withdrawals", DENEP_WITHDRAWAL_CONTAINER, 16),   // the list of withdrawels
-    SSZ_UINT64("blobGasUsed"),                                 // the gas used for the blob transactions
-    SSZ_UINT64("excessBlobGas")};                              // the excess blob gas of the block
+    SSZ_BYTES32("parentHash"),                                                      // the hash of the parent block
+    SSZ_ADDRESS("feeRecipient"),                                                    // the address of the fee recipient
+    SSZ_BYTES32("stateRoot"),                                                       // the merkle root of the state at the end of the block
+    SSZ_BYTES32("receiptsRoot"),                                                    // the merkle root of the transactionreceipts
+    SSZ_BYTE_VECTOR("logsBloom", 256),                                              // the bloom filter of the logs
+    SSZ_BYTES32("prevRandao"),                                                      // the randao of the previous block
+    SSZ_UINT64("blockNumber"),                                                      // the block number
+    SSZ_UINT64("gasLimit"),                                                         // the gas limit of the block
+    SSZ_UINT64("gasUsed"),                                                          // the gas used of the block
+    SSZ_UINT64("timestamp"),                                                        // the timestamp of the block
+    SSZ_BYTES("extraData", 32),                                                     // the extra data of the block
+    SSZ_UINT256("baseFeePerGas"),                                                   // the base fee per gas of the block
+    SSZ_BYTES32("blockHash"),                                                       // the hash of the block
+    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576),                      // the list of transactions
+    SSZ_LIST("withdrawals", DENEP_WITHDRAWAL_CONTAINER, LIMIT_WITHDRAWELS_MAINNET), // the list of withdrawels
+    SSZ_UINT64("blobGasUsed"),                                                      // the gas used for the blob transactions
+    SSZ_UINT64("excessBlobGas")};                                                   // the excess blob gas of the block
+
+// the block header of the execution layer proved within the beacon block
+const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[] = {
+    SSZ_BYTES32("parentHash"),                                                     // the hash of the parent block
+    SSZ_ADDRESS("feeRecipient"),                                                   // the address of the fee recipient
+    SSZ_BYTES32("stateRoot"),                                                      // the merkle root of the state at the end of the block
+    SSZ_BYTES32("receiptsRoot"),                                                   // the merkle root of the transactionreceipts
+    SSZ_BYTE_VECTOR("logsBloom", 256),                                             // the bloom filter of the logs
+    SSZ_BYTES32("prevRandao"),                                                     // the randao of the previous block
+    SSZ_UINT64("blockNumber"),                                                     // the block number
+    SSZ_UINT64("gasLimit"),                                                        // the gas limit of the block
+    SSZ_UINT64("gasUsed"),                                                         // the gas used of the block
+    SSZ_UINT64("timestamp"),                                                       // the timestamp of the block
+    SSZ_BYTES("extraData", 32),                                                    // the extra data of the block
+    SSZ_UINT256("baseFeePerGas"),                                                  // the base fee per gas of the block
+    SSZ_BYTES32("blockHash"),                                                      // the hash of the block
+    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576),                     // the list of transactions
+    SSZ_LIST("withdrawals", DENEP_WITHDRAWAL_CONTAINER, LIMIT_WITHDRAWELS_GNOSIS), // the list of withdrawels
+    SSZ_UINT64("blobGasUsed"),                                                     // the gas used for the blob transactions
+    SSZ_UINT64("excessBlobGas")};                                                  // the excess blob gas of the block
 
 #ifdef PROOFER
 // a checkpoint is a tuple of epoch and root
@@ -163,6 +185,21 @@ static const ssz_def_t BEACON_BLOCK_BODY[]                      = {
     SSZ_LIST("blobKzgCommitments", ssz_bls_pubky, 4096),
 };
 
+static const ssz_def_t BEACON_BLOCK_BODY_GNOSIS[] = {
+    SSZ_BYTE_VECTOR("randaoReveal", 96),
+    SSZ_CONTAINER("eth1Data", ETH1_DATA),
+    SSZ_BYTES32("graffiti"),
+    SSZ_LIST("proposerSlashings", PROPOSER_SLASHING_CONTAINER, MAX_PROPOSER_SLASHINGS),
+    SSZ_LIST("attesterSlashings", ATTESTER_SLASHING_CONTAINER, MAX_ATTESTER_SLASHINGS),
+    SSZ_LIST("attestations", ATTESTATION_CONTAINER, MAX_ATTESTATIONS),
+    SSZ_LIST("deposits", DEPOSIT_CONTAINER, MAX_DEPOSITS),
+    SSZ_LIST("voluntaryExits", SIGNED_VOLUNTARY_EXIT_CONTAINER, MAX_VOLUNTARY_EXITS),
+    SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),
+    SSZ_CONTAINER("executionPayload", GNOSIS_EXECUTION_PAYLOAD),
+    SSZ_LIST("blsToExecutionChanges", SIGNED_BLS_TO_EXECUTION_CHANGE_CONTAINER, MAX_BLS_TO_EXECUTION_CHANGES),
+    SSZ_LIST("blobKzgCommitments", ssz_bls_pubky, 4096),
+};
+
 static const ssz_def_t BEACON_BLOCK[] = {
     SSZ_UINT64("slot"),          // the slot of the block or blocknumber
     SSZ_UINT64("proposerIndex"), // the index of the validator proposing the block
@@ -170,13 +207,25 @@ static const ssz_def_t BEACON_BLOCK[] = {
     SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block
     SSZ_CONTAINER("body", BEACON_BLOCK_BODY)};
 
+static const ssz_def_t BEACON_BLOCK_GNOSIS[] = {
+    SSZ_UINT64("slot"),          // the slot of the block or blocknumber
+    SSZ_UINT64("proposerIndex"), // the index of the validator proposing the block
+    SSZ_BYTES32("parentRoot"),   // the hash_tree_root of the parent block header
+    SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block
+    SSZ_CONTAINER("body", BEACON_BLOCK_BODY_GNOSIS)};
+
 static const ssz_def_t SIGNED_BEACON_BLOCK[] = {
     SSZ_CONTAINER("message", BEACON_BLOCK),
     SSZ_BYTE_VECTOR("signature", 96)};
 
-static const ssz_def_t BEACON_BLOCK_BODY_CONTAINER   = SSZ_CONTAINER("beaconBlockBody", BEACON_BLOCK_BODY);
-static const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER = SSZ_CONTAINER("signedBeaconBlock", SIGNED_BEACON_BLOCK);
+static const ssz_def_t SIGNED_BEACON_BLOCK_GNOSIS[] = {
+    SSZ_CONTAINER("message", BEACON_BLOCK_GNOSIS),
+    SSZ_BYTE_VECTOR("signature", 96)};
 
+static const ssz_def_t BEACON_BLOCK_BODY_CONTAINER          = SSZ_CONTAINER("beaconBlockBody", BEACON_BLOCK_BODY);
+static const ssz_def_t BEACON_BLOCK_BODY_GNOSIS_CONTAINER   = SSZ_CONTAINER("beaconBlockBodyGnosis", BEACON_BLOCK_BODY_GNOSIS);
+static const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER        = SSZ_CONTAINER("signedBeaconBlock", SIGNED_BEACON_BLOCK);
+static const ssz_def_t SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER = SSZ_CONTAINER("signedBeaconBlockGnosis", SIGNED_BEACON_BLOCK_GNOSIS);
 #endif
 
 static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
@@ -223,13 +272,17 @@ const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE[7] = {
     SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),        // the aggregates signature of the sync committee
     SSZ_UINT64("signatureSlot")};                          // the slot of the signature
 
-const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type) {
+const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id) {
   switch (type) {
 #ifdef PROOFER
     case ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER:
-      return &SIGNED_BEACON_BLOCK_CONTAINER;
+      return chain_id == C4_CHAIN_GNOSIS
+                 ? &SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER
+                 : &SIGNED_BEACON_BLOCK_CONTAINER;
     case ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER:
-      return &BEACON_BLOCK_BODY_CONTAINER;
+      return chain_id == C4_CHAIN_GNOSIS
+                 ? &BEACON_BLOCK_BODY_GNOSIS_CONTAINER
+                 : &BEACON_BLOCK_BODY_CONTAINER;
     case ETH_SSZ_BEACON_BLOCK_HEADER:
       return &BEACON_BLOCKHEADER_CONTAINER;
 #endif

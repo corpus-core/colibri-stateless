@@ -469,6 +469,8 @@ static const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("Li
 
 static const ssz_def_t ETH_EXECUTION_PAYLOAD_UNION[] = {
     SSZ_CONTAINER("DenepExecutionPayload", DENEP_EXECUTION_PAYLOAD),
+    SSZ_CONTAINER("GnosisExecutionPayload", GNOSIS_EXECUTION_PAYLOAD),
+
 };
 
 // :: Block Proof

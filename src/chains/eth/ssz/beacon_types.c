@@ -32,10 +32,10 @@ const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id) {
 // const uint64_t eth_mainnet_fork_epochs[] = {74240, 144896, 194048, 269568, 364032, 0};
 // const uint64_t eth_gnosis_fork_epochs[]  = {512, 385536, 648704, 889856, 1337856, 0};
 
-const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork) {
+const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, chain_id_t chain_id) {
   switch (fork) {
-    case C4_FORK_DENEB: return eth_ssz_type_for_denep(type);
-    case C4_FORK_ELECTRA: return eth_ssz_type_for_electra(type);
+    case C4_FORK_DENEB: return eth_ssz_type_for_denep(type, chain_id);
+    case C4_FORK_ELECTRA: return eth_ssz_type_for_electra(type, chain_id);
     default: return NULL;
   }
 }

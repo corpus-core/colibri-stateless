@@ -58,11 +58,11 @@ typedef struct {
 bool                c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
 fork_id_t           c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id);
-const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork);
+const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, chain_id_t chain_id);
 
 // forks
-const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type);
-const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type);
+const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id);
+const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_id);
 const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork);
 void             c4_chain_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version);
 // c4 specific
@@ -75,6 +75,7 @@ extern const ssz_def_t SYNC_AGGREGATE[2];
 extern const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t DENEP_EXECUTION_PAYLOAD[17];
+extern const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
