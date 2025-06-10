@@ -23,15 +23,15 @@ static size_t write_data(void* ptr, size_t size, size_t nmemb, void* userdata) {
 }
 static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t state, chain_id_t chain_id) {
   // fprintf(stderr, "reading from proofer: %s(%s) from %s\n", method, args, url);
-  buffer_t payload         = {0};
-  buffer_t response_buffer = {0};
+  struct curl_slist* headers         = NULL;
+  buffer_t           payload         = {0};
+  buffer_t           response_buffer = {0};
   bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\"}", method, args, state);
   CURL* curl = curl_easy_init();
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data.data);
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, payload.data.len);
-  struct curl_slist* headers = NULL;
-  headers                    = curl_slist_append(headers, "Content-Type: application/json");
+  headers = curl_slist_append(headers, "Content-Type: application/json");
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);

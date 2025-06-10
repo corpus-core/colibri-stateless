@@ -91,7 +91,7 @@ static c4_status_t extract_sync_data(proofer_ctx_t* ctx, bytes_t data, period_da
       SSZ_BYTES32("BeaconBlockHeader"),
       SSZ_BYTES32("domain")}; // the domain of the data to sign
   ssz_def_t SIGNING_DATA_CONTAINER   = SSZ_CONTAINER("SigningData", SIGNING_DATA);
-  SIGNING_DATA[0]                    = *eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_HEADER, fork);
+  SIGNING_DATA[0]                    = *eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_HEADER, fork, ctx->chain_id);
   ssz_builder_t signgin_data_builder = ssz_builder_for_def(&SIGNING_DATA_CONTAINER);
   ssz_add_bytes(&signgin_data_builder, "BeaconBlockHeader", header.bytes);
   ssz_add_bytes(&signgin_data_builder, "domain", bytes(domain, 32));

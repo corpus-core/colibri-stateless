@@ -166,6 +166,21 @@ static const ssz_def_t BEACON_BLOCK_BODY[]                      = {
     SSZ_LIST("blobKzgCommitments", ssz_bls_pubky, 4096),           // Max length unchanged, type ssz_bls_pubky (48 bytes) for KZGCommitment
     SSZ_CONTAINER("executionRequests", ELECTRA_EXECUTION_REQUESTS) // NEW for Electra
 };
+static const ssz_def_t BEACON_BLOCK_BODY_GNOSIS[] = {
+    SSZ_BYTE_VECTOR("randaoReveal", 96),
+    SSZ_CONTAINER("eth1Data", ETH1_DATA),
+    SSZ_BYTES32("graffiti"),
+    SSZ_LIST("proposerSlashings", PROPOSER_SLASHING_CONTAINER, MAX_PROPOSER_SLASHINGS),
+    SSZ_LIST("attesterSlashings", ATTESTER_SLASHING_CONTAINER, MAX_ATTESTER_SLASHINGS_ELECTRA), // MODIFIED for Electra
+    SSZ_LIST("attestations", ATTESTATION_CONTAINER, MAX_ATTESTATIONS_ELECTRA),                  // MODIFIED for Electra
+    SSZ_LIST("deposits", DEPOSIT_CONTAINER, MAX_DEPOSITS),
+    SSZ_LIST("voluntaryExits", SIGNED_VOLUNTARY_EXIT_CONTAINER, MAX_VOLUNTARY_EXITS),
+    SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),
+    SSZ_CONTAINER("executionPayload", GNOSIS_EXECUTION_PAYLOAD), // MODIFIED for Electra (already using ELECTRA_EXECUTION_PAYLOAD)
+    SSZ_LIST("blsToExecutionChanges", SIGNED_BLS_TO_EXECUTION_CHANGE_CONTAINER, MAX_BLS_TO_EXECUTION_CHANGES),
+    SSZ_LIST("blobKzgCommitments", ssz_bls_pubky, 4096),           // Max length unchanged, type ssz_bls_pubky (48 bytes) for KZGCommitment
+    SSZ_CONTAINER("executionRequests", ELECTRA_EXECUTION_REQUESTS) // NEW for Electra
+};
 
 static const ssz_def_t BEACON_BLOCK[] = {
     SSZ_UINT64("slot"),          // the slot of the block or blocknumber
@@ -174,12 +189,25 @@ static const ssz_def_t BEACON_BLOCK[] = {
     SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block
     SSZ_CONTAINER("body", BEACON_BLOCK_BODY)};
 
+static const ssz_def_t BEACON_BLOCK_GNOSIS[] = {
+    SSZ_UINT64("slot"),          // the slot of the block or blocknumber
+    SSZ_UINT64("proposerIndex"), // the index of the validator proposing the block
+    SSZ_BYTES32("parentRoot"),   // the hash_tree_root of the parent block header
+    SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block
+    SSZ_CONTAINER("body", BEACON_BLOCK_BODY_GNOSIS)};
+
 static const ssz_def_t SIGNED_BEACON_BLOCK[] = {
     SSZ_CONTAINER("message", BEACON_BLOCK),
     SSZ_BYTE_VECTOR("signature", 96)};
 
-static const ssz_def_t BEACON_BLOCK_BODY_CONTAINER   = SSZ_CONTAINER("beaconBlockBody", BEACON_BLOCK_BODY);
-static const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER = SSZ_CONTAINER("signedBeaconBlock", SIGNED_BEACON_BLOCK);
+static const ssz_def_t SIGNED_BEACON_BLOCK_GNOSIS[] = {
+    SSZ_CONTAINER("message", BEACON_BLOCK_GNOSIS),
+    SSZ_BYTE_VECTOR("signature", 96)};
+
+static const ssz_def_t BEACON_BLOCK_BODY_CONTAINER          = SSZ_CONTAINER("beaconBlockBody", BEACON_BLOCK_BODY);
+static const ssz_def_t BEACON_BLOCK_BODY_GNOSIS_CONTAINER   = SSZ_CONTAINER("beaconBlockBodyGnosis", BEACON_BLOCK_BODY_GNOSIS);
+static const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER        = SSZ_CONTAINER("signedBeaconBlock", SIGNED_BEACON_BLOCK);
+static const ssz_def_t SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER = SSZ_CONTAINER("signedBeaconBlockGnosis", SIGNED_BEACON_BLOCK_GNOSIS);
 
 #endif
 
@@ -217,13 +245,17 @@ static const ssz_def_t EXECUTION_PAYLOAD_HEADER[] = {
     SSZ_UINT64("excessBlobGas")};      // the excess blob gas of the block
 
 // --- Main function to get Electra SSZ types ---
-const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type) {
+const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_id) {
   switch (type) {
 #ifdef PROOFER
     case ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER:
-      return &BEACON_BLOCK_BODY_CONTAINER;
+      return chain_id == C4_CHAIN_GNOSIS
+                 ? &BEACON_BLOCK_BODY_GNOSIS_CONTAINER
+                 : &BEACON_BLOCK_BODY_CONTAINER;
     case ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER:
-      return &SIGNED_BEACON_BLOCK_CONTAINER;
+      return chain_id == C4_CHAIN_GNOSIS
+                 ? &SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER
+                 : &SIGNED_BEACON_BLOCK_CONTAINER;
 #endif
     // BlockHeader is unchanged from Deneb as per user request.
     // eth_ssz_type_for_denep will be called for it.
@@ -232,6 +264,6 @@ const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type) {
     default:
       // Fallback to Deneb for any other types.
       // This includes ETH_SSZ_BEACON_BLOCK_HEADER etc.
-      return eth_ssz_type_for_denep(type);
+      return eth_ssz_type_for_denep(type, chain_id);
   }
 }

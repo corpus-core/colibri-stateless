@@ -143,7 +143,7 @@ static c4_status_t determine_fork(proofer_ctx_t* ctx, ssz_ob_t* block) {
   const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
   if (chain == NULL) THROW_ERROR("unsupported chain id!");
   fork_id_t fork = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(slot, chain));
-  block->def     = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, fork);
+  block->def     = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, fork, ctx->chain_id);
   if (!block->def) THROW_ERROR("Invalid fork id!");
   return ssz_is_valid(*block, true, &ctx->state) ? C4_SUCCESS : C4_ERROR;
 }
@@ -332,7 +332,8 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
 }
 
 ssz_builder_t c4_proof_add_header(ssz_ob_t block, bytes32_t body_root) {
-  ssz_builder_t beacon_header = {.def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER), .dynamic = {0}, .fixed = {0}};
+  // we use MAINNET hardcoded since the header is the same for all chains
+  ssz_builder_t beacon_header = {.def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER, C4_CHAIN_MAINNET), .dynamic = {0}, .fixed = {0}};
   ssz_add_bytes(&beacon_header, "slot", ssz_get(&block, "slot").bytes);
   ssz_add_bytes(&beacon_header, "proposerIndex", ssz_get(&block, "proposerIndex").bytes);
   ssz_add_bytes(&beacon_header, "parentRoot", ssz_get(&block, "parentRoot").bytes);

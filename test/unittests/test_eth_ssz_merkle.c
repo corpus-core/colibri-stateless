@@ -16,7 +16,7 @@ void tearDown(void) {
 void test_block_body() {
   bytes_t data = read_testdata("body.ssz");
   TEST_ASSERT_NOT_NULL_MESSAGE(data.data, "body.ssz not found");
-  ssz_ob_t signed_beacon_block = {.def = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB), .bytes = data};
+  ssz_ob_t signed_beacon_block = {.def = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB, C4_CHAIN_MAINNET), .bytes = data};
   // ssz_dump_to_file(stdout, signed_beacon_block, true, true);
 
   c4_state_t state = {0};
@@ -119,7 +119,7 @@ void test_hash_root() {
 void test_hash_body() {
   bytes_t data = read_testdata("body_11038724.ssz");
   TEST_ASSERT_NOT_NULL_MESSAGE(data.data, "body_11038724.ssz not found");
-  ssz_ob_t  block = {.def = eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_DENEB), .bytes = data};
+  ssz_ob_t  block = {.def = eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_DENEB, C4_CHAIN_MAINNET), .bytes = data};
   bytes32_t root  = {0};
   ssz_hash_tree_root(block, root);
   ASSERT_HEX_STRING_EQUAL("ef0d785cb18cb409d4ec8ae1a2f815542b66425716623b16192389e38af32ba7", root, 32, "invalid blockhash");

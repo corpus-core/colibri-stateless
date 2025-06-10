@@ -8,9 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-const ssz_def_t* get_definition(char* typename) {
-  if (strcmp(typename, "signedblock") == 0) return eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_ELECTRA);
-  if (strcmp(typename, "blockbody") == 0) return eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_ELECTRA);
+const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
+  if (strcmp(typename, "signedblock") == 0) return eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_ELECTRA, chain_id);
+  if (strcmp(typename, "blockbody") == 0) return eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_ELECTRA, chain_id);
   if (strcmp(typename, "lcu") == 0) return eth_get_light_client_update_list(C4_FORK_ELECTRA)->def.vector.type;
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
@@ -44,6 +44,7 @@ int main(int argc, char* argv[]) {
   if (argc == 1) {
     fprintf(stderr, "Usage: %s -t <typename> -o <outfile> -nh <file.ssz> <field1> <field2> ...\n"
                     "\n"
+                    "  -c            : chain_id ( ust be prior to the type name)\n"
                     "  -t <typename> : type name\n"
                     "  -o <outfile>  : output file\n"
                     "  -h            : show hash_root\n"
@@ -55,12 +56,13 @@ int main(int argc, char* argv[]) {
   }
 
   //  ssz_ob_t res = ssz_ob(SIGNED_BEACON_BLOCK_CONTAINER, read_from_file(argv[1]));
-  bytes_t  req_data     = bytes_read(argv[1]);
-  ssz_ob_t res          = {.def = c4_get_req_type_from_req(req_data), .bytes = req_data};
-  char*    out_filename = NULL;
-  bool     show_hash    = false;
-  bool     show_name    = false;
-  bool     show_serial  = false;
+  bytes_t    req_data     = bytes_read(argv[1]);
+  ssz_ob_t   res          = {.def = c4_get_req_type_from_req(req_data), .bytes = req_data};
+  char*      out_filename = NULL;
+  bool       show_hash    = false;
+  bool       show_name    = false;
+  bool       show_serial  = false;
+  chain_id_t chain_id     = C4_CHAIN_MAINNET;
   for (int i = 2; i < argc; i++) {
     if (argv[i][0] == '-') {
       for (int j = 1; argv[i][j] != '\0'; j++) {
@@ -70,13 +72,15 @@ int main(int argc, char* argv[]) {
           show_name = true;
         if (argv[i][j] == 's')
           show_serial = true;
+        if (argv[i][j] == 'c')
+          chain_id = strtol(argv[++i], NULL, 10);
         if (argv[i][j] == 'o') {
           out_filename = argv[i + 1];
           i++;
           break;
         }
         if (argv[i][j] == 't') {
-          res.def = get_definition(argv[i + 1]);
+          res.def = get_definition(argv[i + 1], chain_id);
           i++;
           break;
         }

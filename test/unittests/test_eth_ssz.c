@@ -14,7 +14,7 @@ void test_ssz() {
   buffer_t buf       = {0};
   buffer_t tmp       = {0};
   bytes_t  data      = read_testdata("body.ssz");
-  ssz_ob_t ssz       = {.def = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB), .bytes = data};
+  ssz_ob_t ssz       = {.def = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB, C4_CHAIN_MAINNET), .bytes = data};
   json_t   json      = json_parse(bprintf(&buf, "%z\n", ssz));
   json_t   signature = json_get(json, "signature");
   char*    sig       = json_as_string(signature, &tmp);
