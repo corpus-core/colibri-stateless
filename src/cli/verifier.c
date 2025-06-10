@@ -22,7 +22,7 @@ static size_t write_data(void* ptr, size_t size, size_t nmemb, void* userdata) {
   return size * nmemb;
 }
 static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t state, chain_id_t chain_id) {
-  //  printf("reading from proofer: %s(%s) from %s\n", method, args, url);
+  // fprintf(stderr, "reading from proofer: %s(%s) from %s\n", method, args, url);
   buffer_t payload         = {0};
   buffer_t response_buffer = {0};
   bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\"}", method, args, state);
@@ -50,6 +50,7 @@ static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t st
     }
     exit(EXIT_FAILURE);
   }
+  fprintf(stderr, "success\n");
   return response_buffer.data;
 }
 #endif
@@ -157,6 +158,10 @@ int main(int argc, char* argv[]) {
   }
   if (trusted_blocks.data.len > 0)
     c4_eth_set_trusted_blockhashes(chain_id, trusted_blocks.data);
+  if (!method) {
+    fprintf(stderr, "method is required\n");
+    exit(EXIT_FAILURE);
+  }
   bytes_t       request     = {0};
   method_type_t method_type = c4_get_method_type(chain_id, method);
   switch (method_type) {

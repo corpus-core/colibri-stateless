@@ -87,6 +87,7 @@ INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates
 
   uint64_t length  = 0;
   bool     success = true;
+  // just to make sure the result is not a json with an error message
   if (client_updates.len && client_updates.data[0] == '{') {
     json_t json = json_parse((char*) client_updates.data);
     json_t msg  = json_get(json, "message");
@@ -95,19 +96,41 @@ INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates
       return false;
     };
   }
-  for (uint32_t pos = 0; pos + 12 < client_updates.len; pos += length + 8) {
+
+  // detect lighthouse
+  bool lighthouse = client_updates.len > 12 && !bytes_all_zero(bytes_slice(client_updates, 4, 4)) && uint32_from_le(client_updates.data) < 1000;
+  int  idx        = 0;
+
+  //  bytes_write(client_updates, fopen("client_updates.ssz", "wb"), true);
+
+  for (uint32_t pos = 0; pos + 12 < client_updates.len; pos += length + 8, idx++) {
+    uint32_t data_offset        = pos + 8 + 4;
+    uint32_t data_length_offset = 4;
+    if (lighthouse) {
+      pos = uint32_from_le(client_updates.data + (idx * 4));
+      if (pos + 12 > client_updates.len) {
+        success = false;
+        c4_state_add_error(&ctx->state, "invalid offset in lighthouse client update!");
+        break;
+      }
+      data_offset = pos + 16 + 4;
+      //      data_length_offset = 0;
+    }
     length = uint64_from_le(client_updates.data + pos);
+
     if (pos + 8 + length > client_updates.len && length > 12) {
       success = false;
       break;
     }
-    bytes_t          client_update_bytes = bytes(client_updates.data + pos + 8 + 4, length - 4);
+    bytes_t          client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
     fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
     const ssz_def_t* client_update_list  = eth_get_light_client_update_list(fork);
     if (!client_update_list) {
       success = false;
       break;
     }
+    //    bytes_write(client_update_bytes, fopen("client_updates_bytes.ssz", "wb"), true);
+
     ssz_ob_t client_update_ob = {
         .bytes = client_update_bytes,
         .def   = client_update_list->def.vector.type};
