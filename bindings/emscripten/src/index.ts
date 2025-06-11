@@ -17,9 +17,10 @@ import {
   Config as C4Config,
   DataRequest,
   MethodType as C4MethodType,
-  ProviderMessage
+  ProviderMessage,
+  ChainConfig
 } from './types.js';
-import { SubscriptionManager, RpcCaller, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
+import { SubscriptionManager, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
 import Strategy from './strategy.js';
 
 export { Strategy };
@@ -143,6 +144,7 @@ const default_config: {
     beacon_apis: string[];
     rpcs: string[];
     proofer: string[];
+    pollingInterval: number;
   }
 } = {
   '1': { // mainnet
@@ -150,12 +152,14 @@ const default_config: {
     beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
     rpcs: ["https://rpc.ankr.com/eth"],
     proofer: ["https://mainnet.colibri-proof.tech"],
+    pollingInterval: 12000,
   },
   '100': { // gnosis
     alias: ["gnosis", "xdai", "0x64"],
     beacon_apis: ["https://gnosis.colibri-proof.tech"],
     rpcs: ["https://rpc.ankr.com/gnosis"],
     proofer: ["https://gnosis.colibri-proof.tech"],
+    pollingInterval: 5000,
   },
 }
 
@@ -169,6 +173,13 @@ function get_chain_id(chain_id: string): number {
   throw new Error("Invalid chain id: " + chain_id);
 }
 
+function chain_conf(config: C4Config, chainId: number | string): ChainConfig | undefined {
+  const k = config?.chains?.[chainId as number];
+  if (k) return k;
+  const k2 = default_config[chainId + ''];
+  if (k2) return k2 as any;
+  return undefined;
+}
 
 
 
@@ -188,8 +199,8 @@ export default class C4Client {
     const chain_config = { ...default_config[chainId + ''] };
 
     this.config = {
+      chains: {},
       trusted_block_hashes: [],
-      pollingInterval: 12000, // Default here, can be overridden by user config
       rpcs: chain_config.rpcs || [],
       beacon_apis: chain_config.beacon_apis || [],
       proofer: chain_config.proofer || [],
@@ -212,7 +223,10 @@ export default class C4Client {
     this.subscriptionManager = new SubscriptionManager(
       async (method: string, params: any[]) => this.rpc(method, params),
       this.eventEmitter,
-      { debug: this.config.debug, pollingInterval: this.config.pollingInterval }
+      {
+        debug: this.config.debug,
+        pollingInterval: this.config.pollingInterval || chain_conf(this.config, this.config.chainId)?.pollingInterval || 12000
+      }
     )
   }
 
@@ -380,7 +394,7 @@ export default class C4Client {
       return subscriptionResult;
     }
 
-    let conf = this.config.chains[this.config.chainId as number];
+    let conf = chain_conf(this.config, this.config.chainId)
     let strategy = conf?.proofStrategy || this.config.proofStrategy;
 
     // If not handled by SubscriptionManager, proceed with standard RPC call logic
