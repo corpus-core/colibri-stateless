@@ -15,13 +15,13 @@ export class ProviderRpcError extends Error {
         Object.setPrototypeOf(this, ProviderRpcError.prototype);
     }
 
-    static createError(error: any): ProviderRpcError {
+    static createError(error: any, args?: RequestArguments): ProviderRpcError {
         let providerError: ProviderRpcError;
         if (error instanceof ProviderRpcError) {
             providerError = error;
         } else {
             let code: number;
-            let message = error?.message || 'An unknown error occurred';
+            let message = (error?.message || 'An unknown error occurred');
             const originalData = error?.data;
             if (typeof message === 'string' && message.startsWith('Method ') && message.endsWith(' is not supported')) {
                 code = 4200;
@@ -30,7 +30,7 @@ export class ProviderRpcError extends Error {
             } else {
                 code = (typeof error?.code === 'number') ? error.code : -32603;
             }
-            providerError = new ProviderRpcError(code, message, originalData);
+            providerError = new ProviderRpcError(code, 'Error in rpc call ' + (args?.method || '') + JSON.stringify(args?.params || []) + ' : ' + message, originalData);
         }
 
         return providerError;

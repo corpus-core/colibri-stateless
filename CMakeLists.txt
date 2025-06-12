@@ -29,9 +29,13 @@ set(INCLUDE "" CACHE STRING "Additional directory to include in build")
 
 # Add option for the HTTP server
 option(HTTP_SERVER "Build the HTTP server using libuv and llhttp" OFF)
+option(HTTP_SERVER_GEO "support for geo-location" ON)
 
 if (HTTP_SERVER)
     add_definitions(-DHTTP_SERVER)
+    if (HTTP_SERVER_GEO)
+        add_definitions(-DHTTP_SERVER_GEO)
+    endif()
     # Only add UV time definition if cache is also enabled, matching libuv link condition
     if (PROOFER_CACHE)
         add_definitions(-DC4_PROOFER_USE_UV_TIME)

@@ -1,5 +1,4 @@
 // Create bindings/emscripten/test/basic.test.ts
-
 import test from 'node:test';
 import assert from 'node:assert';
 import { modulePath } from './test_config.js';
@@ -7,15 +6,17 @@ import { modulePath } from './test_config.js';
 const ColibriModule = await import(modulePath);
 const Colibri = ColibriModule.default; // Assuming Colibri is the default export
 
-const chains = [/*'mainnet',*/ 'gnosis'];
+let chains = process.argv.slice(2);
+if (chains.length == 0) chains = ['mainnet', 'gnosis'];
 
 for (const chain of chains) {
-    const c4 = new Colibri({ chainId: chain });
+    const c4 = new Colibri({ chainId: chain, debug: true });
+    const state = {}
     let r = await c4.request({ method: 'eth_subscribe', params: ['newHeads'] });
     c4.on('message', (msg) => {
         if (msg.type == 'eth_subscription' && msg?.data?.subscription == r) {
             const block = msg.data.result;
-            test_block(block, chain, c4).catch(err => {
+            test_block(block, chain, c4, state).catch(err => {
                 console.log(`Error testing block ${block.number} on chain ${chain}`);
                 console.error(err);
             });
@@ -33,12 +34,21 @@ function check(a, b) {
     return true;
 }
 
-async function test_block(block, chain, c4) {
+async function test_block(block, chain, c4, state) {
 
     const start = performance.now();
+    state.start = start;
+    let handled = 0
     for (let tx of block.transactions) {
-        const tx_details = await c4.request({ method: 'eth_getTransactionByHash', params: [tx.hash] });
-        const tx_receipt = await c4.request({ method: 'eth_getTransactionReceipt', params: [tx.hash] });
+        if (state.start != start) break
+        const [tx_details, tx_receipt] = await Promise.all([
+            c4.request({ method: 'eth_getTransactionByHash', params: [tx.hash] }),
+            c4.request({ method: 'eth_getTransactionReceipt', params: [tx.hash] })
+        ]);
+        handled++;
+
+        console.log(`     ## ${chain} :: ${parseInt(block.number)} : ${handled} of ${block.transactions.length} `);
+
         if (!check(tx_details, tx)) {
             console.log(`ERROR:Transaction ${tx.hash} mismatch`);
         }
@@ -47,7 +57,7 @@ async function test_block(block, chain, c4) {
         }
     }
     const duration = performance.now() - start;
-    console.log(`:: ${chain} :: ${parseInt(block.number)} ${block.transactions.length} checked in ${duration.toFixed(2)}ms`);
+    console.log(`:: ${chain} :: ${parseInt(block.number)} ${handled} of ${block.transactions.length} checked in ${(duration / handled).toFixed(2)}ms per tx`);
 
 }
 

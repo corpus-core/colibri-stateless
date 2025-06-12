@@ -9,9 +9,24 @@ typedef struct {
   data_request_method_t method;
   char*                 content_type;
   char*                 accept;
-  uint8_t*              payload;
-  size_t                payload_len;
+#ifdef HTTP_SERVER_GEO
+  char* geo_city;
+  char* geo_country;
+  char* geo_latitude;
+  char* geo_longitude;
+#endif
+  uint8_t* payload;
+  size_t   payload_len;
 } http_request_t;
+
+typedef struct {
+  char*    city;
+  char*    country;
+  char*    latitude;
+  char*    longitude;
+  uint64_t count;
+  uint64_t last_access;
+} geo_location_t;
 
 typedef struct {
   uint64_t total_requests;
@@ -19,6 +34,11 @@ typedef struct {
   uint64_t last_sync_event;
   uint64_t last_request_time;
   uint64_t open_requests;
+#ifdef HTTP_SERVER_GEO
+  geo_location_t* geo_locations;
+  size_t          geo_locations_count;
+  size_t          geo_locations_capacity;
+#endif
 } server_stats_t;
 
 typedef struct {

@@ -76,6 +76,12 @@ static void on_close(uv_handle_t* handle) {
   safe_free(client->request.content_type);
   safe_free(client->request.accept);
   safe_free(client->request.payload);
+#ifdef HTTP_SERVER_GEO
+  safe_free(client->request.geo_city);
+  safe_free(client->request.geo_country);
+  safe_free(client->request.geo_latitude);
+  safe_free(client->request.geo_longitude);
+#endif
   safe_free(client);
 }
 
@@ -115,6 +121,16 @@ static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
     client->request.content_type = strndup(at, length);
   else if (strcasecmp(client->current_header, "Accept") == 0)
     client->request.accept = strndup(at, length);
+#ifdef HTTP_SERVER_GEO
+  else if (strcasecmp(client->current_header, "Country-Code") == 0)
+    client->request.geo_country = strndup(at, length);
+  else if (strcasecmp(client->current_header, "City-Name") == 0)
+    client->request.geo_city = strndup(at, length);
+  else if (strcasecmp(client->current_header, "Latitude") == 0)
+    client->request.geo_latitude = strndup(at, length);
+  else if (strcasecmp(client->current_header, "Longitude") == 0)
+    client->request.geo_longitude = strndup(at, length);
+#endif
   return 0;
 }
 
@@ -142,17 +158,102 @@ static char* method_str(data_request_method_t method) {
 }
 
 static void log_request(client_t* client) {
+  if (strcmp(client->request.path, "/health") == 0) return;      // no healthcheck logging
   if (strcmp(client->request.path, "/healthcheck") == 0) return; // no healthcheck logging
   if (strcmp(client->request.path, "/metrics") == 0) return;     // no metrics logging
   char* pl = client->request.payload_len ? bprintf(NULL, "%J", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) client->request.payload, .len = client->request.payload_len}) : NULL;
-  fprintf(stderr, "[%s] %s %s\n", method_str(client->request.method), client->request.path, pl ? pl : "");
+  fprintf(stderr,
+#ifdef HTTP_SERVER_GEO
+          "[%s] %s %s (%s/%s)\n",
+#else
+          "[%s] %s %s\n",
+#endif
+          method_str(client->request.method),
+          client->request.path, pl ? pl : ""
+#ifdef HTTP_SERVER_GEO
+          ,
+          client->request.geo_city ? client->request.geo_city : "",
+          client->request.geo_country ? client->request.geo_country : ""
+#endif
+  );
   if (pl) safe_free(pl);
 }
+
+#ifdef HTTP_SERVER_GEO
+
+static void c4_metrics_prune_geo_locations() {
+  const uint64_t GEO_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+  uint64_t       now           = current_ms();
+  size_t         new_count     = 0;
+  for (size_t i = 0; i < http_server.stats.geo_locations_count; i++) {
+    if (now - http_server.stats.geo_locations[i].last_access > GEO_EXPIRY_MS) {
+      // clean up the old location
+      safe_free(http_server.stats.geo_locations[i].city);
+      safe_free(http_server.stats.geo_locations[i].country);
+      safe_free(http_server.stats.geo_locations[i].latitude);
+      safe_free(http_server.stats.geo_locations[i].longitude);
+    }
+    else if (new_count != i)
+      http_server.stats.geo_locations[new_count++] = http_server.stats.geo_locations[i];
+  }
+  http_server.stats.geo_locations_count = new_count;
+}
+
+static void c4_metrics_update_geo(client_t* client) {
+  // Do not track metrics for internal endpoints
+  if (strcmp(client->request.path, "/health") == 0) return;
+  if (strcmp(client->request.path, "/healthcheck") == 0) return;
+  if (strcmp(client->request.path, "/metrics") == 0) return;
+
+  if (!client->request.geo_city || !client->request.geo_country) return;
+
+  const size_t MAX_GEO_LOCATIONS = 1000; // TODO: make this configurable
+  uint64_t     now               = current_ms();
+
+  for (size_t i = 0; i < http_server.stats.geo_locations_count; i++) {
+    if (strcmp(http_server.stats.geo_locations[i].city, client->request.geo_city) == 0 && strcmp(http_server.stats.geo_locations[i].country, client->request.geo_country) == 0) {
+      geo_location_t* loc = &http_server.stats.geo_locations[i];
+      loc->count++;
+      loc->last_access = now;
+      return;
+    }
+  }
+
+  // nothing found, so we need to add it
+  // but first, clean up the old locations
+  if (http_server.stats.geo_locations_count >= http_server.stats.geo_locations_capacity)
+    c4_metrics_prune_geo_locations();
+
+  if (http_server.stats.geo_locations_count >= http_server.stats.geo_locations_capacity) {
+    size_t new_capacity = http_server.stats.geo_locations_capacity == 0 ? 16 : http_server.stats.geo_locations_capacity * 2;
+    if (new_capacity > MAX_GEO_LOCATIONS) new_capacity = MAX_GEO_LOCATIONS;
+
+    if (http_server.stats.geo_locations_count >= new_capacity) {
+      fprintf(stderr, "WARN: Geo location list is full. Dropping new location: %s, %s\n", client->request.geo_city, client->request.geo_country);
+      return;
+    }
+
+    http_server.stats.geo_locations          = safe_realloc(http_server.stats.geo_locations, new_capacity * sizeof(geo_location_t));
+    http_server.stats.geo_locations_capacity = new_capacity;
+  }
+
+  geo_location_t* loc = &http_server.stats.geo_locations[http_server.stats.geo_locations_count++];
+  loc->city           = strdup(client->request.geo_city);
+  loc->country        = strdup(client->request.geo_country);
+  loc->latitude       = client->request.geo_latitude ? strdup(client->request.geo_latitude) : NULL;
+  loc->longitude      = client->request.geo_longitude ? strdup(client->request.geo_longitude) : NULL;
+  loc->count          = 1;
+  loc->last_access    = now;
+}
+#endif
 
 static int on_message_complete(llhttp_t* parser) {
   client_t* client                 = (client_t*) parser->data;
   client->message_complete_reached = true; // Mark that message is complete
   log_request(client);
+#ifdef HTTP_SERVER_GEO
+  c4_metrics_update_geo(client);
+#endif
   http_server.stats.open_requests++;
   http_server.stats.last_request_time = current_ms();
   http_server.stats.total_requests++;

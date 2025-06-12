@@ -421,9 +421,41 @@ static void c4_write_prometheus_bucket_metrics(buffer_t*         data,
   }
 }
 
+#ifdef HTTP_SERVER_GEO
+// Comparison function for qsort to sort by count descending
+static int compare_geo_locations_desc(const void* a, const void* b) {
+  const geo_location_t* loc_a = (const geo_location_t*) a;
+  const geo_location_t* loc_b = (const geo_location_t*) b;
+  if (loc_b->count < loc_a->count) return -1;
+  if (loc_b->count > loc_a->count) return 1;
+  return 0;
+}
+
+static void c4_write_prometheus_bucket_geo_metrics(buffer_t* data) {
+  if (http_server.stats.geo_locations_count == 0) return;
+
+  // Sort the main array directly to get the top locations.
+  size_t count = http_server.stats.geo_locations_count;
+  if (count > 1) {
+    qsort(http_server.stats.geo_locations, count, sizeof(geo_location_t), compare_geo_locations_desc);
+  }
+
+  bprintf(data, "# HELP colibri_geo_requests_total Total number of HTTP requests by geo location.\n");
+  bprintf(data, "# TYPE colibri_geo_requests_total counter\n");
+
+  const size_t METRICS_GEO_LIMIT = 200;
+  size_t       output_count      = (count > METRICS_GEO_LIMIT) ? METRICS_GEO_LIMIT : count;
+
+  for (size_t i = 0; i < output_count; i++) {
+    geo_location_t* loc = &http_server.stats.geo_locations[i];
+    bprintf(data, "colibri_geo_requests_total{city=\"%s\", country=\"%s\", lat=\"%s\", lon=\"%s\"} %l\n", loc->city, loc->country, loc->latitude ? loc->latitude : "",
+            loc->longitude ? loc->longitude : "", loc->count);
+  }
+}
+#endif
+
 bool c4_handle_metrics(client_t* client) {
-  const char* path = "/metrics";
-  if (strncmp(client->request.path, path, strlen(path)) != 0) return false;
+  if (strcmp(client->request.path, "/metrics") != 0) return false;
 
   buffer_t data                     = {0};
   size_t   current_rss              = get_current_rss();
@@ -522,6 +554,12 @@ bool c4_handle_metrics(client_t* client) {
 
   // Beacon Requests
   c4_write_prometheus_bucket_metrics(&data, &beacon_requests, "beacon", "Beacon API (e.g. /eth/v1/beacon/genesis)", &method_metrics_described);
+
+#ifdef HTTP_SERVER_GEO
+
+  // Geo Requests
+  c4_write_prometheus_bucket_geo_metrics(&data);
+#endif
 
   c4_http_respond(client, 200, "text/plain; version=0.0.4; charset=utf-8", data.data);
   buffer_free(&data);
