@@ -151,7 +151,7 @@ const default_config: {
     alias: ["mainnet", "eth", "0x1"],
     beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
     rpcs: ["https://rpc.ankr.com/eth"],
-    proofer: ["https://mainnet.colibri-proof.tech"],
+    proofer: ["https://mainnet1.colibri-proof.tech"],
     pollingInterval: 12000,
   },
   '100': { // gnosis
@@ -405,7 +405,7 @@ export default class C4Client {
       this.connectionState.processSuccessfulRequest(method, result);
       return result;
     } catch (error: any) {
-      const providerError = ProviderRpcError.createError(error);
+      const providerError = ProviderRpcError.createError(error, args);
       this.connectionState.processFailedRequest(providerError);
       throw providerError;
     }
