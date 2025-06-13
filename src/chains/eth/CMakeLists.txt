@@ -40,7 +40,7 @@ endif()
 set(VERIFIER_SOURCES
   verifier/sync_committee.c
   verifier/sync_committee_state.c
-  verifier/verify_blockhash_proof.c
+  verifier/beacon_header.c
   verifier/eth_tx.c
   verifier/eth_account.c
   verifier/eth_verify.c

@@ -11,9 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/** the combined GIndex of the blockhash in the block body path = executionPayload*/
-#define BLOCKHASH_BLOCKBODY_GINDEX 812
-
 // combining the root with a domain to ensure uniqueness of the signing message
 static const ssz_def_t SIGNING_DATA[] = {
     SSZ_BYTES32("root"),    // the hashed root of the data to sign
@@ -55,24 +52,56 @@ static bool calculate_signing_message(verify_ctx_t* ctx, uint64_t slot, bytes32_
   return true;
 }
 
-c4_status_t c4_verify_blockroot(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof) {
-  ssz_ob_t sync_committee_bits      = ssz_get(&block_proof, "sync_committee_bits");
-  ssz_ob_t sync_committee_signature = ssz_get(&block_proof, "sync_committee_signature");
-  ssz_ob_t historic_proof           = ssz_get(&block_proof, "historic_proof");
-  if (historic_proof.bytes.len == 0)
-    return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0);
+static c4_status_t c4_verify_header_proof(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t sync_committee_bits, ssz_ob_t sync_committee_signature, ssz_ob_t header_proof) {
+  ssz_ob_t  headers           = ssz_get(&header_proof, "headers"); // the intermediate headers between the current block and the block with the signature
+  ssz_ob_t  signed_header     = ssz_get(&header_proof, "header");  // the block matching the signature
+  uint32_t  header_count      = ssz_len(headers);                  // the number of intermediate headers
+  bytes32_t last_block_root   = {0};                               // last block root calculated from the current header
+  uint8_t   header_bytes[112] = {0};                               // temp blockheader while calculating
+  ssz_ob_t  header_ob         = {.bytes = bytes(header_bytes, sizeof(header_bytes)), .def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER, C4_CHAIN_MAINNET)};
+  ssz_hash_tree_root(header, last_block_root);
 
-  bytes32_t block_root   = {0};
-  bytes32_t state_root   = {0};
-  ssz_ob_t  proof_header = ssz_get(&historic_proof, "header");
+  for (size_t i = 0; i < header_count; i++) {
+    ssz_ob_t h = ssz_at(headers, i);                  // we copy into the ssz header structure because the headers are only 80 bytes since the do not hold the parentRoot.
+    memcpy(header_bytes, h.bytes.data, 16);           // slot and proposerIndex
+    memcpy(header_bytes + 16, last_block_root, 32);   // parent root
+    memcpy(header_bytes + 48, h.bytes.data + 16, 64); // state root and body root
+    ssz_hash_tree_root(header_ob, last_block_root);   // compute the root of the header
+  }
+
+  if (memcmp(last_block_root, ssz_get(&signed_header, "parentRoot").bytes.data, 32))
+    THROW_ERROR("invalid parent root for header proof!");
+
+  return c4_verify_blockroot_signature(ctx, &signed_header, &sync_committee_bits, &sync_committee_signature, 0);
+}
+
+static c4_status_t c4_verify_historic_proof(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t sync_committee_bits, ssz_ob_t sync_committee_signature, ssz_ob_t historic_proof) {
+  bytes32_t block_root    = {0};
+  bytes32_t state_root    = {0};
+  ssz_ob_t  signed_header = ssz_get(&historic_proof, "header");
 
   ssz_hash_tree_root(header, block_root);
   ssz_verify_single_merkle_proof(ssz_get(&historic_proof, "proof").bytes, block_root, ssz_get_uint64(&historic_proof, "gindex"), state_root);
 
-  if (memcmp(state_root, ssz_get(&proof_header, "stateRoot").bytes.data, 32))
+  if (memcmp(state_root, ssz_get(&signed_header, "stateRoot").bytes.data, 32))
     THROW_ERROR("invalid state root for historic proof!");
 
-  return c4_verify_blockroot_signature(ctx, &proof_header, &sync_committee_bits, &sync_committee_signature, 0);
+  return c4_verify_blockroot_signature(ctx, &signed_header, &sync_committee_bits, &sync_committee_signature, 0);
+}
+
+c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof) {
+  ssz_ob_t sync_committee_bits      = ssz_get(&block_proof, "sync_committee_bits");
+  ssz_ob_t sync_committee_signature = ssz_get(&block_proof, "sync_committee_signature");
+  ssz_ob_t historic_proof           = ssz_get(&block_proof, "historic_proof");
+
+  if (historic_proof.bytes.len == 0) // direct proof - the signature matches the current header
+    return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0);
+
+  if (strcmp(historic_proof.def->name, "header_proof") == 0) // header proof - the signature matches the signed header in the header_proof
+    return c4_verify_header_proof(ctx, header, sync_committee_bits, sync_committee_signature, historic_proof);
+
+  // historic proof
+  return c4_verify_historic_proof(ctx, header, sync_committee_bits, sync_committee_signature, historic_proof);
 }
 
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot) {
@@ -104,31 +133,4 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
     THROW_ERROR("invalid blockhash signature!");
 
   return C4_SUCCESS;
-}
-
-static bool verify_beacon_header(ssz_ob_t* header, bytes32_t exec_blockhash, bytes_t blockhash_proof) {
-
-  // check merkle proof
-  ssz_ob_t  header_body_root = ssz_get(header, "bodyRoot");
-  bytes32_t root_hash;
-  ssz_verify_single_merkle_proof(blockhash_proof, exec_blockhash, BLOCKHASH_BLOCKBODY_GINDEX, root_hash);
-  if (ssz_is_error(header_body_root) || header_body_root.bytes.len != 32 || memcmp(root_hash, header_body_root.bytes.data, 32)) return false;
-
-  return true;
-}
-
-bool verify_blockhash_proof(verify_ctx_t* ctx) {
-  ssz_ob_t header                   = ssz_get(&ctx->proof, "header");
-  ssz_ob_t blockhash_proof          = ssz_get(&ctx->proof, "blockhash_proof");
-  ssz_ob_t sync_committee_bits      = ssz_get(&ctx->proof, "sync_committee_bits");
-  ssz_ob_t sync_committee_signature = ssz_get(&ctx->proof, "sync_committee_signature");
-
-  if (ssz_is_error(header) || ssz_is_error(blockhash_proof)) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing header or blockhash_proof!");
-  if (ssz_is_error(sync_committee_bits) || sync_committee_bits.bytes.len != 64 || ssz_is_error(sync_committee_signature) || sync_committee_signature.bytes.len != 96) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing sync committee bits or signature!");
-  if (!ctx->data.def || !ssz_is_type(&ctx->data, &ssz_bytes32) || ctx->data.bytes.data == NULL || ctx->data.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid data, data is not a bytes32!");
-  if (!verify_beacon_header(&header, ctx->data.bytes.data, blockhash_proof.bytes)) RETURN_VERIFY_ERROR(ctx, "invalid merkle proof for blockhash!");
-  if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
-
-  ctx->success = true;
-  return true;
 }

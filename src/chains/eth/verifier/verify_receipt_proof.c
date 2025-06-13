@@ -47,7 +47,7 @@ bool verify_receipt_proof(verify_ctx_t* ctx) {
   if (!c4_tx_verify_receipt_proof(ctx, receipt_proof, tx_index, receipt_root, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
   if (!c4_tx_verify_receipt_data(ctx, ctx->data, block_hash.bytes.data, ssz_uint64(block_number), tx_index, raw_tx.bytes, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
   if (!verify_merkle_proof(ctx, block_proof, block_hash.bytes, block_number.bytes, raw_tx.bytes, tx_index, receipt_root, body_root.bytes.data)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
-  if (c4_verify_blockroot(ctx, header, ctx->proof) != C4_SUCCESS) return false;
+  if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
 
   ctx->success = true;
   return true;

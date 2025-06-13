@@ -87,7 +87,7 @@ static c4_status_t verif_block(verify_ctx_t* ctx, ssz_ob_t block) {
     if (!verify_tx(ctx, block, ssz_at(txs, i), receipt_root)) THROW_ERROR("invalid receipt proof!");
   }
   if (!verify_merkle_proof(ctx, block, receipt_root)) THROW_ERROR("invalid tx proof!");
-  return c4_verify_blockroot(ctx, header, block);
+  return c4_verify_header(ctx, header, block);
 }
 
 static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index, uint32_t block_count) {
