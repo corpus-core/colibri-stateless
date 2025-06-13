@@ -11,9 +11,10 @@
 #include <string.h>
 
 c4_status_t c4_proof_block(proofer_ctx_t* ctx) {
-  beacon_block_t block       = {0};
-  bytes32_t      body_root   = {0};
-  ssz_builder_t  block_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
+  uint8_t        empty_selector = 0;
+  beacon_block_t block          = {0};
+  bytes32_t      body_root      = {0};
+  ssz_builder_t  block_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
 
   // fetch the block
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_at(ctx->params, 0), &block));
@@ -26,6 +27,7 @@ c4_status_t c4_proof_block(proofer_ctx_t* ctx) {
   ssz_add_bytes(&block_proof, "proof", execution_payload_proof);
   safe_free(execution_payload_proof.data);
   ssz_add_builders(&block_proof, "header", c4_proof_add_header(block.header, body_root));
+  ssz_add_bytes(&block_proof, "historic_proof", bytes(&empty_selector, 1)); // TODO add real histtoric proof, for now we just make sure format is correct
   ssz_add_bytes(&block_proof, "sync_committee_bits", ssz_get(&block.sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&block_proof, "sync_committee_signature", ssz_get(&block.sync_aggregate, "syncCommitteeSignature").bytes);
 
@@ -39,9 +41,10 @@ c4_status_t c4_proof_block(proofer_ctx_t* ctx) {
 }
 
 c4_status_t c4_proof_block_number(proofer_ctx_t* ctx) {
-  beacon_block_t block       = {0};
-  bytes32_t      body_root   = {0};
-  ssz_builder_t  block_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF);
+  uint8_t        empty_selector = 0;
+  beacon_block_t block          = {0};
+  bytes32_t      body_root      = {0};
+  ssz_builder_t  block_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF);
 
   // fetch the block
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block));
@@ -56,6 +59,7 @@ c4_status_t c4_proof_block_number(proofer_ctx_t* ctx) {
   ssz_add_bytes(&block_proof, "timestamp", ssz_get(&block.execution, "timestamp").bytes);
   ssz_add_bytes(&block_proof, "proof", execution_payload_proof);
   ssz_add_builders(&block_proof, "header", c4_proof_add_header(block.header, body_root));
+  ssz_add_bytes(&block_proof, "historic_proof", bytes(&empty_selector, 1)); // TODO add real histtoric proof, for now we just make sure format is correct
   ssz_add_bytes(&block_proof, "sync_committee_bits", ssz_get(&block.sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&block_proof, "sync_committee_signature", ssz_get(&block.sync_aggregate, "syncCommitteeSignature").bytes);
   safe_free(execution_payload_proof.data);

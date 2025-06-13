@@ -54,19 +54,21 @@ static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_da
 }
 
 ssz_builder_t eth_ssz_create_state_proof(proofer_ctx_t* ctx, json_t block_number, beacon_block_t* block) {
-  bytes32_t     body_root   = {0};
-  ssz_builder_t state_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
-  gindex_t      block_index = eth_get_gindex_for_block(c4_chain_fork_id(ctx->chain_id, block->slot >> 5), block_number);
-  gindex_t      state_index = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
-  bytes_t       proof       = block_index == 0                                            // if we fetch latest,
-                                  ? ssz_create_proof(block->body, body_root, state_index) // we only proof the state root
-                                  : ssz_create_multi_proof(block->body, body_root, 2,     // but if a blocknumber or hash is given,
-                                                           block_index, state_index);     // we also need to add this to the proof.
+  uint8_t       empty_selector = 0;
+  bytes32_t     body_root      = {0};
+  ssz_builder_t state_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
+  gindex_t      block_index    = eth_get_gindex_for_block(c4_chain_fork_id(ctx->chain_id, block->slot >> 5), block_number);
+  gindex_t      state_index    = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
+  bytes_t       proof          = block_index == 0                                            // if we fetch latest,
+                                     ? ssz_create_proof(block->body, body_root, state_index) // we only proof the state root
+                                     : ssz_create_multi_proof(block->body, body_root, 2,     // but if a blocknumber or hash is given,
+                                                              block_index, state_index);     // we also need to add this to the proof.
 
   // build the state proof
   ssz_add_block_proof(&state_proof, block, block_index);
   ssz_add_bytes(&state_proof, "proof", proof);
   ssz_add_builders(&state_proof, "header", c4_proof_add_header(block->header, body_root));
+  ssz_add_bytes(&state_proof, "historic_proof", bytes(&empty_selector, 1)); // TODO add real histtoric proof, for now we just make sure format is correct
   ssz_add_bytes(&state_proof, "sync_committee_bits", ssz_get(&block->sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&state_proof, "sync_committee_signature", ssz_get(&block->sync_aggregate, "syncCommitteeSignature").bytes);
 

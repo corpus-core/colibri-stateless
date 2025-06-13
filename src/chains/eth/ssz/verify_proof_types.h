@@ -38,9 +38,25 @@ static const ssz_def_t ETH_HISTORIC_BLOCK_PROOF[] = {
     SSZ_UINT64("gindex")                          // the combined gindex of the proof
 };
 
+// a header without the parentRoot used for the header proof
+static const ssz_def_t PROOF_HEADER[5] = {
+    SSZ_UINT64("slot"),          // the slot of the block or blocknumber
+    SSZ_UINT64("proposerIndex"), // the index of the validator proposing the block
+    SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block
+    SSZ_BYTES32("bodyRoot")};    // the hash_tree_root of the block body
+
+static const ssz_def_t PROOF_HEADER_CONTAINER = SSZ_CONTAINER("ProofHeader", PROOF_HEADER);
+
+// Header proof is a proof, using a list of following headers to verify a block in the past with a later header holding a signature.
+static const ssz_def_t ETH_HEADERS_BLOCK_PROOF[] = {
+    SSZ_LIST("headers", PROOF_HEADER_CONTAINER, 128), // list of headers
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block containing the signature
+};
+
 static const ssz_def_t ETH_HISTORIC_BLOCK_PROOFS_UNION[] = {
-    SSZ_NONE,                                                 // no block-proof for latest
-    SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF) // proof for the right blocknumber
+    SSZ_NONE,                                                  // no block-proof for latest
+    SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF), // proof for a historic block using the state_root
+    SSZ_CONTAINER("header_proof", ETH_HEADERS_BLOCK_PROOF)     // proof block giving headers
 };
 
 // :: Receipt Proof
@@ -220,11 +236,12 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
 // the stateRoot proof is used as part of different other types since it contains all relevant
 // proofs to validate the stateRoot of the execution layer
 static const ssz_def_t ETH_STATE_PROOF[] = {
-    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),        // the block to be proven
-    SSZ_LIST("proof", ssz_bytes32, 256),              // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
-    SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
-    SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee
+    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),                    // the block to be proven
+    SSZ_LIST("proof", ssz_bytes32, 256),                          // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                 // the header of the beacon block
+    SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOFS_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),                   // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)};             // the signature of the sync committee
 
 static const ssz_def_t ETH_STATE_PROOF_CONTAINER = SSZ_CONTAINER("StateProof", ETH_STATE_PROOF);
 
@@ -484,17 +501,19 @@ static const ssz_def_t ETH_EXECUTION_PAYLOAD_UNION[] = {
 // the stateRoot proof is used as part of different other types since it contains all relevant
 // proofs to validate the stateRoot of the execution layer
 static const ssz_def_t ETH_BLOCK_PROOF[] = {
-    SSZ_UNION("executionPayload", ETH_EXECUTION_PAYLOAD_UNION), // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
-    SSZ_LIST("proof", ssz_bytes32, 256),                        // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),               // the header of the beacon block
-    SSZ_BIT_VECTOR("sync_committee_bits", 512),                 // the bits of the validators that signed the block
-    SSZ_BYTE_VECTOR("sync_committee_signature", 96)};           // the signature of the sync committee
+    SSZ_UNION("executionPayload", ETH_EXECUTION_PAYLOAD_UNION),   // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+    SSZ_LIST("proof", ssz_bytes32, 256),                          // the merkle prooof from the executionPayload.state down to the blockBodyRoot hash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                 // the header of the beacon block
+    SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOFS_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),                   // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)};             // the signature of the sync committee
 
 // for `eth_blockNumber` we need to proof the blocknumber and the timestamp of the latest block.
 static const ssz_def_t ETH_BLOCK_NUMBER_PROOF[] = {
-    SSZ_UINT64("blockNumber"),                        // the block number of the latest block
-    SSZ_UINT64("timestamp"),                          // the timestamp of the latest block
-    SSZ_LIST("proof", ssz_bytes32, 256),              // the multi merkle prooof from the executionPayload.blockNumber and executionPayload.timestamp  down to the blockBodyRoot hash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
-    SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the block
-    SSZ_BYTE_VECTOR("sync_committee_signature", 96)}; // the signature of the sync committee
+    SSZ_UINT64("blockNumber"),                                    // the block number of the latest block
+    SSZ_UINT64("timestamp"),                                      // the timestamp of the latest block
+    SSZ_LIST("proof", ssz_bytes32, 256),                          // the multi merkle prooof from the executionPayload.blockNumber and executionPayload.timestamp  down to the blockBodyRoot hash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),                 // the header of the beacon block
+    SSZ_UNION("historic_proof", ETH_HISTORIC_BLOCK_PROOFS_UNION), // optional historic proof. If non null, the block is verified by this proof and the signature confirm the future block.
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),                   // the bits of the validators that signed the block
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96)};             // the signature of the sync committee
