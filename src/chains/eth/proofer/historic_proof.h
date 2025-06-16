@@ -9,14 +9,21 @@ extern "C" {
 #include "proofer.h"
 #include "ssz.h"
 
+typedef enum {
+  HISTORIC_PROOF_NONE   = 0,
+  HISTORIC_PROOF_DIRECT = 1,
+  HISTORIC_PROOF_HEADER = 2,
+} historic_proof_type_t;
+
 typedef struct {
-  ssz_ob_t sync_aggregate;
-  bytes_t  historic_proof;
-  gindex_t gindex;
-  bytes_t  proof_header;
+  historic_proof_type_t type;
+  ssz_ob_t              sync_aggregate;
+  bytes_t               historic_proof;
+  gindex_t              gindex;
+  bytes_t               proof_header;
 } blockroot_proof_t;
 
-c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block_proof, uint64_t slot);
+c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* block);
 void        ssz_add_blockroot_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof);
 void        c4_free_block_proof(blockroot_proof_t* block_proof);
 #ifdef __cplusplus

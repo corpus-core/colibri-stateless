@@ -90,7 +90,7 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
   TRY_ASYNC(status);
 
-  TRY_ASYNC(c4_check_historic_proof(ctx, &block_proof, block.slot));
+  TRY_ASYNC(c4_check_historic_proof(ctx, &block_proof, &block));
 
 // now we should have all data required to create the proof
 #ifdef PROOFER_CACHE

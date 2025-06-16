@@ -171,7 +171,14 @@ static c4_status_t get_block(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* blo
   return C4_SUCCESS;
 }
 
-c4_status_t c4_eth_get_signblock_and_parent(proofer_ctx_t* ctx, bytes32_t sign_hash, bytes32_t data_hash, ssz_ob_t* sig_block, ssz_ob_t* data_block) {
+static bool has_signature(ssz_ob_t* block) {
+  if (!block || !block->bytes.data) return false;
+  ssz_ob_t sig_body = ssz_get(block, "body");
+  ssz_ob_t sync     = ssz_get(&sig_body, "syncAggregate");
+  return !bytes_all_zero(bytes(sync.bytes.data, 64));
+}
+
+c4_status_t c4_eth_get_signblock_and_parent(proofer_ctx_t* ctx, bytes32_t sign_hash, bytes32_t data_hash, ssz_ob_t* sig_block, ssz_ob_t* data_block, bytes32_t data_root_result) {
 
   beacon_head_t sign   = {0};
   beacon_head_t data   = {0};
@@ -188,6 +195,20 @@ c4_status_t c4_eth_get_signblock_and_parent(proofer_ctx_t* ctx, bytes32_t sign_h
 
   TRY_ADD_ASYNC(status, get_block(ctx, &sign, sig_block));
 
+  // check if we have a valid signature
+  if (status == C4_SUCCESS && !has_signature(sig_block)) {
+    if (bytes_all_zero(bytes(sign.root, 32))) { // we fetched the head block
+      if (data_hash) THROW_ERROR("latest block has no signature");
+      memcpy(sign.root, ssz_get(sig_block, "parentRoot").bytes.data, 32);
+    }
+    else {
+      json_t header = {0}; // we need to find the next block first
+      TRY_ASYNC(get_beacon_header_by_parent_hash(ctx, sign.root, &header, sign.root));
+      if (header.type == JSON_TYPE_NOT_FOUND) THROW_ERROR("no block found with signature");
+    }
+    return c4_eth_get_signblock_and_parent(ctx, sign.root, data_hash, sig_block, data_block, data_root_result);
+  }
+
   // handle data_block
   if (!data_hash && status == C4_SUCCESS)
     memcpy(data.root, ssz_get(sig_block, "parentRoot").bytes.data, 32);
@@ -197,6 +218,14 @@ c4_status_t c4_eth_get_signblock_and_parent(proofer_ctx_t* ctx, bytes32_t sign_h
     return status;
 
   TRY_ADD_ASYNC(status, get_block(ctx, &data, data_block));
+
+  // make sure we know the data_root
+  if (status == C4_SUCCESS && data_root_result && data_hash != data_root_result) {
+    if (!bytes_all_zero(bytes(data.root, 32)))
+      memcpy(data_root_result, data.root, 32);
+    else
+      ssz_hash_tree_root(*data_block, data_root_result);
+  }
 
   return status;
 }
@@ -300,6 +329,7 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
   bytes32_t sig_root  = {0};
   bytes32_t data_root = {0};
 
+  // convert the execution block number to beacon block hashes
   TRY_ASYNC(eth_get_block_roots(ctx, block, sig_root, data_root));
 
 #ifdef PROOFER_CACHE
@@ -309,7 +339,10 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
 #endif
 
   TRY_ASYNC(c4_eth_get_signblock_and_parent(
-      ctx, bytes_all_zero(bytes(sig_root, 32)) ? NULL : sig_root, bytes_all_zero(bytes(data_root, 32)) ? NULL : data_root, &sig_block, &data_block));
+      ctx,
+      bytes_all_zero(bytes(sig_root, 32)) ? NULL : sig_root,
+      bytes_all_zero(bytes(data_root, 32)) ? NULL : data_root,
+      &sig_block, &data_block, data_root));
 
   sig_body                     = ssz_get(&sig_block, "body");
   beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
@@ -317,15 +350,16 @@ c4_status_t c4_beacon_get_block_for_eth(proofer_ctx_t* ctx, json_t block, beacon
   beacon_block->body           = ssz_get(&data_block, "body");
   beacon_block->execution      = ssz_get(&beacon_block->body, "executionPayload");
   beacon_block->sync_aggregate = ssz_get(&sig_body, "syncAggregate");
+  memcpy(beacon_block->sign_parent_root, ssz_get(&sig_block, "parentRoot").bytes.data, 32);
+  memcpy(beacon_block->data_block_root, data_root, 32);
 
 #ifdef PROOFER_CACHE
-  bytes_t root_hash = ssz_get(&sig_block, "parentRoot").bytes;
   if (strncmp(block.start, "\"latest\"", 8) == 0) { // for latest we take the timestamp, so we can define the ttl
     ssz_ob_t execution = ssz_get(&sig_body, "executionPayload");
-    c4_beacon_cache_update_blockdata(ctx, beacon_block, ssz_get_uint64(&execution, "timestamp"), root_hash.data);
+    c4_beacon_cache_update_blockdata(ctx, beacon_block, ssz_get_uint64(&execution, "timestamp"), beacon_block->data_block_root);
   }
   else
-    c4_beacon_cache_update_blockdata(ctx, beacon_block, 0, root_hash.data);
+    c4_beacon_cache_update_blockdata(ctx, beacon_block, 0, beacon_block->data_block_root);
 #endif
 
   return C4_SUCCESS;

@@ -12,6 +12,7 @@
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>
+#define MAX_HISTORIC_PROOF_HEADER_DEPTH 10
 
 static const ssz_def_t HISTORICAL_SUMMARY[] = {
     SSZ_BYTES32("block_summary_root"),
@@ -19,6 +20,23 @@ static const ssz_def_t HISTORICAL_SUMMARY[] = {
 static const ssz_def_t HISTORICAL_SUMMARY_CONTAINER = SSZ_CONTAINER("HISTORICAL_SUMMARY", HISTORICAL_SUMMARY);
 static const ssz_def_t SUMMARIES                    = SSZ_LIST("summaries", HISTORICAL_SUMMARY_CONTAINER, 1 << 24);
 static const ssz_def_t BLOCKS                       = SSZ_VECTOR("blocks", ssz_bytes32, 8192);
+
+static c4_status_t get_beacon_header(proofer_ctx_t* ctx, bytes32_t block_hash, json_t* header) {
+
+  char     path[200]   = {0};
+  json_t   result      = {0};
+  buffer_t path_buffer = stack_buffer(path);
+  bprintf(&path_buffer, "eth/v1/beacon/headers/0x%x", bytes(block_hash, 32));
+
+  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, DEFAULT_TTL, &result));
+
+  json_t val = json_get(result, "data");
+  if (val.type != JSON_TYPE_OBJECT) THROW_ERROR("Invalid header!");
+  val     = json_get(val, "header");
+  *header = json_get(val, "message");
+  if (!header->start) THROW_ERROR("Invalid header!");
+  return C4_SUCCESS;
+}
 
 static void verify_proof(char* name, bytes32_t leaf, bytes32_t root, bytes_t proof, gindex_t gindex) {
   bytes32_t out = {0};
@@ -32,7 +50,50 @@ static void verify_proof(char* name, bytes32_t leaf, bytes32_t root, bytes_t pro
   safe_free(debug.data.data);
 }
 
-c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block_proof, uint64_t slot) {
+static c4_status_t check_historic_proof_header(proofer_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
+  if (memcmp(src_block->data_block_root, src_block->sign_parent_root, 32) == 0) return C4_SUCCESS;
+  json_t    proof_header  = {0};
+  json_t    header        = {0};
+  bytes32_t root          = {0};
+  buffer_t  proof_headers = {0};
+  bytes32_t header_data   = {0};
+  buffer_t  header_buf    = stack_buffer(header_data);
+  buffer_t  root_buf      = stack_buffer(root);
+  buffer_t  proof         = {0};
+  TRY_ASYNC(get_beacon_header(ctx, src_block->sign_parent_root, &header));
+  json_get_bytes(header, "parent_root", &root_buf);
+  proof_header = header;
+
+  for (int i = 0; i <= MAX_HISTORIC_PROOF_HEADER_DEPTH; i++) {
+    if (i == MAX_HISTORIC_PROOF_HEADER_DEPTH) {
+      buffer_free(&proof_headers);
+      THROW_ERROR("Max header limit reached!");
+    }
+
+    if (memcmp(root, src_block->data_block_root, 32) == 0) break;
+    TRY_ASYNC_CATCH(get_beacon_header(ctx, root, &header), buffer_free(&proof));
+    json_get_bytes(header, "parent_root", &root_buf);
+    buffer_add_be(&proof, json_get_uint64(header, "slot"), 8);
+    buffer_add_be(&proof, json_get_uint64(header, "proposer_index"), 8);
+    buffer_append(&proof, json_get_bytes(header, "state_root", &header_buf));
+    buffer_append(&proof, json_get_bytes(header, "body_root", &header_buf));
+  }
+
+  block_proof->historic_proof = proof.data.len ? bytes_dup(proof.data) : bytes(NULL, 0);
+  buffer_reset(&proof);
+  buffer_add_be(&proof, json_get_uint64(proof_header, "slot"), 8);
+  buffer_add_be(&proof, json_get_uint64(proof_header, "proposer_index"), 8);
+  buffer_append(&proof, json_get_bytes(proof_header, "parent_root", &header_buf));
+  buffer_append(&proof, json_get_bytes(proof_header, "state_root", &header_buf));
+  buffer_append(&proof, json_get_bytes(proof_header, "body_root", &header_buf));
+
+  block_proof->proof_header = proof.data;
+  block_proof->type         = HISTORIC_PROOF_HEADER;
+  return C4_SUCCESS;
+}
+
+static c4_status_t check_historic_proof_direct(proofer_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
+  uint64_t            slot          = src_block->slot;
   c4_status_t         status        = C4_SUCCESS;
   beacon_block_t      block         = {0};
   json_t              history_proof = {0};
@@ -105,6 +166,7 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
   block_proof->gindex         = ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
   block_proof->sync_aggregate = block.sync_aggregate;
   block_proof->proof_header   = bytes(safe_malloc(112), 112);
+  block_proof->type           = HISTORIC_PROOF_DIRECT;
   memcpy(block_proof->proof_header.data, block.header.bytes.data, 112 - 32);
   memcpy(block_proof->proof_header.data + 112 - 32, body_root, 32);
 
@@ -116,23 +178,45 @@ c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block
 }
 
 void ssz_add_blockroot_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof) {
-  if (block_proof.historic_proof.data) {
-    ssz_builder_t bp = ssz_builder_for_def(ssz_get_def(builder->def, "historic_proof")->def.container.elements + 1);
-    ssz_add_bytes(&bp, "proof", block_proof.historic_proof);
-    ssz_add_bytes(&bp, "header", block_proof.proof_header);
-    ssz_add_uint64(&bp, (uint64_t) block_proof.gindex);
-    ssz_add_builders(builder, "historic_proof", bp);
-    ssz_add_bytes(builder, "sync_committee_bits", ssz_get(&block_proof.sync_aggregate, "syncCommitteeBits").bytes);
-    ssz_add_bytes(builder, "sync_committee_signature", ssz_get(&block_proof.sync_aggregate, "syncCommitteeSignature").bytes);
-  }
-  else {
-    ssz_add_bytes(builder, "historic_proof", bytes(NULL, 1));
-    ssz_add_bytes(builder, "sync_committee_bits", ssz_get(&block_data->sync_aggregate, "syncCommitteeBits").bytes);
-    ssz_add_bytes(builder, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
+  switch (block_proof.type) {
+    case HISTORIC_PROOF_HEADER: {
+      ssz_builder_t bp = ssz_builder_for_def(ssz_get_def(builder->def, "historic_proof")->def.container.elements + 2);
+      ssz_add_bytes(&bp, "headers", block_proof.historic_proof);
+      ssz_add_bytes(&bp, "header", block_proof.proof_header);
+      ssz_add_builders(builder, "historic_proof", bp);
+      ssz_add_bytes(builder, "sync_committee_bits", ssz_get(&block_proof.sync_aggregate, "syncCommitteeBits").bytes);
+      ssz_add_bytes(builder, "sync_committee_signature", ssz_get(&block_proof.sync_aggregate, "syncCommitteeSignature").bytes);
+      break;
+    }
+    case HISTORIC_PROOF_DIRECT: {
+      ssz_builder_t bp = ssz_builder_for_def(ssz_get_def(builder->def, "historic_proof")->def.container.elements + 1);
+      ssz_add_bytes(&bp, "proof", block_proof.historic_proof);
+      ssz_add_bytes(&bp, "header", block_proof.proof_header);
+      ssz_add_uint64(&bp, (uint64_t) block_proof.gindex);
+      ssz_add_builders(builder, "historic_proof", bp);
+      ssz_add_bytes(builder, "sync_committee_bits", ssz_get(&block_proof.sync_aggregate, "syncCommitteeBits").bytes);
+      ssz_add_bytes(builder, "sync_committee_signature", ssz_get(&block_proof.sync_aggregate, "syncCommitteeSignature").bytes);
+      break;
+    }
+    case HISTORIC_PROOF_NONE:
+      ssz_add_bytes(builder, "historic_proof", bytes(NULL, 1));
+      ssz_add_bytes(builder, "sync_committee_bits", ssz_get(&block_data->sync_aggregate, "syncCommitteeBits").bytes);
+      ssz_add_bytes(builder, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
+      break;
   }
 }
 
 void c4_free_block_proof(blockroot_proof_t* block_proof) {
   safe_free(block_proof->historic_proof.data);
   safe_free(block_proof->proof_header.data);
+}
+
+c4_status_t c4_check_historic_proof(proofer_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
+
+  // check if we need a direct or header proof
+  c4_status_t status = check_historic_proof_direct(ctx, block_proof, src_block);
+  if (status != C4_SUCCESS || block_proof->historic_proof.len) return status;
+
+  // check if we need a header proof
+  return check_historic_proof_header(ctx, block_proof, src_block);
 }

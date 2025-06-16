@@ -62,7 +62,7 @@ c4_status_t c4_proof_transaction(proofer_ctx_t* ctx) {
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
 
   // check if we need historical proofs
-  if (block.slot) TRY_ADD_ASYNC(status, c4_check_historic_proof(ctx, &block_proof, block.slot));
+  if (block.slot) TRY_ADD_ASYNC(status, c4_check_historic_proof(ctx, &block_proof, &block));
 
   if (status != C4_SUCCESS) {
     if (block_proof.historic_proof.data) safe_free(block_proof.historic_proof.data);
