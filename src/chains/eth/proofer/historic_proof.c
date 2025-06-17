@@ -73,16 +73,17 @@ static c4_status_t check_historic_proof_header(proofer_ctx_t* ctx, blockroot_pro
     if (memcmp(root, src_block->data_block_root, 32) == 0) break;
     TRY_ASYNC_CATCH(get_beacon_header(ctx, root, &header), buffer_free(&proof));
     json_get_bytes(header, "parent_root", &root_buf);
-    buffer_add_be(&proof, json_get_uint64(header, "slot"), 8);
-    buffer_add_be(&proof, json_get_uint64(header, "proposer_index"), 8);
+    buffer_add_le(&proof, json_get_uint64(header, "slot"), 8);
+    buffer_add_le(&proof, json_get_uint64(header, "proposer_index"), 8);
     buffer_append(&proof, json_get_bytes(header, "state_root", &header_buf));
     buffer_append(&proof, json_get_bytes(header, "body_root", &header_buf));
   }
 
+  block_proof->sync_aggregate = src_block->sync_aggregate;
   block_proof->historic_proof = proof.data.len ? bytes_dup(proof.data) : bytes(NULL, 0);
   buffer_reset(&proof);
-  buffer_add_be(&proof, json_get_uint64(proof_header, "slot"), 8);
-  buffer_add_be(&proof, json_get_uint64(proof_header, "proposer_index"), 8);
+  buffer_add_le(&proof, json_get_uint64(proof_header, "slot"), 8);
+  buffer_add_le(&proof, json_get_uint64(proof_header, "proposer_index"), 8);
   buffer_append(&proof, json_get_bytes(proof_header, "parent_root", &header_buf));
   buffer_append(&proof, json_get_bytes(proof_header, "state_root", &header_buf));
   buffer_append(&proof, json_get_bytes(proof_header, "body_root", &header_buf));
