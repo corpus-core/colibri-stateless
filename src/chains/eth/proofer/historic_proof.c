@@ -207,6 +207,7 @@ void ssz_add_blockroot_proof(ssz_builder_t* builder, beacon_block_t* block_data,
 }
 
 void c4_free_block_proof(blockroot_proof_t* block_proof) {
+  if (block_proof->type == HISTORIC_PROOF_NONE) return;
   safe_free(block_proof->historic_proof.data);
   safe_free(block_proof->proof_header.data);
 }
