@@ -330,6 +330,13 @@ void buffer_add_be(buffer_t* buffer, uint64_t value, uint32_t len) {
     buffer->data.data[s + len - i - 1] = (value >> (i << 3)) & 0xFF;
   buffer->data.len += len;
 }
+void buffer_add_le(buffer_t* buffer, uint64_t value, uint32_t len) {
+  buffer_grow(buffer, buffer->data.len + len);
+  uint32_t s = buffer->data.len;
+  for (uint32_t i = 0; i < len; i++)
+    buffer->data.data[s + i] = (value >> (i << 3)) & 0xFF;
+  buffer->data.len += len;
+}
 
 char* bprintf(buffer_t* buf, const char* fmt, ...) {
   buffer_t tmp_buf = {0};

@@ -160,6 +160,13 @@ void buffer_add_chars(buffer_t* buffer, const char* data);
 void buffer_add_be(buffer_t* buffer, uint64_t value, uint32_t len);
 
 /**
+ * append a value as little endian to a buffer.
+ * @param buffer the buffer to append to
+ * @param value the value to append
+ * @param len the length of the value to append
+ */
+void buffer_add_le(buffer_t* buffer, uint64_t value, uint32_t len);
+/**
  * append bytes as hex chars to a buffer.
  * @param buffer the buffer to append to
  * @param data the data to append
