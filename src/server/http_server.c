@@ -204,7 +204,7 @@ static void c4_metrics_update_geo(client_t* client) {
   if (strcmp(client->request.path, "/health") == 0) return;
   if (strcmp(client->request.path, "/healthcheck") == 0) return;
   if (strcmp(client->request.path, "/metrics") == 0) return;
-
+  if (strcmp(client->request.method, "POST") && strcmp(client->request.method, "post")) return;
   if (!client->request.geo_city || !client->request.geo_country) return;
 
   const size_t MAX_GEO_LOCATIONS = 1000; // TODO: make this configurable
