@@ -53,7 +53,7 @@ static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_da
   ssz_add_bytes(builder, "block", bytes(buffer, l));
 }
 
-ssz_builder_t eth_ssz_create_state_proof(proofer_ctx_t* ctx, json_t block_number, beacon_block_t* block) {
+ssz_builder_t eth_ssz_create_state_proof(proofer_ctx_t* ctx, json_t block_number, beacon_block_t* block, blockroot_proof_t* historic_proof) {
   uint8_t       empty_selector = 0;
   bytes32_t     body_root      = {0};
   ssz_builder_t state_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
@@ -68,9 +68,7 @@ ssz_builder_t eth_ssz_create_state_proof(proofer_ctx_t* ctx, json_t block_number
   ssz_add_block_proof(&state_proof, block, block_index);
   ssz_add_bytes(&state_proof, "proof", proof);
   ssz_add_builders(&state_proof, "header", c4_proof_add_header(block->header, body_root));
-  ssz_add_bytes(&state_proof, "historic_proof", bytes(&empty_selector, 1)); // TODO add real histtoric proof, for now we just make sure format is correct
-  ssz_add_bytes(&state_proof, "sync_committee_bits", ssz_get(&block->sync_aggregate, "syncCommitteeBits").bytes);
-  ssz_add_bytes(&state_proof, "sync_committee_signature", ssz_get(&block->sync_aggregate, "syncCommitteeSignature").bytes);
+  ssz_add_blockroot_proof(&state_proof, block, *historic_proof);
 
   safe_free(proof.data);
   return state_proof;
