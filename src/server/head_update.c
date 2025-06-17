@@ -187,7 +187,7 @@ static c4_status_t handle_head(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* s
   buffer_t            buf2        = stack_buffer(tmp2);
   bytes_t             block_roots = {0};
   bytes_t             lcu         = {0};
-  TRY_ASYNC(c4_eth_get_signblock_and_parent(ctx, b->root, NULL, sig_block, data_block));
+  TRY_ASYNC(c4_eth_get_signblock_and_parent(ctx, b->root, NULL, sig_block, data_block, NULL));
 
   return C4_SUCCESS;
 

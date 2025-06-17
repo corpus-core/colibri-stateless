@@ -4,6 +4,7 @@
 #include "eth_account.h"
 #include "eth_req.h"
 #include "eth_tools.h"
+#include "historic_proof.h"
 #include "json.h"
 #include "proofer.h"
 #include "ssz.h"
@@ -42,7 +43,7 @@ static ssz_builder_t create_storage_proof(proofer_ctx_t* ctx, const ssz_def_t* d
   return storage_proof;
 }
 
-static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof, beacon_block_t* block_data, json_t address, json_t block_number) {
+static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof, beacon_block_t* block_data, json_t address, json_t block_number, blockroot_proof_t historic_proof) {
 
   json_t        json_code         = {0};
   buffer_t      tmp               = {0};
@@ -56,7 +57,7 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
   add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &eth_account_proof, "accountProof");
   ssz_add_bytes(&eth_account_proof, "address", json_as_bytes(address, &tmp));
   ssz_add_builders(&eth_account_proof, "storageProof", create_storage_proof(ctx, ssz_get_def(eth_account_proof.def, "storageProof"), json_get(eth_proof, "storageProof")));
-  ssz_add_builders(&eth_account_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data));
+  ssz_add_builders(&eth_account_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data, &historic_proof));
 
   // build the data only if we have code
   if (strcmp(ctx->method, "eth_getCode") == 0) {
@@ -76,13 +77,15 @@ static c4_status_t create_eth_account_proof(proofer_ctx_t* ctx, json_t eth_proof
 }
 
 c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
-  bool           is_storage_at = strcmp(ctx->method, "eth_getStorageAt") == 0;
-  bool           is_proof      = strcmp(ctx->method, "eth_getProof") == 0;
-  json_t         address       = json_at(ctx->params, 0);
-  json_t         storage_keys  = is_storage_at || is_proof ? json_at(ctx->params, 1) : (json_t) {0};
-  json_t         block_number  = json_at(ctx->params, is_storage_at || is_proof ? 2 : 1);
-  json_t         eth_proof     = {0};
-  beacon_block_t block         = {0};
+  bool              is_storage_at  = strcmp(ctx->method, "eth_getStorageAt") == 0;
+  bool              is_proof       = strcmp(ctx->method, "eth_getProof") == 0;
+  json_t            address        = json_at(ctx->params, 0);
+  json_t            storage_keys   = is_storage_at || is_proof ? json_at(ctx->params, 1) : (json_t) {0};
+  json_t            block_number   = json_at(ctx->params, is_storage_at || is_proof ? 2 : 1);
+  json_t            eth_proof      = {0};
+  beacon_block_t    block          = {0};
+  blockroot_proof_t historic_proof = {0};
+  c4_status_t       status         = C4_SUCCESS;
 
   if (is_storage_at)
     CHECK_JSON(ctx->params, "[address,bytes32,block]", "Invalid arguments for eth_getStorageAt: ");
@@ -92,8 +95,14 @@ c4_status_t c4_proof_account(proofer_ctx_t* ctx) {
     CHECK_JSON(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
-  TRY_ASYNC(eth_get_proof(ctx, address, storage_keys, &eth_proof, ssz_get_uint64(&block.execution, "blockNumber")));
-  TRY_ASYNC(create_eth_account_proof(ctx, eth_proof, &block, address, block_number));
+  TRY_ADD_ASYNC(status, eth_get_proof(ctx, address, storage_keys, &eth_proof, ssz_get_uint64(&block.execution, "blockNumber")));
+  TRY_ADD_ASYNC(status, c4_check_historic_proof(ctx, &historic_proof, &block));
+  if (status != C4_SUCCESS) {
+    c4_free_block_proof(&historic_proof);
+    return status;
+  }
 
-  return C4_SUCCESS;
+  status = create_eth_account_proof(ctx, eth_proof, &block, address, block_number, historic_proof);
+  c4_free_block_proof(&historic_proof);
+  return status;
 }
