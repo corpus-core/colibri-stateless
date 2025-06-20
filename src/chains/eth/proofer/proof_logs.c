@@ -36,6 +36,17 @@ typedef struct proof_logs_block {
   blockroot_proof_t        block_proof;
 } proof_logs_block_t;
 
+typedef enum {
+  ETH_GET_LOGS   = 0,
+  ETH_PROOF_LOGS = 1
+} logs_proof_type_t;
+
+static inline logs_proof_type_t proof_logs_block_proof_type(proofer_ctx_t* ctx) {
+  return !ctx->method || strcmp(ctx->method, "eth_getLogs") == 0
+             ? ETH_GET_LOGS
+             : ETH_PROOF_LOGS;
+}
+
 static inline uint32_t get_block_count(proof_logs_block_t* blocks) {
   uint32_t count = 0;
   while (blocks) {
@@ -209,7 +220,7 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
-      FROM_JSON(logs, ETH_SSZ_DATA_LOGS),
+      proof_logs_block_proof_type(ctx) == ETH_GET_LOGS ? FROM_JSON(logs, ETH_SSZ_DATA_LOGS) : NULL_SSZ_BUILDER,
       block_list,
       NULL_SSZ_BUILDER);
 
@@ -220,7 +231,10 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
 c4_status_t c4_proof_logs(proofer_ctx_t* ctx) {
   json_t              logs   = {0};
   proof_logs_block_t* blocks = NULL;
-  TRY_ASYNC(eth_get_logs(ctx, ctx->params, &logs));
+  if (proof_logs_block_proof_type(ctx) == ETH_GET_LOGS)
+    TRY_ASYNC(eth_get_logs(ctx, ctx->params, &logs));
+  else
+    logs = ctx->params;
 
   add_blocks(&blocks, logs);
   TRY_ASYNC_CATCH(get_receipts(ctx, blocks), free_blocks(blocks));

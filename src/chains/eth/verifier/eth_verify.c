@@ -22,6 +22,7 @@ static const char* proofable_methods[] = {
     RPC_METHOD("eth_getBlockByNumber", EthBlockData, EthBlockProof),
     RPC_METHOD("eth_getCode", Bytes, EthAccountProof),
     RPC_METHOD("eth_getLogs", ListEthReceiptDataLog, ListEthLogsBlock), // - currently everthing except the logIndex is verified
+    RPC_METHOD("eth_verifyLogs", Void, ListEthLogsBlock),
     RPC_METHOD("eth_getTransactionCount", Uint256, EthAccountProof),
     RPC_METHOD("eth_getStorageAt", Bytes32, EthAccountProof),
     RPC_METHOD("eth_getTransactionReceipt", EthReceiptData, EthReceiptProof),
