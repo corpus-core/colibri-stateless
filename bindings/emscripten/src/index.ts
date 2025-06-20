@@ -181,6 +181,13 @@ function chain_conf(config: C4Config, chainId: number | string): ChainConfig | u
   return undefined;
 }
 
+function cleanup_args(method: string, args: any[]): any[] {
+  if (method == "eth_verifyLogs") return args.map(arg => ({
+    transactionIndex: arg.transactionIndex,
+    blockNumber: arg.blockNumber
+  }))
+  return args;
+}
 
 
 
@@ -359,7 +366,7 @@ export default class C4Client {
           return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
         }
         const proof = this.config.proofer && this.config.proofer.length
-          ? await fetch_rpc(this.config.proofer, { method, params: args, c4: await this.getProoferConfig() }, true)
+          ? await fetch_rpc(this.config.proofer, { method, params: cleanup_args(method, args), c4: await this.getProoferConfig() }, true)
           : await this.createProof(method, args);
         return this.verifyProof(method, args, proof);
       }

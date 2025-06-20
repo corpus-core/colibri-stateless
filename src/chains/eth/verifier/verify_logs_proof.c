@@ -60,6 +60,11 @@ static bool verify_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, bytes32_t 
   bytes_t   block_hash   = ssz_get(&block, "blockHash").bytes;
   ssz_ob_t  block_number = ssz_get(&block, "blockNumber");
 
+  if (ctx->data.def->type == SSZ_TYPE_NONE && ctx->method && strcmp(ctx->method, "eth_verifyLogs") == 0) {
+    ctx->data = ssz_from_json(ctx->args, eth_ssz_verification_type(ETH_SSZ_DATA_LOGS));
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+
   // verify receipt proof
   if (!c4_tx_verify_receipt_proof(ctx, ssz_get(&tx, "proof"), ssz_uint32(tidx), root_hash, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
   if (bytes_all_zero(bytes(receipt_root, 32)))
