@@ -91,26 +91,14 @@ static void reset_local_filecache() {
   c4_proofer_cache_cleanup(UINT64_MAX, 0);
 #endif
 }
-static
-    // Function to get current time as Unix epoch milliseconds using system calls
-    uint64_t
-    now() {
+static uint64_t now() {
   struct timeval te;
-#ifdef _WIN32
-  FILETIME       ft;
-  ULARGE_INTEGER li;
-  GetSystemTimeAsFileTime(&ft);
-  li.LowPart  = ft.dwLowDateTime;
-  li.HighPart = ft.dwHighDateTime;
-  // Convert to microseconds from Jan 1, 1601
-  // Then adjust to Unix epoch (Jan 1, 1970)
-  uint64_t unix_time = (li.QuadPart - 116444736000000000LL) / 10;
-  te.tv_sec          = unix_time / 1000000;
-  te.tv_usec         = unix_time % 1000000;
-#else
+#ifndef _WIN32
   gettimeofday(&te, NULL);
-#endif
   return te.tv_sec * 1000L + te.tv_usec / 1000;
+#else
+  return 0;
+#endif
 }
 
 static bytes_t read_testdata(const char* filename) {
