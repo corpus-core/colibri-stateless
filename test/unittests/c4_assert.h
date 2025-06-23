@@ -17,6 +17,13 @@
 #include <dirent.h>
 #endif
 
+// Include platform-specific time headers OR uv.h
+#ifdef _WIN32
+#include <windows.h>
+#else // Non-Windows: Need sys/time.h for current_unix_ms()
+#include <sys/time.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,6 +90,27 @@ static void reset_local_filecache() {
 #ifdef PROOFER_CACHE
   c4_proofer_cache_cleanup(UINT64_MAX, 0);
 #endif
+}
+static
+    // Function to get current time as Unix epoch milliseconds using system calls
+    uint64_t
+    now() {
+  struct timeval te;
+#ifdef _WIN32
+  FILETIME       ft;
+  ULARGE_INTEGER li;
+  GetSystemTimeAsFileTime(&ft);
+  li.LowPart  = ft.dwLowDateTime;
+  li.HighPart = ft.dwHighDateTime;
+  // Convert to microseconds from Jan 1, 1601
+  // Then adjust to Unix epoch (Jan 1, 1970)
+  uint64_t unix_time = (li.QuadPart - 116444736000000000LL) / 10;
+  te.tv_sec          = unix_time / 1000000;
+  te.tv_usec         = unix_time % 1000000;
+#else
+  gettimeofday(&te, NULL);
+#endif
+  return te.tv_sec * 1000L + te.tv_usec / 1000;
 }
 
 static bytes_t read_testdata(const char* filename) {
@@ -224,8 +252,9 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
   file_get(bprintf(&tmp_buf, "states_%l", (uint64_t) chain_id), &client_state);
 
   // proofer
-  proofer_ctx_t* proof_ctx = c4_proofer_create(method, args, chain_id, flags);
-  proof_ctx->client_state  = client_state.data;
+  uint64_t       proof_start = now();
+  proofer_ctx_t* proof_ctx   = c4_proofer_create(method, args, chain_id, flags);
+  proof_ctx->client_state    = client_state.data;
   data_request_t* req;
   while (proof_data.data == NULL) {
     switch (c4_proofer_execute(proof_ctx)) {
@@ -251,6 +280,8 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
         break;
     }
   }
+  uint64_t proof_end    = now();
+  uint64_t verify_start = now();
 
   //  bytes_write(proof_ctx->proof, fopen("_proof.ssz", "w"), true);
 
@@ -296,6 +327,9 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
     c4_verify_free_data(&verify_ctx);
   }
   c4_proofer_free(proof_ctx);
+  uint64_t verify_end = now();
+
+  //  fprintf(stderr, "::Test: %s, %s,  proof: %lld ms, verify: %lld ms, total: %lld ms\n", dirname, method, proof_end - proof_start, verify_end - verify_start, verify_end - proof_start);
 }
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {

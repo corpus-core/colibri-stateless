@@ -11,6 +11,7 @@ const doc_files = [
     "chains/eth/ssz/verify_proof_types.h",
     "chains/eth/ssz/verify_data_types.h",
     "chains/eth/threat_model.md",
+    "chains/eth/benchmark.md",
     // cli
     "cli/proofer.c",
     "cli/ssz.c",

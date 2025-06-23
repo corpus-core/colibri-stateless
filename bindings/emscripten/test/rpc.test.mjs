@@ -95,9 +95,33 @@ test('RPC-Proof Test Suite', async (t) => {
             if (test_conf.trusted_blockhash)
                 conf.trusted_block_hashes = [test_conf.trusted_blockhash]
             const c4 = new Colibri(conf);
+
+            // Benchmark für createProof
+            const createProofStart = performance.now();
             const proof = await c4.createProof(test_conf.method, test_conf.params)
+            const createProofEnd = performance.now();
+            const createProofDuration = createProofEnd - createProofStart;
+
             assert.strictEqual(proof.length > 0, true, 'Proof should be non-empty');
+
+            // Benchmark für verifyProof
+            const verifyProofStart = performance.now();
             const result = await c4.verifyProof(test_conf.method, test_conf.params, proof);
+            const verifyProofEnd = performance.now();
+            const verifyProofDuration = verifyProofEnd - verifyProofStart;
+
+            const totalDuration = createProofDuration + verifyProofDuration;
+
+            if (process.env.BENCHMARK) {
+
+                // Ausgabe der Benchmark-Ergebnisse
+                console.log(`\n=== Benchmark für ${test} ===`);
+                console.log(`createProof: ${createProofDuration.toFixed(2)}ms`);
+                console.log(`verifyProof: ${verifyProofDuration.toFixed(2)}ms`);
+                console.log(`Gesamt: ${totalDuration.toFixed(2)}ms`);
+                console.log(`================================\n`);
+
+            }
             assert.deepEqual(result, test_conf.expected_result, 'Proof should be valid');
         });
     }
