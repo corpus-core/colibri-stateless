@@ -24,15 +24,15 @@ So while a complete block is even smaller than the json-data (because colibri st
 Verifying usualy is not a huge overhead. The most time consuming part is the checking the BLS-Signature.
 These times in the table show the time used to create the proof and verify it. (the rpc-responses are taken from the filesystem in order to ignore latency issues). The numbers in bracket are the times for creating the proof and verifying it.
 
-### Native test on Apple M3 Max
+These Benchmarks come from tests on Apple M3 Max :
 
-| method | native | wasm
+| method | native | JS (wasm)
 | ---------------- | -------------------------- | --------------------- |
 | eth_getBlockByNumber  | 24 ms (5+19) | 46 ms (5+41) |
 | eth_getTransactionByHash | 16 ms (3+13) | 43 ms (8+35) |
 | eth_getTransactionReceipt | 45 ms (43+2) | 68 ms (33+35) |
 | eth_getLogs | 19 ms (17+2) | 47 ms (12+35) |
-| eth_call ( ERC20.balanceOf) | 12 (10+2) ms | 51ms (11+40) |
+| eth_call ( ERC20.balanceOf) | 12 ms (10+2) | 51 ms (11+40) |
 
 
 ## Code size
