@@ -315,6 +315,7 @@ jobs:
             -v \
             -o scan-build-results \
             --exclude ../libs \
+            --exclude ../test \
             $SCAN_BUILD_OPTS \
             make 2>&1 | tee -a scan-build-output.txt || true
 
