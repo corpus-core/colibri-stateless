@@ -123,9 +123,11 @@ static void pending_remove(single_request_t* req) {
 }
 static void call_callback_if_done(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
-    if (c4_state_is_pending(req->requests[i].req)) return;
-    if (!req->requests[i].end_time) req->requests[i].end_time = current_ms();
+    if (c4_state_is_pending(req->requests[i].req)) return;                    // we are not done yet if one is still pending
+    if (!req->requests[i].end_time) req->requests[i].end_time = current_ms(); // set the end time if it's not set yet
   }
+
+  // now handle metrics
   uint8_t  tmp[1024];
   buffer_t buffer = stack_buffer(tmp);
 
@@ -144,6 +146,8 @@ static void call_callback_if_done(request_t* req) {
           r->end_time - r->start_time,
           r->req->error == NULL, r->cached);
   }
+
+  // and continue with the callback
   req->cb(req);
 }
 // Prüft abgeschlossene Übertragungen

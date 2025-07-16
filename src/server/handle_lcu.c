@@ -1,3 +1,4 @@
+#include "beacon.h"
 #include "logger.h"
 #include "server.h"
 
@@ -65,6 +66,21 @@ static void handle_lcu_result(void* u_ptr, uint64_t period, bytes_t data, char* 
   safe_free(ctx);
 }
 
+static void handle_lcu_beacon_client(request_t* req) {
+  if (c4_check_retry_request(req)) return;
+  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+  if (ctx->state.error) {
+    char* error = bprintf(NULL, "{\"error\":\"%s\"}", ctx->state.error);
+    c4_http_respond(req->client, 500, "application/json", bytes((uint8_t*) error, strlen(error)));
+    safe_free(error);
+  }
+  else
+    c4_http_respond(req->client, 200, "application/octet-stream", ctx->state.requests->response);
+
+  c4_proofer_free((proofer_ctx_t*) req->ctx);
+  safe_free(req);
+}
+
 bool c4_handle_lcu(client_t* client) {
 
   const char* path = "/eth/v1/beacon/light_client/updates?";
@@ -72,6 +88,22 @@ bool c4_handle_lcu(client_t* client) {
   char*    query = client->request.path + strlen(path);
   uint64_t start = c4_get_query(query, "start_period");
   uint64_t count = c4_get_query(query, "count");
+
+  if (!http_server.period_store) {
+    // take the response from the beacon-client
+    ssz_ob_t       result = {0};
+    request_t*     req    = (request_t*) safe_calloc(1, sizeof(request_t));
+    proofer_ctx_t* ctx    = safe_calloc(1, sizeof(proofer_ctx_t));
+    req->start_time       = current_ms();
+    req->client           = client;
+    req->cb               = handle_lcu_beacon_client;
+    req->ctx              = ctx;
+    ctx->chain_id         = http_server.chain_id;
+
+    c4_send_beacon_ssz(ctx, client->request.path + 1, NULL, NULL, 120, &result);
+    c4_start_curl_requests(req);
+    return true;
+  }
 
   if (!start || !count) {
     char* error = "{\"error\":\"Invalid arguments\"}";
