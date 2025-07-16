@@ -1,11 +1,15 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
+// the fork epochs for the different chains. index 0 is the the first fork or the epcoh of the ALTAIR fork. Must be NULL-Terminated
 static const uint64_t eth_mainnet_fork_epochs[] = {74240ULL, 144896ULL, 194048ULL, 269568ULL, 364032ULL, 0ULL};
 static const uint64_t eth_gnosis_fork_epochs[]  = {512ULL, 385536ULL, 648704ULL, 889856ULL, 1337856ULL, 0ULL};
+static const uint64_t eth_sepolia_fork_epochs[] = {50L, 100L, 56832L, 132608L, 222464L, 0ULL};
+static const uint64_t eth_chiado_fork_epochs[]  = {90L, 180L, 244224L, 516608L, 948224L, 0ULL};
 
 static const chain_spec_t chain_data[] = {
     {
+        // Mainnet
         .chain_id                = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1ULL),
         .fork_epochs             = eth_mainnet_fork_epochs,
         .genesis_validators_root = "\x4b\x36\x3d\xb9\x4e\x28\x61\x20\xd7\x6e\xb9\x05\x34\x0f\xdd\x4e\x54\xbf\xe9\xf0\x6b\xf3\x3f\xf6\xcf\x5a\xd2\x7f\x51\x1b\xfe\x95",
@@ -13,9 +17,28 @@ static const chain_spec_t chain_data[] = {
         .epochs_per_period_bits  = 8,
     },
     {
+        // Sepolia
+        .chain_id                = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
+        .fork_epochs             = eth_sepolia_fork_epochs,
+        .genesis_validators_root = "\xd8\xea\x17\x1f\x3c\x94\xae\xa2\x1e\xbc\x42\xa1\xed\x61\x05\x2a\xcf\x3f\x92\x09\xc0\x0e\x4e\xfb\xaa\xdd\xac\x09\xed\x9b\x80\x78",
+        .slots_per_epoch_bits    = 5,
+        .epochs_per_period_bits  = 8,
+
+    },
+    {
+        // Gnosis
         .chain_id                = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
         .fork_epochs             = eth_gnosis_fork_epochs,
         .genesis_validators_root = "\xf5\xdc\xb5\x56\x4e\x82\x9a\xab\x27\x26\x4b\x9b\xec\xd5\xdf\xaa\x01\x70\x85\x61\x12\x24\xcb\x30\x36\xf5\x73\x36\x8d\xbb\x9d\x47",
+        .slots_per_epoch_bits    = 4,
+        .epochs_per_period_bits  = 9,
+
+    },
+    {
+        // Gnosis chiado
+        .chain_id                = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200ULL),
+        .fork_epochs             = eth_chiado_fork_epochs,
+        .genesis_validators_root = "\x9d\x64\x2d\xac\x73\x05\x8f\xbf\x39\xc0\xae\x41\xab\x1e\x34\xe4\xd8\x89\x04\x3c\xb1\x99\x85\x1d\xed\x70\x95\xbc\x99\xeb\x4c\x1e",
         .slots_per_epoch_bits    = 4,
         .epochs_per_period_bits  = 9,
 

@@ -413,6 +413,48 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, uin
   return C4_SUCCESS;
 }
 
+static bool convert_to_ssz(proofer_ctx_t* ctx, data_request_t* data_request, ssz_ob_t* result) {
+  json_t json_result = json_parse((const char*) result->bytes.data);
+  json_t data        = json_get(json_result, "data");
+
+  if (data.type != JSON_TYPE_OBJECT) {
+    c4_state_add_error(&ctx->state, "Invalid JSON response");
+    return false;
+  }
+
+  if (result->def == NULL) {
+    // so we are getting a block, but we need to figure out the definition
+    uint64_t            slot  = json_get_uint64(json_get(data, "message"), "slot");
+    const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
+    if (chain == NULL) {
+      c4_state_add_error(&ctx->state, "unsupported chain id!");
+      return false;
+    }
+    fork_id_t fork = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(slot, chain));
+    result->def    = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, fork, ctx->chain_id);
+    if (!result->def) {
+      c4_state_add_error(&ctx->state, "no definition for ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER!");
+      return false;
+    }
+  }
+  ssz_ob_t ssz_result = ssz_from_json(data, result->def, &ctx->state);
+  if (!ssz_result.bytes.data) {
+    c4_state_add_error(&ctx->state, "Invalid SSZ response");
+    return false;
+  }
+
+  buffer_t buffer = {0};
+  bprintf(&buffer, "%z", ssz_result);
+  bytes_write(result->bytes, fopen("block_src.json", "wb"), true);
+  bytes_write(buffer.data, fopen("block_ssz.json", "wb"), true);
+  buffer_free(&buffer);
+
+  safe_free(data_request->response.data);
+  data_request->response = ssz_result.bytes;
+  result->bytes          = ssz_result.bytes;
+  return true;
+}
+
 c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
@@ -428,10 +470,12 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, cons
     if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (!data_request->error && data_request->response.data) {
       *result = (ssz_ob_t) {.def = def, .bytes = data_request->response};
-      if (def)
-        return ssz_is_valid(*result, true, &ctx->state) ? C4_SUCCESS : C4_ERROR;
-      else
-        return C4_SUCCESS;
+      if (!data_request->validated) {
+        if (result->bytes.len > 20 && result->bytes.data[0] == '{' && result->bytes.data[1] == '"' && !convert_to_ssz(ctx, data_request, result)) return C4_ERROR;
+        if (def && !ssz_is_valid(*result, true, &ctx->state)) return C4_ERROR;
+        data_request->validated = true;
+      }
+      return C4_SUCCESS;
     }
     else
       THROW_ERROR(data_request->error ? data_request->error : "Data request failed");

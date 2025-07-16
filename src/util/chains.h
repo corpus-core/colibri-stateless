@@ -35,6 +35,7 @@ typedef uint64_t chain_id_t;
 
 extern const chain_id_t C4_CHAIN_MAINNET;
 extern const chain_id_t C4_CHAIN_SEPOLIA;
+extern const chain_id_t C4_CHAIN_GNOSIS_CHIADO;
 extern const chain_id_t C4_CHAIN_BTC_MAINNET;
 extern const chain_id_t C4_CHAIN_BTC_TESTNET;
 extern const chain_id_t C4_CHAIN_BTC_DEVNET;

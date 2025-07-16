@@ -89,4 +89,8 @@ extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
 #define ssz_builder_for_type(typename) \
   {.def = eth_ssz_verification_type(typename), .dynamic = {0}, .fixed = {0}}
 
+inline static bool is_gnosis_chain(chain_id_t chain_id) {
+  return chain_id == C4_CHAIN_GNOSIS || chain_id == C4_CHAIN_GNOSIS_CHIADO;
+}
+
 #endif

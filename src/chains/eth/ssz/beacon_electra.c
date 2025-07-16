@@ -249,11 +249,11 @@ const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_
   switch (type) {
 #ifdef PROOFER
     case ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER:
-      return chain_id == C4_CHAIN_GNOSIS
+      return is_gnosis_chain(chain_id)
                  ? &BEACON_BLOCK_BODY_GNOSIS_CONTAINER
                  : &BEACON_BLOCK_BODY_CONTAINER;
     case ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER:
-      return chain_id == C4_CHAIN_GNOSIS
+      return is_gnosis_chain(chain_id)
                  ? &SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER
                  : &SIGNED_BEACON_BLOCK_CONTAINER;
 #endif

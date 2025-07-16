@@ -14,12 +14,40 @@
 #include <string.h>
 #define MAX_HISTORIC_PROOF_HEADER_DEPTH 10
 
+typedef enum {
+  BEACON_TYPE_NONE     = 0,
+  BEACON_TYPE_LODESTAR = 1,
+  BEACON_TYPE_NIMBUS   = 2,
+} beacon_type_t;
+static beacon_type_t beacon_type = BEACON_TYPE_NONE;
+
 static const ssz_def_t HISTORICAL_SUMMARY[] = {
     SSZ_BYTES32("block_summary_root"),
     SSZ_BYTES32("state_summary_root")};
 static const ssz_def_t HISTORICAL_SUMMARY_CONTAINER = SSZ_CONTAINER("HISTORICAL_SUMMARY", HISTORICAL_SUMMARY);
 static const ssz_def_t SUMMARIES                    = SSZ_LIST("summaries", HISTORICAL_SUMMARY_CONTAINER, 1 << 24);
 static const ssz_def_t BLOCKS                       = SSZ_VECTOR("blocks", ssz_bytes32, 8192);
+
+static c4_status_t get_beacon_type(proofer_ctx_t* ctx, beacon_type_t* type) {
+  if (beacon_type != BEACON_TYPE_NONE) {
+    *type = beacon_type;
+    return C4_SUCCESS;
+  }
+
+  json_t result = {0};
+  TRY_ASYNC(c4_send_beacon_json(ctx, "eth/v1/node/version", NULL, DEFAULT_TTL, &result));
+  json_t version = json_get(json_get(result, "data"), "version");
+  if (version.type != JSON_TYPE_STRING) THROW_ERROR("Invalid conses api response for version!");
+
+  if (version.len > 10 && strncmp(version.start + 1, "Nimbus", 6) == 0)
+    *type = BEACON_TYPE_NIMBUS;
+  else if (version.len > 10 && strncmp(version.start + 1, "Lodestar", 8) == 0)
+    *type = BEACON_TYPE_LODESTAR;
+  else
+    THROW_ERROR_WITH("Unsupported beacon client: %j", version);
+
+  return C4_SUCCESS;
+}
 
 static c4_status_t get_beacon_header(proofer_ctx_t* ctx, bytes32_t block_hash, json_t* header) {
 
@@ -103,6 +131,7 @@ static c4_status_t check_historic_proof_direct(proofer_ctx_t* ctx, blockroot_pro
   buffer_t            buf2          = stack_buffer(tmp);
   const chain_spec_t* chain         = c4_eth_get_chain_spec(ctx->chain_id);
   bytes_t             blocks        = {0};
+  beacon_type_t       beacon_type   = BEACON_TYPE_NONE;
 
   if (chain == NULL) THROW_ERROR("unsupported chain id!");
   if (!ctx->client_state.len || !(ctx->flags & C4_PROOFER_FLAG_CHAIN_STORE)) return C4_SUCCESS;  // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
@@ -111,10 +140,13 @@ static c4_status_t check_historic_proof_direct(proofer_ctx_t* ctx, blockroot_pro
   if (!state_period) return C4_SUCCESS;                                                          // the client does not have a state yet, so he might as well get the head and verify the block.
   if (block_period >= state_period) return C4_SUCCESS;                                           // the target block is within the current range of the client
 
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
-  TRY_ADD_ASYNC(status, c4_send_beacon_json(ctx, bprintf(&buf, "eth/v1/lodestar/historical_summaries/0x%b", ssz_get(&block.header, "stateRoot").bytes), NULL, 120, &history_proof));
+  TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
+  TRY_ADD_ASYNC(status, get_beacon_type(ctx, &beacon_type));                                 // make sure we which beacon client we are using
+  TRY_ASYNC(status);                                                                         // wait for all async requests to finish
+
+  TRY_ADD_ASYNC(status, c4_send_beacon_json(ctx, bprintf(&buf, beacon_type == BEACON_TYPE_NIMBUS ? "nimbus/v1/debug/beacon/states/0x%b/historical_summaries" : "eth/v1/lodestar/historical_summaries/0x%b", ssz_get(&block.header, "stateRoot").bytes), NULL, 120, &history_proof));
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "chain_store/%d/%d/blocks.ssz", (uint32_t) ctx->chain_id, block_period), NULL, 0, &blocks)); // get the blockd
-  if (status != C4_SUCCESS) return status;
+  TRY_ASYNC(status);                                                                                                                                              // finish requests before continuing
 
   fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
   json_t    data           = json_get(history_proof, "data");                                    // the the main json-object

@@ -49,6 +49,7 @@ typedef struct data_request {
   struct data_request*    next;
   bytes32_t               id;
   uint32_t                ttl;
+  bool                    validated;
 } data_request_t;
 
 typedef struct {

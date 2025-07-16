@@ -160,13 +160,36 @@ ssz_ob_t ssz_builder_to_bytes(ssz_builder_t* buffer) {
   return (ssz_ob_t) {.def = buffer->def, .bytes = buffer->fixed.data};
 }
 
-ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def) {
+ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
   ssz_builder_t buf = {0};
   buf.def           = def;
   switch (def->type) {
     case SSZ_TYPE_CONTAINER:
       for (int i = 0; i < def->def.container.len; i++) {
-        ssz_ob_t ob = ssz_from_json(json_get(json, def->def.container.elements[i].name), def->def.container.elements + i);
+        json_t element = json_get(json, def->def.container.elements[i].name);
+        if (element.type == JSON_TYPE_NOT_FOUND) {
+          // try again, but change the camelcase name with pascal case
+          buffer_t pascal_name = {0};
+          for (char* c = def->def.container.elements[i].name; *c; c++) {
+            char cc = *c;
+            if (cc >= 'A' && cc <= 'Z') {
+              if (pascal_name.data.len && pascal_name.data.data[pascal_name.data.len - 1] != '_')
+                buffer_add_chars(&pascal_name, "_");
+              cc += 32; // make it lowercase
+            }
+            buffer_append(&pascal_name, bytes(&cc, 1));
+          }
+          buffer_grow(&pascal_name, pascal_name.data.len + 1);
+          pascal_name.data.data[pascal_name.data.len] = '\0';
+          element                                     = json_get(json, (const char*) pascal_name.data.data);
+          buffer_free(&pascal_name);
+        }
+        if (element.type == JSON_TYPE_NOT_FOUND) {
+          char* error = bprintf(NULL, "ssz_from_json: %s.%s not found", def->name, def->def.container.elements[i].name);
+          c4_state_add_error(state, error);
+          free(error);
+        }
+        ssz_ob_t ob = ssz_from_json(element, def->def.container.elements + i, state);
         ssz_add_bytes(&buf, def->def.container.elements[i].name, ob.bytes);
         safe_free(ob.bytes.data);
       }
@@ -201,14 +224,14 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def) {
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1) {
         bytes_t bytes = json_as_bytes(json, &buf.fixed);
         if (bytes.len > def->def.vector.len)
-          bytes.len = def->def.vector.len;
+          buf.fixed.data.len = def->def.vector.len;
         else if (bytes.len < def->def.vector.len)
           buffer_append(&buf.fixed, bytes(NULL, def->def.vector.len - bytes.len));
         return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
       }
       else {
         for (int i = 0; i < def->def.vector.len; i++) {
-          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type);
+          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type, state);
           buffer_append(&buf.fixed, ob.bytes);
           safe_free(ob.bytes.data);
         }
@@ -221,7 +244,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def) {
       uint32_t len = json_len(json);
       if (ssz_is_dynamic(def->def.vector.type))
         for (uint32_t i = 0; i < len; i++) {
-          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type);
+          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type, state);
           ssz_add_uint32(&buf, 4 * len + buf.dynamic.data.len);
           buffer_append(&buf.dynamic, ob.bytes);
           safe_free(ob.bytes.data);
@@ -229,13 +252,23 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def) {
       else {
         buffer_grow(&buf.fixed, len * ssz_fixed_length(def->def.vector.type));
         for (int i = 0; i < len; i++) {
-          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type);
+          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type, state);
           buffer_append(&buf.fixed, ob.bytes);
           safe_free(ob.bytes.data);
         }
       }
       return ssz_builder_to_bytes(&buf);
     }
+    case SSZ_TYPE_BIT_VECTOR: {
+      bytes_t bytes = json_as_bytes(json, &buf.fixed);
+      if (bytes.len > def->def.vector.len / 8)
+        buf.fixed.data.len = def->def.vector.len / 8;
+      else if (bytes.len < def->def.vector.len / 8)
+        buffer_append(&buf.fixed, bytes(NULL, def->def.vector.len / 8 - bytes.len));
+      return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
+    }
+    case SSZ_TYPE_BIT_LIST:
+      return (ssz_ob_t) {.def = def, .bytes = json_as_bytes(json, &buf.fixed)};
     default:
       return (ssz_ob_t) {.def = def, .bytes = {0}};
   }
