@@ -154,11 +154,25 @@ const default_config: {
     proofer: ["https://mainnet1.colibri-proof.tech"],
     pollingInterval: 12000,
   },
+  '11155111': { // Sepolia
+    alias: ["sepolia", "0xaa36a7"],
+    beacon_apis: ["https://ethereum-sepolia-beacon-api.publicnode.com"],
+    rpcs: ["https://ethereum-sepolia-rpc.publicnode.com"],
+    proofer: ["https://sepolia.colibri-proof.tech"],
+    pollingInterval: 12000,
+  },
   '100': { // gnosis
     alias: ["gnosis", "xdai", "0x64"],
     beacon_apis: ["https://gnosis.colibri-proof.tech"],
     rpcs: ["https://rpc.ankr.com/gnosis"],
     proofer: ["https://gnosis.colibri-proof.tech"],
+    pollingInterval: 5000,
+  },
+  '10200': { // gnosis chiado
+    alias: ["chiado", "0x27d8"],
+    beacon_apis: ["https://gnosis-chiado-beacon-api.publicnode.com"],
+    rpcs: ["https://gnosis-chiado-rpc.publicnode.com"],
+    proofer: ["https://chiado.colibri-proof.tech"],
     pollingInterval: 5000,
   },
 }
