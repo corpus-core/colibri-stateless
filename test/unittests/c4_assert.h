@@ -92,8 +92,8 @@ static void reset_local_filecache() {
 #endif
 }
 static uint64_t now() {
-  struct timeval te;
 #ifndef _WIN32
+  struct timeval te;
   gettimeofday(&te, NULL);
   return te.tv_sec * 1000L + te.tv_usec / 1000;
 #else
