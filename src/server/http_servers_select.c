@@ -44,6 +44,9 @@ bool c4_is_user_error_response(long http_code, const char* url, bytes_t response
   // Only 4xx codes can be user errors
   if (http_code < 400 || http_code >= 500) return false;
 
+  // 401 Unauthorized is a server configuration issue, not user error
+  if (http_code == 401) return false;
+
   // Special case: Beacon API requests with 404 might be sync lag
   if (http_code == 404 && url &&
       (strstr(url, "/beacon/blocks/") || strstr(url, "/beacon/headers/"))) {
