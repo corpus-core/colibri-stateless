@@ -496,21 +496,33 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     // Cache miss - proceed with normal request handling
     server_list_t* servers = c4_get_server_list(r->req->type);
 
-    // Use intelligent server selection instead of just using response_node_index
-    int selected_index = c4_select_best_server(servers, r->req->node_exclude_mask);
-    if (selected_index == -1) {
-      // This should be very rare after emergency reset logic in c4_select_best_server
-      fprintf(stderr, ":: CRITICAL ERROR: No available servers even after emergency reset attempts\n");
-      r->req->error = bprintf(NULL, "All servers exhausted - check network connectivity");
-      r->end_time   = current_ms();
-      call_callback_if_done(r->parent);
-      return;
-    }
+    int selected_index;
 
-    // Update the request with the selected server index
-    r->req->response_node_index = selected_index;
-    char* base_url              = servers && servers->count > selected_index ? servers->urls[selected_index] : NULL;
-    char* req_url               = r->req->url;
+    // Check if this is a retry (exclude_mask > 0) with valid pre-selected server index
+    if (r->req->node_exclude_mask > 0 &&
+        r->req->response_node_index < servers->count &&
+        !(r->req->node_exclude_mask & (1 << r->req->response_node_index))) {
+      // Use pre-selected index from retry logic
+      selected_index = r->req->response_node_index;
+      fprintf(stderr, "   [retry] Using pre-selected server %d: %s\n",
+              selected_index, servers->urls[selected_index]);
+    }
+    else {
+      // Use intelligent server selection for initial requests
+      selected_index = c4_select_best_server(servers, r->req->node_exclude_mask);
+      if (selected_index == -1) {
+        // This should be very rare after emergency reset logic in c4_select_best_server
+        fprintf(stderr, ":: CRITICAL ERROR: No available servers even after emergency reset attempts\n");
+        r->req->error = bprintf(NULL, "All servers exhausted - check network connectivity");
+        r->end_time   = current_ms();
+        call_callback_if_done(r->parent);
+        return;
+      }
+      // Update the request with the selected server index
+      r->req->response_node_index = selected_index;
+    }
+    char* base_url = servers && servers->count > selected_index ? servers->urls[selected_index] : NULL;
+    char* req_url  = r->req->url;
 
     // Safeguard against NULL URLs
     if (!req_url) req_url = "";
