@@ -530,8 +530,8 @@ static void c4_write_server_health_metrics(buffer_t* data) {
   bprintf(data, "# TYPE colibri_server_unhealthy_duration_ms gauge\n");
 
   // Write metrics for both server types
-  c4_write_server_type_metrics(data, C4_DATA_TYPE_ETH_RPC, "eth_rpc");
-  c4_write_server_type_metrics(data, C4_DATA_TYPE_BEACON_API, "beacon_api");
+  c4_write_server_type_metrics(data, C4_DATA_TYPE_ETH_RPC, "rpc");
+  c4_write_server_type_metrics(data, C4_DATA_TYPE_BEACON_API, "beacon");
 
   bprintf(data, "\n");
 }
