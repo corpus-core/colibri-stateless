@@ -173,7 +173,9 @@ static void handle_curl_events() {
     server_list_t* servers = c4_get_server_list(r->req->type);
     r->end_time            = current_ms();
     uint64_t response_time = r->end_time - r->start_time;
-    bool     is_user_error = !success && c4_is_user_error_response(http_code); // Check if this is a user error before updating health stats
+    bool     is_user_error = !success && c4_is_user_error_response(http_code,
+                                                               r->url ? r->url : r->req->url,
+                                                                   r->buffer.data); // Check if this is a user error before updating health stats
 
     c4_update_server_health(servers, r->req->response_node_index, response_time, success || !is_user_error);
 
