@@ -1,4 +1,3 @@
-#include "http_servers_select.h"
 #include "logger.h"
 #include "proofer.h"
 #include "server.h"

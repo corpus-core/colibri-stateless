@@ -1,5 +1,4 @@
 #include "cache.h"
-#include "http_servers_select.h"
 #include "logger.h"
 #include "server.h"
 #include <stddef.h> // Added for offsetof
