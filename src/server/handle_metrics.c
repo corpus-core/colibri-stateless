@@ -421,6 +421,121 @@ static void c4_write_prometheus_bucket_metrics(buffer_t*         data,
   }
 }
 
+// Helper function to extract clean server name from URL
+static const char* extract_server_name(const char* url) {
+  if (!url) return "unknown";
+
+  // Remove http:// or https:// prefix
+  const char* start = url;
+  if (strncmp(url, "https://", 8) == 0) {
+    start = url + 8;
+  }
+  else if (strncmp(url, "http://", 7) == 0) {
+    start = url + 7;
+  }
+
+  // Find first slash to truncate path
+  const char* slash = strchr(start, '/');
+  if (slash) {
+    // Create a static buffer for the result (thread-safe for single-threaded metrics)
+    static char server_name[256];
+    size_t      len = slash - start;
+    if (len >= sizeof(server_name)) len = sizeof(server_name) - 1;
+    memcpy(server_name, start, len);
+    server_name[len] = '\0';
+    return server_name;
+  }
+
+  // No slash found, return everything after protocol
+  return start;
+}
+
+static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t type, const char* type_name) {
+  server_list_t* servers = c4_get_server_list(type);
+  if (!servers || !servers->health_stats || servers->count == 0) return;
+
+  for (size_t i = 0; i < servers->count; i++) {
+    server_health_t* health      = &servers->health_stats[i];
+    const char*      server_name = extract_server_name(servers->urls[i]);
+
+    // Calculate derived metrics
+    double success_rate      = health->total_requests > 0 ? (double) health->successful_requests / health->total_requests : 0.0;
+    double avg_response_time = health->successful_requests > 0 ? (double) health->total_response_time / health->successful_requests : 0.0;
+
+    // Server health status (1 = healthy, 0 = unhealthy)
+    bprintf(data, "colibri_server_healthy{type=\"%s\",server=\"%s\",index=\"%l\"} %d\n",
+            type_name, server_name, i, health->is_healthy ? 1 : 0);
+
+    // Server weight for load balancing
+    bprintf(data, "colibri_server_weight{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
+            type_name, server_name, i, health->weight);
+
+    // Success rate (0.0 to 1.0)
+    bprintf(data, "colibri_server_success_rate{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
+            type_name, server_name, i, success_rate);
+
+    // Average response time in milliseconds
+    bprintf(data, "colibri_server_avg_response_time_ms{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
+            type_name, server_name, i, avg_response_time);
+
+    // Consecutive failures count
+    bprintf(data, "colibri_server_consecutive_failures{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+            type_name, server_name, i, health->consecutive_failures);
+
+    // Total requests to this server
+    bprintf(data, "colibri_server_total_requests{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+            type_name, server_name, i, health->total_requests);
+
+    // Successful requests to this server
+    bprintf(data, "colibri_server_successful_requests{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+            type_name, server_name, i, health->successful_requests);
+
+    // Recovery status (1 = recovery allowed, 0 = recovery blocked)
+    bprintf(data, "colibri_server_recovery_allowed{type=\"%s\",server=\"%s\",index=\"%l\"} %d\n",
+            type_name, server_name, i, health->recovery_allowed ? 1 : 0);
+
+    // Time since last use in milliseconds
+    uint64_t time_since_last_use = current_ms() - health->last_used;
+    bprintf(data, "colibri_server_last_used_ms_ago{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+            type_name, server_name, i, time_since_last_use);
+
+    // Time marked unhealthy (0 if healthy)
+    uint64_t unhealthy_duration = health->is_healthy ? 0 : (health->marked_unhealthy_at > 0 ? current_ms() - health->marked_unhealthy_at : 0);
+    bprintf(data, "colibri_server_unhealthy_duration_ms{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+            type_name, server_name, i, unhealthy_duration);
+  }
+}
+
+static void c4_write_server_health_metrics(buffer_t* data) {
+  // Write help and type information once
+  bprintf(data, "# HELP colibri_server_healthy Server health status (1=healthy, 0=unhealthy).\n");
+  bprintf(data, "# TYPE colibri_server_healthy gauge\n");
+  bprintf(data, "# HELP colibri_server_weight Current load balancing weight for the server.\n");
+  bprintf(data, "# TYPE colibri_server_weight gauge\n");
+  bprintf(data, "# HELP colibri_server_success_rate Success rate of requests to the server (0.0-1.0).\n");
+  bprintf(data, "# TYPE colibri_server_success_rate gauge\n");
+  bprintf(data, "# HELP colibri_server_avg_response_time_ms Average response time in milliseconds.\n");
+  bprintf(data, "# TYPE colibri_server_avg_response_time_ms gauge\n");
+  bprintf(data, "# HELP colibri_server_consecutive_failures Number of consecutive failures.\n");
+  bprintf(data, "# TYPE colibri_server_consecutive_failures gauge\n");
+  bprintf(data, "# HELP colibri_server_total_requests Total number of requests sent to the server.\n");
+  bprintf(data, "# TYPE colibri_server_total_requests counter\n");
+  bprintf(data, "# HELP colibri_server_successful_requests Total number of successful requests to the server.\n");
+  bprintf(data, "# TYPE colibri_server_successful_requests counter\n");
+  bprintf(data, "# HELP colibri_server_recovery_allowed Whether the server is allowed to recover (1=yes, 0=no).\n");
+  bprintf(data, "# TYPE colibri_server_recovery_allowed gauge\n");
+  bprintf(data, "# HELP colibri_server_last_used_ms_ago Time since server was last used in milliseconds.\n");
+  bprintf(data, "# TYPE colibri_server_last_used_ms_ago gauge\n");
+  bprintf(data, "# HELP colibri_server_unhealthy_duration_ms Time the server has been unhealthy in milliseconds.\n");
+  bprintf(data, "# TYPE colibri_server_unhealthy_duration_ms gauge\n");
+
+  // Write metrics for both server types
+  c4_write_server_type_metrics(data, C4_DATA_TYPE_ETH_RPC, "eth_rpc");
+  c4_write_server_type_metrics(data, C4_DATA_TYPE_BEACON_API, "beacon_api");
+
+  bprintf(data, "\n");
+}
+
 #ifdef HTTP_SERVER_GEO
 // Comparison function for qsort to sort by count descending
 static int compare_geo_locations_desc(const void* a, const void* b) {
@@ -554,6 +669,9 @@ bool c4_handle_metrics(client_t* client) {
 
   // Beacon Requests
   c4_write_prometheus_bucket_metrics(&data, &beacon_requests, "beacon", "Beacon API (e.g. /eth/v1/beacon/genesis)", &method_metrics_described);
+
+  // Server Health Statistics
+  c4_write_server_health_metrics(&data);
 
 #ifdef HTTP_SERVER_GEO
 

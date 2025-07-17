@@ -169,7 +169,13 @@ static void handle_curl_events() {
     pending_request_t* pending   = pending_find(r);
     long               http_code = 0;
     if (msg->data.result == CURLE_OK) curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
-    bool success = http_code >= 200 && http_code < 300;
+    bool           success = http_code >= 200 && http_code < 300;
+    server_list_t* servers = c4_get_server_list(r->req->type);
+    r->end_time            = current_ms();
+    uint64_t response_time = r->end_time - r->start_time;
+    bool     is_user_error = !success && c4_is_user_error_response(http_code); // Check if this is a user error before updating health stats
+
+    c4_update_server_health(servers, r->req->response_node_index, response_time, success || !is_user_error);
 
     if (success) {
       fprintf(stderr, "   [curl ] %s %s -> OK %d bytes\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len);
@@ -182,6 +188,13 @@ static void handle_curl_events() {
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
       r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, curl_easy_strerror(res), bprintf(&r->buffer, " ")); // create error message
       fprintf(stderr, "   [curl ] %s %s -> ERROR : %s\n", effective_url ? effective_url : (r->url ? r->url : r->req->url), r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
+
+      // For user errors (4xx), mark as non-retryable to avoid unnecessary retries
+      if (is_user_error) {
+        fprintf(stderr, "   [user ] User error detected (4xx) - marking request as non-retryable\n");
+        // Set exclude mask to all servers to prevent retries
+        r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
+      }
     }
 
     // Process any waiting requests
@@ -479,9 +492,23 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   }
   else {
     // Cache miss - proceed with normal request handling
-    server_list_t* servers  = c4_get_server_list(r->req->type);
-    char*          base_url = servers && servers->count > r->req->response_node_index ? servers->urls[r->req->response_node_index] : NULL;
-    char*          req_url  = r->req->url;
+    server_list_t* servers = c4_get_server_list(r->req->type);
+
+    // Use intelligent server selection instead of just using response_node_index
+    int selected_index = c4_select_best_server(servers, r->req->node_exclude_mask);
+    if (selected_index == -1) {
+      // This should be very rare after emergency reset logic in c4_select_best_server
+      fprintf(stderr, ":: CRITICAL ERROR: No available servers even after emergency reset attempts\n");
+      r->req->error = bprintf(NULL, "All servers exhausted - check network connectivity");
+      r->end_time   = current_ms();
+      call_callback_if_done(r->parent);
+      return;
+    }
+
+    // Update the request with the selected server index
+    r->req->response_node_index = selected_index;
+    char* base_url              = servers && servers->count > selected_index ? servers->urls[selected_index] : NULL;
+    char* req_url               = r->req->url;
 
     // Safeguard against NULL URLs
     if (!req_url) req_url = "";
@@ -586,9 +613,18 @@ void c4_add_request(client_t* client, data_request_t* req, void* data, http_requ
 void c4_start_curl_requests(request_t* req) {
   int            len = 0, i = 0;
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+
+  // Count pending requests (server availability will be checked in c4_select_best_server)
   for (data_request_t* r = ctx->state.requests; r; r = r->next) {
     if (c4_state_is_pending(r)) len++;
   }
+
+  if (len == 0) {
+    // No pending requests, go back to the callback function
+    req->cb(req);
+    return;
+  }
+
   req->requests      = (single_request_t*) safe_calloc(len, sizeof(single_request_t));
   req->request_count = len;
 
@@ -618,22 +654,28 @@ bool c4_check_retry_request(request_t* req) {
     data_request_t*   pending = r->req;
     server_list_t*    servers = c4_get_server_list(pending->type);
 
-    if (pending->error && servers && pending->response_node_index + 1 < servers->count) {
-      int idx = pending->response_node_index + 1;
-      for (int i = idx; i < servers->count; i++) {
-        if (pending->node_exclude_mask & (1 << i))
-          idx++;
-        else
-          break;
-      }
-      if (idx < servers->count) {
-        fprintf(stderr, ":: Retrying request with server %d: %s\n", idx,
-                servers->urls[idx] ? servers->urls[idx] : "NULL");
+    if (pending->error && servers) {
+      // Check if too many servers are unhealthy (might indicate user error)
+      if (c4_should_reset_health_stats(servers))
+        c4_reset_server_health_stats(servers);
+
+      // Mark the current server as failed in the exclude mask
+      pending->node_exclude_mask |= (1 << pending->response_node_index);
+
+      // Try to find another available server (c4_select_best_server handles emergency reset)
+      int new_idx = c4_select_best_server(servers, pending->node_exclude_mask);
+      if (new_idx != -1) {
+        fprintf(stderr, ":: Retrying request with server %d: %s\n", new_idx,
+                servers->urls[new_idx] ? servers->urls[new_idx] : "NULL");
         safe_free(pending->error);
-        pending->response_node_index = idx;
+        pending->response_node_index = new_idx;
         pending->error               = NULL;
         r->start_time                = current_ms();
         retry_requests++;
+      }
+      else {
+        // This should be very rare due to emergency reset in c4_select_best_server
+        fprintf(stderr, ":: No more servers available for retry after emergency measures\n");
       }
     }
   }
@@ -675,13 +717,22 @@ static void init_serverlist(server_list_t* list, char* servers) {
     token = strtok(NULL, ",");
   }
   memcpy(servers_copy, servers, strlen(servers) + 1);
-  list->urls  = (char**) safe_calloc(count, sizeof(char*));
-  list->count = count;
-  count       = 0;
-  token       = strtok(servers_copy, ",");
+  list->urls         = (char**) safe_calloc(count, sizeof(char*));
+  list->health_stats = (server_health_t*) safe_calloc(count, sizeof(server_health_t));
+  list->count        = count;
+  list->next_index   = 0;
+  count              = 0;
+  token              = strtok(servers_copy, ",");
   while (token) {
-    list->urls[count++] = strdup(token);
-    token               = strtok(NULL, ",");
+    list->urls[count] = strdup(token);
+    // Initialize health stats
+    list->health_stats[count].is_healthy          = true;
+    list->health_stats[count].recovery_allowed    = true;
+    list->health_stats[count].weight              = 1.0;
+    list->health_stats[count].last_used           = current_ms();
+    list->health_stats[count].marked_unhealthy_at = 0;
+    count++;
+    token = strtok(NULL, ",");
   }
   safe_free(servers_copy);
 }
@@ -714,5 +765,15 @@ void c4_cleanup_curl() {
   curl_global_cleanup();
   if (memcache_client) {
     memcache_free(&memcache_client);
+  }
+
+  // Clean up server health stats
+  if (eth_rpc_servers.health_stats) {
+    safe_free(eth_rpc_servers.health_stats);
+    eth_rpc_servers.health_stats = NULL;
+  }
+  if (beacon_api_servers.health_stats) {
+    safe_free(beacon_api_servers.health_stats);
+    beacon_api_servers.health_stats = NULL;
   }
 }

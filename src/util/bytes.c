@@ -407,6 +407,13 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           buffer_add_chars(buf, tmp);
           break;
         }
+        case 'f': {
+          double value   = va_arg(args, double);
+          char   tmp[40] = {0};
+          sprintf(tmp, "%.6f", value);
+          buffer_add_chars(buf, tmp);
+          break;
+        }
         case 'c': {
           char c = va_arg(args, int);
           buffer_append(buf, bytes((uint8_t*) &c, 1));
