@@ -32,7 +32,7 @@ bool eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain) 
 
   // compute fork_data root hash to the seconf 32 bytes of bffer
   if (!chain) return false;
-  c4_chain_fork_version(chain_id, c4_chain_fork_id(chain_id, epoch_for_slot(slot - 1, chain)), buffer);
+  chain->fork_version_func(chain_id, c4_chain_fork_id(chain_id, epoch_for_slot(slot - 1, chain)), buffer);
   if (!c4_chain_genesis_validators_root(chain_id, buffer + 4)) false;
 
   ssz_hash_tree_root(ssz_ob(FORK_DATA_CONTAINER, bytes(buffer, 36)), root);

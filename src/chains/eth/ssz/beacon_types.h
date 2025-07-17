@@ -47,12 +47,16 @@ typedef enum {
   ETH_SSZ_DATA_PROOF   = 25
 } eth_ssz_type_t;
 
+// functionpointer for a function calculating the fork version from chain_id, fork and target bytes
+typedef void (*fork_version_func_t)(chain_id_t chain_id, fork_id_t fork, uint8_t* version);
+
 typedef struct {
-  chain_id_t      chain_id;
-  const uint64_t* fork_epochs;
-  const bytes32_t genesis_validators_root;
-  const int       slots_per_epoch_bits;   // 5 = 32 slots per epoch
-  const int       epochs_per_period_bits; // 8 = 256 epochs per period
+  chain_id_t          chain_id;
+  const uint64_t*     fork_epochs;
+  const bytes32_t     genesis_validators_root;
+  const int           slots_per_epoch_bits;   // 5 = 32 slots per epoch
+  const int           epochs_per_period_bits; // 8 = 256 epochs per period
+  fork_version_func_t fork_version_func;
 } chain_spec_t;
 
 bool                c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
@@ -64,8 +68,7 @@ const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, c
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id);
 const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_id);
 const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork);
-void             c4_chain_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version);
-// c4 specific
+//  c4 specific
 const ssz_def_t*       eth_ssz_verification_type(eth_ssz_type_t type);
 extern const ssz_def_t ssz_transactions_bytes;
 extern const ssz_def_t BEACON_BLOCK_HEADER[5];
