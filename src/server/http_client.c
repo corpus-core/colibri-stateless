@@ -399,11 +399,12 @@ static inline uint32_t get_request_ttl(data_request_t* req) {
 // Function to generate cache key from request
 static char* generate_cache_key(data_request_t* req) {
   buffer_t key = {0};
-  bprintf(&key, "%d:%s:%s:%s",
+  bprintf(&key, "%d:%s:%s:%s:%l",
           req->type,
           req->url,
           req->method == C4_DATA_METHOD_POST ? (char*) req->payload.data : "",
-          req->encoding == C4_DATA_ENCODING_JSON ? "json" : "ssz");
+          req->encoding == C4_DATA_ENCODING_JSON ? "json" : "ssz",
+          req->chain_id);
   bytes32_t hash;
   sha256(key.data, hash);
   buffer_reset(&key);
