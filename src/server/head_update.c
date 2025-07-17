@@ -196,6 +196,7 @@ static c4_status_t handle_head(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* s
 }
 
 static void handle_new_head_cb(request_t* req) {
+  if (c4_check_retry_request(req)) return; // if there are data_request in the req, we either clean it up or retry in case of an error (if possible.)
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   beacon_head_t* b   = (beacon_head_t*) ctx->proof.data;
   ssz_ob_t       sig_block, data_block;

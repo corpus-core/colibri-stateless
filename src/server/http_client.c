@@ -390,15 +390,15 @@ static void c4_add_request_response(request_t* req) {
   }
 
   http_response_t* res = (http_response_t*) req->ctx;
+  data_request_t*  dr  = req->requests->req;
+  if (c4_check_retry_request(req)) return; // if there are data_request in the req, we either clean it up or retry in case of an error (if possible.)
 
   // Check that client is still valid and not being closed
-  if (!res->client || res->client->being_closed) {
+  if (!res->client || res->client->being_closed)
     fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding response\n");
-  }
-  else {
+  else
     // Client is still valid, deliver the response
-    res->cb(req->client, res->data, req->requests->req);
-  }
+    res->cb(req->client, res->data, dr);
 
   // Clean up resources regardless of client state
   safe_free(res);
@@ -667,8 +667,7 @@ bool c4_check_retry_request(request_t* req) {
       // Try to find another available server (c4_select_best_server handles emergency reset)
       int new_idx = c4_select_best_server(servers, pending->node_exclude_mask);
       if (new_idx != -1) {
-        fprintf(stderr, ":: Retrying request with server %d: %s\n", new_idx,
-                servers->urls[new_idx] ? servers->urls[new_idx] : "NULL");
+        fprintf(stderr, "   [retry] %s with idx %d: %s\n", pending->url ? pending->url : (char*) pending->payload.data, new_idx, servers->urls[new_idx] ? servers->urls[new_idx] : "NULL");
         safe_free(pending->error);
         pending->response_node_index = new_idx;
         pending->error               = NULL;
