@@ -53,6 +53,7 @@ bool c4_is_user_error_response(long http_code, const char* url, bytes_t response
     // Check if response indicates the block/header simply isn't available yet (sync lag)
     if (response_body.data && response_body.len > 0 &&
         (bytes_contains_string(response_body, "Block header/data has not been found") ||
+         bytes_contains_string(response_body, "Block not found") ||
          bytes_contains_string(response_body, "Header not found") ||
          bytes_contains_string(response_body, "block not found") ||
          bytes_contains_string(response_body, "header not found") ||
