@@ -115,7 +115,7 @@ static c4_status_t get_beacon_header_by_parent_hash(proofer_ctx_t* ctx, bytes32_
   buffer_t path_buffer = stack_buffer(path);
   bprintf(&path_buffer, "eth/v1/beacon/headers?parent_root=0x%x", bytes(parent_hash, 32));
 
-  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, DEFAULT_TTL, &result));
+  TRY_ASYNC(c4_send_beacon_json_with_client_type(ctx, path, NULL, DEFAULT_TTL, &result, BEACON_SUPPORTS_PARENT_ROOT_HEADERS));
 
   json_t val = json_get(result, "data");
   if (val.type == JSON_TYPE_ARRAY)
