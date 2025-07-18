@@ -375,8 +375,11 @@ ssz_builder_t c4_proof_add_header(ssz_ob_t block, bytes32_t body_root) {
   ssz_add_bytes(&beacon_header, "bodyRoot", bytes(body_root, 32));
   return beacon_header;
 }
-
 c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result) {
+  return c4_send_beacon_json_with_client_type(ctx, path, query, ttl, result, 0);
+}
+
+c4_status_t c4_send_beacon_json_with_client_type(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -401,11 +404,12 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, uin
   else {
     data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     memcpy(data_request->id, id, 32);
-    data_request->url      = (char*) buffer.data.data;
-    data_request->encoding = C4_DATA_ENCODING_JSON;
-    data_request->method   = C4_DATA_METHOD_GET;
-    data_request->type     = C4_DATA_TYPE_BEACON_API;
-    data_request->ttl      = ttl;
+    data_request->url                   = (char*) buffer.data.data;
+    data_request->encoding              = C4_DATA_ENCODING_JSON;
+    data_request->method                = C4_DATA_METHOD_GET;
+    data_request->type                  = C4_DATA_TYPE_BEACON_API;
+    data_request->ttl                   = ttl;
+    data_request->preferred_client_type = client_type;
     c4_state_add_request(&ctx->state, data_request);
     return C4_PENDING;
   }
@@ -454,8 +458,10 @@ static bool convert_to_ssz(proofer_ctx_t* ctx, data_request_t* data_request, ssz
   result->bytes          = ssz_result.bytes;
   return true;
 }
-
 c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result) {
+  return c4_send_beacon_ssz_with_client_type(ctx, path, query, def, ttl, result, 0);
+}
+c4_status_t c4_send_beacon_ssz_with_client_type(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -483,11 +489,12 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, cons
   else {
     data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     memcpy(data_request->id, id, 32);
-    data_request->url      = (char*) buffer.data.data;
-    data_request->encoding = C4_DATA_ENCODING_SSZ;
-    data_request->method   = C4_DATA_METHOD_GET;
-    data_request->type     = C4_DATA_TYPE_BEACON_API;
-    data_request->ttl      = ttl;
+    data_request->url                   = (char*) buffer.data.data;
+    data_request->encoding              = C4_DATA_ENCODING_SSZ;
+    data_request->method                = C4_DATA_METHOD_GET;
+    data_request->type                  = C4_DATA_TYPE_BEACON_API;
+    data_request->ttl                   = ttl;
+    data_request->preferred_client_type = client_type;
     c4_state_add_request(&ctx->state, data_request);
     return C4_PENDING;
   }

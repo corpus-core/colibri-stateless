@@ -509,7 +509,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     }
     else {
       // Use intelligent server selection for initial requests
-      selected_index = c4_select_best_server(servers, r->req->node_exclude_mask);
+      selected_index = c4_select_best_server(servers, r->req->node_exclude_mask, r->req->preferred_client_type);
       if (selected_index == -1) {
         // This should be very rare after emergency reset logic in c4_select_best_server
         fprintf(stderr, ":: CRITICAL ERROR: No available servers even after emergency reset attempts\n");
@@ -677,7 +677,7 @@ bool c4_check_retry_request(request_t* req) {
       pending->node_exclude_mask |= (1 << pending->response_node_index);
 
       // Try to find another available server (c4_select_best_server handles emergency reset)
-      int new_idx = c4_select_best_server(servers, pending->node_exclude_mask);
+      int new_idx = c4_select_best_server(servers, pending->node_exclude_mask, pending->preferred_client_type);
       if (new_idx != -1) {
         fprintf(stderr, "   [retry] %s with idx %d: %s\n", pending->url ? pending->url : (char*) pending->payload.data, new_idx, servers->urls[new_idx] ? servers->urls[new_idx] : "NULL");
         safe_free(pending->error);
@@ -722,32 +722,9 @@ bool c4_check_retry_request(request_t* req) {
 
 static void init_serverlist(server_list_t* list, char* servers) {
   if (!servers) return;
-  char* servers_copy = strdup(servers);
-  int   count        = 0;
-  char* token        = strtok(servers_copy, ",");
-  while (token) {
-    count++;
-    token = strtok(NULL, ",");
-  }
-  memcpy(servers_copy, servers, strlen(servers) + 1);
-  list->urls         = (char**) safe_calloc(count, sizeof(char*));
-  list->health_stats = (server_health_t*) safe_calloc(count, sizeof(server_health_t));
-  list->count        = count;
-  list->next_index   = 0;
-  count              = 0;
-  token              = strtok(servers_copy, ",");
-  while (token) {
-    list->urls[count] = strdup(token);
-    // Initialize health stats
-    list->health_stats[count].is_healthy          = true;
-    list->health_stats[count].recovery_allowed    = true;
-    list->health_stats[count].weight              = 1.0;
-    list->health_stats[count].last_used           = current_ms();
-    list->health_stats[count].marked_unhealthy_at = 0;
-    count++;
-    token = strtok(NULL, ",");
-  }
-  safe_free(servers_copy);
+
+  // Use the new centralized configuration parser
+  c4_parse_server_config(list, servers);
 }
 
 void c4_init_curl(uv_timer_t* timer) {
@@ -769,6 +746,10 @@ void c4_init_curl(uv_timer_t* timer) {
 
   init_serverlist(&eth_rpc_servers, http_server.rpc_nodes);
   init_serverlist(&beacon_api_servers, http_server.beacon_nodes);
+
+  // Auto-detect client types for servers without explicit configuration
+  c4_detect_server_client_types(&eth_rpc_servers, C4_DATA_TYPE_ETH_RPC);
+  c4_detect_server_client_types(&beacon_api_servers, C4_DATA_TYPE_BEACON_API);
 }
 
 void c4_cleanup_curl() {
@@ -780,13 +761,21 @@ void c4_cleanup_curl() {
     memcache_free(&memcache_client);
   }
 
-  // Clean up server health stats
+  // Clean up server health stats and client types
   if (eth_rpc_servers.health_stats) {
     safe_free(eth_rpc_servers.health_stats);
     eth_rpc_servers.health_stats = NULL;
   }
+  if (eth_rpc_servers.client_types) {
+    safe_free(eth_rpc_servers.client_types);
+    eth_rpc_servers.client_types = NULL;
+  }
   if (beacon_api_servers.health_stats) {
     safe_free(beacon_api_servers.health_stats);
     beacon_api_servers.health_stats = NULL;
+  }
+  if (beacon_api_servers.client_types) {
+    safe_free(beacon_api_servers.client_types);
+    beacon_api_servers.client_types = NULL;
   }
 }

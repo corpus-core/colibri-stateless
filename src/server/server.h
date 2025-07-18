@@ -72,11 +72,36 @@ typedef struct {
   double   weight;              // calculated weight for load balancing
 } server_health_t;
 
+// Bitmask-based beacon client types for feature detection
+#define BEACON_CLIENT_UNKNOWN    0x00000000 // No specific client requirement
+#define BEACON_CLIENT_NIMBUS     0x00000001 // (1 << 0)
+#define BEACON_CLIENT_LODESTAR   0x00000002 // (1 << 1)
+#define BEACON_CLIENT_PRYSM      0x00000004 // (1 << 2)
+#define BEACON_CLIENT_LIGHTHOUSE 0x00000008 // (1 << 3)
+#define BEACON_CLIENT_TEKU       0x00000010 // (1 << 4)
+#define BEACON_CLIENT_GRANDINE   0x00000020 // (1 << 5)
+
+// RPC client types
+#define RPC_CLIENT_UNKNOWN    0x00000000
+#define RPC_CLIENT_GETH       0x00000100 // (1 << 8)
+#define RPC_CLIENT_NETHERMIND 0x00000200 // (1 << 9)
+#define RPC_CLIENT_ERIGON     0x00000400 // (1 << 10)
+#define RPC_CLIENT_BESU       0x00000800 // (1 << 11)
+
+// Feature-based client combinations
+#define BEACON_SUPPORTS_LIGHTCLIENT_UPDATE   (BEACON_CLIENT_NIMBUS | BEACON_CLIENT_LODESTAR)
+#define BEACON_SUPPORTS_HISTORICAL_SUMMARIES (BEACON_CLIENT_NIMBUS | BEACON_CLIENT_LODESTAR)
+#define BEACON_SUPPORTS_PARENT_ROOT_HEADERS  (BEACON_CLIENT_LODESTAR)
+#define BEACON_SUPPORTS_DEBUG_ENDPOINTS      (BEACON_CLIENT_NIMBUS | BEACON_CLIENT_LIGHTHOUSE)
+
+typedef uint32_t beacon_client_type_t;
+
 typedef struct {
-  char**           urls;
-  size_t           count;
-  server_health_t* health_stats; // health tracking per server
-  uint32_t         next_index;   // for round-robin fallback
+  char**                urls;
+  size_t                count;
+  server_health_t*      health_stats; // health tracking per server
+  beacon_client_type_t* client_types; // client type per server (for beacon API only)
+  uint32_t              next_index;   // for round-robin fallback
 } server_list_t;
 
 extern http_server_t http_server;
@@ -156,7 +181,7 @@ server_list_t* c4_get_server_list(data_request_type_t type);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
 
 // Load balancing functions
-int  c4_select_best_server(server_list_t* servers, uint32_t exclude_mask);
+int  c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type);
 void c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success);
 void c4_calculate_server_weights(server_list_t* servers);
 bool c4_should_reset_health_stats(server_list_t* servers);
@@ -164,5 +189,11 @@ void c4_reset_server_health_stats(server_list_t* servers);
 bool c4_is_user_error_response(long http_code, const char* url, bytes_t response_body);
 bool c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
 void c4_attempt_server_recovery(server_list_t* servers);
+
+// Server configuration and client type detection functions
+void                 c4_parse_server_config(server_list_t* list, char* servers);
+void                 c4_detect_server_client_types(server_list_t* servers, data_request_type_t type);
+beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type);
+const char*          c4_client_type_to_name(beacon_client_type_t client_type);
 
 #endif // C4_SERVER_H

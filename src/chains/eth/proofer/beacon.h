@@ -5,6 +5,22 @@
 #include "../util/ssz.h"
 #include "proofer.h"
 
+// Bitmask-based beacon client types for feature detection
+#define BEACON_CLIENT_UNKNOWN    0x00000000 // No specific client requirement
+#define BEACON_CLIENT_NIMBUS     0x00000001 // (1 << 0)
+#define BEACON_CLIENT_LODESTAR   0x00000002 // (1 << 1)
+#define BEACON_CLIENT_PRYSM      0x00000004 // (1 << 2)
+#define BEACON_CLIENT_LIGHTHOUSE 0x00000008 // (1 << 3)
+#define BEACON_CLIENT_TEKU       0x00000010 // (1 << 4)
+#define BEACON_CLIENT_GRANDINE   0x00000020 // (1 << 5)
+// Add more clients as needed...
+
+// Feature-based client combinations
+#define BEACON_SUPPORTS_LIGHTCLIENT_UPDATE   (BEACON_CLIENT_NIMBUS | BEACON_CLIENT_LODESTAR)
+#define BEACON_SUPPORTS_HISTORICAL_SUMMARIES (BEACON_CLIENT_NIMBUS | BEACON_CLIENT_LODESTAR)
+#define BEACON_SUPPORTS_PARENT_ROOT_HEADERS  (BEACON_CLIENT_LODESTAR)
+#define BEACON_SUPPORTS_DEBUG_ENDPOINTS      (BEACON_CLIENT_NIMBUS | BEACON_CLIENT_LIGHTHOUSE)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -37,6 +53,8 @@ ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 
 c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result);
 c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result);
+c4_status_t c4_send_beacon_json_with_client_type(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type);
+c4_status_t c4_send_beacon_ssz_with_client_type(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type);
 c4_status_t c4_send_internal_request(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result);
 #ifdef PROOFER_CACHE
 c4_status_t c4_eth_update_finality(proofer_ctx_t* ctx);

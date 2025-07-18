@@ -49,9 +49,10 @@ bool c4_is_user_error_response(long http_code, const char* url, bytes_t response
   if (http_code == 403) return false; // Forbidden (often server misconfiguration)
   if (http_code == 429) return false; // Too Many Requests (rate limiting)
 
-  // Special case: Beacon API requests with 404 might be sync lag
+  // Special case: Beacon API requests with 404 might be sync lag or client incompatibility
   if (http_code == 404 && url &&
-      (strstr(url, "/beacon/blocks/") || strstr(url, "/beacon/headers/"))) {
+      (strstr(url, "/beacon/blocks/") || strstr(url, "/beacon/headers/") ||
+       strstr(url, "/historical_summaries/") || strstr(url, "/nimbus/") || strstr(url, "/lodestar/"))) {
     // Check if response indicates the block/header simply isn't available yet (sync lag)
     if (response_body.data && response_body.len > 0 &&
         (bytes_contains_string(response_body, "Block header/data has not been found") ||
@@ -251,8 +252,8 @@ static void c4_emergency_reset_all_servers(server_list_t* servers) {
   }
 }
 
-// Select best server using weighted random selection
-int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask) {
+// Select best server using weighted random selection with optional client type preference
+int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type) {
   if (!servers || servers->count == 0) return -1;
 
   // Emergency check: if all servers are unavailable, reset everything
@@ -268,15 +269,40 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask) {
     }
   }
 
-  // First pass: try to find healthy servers not in exclude mask
+  // Helper macro to check if server matches client type preference (bitmask)
+#define matches_client_type(i)                           \
+  ((preferred_client_type == 0) ||                       \
+   (!servers->client_types) ||                           \
+   (servers->client_types[i] & preferred_client_type) || \
+   (servers->client_types[i] == 0))
+
+  // First pass: try to find healthy servers with preferred client type, not in exclude mask
   double total_weight = 0.0;
   for (size_t i = 0; i < servers->count; i++) {
-    if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy) {
+    if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && matches_client_type(i)) {
       total_weight += servers->health_stats[i].weight;
     }
   }
 
-  // If no healthy servers available, include unhealthy ones
+  // Second pass: if no preferred client type found, try any healthy servers
+  if (total_weight <= 0.0 && preferred_client_type != 0) {
+    for (size_t i = 0; i < servers->count; i++) {
+      if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy) {
+        total_weight += servers->health_stats[i].weight;
+      }
+    }
+  }
+
+  // Third pass: if no healthy servers available, include unhealthy ones with preferred type
+  if (total_weight <= 0.0) {
+    for (size_t i = 0; i < servers->count; i++) {
+      if (!(exclude_mask & (1 << i)) && (preferred_client_type == 0 || matches_client_type(i))) {
+        total_weight += servers->health_stats[i].weight;
+      }
+    }
+  }
+
+  // Final pass: if still nothing, include any server not excluded
   if (total_weight <= 0.0) {
     for (size_t i = 0; i < servers->count; i++) {
       if (!(exclude_mask & (1 << i))) {
@@ -297,18 +323,47 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask) {
     return -1; // All servers excluded
   }
 
-  // Weighted random selection
+  // Weighted random selection using same criteria as weight calculation
   double random_value   = ((double) rand() / RAND_MAX) * total_weight;
   double current_weight = 0.0;
 
+  // Try each selection pass in the same order as weight calculation
+  // Pass 1: Healthy servers with preferred client type
   for (size_t i = 0; i < servers->count; i++) {
-    if (exclude_mask & (1 << i)) continue;
+    if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && matches_client_type(i)) {
+      current_weight += servers->health_stats[i].weight;
+      if (current_weight >= random_value) {
+        return (int) i;
+      }
+    }
+  }
 
-    // Use healthy servers first, then unhealthy if needed
-    bool use_server = servers->health_stats[i].is_healthy ||
-                      (total_weight == 0.0); // Include unhealthy if no healthy ones
+  // Pass 2: Any healthy servers (if preferred type failed)
+  if (preferred_client_type != 0) {
+    for (size_t i = 0; i < servers->count; i++) {
+      if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && !matches_client_type(i)) {
+        current_weight += servers->health_stats[i].weight;
+        if (current_weight >= random_value) {
+          return (int) i;
+        }
+      }
+    }
+  }
 
-    if (use_server) {
+  // Pass 3: Unhealthy servers with preferred type
+  for (size_t i = 0; i < servers->count; i++) {
+    if (!(exclude_mask & (1 << i)) && !servers->health_stats[i].is_healthy &&
+        (preferred_client_type == 0 || matches_client_type(i))) {
+      current_weight += servers->health_stats[i].weight;
+      if (current_weight >= random_value) {
+        return (int) i;
+      }
+    }
+  }
+
+  // Pass 4: Any remaining servers
+  for (size_t i = 0; i < servers->count; i++) {
+    if (!(exclude_mask & (1 << i))) {
       current_weight += servers->health_stats[i].weight;
       if (current_weight >= random_value) {
         return (int) i;
@@ -319,11 +374,384 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask) {
   // Fallback to first available server
   for (size_t i = 0; i < servers->count; i++) {
     if (!(exclude_mask & (1 << i))) {
+#undef matches_client_type
       return (int) i;
     }
   }
 
+#undef matches_client_type
   return -1;
+}
+
+// Case-insensitive string search helper
+static bool contains_client_name(const char* response, const char* client_name) {
+  if (!response || !client_name) return false;
+
+  const char* pos        = response;
+  size_t      client_len = strlen(client_name);
+
+  while (*pos) {
+    if (strncasecmp(pos, client_name, client_len) == 0) {
+      return true;
+    }
+    pos++;
+  }
+  return false;
+}
+
+// Client type mapping structure
+typedef struct {
+  const char*          config_name;  // "NIMBUS", "GETH", etc. for URL suffixes
+  const char*          display_name; // "Nimbus", "Geth", etc. for logs
+  beacon_client_type_t value;        // BEACON_CLIENT_NIMBUS, RPC_CLIENT_GETH, etc.
+} client_type_mapping_t;
+
+// Complete mapping of client types
+static const client_type_mapping_t client_type_mappings[] = {
+    {"NIMBUS", "Nimbus", BEACON_CLIENT_NIMBUS},
+    {"LODESTAR", "Lodestar", BEACON_CLIENT_LODESTAR},
+    {"PRYSM", "Prysm", BEACON_CLIENT_PRYSM},
+    {"LIGHTHOUSE", "Lighthouse", BEACON_CLIENT_LIGHTHOUSE},
+    {"TEKU", "Teku", BEACON_CLIENT_TEKU},
+    {"GRANDINE", "Grandine", BEACON_CLIENT_GRANDINE},
+    {"GETH", "Geth", RPC_CLIENT_GETH},
+    {"NETHERMIND", "Nethermind", RPC_CLIENT_NETHERMIND},
+    {"ERIGON", "Erigon", RPC_CLIENT_ERIGON},
+    {"BESU", "Besu", RPC_CLIENT_BESU},
+    {NULL, NULL, 0} // Terminator
+};
+
+// Convert client type bitmask to human-readable name
+const char* c4_client_type_to_name(beacon_client_type_t client_type) {
+  for (int i = 0; client_type_mappings[i].config_name != NULL; i++) {
+    if (client_type_mappings[i].value == client_type) {
+      return client_type_mappings[i].display_name;
+    }
+  }
+  return "Unknown";
+}
+
+// Get known config names for URL parsing
+static const char** c4_get_known_config_names() {
+  static const char* known_names[32]; // Static array to hold pointers
+  static bool        initialized = false;
+
+  if (!initialized) {
+    int i = 0;
+    while (client_type_mappings[i].config_name != NULL && i < 31) {
+      known_names[i] = client_type_mappings[i].config_name;
+      i++;
+    }
+    known_names[i] = NULL; // Null terminator
+    initialized    = true;
+  }
+
+  return known_names;
+}
+
+// Parse config name to client type
+static beacon_client_type_t c4_parse_config_name(const char* config_name) {
+  for (int i = 0; client_type_mappings[i].config_name != NULL; i++) {
+    if (strcmp(config_name, client_type_mappings[i].config_name) == 0) {
+      return client_type_mappings[i].value;
+    }
+  }
+  return BEACON_CLIENT_UNKNOWN;
+}
+
+// Server configuration parsing with client type detection
+void c4_parse_server_config(server_list_t* list, char* servers) {
+  if (!servers || !list) return;
+
+  // Count servers first
+  char* servers_copy = strdup(servers);
+  int   count        = 0;
+  char* token        = strtok(servers_copy, ",");
+  while (token) {
+    count++;
+    token = strtok(NULL, ",");
+  }
+
+  // Reset for actual parsing
+  memcpy(servers_copy, servers, strlen(servers) + 1);
+
+  // Allocate arrays
+  list->urls         = (char**) safe_calloc(count, sizeof(char*));
+  list->health_stats = (server_health_t*) safe_calloc(count, sizeof(server_health_t));
+  list->client_types = (beacon_client_type_t*) safe_calloc(count, sizeof(beacon_client_type_t));
+  list->count        = count;
+  list->next_index   = 0;
+
+  // Get known client type suffixes for manual configuration
+  const char** known_types = c4_get_known_config_names();
+
+  count = 0;
+  token = strtok(servers_copy, ",");
+
+  while (token) {
+    // Parse optional client type suffix: "https://server.com:NIMBUS"
+    char*                url_part    = token;
+    beacon_client_type_t client_type = BEACON_CLIENT_UNKNOWN;
+
+    // Find client type separator (look for :TYPE pattern after URL)
+    char* type_separator = NULL;
+    char* type_str       = NULL;
+
+    // Strategy: Look for known client type names after a colon
+    for (int i = 0; known_types[i] != NULL && !type_separator; i++) {
+      char search_pattern[64]; // Stack allocation instead of malloc
+      snprintf(search_pattern, sizeof(search_pattern), ":%s", known_types[i]);
+      char* found = strstr(token, search_pattern);
+      if (found && (found + strlen(search_pattern) == token + strlen(token))) {
+        // Found known type at end of string
+        type_separator = found;
+        type_str       = found + 1;
+      }
+    }
+
+    if (type_separator && type_str) {
+      // Split URL and type
+      *type_separator = '\0';
+
+      // Parse client type string using mapping
+      client_type = c4_parse_config_name(type_str);
+      if (client_type == BEACON_CLIENT_UNKNOWN) {
+        fprintf(stderr, "   [config] Unknown client type '%s' for server %s\n", type_str, url_part);
+      }
+    }
+
+    list->urls[count] = strdup(url_part);
+    // Initialize health stats
+    list->health_stats[count].is_healthy          = true;
+    list->health_stats[count].recovery_allowed    = true;
+    list->health_stats[count].weight              = 1.0;
+    list->health_stats[count].last_used           = current_ms();
+    list->health_stats[count].marked_unhealthy_at = 0;
+    // Set configured or default client type
+    list->client_types[count] = client_type;
+
+    if (client_type != BEACON_CLIENT_UNKNOWN) {
+      fprintf(stderr, "   [config] Server %d: %s (Type: %s)\n", count, url_part, c4_client_type_to_name(client_type));
+    }
+
+    count++;
+    token = strtok(NULL, ",");
+  }
+
+  safe_free(servers_copy);
+}
+
+// Parse client version response to determine client type
+beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type) {
+  if (!response) return BEACON_CLIENT_UNKNOWN;
+
+  if (type == C4_DATA_TYPE_BEACON_API) {
+    // Parse beacon API response: {"data":{"version":"Lodestar/v1.8.0/..."}}
+    if (contains_client_name(response, "\"Nimbus")) return BEACON_CLIENT_NIMBUS;
+    if (contains_client_name(response, "\"Lodestar")) return BEACON_CLIENT_LODESTAR;
+    if (contains_client_name(response, "\"Prysm")) return BEACON_CLIENT_PRYSM;
+    if (contains_client_name(response, "\"Lighthouse")) return BEACON_CLIENT_LIGHTHOUSE;
+    if (contains_client_name(response, "\"teku")) return BEACON_CLIENT_TEKU;
+    if (contains_client_name(response, "\"Grandine")) return BEACON_CLIENT_GRANDINE;
+  }
+  else if (type == C4_DATA_TYPE_ETH_RPC) {
+    // Parse RPC response: {"result":"Geth/v1.10.26-stable/..."}
+    if (contains_client_name(response, "Geth/")) return RPC_CLIENT_GETH;
+    if (contains_client_name(response, "Nethermind/")) return RPC_CLIENT_NETHERMIND;
+    if (contains_client_name(response, "Erigon/")) return RPC_CLIENT_ERIGON;
+    if (contains_client_name(response, "Besu/")) return RPC_CLIENT_BESU;
+  }
+
+  return BEACON_CLIENT_UNKNOWN;
+}
+
+// Helper structure for parallel client detection
+typedef struct {
+  size_t             server_index;
+  char*              detection_url;
+  CURL*              easy_handle;
+  buffer_t           response_buffer;
+  struct curl_slist* headers; // Store headers for cleanup
+} detection_request_t;
+
+// CURL write callback for detection requests
+static size_t detection_write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
+  buffer_t* buffer   = (buffer_t*) userp;
+  size_t    realsize = size * nmemb;
+  buffer_grow(buffer, buffer->data.len + realsize + 1);
+  memcpy(buffer->data.data + buffer->data.len, contents, realsize);
+  buffer->data.len += realsize;
+  buffer->data.data[buffer->data.len] = '\0'; // NULL terminate
+  return realsize;
+}
+
+// Auto-detect client types for all servers in a list using parallel requests
+void c4_detect_server_client_types(server_list_t* servers, data_request_type_t type) {
+  if (!servers || !servers->client_types || servers->count == 0) return;
+
+  const char* detection_endpoint = NULL;
+  char*       rpc_payload        = NULL;
+
+  if (type == C4_DATA_TYPE_BEACON_API)
+    detection_endpoint = "eth/v1/node/version";
+  else if (type == C4_DATA_TYPE_ETH_RPC) {
+    detection_endpoint = ""; // RPC endpoint is root, we'll use POST with JSON-RPC
+    rpc_payload        = "{\"jsonrpc\":\"2.0\",\"method\":\"web3_clientVersion\",\"params\":[],\"id\":1}";
+  }
+
+  if (!detection_endpoint) {
+    fprintf(stderr, ":: Client type detection not implemented for this server type yet\n");
+    return;
+  }
+
+  fprintf(stderr, ":: Auto-detecting client types for %s servers using %s...\n",
+          type == C4_DATA_TYPE_BEACON_API ? "beacon" : "rpc",
+          type == C4_DATA_TYPE_BEACON_API ? detection_endpoint : "web3_clientVersion");
+
+  // Count servers that need detection
+  size_t detection_count = 0;
+  for (size_t i = 0; i < servers->count; i++) {
+    if (servers->client_types[i] == BEACON_CLIENT_UNKNOWN)
+      detection_count++;
+  }
+
+  if (detection_count == 0) {
+    fprintf(stderr, "   [detect] All servers already have known client types\n");
+    return;
+  }
+
+  // Prepare parallel detection requests
+  detection_request_t* requests     = (detection_request_t*) safe_calloc(detection_count, sizeof(detection_request_t));
+  CURLM*               multi_handle = curl_multi_init();
+  size_t               request_idx  = 0;
+  for (size_t i = 0; i < servers->count; i++) {
+    if (servers->client_types[i] != BEACON_CLIENT_UNKNOWN) continue;
+
+    detection_request_t* req = &requests[request_idx];
+    req->server_index        = i;
+    req->response_buffer     = (buffer_t) {0};
+    req->headers             = NULL;
+    char* base_url           = servers->urls[i];
+
+    if (base_url && strlen(base_url) > 0)
+      req->detection_url = bprintf(NULL, "%s%s%s", base_url,
+                                   (base_url[strlen(base_url) - 1] == '/') ? "" : "/",
+                                   detection_endpoint);
+    else {
+      fprintf(stderr, "   [detect] Server %zu (%s): has invalid URL\n", i, base_url ? base_url : "<empty>");
+      continue;
+    }
+
+    // Setup CURL easy handle
+    req->easy_handle = curl_easy_init();
+    if (!req->easy_handle) {
+      fprintf(stderr, "   [detect] Failed to create CURL handle for server %zu\n", i);
+      safe_free(req->detection_url);
+      continue;
+    }
+
+    curl_easy_setopt(req->easy_handle, CURLOPT_URL, req->detection_url);
+    curl_easy_setopt(req->easy_handle, CURLOPT_WRITEFUNCTION, detection_write_callback);
+    curl_easy_setopt(req->easy_handle, CURLOPT_WRITEDATA, &req->response_buffer);
+    curl_easy_setopt(req->easy_handle, CURLOPT_TIMEOUT, 10L); // 10 second timeout
+    curl_easy_setopt(req->easy_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(req->easy_handle, CURLOPT_SSL_VERIFYPEER, 0L); // Same as main client
+    curl_easy_setopt(req->easy_handle, CURLOPT_SSL_VERIFYHOST, 0L);
+
+    // Setup RPC-specific headers and payload if needed
+    req->headers = NULL;
+    if (rpc_payload) {
+      req->headers = curl_slist_append(req->headers, "Content-Type: application/json");
+      curl_easy_setopt(req->easy_handle, CURLOPT_HTTPHEADER, req->headers);
+      curl_easy_setopt(req->easy_handle, CURLOPT_POSTFIELDS, rpc_payload);
+      curl_easy_setopt(req->easy_handle, CURLOPT_POSTFIELDSIZE, strlen(rpc_payload));
+    }
+
+    // Add to multi handle
+    curl_multi_add_handle(multi_handle, req->easy_handle);
+
+    //    fprintf(stderr, "   [detect] Starting detection for server %zu: %s\n", i, req->detection_url);
+    request_idx++;
+  }
+
+  // Execute all requests in parallel
+  int       running_handles;
+  CURLMcode mc = curl_multi_perform(multi_handle, &running_handles);
+
+  if (mc != CURLM_OK)
+    fprintf(stderr, "   [detect] curl_multi_perform failed: %s\n", curl_multi_strerror(mc));
+  else {
+    // Wait for all requests to complete
+    while (running_handles > 0) {
+      int numfds = 0;
+      mc         = curl_multi_wait(multi_handle, NULL, 0, 1000, &numfds);
+      if (mc != CURLM_OK) break;
+
+      mc = curl_multi_perform(multi_handle, &running_handles);
+      if (mc != CURLM_OK) break;
+    }
+  }
+
+  // Process results
+  CURLMsg* msg;
+  int      msgs_left;
+  while ((msg = curl_multi_info_read(multi_handle, &msgs_left))) {
+    if (msg->msg == CURLMSG_DONE) {
+      CURL* easy_handle = msg->easy_handle;
+
+      // Find corresponding request
+      detection_request_t* req = NULL;
+      for (size_t j = 0; j < request_idx; j++) {
+        if (requests[j].easy_handle == easy_handle) {
+          req = &requests[j];
+          break;
+        }
+      }
+
+      if (!req) continue;
+
+      long response_code;
+      curl_easy_getinfo(easy_handle, CURLINFO_RESPONSE_CODE, &response_code);
+
+      if (msg->data.result == CURLE_OK && response_code == 200 && req->response_buffer.data.len > 0) {
+        // Parse response to determine client type
+        beacon_client_type_t detected_type = c4_parse_client_version_response((char*) req->response_buffer.data.data, type);
+
+        if (detected_type != BEACON_CLIENT_UNKNOWN) {
+          servers->client_types[req->server_index] = detected_type;
+          fprintf(stderr, "   [detect] Server %zu (%s): Detected type %s\n",
+                  req->server_index, servers->urls[req->server_index], c4_client_type_to_name(detected_type));
+        }
+        else {
+          fprintf(stderr, "   [detect] Server %zu (%s): Could not determine client type from response\n",
+                  req->server_index, servers->urls[req->server_index]);
+        }
+      }
+      else {
+        const char* curl_error_msg = curl_easy_strerror(msg->data.result);
+        if (response_code > 0)
+          log_warn("Server %d (%s): Detection failed - HTTP %d, %s", req->server_index, servers->urls[req->server_index], (uint32_t) response_code, curl_error_msg);
+        else
+          log_warn("Server %d (%s): Detection failed - %s", req->server_index, servers->urls[req->server_index], curl_error_msg);
+      }
+    }
+  }
+
+  // Cleanup
+  for (size_t j = 0; j < request_idx; j++) {
+    if (requests[j].easy_handle) {
+      curl_multi_remove_handle(multi_handle, requests[j].easy_handle);
+      curl_easy_cleanup(requests[j].easy_handle);
+    }
+    if (requests[j].headers) curl_slist_free_all(requests[j].headers);
+    if (requests[j].detection_url) safe_free(requests[j].detection_url);
+    buffer_free(&requests[j].response_buffer);
+  }
+
+  safe_free(requests);
+  curl_multi_cleanup(multi_handle);
+
+  fprintf(stderr, ":: Client type detection completed\n");
 }
 
 // Update server health statistics

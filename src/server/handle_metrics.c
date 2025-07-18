@@ -503,6 +503,18 @@ static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t typ
     uint64_t unhealthy_duration = health->is_healthy ? 0 : (health->marked_unhealthy_at > 0 ? current_ms() - health->marked_unhealthy_at : 0);
     bprintf(data, "colibri_server_unhealthy_duration_ms{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
             type_name, server_name, i, unhealthy_duration);
+
+    // Client type information for this server
+    uint32_t    client_type = servers->client_types ? servers->client_types[i] : 0;
+    const char* client_name = c4_client_type_to_name(client_type);
+
+    // Bitmask value (for compatibility)
+    bprintf(data, "colibri_server_client_type{type=\"%s\",server=\"%s\",index=\"%l\"} %d\n",
+            type_name, server_name, i, client_type);
+
+    // Human-readable client type (1=detected, 0=unknown/not detected)
+    bprintf(data, "colibri_server_client_info{type=\"%s\",server=\"%s\",index=\"%l\",client=\"%s\"} %d\n",
+            type_name, server_name, i, client_name, client_type != 0 ? 1 : 0);
   }
 }
 
@@ -528,6 +540,10 @@ static void c4_write_server_health_metrics(buffer_t* data) {
   bprintf(data, "# TYPE colibri_server_last_used_ms_ago gauge\n");
   bprintf(data, "# HELP colibri_server_unhealthy_duration_ms Time the server has been unhealthy in milliseconds.\n");
   bprintf(data, "# TYPE colibri_server_unhealthy_duration_ms gauge\n");
+  bprintf(data, "# HELP colibri_server_client_type Client type bitmask for the server (0=unknown).\n");
+  bprintf(data, "# TYPE colibri_server_client_type gauge\n");
+  bprintf(data, "# HELP colibri_server_client_info Client type information with human-readable name as label (1=detected, 0=unknown).\n");
+  bprintf(data, "# TYPE colibri_server_client_info gauge\n");
 
   // Write metrics for both server types
   c4_write_server_type_metrics(data, C4_DATA_TYPE_ETH_RPC, "eth");

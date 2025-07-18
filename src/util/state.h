@@ -43,8 +43,9 @@ typedef struct data_request {
   data_request_method_t   method;
   bytes_t                 payload;
   bytes_t                 response;
-  uint16_t                response_node_index; // index of the node that responded with the result
-  uint16_t                node_exclude_mask;   // the bitlist marking nodes, which should be excluded when retrying ( 1st bit = index 0) max 16)
+  uint16_t                response_node_index;   // index of the node that responded with the result
+  uint16_t                node_exclude_mask;     // the bitlist marking nodes, which should be excluded when retrying ( 1st bit = index 0) max 16)
+  uint32_t                preferred_client_type; // preferred beacon client type bitmask (0 = any)
   char*                   error;
   struct data_request*    next;
   bytes32_t               id;
