@@ -1,3 +1,4 @@
+#include "beacon_types.h"
 #include "logger.h"
 #include "proofer.h"
 #include "server.h"
@@ -765,4 +766,67 @@ void c4_update_server_health(server_list_t* servers, int server_index, uint64_t 
   if (health->total_requests % 20 == 0) {
     c4_attempt_server_recovery(servers);
   }
+}
+
+static bytes_t convert_lighthouse_to_ssz(data_request_t* req, json_t result, uint64_t start, uint64_t count) {
+  const chain_spec_t* chain           = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
+  uint64_t            slot_start      = slot_for_period(start, chain);
+  uint64_t            slots_per_epoch = slot_for_period(1, chain);
+  c4_state_t          state           = {0};
+  buffer_t            response        = {0};
+
+  int found = 0;
+  json_for_each_value(result, entry) {
+    json_t   data = json_get(entry, "data");
+    uint64_t slot = json_get_uint64(json_get(json_get(data, "attested_header"), "beacon"), "slot");
+    if (slot >= slot_start + found * slots_per_epoch && slot < slot_start + (found + 1) * slots_per_epoch && found < count) {
+      const ssz_def_t* client_update_list = eth_get_light_client_update_list(c4_chain_fork_id(chain->chain_id, slot));
+      if (!client_update_list) continue;
+      ssz_ob_t ob = ssz_from_json(data, client_update_list->def.vector.type, &state);
+      if (state.error) {
+        if (ob.bytes.data) safe_free(ob.bytes.data);
+        req->error = bprintf(NULL, "Failed to convert lighthouse light client update to ssz: %s", state.error);
+        safe_free(state.error);
+        return NULL_BYTES;
+      }
+      buffer_add_le(&response, ob.bytes.len, 8);
+      buffer_append(&response, bytes(NULL, 4));
+      buffer_append(&response, ob.bytes);
+      safe_free(ob.bytes.data);
+      found++;
+    }
+  }
+
+  return response.data;
+}
+
+char* c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type) {
+  static char buffer[1024];
+  buffer_t    buf = stack_buffer(buffer);
+  if ((client_type & BEACON_CLIENT_NIMBUS) && strncmp(url, "eth/v1/lodestar/historical_summaries/", 39) == 0) {
+    buffer_reset(&buf);
+    return bprintf(&buf, "nimbus/v1/debug/beacon/states/%s/historical_summaries", url + 39);
+  }
+
+  return url;
+}
+
+data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type) {
+  if ((client_type & BEACON_CLIENT_LIGHTHOUSE) && strncmp(r->req->url, "eth/v1/beacon/light_client/updates", 34) == 0) {
+    return C4_DATA_ENCODING_JSON;
+  }
+  return encoding;
+}
+
+bytes_t c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type) {
+  if ((client_type & BEACON_CLIENT_LIGHTHOUSE) && strncmp(r->req->url, "eth/v1/beacon/light_client/updates", 34) == 0) {
+    bytes_t ssz_data = convert_lighthouse_to_ssz(r->req, json_parse((char*) response.data), c4_get_query(r->req->url, "start_period"), c4_get_query(r->req->url, "count"));
+    if (ssz_data.data) {
+      safe_free(response.data);
+      return ssz_data;
+    }
+    else
+      return NULL_BYTES;
+  }
+  return response;
 }

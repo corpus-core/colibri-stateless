@@ -84,10 +84,10 @@ extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
 
 #define epoch_for_slot(slot, chain_spec)  ((slot) >> (chain_spec ? chain_spec->slots_per_epoch_bits : 5))
-#define period_for_slot(slot, chain_spec) ((slot) >> (chain_spec ? chain_spec->epochs_per_period_bits : 8))
+#define period_for_slot(slot, chain_spec) ((slot) >> (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))
 
 #define slot_for_epoch(epoch, chain_spec)   ((epoch) << (chain_spec ? chain_spec->slots_per_epoch_bits : 5))
-#define slot_for_period(period, chain_spec) ((period) << (chain_spec ? chain_spec->epochs_per_period_bits : 8))
+#define slot_for_period(period, chain_spec) ((period) << (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))
 
 #define ssz_builder_for_type(typename) \
   {.def = eth_ssz_verification_type(typename), .dynamic = {0}, .fixed = {0}}

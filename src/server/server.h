@@ -197,4 +197,9 @@ void                 c4_detect_server_client_types(server_list_t* servers, data_
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type);
 const char*          c4_client_type_to_name(beacon_client_type_t client_type);
 
+// handle client type adjustments
+char*                   c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);
+data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
+bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
+
 #endif // C4_SERVER_H

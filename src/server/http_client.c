@@ -178,17 +178,18 @@ static void handle_curl_events() {
                                                                    r->buffer.data); // Check if this is a user error before updating health stats
 
     c4_update_server_health(servers, r->req->response_node_index, response_time, success || !is_user_error);
+    bytes_t response = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
-    if (success) {
+    if (success && response.data) {
       fprintf(stderr, "   [curl ] %s %s -> OK %d bytes\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len);
-      r->req->response = r->buffer.data; // set the response
-      cache_response(r);                 // and write to cache
-      r->buffer = (buffer_t) {0};        // reset the buffer, so we don't clean up the data
+      r->req->response = response; // set the response
+      cache_response(r);           // and write to cache
+      r->buffer = (buffer_t) {0};  // reset the buffer, so we don't clean up the data
     }
     else {
       char* effective_url = NULL;
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
-      r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, curl_easy_strerror(res), bprintf(&r->buffer, " ")); // create error message
+      if (!r->req->error) r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, curl_easy_strerror(res), bprintf(&r->buffer, " ")); // create error message
       fprintf(stderr, "   [curl ] %s %s -> ERROR : %s\n", effective_url ? effective_url : (r->url ? r->url : r->req->url), r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
 
       // For user errors (4xx), mark as non-retryable to avoid unnecessary retries
@@ -522,7 +523,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
       r->req->response_node_index = selected_index;
     }
     char* base_url = servers && servers->count > selected_index ? servers->urls[selected_index] : NULL;
-    char* req_url  = r->req->url;
+    char* req_url  = c4_request_fix_url(r->req->url, r, servers->client_types[selected_index]);
 
     // Safeguard against NULL URLs
     if (!req_url) req_url = "";
@@ -555,7 +556,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     r->headers = NULL; // Initialize headers
     if (r->req->payload.len && r->req->payload.data)
       r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
-    r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
+    r->headers = curl_slist_append(r->headers, c4_request_fix_encoding(r->req->encoding, r, servers->client_types[selected_index]) == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
     r->headers = curl_slist_append(r->headers, "charsets: utf-8");
     r->headers = curl_slist_append(r->headers, "User-Agent: c4 curl ");
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, r->headers);
