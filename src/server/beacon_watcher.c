@@ -384,6 +384,7 @@ void c4_watch_beacon_events() {
     }
 
     BEACON_WATCHER_URL = bprintf(NULL, "%seth/v1/events?topics=head,finalized_checkpoint", list->urls[0]);
+    list->client_types[0] |= BEACON_CLIENT_EVENT_SERVER;
   }
   if (watcher_state.is_running) {
     log_warn("Beacon watcher already running.");

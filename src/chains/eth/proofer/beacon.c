@@ -380,6 +380,9 @@ c4_status_t c4_send_beacon_json(proofer_ctx_t* ctx, char* path, char* query, uin
 }
 
 c4_status_t c4_send_beacon_json_with_client_type(proofer_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type) {
+#ifdef HTTP_SERVER
+  client_type |= ctx->client_type;
+#endif
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -462,6 +465,10 @@ c4_status_t c4_send_beacon_ssz(proofer_ctx_t* ctx, char* path, char* query, cons
   return c4_send_beacon_ssz_with_client_type(ctx, path, query, def, ttl, result, 0);
 }
 c4_status_t c4_send_beacon_ssz_with_client_type(proofer_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type) {
+#ifdef HTTP_SERVER
+  client_type |= ctx->client_type;
+#endif
+
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);

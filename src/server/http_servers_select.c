@@ -175,9 +175,7 @@ bool c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask) {
   if (!servers || servers->count == 0) return false;
 
   for (size_t i = 0; i < servers->count; i++) {
-    if (!(exclude_mask & (1 << i))) {
-      return true; // Found at least one available server
-    }
+    if (!(exclude_mask & (1 << i))) return true; // Found at least one available server
   }
   return false; // All servers are excluded
 }
@@ -279,26 +277,23 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
   // First pass: try to find healthy servers with preferred client type, not in exclude mask
   double total_weight = 0.0;
   for (size_t i = 0; i < servers->count; i++) {
-    if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && matches_client_type(i)) {
+    if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && matches_client_type(i))
       total_weight += servers->health_stats[i].weight;
-    }
   }
 
   // Second pass: if no preferred client type found, try any healthy servers
   if (total_weight <= 0.0 && preferred_client_type != 0) {
     for (size_t i = 0; i < servers->count; i++) {
-      if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy) {
+      if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy)
         total_weight += servers->health_stats[i].weight;
-      }
     }
   }
 
   // Third pass: if no healthy servers available, include unhealthy ones with preferred type
   if (total_weight <= 0.0) {
     for (size_t i = 0; i < servers->count; i++) {
-      if (!(exclude_mask & (1 << i)) && (preferred_client_type == 0 || matches_client_type(i))) {
+      if (!(exclude_mask & (1 << i)) && (preferred_client_type == 0 || matches_client_type(i)))
         total_weight += servers->health_stats[i].weight;
-      }
     }
   }
 
@@ -332,9 +327,7 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
   for (size_t i = 0; i < servers->count; i++) {
     if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && matches_client_type(i)) {
       current_weight += servers->health_stats[i].weight;
-      if (current_weight >= random_value) {
-        return (int) i;
-      }
+      if (current_weight >= random_value) return (int) i;
     }
   }
 
@@ -343,9 +336,7 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
     for (size_t i = 0; i < servers->count; i++) {
       if (!(exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && !matches_client_type(i)) {
         current_weight += servers->health_stats[i].weight;
-        if (current_weight >= random_value) {
-          return (int) i;
-        }
+        if (current_weight >= random_value) return (int) i;
       }
     }
   }
@@ -355,9 +346,7 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
     if (!(exclude_mask & (1 << i)) && !servers->health_stats[i].is_healthy &&
         (preferred_client_type == 0 || matches_client_type(i))) {
       current_weight += servers->health_stats[i].weight;
-      if (current_weight >= random_value) {
-        return (int) i;
-      }
+      if (current_weight >= random_value) return (int) i;
     }
   }
 
@@ -391,9 +380,7 @@ static bool contains_client_name(const char* response, const char* client_name) 
   size_t      client_len = strlen(client_name);
 
   while (*pos) {
-    if (strncasecmp(pos, client_name, client_len) == 0) {
-      return true;
-    }
+    if (strncasecmp(pos, client_name, client_len) == 0) return true;
     pos++;
   }
   return false;
@@ -519,20 +506,16 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
         fprintf(stderr, "   [config] Unknown client type '%s' for server %s\n", type_str, url_part);
       }
     }
+    if (client_type != BEACON_CLIENT_UNKNOWN)
+      fprintf(stderr, "   [config] Server %d: %s (Type: %s)\n", count, url_part, c4_client_type_to_name(client_type));
 
-    list->urls[count] = strdup(url_part);
-    // Initialize health stats
+    list->urls[count]                             = strdup(url_part);
     list->health_stats[count].is_healthy          = true;
     list->health_stats[count].recovery_allowed    = true;
     list->health_stats[count].weight              = 1.0;
     list->health_stats[count].last_used           = current_ms();
     list->health_stats[count].marked_unhealthy_at = 0;
-    // Set configured or default client type
-    list->client_types[count] = client_type;
-
-    if (client_type != BEACON_CLIENT_UNKNOWN) {
-      fprintf(stderr, "   [config] Server %d: %s (Type: %s)\n", count, url_part, c4_client_type_to_name(client_type));
-    }
+    list->client_types[count]                     = client_type;
 
     count++;
     token = strtok(NULL, ",");

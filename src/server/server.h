@@ -73,13 +73,14 @@ typedef struct {
 } server_health_t;
 
 // Bitmask-based beacon client types for feature detection
-#define BEACON_CLIENT_UNKNOWN    0x00000000 // No specific client requirement
-#define BEACON_CLIENT_NIMBUS     0x00000001 // (1 << 0)
-#define BEACON_CLIENT_LODESTAR   0x00000002 // (1 << 1)
-#define BEACON_CLIENT_PRYSM      0x00000004 // (1 << 2)
-#define BEACON_CLIENT_LIGHTHOUSE 0x00000008 // (1 << 3)
-#define BEACON_CLIENT_TEKU       0x00000010 // (1 << 4)
-#define BEACON_CLIENT_GRANDINE   0x00000020 // (1 << 5)
+#define BEACON_CLIENT_UNKNOWN      0x00000000 // No specific client requirement
+#define BEACON_CLIENT_NIMBUS       0x00000001 // (1 << 0)
+#define BEACON_CLIENT_LODESTAR     0x00000002 // (1 << 1)
+#define BEACON_CLIENT_PRYSM        0x00000004 // (1 << 2)
+#define BEACON_CLIENT_LIGHTHOUSE   0x00000008 // (1 << 3)
+#define BEACON_CLIENT_TEKU         0x00000010 // (1 << 4)
+#define BEACON_CLIENT_GRANDINE     0x00000020 // (1 << 5)
+#define BEACON_CLIENT_EVENT_SERVER 0x01000000 // defines the first or server detecting the events
 
 // RPC client types
 #define RPC_CLIENT_UNKNOWN    0x00000000

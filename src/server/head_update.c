@@ -249,6 +249,7 @@ void c4_handle_new_head(json_t head) {
   req->ctx              = ctx;
   ctx->proof            = bytes(b, sizeof(beacon_head_t));
   ctx->chain_id         = http_server.chain_id;
+  ctx->client_type      = BEACON_CLIENT_EVENT_SERVER;
   handle_new_head_cb(req);
 }
 
@@ -276,8 +277,9 @@ static void c4_handle_finalized_checkpoint_cb(request_t* req) {
 }
 
 void c4_handle_finalized_checkpoint(json_t checkpoint) {
-  request_t* req = (request_t*) safe_calloc(1, sizeof(request_t));
-  req->cb        = c4_handle_finalized_checkpoint_cb;
-  req->ctx       = safe_calloc(1, sizeof(proofer_ctx_t));
+  request_t* req                           = (request_t*) safe_calloc(1, sizeof(request_t));
+  req->cb                                  = c4_handle_finalized_checkpoint_cb;
+  req->ctx                                 = safe_calloc(1, sizeof(proofer_ctx_t));
+  ((proofer_ctx_t*) req->ctx)->client_type = BEACON_CLIENT_EVENT_SERVER;
   req->cb(req);
 }

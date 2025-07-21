@@ -84,6 +84,9 @@ typedef struct {
 #ifdef PROOFER_CACHE
   cache_entry_t* cache; // cache for the proofer (only active in the server context)
 #endif
+#ifdef HTTP_SERVER
+  uint32_t client_type; // client type for the proofer (for beacon API only)
+#endif
 } proofer_ctx_t;
 
 /**
