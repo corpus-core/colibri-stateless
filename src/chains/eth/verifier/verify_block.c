@@ -45,9 +45,14 @@ static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_u
     else
       buffer_append(&txs_builder.fixed, bytes(tx_hash, 32));
   }
-  memcpy(tx_root, patricia_get_root(root).data, 32);
+  if (root) {
+    memcpy(tx_root, patricia_get_root(root).data, 32);
 
-  patricia_node_free(root);
+    patricia_node_free(root);
+  }
+  else
+    memcpy(tx_root, EMPTY_ROOT_HASH, 32);
+
   buffer_free(&tx_builder.dynamic);
   buffer_free(&tx_builder.fixed);
 
