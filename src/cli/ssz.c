@@ -81,6 +81,11 @@ int main(int argc, char* argv[]) {
         }
         if (argv[i][j] == 't') {
           res.def = get_definition(argv[i + 1], chain_id);
+          if (strcmp(argv[i + 1], "lcu") == 0 && req_data.len > 12 && uint64_from_le(req_data.data) > 20000) {
+            req_data.data += 12;
+            req_data.len -= 12;
+            res.bytes = req_data;
+          }
           i++;
           break;
         }
@@ -114,7 +119,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  ssz_dump_to_file(stdout, res, show_name, true);
+  ssz_dump_to_file(stdout, res, show_name, false);
   if (show_hash) {
     bytes32_t hashroot;
     ssz_hash_tree_root(res, hashroot);

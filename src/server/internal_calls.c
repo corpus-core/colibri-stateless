@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 #include "server.h"
 
 typedef bool (*call_handler)(single_request_t*);

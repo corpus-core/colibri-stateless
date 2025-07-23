@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 #include "beacon_types.h"
 #include "logger.h"
 #include "proofer.h"
@@ -796,7 +798,6 @@ static bytes_t convert_lighthouse_to_ssz(data_request_t* req, json_t result, uin
       found++;
     }
   }
-
   return response.data;
 }
 

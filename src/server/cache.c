@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 #define _GNU_SOURCE
 #include "cache.h"
 #include "server.h"

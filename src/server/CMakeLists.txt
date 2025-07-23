@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 find_package(CURL REQUIRED)
 
 add_executable(server 

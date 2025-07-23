@@ -1312,6 +1312,12 @@ class EthTxData(Container):
 ```
 ## License
 
-The colibri client code (src/proofer, src/verifier, src/util and src/chains) (i.e. all code outside of the src/server directory) is licensed under the [MIT](./LICENSE) , also included in our repository in the LICENSE file.
+This project (everything _except_ `src/server/`) is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
-The colibri proofer server (i.e. all code inside of the src/server directory) are licensed under the GNU Affero General Public License v3.0, also included in our repository in the [LICENSE.AGPL](./LICENSE.AGPL) file.
+**Server component** (`src/server/`) is dual‑licensed:
+
+- **PolyForm Noncommercial License 1.0.0**  
+  Free for non‑commercial use only. See [src/server/LICENSE.POLYFORM](src/server/LICENSE.POLYFORM) or the official text at [polyformproject.org/licenses/noncommercial/1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).
+
+- **Commercial License**  
+  Required for any commercial or revenue‑generating use of the server. Please contact [jork@corpus.io](mailto:jork@corpus.io) to arrange an individual license agreement.

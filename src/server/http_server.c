@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 #include "llhttp.h"
 #include "server.h"
 #include <stdio.h>

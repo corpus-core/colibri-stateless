@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 #include "beacon.h"
 #include "beacon_types.h"
 #include "logger.h"
