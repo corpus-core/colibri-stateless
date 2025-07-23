@@ -1,4 +1,9 @@
-// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+/*
+ * Copyright 2025 corpus.core
+ * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+ */
+
+
 
 #define _GNU_SOURCE
 #include "cache.h"

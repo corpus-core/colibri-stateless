@@ -1,4 +1,9 @@
-// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+/*
+ * Copyright 2025 corpus.core
+ * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+ */
+
+
 
 #include "../proofer/proofer.h" // Include for proofer cleanup and current_ms
 #include "server.h"
