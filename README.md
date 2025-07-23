@@ -1312,5 +1312,6 @@ class EthTxData(Container):
 ```
 ## License
 
-MIT
+The colibri client code (src/proofer, src/verifier, src/util and src/chains) (i.e. all code outside of the src/server directory) is licensed under the [MIT](./LICENSE) , also included in our repository in the LICENSE file.
 
+The colibri proofer server (i.e. all code inside of the src/server directory) are licensed under the GNU Affero General Public License v3.0, also included in our repository in the [LICENSE.AGPL](./LICENSE.AGPL) file.
