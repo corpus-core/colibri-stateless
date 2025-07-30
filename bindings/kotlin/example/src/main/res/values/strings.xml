@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Colibri Example</string>
+    <string name="app_title">Colibri Example App</string>
+    <string name="current_block_number">Current Block Number:</string>
+    <string name="refresh">Refresh</string>
+    <string name="loading">Loading…</string>
+    <string name="error_prefix">Error: </string>
+    <string name="fetching_block_number">Fetching latest block number…</string>
+    <string name="initialization_failed">Failed to initialize Colibri</string>
+</resources>

@@ -29,8 +29,12 @@ import org.json.JSONObject
 import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.api.Assumptions
 import java.io.File
 import java.math.BigInteger
+import java.util.stream.Stream
 
 class ColibriTest {
 
@@ -187,10 +191,6 @@ class ColibriTest {
         // fun preloadFromFile(file: File) { ... }
     }
 
-    // Define the base directory for test data relative to the project
-    // Adjust this path as necessary based on your project structure
-    private val testDataBaseDir = File("../../test/data") // Relative to bindings/kotlin/lib module
-
     @Test
     fun `getMethodSupport should identify proofable method`() = runBlocking {
         // No mocking needed for this one
@@ -201,120 +201,133 @@ class ColibriTest {
 
     // --- Dynamic Tests from Test Data ---
 
-    // Find all test directories
-    private fun getTestDataDirectories(): List<File> {
-        if (!testDataBaseDir.isDirectory) {
-            println("Warning: Test data base directory not found: ${testDataBaseDir.absolutePath}")
-            return emptyList()
-        }
-        return testDataBaseDir.listFiles { file ->
-            file.isDirectory && File(file, "test.json").exists()
-        }?.toList() ?: emptyList()
-    }
-
     @Test
     fun `run proof tests from test data`() {
         val testDirs = getTestDataDirectories()
         assertTrue("Should find test data directories", testDirs.isNotEmpty())
+        println("Found ${testDirs.size} test directories - individual results will be reported in parameterized tests")
+    }
 
-        for (testDir in testDirs) {
-            println("\n--- Running Test: ${testDir.name} ---")
-            val testJsonFile = File(testDir, "test.json")
-            val testConf = JSONObject(testJsonFile.readText())
+    @ParameterizedTest(name = "proof test: {0}")
+    @MethodSource("getTestDataDirectoriesAsStream")
+    fun `proof test for test data directory`(testDir: File) = runBlocking {
+        println("\n--- Running Test: ${testDir.name} ---")
+        val testJsonFile = File(testDir, "test.json")
+        val testConf = JSONObject(testJsonFile.readText())
 
-            // skip test if testConf.requires_chain_store is true
-            if (testConf.optBoolean("requires_chain_store", false)) {
-                 println("Skipping test ${testDir.name} because requires_chain_store is true.")
-                 continue // Skip to the next test directory
-            }
+        // skip test if testConf.requires_chain_store is true
+        if (testConf.optBoolean("requires_chain_store", false)) {
+             println("Skipping test ${testDir.name} because requires_chain_store is true.")
+             Assumptions.assumeFalse(true, "Test requires chain store") // Skip gracefully
+             return@runBlocking
+        }
 
-            val chainId = testConf.optBigInteger("chain", BigInteger.ONE) // Assuming chainId is in test.json
-            val method = testConf.getString("method")
-            val trusted_blockhash = testConf.optString("trusted_blockhash", null) // Use optString
-            val paramsJson = testConf.getJSONArray("params")
-            val expectedResultJson = testConf.get("expected_result") // Can be any JSON type
+        val chainId = testConf.optBigInteger("chain", BigInteger.ONE) // Assuming chainId is in test.json
+        val method = testConf.getString("method")
+        val trusted_blockhash = testConf.optString("trusted_blockhash", null) // Use optString
+        val paramsJson = testConf.getJSONArray("params")
+        val expectedResultJson = testConf.get("expected_result") // Can be any JSON type
 
-            // Convert params JSONArray to Array<Any?>
-            val params = Array<Any?>(paramsJson.length()) { i ->
-                convertJsonToJava(paramsJson.get(i)) // Use the helper from Colibri.kt
-            }
+        // Convert params JSONArray to Array<Any?>
+        val params = Array<Any?>(paramsJson.length()) { i ->
+            convertJsonToJava(paramsJson.get(i)) // Use the helper from Colibri.kt
+        }
 
-            // --- Storage Setup --- 
-            // Create storage instance linked to the specific test directory
-            val storage = InMemoryStorage(testDir)
-            // Register the storage implementation. This needs to happen before C code
-            // potentially tries to access it via the bridge, although the bridge currently
-            // caches the instance during nativeInitializeBridge which is called statically.
-            // Calling it here ensures the correct instance is set in the StorageBridge object.
-            Colibri.registerStorage(storage)
-            // --- End Storage Setup ---
+        // --- Storage Setup --- 
+        // Create storage instance linked to the specific test directory
+        val storage = InMemoryStorage(testDir)
+        // Register the storage implementation. This needs to happen before C code
+        // potentially tries to access it via the bridge, although the bridge currently
+        // caches the instance during nativeInitializeBridge which is called statically.
+        // Calling it here ensures the correct instance is set in the StorageBridge object.
+        Colibri.registerStorage(storage)
+        // --- End Storage Setup ---
 
-            // Create Colibri instance with mock request handler
-            val mockHandler = createMockRequestHandler(testDir)
-            val colibri = Colibri(chainId = chainId, requestHandler = mockHandler)
+        // Create Colibri instance with mock request handler
+        val mockHandler = createMockRequestHandler(testDir)
+        val colibri = Colibri(chainId = chainId, requestHandler = mockHandler)
 
-            if (trusted_blockhash != null) {
-                colibri.trustedBlockHashes = arrayOf(trusted_blockhash)
-            }
+        if (trusted_blockhash != null) {
+            colibri.trustedBlockHashes = arrayOf(trusted_blockhash)
+        }
 
-            // Run the test logic within runBlocking for suspend functions
-            runBlocking {
-//                println("Creating proof for ${testDir.name}...")
-                val proof = colibri.getProof(method, params)
-                assertTrue("Proof should not be empty for ${testDir.name}", proof.isNotEmpty())
-//                println("Proof created (size: ${proof.size}). Verifying...")
+        // Run the test logic 
+//        println("Creating proof for ${testDir.name}...")
+        val proof = colibri.getProof(method, params)
+        assertTrue("Proof should not be empty for ${testDir.name}", proof.isNotEmpty())
+//        println("Proof created (size: ${proof.size}). Verifying...")
 
-                val result = colibri.verifyProof(proof, method, params)
-//                println("Verification result: $result")
+        val result = colibri.verifyProof(proof, method, params)
+//        println("Verification result: $result")
 
-                // Compare result with expected_result (needs careful comparison of Any? and org.json)
-                // Convert expected result from org.json to Kotlin types for comparison
-                var expectedResult: Any? = convertJsonToJava(expectedResultJson) // Make it var
-//                println("Original Expected result: $expectedResult")
+        // Compare result with expected_result (needs careful comparison of Any? and org.json)
+        // Convert expected result from org.json to Kotlin types for comparison
+        var expectedResult: Any? = convertJsonToJava(expectedResultJson) // Make it var
+//        println("Original Expected result: $expectedResult")
 
-                // --- Adjustment for eth_getBlockByNumber(true) ---
-                // If the method is eth_getBlockByNumber and the second param is true,
-                // the current core implementation seems to return only tx hashes.
-                // Adjust the expected result to match this behavior for the test to pass.
-                if (method == "eth_getBlockByNumber" && params.size > 1 && params.getOrNull(1) == true) {
-                     if (expectedResult is MutableMap<*, *> && expectedResult.containsKey("transactions")) {
-//                         println("Adjusting expected result for eth_getBlockByNumber(true) to compare only tx hashes.")
-                         val expectedTxs = expectedResult["transactions"] as? List<*>
-                         if (expectedTxs != null && expectedTxs.all { it is Map<*, *> }) {
-                             @Suppress("UNCHECKED_CAST")
-                             val expectedTxObjects = expectedTxs as List<Map<String, Any?>>
-                             val expectedTxHashes = expectedTxObjects.mapNotNull { it["hash"] as? String }
+        // --- Adjustment for eth_getBlockByNumber(true) ---
+        // If the method is eth_getBlockByNumber and the second param is true,
+        // the current core implementation seems to return only tx hashes.
+        // Adjust the expected result to match this behavior for the test to pass.
+        if (method == "eth_getBlockByNumber" && params.size > 1 && params.getOrNull(1) == true) {
+             if (expectedResult is MutableMap<*, *> && expectedResult.containsKey("transactions")) {
+//                 println("Adjusting expected result for eth_getBlockByNumber(true) to compare only tx hashes.")
+                 val expectedTxs = expectedResult["transactions"] as? List<*>
+                 if (expectedTxs != null && expectedTxs.all { it is Map<*, *> }) {
+                     @Suppress("UNCHECKED_CAST")
+                     val expectedTxObjects = expectedTxs as List<Map<String, Any?>>
+                     val expectedTxHashes = expectedTxObjects.mapNotNull { it["hash"] as? String }
 
-                             // Ensure expectedResult is mutable map of String keys
-                             if (expectedResult is MutableMap<*, *>) {
-                                @Suppress("UNCHECKED_CAST")
-                                val mutableExpectedResult = expectedResult as MutableMap<String, Any?>
-                                mutableExpectedResult["transactions"] = expectedTxHashes
-//                                println("Adjusted Expected result: $expectedResult")
-                             } else {
-//                                 println("Warning: Could not mutate expectedResult directly.")
-                                 // Attempt to create a mutable copy if possible
-                                 try {
-                                      @Suppress("UNCHECKED_CAST")
-                                      val mutableCopy = (expectedResult as Map<String, Any?>).toMutableMap()
-                                      mutableCopy["transactions"] = expectedTxHashes
-                                      expectedResult = mutableCopy // Reassign to the modified copy
-//                                      println("Adjusted Expected result (from copy): $expectedResult")
-                                 } catch (e: Exception) {
-                                      println("Error creating mutable copy for adjustment: ${e.message}")
-                                 }
-                             }
+                     // Ensure expectedResult is mutable map of String keys
+                     if (expectedResult is MutableMap<*, *>) {
+                        @Suppress("UNCHECKED_CAST")
+                        val mutableExpectedResult = expectedResult as MutableMap<String, Any?>
+                        mutableExpectedResult["transactions"] = expectedTxHashes
+//                        println("Adjusted Expected result: $expectedResult")
+                     } else {
+//                         println("Warning: Could not mutate expectedResult directly.")
+                         // Attempt to create a mutable copy if possible
+                         try {
+                              @Suppress("UNCHECKED_CAST")
+                              val mutableCopy = (expectedResult as Map<String, Any?>).toMutableMap()
+                              mutableCopy["transactions"] = expectedTxHashes
+                              expectedResult = mutableCopy // Reassign to the modified copy
+//                              println("Adjusted Expected result (from copy): $expectedResult")
+                         } catch (e: Exception) {
+                              println("Error creating mutable copy for adjustment: ${e.message}")
                          }
                      }
-                }
-                // --- End Adjustment ---
+                 }
+             }
+        }
+        // --- End Adjustment ---
 
-                 // Use proper deep comparison for maps/lists if necessary
-                 // Basic assertEquals might work for simple types
-                 // Consider a dedicated deep comparison library if results are complex
-                assertEquals("Result mismatch for ${testDir.name}", expectedResult, result)
-                println("--- Test Passed: ${testDir.name} ---")
+         // Use proper deep comparison for maps/lists if necessary
+         // Basic assertEquals might work for simple types
+         // Consider a dedicated deep comparison library if results are complex
+        assertEquals("Result mismatch for ${testDir.name}", expectedResult, result)
+        println("--- Test Passed: ${testDir.name} ---")
+    }
+
+    companion object {
+        // Define the base directory for test data relative to the project
+        // Adjust this path as necessary based on your project structure
+        private val testDataBaseDir = File("../../test/data") // Relative to bindings/kotlin/lib module
+
+        // Find all test directories
+        private fun getTestDataDirectories(): List<File> {
+            if (!testDataBaseDir.isDirectory) {
+                println("Warning: Test data base directory not found: ${testDataBaseDir.absolutePath}")
+                return emptyList()
             }
+            return testDataBaseDir.listFiles { file ->
+                file.isDirectory && File(file, "test.json").exists()
+            }?.toList() ?: emptyList()
+        }
+
+        @JvmStatic
+        fun getTestDataDirectoriesAsStream(): Stream<File> {
+            return getTestDataDirectories().stream()
         }
     }
 }

@@ -5,6 +5,8 @@ bindings/swift/.build
 bindings/kotlin/.cxx
 bindings/emscripten/node_modules
 bindings/kotlin/build
+bindings/kotlin/example/build
+bindings/kotlin/example/.gradle
 bindings/kotlin/lib/build
 bindings/kotlin/.gradle
 test/embedded/sdcard.img
@@ -12,6 +14,7 @@ test/embedded/memory_map.txt
 /.memcached
 bindings/emscripten/webpack/dist
 bindings/emscripten/webpack/node_modules
+bindings/emscripten/test/s*
 bindings/kotlin/*.log
 /build_x86
 /build_*

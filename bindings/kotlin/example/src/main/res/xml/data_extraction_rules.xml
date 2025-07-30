@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- No special cloud backup rules needed for this simple example -->
+    </cloud-backup>
+    <device-transfer>
+        <!-- No special device transfer rules needed for this simple example -->
+    </device-transfer>
+</data-extraction-rules>
