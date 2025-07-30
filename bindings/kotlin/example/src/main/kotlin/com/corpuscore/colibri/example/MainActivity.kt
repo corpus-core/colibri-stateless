@@ -5,10 +5,10 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.corpuscore.colibri.Colibri
-import com.corpuscore.colibri.ColibriException
 import kotlinx.coroutines.launch
 import java.math.BigInteger
+import com.corpuscore.colibri.Colibri
+import com.corpuscore.colibri.ColibriException
 
 class MainActivity : AppCompatActivity() {
     
