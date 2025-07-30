@@ -496,50 +496,6 @@ jobs:
                 --html-details build/coverage-report/index.html \
                 --html-title "Colibri Coverage Report"
 
-          # Generate text summary with per-file coverage
-          {
-            echo "## Coverage Summary by File"
-            echo ""
-            echo "| Status | File | Coverage |"
-            echo "|--------|------|----------|"
-            
-            # Process gcovr output into a table with status icons
-            gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*" | \
-            awk '
-            # Skip header lines, separator lines, and empty lines
-            NR > 3 && $1 != "TOTAL" && NF > 0 && !/^-+$/ && !/^Directory:/ && !/^File.*Lines.*/ {
-              # Extract file and coverage
-              file=$1
-              coverage=$4
-              # Remove the % symbol
-              gsub(/%/, "", coverage)
-              # Add status icon based on coverage threshold
-              if (coverage >= 70 || coverage == 100) {
-                icon="✅"
-              } else {
-                icon="⚠️"
-              }
-              # Print in markdown table format
-              printf "| %s | %s | %s%% |\n", icon, file, coverage
-            }' >> coverage_summary.txt
-
-            # Add total coverage at the end
-            echo "" >> coverage_summary.txt
-            TOTAL_COVERAGE=$(gcovr --exclude 'libs.*' --exclude 'build.*' --exclude 'test.*' --exclude 'src.cli.*' | grep 'TOTAL' | awk '{print $4}')
-            echo "**Total coverage:** $TOTAL_COVERAGE" >> coverage_summary.txt
-            
-            # Create JSON metrics file
-            TOTAL_COVERAGE_NUM=$(echo $TOTAL_COVERAGE | sed 's/%//')
-            echo "{" > build/coverage-report/coverage-metrics.json
-            echo "  \"total_coverage\": $TOTAL_COVERAGE_NUM," >> build/coverage-report/coverage-metrics.json
-            echo "  \"commit\": \"$(git rev-parse --short HEAD)\"," >> build/coverage-report/coverage-metrics.json
-            echo "  \"date\": \"$(git show -s --format=%ci HEAD)\"" >> build/coverage-report/coverage-metrics.json
-            echo "}" >> build/coverage-report/coverage-metrics.json
-          } > coverage_summary.txt
-
-          # Add the summary to both the step summary and the coverage report directory
-          cp coverage_summary.txt build/coverage-report/
-
       - name: Move Coverage Report
         run: |
           # Create the coverage report directory if it doesn't exist
@@ -597,7 +553,6 @@ jobs:
           echo "[View detailed coverage report](https://corpus-core.github.io/c4/coverage/index.html)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY
-          cat coverage_summary.txt >> $GITHUB_STEP_SUMMARY
 
   build:
     runs-on: ${{ matrix.os }}
