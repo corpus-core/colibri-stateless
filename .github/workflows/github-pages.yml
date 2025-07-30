@@ -1054,7 +1054,7 @@ jobs:
                 .then(response => response.json())
                 .then(data => {
                   // Filter out test entries
-                  data = data.filter(entry => !entry.commit.startsWith('test-'));
+                  data = data.filter(entry => !entry.commit.startsWith('test-') && entry.date && !entry.date.startsWith('2025-03-01'));
                   
                   // Sort data by date
                   data.sort((a, b) => new Date(a.date) - new Date(b.date));
