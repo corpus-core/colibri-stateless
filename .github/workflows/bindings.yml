@@ -255,6 +255,74 @@ jobs:
           reporter: java-junit
           fail-on-error: true
 
+      - name: Generate JAR Test Summary
+        if: always()
+        run: |
+          cd bindings/kotlin
+          
+          # Parse XML test results and create summary
+          if [ -f build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml ]; then
+            echo "## 🧪 JAR Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract test statistics from XML
+            TOTAL=$(grep -o 'tests="[0-9]*"' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | cut -d'"' -f2)
+            FAILURES=$(grep -o 'failures="[0-9]*"' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | cut -d'"' -f2)
+            ERRORS=$(grep -o 'errors="[0-9]*"' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | cut -d'"' -f2)
+            SKIPPED=$(grep -o 'skipped="[0-9]*"' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | cut -d'"' -f2)
+            PASSED=$((TOTAL - FAILURES - ERRORS - SKIPPED))
+            
+            # Overall status
+            if [ "$FAILURES" -eq 0 ] && [ "$ERRORS" -eq 0 ]; then
+              echo "### ✅ All tests passed! ($PASSED/$TOTAL)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ❌ Some tests failed ($PASSED passed, $FAILURES failed, $ERRORS errors)" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Test | Time | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
+            
+            # Parse individual test cases - extract proof tests and basic tests
+            
+            # First add the basic getMethodSupport test
+            grep 'name="getMethodSupport' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | while IFS= read -r line; do
+              TIME=$(echo "$line" | sed -n 's/.*time="\([^"]*\)".*/\1/p')
+              echo "| \`getMethodSupport\` | ${TIME}s | ✅ |" >> $GITHUB_STEP_SUMMARY
+            done
+            
+            # Then add all the proof tests
+            grep 'name="proof test:' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | while IFS= read -r line; do
+              # Extract the test name after "proof test: ../../test/data/"
+              TEST_NAME=$(echo "$line" | sed -n 's/.*proof test: \.\.\/\.\.\/test\/data\/\([^"]*\).*/\1/p')
+              # Extract time
+              TIME=$(echo "$line" | sed -n 's/.*time="\([^"]*\)".*/\1/p')
+              
+              if [[ -n "$TEST_NAME" && -n "$TIME" ]]; then
+                # Check if test has failure/error
+                if echo "$line" | grep -q '/>' ; then
+                  # Self-closing tag = passed
+                  echo "| \`$TEST_NAME\` | ${TIME}s | ✅ |" >> $GITHUB_STEP_SUMMARY
+                else
+                  # Has nested content = might be failure
+                  echo "| \`$TEST_NAME\` | ${TIME}s | ❌ |" >> $GITHUB_STEP_SUMMARY
+                fi
+              fi
+            done
+            
+            # Add the summary test
+            grep 'name="run proof tests from test data"' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | while IFS= read -r line; do
+              TIME=$(echo "$line" | sed -n 's/.*time="\([^"]*\)".*/\1/p')
+              echo "| \`test data summary\` | ${TIME}s | ✅ |" >> $GITHUB_STEP_SUMMARY
+            done
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "_📊 Total: $TOTAL tests | ⏱️ Duration: $(grep -o 'time="[^"]*"' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | head -1 | cut -d'"' -f2)s_" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ⚠️ JAR Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "No test results found." >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Upload JAR Test Reports
         uses: actions/upload-artifact@v4
         if: always()
