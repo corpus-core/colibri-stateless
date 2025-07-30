@@ -262,7 +262,7 @@ jobs:
           
           # Parse XML test results and create summary
           if [ -f build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml ]; then
-            echo "## 🧪 JAR Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "## 🧪 Kotlin Test Results" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
             # Extract test statistics from XML
@@ -280,15 +280,15 @@ jobs:
             fi
             
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Test | Time | Status |" >> $GITHUB_STEP_SUMMARY
-            echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Test | Time | Status | Details |" >> $GITHUB_STEP_SUMMARY
+            echo "|------|------|--------|---------| " >> $GITHUB_STEP_SUMMARY
             
             # Parse individual test cases - extract proof tests and basic tests
             
             # First add the basic getMethodSupport test
             grep 'name="getMethodSupport' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | while IFS= read -r line; do
               TIME=$(echo "$line" | sed -n 's/.*time="\([^"]*\)".*/\1/p')
-              echo "| \`getMethodSupport\` | ${TIME}s | ✅ |" >> $GITHUB_STEP_SUMMARY
+              echo "| \`getMethodSupport\` | ${TIME}s | ✅ | Basic JNI test |" >> $GITHUB_STEP_SUMMARY
             done
             
             # Then add all the proof tests
@@ -299,13 +299,39 @@ jobs:
               TIME=$(echo "$line" | sed -n 's/.*time="\([^"]*\)".*/\1/p')
               
               if [[ -n "$TEST_NAME" && -n "$TIME" ]]; then
-                # Check if test has failure/error
+                # Check test status more precisely
                 if echo "$line" | grep -q '/>' ; then
                   # Self-closing tag = passed
-                  echo "| \`$TEST_NAME\` | ${TIME}s | ✅ |" >> $GITHUB_STEP_SUMMARY
+                  echo "| \`$TEST_NAME\` | ${TIME}s | ✅ | RPC proof test |" >> $GITHUB_STEP_SUMMARY
                 else
-                  # Has nested content = might be failure
-                  echo "| \`$TEST_NAME\` | ${TIME}s | ❌ |" >> $GITHUB_STEP_SUMMARY
+                  # Has nested content - check what kind
+                  # Get the next few lines to see if it contains skipped, failure, or error
+                  FULL_TEST=$(grep -A5 "name=\"proof test: ../../test/data/$TEST_NAME\"" build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml)
+                  
+                  if echo "$FULL_TEST" | grep -q '<skipped'; then
+                    # Extract skip reason if available
+                    SKIP_REASON=$(echo "$FULL_TEST" | grep -o 'message="[^"]*"' | head -1 | cut -d'"' -f2)
+                    if [[ -n "$SKIP_REASON" ]]; then
+                      echo "| \`$TEST_NAME\` | ${TIME}s | ⏭️ | $SKIP_REASON |" >> $GITHUB_STEP_SUMMARY
+                    else
+                      echo "| \`$TEST_NAME\` | ${TIME}s | ⏭️ | Requires chain store |" >> $GITHUB_STEP_SUMMARY
+                    fi
+                  elif echo "$FULL_TEST" | grep -q -E '<failure|<error'; then
+                    # Extract error message
+                    ERROR_MSG=$(echo "$FULL_TEST" | grep -o 'message="[^"]*"' | head -1 | cut -d'"' -f2)
+                    if [[ -n "$ERROR_MSG" ]]; then
+                      # Truncate long error messages
+                      if [[ ${#ERROR_MSG} -gt 60 ]]; then
+                        ERROR_MSG="${ERROR_MSG:0:57}..."
+                      fi
+                      echo "| \`$TEST_NAME\` | ${TIME}s | ❌ | $ERROR_MSG |" >> $GITHUB_STEP_SUMMARY
+                    else
+                      echo "| \`$TEST_NAME\` | ${TIME}s | ❌ | Test failed |" >> $GITHUB_STEP_SUMMARY
+                    fi
+                  else
+                    # Fallback - assume passed if no failure/error/skipped found
+                    echo "| \`$TEST_NAME\` | ${TIME}s | ✅ | RPC proof test |" >> $GITHUB_STEP_SUMMARY
+                  fi
                 fi
               fi
             done
@@ -313,7 +339,7 @@ jobs:
             # Add the summary test
             grep 'name="run proof tests from test data"' build/test-results/test/TEST-com.corpuscore.colibri.ColibriTest.xml | while IFS= read -r line; do
               TIME=$(echo "$line" | sed -n 's/.*time="\([^"]*\)".*/\1/p')
-              echo "| \`test data summary\` | ${TIME}s | ✅ |" >> $GITHUB_STEP_SUMMARY
+              echo "| \`test data summary\` | ${TIME}s | ✅ | Discovery of test dirs |" >> $GITHUB_STEP_SUMMARY
             done
             
             echo "" >> $GITHUB_STEP_SUMMARY
