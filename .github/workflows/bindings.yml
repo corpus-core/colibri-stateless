@@ -318,6 +318,12 @@ jobs:
           name: generated-java-sources
           path: bindings/kotlin/generated/java
 
+      - name: Download AAR artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: colibri-aar
+          path: bindings/kotlin/build/outputs/aar
+
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
