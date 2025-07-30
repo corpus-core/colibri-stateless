@@ -95,6 +95,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
     implementation("org.json:json:20210307")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.9.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-engine:5.9.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-params:5.9.2") // For @ParameterizedTest
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.0")
     testImplementation("org.json:json:20210307") // Also needed for test compilation
 }
@@ -213,6 +216,9 @@ tasks.withType<Test> {
    // Make tests depend on the host native library build
    dependsOn(buildNativeTestLib)
 
+   // Use JUnit 5 platform for parameterized tests alongside JUnit 4
+   useJUnitPlatform()
+
    // Increase max heap size for the test JVM
    maxHeapSize = "4g" // Example: 4 gigabytes. Adjust as needed.
 
@@ -230,6 +236,10 @@ tasks.withType<Test> {
 
    testLogging {
        showStandardStreams = true
-       events("passed", "skipped", "failed") // Optionally show test events
+       events("passed", "skipped", "failed", "standardOut", "standardError")
+       exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
    }
+   
+   // Always run tests (even if up-to-date)
+   outputs.upToDateWhen { false }
 }

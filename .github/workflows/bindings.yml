@@ -242,9 +242,28 @@ jobs:
           distribution: "adopt"
           java-version: "11"
 
-      - name: Build and publish JAR
-        run: cd bindings/kotlin && ./gradlew --no-configuration-cache -b build-jar.gradle.kts build -PgeneratedSourcesPath="generated/java"
+      - name: Build and test JAR
+        run: cd bindings/kotlin && ./gradlew --no-configuration-cache -b build-jar.gradle.kts build test -PgeneratedSourcesPath="generated/java"
       #      run: cd bindings/kotlin && ./gradlew -b build-jar.gradle.kts build publish -PmavenUsername=${{ secrets.MAVEN_USERNAME }} -PmavenPassword=${{ secrets.MAVEN_PASSWORD }}
+
+      - name: Publish JAR Test Results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: JAR Tests
+          path: bindings/kotlin/build/test-results/test/*.xml
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Upload JAR Test Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jar-test-reports
+          path: |
+            bindings/kotlin/build/test-results/
+            bindings/kotlin/build/reports/tests/
+          if-no-files-found: warn
 
       - name: Debug - List build directory
         run: find bindings/kotlin -name "*.jar"
@@ -350,6 +369,71 @@ jobs:
         with:
           name: colibri-example-apk
           path: bindings/kotlin/example/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+
+  android-tests:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')  # Only run on release tags
+    needs: [build-example-app]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Download generated Java sources
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-java-sources
+          path: bindings/kotlin/generated/java
+
+      - name: Download AAR artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: colibri-aar
+          path: bindings/kotlin/build/outputs/aar
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Enable KVM (for Android Emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set Android SDK environment variables
+        run: |
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "PATH=$PATH:/usr/local/lib/android/sdk/cmdline-tools/latest/bin:/usr/local/lib/android/sdk/platform-tools:/usr/local/lib/android/sdk/emulator" >> $GITHUB_PATH
+
+      - name: Install Android SDK and Emulator
+        run: |
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" "build-tools;33.0.0" "ndk;26.1.10909125" "emulator" "system-images;android-33;google_apis;x86_64"
+
+      - name: Create Android Virtual Device
+        run: |
+          echo "no" | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/avdmanager create avd -n test-avd -k "system-images;android-33;google_apis;x86_64" -d "pixel_7"
+
+      - name: Start Android Emulator
+        run: |
+          /usr/local/lib/android/sdk/emulator/emulator -avd test-avd -no-audio -no-window -no-snapshot -wipe-data &
+          /usr/local/lib/android/sdk/platform-tools/adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed | tr -d '\r') ]]; do sleep 1; done; input keyevent 82'
+
+      - name: Run Android Tests
+        run: |
+          cd bindings/kotlin/example
+          ./gradlew connectedAndroidTest -PgeneratedSourcesPath="../generated/java"
+        timeout-minutes: 10
+
+      - name: Upload Android Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-test-results
+          path: bindings/kotlin/example/build/reports/androidTests/
           if-no-files-found: warn
 
   swift:
