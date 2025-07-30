@@ -44,11 +44,9 @@ public class Colibri {
 
     // Create proof asynchronously
     public func createProof(method: String, params: String) async throws -> Data {
-        // Create context
-        let methodCStr = method.withCString { strdup(strPtr)
-        }
-        let paramsCStr = params.withCString { strdup(strPtr)
-        }
+        // Create context with proper memory management
+        let methodCStr = method.withCString { strdup($0) }
+        let paramsCStr = params.withCString { strdup($0) }
         
         guard let methodPtr = methodCStr,
               let paramsPtr = paramsCStr else {
@@ -57,15 +55,17 @@ public class Colibri {
         
         defer {
             free(methodPtr)
-            free(paramsCStr)
+            free(paramsPtr)
         }
         
-        let ctx = c4_create_proofer_ctx(methodPtr, paramsPtr, chainId, includeCode ? 1 : 0)
+        guard let ctx = c4_create_proofer_ctx(methodPtr, paramsPtr, chainId, includeCode ? 1 : 0) else {
+            throw ColibriError.contextCreationFailed
+        }
         defer { c4_free_proofer_ctx(ctx) }
 
         while true {
             guard let jsonStatusPtr = c4_proofer_execute_json_status(ctx) else {
-                throw ColibriError.executionFailed
+                throw ColibriError.nullPointerReceived
             }
             let jsonStatus = String(cString: jsonStatusPtr)
             free(jsonStatusPtr)
@@ -122,18 +122,17 @@ public class Colibri {
             free(trustedBlockHasesPtr)
         }
         
-        // Create a copy of the proof data to ensure it remains valid
-        let proofCopy = proof.copyBytes()
-        var proofBytes = bytes_t()
-        withUnsafeBytes(of: proofCopy) { rawBufferPointer in
-            let bufferPointer = rawBufferPointer.bindMemory(to: UInt8.self)
-            if let baseAddress = bufferPointer.baseAddress {
-                let mutablePtr = UnsafeMutablePointer(mutating: baseAddress)
-                proofBytes = bytes_t(data: mutablePtr, len: UInt32(proof.count))
-            }
+        // Create bytes_t struct for proof data with safe memory handling
+        let proofBytes = proof.withUnsafeBytes { rawBufferPointer in
+            bytes_t(
+                data: UnsafeMutablePointer(mutating: rawBufferPointer.bindMemory(to: UInt8.self).baseAddress!),
+                len: UInt32(proof.count)
+            )
         }
         
-        let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedBlockHasesCStr)
+        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedBlockHasesCStr) else {
+            throw ColibriError.contextCreationFailed
+        }
         defer { c4_verify_free_ctx(ctx) }
 
         var iteration = 0
@@ -142,17 +141,17 @@ public class Colibri {
             iteration += 1
 //            print("verifyProof: Iteration \(iteration)/\(maxIterations)")
             guard let statusJsonPtr = c4_verify_execute_json_status(ctx) else {
-                throw ColibriError("Verifier execution returned null status for method \(method)")
+                throw ColibriError.nullPointerReceived
             }
             let statusJsonString = String(cString: statusJsonPtr)
             free(statusJsonPtr)
 
             guard let state = try? JSONSerialization.jsonObject(with: Data(statusJsonString.utf8), options: []) as? [String: Any] else {
-                throw ColibriError("Failed to parse verifier status JSON: \(statusJsonString)")
+                throw ColibriError.invalidJSON
             }
 
             guard let status = state["status"] as? String else {
-                throw ColibriError("Missing or invalid status in verifier response")
+                throw ColibriError.invalidJSON
             }
 
             switch status {
@@ -161,10 +160,10 @@ public class Colibri {
                 return state["result"] // Returns Any? which matches function signature
             case "error":
                 let errorMsg = state["error"] as? String ?? "Unknown verifier error"
-                throw ColibriError("Verifier error for method \(method): \(errorMsg)")
+                throw ColibriError.proofError("Verifier error for method \(method): \(errorMsg)")
             case "pending":
                 guard let requests = state["requests"] as? [[String: Any]] else {
-                    throw ColibriError("Missing or invalid 'requests' array in pending state")
+                    throw ColibriError.invalidJSON
                 }
                 // Call handleRequests, enabling the proofer fallback logic
                 try await handleRequests(requests, useProoferFallback: true)
@@ -290,13 +289,11 @@ public class Colibri {
                             if let httpResponse = response as? HTTPURLResponse,
                                (200...299).contains(httpResponse.statusCode) {
                                 // Success - set response and return
-                                var bytes = bytes_t()
-                                responseData.withUnsafeBytes { rawBufferPointer in
-                                    let bufferPointer = rawBufferPointer.bindMemory(to: UInt8.self)
-                                    if let baseAddress = bufferPointer.baseAddress {
-                                        let mutablePtr = UnsafeMutablePointer(mutating: baseAddress)
-                                        bytes = bytes_t(data: mutablePtr, len: UInt32(responseData.count))
-                                    }
+                                let bytes = responseData.withUnsafeBytes { rawBufferPointer in
+                                    bytes_t(
+                                        data: UnsafeMutablePointer(mutating: rawBufferPointer.bindMemory(to: UInt8.self).baseAddress!),
+                                        len: UInt32(responseData.count)
+                                    )
                                 }
                                 c4_req_set_response(reqPtr, bytes, Int32(index))
                                 return
@@ -386,25 +383,95 @@ public class Colibri {
         throw lastError
     }
 
-    // Helper extension for safe byte copying
+    // Helper extension for safe byte operations
     private extension Data {
         func copyBytes() -> [UInt8] {
             return [UInt8](self)
+        }
+        
+        // Safe withUnsafeBytes wrapper for older Swift versions compatibility
+        func safeWithUnsafeBytes<ResultType>(_ body: (UnsafeRawBufferPointer) throws -> ResultType) rethrows -> ResultType {
+            return try withUnsafeBytes(body)
         }
     }
 }
 
 // Error enum for better error handling
-public enum ColibriError: Error {
+public enum ColibriError: Error, LocalizedError, Equatable {
     case invalidInput
     case executionFailed
     case invalidJSON
     case proofError(String)
     case unknownStatus(String)
     case invalidURL
-    case rpcError(String) // Added for RPC specific errors
-    case httpError(statusCode: Int, details: String) // Added for HTTP errors
-    case methodNotSupported(String) // Added for unsupported methods
-    case unknownMethodType(String) // Added for unknown method types
+    case rpcError(String)
+    case httpError(statusCode: Int, details: String)
+    case methodNotSupported(String)
+    case unknownMethodType(String)
+    case memoryAllocationFailed
+    case nullPointerReceived
+    case contextCreationFailed
+    
+    public var errorDescription: String? {
+        switch self {
+        case .invalidInput:
+            return "Ungültige Eingabeparameter"
+        case .executionFailed:
+            return "Ausführung fehlgeschlagen"
+        case .invalidJSON:
+            return "Ungültiges JSON-Format"
+        case .proofError(let message):
+            return "Proof-Fehler: \(message)"
+        case .unknownStatus(let status):
+            return "Unbekannter Status: \(status)"
+        case .invalidURL:
+            return "Ungültige URL"
+        case .rpcError(let message):
+            return "RPC-Fehler: \(message)"
+        case .httpError(let statusCode, let details):
+            return "HTTP-Fehler \(statusCode): \(details)"
+        case .methodNotSupported(let method):
+            return "Methode nicht unterstützt: \(method)"
+        case .unknownMethodType(let method):
+            return "Unbekannter Methodentyp für: \(method)"
+        case .memoryAllocationFailed:
+            return "Speicherallokation fehlgeschlagen"
+        case .nullPointerReceived:
+            return "Null-Pointer von C-Funktion erhalten"
+        case .contextCreationFailed:
+            return "Kontext-Erstellung fehlgeschlagen"
+        }
+    }
+    
+    public var failureReason: String? {
+        switch self {
+        case .invalidInput:
+            return "Die übergebenen Parameter sind null oder ungültig."
+        case .executionFailed:
+            return "Die C-Bibliothek konnte die Operation nicht ausführen."
+        case .invalidJSON:
+            return "Die JSON-Daten konnten nicht geparst werden."
+        case .proofError(let message):
+            return "Bei der Proof-Generierung ist ein Fehler aufgetreten: \(message)"
+        case .unknownStatus(let status):
+            return "Die C-Bibliothek hat einen unbekannten Status zurückgegeben: \(status)"
+        case .invalidURL:
+            return "Die URL-Zeichenkette ist kein gültiges URL-Format."
+        case .rpcError(let message):
+            return "RPC-Aufruf fehlgeschlagen: \(message)"
+        case .httpError(let statusCode, let details):
+            return "HTTP-Request fehlgeschlagen mit Status \(statusCode): \(details)"
+        case .methodNotSupported(let method):
+            return "Die Methode \(method) wird für diese Chain nicht unterstützt."
+        case .unknownMethodType(let method):
+            return "Konnte Methodentyp für \(method) nicht bestimmen."
+        case .memoryAllocationFailed:
+            return "Nicht genügend Speicher verfügbar."
+        case .nullPointerReceived:
+            return "Unerwarteter null-Pointer von der C-Bibliothek."
+        case .contextCreationFailed:
+            return "Der Kontext für die Operation konnte nicht erstellt werden."
+        }
+    }
 }
 

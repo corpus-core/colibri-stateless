@@ -15,6 +15,9 @@ let package = Package(
             publicHeadersPath: "include",
             cSettings: [
                 .headerSearchPath("include")
+            ],
+            swiftSettings: [
+                .interoperabilityMode(.Cxx)
             ]),            
         .binaryTarget(
             name: "c4_swift", 
