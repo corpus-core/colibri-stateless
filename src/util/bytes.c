@@ -410,10 +410,12 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           if (*(p + 2) == 'x') {
             p++;
             if (!*(p + 1)) break;
-            sprintf(tmp, "%" PRIx64, value);
+            sprintf(tmp, "%llx", (unsigned long long) value);
           }
-          else
-            sprintf(tmp, "%" PRIu64, value);
+          else {
+            // Use platform-independent formatting to avoid "lu" suffix in JSON
+            sprintf(tmp, "%llu", (unsigned long long) value);
+          }
           buffer_add_chars(buf, tmp);
           break;
         }

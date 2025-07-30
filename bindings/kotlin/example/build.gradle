@@ -61,4 +61,14 @@ dependencies {
 
     // Use local AAR file 
     implementation(files("../build/outputs/aar/kotlin-debug.aar"))
+    
+    // Test dependencies
+    testImplementation("junit:junit:4.13.2")
+    
+    // Android instrumented test dependencies
+    androidTestImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:rules:1.5.0")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.0")
 }

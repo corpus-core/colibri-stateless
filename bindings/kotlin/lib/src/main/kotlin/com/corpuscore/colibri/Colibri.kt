@@ -126,7 +126,8 @@ class Colibri(
     private suspend fun fetchRequest(servers: Array<String>, request: JSONObject) {
 
         // Define reqPtr before the loop so it's accessible in the final error case
-        val reqPtr = request.getLong("req_ptr") // Assume req_ptr always exists
+        // Get req_ptr - now clean numeric JSON value after bprintf fix
+        val reqPtr = request.getLong("req_ptr")
 //        println("fetchRequest:  for req_ptr $reqPtr)")
 
         var index = 0
@@ -155,7 +156,7 @@ class Colibri(
                 val mockResponse = requestHandler!!(requestDetails)
                 if (mockResponse != null) {
 //                    println("fetchRequest: Mock response provided for req_ptr $reqPtr (size: ${mockResponse.size})")
-                    com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, mockResponse, index) // Use mock response
+                    com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, mockResponse, index)
                     return // Skip actual network request
                 }
             }
@@ -177,8 +178,9 @@ class Colibri(
                 }
 
                 if (response.status.isSuccess()) {
-                    // Ensure req_ptr is treated as a pointer value (Long)
-                    com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, response.readBytes(), index)
+                    // Success response handling with fixed req_ptr format
+                    val responseBytes = response.readBytes()
+                    com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, responseBytes, index)
                     return
                 }
                 else {
@@ -189,8 +191,14 @@ class Colibri(
             }
             index++
         }
-        // Ensure req_ptr is treated as a pointer value (Long)
-        com.corpuscore.colibri.c4.c4_req_set_error(reqPtr, lastError, 0)
+        // Error handling - now fixed for req_ptr parsing
+        try {
+            if (reqPtr != 0L && lastError.isNotEmpty()) {
+                com.corpuscore.colibri.c4.c4_req_set_error(reqPtr, lastError, 0)
+            }
+        } catch (e: Exception) {
+            println("fetchRequest: Error in c4_req_set_error: ${e.message}")
+        }
     }
 
     private fun formatArg(arg: Any?): String = when (arg) { // Make arg nullable
