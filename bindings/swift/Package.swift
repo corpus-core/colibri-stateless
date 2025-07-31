@@ -20,7 +20,6 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("c++"),
                 .unsafeFlags([
-                    "../../build_macos_arm/libcolibri.a",
                     "../../build_macos_arm/src/util/libutil.a",
                     "../../build_macos_arm/src/proofer/libproofer.a",
                     "../../build_macos_arm/src/verifier/libverifier.a",
