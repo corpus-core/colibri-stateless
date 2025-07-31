@@ -201,8 +201,8 @@ jobs:
           mkdir -p swift_package
           
           # Kopiere Swift Package Dateien
-          cp -r bindings/swift/Sources/ swift_package/
-          cp -r bindings/swift/Tests/ swift_package/
+          cp -r bindings/swift/Sources swift_package/
+          cp -r bindings/swift/Tests swift_package/
           cp bindings/swift/README.md swift_package/README.md 2>/dev/null || echo "README.md not found, skipping"
           
           # Kopiere iOS XCFramework
