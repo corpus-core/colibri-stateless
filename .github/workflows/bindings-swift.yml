@@ -239,7 +239,10 @@ jobs:
                       name: "Colibri",
                       dependencies: ["c4_swift", "CColibriMacOS"],
                       path: "Sources/Colibri",
-                      sources: ["Colibri.swift"]
+                      sources: ["Colibri.swift"],
+                      linkerSettings: [
+                          .linkedLibrary("c++")
+                      ]
                   ),
                   .testTarget(
                       name: "ColibriTests",
@@ -293,9 +296,9 @@ jobs:
           name: swift_package
           path: swift_package
 
-      - name: Test iOS Integration Example
+      - name: Test Integration Example
         run: |
-          echo "📱 Testing iOS Integration Example..."
+          echo "📱 Testing Integration Example..."
           
           # Copy test app to work with the generated swift_package
           cp -r bindings/swift/test_ios_app ./
@@ -303,17 +306,17 @@ jobs:
           # Verify the test app can build against the distribution package
           cd test_ios_app
           
-          echo "🔨 Building iOS Test App..."
+          echo "🔨 Building Test App..."
           if swift build 2>&1; then
-            echo "✅ iOS Test App builds successfully"
+            echo "✅ Test App builds successfully"
             
-            echo "🧪 Running iOS Integration Tests..."
+            echo "🧪 Running Integration Tests..."
             if test_output=$(swift test 2>&1); then
-              echo "✅ iOS Integration Tests passed"
-              echo "- ✅ **iOS Integration**: All tests passed" >> $GITHUB_STEP_SUMMARY
+              echo "✅ Integration Tests passed"
+              echo "- ✅ **Integration**: All tests passed" >> $GITHUB_STEP_SUMMARY
             else
-              echo "⚠️ iOS Integration Tests had issues (may be expected in CI)"
-              echo "- ⚠️ **iOS Integration**: Tests had issues (expected in CI without blockchain state)" >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ Integration Tests had issues (may be expected in CI)"
+              echo "- ⚠️ **Integration**: Tests had issues (expected in CI without blockchain state)" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "#### Test Output (Last 10 lines)" >> $GITHUB_STEP_SUMMARY
               echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
@@ -321,13 +324,19 @@ jobs:
               echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             fi
           else
-            echo "❌ iOS Test App failed to build"
-            echo "- ❌ **iOS Integration**: Build failed" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Test App failed to build"
+            echo "- ❌ **Integration**: Build failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### Build Error (Last 20 lines)" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            # Capture the build error for debugging
+            swift build 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📱 iOS Test App" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 Integration Test App" >> $GITHUB_STEP_SUMMARY
           echo "- **Purpose**: Integration testing + Developer example" >> $GITHUB_STEP_SUMMARY
           echo "- **Location**: \`bindings/swift/test_ios_app\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Documentation**: See test_ios_app/README.md" >> $GITHUB_STEP_SUMMARY

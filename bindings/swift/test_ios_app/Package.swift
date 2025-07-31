@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ColibriTestApp",
-    platforms: [.iOS(.v13), .macOS(.v10_15)],
+    platforms: [.macOS(.v10_15)],
     products: [
         .executable(name: "ColibriTestApp", targets: ["ColibriTestApp"])
     ],
