@@ -1,0 +1,4 @@
+module c4_swift {
+    header "colibri.h"
+    export *
+}
