@@ -146,9 +146,14 @@ jobs:
           
           # Teste Swift Package (ohne Server-abhängige Tests)
           echo "📦 Testing Swift Package..."
-          if swift build; then
+          echo "📋 Debug: Using static libs for macOS SPM"
+          if swift build --verbose; then
             echo "✅ Swift build successful"
             echo "- ✅ **Swift Build**: Successful" >> $GITHUB_STEP_SUMMARY
+            
+            # Show what was actually linked
+            echo "🔗 Built products:"
+            find .build -name "*.dylib" -o -name "libColibri*" -o -name "*c4*" | head -5
           else
             echo "❌ Swift build failed"
             echo "- ❌ **Swift Build**: Failed" >> $GITHUB_STEP_SUMMARY
@@ -307,7 +312,8 @@ jobs:
           cd test_ios_app
           
           echo "🔨 Building Test App..."
-          if swift build 2>&1; then
+          echo "📋 Debug: swift build --verbose --build-path .build"
+          if swift build --verbose --build-path .build 2>&1; then
             echo "✅ Test App builds successfully"
             
             echo "🧪 Running Integration Tests..."
@@ -327,10 +333,42 @@ jobs:
             echo "❌ Test App failed to build"
             echo "- ❌ **Integration**: Build failed" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "#### Build Error (Last 20 lines)" >> $GITHUB_STEP_SUMMARY
+            
+            echo "🔍 Debug Information:"
+            echo "📊 Package structure:"
+            find ../swift_package -name "*.xcframework" -o -name "*.framework" -o -name "Package.swift" | head -10
+            
+            echo "📊 XCFramework contents:"
+            if [[ -d "../swift_package/c4_swift.xcframework" ]]; then
+              echo "📋 XCFramework Info.plist:"
+              cat ../swift_package/c4_swift.xcframework/Info.plist 2>/dev/null | head -20 || echo "No Info.plist"
+              
+              echo "📋 Available platforms:"
+              ls -la ../swift_package/c4_swift.xcframework/ 2>/dev/null || echo "Cannot list platforms"
+              
+              echo "📋 Binary files:"
+              find ../swift_package/c4_swift.xcframework -name "c4_swift" -exec file {} \; 2>/dev/null || echo "No binary found"
+              
+              echo "📋 Symbol check (first 5 matches):"
+              find ../swift_package/c4_swift.xcframework -name "c4_swift" -exec nm -gU {} \; 2>/dev/null | grep -E "(c4_create_proofer_ctx|buffer_append)" | head -5 || echo "Target symbols not found"
+              
+              echo "📋 All c4_ symbols (first 10):"
+              find ../swift_package/c4_swift.xcframework -name "c4_swift" -exec nm -gU {} \; 2>/dev/null | grep "c4_" | head -10 || echo "No c4_ symbols found"
+            else
+              echo "❌ XCFramework not found at ../swift_package/c4_swift.xcframework"
+            fi
+            
+            echo "#### Build Error (Verbose Output)" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            # Capture the build error for debugging
-            swift build 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY
+            # Get full verbose build error
+            swift build --verbose 2>&1 | tail -50 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### Debug Information" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "XCFramework structure:" >> $GITHUB_STEP_SUMMARY
+            find ../swift_package -name "*.xcframework" -exec ls -la {} \; 2>/dev/null >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
