@@ -7,17 +7,7 @@ import Colibri
 /// in an iOS application. It serves both as a CI integration test and as a 
 /// developer reference implementation.
 
-@main
 struct ColibriTestApp {
-    
-    static func main() async {
-        print("🚀 Colibri iOS Test App Starting...")
-        print("📱 Platform: \(ProcessInfo.processInfo.operatingSystemVersionString)")
-        
-        await runColibriTests()
-        
-        print("✅ Colibri iOS Test App Complete")
-    }
     
     /// Demonstrates basic Colibri usage patterns
     static func runColibriTests() async {
@@ -139,3 +129,18 @@ struct ColibriTestApp {
         print("📚 Use this as reference for your own iOS app integration")
     }
 }
+
+// MARK: - Program Entry Point
+// For executable targets, we use top-level code instead of @main
+print("🚀 Colibri iOS Test App Starting...")
+print("📱 Platform: \(ProcessInfo.processInfo.operatingSystemVersionString)")
+
+let semaphore = DispatchSemaphore(value: 0)
+
+Task {
+    await ColibriTestApp.runColibriTests()
+    print("✅ Colibri iOS Test App Complete")
+    semaphore.signal()
+}
+
+semaphore.wait()
