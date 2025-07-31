@@ -76,6 +76,22 @@ create_combined_library() {
     echo "📦 Kombiniere ${#lib_files[@]} Libraries für $platform_name..."
     libtool -static -o "$framework_dir/c4_swift" "${lib_files[@]}"
     
+    # Ensure single architecture (extract only the target arch from universal binaries)
+    if [[ "$platform_name" == *"arm64"* ]]; then
+        target_arch="arm64"
+    elif [[ "$platform_name" == *"x86_64"* ]]; then
+        target_arch="x86_64"
+    else
+        target_arch="arm64"  # fallback
+    fi
+    
+    # Check if binary is universal and extract target architecture only
+    if file "$framework_dir/c4_swift" | grep -q "universal binary"; then
+        echo "🔧 Extrahiere $target_arch Architektur aus Universal Binary..."
+        lipo -extract "$target_arch" "$framework_dir/c4_swift" -output "$framework_dir/c4_swift.tmp"
+        mv "$framework_dir/c4_swift.tmp" "$framework_dir/c4_swift"
+    fi
+    
     echo "✅ $platform_name Library erstellt: $(file "$framework_dir/c4_swift" | cut -d: -f2)"
 }
 

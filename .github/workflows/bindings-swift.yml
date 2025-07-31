@@ -16,29 +16,29 @@ jobs:
       - name: Install CMake
         run: brew install cmake
 
-      - name: Build Universal XCFramework (iOS + macOS)
+      - name: Build iOS XCFramework (Device + Simulator)
         run: |
-          echo "🚀 Building Universal XCFramework for iOS and macOS..."
+          echo "🚀 Building iOS XCFramework for Device and Simulator..."
           echo "💻 Runner Architecture: $(uname -m)"
           echo "🔧 Xcode Version: $(xcodebuild -version)"
           
-          # Führe build_local.sh aus - baut alle 4 Architekturen
+          # Führe iOS Build aus
           cd bindings/swift
-          chmod +x build_local.sh
-          ./build_local.sh
+          chmod +x build_ios.sh
+          ./build_ios.sh
 
       - name: Verify XCFramework
         run: |
-          echo "🔍 Verifying Universal XCFramework..."
+          echo "🔍 Verifying iOS XCFramework..."
           XCFRAMEWORK_PATH="build_ios_arm/c4_swift.xcframework"
           
           # Start GitHub Step Summary
-          echo "# 📦 Swift XCFramework Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "# 📦 Swift iOS XCFramework Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [[ -d "$XCFRAMEWORK_PATH" ]]; then
-            echo "✅ Universal XCFramework found at: $XCFRAMEWORK_PATH"
-            echo "## ✅ XCFramework Successfully Created" >> $GITHUB_STEP_SUMMARY
+            echo "✅ iOS XCFramework found at: $XCFRAMEWORK_PATH"
+            echo "## ✅ iOS XCFramework Successfully Created" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
             # Zeige alle unterstützten Platformen
@@ -64,12 +64,12 @@ jobs:
             
             echo "" >> $GITHUB_STEP_SUMMARY
             
-            # Prüfe ob alle erwarteten Platformen vorhanden sind
-            echo "🎯 Checking for required platforms..."
-            echo "### 🎯 Platform Coverage" >> $GITHUB_STEP_SUMMARY
+            # Prüfe ob alle erwarteten iOS Platformen vorhanden sind
+            echo "🎯 Checking for required iOS platforms..."
+            echo "### 🎯 iOS Platform Coverage" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
-            required_platforms=("ios-arm64" "ios-x86_64-simulator" "macos-arm64" "macos-x86_64")
+            required_platforms=("ios-arm64" "ios-x86_64-simulator")
             platforms_found=0
             for platform in "${required_platforms[@]}"; do
               if [[ -d "$XCFRAMEWORK_PATH/$platform" ]]; then
@@ -77,13 +77,19 @@ jobs:
                 echo "- ✅ **$platform**: Available" >> $GITHUB_STEP_SUMMARY
                 ((platforms_found++))
               else
-                echo "  ⚠️  $platform: Missing (may be expected if build failed)"
-                echo "- ⚠️ **$platform**: Missing" >> $GITHUB_STEP_SUMMARY
+                echo "  ❌ $platform: Missing"
+                echo "- ❌ **$platform**: Missing" >> $GITHUB_STEP_SUMMARY
               fi
             done
             
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Platform Coverage**: $platforms_found/4 platforms built successfully" >> $GITHUB_STEP_SUMMARY
+            echo "**iOS Platform Coverage**: $platforms_found/2 platforms built successfully" >> $GITHUB_STEP_SUMMARY
+            
+            # Hinweis zu macOS
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 💻 macOS Support" >> $GITHUB_STEP_SUMMARY
+            echo "macOS static libraries are built separately due to XCFramework architecture conflicts." >> $GITHUB_STEP_SUMMARY
+            echo "Use the macOS static libraries directly for macOS development." >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
             # Größe anzeigen
@@ -124,9 +130,10 @@ jobs:
           echo "### 🔨 macOS Build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if cmake -DSWIFT=true -DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_OSX_ARCHITECTURES=arm64 -B build_quick . && make -C build_quick c4_swift_binding; then
+          chmod +x build_macos.sh
+          if ./build_macos.sh; then
             echo "✅ macOS library build successful"
-            echo "- ✅ **macOS Library Build**: Successful" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ **macOS Library Build**: Successful (arm64 + x86_64)" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ macOS library build failed"
             echo "- ❌ **macOS Library Build**: Failed" >> $GITHUB_STEP_SUMMARY
@@ -237,16 +244,18 @@ jobs:
           cat > swift_package/README.md << 'EOF'
           # Colibri Stateless Swift Package
           
-          Universal XCFramework für iOS und macOS Integration.
+          iOS XCFramework für native iOS App Integration.
           
           ## Unterstützte Platformen
           - 📱 iOS (Device arm64 + Simulator x86_64)  
-          - 💻 macOS (Apple Silicon arm64 + Intel x86_64)
+          
+          ## macOS Support
+          Für macOS Entwicklung verwenden Sie die separaten static libraries oder die direkte SPM Integration.
           
           ## Integration
           
-          ### Xcode Projekt
-          Drag & Drop `c4_swift.xcframework` in Ihr Xcode Projekt.
+          ### iOS Xcode Projekt
+          Drag & Drop `c4_swift.xcframework` in Ihr iOS Xcode Projekt.
           
           ### Swift Package Manager
           ```swift
@@ -285,7 +294,7 @@ jobs:
           echo "📁 **Artifact**: \`swift_package\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📋 Package Contents" >> $GITHUB_STEP_SUMMARY
-          echo "- Universal XCFramework (iOS + macOS)" >> $GITHUB_STEP_SUMMARY
+          echo "- iOS XCFramework (Device + Simulator)" >> $GITHUB_STEP_SUMMARY
           echo "- Swift Sources and Tests" >> $GITHUB_STEP_SUMMARY  
           echo "- Production-ready Package.swift" >> $GITHUB_STEP_SUMMARY
           echo "- Integration documentation" >> $GITHUB_STEP_SUMMARY
@@ -295,9 +304,10 @@ jobs:
             framework_count=$(find swift_package/c4_swift.xcframework -name "*.framework" | wc -l | xargs)
             framework_size=$(du -sh swift_package/c4_swift.xcframework | cut -f1)
             echo "### 📊 XCFramework Details" >> $GITHUB_STEP_SUMMARY
-            echo "- **Frameworks**: $framework_count" >> $GITHUB_STEP_SUMMARY
+            echo "- **Frameworks**: $framework_count (iOS only)" >> $GITHUB_STEP_SUMMARY
             echo "- **Total Size**: $framework_size" >> $GITHUB_STEP_SUMMARY
-            echo "- **Ready for**: iOS Apps, macOS Apps, Swift Package Manager" >> $GITHUB_STEP_SUMMARY
+            echo "- **Ready for**: iOS Apps, Swift Package Manager" >> $GITHUB_STEP_SUMMARY
+            echo "- **macOS**: Use static libraries or direct SPM integration" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Upload Swift Package
