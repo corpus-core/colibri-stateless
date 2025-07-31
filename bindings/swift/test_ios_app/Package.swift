@@ -9,18 +9,26 @@ let package = Package(
     ],
     dependencies: [
         // In CI: Use local swift_package build
-        // For developers: Replace with GitHub URL : https://github.com/corpus-core/colibri-stateless-swift.git
         .package(path: "../swift_package")
+        
+        // For developers: Replace above line with GitHub URL:
+        // .package(url: "https://github.com/corpus-core/colibri-stateless-swift.git", from: "1.0.0")
+        // and change package references below from "swift_package" to "colibri-stateless-swift"
     ],
     targets: [
         .target(
             name: "ColibriTestApp",
-            dependencies: ["Colibri"],
+            dependencies: [
+                .product(name: "Colibri", package: "swift_package")
+            ],
             path: "Sources"
         ),
         .testTarget(
             name: "ColibriTestAppTests",
-            dependencies: ["ColibriTestApp", "Colibri"],
+            dependencies: [
+                "ColibriTestApp",
+                .product(name: "Colibri", package: "swift_package")
+            ],
             path: "Tests"
         )
     ]
