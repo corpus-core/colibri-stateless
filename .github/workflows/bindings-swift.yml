@@ -225,7 +225,7 @@ jobs:
                       path: "c4_swift.xcframework"
                   ),
                   .target(
-                      name: "CColibri",
+                      name: "CColibriMacOS",
                       path: "Sources/CColibri",
                       sources: ["swift_storage_bridge.c"],
                       publicHeadersPath: "include",
@@ -235,7 +235,7 @@ jobs:
                   ),
                   .target(
                       name: "Colibri",
-                      dependencies: ["c4_swift", "CColibri"],
+                      dependencies: ["c4_swift", "CColibriMacOS"],
                       path: "Sources/Colibri",
                       sources: ["Colibri.swift"]
                   ),
