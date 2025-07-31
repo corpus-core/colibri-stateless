@@ -285,6 +285,12 @@ jobs:
             echo "- **macOS**: Use static libraries or direct SPM integration" >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Upload Swift Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift_package
+          path: swift_package
+
       - name: Test iOS Integration Example
         run: |
           echo "📱 Testing iOS Integration Example..."
@@ -325,11 +331,6 @@ jobs:
           echo "- **Documentation**: See test_ios_app/README.md" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload Swift Package
-        uses: actions/upload-artifact@v4
-        with:
-          name: swift_package
-          path: swift_package
 
       - name: Update Swift Package Repository
         if: startsWith(github.ref, 'refs/tags/v')
