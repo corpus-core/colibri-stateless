@@ -16,7 +16,7 @@ let package = Package(
         // and change package references below from "swift_package" to "colibri-stateless-swift"
     ],
     targets: [
-        .target(
+        .executableTarget(
             name: "ColibriTestApp",
             dependencies: [
                 .product(name: "Colibri", package: "swift_package")
