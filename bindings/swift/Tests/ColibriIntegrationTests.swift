@@ -4,6 +4,7 @@
 import XCTest
 import Foundation
 @testable import Colibri
+import TestConfig
 
 final class ColibriIntegrationTests: XCTestCase {
     
@@ -11,59 +12,14 @@ final class ColibriIntegrationTests: XCTestCase {
     
     /// Find all test directories containing test.json
     private func findTestDirectories() -> [URL] {
-        var testDataPath: URL? = nil
+        // Use build-time configured test data path
+        let testDataPath = TestConfig.testDataURL
         
-        // First try to read from build-generated config file (like emscripten tests do)
-        let configPaths = [
-            "test_config.swift",                    // Next to tests
-            "../test_config.swift",                 // From Tests/ dir
-            "../../test_config.swift"               // From build output
-        ]
+        print("📍 Using test data from TestConfig: \(testDataPath.path)")
         
-        for configPath in configPaths {
-            let configURL = URL(fileURLWithPath: configPath)
-            if FileManager.default.fileExists(atPath: configURL.path) {
-                do {
-                    let content = try String(contentsOf: configURL)
-                    // Extract path from: let testDataPath = "..."
-                    if let range = content.range(of: "\"") {
-                        let afterFirstQuote = content[range.upperBound...]
-                        if let endRange = afterFirstQuote.range(of: "\"") {
-                            let pathString = String(afterFirstQuote[..<endRange.lowerBound])
-                            let configTestPath = URL(fileURLWithPath: pathString)
-                            if FileManager.default.fileExists(atPath: configTestPath.path) {
-                                testDataPath = configTestPath
-                                print("📍 Using test data from config: \(configTestPath.path)")
-                                break
-                            }
-                        }
-                    }
-                } catch {
-                    print("⚠️ Failed to read config file \(configPath): \(error)")
-                }
-            }
-        }
-        
-        // Fallback to relative paths if no config found
-        if testDataPath == nil {
-            let possiblePaths = [
-                "../../test/data",          // Relative from bindings/swift 
-                "../../../test/data",       // Relative from Xcode build dir
-                "../../../../test/data",    // Deeper Xcode build dir
-            ]
-            
-            for path in possiblePaths {
-                let url = URL(fileURLWithPath: path)
-                if FileManager.default.fileExists(atPath: url.path) {
-                    testDataPath = url
-                    print("📍 Found test data at: \(url.path)")
-                    break
-                }
-            }
-        }
-        
-        guard let testDataPath = testDataPath else {
-            print("❌ Test data not found. Make sure build_macos.sh was run to generate test_config.swift")
+        guard FileManager.default.fileExists(atPath: testDataPath.path) else {
+            print("❌ Test data directory not found: \(testDataPath.path)")
+            print("💡 Make sure build_macos.sh was run to generate TestConfig.swift")
             return []
         }
         

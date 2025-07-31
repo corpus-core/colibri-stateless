@@ -11,7 +11,7 @@ let package = Package(
         .target(
             name: "CColibriMacOS",
             path: "Sources/CColibri",
-            sources: [],  // No sources - use static libraries for macOS
+            sources: ["dummy.c"],  // Minimal dummy file for Xcode compatibility
             publicHeadersPath: "include",
             cSettings: [
                 .headerSearchPath("include"),
@@ -37,6 +37,11 @@ let package = Package(
             ]
         ),
         .target(
+            name: "TestConfig",
+            path: "Sources/TestConfig",
+            sources: ["TestConfig.swift"]
+        ),
+        .target(
             name: "Colibri",
             dependencies: ["CColibriMacOS"],
             path: "Sources/Colibri",
@@ -44,7 +49,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ColibriTests",
-            dependencies: ["Colibri"],
+            dependencies: ["Colibri", "TestConfig"],
             path: "Tests",
             sources: ["ColibriTests.swift", "ColibriIntegrationTests.swift"]
         )
