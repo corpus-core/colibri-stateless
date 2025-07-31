@@ -61,8 +61,8 @@ final class ColibriIntegrationTests: XCTestCase {
         ]
         
         for method in supportedMethods {
-            let isSupported = colibri.getMethodSupport(method: method)
-            XCTAssertTrue(isSupported, "Method \(method) should be supported")
+            let methodType = colibri.getMethodSupport(method: method)
+            XCTAssertNotEqual(methodType, .NOT_SUPPORTED, "Method \(method) should be supported (got \(methodType.description))")
         }
     }
     
@@ -74,8 +74,8 @@ final class ColibriIntegrationTests: XCTestCase {
         ]
         
         for method in unsupportedMethods {
-            let isSupported = colibri.getMethodSupport(method: method)
-            XCTAssertFalse(isSupported, "Method \(method) should not be supported")
+            let methodType = colibri.getMethodSupport(method: method)
+            XCTAssertEqual(methodType, .NOT_SUPPORTED, "Method \(method) should not be supported (got \(methodType.description))")
         }
     }
     
@@ -120,7 +120,7 @@ final class ColibriIntegrationTests: XCTestCase {
     
     func testInvalidMethodCall() async {
         do {
-            let _ = try await colibri.rpc(method: "invalid_method", params: [])
+            let _ = try await colibri.rpc(method: "invalid_method", params: "[]")
             XCTFail("Invalid method should throw an error")
         } catch {
             // Expected behavior - invalid method should throw error
@@ -130,7 +130,7 @@ final class ColibriIntegrationTests: XCTestCase {
     
     func testEmptyMethodCall() async {
         do {
-            let _ = try await colibri.rpc(method: "", params: [])
+            let _ = try await colibri.rpc(method: "", params: "[]")
             XCTFail("Empty method should throw an error")
         } catch {
             // Expected behavior - empty method should throw error  
@@ -145,7 +145,7 @@ final class ColibriIntegrationTests: XCTestCase {
         // That's expected and normal - we're testing the integration, not the blockchain
         
         do {
-            let result = try await colibri.rpc(method: "eth_blockNumber", params: [])
+            let result = try await colibri.rpc(method: "eth_blockNumber", params: "[]")
             
             // If it succeeds, verify result format
             if let stringResult = result as? String {

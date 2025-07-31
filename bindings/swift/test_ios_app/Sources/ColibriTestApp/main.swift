@@ -1,16 +1,13 @@
-/**
- * Colibri Swift Integration Example
- * 
- * This test app demonstrates how to integrate and use the Colibri Stateless client
- * in an iOS application. It serves both as a CI integration test and as a 
- * developer reference implementation.
- */
-
 import Foundation
 import Colibri
 
 @main
 struct ColibriTestApp {
+    /// Colibri Swift Integration Example
+    /// 
+    /// This test app demonstrates how to integrate and use the Colibri Stateless client
+    /// in an iOS application. It serves both as a CI integration test and as a 
+    /// developer reference implementation.
     
     static func main() async {
         print("🚀 Colibri iOS Test App Starting...")
@@ -40,7 +37,7 @@ struct ColibriTestApp {
         
         for method in supportedMethods {
             let support = colibri.getMethodSupport(method: method)
-            let status = support ? "✅ Supported" : "❌ Not Supported"
+            let status = support != .NOT_SUPPORTED ? "✅ Supported (\(support.description))" : "❌ Not Supported"
             print("   \(status): \(method)")
         }
         
@@ -50,7 +47,7 @@ struct ColibriTestApp {
             // Use local proof generation (no network required)
             colibri.proofers = []  // Force local proof generation
             
-            let result = try await colibri.rpc(method: "eth_blockNumber", params: [])
+            let result = try await colibri.rpc(method: "eth_blockNumber", params: "[]")
             print("   ✅ Local proof successful")
             print("   📊 Result type: \(type(of: result))")
             
@@ -113,7 +110,7 @@ struct ColibriTestApp {
         print("\n📋 5. ERROR HANDLING DEMO")
         do {
             // Intentionally invalid method call
-            let _ = try await colibri.rpc(method: "invalid_method", params: [])
+            let _ = try await colibri.rpc(method: "invalid_method", params: "[]")
             print("   ❌ Should have thrown error")
         } catch {
             print("   ✅ Error handling works: \(error.localizedDescription)")
@@ -133,7 +130,7 @@ struct ColibriTestApp {
             print("   🔗 \(name) (Chain ID: \(chainId))")
             
             let blockSupport = colibri.getMethodSupport(method: "eth_blockNumber")
-            print("      eth_blockNumber: \(blockSupport ? "✅" : "❌")")
+            print("      eth_blockNumber: \(blockSupport != .NOT_SUPPORTED ? "✅" : "❌") (\(blockSupport.description))")
         }
         
         print("\n📊 Demo completed successfully!")
