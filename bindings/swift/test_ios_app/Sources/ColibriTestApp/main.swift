@@ -1,13 +1,14 @@
 import Foundation
 import Colibri
 
+/// Colibri Swift Integration Example
+/// 
+/// This test app demonstrates how to integrate and use the Colibri Stateless client
+/// in an iOS application. It serves both as a CI integration test and as a 
+/// developer reference implementation.
+
 @main
 struct ColibriTestApp {
-    /// Colibri Swift Integration Example
-    /// 
-    /// This test app demonstrates how to integrate and use the Colibri Stateless client
-    /// in an iOS application. It serves both as a CI integration test and as a 
-    /// developer reference implementation.
     
     static func main() async {
         print("🚀 Colibri iOS Test App Starting...")
