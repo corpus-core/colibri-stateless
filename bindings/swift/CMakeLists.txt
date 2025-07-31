@@ -21,6 +21,39 @@
 
 include_directories(${CMAKE_SOURCE_DIR}/bindings)
 
+# Auto-detect iOS SDK paths if building for iOS and not set
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_OSX_SYSROOT)
+    if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+        # Use iOS Simulator SDK for x86_64
+        execute_process(
+            COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+            OUTPUT_VARIABLE IOS_SIMULATOR_SDK_PATH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE SDK_RESULT
+        )
+        if(SDK_RESULT EQUAL 0)
+            set(CMAKE_OSX_SYSROOT ${IOS_SIMULATOR_SDK_PATH})
+            message(STATUS "Auto-detected iOS Simulator SDK: ${CMAKE_OSX_SYSROOT}")
+        else()
+            message(FATAL_ERROR "iOS Simulator SDK not found. Install Xcode.")
+        endif()
+    else()
+        # Use iOS Device SDK for arm64
+        execute_process(
+            COMMAND xcrun --sdk iphoneos --show-sdk-path
+            OUTPUT_VARIABLE IOS_DEVICE_SDK_PATH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE SDK_RESULT
+        )
+        if(SDK_RESULT EQUAL 0)
+            set(CMAKE_OSX_SYSROOT ${IOS_DEVICE_SDK_PATH})
+            message(STATUS "Auto-detected iOS Device SDK: ${CMAKE_OSX_SYSROOT}")
+        else()
+            message(FATAL_ERROR "iOS Device SDK not found. Install Xcode.")
+        endif()
+    endif()
+endif()
+
 # Create the C binding library
 add_library(c4_swift_binding STATIC 
     ../colibri.c
@@ -108,11 +141,15 @@ if(DEFINED SWIFT_X86_BUILD)
         COMMAND libtool -static -o ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/c4_swift @${SIMULATOR_LIBS_FILE}
         COMMAND libtool -static -o ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/c4_swift @${DEVICE_LIBS_FILE}
         
-        # Copy headers
+        # Copy headers and module map
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/Headers
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/Headers
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/Modules
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/Modules
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/bindings/colibri.h ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/Headers/
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/bindings/colibri.h ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/Headers/
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/xcframework/modules/module.modulemap ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/Modules/
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/xcframework/modules/module.modulemap ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/Modules/
         
         # Create Info.plist files
         COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string FMWK" 
@@ -152,6 +189,7 @@ if(DEFINED SWIFT_X86_BUILD)
         OUTPUT ${CMAKE_BINARY_DIR}/swift_build.timestamp
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/src/include
         COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/bindings/colibri.h ${CMAKE_CURRENT_SOURCE_DIR}/src/include/
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/xcframework/modules/module.modulemap ${CMAKE_CURRENT_SOURCE_DIR}/xcframework/modules/
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/swift_build.timestamp
         DEPENDS ${CMAKE_BINARY_DIR}/c4_swift.xcframework
         COMMENT "Setting up Swift package"

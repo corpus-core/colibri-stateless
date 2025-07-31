@@ -1,13 +1,47 @@
 import Foundation
-// The C header is imported via -import-objc-header flag
+import CColibriMacOS
 
-// Add the MethodType enum
-public enum MethodType: Int {
+// MARK: - Mock System
+
+/// Protocol for mocking HTTP requests in tests
+public protocol RequestHandler {
+    func handleRequest(_ request: DataRequest) async throws -> Data
+}
+
+/// Represents a data request that can be mocked
+public struct DataRequest {
+    public let url: String
+    public let method: String
+    public let payload: [String: Any]?
+    public let encoding: String?
+    public let type: String?
+    
+    public init(url: String, method: String, payload: [String: Any]? = nil, encoding: String? = nil, type: String? = nil) {
+        self.url = url
+        self.method = method
+        self.payload = payload
+        self.encoding = encoding
+        self.type = type
+    }
+}
+
+// MARK: - Method Types
+public enum MethodType: Int, CaseIterable {
+    case UNKNOWN = 0
     case PROOFABLE = 1
     case UNPROOFABLE = 2
     case NOT_SUPPORTED = 3
     case LOCAL = 4
-    case UNKNOWN = 0 // Add an unknown case for safety
+    
+    public var description: String {
+        switch self {
+        case .UNKNOWN: return "Unknown"
+        case .PROOFABLE: return "Proofable"
+        case .UNPROOFABLE: return "Unproofable" 
+        case .NOT_SUPPORTED: return "Not Supported"
+        case .LOCAL: return "Local"
+        }
+    }
 }
 
 public class Colibri {
@@ -15,9 +49,12 @@ public class Colibri {
     public var eth_rpcs: [String] = []
     public var beacon_apis: [String] = []
     public var proofers: [String] = ["https://c4.incubed.net"]
-    public var trustedBlockHases: [String] = []
+    public var trustedBlockHashes: [String] = []
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
+    
+    /// Optional request handler for mocking HTTP requests in tests
+    public var requestHandler: RequestHandler?
 
     public init() {}
 
@@ -25,19 +62,21 @@ public class Colibri {
         // Placeholder for initialization if needed
     }
 
-    // Add the getMethodSupport function
-    public func getMethodSupport(method: String) async throws -> MethodType {
+    // MARK: - Method Support
+    
+    /// Check if a method is supported for proof generation
+    public func getMethodSupport(method: String) -> MethodType {
         let methodPtr = method.withCString { strdup($0) }
         guard let methodCStr = methodPtr else {
-            throw ColibriError.invalidInput
+            return .UNKNOWN
         }
         defer { free(methodCStr) }
 
-        let typeRaw = c4_get_method_type(chainId, methodCStr)
+        let typeRaw = c4_get_method_support(chainId, methodCStr)
         guard let type = MethodType(rawValue: Int(typeRaw)) else {
              // Handle cases where the C function might return an unexpected value
-            print("Warning: Unknown method type raw value \(typeRaw) returned from c4_get_method_type for method \(method)")
-            return .UNKNOWN // Or throw an error, depending on desired strictness
+            print("Warning: Unknown method type raw value \(typeRaw) returned from c4_get_method_support for method \(method)")
+            return .UNKNOWN
         }
         return type
     }
@@ -99,44 +138,45 @@ public class Colibri {
     // Verify proof asynchronously
     public func verifyProof(proof: Data, method: String, params: String) async throws -> Any {
         // Format trusted block hashes as JSON array string
-        let trustedBlockHasesStr = if trustedBlockHases.isEmpty {
-            "[]"
+        let trustedBlockHashesStr: String
+        if trustedBlockHashes.isEmpty {
+            trustedBlockHashesStr = "[]"
         } else {
-            let quotedHashes = trustedBlockHases.map { "\"\($0)\"" }
-            "[\(quotedHashes.joined(separator: ","))]"
+            let quotedHashes = trustedBlockHashes.map { "\"\($0)\"" }
+            trustedBlockHashesStr = "[\(quotedHashes.joined(separator: ","))]"
         }
         
         let methodPtr = method.withCString { strdup($0) }
         let paramsPtr = params.withCString { strdup($0) }
-        let trustedBlockHasesPtr = trustedBlockHasesStr.withCString { strdup($0) }
+        let trustedBlockHashesPtr = trustedBlockHashesStr.withCString { strdup($0) }
         
         guard let methodCStr = methodPtr,
               let paramsCStr = paramsPtr,
-              let trustedBlockHasesCStr = trustedBlockHasesPtr else {
+              let trustedBlockHashesCStr = trustedBlockHashesPtr else {
             throw ColibriError.invalidInput
         }
         
         defer {
             free(methodPtr)
             free(paramsPtr)
-            free(trustedBlockHasesPtr)
+            free(trustedBlockHashesPtr)
         }
         
         // Create bytes_t struct for proof data with safe memory handling
         let proofBytes = proof.withUnsafeBytes { rawBufferPointer in
             bytes_t(
-                data: UnsafeMutablePointer(mutating: rawBufferPointer.bindMemory(to: UInt8.self).baseAddress!),
-                len: UInt32(proof.count)
+                len: UInt32(proof.count),
+                data: UnsafeMutablePointer(mutating: rawBufferPointer.bindMemory(to: UInt8.self).baseAddress!)
             )
         }
         
-        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedBlockHasesCStr) else {
+        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedBlockHashesCStr) else {
             throw ColibriError.contextCreationFailed
         }
         defer { c4_verify_free_ctx(ctx) }
 
         var iteration = 0
-        let maxIterations = 10 // Define a default maxIterations
+        let _ = 10 // maxIterations defined but not used in while true loop
         while true {
             iteration += 1
 //            print("verifyProof: Iteration \(iteration)/\(maxIterations)")
@@ -157,7 +197,7 @@ public class Colibri {
             switch status {
             case "success":
                 // Success: return the result (could be any JSON type)
-                return state["result"] // Returns Any? which matches function signature
+                return state["result"] as Any // Explicitly cast to Any
             case "error":
                 let errorMsg = state["error"] as? String ?? "Unknown verifier error"
                 throw ColibriError.proofError("Verifier error for method \(method): \(errorMsg)")
@@ -175,7 +215,7 @@ public class Colibri {
 
     // Implement the rpc method
     public func rpc(method: String, params: String) async throws -> Any {
-        let methodType = try await getMethodSupport(method: method)
+        let methodType = getMethodSupport(method: method)
         var proof = Data()
 
         switch methodType {
@@ -249,6 +289,39 @@ public class Colibri {
                         servers = self.eth_rpcs
                     }
                     
+                    // 🎯 MOCK SUPPORT: Check if request handler is set
+                    if let requestHandler = self.requestHandler {
+                        // Create DataRequest for mock handler
+                        let dataRequest = DataRequest(
+                            url: uri.isEmpty ? servers.first ?? "" : "\(servers.first ?? "")/\(uri)",
+                            method: method,
+                            payload: request["payload"] as? [String: Any],
+                            encoding: request["encoding"] as? String,
+                            type: requestType
+                        )
+                        
+                        do {
+                            let responseData = try await requestHandler.handleRequest(dataRequest)
+                            let bytes = responseData.withUnsafeBytes { rawBufferPointer in
+                                bytes_t(
+                                    len: UInt32(responseData.count),
+                                    data: UnsafeMutablePointer(mutating: rawBufferPointer.bindMemory(to: UInt8.self).baseAddress!)
+                                )
+                            }
+                            c4_req_set_response(reqPtr, bytes, UInt16(0)) // Use index 0 for mocked responses
+                            return
+                        } catch {
+                            let errorMsg = error.localizedDescription
+                            let errorPtr = errorMsg.withCString { strdup($0) }
+                            if let errorCStr = errorPtr {
+                                c4_req_set_error(reqPtr, errorCStr, UInt16(0))
+                                free(errorCStr)
+                            }
+                            return
+                        }
+                    }
+                    
+                    // REAL HTTP REQUEST: Continue with normal request handling
                     var lastError = "No servers available"
                     
                     // Try each server in the list
@@ -265,37 +338,37 @@ public class Colibri {
                         }
                         
                         do {
-                            var request = URLRequest(url: url)
-                            request.httpMethod = method
+                            var urlRequest = URLRequest(url: url)
+                            urlRequest.httpMethod = method
                             
                             // Set headers based on encoding type
                             if let encoding = request["encoding"] as? String {
                                 if encoding == "json" {
-                                    request.setValue("application/json", forHTTPHeaderField: "Accept")
+                                    urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
                                 } else {
-                                    request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+                                    urlRequest.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
                                 }
                             }
                             
                             // Add payload if present
                             if let payload = request["payload"] as? [String: Any] {
-                                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                                urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
                                 let payloadData = try JSONSerialization.data(withJSONObject: payload)
-                                request.httpBody = payloadData
+                                urlRequest.httpBody = payloadData
                             }
                             
-                            let (responseData, response) = try await URLSession.shared.data(for: request)
+                            let (responseData, response) = try await URLSession.shared.data(for: urlRequest)
                             
                             if let httpResponse = response as? HTTPURLResponse,
                                (200...299).contains(httpResponse.statusCode) {
                                 // Success - set response and return
                                 let bytes = responseData.withUnsafeBytes { rawBufferPointer in
                                     bytes_t(
-                                        data: UnsafeMutablePointer(mutating: rawBufferPointer.bindMemory(to: UInt8.self).baseAddress!),
-                                        len: UInt32(responseData.count)
+                                        len: UInt32(responseData.count),
+                                        data: UnsafeMutablePointer(mutating: rawBufferPointer.bindMemory(to: UInt8.self).baseAddress!)
                                     )
                                 }
-                                c4_req_set_response(reqPtr, bytes, Int32(index))
+                                c4_req_set_response(reqPtr, bytes, UInt16(index))
                                 return
                             } else {
                                 lastError = "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
@@ -308,7 +381,7 @@ public class Colibri {
                     // If we get here, all servers failed
                     let errorPtr = lastError.withCString { strdup($0) }
                     if let errorCStr = errorPtr {
-                        c4_req_set_error(reqPtr, errorCStr, 0)
+                        c4_req_set_error(reqPtr, errorCStr, UInt16(0))
                         free(errorCStr)
                     }
                 }
@@ -329,6 +402,20 @@ public class Colibri {
         ]
         let httpBody = try JSONSerialization.data(withJSONObject: jsonRpcBody)
 
+        // 🎯 MOCK SUPPORT: Check if request handler is set for direct RPC calls
+        if let requestHandler = self.requestHandler {
+            let dataRequest = DataRequest(
+                url: urls.first ?? "",
+                method: "POST",
+                payload: jsonRpcBody,
+                encoding: asProof ? "binary" : "json",
+                type: "rpc"
+            )
+            
+            return try await requestHandler.handleRequest(dataRequest)
+        }
+        
+        // REAL HTTP REQUEST: Continue with normal implementation
         for urlString in urls {
             guard let url = URL(string: urlString) else {
                 print("Warning: Invalid URL string: \(urlString)")
@@ -382,19 +469,23 @@ public class Colibri {
         // If loop finishes without returning, all URLs failed
         throw lastError
     }
+}
 
-    // Helper extension for safe byte operations
-    private extension Data {
-        func copyBytes() -> [UInt8] {
-            return [UInt8](self)
-        }
-        
-        // Safe withUnsafeBytes wrapper for older Swift versions compatibility
-        func safeWithUnsafeBytes<ResultType>(_ body: (UnsafeRawBufferPointer) throws -> ResultType) rethrows -> ResultType {
-            return try withUnsafeBytes(body)
-        }
+// MARK: - Helper Extensions
+
+// Helper extension for safe byte operations  
+private extension Data {
+    func copyBytes() -> [UInt8] {
+        return [UInt8](self)
+    }
+    
+    // Safe withUnsafeBytes wrapper for older Swift versions compatibility
+    func safeWithUnsafeBytes<ResultType>(_ body: (UnsafeRawBufferPointer) throws -> ResultType) rethrows -> ResultType {
+        return try withUnsafeBytes(body)
     }
 }
+
+// MARK: - Error Types
 
 // Error enum for better error handling
 public enum ColibriError: Error, LocalizedError, Equatable {
