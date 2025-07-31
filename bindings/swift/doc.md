@@ -1,139 +1,211 @@
-: Bindings
+# Colibri Swift Bindings
 
-:: Swift
+Colibri Swift Bindings bieten eine moderne, typsichere Swift-API für die Colibri C-Bibliothek.
 
-The Colibri bindings for Swift are built using CMake and Swift Package Manager. It can be used in iOS (13.0+) and macOS (10.15+) applications.
+## Funktionen
 
-## Usage
+- **Async/Await Support**: Alle API-Aufrufe sind asynchron und verwenden Swift's moderne Concurrency-Features
+- **Memory Safety**: Sichere Speicherverwaltung mit automatischer Ressourcenfreigabe
+- **Type Safety**: Vollständig typisierte Swift-API mit Enum-basierten Methodentypen
+- **Error Handling**: Umfassendes Error-Handling mit lokalisierten Fehlermeldungen
+- **Multi-Platform**: Unterstützt iOS 13+ und macOS 10.15+
 
-Add Colibri to your `Package.swift`:
+## Installation
+
+### Swift Package Manager
+
+Fügen Sie das Package zu Ihrer `Package.swift` hinzu:
 
 ```swift
-// swift-tools-version:5.3
-import PackageDescription
-
-let package = Package(
-    name: "YourApp",
-    platforms: [
-        .iOS(.v13),
-        .macOS(.v10_15)
-    ],
-    dependencies: [
-        .package(name: "Colibri", path: "path/to/colibri/bindings/swift")
-    ],
-    targets: [
-        .target(
-            name: "YourApp",
-            dependencies: ["Colibri"]
-        )
-    ]
-)
+dependencies: [
+    .package(url: "https://github.com/corp-us/colibri-stateless-swift", from: "1.0.0")
+]
 ```
 
-Use it in your code:
+### Xcode
+
+1. File → Add Package Dependencies
+2. URL eingeben: `https://github.com/corp-us/colibri-stateless-swift`
+3. Version auswählen und hinzufügen
+
+## Schnellstart
 
 ```swift
 import Colibri
 
-class ExampleViewController: UIViewController {
-    let proofManager = ColibriProofManager()
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        
-        // Configure the proof manager
-        proofManager.eth_rpcs = ["https://eth-mainnet.g.alchemy.com/v2/YOUR-API-KEY"]
-        proofManager.beacon_apis = ["https://beacon.quicknode.com/YOUR-API-KEY"]
-        proofManager.chainId = 1  // Ethereum Mainnet
-        
-        // Create and verify a proof
-        Task {
-            do {
-                let method = "eth_getBalance"
-                let params = """
-                {
-                    "address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
-                    "block": "latest"
-                }
-                """
-                
-                // Create proof
-                let proof = try await proofManager.createProof(method: method, params: params)
-                print("Proof created successfully! Length: \(proof.count)")
-                
-                // Verify proof
-                let result = try await proofManager.verifyProof(proof: proof, method: method, params: params)
-                print("Verification result: \(result)")
-            } catch {
-                print("Error: \(error)")
-            }
-        }
-    }
+// Colibri-Instance erstellen
+let colibri = Colibri()
+
+// Konfiguration
+colibri.chainId = 1 // Ethereum Mainnet
+colibri.eth_rpcs = ["https://mainnet.infura.io/v3/YOUR-PROJECT-ID"]
+colibri.beacon_apis = ["https://beaconcha.in/api/v1"]
+colibri.proofers = ["https://c4.incubed.net"]
+
+// RPC-Aufruf durchführen
+do {
+    let result = try await colibri.rpc(
+        method: "eth_getBalance", 
+        params: "[\"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\", \"latest\"]"
+    )
+    print("Balance: \(result)")
+} catch {
+    print("Fehler: \(error.localizedDescription)")
 }
 ```
 
-## Building
+## API-Referenz
 
-### Prerequisites
-- Xcode 12.0 or later
-- CMake 3.10 or later
-- iOS SDK 13.0 or later
+### Klasse: `Colibri`
 
-### Building the XCFramework
+Die Hauptklasse für alle Colibri-Operationen.
 
-The XCFramework contains both simulator (x86_64) and device (arm64) architectures. Build it with:
+#### Konfiguration
 
-```bash
-# Build for x86_64 (simulator)
-cmake -DSWIFT=true -B build_x86 -DCMAKE_OSX_ARCHITECTURES=x86_64 ..
-cd build_x86
-make
+- `chainId: UInt64` - Chain-ID (Standard: 1 für Ethereum Mainnet)
+- `eth_rpcs: [String]` - Liste der Ethereum RPC-Endpunkte
+- `beacon_apis: [String]` - Liste der Beacon Chain API-Endpunkte  
+- `proofers: [String]` - Liste der Proofer-Endpunkte
+- `trustedBlockHashes: [String]` - Vertrauenswürdige Block-Hashes
+- `includeCode: Bool` - Ob Contract-Code in Proofs eingeschlossen werden soll
 
-# Build for arm64 (device)
-cd ..
-cmake -DSWIFT=true -DCMAKE_OSX_ARCHITECTURES=arm64 -DSWIFT_X86_BUILD=$(pwd)/build_x86 -B build ..
-cd build
-make
-```
+#### Methoden
 
-This will create `c4_swift.xcframework` in the build directory, which contains both architectures.
+##### `rpc(method:params:) async throws -> Any`
 
-### Running Tests
+Führt einen RPC-Aufruf durch. Automatische Bestimmung ob Proof benötigt wird.
 
-After building the XCFramework, you can run the tests:
+**Parameter:**
+- `method: String` - RPC-Methodenname (z.B. "eth_getBalance")
+- `params: String` - JSON-Array der Parameter als String
 
-```bash
-cd bindings/swift
-swift test
-```
+**Rückgabe:** `Any` - Ergebnis des RPC-Aufrufs
 
-## Features
+**Fehler:** `ColibriError` bei Fehlern
 
-- Async/await support for modern Swift concurrency
-- Native Swift types and error handling
-- Support for both iOS and macOS platforms
-- Comprehensive test suite
-- Thread-safe proof creation and verification
+##### `getMethodSupport(method:) async throws -> MethodType`
 
-## Error Handling
+Bestimmt den Unterstützungsgrad einer RPC-Methode.
 
-The framework uses Swift's native error handling. Possible errors include:
+**Parameter:**
+- `method: String` - RPC-Methodenname
+
+**Rückgabe:** `MethodType` - Art der Methodenunterstützung
+
+##### `createProof(method:params:) async throws -> Data`
+
+Erstellt einen kryptographischen Proof für einen RPC-Aufruf.
+
+**Parameter:**
+- `method: String` - RPC-Methodenname
+- `params: String` - JSON-Parameter
+
+**Rückgabe:** `Data` - Binärer Proof
+
+##### `verifyProof(proof:method:params:) async throws -> Any`
+
+Verifiziert einen Proof und gibt das Ergebnis zurück.
+
+**Parameter:**
+- `proof: Data` - Zu verifizierender Proof
+- `method: String` - RPC-Methodenname
+- `params: String` - JSON-Parameter
+
+**Rückgabe:** `Any` - Verifiziertes Ergebnis
+
+### Enum: `MethodType`
+
+Beschreibt den Unterstützungsgrad einer RPC-Methode:
+
+- `.PROOFABLE` - Methode unterstützt kryptographische Proofs
+- `.UNPROOFABLE` - Methode wird unterstützt, aber ohne Proofs
+- `.NOT_SUPPORTED` - Methode wird nicht unterstützt
+- `.LOCAL` - Methode wird lokal ausgeführt
+- `.UNKNOWN` - Methodentyp unbekannt
+
+### Enum: `ColibriError`
+
+Alle möglichen Fehler mit lokalisierten Beschreibungen:
+
+- `.invalidInput` - Ungültige Eingabeparameter
+- `.executionFailed` - Ausführung fehlgeschlagen
+- `.invalidJSON` - Ungültiges JSON-Format
+- `.proofError(String)` - Proof-spezifischer Fehler
+- `.unknownStatus(String)` - Unbekannter Status
+- `.invalidURL` - Ungültige URL
+- `.rpcError(String)` - RPC-Fehler
+- `.httpError(statusCode:details:)` - HTTP-Fehler
+- `.methodNotSupported(String)` - Methode nicht unterstützt
+- `.unknownMethodType(String)` - Unbekannter Methodentyp
+- `.memoryAllocationFailed` - Speicherallokation fehlgeschlagen
+- `.nullPointerReceived` - Null-Pointer erhalten
+- `.contextCreationFailed` - Kontext-Erstellung fehlgeschlagen
+
+## Beispiele
+
+### Einfacher Balance-Aufruf
 
 ```swift
-public enum ColibriError: Error {
-    case invalidInput
-    case executionFailed
-    case invalidJSON
-    case proofError(String)
-    case unknownStatus(String)
-    case invalidURL
+let colibri = Colibri()
+colibri.eth_rpcs = ["https://mainnet.infura.io/v3/YOUR-PROJECT-ID"]
+
+let balance = try await colibri.rpc(
+    method: "eth_getBalance",
+    params: "[\"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\", \"latest\"]"
+)
+```
+
+### Mit Proof-Verifikation
+
+```swift
+let colibri = Colibri()
+colibri.proofers = ["https://c4.incubed.net"]
+
+// Proof erstellen
+let proof = try await colibri.createProof(
+    method: "eth_getBalance",
+    params: "[\"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\", \"latest\"]"
+)
+
+// Proof verifizieren
+let result = try await colibri.verifyProof(
+    proof: proof,
+    method: "eth_getBalance", 
+    params: "[\"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\", \"latest\"]"
+)
+```
+
+### Error Handling
+
+```swift
+do {
+    let result = try await colibri.rpc(method: "eth_getBalance", params: "[\"invalid\"]")
+} catch ColibriError.invalidJSON {
+    print("JSON-Format ungültig")
+} catch ColibriError.methodNotSupported(let method) {
+    print("Methode \(method) nicht unterstützt")
+} catch {
+    print("Unerwarteter Fehler: \(error.localizedDescription)")
 }
 ```
 
-## Contributing
+## Technische Details
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request 
+### Memory Management
+
+Die Swift-Bindings handhaben automatisch:
+- C-String Allokation und Freigabe
+- Unsafe Pointer Management
+- Automatische Ressourcenfreigabe über `defer`-Blöcke
+
+### Concurrency
+
+Alle API-Aufrufe sind vollständig async/await-kompatibel und thread-safe.
+
+### Platform Support
+
+- **iOS**: 13.0+
+- **macOS**: 10.15+
+- **Architekturen**: arm64, x86_64
+
+Das XCFramework enthält optimierte Binaries für alle unterstützten Plattformen.

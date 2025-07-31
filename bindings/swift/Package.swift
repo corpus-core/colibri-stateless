@@ -45,7 +45,8 @@ let package = Package(
         .testTarget(
             name: "ColibriTests",
             dependencies: ["Colibri"],
-            path: "Tests"
+            path: "Tests",
+            sources: ["ColibriTests.swift", "ColibriIntegrationTests.swift"]
         )
     ]
 )
