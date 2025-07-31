@@ -11,14 +11,14 @@ let package = Package(
         .target(
             name: "CColibriMacOS",
             path: "Sources/CColibri",
-            sources: ["dummy.c"],  // Minimal dummy file for Xcode compatibility
+            sources: ["swift_storage_bridge.c"],  // Storage bridge with correct ABI
             publicHeadersPath: "include",
             cSettings: [
                 .headerSearchPath("include"),
                 .define("C4_DEVELOPMENT_BUILD")
             ],
             linkerSettings: [
-                .linkedLibrary("c++"),
+                .linkedLibrary("c"),
                 .unsafeFlags([
                     "../../build_macos_arm/src/util/libutil.a",
                     "../../build_macos_arm/src/proofer/libproofer.a",
@@ -51,7 +51,7 @@ let package = Package(
             name: "ColibriTests",
             dependencies: ["Colibri", "TestConfig"],
             path: "Tests",
-            sources: ["ColibriTests.swift", "ColibriIntegrationTests.swift"]
+            sources: ["ColibriTests.swift", "GeneratedIntegrationTests.swift"]
         )
     ]
 )

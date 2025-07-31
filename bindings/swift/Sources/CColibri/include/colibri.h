@@ -136,3 +136,18 @@ void c4_verify_free_ctx(void* ctx);
  * @return the method type
  */
 int c4_get_method_support(uint64_t chain_id, char* method);
+
+// :: Swift Storage Bridge API
+
+// Function pointer types for Swift callbacks
+typedef void* (*swift_storage_get_fn)(const char* key, uint32_t* out_len);
+typedef void (*swift_storage_set_fn)(const char* key, const uint8_t* data, uint32_t len);
+typedef void (*swift_storage_delete_fn)(const char* key);
+
+// Functions to register Swift callbacks
+void swift_storage_bridge_register_get(swift_storage_get_fn fn);
+void swift_storage_bridge_register_set(swift_storage_set_fn fn);
+void swift_storage_bridge_register_delete(swift_storage_delete_fn fn);
+
+// Initialize the storage plugin with Swift bridges
+void swift_storage_bridge_initialize(void);

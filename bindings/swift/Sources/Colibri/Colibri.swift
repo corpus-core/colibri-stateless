@@ -1,6 +1,172 @@
 import Foundation
 import CColibriMacOS
 
+// MARK: - Storage System
+
+/// Protocol for storage operations (similar to Android ColibriStorage)
+public protocol ColibriStorage {
+    func get(key: String) -> Data?
+    func set(key: String, value: Data)
+    func delete(key: String)
+}
+
+/// Default file storage implementation (similar to C FILE_STORAGE)
+private class DefaultFileStorage: ColibriStorage {
+    private let baseDirectory: URL
+    
+    init() {
+        // Use C4_STATES_DIR environment variable or current directory
+        if let statesDir = ProcessInfo.processInfo.environment["C4_STATES_DIR"] {
+            baseDirectory = URL(fileURLWithPath: statesDir)
+        } else {
+            baseDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        }
+        
+        // Ensure directory exists
+        try? FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        print("🗄️ Default Storage: Using directory \(baseDirectory.path)")
+    }
+    
+    func get(key: String) -> Data? {
+        let fileURL = baseDirectory.appendingPathComponent(key)
+        
+        do {
+            let data = try Data(contentsOf: fileURL)
+            print("🗄️ Default Storage GET: \(key) (\(data.count) bytes)")
+            return data
+        } catch {
+            // File not found is normal for storage
+            return nil
+        }
+    }
+    
+    func set(key: String, value: Data) {
+        let fileURL = baseDirectory.appendingPathComponent(key)
+        
+        do {
+            try value.write(to: fileURL)
+            print("🗄️ Default Storage SET: \(key) (\(value.count) bytes)")
+        } catch {
+            print("🗄️ Default Storage SET ERROR: \(key) - \(error)")
+        }
+    }
+    
+    func delete(key: String) {
+        let fileURL = baseDirectory.appendingPathComponent(key)
+        
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+            print("🗄️ Default Storage DELETE: \(key)")
+        } catch {
+            // File not found is normal for delete
+        }
+    }
+}
+
+/// Singleton to hold the storage implementation
+public class StorageBridge {
+    public static var implementation: ColibriStorage?
+    private static var isInitialized = false
+    
+    /// Register a storage implementation
+    public static func registerStorage(_ storage: ColibriStorage) {
+        implementation = storage
+        print("🗄️ Swift Storage implementation registered")
+        
+        // Initialize C bridge if not already done
+        if !isInitialized {
+            initializeStorageBridge()
+            isInitialized = true
+        }
+    }
+    
+    /// Ensure storage is initialized with default if needed
+    public static func ensureStorageInitialized() {
+        if implementation == nil {
+            print("🗄️ No storage implementation set, using default file storage")
+            registerStorage(DefaultFileStorage())
+        }
+    }
+    
+    /// Initialize the C storage bridge with Swift callbacks
+    private static func initializeStorageBridge() {
+        // Register Swift callback functions with C bridge
+        swift_storage_bridge_register_get(swift_storage_get_callback)
+        swift_storage_bridge_register_set(swift_storage_set_callback)
+        swift_storage_bridge_register_delete(swift_storage_delete_callback)
+        
+        // Initialize the C storage plugin
+        swift_storage_bridge_initialize()
+        
+        print("🗄️ Storage bridge initialized with Swift callbacks")
+    }
+}
+
+// MARK: - Swift Storage Callbacks (called from C)
+
+/// Swift callback function for storage get (called from C)
+let swift_storage_get_callback: @convention(c) (UnsafePointer<CChar>?, UnsafeMutablePointer<UInt32>?) -> UnsafeMutableRawPointer? = { key, out_len in
+    StorageBridge.ensureStorageInitialized()  // Auto-initialize default storage if needed
+    
+    guard let implementation = StorageBridge.implementation,
+          let key = key,
+          let out_len = out_len else {
+        print("🗄️ Storage get called but no implementation registered or nil parameters")
+        return nil
+    }
+    
+    let keyString = String(cString: key)
+    guard let data = implementation.get(key: keyString) else {
+        // Key not found
+        out_len.pointee = 0
+        return nil
+    }
+    
+    // Allocate C memory and copy Swift Data
+    let buffer = malloc(data.count)
+    if let buffer = buffer {
+        data.withUnsafeBytes { bytes in
+            memcpy(buffer, bytes.baseAddress, data.count)
+        }
+        out_len.pointee = UInt32(data.count)
+        return buffer
+    } else {
+        print("🗄️ Storage get: Failed to allocate memory for key \(keyString)")
+        out_len.pointee = 0
+        return nil
+    }
+}
+
+/// Swift callback function for storage set (called from C)
+let swift_storage_set_callback: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<UInt8>?, UInt32) -> Void = { key, data, len in
+    StorageBridge.ensureStorageInitialized()  // Auto-initialize default storage if needed
+    
+    guard let implementation = StorageBridge.implementation,
+          let key = key,
+          let data = data else {
+        print("🗄️ Storage set called but no implementation registered or nil parameters")
+        return
+    }
+    
+    let keyString = String(cString: key)
+    let dataBuffer = Data(bytes: data, count: Int(len))
+    implementation.set(key: keyString, value: dataBuffer)
+}
+
+/// Swift callback function for storage delete (called from C)
+let swift_storage_delete_callback: @convention(c) (UnsafePointer<CChar>?) -> Void = { key in
+    StorageBridge.ensureStorageInitialized()  // Auto-initialize default storage if needed
+    
+    guard let implementation = StorageBridge.implementation,
+          let key = key else {
+        print("🗄️ Storage delete called but no implementation registered or nil key")
+        return
+    }
+    
+    let keyString = String(cString: key)
+    implementation.delete(key: keyString)
+}
+
 // MARK: - Mock System
 
 /// Protocol for mocking HTTP requests in tests
@@ -271,11 +437,11 @@ public class Colibri {
         await withTaskGroup(of: Void.self) { group in
             for request in requests {
                 group.addTask {
-                    // Debug: Print request structure
-                    print("🔍 DEBUG handleRequests: Request keys: \(request.keys)")
-                    for (key, value) in request {
-                        print("🔍 DEBUG handleRequests: \(key) = \(value) (type: \(type(of: value)))")
-                    }
+                    // Optional debug: Print request structure (uncomment for debugging)
+                    // print("🔍 DEBUG handleRequests: Request keys: \(request.keys)")
+                    // for (key, value) in request {
+                    //     print("🔍 DEBUG handleRequests: \(key) = \(value) (type: \(type(of: value)))")
+                    // }
                     
                     // Extract and convert types properly
                     guard let uri = request["url"] as? String,
@@ -302,10 +468,8 @@ public class Colibri {
                     let excludeMask: Int
                     if let excludeMaskStr = request["exclude_mask"] as? String {
                         excludeMask = Int(excludeMaskStr) ?? 0
-                        print("🔄 DEBUG: Converted exclude_mask '\(excludeMaskStr)' to Int: \(excludeMask)")
                     } else if let excludeMaskNum = request["exclude_mask"] as? NSNumber {
                         excludeMask = excludeMaskNum.intValue
-                        print("🔄 DEBUG: Got exclude_mask from NSNumber: \(excludeMask)")
                     } else {
                         print("❌ ERROR: exclude_mask neither String nor NSNumber in request: \(request)")
                         let errorMsg = "Invalid exclude_mask type"

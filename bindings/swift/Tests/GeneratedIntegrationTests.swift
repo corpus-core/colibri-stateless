@@ -1,244 +1,3 @@
-#!/bin/bash
-
-# macOS Static Libraries Build Script
-# Copyright (c) 2025 corpus.core
-
-set -e
-
-# Parse command line arguments
-DEV_MODE=false
-for arg in "$@"; do
-    case $arg in
-        -dev|--dev)
-            DEV_MODE=true
-            shift
-            ;;
-        -h|--help)
-            echo "Usage: $0 [options]"
-            echo "Options:"
-            echo "  -dev, --dev    Development mode (current arch only, incremental builds)"
-            echo "  -h, --help     Show this help message"
-            exit 0
-            ;;
-        *)
-            echo "Unknown option: $arg"
-            echo "Use -h or --help for usage information"
-            exit 1
-            ;;
-    esac
-done
-
-if [[ "$DEV_MODE" == "true" ]]; then
-    echo "💻 Starte macOS Development Build (incremental, current arch only)..."
-else
-    echo "💻 Starte macOS Static Libraries Build (full, both architectures)..."
-fi
-
-# Variablen
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SWIFT_DIR="$ROOT_DIR/bindings/swift"
-BUILD_MACOS_ARM_DIR="$ROOT_DIR/build_macos_arm"
-BUILD_MACOS_X86_DIR="$ROOT_DIR/build_macos_x86"
-
-# Detect current architecture
-CURRENT_ARCH=$(uname -m)
-if [[ "$CURRENT_ARCH" == "arm64" ]]; then
-    DEV_BUILD_DIR="$BUILD_MACOS_ARM_DIR"
-    DEV_ARCH="arm64"
-    DEV_ARCH_NAME="Apple Silicon"
-else
-    DEV_BUILD_DIR="$BUILD_MACOS_X86_DIR"
-    DEV_ARCH="x86_64"
-    DEV_ARCH_NAME="Intel"
-fi
-
-# Cleanup logic
-if [[ "$DEV_MODE" == "true" ]]; then
-    echo "🔧 Development Mode aktiv"
-    echo "   Current Architecture: $DEV_ARCH_NAME ($DEV_ARCH)"
-    echo "   Build Directory: $DEV_BUILD_DIR"
-    echo "   🐛 Debug Build: C-Libraries mit Debug-Symbolen für Xcode-Debugging"
-    
-    # In dev mode, only clean if explicitly requested or if build seems broken
-    if [[ ! -f "$DEV_BUILD_DIR/CMakeCache.txt" ]]; then
-        echo "🧹 CMakeCache nicht gefunden, cleanup Build-Verzeichnis..."
-        rm -rf "$DEV_BUILD_DIR"
-    else
-        echo "♻️  Inkrementeller Build (verwende bestehendes Build-Verzeichnis)"
-    fi
-else
-    echo "🧹 Cleanup alte macOS Builds..."
-    rm -rf "$BUILD_MACOS_ARM_DIR" "$BUILD_MACOS_X86_DIR"
-fi
-
-# Prüfe ob wir auf macOS sind
-if [[ "$(uname)" != "Darwin" ]]; then
-    echo "❌ Fehler: macOS Build funktioniert nur auf macOS"
-    exit 1
-fi
-
-# Prüfe macOS SDK
-MACOS_SDK=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || echo "")
-if [[ -z "$MACOS_SDK" ]]; then
-    echo "❌ Fehler: macOS SDK nicht gefunden."
-    echo "   Lösung: Installiere Xcode Command Line Tools"
-    exit 1
-fi
-
-echo "💻 macOS SDK: $MACOS_SDK"
-
-# Build Funktion
-build_macos_arch() {
-    local name="$1"
-        local build_dir="$2"
-    local arch="$3"
-    local incremental="$4"
-    
-    # Set build type based on mode
-    local build_type="Release"
-#    if [[ "$DEV_MODE" == "true" ]]; then
-        build_type="Debug"
-#    fi
-    
-    echo "🛠️  Baue $name ($arch)..."
-    cd "$ROOT_DIR"
-    
-    if [[ "$incremental" == "true" ]] && [[ -f "$build_dir/CMakeCache.txt" ]]; then
-        echo "♻️  Inkrementeller Build: überspringe CMake-Konfiguration"
-    else
-        echo "🔧 Konfiguriere CMake ($build_type Build)..."
-        cmake \
-            -DSWIFT=true \
-            -DCMAKE_SYSTEM_NAME="Darwin" \
-            -DCMAKE_OSX_SYSROOT="$MACOS_SDK" \
-            -DCMAKE_OSX_ARCHITECTURES="$arch" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET="10.15" \
-            -DCMAKE_BUILD_TYPE="$build_type" \
-            -B "$build_dir" \
-            .
-    fi
-    
-    cd "$build_dir"
-    echo "🔨 Baue Libraries..."
-    make -j$(sysctl -n hw.ncpu) c4_swift_binding
-    cd "$ROOT_DIR"
-    
-    echo "✅ $name $build_type Build abgeschlossen"
-}
-
-# Build macOS Architekturen
-if [[ "$DEV_MODE" == "true" ]]; then
-    # Development mode: nur aktuelle Architektur
-    build_macos_arch "macOS $DEV_ARCH_NAME $DEV_ARCH" "$DEV_BUILD_DIR" "$DEV_ARCH" "true"
-else
-    # Production mode: beide Architekturen
-    build_macos_arch "macOS Apple Silicon arm64" "$BUILD_MACOS_ARM_DIR" "arm64" "false"
-    build_macos_arch "macOS Intel x86_64" "$BUILD_MACOS_X86_DIR" "x86_64" "false"
-fi
-
-# Prüfe Ergebnisse
-echo "📊 Verfügbare macOS Libraries:"
-
-if [[ "$DEV_MODE" == "true" ]]; then
-    # Dev mode: prüfe nur die aktuelle Architektur
-    if [[ -f "$DEV_BUILD_DIR/bindings/swift/libc4_swift_binding.a" ]]; then
-        echo "✅ macOS $DEV_ARCH_NAME ($DEV_ARCH) Libraries:"
-        echo "   📁 $DEV_BUILD_DIR"
-        echo "   📋 $(find "$DEV_BUILD_DIR" -name "*.a" | wc -l | xargs) static libraries"
-        echo "   📏 $(du -sh "$DEV_BUILD_DIR" | cut -f1) total size"
-    else
-        echo "❌ macOS $DEV_ARCH_NAME Libraries nicht gefunden"
-        exit 1
-    fi
-else
-    # Production mode: prüfe beide Architekturen
-    # Prüfe arm64 Libraries
-    if [[ -f "$BUILD_MACOS_ARM_DIR/bindings/swift/libc4_swift_binding.a" ]]; then
-        echo "✅ macOS arm64 Libraries:"
-        echo "   📁 $BUILD_MACOS_ARM_DIR"
-        echo "   📋 $(find "$BUILD_MACOS_ARM_DIR" -name "*.a" | wc -l | xargs) static libraries"
-        echo "   📏 $(du -sh "$BUILD_MACOS_ARM_DIR" | cut -f1) total size"
-    else
-        echo "❌ macOS arm64 Libraries nicht gefunden"
-        exit 1
-    fi
-
-    # Prüfe x86_64 Libraries  
-    if [[ -f "$BUILD_MACOS_X86_DIR/bindings/swift/libc4_swift_binding.a" ]]; then
-        echo "✅ macOS x86_64 Libraries:"
-        echo "   📁 $BUILD_MACOS_X86_DIR"
-        echo "   📋 $(find "$BUILD_MACOS_X86_DIR" -name "*.a" | wc -l | xargs) static libraries"
-        echo "   📏 $(du -sh "$BUILD_MACOS_X86_DIR" | cut -f1) total size"
-    else
-        echo "❌ macOS x86_64 Libraries nicht gefunden"
-        exit 1
-    fi
-fi
-
-echo ""
-if [[ "$DEV_MODE" == "true" ]]; then
-    echo "🎉 macOS Development Build erfolgreich!"
-    echo ""
-    echo "⚡ Development Mode Vorteile:"
-    echo "   ♻️  Inkrementelle Builds (schneller bei Änderungen)"
-    echo "   🎯 Nur aktuelle Architektur ($DEV_ARCH_NAME)"
-    echo "   💾 Spart Speicherplatz und Build-Zeit"
-    echo "   🐛 Debug-Builds mit Symbolen für Xcode-Debugging"
-    echo ""
-    echo "💡 Nächste Schritte:"
-    echo "   cd bindings/swift"
-    echo "   swift test  # Nutzt die gebauten Libraries"
-    echo ""
-    echo "💡 Für Production Build:"
-    echo "   ./build_macos.sh  # Ohne -dev für beide Architekturen"
-else
-    echo "🎉 macOS Static Libraries Build erfolgreich!"
-    echo ""
-    echo "💡 Verwendung für SPM Tests:"
-    echo "   cd bindings/swift"
-    echo "   swift test  # Nutzt Package.swift mit relativen Pfaden"
-    echo ""
-    echo "💡 Verwendung für macOS Entwicklung:"
-    echo "   📁 Apple Silicon: $BUILD_MACOS_ARM_DIR"
-    echo "   📁 Intel: $BUILD_MACOS_X86_DIR"
-    echo ""
-    echo "💡 Für schnellere Development Builds:"
-    echo "   ./build_macos.sh -dev  # Nur aktuelle Architektur, inkrementell"
-fi
-
-# Generate TestConfig.swift for integration tests (embedded in source code)
-echo "📝 Generiere TestConfig.swift für Integration Tests..."
-TEST_CONFIG_FILE="$SWIFT_DIR/Sources/TestConfig/TestConfig.swift"
-TEST_DATA_PATH="$ROOT_DIR/test/data"
-
-# Create TestConfig directory if it doesn't exist
-mkdir -p "$SWIFT_DIR/Sources/TestConfig"
-
-cat > "$TEST_CONFIG_FILE" << EOF
-// Generated by build_macos.sh. Do not edit manually.
-// This file contains build-time configuration for integration tests.
-
-import Foundation
-
-public struct TestConfig {
-    /// Path to test data directory (configured at build time)
-    public static let testDataPath = "$TEST_DATA_PATH"
-    
-    /// Get test data URL
-    public static var testDataURL: URL {
-        return URL(fileURLWithPath: testDataPath)
-    }
-}
-EOF
-
-echo "✅ TestConfig.swift erstellt: $TEST_CONFIG_FILE"
-
-# Generate individual test functions for each test directory
-echo "📝 Generiere GeneratedIntegrationTests.swift..."
-GENERATED_TESTS_FILE="$SWIFT_DIR/Tests/GeneratedIntegrationTests.swift"
-
-# Start the generated file
-cat > "$GENERATED_TESTS_FILE" << 'EOF'
 // Generated by build_macos.sh. Do not edit manually.
 // This file contains individual test functions for each integration test directory.
 
@@ -690,69 +449,211 @@ class GeneratedIntegrationTests: XCTestCase {
         return true
     }
 
-EOF
-
-# Find all test directories and generate test functions
-echo "🔍 Scanning for test directories in $TEST_DATA_PATH..."
-TEST_DIRS=()
-SKIPPED_TESTS=()
-if [ -d "$TEST_DATA_PATH" ]; then
-    for dir in "$TEST_DATA_PATH"/*; do
-        if [ -d "$dir" ] && [ -f "$dir/test.json" ]; then
-            test_name="$(basename "$dir")"
-            
-            # Check if test requires features not supported by local proofer
-            requires_chain_store=$(jq -r '.requires_chain_store // false' "$dir/test.json")
-            has_trusted_blockhash=$(jq -r '.trusted_blockhash // null' "$dir/test.json")
-            
-            if [ "$requires_chain_store" = "true" ]; then
-                echo "  ⏸️ Skipping $test_name (requires chain store - only supported by remote proofer)"
-                SKIPPED_TESTS+=("$test_name (requires chain store)")
-            elif [ "$has_trusted_blockhash" != "null" ]; then
-                echo "  ⏸️ Skipping $test_name (uses trusted blockhash - not yet implemented in Swift)"
-                SKIPPED_TESTS+=("$test_name (trusted blockhash)")
-            else
-                TEST_DIRS+=("$test_name")
-            fi
-        fi
-    done
-fi
-
-echo "📊 Found ${#TEST_DIRS[@]} test directories with test.json files"
-if [ ${#SKIPPED_TESTS[@]} -gt 0 ]; then
-    echo "⏸️ Skipped ${#SKIPPED_TESTS[@]} tests requiring unsupported features:"
-    for skipped in "${SKIPPED_TESTS[@]}"; do
-        echo "   • $skipped"
-    done
-fi
-
-# Generate individual test functions
-for test_dir in "${TEST_DIRS[@]}"; do
-    # Convert test directory name to valid Swift function name
-    # Replace non-alphanumeric characters with underscores
-    swift_func_name=$(echo "$test_dir" | sed 's/[^a-zA-Z0-9]/_/g')
     
-    cat >> "$GENERATED_TESTS_FILE" << EOF
-    
-    /// Integration test for: $test_dir
-    func testIntegration_$swift_func_name() async throws {
-        let success = try await runTestSequentially("$test_dir") {
-            let testDirectory = TestConfig.testDataURL.appendingPathComponent("$test_dir")
+    /// Integration test for: eth_blockNumber_electra
+    func testIntegration_eth_blockNumber_electra() async throws {
+        let success = try await runTestSequentially("eth_blockNumber_electra") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_blockNumber_electra")
             return try await self.runSingleTest(testDirectory: testDirectory)
         }
-        XCTAssertTrue(success, "Integration test $test_dir should succeed")
+        XCTAssertTrue(success, "Integration test eth_blockNumber_electra should succeed")
     }
-EOF
-    echo "  ✅ Generated test function: testIntegration_$swift_func_name"
-done
-
-# Close the class
-cat >> "$GENERATED_TESTS_FILE" << 'EOF'
+    
+    /// Integration test for: eth_call_electra
+    func testIntegration_eth_call_electra() async throws {
+        let success = try await runTestSequentially("eth_call_electra") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_call_electra")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_call_electra should succeed")
+    }
+    
+    /// Integration test for: eth_call1
+    func testIntegration_eth_call1() async throws {
+        let success = try await runTestSequentially("eth_call1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_call1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_call1 should succeed")
+    }
+    
+    /// Integration test for: eth_call3
+    func testIntegration_eth_call3() async throws {
+        let success = try await runTestSequentially("eth_call3") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_call3")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_call3 should succeed")
+    }
+    
+    /// Integration test for: eth_getBalance_electra
+    func testIntegration_eth_getBalance_electra() async throws {
+        let success = try await runTestSequentially("eth_getBalance_electra") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getBalance_electra")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getBalance_electra should succeed")
+    }
+    
+    /// Integration test for: eth_getBalance1
+    func testIntegration_eth_getBalance1() async throws {
+        let success = try await runTestSequentially("eth_getBalance1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getBalance1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getBalance1 should succeed")
+    }
+    
+    /// Integration test for: eth_getBlockByHash1
+    func testIntegration_eth_getBlockByHash1() async throws {
+        let success = try await runTestSequentially("eth_getBlockByHash1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getBlockByHash1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getBlockByHash1 should succeed")
+    }
+    
+    /// Integration test for: eth_getBlockByNumber_electra
+    func testIntegration_eth_getBlockByNumber_electra() async throws {
+        let success = try await runTestSequentially("eth_getBlockByNumber_electra") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getBlockByNumber_electra")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getBlockByNumber_electra should succeed")
+    }
+    
+    /// Integration test for: eth_getBlockByNumber1
+    func testIntegration_eth_getBlockByNumber1() async throws {
+        let success = try await runTestSequentially("eth_getBlockByNumber1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getBlockByNumber1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getBlockByNumber1 should succeed")
+    }
+    
+    /// Integration test for: eth_getLogs_electra
+    func testIntegration_eth_getLogs_electra() async throws {
+        let success = try await runTestSequentially("eth_getLogs_electra") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getLogs_electra")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getLogs_electra should succeed")
+    }
+    
+    /// Integration test for: eth_getLogs1
+    func testIntegration_eth_getLogs1() async throws {
+        let success = try await runTestSequentially("eth_getLogs1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getLogs1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getLogs1 should succeed")
+    }
+    
+    /// Integration test for: eth_getProof1
+    func testIntegration_eth_getProof1() async throws {
+        let success = try await runTestSequentially("eth_getProof1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getProof1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getProof1 should succeed")
+    }
+    
+    /// Integration test for: eth_getProof2
+    func testIntegration_eth_getProof2() async throws {
+        let success = try await runTestSequentially("eth_getProof2") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getProof2")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getProof2 should succeed")
+    }
+    
+    /// Integration test for: eth_getStorageAt_electra
+    func testIntegration_eth_getStorageAt_electra() async throws {
+        let success = try await runTestSequentially("eth_getStorageAt_electra") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getStorageAt_electra")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getStorageAt_electra should succeed")
+    }
+    
+    /// Integration test for: eth_getStorageAt1
+    func testIntegration_eth_getStorageAt1() async throws {
+        let success = try await runTestSequentially("eth_getStorageAt1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getStorageAt1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getStorageAt1 should succeed")
+    }
+    
+    /// Integration test for: eth_getTransaction_Type_4
+    func testIntegration_eth_getTransaction_Type_4() async throws {
+        let success = try await runTestSequentially("eth_getTransaction_Type_4") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getTransaction_Type_4")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getTransaction_Type_4 should succeed")
+    }
+    
+    /// Integration test for: eth_getTransactionByBlockHashAndIndex1
+    func testIntegration_eth_getTransactionByBlockHashAndIndex1() async throws {
+        let success = try await runTestSequentially("eth_getTransactionByBlockHashAndIndex1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getTransactionByBlockHashAndIndex1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getTransactionByBlockHashAndIndex1 should succeed")
+    }
+    
+    /// Integration test for: eth_getTransactionByHash_electra
+    func testIntegration_eth_getTransactionByHash_electra() async throws {
+        let success = try await runTestSequentially("eth_getTransactionByHash_electra") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getTransactionByHash_electra")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getTransactionByHash_electra should succeed")
+    }
+    
+    /// Integration test for: eth_getTransactionByHash1
+    func testIntegration_eth_getTransactionByHash1() async throws {
+        let success = try await runTestSequentially("eth_getTransactionByHash1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getTransactionByHash1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getTransactionByHash1 should succeed")
+    }
+    
+    /// Integration test for: eth_getTransactionCount_electra
+    func testIntegration_eth_getTransactionCount_electra() async throws {
+        let success = try await runTestSequentially("eth_getTransactionCount_electra") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getTransactionCount_electra")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getTransactionCount_electra should succeed")
+    }
+    
+    /// Integration test for: eth_getTransactionCount1
+    func testIntegration_eth_getTransactionCount1() async throws {
+        let success = try await runTestSequentially("eth_getTransactionCount1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getTransactionCount1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getTransactionCount1 should succeed")
+    }
+    
+    /// Integration test for: eth_getTransactionreceipt_electra
+    func testIntegration_eth_getTransactionreceipt_electra() async throws {
+        let success = try await runTestSequentially("eth_getTransactionreceipt_electra") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getTransactionreceipt_electra")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getTransactionreceipt_electra should succeed")
+    }
+    
+    /// Integration test for: eth_getTransactionReceipt1
+    func testIntegration_eth_getTransactionReceipt1() async throws {
+        let success = try await runTestSequentially("eth_getTransactionReceipt1") {
+            let testDirectory = TestConfig.testDataURL.appendingPathComponent("eth_getTransactionReceipt1")
+            return try await self.runSingleTest(testDirectory: testDirectory)
+        }
+        XCTAssertTrue(success, "Integration test eth_getTransactionReceipt1 should succeed")
+    }
 }
-EOF
-
-echo "✅ GeneratedIntegrationTests.swift erstellt: $GENERATED_TESTS_FILE"
-echo "📊 Generiert: ${#TEST_DIRS[@]} Test-Funktionen"
-if [ ${#SKIPPED_TESTS[@]} -gt 0 ]; then
-    echo "⏸️ Übersprungen: ${#SKIPPED_TESTS[@]} Tests (benötigen Remote-Proofer Features)"
-fi
