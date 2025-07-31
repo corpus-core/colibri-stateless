@@ -271,10 +271,47 @@ public class Colibri {
         await withTaskGroup(of: Void.self) { group in
             for request in requests {
                 group.addTask {
-                    guard let reqPtr = request["req_ptr"] as? UnsafeMutableRawPointer,
-                          let uri = request["url"] as? String,
-                          let method = request["method"] as? String,
-                          let excludeMask = request["exclude_mask"] as? Int else {
+                    // Debug: Print request structure
+                    print("🔍 DEBUG handleRequests: Request keys: \(request.keys)")
+                    for (key, value) in request {
+                        print("🔍 DEBUG handleRequests: \(key) = \(value) (type: \(type(of: value)))")
+                    }
+                    
+                    // Extract and convert types properly
+                    guard let uri = request["url"] as? String,
+                          let method = request["method"] as? String else {
+                        print("❌ ERROR: Missing url/method in request: \(request)")
+                        return
+                    }
+                    
+                    // Convert req_ptr from NSNumber to UnsafeMutableRawPointer
+                    let reqPtr: UnsafeMutableRawPointer
+                    if let reqPtrNum = request["req_ptr"] as? NSNumber {
+                        let reqPtrInt = reqPtrNum.int64Value
+                        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(reqPtrInt)) else {
+                            print("❌ ERROR: Invalid req_ptr conversion from NSNumber \(reqPtrNum)")
+                            return
+                        }
+                        reqPtr = ptr
+                    } else {
+                        print("❌ ERROR: req_ptr not NSNumber in request: \(request)")
+                        return
+                    }
+                    
+                    // Convert exclude_mask from String to Int
+                    let excludeMask: Int
+                    if let excludeMaskStr = request["exclude_mask"] as? String {
+                        excludeMask = Int(excludeMaskStr) ?? 0
+                        print("🔄 DEBUG: Converted exclude_mask '\(excludeMaskStr)' to Int: \(excludeMask)")
+                    } else if let excludeMaskNum = request["exclude_mask"] as? NSNumber {
+                        excludeMask = excludeMaskNum.intValue
+                        print("🔄 DEBUG: Got exclude_mask from NSNumber: \(excludeMask)")
+                    } else {
+                        print("❌ ERROR: exclude_mask neither String nor NSNumber in request: \(request)")
+                        let errorMsg = "Invalid exclude_mask type"
+                        errorMsg.withCString { errorCStr in
+                            c4_req_set_error(reqPtr, UnsafeMutablePointer(mutating: errorCStr), 0)
+                        }
                         return
                     }
                     

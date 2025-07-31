@@ -168,6 +168,9 @@ final class ColibriIntegrationTests: XCTestCase {
         colibri.requestHandler = mockHandler
         colibri.chainId = UInt64(chainId)  // Set chain ID from test.json
         
+        // 🎯 IMPORTANT: Clear proofers to force LOCAL proof creation (not remote fetching)
+        colibri.proofers = []  // Force local C-library proof creation for testing
+        
         if let trustedBlockhash = trustedBlockhash {
             colibri.trustedBlockHashes = [trustedBlockhash]
         }
@@ -241,15 +244,61 @@ private class MockFileRequestHandler: RequestHandler {
             }
         }
         
-        // Fallback: try to find file by method name
-        print("🔄 Mock: Trying fallback for method...")
-        if let payload = request.payload,
-           let method = payload["method"] as? String {
+        // Fallback: try to find file by URL pattern or method name
+        print("🔄 Mock: Trying fallback for URL/method...")
+        
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(atPath: testDirectory.path)
+            print("🔄 Mock: Directory contents: \(contents.count) files")
             
-            print("🔄 Mock: Fallback method: \(method)")
-            do {
-                let contents = try FileManager.default.contentsOfDirectory(atPath: testDirectory.path)
-                print("🔄 Mock: Directory contents: \(contents.count) files")
+            // Try URL-based fallback first (for beacon API calls)
+            if !request.url.isEmpty {
+                // Extract key parts from URL for pattern matching (split by / and ?)
+                let urlParts = request.url.components(separatedBy: CharacterSet(charactersIn: "/?"))
+                    .filter { !$0.isEmpty }
+                print("🔄 Mock: URL parts: \(urlParts)")
+                
+                // Special handling for beacon headers/blocks with 'head'
+                if urlParts.contains("headers") && urlParts.contains("head") {
+                    let matching = contents.filter { $0.contains("headers") }
+                    print("🔄 Mock: Beacon headers fallback: found \(matching.count) files: \(matching)")
+                    if !matching.isEmpty {
+                        let fallbackFile = testDirectory.appendingPathComponent(matching[0])
+                        let data = try Data(contentsOf: fallbackFile)
+                        print("📁 Mock: Beacon headers fallback serving \(matching[0]) (\(data.count) bytes)")
+                        return data
+                    }
+                }
+                
+                if urlParts.contains("blocks") && urlParts.contains("head") {
+                    let matching = contents.filter { $0.contains("blocks") && !$0.contains("head") }
+                    print("🔄 Mock: Beacon blocks fallback: found \(matching.count) files")
+                    if !matching.isEmpty {
+                        let fallbackFile = testDirectory.appendingPathComponent(matching[0])
+                        let data = try Data(contentsOf: fallbackFile)
+                        print("📁 Mock: Beacon blocks fallback serving \(matching[0]) (\(data.count) bytes)")
+                        return data
+                    }
+                }
+                
+                // Special handling for light_client/updates with different parameters
+                if urlParts.contains("light_client") && urlParts.contains("updates") {
+                    let matching = contents.filter { $0.contains("light_client_updates") }
+                    print("🔄 Mock: Light client updates fallback: found \(matching.count) files: \(matching)")
+                    if !matching.isEmpty {
+                        let fallbackFile = testDirectory.appendingPathComponent(matching[0])
+                        let data = try Data(contentsOf: fallbackFile)
+                        print("📁 Mock: Light client updates fallback serving \(matching[0]) (\(data.count) bytes)")
+                        return data
+                    }
+                }
+            }
+            
+            // Original method-based fallback
+            if let payload = request.payload,
+               let method = payload["method"] as? String {
+                
+                print("🔄 Mock: Fallback method: \(method)")
                 let matching = contents.filter { $0.hasPrefix(method) }
                 print("🔄 Mock: Files matching '\(method)': \(matching)")
                 
@@ -292,11 +341,11 @@ private class MockFileRequestHandler: RequestHandler {
                         }
                     }
                 }
-            } catch {
-                print("❌ Mock: Fallback failed for \(method): \(error)")
+            } else {
+                print("🔄 Mock: No method in payload for fallback")
             }
-        } else {
-            print("🔄 Mock: No method in payload for fallback")
+        } catch {
+            print("❌ Mock: Fallback failed: \(error)")
         }
         
         print("❌ Mock: File not found: \(filename)")
@@ -347,6 +396,11 @@ private class MockFileRequestHandler: RequestHandler {
         // Sanitize filename (replace forbidden characters - same as JS)
         let forbiddenChars = CharacterSet(charactersIn: "/\\.,: \"&=[]{}?")
         name = name.components(separatedBy: forbiddenChars).joined(separator: "_")
+        
+        // Remove leading underscores (caused by leading slashes)
+        while name.hasPrefix("_") {
+            name = String(name.dropFirst())
+        }
         
         // Limit length (same as JS)
         if name.count > 100 {
