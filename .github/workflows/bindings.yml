@@ -18,14 +18,14 @@ permissions:
 
 jobs:
   swift:
-    uses: ./bindings/swift/ci.yml
+    uses: .github/workflows/bindings-swift.yml@swift_bindings
 
   kotlin:
-    uses: ./bindings/kotlin/ci.yml
+    uses: .github/workflows/bindings-kotlin.yml@swift_bindings
 
   emscripten:
-    uses: ./bindings/emscripten/ci.yml
+    uses: .github/workflows/bindings-emscripten.yml@swift_bindings
 
   docker-proofer:
-    uses: ./bindings/docker/ci.yml
+    uses: .github/workflows/bindings-docker.yml@swift_bindings
 
