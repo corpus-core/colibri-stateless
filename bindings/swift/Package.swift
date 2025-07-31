@@ -37,11 +37,6 @@ let package = Package(
             ]
         ),
         .target(
-            name: "TestConfig",
-            path: "Sources/TestConfig",
-            sources: ["TestConfig.swift"]
-        ),
-        .target(
             name: "Colibri",
             dependencies: ["CColibriMacOS"],
             path: "Sources/Colibri",
@@ -49,7 +44,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ColibriTests",
-            dependencies: ["Colibri", "TestConfig"],
+            dependencies: ["Colibri"],
             path: "Tests",
             sources: ["ColibriTests.swift", "GeneratedIntegrationTests.swift"]
         )

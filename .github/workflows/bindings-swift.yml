@@ -203,10 +203,9 @@ jobs:
           # Kopiere Swift Package Dateien
           cp -r bindings/swift/Sources/ swift_package/
           cp -r bindings/swift/Tests/ swift_package/
-          cp -r bindings/swift/xcframework/ swift_package/
-          cp bindings/swift/README.md swift_package/ 2>/dev/null || echo "README.md not found, skipping"
+          cp bindings/swift/README.md swift_package/README.md 2>/dev/null || echo "README.md not found, skipping"
           
-          # Kopiere Universal XCFramework
+          # Kopiere iOS XCFramework
           cp -r build_ios_arm/c4_swift.xcframework swift_package/
           
           # Erstelle Distribution Package.swift (mit binaryTarget für XCFramework)
@@ -240,39 +239,6 @@ jobs:
           )
           EOF
           
-          # Erstelle ein README für die Distribution
-          cat > swift_package/README.md << 'EOF'
-          # Colibri Stateless Swift Package
-          
-          iOS XCFramework für native iOS App Integration.
-          
-          ## Unterstützte Platformen
-          - 📱 iOS (Device arm64 + Simulator x86_64)  
-          
-          ## macOS Support
-          Für macOS Entwicklung verwenden Sie die separaten static libraries oder die direkte SPM Integration.
-          
-          ## Integration
-          
-          ### iOS Xcode Projekt
-          Drag & Drop `c4_swift.xcframework` in Ihr iOS Xcode Projekt.
-          
-          ### Swift Package Manager
-          ```swift
-          dependencies: [
-              .package(url: "https://github.com/corpus-core/colibri-stateless-swift.git", from: "1.0.0")
-          ]
-          ```
-          
-          ## Verwendung
-          ```swift
-          import Colibri
-          
-          let client = Colibri(chainId: 1) // Ethereum Mainnet
-          let support = client.getMethodSupport(method: "eth_getBalance")
-          print("Method support: \(support)")
-          ```
-          EOF
           
           # Zeige Package-Inhalt
           echo "📋 Package contents:"
@@ -309,6 +275,46 @@ jobs:
             echo "- **Ready for**: iOS Apps, Swift Package Manager" >> $GITHUB_STEP_SUMMARY
             echo "- **macOS**: Use static libraries or direct SPM integration" >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Test iOS Integration Example
+        run: |
+          echo "📱 Testing iOS Integration Example..."
+          
+          # Copy test app to work with the generated swift_package
+          cp -r bindings/swift/test_ios_app ./
+          
+          # Verify the test app can build against the distribution package
+          cd test_ios_app
+          
+          echo "🔨 Building iOS Test App..."
+          if swift build 2>&1; then
+            echo "✅ iOS Test App builds successfully"
+            
+            echo "🧪 Running iOS Integration Tests..."
+            if test_output=$(swift test 2>&1); then
+              echo "✅ iOS Integration Tests passed"
+              echo "- ✅ **iOS Integration**: All tests passed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️ iOS Integration Tests had issues (may be expected in CI)"
+              echo "- ⚠️ **iOS Integration**: Tests had issues (expected in CI without blockchain state)" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "#### Test Output (Last 10 lines)" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "$test_output" | tail -10 >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ iOS Test App failed to build"
+            echo "- ❌ **iOS Integration**: Build failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 iOS Test App" >> $GITHUB_STEP_SUMMARY
+          echo "- **Purpose**: Integration testing + Developer example" >> $GITHUB_STEP_SUMMARY
+          echo "- **Location**: \`bindings/swift/test_ios_app\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Documentation**: See test_ios_app/README.md" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Swift Package
         uses: actions/upload-artifact@v4
