@@ -204,6 +204,7 @@ jobs:
           cp -r bindings/swift/Sources swift_package/
           cp -r bindings/swift/Tests swift_package/
           cp bindings/swift/README.md swift_package/README.md 2>/dev/null || echo "README.md not found, skipping"
+          cp bindings/swift/doc.md swift_package/doc.md 2>/dev/null || echo "doc.md not found, skipping"
           
           # Kopiere iOS XCFramework
           cp -r build_ios_arm/c4_swift.xcframework swift_package/
@@ -226,6 +227,7 @@ jobs:
                   ),
                   .target(
                       name: "CColibriMacOS",
+                      dependencies: ["c4_swift"],
                       path: "Sources/CColibri",
                       sources: ["swift_storage_bridge.c"],
                       publicHeadersPath: "include",
