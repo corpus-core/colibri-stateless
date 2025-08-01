@@ -3,6 +3,12 @@ name: Swift CI
 on:
   workflow_call:
 
+permissions:
+  contents: write # Required for creating releases and uploading assets
+  checks: write
+  pull-requests: write
+  actions: read
+
 jobs:
 
   swift:
