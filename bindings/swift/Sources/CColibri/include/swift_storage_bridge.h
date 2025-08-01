@@ -8,6 +8,8 @@
 
 #include <stdint.h>
 
+#include "../../../../colibri.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
