@@ -27,3 +27,5 @@ bindings/emscripten/webpack/webpack_build_config.mjs
 bindings/swift/Sources/TestConfig/
 bindings/swift/Tests/GeneratedIntegrationTests.swift
 bindings/swift/.swiftpm
+bindings/swift/ios_package
+bindings/swift/test_ios_app/.build

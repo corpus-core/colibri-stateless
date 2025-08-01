@@ -113,6 +113,19 @@ echo "📋 Kopiere Swift Sources und Tests..."
 cp -r "$SWIFT_DIR/Sources" "$iOS_PACKAGE_DIR/"
 cp -r "$SWIFT_DIR/Tests" "$iOS_PACKAGE_DIR/"
 
+# Kopiere Header-Dateien direkt ins iOS Package, um relative Pfade zu vermeiden
+echo "📋 Kopiere alle benötigten C-Headers ins iOS Package..."
+mkdir -p "$iOS_PACKAGE_DIR/Sources/CColibri/include"
+
+# Kopiere alle util headers (mit Abhängigkeiten)
+echo "📋 Kopiere src/util/*.h Headers..."
+cp "$ROOT_DIR/src/util"/*.h "$iOS_PACKAGE_DIR/Sources/CColibri/include/"
+
+# Passe swift_storage_bridge.c an, um lokale Header zu verwenden
+echo "📋 Passe swift_storage_bridge.c für iOS Package an..."
+sed -i '' 's|#include "../../../../src/util/bytes.h"|#include "bytes.h"|g' "$iOS_PACKAGE_DIR/Sources/CColibri/swift_storage_bridge.c"
+sed -i '' 's|#include "../../../../src/util/plugin.h"|#include "plugin.h"|g' "$iOS_PACKAGE_DIR/Sources/CColibri/swift_storage_bridge.c"
+
 # Kopiere Dokumentation
 echo "📋 Kopiere Dokumentation..."
 if [[ -f "$SWIFT_DIR/README.md" ]]; then
@@ -139,7 +152,7 @@ import PackageDescription
 
 let package = Package(
     name: "Colibri",
-    platforms: [.iOS(.v13), .macOS(.v10_15)],
+    platforms: [.iOS(.v13)],
     products: [
         .library(name: "Colibri", targets: ["Colibri"])
     ],
