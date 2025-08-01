@@ -2,6 +2,9 @@ name: Emscripten CI
 
 on:
   workflow_call:
+    secrets:
+      NPM_TOKEN:
+        required: false
 
 permissions:
   contents: write # Required for creating releases and uploading assets

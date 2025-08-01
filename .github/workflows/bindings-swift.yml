@@ -2,6 +2,9 @@ name: Swift CI
 
 on:
   workflow_call:
+    secrets:
+      PAT_TOKEN:
+        required: false
 
 permissions:
   contents: write # Required for creating releases and uploading assets
