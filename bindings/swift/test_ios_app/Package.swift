@@ -3,17 +3,13 @@ import PackageDescription
 
 let package = Package(
     name: "ColibriTestApp",
-    platforms: [.macOS(.v10_15)],
+    platforms: [.iOS(.v13)],
     products: [
         .executable(name: "ColibriTestApp", targets: ["ColibriTestApp"])
     ],
     dependencies: [
-        // In CI: Use local swift_package build
+        // Use iOS XCFramework from swift_package
         .package(path: "../swift_package")
-        
-        // For developers: Replace above line with GitHub URL:
-        // .package(url: "https://github.com/corpus-core/colibri-stateless-swift.git", from: "1.0.0")
-        // and change package references below from "swift_package" to "colibri-stateless-swift"
     ],
     targets: [
         .executableTarget(

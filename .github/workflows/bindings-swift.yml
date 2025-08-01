@@ -311,13 +311,14 @@ jobs:
           # Verify the test app can build against the distribution package
           cd test_ios_app
           
-          echo "🔨 Building Test App..."
-          echo "📋 Debug: swift build --verbose --build-path .build"
-          if swift build --verbose --build-path .build 2>&1; then
+          echo "🔨 Building Test App for iOS Simulator..."
+          echo "📋 Debug: Building for iOS x86_64 Simulator using iOS SDK"
+          export SIMULATOR_SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          if swift build --verbose -Xswiftc -sdk -Xswiftc $SIMULATOR_SDK -Xswiftc -target -Xswiftc x86_64-apple-ios13.0-simulator 2>&1; then
             echo "✅ Test App builds successfully"
             
-            echo "🧪 Running Integration Tests..."
-            if test_output=$(swift test 2>&1); then
+            echo "🧪 Running Integration Tests on iOS Simulator..."
+            if test_output=$(swift test -Xswiftc -sdk -Xswiftc $SIMULATOR_SDK -Xswiftc -target -Xswiftc x86_64-apple-ios13.0-simulator 2>&1); then
               echo "✅ Integration Tests passed"
               echo "- ✅ **Integration**: All tests passed" >> $GITHUB_STEP_SUMMARY
             else
