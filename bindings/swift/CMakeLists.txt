@@ -59,18 +59,32 @@ add_library(c4_swift_binding STATIC
     ../colibri.c
 )
 
-add_dependencies(c4_swift_binding util proofer verifier)
+# Add build dependencies based on enabled features
+set(C4_SWIFT_BUILD_DEPS util proofer verifier)
+
+# Add EVMOne build dependencies if enabled
+if(EVMONE)
+    list(APPEND C4_SWIFT_BUILD_DEPS evmone_wrapper)
+endif()
+
+add_dependencies(c4_swift_binding ${C4_SWIFT_BUILD_DEPS})
 target_include_directories(c4_swift_binding 
     PRIVATE 
     ../../src/util
     ../../src/proofer
     ../../src/verifier
 )
+# Link dependencies based on enabled features
+set(C4_SWIFT_DEPENDENCIES util proofer verifier)
+
+# Add EVMOne dependencies if enabled
+if(EVMONE)
+    list(APPEND C4_SWIFT_DEPENDENCIES evmone_wrapper)
+endif()
+
 target_link_libraries(c4_swift_binding
     PRIVATE
-    util
-    proofer
-    verifier
+    ${C4_SWIFT_DEPENDENCIES}
 )
 
 # Only create XCFramework if we have both architectures

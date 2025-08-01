@@ -22,13 +22,19 @@ echo "📱 iOS x86_64 Simulator: $IOS_X86_BUILD"
 # Libraries to combine (simplified for iOS-only)
 LIBRARIES=(
     "libs/crypto/libcrypto.a"
-    "libs/blst/libblst.a"
+    "libs/blst/libblst.a" 
     "src/util/libutil.a"
     "src/proofer/libproofer.a"
     "src/chains/eth/libeth_verifier.a"
     "src/chains/eth/libeth_proofer.a"
     "src/verifier/libverifier.a"
     "bindings/swift/libc4_swift_binding.a"
+    # EVMOne dependencies (always included as EVMONE is enabled by default)
+    "libs/intx/libintx_wrapper.a"
+    "src/chains/eth/precompiles/libeth_precompiles.a"
+    "libs/evmone/libevmone_wrapper.a"
+    "_deps/evmone_external-build/libevmone.a"
+    "_deps/ethhash_external-build/libkeccak.a"
 )
 
 # Framework directories
