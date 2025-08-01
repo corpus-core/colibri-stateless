@@ -19,12 +19,16 @@ permissions:
 jobs:
   swift:
     uses: ./.github/workflows/bindings-swift.yml
+    secrets:
+      PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
 
   kotlin:
     uses: ./.github/workflows/bindings-kotlin.yml
 
   emscripten:
     uses: ./.github/workflows/bindings-emscripten.yml
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   docker-proofer:
     uses: ./.github/workflows/bindings-docker.yml
