@@ -105,39 +105,59 @@ if(SWIFT)
     endif()
 
 
-    # Set SDK paths based on target architecture
-    if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
-        execute_process(
-            COMMAND xcrun --sdk iphonesimulator --show-sdk-path
-            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
-        set(IOS_PLATFORM "SIMULATOR64")
-        set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
-    elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
-        execute_process(
-            COMMAND xcrun --sdk iphoneos --show-sdk-path
-            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
-        set(IOS_PLATFORM "OS64")
-        set(TARGET_TRIPLE "arm64-apple-ios")
-    endif()
+    # Intelligent platform detection: Only build for iOS if explicitly requested
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        message(STATUS "Building for iOS (CMAKE_SYSTEM_NAME=iOS)")
+        
+        # Set SDK paths based on target architecture
+        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+            execute_process(
+                COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+                OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            set(IOS_PLATFORM "SIMULATOR64")
+            set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+        elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+            execute_process(
+                COMMAND xcrun --sdk iphoneos --show-sdk-path
+                OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            set(IOS_PLATFORM "OS64")
+            set(TARGET_TRIPLE "arm64-apple-ios")
+        endif()
 
-    # Set common iOS build settings
-    set(CMAKE_SYSTEM_NAME "iOS")
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment version" FORCE)
-    set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO)
-    set(CMAKE_IOS_INSTALL_COMBINED NO)
-    
-    # Set iOS-specific compiler and linker flags
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
-    
-    # Disable CURL for iOS builds
-    set(CURL OFF)
+        # Set iOS-specific compiler and linker flags
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
+        
+        set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO)
+        set(CMAKE_IOS_INSTALL_COMBINED NO)
+        
+        # Disable CURL for iOS builds
+        set(CURL OFF)
+        
+    else()
+        message(STATUS "Building for macOS (CMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME})")
+        
+        # macOS build configuration
+        execute_process(
+            COMMAND xcrun --sdk macosx --show-sdk-path
+            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        
+        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+            set(TARGET_TRIPLE "x86_64-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+            set(TARGET_TRIPLE "arm64-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        endif()
+        
+        message(STATUS "macOS Target: ${TARGET_TRIPLE}")
+    endif()
 endif()
 if(KOTLIN)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)

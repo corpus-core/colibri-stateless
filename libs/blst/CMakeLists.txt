@@ -141,8 +141,8 @@ else()
             COMMENT "Building blst using build script with Android NDK toolchain"
             VERBATIM
         )
-    elseif(SWIFT)
-        # iOS build configuration
+    elseif(SWIFT AND CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        # iOS build configuration (only when explicitly building for iOS)
         if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
             add_custom_command(
                 OUTPUT ${BLST_LIB}

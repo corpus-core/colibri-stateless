@@ -21,145 +21,70 @@
 
 include_directories(${CMAKE_SOURCE_DIR}/bindings)
 
+# Auto-detect iOS SDK paths if building for iOS and not set
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_OSX_SYSROOT)
+    if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+        # Use iOS Simulator SDK for x86_64
+        execute_process(
+            COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+            OUTPUT_VARIABLE IOS_SIMULATOR_SDK_PATH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE SDK_RESULT
+        )
+        if(SDK_RESULT EQUAL 0)
+            set(CMAKE_OSX_SYSROOT ${IOS_SIMULATOR_SDK_PATH})
+            message(STATUS "Auto-detected iOS Simulator SDK: ${CMAKE_OSX_SYSROOT}")
+        else()
+            message(FATAL_ERROR "iOS Simulator SDK not found. Install Xcode.")
+        endif()
+    else()
+        # Use iOS Device SDK for arm64
+        execute_process(
+            COMMAND xcrun --sdk iphoneos --show-sdk-path
+            OUTPUT_VARIABLE IOS_DEVICE_SDK_PATH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE SDK_RESULT
+        )
+        if(SDK_RESULT EQUAL 0)
+            set(CMAKE_OSX_SYSROOT ${IOS_DEVICE_SDK_PATH})
+            message(STATUS "Auto-detected iOS Device SDK: ${CMAKE_OSX_SYSROOT}")
+        else()
+            message(FATAL_ERROR "iOS Device SDK not found. Install Xcode.")
+        endif()
+    endif()
+endif()
+
 # Create the C binding library
 add_library(c4_swift_binding STATIC 
     ../colibri.c
 )
 
-add_dependencies(c4_swift_binding util proofer verifier)
+# Add build dependencies based on enabled features
+set(C4_SWIFT_BUILD_DEPS util proofer verifier)
+
+# Add EVMOne build dependencies if enabled
+if(EVMONE)
+    list(APPEND C4_SWIFT_BUILD_DEPS evmone_wrapper)
+endif()
+
+add_dependencies(c4_swift_binding ${C4_SWIFT_BUILD_DEPS})
 target_include_directories(c4_swift_binding 
     PRIVATE 
     ../../src/util
     ../../src/proofer
     ../../src/verifier
 )
+# Link dependencies based on enabled features
+set(C4_SWIFT_DEPENDENCIES util proofer verifier)
+
+# Add EVMOne dependencies if enabled
+if(EVMONE)
+    list(APPEND C4_SWIFT_DEPENDENCIES evmone_wrapper)
+endif()
+
 target_link_libraries(c4_swift_binding
     PRIVATE
-    util
-    proofer
-    verifier
+    ${C4_SWIFT_DEPENDENCIES}
 )
-
-# Only create XCFramework if we have both architectures
-if(DEFINED SWIFT_X86_BUILD)
-    if (EVMONE)
-        set(EVMONE_LIBRARIES
-            "libs/intx/libintx_wrapper.a"
-            "src/chains/eth/precompiles/libeth_precompiles.a"
-            "libs/evmone/libevmone_wrapper.a"
-            "_deps/evmone_external-build/libevmone.a"
-            "_deps/ethhash_external-build/libkeccak.a"        
-        )
-    endif()
-
-    # Define the list of libraries with their paths
-    set(C4_LIBRARIES
-        "libs/crypto/libcrypto.a"
-        "libs/blst/libblst.a"
-        "src/util/libutil.a"
-        "src/proofer/libproofer.a"
-        ${EVMONE_LIBRARIES}
-        "src/chains/eth/libeth_verifier.a"
-        "src/chains/eth/libeth_proofer.a"
-        "src/verifier/libverifier.a"
-        "bindings/swift/libc4_swift_binding.a"
-    )
-    
-    # Create response files for libtool
-    set(SIMULATOR_LIBS_FILE "${CMAKE_BINARY_DIR}/simulator_libs.txt")
-    set(DEVICE_LIBS_FILE "${CMAKE_BINARY_DIR}/device_libs.txt")
-    
-    file(WRITE ${SIMULATOR_LIBS_FILE} "")
-    file(WRITE ${DEVICE_LIBS_FILE} "")
-    
-    foreach(lib IN LISTS C4_LIBRARIES)
-        get_filename_component(lib_name ${lib} NAME)
-        file(APPEND ${SIMULATOR_LIBS_FILE} "${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/lib/${lib_name}\n")
-        file(APPEND ${DEVICE_LIBS_FILE} "${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/lib/${lib_name}\n")
-    endforeach()
-    
-    # Initial setup command - Uses VERBATIM
-    add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/c4_swift.xcframework
-        # Create base directories
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/lib
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/lib
-        COMMENT "Starting XCFramework build"
-        VERBATIM
-    )
-    
-    # Add library copy commands
-    foreach(lib IN LISTS C4_LIBRARIES)
-        get_filename_component(lib_name ${lib} NAME)
-        add_custom_command(
-            OUTPUT ${CMAKE_BINARY_DIR}/c4_swift.xcframework
-            COMMAND ${CMAKE_COMMAND} -E copy ${SWIFT_X86_BUILD}/${lib} ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/lib/${lib_name}
-            COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/${lib} ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/lib/${lib_name}
-            APPEND
-        )
-    endforeach()
-    
-    # Add remaining commands
-    add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/c4_swift.xcframework
-        # Create combined static libraries using response files
-        COMMAND libtool -static -o ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/c4_swift @${SIMULATOR_LIBS_FILE}
-        COMMAND libtool -static -o ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/c4_swift @${DEVICE_LIBS_FILE}
-        
-        # Copy headers
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/Headers
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/Headers
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/bindings/colibri.h ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/Headers/
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/bindings/colibri.h ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/Headers/
-        
-        # Create Info.plist files
-        COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string FMWK" 
-            -c "Add :CFBundleIdentifier string com.c4.swift"
-            -c "Add :CFBundleName string c4_swift"
-            -c "Add :CFBundleVersion string 1.0"
-            -c "Add :CFBundleShortVersionString string 1.0"
-            -c "Add :MinimumOSVersion string 13.0"
-            -c "Add :CFBundleExecutable string c4_swift"
-            ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework/Info.plist
-        COMMAND /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string FMWK" 
-            -c "Add :CFBundleIdentifier string com.c4.swift"
-            -c "Add :CFBundleName string c4_swift"
-            -c "Add :CFBundleVersion string 1.0"
-            -c "Add :CFBundleShortVersionString string 1.0"
-            -c "Add :MinimumOSVersion string 13.0"
-            -c "Add :CFBundleExecutable string c4_swift"
-            ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework/Info.plist
-        
-        # Create XCFramework
-        COMMAND xcodebuild -create-xcframework
-            -framework ${CMAKE_BINARY_DIR}/framework/ios-device/c4_swift.framework
-            -framework ${CMAKE_BINARY_DIR}/framework/ios-simulator/c4_swift.framework
-            -output ${CMAKE_BINARY_DIR}/c4_swift.xcframework
-        
-        APPEND
-        COMMENT "Finalizing XCFramework"
-    )
-
-    # Add custom targets
-    add_custom_target(c4_swift ALL
-        DEPENDS ${CMAKE_BINARY_DIR}/c4_swift.xcframework
-    )
-
-    # Add Swift package build command
-    add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/swift_build.timestamp
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_SOURCE_DIR}/src/include
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/bindings/colibri.h ${CMAKE_CURRENT_SOURCE_DIR}/src/include/
-        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/swift_build.timestamp
-        DEPENDS ${CMAKE_BINARY_DIR}/c4_swift.xcframework
-        COMMENT "Setting up Swift package"
-    )
-
-    add_custom_target(swift_package ALL
-        DEPENDS ${CMAKE_BINARY_DIR}/swift_build.timestamp
-    )
-endif()
 
 
