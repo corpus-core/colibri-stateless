@@ -29,3 +29,4 @@ bindings/swift/Tests/GeneratedIntegrationTests.swift
 bindings/swift/.swiftpm
 bindings/swift/ios_package
 bindings/swift/test_ios_app/.build
+bindings/swift/Sources/CColibri/include/colibri.h

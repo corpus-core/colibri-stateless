@@ -121,6 +121,10 @@ mkdir -p "$iOS_PACKAGE_DIR/Sources/CColibri/include"
 echo "📋 Kopiere src/util/*.h Headers..."
 cp "$ROOT_DIR/src/util"/*.h "$iOS_PACKAGE_DIR/Sources/CColibri/include/"
 
+# Kopiere bindings/colibri.h (Haupt-API Header)
+echo "📋 Kopiere bindings/colibri.h..."
+cp "$ROOT_DIR/bindings/colibri.h" "$iOS_PACKAGE_DIR/Sources/CColibri/include/"
+
 # Passe swift_storage_bridge.c an, um lokale Header zu verwenden
 echo "📋 Passe swift_storage_bridge.c für iOS Package an..."
 sed -i '' 's|#include "../../../../src/util/bytes.h"|#include "bytes.h"|g' "$iOS_PACKAGE_DIR/Sources/CColibri/swift_storage_bridge.c"
