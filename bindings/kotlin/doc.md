@@ -4,7 +4,7 @@
 
 The Colibri bindings for Kotlin/Java are built using CMake and Gradle. It can be used as AAR (Android Archive) or JAR (Java Archive).
 
-> 💡 **Quick Start**: Check out the [Example Android App](https://github.com/corpus-core/colibri-stateless/tree/main/bindings/kotlin/example) for a complete working implementation!
+> 💡 **Quick Start**: Check out the [Example Android App](https://github.com/corpus-core/colibri-stateless/tree/dev/bindings/kotlin/example) for a complete working implementation!
 
 ## Usage
 
