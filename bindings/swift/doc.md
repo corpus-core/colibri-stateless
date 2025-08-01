@@ -2,7 +2,7 @@
 
 :: Swift
 
-# Colibri Swift Bindings
+# Swift
 
 Swift Package for integrating Colibri Stateless Client into iOS and macOS applications. These bindings provide a native Swift API for secure, verified blockchain interactions without trusting centralized infrastructure.
 
@@ -626,6 +626,7 @@ class DebugRequestHandler: RequestHandler {
 
 ## Further Information
 
+- **📖 Online Documentation**: [GitBook Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/swift)
 - **Core Repository**: [colibri-stateless](https://github.com/corpus-core/colibri-stateless)
 - **Distribution Package**: [colibri-stateless-swift](https://github.com/corpus-core/colibri-stateless-swift)
 - **Example iOS App**: `bindings/swift/test_ios_app/`

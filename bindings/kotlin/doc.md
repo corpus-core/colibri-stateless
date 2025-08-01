@@ -4,6 +4,8 @@
 
 The Colibri bindings for Kotlin/Java are built using CMake and Gradle. It can be used as AAR (Android Archive) or JAR (Java Archive).
 
+> 💡 **Quick Start**: Check out the [Example Android App](https://github.com/corpus-core/colibri-stateless/tree/main/bindings/kotlin/example) for a complete working implementation!
+
 ## Usage
 
 ### Java
@@ -16,27 +18,29 @@ implementation 'com.corpuscore.colibri:colibri-java:0.1.0'
 use it like this:
 ```java
 import com.corpuscore.colibri.Colibri;
-import java.math.BigInteger;
+import com.corpuscore.colibri.ColibriException;
 
 public class Example {
     public static void main(String[] args) {
-        // Initialize Colibri with Ethereum Mainnet configuration
-        Colibri colibri = new Colibri(
-            BigInteger.ONE,  // chainId (1 for Ethereum Mainnet)
-            new String[]{"https://eth-mainnet.g.alchemy.com/v2/YOUR-API-KEY"},  // ETH RPC
-            new String[]{"https://beacon.quicknode.com/YOUR-API-KEY"}   // Beacon API
-        );
+        // Initialize Colibri (uses default Ethereum Mainnet configuration)
+        Colibri colibri = new Colibri();
 
         try {
-            // Create a proof for a specific block
-            byte[] proof = colibri.getProof(
-                "eth_getBalance",  // method
-                new Object[]{"0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5", "latest"}  // RPC-Arguments
-            );
+            // Call RPC method to get current block number
+            byte[] result = colibri.rpc("eth_blockNumber", new Object[]{});
+            String blockNumberHex = new String(result);
+            System.out.println("Current block number: " + blockNumberHex);
             
-            System.out.println("Proof created successfully! Length: " + proof.length);
+            // Example with parameters - get account balance
+            byte[] balanceResult = colibri.rpc("eth_getBalance", 
+                new Object[]{"0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5", "latest"});
+            String balance = new String(balanceResult);
+            System.out.println("Account balance: " + balance);
+            
+        } catch (ColibriException e) {
+            System.err.println("Colibri error: " + e.getMessage());
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("Unexpected error: " + e.getMessage());
         }
     }
 }
@@ -70,43 +74,85 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.corpuscore.colibri.Colibri
+import com.corpuscore.colibri.ColibriException
 import kotlinx.coroutines.launch
-import java.math.BigInteger
 
 class MainActivity : AppCompatActivity() {
+    private lateinit var blockNumberText: TextView
+    private lateinit var refreshButton: Button
     private lateinit var statusText: TextView
-    private lateinit var createProofButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        blockNumberText = findViewById(R.id.blockNumberText)
+        refreshButton = findViewById(R.id.refreshButton)
         statusText = findViewById(R.id.statusText)
-        createProofButton = findViewById(R.id.createProofButton)
 
-        val colibri = Colibri(
-            BigInteger.ONE,  // chainId (1 for Ethereum Mainnet)
-            arrayOf("https://eth-mainnet.g.alchemy.com/v2/YOUR-API-KEY"),  // ETH RPC
-            arrayOf("https://beacon.quicknode.com/YOUR-API-KEY")   // Beacon API
-        )
+        // Initialize Colibri (uses default Ethereum Mainnet configuration)
+        val colibri = Colibri()
 
-        createProofButton.setOnClickListener {
+        refreshButton.setOnClickListener {
             lifecycleScope.launch {
                 try {
-                    statusText.text = "Creating proof..."
-                    val proof = colibri.getProof(
-                        "eth_getBalance",  // method
-                        arrayOf("0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5","latest")  // block number as argument
-                    )
-                    statusText.text = "Proof created successfully! Length: ${proof.size}"
+                    statusText.text = "Fetching block number..."
+                    refreshButton.isEnabled = false
+                    
+                    // Call RPC method to get current block number
+                    val result = colibri.rpc("eth_blockNumber", arrayOf())
+                    val blockNumberHex = String(result)
+                    val blockNumber = blockNumberHex.removePrefix("0x").toLong(16)
+                    
+                    blockNumberText.text = "#$blockNumber"
+                    statusText.text = "Updated successfully"
+                    
+                } catch (e: ColibriException) {
+                    statusText.text = "Colibri error: ${e.message}"
                 } catch (e: Exception) {
                     statusText.text = "Error: ${e.message}"
+                } finally {
+                    refreshButton.isEnabled = true
                 }
             }
         }
+        
+        // Fetch block number on startup
+        refreshButton.performClick()
     }
 }
 ```
+
+## Example Android App
+
+A complete working example is available in the [example directory](https://github.com/corpus-core/colibri-stateless/tree/main/bindings/kotlin/example). This minimal Android app demonstrates:
+
+- **Real-world usage**: How to integrate Colibri in an Android application
+- **RPC calls**: Using `eth_blockNumber` to fetch the current Ethereum block number
+- **Error handling**: Proper exception handling for network and Colibri errors
+- **Async operations**: Using Kotlin coroutines for non-blocking RPC calls
+- **UI integration**: Updating Android UI components based on RPC results
+
+### Running the Example
+
+```bash
+cd bindings/kotlin/example
+./gradlew build
+./gradlew installDebug  # Install on connected Android device/emulator
+```
+
+The example app includes:
+- Simple UI with block number display and refresh button
+- Automatic block number fetching on startup
+- Error states and loading indicators
+- Public Ethereum RPC endpoint configuration (no API keys required)
+
+## Resources
+
+- 📖 **[Kotlin/Java Documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)** - This complete documentation
+- 🔗 **[Supported RPC Methods](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods)** - Full list of available Ethereum RPC calls
+- 🏗️ **[Building Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/building)** - Build from source instructions
+- 🧪 **[Example Android App](https://github.com/corpus-core/colibri-stateless/tree/main/bindings/kotlin/example)** - Complete working implementation
 
 ## Building
 Make sure you have the Java SDK, Cmake and Swig installed.

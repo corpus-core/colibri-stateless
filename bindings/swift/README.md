@@ -80,6 +80,7 @@ cd test_ios_app && swift test                # iOS example
 
 ## 📚 Documentation
 
-- **[Complete Documentation](doc.md)** - Detailed API reference
-- **[iOS Test App](test_ios_app/)** - Reference implementation
-- **[Core Repository](https://github.com/corpus-core/colibri-stateless)** - Source code
+- **[📖 Complete Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/swift)** - Full API reference and guide
+- **[�� iOS Test App](test_ios_app/)** - Reference implementation & CI example
+- **[📄 Local Documentation](doc.md)** - Source documentation
+- **[�� Core Repository](https://github.com/corpus-core/colibri-stateless)** - Source code
