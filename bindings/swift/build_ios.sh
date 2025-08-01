@@ -96,12 +96,106 @@ if [[ -d "$XCFRAMEWORK_PATH" ]]; then
     # Größe anzeigen
     echo "📏 Framework-Größe:"
     du -sh "$XCFRAMEWORK_PATH"
-    
-    echo ""
-    echo "🎉 iOS XCFramework Build erfolgreich!"
-    echo "📦 Pfad: $XCFRAMEWORK_PATH"
-    echo "💡 Verwendung: Drag & Drop in iOS Xcode Projekt"
 else
     echo "❌ Fehler: iOS XCFramework wurde nicht erstellt"
     exit 1
 fi
+
+# Erstelle iOS Distribution Package
+echo ""
+echo "📦 Erstelle iOS Distribution Package..."
+iOS_PACKAGE_DIR="$SWIFT_DIR/ios_package"
+rm -rf "$iOS_PACKAGE_DIR"
+mkdir -p "$iOS_PACKAGE_DIR"
+
+# Kopiere Swift Package Dateien
+echo "📋 Kopiere Swift Sources und Tests..."
+cp -r "$SWIFT_DIR/Sources" "$iOS_PACKAGE_DIR/"
+cp -r "$SWIFT_DIR/Tests" "$iOS_PACKAGE_DIR/"
+
+# Kopiere Dokumentation
+echo "📋 Kopiere Dokumentation..."
+if [[ -f "$SWIFT_DIR/README.md" ]]; then
+    cp "$SWIFT_DIR/README.md" "$iOS_PACKAGE_DIR/README.md"
+else
+    echo "⚠️ README.md nicht gefunden, wird übersprungen"
+fi
+
+if [[ -f "$SWIFT_DIR/doc.md" ]]; then
+    cp "$SWIFT_DIR/doc.md" "$iOS_PACKAGE_DIR/doc.md"
+else
+    echo "⚠️ doc.md nicht gefunden, wird übersprungen"
+fi
+
+# Kopiere iOS XCFramework
+echo "📋 Kopiere iOS XCFramework..."
+cp -r "$XCFRAMEWORK_PATH" "$iOS_PACKAGE_DIR/"
+
+# Erstelle Distribution Package.swift für iOS
+echo "📋 Erstelle Distribution Package.swift..."
+cat > "$iOS_PACKAGE_DIR/Package.swift" << 'EOF'
+// swift-tools-version:5.3
+import PackageDescription
+
+let package = Package(
+    name: "Colibri",
+    platforms: [.iOS(.v13), .macOS(.v10_15)],
+    products: [
+        .library(name: "Colibri", targets: ["Colibri"])
+    ],
+    targets: [
+        .binaryTarget(
+            name: "c4_swift",
+            path: "c4_swift.xcframework"
+        ),
+        .target(
+            name: "CColibriMacOS",
+            dependencies: ["c4_swift"],
+            path: "Sources/CColibri",
+            sources: ["swift_storage_bridge.c"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("include")
+            ]
+        ),
+        .target(
+            name: "Colibri",
+            dependencies: ["c4_swift", "CColibriMacOS"],
+            path: "Sources/Colibri",
+            sources: ["Colibri.swift"],
+            linkerSettings: [
+                .linkedLibrary("c++")
+            ]
+        ),
+        .testTarget(
+            name: "ColibriTests",
+            dependencies: ["Colibri"],
+            path: "Tests"
+        )
+    ]
+)
+EOF
+
+# Zeige Package-Inhalt
+echo ""
+echo "📋 iOS Package Inhalt:"
+find "$iOS_PACKAGE_DIR" -type f \( -name "*.swift" -o -name "*.h" -o -name "Package.swift" -o -name "README.md" -o -name "doc.md" \) | sort
+
+echo ""
+echo "📊 XCFramework info:"
+if [[ -d "$iOS_PACKAGE_DIR/c4_swift.xcframework" ]]; then
+    framework_count=$(find "$iOS_PACKAGE_DIR/c4_swift.xcframework" -name "*.framework" | wc -l | xargs)
+    framework_size=$(du -sh "$iOS_PACKAGE_DIR/c4_swift.xcframework" | cut -f1)
+    echo "  📱 Frameworks: $framework_count (iOS Device + Simulator)"
+    echo "  📏 Größe: $framework_size"
+    echo "  📂 Pfad: $iOS_PACKAGE_DIR/c4_swift.xcframework"
+fi
+
+echo ""
+echo "🎉 iOS Distribution Package erfolgreich erstellt!"
+echo "📦 Pfad: $iOS_PACKAGE_DIR"
+echo ""
+echo "💡 Verwendung:"
+echo "   • Für lokale Tests: cd test_ios_app && swift build"
+echo "   • Für Distribution: Kopiere ios_package/* nach colibri-stateless-swift Repository"
+echo "   • Für iOS Apps: .package(url: \"https://github.com/corpus-core/colibri-stateless-swift.git\")"

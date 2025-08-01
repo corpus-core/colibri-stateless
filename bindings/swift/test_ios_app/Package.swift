@@ -8,14 +8,14 @@ let package = Package(
         .executable(name: "ColibriTestApp", targets: ["ColibriTestApp"])
     ],
     dependencies: [
-        // Use iOS XCFramework from swift_package
-        .package(path: "../swift_package")
+        // Use iOS XCFramework from ios_package (created by build_ios.sh)
+        .package(path: "../ios_package")
     ],
     targets: [
         .executableTarget(
             name: "ColibriTestApp",
             dependencies: [
-                .product(name: "Colibri", package: "swift_package")
+                .product(name: "Colibri", package: "ios_package")
             ],
             path: "Sources"
         ),
@@ -23,7 +23,7 @@ let package = Package(
             name: "ColibriTestAppTests",
             dependencies: [
                 "ColibriTestApp",
-                .product(name: "Colibri", package: "swift_package")
+                .product(name: "Colibri", package: "ios_package")
             ],
             path: "Tests"
         )

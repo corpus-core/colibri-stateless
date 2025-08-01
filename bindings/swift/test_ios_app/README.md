@@ -21,6 +21,21 @@ ColibriTestApp/
 
 ## 🚀 Quick Start
 
+### Local Testing (Recommended)
+
+1. **Build the iOS Package:**
+   ```bash
+   cd bindings/swift
+   ./build_ios.sh                    # Creates ios_package/ with XCFramework
+   ```
+
+2. **Test the Integration:**
+   ```bash
+   cd test_ios_app
+   swift build                       # Build for iOS Simulator
+   swift test                        # Run integration tests
+   ```
+
 ### For iOS App Developers
 
 Replace the local dependency in `Package.swift` with the published package:
@@ -31,15 +46,26 @@ dependencies: [
 ]
 ```
 
-### For Contributors/CI
+### For Local Development
+
+First, build the iOS package:
+
+```bash
+cd bindings/swift
+./build_ios.sh                # Creates ios_package/
+```
 
 The test app uses a local reference to the built package:
 
 ```swift
 dependencies: [
-    .package(path: "../swift_package")  // Points to CI-built package
+    .package(path: "../ios_package")  // Points to locally-built iOS package
 ]
 ```
+
+### For CI/Testing
+
+In CI, the package is built in the same location and tested directly without any copying or renaming.
 
 ## 📱 Integration Examples
 

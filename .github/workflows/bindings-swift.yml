@@ -200,99 +200,46 @@ jobs:
           
           echo "" >> $GITHUB_STEP_SUMMARY
 
-      - name: Prepare Swift Package
+      - name: Prepare iOS Distribution Package
         run: |
-          echo "📦 Preparing Swift Package for distribution..."
-          mkdir -p swift_package
+          echo "📦 iOS Distribution Package bereits durch build_ios.sh erstellt..."
           
-          # Kopiere Swift Package Dateien
-          cp -r bindings/swift/Sources swift_package/
-          cp -r bindings/swift/Tests swift_package/
-          cp bindings/swift/README.md swift_package/README.md 2>/dev/null || echo "README.md not found, skipping"
-          cp bindings/swift/doc.md swift_package/doc.md 2>/dev/null || echo "doc.md not found, skipping"
-          
-          # Kopiere iOS XCFramework
-          cp -r build_ios_arm/c4_swift.xcframework swift_package/
-          
-          # Erstelle Distribution Package.swift (mit binaryTarget für XCFramework)
-          cat > swift_package/Package.swift << 'EOF'
-          // swift-tools-version:5.3
-          import PackageDescription
-          
-          let package = Package(
-              name: "Colibri",
-              platforms: [.iOS(.v13), .macOS(.v10_15)],
-              products: [
-                  .library(name: "Colibri", targets: ["Colibri"])
-              ],
-              targets: [
-                  .binaryTarget(
-                      name: "c4_swift",
-                      path: "c4_swift.xcframework"
-                  ),
-                  .target(
-                      name: "CColibriMacOS",
-                      dependencies: ["c4_swift"],
-                      path: "Sources/CColibri",
-                      sources: ["swift_storage_bridge.c"],
-                      publicHeadersPath: "include",
-                      cSettings: [
-                          .headerSearchPath("include")
-                      ]
-                  ),
-                  .target(
-                      name: "Colibri",
-                      dependencies: ["c4_swift", "CColibriMacOS"],
-                      path: "Sources/Colibri",
-                      sources: ["Colibri.swift"],
-                      linkerSettings: [
-                          .linkedLibrary("c++")
-                      ]
-                  ),
-                  .testTarget(
-                      name: "ColibriTests",
-                      dependencies: ["Colibri"],
-                      path: "Tests"
-                  )
-              ]
-          )
-          EOF
-          
-          
-          # Zeige Package-Inhalt
-          echo "📋 Package contents:"
-          find swift_package -type f \( -name "*.swift" -o -name "*.h" -o -name "Package.swift" -o -name "README.md" \) | sort
-          
-          echo "📊 XCFramework info:"
-          if [[ -d "swift_package/c4_swift.xcframework" ]]; then
-            find swift_package/c4_swift.xcframework -name "*.framework" | wc -l | xargs echo "  Frameworks:"
-            du -sh swift_package/c4_swift.xcframework | cut -f1 | xargs echo "  Size:"
-          fi
-          
-          # Add final summary to GitHub Step Summary
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 📦 Distribution Package" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Swift Package**: Ready for distribution" >> $GITHUB_STEP_SUMMARY
-          echo "📁 **Artifact**: \`swift_package\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📋 Package Contents" >> $GITHUB_STEP_SUMMARY
-          echo "- iOS XCFramework (Device + Simulator)" >> $GITHUB_STEP_SUMMARY
-          echo "- Swift Sources and Tests" >> $GITHUB_STEP_SUMMARY  
-          echo "- Production-ready Package.swift" >> $GITHUB_STEP_SUMMARY
-          echo "- Integration documentation" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [[ -d "swift_package/c4_swift.xcframework" ]]; then
-            framework_count=$(find swift_package/c4_swift.xcframework -name "*.framework" | wc -l | xargs)
-            framework_size=$(du -sh swift_package/c4_swift.xcframework | cut -f1)
-            echo "### 📊 XCFramework Details" >> $GITHUB_STEP_SUMMARY
-            echo "- **Frameworks**: $framework_count (iOS only)" >> $GITHUB_STEP_SUMMARY
-            echo "- **Total Size**: $framework_size" >> $GITHUB_STEP_SUMMARY
-            echo "- **Ready for**: iOS Apps, Swift Package Manager" >> $GITHUB_STEP_SUMMARY
-            echo "- **macOS**: Use static libraries or direct SPM integration" >> $GITHUB_STEP_SUMMARY
+          # Das build_ios.sh Script hat bereits den ios_package Ordner erstellt
+          # Kopiere für CI-Kompatibilität nach swift_package
+          if [[ -d "bindings/swift/ios_package" ]]; then
+            echo "📋 Kopiere ios_package nach swift_package für CI..."
+            cp -r bindings/swift/ios_package swift_package
+            
+            echo "✅ iOS Distribution Package bereit"
+            
+            # Add summary to GitHub Step Summary
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## 📦 iOS Distribution Package" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **iOS Package**: Ready for distribution" >> $GITHUB_STEP_SUMMARY
+            echo "📁 **Artifact**: \`swift_package\` (copied from \`ios_package\`)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📋 Package Contents" >> $GITHUB_STEP_SUMMARY
+            echo "- iOS XCFramework (Device + Simulator)" >> $GITHUB_STEP_SUMMARY
+            echo "- Swift Sources and Tests" >> $GITHUB_STEP_SUMMARY  
+            echo "- Production-ready Package.swift" >> $GITHUB_STEP_SUMMARY
+            echo "- Integration documentation" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [[ -d "swift_package/c4_swift.xcframework" ]]; then
+              framework_count=$(find swift_package/c4_swift.xcframework -name "*.framework" | wc -l | xargs)
+              framework_size=$(du -sh swift_package/c4_swift.xcframework | cut -f1)
+              echo "### 📊 XCFramework Details" >> $GITHUB_STEP_SUMMARY
+              echo "- **Frameworks**: $framework_count (iOS only)" >> $GITHUB_STEP_SUMMARY
+              echo "- **Total Size**: $framework_size" >> $GITHUB_STEP_SUMMARY
+              echo "- **Ready for**: iOS Apps, Swift Package Manager" >> $GITHUB_STEP_SUMMARY
+              echo "- **Local Development**: Use \`./build_ios.sh\` to create \`ios_package\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ ios_package nicht gefunden! build_ios.sh hat keinen ios_package erstellt."
+            exit 1
           fi
 
       - name: Upload Swift Package
@@ -301,15 +248,10 @@ jobs:
           name: swift_package
           path: swift_package
 
-      - name: Test Integration Example
+      - name: Test iOS Integration Example
         run: |
-          echo "📱 Testing Integration Example..."
-          
-          # Copy test app to work with the generated swift_package
-          cp -r bindings/swift/test_ios_app ./
-          
-          # Verify the test app can build against the distribution package
-          cd test_ios_app
+          echo "📱 Testing iOS Integration Example..."
+          cd bindings/swift/test_ios_app
           
           echo "🔨 Building Test App for iOS Simulator..."
           echo "📋 Debug: Building for iOS x86_64 Simulator using iOS SDK"
@@ -320,10 +262,10 @@ jobs:
             echo "🧪 Running Integration Tests on iOS Simulator..."
             if test_output=$(swift test -Xswiftc -sdk -Xswiftc $SIMULATOR_SDK -Xswiftc -target -Xswiftc x86_64-apple-ios13.0-simulator 2>&1); then
               echo "✅ Integration Tests passed"
-              echo "- ✅ **Integration**: All tests passed" >> $GITHUB_STEP_SUMMARY
+              echo "- ✅ **iOS Integration**: All tests passed" >> $GITHUB_STEP_SUMMARY
             else
               echo "⚠️ Integration Tests had issues (may be expected in CI)"
-              echo "- ⚠️ **Integration**: Tests had issues (expected in CI without blockchain state)" >> $GITHUB_STEP_SUMMARY
+              echo "- ⚠️ **iOS Integration**: Tests had issues (expected in CI without blockchain state)" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "#### Test Output (Last 10 lines)" >> $GITHUB_STEP_SUMMARY
               echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
@@ -332,31 +274,31 @@ jobs:
             fi
           else
             echo "❌ Test App failed to build"
-            echo "- ❌ **Integration**: Build failed" >> $GITHUB_STEP_SUMMARY
+            echo "- ❌ **iOS Integration**: Build failed" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
             echo "🔍 Debug Information:"
-            echo "📊 Package structure:"
-            find ../swift_package -name "*.xcframework" -o -name "*.framework" -o -name "Package.swift" | head -10
+            echo "📊 iOS Package structure:"
+            find ../ios_package -name "*.xcframework" -o -name "*.framework" -o -name "Package.swift" | head -10
             
             echo "📊 XCFramework contents:"
-            if [[ -d "../swift_package/c4_swift.xcframework" ]]; then
+            if [[ -d "../ios_package/c4_swift.xcframework" ]]; then
               echo "📋 XCFramework Info.plist:"
-              cat ../swift_package/c4_swift.xcframework/Info.plist 2>/dev/null | head -20 || echo "No Info.plist"
+              cat ../ios_package/c4_swift.xcframework/Info.plist 2>/dev/null | head -20 || echo "No Info.plist"
               
               echo "📋 Available platforms:"
-              ls -la ../swift_package/c4_swift.xcframework/ 2>/dev/null || echo "Cannot list platforms"
+              ls -la ../ios_package/c4_swift.xcframework/ 2>/dev/null || echo "Cannot list platforms"
               
               echo "📋 Binary files:"
-              find ../swift_package/c4_swift.xcframework -name "c4_swift" -exec file {} \; 2>/dev/null || echo "No binary found"
+              find ../ios_package/c4_swift.xcframework -name "c4_swift" -exec file {} \; 2>/dev/null || echo "No binary found"
               
               echo "📋 Symbol check (first 5 matches):"
-              find ../swift_package/c4_swift.xcframework -name "c4_swift" -exec nm -gU {} \; 2>/dev/null | grep -E "(c4_create_proofer_ctx|buffer_append)" | head -5 || echo "Target symbols not found"
+              find ../ios_package/c4_swift.xcframework -name "c4_swift" -exec nm -gU {} \; 2>/dev/null | grep -E "(c4_create_proofer_ctx|buffer_append)" | head -5 || echo "Target symbols not found"
               
               echo "📋 All c4_ symbols (first 10):"
-              find ../swift_package/c4_swift.xcframework -name "c4_swift" -exec nm -gU {} \; 2>/dev/null | grep "c4_" | head -10 || echo "No c4_ symbols found"
+              find ../ios_package/c4_swift.xcframework -name "c4_swift" -exec nm -gU {} \; 2>/dev/null | grep "c4_" | head -10 || echo "No c4_ symbols found"
             else
-              echo "❌ XCFramework not found at ../swift_package/c4_swift.xcframework"
+              echo "❌ XCFramework not found at ../ios_package/c4_swift.xcframework"
             fi
             
             echo "#### Build Error (Verbose Output)" >> $GITHUB_STEP_SUMMARY
@@ -369,13 +311,13 @@ jobs:
             echo "#### Debug Information" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "XCFramework structure:" >> $GITHUB_STEP_SUMMARY
-            find ../swift_package -name "*.xcframework" -exec ls -la {} \; 2>/dev/null >> $GITHUB_STEP_SUMMARY
+            find ../ios_package -name "*.xcframework" -exec ls -la {} \; 2>/dev/null >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📱 Integration Test App" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 iOS Integration Test App" >> $GITHUB_STEP_SUMMARY
           echo "- **Purpose**: Integration testing + Developer example" >> $GITHUB_STEP_SUMMARY
           echo "- **Location**: \`bindings/swift/test_ios_app\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Documentation**: See test_ios_app/README.md" >> $GITHUB_STEP_SUMMARY
@@ -388,8 +330,8 @@ jobs:
           # Clone the Swift package repository
           git clone https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/corpus-core/colibri-stateless-swift.git
 
-          # Copy updated files
-          cp -r swift_package/* colibri-stateless-swift/
+          # Copy updated files from ios_package (the canonical source)
+          cp -r bindings/swift/ios_package/* colibri-stateless-swift/
 
           # Update version in Package.swift for release
           VERSION=${GITHUB_REF#refs/tags/v}
