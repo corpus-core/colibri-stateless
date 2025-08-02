@@ -121,8 +121,7 @@ jobs:
           dir src\colibri\_native*.pyd >nul 2>&1
           if %errorlevel%==0 (
             echo Native extension found
-            set PYTHONPATH=src
-            python -c "import colibri; from colibri import Colibri; print('Import successful'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_getProof'); print('Works:', support.name)"
+            python -c "import sys; sys.path.insert(0, 'src'); import colibri; from colibri import Colibri; print('Import successful'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_getProof'); print('Works:', support.name)"
           ) else (
             echo Native extension not found!
             dir src\colibri
@@ -145,12 +144,13 @@ jobs:
       - name: Run Integration Tests (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: bindings/python
+        shell: cmd
         run: |
           echo "Running integration tests on Windows..."
           python -m pip install pytest pytest-asyncio aiohttp
           
           # Simple integration test for Windows
-          set PYTHONPATH=src&& python -c "from colibri.testing import discover_tests; from colibri import Colibri; tests = discover_tests(); print('Discovered ' + str(len(tests)) + ' test cases'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('Basic functionality works:', support.name)"
+          python -c "import sys; sys.path.insert(0, 'src'); from colibri.testing import discover_tests; from colibri import Colibri; tests = discover_tests(); print('Discovered ' + str(len(tests)) + ' test cases'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('Basic functionality works:', support.name)"
           
       - name: Build Python Wheel (Unix)
         if: matrix.os != 'windows-latest'
