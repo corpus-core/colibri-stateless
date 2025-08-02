@@ -58,7 +58,7 @@ test = [
 
 [project.urls]
 Homepage = "https://github.com/corpus-core/colibri-stateless"
-Documentation = "https://github.com/corpus-core/colibri-stateless/tree/main/bindings/python"
+Documentation = "https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/python"
 Repository = "https://github.com/corpus-core/colibri-stateless"
 "Bug Tracker" = "https://github.com/corpus-core/colibri-stateless/issues"
 
