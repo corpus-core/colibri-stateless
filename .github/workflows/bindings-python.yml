@@ -56,7 +56,7 @@ jobs:
       - name: Install Build Dependencies (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          # Install CMake
+          REM Install CMake
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
           cmake --version
           
@@ -67,7 +67,7 @@ jobs:
       - name: Verify Build Tools (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          # Verify build tools are available
+          REM Verify build tools are available
           where cl.exe || echo "Visual Studio compiler not found in PATH"
           where msbuild.exe || echo "MSBuild not found in PATH"
         
@@ -191,7 +191,7 @@ jobs:
           echo "Running integration tests on Windows..."
           python -m pip install pytest pytest-asyncio aiohttp
           
-          # Simple integration test for Windows
+          REM Simple integration test for Windows
           python -c "import sys; sys.path.insert(0, 'src'); from colibri.testing import discover_tests; from colibri import Colibri; tests = discover_tests(); print('Discovered ' + str(len(tests)) + ' test cases'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('Basic functionality works:', support.name)"
           
       - name: Build Python Wheel (Unix)
@@ -216,21 +216,21 @@ jobs:
         run: |
           echo Building Python wheel for ${{ matrix.platform }}-${{ matrix.arch }}...
           
-          # Create wheel using built extension
+          REM Create wheel using built extension
           python -m build --wheel --outdir dist/
           if %errorlevel% neq 0 (
             echo Build failed with error %errorlevel%
             exit 1
           )
           
-          # Verify wheel was created
+          REM Verify wheel was created
           if not exist dist\*.whl (
             echo No wheel files found in dist directory
             dir dist\ 2>nul || echo dist directory does not exist
             exit 1
           )
           
-          # Show what was built
+          REM Show what was built
           echo Built wheels:
           for %%f in (dist\*.whl) do echo %%f
           
@@ -255,24 +255,24 @@ jobs:
         run: |
           echo Testing wheel installation...
           
-          # Check if wheel exists before trying to install
+          REM Check if wheel exists before trying to install
           if not exist dist\*.whl (
             echo No wheel files found, skipping installation test
             exit 1
           )
           
-          # Get the wheel filename
+          REM Get the wheel filename
           for %%f in (dist\*.whl) do set WHEEL_FILE=%%f
           echo Installing wheel: %WHEEL_FILE%
           
-          # Install the specific wheel file
+          REM Install the specific wheel file
           python -m pip install "%WHEEL_FILE%"
           if %errorlevel% neq 0 (
             echo Wheel installation failed
             exit 1
           )
           
-          # Test import from installed wheel
+          REM Test import from installed wheel
           python -c "import colibri; from colibri import Colibri; print('Wheel installation works'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('Installed wheel works:', support.name)"
           
       - name: Upload Wheel Artifacts
