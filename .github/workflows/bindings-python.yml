@@ -210,6 +210,22 @@ jobs:
           # Create wheel using built extension
           python -m build --wheel --outdir dist/
           
+          # Fix Linux wheel tags for PyPI compliance
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            echo "🔧 Fixing Linux wheel tags for PyPI compliance..."
+            python -m pip install wheel
+            
+            for wheel in dist/*.whl; do
+              if [[ "$wheel" == *"linux_x86_64"* ]]; then
+                echo "🏷️ Renaming wheel: $wheel"
+                # Rename linux_x86_64 to manylinux_2_17_x86_64 (compatible with most systems)
+                new_wheel=$(echo "$wheel" | sed 's/linux_x86_64/manylinux_2_17_x86_64/')
+                mv "$wheel" "$new_wheel"
+                echo "✅ Renamed to: $new_wheel"
+              fi
+            done
+          fi
+          
           # Show what was built
           echo "🔍 Built wheels:"
           ls -la dist/*.whl
@@ -424,6 +440,29 @@ jobs:
           # List all wheels to be uploaded
           echo "🔍 Found wheels:"
           ls -la python-distribution/wheels/*.whl
+          
+          # Check wheel platform tags
+          echo "🏷️ Checking wheel platform tags..."
+          for wheel in python-distribution/wheels/*.whl; do
+            wheel_name=$(basename "$wheel")
+            echo "Wheel: $wheel_name"
+            
+            # Check for problematic linux_x86_64 tags
+            if [[ "$wheel_name" == *"linux_x86_64"* ]]; then
+              echo "❌ ERROR: Found unsupported platform tag 'linux_x86_64' in $wheel_name"
+              echo "This wheel will be rejected by PyPI. Please use manylinux tags instead."
+              exit 1
+            fi
+            
+            # Show supported tags
+            if [[ "$wheel_name" == *"manylinux"* ]]; then
+              echo "✅ Good: manylinux tag found"
+            elif [[ "$wheel_name" == *"macosx"* ]]; then
+              echo "✅ Good: macOS tag found"
+            elif [[ "$wheel_name" == *"win"* ]]; then
+              echo "✅ Good: Windows tag found"
+            fi
+          done
           
           # Verify packages before upload
           echo "🔍 Verifying packages with twine..."
