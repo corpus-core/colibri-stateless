@@ -20,6 +20,7 @@ const doc_files = [
     "../bindings/emscripten/doc.md",
     "../bindings/kotlin/doc.md",
     "../bindings/swift/doc.md",
+    "../bindings/python/doc.md",
 
     // api
     "verifier/verify.h",
