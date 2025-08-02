@@ -63,11 +63,14 @@ static bool storage_get_callback(char* key, buffer_t* buffer) {
 
   try {
     py::bytes result = python_storage_get(std::string(key));
+    // Storage get callback executed
+
     if (result.ptr() == nullptr) return false;
 
     char*      data = nullptr;
     Py_ssize_t size;
     if (PyBytes_AsStringAndSize(result.ptr(), &data, &size) != 0) {
+      // PyBytes_AsStringAndSize failed
       return false;
     }
 
@@ -75,8 +78,10 @@ static bool storage_get_callback(char* key, buffer_t* buffer) {
     buffer_grow(buffer, size + 1);
     memcpy(buffer->data.data, data, size);
     buffer->data.len = size;
+    // Storage data copied to buffer
     return true;
   } catch (...) {
+    // Storage get callback failed
     return false;
   }
 }

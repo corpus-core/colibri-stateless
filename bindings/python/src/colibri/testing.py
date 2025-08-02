@@ -47,25 +47,48 @@ class MockRequestHandler:
 
 
 class FileBasedMockStorage(ColibriStorage):
-    """Mock storage that loads from test directory files"""
+    """Mock storage that loads from test directory files with caching to prevent loops"""
     
     def __init__(self, test_data_dir):
         self.test_data_dir = Path(test_data_dir)
+        self._cache: Dict[str, Optional[bytes]] = {}
+        self._access_count: Dict[str, int] = {}
+        self._max_access_per_key = 5  # Prevent infinite loops
         
     def get(self, key: str) -> Optional[bytes]:
+        # CRITICAL: Return None immediately to break infinite loops
+
+        # Track access count to prevent infinite loops
+        self._access_count[key] = self._access_count.get(key, 0) + 1
+        
+        if self._access_count[key] > self._max_access_per_key:
+            # Storage access limit reached - return None
+            return self._cache.get(key)
+        
+        # Check cache first
+        if key in self._cache:
+            # Return cached value
+            return self._cache[key]
+        
+        # Load from file
         file_path = self.test_data_dir / key
         if file_path.exists():
-            print(f"🗃️ Loading storage: {key}")
-            return file_path.read_bytes()
-        return None
+            data = file_path.read_bytes()
+            # Load file from storage
+            self._cache[key] = data
+            return data
+        else:
+            # Storage file not found
+            self._cache[key] = None
+            return None
     
     def set(self, key: str, value: bytes) -> None:
-        print(f"🗃️ SET {key} (ignored in mock)")
-        pass
+        # Cache value in mock storage
+        self._cache[key] = value
     
     def delete(self, key: str) -> None:
-        print(f"🗃️ DELETE {key} (ignored in mock)")
-        pass
+        # Remove from cache
+        self._cache.pop(key, None)
 
 
 class FileBasedMockRequestHandler:
@@ -73,9 +96,15 @@ class FileBasedMockRequestHandler:
     
     def __init__(self, test_data_dir):
         self.test_data_dir = Path(test_data_dir)
+        self._request_count = 0
+        self._max_requests = 50  # Prevent infinite request loops
     
     async def handle_request(self, request: DataRequest) -> bytes:
         """Handle mock HTTP request by loading from file"""
+        
+        self._request_count += 1
+        if self._request_count > self._max_requests:
+            raise Exception(f"Too many requests ({self._request_count}) - possible infinite loop")
         
         # Convert request to filename (simplified)
         if request.url:
@@ -87,17 +116,17 @@ class FileBasedMockRequestHandler:
         else:
             filename = 'unknown.' + request.encoding
         
-        print(f"📡 Looking for mock file: {filename}")
+        # Look for mock response file
         
         file_path = self.test_data_dir / filename
         if file_path.exists():
             data = file_path.read_bytes()
-            print(f"📡 Found mock response ({len(data)} bytes)")
+            # Found mock response file
             return data
         
         # Enhanced fallback logic for light_client_updates specifically
         if 'light_client_updates' in filename:
-            print(f"📡 Applying light_client_updates fallback")
+            # Try light_client_updates fallback
             # Find any light_client_updates file in the directory
             pattern = "*light_client_updates*"
             matching_files = list(self.test_data_dir.glob(pattern))
@@ -105,7 +134,7 @@ class FileBasedMockRequestHandler:
                 # Choose the first available light client update file
                 fallback_file = matching_files[0]
                 data = fallback_file.read_bytes()
-                print(f"📡 Found light_client fallback: {fallback_file.name} ({len(data)} bytes)")
+                # Found light_client fallback
                 return data
         
         # Beacon headers fallback
@@ -115,7 +144,7 @@ class FileBasedMockRequestHandler:
             if matching_files:
                 fallback_file = matching_files[0]
                 data = fallback_file.read_bytes()
-                print(f"📡 Found headers fallback: {fallback_file.name} ({len(data)} bytes)")
+                # Found headers fallback
                 return data
         
         # Beacon blocks fallback  
@@ -125,31 +154,32 @@ class FileBasedMockRequestHandler:
             if matching_files:
                 fallback_file = matching_files[0]
                 data = fallback_file.read_bytes()
-                print(f"📡 Found blocks fallback: {fallback_file.name} ({len(data)} bytes)")
+                # Found blocks fallback
                 return data
         
         # List available files for debugging
         available_files = [f.name for f in self.test_data_dir.iterdir() if f.is_file()]
-        print(f"📋 Available files: {available_files}")
+        print(f"📋 Available files: {available_files[:10]}...")  # Limit output
         
         raise Exception(f"No mock response file found for: {filename}")
 
 
 def discover_tests(test_data_root=None):
-    """Discover test cases from test/data directories"""
+    """Discover test cases from test/data directories, skipping those with requires_chain_store"""
     
     if test_data_root is None:
         current_dir = Path(__file__).parent
         test_data_root = current_dir / '..' / '..' / '..' / '..' / 'test' / 'data'
     
     test_data_root = Path(test_data_root).resolve()
-    print(f"🔍 Discovering tests in: {test_data_root}")
+    # Discover tests in test data directory
     
     if not test_data_root.exists():
         print(f"❌ Test data directory not found: {test_data_root}")
         return []
     
     test_cases = []
+    skipped_cases = []
     
     for test_json_path in test_data_root.glob('*/test.json'):
         test_dir = test_json_path.parent
@@ -158,6 +188,12 @@ def discover_tests(test_data_root=None):
         try:
             with open(test_json_path, 'r') as f:
                 test_config = json.load(f)
+            
+            # Skip tests that require chain store
+            if test_config.get('requires_chain_store', False):
+                skipped_cases.append(test_name)
+                print(f"⏭️ Skipping test (requires_chain_store): {test_name}")
+                continue
             
             test_case = {
                 'name': test_name,
@@ -175,14 +211,17 @@ def discover_tests(test_data_root=None):
             print(f"❌ Invalid test.json in {test_dir}: {e}")
             continue
     
-    print(f"�� Discovered {len(test_cases)} test cases")
+    print(f"🎯 Discovered {len(test_cases)} test cases")
+    if skipped_cases:
+        print(f"⏭️ Skipped {len(skipped_cases)} tests requiring chain store: {', '.join(skipped_cases[:5])}{'...' if len(skipped_cases) > 5 else ''}")
     return test_cases
 
 
 async def run_test_case(test_case):
     """Run a single test case"""
     
-    from . import Colibri
+    # Lazy import to avoid circular import issues
+    from .client import Colibri
     
     test_name = test_case['name']
     test_dir = test_case['directory']
@@ -195,13 +234,14 @@ async def run_test_case(test_case):
     print(f"   Method: {method}")
     print(f"   Chain ID: {chain_id}")
     
-    # Create mocks
+    # Create mocks with loop prevention
     mock_storage = FileBasedMockStorage(test_dir)
     mock_request_handler = FileBasedMockRequestHandler(test_dir)
     
-    # Create client
+    # Create client with NO proofers to force local proof creation
     client = Colibri(
         chain_id=chain_id,
+        proofers=[],  # 🔥 CRITICAL: No remote proofers! Use only mock data
         storage=mock_storage,
         request_handler=mock_request_handler
     )

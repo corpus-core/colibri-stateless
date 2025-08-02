@@ -20,11 +20,20 @@ from .types import (
 )
 
 # Import the native module (will be built with pybind11)
-try:
-    from colibri import _native
-except ImportError:
-    # Fallback for development/testing without compiled module
-    _native = None
+# Use lazy import to avoid circular import issues
+_native = None
+
+def _get_native():
+    """Lazy import of native module to avoid circular imports"""
+    global _native
+    if _native is None:
+        try:
+            from . import _native as native_module
+            _native = native_module
+        except ImportError:
+            # Fallback for development/testing without compiled module
+            _native = False  # Mark as attempted but failed
+    return _native if _native is not False else None
 
 
 class Colibri:
@@ -57,10 +66,11 @@ class Colibri:
             request_handler: Optional request handler for testing
         """
         self.chain_id = chain_id
-        self.proofers = proofers or self._get_default_proofers(chain_id)
-        self.eth_rpcs = eth_rpcs or self._get_default_eth_rpcs(chain_id)
-        self.beacon_apis = beacon_apis or self._get_default_beacon_apis(chain_id)
-        self.trusted_block_hashes = trusted_block_hashes or []
+        # Fix Python falsy-array bug: [] or default returns default!
+        self.proofers = proofers if proofers is not None else self._get_default_proofers(chain_id)
+        self.eth_rpcs = eth_rpcs if eth_rpcs is not None else self._get_default_eth_rpcs(chain_id)
+        self.beacon_apis = beacon_apis if beacon_apis is not None else self._get_default_beacon_apis(chain_id)
+        self.trusted_block_hashes = trusted_block_hashes if trusted_block_hashes is not None else []
         self.include_code = include_code
         self.request_handler = request_handler
 
@@ -124,9 +134,10 @@ class Colibri:
         Returns:
             MethodType indicating the support level
         """
-        if _native and hasattr(_native, 'get_method_support'):
+        native = _get_native()
+        if native and hasattr(native, 'get_method_support'):
             try:
-                type_int = _native.get_method_support(self.chain_id, method)
+                type_int = native.get_method_support(self.chain_id, method)
                 return MethodType(type_int)
             except (ValueError, TypeError):
                 return MethodType.UNKNOWN
@@ -164,13 +175,14 @@ class Colibri:
         Raises:
             ProofError: If proof creation fails
         """
-        if not _native:
+        native = _get_native()
+        if not native:
             raise ProofError("Native module not available")
 
         try:
             # Create proofer context
             params_json = json.dumps(params)
-            ctx = _native.create_proofer_ctx(
+            ctx = native.create_proofer_ctx(
                 method, 
                 params_json, 
                 self.chain_id, 
@@ -183,14 +195,14 @@ class Colibri:
             try:
                 # Execute proof generation with request handling
                 while True:
-                    status_json = _native.proofer_execute_json_status(ctx)
+                    status_json = native.proofer_execute_json_status(ctx)
                     if not status_json:
                         raise ProofError("Proofer execution returned null")
                     
                     status = json.loads(status_json)
                     
                     if status["status"] == "success":
-                        return _native.proofer_get_proof(ctx)
+                        return native.proofer_get_proof(ctx)
                     elif status["status"] == "error":
                         raise ProofError(status.get("error", "Unknown proof error"))
                     elif status["status"] == "pending":
@@ -199,7 +211,7 @@ class Colibri:
                         raise ProofError(f"Unknown status: {status['status']}")
             
             finally:
-                _native.free_proofer_ctx(ctx)
+                native.free_proofer_ctx(ctx)
                 
         except json.JSONDecodeError as e:
             raise ProofError(f"Invalid JSON in proof response: {e}") from e
@@ -228,7 +240,8 @@ class Colibri:
         Raises:
             VerificationError: If verification fails
         """
-        if not _native:
+        native = _get_native()
+        if not native:
             raise VerificationError("Native module not available")
 
         try:
@@ -236,7 +249,7 @@ class Colibri:
             params_json = json.dumps(params)
             trusted_hashes_json = json.dumps(self.trusted_block_hashes)
             
-            ctx = _native.create_verify_ctx(
+            ctx = native.create_verify_ctx(
                 proof, 
                 method, 
                 params_json, 
@@ -250,29 +263,29 @@ class Colibri:
             try:
                 # Execute verification with request handling
                 while True:
-                    status_json = _native.verify_execute_json_status(ctx)
+                    status_json = native.verify_execute_json_status(ctx)
                     if not status_json:
                         raise VerificationError("Verification execution returned null")
                     
                     # Debug: Print the raw JSON response from C
-                    print(f"🔍 DEBUG: Raw C JSON response: {repr(status_json)}")
+                    # DEBUG: Raw C JSON response available for debugging
                     
                     try:
                         status = json.loads(status_json)
                     except json.JSONDecodeError as e:
                         # Workaround: Try to fix trailing comma issue from C
                         if "," in status_json and status_json.rstrip().endswith(",}"):
-                            print(f"🔧 WORKAROUND: Fixing trailing comma in C JSON")
+                            # Workaround: Fix trailing comma in C JSON
                             fixed_json = status_json.replace(",}", "}")
                             print(f"   Fixed JSON: {repr(fixed_json)}")
                             try:
                                 status = json.loads(fixed_json)
-                                print(f"✅ JSON parsing successful after fix!")
+                                # JSON parsing successful after fix
                             except json.JSONDecodeError as e2:
                                 print(f"❌ Still invalid after fix: {e2}")
                                 raise VerificationError(f"Invalid JSON in verification response: {e2}")
                         else:
-                            print(f"❌ JSON Parse Error: {e}")
+                            # JSON parse error occurred
                             print(f"   Raw response: {status_json}")
                             raise VerificationError(f"Invalid JSON in verification response: {e}")
                     
@@ -286,7 +299,7 @@ class Colibri:
                         raise VerificationError(f"Unknown status: {status['status']}")
             
             finally:
-                _native.verify_free_ctx(ctx)
+                native.verify_free_ctx(ctx)
                 
         except json.JSONDecodeError as e:
             raise VerificationError(f"Invalid JSON in verification response: {e}") from e
@@ -357,12 +370,14 @@ class Colibri:
                 if self.request_handler:
                     try:
                         response_data = await self.request_handler.handle_request(request)
-                        if _native:
-                            _native.req_set_response(request.req_ptr, response_data, 0)
+                        native = _get_native()
+                        if native:
+                            native.req_set_response(request.req_ptr, response_data, 0)
                         return
                     except Exception as e:
-                        if _native:
-                            _native.req_set_error(request.req_ptr, str(e), 0)
+                        native = _get_native()
+                        if native:
+                            native.req_set_error(request.req_ptr, str(e), 0)
                         return
 
                 # Determine server list
@@ -377,18 +392,21 @@ class Colibri:
                 # Execute HTTP request
                 try:
                     response_data = await self._execute_http_request(request, servers)
-                    if _native:
-                        _native.req_set_response(request.req_ptr, response_data, 0)
+                    native = _get_native()
+                    if native:
+                        native.req_set_response(request.req_ptr, response_data, 0)
                 except Exception as e:
-                    if _native:
-                        _native.req_set_error(request.req_ptr, str(e), 0)
+                    native = _get_native()
+                    if native:
+                        native.req_set_error(request.req_ptr, str(e), 0)
 
             except Exception as e:
                 # Handle any unexpected errors in request processing
                 print(f"Error handling request: {e}")
-                if _native and "req_ptr" in request_dict:
+                native = _get_native()
+                if native and "req_ptr" in request_dict:
                     try:
-                        _native.req_set_error(request_dict["req_ptr"], str(e), 0)
+                        native.req_set_error(request_dict["req_ptr"], str(e), 0)
                     except Exception:
                         pass  # Ignore errors in error reporting
 

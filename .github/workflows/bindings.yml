@@ -30,6 +30,9 @@ jobs:
     secrets:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  python:
+    uses: ./.github/workflows/bindings-python.yml
+
   docker-proofer:
     uses: ./.github/workflows/bindings-docker.yml
 

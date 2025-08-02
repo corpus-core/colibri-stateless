@@ -26,41 +26,91 @@ def get_requirements():
 # Get the root directory (../../ from this file)
 project_root = Path(__file__).parent.parent.parent.absolute()
 
-# Define the extension module
+# Check if native extension already exists (built by CMake)
+native_extension_exists = False
+native_extension_path = Path(__file__).parent / "src" / "colibri"
+for pattern in ["_native*.so", "_native*.pyd", "_native*.dylib"]:
+    if list(native_extension_path.glob(pattern)):
+        native_extension_exists = True
+        break
+
+# Define a dummy extension to ensure platform-specific wheel is created
+# The real extension is already built by CMake and copied to the right location
 ext_modules = [
-    Pybind11Extension(
+    Extension(
         "colibri._native",
-        [
-            "src/bindings.cpp",
-        ],
-        include_dirs=[
-            str(project_root / "bindings"),
-            str(project_root / "src"),
-            str(project_root / "src/util"),
-            str(project_root / "src/proofer"),
-            str(project_root / "src/verifier"),
-        ],
-        libraries=["colibri"],
-        library_dirs=[
-            str(project_root / "build/default/src"),
-            str(project_root / "build/default/libs"),
-        ],
-        language='c++',
-        cxx_std=17,
+        sources=[],  # No sources, already built
+        include_dirs=[],
+        libraries=[],
+        library_dirs=[],
     ),
 ]
 
-class CustomBuildExt(build_ext):
-    """Custom build extension that builds the C library first"""
-    
-    def build_extensions(self):
-        # Build the C library first using our build script
+if not native_extension_exists:
+    # If extension doesn't exist, run build script to create it
+    print("Native extension not found, building with CMake...")
+    try:
         build_script = Path(__file__).parent / "build.sh"
         if build_script.exists():
-            print("Building C library...")
-            subprocess.check_call([str(build_script)], cwd=str(build_script.parent))
+            subprocess.run([str(build_script)], check=True, cwd=Path(__file__).parent)
+        else:
+            raise FileNotFoundError("build.sh not found")
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"CMake build failed: {e}")
+        print("Extension will be built by setuptools (may fail)")
+        # Fallback to building with setuptools
+        ext_modules = [
+            Pybind11Extension(
+                "colibri._native",
+                [
+                    "src/bindings.cpp",
+                ],
+                include_dirs=[
+                    str(project_root / "bindings"),
+                    str(project_root / "src/util"),
+                    str(project_root / "src/proofer"),
+                    str(project_root / "src/verifier"),
+                ],
+                language='c++',
+                cxx_std=17,
+            ),
+        ]
+
+class CustomBuildExt(build_ext):
+    """Custom build extension that uses pre-built extensions"""
+    
+    def build_extensions(self):
+        # Check if extension already exists
+        native_extension_path = Path(__file__).parent / "src" / "colibri"
+        existing_extension = None
         
-        super().build_extensions()
+        for pattern in ["_native*.so", "_native*.pyd", "_native*.dylib"]:
+            matches = list(native_extension_path.glob(pattern))
+            if matches:
+                existing_extension = matches[0]
+                break
+        
+        if existing_extension and existing_extension.exists():
+            print(f"Using pre-built extension: {existing_extension}")
+            # For each extension module, copy the pre-built file
+            for ext in self.extensions:
+                if ext.name == "colibri._native":
+                    # Get the target path where setuptools expects the extension
+                    fullname = self.get_ext_fullname(ext.name)
+                    filename = self.get_ext_filename(fullname)
+                    target_path = Path(self.build_lib) / filename
+                    
+                    # Ensure target directory exists
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Copy the pre-built extension
+                    import shutil
+                    shutil.copy2(existing_extension, target_path)
+                    print(f"Copied {existing_extension} -> {target_path}")
+        else:
+            # No pre-built extension found, try to build normally
+            print("No pre-built extension found, building normally...")
+            super().build_extensions()
 
 setup(
     name="colibri",

@@ -77,8 +77,15 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
         target_link_options(_native PRIVATE -flto)
     endif()
 elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_options(_native PRIVATE -g -O0)
-    target_compile_definitions(_native PRIVATE DEBUG)
+    # Enhanced debug build with full symbol information
+    target_compile_options(_native PRIVATE -g3 -O0 -fno-omit-frame-pointer)
+    target_compile_definitions(_native PRIVATE DEBUG _DEBUG)
+    if(APPLE)
+        target_compile_options(_native PRIVATE -gdwarf-4)
+    endif()
+    # Disable optimizations that could interfere with debugging
+    target_compile_options(_native PRIVATE -fno-inline -fno-inline-functions)
+    message(STATUS "Debug build configured with full debugging symbols")
 endif()
 
 # Custom target to copy the built module to the Python package directory

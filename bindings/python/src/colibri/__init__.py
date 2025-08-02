@@ -51,7 +51,7 @@ def _register_global_storage(storage: ColibriStorage = None):
             storage.delete
         )
         _storage_registered = True
-        print(f"🔧 Global storage registered: {type(storage).__name__}")
+        # Global storage registered successfully
     
     return _global_storage
 
@@ -62,7 +62,7 @@ def _cleanup_global_storage():
         try:
             _native.clear_storage()
             _storage_registered = False
-            print("🧹 Global storage cleaned up")
+            # Global storage cleaned up
         except:
             pass  # Ignore cleanup errors
 
