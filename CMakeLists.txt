@@ -36,6 +36,7 @@ option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
 option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)
+option(PYTHON "Build Python bindings" OFF)
 option(TEST "Build the unit tests" OFF)
 option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
@@ -43,6 +44,14 @@ option(STATIC_MEMORY "if true, the memory will be statically allocated, which on
 option(MESSAGES "if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory" ON)
 if(MESSAGES)
     add_definitions(-DMESSAGES)
+endif()
+
+# Python bindings configuration
+if(PYTHON)
+    # Python bindings disable CURL/CLI (HTTP is handled in Python)
+    set(CURL OFF CACHE BOOL "Disable CURL for Python bindings" FORCE)
+    set(CLI OFF CACHE BOOL "Disable CLI tools for Python bindings" FORCE)
+    message(STATUS "Python bindings enabled: CURL=OFF, CLI=OFF")
 endif()
 
 # Additional include path (for embedded targets etc)
@@ -263,16 +272,10 @@ if(SWIFT)
     add_subdirectory(bindings/swift)
 endif()
 
-# Shared library if requested and not embedded
-if(SHAREDLIB AND NOT EMBEDDED)
-    add_library(c4Lib SHARED src/util/version.c)
-    target_link_libraries(c4Lib PRIVATE crypto verifier util blst)
-    set_target_properties(c4Lib PROPERTIES
-        LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
-        VERSION 1.0
-        SOVERSION 1
-    )
+if(PYTHON)
+    add_subdirectory(bindings/python)
 endif()
+
 
 add_custom_target(doc 
     COMMAND ${CMAKE_COMMAND} -E echo "Generating documentation..."
@@ -431,3 +434,14 @@ echo \"Combined library created at: ${OUTPUT_DIRECTORY}/libc4.a\"
     endif()
 endif()
 
+
+# Shared library if requested and not embedded
+if(SHAREDLIB AND NOT EMBEDDED)
+    add_library(c4 SHARED src/util/version.c bindings/colibri.c)
+    target_link_libraries(c4 PRIVATE crypto verifier util blst  proofer    verifier)
+    set_target_properties(c4 PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
+        VERSION 1.0
+        SOVERSION 1
+    )
+endif()
