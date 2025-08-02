@@ -230,7 +230,7 @@ fi
 log "Testing Python module import..."
 cd "$SCRIPT_DIR"
 
-if $PYTHON -c "import colibri; print(f'Colibri {colibri.__version__} imported successfully')" 2>/dev/null; then
+if PYTHONPATH=src $PYTHON -c "import colibri; print(f'✅ Colibri {colibri.__version__} imported successfully!')" 2>/dev/null; then
     log_success "Python module import test passed"
 else
     log_warning "Python module import test failed - this might be expected if dependencies are missing"
@@ -246,7 +246,9 @@ echo ""
 echo "Next steps:"
 echo "  1. Install the package: $PYTHON -m pip install -e $SCRIPT_DIR"
 echo "  2. Run tests: $PYTHON -m pytest $SCRIPT_DIR/tests/"
-echo "  3. Import in Python: import colibri"
+echo "  3. Import in Python:"
+echo "     • With PYTHONPATH: PYTHONPATH=src python3 -c 'import colibri'"
+echo "     • After install: python3 -c 'import colibri'"
 echo ""
 
 if [[ "$DEBUG" == "true" ]]; then

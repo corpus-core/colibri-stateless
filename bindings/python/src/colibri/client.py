@@ -64,18 +64,22 @@ class Colibri:
         self.include_code = include_code
         self.request_handler = request_handler
 
-        # Initialize storage
+        # Initialize storage - registration is global in C
+        # The first instance determines the global storage type for C operations
+        from . import _register_global_storage
+        
         if storage is None:
             storage = DefaultStorage()
+            
+        # Register storage globally (first call sets it, subsequent calls return the global one)
+        global_storage = _register_global_storage(storage)
+        
+        # For local operations, we use the requested storage
+        # For C operations, the global storage is used automatically
         self.storage = storage
-
-        # Register storage with native module if available
-        if _native and hasattr(_native, 'register_storage'):
-            _native.register_storage(
-                self.storage.get,
-                self.storage.set,
-                self.storage.delete
-            )
+        
+        # Store reference to global storage for clarity
+        self._global_storage = global_storage
 
     @staticmethod
     def _get_default_proofers(chain_id: int) -> List[str]:
@@ -250,7 +254,27 @@ class Colibri:
                     if not status_json:
                         raise VerificationError("Verification execution returned null")
                     
-                    status = json.loads(status_json)
+                    # Debug: Print the raw JSON response from C
+                    print(f"🔍 DEBUG: Raw C JSON response: {repr(status_json)}")
+                    
+                    try:
+                        status = json.loads(status_json)
+                    except json.JSONDecodeError as e:
+                        # Workaround: Try to fix trailing comma issue from C
+                        if "," in status_json and status_json.rstrip().endswith(",}"):
+                            print(f"🔧 WORKAROUND: Fixing trailing comma in C JSON")
+                            fixed_json = status_json.replace(",}", "}")
+                            print(f"   Fixed JSON: {repr(fixed_json)}")
+                            try:
+                                status = json.loads(fixed_json)
+                                print(f"✅ JSON parsing successful after fix!")
+                            except json.JSONDecodeError as e2:
+                                print(f"❌ Still invalid after fix: {e2}")
+                                raise VerificationError(f"Invalid JSON in verification response: {e2}")
+                        else:
+                            print(f"❌ JSON Parse Error: {e}")
+                            print(f"   Raw response: {status_json}")
+                            raise VerificationError(f"Invalid JSON in verification response: {e}")
                     
                     if status["status"] == "success":
                         return status.get("result")

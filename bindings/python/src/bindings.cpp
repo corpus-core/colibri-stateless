@@ -193,6 +193,21 @@ void register_storage(
   c4_set_storage_config(&plugin);
 }
 
+// Storage cleanup function to prevent segfaults on exit
+void clear_storage() {
+  python_storage_get    = nullptr;
+  python_storage_set    = nullptr;
+  python_storage_delete = nullptr;
+
+  // Clear the C storage plugin
+  storage_plugin_t plugin = {
+      .get             = nullptr,
+      .set             = nullptr,
+      .del             = nullptr,
+      .max_sync_states = 0};
+  c4_set_storage_config(&plugin);
+}
+
 PYBIND11_MODULE(_native, m) {
   m.doc() = "Colibri native bindings for Python";
 
@@ -200,6 +215,9 @@ PYBIND11_MODULE(_native, m) {
   m.def("register_storage", &register_storage,
         "Register Python storage callbacks with the C library",
         py::arg("get_func"), py::arg("set_func"), py::arg("delete_func"));
+
+  m.def("clear_storage", &clear_storage,
+        "Clear Python storage callbacks to prevent segfaults on exit");
 
   // Proofer functions
   m.def("create_proofer_ctx", &create_proofer_ctx_wrapper,

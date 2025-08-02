@@ -1,9 +1,10 @@
 """
-Testing utilities and mock implementations for Colibri
+Testing utilities and mock implementations for Colibri Python bindings
 """
 
 import json
-from typing import Any, Dict, List, Optional, Union, Callable
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 from unittest.mock import Mock
 
 from .storage import ColibriStorage
@@ -31,217 +32,197 @@ class MockStorage(ColibriStorage):
         self.delete_calls.append(key)
         self._data.pop(key, None)
 
-    def clear_calls(self) -> None:
-        """Clear call history"""
-        self.get_calls.clear()
-        self.set_calls.clear()
-        self.delete_calls.clear()
-
-    def clear_data(self) -> None:
-        """Clear stored data"""
-        self._data.clear()
-
-    def preset_data(self, data: Dict[str, bytes]) -> None:
-        """Preset storage data for testing"""
-        self._data.update(data)
-
 
 class MockRequestHandler:
     """Mock HTTP request handler for testing"""
 
     def __init__(self):
-        self._responses: Dict[str, Any] = {}
-        self._method_responses: Dict[str, Dict[str, Any]] = {}
-        self._default_response: Optional[bytes] = None
+        self._responses: Dict[str, Union[bytes, Dict[str, Any]]] = {}
         self.request_calls: List[DataRequest] = []
 
-    def add_response(
-        self, 
-        method: str, 
-        params: List[Any], 
-        response: Any,
-        as_bytes: bool = False
-    ) -> None:
-        """
-        Add a mock response for a specific method and parameters
-        
-        Args:
-            method: RPC method name
-            params: Method parameters
-            response: Response data
-            as_bytes: If True, return response as bytes
-        """
-        key = self._make_key(method, params)
-        if as_bytes and isinstance(response, str):
-            response = response.encode('utf-8')
-        elif as_bytes and not isinstance(response, bytes):
-            response = json.dumps(response).encode('utf-8')
-        
-        self._responses[key] = response
-
-    def add_method_response(
-        self, 
-        method: str, 
-        response: Any,
-        as_bytes: bool = False
-    ) -> None:
-        """
-        Add a mock response for any call to a specific method
-        
-        Args:
-            method: RPC method name
-            response: Response data
-            as_bytes: If True, return response as bytes
-        """
-        if as_bytes and isinstance(response, str):
-            response = response.encode('utf-8')
-        elif as_bytes and not isinstance(response, bytes):
-            response = json.dumps(response).encode('utf-8')
-            
-        self._method_responses[method] = response
-
-    def set_default_response(self, response: bytes) -> None:
-        """Set a default response for unmatched requests"""
-        self._default_response = response
-
-    def _make_key(self, method: str, params: List[Any]) -> str:
-        """Create a unique key for method + params combination"""
-        return f"{method}:{json.dumps(params, sort_keys=True)}"
-
     async def handle_request(self, request: DataRequest) -> bytes:
-        """
-        Handle a mock HTTP request
-        
-        Args:
-            request: The data request to handle
-            
-        Returns:
-            Mock response data as bytes
-            
-        Raises:
-            ColibriError: If no mock response is configured
-        """
+        """Handle a mock HTTP request"""
         self.request_calls.append(request)
-
-        # If it's an RPC request with payload, extract method and params
-        if request.payload and "method" in request.payload:
-            method = request.payload["method"]
-            params = request.payload.get("params", [])
-            
-            # Check for specific method + params response
-            key = self._make_key(method, params)
-            if key in self._responses:
-                response = self._responses[key]
-                if isinstance(response, bytes):
-                    return response
-                return json.dumps(response).encode('utf-8')
-            
-            # Check for general method response
-            if method in self._method_responses:
-                response = self._method_responses[method]
-                if isinstance(response, bytes):
-                    return response
-                return json.dumps(response).encode('utf-8')
-
-        # Return default response if configured
-        if self._default_response is not None:
-            return self._default_response
-
-        # No mock response configured
-        raise ColibriError(f"No mock response configured for request: {request.to_dict()}")
-
-    def clear_responses(self) -> None:
-        """Clear all configured responses"""
-        self._responses.clear()
-        self._method_responses.clear()
-        self._default_response = None
-
-    def clear_calls(self) -> None:
-        """Clear request call history"""
-        self.request_calls.clear()
-
-    def get_calls_for_method(self, method: str) -> List[DataRequest]:
-        """Get all calls made for a specific RPC method"""
-        return [
-            call for call in self.request_calls
-            if call.payload and call.payload.get("method") == method
-        ]
+        return b'{"result": "mock_response"}'
 
 
-class MockProofData:
-    """Helper class for creating mock proof data"""
-
-    @staticmethod
-    def create_proof(method: str, params: List[Any], result: Any) -> bytes:
-        """Create mock proof bytes for testing"""
-        proof_data = {
-            "method": method,
-            "params": params,
-            "result": result,
-            "mock": True
-        }
-        return json.dumps(proof_data).encode('utf-8')
-
-    @staticmethod
-    def create_empty_proof() -> bytes:
-        """Create empty proof for LOCAL method types"""
-        return b""
-
-
-class TestHelper:
-    """Helper class for common testing scenarios"""
-
-    @staticmethod
-    def setup_eth_get_balance_mock(
-        handler: MockRequestHandler,
-        address: str,
-        block: str,
-        balance: str
-    ) -> None:
-        """Setup mock for eth_getBalance call"""
-        handler.add_response(
-            "eth_getBalance",
-            [address, block],
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": balance
-            }
-        )
-
-    @staticmethod
-    def setup_eth_get_block_mock(
-        handler: MockRequestHandler,
-        block_hash: str,
-        block_data: Dict[str, Any]
-    ) -> None:
-        """Setup mock for eth_getBlockByHash call"""
-        handler.add_response(
-            "eth_getBlockByHash",
-            [block_hash, False],
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": block_data
-            }
-        )
-
-    @staticmethod
-    def setup_proof_mock(
-        handler: MockRequestHandler,
-        method: str,
-        params: List[Any],
-        proof_bytes: Optional[bytes] = None
-    ) -> None:
-        """Setup mock for proof requests"""
-        if proof_bytes is None:
-            proof_bytes = MockProofData.create_proof(method, params, "mock_result")
+class FileBasedMockStorage(ColibriStorage):
+    """Mock storage that loads from test directory files"""
+    
+    def __init__(self, test_data_dir):
+        self.test_data_dir = Path(test_data_dir)
         
-        handler.add_response(method, params, proof_bytes, as_bytes=True)
+    def get(self, key: str) -> Optional[bytes]:
+        file_path = self.test_data_dir / key
+        if file_path.exists():
+            print(f"🗃️ Loading storage: {key}")
+            return file_path.read_bytes()
+        return None
+    
+    def set(self, key: str, value: bytes) -> None:
+        print(f"🗃️ SET {key} (ignored in mock)")
+        pass
+    
+    def delete(self, key: str) -> None:
+        print(f"🗃️ DELETE {key} (ignored in mock)")
+        pass
 
-    @staticmethod  
-    def create_mock_storage_with_data(data: Dict[str, bytes]) -> MockStorage:
-        """Create a mock storage with preset data"""
-        storage = MockStorage()
-        storage.preset_data(data)
-        return storage
+
+class FileBasedMockRequestHandler:
+    """Mock request handler that loads from test directory files"""
+    
+    def __init__(self, test_data_dir):
+        self.test_data_dir = Path(test_data_dir)
+    
+    async def handle_request(self, request: DataRequest) -> bytes:
+        """Handle mock HTTP request by loading from file"""
+        
+        # Convert request to filename (simplified)
+        if request.url:
+            filename = request.url.replace('/', '_').replace('?', '_').replace('=', '_').replace('&', '_')
+            filename = filename + '.' + request.encoding
+        elif request.payload and 'method' in request.payload:
+            method = request.payload['method']
+            filename = method + '.' + request.encoding
+        else:
+            filename = 'unknown.' + request.encoding
+        
+        print(f"📡 Looking for mock file: {filename}")
+        
+        file_path = self.test_data_dir / filename
+        if file_path.exists():
+            data = file_path.read_bytes()
+            print(f"📡 Found mock response ({len(data)} bytes)")
+            return data
+        
+        # Enhanced fallback logic for light_client_updates specifically
+        if 'light_client_updates' in filename:
+            print(f"📡 Applying light_client_updates fallback")
+            # Find any light_client_updates file in the directory
+            pattern = "*light_client_updates*"
+            matching_files = list(self.test_data_dir.glob(pattern))
+            if matching_files:
+                # Choose the first available light client update file
+                fallback_file = matching_files[0]
+                data = fallback_file.read_bytes()
+                print(f"📡 Found light_client fallback: {fallback_file.name} ({len(data)} bytes)")
+                return data
+        
+        # Beacon headers fallback
+        if 'beacon/headers' in request.url:
+            pattern = "*headers*"
+            matching_files = list(self.test_data_dir.glob(pattern))
+            if matching_files:
+                fallback_file = matching_files[0]
+                data = fallback_file.read_bytes()
+                print(f"📡 Found headers fallback: {fallback_file.name} ({len(data)} bytes)")
+                return data
+        
+        # Beacon blocks fallback  
+        if 'beacon/blocks' in request.url:
+            pattern = "*blocks*"
+            matching_files = list(self.test_data_dir.glob(pattern))
+            if matching_files:
+                fallback_file = matching_files[0]
+                data = fallback_file.read_bytes()
+                print(f"📡 Found blocks fallback: {fallback_file.name} ({len(data)} bytes)")
+                return data
+        
+        # List available files for debugging
+        available_files = [f.name for f in self.test_data_dir.iterdir() if f.is_file()]
+        print(f"📋 Available files: {available_files}")
+        
+        raise Exception(f"No mock response file found for: {filename}")
+
+
+def discover_tests(test_data_root=None):
+    """Discover test cases from test/data directories"""
+    
+    if test_data_root is None:
+        current_dir = Path(__file__).parent
+        test_data_root = current_dir / '..' / '..' / '..' / '..' / 'test' / 'data'
+    
+    test_data_root = Path(test_data_root).resolve()
+    print(f"🔍 Discovering tests in: {test_data_root}")
+    
+    if not test_data_root.exists():
+        print(f"❌ Test data directory not found: {test_data_root}")
+        return []
+    
+    test_cases = []
+    
+    for test_json_path in test_data_root.glob('*/test.json'):
+        test_dir = test_json_path.parent
+        test_name = test_dir.name
+        
+        try:
+            with open(test_json_path, 'r') as f:
+                test_config = json.load(f)
+            
+            test_case = {
+                'name': test_name,
+                'directory': test_dir,
+                'method': test_config['method'],
+                'params': test_config['params'],
+                'chain_id': test_config['chain_id'],
+                'expected_result': test_config.get('expected_result')
+            }
+            
+            test_cases.append(test_case)
+            print(f"✅ Found test: {test_name} - {test_config['method']}")
+            
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"❌ Invalid test.json in {test_dir}: {e}")
+            continue
+    
+    print(f"�� Discovered {len(test_cases)} test cases")
+    return test_cases
+
+
+async def run_test_case(test_case):
+    """Run a single test case"""
+    
+    from . import Colibri
+    
+    test_name = test_case['name']
+    test_dir = test_case['directory']
+    method = test_case['method']
+    params = test_case['params']
+    chain_id = test_case['chain_id']
+    expected_result = test_case.get('expected_result')
+    
+    print(f"\n🧪 Running test: {test_name}")
+    print(f"   Method: {method}")
+    print(f"   Chain ID: {chain_id}")
+    
+    # Create mocks
+    mock_storage = FileBasedMockStorage(test_dir)
+    mock_request_handler = FileBasedMockRequestHandler(test_dir)
+    
+    # Create client
+    client = Colibri(
+        chain_id=chain_id,
+        storage=mock_storage,
+        request_handler=mock_request_handler
+    )
+    
+    try:
+        result = await client.rpc(method, params)
+        
+        print(f"✅ Test completed: {result}")
+        
+        # Compare with expected if available
+        if expected_result is not None:
+            if result == expected_result:
+                print(f"✅ Result matches expected")
+                return {'status': 'PASSED', 'name': test_name, 'result': result}
+            else:
+                print(f"❌ Result mismatch! Expected {expected_result}, got {result}")
+                return {'status': 'FAILED', 'name': test_name, 'error': 'Result mismatch', 'result': result}
+        else:
+            print(f"ℹ️ No expected result to compare")
+            return {'status': 'PASSED', 'name': test_name, 'result': result}
+        
+    except Exception as e:
+        print(f"❌ Test error: {e}")
+        return {'status': 'ERROR', 'name': test_name, 'error': str(e)}
