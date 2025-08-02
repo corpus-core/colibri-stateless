@@ -32,6 +32,8 @@ jobs:
 
   python:
     uses: ./.github/workflows/bindings-python.yml
+    secrets:
+      PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
 
   docker-proofer:
     uses: ./.github/workflows/bindings-docker.yml

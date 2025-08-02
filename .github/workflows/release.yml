@@ -255,6 +255,27 @@ jobs:
             mkdir -p artifacts/jar
           fi
 
+      - name: Download Python Wheels
+        id: download_python
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: bindings.yml
+          name: python-universal-distribution
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/python
+
+      - name: Verify Python Wheels
+        run: |
+          if [ -d "artifacts/python" ] && [ "$(find artifacts/python -name "*.whl" | wc -l)" -gt 0 ]; then
+            echo "Python wheel artifacts found:"
+            find artifacts/python -name "*.whl" -exec ls -la {} \;
+          else
+            echo "WARNING: No Python wheel artifacts were downloaded."
+            mkdir -p artifacts/python
+          fi
+
       - name: Prepare Release Files
         run: |
           cd artifacts
@@ -321,6 +342,29 @@ jobs:
             echo "Warning: JAR directory is empty or does not exist"
           fi
 
+          # Move Python wheel files
+          if [ -d "python" ] && [ "$(find python -name "*.whl" | wc -l)" -gt 0 ]; then
+            # Create a Python distribution zip
+            cd python
+            zip -r ../colibri-python-wheels.zip ./*
+            cd ..
+            if [ -f "colibri-python-wheels.zip" ]; then
+              mv colibri-python-wheels.zip release_files/
+              echo "Added Python wheels package to release"
+              TOTAL_FILES=$((TOTAL_FILES+1))
+            fi
+            
+            # Also copy individual wheel files
+            find python -name "*.whl" -exec cp {} release_files/ \;
+            NUM_FILES=$(find release_files -name "*.whl" | wc -l)
+            if [ "$NUM_FILES" -gt 0 ]; then
+              echo "Added $NUM_FILES individual Python wheel files to release"
+              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
+            fi
+          else
+            echo "Warning: Python directory is empty or contains no .whl files"
+          fi
+
           # Move CMake artifacts
           if [ -d "cmake" ] && [ "$(find cmake -type f \( -name "*.zip" -o -name "*.tar.gz" \) | wc -l)" -gt 0 ]; then
             find cmake -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release_files/ \;
@@ -361,11 +405,18 @@ jobs:
 
             ## Included Artifacts
 
-            - CMake builds (various platforms)
-            - Swift package
-            - WASM package
-            - Android AAR
-            - JVM JAR
+            - **CMake builds** (various platforms)
+            - **Swift package** (iOS/macOS)
+            - **JavaScript/WASM package** (Web/Node.js)
+            - **Android AAR** (Android/Kotlin)
+            - **JVM JAR** (Java/Kotlin)
+            - **Python wheels** (Linux/macOS/Windows)
+
+            ### Python Installation
+            
+            ```bash
+            pip install colibri-stateless
+            ```
 
             If some artifacts are missing, they may not have been successfully built in the pipeline.
         env:
@@ -412,4 +463,10 @@ jobs:
             echo "- ✅ JAR package: $(find artifacts/jar -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ❌ No JAR package found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "artifacts/python" ] && [ "$(find artifacts/python -name "*.whl" | wc -l)" -gt 0 ]; then
+            echo "- ✅ Python wheels: $(find artifacts/python -name "*.whl" | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No Python wheels found" >> $GITHUB_STEP_SUMMARY
           fi

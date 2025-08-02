@@ -2,6 +2,11 @@ name: Python CI
 
 on:
   workflow_call:
+    secrets:
+      PYPI_TOKEN:
+        required: false
+      TEST_PYPI_TOKEN:
+        required: false
 
 permissions:
   contents: write # Required for creating releases and uploading assets
@@ -395,6 +400,81 @@ jobs:
           name: python-universal-distribution
           path: python-distribution/
           if-no-files-found: error
+          
+      - name: Publish to PyPI (Release Only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          echo "📦 Publishing Python packages to PyPI..."
+          echo "🏷️ Release tag: ${GITHUB_REF#refs/tags/}"
+          
+          # Install twine for uploading
+          python -m pip install --upgrade pip twine
+          
+          # Check if wheels exist
+          if [ ! -d "python-distribution/wheels" ] || [ -z "$(ls -A python-distribution/wheels/*.whl 2>/dev/null)" ]; then
+            echo "❌ No wheel files found in python-distribution/wheels/"
+            echo "📁 Directory contents:"
+            find python-distribution -name "*.whl" || echo "No .whl files found anywhere"
+            exit 1
+          fi
+          
+          # List all wheels to be uploaded
+          echo "🔍 Found wheels:"
+          ls -la python-distribution/wheels/*.whl
+          
+          # Verify packages before upload
+          echo "🔍 Verifying packages with twine..."
+          python -m twine check python-distribution/wheels/*.whl
+          
+          # Upload to PyPI
+          echo "🚀 Uploading to PyPI..."
+          python -m twine upload python-distribution/wheels/*.whl --verbose --skip-existing
+          
+          echo "✅ Successfully published to PyPI!"
+          echo "📦 Package available at: https://pypi.org/project/colibri-stateless/"
+          
+      - name: Publish to Test PyPI (Development)
+        if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/python'
+        continue-on-error: true
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_TOKEN }}
+        run: |
+          echo "📦 Publishing Python packages to Test PyPI..."
+          echo "🌿 Branch: ${GITHUB_REF#refs/heads/}"
+          
+          # Only proceed if TEST_PYPI_TOKEN is available
+          if [ -z "${{ secrets.TEST_PYPI_TOKEN }}" ]; then
+            echo "⚠️ TEST_PYPI_TOKEN not available, skipping Test PyPI upload"
+            exit 0
+          fi
+          
+          # Install twine for uploading
+          python -m pip install --upgrade pip twine
+          
+          # Check if wheels exist
+          if [ ! -d "python-distribution/wheels" ] || [ -z "$(ls -A python-distribution/wheels/*.whl 2>/dev/null)" ]; then
+            echo "❌ No wheel files found for Test PyPI upload"
+            exit 1
+          fi
+          
+          # List wheels
+          echo "🔍 Found wheels for Test PyPI:"
+          ls -la python-distribution/wheels/*.whl
+          
+          # Verify packages
+          echo "🔍 Verifying packages for Test PyPI..."
+          python -m twine check python-distribution/wheels/*.whl
+          
+          # Upload to Test PyPI
+          echo "🧪 Uploading to Test PyPI..."
+          python -m twine upload --repository testpypi python-distribution/wheels/*.whl --verbose --skip-existing
+          
+          echo "✅ Successfully published to Test PyPI!"
+          echo "🧪 Test package available at: https://test.pypi.org/project/colibri-stateless/"
           
       - name: Generate Distribution Summary
         run: |
