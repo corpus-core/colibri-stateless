@@ -55,6 +55,7 @@ jobs:
           
       - name: Install Build Dependencies (Windows)
         if: matrix.os == 'windows-latest'
+        shell: cmd
         run: |
           REM Install CMake
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
@@ -66,6 +67,7 @@ jobs:
         
       - name: Verify Build Tools (Windows)
         if: matrix.os == 'windows-latest'
+        shell: cmd
         run: |
           REM Verify build tools are available
           where cl.exe || echo "Visual Studio compiler not found in PATH"
