@@ -55,29 +55,52 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "🏷️ Git tag version: $VERSION"
           
-          # Write version to VERSION file
-          echo "$VERSION" > VERSION
+          # Write version to VERSION file without trailing newline
+          printf "%s" "$VERSION" > VERSION
           echo "📝 Updated VERSION file to: $VERSION"
           
-          # Verify the change
-          cat VERSION
+          # Verify the change (show exact content and length)
+          echo "Contents of VERSION file: '$(cat VERSION)'"
+          echo "Version length: ${#VERSION}"
+          echo "File content length: $(wc -c < VERSION)"
+          
+          # Additional validation
+          FILE_CONTENT=$(cat VERSION)
+          if [ "$FILE_CONTENT" = "$VERSION" ]; then
+            echo "✅ Version file content matches expected version"
+          else
+            echo "❌ Version file content does not match expected version"
+            echo "Expected: '$VERSION'"
+            echo "Actual: '$FILE_CONTENT'"
+          fi
           
       - name: Extract version from Git tag (Windows)
         if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest'
         working-directory: bindings/python
-        shell: cmd
+        shell: pwsh
         run: |
-          REM Extract version from git tag (remove 'refs/tags/v' prefix)
-          set FULL_REF=%GITHUB_REF%
-          set VERSION=%FULL_REF:refs/tags/v=%
-          echo Git tag version: %VERSION%
+          # Extract version from git tag (remove 'refs/tags/v' prefix) using PowerShell
+          $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+          Write-Host "Git tag version: $version"
           
-          REM Write version to VERSION file
-          echo %VERSION% > VERSION
-          echo Updated VERSION file to: %VERSION%
+          # Write version to VERSION file without trailing newline
+          [System.IO.File]::WriteAllText("VERSION", $version, [System.Text.Encoding]::UTF8)
+          Write-Host "Updated VERSION file to: $version"
           
-          REM Verify the change
-          type VERSION
+          # Verify the change (show exact content and length)
+          $content = Get-Content -Path "VERSION" -Raw
+          Write-Host "Contents of VERSION file: '$content'"
+          Write-Host "Version length: $($version.Length)"
+          Write-Host "File content length: $($content.Length)"
+          
+          # Additional validation
+          if ($content -eq $version) {
+            Write-Host "✅ Version file content matches expected version"
+          } else {
+            Write-Host "❌ Version file content does not match expected version"
+            Write-Host "Expected: '$version'"
+            Write-Host "Actual: '$content'"
+          }
           
       - name: Install Build Dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
