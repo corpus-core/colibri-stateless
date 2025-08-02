@@ -83,15 +83,26 @@ jobs:
           $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
           Write-Host "Git tag version: $version"
           
-          # Write version to VERSION file without trailing newline
-          [System.IO.File]::WriteAllText("VERSION", $version, [System.Text.Encoding]::UTF8)
+          # Write version to VERSION file without BOM or trailing newline
+          # Use UTF8NoBOM encoding to prevent BOM character (\ufeff)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+          [System.IO.File]::WriteAllText("VERSION", $version, $utf8NoBom)
           Write-Host "Updated VERSION file to: $version"
           
-          # Verify the change (show exact content and length)
-          $content = Get-Content -Path "VERSION" -Raw
+          # Verify the change (show exact content, length and hex dump)
+          $bytes = [System.IO.File]::ReadAllBytes("VERSION")
+          $content = [System.IO.File]::ReadAllText("VERSION", $utf8NoBom)
           Write-Host "Contents of VERSION file: '$content'"
           Write-Host "Version length: $($version.Length)"
           Write-Host "File content length: $($content.Length)"
+          Write-Host "File bytes: $($bytes | ForEach-Object { $_.ToString('X2') } | Join-String -Separator ' ')"
+          
+          # Check for BOM
+          if ($bytes.Length -gt 0 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+            Write-Host "❌ ERROR: BOM detected in VERSION file!"
+          } else {
+            Write-Host "✅ No BOM in VERSION file"
+          }
           
           # Additional validation
           if ($content -eq $version) {
@@ -100,6 +111,7 @@ jobs:
             Write-Host "❌ Version file content does not match expected version"
             Write-Host "Expected: '$version'"
             Write-Host "Actual: '$content'"
+            Write-Host "Expected bytes: $([System.Text.Encoding]::UTF8.GetBytes($version) | ForEach-Object { $_.ToString('X2') } | Join-String -Separator ' ')"
           }
           
       - name: Install Build Dependencies (Ubuntu)
