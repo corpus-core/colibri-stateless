@@ -6,7 +6,7 @@ import os
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 from .types import StorageError
 
@@ -127,7 +127,7 @@ class DefaultStorage(ColibriStorage):
         except (OSError, IOError) as e:
             raise StorageError(f"Failed to delete key '{key}'") from e
 
-    def list_keys(self) -> list[str]:
+    def list_keys(self) -> List[str]:
         """List all stored keys"""
         try:
             return [f.name for f in self.base_dir.iterdir() if f.is_file()]

@@ -44,7 +44,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(blst)
 
 # Set up initial flags
-if(KOTLIN)
+if(KOTLIN OR PYTHON)
     set(EXTRA_C_FLAGS "-fPIC\ ")
 endif()
 

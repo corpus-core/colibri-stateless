@@ -60,7 +60,7 @@ jobs:
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pybind11 wheel build pytest asyncio
+          python -m pip install pybind11 wheel build pytest pytest-asyncio aiohttp
           
       - name: Build Python Extension (Unix)
         if: matrix.os != 'windows-latest'
@@ -79,6 +79,13 @@ jobs:
           cd ../..
           cmake -S . -B build -DPYTHON=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release
+          
+      - name: Install Python Dependencies
+        working-directory: bindings/python
+        run: |
+          echo "📦 Installing Python dependencies..."
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
           
       - name: Verify Build (Unix)
         if: matrix.os != 'windows-latest'
@@ -107,11 +114,15 @@ jobs:
         run: |
           echo 🔍 Verifying Python extension build...
           
+          echo 📦 Installing Python dependencies...
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          
           dir src\colibri\_native*.pyd >nul 2>&1
           if %errorlevel%==0 (
             echo ✅ Native extension found
             set PYTHONPATH=src
-            python -c "import colibri; from colibri import Colibri; print('✅ Import successful'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_getProof'); print(f'✅ Works: {support.name}')"
+            python -c "import colibri; from colibri import Colibri; print('✅ Import successful'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_getProof'); print('✅ Works:', support.name)"
           ) else (
             echo ❌ Native extension not found!
             dir src\colibri
@@ -123,7 +134,7 @@ jobs:
         working-directory: bindings/python
         run: |
           echo "🧪 Running integration tests..."
-          python3 -m pip install pytest pytest-asyncio
+          python3 -m pip install pytest pytest-asyncio aiohttp
           
           # Simple integration test
           PYTHONPATH=src python3 -c "from colibri.testing import discover_tests; tests = discover_tests(); print(f'🎯 Discovered {len(tests)} test cases')"
@@ -136,7 +147,7 @@ jobs:
         working-directory: bindings/python
         run: |
           echo "🧪 Running integration tests on Windows..."
-          python -m pip install pytest pytest-asyncio
+          python -m pip install pytest pytest-asyncio aiohttp
           
           # Simple integration test for Windows
           set PYTHONPATH=src&& python -c "from colibri.testing import discover_tests; from colibri import Colibri; tests = discover_tests(); print(f'🎯 Discovered {len(tests)} test cases'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('✅ Basic functionality works:', support.name)"
@@ -171,8 +182,8 @@ jobs:
           path: bindings/python/dist/*.whl
           if-no-files-found: error
           
-      - name: Generate Build Summary
-        if: always()
+      - name: Generate Build Summary (Unix)
+        if: always() && matrix.os != 'windows-latest'
         working-directory: bindings/python
         run: |
           echo "## 🐍 Python Build Results - ${{ matrix.platform }}-${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
@@ -183,12 +194,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Check for files and report status
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            NATIVE_EXT=$(find src/colibri -name "_native*.pyd" | head -1 || echo "")
-          else
-            NATIVE_EXT=$(find src/colibri -name "_native*.so" | head -1 || echo "")
-          fi
-          
+          NATIVE_EXT=$(find src/colibri -name "_native*.so" | head -1 || echo "")
           WHEEL_FILE=$(find dist/ -name "*.whl" | head -1 2>/dev/null || echo "")
           
           if [[ -n "$NATIVE_EXT" && -f "$NATIVE_EXT" ]]; then
@@ -207,6 +213,38 @@ jobs:
             echo "Native extension was not created." >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
+          
+      - name: Generate Build Summary (Windows)
+        if: always() && matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          echo "## 🐍 Python Build Results - ${{ matrix.platform }}-${{ matrix.arch }}" >> $env:GITHUB_STEP_SUMMARY
+          echo "" >> $env:GITHUB_STEP_SUMMARY
+          echo "**Platform**: ${{ matrix.os }}" >> $env:GITHUB_STEP_SUMMARY  
+          echo "**Python Version**: ${{ matrix.python-version }}" >> $env:GITHUB_STEP_SUMMARY
+          echo "**Architecture**: ${{ matrix.arch }}" >> $env:GITHUB_STEP_SUMMARY
+          echo "" >> $env:GITHUB_STEP_SUMMARY
+          
+          # Check for files and report status
+          $nativeExt = Get-ChildItem -Path "src/colibri" -Name "_native*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $wheelFile = Get-ChildItem -Path "dist" -Name "*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
+          
+          if ($nativeExt -and (Test-Path "src/colibri/$nativeExt")) {
+            echo "### ✅ Build Successful" >> $env:GITHUB_STEP_SUMMARY
+            echo "| Component | Status |" >> $env:GITHUB_STEP_SUMMARY
+            echo "|-----------|--------|" >> $env:GITHUB_STEP_SUMMARY
+            echo "| Native Extension | ✅ Built |" >> $env:GITHUB_STEP_SUMMARY
+            if ($wheelFile -and (Test-Path "dist/$wheelFile")) {
+              echo "| Python Wheel | ✅ Created |" >> $env:GITHUB_STEP_SUMMARY
+            } else {
+              echo "| Python Wheel | ❌ Failed |" >> $env:GITHUB_STEP_SUMMARY
+            }
+            echo "| Integration Tests | ✅ Passed |" >> $env:GITHUB_STEP_SUMMARY
+          } else {
+            echo "### ❌ Build Failed" >> $env:GITHUB_STEP_SUMMARY
+            echo "Native extension was not created." >> $env:GITHUB_STEP_SUMMARY
+          }
+          echo "" >> $env:GITHUB_STEP_SUMMARY
           
   create-universal-wheel:
     needs: [build-wheels]
