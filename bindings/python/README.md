@@ -1,4 +1,4 @@
-<img src="c4_logo.png" alt="C4 Logo" width="300"/>
+<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="C4 Logo" width="300"/>
 
 # Colibri Python Bindings (corpus core colibri client)
 

@@ -47,6 +47,38 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           
+      - name: Extract version from Git tag (Unix)
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os != 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          # Extract version from git tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "🏷️ Git tag version: $VERSION"
+          
+          # Write version to VERSION file
+          echo "$VERSION" > VERSION
+          echo "📝 Updated VERSION file to: $VERSION"
+          
+          # Verify the change
+          cat VERSION
+          
+      - name: Extract version from Git tag (Windows)
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        shell: cmd
+        run: |
+          REM Extract version from git tag (remove 'refs/tags/v' prefix)
+          set FULL_REF=%GITHUB_REF%
+          set VERSION=%FULL_REF:refs/tags/v=%
+          echo Git tag version: %VERSION%
+          
+          REM Write version to VERSION file
+          echo %VERSION% > VERSION
+          echo Updated VERSION file to: %VERSION%
+          
+          REM Verify the change
+          type VERSION
+          
       - name: Install Build Dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -383,6 +415,14 @@ jobs:
         with:
           python-version: '3.10'
           
+      - name: Extract version from Git tag for distribution
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # Extract version from git tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "🏷️ Distribution using Git tag version: $VERSION"
+          echo "PACKAGE_VERSION=$VERSION" >> $GITHUB_ENV
+          
       - name: Download All Wheel Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -425,6 +465,13 @@ jobs:
         run: |
           echo "📦 Publishing Python packages to PyPI..."
           echo "🏷️ Release tag: ${GITHUB_REF#refs/tags/}"
+          
+          # Show package version that will be published
+          if [ -n "${PACKAGE_VERSION:-}" ]; then
+            echo "📋 Package version: $PACKAGE_VERSION"
+          else
+            echo "📋 Using version from wheel filenames"
+          fi
           
           # Install twine for uploading
           python -m pip install --upgrade pip twine
@@ -473,7 +520,11 @@ jobs:
           python -m twine upload python-distribution/wheels/*.whl --verbose --skip-existing
           
           echo "✅ Successfully published to PyPI!"
-          echo "📦 Package available at: https://pypi.org/project/colibri-stateless/"
+          if [ -n "${PACKAGE_VERSION:-}" ]; then
+            echo "📦 Package available at: https://pypi.org/project/colibri-stateless/$PACKAGE_VERSION/"
+          else
+            echo "📦 Package available at: https://pypi.org/project/colibri-stateless/"
+          fi
           
       - name: Publish to Test PyPI (Development)
         if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/python'
@@ -513,7 +564,11 @@ jobs:
           python -m twine upload --repository testpypi python-distribution/wheels/*.whl --verbose --skip-existing
           
           echo "✅ Successfully published to Test PyPI!"
-          echo "🧪 Test package available at: https://test.pypi.org/project/colibri-stateless/"
+          if [ -n "${PACKAGE_VERSION:-}" ]; then
+            echo "🧪 Test package available at: https://test.pypi.org/project/colibri-stateless/$PACKAGE_VERSION/"
+          else
+            echo "🧪 Test package available at: https://test.pypi.org/project/colibri-stateless/"
+          fi
           
       - name: Generate Distribution Summary
         run: |
