@@ -13,14 +13,14 @@ from setuptools import setup, Extension, find_packages
 def get_version():
     version_file = Path(__file__).parent / "VERSION"
     if version_file.exists():
-        return version_file.read_text().strip()
+        return version_file.read_text(encoding="utf-8").strip()
     return "0.1.0"
 
 # Read requirements
 def get_requirements():
     req_file = Path(__file__).parent / "requirements.txt"
     if req_file.exists():
-        return req_file.read_text().strip().split('\n')
+        return req_file.read_text(encoding="utf-8").strip().split('\n')
     return ['aiohttp>=3.8.0', 'typing-extensions>=4.0.0']
 
 # Get the root directory (../../ from this file)
@@ -118,7 +118,7 @@ setup(
     author="corpus.core",
     author_email="contact@corpus.core",
     description="Python bindings for Colibri stateless Ethereum proof library",
-    long_description=open("README.md").read(),
+    long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/corpus-core/colibri-stateless",
     packages=find_packages(where="src"),

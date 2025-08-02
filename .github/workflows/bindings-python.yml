@@ -111,6 +111,8 @@ jobs:
         if: matrix.os == 'windows-latest'
         working-directory: bindings/python
         shell: cmd
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           echo Verifying Python extension build...
           
@@ -145,6 +147,8 @@ jobs:
         if: matrix.os == 'windows-latest'
         working-directory: bindings/python
         shell: cmd
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           echo "Running integration tests on Windows..."
           python -m pip install pytest pytest-asyncio aiohttp
@@ -168,6 +172,8 @@ jobs:
       - name: Build Python Wheel (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: bindings/python
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           echo "Building Python wheel for ${{ matrix.platform }}-${{ matrix.arch }}..."
           
@@ -193,6 +199,8 @@ jobs:
       - name: Test Wheel Installation (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: bindings/python
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           echo "Testing wheel installation..."
           
@@ -245,6 +253,8 @@ jobs:
         if: always() && matrix.os == 'windows-latest'
         working-directory: bindings/python
         shell: cmd
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           echo ## Python Build Results - ${{ matrix.platform }}-${{ matrix.arch }} >> %GITHUB_STEP_SUMMARY%
           echo. >> %GITHUB_STEP_SUMMARY%
