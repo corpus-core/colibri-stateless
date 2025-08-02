@@ -47,7 +47,7 @@ The Colibri Python Bindings provide a modern, async-first Python API for verifie
 ### PyPI Installation (Recommended)
 
 ```bash
-pip install colibri
+pip install colibri-stateless
 ```
 
 Pre-built wheels are available for:

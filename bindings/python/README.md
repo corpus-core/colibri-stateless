@@ -11,7 +11,7 @@ The colibri client is a stateless and trustless ethereum client, which is optimi
 ### Installation
 
 ```bash
-pip install colibri
+pip install colibri-stateless
 ```
 
 ### Basic Usage

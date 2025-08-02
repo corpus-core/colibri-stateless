@@ -8,7 +8,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "colibri"
+name = "colibri-stateless"
 dynamic = ["version"]
 description = "Python bindings for Colibri stateless Ethereum proof library"
 readme = "README.md"
