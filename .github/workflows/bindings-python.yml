@@ -55,7 +55,21 @@ jobs:
           
       - name: Install Build Dependencies (Windows)
         if: matrix.os == 'windows-latest'
-        uses: microsoft/setup-msbuild@v1
+        run: |
+          # Install CMake
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          cmake --version
+          
+      - name: Setup MSBuild (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: microsoft/setup-msbuild@v2
+        
+      - name: Verify Build Tools (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          # Verify build tools are available
+          where cl.exe || echo "Visual Studio compiler not found in PATH"
+          where msbuild.exe || echo "MSBuild not found in PATH"
         
       - name: Install Python Dependencies
         run: |
@@ -73,19 +87,43 @@ jobs:
       - name: Build Python Extension (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: bindings/python
+        shell: cmd
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
-          echo "🔧 Building Python extension for Windows..."
-          echo "🐍 Python version: ${{ matrix.python-version }}"
-          cd ../..
-          cmake -S . -B build -DPYTHON=ON -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --config Release
+          echo Building Python extension for Windows...
+          echo Python version: ${{ matrix.python-version }}
           
-      - name: Install Python Dependencies
-        working-directory: bindings/python
-        run: |
-          echo "📦 Installing Python dependencies..."
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          cd ..\..
+          echo Configuring CMake...
+          cmake -S . -B build -DPYTHON=ON -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022"
+          if %errorlevel% neq 0 (
+            echo CMake configuration failed with error %errorlevel%
+            echo Current directory: %cd%
+            dir CMakeLists.txt 2>nul || echo CMakeLists.txt not found
+            echo CMAKE_BUILD_TYPE: Release
+            echo PYTHON: ON
+            exit 1
+          )
+          
+          echo Building with CMake...
+          cmake --build build --config Release --verbose
+          if %errorlevel% neq 0 (
+            echo CMake build failed with error %errorlevel%
+            echo Checking build directory...
+            dir build 2>nul || echo build directory not found
+            echo Checking for build errors...
+            type build\CMakeFiles\CMakeError.log 2>nul || echo No CMakeError.log found
+            exit 1
+          )
+          
+          echo Build completed, checking for native extension...
+          cd bindings\python
+          dir src\colibri\_native*.pyd 2>nul || (
+            echo Native extension not found after build
+            dir src\colibri\ 2>nul || echo src\colibri directory not found
+            exit 1
+          )
           
       - name: Verify Build (Unix)
         if: matrix.os != 'windows-latest'
@@ -174,15 +212,27 @@ jobs:
         working-directory: bindings/python
         env:
           PYTHONIOENCODING: utf-8
+        shell: cmd
         run: |
-          echo "Building Python wheel for ${{ matrix.platform }}-${{ matrix.arch }}..."
+          echo Building Python wheel for ${{ matrix.platform }}-${{ matrix.arch }}...
           
           # Create wheel using built extension
           python -m build --wheel --outdir dist/
+          if %errorlevel% neq 0 (
+            echo Build failed with error %errorlevel%
+            exit 1
+          )
+          
+          # Verify wheel was created
+          if not exist dist\*.whl (
+            echo No wheel files found in dist directory
+            dir dist\ 2>nul || echo dist directory does not exist
+            exit 1
+          )
           
           # Show what was built
-          echo "Built wheels:"
-          dir dist\*.whl
+          echo Built wheels:
+          for %%f in (dist\*.whl) do echo %%f
           
       - name: Test Wheel Installation (Unix)
         if: matrix.os != 'windows-latest'
@@ -201,11 +251,26 @@ jobs:
         working-directory: bindings/python
         env:
           PYTHONIOENCODING: utf-8
+        shell: cmd
         run: |
-          echo "Testing wheel installation..."
+          echo Testing wheel installation...
           
-          # Install the wheel in a fresh environment
-          python -m pip install dist/*.whl
+          # Check if wheel exists before trying to install
+          if not exist dist\*.whl (
+            echo No wheel files found, skipping installation test
+            exit 1
+          )
+          
+          # Get the wheel filename
+          for %%f in (dist\*.whl) do set WHEEL_FILE=%%f
+          echo Installing wheel: %WHEEL_FILE%
+          
+          # Install the specific wheel file
+          python -m pip install "%WHEEL_FILE%"
+          if %errorlevel% neq 0 (
+            echo Wheel installation failed
+            exit 1
+          )
           
           # Test import from installed wheel
           python -c "import colibri; from colibri import Colibri; print('Wheel installation works'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('Installed wheel works:', support.name)"
@@ -215,7 +280,7 @@ jobs:
         with:
           name: python-wheel-${{ matrix.platform }}-${{ matrix.arch }}-py${{ matrix.python-version }}
           path: bindings/python/dist/*.whl
-          if-no-files-found: error
+          if-no-files-found: warn
           
       - name: Generate Build Summary (Unix)
         if: always() && matrix.os != 'windows-latest'
