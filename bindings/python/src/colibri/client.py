@@ -282,7 +282,7 @@ class Colibri:
                                 status = json.loads(fixed_json)
                                 # JSON parsing successful after fix
                             except json.JSONDecodeError as e2:
-                                print(f"❌ Still invalid after fix: {e2}")
+                                print(f"Still invalid after fix: {e2}")
                                 raise VerificationError(f"Invalid JSON in verification response: {e2}")
                         else:
                             # JSON parse error occurred

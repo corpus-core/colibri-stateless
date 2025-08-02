@@ -159,7 +159,7 @@ class FileBasedMockRequestHandler:
         
         # List available files for debugging
         available_files = [f.name for f in self.test_data_dir.iterdir() if f.is_file()]
-        print(f"📋 Available files: {available_files[:10]}...")  # Limit output
+        print(f"Available files: {available_files[:10]}...")  # Limit output
         
         raise Exception(f"No mock response file found for: {filename}")
 
@@ -175,7 +175,7 @@ def discover_tests(test_data_root=None):
     # Discover tests in test data directory
     
     if not test_data_root.exists():
-        print(f"❌ Test data directory not found: {test_data_root}")
+        print(f"Test data directory not found: {test_data_root}")
         return []
     
     test_cases = []
@@ -192,7 +192,7 @@ def discover_tests(test_data_root=None):
             # Skip tests that require chain store
             if test_config.get('requires_chain_store', False):
                 skipped_cases.append(test_name)
-                print(f"⏭️ Skipping test (requires_chain_store): {test_name}")
+                print(f"Skipping test (requires_chain_store): {test_name}")
                 continue
             
             test_case = {
@@ -205,15 +205,15 @@ def discover_tests(test_data_root=None):
             }
             
             test_cases.append(test_case)
-            print(f"✅ Found test: {test_name} - {test_config['method']}")
+            print(f"Found test: {test_name} - {test_config['method']}")
             
         except (json.JSONDecodeError, KeyError) as e:
-            print(f"❌ Invalid test.json in {test_dir}: {e}")
+            print(f"Invalid test.json in {test_dir}: {e}")
             continue
     
-    print(f"🎯 Discovered {len(test_cases)} test cases")
+    print(f"Discovered {len(test_cases)} test cases")
     if skipped_cases:
-        print(f"⏭️ Skipped {len(skipped_cases)} tests requiring chain store: {', '.join(skipped_cases[:5])}{'...' if len(skipped_cases) > 5 else ''}")
+        print(f"Skipped {len(skipped_cases)} tests requiring chain store: {', '.join(skipped_cases[:5])}{'...' if len(skipped_cases) > 5 else ''}")
     return test_cases
 
 
@@ -230,7 +230,7 @@ async def run_test_case(test_case):
     chain_id = test_case['chain_id']
     expected_result = test_case.get('expected_result')
     
-    print(f"\n🧪 Running test: {test_name}")
+    print(f"\nRunning test: {test_name}")
     print(f"   Method: {method}")
     print(f"   Chain ID: {chain_id}")
     
@@ -241,7 +241,7 @@ async def run_test_case(test_case):
     # Create client with NO proofers to force local proof creation
     client = Colibri(
         chain_id=chain_id,
-        proofers=[],  # 🔥 CRITICAL: No remote proofers! Use only mock data
+        proofers=[],  # CRITICAL: No remote proofers! Use only mock data
         storage=mock_storage,
         request_handler=mock_request_handler
     )
@@ -249,20 +249,20 @@ async def run_test_case(test_case):
     try:
         result = await client.rpc(method, params)
         
-        print(f"✅ Test completed: {result}")
+        print(f"Test completed: {result}")
         
         # Compare with expected if available
         if expected_result is not None:
             if result == expected_result:
-                print(f"✅ Result matches expected")
+                print(f"Result matches expected")
                 return {'status': 'PASSED', 'name': test_name, 'result': result}
             else:
-                print(f"❌ Result mismatch! Expected {expected_result}, got {result}")
+                print(f"Result mismatch! Expected {expected_result}, got {result}")
                 return {'status': 'FAILED', 'name': test_name, 'error': 'Result mismatch', 'result': result}
         else:
-            print(f"ℹ️ No expected result to compare")
+            print(f"No expected result to compare")
             return {'status': 'PASSED', 'name': test_name, 'result': result}
         
     except Exception as e:
-        print(f"❌ Test error: {e}")
+        print(f"Test error: {e}")
         return {'status': 'ERROR', 'name': test_name, 'error': str(e)}
