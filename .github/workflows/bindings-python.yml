@@ -112,19 +112,19 @@ jobs:
         working-directory: bindings/python
         shell: cmd
         run: |
-          echo 🔍 Verifying Python extension build...
+          echo Verifying Python extension build...
           
-          echo 📦 Installing Python dependencies...
+          echo Installing Python dependencies...
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           
           dir src\colibri\_native*.pyd >nul 2>&1
           if %errorlevel%==0 (
-            echo ✅ Native extension found
+            echo Native extension found
             set PYTHONPATH=src
-            python -c "import colibri; from colibri import Colibri; print('✅ Import successful'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_getProof'); print('✅ Works:', support.name)"
+            python -c "import colibri; from colibri import Colibri; print('Import successful'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_getProof'); print('Works:', support.name)"
           ) else (
-            echo ❌ Native extension not found!
+            echo Native extension not found!
             dir src\colibri
             exit 1
           )
@@ -146,13 +146,14 @@ jobs:
         if: matrix.os == 'windows-latest'
         working-directory: bindings/python
         run: |
-          echo "🧪 Running integration tests on Windows..."
+          echo "Running integration tests on Windows..."
           python -m pip install pytest pytest-asyncio aiohttp
           
           # Simple integration test for Windows
-          set PYTHONPATH=src&& python -c "from colibri.testing import discover_tests; from colibri import Colibri; tests = discover_tests(); print(f'🎯 Discovered {len(tests)} test cases'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('✅ Basic functionality works:', support.name)"
+          set PYTHONPATH=src&& python -c "from colibri.testing import discover_tests; from colibri import Colibri; tests = discover_tests(); print('Discovered ' + str(len(tests)) + ' test cases'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('Basic functionality works:', support.name)"
           
-      - name: Build Python Wheel
+      - name: Build Python Wheel (Unix)
+        if: matrix.os != 'windows-latest'
         working-directory: bindings/python
         run: |
           echo "📦 Building Python wheel for ${{ matrix.platform }}-${{ matrix.arch }}..."
@@ -164,7 +165,21 @@ jobs:
           echo "🔍 Built wheels:"
           ls -la dist/*.whl
           
-      - name: Test Wheel Installation
+      - name: Build Python Wheel (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          echo "Building Python wheel for ${{ matrix.platform }}-${{ matrix.arch }}..."
+          
+          # Create wheel using built extension
+          python -m build --wheel --outdir dist/
+          
+          # Show what was built
+          echo "Built wheels:"
+          dir dist\*.whl
+          
+      - name: Test Wheel Installation (Unix)
+        if: matrix.os != 'windows-latest'
         working-directory: bindings/python
         run: |
           echo "🧪 Testing wheel installation..."
@@ -174,6 +189,18 @@ jobs:
           
           # Test import from installed wheel
           python -c "import colibri; from colibri import Colibri; print('✅ Wheel installation works'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('✅ Installed wheel works:', support.name)"
+          
+      - name: Test Wheel Installation (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          echo "Testing wheel installation..."
+          
+          # Install the wheel in a fresh environment
+          python -m pip install dist/*.whl
+          
+          # Test import from installed wheel
+          python -c "import colibri; from colibri import Colibri; print('Wheel installation works'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('Installed wheel works:', support.name)"
           
       - name: Upload Wheel Artifacts
         uses: actions/upload-artifact@v4
@@ -217,34 +244,33 @@ jobs:
       - name: Generate Build Summary (Windows)
         if: always() && matrix.os == 'windows-latest'
         working-directory: bindings/python
+        shell: cmd
         run: |
-          echo "## 🐍 Python Build Results - ${{ matrix.platform }}-${{ matrix.arch }}" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "**Platform**: ${{ matrix.os }}" >> $env:GITHUB_STEP_SUMMARY  
-          echo "**Python Version**: ${{ matrix.python-version }}" >> $env:GITHUB_STEP_SUMMARY
-          echo "**Architecture**: ${{ matrix.arch }}" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
+          echo ## Python Build Results - ${{ matrix.platform }}-${{ matrix.arch }} >> %GITHUB_STEP_SUMMARY%
+          echo. >> %GITHUB_STEP_SUMMARY%
+          echo **Platform**: ${{ matrix.os }} >> %GITHUB_STEP_SUMMARY%
+          echo **Python Version**: ${{ matrix.python-version }} >> %GITHUB_STEP_SUMMARY%
+          echo **Architecture**: ${{ matrix.arch }} >> %GITHUB_STEP_SUMMARY%
+          echo. >> %GITHUB_STEP_SUMMARY%
           
-          # Check for files and report status
-          $nativeExt = Get-ChildItem -Path "src/colibri" -Name "_native*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
-          $wheelFile = Get-ChildItem -Path "dist" -Name "*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
-          
-          if ($nativeExt -and (Test-Path "src/colibri/$nativeExt")) {
-            echo "### ✅ Build Successful" >> $env:GITHUB_STEP_SUMMARY
-            echo "| Component | Status |" >> $env:GITHUB_STEP_SUMMARY
-            echo "|-----------|--------|" >> $env:GITHUB_STEP_SUMMARY
-            echo "| Native Extension | ✅ Built |" >> $env:GITHUB_STEP_SUMMARY
-            if ($wheelFile -and (Test-Path "dist/$wheelFile")) {
-              echo "| Python Wheel | ✅ Created |" >> $env:GITHUB_STEP_SUMMARY
-            } else {
-              echo "| Python Wheel | ❌ Failed |" >> $env:GITHUB_STEP_SUMMARY
-            }
-            echo "| Integration Tests | ✅ Passed |" >> $env:GITHUB_STEP_SUMMARY
-          } else {
-            echo "### ❌ Build Failed" >> $env:GITHUB_STEP_SUMMARY
-            echo "Native extension was not created." >> $env:GITHUB_STEP_SUMMARY
-          }
-          echo "" >> $env:GITHUB_STEP_SUMMARY
+          dir src\colibri\_native*.pyd >nul 2>&1
+          if %errorlevel%==0 (
+            echo ### Build Successful >> %GITHUB_STEP_SUMMARY%
+            echo ^| Component ^| Status ^| >> %GITHUB_STEP_SUMMARY%
+            echo ^|--------^|--------^| >> %GITHUB_STEP_SUMMARY%
+            echo ^| Native Extension ^| Built ^| >> %GITHUB_STEP_SUMMARY%
+            dir dist\*.whl >nul 2>&1
+            if %errorlevel%==0 (
+              echo ^| Python Wheel ^| Created ^| >> %GITHUB_STEP_SUMMARY%
+            ) else (
+              echo ^| Python Wheel ^| Failed ^| >> %GITHUB_STEP_SUMMARY%
+            )
+            echo ^| Integration Tests ^| Passed ^| >> %GITHUB_STEP_SUMMARY%
+          ) else (
+            echo ### Build Failed >> %GITHUB_STEP_SUMMARY%
+            echo Native extension was not created. >> %GITHUB_STEP_SUMMARY%
+          )
+          echo. >> %GITHUB_STEP_SUMMARY%
           
   create-universal-wheel:
     needs: [build-wheels]
