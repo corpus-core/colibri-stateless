@@ -3,13 +3,12 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "../proofer/proofer.h" // Include for proofer cleanup and current_ms
 #include "server.h"
 #include <curl/curl.h>
 #include <errno.h>
 #include <llhttp.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <uv.h>
@@ -30,9 +29,27 @@
     }                                                                \
   } while (0)
 
+// File-scope handles so the signal handler can access them
+static uv_timer_t            curl_timer;
+static uv_timer_t            proofer_cleanup_timer;
+static uv_tcp_t              server;
+static uv_signal_t           sigterm_handle;
+static uv_signal_t           sigint_handle;
+static uv_loop_t*            loop               = NULL;
+static volatile sig_atomic_t shutdown_requested = 0;
+
 // Timer callback for proofer cache cleanup
 static void on_proofer_cleanup_timer(uv_timer_t* handle) {
   c4_proofer_cache_cleanup(current_ms(), 0);
+}
+
+// Signal callback to initiate graceful shutdown
+static void on_signal(uv_signal_t* handle, int signum) {
+  (void) handle;
+  fprintf(stderr, "C4 Server: received signal %d — initiating graceful shutdown...\n", signum);
+  shutdown_requested = 1;
+  // Break out of the event loop; cleanup will be performed after uv_run() returns
+  if (loop) uv_stop(loop);
 }
 
 int main(int argc, char* argv[]) {
@@ -41,13 +58,10 @@ int main(int argc, char* argv[]) {
   //  setvbuf(stdout, NULL, _IONBF, 0);
   //  setvbuf(stderr, NULL, _IONBF, 0);
 
-  uv_timer_t         curl_timer;
-  uv_timer_t         proofer_cleanup_timer;
-  uv_tcp_t           server;
   struct sockaddr_in addr;
-  int                port                = http_server.port;
-  uv_loop_t*         loop                = uv_default_loop();
-  uint64_t           cleanup_interval_ms = 3000; // 3 seconds
+  int                port      = http_server.port;
+  loop                         = uv_default_loop();
+  uint64_t cleanup_interval_ms = 3000; // 3 seconds
 
   // register http-handler
   c4_register_http_handler(c4_handle_proof_request);
@@ -79,12 +93,49 @@ int main(int argc, char* argv[]) {
   c4_init_curl(&curl_timer);
   c4_watch_beacon_events();
 
+  // Setup signal handlers for graceful shutdown (SIGTERM for Docker stop, SIGINT for Ctrl+C)
+  UV_CHECK("SIGTERM handler init", uv_signal_init(loop, &sigterm_handle));
+  UV_CHECK("SIGTERM start", uv_signal_start(&sigterm_handle, on_signal, SIGTERM));
+  UV_CHECK("SIGINT handler init", uv_signal_init(loop, &sigint_handle));
+  UV_CHECK("SIGINT start", uv_signal_start(&sigint_handle, on_signal, SIGINT));
+
   UV_CHECK("Event loop", uv_run(loop, UV_RUN_DEFAULT));
 
-  // Stop timers before cleaning up
-  uv_timer_stop(&proofer_cleanup_timer);
-  // Assuming curl_timer is stopped within c4_cleanup_curl or doesn't need explicit stop here
+  // If shutdown was requested, perform graceful cleanup
+  if (shutdown_requested) {
+    // Stop and close timers and server
+    uv_timer_stop(&proofer_cleanup_timer);
+    uv_close((uv_handle_t*) &proofer_cleanup_timer, NULL);
 
-  c4_cleanup_curl();
+    // curl integration timer
+    uv_timer_stop(&curl_timer);
+    uv_close((uv_handle_t*) &curl_timer, NULL);
+
+    // Stop accepting new connections
+    uv_close((uv_handle_t*) &server, NULL);
+
+    // Cleanup CURL and related resources (may schedule uv_close on poll handles)
+    c4_cleanup_curl();
+
+    // Close signal handles
+    uv_signal_stop(&sigterm_handle);
+    uv_close((uv_handle_t*) &sigterm_handle, NULL);
+    uv_signal_stop(&sigint_handle);
+    uv_close((uv_handle_t*) &sigint_handle, NULL);
+
+    // Let libuv process pending close callbacks
+    uv_run(loop, UV_RUN_DEFAULT);
+
+    fprintf(stderr, "C4 Server shut down gracefully.\n");
+  }
+
+  // Attempt to close the loop
+  int close_rc = uv_loop_close(loop);
+  if (close_rc != 0) {
+    // As a fallback, drain any remaining handles
+    uv_run(loop, UV_RUN_DEFAULT);
+    uv_loop_close(loop);
+  }
+
   return 0;
 }
