@@ -30,3 +30,4 @@ bindings/swift/.swiftpm
 bindings/swift/ios_package
 bindings/swift/test_ios_app/.build
 bindings/swift/Sources/CColibri/include/colibri.h
+bindings/rust/target

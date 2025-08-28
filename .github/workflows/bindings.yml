@@ -38,3 +38,9 @@ jobs:
   docker-proofer:
     uses: ./.github/workflows/bindings-docker.yml
 
+  rust:
+    uses: ./.github/workflows/bindings-rust.yml
+    secrets:
+      CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+
