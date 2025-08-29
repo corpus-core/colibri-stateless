@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "beacon.h"
+#include "handler.h"
 #include "logger.h"
-#include "server.h"
+#include "proofer/proofer.h"
+#include "util/logger.h"
 
 typedef struct {
   bytes_t*  found;

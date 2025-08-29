@@ -5,6 +5,8 @@
 
 #include "../proofer/proofer.h" // Include for proofer cleanup and current_ms
 #include "server.h"
+#include "server_handlers.h"
+#include "util/version.h"
 #include <curl/curl.h>
 #include <errno.h>
 #include <llhttp.h>
@@ -65,9 +67,7 @@ int main(int argc, char* argv[]) {
 
   // register http-handler
   c4_register_http_handler(c4_handle_proof_request);
-  c4_register_http_handler(c4_handle_lcu);
   c4_register_http_handler(c4_handle_metrics);
-  c4_register_http_handler(c4_proxy);
   c4_register_http_handler(c4_handle_status);
   if (!loop) {
     fprintf(stderr, "Error: Failed to initialize default uv loop\n");
@@ -91,7 +91,9 @@ int main(int argc, char* argv[]) {
 
   // Initialize curl right before starting the event loop, passing the renamed timer handle
   c4_init_curl(&curl_timer);
-  c4_watch_beacon_events();
+
+  // Initialize all chain-specific server handlers
+  c4_server_handlers_init(&http_server);
 
   // Setup signal handlers for graceful shutdown (SIGTERM for Docker stop, SIGINT for Ctrl+C)
   UV_CHECK("SIGTERM handler init", uv_signal_init(loop, &sigterm_handle));
@@ -100,6 +102,10 @@ int main(int argc, char* argv[]) {
   UV_CHECK("SIGINT start", uv_signal_start(&sigint_handle, on_signal, SIGINT));
 
   UV_CHECK("Event loop", uv_run(loop, UV_RUN_DEFAULT));
+
+  fprintf(stderr, "Server stopped");
+
+  c4_server_handlers_shutdown(&http_server);
 
   // If shutdown was requested, perform graceful cleanup
   if (shutdown_requested) {

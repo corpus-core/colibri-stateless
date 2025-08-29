@@ -144,3 +144,16 @@ add_proofer(
   PROOF eth_proofer_execute
 )
 
+add_server_handler(
+  NAME eth_server_handler
+  SOURCES 
+    server/handler.c
+    server/beacon_watcher.c
+    server/head_update.c
+    server/handle_lcu.c
+    server/handle_headers.c
+  DEPENDS eth_proofer
+  INIT_FUNC eth_server_init
+  SHUTDOWN_FUNC eth_server_shutdown
+)
+

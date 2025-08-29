@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
+#include "handler.h"
+#include "util/logger.h"
+#include <stdlib.h>
+#include <string.h>
 
-
-#include "logger.h"
-#include "server.h"
-
+// Callback for proxied requests
 static void c4_proxy_callback(client_t* client, void* data, data_request_t* req) {
   // Check if client is still valid before responding
   if (!client || client->being_closed) {

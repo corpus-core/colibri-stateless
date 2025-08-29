@@ -3,16 +3,21 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "beacon.h"
 #include "beacon_types.h"
+#include "handler.h"
 #include "logger.h"
+#include "proofer/proofer.h"
 #include "server.h"
+#include "util/json.h"
+#include "util/logger.h"
+#include "util/state.h"
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <uv.h>
 
 static void proofer_request_free(request_t* req) {

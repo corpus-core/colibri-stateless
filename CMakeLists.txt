@@ -245,6 +245,9 @@ include(src/chains/chains.cmake)
 add_definitions(-DVERIFIERS_PATH="${CMAKE_BINARY_DIR}/verifiers.h")
 add_definitions(-DPROOFERS_PATH="${CMAKE_BINARY_DIR}/proofers.h")
 
+# Add the binary directory to the include path for generated headers
+include_directories(${CMAKE_BINARY_DIR})
+
 # Add core libraries first
 add_subdirectory(libs)
 add_subdirectory(src)
@@ -292,9 +295,10 @@ add_custom_target(valgrind
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Generating the valgrind image"
 )
-# Generate headers at the end
+
 generate_verifiers_header()
 generate_proofers_header()
+generate_server_handlers_header()
 
 # Combined static library target
 if(NOT EMBEDDED)

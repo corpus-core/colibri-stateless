@@ -8,19 +8,20 @@ add_executable(server
   http_servers_select.c
   http_server.c
   handle_proof.c
-  handle_lcu.c
-  handle_headers.c
   handle_health.c
   handle_metrics.c
   cache.c
   configure.c
-  beacon_watcher.c
-  head_update.c
   store.c
   internal_calls.c
 )
 
-target_link_libraries(server PRIVATE libuv llhttp proofer util verifier CURL::libcurl)
+target_include_directories(server PUBLIC ${CMAKE_BINARY_DIR})
+target_include_directories(server PUBLIC ../../libs)
+target_include_directories(server PUBLIC ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include)
+target_include_directories(server PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
+
+target_link_libraries(server PRIVATE libuv llhttp proofer util verifier CURL::libcurl ${SERVER_HANDLER_LIBS})
 
 set_target_properties(server PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin

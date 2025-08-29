@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #ifndef C4_SERVER_H
 #define C4_SERVER_H
 
@@ -174,13 +172,8 @@ void c4_configure(int argc, char* argv[]);
 // Handlers
 bool           c4_handle_proof_request(client_t* client);
 bool           c4_handle_status(client_t* client);
-bool           c4_proxy(client_t* client);
-bool           c4_handle_lcu(client_t* client);
 bool           c4_handle_health_check(client_t* client);
 bool           c4_handle_metrics(client_t* client);
-void           c4_handle_new_head(json_t head);
-void           c4_handle_finalized_checkpoint(json_t checkpoint);
-void           c4_watch_beacon_events();
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
 bool           c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb);

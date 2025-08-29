@@ -162,3 +162,86 @@ function(generate_proofers_header)
     # Close header guard
     file(APPEND ${PROOFERS_H} "#endif // PROOFERS_H\n")
 endfunction()
+
+# List for all server handler properties
+set(SERVER_HANDLER_PROPERTIES "" CACHE INTERNAL "List of all server handler properties")
+set(SERVER_HANDLER_LIBS "" CACHE INTERNAL "List of all server handler libraries")
+
+function(add_server_handler)
+    if(NOT HTTP_SERVER)
+        return()
+    endif()
+
+    set(options "")
+    set(oneValueArgs NAME INIT_FUNC SHUTDOWN_FUNC)
+    set(multiValueArgs SOURCES DEPENDS)
+    cmake_parse_arguments(HANDLER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    add_library(${HANDLER_NAME} STATIC ${HANDLER_SOURCES})
+    target_include_directories(${HANDLER_NAME} PUBLIC 
+        ../../server
+        ../../
+        ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include
+        ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
+    )
+    target_link_libraries(${HANDLER_NAME} PUBLIC libuv llhttp proofer util verifier ${HANDLER_DEPENDS} )
+    # target_link_libraries(server PUBLIC ${HANDLER_NAME}) # This is the problematic line
+
+    # Get current list of properties
+    get_property(CURRENT_PROPERTIES CACHE SERVER_HANDLER_PROPERTIES PROPERTY VALUE)
+    
+    # Append the new handler to the list
+    list(APPEND CURRENT_PROPERTIES 
+         "${HANDLER_NAME}:${HANDLER_INIT_FUNC}:${HANDLER_SHUTDOWN_FUNC}")
+    set(SERVER_HANDLER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all server handler properties" FORCE)
+
+    # Add the handler library to the global list of libraries
+    get_property(CURRENT_LIBS CACHE SERVER_HANDLER_LIBS PROPERTY VALUE)
+    list(APPEND CURRENT_LIBS ${HANDLER_NAME})
+    set(SERVER_HANDLER_LIBS "${CURRENT_LIBS}" CACHE INTERNAL "List of all server handler libraries" FORCE)
+endfunction()
+
+# Function to generate server_handlers.h
+function(generate_server_handlers_header)
+    if(NOT HTTP_SERVER)
+        return()
+    endif()
+
+    set(SERVER_HANDLERS_H "${CMAKE_BINARY_DIR}/server_handlers.h")
+    
+    file(WRITE ${SERVER_HANDLERS_H} "#ifndef SERVER_HANDLERS_H\n")
+    file(APPEND ${SERVER_HANDLERS_H} "#define SERVER_HANDLERS_H\n\n")
+    file(APPEND ${SERVER_HANDLERS_H} "#include \"server.h\"\n\n")
+
+    # Forward declarations for all handler functions
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 1 init_func)
+        list(GET parts 2 shutdown_func)
+        file(APPEND ${SERVER_HANDLERS_H} "void ${init_func}(http_server_t* server);\n")
+        file(APPEND ${SERVER_HANDLERS_H} "void ${shutdown_func}(http_server_t* server);\n")
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "\n")
+
+    # --- Dispatcher-Funktionen generieren ---
+
+    # Init-Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static void c4_server_handlers_init(http_server_t* server) {\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 1 init_func)
+        file(APPEND ${SERVER_HANDLERS_H} "  ${init_func}(server);\n")
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Shutdown-Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static void c4_server_handlers_shutdown(http_server_t* server) {\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 2 shutdown_func)
+        file(APPEND ${SERVER_HANDLERS_H} "  ${shutdown_func}(server);\n")
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    file(APPEND ${SERVER_HANDLERS_H} "#endif // SERVER_HANDLERS_H\n")
+endfunction()

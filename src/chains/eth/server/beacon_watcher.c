@@ -4,9 +4,13 @@
  */
 
 #include "bytes.h"
+#include "chains.h"
+#include "handler.h"
+#include "json.h"
 #include "logger.h"
 #include "proofer.h"
 #include "server.h"
+#include "state.h"
 #include <curl/curl.h>
 #include <stddef.h> // For size_t needed by strnstr impl
 #include <stdio.h>
