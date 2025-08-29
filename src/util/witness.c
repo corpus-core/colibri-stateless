@@ -2,9 +2,13 @@
 #include "crypto.h"
 
 const ssz_def_t C4_BLOCK_HASH_WITNESS[3] = {
-    SSZ_UINT64("chainId"),     // the chainId
-    SSZ_UINT64("blockNumber"), // blocknumber
-    SSZ_BYTES32("blockHash")}; // the blockhash seen
+    SSZ_UINT64("chainId"),          // the chainId
+    SSZ_UINT64("blockNumber"),      // blocknumber
+    SSZ_BYTES32("blockHash"),       // the blockhash
+    SSZ_BYTES32("stateRoot"),       // the state root
+    SSZ_BYTES32("receiptsRoot"),    // the receipts root
+    SSZ_BYTES32("transactionsRoot") // the transactions root
+}; // the blockhash seen
 
 static const ssz_def_t C4_WITNESS_UNION[] = {
     SSZ_CONTAINER(C4_BLOCK_HASH_WITNESS_ID, C4_BLOCK_HASH_WITNESS), // the blockhash

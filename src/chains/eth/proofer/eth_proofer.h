@@ -38,6 +38,7 @@ c4_status_t c4_proof_call(proofer_ctx_t* ctx);
 c4_status_t c4_proof_sync(proofer_ctx_t* ctx);
 c4_status_t c4_proof_block(proofer_ctx_t* ctx);
 c4_status_t c4_proof_block_number(proofer_ctx_t* ctx);
+c4_status_t c4_proof_witness(proofer_ctx_t* ctx);
 #ifdef __cplusplus
 }
 #endif

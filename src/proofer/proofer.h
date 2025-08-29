@@ -104,6 +104,7 @@ typedef struct {
   c4_state_t      state;        // proofer ctx state, holind errors and requests.
   proofer_flags_t flags;        // proofer flags
   bytes_t         client_state; // optional client_state representing the synced periods and trusted blockhashes
+  bytes_t         witness_key;  // witness key for the proofer
 #ifdef PROOFER_CACHE
   cache_entry_t* cache; // cache for the proofer (only active in the server context)
 #endif

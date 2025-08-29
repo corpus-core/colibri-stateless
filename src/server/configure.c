@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "server.h"
 #include <stdlib.h>
 
@@ -47,6 +45,19 @@ static int get_string(char** target, char* env_name, char* arg_nane, char shortc
   if (arg_value)
     val = arg_value;
   if (val) *target = val;
+  return 0;
+}
+
+static int get_key(bytes32_t target, char* env_name, char* arg_nane, char shortcut, char* descr) {
+  add_help_line(shortcut, arg_nane, env_name, descr, "");
+  char* val       = getenv(env_name);
+  char* arg_value = get_arg(arg_nane, shortcut, true);
+  if (arg_value)
+    val = arg_value;
+  if (val && *val) {
+    if (val[0] == '0' && val[1] == 'x' && strlen(val) == 66)
+      hex_to_bytes(val, -1, bytes(target, 32));
+  }
   return 0;
 }
 
@@ -119,6 +130,7 @@ static void config() {
 
   get_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
   get_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");
+  get_key(http_server.witness_key, "WITNESS_KEY", "witness_key", 'w', "hexcode or path to a private key used as signer for the witness");
   get_int(&http_server.memcached_port, "MEMCACHED_PORT", "memcached_port", 'P', "port of the memcached server", 1, 65535);
   get_int(&http_server.memcached_pool, "MEMCACHED_POOL", "memcached_pool", 'S', "pool size of the memcached server", 1, 100);
   get_int(&http_server.loglevel, "LOG_LEVEL", "log_level", 'l', "log level", 0, 3);

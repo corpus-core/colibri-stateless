@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "beacon.h"
 #include "logger.h"
 #include "server.h"
@@ -96,18 +94,20 @@ bool c4_handle_proof_request(client_t* client) {
     return true;
   }
 
-  buffer_t   client_state_buf = {0};
-  char*      method_str       = bprintf(NULL, "%j", method);
-  char*      params_str       = bprintf(NULL, "%J", params);
-  request_t* req              = (request_t*) safe_calloc(1, sizeof(request_t));
-  req->start_time             = current_ms();
-  req->client                 = client;
-  req->cb                     = c4_proofer_handle_request;
-  req->ctx                    = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROOFER_FLAG_CHAIN_STORE : 0));
-  if (client_state.type == JSON_TYPE_STRING) ((proofer_ctx_t*) req->ctx)->client_state = json_as_bytes(client_state, &client_state_buf);
+  buffer_t       client_state_buf = {0};
+  char*          method_str       = bprintf(NULL, "%j", method);
+  char*          params_str       = bprintf(NULL, "%J", params);
+  request_t*     req              = (request_t*) safe_calloc(1, sizeof(request_t));
+  proofer_ctx_t* ctx              = c4_proofer_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROOFER_FLAG_CHAIN_STORE : 0));
+  req->start_time                 = current_ms();
+  req->client                     = client;
+  req->cb                         = c4_proofer_handle_request;
+  req->ctx                        = ctx;
+  if (client_state.type == JSON_TYPE_STRING) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
+  if (!bytes_all_zero(bytes(http_server.witness_key, 32))) ctx->witness_key = bytes(http_server.witness_key, 32);
 
   safe_free(method_str);
   safe_free(params_str);
-  c4_proofer_handle_request(req);
+  req->cb(req);
   return true;
 }

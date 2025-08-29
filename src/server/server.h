@@ -49,6 +49,7 @@ typedef struct {
 #endif
 } server_stats_t;
 
+#define STR_BYTES(msg) bytes(msg, strlen(msg) - 1)
 typedef struct {
   char*          memcached_host;
   int            memcached_port;
@@ -61,6 +62,7 @@ typedef struct {
   char*          beacon_nodes;
   int            stream_beacon_events;
   char*          period_store;
+  bytes32_t      witness_key;
   server_stats_t stats;
 } http_server_t;
 

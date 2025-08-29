@@ -31,4 +31,5 @@
 extern const ssz_def_t C4_BLOCK_HASH_WITNESS[3];
 extern const ssz_def_t C4_WITNESS_CONTAINER[2];
 
+ssz_builder_t c4_witness_sign(ssz_builder_t data, bytes32_t private_key);
 #endif
