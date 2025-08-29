@@ -52,6 +52,13 @@ bool blst_verify(bytes32_t       message,         /**< 32 bytes hashed message *
                  bool            deserialized);
 
 bool secp256k1_recover(const bytes32_t digest, bytes_t signature, uint8_t* pubkey);
+/**
+ * @brief Sign a digest with a private key
+ * @param pk The private key
+ * @param digest The digest to sign
+ * @param signature The signature (65 bytes with th last byte as recovery bit)
+ */
+void secp256k1_sign(const bytes32_t pk, const bytes32_t digest, uint8_t* signature);
 
 #ifdef __cplusplus
 }

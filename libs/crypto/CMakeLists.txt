@@ -11,6 +11,8 @@ if(NOT MSVC)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-#pragma-messages")
 endif()
 
+
+
 add_definitions(-DAES_128)
 # add_definitions(-DUSE_HASHER)
 set(SRC 
@@ -40,7 +42,12 @@ set(SRC
 #  nist256p1.c
 
 )
-
+if (WITNESS_SIGNER)
+  add_definitions(-DWITNESS_SIGNER)
+  add_definitions(-DUSE_ECDSA_SIGN)
+  add_definitions(-DUSE_RFC6979)
+  list(APPEND SRC rfc6979.c hmac_drbg.c)
+endif()
 
 add_library(crypto STATIC ${SRC} )
 target_include_directories(crypto PUBLIC .)

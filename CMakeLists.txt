@@ -24,6 +24,7 @@ project(c4)
 
 # Core build options
 option(CURL "Enable CURL support" ON)
+option(WITNESS_SIGNER "Enable witness signing" ON)
 option(PROOFER "Build the proofer library" ON)
 option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)

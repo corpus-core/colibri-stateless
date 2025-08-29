@@ -126,3 +126,7 @@ bool secp256k1_recover(const bytes32_t digest, bytes_t signature, uint8_t* pubke
     memcpy(pubkey, pub + 1, 64);
   return true;
 }
+
+void secp256k1_sign(const bytes32_t pk, const bytes32_t digest, uint8_t* signature) {
+  ecdsa_sign_digest(&secp256k1, pk, digest, signature, signature + 64, NULL);
+}
