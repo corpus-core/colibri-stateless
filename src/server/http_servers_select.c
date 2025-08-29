@@ -3,16 +3,19 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "beacon_types.h"
+#include "chains/eth/server/eth_clients.h"
 #include "logger.h"
 #include "proofer.h"
 #include "server.h"
+#include "server_handlers.h"
+#include "util/json.h"
+#include "util/logger.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 // Constants for load balancing
 #define MAX_CONSECUTIVE_FAILURES   3
@@ -394,33 +397,17 @@ static bool contains_client_name(const char* response, const char* client_name) 
   return false;
 }
 
-// Client type mapping structure
-typedef struct {
-  const char*          config_name;  // "NIMBUS", "GETH", etc. for URL suffixes
-  const char*          display_name; // "Nimbus", "Geth", etc. for logs
-  beacon_client_type_t value;        // BEACON_CLIENT_NIMBUS, RPC_CLIENT_GETH, etc.
-} client_type_mapping_t;
-
-// Complete mapping of client types
-static const client_type_mapping_t client_type_mappings[] = {
-    {"NIMBUS", "Nimbus", BEACON_CLIENT_NIMBUS},
-    {"LODESTAR", "Lodestar", BEACON_CLIENT_LODESTAR},
-    {"PRYSM", "Prysm", BEACON_CLIENT_PRYSM},
-    {"LIGHTHOUSE", "Lighthouse", BEACON_CLIENT_LIGHTHOUSE},
-    {"TEKU", "Teku", BEACON_CLIENT_TEKU},
-    {"GRANDINE", "Grandine", BEACON_CLIENT_GRANDINE},
-    {"GETH", "Geth", RPC_CLIENT_GETH},
-    {"NETHERMIND", "Nethermind", RPC_CLIENT_NETHERMIND},
-    {"ERIGON", "Erigon", RPC_CLIENT_ERIGON},
-    {"BESU", "Besu", RPC_CLIENT_BESU},
-    {NULL, NULL, 0} // Terminator
-};
+// Server Selection
+// ================
 
 // Convert client type bitmask to human-readable name
 const char* c4_client_type_to_name(beacon_client_type_t client_type) {
-  for (int i = 0; client_type_mappings[i].config_name != NULL; i++) {
-    if (client_type_mappings[i].value == client_type) {
-      return client_type_mappings[i].display_name;
+  const client_type_mapping_t* mappings = c4_server_handlers_get_client_mappings();
+  if (!mappings) return "Unknown";
+
+  for (int i = 0; mappings[i].config_name != NULL; i++) {
+    if (mappings[i].value == client_type) {
+      return mappings[i].display_name;
     }
   }
   return "Unknown";
@@ -432,13 +419,19 @@ static const char** c4_get_known_config_names() {
   static bool        initialized = false;
 
   if (!initialized) {
-    int i = 0;
-    while (client_type_mappings[i].config_name != NULL && i < 31) {
-      known_names[i] = client_type_mappings[i].config_name;
-      i++;
+    const client_type_mapping_t* mappings = c4_server_handlers_get_client_mappings();
+    if (mappings) {
+      int i = 0;
+      while (mappings[i].config_name != NULL && i < 31) {
+        known_names[i] = mappings[i].config_name;
+        i++;
+      }
+      known_names[i] = NULL; // Null terminator
     }
-    known_names[i] = NULL; // Null terminator
-    initialized    = true;
+    else {
+      known_names[0] = NULL; // Ensure it's null if no handler is present
+    }
+    initialized = true;
   }
 
   return known_names;
@@ -446,9 +439,12 @@ static const char** c4_get_known_config_names() {
 
 // Parse config name to client type
 static beacon_client_type_t c4_parse_config_name(const char* config_name) {
-  for (int i = 0; client_type_mappings[i].config_name != NULL; i++) {
-    if (strcmp(config_name, client_type_mappings[i].config_name) == 0) {
-      return client_type_mappings[i].value;
+  const client_type_mapping_t* mappings = c4_server_handlers_get_client_mappings();
+  if (!mappings) return BEACON_CLIENT_UNKNOWN;
+
+  for (int i = 0; mappings[i].config_name != NULL; i++) {
+    if (strcmp(config_name, mappings[i].config_name) == 0) {
+      return mappings[i].value;
     }
   }
   return BEACON_CLIENT_UNKNOWN;
@@ -534,26 +530,8 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
 
 // Parse client version response to determine client type
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type) {
-  if (!response) return BEACON_CLIENT_UNKNOWN;
-
-  if (type == C4_DATA_TYPE_BEACON_API) {
-    // Parse beacon API response: {"data":{"version":"Lodestar/v1.8.0/..."}}
-    if (contains_client_name(response, "\"Nimbus")) return BEACON_CLIENT_NIMBUS;
-    if (contains_client_name(response, "\"Lodestar")) return BEACON_CLIENT_LODESTAR;
-    if (contains_client_name(response, "\"Prysm")) return BEACON_CLIENT_PRYSM;
-    if (contains_client_name(response, "\"Lighthouse")) return BEACON_CLIENT_LIGHTHOUSE;
-    if (contains_client_name(response, "\"teku")) return BEACON_CLIENT_TEKU;
-    if (contains_client_name(response, "\"Grandine")) return BEACON_CLIENT_GRANDINE;
-  }
-  else if (type == C4_DATA_TYPE_ETH_RPC) {
-    // Parse RPC response: {"result":"Geth/v1.10.26-stable/..."}
-    if (contains_client_name(response, "Geth/")) return RPC_CLIENT_GETH;
-    if (contains_client_name(response, "Nethermind/")) return RPC_CLIENT_NETHERMIND;
-    if (contains_client_name(response, "Erigon/")) return RPC_CLIENT_ERIGON;
-    if (contains_client_name(response, "Besu/")) return RPC_CLIENT_BESU;
-  }
-
-  return BEACON_CLIENT_UNKNOWN;
+  // Dispatch to chain-specific handlers
+  return c4_server_handlers_parse_version_response(response, type);
 }
 
 // Helper structure for parallel client detection
@@ -581,16 +559,10 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
   if (!servers || !servers->client_types || servers->count == 0) return;
 
   const char* detection_endpoint = NULL;
-  char*       rpc_payload        = NULL;
+  const char* rpc_payload        = NULL;
 
-  if (type == C4_DATA_TYPE_BEACON_API)
-    detection_endpoint = "eth/v1/node/version";
-  else if (type == C4_DATA_TYPE_ETH_RPC) {
-    detection_endpoint = ""; // RPC endpoint is root, we'll use POST with JSON-RPC
-    rpc_payload        = "{\"jsonrpc\":\"2.0\",\"method\":\"web3_clientVersion\",\"params\":[],\"id\":1}";
-  }
-
-  if (!detection_endpoint) {
+  // Get detection parameters from chain-specific handler
+  if (!c4_server_handlers_get_detection_request(type, &detection_endpoint, &rpc_payload)) {
     fprintf(stderr, ":: Client type detection not implemented for this server type yet\n");
     return;
   }

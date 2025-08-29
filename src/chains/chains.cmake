@@ -173,7 +173,7 @@ function(add_server_handler)
     endif()
 
     set(options "")
-    set(oneValueArgs NAME INIT_FUNC SHUTDOWN_FUNC)
+    set(oneValueArgs NAME INIT_FUNC SHUTDOWN_FUNC GET_DETECTION_REQUEST_FUNC PARSE_VERSION_RESPONSE_FUNC GET_CLIENT_MAPPINGS_FUNC)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(HANDLER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -192,7 +192,7 @@ function(add_server_handler)
     
     # Append the new handler to the list
     list(APPEND CURRENT_PROPERTIES 
-         "${HANDLER_NAME}:${HANDLER_INIT_FUNC}:${HANDLER_SHUTDOWN_FUNC}")
+         "${HANDLER_NAME}:${HANDLER_INIT_FUNC}:${HANDLER_SHUTDOWN_FUNC}:${HANDLER_GET_DETECTION_REQUEST_FUNC}:${HANDLER_PARSE_VERSION_RESPONSE_FUNC}:${HANDLER_GET_CLIENT_MAPPINGS_FUNC}")
     set(SERVER_HANDLER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all server handler properties" FORCE)
 
     # Add the handler library to the global list of libraries
@@ -218,8 +218,14 @@ function(generate_server_handlers_header)
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 1 init_func)
         list(GET parts 2 shutdown_func)
+        list(GET parts 3 get_detection_request_func)
+        list(GET parts 4 parse_version_response_func)
+        list(GET parts 5 get_client_mappings_func)
         file(APPEND ${SERVER_HANDLERS_H} "void ${init_func}(http_server_t* server);\n")
         file(APPEND ${SERVER_HANDLERS_H} "void ${shutdown_func}(http_server_t* server);\n")
+        file(APPEND ${SERVER_HANDLERS_H} "bool ${get_detection_request_func}(data_request_type_t type, const char** path, const char** rpc_payload);\n")
+        file(APPEND ${SERVER_HANDLERS_H} "beacon_client_type_t ${parse_version_response_func}(const char* response, data_request_type_t type);\n")
+        file(APPEND ${SERVER_HANDLERS_H} "const client_type_mapping_t* ${get_client_mappings_func}();\n")
     endforeach()
     file(APPEND ${SERVER_HANDLERS_H} "\n")
 
@@ -241,6 +247,39 @@ function(generate_server_handlers_header)
         list(GET parts 2 shutdown_func)
         file(APPEND ${SERVER_HANDLERS_H} "  ${shutdown_func}(server);\n")
     endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Get Detection Request Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static bool c4_server_handlers_get_detection_request(data_request_type_t type, const char** path, const char** rpc_payload) {\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 3 get_detection_request_func)
+        file(APPEND ${SERVER_HANDLERS_H} "  if (${get_detection_request_func}(type, path, rpc_payload)) return true;\n")
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "  return false;\n")
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Parse Version Response Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static beacon_client_type_t c4_server_handlers_parse_version_response(const char* response, data_request_type_t type) {\n")
+    file(APPEND ${SERVER_HANDLERS_H} "  beacon_client_type_t client_type = BEACON_CLIENT_UNKNOWN;\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 4 parse_version_response_func)
+        file(APPEND ${SERVER_HANDLERS_H} "  client_type = ${parse_version_response_func}(response, type);\n")
+        file(APPEND ${SERVER_HANDLERS_H} "  if (client_type != BEACON_CLIENT_UNKNOWN) return client_type;\n")
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "  return BEACON_CLIENT_UNKNOWN;\n")
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Get Client Mappings Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static const client_type_mapping_t* c4_server_handlers_get_client_mappings() {\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 5 get_client_mappings_func)
+        file(APPEND ${SERVER_HANDLERS_H} "  const client_type_mapping_t* mappings = ${get_client_mappings_func}();\n")
+        file(APPEND ${SERVER_HANDLERS_H} "  if (mappings) return mappings;\n")
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "  return NULL;\n")
     file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
 
     file(APPEND ${SERVER_HANDLERS_H} "#endif // SERVER_HANDLERS_H\n")

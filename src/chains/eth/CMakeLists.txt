@@ -152,8 +152,13 @@ add_server_handler(
     server/head_update.c
     server/handle_lcu.c
     server/handle_headers.c
+    server/client_detection.c
+    server/client_mappings.c
   DEPENDS eth_proofer
   INIT_FUNC eth_server_init
   SHUTDOWN_FUNC eth_server_shutdown
+  GET_DETECTION_REQUEST_FUNC eth_get_detection_request
+  PARSE_VERSION_RESPONSE_FUNC eth_parse_version_response
+  GET_CLIENT_MAPPINGS_FUNC eth_get_client_mappings
 )
 
