@@ -19,7 +19,8 @@ static bool contains_client_name(const char* response, const char* client_name) 
  * @brief Provides the endpoint and payload for a client version detection request.
  * This is the chain-specific implementation for the handler interface.
  */
-bool eth_get_detection_request(data_request_type_t type, const char** path, const char** rpc_payload) {
+bool eth_get_detection_request(http_server_t* server, data_request_type_t type, const char** path, const char** rpc_payload) {
+  ETH_HANDLER_CHECK_RETURN(server, false);
   if (type == C4_DATA_TYPE_BEACON_API) {
     *path        = "eth/v1/node/version";
     *rpc_payload = NULL;
@@ -37,7 +38,8 @@ bool eth_get_detection_request(data_request_type_t type, const char** path, cons
  * @brief Parses a client version response to determine the client type.
  * This is the chain-specific implementation for the handler interface.
  */
-beacon_client_type_t eth_parse_version_response(const char* response, data_request_type_t type) {
+beacon_client_type_t eth_parse_version_response(http_server_t* server, const char* response, data_request_type_t type) {
+  ETH_HANDLER_CHECK_RETURN(server, BEACON_CLIENT_UNKNOWN);
   if (!response) return BEACON_CLIENT_UNKNOWN;
 
   if (type == C4_DATA_TYPE_BEACON_API) {

@@ -401,8 +401,8 @@ static bool contains_client_name(const char* response, const char* client_name) 
 // ================
 
 // Convert client type bitmask to human-readable name
-const char* c4_client_type_to_name(beacon_client_type_t client_type) {
-  const client_type_mapping_t* mappings = c4_server_handlers_get_client_mappings();
+const char* c4_client_type_to_name(beacon_client_type_t client_type, http_server_t* http_server) {
+  const client_type_mapping_t* mappings = c4_server_handlers_get_client_mappings(http_server);
   if (!mappings) return "Unknown";
 
   for (int i = 0; mappings[i].config_name != NULL; i++) {
@@ -419,7 +419,7 @@ static const char** c4_get_known_config_names() {
   static bool        initialized = false;
 
   if (!initialized) {
-    const client_type_mapping_t* mappings = c4_server_handlers_get_client_mappings();
+    const client_type_mapping_t* mappings = c4_server_handlers_get_client_mappings(&http_server);
     if (mappings) {
       int i = 0;
       while (mappings[i].config_name != NULL && i < 31) {
@@ -438,8 +438,8 @@ static const char** c4_get_known_config_names() {
 }
 
 // Parse config name to client type
-static beacon_client_type_t c4_parse_config_name(const char* config_name) {
-  const client_type_mapping_t* mappings = c4_server_handlers_get_client_mappings();
+static beacon_client_type_t c4_parse_config_name(const char* config_name, http_server_t* http_server) {
+  const client_type_mapping_t* mappings = c4_server_handlers_get_client_mappings(http_server);
   if (!mappings) return BEACON_CLIENT_UNKNOWN;
 
   for (int i = 0; mappings[i].config_name != NULL; i++) {
@@ -505,13 +505,13 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
       *type_separator = '\0';
 
       // Parse client type string using mapping
-      client_type = c4_parse_config_name(type_str);
+      client_type = c4_parse_config_name(type_str, &http_server);
       if (client_type == BEACON_CLIENT_UNKNOWN) {
         fprintf(stderr, "   [config] Unknown client type '%s' for server %s\n", type_str, url_part);
       }
     }
     if (client_type != BEACON_CLIENT_UNKNOWN)
-      fprintf(stderr, "   [config] Server %d: %s (Type: %s)\n", count, url_part, c4_client_type_to_name(client_type));
+      fprintf(stderr, "   [config] Server %d: %s (Type: %s)\n", count, url_part, c4_client_type_to_name(client_type, &http_server));
 
     list->urls[count]                             = strdup(url_part);
     list->health_stats[count].is_healthy          = true;
@@ -531,7 +531,7 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
 // Parse client version response to determine client type
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type) {
   // Dispatch to chain-specific handlers
-  return c4_server_handlers_parse_version_response(response, type);
+  return c4_server_handlers_parse_version_response(&http_server, response, type);
 }
 
 // Helper structure for parallel client detection
@@ -562,7 +562,7 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
   const char* rpc_payload        = NULL;
 
   // Get detection parameters from chain-specific handler
-  if (!c4_server_handlers_get_detection_request(type, &detection_endpoint, &rpc_payload)) {
+  if (!c4_server_handlers_get_detection_request(&http_server, type, &detection_endpoint, &rpc_payload)) {
     fprintf(stderr, ":: Client type detection not implemented for this server type yet\n");
     return;
   }
@@ -683,7 +683,7 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
         if (detected_type != BEACON_CLIENT_UNKNOWN) {
           servers->client_types[req->server_index] = detected_type;
           fprintf(stderr, "   [detect] Server %zu (%s): Detected type %s\n",
-                  req->server_index, servers->urls[req->server_index], c4_client_type_to_name(detected_type));
+                  req->server_index, servers->urls[req->server_index], c4_client_type_to_name(detected_type, &http_server));
         }
         else {
           fprintf(stderr, "   [detect] Server %zu (%s): Could not determine client type from response\n",

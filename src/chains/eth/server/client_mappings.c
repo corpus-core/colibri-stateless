@@ -20,7 +20,8 @@ static const client_type_mapping_t eth_client_type_mappings[] = {
  * @brief Returns the chain-specific client type mappings.
  * This is the implementation for the handler interface.
  */
-const client_type_mapping_t* eth_get_client_mappings() {
+const client_type_mapping_t* eth_get_client_mappings(http_server_t* server) {
+  ETH_HANDLER_CHECK_RETURN(server, NULL);
   // For now, we assume if this handler is compiled, it's for an ETH chain.
   // A check against http_server.chain_id could be added if multiple chain handlers
   // could be active simultaneously for different chain types.

@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "beacon.h"
 #include "logger.h"
 #include "server.h"
@@ -513,7 +511,7 @@ static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t typ
 
     // Client type information for this server
     uint32_t    client_type = servers->client_types ? servers->client_types[i] : 0;
-    const char* client_name = c4_client_type_to_name(client_type);
+    const char* client_name = c4_client_type_to_name(client_type, &http_server); // Pass NULL as we don't have access to http_server here
 
     // Bitmask value (for compatibility)
     bprintf(data, "colibri_server_client_type{type=\"%s\",server=\"%s\",index=\"%l\"} %d\n",

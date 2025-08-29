@@ -18,7 +18,7 @@ void c4_stop_beacon_watcher();
  * registers Ethereum-specific HTTP handlers and starts background services.
  */
 void eth_server_init(http_server_t* server) {
-  if (c4_chain_type(server->chain_id) != C4_CHAIN_TYPE_ETHEREUM) return;
+  ETH_HANDLER_CHECK(server);
 
   log_info("Initializing Ethereum server handlers...");
 
@@ -41,7 +41,7 @@ void eth_server_init(http_server_t* server) {
  * that were started by this handler.
  */
 void eth_server_shutdown(http_server_t* server) {
-  if (c4_chain_type(server->chain_id) != C4_CHAIN_TYPE_ETHEREUM) return;
+  ETH_HANDLER_CHECK(server);
 
   // Stop background services if they were configured to run
   if (server->stream_beacon_events) {

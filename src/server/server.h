@@ -184,7 +184,7 @@ void c4_attempt_server_recovery(server_list_t* servers);
 void                 c4_parse_server_config(server_list_t* list, char* servers);
 void                 c4_detect_server_client_types(server_list_t* servers, data_request_type_t type);
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type);
-const char*          c4_client_type_to_name(beacon_client_type_t client_type);
+const char*          c4_client_type_to_name(beacon_client_type_t client_type, http_server_t* http_server);
 
 // handle client type adjustments
 char*                   c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);
