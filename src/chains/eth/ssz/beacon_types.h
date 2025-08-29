@@ -58,16 +58,18 @@ typedef enum {
   ETH_SSZ_VERIFY_SYNC_PROOF         = 14,
   ETH_SSZ_VERIFY_BLOCK_PROOF        = 15,
   ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF = 16,
+  ETH_SSZ_VERIFY_WITNESS_PROOF      = 17,
   // data types
-  ETH_SSZ_DATA_NONE    = 17,
-  ETH_SSZ_DATA_HASH32  = 18,
-  ETH_SSZ_DATA_BYTES   = 19,
-  ETH_SSZ_DATA_UINT256 = 20,
-  ETH_SSZ_DATA_TX      = 21,
-  ETH_SSZ_DATA_RECEIPT = 22,
-  ETH_SSZ_DATA_LOGS    = 23,
-  ETH_SSZ_DATA_BLOCK   = 24,
-  ETH_SSZ_DATA_PROOF   = 25
+  ETH_SSZ_DATA_NONE    = 18,
+  ETH_SSZ_DATA_HASH32  = 19,
+  ETH_SSZ_DATA_BYTES   = 20,
+  ETH_SSZ_DATA_UINT256 = 21,
+  ETH_SSZ_DATA_TX      = 22,
+  ETH_SSZ_DATA_RECEIPT = 23,
+  ETH_SSZ_DATA_LOGS    = 24,
+  ETH_SSZ_DATA_BLOCK   = 25,
+  ETH_SSZ_DATA_PROOF   = 26
+
 } eth_ssz_type_t;
 
 // functionpointer for a function calculating the fork version from chain_id, fork and target bytes

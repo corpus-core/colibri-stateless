@@ -1,7 +1,7 @@
 #include "witness.h"
 #include "crypto.h"
 
-const ssz_def_t C4_BLOCK_HASH_WITNESS[3] = {
+const ssz_def_t C4_BLOCK_HASH_WITNESS[6] = {
     SSZ_UINT64("chainId"),          // the chainId
     SSZ_UINT64("blockNumber"),      // blocknumber
     SSZ_BYTES32("blockHash"),       // the blockhash
@@ -14,10 +14,19 @@ static const ssz_def_t C4_WITNESS_UNION[] = {
     SSZ_CONTAINER(C4_BLOCK_HASH_WITNESS_ID, C4_BLOCK_HASH_WITNESS), // the blockhash
 };
 
-const ssz_def_t C4_WITNESS_CONTAINER[2] = {
+const ssz_def_t C4_WITNESS_SIGNED[2] = {
     SSZ_UNION("data", C4_WITNESS_UNION), // the data seen
     SSZ_BYTE_VECTOR("signature", 65),    // the signature of the witness
 };
+
+const ssz_def_t C4_WITNESS_SIGNED_CONTAINER = SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED);
+
+ssz_def_t* c4_witness_get_def(const char* name) {
+  for (int i = 0; i < sizeof(C4_WITNESS_UNION) / sizeof(C4_WITNESS_UNION[0]); i++) {
+    if (strcmp(name, C4_WITNESS_UNION[i].name) == 0) return C4_WITNESS_UNION + i;
+  }
+  return NULL;
+}
 
 ssz_builder_t c4_witness_sign(ssz_builder_t data, bytes32_t private_key) {
   buffer_t  buffer = {0};
@@ -32,7 +41,7 @@ ssz_builder_t c4_witness_sign(ssz_builder_t data, bytes32_t private_key) {
   secp256k1_sign(private_key, hash, signature);
   buffer_free(&buffer);
 
-  ssz_builder_t builder = ssz_builder_for_def(C4_WITNESS_CONTAINER);
+  ssz_builder_t builder = ssz_builder_for_def(&C4_WITNESS_SIGNED_CONTAINER);
   ssz_add_builders(&builder, "data", data);
   ssz_add_bytes(&builder, "signature", bytes(signature, 65));
   return builder;

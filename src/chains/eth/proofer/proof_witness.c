@@ -21,8 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../ssz/beacon_types.h"
 #include "beacon.h"
-#include "beacon_types.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "historic_proof.h"
@@ -61,7 +61,7 @@ static c4_status_t c4_proof_witness_blockhash(proofer_ctx_t* ctx, json_t block_n
 
   TRY_ASYNC(c4_send_eth_rpc(ctx, block_number.len == 68 ? "eth_getBlockByHash" : "eth_getBlockByNumber", bprintf(&buffer, "[%J,false]", block_number), block_number.len == 68 ? DEFAULT_TTL : 12, &result));
 
-  ssz_builder_t witness = ssz_builder_for_def(C4_BLOCK_HASH_WITNESS);
+  ssz_builder_t witness = ssz_builder_for_def(c4_witness_get_def(C4_BLOCK_HASH_WITNESS_ID));
   ssz_add_uint64(&witness, ctx->chain_id);
   ssz_add_uint64(&witness, json_as_uint64(json_get(result, "number")));
   ssz_add_bytes(&witness, "blockHash", json_get_bytes(result, "hash", &buffer));
