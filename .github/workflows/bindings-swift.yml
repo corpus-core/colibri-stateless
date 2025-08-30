@@ -23,7 +23,13 @@ jobs:
           submodules: recursive  # Wichtig für die C dependencies
 
       - name: Install CMake
-        run: brew install cmake
+        run: |
+          if ! command -v cmake &> /dev/null; then
+            echo "CMake not found, installing..."
+            brew install cmake
+          else
+            echo "CMake already installed: $(cmake --version)"
+          fi
 
       - name: Build iOS XCFramework (Device + Simulator)
         run: |
