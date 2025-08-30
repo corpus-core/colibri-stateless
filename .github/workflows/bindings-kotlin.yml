@@ -53,7 +53,13 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install CMake
-        run: brew install cmake
+        run: |
+          if ! command -v cmake &> /dev/null; then
+            echo "CMake not found, installing..."
+            brew install cmake
+          else
+            echo "CMake already installed: $(cmake --version)"
+          fi
 
       - name: Install SWIG
         run: brew install swig

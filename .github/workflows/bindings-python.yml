@@ -123,7 +123,12 @@ jobs:
       - name: Install Build Dependencies (macOS)  
         if: matrix.os == 'macos-latest'
         run: |
-          brew install cmake
+          if ! command -v cmake &> /dev/null; then
+            echo "CMake not found, installing..."
+            brew install cmake
+          else
+            echo "CMake already installed: $(cmake --version)"
+          fi
           
       - name: Install Build Dependencies (Windows)
         if: matrix.os == 'windows-latest'
