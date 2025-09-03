@@ -2,17 +2,19 @@
 
 :: Threat Model
 
-Considering the nature of a verifier, analysing and understaning the limit is critical. While the security of Colibri Stateless is similiar to the security of a light client, since it is based on the same foundation, there are specific risks to be aware of:
+Considering the nature of a verifier, analysing and understanding the limits is critical. While the security of Colibri Stateless is similar to the security of a light client, since it is based on the same foundation, there are specific risks to be aware of. The following expands the classic LightClient threat model with Colibri-specific considerations.
+
+---
 
 ## 1. Security of the Sync Committee
 
 ### Description
 
-The beacon light client relies on the aggregated BLS signature from a sync committee comprising 512 validators. Given that Ethereum currently has over 1 million active validators, this subset represents a small fraction of the total validator set. The concern arises from the possibility that a compromised or malicious sync committee could sign off on invalid blocks, potentially misleading the light client.
+Both Light Clients and Colibri rely on the aggregated BLS signature from a sync committee comprising 512 validators. Given that Ethereum currently has over 1 million active validators, this subset represents a small fraction of the total validator set. The concern arises from the possibility that a compromised or malicious sync committee could sign off on invalid blocks, potentially misleading the client.
 
 ### Crypto-Economics
 
-To compromise a light client, an attacker would need to produce a valid-looking signature from at least 2/3 of the sync committee (342 out of 512 validators). Given that committee members are sampled randomly from the global validator pool (\~1 million), the attacker would need to control a disproportionately large number of validators to have a meaningful chance of dominating the committee.
+To compromise a client, an attacker would need to produce a valid-looking signature from at least 2/3 of the sync committee (342 out of 512 validators). Given that committee members are sampled randomly from the global validator pool (\~1 million), the attacker would need to control a disproportionately large number of validators to have a meaningful chance of dominating the committee.
 
 | Attacker Control | Expected Committee Members | 2/3 Majority Reached? |
 | ---------------- | -------------------------- | --------------------- |
@@ -29,7 +31,7 @@ To reliably reach a 2/3 majority, an attacker would need to control **at least \
 
 This attack would also expose the attacker to:
 
-* **Slashing penalties** for signing conflicting or invalid updates
+* **Slashing penalties** (currently only for attestations and block proposals, not yet for sync committee equivocations)
 * **Severe market impact**, since acquiring this much ETH would likely skyrocket the price
 * **Community countermeasures**, including social recovery or hard forks
 
@@ -38,22 +40,24 @@ This attack would also expose the attacker to:
 ### Mitigation
 
 * **Random Selection**: Sync committee members are selected pseudo-randomly every 256 epochs (\~27 hours), making it statistically improbable for an attacker to consistently control the committee.
+* **Economic Incentives**: Validators have significant ETH staked and are disincentivized from misbehavior.
+* **Future Change (EIP-7657)**: Once activated, double-signing in the sync committee becomes slashable, significantly strengthening the crypto-economic security for Colibri and Light Clients alike.
 
-* **Economic Incentives**: Validators have significant ETH staked and face slashing penalties for malicious behavior, deterring attempts to compromise the sync committee.
+---
 
 ## 2. Finality During LightClientUpdates
 
 ### Description
 
-LightClientUpdates include both an `attestedHeader` and a `finalityHeader`. However, the proof for the `nextSyncCommittee` is based on the `attestedHeader`, which may not be finalized at the time of the update. This raises concerns about the reliability of the `nextSyncCommittee` if the `attestedHeader` is later reorged out of the chain.
+LightClientUpdates include both an `attestedHeader` and a `finalityHeader`. The proof for the `nextSyncCommittee` is based on the `attestedHeader`, which may not be finalized at the time of the update. This raises concerns about reliability if the `attestedHeader` is later reorged out.
 
 ### Mitigation
 
-* **Temporal Stability**: The `nextSyncCommittee` is determined at the start of each sync committee period and remains constant for 256 epochs (\~27 hours), reducing the impact of short-term reorgs. [Wiki.js](https://www.inevitableeth.com/home/ethereum/network/consensus/sync-committee)
+* **Temporal Stability**: The `nextSyncCommittee` is fixed per period (\~27 hours), reducing reorg risk.
+* **Finality Proofs**: Finalized headers eventually override optimistically chosen ones.
+* **Economic Deterrents**: Validators remain disincentivized from equivocation.
 
-* **Economic Deterrents**: Validators are economically disincentivized from signing conflicting states due to the risk of slashing. [EIP-3321](https://github.com/ethereum/consensus-specs/issues/3321)
-
-* **Finality Proofs**: Even in case of an reorg, the resulting pubkeys would not change since they are fixed for the period and so have the same security as a finality header, since the also rely on the BLS Signature of the 512 Validators.
+---
 
 ## 3. Long Chain Attacks
 
@@ -94,7 +98,34 @@ An attacker could attempt to:
 
 ### Mitigation
 
-* **Weak Subjectivity Checkpoints**: Users can configure trusted block hashes as starting points, ensuring that the light client syncs from a known good state. [Weak Subjectivity](https://ethereum.org/en/developers/docs/consensus-mechanisms/pos/weak-subjectivity)
+* **Weak Subjectivity Checkpoints**: Colibri and Light Clients must be configured with trusted block hashes (Checkpoints) to anchor verification.
+* **Checkpoint Providers**: External sources can provide safe synchronization points.
+* **Community Consensus**: Social recovery (hard forks) in extreme attack scenarios.
 
-* **Checkpoint Providers**: When the distance between the last trusted block and the current head exceeds the weak subjectivity period, the client consults multiple trusted checkpoint providers to verify the chain's validity.
+---
+
+## 4. Colibri-Specific Considerations
+
+Unlike standard Light Clients, Colibri does **not** sync via gossip or LightClientUpdates. Instead, it:
+
+* Fetches blocks on-demand via Beacon APIs.
+* Verifies them using the **SyncAggregate** (up to 512 signatures from the next block’s BlockBody).
+
+This means that the **`is_better_update` logic has already been applied by consensus** before Colibri sees the signatures. Colibri therefore only validates a single aggregate per block — it never needs to resolve competing updates itself.
+
+### Specific Risks
+
+| Risk                               | Today                                                                       | Mitigation                                                                         | With EIP-7657                           |
+| ---------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------- |
+| **SyncCommittee Double-Signature** | Not slashable → attacker with >2/3 control could equivocate without penalty | Evidence collection: Colibri can store conflicting signatures for future reporting | Slashable → attackers risk losing stake |
+| **API Censorship / Withholding**   | Single Beacon API could deny service or serve stale data                    | Use multiple APIs, consistency checks across sources, retry logic                  | Same mitigations remain                 |
+| **Force-Update Risk**              | If no finality, Colibri must accept optimistic headers to progress          | Mark optimistic headers clearly; never treat them as final until confirmed         | Same mitigations remain                 |
+
+---
+
+## 5. Conclusion
+
+* **Colibri vs. Light Clients**: Both rely on the same sync committee assumption (<1/3 byzantine). Colibri’s difference is the use of `SyncAggregate` from the block body rather than `LightClientUpdate`. This means Colibri is slightly simpler (no `is_better_update` handling), but equally exposed to the fundamental security assumption.
+* **Main Gap (today)**: Lack of slashing for sync committee equivocations.
+* **Future (with EIP-7657)**: Colibri achieves parity with classical Light Clients in crypto-economic security, with the added operational simplicity of on-demand verification.
 

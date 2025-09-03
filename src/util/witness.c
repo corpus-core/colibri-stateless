@@ -1,6 +1,22 @@
 #include "witness.h"
 #include "crypto.h"
 
+// : Ethereum
+
+// :: Witness Proof
+
+// When validating Layer 2 transactions and calls, a full proof can only be created once the L2 block is  commited to l1.
+// For most l2 this may take a long time, which would mean there is no way to verify a transaction for up to 30mins.
+// In order to make the verification available for all L2, we can use a witness proof.
+//
+// a Witness Proof is a signed data like a blockhash as seen by a witness.
+// The colibri client can be configured to accept such witness proofs by defining one or more urls and public addresses,
+// testifying that even if the L2 block is not yet committed to l1, the witness has seen the blockhash and can attest to it.
+// This allows us to verify the transaction or call even if the L2 block is not yet committed to l1.
+
+// ## BlockHash Witness
+//
+// The BlockHash Witness is a witness proof that contains the blockhash along with the most critical data of an block. This can then be used to verify other data.
 const ssz_def_t C4_BLOCK_HASH_WITNESS[6] = {
     SSZ_UINT64("chainId"),          // the chainId
     SSZ_UINT64("blockNumber"),      // blocknumber
@@ -8,12 +24,16 @@ const ssz_def_t C4_BLOCK_HASH_WITNESS[6] = {
     SSZ_BYTES32("stateRoot"),       // the state root
     SSZ_BYTES32("receiptsRoot"),    // the receipts root
     SSZ_BYTES32("transactionsRoot") // the transactions root
-}; // the blockhash seen
+};
 
 static const ssz_def_t C4_WITNESS_UNION[] = {
     SSZ_CONTAINER(C4_BLOCK_HASH_WITNESS_ID, C4_BLOCK_HASH_WITNESS), // the blockhash
 };
 
+// ## The Signging Envelope
+//
+// The data signed is the always the hash_tree_root of the data to verify.
+// the signature itself is a ecdsa secp256k1 signature where the last byte is the recovery byte
 const ssz_def_t C4_WITNESS_SIGNED[2] = {
     SSZ_UNION("data", C4_WITNESS_UNION), // the data seen
     SSZ_BYTE_VECTOR("signature", 65),    // the signature of the witness
