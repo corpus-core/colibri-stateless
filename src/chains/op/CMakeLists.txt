@@ -37,8 +37,11 @@ add_server_handler(
   NAME op_server_handler
   SOURCES 
     server/handler.c
-  DEPENDS op_proofer
+    server/op_preconf_capture.c
+  DEPENDS op_proofer 
   INIT_FUNC op_server_init
   SHUTDOWN_FUNC op_server_shutdown
 )
 
+add_subdirectory(opg_bridge)
+add_dependencies(op_server_handler opg_bridge)
