@@ -19,9 +19,26 @@
 #
 # SPDX-License-Identifier: MIT
 
-if(CHAIN_ETH)
-    add_subdirectory(eth)
+
+if(NOT MSVC)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-excess-initializers")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-excess-initializers")
 endif()
-if(CHAIN_OP)
-    add_subdirectory(op)
-endif()
+
+add_proofer(
+  NAME op_proofer
+  SOURCES 
+    proofer/op_proofer.c
+  DEPENDS util eth_proofer
+  PROOF op_proofer_execute
+)
+
+add_server_handler(
+  NAME op_server_handler
+  SOURCES 
+    server/handler.c
+  DEPENDS op_proofer
+  INIT_FUNC op_server_init
+  SHUTDOWN_FUNC op_server_shutdown
+)
+
