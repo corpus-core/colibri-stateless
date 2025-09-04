@@ -842,6 +842,20 @@ func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, out
 	log.Printf("📦 Optimized format: %d bytes SSZ + 65 bytes signature = %d bytes total", 
 		len(dataBytes), len(optimizedRawData))
 	
+	// Update "latest" symlink to point to this newest preconf
+	latestPath := filepath.Join(outDir, "latest.raw")
+	
+	// Remove existing symlink if it exists
+	os.Remove(latestPath)
+	
+	// Create new symlink pointing to the current file
+	relativeRawPath := filepath.Base(rawPath) // Just the filename, not full path
+	if err := os.Symlink(relativeRawPath, latestPath); err != nil {
+		log.Printf("⚠️  Warning: Failed to create latest symlink: %v", err)
+	} else {
+		log.Printf("🔗 Updated latest symlink -> %s", relativeRawPath)
+	}
+	
 	// Create metadata
 	chainName := fmt.Sprintf("Chain_%d", chainID)
 	if config, exists := supportedChains[chainID]; exists {

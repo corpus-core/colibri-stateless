@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "server.h"
 
 typedef bool (*call_handler)(single_request_t*);
@@ -35,8 +33,47 @@ static bool call_store(single_request_t* r) {
   return true;
 }
 
+// Callback for preconf data loading
+static void call_preconf_cb(void* u_ptr, uint64_t block_number, bytes_t data, char* error) {
+  single_request_t* r = u_ptr;
+  if (error) {
+    r->req->error = strdup(error);
+  }
+  else {
+    r->req->response = bytes_dup(data);
+  }
+  finish(r->parent);
+}
+
+// Handler for preconf/{block_number} and preconf/latest requests
+static bool call_preconf(single_request_t* r) {
+  const char* path = "preconf/";
+  if (strncmp(r->req->url, path, strlen(path))) return false;
+
+  // Extract block identifier from URL: preconf/{block_number} or preconf/latest
+  char* block_identifier = r->req->url + strlen(path);
+  
+  // Handle "latest" request
+  if (strcmp(block_identifier, "latest") == 0) {
+    c4_get_preconf_latest(http_server.chain_id, r, call_preconf_cb);
+    return true;
+  }
+
+  // Handle specific block number
+  uint64_t block_number = strtoull(block_identifier, NULL, 10);
+  if (block_number == 0) {
+    throw_error(r, "Invalid block number in preconf request", false);
+    return true;
+  }
+
+  // Use chain_id from http_server and load optimized preconf file
+  c4_get_preconf(http_server.chain_id, block_number, r, call_preconf_cb);
+  return true;
+}
+
 static call_handler call_handlers[] = {
     call_store,
+    call_preconf,
 };
 
 void c4_handle_internal_request(single_request_t* r) {
