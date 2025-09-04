@@ -56,7 +56,13 @@ const chain_id_t C4_CHAIN_BOLT_STAGING = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1024);
 const chain_id_t C4_CHAIN_BOLT_MAINNET = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1025);
 
 chain_type_t c4_chain_type(chain_id_t chain_id) {
-  if (chain_id == C4_CHAIN_OP_MAINNET) return C4_CHAIN_TYPE_OP;
+  // OP Stack chains
+  if (chain_id == 10) return C4_CHAIN_TYPE_OP;      // OP Mainnet
+  if (chain_id == 8453) return C4_CHAIN_TYPE_OP;    // Base
+  if (chain_id == 480) return C4_CHAIN_TYPE_OP;     // Worldchain
+  if (chain_id == 7777777) return C4_CHAIN_TYPE_OP; // Zora
+  if (chain_id == 130) return C4_CHAIN_TYPE_OP;     // Unichain
+
   return (chain_id >> 56) & 0xff;
 }
 

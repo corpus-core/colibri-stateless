@@ -116,17 +116,20 @@ void c4_configure(int argc, char* argv[]) {
 }
 
 static void config() {
-  http_server.port                 = 8090;
-  http_server.memcached_host       = "localhost";
-  http_server.memcached_port       = 11211;
-  http_server.memcached_pool       = 20;
-  http_server.loglevel             = 0;
-  http_server.req_timeout          = 120;
-  http_server.chain_id             = 1;
-  http_server.rpc_nodes            = "https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/,https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S,https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd";
-  http_server.beacon_nodes         = "https://lodestar-mainnet.chainsafe.io/";
-  http_server.stream_beacon_events = 0;
-  http_server.period_store         = NULL;
+  http_server.port                             = 8090;
+  http_server.memcached_host                   = "localhost";
+  http_server.memcached_port                   = 11211;
+  http_server.memcached_pool                   = 20;
+  http_server.loglevel                         = 0;
+  http_server.req_timeout                      = 120;
+  http_server.chain_id                         = 1;
+  http_server.rpc_nodes                        = "https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/,https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S,https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd";
+  http_server.beacon_nodes                     = "https://lodestar-mainnet.chainsafe.io/";
+  http_server.stream_beacon_events             = 0;
+  http_server.period_store                     = NULL;
+  http_server.preconf_storage_dir              = "./preconfs";
+  http_server.preconf_ttl_minutes              = 30; // 30 minutes TTL
+  http_server.preconf_cleanup_interval_minutes = 5;  // Cleanup every 5 minutes
 
   get_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
   get_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");
@@ -140,4 +143,7 @@ static void config() {
   get_string(&http_server.beacon_nodes, "BEACON", "beacon", 'b', "list of beacon nodes api endpoints");
   get_int(&http_server.stream_beacon_events, "BEACON_EVENTS", "beacon_events", 'e', "activates beacon event streaming", 0, 1);
   get_string(&http_server.period_store, "DATA", "data", 'd', "path to the data-directory holding blockroots and light client updates");
+  get_string(&http_server.preconf_storage_dir, "PRECONF_DIR", "preconf_dir", 'P', "directory for storing preconfirmations");
+  get_int(&http_server.preconf_ttl_minutes, "PRECONF_TTL", "preconf_ttl", 'T', "TTL for preconfirmations in minutes", 1, 1440);
+  get_int(&http_server.preconf_cleanup_interval_minutes, "PRECONF_CLEANUP_INTERVAL", "preconf_cleanup_interval", 'C', "cleanup interval in minutes", 1, 60);
 }

@@ -82,9 +82,9 @@ static void start_preconf_capture(http_server_t* server) {
   log_info("Bridge path: %s", bridge_path);
 
   op_chain_config cfg = {
-      .chain_id         = 10,
+      .chain_id         = http_server.chain_id,
       .hardfork_version = 3,
-      .out_dir          = "./preconfs",
+      .out_dir          = http_server.preconf_storage_dir,
       .bootnodes        = boots,
       .bootnodes_len    = 11,
       .bridge_path      = bridge_path,

@@ -64,6 +64,10 @@ typedef struct {
   char*          period_store;
   bytes32_t      witness_key;
   server_stats_t stats;
+  // Preconf storage configuration
+  char* preconf_storage_dir;
+  int   preconf_ttl_minutes;
+  int   preconf_cleanup_interval_minutes;
 } http_server_t;
 
 // Server health tracking structure
