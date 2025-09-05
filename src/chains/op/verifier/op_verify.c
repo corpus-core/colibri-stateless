@@ -89,7 +89,7 @@ static const char* not_verifieable_yet_methods[] = {
 };
 
 method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method) {
-  if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return METHOD_UNDEFINED;
+  if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_OP) return METHOD_UNDEFINED;
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
     if (strcmp(method, proofable_methods[i]) == 0) return METHOD_PROOFABLE;
   }

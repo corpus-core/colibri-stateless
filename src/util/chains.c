@@ -31,7 +31,11 @@ const chain_id_t C4_CHAIN_GNOSIS        = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100);
 const chain_id_t C4_CHAIN_SEPOLIA       = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111);
 const chain_id_t C4_CHAIN_GNOSIS_CHIADO = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200);
 
-const chain_id_t C4_CHAIN_OP_MAINNET = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10);
+const chain_id_t C4_CHAIN_OP_MAINNET    = CHAIN_ID(0, 10);
+const chain_id_t C4_CHAIN_OP_BASE       = CHAIN_ID(0, 8453);
+const chain_id_t C4_CHAIN_OP_WORLDCHAIN = CHAIN_ID(0, 480);
+const chain_id_t C4_CHAIN_OP_ZORA       = CHAIN_ID(0, 7777777);
+const chain_id_t C4_CHAIN_OP_UNICHAIN   = CHAIN_ID(0, 130);
 
 const chain_id_t C4_CHAIN_BTC_MAINNET  = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 0);
 const chain_id_t C4_CHAIN_BTC_TESTNET  = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 1);
@@ -57,11 +61,11 @@ const chain_id_t C4_CHAIN_BOLT_MAINNET = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1025);
 
 chain_type_t c4_chain_type(chain_id_t chain_id) {
   // OP Stack chains
-  if (chain_id == 10) return C4_CHAIN_TYPE_OP;      // OP Mainnet
-  if (chain_id == 8453) return C4_CHAIN_TYPE_OP;    // Base
-  if (chain_id == 480) return C4_CHAIN_TYPE_OP;     // Worldchain
-  if (chain_id == 7777777) return C4_CHAIN_TYPE_OP; // Zora
-  if (chain_id == 130) return C4_CHAIN_TYPE_OP;     // Unichain
+  if (chain_id == C4_CHAIN_OP_MAINNET) return C4_CHAIN_TYPE_OP;    // OP Mainnet
+  if (chain_id == C4_CHAIN_OP_BASE) return C4_CHAIN_TYPE_OP;       // Base
+  if (chain_id == C4_CHAIN_OP_WORLDCHAIN) return C4_CHAIN_TYPE_OP; // Worldchain
+  if (chain_id == C4_CHAIN_OP_ZORA) return C4_CHAIN_TYPE_OP;       // Zora
+  if (chain_id == C4_CHAIN_OP_UNICHAIN) return C4_CHAIN_TYPE_OP;   // Unichain
 
   return (chain_id >> 56) & 0xff;
 }

@@ -58,11 +58,18 @@ typedef uint64_t chain_id_t;
 extern const chain_id_t C4_CHAIN_MAINNET;
 extern const chain_id_t C4_CHAIN_SEPOLIA;
 extern const chain_id_t C4_CHAIN_GNOSIS_CHIADO;
+extern const chain_id_t C4_CHAIN_GNOSIS;
+
+extern const chain_id_t C4_CHAIN_OP_MAINNET;
+extern const chain_id_t C4_CHAIN_OP_BASE;
+extern const chain_id_t C4_CHAIN_OP_WORLDCHAIN;
+extern const chain_id_t C4_CHAIN_OP_ZORA;
+extern const chain_id_t C4_CHAIN_OP_UNICHAIN;
+
 extern const chain_id_t C4_CHAIN_BTC_MAINNET;
 extern const chain_id_t C4_CHAIN_BTC_TESTNET;
 extern const chain_id_t C4_CHAIN_BTC_DEVNET;
 extern const chain_id_t C4_CHAIN_SOL_MAINNET;
-extern const chain_id_t C4_CHAIN_GNOSIS;
 extern const chain_id_t C4_CHAIN_BSC;
 extern const chain_id_t C4_CHAIN_POLYGON;
 extern const chain_id_t C4_CHAIN_BASE;
