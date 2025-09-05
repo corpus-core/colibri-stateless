@@ -52,7 +52,7 @@ static bool call_preconf(single_request_t* r) {
 
   // Extract block identifier from URL: preconf/{block_number} or preconf/latest
   char* block_identifier = r->req->url + strlen(path);
-  
+
   // Handle "latest" request
   if (strcmp(block_identifier, "latest") == 0) {
     c4_get_preconf_latest(http_server.chain_id, r, call_preconf_cb);

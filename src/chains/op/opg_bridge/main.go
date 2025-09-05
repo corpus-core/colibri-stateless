@@ -33,6 +33,7 @@ import (
 
 	"github.com/golang/snappy"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/klauspost/compress/zstd"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -828,19 +829,31 @@ func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, out
 		log.Printf("📦 Creating new preconf for block %d: %s", blockNumber, base)
 	}
 	
-	// Optimized format: Append 65-byte signature to raw data for efficient C access
-	// Format: [SSZ Execution Payload] + [65-byte signature (r=32, s=32, v=1)]
-	optimizedRawData := make([]byte, len(dataBytes)+65)
-	copy(optimizedRawData, dataBytes)
-	copy(optimizedRawData[len(dataBytes):], sigBytes)
+	// ZSTD compress the SSZ payload for 55% size reduction
+	encoder, err := zstd.NewWriter(nil)
+	if err != nil {
+		return fmt.Errorf("failed to create ZSTD encoder: %v", err)
+	}
+	compressedPayload := encoder.EncodeAll(dataBytes, make([]byte, 0, len(dataBytes)))
+	encoder.Close()
+	
+	log.Printf("🗜️ ZSTD compression: %d → %d bytes (%.1f%% reduction)", 
+		len(dataBytes), len(compressedPayload), 
+		float64(len(dataBytes)-len(compressedPayload))*100.0/float64(len(dataBytes)))
+
+	// Optimized format: ZSTD-compressed payload + uncompressed signature
+	// Format: [ZSTD-compressed ExecutionPayload] + [65-byte signature (r=32, s=32, v=1)]
+	optimizedRawData := make([]byte, len(compressedPayload)+65)
+	copy(optimizedRawData, compressedPayload)
+	copy(optimizedRawData[len(compressedPayload):], sigBytes)
 	
 	// Save optimized raw data (SSZ + signature)
 	if err := os.WriteFile(rawPath, optimizedRawData, 0o644); err != nil {
 		return fmt.Errorf("failed to write optimized raw file: %v", err)
 	}
 	
-	log.Printf("📦 Optimized format: %d bytes SSZ + 65 bytes signature = %d bytes total", 
-		len(dataBytes), len(optimizedRawData))
+	log.Printf("📦 Optimized format: %d bytes compressed payload + 65 bytes signature = %d bytes total", 
+		len(compressedPayload), len(optimizedRawData))
 	
 	// Update "latest" symlink to point to this newest preconf
 	latestPath := filepath.Join(outDir, "latest.raw")

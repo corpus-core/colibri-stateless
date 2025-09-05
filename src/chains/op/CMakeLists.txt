@@ -25,11 +25,33 @@ if(NOT MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-excess-initializers")
 endif()
 
+
+
+
+set(VERIFIER_SOURCES
+  verifier/op_verify.c
+  ssz/op_types.c
+)
+set(VERIFIER_DEPS util eth_verifier)
+
+
+
+add_verifier(
+  NAME op_verifier
+  SOURCES ${VERIFIER_SOURCES}
+  DEPENDS ${VERIFIER_DEPS}
+  GET_REQ_TYPE c4_op_get_request_type
+  VERIFY c4_op_verify
+  METHOD_TYPE c4_op_get_method_type
+)
+
+
 add_proofer(
   NAME op_proofer
   SOURCES 
     proofer/op_proofer.c
-  DEPENDS util eth_proofer
+    proofer/op_proof_block.c
+  DEPENDS util eth_proofer eth_verifier op_verifier
   PROOF op_proofer_execute
 )
 

@@ -30,6 +30,7 @@ extern "C" {
 
 #include "proofer.h"
 
+c4_status_t c4_op_proof_block(proofer_ctx_t* ctx);
 #ifdef __cplusplus
 }
 #endif

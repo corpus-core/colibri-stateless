@@ -21,23 +21,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "op_proofer.h"
-#include "../../eth/proofer/eth_proofer.h"
-#include "beacon_types.h"
-#include "json.h"
-#include "state.h"
-#include <stdlib.h>
-#include <string.h>
+#ifndef op_verify_h__
+#define op_verify_h__
 
-bool op_proofer_execute(proofer_ctx_t* ctx) {
-  // check if we are supporting this chain
-  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP)
-    return false;
+#include "verify.h"
 
-  if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0)
-    c4_op_proof_block(ctx);
-  else
-    ctx->state.error = strdup("Unsupported method");
-
-  return true;
-}
+// helper
+#endif // eth_verify_h__

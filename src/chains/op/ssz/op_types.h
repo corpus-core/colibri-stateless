@@ -21,23 +21,34 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "op_proofer.h"
-#include "../../eth/proofer/eth_proofer.h"
-#include "beacon_types.h"
-#include "json.h"
-#include "state.h"
-#include <stdlib.h>
-#include <string.h>
+#ifndef OP_SSZ_TYPES_H
+#define OP_SSZ_TYPES_H
 
-bool op_proofer_execute(proofer_ctx_t* ctx) {
-  // check if we are supporting this chain
-  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP)
-    return false;
+#include "chains.h"
+#include "ssz.h"
 
-  if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0)
-    c4_op_proof_block(ctx);
-  else
-    ctx->state.error = strdup("Unsupported method");
+typedef enum {
 
-  return true;
-}
+  OP_SSZ_VERIFY_REQUEST            = 4,
+  OP_SSZ_VERIFY_BLOCK_HASH_PROOF   = 5,
+  OP_SSZ_VERIFY_ACCOUNT_PROOF      = 6,
+  OP_SSZ_VERIFY_TRANSACTION_PROOF  = 7,
+  OP_SSZ_VERIFY_RECEIPT_PROOF      = 8,
+  OP_SSZ_VERIFY_LOGS_PROOF         = 9,
+  OP_SSZ_VERIFY_STATE_PROOF        = 12,
+  OP_SSZ_VERIFY_CALL_PROOF         = 13,
+  OP_SSZ_VERIFY_SYNC_PROOF         = 14,
+  OP_SSZ_VERIFY_BLOCK_PROOF        = 15,
+  OP_SSZ_VERIFY_BLOCK_NUMBER_PROOF = 16,
+  OP_SSZ_VERIFY_WITNESS_PROOF      = 17,
+  OP_SSZ_VERIFY_PRECONF_PROOF      = 18,
+
+} op_ssz_type_t;
+
+//  c4 specific
+const ssz_def_t* op_ssz_verification_type(op_ssz_type_t type);
+
+#define ssz_builder_for_op_type(typename) \
+  {.def = op_ssz_verification_type(typename), .dynamic = {0}, .fixed = {0}}
+
+#endif
