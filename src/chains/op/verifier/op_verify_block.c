@@ -29,6 +29,7 @@
 #include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
+#include "logger.h"
 #include "op_types.h"
 #include "op_verify.h"
 #include "op_zstd.h"
@@ -56,7 +57,7 @@ typedef struct {
   void*      sequencer_address;
 } op_config_t;
 
-static op_config_t op_configs[1] = {
+static op_config_t op_configs[] = {
     {.chain_id = 10, .sequencer_address = "\xAA\xAA\x45\xd9\x54\x9E\xDA\x09\xE7\x09\x37\x01\x35\x20\x21\x43\x82\xFf\xc4\xA2"},
     {.chain_id = 8453, .sequencer_address = "\xAf\x6E\x19\xBE\x0F\x9c\xE7\xf8\xaf\xd4\x9a\x18\x24\x85\x10\x23\xA8\x24\x9e\x8a"},
 };
@@ -70,7 +71,6 @@ static bool is_unsafe_signer(chain_id_t chain_id, address_t address) {
 }
 
 bool op_verify_block_proof(verify_ctx_t* ctx) {
-
   address_t signer          = {0};
   json_t    block_number    = json_at(ctx->args, 0);
   bool      include_txs     = json_as_bool(json_at(ctx->args, 1));
@@ -78,12 +78,15 @@ bool op_verify_block_proof(verify_ctx_t* ctx) {
   ssz_ob_t  compressed_data = ssz_get(&block_proof, "payload");
   ssz_ob_t  signature       = ssz_get(&block_proof, "signature");
 
-  bytes_t decompressed_data = bytes(NULL, op_zstd_get_decompressed_size(compressed_data.bytes));
-  decompressed_data.data    = safe_malloc(decompressed_data.len);
-  op_zstd_decompress(compressed_data.bytes, decompressed_data);
+  size_t expected_size = op_zstd_get_decompressed_size(compressed_data.bytes);
+  if (expected_size == 0) RETURN_VERIFY_ERROR(ctx, "failed to get decompressed size");
 
-  // check signature form sequencer
+  bytes_t decompressed_data = bytes(safe_malloc(expected_size), expected_size);
+  size_t  actual_size       = op_zstd_decompress(compressed_data.bytes, decompressed_data);
+
+  // Verify signature from sequencer
   verify_signature(decompressed_data, signature.bytes, ctx->chain_id, signer);
+
   if (!is_unsafe_signer(ctx->chain_id, signer)) {
     safe_free(decompressed_data.data);
     RETURN_VERIFY_ERROR(ctx, "invalid sequencer signature");

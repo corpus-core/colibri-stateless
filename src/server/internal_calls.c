@@ -59,8 +59,17 @@ static bool call_preconf(single_request_t* r) {
     return true;
   }
 
-  // Handle specific block number
-  uint64_t block_number = strtoull(block_identifier, NULL, 10);
+  // Handle specific block number (support both hex and decimal)
+  uint64_t block_number;
+  if (strncmp(block_identifier, "0x", 2) == 0 || strncmp(block_identifier, "0X", 2) == 0) {
+    // Parse as hex (skip 0x prefix)
+    block_number = strtoull(block_identifier + 2, NULL, 16);
+  }
+  else {
+    // Parse as decimal
+    block_number = strtoull(block_identifier, NULL, 10);
+  }
+
   if (block_number == 0) {
     throw_error(r, "Invalid block number in preconf request", false);
     return true;

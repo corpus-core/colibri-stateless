@@ -235,7 +235,7 @@ bool c4_get_preconf(chain_id_t chain_id, uint64_t block_number, void* uptr, hand
   preconf_read_context_t* ctx = safe_calloc(1, sizeof(preconf_read_context_t));
 
   // Build deterministic path: block_{chainID}_{blockNumber}.raw
-  ctx->file_path      = bprintf(NULL, "%s/block_%llu_%llu.raw",
+  ctx->file_path      = bprintf(NULL, "%s/block_%l_%l.raw",
                                 http_server.preconf_storage_dir, (uint64_t) chain_id, block_number);
   ctx->fd             = -1;
   ctx->block_number   = block_number;

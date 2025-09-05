@@ -26,6 +26,7 @@
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "json.h"
+#include "logger.h"
 #include "op_tools.h"
 #include "op_types.h"
 #include "proofer.h"
@@ -47,11 +48,15 @@ c4_status_t c4_op_proof_block(proofer_ctx_t* ctx) {
   if (!preconf_data.len)
     THROW_ERROR("No preconf data found, currently only supports preconfs");
 
+  // Extract payload and signature
+  bytes_t payload   = bytes_slice(preconf_data, 0, preconf_data.len - 65);
+  bytes_t signature = bytes_slice(preconf_data, preconf_data.len - 65, 65);
+
   // build the proof
   ssz_builder_t block_proof   = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
   ssz_builder_t preconf_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_PRECONF_PROOF);
-  ssz_add_bytes(&preconf_proof, "payload", bytes_slice(preconf_data, 0, preconf_data.len - 65));
-  ssz_add_bytes(&preconf_proof, "signature", bytes_slice(preconf_data, preconf_data.len - 65, 65));
+  ssz_add_bytes(&preconf_proof, "payload", payload);
+  ssz_add_bytes(&preconf_proof, "signature", signature);
   ssz_add_builders(&block_proof, "block_proof", preconf_proof);
 
   ctx->proof = op_create_proof_request(

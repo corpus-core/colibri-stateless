@@ -24,6 +24,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "logger.h"
 #include "plugin.h"
 #include "ssz.h"
 #include "state.h"
@@ -131,6 +132,9 @@ int main(int argc, char* argv[]) {
     if (*argv[i] == '-') {
       for (char* c = argv[i] + 1; *c; c++) {
         switch (*c) {
+          case 'l':
+            c4_set_log_level(atoi(argv[++i]));
+            break;
           case 'c':
             chain_id = atoi(argv[++i]);
             break;

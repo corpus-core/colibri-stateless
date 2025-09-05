@@ -34,7 +34,15 @@ import (
 	"github.com/golang/snappy"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/crypto/sha3"
+	"github.com/klauspost/compress/zstd"
 )
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 type chainConfig struct {
 	chainID      uint64
@@ -792,6 +800,9 @@ func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, out
 	rawHash := sha256.Sum256(dataBytes)
 	payloadHash := keccak(dataBytes)
 	
+	// Log basic info
+	log.Printf("📊 Payload: %d bytes, Chain: %d", len(dataBytes), chainID)
+	
 	// Verify signature if requested
 	var signerAddress string
 	if verifySignatures {
@@ -828,9 +839,39 @@ func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, out
 		log.Printf("📦 Creating new preconf for block %d: %s", blockNumber, base)
 	}
 	
-	// Save raw data
-	if err := os.WriteFile(rawPath, dataBytes, 0o644); err != nil {
+	// Compress payload with ZSTD
+	encoder, err := zstd.NewWriter(nil)
+	if err != nil {
+		return fmt.Errorf("failed to create ZSTD encoder: %v", err)
+	}
+	defer encoder.Close()
+	
+	compressedPayload := encoder.EncodeAll(dataBytes, nil)
+	log.Printf("🗜️  ZSTD compression: %d bytes -> %d bytes (%.1f%% reduction)", 
+		len(dataBytes), len(compressedPayload), 
+		100.0*(1.0-float64(len(compressedPayload))/float64(len(dataBytes))))
+	
+	// Save compressed data with appended signature (as expected by C-verifier)
+	// Format: ZSTD-compressed-payload + 65-byte signature
+	combinedData := make([]byte, len(compressedPayload)+65)
+	copy(combinedData, compressedPayload)
+	copy(combinedData[len(compressedPayload):], sigBytes)
+	
+	if err := os.WriteFile(rawPath, combinedData, 0o644); err != nil {
 		return fmt.Errorf("failed to write raw file: %v", err)
+	}
+	
+	// Update latest.raw symlink to point to the newest preconf
+	latestPath := filepath.Join(outDir, "latest.raw")
+	
+	// Remove existing symlink if it exists
+	os.Remove(latestPath)
+	
+	// Create new symlink pointing to the current raw file
+	if err := os.Symlink(filepath.Base(rawPath), latestPath); err != nil {
+		log.Printf("⚠️  Failed to create latest.raw symlink: %v", err)
+	} else {
+		log.Printf("🔗 Updated latest.raw symlink to %s", filepath.Base(rawPath))
 	}
 	
 	// Create metadata
