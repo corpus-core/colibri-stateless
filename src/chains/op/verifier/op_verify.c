@@ -108,14 +108,9 @@ const ssz_def_t* c4_op_get_request_type(chain_type_t chain_type) {
 
 bool c4_op_verify(verify_ctx_t* ctx) {
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return false;
-#ifdef ETH_BLOCK
-  if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF)))
-    verify_block_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF)))
-    verify_block_number_proof(ctx);
-  else
-#endif
-      if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
+  if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_BLOCK_PROOF)))
+    op_verify_block_proof(ctx);
+  else if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok
   else {
     ctx->state.error = strdup("proof is not a supported proof type or not enabled");

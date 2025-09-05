@@ -29,10 +29,12 @@ endif()
 
 
 set(VERIFIER_SOURCES
+  verifier/op_verify_block.c
   verifier/op_verify.c
+  verifier/op_zstd.c
   ssz/op_types.c
 )
-set(VERIFIER_DEPS util eth_verifier)
+set(VERIFIER_DEPS util eth_verifier zstd)
 
 
 
@@ -49,6 +51,7 @@ add_verifier(
 add_proofer(
   NAME op_proofer
   SOURCES 
+    proofer/op_tools.c
     proofer/op_proofer.c
     proofer/op_proof_block.c
   DEPENDS util eth_proofer eth_verifier op_verifier
@@ -65,5 +68,7 @@ add_server_handler(
   SHUTDOWN_FUNC op_server_shutdown
 )
 
-add_subdirectory(opg_bridge)
-add_dependencies(op_server_handler opg_bridge)
+if(HTTP_SERVER)
+    add_subdirectory(opg_bridge)
+    add_dependencies(op_server_handler opg_bridge)
+endif()

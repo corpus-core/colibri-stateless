@@ -26,6 +26,7 @@
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "json.h"
+#include "op_tools.h"
 #include "op_types.h"
 #include "proofer.h"
 #include "ssz.h"
@@ -41,7 +42,7 @@ c4_status_t c4_op_proof_block(proofer_ctx_t* ctx) {
   buffer_t buf2         = stack_buffer(path);
   json_t   block_number = json_at(ctx->params, 0);
 
-  TRY_ASYNC(c4_send_internal_request(ctx, bprintf(&buf2, "preconfs/%j", block_number), NULL, 0, &preconf_data)); // get the raw-data
+  TRY_ASYNC(c4_send_internal_request(ctx, bprintf(&buf2, "preconf/%j", block_number), NULL, 0, &preconf_data)); // get the raw-data
 
   if (!preconf_data.len)
     THROW_ERROR("No preconf data found, currently only supports preconfs");
@@ -53,7 +54,7 @@ c4_status_t c4_op_proof_block(proofer_ctx_t* ctx) {
   ssz_add_bytes(&preconf_proof, "signature", bytes_slice(preconf_data, preconf_data.len - 65, 65));
   ssz_add_builders(&block_proof, "block_proof", preconf_proof);
 
-  ctx->proof = eth_create_proof_request(
+  ctx->proof = op_create_proof_request(
       ctx->chain_id,
       NULL_SSZ_BUILDER,
       block_proof,

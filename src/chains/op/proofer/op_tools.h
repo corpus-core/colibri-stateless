@@ -21,11 +21,23 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef op_verify_h__
-#define op_verify_h__
+#ifndef OP_PROOFER_TOOLS_H
+#define OP_PROOFER_TOOLS_H
 
-#include "verify.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-bool op_verify_block_proof(verify_ctx_t* ctx);
-// helper
-#endif // eth_verify_h__
+#include "beacon.h"
+#include "bytes.h"
+#include "chains.h"
+#include "op_types.h"
+#include "ssz.h"
+
+bytes_t op_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_builder_t proof, ssz_builder_t sync_data);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

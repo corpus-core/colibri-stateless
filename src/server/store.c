@@ -154,9 +154,6 @@ bool c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb) {
   return true;
 }
 
-// Preconf-specific callback type (uses block_number instead of period)
-typedef void (*handle_preconf_data_cb)(void* user_ptr, uint64_t block_number, bytes_t data, char* error);
-
 // Preconf-specific read context
 typedef struct {
   uv_fs_t                open_req;

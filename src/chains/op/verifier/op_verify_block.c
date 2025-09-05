@@ -21,11 +21,36 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef op_verify_h__
-#define op_verify_h__
+#include "beacon_types.h"
+#include "bytes.h"
+#include "crypto.h"
+#include "eth_account.h"
+#include "eth_tx.h"
+#include "eth_verify.h"
+#include "json.h"
+#include "op_types.h"
+#include "op_verify.h"
+#include "op_zstd.h"
+#include "patricia.h"
+#include "rlp.h"
+#include "ssz.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "verify.h"
+bool op_verify_block_proof(verify_ctx_t* ctx) {
 
-bool op_verify_block_proof(verify_ctx_t* ctx);
-// helper
-#endif // eth_verify_h__
+  json_t   block_number    = json_at(ctx->args, 0);
+  bool     include_txs     = json_as_bool(json_at(ctx->args, 1));
+  ssz_ob_t block_proof     = ssz_get(&ctx->proof, "block_proof");
+  ssz_ob_t compressed_data = ssz_get(&block_proof, "payload");
+  ssz_ob_t signature       = ssz_get(&block_proof, "signature");
+
+  bytes_t decompressed_data = bytes(NULL, op_zstd_get_decompressed_size(compressed_data.bytes));
+  decompressed_data.data    = safe_malloc(decompressed_data.len);
+  op_zstd_decompress(compressed_data.bytes, decompressed_data);
+
+  ctx->success = true;
+  return true;
+}
