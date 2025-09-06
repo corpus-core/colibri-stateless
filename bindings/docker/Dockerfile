@@ -1,7 +1,7 @@
 # Use a Debian image for the builder stage
 FROM debian:bookworm-slim AS builder
 
-# Install build dependencies
+# Install build dependencies including Go
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     clang \
@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     libcurl4-openssl-dev \
+    golang-go \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -21,7 +22,7 @@ COPY CMakeLists.txt ./
 COPY src ./src
 COPY libs ./libs
 
-# Configure and build the server
+# Configure and build the server and OP Stack components
 RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DPROOFER_CACHE=true . && make server
 
 # Use a small Debian image for the final stage
@@ -36,8 +37,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 
-# Copy the built server executable from the builder stage
+# Copy the built executables from the builder stage
 COPY --from=builder /build/bin/server /app/server
+COPY --from=builder /build/bin/opg_bridge /app/opg_bridge
 
 # Expose the default server port
 EXPOSE 8090
