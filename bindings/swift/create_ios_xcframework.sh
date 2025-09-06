@@ -19,22 +19,28 @@ echo "🚀 Erstelle iOS XCFramework (Device + Simulator)..."
 echo "📱 iOS arm64: $IOS_ARM_BUILD"
 echo "📱 iOS x86_64 Simulator: $IOS_X86_BUILD"
 
-# Libraries to combine (simplified for iOS-only)
+# Libraries to combine (iOS-only with OP Stack support)
 LIBRARIES=(
     "libs/crypto/libcrypto.a"
     "libs/blst/libblst.a" 
     "src/util/libutil.a"
     "src/proofer/libproofer.a"
-    "src/chains/eth/libeth_verifier.a"
-    "src/chains/eth/libeth_proofer.a"
     "src/verifier/libverifier.a"
     "bindings/swift/libc4_swift_binding.a"
+    # ETH Chain support
+    "src/chains/eth/libeth_verifier.a"
+    "src/chains/eth/libeth_proofer.a"
+    "src/chains/eth/precompiles/libeth_precompiles.a"
+    # OP Stack support (NEW - these were missing!)
+    "src/chains/op/libop_verifier.a"
+    "src/chains/op/libop_proofer.a"
     # EVMOne dependencies (always included as EVMONE is enabled by default)
     "libs/intx/libintx_wrapper.a"
-    "src/chains/eth/precompiles/libeth_precompiles.a"
     "libs/evmone/libevmone_wrapper.a"
     "_deps/evmone_external-build/libevmone.a"
     "_deps/ethhash_external-build/libkeccak.a"
+    # ZSTD support for OP Stack preconfirmations
+    "libs/zstd/zstd_build/lib/libzstd.a"
 )
 
 # Framework directories
