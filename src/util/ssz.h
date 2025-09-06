@@ -55,10 +55,17 @@ typedef enum {
   SSZ_TYPE_NONE       = 8, /**< a NONE-Type (only used in unions) */
 } ssz_type_t;
 
+typedef enum {
+  SSZ_FLAG_NONE         = 0,
+  SSZ_FLAG_OPTIONAL     = 1,
+  SSZ_FLAG_ZSTD_ENCODED = 2,
+} ssz_flag_t;
+
 /** a SSZ Type Definition */
 struct ssz_def {
-  const char* name; /**< name of the property or SSZ Def*/
-  ssz_type_t  type; /**< General SSZ type  */
+  const char* name;      /**< name of the property or SSZ Def*/
+  uint8_t     type : 4;  /**< General SSZ type (4 bits, 0-8 fits) */
+  uint8_t     flags : 4; /**< flags of the object (4 bits) */
   union {
     struct {
       uint32_t len;

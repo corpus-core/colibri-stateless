@@ -72,6 +72,12 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
   bytes_t decompressed_data = bytes(safe_malloc(expected_size), expected_size);
   size_t  actual_size       = op_zstd_decompress(compressed_data.bytes, decompressed_data);
 
+  if (actual_size != expected_size) {
+    safe_free(decompressed_data.data);
+    c4_state_add_error(&ctx->state, "failed to decompress data");
+    return NULL;
+  }
+
   // Verify signature from sequencer
   verify_signature(decompressed_data, signature.bytes, ctx->chain_id, signer);
 
