@@ -1,7 +1,7 @@
 # Use a Debian image for the builder stage
 FROM debian:bookworm-slim AS builder
 
-# Install build dependencies including Go
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     clang \
@@ -9,9 +9,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     libcurl4-openssl-dev \
-    golang-go \
+    wget \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Go 1.21 (compatible with go.mod)
+RUN wget -O go.tar.gz https://go.dev/dl/go1.21.13.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf go.tar.gz \
+    && rm go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Set working directory for the build
 WORKDIR /build
@@ -23,7 +29,7 @@ COPY src ./src
 COPY libs ./libs
 
 # Configure and build the server and OP Stack components
-RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DPROOFER_CACHE=true . && make server
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DPROOFER_CACHE=true . && make server opg_bridge
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final
