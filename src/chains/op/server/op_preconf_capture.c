@@ -18,7 +18,7 @@ static void cleanup_handle(op_capture_handle* h) {
   }
 }
 
-static void on_exit(uv_process_t* req, int64_t exit_status, int term_signal) {
+static void on_process_exit(uv_process_t* req, int64_t exit_status, int term_signal) {
   op_capture_handle* h = (op_capture_handle*) req->data;
   h->running           = false;
 
@@ -131,7 +131,7 @@ int op_preconf_start(uv_loop_t* loop, const op_chain_config* cfg, op_capture_han
   opts.args        = args;
   opts.flags       = 0; // Entferne UV_PROCESS_DETACHED für saubere integration
   opts.stdio_count = 3;
-  opts.exit_cb     = on_exit; // Wichtig: Exit-Handler setzen
+  opts.exit_cb     = on_process_exit; // Wichtig: Exit-Handler setzen
 
   uv_stdio_container_t stdio[3];
   memset(stdio, 0, sizeof(stdio));
