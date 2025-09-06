@@ -109,7 +109,7 @@ const ssz_def_t* c4_op_get_request_type(chain_type_t chain_type) {
 bool c4_op_verify(verify_ctx_t* ctx) {
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return false;
   if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_BLOCK_PROOF)))
-    op_verify_block_proof(ctx);
+    op_verify_block(ctx);
   else if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok
   else {
