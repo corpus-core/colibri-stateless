@@ -33,6 +33,7 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCURL=OFF \
+            -DCHAIN_OP=OFF \
             -DEVMONE=OFF \
             -DETH_BLOCK=OFF \
             -DETH_TX=1 \
