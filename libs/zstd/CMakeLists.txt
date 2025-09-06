@@ -28,10 +28,19 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-# Fetch ZSTD from GitHub using URL approach for consistency
-FetchContent_Declare(zstd
-    URL "https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz"
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+# Fetch ZSTD from GitHub - use different approach for Android to avoid URL parsing issues
+if(ANDROID)
+    # For Android builds, use GIT_REPOSITORY to avoid URL parsing issues in older CMake versions
+    FetchContent_Declare(zstd
+        GIT_REPOSITORY "https://github.com/facebook/zstd.git"
+        GIT_TAG "v1.5.6"
+        GIT_SHALLOW TRUE)
+else()
+    # For other platforms, use URL approach for consistency
+    FetchContent_Declare(zstd
+        URL "https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+endif()
 
 # Configure build options before making available
 set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "Build zstd programs" FORCE)

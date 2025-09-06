@@ -56,6 +56,13 @@ if(PYTHON)
     message(STATUS "Python bindings enabled: CURL=OFF, CLI=OFF")
 endif()
 
+# Android/Kotlin bindings configuration
+if(ANDROID OR KOTLIN)
+    # Android bindings don't need HTTP server (no opg_bridge process management)
+    set(HTTP_SERVER OFF CACHE BOOL "Disable HTTP server for Android bindings" FORCE)
+    message(STATUS "Android/Kotlin bindings enabled: HTTP_SERVER=OFF (OP Stack verification still supported)")
+endif()
+
 # Additional include path (for embedded targets etc)
 set(INCLUDE "" CACHE STRING "Additional directory to include in build")
 
