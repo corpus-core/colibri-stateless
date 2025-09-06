@@ -88,6 +88,7 @@ static void start_preconf_capture(http_server_t* server) {
       .bootnodes        = boots,
       .bootnodes_len    = 11,
       .bridge_path      = bridge_path,
+      .use_gossip       = http_server.preconf_use_gossip != 0,
   };
   op_capture_handle* h  = NULL;
   int                rc = op_preconf_start(loop, &cfg, &h);

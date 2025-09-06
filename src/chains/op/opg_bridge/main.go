@@ -57,13 +57,13 @@ func main() {
 				httpEndpoint = config.endpoint
 				log.Printf("🔍 Auto-detected endpoint for %s (Chain ID %d): %s", config.name, chainID, httpEndpoint)
 			} else {
-				log.Fatalf("❌ Chain ID %d not supported. Supported chains: OP Mainnet (10), Base (8453), Worldchain (480), Zora (7777777), Unichain (130)", chainID)
+				log.Fatalf("❌ Chain ID %d not supported. Supported chains: OP Mainnet (10), Base (8453), Worldchain (480), Zora (7777777), Unichain (130), PGN (424), Orderly (291), Mode (34443), Fraxtal (252), Mantle (5000), Klaytn (8217)", chainID)
 			}
 		}
 
 		chainConfig, exists := supportedChains[chainID]
 		if !exists {
-			log.Fatalf("❌ Chain ID %d not supported. Supported chains: OP Mainnet (10), Base (8453), Worldchain (480), Zora (7777777), Unichain (130)", chainID)
+			log.Fatalf("❌ Chain ID %d not supported. Supported chains: OP Mainnet (10), Base (8453), Worldchain (480), Zora (7777777), Unichain (130), PGN (424), Orderly (291), Mode (34443), Fraxtal (252), Mantle (5000), Klaytn (8217)", chainID)
 		}
 		log.Printf("🌐 Starting HTTP-based preconf capture for %s", chainConfig.name)
 		log.Printf("📡 Endpoint: %s", httpEndpoint)

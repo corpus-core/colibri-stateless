@@ -65,6 +65,12 @@ extern const chain_id_t C4_CHAIN_OP_BASE;
 extern const chain_id_t C4_CHAIN_OP_WORLDCHAIN;
 extern const chain_id_t C4_CHAIN_OP_ZORA;
 extern const chain_id_t C4_CHAIN_OP_UNICHAIN;
+extern const chain_id_t C4_CHAIN_OP_PGN;
+extern const chain_id_t C4_CHAIN_OP_ORDERLY;
+extern const chain_id_t C4_CHAIN_OP_MODE;
+extern const chain_id_t C4_CHAIN_OP_FRAXTAL;
+extern const chain_id_t C4_CHAIN_OP_MANTLE;
+extern const chain_id_t C4_CHAIN_OP_KLAYTN;
 
 extern const chain_id_t C4_CHAIN_BTC_MAINNET;
 extern const chain_id_t C4_CHAIN_BTC_TESTNET;

@@ -36,6 +36,12 @@ const chain_id_t C4_CHAIN_OP_BASE       = CHAIN_ID(0, 8453);
 const chain_id_t C4_CHAIN_OP_WORLDCHAIN = CHAIN_ID(0, 480);
 const chain_id_t C4_CHAIN_OP_ZORA       = CHAIN_ID(0, 7777777);
 const chain_id_t C4_CHAIN_OP_UNICHAIN   = CHAIN_ID(0, 130);
+const chain_id_t C4_CHAIN_OP_PGN        = CHAIN_ID(0, 424);
+const chain_id_t C4_CHAIN_OP_ORDERLY    = CHAIN_ID(0, 291);
+const chain_id_t C4_CHAIN_OP_MODE       = CHAIN_ID(0, 34443);
+const chain_id_t C4_CHAIN_OP_FRAXTAL    = CHAIN_ID(0, 252);
+const chain_id_t C4_CHAIN_OP_MANTLE     = CHAIN_ID(0, 5000);
+const chain_id_t C4_CHAIN_OP_KLAYTN     = CHAIN_ID(0, 8217);
 
 const chain_id_t C4_CHAIN_BTC_MAINNET  = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 0);
 const chain_id_t C4_CHAIN_BTC_TESTNET  = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 1);
@@ -66,6 +72,12 @@ chain_type_t c4_chain_type(chain_id_t chain_id) {
   if (chain_id == C4_CHAIN_OP_WORLDCHAIN) return C4_CHAIN_TYPE_OP; // Worldchain
   if (chain_id == C4_CHAIN_OP_ZORA) return C4_CHAIN_TYPE_OP;       // Zora
   if (chain_id == C4_CHAIN_OP_UNICHAIN) return C4_CHAIN_TYPE_OP;   // Unichain
+  if (chain_id == C4_CHAIN_OP_PGN) return C4_CHAIN_TYPE_OP;        // PGN (Public Goods Network)
+  if (chain_id == C4_CHAIN_OP_ORDERLY) return C4_CHAIN_TYPE_OP;    // Orderly Network
+  if (chain_id == C4_CHAIN_OP_MODE) return C4_CHAIN_TYPE_OP;       // Mode Network
+  if (chain_id == C4_CHAIN_OP_FRAXTAL) return C4_CHAIN_TYPE_OP;    // Fraxtal
+  if (chain_id == C4_CHAIN_OP_MANTLE) return C4_CHAIN_TYPE_OP;     // Mantle
+  if (chain_id == C4_CHAIN_OP_KLAYTN) return C4_CHAIN_TYPE_OP;     // Klaytn
 
   return (chain_id >> 56) & 0xff;
 }

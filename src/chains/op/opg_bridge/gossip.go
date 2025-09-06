@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
+	"github.com/klauspost/compress/zstd"
 	libp2p "github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
@@ -26,10 +27,11 @@ import (
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 )
 
-// msgIDFn creates the OP Stack message ID function for pubsub
+// msgIDFn creates the OP Stack message ID function for pubsub (compatible with Helios)
 func msgIDFn() pubsub.MsgIdFunction {
-	validDomain := []byte("MESSAGE_DOMAIN_VALID_SNAPPY")
-	invalidDomain := []byte("MESSAGE_DOMAIN_INVALID_SNAPPY")
+	// Use same domain bytes as Helios for compatibility
+	validDomain := []byte{0x1, 0x0, 0x0, 0x0}     // Helios: domain_valid_snappy
+	invalidDomain := []byte{0x0, 0x0, 0x0, 0x0}   // Helios: domain_invalid_snappy
 	return func(pmsg *pb.Message) string {
 		data := pmsg.Data
 		var sum [32]byte
@@ -145,15 +147,22 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 		return fmt.Errorf("DHT initialization: %v", err)
 	}
 
-	// Connect to known libp2p bootstrap nodes
+	// Start with reliable generic libp2p bootstrap nodes, then try OP Stack specific ones
 	bootstrapPeers := []string{
+		// Generic libp2p bootstrap nodes (reliable)
 		"/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
 		"/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
 		"/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
 		"/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+		// OP Stack specific bootnodes (may be offline)
+		"/ip4/218.145.88.87/tcp/9222/p2p/16Uiu2HAm4TmEzUqy3q3Dv7HvdoSboHk5sFKw2oUvqRkzaQhBx2kX",
+		"/ip4/3.86.131.48/tcp/9222/p2p/16Uiu2HAkurHZ4KNRwKVdeVjroUC4d6rAYdxoK5cmtCRGTvoCgFk5",
+		"/ip4/15.222.138.188/tcp/9222/p2p/16Uiu2HAmVxhqWjdsmtXdCYTyJqEBFU1HLaTBryF6puLb3E36rS4C",
+		"/ip4/18.144.129.189/tcp/9222/p2p/16Uiu2HAm8W8nQhQyZbXNcXkjJGVQSLYhKKkpJkWFVgBKSLzaJbJj",
 	}
 
-	log.Printf("Connecting to %d libp2p bootstrap peers...", len(bootstrapPeers))
+	log.Printf("Connecting to %d bootstrap peers...", len(bootstrapPeers))
+	connectedPeers := 0
 	for _, addrStr := range bootstrapPeers {
 		addr, err := ma.NewMultiaddr(addrStr)
 		if err != nil {
@@ -168,12 +177,23 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 		}
 
 		log.Printf("Connecting to bootstrap peer: %s", peerInfo.ID.String())
-		if err := h.Connect(ctx, *peerInfo); err != nil {
+		
+		// Use very short timeout for potentially offline peers
+		timeout := 2 * time.Second
+		if strings.Contains(addrStr, "bootstrap.libp2p.io") {
+			timeout = 5 * time.Second // Generic nodes get more time
+		}
+		connectCtx, cancel := context.WithTimeout(ctx, timeout)
+		if err := h.Connect(connectCtx, *peerInfo); err != nil {
 			log.Printf("Failed to connect to bootstrap peer %s: %v", peerInfo.ID.String(), err)
 		} else {
-			log.Printf("Connected to bootstrap peer: %s", peerInfo.ID.String())
+			log.Printf("✅ Connected to bootstrap peer: %s", peerInfo.ID.String())
+			connectedPeers++
 		}
+		cancel()
 	}
+	
+	log.Printf("📊 Connected to %d/%d bootstrap peers", connectedPeers, len(bootstrapPeers))
 
 	// Bootstrap DHT
 	log.Printf("Bootstrapping DHT...")
@@ -226,7 +246,11 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 		}
 	}
 
-	topicStr := fmt.Sprintf("/optimism/%d/%d/blocks", chainID, hf) // v4/Isthmus ⇒ hf=3
+	// Use Helios-compatible topic format: always use hardfork version 2
+	// Helios uses /optimism/{chain_id}/2/blocks regardless of actual hardfork
+	topicStr := fmt.Sprintf("/optimism/%d/2/blocks", chainID)
+	log.Printf("🔗 Joining gossip topic: %s", topicStr)
+	
 	topic, err := ps.Join(topicStr)
 	if err != nil {
 		return fmt.Errorf("join topic: %v", err)
@@ -236,7 +260,8 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 		return fmt.Errorf("subscribe: %v", err)
 	}
 
-	log.Printf("Subscribed to topic: %s", topicStr)
+	log.Printf("✅ Subscribed to topic: %s", topicStr)
+	log.Printf("🎧 Listening for preconfirmation messages...")
 
 	// DHT-based peer discovery for the specific topic
 	go func() {
@@ -283,23 +308,26 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 				}
 
 				if peersFound == 0 {
-					log.Printf("No peers found for topic %s in this round", topicStr)
+					log.Printf("🔍 No new peers found for topic %s in this round", topicStr)
 				} else {
-					log.Printf("Discovery round completed: found %d peers for topic %s", peersFound, topicStr)
+					log.Printf("🎯 Discovery round completed: found %d peers for topic %s", peersFound, topicStr)
 				}
 
 				// Show current peer statistics
 				connectedPeers := h.Network().Peers()
-				log.Printf("Currently connected to %d peers total", len(connectedPeers))
-
-				// Show topic-specific peers
 				topicPeers := topic.ListPeers()
-				log.Printf("Topic %s has %d subscribed peers", topicStr, len(topicPeers))
+				log.Printf("📊 Network status: %d total peers, %d subscribed to topic %s", 
+					len(connectedPeers), len(topicPeers), topicStr)
+				
+				// If we have topic peers, we're ready to receive messages
+				if len(topicPeers) > 0 {
+					log.Printf("🎉 Ready to receive messages from %d topic peers!", len(topicPeers))
+				}
 			}
 		}
 	}()
 
-	// Process incoming messages
+	// Process incoming messages with validation (like Helios BlockHandler)
 	for {
 		msg, err := sub.Next(ctx)
 		if err != nil {
@@ -310,43 +338,49 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 		log.Printf("🎉 RECEIVED MESSAGE! From: %s, Size: %d bytes, Topic: %s",
 			msg.ReceivedFrom.String(), len(msg.Data), topicStr)
 
+		// Validate message format (like Helios SequencerCommitment::new)
 		raw := msg.Data
 		rawHash := sha256.Sum256(raw)
 		dec, err := snappy.Decode(nil, raw)
 		if err != nil {
-			log.Printf("⚠️  Invalid snappy compression, dropping message: %v", err)
+			log.Printf("⚠️  Invalid snappy compression, rejecting message: %v", err)
+			continue
+		}
+
+		// Helios expects: signature(65) + data(variable)
+		if len(dec) < 65 {
+			log.Printf("⚠️  Message too short (%d bytes), rejecting", len(dec))
 			continue
 		}
 
 		log.Printf("✅ Valid preconfirmation decoded! Decompressed size: %d bytes", len(dec))
 
-		// Decode by hf-version
-		if len(dec) < 65 {
-			continue
-		}
+		// Parse Helios-compatible format: signature(65) + parentBBR(32) + payload(variable)
+		// This matches Helios SequencerCommitment structure
 		sigBytes := dec[:65]
-		offset := 65
+		dataBytes := dec[65:] // This is parentBBR + payload
 
+		// For OP Stack, the data format is: parentBeaconBlockRoot(32) + ExecutionPayload
 		var parentBBR []byte
-		if hf >= 2 { // v3/v4 have parentBeaconBlockRoot
-			if len(dec) < offset+32 {
-				continue
-			}
-			parentBBR = dec[offset : offset+32]
-			offset += 32
+		var payload []byte
+		
+		if len(dataBytes) >= 32 {
+			parentBBR = dataBytes[:32]
+			payload = dataBytes[32:]
+		} else {
+			// Fallback for older format without parentBBR
+			payload = dataBytes
 		}
-		payload := dec[offset:]
+
 		if len(payload) == 0 {
+			log.Printf("⚠️  Empty payload, skipping message")
 			continue
 		}
 
-		// Build signing message: keccak( domain(32x0) || chain_id(be-uint256) || keccak(payload or parentBBR||payload) )
-		domain := make([]byte, 32)
-		body := payload
-		if hf >= 2 {
-			body = append(parentBBR, payload...)
-		}
-		payloadHash := keccak(body)
+		// Build signing message according to OP Stack standard (same as Helios)
+		// keccak256(domain(32x0) || chain_id(be-uint256) || keccak256(data))
+		domain := make([]byte, 32) // 32 zero bytes
+		payloadHash := keccak(dataBytes) // Hash the entire data (parentBBR + payload)
 
 		msgBuf := append(domain, beUint256FromChainID(chainID)...)
 		msgBuf = append(msgBuf, payloadHash...)
@@ -366,15 +400,68 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 		}
 		addr := ethcrypto.PubkeyToAddress(*pubkey)
 
-		// Write files
-		ts := time.Now().Unix()
-		base := fmt.Sprintf("%d_%x", ts, rawHash[:8])
-		rawPath := filepath.Join(outDir, base+".raw")  // original pubsub bytes (snappy-compressed)
-		metaPath := filepath.Join(outDir, base+".json") // metadata
-		decPath := filepath.Join(outDir, base+".bin")   // decompressed concat (sig || [parentBBR] || payload)
+		// Extract block number for consistent naming (like HTTP polling)
+		blockNumber, err := extractBlockNumberFromSSZ(payload)
+		if err != nil {
+			log.Printf("⚠️  Failed to extract block number: %v, using timestamp fallback", err)
+			blockNumber = uint64(time.Now().Unix()) // Fallback
+		}
 
-		_ = os.WriteFile(rawPath, raw, 0o644)
-		_ = os.WriteFile(decPath, dec, 0o644)
+		// Use same file naming as HTTP polling: block_{chainID}_{blockNumber}
+		ts := time.Now().Unix()
+		base := fmt.Sprintf("block_%d_%d", chainID, blockNumber)
+		rawPath := filepath.Join(outDir, base+".raw")
+		metaPath := filepath.Join(outDir, base+".json")
+
+		// Compress payload with ZSTD (same as HTTP polling)
+		encoder, err := zstd.NewWriter(nil)
+		if err != nil {
+			log.Printf("❌ Failed to create ZSTD encoder: %v", err)
+			continue
+		}
+		
+		compressedPayload := encoder.EncodeAll(payload, nil)
+		encoder.Close()
+		
+		log.Printf("🗜️  ZSTD compression: %d bytes -> %d bytes (%.1f%% reduction)",
+			len(payload), len(compressedPayload),
+			100.0*(1.0-float64(len(compressedPayload))/float64(len(payload))))
+
+		// Save in same format as HTTP polling: ZSTD-compressed-payload + 65-byte signature
+		combinedData := make([]byte, len(compressedPayload)+65)
+		copy(combinedData, compressedPayload)
+		copy(combinedData[len(compressedPayload):], sigBytes)
+
+		// Atomic write: write to temp file first, then rename
+		tempRawPath := rawPath + ".tmp"
+		if err := os.WriteFile(tempRawPath, combinedData, 0o644); err != nil {
+			log.Printf("❌ Failed to write temp raw file: %v", err)
+			continue
+		}
+		
+		// Atomic rename (this is atomic on most filesystems)
+		if err := os.Rename(tempRawPath, rawPath); err != nil {
+			os.Remove(tempRawPath) // Cleanup on failure
+			log.Printf("❌ Failed to rename temp raw file: %v", err)
+			continue
+		}
+
+		// Update latest.raw symlink (same as HTTP polling)
+		latestPath := filepath.Join(outDir, "latest.raw")
+		os.Remove(latestPath)
+		if err := os.Symlink(filepath.Base(rawPath), latestPath); err != nil {
+			log.Printf("⚠️  Failed to create latest.raw symlink: %v", err)
+		} else {
+			log.Printf("🔗 Updated latest.raw symlink to %s", filepath.Base(rawPath))
+		}
+
+		// Extract block hash for metadata
+		blockHash, err := extractBlockHashFromSSZ(payload)
+		if err != nil {
+			log.Printf("⚠️  Failed to extract block hash: %v", err)
+			hash := sha256.Sum256(payload)
+			blockHash = "0x" + hex.EncodeToString(hash[:16]) // Fallback
+		}
 
 		meta := metaFile{
 			ChainID:        fmt.Sprintf("%d", chainID),
@@ -388,10 +475,23 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 			ParentBBRHex:   hexOrEmpty(parentBBR),
 			PayloadKeccak:  "0x" + hex.EncodeToString(payloadHash),
 			RawSHA256:      "0x" + hex.EncodeToString(rawHash[:]),
-			DecompressedSz: len(dec),
+			DecompressedSz: len(payload), // Use payload size, not full decompressed size
+			BlockNumber:    blockNumber,
+			BlockHash:      blockHash,
 		}
+		// Atomic write for metadata file too
 		b, _ := json.MarshalIndent(&meta, "", "  ")
-		_ = os.WriteFile(metaPath, b, 0o644)
+		tempMetaPath := metaPath + ".tmp"
+		if err := os.WriteFile(tempMetaPath, b, 0o644); err != nil {
+			log.Printf("❌ Failed to write temp meta file: %v", err)
+			continue
+		}
+		
+		if err := os.Rename(tempMetaPath, metaPath); err != nil {
+			os.Remove(tempMetaPath) // Cleanup on failure
+			log.Printf("❌ Failed to rename temp meta file: %v", err)
+			continue
+		}
 	}
 
 	return nil

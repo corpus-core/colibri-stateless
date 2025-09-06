@@ -14,6 +14,7 @@ typedef struct {
   const char** bootnodes;        // array of libp2p multiaddrs: /ip4/…/tcp/…/p2p/<peerId>
   size_t       bootnodes_len;
   const char*  bridge_path; // path to opg_bridge binary
+  bool         use_gossip;  // true = gossip mode, false = HTTP polling
 } op_chain_config;
 
 typedef struct {

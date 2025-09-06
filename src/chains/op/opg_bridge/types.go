@@ -46,6 +46,43 @@ var supportedChains = map[uint64]chainConfig{
 		endpoint:     "https://unichain.operationsolarstorm.org/latest",
 		unsafeSigner: "0x833C6f278474A78658af91aE8edC926FE33a230e",
 	},
+	// Additional OP Stack chains
+	424: {
+		chainID:      424,
+		name:         "PGN (Public Goods Network)",
+		endpoint:     "https://pgn.operationsolarstorm.org/latest",
+		unsafeSigner: "0x99199F2c2A4Bd9C7C0C9C4C4C4C4C4C4C4C4C4C4", // TODO: Update with actual sequencer
+	},
+	291: {
+		chainID:      291,
+		name:         "Orderly Network",
+		endpoint:     "https://orderly.operationsolarstorm.org/latest",
+		unsafeSigner: "0x88188F3c3A4Bd9C7C0C9C4C4C4C4C4C4C4C4C4C4", // TODO: Update with actual sequencer
+	},
+	34443: {
+		chainID:      34443,
+		name:         "Mode Network",
+		endpoint:     "https://mode.operationsolarstorm.org/latest",
+		unsafeSigner: "0x77177E2c2A4Bd9C7C0C9C4C4C4C4C4C4C4C4C4C4", // TODO: Update with actual sequencer
+	},
+	252: {
+		chainID:      252,
+		name:         "Fraxtal",
+		endpoint:     "https://fraxtal.operationsolarstorm.org/latest",
+		unsafeSigner: "0x66166D1c1A4Bd9C7C0C9C4C4C4C4C4C4C4C4C4C4", // TODO: Update with actual sequencer
+	},
+	5000: {
+		chainID:      5000,
+		name:         "Mantle",
+		endpoint:     "https://mantle.operationsolarstorm.org/latest",
+		unsafeSigner: "0x55155C0c0A4Bd9C7C0C9C4C4C4C4C4C4C4C4C4C4", // TODO: Update with actual sequencer
+	},
+	8217: {
+		chainID:      8217,
+		name:         "Klaytn",
+		endpoint:     "https://klaytn.operationsolarstorm.org/latest",
+		unsafeSigner: "0x44144B9b9A4Bd9C7C0C9C4C4C4C4C4C4C4C4C4C4", // TODO: Update with actual sequencer
+	},
 }
 
 // httpPreconfResponse represents the JSON response from HTTP preconf endpoints

@@ -69,6 +69,7 @@ typedef struct {
   char* preconf_storage_dir;
   int   preconf_ttl_minutes;
   int   preconf_cleanup_interval_minutes;
+  int   preconf_use_gossip; // 1 = gossip mode, 0 = HTTP polling mode
 } http_server_t;
 
 // Server health tracking structure

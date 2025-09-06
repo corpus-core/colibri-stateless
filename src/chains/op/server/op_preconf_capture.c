@@ -81,8 +81,8 @@ int op_preconf_start(uv_loop_t* loop, const op_chain_config* cfg, op_capture_han
   uv_process_options_t opts;
   memset(&opts, 0, sizeof(opts));
 
-  // Build argv
-  size_t argc = 8 + cfg->bootnodes_len * 2;
+  // Build argv - add space for --use-http flag if needed
+  size_t argc = 8 + cfg->bootnodes_len * 2 + (cfg->use_gossip ? 1 : 0); // +1 for --use-http=false
   char** args = (char**) calloc(argc + 1, sizeof(char*));
   size_t i    = 0;
   args[i++]   = (char*) cfg->bridge_path;
@@ -97,6 +97,11 @@ int op_preconf_start(uv_loop_t* loop, const op_chain_config* cfg, op_capture_han
   args[i++] = strdup(hf_buf);
   args[i++] = "--out-dir";
   args[i++] = (char*) cfg->out_dir;
+
+  // Add --use-http=false for gossip mode (HTTP is default)
+  if (cfg->use_gossip) {
+    args[i++] = "--use-http=false";
+  }
 
   for (size_t k = 0; k < cfg->bootnodes_len; ++k) {
     args[i++] = "--bootnode";

@@ -196,8 +196,16 @@ func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, out
 	copy(combinedData, compressedPayload)
 	copy(combinedData[len(compressedPayload):], sigBytes)
 
-	if err := os.WriteFile(rawPath, combinedData, 0o644); err != nil {
-		return fmt.Errorf("failed to write raw file: %v", err)
+	// Atomic write: write to temp file first, then rename
+	tempRawPath := rawPath + ".tmp"
+	if err := os.WriteFile(tempRawPath, combinedData, 0o644); err != nil {
+		return fmt.Errorf("failed to write temp raw file: %v", err)
+	}
+	
+	// Atomic rename (this is atomic on most filesystems)
+	if err := os.Rename(tempRawPath, rawPath); err != nil {
+		os.Remove(tempRawPath) // Cleanup on failure
+		return fmt.Errorf("failed to rename temp raw file: %v", err)
 	}
 
 	// Update latest.raw symlink to point to the newest preconf
@@ -241,8 +249,15 @@ func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, out
 		return fmt.Errorf("failed to marshal metadata: %v", err)
 	}
 
-	if err := os.WriteFile(metaPath, metaJSON, 0o644); err != nil {
-		return fmt.Errorf("failed to write meta file: %v", err)
+	// Atomic write for metadata file too
+	tempMetaPath := metaPath + ".tmp"
+	if err := os.WriteFile(tempMetaPath, metaJSON, 0o644); err != nil {
+		return fmt.Errorf("failed to write temp meta file: %v", err)
+	}
+	
+	if err := os.Rename(tempMetaPath, metaPath); err != nil {
+		os.Remove(tempMetaPath) // Cleanup on failure
+		return fmt.Errorf("failed to rename temp meta file: %v", err)
 	}
 
 	// Add to storage for fast access
