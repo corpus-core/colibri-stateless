@@ -15,6 +15,10 @@ typedef struct {
   size_t       bootnodes_len;
   const char*  bridge_path; // path to opg_bridge binary
   bool         use_gossip;  // true = gossip mode, false = HTTP polling
+  // Chain-specific configuration (passed from centralized C config)
+  const char* chain_name;        // e.g. "Base", "OP Mainnet"
+  const char* http_endpoint;     // HTTP endpoint for polling mode
+  const char* sequencer_address; // Expected sequencer address for verification
 } op_chain_config;
 
 typedef struct {

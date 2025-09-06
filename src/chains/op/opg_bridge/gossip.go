@@ -251,6 +251,33 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 	topicStr := fmt.Sprintf("/optimism/%d/2/blocks", chainID)
 	log.Printf("🔗 Joining gossip topic: %s", topicStr)
 	
+	// Also try alternative topic formats for discovery
+	altTopics := []string{
+		fmt.Sprintf("/optimism/%d/1/blocks", chainID),
+		fmt.Sprintf("/optimism/%d/3/blocks", chainID),
+		fmt.Sprintf("/op-stack/%d/blocks", chainID),
+		fmt.Sprintf("/base/%d/blocks", chainID),
+	}
+	
+	for _, altTopic := range altTopics {
+		log.Printf("🔍 Also checking alternative topic: %s", altTopic)
+		go func(topic string) {
+			util.Advertise(ctx, disc, topic)
+			peerCh, err := disc.FindPeers(ctx, topic)
+			if err == nil {
+				count := 0
+				for peer := range peerCh {
+					if peer.ID != h.ID() {
+						count++
+					}
+				}
+				if count > 0 {
+					log.Printf("🎯 Found %d peers for alternative topic: %s", count, topic)
+				}
+			}
+		}(altTopic)
+	}
+	
 	topic, err := ps.Join(topicStr)
 	if err != nil {
 		return fmt.Errorf("join topic: %v", err)
@@ -318,6 +345,17 @@ func gossipPreconfCapture(ctx context.Context, chainID uint64, hf int, outDir st
 				topicPeers := topic.ListPeers()
 				log.Printf("📊 Network status: %d total peers, %d subscribed to topic %s", 
 					len(connectedPeers), len(topicPeers), topicStr)
+				
+				// Debug: Show some connected peer IDs for analysis
+				if len(connectedPeers) > 0 {
+					log.Printf("🔍 Sample connected peers:")
+					for i, peerID := range connectedPeers {
+						if i >= 5 { // Show max 5 peers
+							break
+						}
+						log.Printf("  - %s", peerID.String())
+					}
+				}
 				
 				// If we have topic peers, we're ready to receive messages
 				if len(topicPeers) > 0 {

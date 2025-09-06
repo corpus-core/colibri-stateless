@@ -81,8 +81,8 @@ int op_preconf_start(uv_loop_t* loop, const op_chain_config* cfg, op_capture_han
   uv_process_options_t opts;
   memset(&opts, 0, sizeof(opts));
 
-  // Build argv - add space for --use-http flag if needed
-  size_t argc = 8 + cfg->bootnodes_len * 2 + (cfg->use_gossip ? 1 : 0); // +1 for --use-http=false
+  // Build argv - add space for new parameters
+  size_t argc = 14 + cfg->bootnodes_len * 2 + (cfg->use_gossip ? 1 : 0); // +6 for new params
   char** args = (char**) calloc(argc + 1, sizeof(char*));
   size_t i    = 0;
   args[i++]   = (char*) cfg->bridge_path;
@@ -97,6 +97,20 @@ int op_preconf_start(uv_loop_t* loop, const op_chain_config* cfg, op_capture_han
   args[i++] = strdup(hf_buf);
   args[i++] = "--out-dir";
   args[i++] = (char*) cfg->out_dir;
+
+  // Pass chain-specific configuration from centralized C config
+  if (cfg->chain_name) {
+    args[i++] = "--chain-name";
+    args[i++] = (char*) cfg->chain_name;
+  }
+  if (cfg->http_endpoint) {
+    args[i++] = "--http-endpoint";
+    args[i++] = (char*) cfg->http_endpoint;
+  }
+  if (cfg->sequencer_address) {
+    args[i++] = "--sequencer-address";
+    args[i++] = (char*) cfg->sequencer_address;
+  }
 
   // Add --use-http=false for gossip mode (HTTP is default)
   if (cfg->use_gossip) {

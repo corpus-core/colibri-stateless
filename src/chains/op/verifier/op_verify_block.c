@@ -30,6 +30,7 @@
 #include "eth_verify.h"
 #include "json.h"
 #include "logger.h"
+#include "op_chains_conf.h"
 #include "op_types.h"
 #include "op_verify.h"
 #include "op_zstd.h"
@@ -52,32 +53,12 @@ static void verify_signature(bytes_t data, bytes_t signature, uint64_t chain_id,
   memcpy(address, buf + 12, 20);
 }
 
-typedef struct {
-  chain_id_t chain_id;
-  void*      sequencer_address;
-} op_config_t;
-
-static op_config_t op_configs[] = {
-    {.chain_id = 10, .sequencer_address = "\xAA\xAA\x45\xd9\x54\x9E\xDA\x09\xE7\x09\x37\x01\x35\x20\x21\x43\x82\xFf\xc4\xA2"},
-    {.chain_id = 8453, .sequencer_address = "\xAf\x6E\x19\xBE\x0F\x9c\xE7\xf8\xaf\xd4\x9a\x18\x24\x85\x10\x23\xA8\x24\x9e\x8a"},
-    {.chain_id = 480, .sequencer_address = "\x22\x70\xd6\xeC\x8E\x76\x0d\xaA\x31\x7D\xD9\x78\xcF\xB9\x8C\x8f\x14\x4B\x1f\x3A"},
-    {.chain_id = 7777777, .sequencer_address = "\x3D\xc8\xDf\xd0\x70\x9C\x83\x5c\xAd\x15\xa6\xA2\x7e\x08\x9F\xF4\xcF\x4C\x92\x28"},
-    {.chain_id = 130, .sequencer_address = "\x83\x3C\x6f\x27\x84\x74\xA7\x86\x58\xaf\x91\xaE\x8e\xdC\x92\x6F\xE3\x3a\x23\x0e"},
-    // Additional OP Stack chains (TODO: Update with actual sequencer addresses)
-    {.chain_id = 424, .sequencer_address = "\x99\x19\x9F\x2c\x2A\x4B\xd9\xC7\xC0\xC9\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4"},
-    {.chain_id = 291, .sequencer_address = "\x88\x18\x8F\x3c\x3A\x4B\xd9\xC7\xC0\xC9\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4"},
-    {.chain_id = 34443, .sequencer_address = "\x77\x17\x7E\x2c\x2A\x4B\xd9\xC7\xC0\xC9\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4"},
-    {.chain_id = 252, .sequencer_address = "\x66\x16\x6D\x1c\x1A\x4B\xd9\xC7\xC0\xC9\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4"},
-    {.chain_id = 5000, .sequencer_address = "\x55\x15\x5C\x0c\x0A\x4B\xd9\xC7\xC0\xC9\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4"},
-    {.chain_id = 8217, .sequencer_address = "\x44\x14\x4B\x9b\x9A\x4B\xd9\xC7\xC0\xC9\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4"},
-};
-
 static bool is_unsafe_signer(chain_id_t chain_id, address_t address) {
-  for (size_t i = 0; i < sizeof(op_configs) / sizeof(op_config_t); i++) {
-    if (op_configs[i].chain_id == chain_id && memcmp(op_configs[i].sequencer_address, address, 20) == 0)
-      return true;
+  const op_chain_config_t* config = op_get_chain_config(chain_id);
+  if (config == NULL) {
+    return false; // Chain not supported
   }
-  return false;
+  return memcmp(config->sequencer_address, address, 20) == 0;
 }
 
 bool op_verify_block_proof(verify_ctx_t* ctx) {

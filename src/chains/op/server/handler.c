@@ -1,4 +1,5 @@
 #include "handler.h"
+#include "../verifier/op_chains_conf.h"
 #include "op_preconf_capture.h"
 #include "util/logger.h"
 #include <libgen.h>
@@ -81,6 +82,20 @@ static void start_preconf_capture(http_server_t* server) {
   log_info("Server executable path: %s", exe_path);
   log_info("Bridge path: %s", bridge_path);
 
+  // Get centralized chain configuration
+  const op_chain_config_t* chain_config = op_get_chain_config(http_server.chain_id);
+  if (!chain_config) {
+    log_error("Chain ID %llu not supported in centralized configuration", (unsigned long long) http_server.chain_id);
+    return;
+  }
+
+  // Convert binary sequencer address to hex string for Go bridge
+  static char sequencer_hex[43]; // "0x" + 40 hex chars + null terminator
+  snprintf(sequencer_hex, sizeof(sequencer_hex), "0x");
+  for (int i = 0; i < 20; i++) {
+    snprintf(sequencer_hex + 2 + i * 2, 3, "%02x", ((const uint8_t*) chain_config->sequencer_address)[i]);
+  }
+
   op_chain_config cfg = {
       .chain_id         = http_server.chain_id,
       .hardfork_version = 3,
@@ -89,6 +104,10 @@ static void start_preconf_capture(http_server_t* server) {
       .bootnodes_len    = 11,
       .bridge_path      = bridge_path,
       .use_gossip       = http_server.preconf_use_gossip != 0,
+      // Pass centralized chain configuration
+      .chain_name        = chain_config->name,
+      .http_endpoint     = chain_config->http_endpoint,
+      .sequencer_address = sequencer_hex,
   };
   op_capture_handle* h  = NULL;
   int                rc = op_preconf_start(loop, &cfg, &h);

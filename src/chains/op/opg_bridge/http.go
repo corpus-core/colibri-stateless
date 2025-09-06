@@ -19,7 +19,7 @@ import (
 )
 
 // httpPreconfCapture performs HTTP-based preconf capture
-func httpPreconfCapture(ctx context.Context, endpoint string, chainID uint64, hf int, outDir string, verifySignatures bool, storage *preconfStorage) {
+func httpPreconfCapture(ctx context.Context, endpoint string, chainID uint64, hf int, outDir string, verifySignatures bool, storage *preconfStorage, chainConfig chainConfig) {
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	var lastDataHash string
@@ -71,7 +71,7 @@ func httpPreconfCapture(ctx context.Context, endpoint string, chainID uint64, hf
 			log.Printf("🎉 NEW PRECONF! Data size: %d bytes, Hash: %s", len(preconf.Data), dataHash[:16])
 
 			// Process the preconf
-			if err := processHTTPPreconf(preconf, chainID, hf, outDir, endpoint, verifySignatures, storage); err != nil {
+			if err := processHTTPPreconf(preconf, chainID, hf, outDir, endpoint, verifySignatures, storage, chainConfig); err != nil {
 				log.Printf("❌ Failed to process preconf: %v", err)
 			} else {
 				log.Printf("✅ Preconf saved successfully")
@@ -81,7 +81,7 @@ func httpPreconfCapture(ctx context.Context, endpoint string, chainID uint64, hf
 }
 
 // processHTTPPreconf processes an HTTP preconf and saves it
-func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, outDir, endpoint string, verifySignatures bool, storage *preconfStorage) error {
+func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, outDir, endpoint string, verifySignatures bool, storage *preconfStorage, chainConfig chainConfig) error {
 	// Decode hex data
 	dataBytes, err := hex.DecodeString(strings.TrimPrefix(preconf.Data, "0x"))
 	if err != nil {
@@ -145,11 +145,7 @@ func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, out
 	// Verify signature if requested
 	var signerAddress string
 	if verifySignatures {
-		chainConfig, exists := supportedChains[chainID]
-		expectedSigner := ""
-		if exists {
-			expectedSigner = chainConfig.unsafeSigner
-		}
+		expectedSigner := chainConfig.unsafeSigner
 
 		recoveredSigner, err := verifySequencerSignature(dataBytes, sigBytes, expectedSigner, chainID)
 		if err != nil {
@@ -222,9 +218,9 @@ func processHTTPPreconf(preconf httpPreconfResponse, chainID uint64, hf int, out
 	}
 
 	// Create metadata
-	chainName := fmt.Sprintf("Chain_%d", chainID)
-	if config, exists := supportedChains[chainID]; exists {
-		chainName = config.name
+	chainName := chainConfig.name
+	if chainName == "" {
+		chainName = fmt.Sprintf("Chain_%d", chainID)
 	}
 
 	meta := metaFile{

@@ -32,6 +32,7 @@ set(VERIFIER_SOURCES
   verifier/op_verify_block.c
   verifier/op_verify.c
   verifier/op_zstd.c
+  verifier/op_chains_conf.c
   ssz/op_types.c
 )
 set(VERIFIER_DEPS util eth_verifier zstd)
