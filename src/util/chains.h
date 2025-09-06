@@ -32,8 +32,10 @@ extern "C" {
 #include <stdint.h>
 
 #include "bytes.h"
+#include "chains.h"
 #include "crypto.h"
 
+#define CHAIN(id)                ((chain_id_t) ((uint64_t) id))
 #define CHAIN_ID(chain_type, id) ((chain_id_t) (((uint64_t) chain_type) << 56 | id))
 
 typedef enum {
@@ -60,17 +62,17 @@ extern const chain_id_t C4_CHAIN_SEPOLIA;
 extern const chain_id_t C4_CHAIN_GNOSIS_CHIADO;
 extern const chain_id_t C4_CHAIN_GNOSIS;
 
-extern const chain_id_t C4_CHAIN_OP_MAINNET;
-extern const chain_id_t C4_CHAIN_OP_BASE;
-extern const chain_id_t C4_CHAIN_OP_WORLDCHAIN;
-extern const chain_id_t C4_CHAIN_OP_ZORA;
-extern const chain_id_t C4_CHAIN_OP_UNICHAIN;
-extern const chain_id_t C4_CHAIN_OP_PGN;
-extern const chain_id_t C4_CHAIN_OP_ORDERLY;
-extern const chain_id_t C4_CHAIN_OP_MODE;
-extern const chain_id_t C4_CHAIN_OP_FRAXTAL;
-extern const chain_id_t C4_CHAIN_OP_MANTLE;
-extern const chain_id_t C4_CHAIN_OP_KLAYTN;
+#define C4_CHAIN_OP_MAINNET    CHAIN(10)
+#define C4_CHAIN_OP_BASE       CHAIN(8453)
+#define C4_CHAIN_OP_WORLDCHAIN CHAIN(480)
+#define C4_CHAIN_OP_ZORA       CHAIN(7777777)
+#define C4_CHAIN_OP_UNICHAIN   CHAIN(130)
+#define C4_CHAIN_OP_PGN        CHAIN(424)
+#define C4_CHAIN_OP_ORDERLY    CHAIN(291)
+#define C4_CHAIN_OP_MODE       CHAIN(34443)
+#define C4_CHAIN_OP_FRAXTAL    CHAIN(252)
+#define C4_CHAIN_OP_MANTLE     CHAIN(5000)
+#define C4_CHAIN_OP_KLAYTN     CHAIN(8217)
 
 extern const chain_id_t C4_CHAIN_BTC_MAINNET;
 extern const chain_id_t C4_CHAIN_BTC_TESTNET;

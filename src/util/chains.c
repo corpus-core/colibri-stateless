@@ -31,18 +31,6 @@ const chain_id_t C4_CHAIN_GNOSIS        = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100);
 const chain_id_t C4_CHAIN_SEPOLIA       = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111);
 const chain_id_t C4_CHAIN_GNOSIS_CHIADO = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200);
 
-const chain_id_t C4_CHAIN_OP_MAINNET    = 10;
-const chain_id_t C4_CHAIN_OP_BASE       = 8453;
-const chain_id_t C4_CHAIN_OP_WORLDCHAIN = 480;
-const chain_id_t C4_CHAIN_OP_ZORA       = 7777777;
-const chain_id_t C4_CHAIN_OP_UNICHAIN   = 130;
-const chain_id_t C4_CHAIN_OP_PGN        = 424;
-const chain_id_t C4_CHAIN_OP_ORDERLY    = 291;
-const chain_id_t C4_CHAIN_OP_MODE       = 34443;
-const chain_id_t C4_CHAIN_OP_FRAXTAL    = 252;
-const chain_id_t C4_CHAIN_OP_MANTLE     = 5000;
-const chain_id_t C4_CHAIN_OP_KLAYTN     = 8217;
-
 const chain_id_t C4_CHAIN_BTC_MAINNET  = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 0);
 const chain_id_t C4_CHAIN_BTC_TESTNET  = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 1);
 const chain_id_t C4_CHAIN_BTC_DEVNET   = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 2);
