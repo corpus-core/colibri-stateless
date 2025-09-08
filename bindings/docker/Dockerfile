@@ -29,7 +29,7 @@ COPY src ./src
 COPY libs ./libs
 
 # Configure and build the server and OP Stack components
-RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DPROOFER_CACHE=true . && make server opg_bridge
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DPROOFER_CACHE=true . && make server opg_bridge
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final
