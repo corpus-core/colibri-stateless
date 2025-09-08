@@ -9,8 +9,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     libcurl4-openssl-dev \
+    wget \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Go 1.21 (compatible with go.mod)
+RUN wget -O go.tar.gz https://go.dev/dl/go1.21.13.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf go.tar.gz \
+    && rm go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Set working directory for the build
 WORKDIR /build
@@ -21,8 +28,8 @@ COPY CMakeLists.txt ./
 COPY src ./src
 COPY libs ./libs
 
-# Configure and build the server
-RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DPROOFER_CACHE=true . && make server
+# Configure and build the server and OP Stack components
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DPROOFER_CACHE=true . && make server opg_bridge
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final
@@ -36,8 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 
-# Copy the built server executable from the builder stage
+# Copy the built executables from the builder stage
 COPY --from=builder /build/bin/server /app/server
+COPY --from=builder /build/bin/opg_bridge /app/opg_bridge
 
 # Expose the default server port
 EXPOSE 8090

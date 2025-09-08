@@ -29,6 +29,10 @@ endif()
 add_subdirectory(intx) # intx is needed for evmone and for the precompile, but will onlöy be build if needed
 add_subdirectory(evmone) # evmone will only be build if needed
 
+if(CHAIN_OP)
+    add_subdirectory(zstd) # ZSTD is only needed for OP-Stack chains
+endif()
+
 if (HTTP_SERVER)
     add_subdirectory(libuv)
     add_subdirectory(llhttp)

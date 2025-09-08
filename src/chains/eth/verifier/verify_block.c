@@ -82,7 +82,7 @@ static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_u
   return txs_builder;
 }
 
-static void set_data(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t parent_root, bytes32_t withdrawel_root, bool include_txs) {
+void eth_set_block_data(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t parent_root, bytes32_t withdrawel_root, bool include_txs) {
   if (ctx->data.def && ctx->data.def->type == SSZ_TYPE_CONTAINER) return;
 
   bytes32_t     tx_root = {0};
@@ -147,7 +147,7 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
   if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
   ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), exec_root);
-  set_data(ctx, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
+  eth_set_block_data(ctx, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
   if (ctx->state.error || !matches_blocknumber(ctx, execution_payload, block_number)) return false;
 
   ctx->success = true;

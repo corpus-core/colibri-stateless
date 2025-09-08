@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "eth_tx.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
@@ -37,11 +38,12 @@
 #include <string.h>
 
 typedef enum {
-  TX_TYPE_LEGACY  = 0,
-  TX_TYPE_EIP2930 = 1,
-  TX_TYPE_EIP1559 = 2,
-  TX_TYPE_EIP4844 = 3,
-  TX_TYPE_EIP7702 = 4,
+  TX_TYPE_LEGACY    = 0,
+  TX_TYPE_EIP2930   = 1,
+  TX_TYPE_EIP1559   = 2,
+  TX_TYPE_EIP4844   = 3,
+  TX_TYPE_EIP7702   = 4,
+  TX_TYPE_DEPOSITED = 0x7E, // Optimism Deposited Transaction
 } tx_type_t;
 
 typedef struct {
@@ -128,6 +130,19 @@ static const rlp_def_t tx_eip7702_defs[] = {
     {"s", 1},
 };
 
+// Optimism Deposited Transaction (0x7E) - RLP encoded according to spec
+// Fields in order: sourceHash, from, to, mint, value, gas, isSystemTx, data
+static const rlp_def_t tx_deposited_defs[] = {
+    {"sourceHash", 32}, // bytes32 sourceHash - uniquely identifies the origin of the deposit
+    {"from", 20},       // address from - sender account address
+    {"to", -20},        // address to - recipient account (or null for contract creation)
+    {"mint", 1},        // uint256 mint - ETH value to mint on L2
+    {"value", 1},       // uint256 value - ETH value to send to recipient
+    {"gas", 1},         // uint64 gas - gas limit for L2 transaction
+    {"isSystemTx", 1},  // bool isSystemTx - system transaction flag (disabled after Regolith)
+    {"input", 0},       // bytes data - calldata
+};
+
 static const rlp_type_defs_t tx_type_defs[] = {
     {tx_legacy_defs, sizeof(tx_legacy_defs) / sizeof(rlp_def_t)},
     {tx_1_defs, sizeof(tx_1_defs) / sizeof(rlp_def_t)},
@@ -136,14 +151,31 @@ static const rlp_type_defs_t tx_type_defs[] = {
     {tx_eip7702_defs, sizeof(tx_eip7702_defs) / sizeof(rlp_def_t)},
 };
 
+// Get RLP type definitions for a given transaction type
+static const rlp_type_defs_t* get_tx_type_defs(tx_type_t type) {
+  switch (type) {
+    case TX_TYPE_LEGACY: return &tx_type_defs[0];
+    case TX_TYPE_EIP2930: return &tx_type_defs[1];
+    case TX_TYPE_EIP1559: return &tx_type_defs[2];
+    case TX_TYPE_EIP4844: return &tx_type_defs[3];
+    case TX_TYPE_EIP7702: return &tx_type_defs[4];
+    case TX_TYPE_DEPOSITED: {
+      static const rlp_type_defs_t deposited_defs = {tx_deposited_defs, sizeof(tx_deposited_defs) / sizeof(rlp_def_t)};
+      return &deposited_defs;
+    }
+    default: return NULL;
+  }
+}
+
 static bool get_and_remove_tx_type(verify_ctx_t* ctx, bytes_t* raw_tx, tx_type_t* type) {
   if (raw_tx->len < 1) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing type!");
   *type = raw_tx->data[0];
+
   if (*type >= 0x7f)
     *type = TX_TYPE_LEGACY; // legacy tx
-  else if (*type > TX_TYPE_EIP7702)
-    RETURN_VERIFY_ERROR(ctx, "invalid tx type, must be 1,2,3,4 or legacy tx!");
   else {
+    // Check if transaction type is supported by trying to get its definitions
+    if (!get_tx_type_defs(*type)) RETURN_VERIFY_ERROR(ctx, "unsupported transaction type!");
     raw_tx->data++;
     raw_tx->len--;
   }
@@ -157,7 +189,9 @@ INTERNAL bool c4_tx_create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8
   tx_type_t type = 0;
   if (!get_and_remove_tx_type(ctx, &raw_tx, &type)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing type!");
   if (rlp_decode(&raw_tx, 0, &raw_tx) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
-  rlp_type_defs_t defs = tx_type_defs[type];
+  const rlp_type_defs_t* defs_ptr = get_tx_type_defs(type);
+  if (!defs_ptr) RETURN_VERIFY_ERROR(ctx, "unsupported transaction type");
+  rlp_type_defs_t defs = *defs_ptr;
   rlp_decode(&raw_tx, defs.len - 4, &last_item);
   buffer_append(&buf, bytes(raw_tx.data, last_item.data + last_item.len - raw_tx.data));
   uint64_t v = 0;
@@ -603,13 +637,25 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
   bytes_t   serialized_tx = raw_tx;
   if (!get_and_remove_tx_type(ctx, &raw_tx, &type)) return false;
 
-  bytes_t                rlp_list_payload = raw_tx;              // Renamed to avoid confusion with rlp_list var below
-  const rlp_type_defs_t* defs_ptr         = &tx_type_defs[type]; // get the specific typedef for the tx type
+  // Deposited Transactions (0x7E) are also RLP encoded, just with different fields
+
+  bytes_t                rlp_list_payload = raw_tx;                 // Renamed to avoid confusion with rlp_list var below
+  const rlp_type_defs_t* defs_ptr         = get_tx_type_defs(type); // get the specific typedef for the tx type
+  if (!defs_ptr) RETURN_VERIFY_ERROR(ctx, "unsupported transaction type");
   if (rlp_decode(&rlp_list_payload, 0, &rlp_list_payload) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: invalid RLP list payload");
   int num_fields = rlp_decode(&rlp_list_payload, -1, NULL);
   if (num_fields != defs_ptr->len) RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: RLP field count mismatch with definition");
 
-  if (!c4_tx_create_from_address(ctx, serialized_tx, from_address)) return false;
+  // Deposited transactions don't have signatures, so we extract 'from' from RLP directly
+  if (type == TX_TYPE_DEPOSITED) {
+    bytes_t from_field = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "from", RLP_ITEM);
+    if (from_field.len == 20) {
+      memcpy(from_address, from_field.data, 20);
+    }
+  }
+  else {
+    if (!c4_tx_create_from_address(ctx, serialized_tx, from_address)) return false;
+  }
 
   // Initialize builders and blob_hashes
   bytes_t       blob_hashes                = {0};
@@ -633,16 +679,25 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 
   // --- All auxiliary data built, or error handled. Proceed with remaining fields ---
 
-  bytes_t  rlp_tx_sig_y_parity              = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "yParity", RLP_ITEM);
-  bytes_t  rlp_v_field                      = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "v", RLP_ITEM);
-  uint8_t  tx_sig_y_parity                  = rlp_tx_sig_y_parity.len ? rlp_tx_sig_y_parity.data[0] : 0;
+  bytes_t  rlp_tx_sig_y_parity              = {0};
+  bytes_t  rlp_v_field                      = {0};
+  uint8_t  tx_sig_y_parity                  = 0;
   uint8_t  v_for_ssz                        = 0;
-  uint32_t chain_id                         = (uint32_t) bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "chainId", RLP_ITEM));
-  uint64_t gas_price_rlp_val                = bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "gasPrice", RLP_ITEM));
+  uint32_t chain_id                         = 0;
+  uint64_t gas_price_rlp_val                = 0;
   uint64_t max_priority_fee_per_gas_rlp_val = 0;
   uint64_t max_fee_per_gas_rlp_val          = 0;
 
-  if (type >= TX_TYPE_EIP1559) {
+  // Deposited transactions don't have signatures or gas pricing fields
+  if (type != TX_TYPE_DEPOSITED) {
+    rlp_tx_sig_y_parity = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "yParity", RLP_ITEM);
+    rlp_v_field         = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "v", RLP_ITEM);
+    tx_sig_y_parity     = rlp_tx_sig_y_parity.len ? rlp_tx_sig_y_parity.data[0] : 0;
+    chain_id            = (uint32_t) bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "chainId", RLP_ITEM));
+    gas_price_rlp_val   = bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "gasPrice", RLP_ITEM));
+  }
+
+  if (type >= TX_TYPE_EIP1559 && type != TX_TYPE_DEPOSITED) {
     max_priority_fee_per_gas_rlp_val = bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "maxPriorityFeePerGas", RLP_ITEM));
     max_fee_per_gas_rlp_val          = bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "maxFeePerGas", RLP_ITEM));
   }
@@ -662,25 +717,54 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
     chain_id          = rlp_v_val < 28 ? 1 : (rlp_v_val - 35 - tx_sig_y_parity) / 2;
     v_for_ssz         = rlp_v_val;
   }
-  else {
+  else if (type != TX_TYPE_DEPOSITED)
     v_for_ssz = tx_sig_y_parity;
-  }
 
   uint64_t final_gas_price = gas_price_rlp_val;
-  if (type >= TX_TYPE_EIP1559) {
+  if (type >= TX_TYPE_EIP1559 && type != TX_TYPE_DEPOSITED)
     final_gas_price = base_fee + min64(max_priority_fee_per_gas_rlp_val, max_fee_per_gas_rlp_val - base_fee);
-  }
 
   // --- Add fields to SSZ Builder IN ORDER OF ETH_TX_DATA DEFINITION ---
+
+  // First, add the optional mask based on transaction type
+  uint32_t field_mask = 0;
+  if (type == TX_TYPE_DEPOSITED) {
+    // For Deposited Transactions, only show relevant fields + OP Stack specific fields
+    field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
+                 TX_NONCE | TX_INPUT | TX_GAS | TX_FROM | TX_TO | TX_VALUE | TX_GAS_PRICE |
+                 TX_SOURCE_HASH | TX_MINT | TX_IS_SYSTEM_TX | TX_DEPOSIT_RECEIPT_VERSION;
+  }
+  else {
+    // For all other transaction types, show all fields except OP Stack specific ones
+    field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
+                 TX_NONCE | TX_INPUT | TX_R | TX_S | TX_CHAIN_ID | TX_V | TX_GAS | TX_FROM |
+                 TX_TO | TX_VALUE | TX_GAS_PRICE | TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
+                 TX_ACCESS_LIST | TX_AUTHORIZATION_LIST | TX_BLOB_VERSIONED_HASHES | TX_Y_PARITY;
+  }
+  ssz_add_uint32(buffer, field_mask);
+
   ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
   ssz_add_uint64(buffer, block_number);
   ssz_add_bytes(buffer, "hash", bytes(tx_hash, 32));
   ssz_add_uint32(buffer, transaction_index);
   ssz_add_uint8(buffer, (uint8_t) type);
-  ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "nonce", RLP_ITEM)));
+  // Note: For Deposited Transactions (0x7E), nonce handling depends on configuration:
+  // - Fast mode (default): nonce = 0 (avoids receipt proof requirement)
+  // - Accurate mode: nonce = depositNonce from receipt (post-Regolith fork, requires receipt proof)
+  // TODO: Add configuration option to enable accurate nonce for deposited transactions
+  ssz_add_uint64(buffer, type == TX_TYPE_DEPOSITED ? 0 : bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "nonce", RLP_ITEM)));
   ssz_add_bytes(buffer, "input", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "input", RLP_ITEM));
-  ssz_add_bytes(buffer, "r", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "r", RLP_ITEM));
-  ssz_add_bytes(buffer, "s", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "s", RLP_ITEM));
+
+  // Handle signature fields - deposited transactions don't have signatures
+  if (type == TX_TYPE_DEPOSITED) {
+    ssz_add_bytes(buffer, "r", NULL_BYTES);
+    ssz_add_bytes(buffer, "s", NULL_BYTES);
+  }
+  else {
+    ssz_add_bytes(buffer, "r", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "r", RLP_ITEM));
+    ssz_add_bytes(buffer, "s", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "s", RLP_ITEM));
+  }
+
   ssz_add_uint32(buffer, chain_id);
   ssz_add_uint8(buffer, v_for_ssz);
   ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "gas", RLP_ITEM)));
@@ -688,12 +772,54 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
   ssz_add_bytes(buffer, "to", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "to", RLP_ITEM));
   ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "value", RLP_ITEM));
   ssz_add_uint64(buffer, final_gas_price);
-  ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "maxFeePerGas", RLP_ITEM)));
-  ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "maxPriorityFeePerGas", RLP_ITEM)));
+
+  // Handle gas pricing fields - not applicable for deposited transactions
+  if (type == TX_TYPE_DEPOSITED) {
+    ssz_add_uint64(buffer, 0); // maxFeePerGas
+    ssz_add_uint64(buffer, 0); // maxPriorityFeePerGas
+  }
+  else {
+    ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "maxFeePerGas", RLP_ITEM)));
+    ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "maxPriorityFeePerGas", RLP_ITEM)));
+  }
+
   ssz_add_builders(buffer, "accessList", access_list_builder);
   ssz_add_builders(buffer, "authorizationList", authorization_list_builder);
   ssz_add_bytes(buffer, "blobVersionedHashes", blob_hashes);
   ssz_add_uint8(buffer, tx_sig_y_parity);
+
+  // Optional Optimism fields - always add them (SSZ requires all fields)
+  // They will be omitted in JSON output if empty due to SSZ_FLAG_OPTIONAL
+  if (type == TX_TYPE_DEPOSITED) {
+    uint8_t system_tx_true     = 0;
+    bytes_t is_system_tx_field = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "isSystemTx", RLP_ITEM);
+    if (is_system_tx_field.len > 0 && is_system_tx_field.data[0] != 0) system_tx_true = 1;
+
+    // Populate with actual values for deposited transactions
+    ssz_add_bytes(buffer, "sourceHash", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "sourceHash", RLP_ITEM));
+
+    // Convert mint from RLP (big-endian) to SSZ (little-endian) bytes
+    bytes_t mint_rlp = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "mint", RLP_ITEM);
+    // Only use as many bytes as needed, convert big-endian to little-endian
+    uint8_t mint_le[32] = {0}; // Max 32 bytes for uint256
+    int     actual_len  = mint_rlp.len > 32 ? 32 : mint_rlp.len;
+    for (int i = 0; i < actual_len; i++) {
+      mint_le[i] = mint_rlp.data[mint_rlp.len - 1 - i];
+    }
+    ssz_add_bytes(buffer, "mint", bytes(mint_le, actual_len ? actual_len : 1));
+    ssz_add_bytes(buffer, "isSystemTx", bytes(&system_tx_true, 1));
+
+    // Add depositReceiptVersion (always 1 for current Optimism version)
+    uint8_t deposit_receipt_version = 1;
+    ssz_add_bytes(buffer, "depositReceiptVersion", bytes(&deposit_receipt_version, 1));
+  }
+  else {
+    // Add empty values for non-deposited transactions
+    ssz_add_bytes(buffer, "sourceHash", NULL_BYTES);
+    ssz_add_bytes(buffer, "mint", NULL_BYTES);
+    ssz_add_bytes(buffer, "isSystemTx", NULL_BYTES);
+    ssz_add_bytes(buffer, "depositReceiptVersion", NULL_BYTES);
+  }
 
   if (blob_hashes.data) safe_free(blob_hashes.data);
 

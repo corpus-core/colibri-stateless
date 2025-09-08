@@ -329,12 +329,23 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
     case SSZ_TYPE_NONE: buffer_add_chars(buf, "null"); break;
     case SSZ_TYPE_BOOLEAN: buffer_add_chars(buf, ob.bytes.data[0] ? "true" : "false"); break;
     case SSZ_TYPE_CONTAINER: {
+      uint64_t mask  = 0;
       ctx->no_quotes = false;
       close_char     = '}';
+      bool first     = true;
       buffer_add_chars(buf, "{\n");
       for (int i = 0; i < def->def.container.len; i++) {
-        dump(ctx, ssz_get(&ob, (char*) def->def.container.elements[i].name), def->def.container.elements[i].name, intend + 2);
-        if (i < def->def.container.len - 1) buffer_add_chars(buf, ",\n");
+        ssz_ob_t val = ssz_get(&ob, (char*) def->def.container.elements[i].name);
+        if (val.def->flags & SSZ_FLAG_OPT_MASK) {
+          mask |= bytes_as_le(val.bytes);
+          continue;
+        }
+        if (mask && (mask & (1 << i)) == 0) continue;
+        if (first)
+          first = false;
+        else
+          buffer_add_chars(buf, ",\n");
+        dump(ctx, val, def->def.container.elements[i].name, intend + 2);
       }
       break;
     }
@@ -347,8 +358,15 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
     case SSZ_TYPE_LIST: {
       if (def == &ssz_string_def)
         bprintf(buf, ctx->no_quotes ? "%J" : "\"%J\"", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) ob.bytes.data, .len = ob.bytes.len});
-      else if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
-        bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
+      else if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1) { // byte array
+        if (def->flags & SSZ_FLAG_UINT) {
+          bytes32_t tmp = {0};
+          for (int i = 0; i < ob.bytes.len; i++) tmp[i] = ob.bytes.data[ob.bytes.len - 1 - i];
+          bprintf(buf, ctx->no_quotes ? "0x%u" : "\"0x%u\"", bytes(tmp, ob.bytes.len));
+        }
+        else // Render as hex bytes
+          bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
+      }
       else {
         ctx->no_quotes = false;
         buffer_add_chars(buf, "[\n");

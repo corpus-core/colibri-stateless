@@ -31,6 +31,7 @@ option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized. It is faster but uses 25k more memory in cache per period." ON)
 option(PROOFER_CACHE "Caches blockhashes and maps, which makes a lot of sense on a server" OFF)
 option(CHAIN_ETH "includes the ETH verification support" ON)
+option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
@@ -46,13 +47,22 @@ option(MESSAGES "if activated the binaries will contain error messages, but for 
 if(MESSAGES)
     add_definitions(-DMESSAGES)
 endif()
-
+if(WITNESS_SIGNER)
+    add_definitions(-DWITNESS_SIGNER)
+endif()
 # Python bindings configuration
 if(PYTHON)
     # Python bindings disable CURL/CLI (HTTP is handled in Python)
     set(CURL OFF CACHE BOOL "Disable CURL for Python bindings" FORCE)
     set(CLI OFF CACHE BOOL "Disable CLI tools for Python bindings" FORCE)
     message(STATUS "Python bindings enabled: CURL=OFF, CLI=OFF")
+endif()
+
+# Android/Kotlin bindings configuration
+if(ANDROID OR KOTLIN)
+    # Android bindings don't need HTTP server (no opg_bridge process management)
+    set(HTTP_SERVER OFF CACHE BOOL "Disable HTTP server for Android bindings" FORCE)
+    message(STATUS "Android/Kotlin bindings enabled: HTTP_SERVER=OFF (OP Stack verification still supported)")
 endif()
 
 # Additional include path (for embedded targets etc)

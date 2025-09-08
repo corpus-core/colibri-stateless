@@ -37,12 +37,22 @@ static uv_timer_t            proofer_cleanup_timer;
 static uv_tcp_t              server;
 static uv_signal_t           sigterm_handle;
 static uv_signal_t           sigint_handle;
+static uv_idle_t             init_idle_handle;
 static uv_loop_t*            loop               = NULL;
 static volatile sig_atomic_t shutdown_requested = 0;
 
 // Timer callback for proofer cache cleanup
 static void on_proofer_cleanup_timer(uv_timer_t* handle) {
   c4_proofer_cache_cleanup(current_ms(), 0);
+}
+
+// Idle callback to initialize server handlers after event loop starts
+static void on_init_idle(uv_idle_t* handle) {
+  // Stop the idle handle - we only want to run this once
+  uv_idle_stop(handle);
+
+  // Initialize all chain-specific server handlers
+  c4_server_handlers_init(&http_server);
 }
 
 // Signal callback to initiate graceful shutdown
@@ -92,14 +102,15 @@ int main(int argc, char* argv[]) {
   // Initialize curl right before starting the event loop, passing the renamed timer handle
   c4_init_curl(&curl_timer);
 
-  // Initialize all chain-specific server handlers
-  c4_server_handlers_init(&http_server);
-
   // Setup signal handlers for graceful shutdown (SIGTERM for Docker stop, SIGINT for Ctrl+C)
   UV_CHECK("SIGTERM handler init", uv_signal_init(loop, &sigterm_handle));
   UV_CHECK("SIGTERM start", uv_signal_start(&sigterm_handle, on_signal, SIGTERM));
   UV_CHECK("SIGINT handler init", uv_signal_init(loop, &sigint_handle));
   UV_CHECK("SIGINT start", uv_signal_start(&sigint_handle, on_signal, SIGINT));
+
+  // Setup idle handle to initialize server handlers after event loop starts
+  UV_CHECK("Init idle handle init", uv_idle_init(loop, &init_idle_handle));
+  UV_CHECK("Init idle handle start", uv_idle_start(&init_idle_handle, on_init_idle));
 
   UV_CHECK("Event loop", uv_run(loop, UV_RUN_DEFAULT));
 

@@ -98,8 +98,7 @@ chain_type_t c4_get_chain_type_from_req(bytes_t request) {
   if (request.len < 4)
     return C4_CHAIN_TYPE_ETHEREUM;
   else
-    return C4_CHAIN_TYPE_ETHEREUM;
-  //  return (chain_type_t) request.data[0];
+    return request.data[0];
 }
 
 const ssz_def_t* c4_get_req_type_from_req(bytes_t request) {

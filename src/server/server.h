@@ -11,7 +11,8 @@
 #include <llhttp.h>
 #include <stdlib.h>
 #include <uv.h>
-
+// Preconf-specific callback type (uses block_number instead of period)
+typedef void (*handle_preconf_data_cb)(void* user_ptr, uint64_t block_number, bytes_t data, char* error);
 typedef struct {
   char*                 path;
   data_request_method_t method;
@@ -64,6 +65,11 @@ typedef struct {
   char*          period_store;
   bytes32_t      witness_key;
   server_stats_t stats;
+  // Preconf storage configuration
+  char* preconf_storage_dir;
+  int   preconf_ttl_minutes;
+  int   preconf_cleanup_interval_minutes;
+  int   preconf_use_gossip; // 1 = gossip mode, 0 = HTTP polling mode
 } http_server_t;
 
 // Server health tracking structure
@@ -167,6 +173,8 @@ bool           c4_handle_health_check(client_t* client);
 bool           c4_handle_metrics(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
+bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, void* uptr, handle_preconf_data_cb cb);
+bool           c4_get_preconf_latest(chain_id_t chain_id, void* uptr, handle_preconf_data_cb cb);
 bool           c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb);
 bool           c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);

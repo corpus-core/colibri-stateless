@@ -115,7 +115,7 @@ c4_status_t c4_proof_witness(proofer_ctx_t* ctx) {
     return C4_SUCCESS;
   }
 #endif
-
+#ifdef WITNESS_SIGNER
   if (wit_type.type == JSON_TYPE_STRING && wit_type.len == 11 && strncmp(wit_type.start, "\"blockhash\"", wit_type.len) == 0)
     TRY_ASYNC(c4_proof_witness_blockhash(ctx, json_at(ctx->params, 1), &witness));
   else
@@ -137,6 +137,8 @@ c4_status_t c4_proof_witness(proofer_ctx_t* ctx) {
       NULL_SSZ_BUILDER,
       witness_signed,
       NULL_SSZ_BUILDER);
-
+#else
+  THROW_ERROR_WITH("Witness signing is not enabled");
+#endif
   return C4_SUCCESS;
 }

@@ -26,6 +26,10 @@ let package = Package(
                     "../../build_macos_arm/src/chains/eth/libeth_verifier.a",
                     "../../build_macos_arm/src/chains/eth/libeth_proofer.a",
                     "../../build_macos_arm/src/chains/eth/precompiles/libeth_precompiles.a",
+                    // OP Stack support (NEW - these were missing!)
+                    "../../build_macos_arm/src/chains/op/libop_verifier.a",
+                    "../../build_macos_arm/src/chains/op/libop_proofer.a",
+                    "../../build_macos_arm/libs/zstd/zstd_build/lib/libzstd.a",
                     "../../build_macos_arm/libs/evmone/libevmone_wrapper.a",
                     "../../build_macos_arm/_deps/evmone_external-build/libevmone.a",
                     "../../build_macos_arm/libs/intx/libintx_wrapper.a",

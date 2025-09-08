@@ -54,7 +54,24 @@ const chain_id_t C4_CHAIN_BOLT_STAGING = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1024);
 const chain_id_t C4_CHAIN_BOLT_MAINNET = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1025);
 
 chain_type_t c4_chain_type(chain_id_t chain_id) {
-  return (chain_id >> 56) & 0xff;
+  // OP Stack chains - use switch for better performance
+  switch (chain_id) {
+    case C4_CHAIN_OP_MAINNET:    // OP Mainnet (10)
+    case C4_CHAIN_OP_BASE:       // Base (8453)
+    case C4_CHAIN_OP_WORLDCHAIN: // Worldchain (480)
+    case C4_CHAIN_OP_ZORA:       // Zora (7777777)
+    case C4_CHAIN_OP_UNICHAIN:   // Unichain (130)
+    case C4_CHAIN_OP_PGN:        // PGN (424)
+    case C4_CHAIN_OP_ORDERLY:    // Orderly Network (291)
+    case C4_CHAIN_OP_MODE:       // Mode Network (34443)
+    case C4_CHAIN_OP_FRAXTAL:    // Fraxtal (252)
+    case C4_CHAIN_OP_MANTLE:     // Mantle (5000)
+    case C4_CHAIN_OP_KLAYTN:     // Klaytn (8217)
+      return C4_CHAIN_TYPE_OP;
+
+    default:
+      return (chain_id >> 56) & 0xff;
+  }
 }
 
 uint64_t c4_chain_specific_id(chain_id_t chain_id) {

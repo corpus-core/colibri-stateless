@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "server.h"
 #include <fcntl.h>  // für O_RDONLY
 #include <stdlib.h> // für malloc, free, realloc
@@ -150,6 +148,135 @@ bool c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb) {
   if (r < 0) {
     cb(uptr, ctx->period, NULL_BYTES, uv_strerror(r));
     free_store_read_context(ctx);
+    return false;
+  }
+
+  return true;
+}
+
+// Preconf-specific read context
+typedef struct {
+  uv_fs_t                open_req;
+  uv_fs_t                read_req;
+  uv_fs_t                close_req;
+  uv_buf_t               iov;
+  char                   read_buf[1024];
+  buffer_t               data;
+  int                    fd;
+  void*                  user_ptr;
+  handle_preconf_data_cb user_cb;
+  char*                  file_path;
+  uint64_t               block_number;
+} preconf_read_context_t;
+
+static void free_preconf_read_context(preconf_read_context_t* ctx) {
+  buffer_free(&ctx->data);
+  free(ctx->file_path);
+  free(ctx);
+}
+
+// Callbacks for preconf reading
+static void on_preconf_close(uv_fs_t* req) {
+  preconf_read_context_t* ctx = req->data;
+  if (req->result < 0)
+    fprintf(stderr, "Error closing preconf file '%s': %s\n", ctx->file_path, uv_strerror((int) req->result));
+  uv_fs_req_cleanup(req);
+  free_preconf_read_context(ctx);
+}
+
+static void on_preconf_read(uv_fs_t* req) {
+  preconf_read_context_t* ctx = req->data;
+
+  if (req->result < 0) {
+    ctx->user_cb(ctx->user_ptr, ctx->block_number, NULL_BYTES, uv_strerror((int) req->result));
+    uv_fs_close(req->loop, &ctx->close_req, ctx->fd, on_preconf_close);
+    uv_fs_req_cleanup(req);
+  }
+  else if (req->result == 0) {
+    ctx->user_cb(ctx->user_ptr, ctx->block_number, ctx->data.data, NULL);
+    uv_fs_close(req->loop, &ctx->close_req, ctx->fd, on_preconf_close);
+    uv_fs_req_cleanup(req);
+  }
+  else {
+    buffer_append(&ctx->data, bytes(ctx->read_buf, (size_t) req->result));
+    ctx->iov = uv_buf_init(ctx->read_buf, sizeof(ctx->read_buf));
+    uv_fs_read(req->loop, &ctx->read_req, ctx->fd, &ctx->iov, 1, -1, on_preconf_read);
+  }
+}
+
+static void on_preconf_open(uv_fs_t* req) {
+  preconf_read_context_t* ctx = req->data;
+
+  if (req->result >= 0) {
+    ctx->fd            = req->result;
+    ctx->read_req.data = ctx;
+    ctx->iov           = uv_buf_init(ctx->read_buf, sizeof(ctx->read_buf));
+    int r              = uv_fs_read(req->loop, &ctx->read_req, ctx->fd, &ctx->iov, 1, -1, on_preconf_read);
+    if (r < 0) {
+      ctx->user_cb(ctx->user_ptr, ctx->block_number, NULL_BYTES, uv_strerror(r));
+      uv_fs_close(req->loop, &ctx->close_req, ctx->fd, on_preconf_close);
+    }
+  }
+  else {
+    char* error = bprintf(NULL, "Error opening preconf file %s: %s", ctx->file_path, uv_strerror((int) req->result));
+    ctx->user_cb(ctx->user_ptr, ctx->block_number, NULL_BYTES, error);
+    safe_free(error);
+    free_preconf_read_context(ctx);
+  }
+  uv_fs_req_cleanup(req);
+}
+
+bool c4_get_preconf(chain_id_t chain_id, uint64_t block_number, void* uptr, handle_preconf_data_cb cb) {
+  if (!http_server.preconf_storage_dir) {
+    cb(uptr, block_number, NULL_BYTES, "preconf_storage_dir not configured!");
+    return false;
+  }
+
+  preconf_read_context_t* ctx = safe_calloc(1, sizeof(preconf_read_context_t));
+
+  // Build deterministic path: block_{chainID}_{blockNumber}.raw
+  ctx->file_path      = bprintf(NULL, "%s/block_%l_%l.raw",
+                                http_server.preconf_storage_dir, (uint64_t) chain_id, block_number);
+  ctx->fd             = -1;
+  ctx->block_number   = block_number;
+  ctx->user_ptr       = uptr;
+  ctx->user_cb        = cb;
+  ctx->open_req.data  = ctx;
+  ctx->read_req.data  = ctx;
+  ctx->close_req.data = ctx;
+
+  int r = uv_fs_open(uv_default_loop(), &ctx->open_req, ctx->file_path, O_RDONLY, 0, on_preconf_open);
+  if (r < 0) {
+    cb(uptr, block_number, NULL_BYTES, uv_strerror(r));
+    free_preconf_read_context(ctx);
+    return false;
+  }
+
+  return true;
+}
+
+bool c4_get_preconf_latest(chain_id_t chain_id, void* uptr, handle_preconf_data_cb cb) {
+  if (!http_server.preconf_storage_dir) {
+    cb(uptr, 0, NULL_BYTES, "preconf_storage_dir not configured!");
+    return false;
+  }
+
+  preconf_read_context_t* ctx = safe_calloc(1, sizeof(preconf_read_context_t));
+
+  // Use latest symlink: latest.raw
+  ctx->file_path      = bprintf(NULL, "%s/latest.raw", http_server.preconf_storage_dir);
+  ctx->fd             = -1;
+  ctx->block_number   = 0; // Latest doesn't have a specific block number
+  ctx->user_ptr       = uptr;
+  ctx->user_cb        = cb;
+  ctx->open_req.data  = ctx;
+  ctx->read_req.data  = ctx;
+  ctx->close_req.data = ctx;
+
+  int r = uv_fs_open(uv_default_loop(), &ctx->open_req, ctx->file_path, O_RDONLY, 0, on_preconf_open);
+  if (r < 0) {
+    cb(uptr, 0, NULL_BYTES, uv_strerror(r));
+    free_preconf_read_context(ctx);
     return false;
   }
 

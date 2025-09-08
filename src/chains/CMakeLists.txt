@@ -22,3 +22,6 @@
 if(CHAIN_ETH)
     add_subdirectory(eth)
 endif()
+if(CHAIN_OP)
+    add_subdirectory(op)
+endif()

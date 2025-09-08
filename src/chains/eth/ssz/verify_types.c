@@ -58,7 +58,7 @@ static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 //
 
 // A List of possible types of data matching the Proofs
-static const ssz_def_t C4_REQUEST_DATA_UNION[] = {
+const ssz_def_t C4_ETH_REQUEST_DATA_UNION[9] = {
     SSZ_NONE,
     SSZ_BYTES32("hash"),                                       // the blochash  which is used for blockhash proof
     SSZ_BYTES("bytes", 1073741824),                            // the bytes of the data
@@ -85,17 +85,17 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
 }; // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
-static const ssz_def_t C4_REQUEST_SYNCDATA_UNION[] = {
+const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
     SSZ_LIST("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE_CONTAINER, 512),      // this light client update can be fetched directly from the beacon chain API
     SSZ_LIST("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER, 512)}; // this light client update can be fetched directly from the beacon chain API
 
 // the main container defining the incoming data processed by the verifier
 static const ssz_def_t C4_REQUEST[] = {
-    SSZ_BYTE_VECTOR("version", 4),                      // the [domain, major, minor, patch] version of the request, domaon=1 = eth
-    SSZ_UNION("data", C4_REQUEST_DATA_UNION),           // the data to proof
-    SSZ_UNION("proof", C4_REQUEST_PROOFS_UNION),        // the proof of the data
-    SSZ_UNION("sync_data", C4_REQUEST_SYNCDATA_UNION)}; // the sync data containing proofs for the transition between the two periods
+    SSZ_BYTE_VECTOR("version", 4),                          // the [domain, major, minor, patch] version of the request, domaon=1 = eth
+    SSZ_UNION("data", C4_ETH_REQUEST_DATA_UNION),           // the data to proof
+    SSZ_UNION("proof", C4_REQUEST_PROOFS_UNION),            // the proof of the data
+    SSZ_UNION("sync_data", C4_ETH_REQUEST_SYNCDATA_UNION)}; // the sync data containing proofs for the transition between the two periods
 
 static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQUEST);
 
@@ -111,9 +111,9 @@ static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def
 const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork) {
   switch (fork) {
     case C4_FORK_DENEB:
-      return ARRAY_TYPE(C4_REQUEST_SYNCDATA_UNION, &DENEP_LIGHT_CLIENT_UPDATE_CONTAINER);
+      return ARRAY_TYPE(C4_ETH_REQUEST_SYNCDATA_UNION, &DENEP_LIGHT_CLIENT_UPDATE_CONTAINER);
     case C4_FORK_ELECTRA:
-      return ARRAY_TYPE(C4_REQUEST_SYNCDATA_UNION, &ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER);
+      return ARRAY_TYPE(C4_ETH_REQUEST_SYNCDATA_UNION, &ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER);
     default:
       return NULL;
   }
@@ -143,23 +143,23 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
     case ETH_SSZ_VERIFY_STATE_PROOF:
       return &ETH_STATE_PROOF_CONTAINER;
     case ETH_SSZ_DATA_NONE:
-      return C4_REQUEST_DATA_UNION;
+      return C4_ETH_REQUEST_DATA_UNION;
     case ETH_SSZ_DATA_HASH32:
-      return C4_REQUEST_DATA_UNION + 1;
+      return C4_ETH_REQUEST_DATA_UNION + 1;
     case ETH_SSZ_DATA_BYTES:
-      return C4_REQUEST_DATA_UNION + 2;
+      return C4_ETH_REQUEST_DATA_UNION + 2;
     case ETH_SSZ_DATA_UINT256:
-      return C4_REQUEST_DATA_UNION + 3;
+      return C4_ETH_REQUEST_DATA_UNION + 3;
     case ETH_SSZ_DATA_TX:
-      return C4_REQUEST_DATA_UNION + 4;
+      return C4_ETH_REQUEST_DATA_UNION + 4;
     case ETH_SSZ_DATA_RECEIPT:
-      return C4_REQUEST_DATA_UNION + 5;
+      return C4_ETH_REQUEST_DATA_UNION + 5;
     case ETH_SSZ_DATA_LOGS:
-      return C4_REQUEST_DATA_UNION + 6;
+      return C4_ETH_REQUEST_DATA_UNION + 6;
     case ETH_SSZ_DATA_BLOCK:
-      return C4_REQUEST_DATA_UNION + 7;
+      return C4_ETH_REQUEST_DATA_UNION + 7;
     case ETH_SSZ_DATA_PROOF:
-      return C4_REQUEST_DATA_UNION + 8;
+      return C4_ETH_REQUEST_DATA_UNION + 8;
     default: return NULL;
   }
 }
