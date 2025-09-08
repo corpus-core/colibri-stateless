@@ -332,6 +332,7 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
       uint64_t mask  = 0;
       ctx->no_quotes = false;
       close_char     = '}';
+      bool first     = true;
       buffer_add_chars(buf, "{\n");
       for (int i = 0; i < def->def.container.len; i++) {
         ssz_ob_t val = ssz_get(&ob, (char*) def->def.container.elements[i].name);
@@ -340,8 +341,11 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
           continue;
         }
         if (mask && (mask & (1 << i)) == 0) continue;
+        if (first)
+          first = false;
+        else
+          buffer_add_chars(buf, ",\n");
         dump(ctx, val, def->def.container.elements[i].name, intend + 2);
-        if (i < def->def.container.len - 1) buffer_add_chars(buf, ",\n");
       }
       break;
     }

@@ -57,8 +57,12 @@ ssz_builder_t c4_witness_sign(ssz_builder_t data, bytes32_t private_key) {
   ssz_ob_t data_ob = {.def = data.def, .bytes = buffer.data};
   ssz_hash_tree_root(data_ob, hash);
 
-  // sign
+// sign
+#ifdef WITNESS_SIGNER
   secp256k1_sign(private_key, hash, signature);
+#else
+  memset(signature, 0, 65);
+#endif
   buffer_free(&buffer);
 
   ssz_builder_t builder = ssz_builder_for_def(&C4_WITNESS_SIGNED_CONTAINER);

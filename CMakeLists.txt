@@ -24,7 +24,7 @@ project(c4)
 
 # Core build options
 option(CURL "Enable CURL support" ON)
-option(WITNESS_SIGNER "Enable witness signing" ON)
+option(WITNESS_SIGNER "Enable witness signing" OFF)
 option(PROOFER "Build the proofer library" ON)
 option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)
@@ -47,7 +47,9 @@ option(MESSAGES "if activated the binaries will contain error messages, but for 
 if(MESSAGES)
     add_definitions(-DMESSAGES)
 endif()
-
+if(WITNESS_SIGNER)
+    add_definitions(-DWITNESS_SIGNER)
+endif()
 # Python bindings configuration
 if(PYTHON)
     # Python bindings disable CURL/CLI (HTTP is handled in Python)
