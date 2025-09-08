@@ -24,14 +24,14 @@ project(c4)
 
 # Core build options
 option(CURL "Enable CURL support" ON)
-option(WITNESS_SIGNER "Enable witness signing" OFF)
+option(WITNESS_SIGNER "Enable witness signing" ON)
 option(PROOFER "Build the proofer library" ON)
 option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized. It is faster but uses 25k more memory in cache per period." ON)
 option(PROOFER_CACHE "Caches blockhashes and maps, which makes a lot of sense on a server" OFF)
 option(CHAIN_ETH "includes the ETH verification support" ON)
-option(CHAIN_OP "includes the OP-Stack verification support" ON)
+option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
