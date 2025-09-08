@@ -49,6 +49,7 @@ static const ssz_def_t ETH_AUTHORIZATION_LIST_DATA_CONTAINER = SSZ_CONTAINER("Au
 // the transaction data as result of an eth_getTransactionByHash rpc-call.
 // Supports all transaction types including Optimism Deposited Transactions (0x7E)
 static const ssz_def_t ETH_TX_DATA[] = {
+    SSZ_OPT_MASK("_optmask", 4),                                               // the bitmask defining the fields to be included
     SSZ_BYTES32("blockHash"),                                                  // the blockHash of the execution block containing the transaction
     SSZ_UINT64("blockNumber"),                                                 // the number of the execution block containing the transaction
     SSZ_BYTES32("hash"),                                                       // the blockHash of the execution block containing the transaction
@@ -71,10 +72,10 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_LIST("authorizationList", ETH_AUTHORIZATION_LIST_DATA_CONTAINER, 256), // the access list of the transaction
     SSZ_LIST("blobVersionedHashes", ssz_bytes32, 16),                          // the blobVersionedHashes of the transaction
     SSZ_UINT8("yParity"),                                                      // the yParity of the transaction
-    SSZ_OPT_BYTES("sourceHash", 32),                                           // unique identifier for deposit origin (OP Stack only)
-    SSZ_OPT_BYTES_UINT("mint", 32),                                            // ETH value to mint on L2 (OP Stack only) - rendered as uint
-    SSZ_OPT_BYTES_UINT("isSystemTx", 1),                                       // system transaction flag as bytes (OP Stack only) - rendered as uint
-    SSZ_OPT_BYTES_UINT("depositReceiptVersion", 1)                             // deposit receipt version (OP Stack only) - rendered as uint
+    SSZ_BYTES32("sourceHash"),                                                 // unique identifier for deposit origin (OP Stack only)
+    SSZ_UINT256("mint"),                                                       // ETH value to mint on L2 (OP Stack only) - rendered as uint
+    SSZ_BOOLEAN("isSystemTx"),                                                 // system transaction flag as bytes (OP Stack only) - rendered as uint
+    SSZ_UINT8("depositReceiptVersion")                                         // deposit receipt version (OP Stack only) - rendered as uint
 
 };
 

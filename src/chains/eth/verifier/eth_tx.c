@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "eth_tx.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
@@ -724,6 +725,24 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
     final_gas_price = base_fee + min64(max_priority_fee_per_gas_rlp_val, max_fee_per_gas_rlp_val - base_fee);
 
   // --- Add fields to SSZ Builder IN ORDER OF ETH_TX_DATA DEFINITION ---
+
+  // First, add the optional mask based on transaction type
+  uint32_t field_mask = 0;
+  if (type == TX_TYPE_DEPOSITED) {
+    // For Deposited Transactions, only show relevant fields + OP Stack specific fields
+    field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
+                 TX_NONCE | TX_INPUT | TX_GAS | TX_FROM | TX_TO | TX_VALUE | TX_GAS_PRICE |
+                 TX_SOURCE_HASH | TX_MINT | TX_IS_SYSTEM_TX | TX_DEPOSIT_RECEIPT_VERSION;
+  }
+  else {
+    // For all other transaction types, show all fields except OP Stack specific ones
+    field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
+                 TX_NONCE | TX_INPUT | TX_R | TX_S | TX_CHAIN_ID | TX_V | TX_GAS | TX_FROM |
+                 TX_TO | TX_VALUE | TX_GAS_PRICE | TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
+                 TX_ACCESS_LIST | TX_AUTHORIZATION_LIST | TX_BLOB_VERSIONED_HASHES | TX_Y_PARITY;
+  }
+  ssz_add_uint32(buffer, field_mask);
+
   ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
   ssz_add_uint64(buffer, block_number);
   ssz_add_bytes(buffer, "hash", bytes(tx_hash, 32));

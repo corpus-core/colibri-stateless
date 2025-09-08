@@ -57,7 +57,7 @@ typedef enum {
 
 typedef enum {
   SSZ_FLAG_NONE         = 0,
-  SSZ_FLAG_OPTIONAL     = 1,
+  SSZ_FLAG_OPT_MASK     = 1, // value conains a bitmask of the fields to include in the JSON output
   SSZ_FLAG_ZSTD_ENCODED = 2,
   SSZ_FLAG_UINT         = 4, // Render bytes as uint in JSON (for boolean/numeric fields stored as bytes)
 } ssz_flag_t;
@@ -182,10 +182,6 @@ extern const ssz_def_t ssz_none;
   {                                                                       \
     .name = property, .type = SSZ_TYPE_UINT, .def.uint = {.len = length } \
   }
-#define SSZ_OPT_UINT(property, length)                                                                \
-  {                                                                                                   \
-    .name = property, .type = SSZ_TYPE_UINT, .flags = SSZ_FLAG_OPTIONAL, .def.uint = {.len = length } \
-  }
 #define SSZ_LIST(property, typePtr, max_len)                                   \
   {                                                                            \
     .name = property, .type = SSZ_TYPE_LIST, .def.vector = {.len  = max_len,   \
@@ -200,11 +196,6 @@ extern const ssz_def_t ssz_none;
   {                                                                              \
     .name = property, .type = SSZ_TYPE_VECTOR, .def.vector = {.len  = length,    \
                                                               .type = &typePtr } \
-  }
-#define SSZ_OPT_VECTOR(property, typePtr, length)                                                            \
-  {                                                                                                          \
-    .name = property, .type = SSZ_TYPE_VECTOR, .flags = SSZ_FLAG_OPTIONAL, .def.vector = {.len  = length,    \
-                                                                                          .type = &typePtr } \
   }
 
 #define SSZ_BIT_LIST(property, max_length)                                          \
@@ -231,31 +222,22 @@ extern const ssz_def_t ssz_none;
     .def.container = {.elements = children,                         \
                       .len      = sizeof(children) / sizeof(ssz_def_t) } \
   }
+#define SSZ_OPT_MASK(property, length)                                                                \
+  {                                                                                                   \
+    .name = property, .type = SSZ_TYPE_UINT, .flags = SSZ_FLAG_OPT_MASK, .def.uint = {.len = length } \
+  }
+
 #define SSZ_BYTE                   ssz_uint8
 #define SSZ_BYTES(name, limit)     SSZ_LIST(name, ssz_uint8, limit)
-#define SSZ_OPT_BYTES(name, limit) SSZ_OPT_LIST(name, ssz_uint8, limit)
-#define SSZ_OPT_BYTES_UINT(property, max_len)                                                                                  \
-  {                                                                                                                            \
-    .name = property, .type = SSZ_TYPE_LIST, .flags = (SSZ_FLAG_OPTIONAL | SSZ_FLAG_UINT), .def.vector = {.len  = max_len,     \
-                                                                                                          .type = &ssz_uint8 } \
-  }
-#define SSZ_BYTE_VECTOR(name, len)     SSZ_VECTOR(name, ssz_uint8, len)
-#define SSZ_OPT_BYTE_VECTOR(name, len) SSZ_OPT_VECTOR(name, ssz_uint8, len)
-#define SSZ_BYTES32(name)              SSZ_BYTE_VECTOR(name, 32)
-#define SSZ_OPT_BYTES32(name)          SSZ_OPT_BYTE_VECTOR(name, 32)
-#define SSZ_ADDRESS(name)              SSZ_BYTE_VECTOR(name, 20)
-#define SSZ_OPT_ADDRESS(name)          SSZ_OPT_BYTE_VECTOR(name, 20)
-#define SSZ_UINT64(name)               SSZ_UINT(name, 8)
-#define SSZ_OPT_UINT64L(name)          SSZ_OPT_UINT(name, 8)
-#define SSZ_UINT256(name)              SSZ_UINT(name, 32)
-#define SSZ_OPT_UINT256(name)          SSZ_OPT_UINT(name, 32)
-#define SSZ_UINT32(name)               SSZ_UINT(name, 4)
-#define SSZ_OPT_UINT32(name)           SSZ_OPT_UINT(name, 4)
-#define SSZ_UINT16(name)               SSZ_UINT(name, 2)
-#define SSZ_OPT_UINT16(name)           SSZ_OPT_UINT(name, 2)
-#define SSZ_UINT8(name)                SSZ_UINT(name, 1)
-#define SSZ_OPT_UINT8(name)            SSZ_OPT_UINT(name, 1)
-#define SSZ_NONE                       {.name = "NONE", .type = SSZ_TYPE_NONE}
+#define SSZ_BYTE_VECTOR(name, len) SSZ_VECTOR(name, ssz_uint8, len)
+#define SSZ_BYTES32(name)          SSZ_BYTE_VECTOR(name, 32)
+#define SSZ_ADDRESS(name)          SSZ_BYTE_VECTOR(name, 20)
+#define SSZ_UINT64(name)           SSZ_UINT(name, 8)
+#define SSZ_UINT256(name)          SSZ_UINT(name, 32)
+#define SSZ_UINT32(name)           SSZ_UINT(name, 4)
+#define SSZ_UINT16(name)           SSZ_UINT(name, 2)
+#define SSZ_UINT8(name)            SSZ_UINT(name, 1)
+#define SSZ_NONE                   {.name = "NONE", .type = SSZ_TYPE_NONE}
 
 typedef struct {
   const ssz_def_t* def;

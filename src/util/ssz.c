@@ -293,22 +293,6 @@ typedef struct {
   bool     no_quotes;
 } ssz_dump_t;
 
-static bool is_empty(ssz_ob_t ob) {
-  if (ob.bytes.len == 0) return true;
-  switch (ob.def->type) {
-    case SSZ_TYPE_UINT:
-    case SSZ_TYPE_VECTOR:
-    case SSZ_TYPE_BIT_VECTOR:
-      return bytes_all_zero(ob.bytes);
-    case SSZ_TYPE_LIST:
-    case SSZ_TYPE_BIT_LIST:
-      return ssz_len(ob) == 0;
-    default:
-      return false;
-  }
-  return false;
-}
-
 static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
   const ssz_def_t* def        = ob.def;
   buffer_t*        buf        = &ctx->buf;
@@ -345,12 +329,17 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
     case SSZ_TYPE_NONE: buffer_add_chars(buf, "null"); break;
     case SSZ_TYPE_BOOLEAN: buffer_add_chars(buf, ob.bytes.data[0] ? "true" : "false"); break;
     case SSZ_TYPE_CONTAINER: {
+      uint64_t mask  = 0;
       ctx->no_quotes = false;
       close_char     = '}';
       buffer_add_chars(buf, "{\n");
       for (int i = 0; i < def->def.container.len; i++) {
         ssz_ob_t val = ssz_get(&ob, (char*) def->def.container.elements[i].name);
-        if (val.def->flags & SSZ_FLAG_OPTIONAL && is_empty(val)) continue;
+        if (val.def->flags & SSZ_FLAG_OPT_MASK) {
+          mask |= bytes_as_le(val.bytes);
+          continue;
+        }
+        if (mask && (mask & (1 << i)) == 0) continue;
         dump(ctx, val, def->def.container.elements[i].name, intend + 2);
         if (i < def->def.container.len - 1) buffer_add_chars(buf, ",\n");
       }
