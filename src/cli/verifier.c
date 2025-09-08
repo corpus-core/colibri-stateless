@@ -74,7 +74,6 @@ static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t st
     }
     exit(EXIT_FAILURE);
   }
-  fprintf(stderr, "success\n");
   return response_buffer.data;
 }
 #endif
