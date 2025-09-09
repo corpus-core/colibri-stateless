@@ -108,6 +108,45 @@ main().catch(console.error);
 {% endtab %}
 {% endtabs %}
 
+## Secure Transaction Verification
+
+Colibri provides built-in protection against NPM supply-chain attacks and transaction manipulation through its transaction verification feature. When enabled, all `eth_sendTransaction` calls are automatically verified before being broadcast to the network.
+
+### How it works
+
+1. **Sign via Fallback Provider**: Transaction is signed using your configured fallback provider (e.g., MetaMask)
+2. **Decode & Verify**: The signed transaction is decoded and compared with the original parameters
+3. **Secure Broadcast**: Only if verification passes, the transaction is sent to the network
+
+### Example
+
+```javascript
+import { BrowserProvider } from "ethers";
+import Colibri from "@corpus-core/colibri-stateless";
+
+// 🛡️ Secure transactions with built-in verification
+const client = new Colibri({
+    fallback_provider: window.ethereum, // MetaMask as Signer
+    verifyTransactions: true            // Prevents transaction manipulation
+});
+
+const provider = new BrowserProvider(client);
+
+// Send transaction - automatically verified before broadcast
+const tx = await provider.getSigner().sendTransaction({
+    to: "0x742d35cc6633C0532925a3b8D8C9C4e2F9",
+    value: "0x16345785d8a0000", // 0.1 ETH
+    gasLimit: "0x5208"
+});
+
+console.log("✅ Verified transaction:", tx.hash);
+```
+
+This feature protects against:
+- Malicious NPM packages modifying transaction parameters
+- Browser extensions tampering with transactions
+- Supply-chain attacks targeting transaction data
+
 ## Building proofs in you app.
 
 If you don't want to use a remote Service building the proofs, you can also use Colibri directly to build the proof or to verify. A Proof is juzst a UInt8Array or just bytes. You write it in a file or package it in your application and verify whenever it is needed:
@@ -222,11 +261,18 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```
 
 
-- `fallback_provider`- a EIP 1193 Provider used as fallback for all requests which are not verifieable, like eth_sendTransaction.
+- `fallback_provider`- a EIP 1193 Provider used as fallback for all requests which are not verifieable, like eth_sendTransaction. Also used for signing transactions when `verifyTransactions` is enabled.
     ```js
     new Colibri({ fallback_provider: window.ethereum  })
     ```
 
+- `verifyTransactions`- if true, all eth_sendTransaction calls will be verified before broadcast to prevent transaction manipulation attacks. Requires `fallback_provider` to be set. (default: false)
+    ```js
+    new Colibri({ 
+        fallback_provider: window.ethereum,
+        verifyTransactions: true 
+    })
+    ```
 
 
 
