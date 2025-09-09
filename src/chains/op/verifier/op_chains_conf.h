@@ -18,13 +18,19 @@ typedef struct {
   const char* name;
   const char* http_endpoint;
   int         hardfork_version;
+
+  // Kona-Bridge spezifische Konfiguration
+  uint32_t kona_disc_port;        // Discovery Port (default: 9090)
+  uint32_t kona_gossip_port;      // Gossip Port (default: 9091)
+  uint32_t kona_ttl_minutes;      // TTL für Preconfs (default: 30)
+  uint32_t kona_cleanup_interval; // Cleanup Intervall (default: 5)
 #endif
 } op_chain_config_t;
 
 // Macro to define chain configurations conditionally
 #ifdef PROOFER
 #define OP_CHAIN_CONFIG(id, signer, chain_name, endpoint, hf) \
-  {.chain_id = (id), .sequencer_address = (signer), .name = (chain_name), .http_endpoint = (endpoint), .hardfork_version = (hf)}
+  {.chain_id = (id), .sequencer_address = (signer), .name = (chain_name), .http_endpoint = (endpoint), .hardfork_version = (hf), .kona_disc_port = 9090, .kona_gossip_port = 9091, .kona_ttl_minutes = 30, .kona_cleanup_interval = 5}
 #else
 #define OP_CHAIN_CONFIG(id, signer, chain_name, endpoint, hf) \
   {.chain_id = (id), .sequencer_address = (signer)}

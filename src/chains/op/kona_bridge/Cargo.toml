@@ -1,0 +1,43 @@
+[package]
+name = "kona_bridge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Kona P2P für echte OP-Stack-Kompatibilität (exakte Versionen wie Helios)
+alloy = { version = "0.15.10" }
+kona-p2p = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
+kona-registry = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
+op-alloy-rpc-types-engine = "0.15.2"
+ethereum_ssz = "0.9"
+
+# P2P Networking (wie Helios)
+libp2p = { version = "0.55.0", features = ["macros", "tokio", "tcp", "noise", "gossipsub", "ping"] }
+discv5 = "0.9.1"
+
+# Async Runtime
+tokio = { version = "1.44.2", features = ["full"] }
+
+# Logging
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
+# Serialization
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.85"
+
+# CLI
+clap = { version = "4.5.4", features = ["derive", "env"] }
+
+# Compression (für Preconf-Format)
+zstd = "0.13"
+
+# File I/O
+tempfile = "3.0"
+
+# Hex encoding
+hex = "0.4"
+
+[lib]
+name = "kona_bridge"
+crate-type = ["staticlib"]  # Statische Bibliothek für direktes Linken

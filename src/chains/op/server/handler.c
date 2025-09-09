@@ -1,5 +1,6 @@
 #include "handler.h"
 #include "../verifier/op_chains_conf.h"
+#include "kona_preconf_capture.h"
 #include "op_preconf_capture.h"
 #include "util/logger.h"
 #include <libgen.h>
@@ -15,7 +16,31 @@ static uv_timer_t delayed_init_timer;
 
 static void start_preconf_capture(http_server_t* server) {
   // Verwende die Default-Loop - das ist die Loop, die der Server verwendet
-  uv_loop_t*  loop    = uv_default_loop();
+  uv_loop_t* loop = uv_default_loop();
+
+  // NEUE KONA-BRIDGE INTEGRATION
+  // Versuche zuerst die Kona-Bridge für echte OP-Stack-Kompatibilität
+  if (http_server.preconf_use_gossip) {
+    log_info("🦀 Attempting to start Kona-P2P bridge (discv5/ENR compatible)");
+
+#ifdef KONA_BRIDGE_AVAILABLE
+#include "kona_preconf_capture.h"
+
+    int kona_result = start_kona_preconf_capture(loop, http_server.chain_id, http_server.preconf_storage_dir);
+    if (kona_result == 0) {
+      log_info("✅ Kona-P2P bridge started successfully - using native OP-Stack protocol");
+      return; // Erfolg - keine Fallback-Bridge nötig
+    }
+    else {
+      log_warn("⚠️  Kona-P2P bridge failed to start, falling back to Go bridge");
+    }
+#else
+    log_warn("⚠️  Kona-P2P bridge not available, falling back to Go bridge");
+#endif
+  }
+
+  // FALLBACK: BESTEHENDE GO-BRIDGE
+  log_info("🔄 Starting Go-based bridge as fallback");
   const char* boots[] = {
       // Echte OP Mainnet Bootnodes (aus ethereum-optimism/op-geth)
       // OP Labs Nodes
@@ -129,4 +154,11 @@ void op_server_init(http_server_t* server) {
 
 void op_server_shutdown(http_server_t* server) {
   OP_HANDLER_CHECK(server);
+
+  log_info("🛑 Shutting down OP server handler...");
+
+  // Stop Kona preconf capture if running
+  stop_kona_preconf_capture();
+
+  log_info("✅ OP server handler shutdown complete");
 }
