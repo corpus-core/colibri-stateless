@@ -64,8 +64,7 @@ if(HTTP_SERVER)
     # Kona-Bridge (neue, native OP-Stack-kompatible Bridge)
     add_subdirectory(kona_bridge)
     
-    # Go-Bridge (Fallback)
-    add_subdirectory(opg_bridge)
+    # Go-Bridge removed - using Kona-Bridge only
 endif()
 
 # Determine dependencies based on available bridges
@@ -82,13 +81,9 @@ add_server_handler(
   NAME op_server_handler
   SOURCES 
     server/handler.c
-    server/op_preconf_capture.c
   DEPENDS ${OP_SERVER_DEPENDS}
   INIT_FUNC op_server_init
   SHUTDOWN_FUNC op_server_shutdown
 )
 
-# Additional dependencies for Go bridge
-if(HTTP_SERVER)
-    add_dependencies(op_server_handler opg_bridge)
-endif()
+# Go bridge dependencies removed - using Kona-Bridge only

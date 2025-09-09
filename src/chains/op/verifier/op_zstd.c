@@ -4,6 +4,7 @@
  */
 
 #include "op_zstd.h"
+#include <stdlib.h>
 #include <zstd.h>
 
 size_t op_zstd_decompress(
@@ -36,7 +37,27 @@ size_t op_zstd_get_decompressed_size(
   unsigned long long result = ZSTD_getFrameContentSize(compressed_data.data, compressed_data.len);
 
   if (result == ZSTD_CONTENTSIZE_ERROR || result == ZSTD_CONTENTSIZE_UNKNOWN) {
-    return 0;
+    // Fallback: Try to decompress with a reasonable buffer size to get the actual size
+    // This is a workaround for ZSTD streams that don't store the content size in the header
+
+    // Try with progressively larger buffers until we succeed
+    size_t test_sizes[]   = {64 * 1024, 256 * 1024, 1024 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024};
+    size_t num_test_sizes = sizeof(test_sizes) / sizeof(test_sizes[0]);
+
+    for (size_t i = 0; i < num_test_sizes; i++) {
+      void* test_buffer = malloc(test_sizes[i]);
+      if (!test_buffer) continue;
+
+      size_t decompressed_size = ZSTD_decompress(test_buffer, test_sizes[i],
+                                                 compressed_data.data, compressed_data.len);
+      free(test_buffer);
+
+      if (!ZSTD_isError(decompressed_size)) {
+        return decompressed_size;
+      }
+    }
+
+    return 0; // All attempts failed
   }
 
   return (size_t) result;

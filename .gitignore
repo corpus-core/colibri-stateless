@@ -30,3 +30,5 @@ bindings/swift/.swiftpm
 bindings/swift/ios_package
 bindings/swift/test_ios_app/.build
 bindings/swift/Sources/CColibri/include/colibri.h
+src/chains/op/verifier/op_zstd.c
+src/chains/op/kona_bridge/target

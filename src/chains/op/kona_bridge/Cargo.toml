@@ -38,6 +38,10 @@ tempfile = "3.0"
 # Hex encoding
 hex = "0.4"
 
+# HTTP Client für Fallback-Polling
+reqwest = { version = "0.11", features = ["json"] }
+md5 = "0.7"
+
 [lib]
 name = "kona_bridge"
 crate-type = ["staticlib"]  # Statische Bibliothek für direktes Linken

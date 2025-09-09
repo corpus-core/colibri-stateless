@@ -6,11 +6,14 @@ use hex;
 use kona_p2p::{LocalNode, Network};
 use kona_registry::ROLLUP_CONFIGS;
 use libp2p::{Multiaddr, identity::Keypair};
-use op_alloy_rpc_types_engine::OpNetworkPayloadEnvelope;
+use op_alloy_rpc_types_engine::{OpNetworkPayloadEnvelope, OpExecutionPayload};
+use ssz::Encode;
+use reqwest;
 use std::{
     borrow::BorrowMut,
     ffi::CStr,
     fs,
+    io::Write,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     os::raw::{c_char, c_int, c_uint},
     path::PathBuf,
@@ -18,7 +21,11 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::runtime::Runtime;
+use tokio::{
+    fs as tokio_fs,
+    runtime::Runtime,
+    time::{interval, sleep},
+};
 use tracing::{error, info, warn};
 
 /// C-kompatible Konfiguration für die Kona-Bridge
@@ -36,6 +43,7 @@ pub struct KonaBridgeConfig {
 }
 
 /// Handle für die laufende Bridge-Instanz
+#[allow(dead_code)]
 pub struct KonaBridgeHandle {
     config: KonaBridgeConfig,
     runtime: Option<Runtime>,
@@ -151,7 +159,11 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
     let chain_id = config.chain_id as u64;
     let disc_port = config.disc_port as u16;
     let gossip_port = config.gossip_port as u16;
+    let ttl_minutes = config.ttl_minutes as u64;
+    let cleanup_interval = config.cleanup_interval as u64;
     let output_path = PathBuf::from(output_dir);
+    
+    info!("🧹 TTL cleanup configured: {}min TTL, {}min interval", ttl_minutes, cleanup_interval);
 
     let thread_handle = thread::spawn(move || {
         info!("🔄 Kona-P2P bridge thread starting...");
@@ -171,6 +183,8 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
                 disc_port,
                 gossip_port,
                 &output_path,
+                ttl_minutes,
+                cleanup_interval,
                 sequencer_address.as_deref(),
                 stats_clone,
                 running_clone,
@@ -215,12 +229,22 @@ async fn run_kona_network(
     disc_port: u16,
     gossip_port: u16,
     output_dir: &PathBuf,
+    ttl_minutes: u64,
+    cleanup_interval: u64,
     expected_sequencer: Option<&str>,
     stats: Arc<Mutex<KonaBridgeStats>>,
     running: Arc<Mutex<bool>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     info!("🚀 run_kona_network starting for chain {}", chain_id);
+    info!("🧹 TTL cleanup: {} minutes, interval: {} minutes", ttl_minutes, cleanup_interval);
+    
+    // Start TTL cleanup task
+    let cleanup_output_dir = output_dir.clone();
+    let cleanup_running = running.clone();
+    tokio::spawn(async move {
+        cleanup_old_files(cleanup_output_dir, ttl_minutes, cleanup_interval, cleanup_running).await;
+    });
     
     // Determine network name from chain_id
     let network_name = match chain_id {
@@ -243,6 +267,31 @@ async fn run_kona_network(
             chain_config.unsafe_signer = addr;
             info!("🔐 Using sequencer from C config: {}", addr);
         }
+    }
+    
+    // Flag to track if we've received gossip preconfs (for HTTP fallback)
+    let gossip_active = Arc::new(Mutex::new(false));
+    
+    // Start HTTP polling fallback if endpoint is available
+    if let Some(http_endpoint) = chain_config.get_http_endpoint() {
+        let http_output_dir = output_dir.clone();
+        let http_running = running.clone();
+        let http_gossip_active = gossip_active.clone();
+        let http_stats = stats.clone();
+        
+        info!("🌐 Starting HTTP polling fallback: {}", http_endpoint);
+        tokio::spawn(async move {
+            http_polling_fallback(
+                http_endpoint,
+                chain_id,
+                http_output_dir,
+                http_running,
+                http_gossip_active,
+                http_stats,
+            ).await;
+        });
+    } else {
+        info!("🌐 No HTTP endpoint configured - gossip-only mode");
     }
 
     let gossip = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), gossip_port);
@@ -317,13 +366,31 @@ async fn run_kona_network(
     // Process incoming payloads
     while *running.lock().unwrap() {
         tokio::select! {
-            result = payload_recv.recv() => {
+            result = tokio::time::timeout(Duration::from_secs(1), payload_recv.recv()) => {
+                let result = match result {
+                    Ok(r) => r,
+                    Err(_) => {
+                        // Timeout - check running flag and continue
+                        continue;
+                    }
+                };
+                
                 match result {
                     Ok(payload_envelope) => {
                         let hash = payload_envelope.payload.block_hash();
                         let number = payload_envelope.payload.block_number();
                         
                         info!("🎉 PRECONF RECEIVED! Block #{} Hash: {}", number, hash);
+                        
+                        // Signal that gossip is active (stops HTTP fallback)
+                        {
+                            let mut gossip_flag = gossip_active.lock().unwrap();
+                            if !*gossip_flag {
+                                info!("🌐➡️📡 SWITCHING: HTTP polling → Gossip network (first gossip preconf received)");
+                                *gossip_flag = true;
+                                info!("🔄 Gossip network now active - HTTP fallback will stop");
+                            }
+                        }
 
                         // Update received stats
                         {
@@ -378,80 +445,95 @@ async fn process_preconf_with_correct_format(
     payload_envelope: &OpNetworkPayloadEnvelope,
     chain_id: u64,
     output_dir: &PathBuf,
-    expected_sequencer: Option<&str>,
+    _expected_sequencer: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let block_number = payload_envelope.payload.block_number();
     let block_hash = payload_envelope.payload.block_hash();
     
     info!("📦 Processing preconf for block #{}", block_number);
 
-    // Extract execution payload (JSON serialized for now - TODO: implement proper SSZ)
-    let execution_payload_bytes = serde_json::to_vec(&payload_envelope.payload)
-        .map_err(|e| format!("Failed to serialize execution payload: {}", e))?;
-
-    // Format: 32-byte domain + execution_payload (wie in Go-Implementation)
+    // Extract the execution payload bytes using SSZ serialization (EXACTLY like Helios)
+    // This is the exact format used for signature verification
+    let execution_payload_bytes = match &payload_envelope.payload {
+        OpExecutionPayload::V1(payload) => payload.as_ssz_bytes(),
+        OpExecutionPayload::V2(payload) => payload.as_ssz_bytes(),
+        OpExecutionPayload::V3(payload) => payload.as_ssz_bytes(),
+        OpExecutionPayload::V4(payload) => payload.as_ssz_bytes(),
+    };
+    
+    info!("🔍 DEBUG: ExecutionPayload type: {:?}", std::any::type_name_of_val(&payload_envelope.payload));
+    info!("🔍 DEBUG: ExecutionPayload serialized size: {} bytes", execution_payload_bytes.len());
+    info!("🔍 DEBUG: ExecutionPayload first 64 bytes: {:02x?}", &execution_payload_bytes[..64.min(execution_payload_bytes.len())]);
+    
+    // Format: parent_beacon_block_root + execution_payload (EXACTLY like Helios)
     let mut preconf_data = Vec::new();
     
-    // Add 32-byte zero domain
-    preconf_data.extend_from_slice(&[0u8; 32]);
+    // Use parent_beacon_block_root (like Helios), not zero domain
+    if let Some(parent_root) = payload_envelope.parent_beacon_block_root {
+        preconf_data.extend_from_slice(parent_root.as_slice()); // 32-byte parent root
+        info!("🔍 DEBUG: Using parent_beacon_block_root: {:02x?}", &parent_root.as_slice()[..16]);
+    } else {
+        // Fallback to zero domain if no parent root (shouldn't happen normally)
+        preconf_data.extend_from_slice(&[0u8; 32]); // 32-byte zero domain
+        info!("⚠️  DEBUG: No parent_beacon_block_root, using zero domain");
+    }
     
-    // Add execution payload
     preconf_data.extend_from_slice(&execution_payload_bytes);
-
+    
     info!("📊 Preconf data: {} bytes (domain: 32, payload: {})", 
           preconf_data.len(), execution_payload_bytes.len());
 
-    // Compress with ZSTD (wie in Go-Implementation)
-    let compressed_payload = zstd::encode_all(preconf_data.as_slice(), 0)
-        .map_err(|e| format!("ZSTD compression failed: {}", e))?;
+    // Compress with ZSTD - ensure content size is stored in frame header for embedded compatibility
+    use zstd::stream::Encoder;
+    let mut encoder = Encoder::new(Vec::new(), 3)?;
+    encoder.include_contentsize(true)?; // CRITICAL: Store content size in frame header
+    encoder.write_all(&preconf_data)?;
+    let compressed_payload = encoder.finish()?;
     
     info!("🗜️  ZSTD compression: {} bytes -> {} bytes ({}% reduction)",
         preconf_data.len(), 
         compressed_payload.len(),
         100 - (compressed_payload.len() * 100 / preconf_data.len().max(1)));
 
-    // Extract signature (65 bytes)
+    // Extract signature (65 bytes) with correct v-parameter
     let signature_bytes = signature_to_bytes(&payload_envelope.signature);
 
-    // Format: compressed_payload + signature (65 bytes) - genau wie Go-Implementation
+    // Format: compressed_payload + signature (65 bytes) - same as Go implementation
     let mut final_data = Vec::new();
     final_data.extend_from_slice(&compressed_payload);
     final_data.extend_from_slice(&signature_bytes);
 
-    // Write to file: block_{chain_id}_{block_number}.raw
+    // DEBUG: Write uncompressed payload for analysis
+    let debug_payload_filename = format!("debug_payload_{}_{}.raw", chain_id, block_number);
+    let debug_payload_filepath = output_dir.join(&debug_payload_filename);
+    tokio_fs::write(&debug_payload_filepath, &preconf_data).await
+        .map_err(|e| format!("Failed to write debug payload: {}", e))?;
+    info!("🔍 DEBUG: Saved uncompressed payload to: {:?} ({} bytes)", debug_payload_filepath, preconf_data.len());
+
+    // Write to file: block_{chain_id}_{block_number}.raw (using REAL block number)
     let filename = format!("block_{}_{}.raw", chain_id, block_number);
     let filepath = output_dir.join(&filename);
     
     // Atomic write
     let temp_filepath = filepath.with_extension("tmp");
-    fs::write(&temp_filepath, &final_data)
+    tokio_fs::write(&temp_filepath, &final_data).await
         .map_err(|e| format!("Failed to write temp file: {}", e))?;
-    fs::rename(&temp_filepath, &filepath)
+    tokio_fs::rename(&temp_filepath, &filepath).await
         .map_err(|e| format!("Failed to rename temp file: {}", e))?;
 
     info!("💾 Saved preconf to: {:?} ({} bytes)", filepath, final_data.len());
 
-    // Update latest.raw symlink (nur wenn block_number neuer ist)
+    // Update latest.raw symlink
     let latest_path = output_dir.join("latest.raw");
-    if let Err(e) = fs::remove_file(&latest_path) {
-        // Ignore error if file doesn't exist
-        if e.kind() != std::io::ErrorKind::NotFound {
-            warn!("⚠️  Failed to remove old latest.raw: {}", e);
-        }
-    }
+    let _ = tokio_fs::remove_file(&latest_path).await; // Ignore error if doesn't exist
 
     // Create new symlink
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::symlink;
-        if let Err(e) = symlink(&filename, &latest_path) {
-            warn!("⚠️  Failed to create latest.raw symlink: {}", e);
-        } else {
-            info!("🔗 Updated latest.raw symlink to {}", filename);
-        }
-    }
+    tokio_fs::symlink(&filename, &latest_path).await
+        .map_err(|e| format!("Failed to create latest.raw symlink: {}", e))?;
+    
+    info!("🔗 Updated latest.raw symlink to {}", filename);
 
-    // Create metadata file (wie in Go-Implementation)
+    // Create metadata file (same structure as before)
     let meta_filename = format!("block_{}_{}.json", chain_id, block_number);
     let meta_filepath = output_dir.join(&meta_filename);
     
@@ -465,12 +547,18 @@ async fn process_preconf_with_correct_format(
         "compressed_size": compressed_payload.len(),
         "decompressed_size": preconf_data.len(),
         "file_path": filename,
+        "source": "gossip",
         "kona_p2p": true
     });
 
-    fs::write(&meta_filepath, serde_json::to_string_pretty(&metadata)?)
+    let metadata_json = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+    
+    tokio_fs::write(&meta_filepath, metadata_json).await
         .map_err(|e| format!("Failed to write metadata: {}", e))?;
 
+    info!("📡 GOSSIP: Processed preconf for block {} (source: Gossip network)", block_number);
+    
     Ok(())
 }
 
@@ -478,7 +566,8 @@ fn signature_to_bytes(signature: &alloy::signers::Signature) -> [u8; 65] {
     let mut bytes = [0u8; 65];
     bytes[..32].copy_from_slice(&signature.r().to_be_bytes::<32>());
     bytes[32..64].copy_from_slice(&signature.s().to_be_bytes::<32>());
-    bytes[64] = if signature.v() { 1 } else { 0 };
+    // Convert recovery ID (0/1) to Ethereum v parameter (27/28)
+    bytes[64] = if signature.v() { 28 } else { 27 };
     bytes
 }
 
@@ -565,6 +654,18 @@ struct ChainConfig {
 }
 
 impl ChainConfig {
+    fn get_http_endpoint(&self) -> Option<String> {
+        // Get HTTP endpoint from centralized chain configuration
+        match self.chain_id {
+            10 => Some("https://op-mainnet.operationsolarstorm.org/latest".to_string()),
+            8453 => Some("https://base.operationsolarstorm.org/latest".to_string()),
+            130 => Some("https://unichain.operationsolarstorm.org/latest".to_string()),
+            480 => Some("https://worldchain.operationsolarstorm.org/latest".to_string()),
+            7777777 => Some("https://zora.operationsolarstorm.org/latest".to_string()),
+            _ => None,
+        }
+    }
+    
     fn from(network: &str, chain_id: u64) -> Self {
         match network {
             "op-mainnet" => ChainConfig {
@@ -608,4 +709,258 @@ impl ChainConfig {
             }
         }
     }
+}
+
+/// Cleanup-Funktion für TTL-basierte Löschung alter Preconf-Dateien
+async fn cleanup_old_files(
+    output_dir: PathBuf,
+    ttl_minutes: u64,
+    cleanup_interval_minutes: u64,
+    running: Arc<Mutex<bool>>,
+) {
+    let ttl_duration = Duration::from_secs(ttl_minutes * 60);
+    let cleanup_interval = Duration::from_secs(cleanup_interval_minutes * 60);
+    
+    info!("🧹 Starting TTL cleanup task: TTL={}min, interval={}min", ttl_minutes, cleanup_interval_minutes);
+    
+    let mut interval_timer = interval(cleanup_interval);
+    
+    while *running.lock().unwrap() {
+        interval_timer.tick().await;
+        
+        if !*running.lock().unwrap() {
+            break;
+        }
+        
+        match cleanup_expired_files(&output_dir, ttl_duration).await {
+            Ok(deleted_count) => {
+                if deleted_count > 0 {
+                    info!("🧹 Cleanup completed: deleted {} expired files", deleted_count);
+                } else {
+                    info!("🧹 Cleanup completed: no expired files found");
+                }
+            }
+            Err(e) => {
+                warn!("⚠️  Cleanup failed: {}", e);
+            }
+        }
+    }
+    
+    info!("🛑 TTL cleanup task stopped");
+}
+
+/// Löscht alle .raw und .json Dateien, die älter als die TTL sind
+async fn cleanup_expired_files(
+    output_dir: &PathBuf,
+    ttl_duration: Duration,
+) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+    let now = SystemTime::now();
+    let mut deleted_count = 0;
+    
+    let mut entries = tokio_fs::read_dir(output_dir).await?;
+    
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        
+        // Nur .raw und .json Dateien berücksichtigen
+        if let Some(extension) = path.extension() {
+            let ext = extension.to_string_lossy();
+            if ext != "raw" && ext != "json" {
+                continue;
+            }
+        } else {
+            continue;
+        }
+        
+        // latest.raw Symlink nicht löschen
+        if path.file_name().unwrap_or_default() == "latest.raw" {
+            continue;
+        }
+        
+        // Prüfe Dateialter
+        match entry.metadata().await {
+            Ok(metadata) => {
+                if let Ok(modified) = metadata.modified() {
+                    if let Ok(age) = now.duration_since(modified) {
+                        if age > ttl_duration {
+                            // Datei ist zu alt - löschen
+                            match tokio_fs::remove_file(&path).await {
+                                Ok(_) => {
+                                    info!("🗑️  Deleted expired file: {:?} (age: {}min)", 
+                                          path.file_name().unwrap_or_default(),
+                                          age.as_secs() / 60);
+                                    deleted_count += 1;
+                                }
+                                Err(e) => {
+                                    warn!("⚠️  Failed to delete {:?}: {}", path, e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("⚠️  Failed to read metadata for {:?}: {}", path, e);
+            }
+        }
+    }
+    
+    Ok(deleted_count)
+}
+
+/// HTTP-Polling Fallback für schnelle Preconf-Verfügbarkeit beim Start
+async fn http_polling_fallback(
+    endpoint: String,
+    chain_id: u64,
+    output_dir: PathBuf,
+    running: Arc<Mutex<bool>>,
+    gossip_active: Arc<Mutex<bool>>,
+    stats: Arc<Mutex<KonaBridgeStats>>,
+) {
+    let client = reqwest::Client::new();
+    let mut interval_timer = interval(Duration::from_secs(2)); // Poll every 2 seconds
+    let mut last_data_hash: Option<String> = None;
+    
+    info!("🌐 HTTP polling fallback active - polling every 2s until gossip active");
+    info!("🌐 HTTP endpoint: {}", endpoint);
+    
+    while *running.lock().unwrap() {
+        interval_timer.tick().await;
+        
+        // Stop polling if gossip is active
+        if *gossip_active.lock().unwrap() {
+            info!("🌐 HTTP polling stopped - gossip network is active");
+            break;
+        }
+        
+        if !*running.lock().unwrap() {
+            break;
+        }
+        
+        // Fetch preconf from HTTP endpoint
+        match fetch_http_preconf(&client, &endpoint).await {
+            Ok(Some((data_hash, preconf_data))) => {
+                // Check if this is new data
+                if let Some(ref last_hash) = last_data_hash {
+                    if *last_hash == data_hash {
+                        continue; // Same data, skip
+                    }
+                }
+                
+                last_data_hash = Some(data_hash.clone());
+                info!("🌐 HTTP: New preconf received (hash: {})", &data_hash[..16]);
+                
+                // Process and save the preconf
+                match process_http_preconf(preconf_data, chain_id, &output_dir).await {
+                    Ok(block_number) => {
+                        // Update stats
+                        {
+                            let mut stats_guard = stats.lock().unwrap();
+                            stats_guard.received_preconfs += 1;
+                            stats_guard.processed_preconfs += 1;
+                        }
+                        info!("📡 HTTP: Processed preconf for block {} (source: HTTP polling)", block_number);
+                    }
+                    Err(e) => {
+                        warn!("🌐 HTTP: Failed to process preconf: {}", e);
+                        {
+                            let mut stats_guard = stats.lock().unwrap();
+                            stats_guard.received_preconfs += 1;
+                            stats_guard.failed_preconfs += 1;
+                        }
+                    }
+                }
+            }
+            Ok(None) => {
+                // No new data
+                continue;
+            }
+            Err(e) => {
+                warn!("🌐 HTTP: Polling failed: {}", e);
+                // Wait a bit longer on error
+                sleep(Duration::from_secs(5)).await;
+            }
+        }
+    }
+    
+    info!("🌐 HTTP polling fallback stopped");
+}
+
+/// Fetch preconf from HTTP endpoint (similar to Go implementation)
+async fn fetch_http_preconf(
+    client: &reqwest::Client,
+    endpoint: &str,
+) -> Result<Option<(String, serde_json::Value)>, Box<dyn std::error::Error + Send + Sync>> {
+    let response = client
+        .get(endpoint)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await?;
+    
+    if !response.status().is_success() {
+        return Err(format!("HTTP {} from {}", response.status(), endpoint).into());
+    }
+    
+    let body = response.text().await?;
+    let data_hash = format!("{:x}", md5::compute(&body));
+    
+    let preconf: serde_json::Value = serde_json::from_str(&body)?;
+    
+    Ok(Some((data_hash, preconf)))
+}
+
+/// Process HTTP preconf and save to filesystem (similar to Go implementation)
+async fn process_http_preconf(
+    preconf: serde_json::Value,
+    chain_id: u64,
+    output_dir: &PathBuf,
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    // Extract data and signature from JSON
+    let data_hex = preconf["data"]
+        .as_str()
+        .ok_or("Missing 'data' field")?;
+    let signature = &preconf["signature"];
+    
+    // Decode hex data
+    let data_bytes = hex::decode(data_hex.trim_start_matches("0x"))?;
+    
+    // Create signature bytes (r + s + v)
+    let r_hex = signature["r"].as_str().ok_or("Missing signature.r")?;
+    let s_hex = signature["s"].as_str().ok_or("Missing signature.s")?;
+    let y_parity = signature["yParity"].as_str().unwrap_or("0x0");
+    
+    let r_bytes = hex::decode(r_hex.trim_start_matches("0x"))?;
+    let s_bytes = hex::decode(s_hex.trim_start_matches("0x"))?;
+    let v_byte = if y_parity == "0x1" { 28 } else { 27 };
+    
+    // Pad r and s to 32 bytes and create signature
+    let mut sig_bytes = [0u8; 65];
+    sig_bytes[32 - r_bytes.len()..32].copy_from_slice(&r_bytes);
+    sig_bytes[64 - s_bytes.len()..64].copy_from_slice(&s_bytes);
+    sig_bytes[64] = v_byte;
+    
+    // Extract block number (mock for now - would need proper SSZ parsing)
+    let block_number = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    
+    // Compress payload with ZSTD
+    let compressed = zstd::bulk::compress(&data_bytes, 3)?;
+    
+    // Combine compressed payload + signature
+    let mut combined = compressed;
+    combined.extend_from_slice(&sig_bytes);
+    
+    // Save to filesystem
+    let filename = format!("block_{}_{}.raw", chain_id, block_number);
+    let filepath = output_dir.join(&filename);
+    tokio_fs::write(&filepath, &combined).await?;
+    
+    // Update latest.raw symlink
+    let latest_path = output_dir.join("latest.raw");
+    let _ = tokio_fs::remove_file(&latest_path).await; // Ignore error if doesn't exist
+    tokio_fs::symlink(&filename, &latest_path).await?;
+    
+    Ok(block_number)
 }

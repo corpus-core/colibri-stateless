@@ -119,7 +119,7 @@ void c4_configure(int argc, char* argv[]) {
       fprintf(stderr, "  preconf_storage_dir    : %s\n", http_server.preconf_storage_dir ? http_server.preconf_storage_dir : "(null)");
       fprintf(stderr, "  preconf_ttl_minutes    : %d\n", http_server.preconf_ttl_minutes);
       fprintf(stderr, "  preconf_cleanup_interval: %d\n", http_server.preconf_cleanup_interval_minutes);
-      fprintf(stderr, "  preconf_use_gossip     : %d (%s)\n", http_server.preconf_use_gossip, http_server.preconf_use_gossip ? "gossip mode" : "HTTP polling");
+      fprintf(stderr, "  preconf_mode           : automatic (HTTP fallback until gossip active)\n");
     }
   }
   buffer_free(&help_buffer);
@@ -140,7 +140,7 @@ static void config() {
   http_server.preconf_storage_dir              = "./preconfs";
   http_server.preconf_ttl_minutes              = 30; // 30 minutes TTL
   http_server.preconf_cleanup_interval_minutes = 5;  // Cleanup every 5 minutes
-  http_server.preconf_use_gossip               = 0;  // Default to HTTP polling mode
+  // preconf_use_gossip removed - now using automatic HTTP fallback
 
   get_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
   get_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");
@@ -157,5 +157,5 @@ static void config() {
   get_string(&http_server.preconf_storage_dir, "PRECONF_DIR", "preconf_dir", 'P', "directory for storing preconfirmations");
   get_int(&http_server.preconf_ttl_minutes, "PRECONF_TTL", "preconf_ttl", 'T', "TTL for preconfirmations in minutes", 1, 1440);
   get_int(&http_server.preconf_cleanup_interval_minutes, "PRECONF_CLEANUP_INTERVAL", "preconf_cleanup_interval", 'C', "cleanup interval in minutes", 1, 60);
-  get_int(&http_server.preconf_use_gossip, "PRECONF_USE_GOSSIP", "preconf_use_gossip", 'G', "enable gossip mode (default: HTTP polling)", 0, 1);
+  // preconf_use_gossip option removed - now using automatic HTTP fallback
 }

@@ -112,7 +112,14 @@ int main(int argc, char* argv[]) {
   UV_CHECK("Init idle handle init", uv_idle_init(loop, &init_idle_handle));
   UV_CHECK("Init idle handle start", uv_idle_start(&init_idle_handle, on_init_idle));
 
-  UV_CHECK("Event loop", uv_run(loop, UV_RUN_DEFAULT));
+  // Run event loop - use UV_RUN_ONCE with timeout to avoid hanging on worker threads
+  while (!shutdown_requested) {
+    int result = uv_run(loop, UV_RUN_ONCE);
+    if (result == 0) {
+      // No more work - sleep briefly to avoid busy waiting
+      uv_sleep(10);
+    }
+  }
 
   fprintf(stderr, "Server stopped");
 
@@ -140,10 +147,19 @@ int main(int argc, char* argv[]) {
     uv_signal_stop(&sigint_handle);
     uv_close((uv_handle_t*) &sigint_handle, NULL);
 
-    // Let libuv process pending close callbacks
-    uv_run(loop, UV_RUN_DEFAULT);
+    // Let libuv process pending close callbacks (non-blocking)
+    // Don't wait indefinitely for worker threads to finish
+    for (int i = 0; i < 10; i++) {
+      if (uv_run(loop, UV_RUN_NOWAIT) == 0) {
+        break; // No more work to do
+      }
+      uv_sleep(100); // 100ms between attempts
+    }
 
     fprintf(stderr, "C4 Server shut down gracefully.\n");
+
+    // Force exit if we reach here - don't wait for stubborn threads
+    exit(0);
   }
 
   // Attempt to close the loop

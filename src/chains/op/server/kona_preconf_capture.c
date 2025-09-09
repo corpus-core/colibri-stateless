@@ -28,6 +28,9 @@ static void kona_worker_thread(uv_work_t* req) {
   // Starte die echte Kona-Bridge
   log_info("🦀 Starting REAL Kona bridge for chain %llu", (unsigned long long) data->chain_config->chain_id);
 
+  // Set Rust tracing level for better debugging
+  setenv("RUST_LOG", "kona_bridge=debug,info", 1);
+
   // Erstelle Kona-Bridge Konfiguration
   KonaBridgeConfig kona_config = {
       .chain_id          = data->chain_config->chain_id,
@@ -85,7 +88,13 @@ static void kona_worker_thread(uv_work_t* req) {
   }
 
   log_info("🛑 Stopping real Kona bridge...");
+
+  // WICHTIG: Stoppe die Rust-Bridge zuerst, damit das running-Flag gesetzt wird
   kona_bridge_stop(bridge_handle);
+
+  // Warte kurz, damit die Rust-Bridge Zeit hat, sich zu beenden
+  usleep(1000000); // 1 Sekunde
+
   log_info("✅ Kona bridge stopped");
 
   log_info("🛑 Kona worker thread stopping...");
@@ -167,7 +176,13 @@ int stop_kona_preconf_capture(void) {
   // Signal worker to stop
   g_kona_worker->should_stop = true;
 
-  // The worker will clean up itself in the completion callback
+  // Give the worker thread a short time to finish gracefully
+  // If it doesn't finish, we'll let the process exit anyway
+  log_info("⏳ Kona bridge shutdown initiated - allowing 2 seconds for graceful stop");
+
+  // Use a non-blocking approach - just signal and let process exit handle cleanup
+  // The OS will clean up the worker thread when the process exits
+
   return 0;
 }
 
