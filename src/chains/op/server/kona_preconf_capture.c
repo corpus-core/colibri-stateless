@@ -77,12 +77,11 @@ static void kona_worker_thread(uv_work_t* req) {
     static time_t last_stats = 0;
     time_t        now        = time(NULL);
     if (now - last_stats >= 10) { // Alle 10 Sekunden
-      KonaBridgeStats stats;
-      if (kona_bridge_get_stats(bridge_handle, &stats) == 0) {
-        log_info("📊 Kona bridge stats: %d peers, %d received, %d processed, %d failed",
-                 stats.connected_peers, stats.received_preconfs,
-                 stats.processed_preconfs, stats.failed_preconfs);
-      }
+      // Stats sind jetzt über /metrics endpoint verfügbar - Log-Spam entfernt
+      // KonaBridgeStats stats;
+      // if (kona_bridge_get_stats(bridge_handle, &stats) == 0) {
+      //   // Stats werden intern aktualisiert, aber nicht mehr alle 5 Sekunden geloggt
+      // }
       last_stats = now;
     }
   }

@@ -84,6 +84,7 @@ add_server_handler(
   DEPENDS ${OP_SERVER_DEPENDS}
   INIT_FUNC op_server_init
   SHUTDOWN_FUNC op_server_shutdown
+  METRICS_FUNC op_server_metrics
 )
 
 # Go bridge dependencies removed - using Kona-Bridge only

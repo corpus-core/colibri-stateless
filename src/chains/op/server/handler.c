@@ -1,9 +1,11 @@
 #include "handler.h"
 #include "../verifier/op_chains_conf.h"
 #include "kona_preconf_capture.h"
+#include "util/bytes.h"
 #include "util/logger.h"
 #include <libgen.h>
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #ifdef __APPLE__
@@ -49,4 +51,47 @@ void op_server_shutdown(http_server_t* server) {
   stop_kona_preconf_capture();
 
   log_info("✅ OP server handler shutdown complete");
+}
+
+void op_server_metrics(http_server_t* server, buffer_t* data) {
+  OP_HANDLER_CHECK(server);
+
+#ifdef KONA_BRIDGE_AVAILABLE
+  KonaBridgeStats stats = {0};
+  if (get_kona_preconf_capture_stats(&stats) == 0) {
+    // OP Stack Preconfirmation Metrics
+    bprintf(data, "# HELP colibri_op_preconf_peers Connected peers in the OP preconf network.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_peers gauge\n");
+    bprintf(data, "colibri_op_preconf_peers{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.connected_peers);
+
+    bprintf(data, "# HELP colibri_op_preconf_received_total Total number of preconfirmations received.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_received_total counter\n");
+    bprintf(data, "colibri_op_preconf_received_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.received_preconfs);
+
+    bprintf(data, "# HELP colibri_op_preconf_processed_total Total number of preconfirmations successfully processed.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_processed_total counter\n");
+    bprintf(data, "colibri_op_preconf_processed_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.processed_preconfs);
+
+    bprintf(data, "# HELP colibri_op_preconf_failed_total Total number of preconfirmations that failed processing.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_failed_total counter\n");
+    bprintf(data, "colibri_op_preconf_failed_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.failed_preconfs);
+
+    // Success rate metric (derived)
+    double success_rate = stats.received_preconfs > 0 ? (double) stats.processed_preconfs / stats.received_preconfs : 0.0;
+    bprintf(data, "# HELP colibri_op_preconf_success_rate Success rate of preconfirmation processing (0.0-1.0).\n");
+    bprintf(data, "# TYPE colibri_op_preconf_success_rate gauge\n");
+    // Format success rate manually as string since bprintf doesn't support float
+    char success_rate_str[16];
+    snprintf(success_rate_str, sizeof(success_rate_str), "%.3f", success_rate);
+    bprintf(data, "colibri_op_preconf_success_rate{chain_id=\"%d\"} %s\n", (uint32_t) server->chain_id, success_rate_str);
+
+    bprintf(data, "\n");
+  }
+#else
+  // Kona-Bridge not available - add placeholder metrics
+  bprintf(data, "# HELP colibri_op_preconf_peers Connected peers in the OP preconf network.\n");
+  bprintf(data, "# TYPE colibri_op_preconf_peers gauge\n");
+  bprintf(data, "colibri_op_preconf_peers{chain_id=\"%d\"} 0\n", (uint32_t) server->chain_id);
+  bprintf(data, "\n");
+#endif
 }

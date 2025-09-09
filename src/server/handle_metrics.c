@@ -6,6 +6,7 @@
 #include "beacon.h"
 #include "logger.h"
 #include "server.h"
+#include "server_handlers.h"
 
 #if defined(_WIN32)
 #include <psapi.h>
@@ -699,6 +700,9 @@ bool c4_handle_metrics(client_t* client) {
   // Geo Requests
   c4_write_prometheus_bucket_geo_metrics(&data);
 #endif
+
+  // Chain-specific metrics
+  c4_server_handlers_metrics(&http_server, &data);
 
   c4_http_respond(client, 200, "text/plain; version=0.0.4; charset=utf-8", data.data);
   buffer_free(&data);
