@@ -37,7 +37,7 @@ COPY bindings ./bindings
 # Configure and build the server with Kona-P2P bridge
 ENV CC=clang
 ENV CXX=clang++
-RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROOFER_CACHE=true . && make server
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=OFF -DCHAIN_ETH=ON -DEVMONE=OFF -DPROOFER_CACHE=true . && make server
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final
