@@ -335,15 +335,20 @@ async fn run_kona_network(
         .map_err(|e| format!("Failed to build network driver: {}", e))?;
 
     // Add bootnodes
-    for bootnode in chain_config.bootnodes {
-        info!("🔗 Adding bootnode: {}", bootnode);
+    info!("📋 Configuring {} bootnodes for chain {}", chain_config.bootnodes.len(), chain_config.chain_id);
+    for (i, bootnode) in chain_config.bootnodes.iter().enumerate() {
+        info!("🔗 Adding bootnode {}: {}", i + 1, bootnode);
         network
             .discovery
             .borrow_mut()
             .disc
             .borrow_mut()
-            .add_enr(bootnode)
-            .map_err(|e| format!("Failed to add bootnode: {}", e))?;
+            .add_enr(bootnode.clone())
+            .map_err(|e| format!("Failed to add bootnode {}: {}", i + 1, e))?;
+    }
+    
+    if chain_config.bootnodes.is_empty() {
+        warn!("⚠️  No bootnodes configured for chain {} - peer discovery may be limited!", chain_config.chain_id);
     }
 
     let mut payload_recv = network.unsafe_block_recv();
@@ -355,10 +360,11 @@ async fn run_kona_network(
     info!("✅ Kona-P2P network started successfully!");
     info!("🎧 Listening for preconfirmation messages...");
 
-    // Update stats: we're now connected
+    // Update stats: we're now connected - get actual peer count
     {
         let mut stats_guard = stats.lock().unwrap();
-        stats_guard.connected_peers = 1; // Start with 1, will be updated
+        // TODO: Get actual peer count from network.discovery
+        stats_guard.connected_peers = 1; // Will be updated in the loop
     }
 
     let mut latest_block_number = 0u64;
@@ -671,12 +677,26 @@ impl ChainConfig {
             "op-mainnet" => ChainConfig {
                 unsafe_signer: address!("AAAA45d9549EDA09E70937013520214382Ffc4A2"),
                 chain_id: 10,
-                bootnodes: Vec::new(),
+                // Use the same working bootnodes as Unichain for now
+                bootnodes: vec![
+                    "enr:-Iq4QNqqxkwND5YdrKxSVR8RoZHwU6Qa42ff_0XNjD428_n9OTEy3N9iR4uZTfQxACB00fT7Y8__q238kpb6TcsRvw-GAZZoqRJLgmlkgnY0gmlwhDQOHieJc2VjcDI1NmsxoQLqnqr2lfrL5TCQvrelsEEagUWbv25sqsFR5YfudxIKG4N1ZHCCdl8",
+                    "enr:-Iq4QBtf4EkiX7NfYxCn6CKIh3ZJqjk70NWS9hajT1k3W7-3ePWBc5-g19tBqYAMWlfSSz3sir024EQc5YH3TAxVY76GAZZopWrWgmlkgnY0gmlwhAOUZK2Jc2VjcDI1NmsxoQN3trHnKYTV1Q4ArpNP_qmCkCIm_pL6UNpCM0wnUNjkBYN1ZHCCdl8",
+                ]
+                .iter()
+                .map(|v| v.parse().unwrap())
+                .collect(),
             },
             "base" => ChainConfig {
                 unsafe_signer: address!("Af6E19BE0F9cE7f8afd49a1824851023A8249e8a"),
                 chain_id: 8453,
-                bootnodes: Vec::new(),
+                // Use the same working bootnodes as Unichain for now
+                bootnodes: vec![
+                    "enr:-Iq4QNqqxkwND5YdrKxSVR8RoZHwU6Qa42ff_0XNjD428_n9OTEy3N9iR4uZTfQxACB00fT7Y8__q238kpb6TcsRvw-GAZZoqRJLgmlkgnY0gmlwhDQOHieJc2VjcDI1NmsxoQLqnqr2lfrL5TCQvrelsEEagUWbv25sqsFR5YfudxIKG4N1ZHCCdl8",
+                    "enr:-Iq4QBtf4EkiX7NfYxCn6CKIh3ZJqjk70NWS9hajT1k3W7-3ePWBc5-g19tBqYAMWlfSSz3sir024EQc5YH3TAxVY76GAZZopWrWgmlkgnY0gmlwhAOUZK2Jc2VjcDI1NmsxoQN3trHnKYTV1Q4ArpNP_qmCkCIm_pL6UNpCM0wnUNjkBYN1ZHCCdl8",
+                ]
+                .iter()
+                .map(|v| v.parse().unwrap())
+                .collect(),
             },
             "unichain" => ChainConfig {
                 unsafe_signer: address!("833C6f278474A78658af91aE8edC926FE33a230e"),
