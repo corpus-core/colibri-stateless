@@ -13,11 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Go 1.21 (compatible with go.mod)
-RUN wget -O go.tar.gz https://go.dev/dl/go1.21.13.linux-amd64.tar.gz \
-    && tar -C /usr/local -xzf go.tar.gz \
-    && rm go.tar.gz
-ENV PATH="/usr/local/go/bin:${PATH}"
+# Install Rust (required for Kona-P2P bridge)
+RUN wget -O rustup-init.sh https://sh.rustup.rs \
+    && chmod +x rustup-init.sh \
+    && ./rustup-init.sh -y --default-toolchain stable \
+    && rm rustup-init.sh
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Set working directory for the build
 WORKDIR /build
@@ -25,11 +26,12 @@ WORKDIR /build
 # Copy source code into the builder stage
 # We copy CMakeLists.txt first to leverage Docker layer caching for dependencies
 COPY CMakeLists.txt ./
+COPY CMakePresets.json ./
 COPY src ./src
 COPY libs ./libs
 
-# Configure and build the server and OP Stack components
-RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DPROOFER_CACHE=true . && make server opg_bridge
+# Configure and build the server with Kona-P2P bridge
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DPROOFER_CACHE=true . && make server
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final
@@ -43,9 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 
-# Copy the built executables from the builder stage
+# Copy the built server executable from the builder stage
 COPY --from=builder /build/bin/server /app/server
-COPY --from=builder /build/bin/opg_bridge /app/opg_bridge
 
 # Expose the default server port
 EXPOSE 8090
