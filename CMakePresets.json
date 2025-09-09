@@ -9,8 +9,10 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
+                "CHAIN_OP": "1",
                 "HTTP_SERVER": "1",
-                "PROOFER_CACHE": "1"
+                "PROOFER_CACHE": "1",
+                "TEST": "1"
             }
         },
         {
@@ -36,6 +38,7 @@
                 "TEST": "1",
                 "HTTP_SERVER": "1",
                 "PROOFER_CACHE": "1",
+                "CHAIN_OP": "0",
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1"
             }
@@ -48,6 +51,10 @@
             "binaryDir": "${sourceDir}/build/wasm",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
+                "TEST": "0",
+                "CLI": "0",
+                "HTTP_SERVER": "0",
+                "CHAIN_OP": "0",
                 "CURL": "0",
                 "WASM": "1",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1",

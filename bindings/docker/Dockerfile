@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     libcurl4-openssl-dev \
+    pkg-config \
+    libssl-dev \
     wget \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -19,19 +21,23 @@ RUN wget -O rustup-init.sh https://sh.rustup.rs \
     && ./rustup-init.sh -y --default-toolchain stable \
     && rm rustup-init.sh
 ENV PATH="/root/.cargo/bin:${PATH}"
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 # Set working directory for the build
 WORKDIR /build
 
-# Copy source code into the builder stage
-# We copy CMakeLists.txt first to leverage Docker layer caching for dependencies
+# Copy all source code
 COPY CMakeLists.txt ./
 COPY CMakePresets.json ./
 COPY src ./src
 COPY libs ./libs
+COPY bindings ./bindings
 
 # Configure and build the server with Kona-P2P bridge
-RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DPROOFER_CACHE=true . && make server
+ENV CC=clang
+ENV CXX=clang++
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DPROOFER_CACHE=true . && make server
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final

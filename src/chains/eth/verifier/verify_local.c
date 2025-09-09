@@ -21,7 +21,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
@@ -88,6 +87,31 @@ static ssz_ob_t web3_sha3(verify_ctx_t* ctx) {
   return (ssz_ob_t) {.def = &ssz_bytes32, .bytes = bytes(buf.data.data, 32)};
 }
 
+static ssz_ob_t eth_decodeTransaction(verify_ctx_t* ctx) {
+  // Get the raw transaction hex string from parameters
+  json_t raw_tx_param = json_at(ctx->args, 0);
+  if (raw_tx_param.type != JSON_TYPE_STRING) {
+    ctx->state.error = strdup("eth_decodeTransaction: parameter must be a hex string");
+    return (ssz_ob_t) {0};
+  }
+
+  buffer_t      raw_tx_buf = {0};
+  bytes_t       raw        = json_as_bytes(raw_tx_param, &raw_tx_buf);
+  ssz_builder_t tx_data    = ssz_builder_for_type(ETH_SSZ_DATA_TX);
+  bytes32_t     tx_hash    = {0};
+  bytes32_t     block_hash = {0};
+  keccak(raw, tx_hash);
+  bool success = c4_write_tx_data_from_raw(ctx, &tx_data, raw, tx_hash, block_hash, 0, 0, 0);
+  buffer_free(&raw_tx_buf);
+  if (!success) {
+    buffer_free(&tx_data.dynamic);
+    buffer_free(&tx_data.fixed);
+    if (ctx->state.error == NULL) c4_state_add_error(ctx, "invalid tx data!");
+    return (ssz_ob_t) {0};
+  }
+  return ssz_builder_to_bytes(&tx_data);
+}
+
 bool verify_eth_local(verify_ctx_t* ctx) {
   if (strcmp(ctx->method, "eth_chainId") == 0)
     ctx->data = eth_chainId(ctx);
@@ -107,10 +131,11 @@ bool verify_eth_local(verify_ctx_t* ctx) {
     ctx->data = web3_clientVersion(ctx);
   else if (strcmp(ctx->method, "web3_sha3") == 0)
     ctx->data = web3_sha3(ctx);
+  else if (strcmp(ctx->method, "eth_decodeTransaction") == 0)
+    ctx->data = eth_decodeTransaction(ctx);
   else
     RETURN_VERIFY_ERROR(ctx, "unknown local method");
-  ctx->success = true;
-  if (ctx->data.bytes.data)
-    ctx->flags |= VERIFY_FLAG_FREE_DATA;
-  return true;
+  if (ctx->data.bytes.data) ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  ctx->success == ctx->state.error == NULL;
+  return ctx->success;
 }

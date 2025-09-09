@@ -107,6 +107,7 @@ export interface ChainConfig {
     verify?: (method: string, args: any[]) => boolean;
     pollingInterval?: number;
     proofStrategy?: ProofStrategy;
+    verifyTransactions?: boolean; // Neue Option für Transaction-Verifikation
 }
 
 export interface EIP1193Client {

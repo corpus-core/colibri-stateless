@@ -68,6 +68,7 @@ static const char* local_methods[] = {
     RPC_METHOD("eth_protocolVersion", Uint256, Void),
     RPC_METHOD("web3_clientVersion", String, Void),
     RPC_METHOD("web3_sha3", Bytes32, Void),
+    RPC_METHOD("eth_decodeTransaction", EthTxData, Void),
 };
 
 static const char* not_verifieable_yet_methods[] = {

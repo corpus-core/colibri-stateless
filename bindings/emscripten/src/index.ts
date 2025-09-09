@@ -45,6 +45,7 @@ import {
 } from './types.js';
 import { SubscriptionManager, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
 import Strategy from './strategy.js';
+import { TransactionVerifier, PrototypeProtection } from './transactionVerifier.js';
 
 export { Strategy };
 
@@ -60,6 +61,12 @@ export {
   EthSubscribeSubscriptionType,
   EthNewFilterType
 };
+
+// Re-export transaction verification utilities
+export {
+  TransactionVerifier,
+  PrototypeProtection
+} from './transactionVerifier.js';
 
 async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false) {
   let last_error = "All nodes failed";
@@ -235,6 +242,14 @@ export default class C4Client {
   private connectionState: ConnectionState;
   private subscriptionManager: SubscriptionManager;
 
+  // Schutz vor Prototype Pollution durch Einfrieren kritischer Methoden
+  private static readonly CRITICAL_METHODS = ['rpc', 'request', 'verifyProof', 'createProof'] as const;
+
+  static {
+    // Schutz vor Prototype Pollution anwenden
+    PrototypeProtection.protectClass(C4Client, C4Client.CRITICAL_METHODS);
+  }
+
 
 
 
@@ -242,7 +257,8 @@ export default class C4Client {
     const chainId = config?.chainId ? get_chain_id(config?.chainId + '') : 1;
     const chain_config = { ...default_config[chainId + ''] };
 
-    this.config = {
+    // Schutz vor Config-Manipulation durch Deep-Freeze
+    const baseConfig = {
       chains: {},
       trusted_block_hashes: [],
       rpcs: chain_config.rpcs || [],
@@ -251,6 +267,11 @@ export default class C4Client {
       ...config, // User config overrides defaults
       chainId,
     } as C4Config;
+
+    // Schutz vor Config-Manipulation anwenden
+    PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'proofer', 'trusted_block_hashes']);
+
+    this.config = baseConfig;
 
     if (!this.config.warningHandler)
       this.config.warningHandler = async (req: RequestArguments, message: string) => console.warn(message)
@@ -394,6 +415,17 @@ export default class C4Client {
   async rpc(method: string, args: any[], method_type?: C4MethodType): Promise<any> {
     // eth_subscribe and eth_unsubscribe are handled by C4Client.request before this method is called.
     // This rpc method is for the underlying data fetching/proving.
+
+    // Spezielle Behandlung für eth_sendTransaction mit Verifikation
+    if (method === 'eth_sendTransaction' && (this.config as any).verifyTransactions) {
+      return await TransactionVerifier.verifyAndSendTransaction(
+        args[0],
+        this.config,
+        (method, args, methodType) => this.rpc(method, args, methodType),
+        fetch_rpc
+      );
+    }
+
     if (method_type === undefined)
       method_type = await this.getMethodSupport(method);
 
@@ -417,6 +449,7 @@ export default class C4Client {
     // Should be unreachable if MethodType enum is comprehensive and handled
     throw new ProviderRpcError(-32603, `Internal error: Unhandled method type for ${method} in C4Client.rpc core`);
   }
+
 
   static async register_storage(storage: C4Storage) {
     const c4w = await getC4w();
