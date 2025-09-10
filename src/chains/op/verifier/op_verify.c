@@ -119,6 +119,8 @@ bool c4_op_verify(verify_ctx_t* ctx) {
 
   if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_BLOCK_PROOF)))
     op_verify_block(ctx);
+  else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_TRANSACTION_PROOF)))
+    op_verify_tx_proof(ctx);
   else if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok
   else {

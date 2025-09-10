@@ -55,7 +55,7 @@ static void verify_signature(bytes_t data, bytes_t signature, uint64_t chain_id,
   memcpy(address, buf + 12, 20);
 }
 
-ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t block_number) {
+ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number) {
   const op_chain_config_t* config          = op_get_chain_config(ctx->chain_id);
   address_t                signer          = {0};
   ssz_ob_t                 compressed_data = ssz_get(&block_proof, "payload");
@@ -94,11 +94,12 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
   execution_payload->bytes    = bytes_slice(decompressed_data, 32, decompressed_data.len - 32);
 
   // check blocknumber
-  if (block_number.len > 2 && block_number.start[1] == '0' && block_number.start[2] == 'x') {
+
+  if (block_number && block_number->len > 2 && block_number->start[1] == '0' && block_number->start[2] == 'x') {
     bytes32_t buf    = {0};
     buffer_t  buffer = stack_buffer(buf);
-    if (block_number.len == 68) { // must be blockhash
-      json_as_bytes(block_number, &buffer);
+    if (block_number->len == 68) { // must be blockhash
+      json_as_bytes(*block_number, &buffer);
       bytes_t block_hash = ssz_get(execution_payload, "blockHash").bytes;
       if (memcmp(buf, block_hash.data, 32)) {
         safe_free(execution_payload);
@@ -106,7 +107,7 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
         return NULL;
       }
     }
-    else if (json_as_uint64(block_number) != ssz_get_uint64(execution_payload, "blockNumber")) {
+    else if (json_as_uint64(*block_number) != ssz_get_uint64(execution_payload, "blockNumber")) {
       safe_free(execution_payload);
       c4_state_add_error(&ctx->state, "blocknumber mismatch");
       return NULL;
@@ -121,7 +122,7 @@ bool op_verify_block(verify_ctx_t* ctx) {
   bool     include_txs  = json_as_bool(json_at(ctx->args, 1));
   ssz_ob_t block_proof  = ssz_get(&ctx->proof, "block_proof");
 
-  ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, block_number);
+  ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number);
   if (!execution_payload) return false;
 
   bytes32_t parent_root     = {0};

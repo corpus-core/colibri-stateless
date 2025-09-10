@@ -36,27 +36,34 @@
 #include <stdlib.h>
 #include <string.h>
 
-c4_status_t c4_op_proof_block(proofer_ctx_t* ctx) {
-  // first try to fetch the block from the preconfs
+c4_status_t c4_op_create_block_proof(proofer_ctx_t* ctx, json_t block_number, ssz_builder_t* block_proof) {
   uint8_t  path[200]    = {0};
-  bytes_t  preconf_data = {0};
   buffer_t buf2         = stack_buffer(path);
-  json_t   block_number = json_at(ctx->params, 0);
-
+  bytes_t  preconf_data = {0};
   TRY_ASYNC(c4_send_internal_request(ctx, bprintf(&buf2, "preconf/%j", block_number), NULL, 0, &preconf_data)); // get the raw-data
-
-  if (!preconf_data.len)
-    THROW_ERROR("No preconf data found, currently only supports preconfs");
-
+  if (!preconf_data.len) THROW_ERROR("No preconf data found, currently only supports preconfs");
   // Extract payload and signature
   bytes_t payload   = bytes_slice(preconf_data, 0, preconf_data.len - 65);
   bytes_t signature = bytes_slice(preconf_data, preconf_data.len - 65, 65);
 
   // build the proof
-  ssz_builder_t block_proof   = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
   ssz_builder_t preconf_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_PRECONF_PROOF);
   ssz_add_bytes(&preconf_proof, "payload", payload);
   ssz_add_bytes(&preconf_proof, "signature", signature);
+  *block_proof = preconf_proof;
+
+  return C4_SUCCESS;
+}
+
+c4_status_t c4_op_proof_block(proofer_ctx_t* ctx) {
+  // first try to fetch the block from the preconfs
+  json_t        block_number  = json_at(ctx->params, 0);
+  ssz_builder_t preconf_proof = {0};
+
+  TRY_ASYNC(c4_op_create_block_proof(ctx, block_number, &preconf_proof));
+
+  // build the proof
+  ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
   ssz_add_builders(&block_proof, "block_proof", preconf_proof);
 
   ctx->proof = op_create_proof_request(

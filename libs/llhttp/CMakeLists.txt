@@ -37,7 +37,14 @@ FetchContent_Declare(llhttp
 set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "")
 set(BUILD_STATIC_LIBS ON CACHE INTERNAL "")
 
+# Temporarily suppress CMake deprecation warnings for external llhttp project
+set(_original_warn_deprecated ${CMAKE_WARN_DEPRECATED})
+set(CMAKE_WARN_DEPRECATED OFF)
+
 FetchContent_MakeAvailable(llhttp)
+
+# Restore original warning setting
+set(CMAKE_WARN_DEPRECATED ${_original_warn_deprecated})
 
 # Create an INTERFACE library with include directories
 add_library(llhttp INTERFACE)

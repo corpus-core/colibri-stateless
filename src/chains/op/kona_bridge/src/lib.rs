@@ -509,13 +509,6 @@ async fn process_preconf_with_correct_format(
     final_data.extend_from_slice(&compressed_payload);
     final_data.extend_from_slice(&signature_bytes);
 
-    // DEBUG: Write uncompressed payload for analysis
-    let debug_payload_filename = format!("debug_payload_{}_{}.raw", chain_id, block_number);
-    let debug_payload_filepath = output_dir.join(&debug_payload_filename);
-    tokio_fs::write(&debug_payload_filepath, &preconf_data).await
-        .map_err(|e| format!("Failed to write debug payload: {}", e))?;
-    info!("🔍 DEBUG: Saved uncompressed payload to: {:?} ({} bytes)", debug_payload_filepath, preconf_data.len());
-
     // Write to file: block_{chain_id}_{block_number}.raw (using REAL block number)
     let filename = format!("block_{}_{}.raw", chain_id, block_number);
     let filepath = output_dir.join(&filename);

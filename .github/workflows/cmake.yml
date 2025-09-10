@@ -517,6 +517,7 @@ jobs:
           fi
 
       - name: Code Coverage Summary Report
+        id: coverage
         uses: irongut/CodeCoverageSummary@v1.3.0
         with:
           filename: coverage.xml
