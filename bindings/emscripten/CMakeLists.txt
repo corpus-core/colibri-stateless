@@ -91,13 +91,19 @@ add_custom_target(install_node_modules ALL
     DEPENDS ${CMAKE_SOURCE_DIR}/bindings/emscripten/node_modules/timestamp
 )
 
+# Find all TypeScript source files dynamically
+file(GLOB_RECURSE TS_SOURCES "${CMAKE_SOURCE_DIR}/bindings/emscripten/src/*.ts")
+
 # Add a custom target to compile TypeScript
 add_custom_command(
     OUTPUT ${EMSCRIPTEN_OUTPUT_DIR}/index.js
     COMMAND ${CMAKE_COMMAND} -E echo "Compiling TypeScript..."
     COMMAND npx tsc --outDir ${EMSCRIPTEN_OUTPUT_DIR} --declaration
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/emscripten
-    DEPENDS ${CMAKE_SOURCE_DIR}/bindings/emscripten/node_modules/timestamp
+    DEPENDS 
+        ${CMAKE_SOURCE_DIR}/bindings/emscripten/node_modules/timestamp
+        ${TS_SOURCES}
+        ${CMAKE_SOURCE_DIR}/bindings/emscripten/tsconfig.json
     COMMENT "Building TypeScript sources"
 )
 
