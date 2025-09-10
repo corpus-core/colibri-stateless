@@ -46,17 +46,18 @@
         {
             "name": "wasm",
             "displayName": "WASM",
-            "description": "Aktiviert Tests, HTTP-Server und Proofer-Cache",
+            "description": "WASM Build für Emscripten",
             "inherits": "default",
             "binaryDir": "${sourceDir}/build/wasm",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_BUILD_TYPE": "MinSizeRel",
                 "TEST": "0",
                 "CLI": "0",
-                "HTTP_SERVER": "0",
-                "CHAIN_OP": "0",
                 "CURL": "0",
                 "WASM": "1",
+                "CHAIN_OP": "0",
+                "HTTP_SERVER": "0",
+                "PROOFER_CACHE": "0",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
                 "CMAKE_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
             }

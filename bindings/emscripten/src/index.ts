@@ -109,7 +109,6 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
     : req.url;
 
   let cacheable = conf.cache && conf.cache.cacheable(req);
-
   if (cacheable && conf.cache) {
     const data = conf.cache.get(req);
     if (data) {
@@ -139,8 +138,7 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
 
       const bytes = await response.blob().then(blob => blob.arrayBuffer());
       const data = new Uint8Array(bytes);
-      c4w._c4w_req_set_response(req.req_ptr,
-        copy_to_c(data, c4w), data.length, node_index);
+      c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, node_index);
       if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
 
       if (conf.cache && cacheable) conf.cache.set(req, data);
@@ -257,6 +255,7 @@ export default class C4Client {
     const chainId = config?.chainId ? get_chain_id(config?.chainId + '') : 1;
     const chain_config = { ...default_config[chainId + ''] };
 
+
     // Schutz vor Config-Manipulation durch Deep-Freeze
     const baseConfig = {
       chains: {},
@@ -269,7 +268,7 @@ export default class C4Client {
     } as C4Config;
 
     // Schutz vor Config-Manipulation anwenden
-    PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'proofer', 'trusted_block_hashes']);
+    PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'proofer']);
 
     this.config = baseConfig;
 

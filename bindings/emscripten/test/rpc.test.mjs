@@ -52,7 +52,12 @@ function create_cache(dir) {
             if (name.length > 100) name = name.slice(0, 100)
             name = name + '.' + req.encoding
 
-            return fs.readFileSync(`${dir}/${name}`);
+
+            //            console.log(`::: ${dir}/${name}`)
+
+            if (fs.existsSync(`${dir}/${name}`))
+                return fs.readFileSync(`${dir}/${name}`);
+            throw new Error(`Testdata not found for: ${dir}/${name} for ${JSON.stringify(req, null, 2)}`)
         },
         set(req, data) {
         }
@@ -94,8 +99,10 @@ test('RPC-Proof Test Suite', async (t) => {
             let conf = { chain: test_conf.chain, cache: create_cache(`${testdir}/${test}`) }
             if (test_conf.trusted_blockhash) {
                 conf.trusted_block_hashes = [test_conf.trusted_blockhash]
-                return;
+                //                return;
             }
+            //            console.log(`### ${test} ######`)
+
             const c4 = new Colibri(conf);
 
             // Benchmark für createProof
