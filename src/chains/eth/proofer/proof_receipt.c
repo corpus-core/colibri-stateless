@@ -92,6 +92,23 @@ static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, 
   return proof;
 }
 
+c4_status_t c4_eth_get_receipt_proof(proofer_ctx_t* ctx, bytes32_t block_hash, json_t block_receipts, uint32_t tx_index, json_t* receipt, ssz_ob_t* receipt_proof) {
+
+// now we should have all data required to create the proof
+#ifdef PROOFER_CACHE
+  bytes32_t cachekey;
+  c4_eth_receipt_cachekey(cachekey, block_hash);
+  node_t* receipt_tree = (node_t*) c4_proofer_cache_get(ctx, cachekey);
+  bool    cache_hit    = receipt_tree != NULL;
+  if (!cache_hit) REQUEST_WORKER_THREAD_CATCH(ctx, );
+  *receipt_proof = create_receipts_proof(block_receipts, tx_index, receipt, &receipt_tree);
+  if (!cache_hit) c4_proofer_cache_set(ctx, cachekey, receipt_tree, 100000, 200000, (cache_free_cb) patricia_node_free);
+#else
+  *receipt_proof = create_receipts_proof(block_receipts, tx_index, receipt, NULL);
+#endif
+  return C4_SUCCESS;
+}
+
 c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
   json_t            txhash         = json_at(ctx->params, 0);
   json_t            tx_data        = {0};
@@ -100,6 +117,7 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
   json_t            receipt        = {0};
   bytes32_t         body_root      = {0};
   blockroot_proof_t block_proof    = {0};
+  ssz_ob_t          receipt_proof  = {0};
   c4_status_t       status         = C4_SUCCESS;
 
   CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
@@ -115,18 +133,8 @@ c4_status_t c4_proof_receipt(proofer_ctx_t* ctx) {
 
   TRY_ASYNC(c4_check_historic_proof(ctx, &block_proof, &block));
 
-// now we should have all data required to create the proof
-#ifdef PROOFER_CACHE
-  bytes32_t cachekey;
-  c4_eth_receipt_cachekey(cachekey, ssz_get(&(block.execution), "blockHash").bytes.data);
-  node_t* receipt_tree = (node_t*) c4_proofer_cache_get(ctx, cachekey);
-  bool    cache_hit    = receipt_tree != NULL;
-  if (!cache_hit) REQUEST_WORKER_THREAD_CATCH(ctx, c4_free_block_proof(&block_proof));
-  ssz_ob_t receipt_proof = create_receipts_proof(block_receipts, tx_index, &receipt, &receipt_tree);
-  if (!cache_hit) c4_proofer_cache_set(ctx, cachekey, receipt_tree, 100000, 200000, (cache_free_cb) patricia_node_free);
-#else
-  ssz_ob_t receipt_proof = create_receipts_proof(block_receipts, tx_index, &receipt, NULL);
-#endif
+  TRY_ASYNC_CATCH(c4_eth_get_receipt_proof(ctx, ssz_get(&(block.execution), "blockHash").bytes.data, block_receipts, tx_index, &receipt, &receipt_proof),
+                  c4_free_block_proof(&block_proof));
 
   bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 4,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),

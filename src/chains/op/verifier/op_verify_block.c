@@ -55,7 +55,7 @@ static void verify_signature(bytes_t data, bytes_t signature, uint64_t chain_id,
   memcpy(address, buf + 12, 20);
 }
 
-ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number) {
+ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash) {
   const op_chain_config_t* config          = op_get_chain_config(ctx->chain_id);
   address_t                signer          = {0};
   ssz_ob_t                 compressed_data = ssz_get(&block_proof, "payload");
@@ -86,6 +86,8 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
     c4_state_add_error(&ctx->state, "invalid sequencer signature");
     return NULL;
   }
+
+  if (parent_hash) memcpy(parent_hash, decompressed_data.data, 32);
 
   // here we use the fact, that the execution payload starts at the 32nd byte
   // so we store the ssz_ob_t at the beginning of the decompressed data, so we can then easily use it to call free on it.
@@ -118,19 +120,17 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
 }
 
 bool op_verify_block(verify_ctx_t* ctx) {
-  json_t   block_number = json_at(ctx->args, 0);
-  bool     include_txs  = json_as_bool(json_at(ctx->args, 1));
-  ssz_ob_t block_proof  = ssz_get(&ctx->proof, "block_proof");
-
-  ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number);
+  json_t    block_number      = json_at(ctx->args, 0);
+  bool      include_txs       = json_as_bool(json_at(ctx->args, 1));
+  ssz_ob_t  block_proof       = ssz_get(&ctx->proof, "block_proof");
+  bytes32_t parent_root       = {0};
+  bytes32_t withdrawel_root   = {0};
+  ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number, &parent_root);
   if (!execution_payload) return false;
 
-  bytes32_t parent_root     = {0};
-  bytes32_t withdrawel_root = {0};
+  ssz_hash_tree_root(ssz_get(execution_payload, "withdrawals"), withdrawel_root);
 
-  log_info("include_txs: %d\n", include_txs);
-
-  eth_set_block_data(ctx, *execution_payload, parent_root, withdrawel_root, include_txs);
+  eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL, *execution_payload, parent_root, withdrawel_root, include_txs);
   safe_free(execution_payload);
   ctx->success = true;
   return true;

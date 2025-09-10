@@ -192,6 +192,12 @@ INTERNAL bool c4_tx_create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8
   const rlp_type_defs_t* defs_ptr = get_tx_type_defs(type);
   if (!defs_ptr) RETURN_VERIFY_ERROR(ctx, "unsupported transaction type");
   rlp_type_defs_t defs = *defs_ptr;
+  if (type == TX_TYPE_DEPOSITED) {
+    bytes_t from = {0};
+    if (rlp_decode(&raw_tx, 1, &from) != RLP_ITEM || from.len != 20) RETURN_VERIFY_ERROR(ctx, "invalid tx data, invalid from address!");
+    memcpy(address, from.data, 20);
+    return true;
+  }
   rlp_decode(&raw_tx, defs.len - 4, &last_item);
   buffer_append(&buf, bytes(raw_tx.data, last_item.data + last_item.len - raw_tx.data));
   uint64_t v = 0;
@@ -292,9 +298,13 @@ INTERNAL bool c4_tx_verify_receipt_data(verify_ctx_t* ctx, ssz_ob_t receipt_data
   bytes_t   val     = {0};
   bytes32_t tx_hash = {0};
   keccak(tx_raw, tx_hash);
+  // from
   if (!c4_tx_create_from_address(ctx, tx_raw, tmp) || memcmp(tmp, ssz_get(&receipt_data, "from").bytes.data, 20)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, wrong from address!");
+  // type
   if (!get_and_remove_tx_type(ctx, &tx_raw, &type) && type != (uint8_t) ssz_get_uint32(&receipt_data, "type")) RETURN_VERIFY_ERROR(ctx, "invalid tx data, invalid type!");
-  if (rlp_decode(&tx_raw, 0, &tx_raw) != RLP_LIST || rlp_decode(&tx_raw, type == TX_TYPE_EIP4844 ? 5 : min32(5, 3 + type), &val) != RLP_ITEM || !bytes_eq(val, ssz_get(&receipt_data, "to").bytes)) RETURN_VERIFY_ERROR(ctx, "invalid to address!");
+  // to
+  int to_idx = type == TX_TYPE_DEPOSITED ? 2 : (type == TX_TYPE_EIP4844 ? 5 : min32(5, 3 + type));
+  if (rlp_decode(&tx_raw, 0, &tx_raw) != RLP_LIST || rlp_decode(&tx_raw, to_idx, &val) != RLP_ITEM || !bytes_eq(val, ssz_get(&receipt_data, "to").bytes)) RETURN_VERIFY_ERROR(ctx, "invalid to address!");
   if (block_number != ssz_get_uint64(&receipt_data, "blockNumber")) RETURN_VERIFY_ERROR(ctx, "invalid block number!");
   if (!bytes_eq(ssz_get(&receipt_data, "blockHash").bytes, bytes(block_hash, 32))) RETURN_VERIFY_ERROR(ctx, "invalid block hash!");
   if (tx_index != ssz_get_uint32(&receipt_data, "transactionIndex")) RETURN_VERIFY_ERROR(ctx, "invalid transaction index!");
@@ -310,8 +320,11 @@ INTERNAL bool c4_tx_verify_receipt_data(verify_ctx_t* ctx, ssz_ob_t receipt_data
   if (rlp_decode(&tx_raw, 0, &val) != RLP_ITEM || bytes_as_be(val) != ssz_get_uint64(&receipt_data, "status")) RETURN_VERIFY_ERROR(ctx, "invalid receipt data!");
   if (rlp_decode(&tx_raw, 1, &val) != RLP_ITEM || bytes_as_be(val) != ssz_get_uint64(&receipt_data, "cumulativeGasUsed")) RETURN_VERIFY_ERROR(ctx, "invalid receipt data!");
   if (rlp_decode(&tx_raw, 2, &val) != RLP_ITEM || !bytes_eq(val, ssz_get(&receipt_data, "logsBloom").bytes)) RETURN_VERIFY_ERROR(ctx, "invalid receipt data!");
+  if (type == TX_TYPE_DEPOSITED) {
+    if (rlp_decode(&tx_raw, 4, &val) != RLP_ITEM || bytes_as_be(val) != ssz_get_uint64(&receipt_data, "depositNonce")) RETURN_VERIFY_ERROR(ctx, "invalid receipt data!");
+    if (rlp_decode(&tx_raw, 5, &val) != RLP_ITEM || bytes_as_be(val) != ssz_get_uint64(&receipt_data, "depositReceiptVersion")) RETURN_VERIFY_ERROR(ctx, "invalid receipt data!");
+  }
   if (rlp_decode(&tx_raw, 3, &tx_raw) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid receipt data!");
-
   ssz_ob_t logs = ssz_get(&receipt_data, "logs");
   if (ssz_len(logs) != rlp_decode(&tx_raw, -1, &tx_raw)) RETURN_VERIFY_ERROR(ctx, "invalid log len!");
 

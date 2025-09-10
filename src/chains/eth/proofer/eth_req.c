@@ -143,7 +143,22 @@ bytes_t c4_serialize_receipt(json_t r, buffer_t* buf) {
     rlp_add_list(&logs_buf, log_buf.data);
   }
   rlp_add_list(buf, logs_buf.data);
+
+  if (type == 0x7e) {
+    json_t depositNonce          = json_get(r, "depositNonce");
+    json_t depositReceiptVersion = json_get(r, "depositReceiptVersion");
+    if (depositNonce.type == JSON_TYPE_STRING && depositReceiptVersion.type == JSON_TYPE_STRING) {
+      buffer_reset(&short_buf);
+      rlp_add_item(buf, json_as_bytes(depositNonce, &short_buf));
+      buffer_reset(&short_buf);
+      rlp_add_item(buf, json_as_bytes(depositReceiptVersion, &short_buf));
+    }
+  }
+
+  // turn it into a list
   rlp_to_list(buf);
+
+  // add the type as first byte
   if (type) buffer_splice(buf, 0, 0, bytes(&type, 1));
   buffer_free(&logs_buf);
   buffer_free(&log_buf);

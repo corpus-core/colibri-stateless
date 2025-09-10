@@ -28,9 +28,10 @@
 
 bool op_verify_block(verify_ctx_t* ctx);
 bool op_verify_tx_proof(verify_ctx_t* ctx);
+bool op_verify_receipt_proof(verify_ctx_t* ctx);
 
 // extracts the execution payload from the block_proof and returns the ssz_ob if successful. Caller must free the ssz_ob_t!.
-ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number);
+ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash);
 
 // helper
 #endif // eth_verify_h__

@@ -173,6 +173,7 @@ uint8_t ssz_union_selector(const ssz_def_t* union_types, size_t union_types_len,
 }
 
 void ssz_buffer_free(ssz_builder_t* buffer) {
+  if (!buffer) return;
   buffer_free(&buffer->fixed);
   buffer_free(&buffer->dynamic);
 }
@@ -187,8 +188,17 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
   ssz_builder_t buf = {0};
   buf.def           = def;
   switch (def->type) {
-    case SSZ_TYPE_CONTAINER:
+    case SSZ_TYPE_CONTAINER: {
+      uint64_t optmask     = 0;
+      int      optmask_len = 0;
+      int      optmask_idx = -1;
       for (int i = 0; i < def->def.container.len; i++) {
+        if (def->def.container.elements[i].flags & SSZ_FLAG_OPT_MASK) {
+          optmask_idx = buf.fixed.data.len;
+          optmask_len = def->def.container.elements[i].def.uint.len;
+          ssz_add_bytes(&buf, def->def.container.elements[i].name, NULL_BYTES);
+          continue;
+        }
         json_t element = json_get(json, def->def.container.elements[i].name);
         if (element.type == JSON_TYPE_NOT_FOUND) {
           // try again, but change the camelcase name with pascal case
@@ -208,15 +218,25 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
           buffer_free(&pascal_name);
         }
         if (element.type == JSON_TYPE_NOT_FOUND) {
+          if (optmask_idx != -1) {
+            ssz_add_bytes(&buf, def->def.container.elements[i].name, NULL_BYTES);
+            continue;
+          }
           char* error = bprintf(NULL, "ssz_from_json: %s.%s not found", def->name, def->def.container.elements[i].name);
           c4_state_add_error(state, error);
           free(error);
         }
+        optmask |= 1 << i;
         ssz_ob_t ob = ssz_from_json(element, def->def.container.elements + i, state);
         ssz_add_bytes(&buf, def->def.container.elements[i].name, ob.bytes);
         safe_free(ob.bytes.data);
       }
+      if (optmask_len == 4)
+        uint32_to_le(buf.fixed.data.data + optmask_idx, (uint32_t) optmask);
+      else if (optmask_len == 8)
+        uint64_to_le(buf.fixed.data.data + optmask_idx, optmask);
       return ssz_builder_to_bytes(&buf);
+    }
     case SSZ_TYPE_UINT: {
       buffer_append(&buf.fixed, bytes(NULL, def->def.uint.len));
       if (def->def.uint.len <= 8) {

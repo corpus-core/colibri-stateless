@@ -37,6 +37,8 @@ bool op_proofer_execute(proofer_ctx_t* ctx) {
     c4_op_proof_block(ctx);
   else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0)
     c4_op_proof_transaction(ctx);
+  else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
+    c4_op_proof_receipt(ctx);
   else
     ctx->state.error = strdup("Unsupported method");
 

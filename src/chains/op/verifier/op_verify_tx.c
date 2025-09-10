@@ -58,14 +58,14 @@ bool op_verify_tx_proof(verify_ctx_t* ctx) {
   if (strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0) {
     json_t block_number = json_at(ctx->args, 0);
     if (json_as_uint32(json_at(ctx->args, 1)) != tx_index) RETURN_VERIFY_ERROR(ctx, "invalid tx index!");
-    execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number);
+    execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number, NULL);
   }
   else if (strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0) {
     bytes32_t block_hash_expected = {0};
     buffer_t  buf                 = stack_buffer(block_hash_expected);
     json_as_bytes(json_at(ctx->args, 0), &buf);
     if (json_as_uint32(json_at(ctx->args, 1)) != tx_index) RETURN_VERIFY_ERROR(ctx, "invalid tx index!");
-    execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL);
+    execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
     if (execution_payload == NULL) return false; // error already set
     bytes_t block_hash_found = ssz_get(execution_payload, "blockHash").bytes;
     if (memcmp(block_hash_expected, block_hash_found.data, 32) != 0) {
@@ -74,7 +74,7 @@ bool op_verify_tx_proof(verify_ctx_t* ctx) {
     }
   }
   else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0) {
-    execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL);
+    execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
     buffer_t buf      = stack_buffer(tx_hash_expected);
     json_as_bytes(json_at(ctx->args, 0), &buf);
   }

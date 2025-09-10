@@ -42,6 +42,7 @@
 #define GINDEX_BLOCKUMBER 806
 #define GINDEX_TIMESTAMP  809
 static const char* SHA3_UNCLUES = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
+static const char* EMPTY_SHA256 = "\xe3\xb0\xc4\x42\x98\xfc\x1c\x14\x9a\xfb\xf4\xc8\x99\x6f\xb9\x24\x27\xae\x41\xe4\x64\x9b\x93\x4c\xa4\x95\x99\x1b\x78\x52\xb8\x55";
 
 static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_union_def, bool include_txs, ssz_ob_t txs, bytes32_t tx_root, uint64_t block_number, bytes32_t block_hash, uint64_t base_fee) {
   ssz_builder_t txs_builder = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));
@@ -82,11 +83,12 @@ static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_u
   return txs_builder;
 }
 
-void eth_set_block_data(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t parent_root, bytes32_t withdrawel_root, bool include_txs) {
+void eth_set_block_data(verify_ctx_t* ctx, uint32_t mask, ssz_ob_t block, bytes32_t parent_root, bytes32_t withdrawel_root, bool include_txs) {
   if (ctx->data.def && ctx->data.def->type == SSZ_TYPE_CONTAINER) return;
 
   bytes32_t     tx_root = {0};
   ssz_builder_t data    = ssz_builder_for_type(ETH_SSZ_DATA_BLOCK);
+  ssz_add_uint32(&data, mask);
   ssz_add_bytes(&data, "number", ssz_get(&block, "blockNumber").bytes);
   ssz_add_bytes(&data, "hash", ssz_get(&block, "blockHash").bytes);
   ssz_add_builders(&data, "transactions", create_txs_builder(ctx, ssz_get_def(data.def, "transactions"), include_txs, ssz_get(&block, "transactions"), tx_root, ssz_get_uint64(&block, "blockNumber"), ssz_get(&block, "blockHash").bytes.data, ssz_get_uint64(&block, "baseFeePerGas")));
@@ -111,6 +113,7 @@ void eth_set_block_data(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t parent_root
   ssz_add_bytes(&data, "transactionsRoot", bytes(tx_root, 32));
   ssz_add_bytes(&data, "stateRoot", ssz_get(&block, "stateRoot").bytes);
   ssz_add_bytes(&data, "blobGasUsed", ssz_get(&block, "blobGasUsed").bytes);
+  ssz_add_bytes(&data, "requestsHash", bytes(EMPTY_SHA256, 32));
   ctx->data = ssz_builder_to_bytes(&data);
   ctx->flags |= VERIFY_FLAG_FREE_DATA;
 }
@@ -147,7 +150,8 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
   if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
   ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), exec_root);
-  eth_set_block_data(ctx, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
+
+  eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
   if (ctx->state.error || !matches_blocknumber(ctx, execution_payload, block_number)) return false;
 
   ctx->success = true;

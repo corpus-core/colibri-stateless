@@ -99,6 +99,7 @@ static const ssz_def_t ETH_RECEIPT_DATA_LOG_CONTAINER = SSZ_CONTAINER("Log", ETH
 
 // the transaction data
 static const ssz_def_t ETH_RECEIPT_DATA[] = {
+    SSZ_OPT_MASK("_optmask", 4),
     SSZ_BYTES32("blockHash"),                              // the blockHash of the execution block containing the transaction
     SSZ_UINT64("blockNumber"),                             // the number of the execution block containing the transaction
     SSZ_BYTES32("transactionHash"),                        // the hash of the transaction
@@ -112,6 +113,8 @@ static const ssz_def_t ETH_RECEIPT_DATA[] = {
     SSZ_BYTE_VECTOR("logsBloom", 256),                     // the bloom filter of the logs
     SSZ_UINT8("status"),                                   // the status of the transaction
     SSZ_UINT64("effectiveGasPrice"),                       // the effective gas price of the transaction
+    SSZ_UINT64("depositNonce"),                            // the deposit nonce of the transaction
+    SSZ_UINT32("depositReceiptVersion"),                   // the deposit receipt version of the transaction
 }; // the gasPrice of the transaction
 
 static const ssz_def_t ETH_TX_DATA_CONTAINER              = SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA);
@@ -124,6 +127,7 @@ static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNION[] = {
 
 // display the block data , which is based on the execution payload
 static const ssz_def_t ETH_BLOCK_DATA[] = {
+    SSZ_OPT_MASK("_optmask", 4),
     SSZ_UINT64("number"),                                        // the blocknumber
     SSZ_BYTES32("hash"),                                         // the blockhash
     SSZ_UNION("transactions", ETH_BLOCK_DATA_TRANSACTION_UNION), // the transactions
@@ -148,6 +152,8 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_BYTES32("transactionsRoot"),                             // the transactionsRoot
     SSZ_BYTES32("stateRoot"),                                    // the stateRoot
     SSZ_UINT64("blobGasUsed"),                                   // the gas used for the blob transactions
+    SSZ_BYTES32("requestsHash")                                  // the requestHash ( eip-7685 )
+
 };
 
 // :: Account Proof

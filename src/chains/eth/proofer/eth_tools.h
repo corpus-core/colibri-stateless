@@ -33,6 +33,7 @@
 
 bytes_t       eth_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_builder_t proof, ssz_builder_t sync_data);
 ssz_builder_t eth_ssz_create_state_proof(proofer_ctx_t* ctx, json_t block_number, beacon_block_t* block, blockroot_proof_t* historic_proof);
+c4_status_t   c4_eth_get_receipt_proof(proofer_ctx_t* ctx, bytes32_t block_hash, json_t block_receipts, uint32_t tx_index, json_t* receipt, ssz_ob_t* receipt_proof);
 
 #ifdef PROOFER_CACHE
 uint8_t* c4_eth_receipt_cachekey(bytes32_t target, bytes32_t blockhash);
