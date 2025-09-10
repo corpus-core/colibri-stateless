@@ -136,6 +136,6 @@ bool verify_eth_local(verify_ctx_t* ctx) {
   else
     RETURN_VERIFY_ERROR(ctx, "unknown local method");
   if (ctx->data.bytes.data) ctx->flags |= VERIFY_FLAG_FREE_DATA;
-  ctx->success == ctx->state.error == NULL;
+  ctx->success = ctx->state.error == NULL;
   return ctx->success;
 }
