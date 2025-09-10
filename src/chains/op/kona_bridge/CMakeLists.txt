@@ -54,9 +54,9 @@ if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "macOS deployment target")
     set(KONA_SYSTEM_LIBS "-framework Security -framework CoreFoundation -framework SystemConfiguration")
 elseif(WIN32)
-    set(KONA_SYSTEM_LIBS "ws2_32 userenv advapi32")
+    set(KONA_SYSTEM_LIBS "ws2_32" "userenv" "advapi32")
 else()
-    set(KONA_SYSTEM_LIBS "dl pthread m")
+    set(KONA_SYSTEM_LIBS "dl" "pthread" "m")
 endif()
 
 # Kona-Preconf-Capture (direkte Integration)
@@ -77,6 +77,11 @@ target_link_libraries(kona_preconf_capture
     libuv
     ${KONA_SYSTEM_LIBS}
 )
+
+# Add op_chains_conf.c as a separate object to avoid circular dependencies
+add_library(op_chains_conf_obj OBJECT ../verifier/op_chains_conf.c)
+target_include_directories(op_chains_conf_obj PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(kona_preconf_capture op_chains_conf_obj)
 
 # Definiere KONA_BRIDGE_AVAILABLE für bedingte Kompilierung
 target_compile_definitions(kona_preconf_capture PUBLIC KONA_BRIDGE_AVAILABLE=1)
