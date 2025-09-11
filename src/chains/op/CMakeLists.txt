@@ -32,6 +32,7 @@ set(VERIFIER_SOURCES
   verifier/op_verify_block.c
   verifier/op_verify_tx.c
   verifier/op_verify_receipt.c
+  verifier/op_verify_logs.c
   verifier/op_verify.c
   verifier/op_zstd.c
   verifier/op_chains_conf.c
@@ -59,6 +60,7 @@ add_proofer(
     proofer/op_proof_block.c
     proofer/op_proof_transaction.c
     proofer/op_proof_receipt.c
+    proofer/op_proof_logs.c
   DEPENDS util eth_proofer eth_verifier op_verifier
   PROOF op_proofer_execute
 )

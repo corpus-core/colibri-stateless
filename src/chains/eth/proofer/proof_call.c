@@ -169,7 +169,7 @@ c4_status_t c4_proof_call(proofer_ctx_t* ctx) {
   TRY_ADD_ASYNC(status, eth_debug_trace_call(ctx, tx, &trace, target_block));
   TRY_ADD_ASYNC(status, c4_check_historic_proof(ctx, &historic_proof, &block));
   TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof));
-  TRY_ASYNC_CATCH(get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data), ssz_buffer_free(&accounts); c4_free_block_proof(&historic_proof););
+  TRY_ASYNC_CATCH(get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data), ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
 
   status = create_eth_call_proof(ctx, accounts, &block, block_number, &historic_proof);
   c4_free_block_proof(&historic_proof);

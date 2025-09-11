@@ -73,6 +73,7 @@ void ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t dat
   ssz_ob_t element = ssz_builder_to_bytes(&data);
   ssz_add_bytes(buffer, name, element.bytes);
   safe_free(element.bytes.data);
+  element.bytes.data = NULL;
 }
 void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_builder_t data) {
   ssz_ob_t element = ssz_builder_to_bytes(&data);
@@ -172,7 +173,7 @@ uint8_t ssz_union_selector(const ssz_def_t* union_types, size_t union_types_len,
   return 0;
 }
 
-void ssz_buffer_free(ssz_builder_t* buffer) {
+void ssz_builder_free(ssz_builder_t* buffer) {
   if (!buffer) return;
   buffer_free(&buffer->fixed);
   buffer_free(&buffer->dynamic);

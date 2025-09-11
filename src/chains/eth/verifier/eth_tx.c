@@ -462,7 +462,7 @@ static ssz_builder_t build_access_list_ssz(verify_ctx_t* ctx, bytes_t rlp_access
     int     entries               = rlp_decode(&current_rlp_list_data, -1, NULL); // current_rlp_list_data is modified here
     if (entries < 0) {
       c4_state_add_error(&ctx->state, "build_access_list_ssz: Failed to decode number of access list entries");
-      ssz_buffer_free(&access_list_builder);
+      ssz_builder_free(&access_list_builder);
       return (ssz_builder_t) {0};
     }
 
@@ -483,29 +483,29 @@ static ssz_builder_t build_access_list_ssz(verify_ctx_t* ctx, bytes_t rlp_access
 
       if (rlp_decode(&outer_list_for_decode, i, &entry_rlp) != RLP_LIST) { // Decoding the i-th entry (which is a list)
         c4_state_add_error(&ctx->state, "build_access_list_ssz: Failed to decode access list entry as RLP list");
-        ssz_buffer_free(&entry_builder);
-        ssz_buffer_free(&access_list_builder);
+        ssz_builder_free(&entry_builder);
+        ssz_builder_free(&access_list_builder);
         return (ssz_builder_t) {0};
       }
       if (rlp_decode(&entry_rlp, 0, &address_rlp) != RLP_ITEM) {
         c4_state_add_error(&ctx->state, "build_access_list_ssz: Failed to decode access list address");
-        ssz_buffer_free(&entry_builder);
-        ssz_buffer_free(&access_list_builder);
+        ssz_builder_free(&entry_builder);
+        ssz_builder_free(&access_list_builder);
         return (ssz_builder_t) {0};
       }
       ssz_add_bytes(&entry_builder, "address", address_rlp);
 
       if (rlp_decode(&entry_rlp, 1, &keys_rlp) != RLP_LIST) {
         c4_state_add_error(&ctx->state, "build_access_list_ssz: Failed to decode access list storage keys as RLP list");
-        ssz_buffer_free(&entry_builder);
-        ssz_buffer_free(&access_list_builder);
+        ssz_builder_free(&entry_builder);
+        ssz_builder_free(&access_list_builder);
         return (ssz_builder_t) {0};
       }
       int num_keys = rlp_decode(&keys_rlp, -1, NULL);
       if (num_keys < 0) {
         c4_state_add_error(&ctx->state, "build_access_list_ssz: Failed to decode number of storage keys");
-        ssz_buffer_free(&entry_builder);
-        ssz_buffer_free(&access_list_builder);
+        ssz_builder_free(&entry_builder);
+        ssz_builder_free(&access_list_builder);
         return (ssz_builder_t) {0};
       }
 
@@ -514,8 +514,8 @@ static ssz_builder_t build_access_list_ssz(verify_ctx_t* ctx, bytes_t rlp_access
         storage_keys_bytes.data = safe_malloc(num_keys * 32);
         if (!storage_keys_bytes.data) {
           c4_state_add_error(&ctx->state, "build_access_list_ssz: Malloc failed for storage_keys");
-          ssz_buffer_free(&entry_builder);
-          ssz_buffer_free(&access_list_builder);
+          ssz_builder_free(&entry_builder);
+          ssz_builder_free(&access_list_builder);
           return (ssz_builder_t) {0};
         }
         storage_keys_bytes.len = num_keys * 32;
@@ -524,8 +524,8 @@ static ssz_builder_t build_access_list_ssz(verify_ctx_t* ctx, bytes_t rlp_access
           if (rlp_decode(&keys_rlp, k, &key_rlp) != RLP_ITEM || key_rlp.len != 32) {
             c4_state_add_error(&ctx->state, "build_access_list_ssz: Failed to decode storage key or invalid length");
             safe_free(storage_keys_bytes.data);
-            ssz_buffer_free(&entry_builder);
-            ssz_buffer_free(&access_list_builder);
+            ssz_builder_free(&entry_builder);
+            ssz_builder_free(&access_list_builder);
             return (ssz_builder_t) {0};
           }
           memcpy(storage_keys_bytes.data + k * 32, key_rlp.data, 32);
@@ -553,7 +553,7 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
     int     num_auth_entries      = rlp_decode(&current_rlp_list_data, -1, NULL);
     if (num_auth_entries < 0) {
       c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode number of authorization entries");
-      ssz_buffer_free(&authorization_list_builder);
+      ssz_builder_free(&authorization_list_builder);
       return (ssz_builder_t) {0};
     }
 
@@ -567,8 +567,8 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
 
       if (rlp_decode(&outer_list_for_decode, i, &auth_tuple_rlp) != RLP_LIST) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode authorization entry as RLP list");
-        ssz_buffer_free(&auth_entry_builder);
-        ssz_buffer_free(&authorization_list_builder);
+        ssz_builder_free(&auth_entry_builder);
+        ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
 
@@ -580,8 +580,8 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
       // Field 0 in SSZ: address (from RLP index 1)
       if (rlp_decode(&auth_tuple_rlp, 1, &rlp_item_addr) != RLP_ITEM || rlp_item_addr.len != 20) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth address or invalid length");
-        ssz_buffer_free(&auth_entry_builder);
-        ssz_buffer_free(&authorization_list_builder);
+        ssz_builder_free(&auth_entry_builder);
+        ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
       ssz_add_bytes(&auth_entry_builder, "address", rlp_item_addr);
@@ -589,8 +589,8 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
       // Field 1 in SSZ: chainId (from RLP index 0)
       if (rlp_decode(&auth_tuple_rlp, 0, &rlp_item_chain_id) != RLP_ITEM) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth chain_id");
-        ssz_buffer_free(&auth_entry_builder);
-        ssz_buffer_free(&authorization_list_builder);
+        ssz_builder_free(&auth_entry_builder);
+        ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
       ssz_add_uint32(&auth_entry_builder, (uint32_t) bytes_as_be(rlp_item_chain_id));
@@ -598,8 +598,8 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
       // Field 2 in SSZ: nonce (from RLP index 2)
       if (rlp_decode(&auth_tuple_rlp, 2, &rlp_item_nonce) != RLP_ITEM) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth nonce");
-        ssz_buffer_free(&auth_entry_builder);
-        ssz_buffer_free(&authorization_list_builder);
+        ssz_builder_free(&auth_entry_builder);
+        ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
       ssz_add_uint64(&auth_entry_builder, bytes_as_be(rlp_item_nonce));
@@ -608,8 +608,8 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
       bytes32_t r_val = {0};
       if (rlp_decode(&auth_tuple_rlp, 4, &rlp_item_r) != RLP_ITEM || rlp_item_r.len > 32) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth r or r too long");
-        ssz_buffer_free(&auth_entry_builder);
-        ssz_buffer_free(&authorization_list_builder);
+        ssz_builder_free(&auth_entry_builder);
+        ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
       if (rlp_item_r.len > 0) memcpy(r_val + (32 - rlp_item_r.len), rlp_item_r.data, rlp_item_r.len);
@@ -619,8 +619,8 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
       bytes32_t s_val = {0};
       if (rlp_decode(&auth_tuple_rlp, 5, &rlp_item_s) != RLP_ITEM || rlp_item_s.len > 32) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth s or s too long");
-        ssz_buffer_free(&auth_entry_builder);
-        ssz_buffer_free(&authorization_list_builder);
+        ssz_builder_free(&auth_entry_builder);
+        ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
       if (rlp_item_s.len > 0) memcpy(s_val + (32 - rlp_item_s.len), rlp_item_s.data, rlp_item_s.len);
@@ -629,8 +629,8 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
       // Field 5 in SSZ: yParity (from RLP index 3)
       if (rlp_decode(&auth_tuple_rlp, 3, &rlp_item_y_parity) != RLP_ITEM) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth y_parity");
-        ssz_buffer_free(&auth_entry_builder);
-        ssz_buffer_free(&authorization_list_builder);
+        ssz_builder_free(&auth_entry_builder);
+        ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
       ssz_add_uint8(&auth_entry_builder, rlp_item_y_parity.len > 0 ? rlp_item_y_parity.data[0] : 0);
@@ -718,8 +718,8 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
   // Centralized error check after all get_rlp_field calls for primary tx fields
   if (ctx->state.error != NULL) {
     if (blob_hashes.data) safe_free(blob_hashes.data);
-    ssz_buffer_free(&access_list_builder);
-    ssz_buffer_free(&authorization_list_builder);
+    ssz_builder_free(&access_list_builder);
+    ssz_builder_free(&authorization_list_builder);
     return false;
   }
 

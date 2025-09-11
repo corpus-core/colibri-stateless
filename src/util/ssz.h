@@ -255,7 +255,7 @@ void     ssz_add_uint32(ssz_builder_t* buffer, uint32_t value);
 void     ssz_add_uint16(ssz_builder_t* buffer, uint16_t value);
 void     ssz_add_uint8(ssz_builder_t* buffer, uint8_t value);
 ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state);
-void     ssz_buffer_free(ssz_builder_t* buffer);
+void     ssz_builder_free(ssz_builder_t* buffer);
 
 static inline ssz_builder_t ssz_builder_from(ssz_ob_t val) {
   return (ssz_builder_t) {.def = val.def, .fixed = {.allocated = val.bytes.len, .data = val.bytes}, .dynamic = {0}};

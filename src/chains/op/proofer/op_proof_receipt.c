@@ -77,10 +77,10 @@ c4_status_t c4_op_proof_receipt(proofer_ctx_t* ctx) {
 
   TRY_ADD_ASYNC(status, c4_op_create_block_proof(ctx, block_number, &block_proof));
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
-  TRY_ASYNC_CATCH(status, ssz_buffer_free(&block_proof));
+  TRY_ASYNC_CATCH(status, ssz_builder_free(&block_proof));
 
   TRY_ASYNC_CATCH(c4_eth_get_receipt_proof(ctx, block_hash, block_receipts, tx_index, &receipt, &receipt_proof),
-                  ssz_buffer_free(&block_proof));
+                  ssz_builder_free(&block_proof));
 
   TRY_ASYNC_FINAL(
       create_op_receipt_proof(ctx, block_proof, receipt_proof, receipt),
