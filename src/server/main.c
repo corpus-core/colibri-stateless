@@ -38,8 +38,9 @@ static uv_tcp_t              server;
 static uv_signal_t           sigterm_handle;
 static uv_signal_t           sigint_handle;
 static uv_idle_t             init_idle_handle;
-static uv_loop_t*            loop               = NULL;
-static volatile sig_atomic_t shutdown_requested = 0;
+static uv_loop_t*            loop                          = NULL;
+static volatile sig_atomic_t shutdown_requested            = 0;
+volatile sig_atomic_t        graceful_shutdown_in_progress = 0;
 
 // Timer callback for proofer cache cleanup
 static void on_proofer_cleanup_timer(uv_timer_t* handle) {
@@ -55,13 +56,46 @@ static void on_init_idle(uv_idle_t* handle) {
   c4_server_handlers_init(&http_server);
 }
 
+// Timer callback to check if graceful shutdown can proceed
+static void on_graceful_shutdown_timer(uv_timer_t* handle) {
+  if (http_server.stats.open_requests == 0) {
+    fprintf(stderr, "C4 Server: All requests completed, proceeding with shutdown...\n");
+    shutdown_requested = 1;
+    uv_timer_stop(handle);
+    if (loop) uv_stop(loop);
+  }
+  else {
+    fprintf(stderr, "C4 Server: Waiting for %llu open requests to complete...\n", http_server.stats.open_requests);
+  }
+}
+
 // Signal callback to initiate graceful shutdown
 static void on_signal(uv_signal_t* handle, int signum) {
   (void) handle;
   fprintf(stderr, "C4 Server: received signal %d — initiating graceful shutdown...\n", signum);
-  shutdown_requested = 1;
-  // Break out of the event loop; cleanup will be performed after uv_run() returns
-  if (loop) uv_stop(loop);
+
+  if (graceful_shutdown_in_progress) {
+    fprintf(stderr, "C4 Server: Graceful shutdown already in progress, forcing immediate shutdown...\n");
+    shutdown_requested = 1;
+    if (loop) uv_stop(loop);
+    return;
+  }
+
+  graceful_shutdown_in_progress = 1;
+
+  // Check if we have open requests
+  if (http_server.stats.open_requests == 0) {
+    fprintf(stderr, "C4 Server: No open requests, shutting down immediately...\n");
+    shutdown_requested = 1;
+    if (loop) uv_stop(loop);
+  }
+  else {
+    fprintf(stderr, "C4 Server: %llu open requests detected, waiting for completion...\n", http_server.stats.open_requests);
+    // Start a timer to periodically check if all requests are done
+    static uv_timer_t graceful_timer;
+    uv_timer_init(loop, &graceful_timer);
+    uv_timer_start(&graceful_timer, on_graceful_shutdown_timer, 1000, 1000); // Check every second
+  }
 }
 
 int main(int argc, char* argv[]) {
@@ -121,12 +155,13 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  fprintf(stderr, "Server stopped");
+  fprintf(stderr, "Server stopped\n");
 
   c4_server_handlers_shutdown(&http_server);
 
   // If shutdown was requested, perform graceful cleanup
   if (shutdown_requested) {
+    fprintf(stderr, "C4 Server: Performing cleanup after graceful shutdown...\n");
     // Stop and close timers and server
     uv_timer_stop(&proofer_cleanup_timer);
     uv_close((uv_handle_t*) &proofer_cleanup_timer, NULL);

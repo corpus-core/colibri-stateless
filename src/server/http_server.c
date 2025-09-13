@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "llhttp.h"
 #include "server.h"
 #include <stdio.h>
@@ -264,6 +262,14 @@ static int on_message_complete(llhttp_t* parser) {
   http_server.stats.open_requests++;
   http_server.stats.last_request_time = current_ms();
   http_server.stats.total_requests++;
+
+  // During graceful shutdown, reject all new requests with 503 Service Unavailable
+  if (graceful_shutdown_in_progress) {
+    const char* error = "{\"error\":\"Server is shutting down, please try another server\"}";
+    c4_http_respond(client, 503, "application/json", bytes(error, strlen(error)));
+    return 0;
+  }
+
   for (int i = 0; i < handlers_count; i++) {
     if (handlers[i](client)) return 0;
   }

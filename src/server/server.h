@@ -107,7 +107,8 @@ typedef struct {
   uint32_t              next_index;   // for round-robin fallback
 } server_list_t;
 
-extern http_server_t http_server;
+extern http_server_t         http_server;
+extern volatile sig_atomic_t graceful_shutdown_in_progress;
 typedef struct {
   uv_tcp_t          handle;
   llhttp_t          parser;
