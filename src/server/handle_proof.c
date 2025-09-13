@@ -89,11 +89,11 @@ bool c4_handle_proof_request(client_t* client) {
   json_t method       = json_get(rpc_req, "method");
   json_t params       = json_get(rpc_req, "params");
   json_t client_state = json_get(rpc_req, "c4");
+  json_t include_code = json_get(rpc_req, "include_code");
   if (method.type != JSON_TYPE_STRING || params.type != JSON_TYPE_ARRAY) {
     c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Invalid request\"}", 27));
     return true;
   }
-
   buffer_t       client_state_buf = {0};
   char*          method_str       = bprintf(NULL, "%j", method);
   char*          params_str       = bprintf(NULL, "%J", params);
@@ -103,6 +103,7 @@ bool c4_handle_proof_request(client_t* client) {
   req->client                     = client;
   req->cb                         = c4_proofer_handle_request;
   req->ctx                        = ctx;
+  if (include_code.type == JSON_TYPE_BOOLEAN && include_code.start[0] == 't') ctx->flags |= C4_PROOFER_FLAG_INCLUDE_CODE;
   if (client_state.type == JSON_TYPE_STRING) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
   if (!bytes_all_zero(bytes(http_server.witness_key, 32))) ctx->witness_key = bytes(http_server.witness_key, 32);
 

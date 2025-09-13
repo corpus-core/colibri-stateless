@@ -122,6 +122,10 @@ static c4_status_t handle_access_list(proofer_ctx_t* ctx, json_t storage, bytes_
     buffer_add_chars(&keys, "]");
     keys_array = (json_t) {.type = JSON_TYPE_ARRAY, .start = (const char*) keys.data.data, .len = keys.data.len};
   }
+  else if (storage.type == JSON_TYPE_NOT_FOUND) {
+    bprintf(&keys, "[]");
+    keys_array = (json_t) {.type = JSON_TYPE_ARRAY, .start = (const char*) keys.data.data, .len = keys.data.len};
+  }
   else
     keys_array = storage;
 
@@ -183,41 +187,6 @@ c4_status_t c4_get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, uint6
       json_as_bytes(addr, &buf);
       TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storageKeys"), account, (json_t) {0}, accounts_len, block_number, address, builder));
     }
-  }
-
-  json_for_each_property(trace, values, account) {
-    hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
-    if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
-    json_t   storage = json_get(values, "storage");
-    json_t   code    = json_get(values, "code");
-    buffer_t keys    = {0};
-    bprintf(&keys, "[");
-    bytes_t key = {0};
-    json_for_each_property(storage, val, key) {
-      if (keys.data.len > 1)
-        buffer_add_chars(&keys, ",\"");
-      else
-        buffer_add_chars(&keys, "\"");
-      buffer_append(&keys, key);
-      buffer_add_chars(&keys, "\"");
-    }
-    buffer_add_chars(&keys, "]");
-
-    c4_status_t res = eth_get_proof(
-        ctx,
-        (json_t) {.type = JSON_TYPE_STRING, .start = (const char*) account.data - 1, .len = account.len + 2},
-        (json_t) {.type = JSON_TYPE_ARRAY, .start = (const char*) keys.data.data, .len = keys.data.len},
-        &eth_proof,
-        block_number);
-    buffer_free(&keys);
-    TRY_ADD_ASYNC(status, res);
-
-    if (res == C4_SUCCESS) add_account(
-        ctx,
-        builder, eth_proof,
-        bytes(address, 20),
-        code,
-        accounts_len);
   }
 
   return status;

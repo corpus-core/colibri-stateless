@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #include "cache.h"
 #include "logger.h"
 #include "server.h"
@@ -188,7 +186,7 @@ static void handle_curl_events() {
     bytes_t response = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
     if (success && response.data) {
-      fprintf(stderr, "   [curl ] %s %s -> OK %d bytes\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len);
+      fprintf(stderr, "   [curl ] %s %s -> OK %d bytes (%s)\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, r->url ? r->url : r->req->url);
       r->req->response = response; // set the response
       cache_response(r);           // and write to cache
       r->buffer = (buffer_t) {0};  // reset the buffer, so we don't clean up the data
@@ -416,6 +414,8 @@ static void c4_add_request_response(request_t* req) {
 
 // Function to determine TTL for different request types
 static inline uint32_t get_request_ttl(data_request_t* req) {
+  if (req->ttl && req->response.data && req->response.len > 0 && strnstr((char*) req->response.data, "\"error\":", req->response.len))
+    return 0;
   return req->ttl;
 }
 
