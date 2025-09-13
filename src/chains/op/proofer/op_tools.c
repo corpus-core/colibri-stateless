@@ -1,9 +1,12 @@
 #include "beacon.h"
+#include "beacon_types.h"
 #include "bytes.h"
 #include "op_proofer.h"
 #include "op_types.h"
+#include "op_zstd.h"
 #include "ssz.h"
 #include "version.h"
+static const ssz_def_t EXECUTION_PAYLOAD_CONTAINER = SSZ_CONTAINER("payload", DENEP_EXECUTION_PAYLOAD);
 
 static void set_data(ssz_builder_t* req, const char* name, ssz_builder_t data) {
   if (data.fixed.data.data || data.dynamic.data.data)
@@ -27,4 +30,15 @@ bytes_t op_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_bui
   // set chain_engine
   *c4_req.fixed.data.data = (uint8_t) c4_chain_type(chain_id);
   return ssz_builder_to_bytes(&c4_req).bytes;
+}
+
+ssz_ob_t* op_get_execution_payload(ssz_builder_t* block_proof) {
+  if (!block_proof || !block_proof->dynamic.data.data) return NULL;
+  size_t  len     = op_zstd_get_decompressed_size(block_proof->dynamic.data);
+  bytes_t payload = bytes(safe_malloc(len), len);
+  op_zstd_decompress(block_proof->dynamic.data, payload);
+  ssz_ob_t* ob = (ssz_ob_t*) (void*) payload.data;
+  ob->bytes    = bytes_slice(payload, 32, len - 32);
+  ob->def      = &EXECUTION_PAYLOAD_CONTAINER;
+  return ob;
 }

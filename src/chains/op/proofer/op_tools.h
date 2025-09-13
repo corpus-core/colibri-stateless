@@ -35,7 +35,8 @@ extern "C" {
 #include "ssz.h"
 
 bytes_t op_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_builder_t proof, ssz_builder_t sync_data);
-
+// creates the executionpayload from the block_proof. Caller must free the ssz_ob_t! with safe_free(execution_payload).
+ssz_ob_t* op_get_execution_payload(ssz_builder_t* block_proof);
 #ifdef __cplusplus
 }
 #endif

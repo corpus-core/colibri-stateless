@@ -139,7 +139,6 @@ static const ssz_def_t ETH_CALL_ACCOUNT_CONTAINER = SSZ_CONTAINER("EthCallAccoun
 // the main proof data for a call.
 static const ssz_def_t ETH_CALL_PROOF[] = {
     SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256), // used accounts
-    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),             // the block to be proven
     SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION)          // proof for the blockheader
 };
 

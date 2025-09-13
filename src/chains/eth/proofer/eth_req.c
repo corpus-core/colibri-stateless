@@ -32,11 +32,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define JSON_TX_FIELDS        "{transactionIndex:hexuint,blockNumber:hexuint,hash:bytes32,blockHash:bytes32,from:address,gas:hexuint,gasPrice:hexuint,input:bytes,nonce:hexuint,to?:address,value:hexuint,type:hexuint,v:hexuint,r:hexuint,s:hexuint}"
-#define JSON_LOG_FIELDS       "{address:address,topics:[bytes32],data:bytes,blockNumber:hexuint,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,logIndex:hexuint,removed:bool}"
-#define JSON_RECEIPTS_FIELDS  "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
-#define JSON_ETH_PROOF_FIELDS "{accountProof:[bytes],storageProof:[{key:hex32,value:hex32,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
-#define JSON_TRACE_FIELDS     "{*:{balance?:hexuint,code?:bytes,nonce?:uint,storage?:{*:bytes32}}}"
+#define JSON_TX_FIELDS          "{transactionIndex:hexuint,blockNumber:hexuint,hash:bytes32,blockHash:bytes32,from:address,gas:hexuint,gasPrice:hexuint,input:bytes,nonce:hexuint,to?:address,value:hexuint,type:hexuint,v:hexuint,r:hexuint,s:hexuint}"
+#define JSON_LOG_FIELDS         "{address:address,topics:[bytes32],data:bytes,blockNumber:hexuint,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,logIndex:hexuint,removed:bool}"
+#define JSON_RECEIPTS_FIELDS    "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
+#define JSON_ETH_PROOF_FIELDS   "{accountProof:[bytes],storageProof:[{key:hex32,value:hex32,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
+#define JSON_TRACE_FIELDS       "{*:{balance?:hexuint,code?:bytes,nonce?:uint,storage?:{*:bytes32}}}"
+#define JSON_ACCESS_LIST_FIELDS "{accessList:{address:address,storageKeys:[hex32]},error?:string,gasUsed:uint}"
 
 c4_status_t get_eth_tx(proofer_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   uint8_t  tmp[200];
@@ -99,6 +100,14 @@ c4_status_t eth_debug_trace_call(proofer_ctx_t* ctx, json_t tx, json_t* trace, u
   buffer_t buf = {0};
   TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "debug_traceCall", bprintf(&buf, "[%J,\"0x%lx\",{\"tracer\":\"prestateTracer\"}]", tx, block_number), 12, trace), buffer_free(&buf));
   CHECK_JSON(*trace, JSON_TRACE_FIELDS, "Invalid results for trace: ");
+  return C4_SUCCESS;
+}
+
+c4_status_t eth_create_access_list(proofer_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number) {
+  buffer_t buf = {0};
+  tx.len--; // removing the closing '}', so we can add arguments
+  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J,\"maxFeePerGas\":\"0x0\",\"maxPriorityFeePerGas\":\"0x0\"},\"0x%lx\"]", tx, block_number), 12, trace), buffer_free(&buf));
+  CHECK_JSON(*trace, JSON_ACCESS_LIST_FIELDS, "Invalid results for access list: ");
   return C4_SUCCESS;
 }
 

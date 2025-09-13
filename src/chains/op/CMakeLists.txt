@@ -38,14 +38,11 @@ set(VERIFIER_SOURCES
   verifier/op_chains_conf.c
   ssz/op_types.c
 )
-set(VERIFIER_DEPS util eth_verifier zstd)
-
-
 
 add_verifier(
   NAME op_verifier
   SOURCES ${VERIFIER_SOURCES}
-  DEPENDS ${VERIFIER_DEPS}
+  DEPENDS util eth_verifier zstd
   GET_REQ_TYPE c4_op_get_request_type
   VERIFY c4_op_verify
   METHOD_TYPE c4_op_get_method_type
@@ -61,6 +58,7 @@ add_proofer(
     proofer/op_proof_transaction.c
     proofer/op_proof_receipt.c
     proofer/op_proof_logs.c
+    proofer/op_proof_call.c
   DEPENDS util eth_proofer eth_verifier op_verifier
   PROOF op_proofer_execute
 )

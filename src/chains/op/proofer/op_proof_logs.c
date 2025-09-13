@@ -39,7 +39,6 @@
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>
-static const ssz_def_t EXECUTION_PAYLOAD_CONTAINER = SSZ_CONTAINER("payload", DENEP_EXECUTION_PAYLOAD);
 
 typedef struct proof_logs_tx {
   uint64_t              block_number;
@@ -135,15 +134,8 @@ static inline void add_blocks(proof_logs_block_t** blocks, json_t logs) {
 }
 
 static ssz_ob_t* get_execution_payload(proof_logs_block_t* block) {
-  if (!block->execution_payload) {
-    size_t  len     = op_zstd_get_decompressed_size(block->block_proof.dynamic.data);
-    bytes_t payload = bytes(safe_malloc(len), len);
-    op_zstd_decompress(block->block_proof.dynamic.data, payload);
-    ssz_ob_t* ob             = (ssz_ob_t*) (void*) payload.data;
-    ob->bytes                = bytes_slice(payload, 32, len - 32);
-    ob->def                  = &EXECUTION_PAYLOAD_CONTAINER;
-    block->execution_payload = ob;
-  }
+  if (!block->execution_payload)
+    block->execution_payload = op_get_execution_payload(&block->block_proof);
   return block->execution_payload;
 }
 
@@ -250,7 +242,7 @@ static c4_status_t serialize_log_proof(proofer_ctx_t* ctx, proof_logs_block_t* b
   return C4_SUCCESS;
 }
 
-c4_status_t c4_proof_logs(proofer_ctx_t* ctx) {
+c4_status_t c4_op_proof_logs(proofer_ctx_t* ctx) {
   json_t              logs   = {0};
   proof_logs_block_t* blocks = NULL;
   if (proof_logs_block_proof_type(ctx) == ETH_GET_LOGS)

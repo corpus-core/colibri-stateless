@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_account.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "json.h"
@@ -103,27 +104,95 @@ static void add_account(proofer_ctx_t* ctx, ssz_builder_t* builder, json_t value
   buffer_free(&buf);
 }
 
-static c4_status_t get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner) {
+static c4_status_t handle_access_list(proofer_ctx_t* ctx, json_t storage, bytes_t account, json_t code, int accounts_len, uint64_t block_number, address_t address, ssz_builder_t* builder) {
+  json_t   eth_proof  = {0};
+  buffer_t keys       = {0};
+  json_t   keys_array = {0};
+  if (storage.type == JSON_TYPE_OBJECT) {
+    bprintf(&keys, "[");
+    bytes_t key = {0};
+    json_for_each_property(storage, val, key) {
+      if (keys.data.len > 1)
+        buffer_add_chars(&keys, ",\"");
+      else
+        buffer_add_chars(&keys, "\"");
+      buffer_append(&keys, key);
+      buffer_add_chars(&keys, "\"");
+    }
+    buffer_add_chars(&keys, "]");
+    keys_array = (json_t) {.type = JSON_TYPE_ARRAY, .start = (const char*) keys.data.data, .len = keys.data.len};
+  }
+  else
+    keys_array = storage;
+
+  TRY_ASYNC_FINAL(eth_get_proof(
+                      ctx,
+                      (json_t) {.type = JSON_TYPE_STRING, .start = (const char*) account.data - 1, .len = account.len + 2},
+                      keys_array,
+                      &eth_proof,
+                      block_number),
+                  buffer_free(&keys));
+
+  if (code.type == JSON_TYPE_INVALID) { // invalid simply meand, we don't know.
+    bytes32_t code_hash = {0};
+    buffer_t  buf       = stack_buffer(code_hash);
+    if (json_get_bytes(eth_proof, "codeHash", &buf).len != 32) THROW_ERROR("Invalid code hash!");
+
+    if (memcmp(code_hash, EMPTY_HASH, 32) == 0)
+      code.type = JSON_TYPE_NOT_FOUND;
+    else if ((ctx->flags & C4_PROOFER_FLAG_INCLUDE_CODE) == 0)
+      code.type = JSON_TYPE_BOOLEAN;
+    else
+      TRY_ASYNC(eth_get_code(ctx, (json_t) {.type = JSON_TYPE_STRING, .start = (const char*) account.data - 1, .len = account.len + 2}, &code, 0));
+  }
+
+  add_account(
+      ctx,
+      builder, eth_proof,
+      bytes(address, 20),
+      code,
+      accounts_len);
+  return C4_SUCCESS;
+}
+
+c4_status_t c4_get_eth_proofs(proofer_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner) {
   c4_status_t status       = C4_SUCCESS;
   json_t      eth_proof    = {0};
   bytes_t     account      = {0};
   uint8_t     address[20]  = {0};
   int         accounts_len = 0;
 
-  json_for_each_property(trace, values, account) {
-    hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
-    if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
-    accounts_len++;
+  if (trace.type == JSON_TYPE_OBJECT) {
+    json_for_each_property(trace, values, account) {
+      hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
+      if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
+      accounts_len++;
+    }
+    json_for_each_property(trace, values, account) {
+      hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
+      if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
+      TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storage"), account, json_get(values, "code"), accounts_len, block_number, address, builder));
+    }
+  }
+  else {
+    accounts_len = json_len(trace);
+    json_for_each_value(trace, values) {
+      buffer_t buf  = stack_buffer(address);
+      json_t   addr = json_get(values, "address");
+      account       = bytes(addr.start + 1, addr.len - 2);
+      json_as_bytes(addr, &buf);
+      TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storageKeys"), account, (json_t) {0}, accounts_len, block_number, address, builder));
+    }
   }
 
   json_for_each_property(trace, values, account) {
     hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
     if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
-    buffer_t keys = {0};
+    json_t   storage = json_get(values, "storage");
+    json_t   code    = json_get(values, "code");
+    buffer_t keys    = {0};
     bprintf(&keys, "[");
-    json_t  storage = json_get(values, "storage");
-    json_t  code    = json_get(values, "code");
-    bytes_t key     = {0};
+    bytes_t key = {0};
     json_for_each_property(storage, val, key) {
       if (keys.data.len > 1)
         buffer_add_chars(&keys, ",\"");
@@ -169,7 +238,7 @@ c4_status_t c4_proof_call(proofer_ctx_t* ctx) {
   TRY_ADD_ASYNC(status, eth_debug_trace_call(ctx, tx, &trace, target_block));
   TRY_ADD_ASYNC(status, c4_check_historic_proof(ctx, &historic_proof, &block));
   TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof));
-  TRY_ASYNC_CATCH(get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data), ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
+  TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data), ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
 
   status = create_eth_call_proof(ctx, accounts, &block, block_number, &historic_proof);
   c4_free_block_proof(&historic_proof);

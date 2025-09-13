@@ -39,6 +39,7 @@ c4_status_t eth_get_proof(proofer_ctx_t* ctx, json_t address, json_t storage_key
 
 c4_status_t eth_get_code(proofer_ctx_t* ctx, json_t address, json_t* code, uint64_t block_number);
 c4_status_t eth_debug_trace_call(proofer_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number);
+c4_status_t eth_create_access_list(proofer_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number);
 // get the logs
 c4_status_t eth_get_logs(proofer_ctx_t* ctx, json_t params, json_t* logs);
 

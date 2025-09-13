@@ -40,9 +40,16 @@ bool op_proofer_execute(proofer_ctx_t* ctx) {
   else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
     c4_op_proof_receipt(ctx);
   else if (strcmp(ctx->method, "eth_getLogs") == 0 || strcmp(ctx->method, "eth_verifyLogs") == 0)
-    c4_proof_logs(ctx);
+    c4_op_proof_logs(ctx);
+  else if (strcmp(ctx->method, "eth_call") == 0)
+    c4_op_proof_call(ctx);
   else
     ctx->state.error = strdup("Unsupported method");
 
   return true;
 }
+/*
+0x000000010db094e0 "Error when calling eth-rpc for eth_createAccessList (params:
+[{\"to\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"data\":\"0x313ce567\"},\"0x21ce40c\"]) : failed to apply transaction:
+0x0cc9aaa46f2254571550da29f63f2bdd4e5adfa63740a63b2e574663f0317eff err: insufficient funds for gas * price + value: address 0x0000000000000000000000000000000000000000 have 12716509454172597237 want 42342674793536978484327214"
+*/
