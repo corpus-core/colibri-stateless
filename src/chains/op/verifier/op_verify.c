@@ -106,17 +106,12 @@ method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method) {
 const ssz_def_t* c4_op_get_request_type(chain_type_t chain_type) {
   return chain_type == C4_CHAIN_TYPE_OP ? op_ssz_verification_type(OP_SSZ_VERIFY_REQUEST) : NULL;
 }
+extern bool verify_eth_local(verify_ctx_t* ctx);
 
 bool c4_op_verify(verify_ctx_t* ctx) {
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return false;
 
   // Handle local methods first (they don't need proofs)
-  if (ctx->method && c4_op_get_method_type(ctx->chain_id, ctx->method) == METHOD_LOCAL) {
-    // Delegate to eth_local verification for local methods
-    extern bool verify_eth_local(verify_ctx_t * ctx);
-    return verify_eth_local(ctx);
-  }
-
   if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_BLOCK_PROOF)))
     op_verify_block(ctx);
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_TRANSACTION_PROOF)))
@@ -127,6 +122,10 @@ bool c4_op_verify(verify_ctx_t* ctx) {
     op_verify_logs_proof(ctx);
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_CALL_PROOF)))
     op_verify_call_proof(ctx);
+  else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_ACCOUNT_PROOF)))
+    op_verify_account_proof(ctx);
+  else if (c4_op_get_method_type(ctx->chain_id, ctx->method) == METHOD_LOCAL)
+    verify_eth_local(ctx);
   else if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok
   else {

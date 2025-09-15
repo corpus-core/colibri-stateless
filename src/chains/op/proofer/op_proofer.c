@@ -28,7 +28,22 @@
 #include "state.h"
 #include <stdlib.h>
 #include <string.h>
+static const char* eth_account_methods[] = {
+    "eth_getBalance",
+    "eth_getCode",
+    "eth_getTransactionCount",
+    "eth_getProof",
+    "eth_getStorageAt",
+    NULL};
 
+static const bool includes(const char** methods, const char* method) {
+  for (int i = 0; methods[i] != NULL; i++) {
+    if (strcmp(methods[i], method) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
 bool op_proofer_execute(proofer_ctx_t* ctx) {
   // check if we are supporting this chain
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return false;
@@ -43,6 +58,9 @@ bool op_proofer_execute(proofer_ctx_t* ctx) {
     c4_op_proof_logs(ctx);
   else if (strcmp(ctx->method, "eth_call") == 0)
     c4_op_proof_call(ctx);
+  else if (includes(eth_account_methods, ctx->method))
+    c4_op_proof_account(ctx);
+
   else
     ctx->state.error = strdup("Unsupported method");
 

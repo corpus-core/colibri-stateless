@@ -29,18 +29,11 @@ endif()
 
 if (EVMLIGHT OR EVMONE)
     if (EVMONE) 
-       set(EVMLIGHT OFF)
        add_definitions(-DEVMONE)
     else()
-        add_definitions(-DEVMLIGHT)
+       add_definitions(-DEVMLIGHT)
     endif()
-    set(EVM ON)
     add_definitions(-DEVM -DINTX)
-    set(INTX ON)
-
-    if (EVMLIGHT)
-        add_definitions(-DEVMLIGHT)
-    endif()
     if (PRECOMPILES_RIPEMD160)
         add_definitions(-DPRECOMPILED_RIPEMD160)
     endif()
@@ -48,16 +41,42 @@ endif()
 
 
 set(VERIFIER_SOURCES
-  verifier/op_verify_block.c
-  verifier/op_verify_tx.c
-  verifier/op_verify_receipt.c
-  verifier/op_verify_logs.c
-  verifier/op_verify_call.c
   verifier/op_verify.c
   verifier/op_zstd.c
   verifier/op_chains_conf.c
   ssz/op_types.c
 )
+
+
+if(ETH_ACCOUNT)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_account.c)
+  add_definitions(-DETH_ACCOUNT)
+endif()
+
+if(ETH_TX)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_tx.c)
+  add_definitions(-DETH_TX)
+endif()
+
+if(ETH_BLOCK)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_block.c)
+  add_definitions(-DETH_BLOCK)
+endif()
+
+if(ETH_RECEIPT)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_receipt.c)
+  add_definitions(-DETH_RECEIPT)
+endif()
+
+if(ETH_LOGS)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_logs.c)
+  add_definitions(-DETH_LOGS)
+endif()
+
+if(ETH_CALL)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_call.c)
+  add_definitions(-DETH_CALL)
+endif()
 
 add_verifier(
   NAME op_verifier
@@ -79,6 +98,7 @@ add_proofer(
     proofer/op_proof_receipt.c
     proofer/op_proof_logs.c
     proofer/op_proof_call.c
+    proofer/op_proof_account.c
   DEPENDS util eth_proofer eth_verifier op_verifier
   PROOF op_proofer_execute
 )

@@ -20,7 +20,6 @@
  *
  * SPDX-License-Identifier: MIT
  */
-
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
@@ -28,6 +27,8 @@
 #include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
+#include "op_types.h"
+#include "op_verify.h"
 #include "patricia.h"
 #include "rlp.h"
 #include "ssz.h"
@@ -43,14 +44,14 @@
 #include <malloc.h>
 #endif
 
-bool verify_account_proof(verify_ctx_t* ctx) {
+bool op_verify_account_proof(verify_ctx_t* ctx) {
   bytes32_t           state_root       = {0};
-  ssz_ob_t            state_proof      = ssz_get(&ctx->proof, "state_proof");
-  ssz_ob_t            header           = ssz_get(&state_proof, "header");
+  ssz_ob_t            block_proof      = ssz_get(&ctx->proof, "block_proof");
   bytes_t             verified_address = ssz_get(&ctx->proof, "address").bytes;
   eth_account_field_t field            = eth_account_get_field(ctx);
   bytes32_t           value            = {0};
   uint32_t            storage_keys_len = ssz_len(ssz_get(&ctx->proof, "storageProof"));
+  json_t              block_number     = json_at(ctx->args, json_len(ctx->args) - 1);
 #ifdef _MSC_VER
   bytes_t values = field == ETH_ACCOUNT_PROOF ? bytes(_alloca(32 * storage_keys_len), 32 * storage_keys_len) : bytes(value, 32);
 #else
@@ -58,9 +59,13 @@ bool verify_account_proof(verify_ctx_t* ctx) {
 #endif
 
   if (!eth_verify_account_proof_exec(ctx, &ctx->proof, state_root, field == ETH_ACCOUNT_PROOF ? ETH_ACCOUNT_STORAGE_HASH : field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
-  if (!eth_verify_state_proof(ctx, state_proof, state_root)) return false;
-  if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
   if (field && !eth_account_verify_data(ctx, verified_address.data, field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account data!");
+
+  ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number, NULL);
+  if (!execution_payload) return false;
+  bool match = memcmp(state_root, ssz_get(execution_payload, "stateRoot").bytes.data, 32) == 0;
+  safe_free(execution_payload);
+  if (!match) RETURN_VERIFY_ERROR(ctx, "State root mismatch");
 
   ctx->success = true;
   return true;
