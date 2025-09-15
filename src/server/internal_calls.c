@@ -54,8 +54,8 @@ static bool call_preconf(single_request_t* r) {
   char* block_identifier = r->req->url + strlen(path);
 
   // Handle "latest" request
-  if (strcmp(block_identifier, "latest") == 0) {
-    c4_get_preconf_latest(http_server.chain_id, r, call_preconf_cb);
+  if (strcmp(block_identifier, "latest") == 0 || strcmp(block_identifier, "pre_latest") == 0) {
+    c4_get_preconf(http_server.chain_id, 0, block_identifier, r, call_preconf_cb);
     return true;
   }
 
@@ -76,7 +76,7 @@ static bool call_preconf(single_request_t* r) {
   }
 
   // Use chain_id from http_server and load optimized preconf file
-  c4_get_preconf(http_server.chain_id, block_number, r, call_preconf_cb);
+  c4_get_preconf(http_server.chain_id, block_number, NULL, r, call_preconf_cb);
   return true;
 }
 

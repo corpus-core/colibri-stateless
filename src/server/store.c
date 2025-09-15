@@ -226,7 +226,7 @@ static void on_preconf_open(uv_fs_t* req) {
   uv_fs_req_cleanup(req);
 }
 
-bool c4_get_preconf(chain_id_t chain_id, uint64_t block_number, void* uptr, handle_preconf_data_cb cb) {
+bool c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb) {
   if (!http_server.preconf_storage_dir) {
     cb(uptr, block_number, NULL_BYTES, "preconf_storage_dir not configured!");
     return false;
@@ -235,8 +235,10 @@ bool c4_get_preconf(chain_id_t chain_id, uint64_t block_number, void* uptr, hand
   preconf_read_context_t* ctx = safe_calloc(1, sizeof(preconf_read_context_t));
 
   // Build deterministic path: block_{chainID}_{blockNumber}.raw
-  ctx->file_path      = bprintf(NULL, "%s/block_%l_%l.raw",
-                                http_server.preconf_storage_dir, (uint64_t) chain_id, block_number);
+  ctx->file_path      = file_name ? bprintf(NULL, "%s/%s.raw",
+                                            http_server.preconf_storage_dir, file_name)
+                                  : bprintf(NULL, "%s/block_%l_%l.raw",
+                                            http_server.preconf_storage_dir, (uint64_t) chain_id, block_number);
   ctx->fd             = -1;
   ctx->block_number   = block_number;
   ctx->user_ptr       = uptr;
@@ -248,34 +250,6 @@ bool c4_get_preconf(chain_id_t chain_id, uint64_t block_number, void* uptr, hand
   int r = uv_fs_open(uv_default_loop(), &ctx->open_req, ctx->file_path, O_RDONLY, 0, on_preconf_open);
   if (r < 0) {
     cb(uptr, block_number, NULL_BYTES, uv_strerror(r));
-    free_preconf_read_context(ctx);
-    return false;
-  }
-
-  return true;
-}
-
-bool c4_get_preconf_latest(chain_id_t chain_id, void* uptr, handle_preconf_data_cb cb) {
-  if (!http_server.preconf_storage_dir) {
-    cb(uptr, 0, NULL_BYTES, "preconf_storage_dir not configured!");
-    return false;
-  }
-
-  preconf_read_context_t* ctx = safe_calloc(1, sizeof(preconf_read_context_t));
-
-  // Use latest symlink: latest.raw
-  ctx->file_path      = bprintf(NULL, "%s/latest.raw", http_server.preconf_storage_dir);
-  ctx->fd             = -1;
-  ctx->block_number   = 0; // Latest doesn't have a specific block number
-  ctx->user_ptr       = uptr;
-  ctx->user_cb        = cb;
-  ctx->open_req.data  = ctx;
-  ctx->read_req.data  = ctx;
-  ctx->close_req.data = ctx;
-
-  int r = uv_fs_open(uv_default_loop(), &ctx->open_req, ctx->file_path, O_RDONLY, 0, on_preconf_open);
-  if (r < 0) {
-    cb(uptr, 0, NULL_BYTES, uv_strerror(r));
     free_preconf_read_context(ctx);
     return false;
   }

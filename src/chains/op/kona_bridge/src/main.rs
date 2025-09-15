@@ -134,6 +134,7 @@ async fn start_network(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(RwLock::new(PreconfState {
         latest_block_number: 0,
+        previous_block_number: None,
         processed_count: 0,
     }));
 
@@ -158,6 +159,21 @@ async fn start_network(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
             match process_preconf(&payload_envelope, chain_id, &output_dir, expected_sequencer.as_deref()).await {
                 Ok(()) => {
                     let mut state_guard = state.write().await;
+                    
+                    // Update symlinks with atomic operation
+                    let filename = format!("block_{}_{}.raw", chain_id, number);
+                    let current_latest = state_guard.latest_block_number;
+                    
+                    info!("🔄 Updating symlinks: new={}, previous_block={}", filename, current_latest);
+                    
+                    if let Err(e) = update_symlinks(&output_dir, &filename, current_latest, chain_id).await {
+                        error!("⚠️  Failed to update symlinks: {}", e);
+                    }
+                    
+                    // Update state
+                    if current_latest > 0 {
+                        state_guard.previous_block_number = Some(current_latest);
+                    }
                     state_guard.latest_block_number = number;
                     state_guard.processed_count += 1;
                     info!("✅ Preconf processed successfully (total: {})", state_guard.processed_count);
@@ -248,26 +264,6 @@ async fn process_preconf(
 
     info!("💾 Saved preconf to: {:?}", filepath);
 
-    // Update latest.raw symlink (wenn block_number neuer ist)
-    let latest_path = output_dir.join("latest.raw");
-    if let Err(e) = fs::remove_file(&latest_path) {
-        // Ignore error if file doesn't exist
-        if e.kind() != std::io::ErrorKind::NotFound {
-            warn!("⚠️  Failed to remove old latest.raw: {}", e);
-        }
-    }
-
-    // Create new symlink
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::symlink;
-        if let Err(e) = symlink(&filename, &latest_path) {
-            warn!("⚠️  Failed to create latest.raw symlink: {}", e);
-        } else {
-            info!("🔗 Updated latest.raw symlink to {}", filename);
-        }
-    }
-
     // Create metadata file
     let meta_filename = format!("block_{}_{}.json", chain_id, block_number);
     let meta_filepath = output_dir.join(&meta_filename);
@@ -293,7 +289,7 @@ fn signature_to_bytes(signature: &Signature) -> [u8; 65] {
     let mut bytes = [0u8; 65];
     bytes[..32].copy_from_slice(&signature.r().to_be_bytes::<32>());
     bytes[32..64].copy_from_slice(&signature.s().to_be_bytes::<32>());
-    bytes[64] = signature.v().y_parity() as u8;
+    bytes[64] = if signature.v() { 28 } else { 27 };
     bytes
 }
 
@@ -342,6 +338,7 @@ impl From<OpNetworkPayloadEnvelope> for SequencerCommitment {
 
 struct PreconfState {
     latest_block_number: u64,
+    previous_block_number: Option<u64>,
     processed_count: u64,
 }
 
@@ -385,4 +382,112 @@ impl ChainConfig {
             }
         }
     }
+}
+
+
+async fn update_symlinks(
+    output_dir: &PathBuf, 
+    new_latest_filename: &str, 
+    previous_block_number: u64,
+    chain_id: u64
+) -> Result<(), Box<dyn std::error::Error>> {
+    let latest_path = output_dir.join("latest.raw");
+    let pre_latest_path = output_dir.join("pre_latest.raw");
+    
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::symlink;
+        
+        // Update pre_latest.raw first (should point to current latest before we update it)
+        if previous_block_number > 0 {
+            let previous_filename = format!("block_{}_{}.raw", chain_id, previous_block_number);
+            let previous_file_path = output_dir.join(&previous_filename);
+            
+            info!("🔍 Checking for previous block file: {} (exists: {})", previous_filename, previous_file_path.exists());
+            
+            // Only update pre_latest if the previous file actually exists
+            if previous_file_path.exists() {
+                // Remove old pre_latest symlink
+                if let Err(e) = fs::remove_file(&pre_latest_path) {
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        warn!("⚠️  Failed to remove old pre_latest.raw: {}", e);
+                    }
+                }
+                
+                // Create new pre_latest symlink
+                if let Err(e) = symlink(&previous_filename, &pre_latest_path) {
+                    warn!("⚠️  Failed to create pre_latest.raw symlink: {}", e);
+                } else {
+                    info!("🔗 Updated pre_latest.raw symlink to {}", previous_filename);
+                }
+            } else {
+                warn!("⚠️  Previous block file {} does not exist, skipping pre_latest.raw update", previous_filename);
+            }
+        }
+        
+        // Update latest.raw
+        // Remove old latest symlink
+        if let Err(e) = fs::remove_file(&latest_path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                warn!("⚠️  Failed to remove old latest.raw: {}", e);
+            }
+        }
+        
+        // Create new latest symlink
+        if let Err(e) = symlink(new_latest_filename, &latest_path) {
+            warn!("⚠️  Failed to create latest.raw symlink: {}", e);
+        } else {
+            info!("🔗 Updated latest.raw symlink to {}", new_latest_filename);
+        }
+        
+        // Verify both symlinks exist and are valid
+        verify_symlinks(output_dir).await?;
+    }
+    
+    Ok(())
+}
+
+async fn verify_symlinks(output_dir: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    let latest_path = output_dir.join("latest.raw");
+    let pre_latest_path = output_dir.join("pre_latest.raw");
+    
+    // Check latest.raw
+    if !latest_path.exists() {
+        warn!("⚠️  latest.raw symlink does not exist!");
+        return Err("latest.raw symlink missing".into());
+    }
+    
+    // Check if latest.raw points to a valid file
+    match fs::metadata(&latest_path) {
+        Ok(metadata) => {
+            if !metadata.is_file() {
+                warn!("⚠️  latest.raw does not point to a valid file!");
+            } else {
+                info!("✅ latest.raw symlink is valid");
+            }
+        }
+        Err(e) => {
+            warn!("⚠️  latest.raw symlink is broken: {}", e);
+        }
+    }
+    
+    // Check pre_latest.raw (optional, might not exist for first block )
+    if pre_latest_path.exists() {
+        match fs::metadata(&pre_latest_path) {
+            Ok(metadata) => {
+                if !metadata.is_file() {
+                    warn!("⚠️  pre_latest.raw does not point to a valid file!");
+                } else {
+                    info!("✅ pre_latest.raw symlink is valid");
+                }
+            }
+            Err(e) => {
+                warn!("⚠️  pre_latest.raw symlink is broken: {}", e);
+            }
+        }
+    } else {
+        info!("ℹ️  pre_latest.raw does not exist (normal for first block)");
+    }
+    
+    Ok(())
 }

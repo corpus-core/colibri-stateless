@@ -5,6 +5,7 @@ find_package(CURL REQUIRED)
 add_executable(server 
   main.c
   http_client.c
+  http_client_errors.c
   http_servers_select.c
   http_server.c
   handle_proof.c

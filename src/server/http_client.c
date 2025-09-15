@@ -174,22 +174,34 @@ static void handle_curl_events() {
     pending_request_t* pending   = pending_find(r);
     long               http_code = 0;
     if (msg->data.result == CURLE_OK) curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
-    bool           success = http_code >= 200 && http_code < 300;
-    server_list_t* servers = c4_get_server_list(r->req->type);
-    r->end_time            = current_ms();
-    uint64_t response_time = r->end_time - r->start_time;
-    bool     is_user_error = !success && c4_is_user_error_response(http_code,
-                                                               r->url ? r->url : r->req->url,
-                                                                   r->buffer.data); // Check if this is a user error before updating health stats
+    server_list_t* servers           = c4_get_server_list(r->req->type);
+    r->end_time                      = current_ms();
+    uint64_t           response_time = r->end_time - r->start_time;
+    c4_response_type_t response_type = c4_classify_response(http_code,
+                                                            r->url ? r->url : r->req->url,
+                                                            r->buffer.data,
+                                                            r->req); // Classify the response type
 
-    c4_update_server_health(servers, r->req->response_node_index, response_time, success || !is_user_error);
+    // Update server health based on response type
+    bool health_success = (response_type == C4_RESPONSE_SUCCESS || response_type == C4_RESPONSE_ERROR_USER);
+    c4_update_server_health(servers, r->req->response_node_index, response_time, health_success);
     bytes_t response = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
-    if (success && response.data) {
+    if (response_type == C4_RESPONSE_SUCCESS && response.data) {
       fprintf(stderr, "   [curl ] %s %s -> OK %d bytes (%s)\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, r->url ? r->url : r->req->url);
       r->req->response = response; // set the response
       cache_response(r);           // and write to cache
       r->buffer = (buffer_t) {0};  // reset the buffer, so we don't clean up the data
+    }
+    else if (response_type == C4_RESPONSE_ERROR_USER && r->req->type == C4_DATA_TYPE_ETH_RPC && response.data) {
+      // For JSON-RPC user errors, set the response so application logic can extract detailed error messages
+      fprintf(stderr, "   [curl ] %s %s -> USER ERROR %d bytes  (%s) : %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, r->url ? r->url : r->req->url, response.data ? (char*) response.data : "");
+      r->req->response = response;       // set the response with JSON-RPC error details
+      r->buffer        = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
+
+      // Mark as non-retryable to avoid unnecessary retries
+      fprintf(stderr, "   [user ] JSON-RPC user error - marking request as non-retryable\n");
+      r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
     }
     else {
       char* effective_url = NULL;
@@ -197,9 +209,9 @@ static void handle_curl_events() {
       if (!r->req->error) r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, curl_easy_strerror(res), bprintf(&r->buffer, " ")); // create error message
       fprintf(stderr, "   [curl ] %s %s -> ERROR : %s\n", effective_url ? effective_url : (r->url ? r->url : r->req->url), r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
 
-      // For user errors (4xx), mark as non-retryable to avoid unnecessary retries
-      if (is_user_error) {
-        fprintf(stderr, "   [user ] User error detected (4xx) - marking request as non-retryable\n");
+      // For non-JSON-RPC user errors, mark as non-retryable to avoid unnecessary retries
+      if (response_type == C4_RESPONSE_ERROR_USER) {
+        fprintf(stderr, "   [user ] User error detected - marking request as non-retryable\n");
         // Set exclude mask to all servers to prevent retries
         r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
       }

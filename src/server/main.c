@@ -146,14 +146,9 @@ int main(int argc, char* argv[]) {
   UV_CHECK("Init idle handle init", uv_idle_init(loop, &init_idle_handle));
   UV_CHECK("Init idle handle start", uv_idle_start(&init_idle_handle, on_init_idle));
 
-  // Run event loop - use UV_RUN_ONCE with timeout to avoid hanging on worker threads
-  while (!shutdown_requested) {
-    int result = uv_run(loop, UV_RUN_ONCE);
-    if (result == 0) {
-      // No more work - sleep briefly to avoid busy waiting
-      uv_sleep(10);
-    }
-  }
+  // Run event loop - UV_RUN_DEFAULT runs until uv_stop() is called
+  // This provides optimal latency as the loop reacts immediately to new events
+  uv_run(loop, UV_RUN_DEFAULT);
 
   fprintf(stderr, "Server stopped\n");
 

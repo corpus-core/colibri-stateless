@@ -40,7 +40,13 @@ c4_status_t c4_op_create_block_proof(proofer_ctx_t* ctx, json_t block_number, ss
   uint8_t  path[200]    = {0};
   buffer_t buf2         = stack_buffer(path);
   bytes_t  preconf_data = {0};
-  TRY_ASYNC(c4_send_internal_request(ctx, bprintf(&buf2, "preconf/%j", block_number), NULL, 0, &preconf_data)); // get the raw-data
+
+  if ((ctx->flags & C4_PROOFER_FLAG_UNSTABLE_LATEST) == 0 && block_number.start[1] == 'l')
+    bprintf(&buf2, "preconf/pre_latest");
+  else
+    bprintf(&buf2, "preconf/%j", block_number);
+
+  TRY_ASYNC(c4_send_internal_request(ctx, (char*) buf2.data.data, NULL, 0, &preconf_data)); // get the raw-data
   if (!preconf_data.len) THROW_ERROR("No preconf data found, currently only supports preconfs");
   // Extract payload and signature
   bytes_t payload   = bytes_slice(preconf_data, 0, preconf_data.len - 65);

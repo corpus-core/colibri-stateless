@@ -157,6 +157,12 @@ typedef enum {
   STORE_TYPE_LCU          = 4,
 } store_type_t;
 
+typedef enum {
+  C4_RESPONSE_SUCCESS     = 0, // Request was successful
+  C4_RESPONSE_ERROR_RETRY = 1, // Error occurred, but retry may fix it
+  C4_RESPONSE_ERROR_USER  = 2  // User error, retry does not make sense
+} c4_response_type_t;
+
 void c4_proofer_handle_request(request_t* req);
 void c4_start_curl_requests(request_t* req);
 bool c4_check_retry_request(request_t* req);
@@ -174,22 +180,21 @@ bool           c4_handle_health_check(client_t* client);
 bool           c4_handle_metrics(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
-bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, void* uptr, handle_preconf_data_cb cb);
-bool           c4_get_preconf_latest(chain_id_t chain_id, void* uptr, handle_preconf_data_cb cb);
+bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb);
 bool           c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb);
 bool           c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
 
 // Load balancing functions
-int  c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type);
-void c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success);
-void c4_calculate_server_weights(server_list_t* servers);
-bool c4_should_reset_health_stats(server_list_t* servers);
-void c4_reset_server_health_stats(server_list_t* servers);
-bool c4_is_user_error_response(long http_code, const char* url, bytes_t response_body);
-bool c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
-void c4_attempt_server_recovery(server_list_t* servers);
+int                c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type);
+void               c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success);
+void               c4_calculate_server_weights(server_list_t* servers);
+bool               c4_should_reset_health_stats(server_list_t* servers);
+void               c4_reset_server_health_stats(server_list_t* servers);
+c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
+bool               c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
+void               c4_attempt_server_recovery(server_list_t* servers);
 
 // Server configuration and client type detection functions
 void                 c4_parse_server_config(server_list_t* list, char* servers);
@@ -201,5 +206,6 @@ const char*          c4_client_type_to_name(beacon_client_type_t client_type, ht
 char*                   c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);
 data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
+c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
 
 #endif // C4_SERVER_H

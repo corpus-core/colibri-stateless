@@ -72,6 +72,7 @@ typedef enum {
   C4_PROOFER_FLAG_UV_SERVER_CTX      = 1 << 1, // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROOFER_FLAG_UV_WORKER_REQUIRED flag.
   C4_PROOFER_FLAG_UV_WORKER_REQUIRED = 1 << 2, // requests the proof execution to run in a worker thread instead of the main eventloop.
   C4_PROOFER_FLAG_CHAIN_STORE        = 1 << 3, // allows the proofer to use internal request with data from the chain stroe
+  C4_PROOFER_FLAG_UNSTABLE_LATEST    = 1 << 4, // usually we use latest-1, but if this is set we return the real "latest"
 } proofer_flag_types_t;
 
 /**

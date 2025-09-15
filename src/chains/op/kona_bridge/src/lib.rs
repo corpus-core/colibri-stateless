@@ -522,15 +522,8 @@ async fn process_preconf_with_correct_format(
 
     info!("💾 Saved preconf to: {:?} ({} bytes)", filepath, final_data.len());
 
-    // Update latest.raw symlink
-    let latest_path = output_dir.join("latest.raw");
-    let _ = tokio_fs::remove_file(&latest_path).await; // Ignore error if doesn't exist
-
-    // Create new symlink
-    tokio_fs::symlink(&filename, &latest_path).await
-        .map_err(|e| format!("Failed to create latest.raw symlink: {}", e))?;
-    
-    info!("🔗 Updated latest.raw symlink to {}", filename);
+    // Update symlinks (latest.raw and pre_latest.raw)
+    update_symlinks_lib(output_dir, &filename, chain_id).await?;
 
     // Create metadata file (same structure as before)
     let meta_filename = format!("block_{}_{}.json", chain_id, block_number);
@@ -970,10 +963,85 @@ async fn process_http_preconf(
     let filepath = output_dir.join(&filename);
     tokio_fs::write(&filepath, &combined).await?;
     
-    // Update latest.raw symlink
-    let latest_path = output_dir.join("latest.raw");
-    let _ = tokio_fs::remove_file(&latest_path).await; // Ignore error if doesn't exist
-    tokio_fs::symlink(&filename, &latest_path).await?;
+    // Update symlinks (latest.raw and pre_latest.raw) 
+    update_symlinks_lib(output_dir, &filename, chain_id).await?;
     
     Ok(block_number)
+}
+
+/// Update both latest.raw and pre_latest.raw symlinks for lib.rs
+async fn update_symlinks_lib(
+    output_dir: &PathBuf,
+    new_latest_filename: &str,
+    chain_id: u64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let latest_path = output_dir.join("latest.raw");
+    let pre_latest_path = output_dir.join("pre_latest.raw");
+    
+    // Find the previous latest file by scanning directory
+    let previous_filename = find_previous_block_file(output_dir, chain_id).await?;
+    
+    // Update pre_latest.raw first (if we have a previous file)
+    if let Some(prev_filename) = previous_filename {
+        // Remove old pre_latest symlink
+        let _ = tokio_fs::remove_file(&pre_latest_path).await; // Ignore error if doesn't exist
+        
+        // Create new pre_latest symlink
+        tokio_fs::symlink(&prev_filename, &pre_latest_path).await
+            .map_err(|e| format!("Failed to create pre_latest.raw symlink: {}", e))?;
+        
+        info!("🔗 Updated pre_latest.raw symlink to {}", prev_filename);
+    }
+    
+    // Update latest.raw
+    let _ = tokio_fs::remove_file(&latest_path).await; // Ignore error if doesn't exist
+    tokio_fs::symlink(new_latest_filename, &latest_path).await
+        .map_err(|e| format!("Failed to create latest.raw symlink: {}", e))?;
+    
+    info!("🔗 Updated latest.raw symlink to {}", new_latest_filename);
+    
+    Ok(())
+}
+
+/// Find the previous block file (second newest) by scanning directory
+/// Only considers real block numbers, not timestamp-based fake numbers
+async fn find_previous_block_file(
+    output_dir: &PathBuf,
+    chain_id: u64,
+) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut block_files = Vec::new();
+    
+    // Scan directory for block files
+    let mut entries = tokio_fs::read_dir(output_dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let filename = entry.file_name().to_string_lossy().to_string();
+        if filename.starts_with(&format!("block_{}_", chain_id)) && filename.ends_with(".raw") {
+            // Extract block number
+            if let Some(block_part) = filename.strip_prefix(&format!("block_{}_", chain_id)) {
+                if let Some(number_str) = block_part.strip_suffix(".raw") {
+                    if let Ok(block_number) = number_str.parse::<u64>() {
+                        // Filter out timestamp-based fake block numbers
+                        // Real block numbers are typically < 100M, timestamps are > 1B
+                        if block_number < 1_000_000_000 {
+                            block_files.push((block_number, filename));
+                        } else {
+                            info!("🔍 Ignoring timestamp-based block file: {} (block_number: {})", filename, block_number);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if block_files.len() < 2 {
+        // Need at least 2 files to have a previous one
+        return Ok(None);
+    }
+    
+    // Sort by block number and get the second newest (previous)
+    block_files.sort_by_key(|&(number, _)| number);
+    let previous_file = &block_files[block_files.len() - 2].1; // Second newest
+    
+    info!("🔍 Found previous block file: {} (from {} real block files)", previous_file, block_files.len());
+    Ok(Some(previous_file.clone()))
 }

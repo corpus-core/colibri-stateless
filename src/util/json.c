@@ -164,9 +164,12 @@ size_t json_len(json_t parent) {
 }
 
 char* json_as_string(json_t val, buffer_t* buffer) {
+  buffer_t tmp = {0};
+  if (!buffer) buffer = &tmp;
   buffer->data.len = 0;
   buffer_grow(buffer, val.len + 1);
   if (val.type == JSON_TYPE_STRING)
+
     buffer_append(buffer, bytes((uint8_t*) val.start + 1, val.len - 2));
   else
     buffer_append(buffer, bytes((uint8_t*) val.start, val.len));

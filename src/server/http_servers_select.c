@@ -25,63 +25,6 @@
 #define RECOVERY_TIMEOUT_MS        300000 // 5 minutes before allowing recovery attempts
 #define RECOVERY_SUCCESS_THRESHOLD 5      // Number of successful requests from other servers before allowing recovery
 
-// Helper function for safe substring search in bytes_t
-static bool bytes_contains_string(bytes_t data, const char* needle) {
-  if (!data.data || !needle || data.len == 0) return false;
-
-  size_t needle_len = strlen(needle);
-  if (needle_len > data.len) return false;
-
-// Use memmem if available, otherwise manual search
-#ifdef __GLIBC__
-  return memmem(data.data, data.len, needle, needle_len) != NULL;
-#else
-  // Manual search for portability
-  for (size_t i = 0; i <= data.len - needle_len; i++) {
-    if (memcmp(data.data + i, needle, needle_len) == 0) {
-      return true;
-    }
-  }
-  return false;
-#endif
-}
-
-// Check if response indicates user error (4xx codes)
-// For beacon API blocks, 404 might be sync lag rather than user error
-bool c4_is_user_error_response(long http_code, const char* url, bytes_t response_body) {
-  // All 5xx codes are server errors, not user errors
-  if (http_code >= 500) return false;
-
-  // Only 4xx codes can be user errors
-  if (http_code < 400 || http_code >= 500) return false;
-
-  // Server configuration/infrastructure errors (not user errors)
-  if (http_code == 401) return false; // Unauthorized (API keys, auth issues)
-  if (http_code == 403) return false; // Forbidden (often server misconfiguration)
-  if (http_code == 429) return false; // Too Many Requests (rate limiting)
-
-  // Special case: Beacon API requests with 404 might be sync lag or client incompatibility
-  if (http_code == 404 && url &&
-      (strstr(url, "/beacon/blocks/") || strstr(url, "/beacon/headers/") ||
-       strstr(url, "/historical_summaries/") || strstr(url, "/nimbus/") || strstr(url, "/lodestar/"))) {
-    // Check if response indicates the block/header simply isn't available yet (sync lag)
-    if (response_body.data && response_body.len > 0 &&
-        (bytes_contains_string(response_body, "Block header/data has not been found") ||
-         bytes_contains_string(response_body, "Block not found") ||
-         bytes_contains_string(response_body, "Header not found") ||
-         bytes_contains_string(response_body, "block not found") ||
-         bytes_contains_string(response_body, "header not found") ||
-         bytes_contains_string(response_body, "unknown block") ||
-         bytes_contains_string(response_body, "unknown header"))) {
-      fprintf(stderr, "   [sync ] Detected potential sync lag for beacon API - treating as server error, not user error\n");
-      return false; // Treat as server error (retryable) rather than user error
-    }
-  }
-
-  // All other 4xx codes are user errors
-  return true;
-}
-
 // Check if too many servers are unhealthy (indicating potential user error)
 bool c4_should_reset_health_stats(server_list_t* servers) {
   if (!servers || !servers->health_stats || servers->count == 0) return false;
