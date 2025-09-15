@@ -20,13 +20,14 @@
  *
  * SPDX-License-Identifier: MIT
  */
-
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_account.h"
 #include "eth_verify.h"
 #include "json.h"
+#include "op_types.h"
+#include "op_verify.h"
 #include "patricia.h"
 #include "rlp.h"
 #include "ssz.h"
@@ -39,39 +40,17 @@
 
 c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result);
 
-bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root) {
-  uint32_t  len                 = ssz_len(accounts);
-  bytes32_t root                = {0};
-  bytes32_t code_hash_exepected = {0};
-  for (uint32_t i = 0; i < len; i++) {
-    ssz_ob_t acc = ssz_at(accounts, i);
-    if (!eth_verify_account_proof_exec(ctx, &acc, root, ETH_ACCOUNT_CODE_HASH, bytes(code_hash_exepected, 32))) RETURN_VERIFY_ERROR(ctx, "Failed to verify account proof");
-    ssz_ob_t code = ssz_get(&acc, "code");
-    if (code.def->type == SSZ_TYPE_LIST) {
-      bytes32_t code_hash_passed = {0};
-      keccak(code.bytes, code_hash_passed);
-      if (memcmp(code_hash_exepected, code_hash_passed, 32) != 0) RETURN_VERIFY_ERROR(ctx, "Code hash mismatch");
-    }
-
-    if (bytes_all_zero(bytes(state_root, 32)))
-      memcpy(state_root, root, 32);
-    else if (memcmp(state_root, root, 32) != 0)
-      RETURN_VERIFY_ERROR(ctx, "State root mismatch");
-  }
-  return true;
-}
 // Function to verify call proof
-bool verify_call_proof(verify_ctx_t* ctx) {
-  bytes32_t    body_root   = {0};
+bool op_verify_call_proof(verify_ctx_t* ctx) {
   bytes32_t    state_root  = {0};
-  ssz_ob_t     state_proof = ssz_get(&ctx->proof, "state_proof");
   ssz_ob_t     accounts    = ssz_get(&ctx->proof, "accounts");
-  ssz_ob_t     header      = ssz_get(&state_proof, "header");
+  ssz_ob_t     block_proof = ssz_get(&ctx->proof, "block_proof");
   bytes_t      call_result = NULL_BYTES;
   call_code_t* call_codes  = NULL;
   bool         match       = false;
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
 
+  // make sure we have all the code data we need
   if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) return false;
 #ifdef EVMONE
   c4_status_t call_status = eth_run_call_evmone(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result);
@@ -91,8 +70,11 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   if (call_status != C4_SUCCESS) return false;
   if (!match) RETURN_VERIFY_ERROR(ctx, "Call result mismatch");
   if (!c4_eth_verify_accounts(ctx, accounts, state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
-  if (!eth_verify_state_proof(ctx, state_proof, state_root)) false;
-  if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
+  ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
+  if (!execution_payload) return false;
+  match = memcmp(state_root, ssz_get(execution_payload, "stateRoot").bytes.data, 32) == 0;
+  safe_free(execution_payload);
+  if (!match) RETURN_VERIFY_ERROR(ctx, "State root mismatch");
 
   ctx->success = true;
   return ctx->success;

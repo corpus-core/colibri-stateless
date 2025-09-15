@@ -27,12 +27,32 @@ endif()
 
 
 
+if (EVMLIGHT OR EVMONE)
+    if (EVMONE) 
+       set(EVMLIGHT OFF)
+       add_definitions(-DEVMONE)
+    else()
+        add_definitions(-DEVMLIGHT)
+    endif()
+    set(EVM ON)
+    add_definitions(-DEVM -DINTX)
+    set(INTX ON)
+
+    if (EVMLIGHT)
+        add_definitions(-DEVMLIGHT)
+    endif()
+    if (PRECOMPILES_RIPEMD160)
+        add_definitions(-DPRECOMPILED_RIPEMD160)
+    endif()
+endif()
+
 
 set(VERIFIER_SOURCES
   verifier/op_verify_block.c
   verifier/op_verify_tx.c
   verifier/op_verify_receipt.c
   verifier/op_verify_logs.c
+  verifier/op_verify_call.c
   verifier/op_verify.c
   verifier/op_zstd.c
   verifier/op_chains_conf.c
