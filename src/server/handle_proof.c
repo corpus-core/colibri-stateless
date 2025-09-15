@@ -32,9 +32,7 @@ static void proofer_request_free(request_t* req) {
   c4_proofer_free((proofer_ctx_t*) req->ctx);
   safe_free(req);
 }
-
-void c4_proofer_handle_request(request_t* req) {
-  if (c4_check_retry_request(req)) return; // if there are data_request in the req, we either clean it up or retry in case of an error (if possible.)
+static bool c4_check_worker_request(request_t* req) {
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED && c4_proofer_status(ctx) == C4_PENDING && c4_state_get_pending_request(&ctx->state) == NULL) {
     // no data are required and no pending request, so we can execute the proofer in the worker thread
@@ -46,9 +44,15 @@ void c4_proofer_handle_request(request_t* req) {
     uv_queue_work(uv_default_loop(), &work->req,
                   c4_proofer_execute_worker,
                   c4_proofer_execute_after);
-    return;
+    return true;
   }
+  return false;
+}
 
+void c4_proofer_handle_request(request_t* req) {
+  if (c4_check_retry_request(req) || c4_check_worker_request(req)) return; // if there are data_request in the req, we either clean it up or retry in case of an error (if possible.)
+
+  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   switch (c4_proofer_execute(ctx)) {
     case C4_SUCCESS:
       c4_http_respond(req->client, 200, "application/octet-stream", ctx->proof);
