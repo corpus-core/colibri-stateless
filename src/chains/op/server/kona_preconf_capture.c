@@ -15,6 +15,7 @@ typedef struct {
   const char*              output_dir;
   int                      result;
   bool                     should_stop;
+  KonaBridgeHandle*        bridge_handle; // Handle für echte Stats
 } kona_worker_data_t;
 
 static kona_worker_data_t* g_kona_worker = NULL;
@@ -61,6 +62,9 @@ static void kona_worker_thread(uv_work_t* req) {
     data->result = -1;
     return;
   }
+
+  // Speichere Handle für Stats-Zugriff
+  data->bridge_handle = bridge_handle;
 
   log_info("✅ Real Kona bridge started successfully");
   data->result = 0;
@@ -151,6 +155,7 @@ int start_kona_preconf_capture(uv_loop_t* loop, uint64_t chain_id, const char* o
   worker_data->output_dir    = output_dir;
   worker_data->result        = 0;
   worker_data->should_stop   = false;
+  worker_data->bridge_handle = NULL; // Wird im Worker-Thread gesetzt
 
   // Queue work
   int rc = uv_queue_work(loop, &worker_data->work_req, kona_worker_thread, kona_worker_done);
@@ -192,21 +197,10 @@ bool is_kona_preconf_capture_running(void) {
 }
 
 int get_kona_preconf_capture_stats(KonaBridgeStats* stats) {
-  if (g_kona_worker == NULL || !stats) {
+  if (g_kona_worker == NULL || !stats || g_kona_worker->bridge_handle == NULL) {
     return -1;
   }
 
-  // Mock: Simuliere Statistiken
-  stats->connected_peers    = 5;
-  stats->received_preconfs  = 42;
-  stats->processed_preconfs = 42;
-  stats->failed_preconfs    = 0;
-  stats->http_received      = 30;
-  stats->http_processed     = 30;
-  stats->gossip_received    = 12;
-  stats->gossip_processed   = 12;
-  stats->mode_switches      = 1;
-  stats->current_mode       = 1; // Currently in Gossip mode
-
-  return 0;
+  // Hole echte Statistiken von der Rust-Bridge
+  return kona_bridge_get_stats(g_kona_worker->bridge_handle, stats);
 }

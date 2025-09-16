@@ -61,7 +61,6 @@ endif()
 # Kona-Preconf-Capture (direkte Integration)
 add_library(kona_preconf_capture STATIC
     ../server/kona_preconf_capture.c
-    # integration.c  # TODO: Aktivieren wenn echte Kona-Bridge verwendet wird
 )
 
 target_include_directories(kona_preconf_capture PUBLIC
