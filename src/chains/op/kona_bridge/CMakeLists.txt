@@ -31,8 +31,7 @@ add_custom_command(
             ${CMAKE_BINARY_DIR}/lib/libkona_bridge.a
     COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/libkona_bridge_built.stamp
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/main.rs 
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/lib.rs
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/lib.rs
             ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
     COMMENT "Building Kona-P2P Rust static library"
 )

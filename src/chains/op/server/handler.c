@@ -85,6 +85,31 @@ void op_server_metrics(http_server_t* server, buffer_t* data) {
     snprintf(success_rate_str, sizeof(success_rate_str), "%.3f", success_rate);
     bprintf(data, "colibri_op_preconf_success_rate{chain_id=\"%d\"} %s\n", (uint32_t) server->chain_id, success_rate_str);
 
+    // HTTP/Gossip Mode-specific metrics
+    bprintf(data, "# HELP colibri_op_preconf_http_received_total Total number of preconfirmations received via HTTP.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_http_received_total counter\n");
+    bprintf(data, "colibri_op_preconf_http_received_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.http_received);
+
+    bprintf(data, "# HELP colibri_op_preconf_http_processed_total Total number of preconfirmations processed via HTTP.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_http_processed_total counter\n");
+    bprintf(data, "colibri_op_preconf_http_processed_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.http_processed);
+
+    bprintf(data, "# HELP colibri_op_preconf_gossip_received_total Total number of preconfirmations received via Gossip.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_gossip_received_total counter\n");
+    bprintf(data, "colibri_op_preconf_gossip_received_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.gossip_received);
+
+    bprintf(data, "# HELP colibri_op_preconf_gossip_processed_total Total number of preconfirmations processed via Gossip.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_gossip_processed_total counter\n");
+    bprintf(data, "colibri_op_preconf_gossip_processed_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.gossip_processed);
+
+    bprintf(data, "# HELP colibri_op_preconf_mode_switches_total Total number of HTTP to Gossip mode switches.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_mode_switches_total counter\n");
+    bprintf(data, "colibri_op_preconf_mode_switches_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.mode_switches);
+
+    bprintf(data, "# HELP colibri_op_preconf_current_mode Current mode of preconfirmation reception (0=HTTP, 1=Gossip).\n");
+    bprintf(data, "# TYPE colibri_op_preconf_current_mode gauge\n");
+    bprintf(data, "colibri_op_preconf_current_mode{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.current_mode);
+
     bprintf(data, "\n");
   }
 #else

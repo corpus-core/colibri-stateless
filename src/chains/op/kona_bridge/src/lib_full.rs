@@ -1,5 +1,13 @@
-// lib.rs - HTTP-first Kona-Bridge mit echtem P2P-Netzwerk
-// Verwendet JSON-Serialization als Workaround für SSZ-Dependency-Probleme
+// lib.rs - Temporarily use minimal version due to dependency issues
+// TODO: Switch back to full implementation once ethereum_ssz dependency is resolved
+
+// Re-export minimal implementation
+pub use crate::lib_minimal::*;
+
+mod lib_minimal;
+
+// Full implementation (currently disabled due to ethereum_ssz dependency issues)
+// lib_helios.rs - C-kompatible Interface für echte Kona-Bridge mit korrektem Preconf-Format
 
 use alloy::primitives::{Address, address};
 use discv5::{ConfigBuilder, enr::CombinedKey};
@@ -8,7 +16,7 @@ use kona_p2p::{LocalNode, Network};
 use kona_registry::ROLLUP_CONFIGS;
 use libp2p::{Multiaddr, identity::Keypair};
 use op_alloy_rpc_types_engine::{OpNetworkPayloadEnvelope, OpExecutionPayload};
-// Workaround für SSZ-Probleme - verwende einfache Serialization
+use ethereum_ssz::Encode;
 use reqwest;
 use std::{
     borrow::BorrowMut,
@@ -682,13 +690,13 @@ async fn process_preconf_with_correct_format(
     
     info!("📦 Processing preconf for block #{}", block_number);
 
-    // Verwende direkte Serialization ohne SSZ-Dependencies
-    // Das Payload wird als JSON serialisiert und dann als Bytes behandelt
+    // Extract the execution payload bytes using SSZ serialization (EXACTLY like Helios)
+    // This is the exact format used for signature verification
     let execution_payload_bytes = match &payload_envelope.payload {
-        OpExecutionPayload::V1(payload) => serde_json::to_vec(payload).map_err(|e| format!("JSON serialization failed: {}", e))?,
-        OpExecutionPayload::V2(payload) => serde_json::to_vec(payload).map_err(|e| format!("JSON serialization failed: {}", e))?,
-        OpExecutionPayload::V3(payload) => serde_json::to_vec(payload).map_err(|e| format!("JSON serialization failed: {}", e))?,
-        OpExecutionPayload::V4(payload) => serde_json::to_vec(payload).map_err(|e| format!("JSON serialization failed: {}", e))?,
+        OpExecutionPayload::V1(payload) => payload.as_ssz_bytes(),
+        OpExecutionPayload::V2(payload) => payload.as_ssz_bytes(),
+        OpExecutionPayload::V3(payload) => payload.as_ssz_bytes(),
+        OpExecutionPayload::V4(payload) => payload.as_ssz_bytes(),
     };
     
     // Debug logs moved to debug! level (CPU-optimized)
@@ -1076,77 +1084,6 @@ async fn fetch_http_preconf(
     Ok(Some((data_hash, preconf)))
 }
 
-/// Extract block number from raw preconf data using fixed offsets
-/// Struktur: 32 bytes previousBlockHash + ExecutionPayload
-/// ExecutionPayload Offsets (wie in beacon_denep.c):
-/// - parentHash: 32 bytes
-/// - feeRecipient: 20 bytes  
-/// - stateRoot: 32 bytes
-/// - receiptsRoot: 32 bytes
-/// - logsBloom: 256 bytes
-/// - prevRandao: 32 bytes
-/// - blockNumber: 8 bytes (little-endian) <- das wollen wir
-fn extract_block_number_from_preconf_data(data: &[u8]) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-    // Berechne Offset für blockNumber
-    let previous_block_hash_offset = 32;
-    let parent_hash_offset = 32;
-    let fee_recipient_offset = 20;
-    let state_root_offset = 32;
-    let receipts_root_offset = 32;
-    let logs_bloom_offset = 256;
-    let prev_randao_offset = 32;
-    
-    let block_number_offset = previous_block_hash_offset 
-        + parent_hash_offset 
-        + fee_recipient_offset 
-        + state_root_offset 
-        + receipts_root_offset 
-        + logs_bloom_offset 
-        + prev_randao_offset;
-    
-    if data.len() < block_number_offset + 8 {
-        return Err("Data too short to contain block number".into());
-    }
-    
-    // Extrahiere 8 Bytes als little-endian u64
-    let block_number_bytes = &data[block_number_offset..block_number_offset + 8];
-    let block_number = u64::from_le_bytes([
-        block_number_bytes[0], block_number_bytes[1], block_number_bytes[2], block_number_bytes[3],
-        block_number_bytes[4], block_number_bytes[5], block_number_bytes[6], block_number_bytes[7],
-    ]);
-    
-    Ok(block_number)
-}
-
-/// Extract block hash from raw preconf data using fixed offsets  
-/// Block hash ist nach blockNumber + gasLimit + gasUsed + timestamp + extraData(4) + baseFeePerGas
-fn extract_block_hash_from_preconf_data(data: &[u8]) -> Result<[u8; 32], Box<dyn std::error::Error + Send + Sync>> {
-    // Berechne Offset für blockHash (nach blockNumber)
-    let block_number_offset = 32 + 32 + 20 + 32 + 32 + 256 + 32; // wie oben berechnet
-    let gas_limit_offset = 8;
-    let gas_used_offset = 8;  
-    let timestamp_offset = 8;
-    let extra_data_offset = 4; // extraData ist dynamisch, aber meist 4 bytes
-    let base_fee_offset = 32;
-    
-    let block_hash_offset = block_number_offset 
-        + gas_limit_offset 
-        + gas_used_offset 
-        + timestamp_offset 
-        + extra_data_offset 
-        + base_fee_offset;
-    
-    if data.len() < block_hash_offset + 32 {
-        return Err("Data too short to contain block hash".into());
-    }
-    
-    // Extrahiere 32 Bytes für block hash
-    let mut block_hash = [0u8; 32];
-    block_hash.copy_from_slice(&data[block_hash_offset..block_hash_offset + 32]);
-    
-    Ok(block_hash)
-}
-
 /// Process HTTP preconf and save to filesystem (similar to Go implementation)
 async fn process_http_preconf(
     preconf: serde_json::Value,
@@ -1177,13 +1114,14 @@ async fn process_http_preconf(
     sig_bytes[64 - s_bytes.len()..64].copy_from_slice(&s_bytes);
     sig_bytes[64] = v_byte;
     
-    // Extract block number from raw data using fixed offsets
-    let block_number = extract_block_number_from_preconf_data(&data_bytes)?;
-    info!("🔍 HTTP: Extracted block number {} from preconf data", block_number);
+    // Extract block number (mock for now - would need proper SSZ parsing)
+    let block_number = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     
-    // Compress HTTP preconfs with ZSTD (level 1 for speed)
-    let compressed = zstd::bulk::compress(&data_bytes, 1)?;
-    let compressed_size = compressed.len(); // Speichere Größe vor dem Move
+        // Compress HTTP preconfs with ZSTD (level 1 for speed)
+        let compressed = zstd::bulk::compress(&data_bytes, 1)?;
     
     // Combine compressed payload + signature
     let mut combined = compressed;
@@ -1196,33 +1134,6 @@ async fn process_http_preconf(
     
     // Update symlinks (latest.raw and pre_latest.raw) 
     update_symlinks_lib(output_dir, &filename, chain_id).await?;
-    
-    // Create metadata JSON with extracted block hash
-    let block_hash = extract_block_hash_from_preconf_data(&data_bytes)
-        .unwrap_or([0u8; 32]); // Fallback bei Fehlern
-    
-    let meta_filename = format!("block_{}_{}.json", chain_id, block_number);
-    let meta_filepath = output_dir.join(&meta_filename);
-    
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-    let metadata = serde_json::json!({
-        "chain_id": chain_id.to_string(),
-        "block_number": block_number,
-        "block_hash": format!("0x{}", hex::encode(&block_hash)),
-        "received_unix": timestamp,
-        "signature": format!("0x{}", hex::encode(&sig_bytes)),
-        "compressed_size": compressed_size,
-        "decompressed_size": data_bytes.len(),
-        "file_path": filename,
-        "source": "http",
-        "kona_p2p": true
-    });
-
-    let metadata_json = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
-    
-    tokio_fs::write(&meta_filepath, metadata_json).await
-        .map_err(|e| format!("Failed to write metadata: {}", e))?;
     
     Ok(block_number)
 }

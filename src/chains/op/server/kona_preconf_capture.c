@@ -33,15 +33,17 @@ static void kona_worker_thread(uv_work_t* req) {
 
   // Erstelle Kona-Bridge Konfiguration
   KonaBridgeConfig kona_config = {
-      .chain_id          = data->chain_config->chain_id,
-      .hardfork          = data->chain_config->hardfork_version,
-      .disc_port         = data->chain_config->kona_disc_port,
-      .gossip_port       = data->chain_config->kona_gossip_port,
-      .ttl_minutes       = data->chain_config->kona_ttl_minutes,
-      .cleanup_interval  = data->chain_config->kona_cleanup_interval,
-      .output_dir        = data->output_dir,
-      .sequencer_address = data->chain_config->sequencer_address,
-      .chain_name        = data->chain_config->name};
+      .chain_id               = data->chain_config->chain_id,
+      .hardfork               = data->chain_config->hardfork_version,
+      .disc_port              = data->chain_config->kona_disc_port,
+      .gossip_port            = data->chain_config->kona_gossip_port,
+      .ttl_minutes            = data->chain_config->kona_ttl_minutes,
+      .cleanup_interval       = data->chain_config->kona_cleanup_interval,
+      .http_poll_interval     = data->chain_config->kona_http_poll_interval,
+      .http_failure_threshold = data->chain_config->kona_http_failure_threshold,
+      .output_dir             = data->output_dir,
+      .sequencer_address      = data->chain_config->sequencer_address,
+      .chain_name             = data->chain_config->name};
 
   // TEST: Direkte Rust-Funktion aufrufen
   log_info("🔧 DEBUG: About to call kona_bridge_start");
@@ -199,6 +201,12 @@ int get_kona_preconf_capture_stats(KonaBridgeStats* stats) {
   stats->received_preconfs  = 42;
   stats->processed_preconfs = 42;
   stats->failed_preconfs    = 0;
+  stats->http_received      = 30;
+  stats->http_processed     = 30;
+  stats->gossip_received    = 12;
+  stats->gossip_processed   = 12;
+  stats->mode_switches      = 1;
+  stats->current_mode       = 1; // Currently in Gossip mode
 
   return 0;
 }

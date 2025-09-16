@@ -1,6 +1,6 @@
 // main_helios.rs - Echte Kona-P2P Implementation basierend auf Helios
 use alloy::{
-    primitives::{Address, Bytes, address, B256},
+    primitives::{Address, Bytes, address},
     signers::Signature,
 };
 use clap::Parser;
@@ -293,7 +293,7 @@ fn signature_to_bytes(signature: &Signature) -> [u8; 65] {
     bytes
 }
 
-fn recover_sequencer_address(commitment: &SequencerCommitment, chain_id: u64) -> Result<Address, Box<dyn std::error::Error>> {
+fn recover_sequencer_address(_commitment: &SequencerCommitment, _chain_id: u64) -> Result<Address, Box<dyn std::error::Error>> {
     // TODO: Implement signature recovery logic
     // This would use the same logic as in the Go implementation
     Ok(Address::ZERO) // Placeholder
