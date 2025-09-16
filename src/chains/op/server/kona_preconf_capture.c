@@ -30,7 +30,12 @@ static void kona_worker_thread(uv_work_t* req) {
   log_info("🦀 Starting REAL Kona bridge for chain %llu", (unsigned long long) data->chain_config->chain_id);
 
   // Set Rust tracing level for better debugging
-  setenv("RUST_LOG", "kona_bridge=debug,info", 1);
+  setenv("RUST_LOG", "kona_bridge=info,warn", 1);
+
+  // Initialize Rust logging explicitly
+  log_info("🦀 Initializing Rust logging...");
+  kona_bridge_init_logging();
+  log_info("🦀 Rust logging initialized");
 
   // Erstelle Kona-Bridge Konfiguration
   KonaBridgeConfig kona_config = {
