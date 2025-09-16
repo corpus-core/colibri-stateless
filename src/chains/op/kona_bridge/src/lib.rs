@@ -13,7 +13,6 @@ use std::{
     borrow::BorrowMut,
     ffi::CStr,
     fs,
-    io::Write,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     os::raw::{c_char, c_int, c_uint},
     path::PathBuf,
@@ -26,7 +25,7 @@ use tokio::{
     runtime::Runtime,
     time::{interval, sleep},
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// C-kompatible Konfiguration für die Kona-Bridge
 #[repr(C)]
@@ -168,10 +167,16 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
     let thread_handle = thread::spawn(move || {
         info!("🔄 Kona-P2P bridge thread starting...");
 
-        let rt = match Runtime::new() {
+        let rt = match tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)  // GPT-5 Hot-Thread Fix: Minimal worker count
+            .max_blocking_threads(1)  // GPT-5: Nur 1 blocking thread für ZSTD
+            .thread_name("kona-bridge")
+            .thread_keep_alive(Duration::from_secs(10))  // Threads früher beenden
+            .enable_all()
+            .build() {
             Ok(rt) => rt,
             Err(e) => {
-                error!("❌ Failed to create Tokio runtime: {}", e);
+                error!("❌ Failed to create optimized Tokio runtime: {}", e);
                 return;
             }
         };
@@ -324,121 +329,125 @@ async fn run_kona_network(
     info!("📡 Gossip: 0.0.0.0:{}", gossip_port);
     info!("🔐 Expected sequencer: {}", chain_config.unsafe_signer);
 
+    // Thread-optimized P2P: Use first 3 bootnodes for reliable discovery
+    let optimized_bootnodes = if chain_config.bootnodes.len() > 3 {
+        chain_config.bootnodes[0..3].to_vec() // Use first 3 bootnodes
+    } else {
+        chain_config.bootnodes.clone() // Use all available
+    };
+    
+    info!("🔧 Thread-optimized P2P: Using {} bootnode(s) for reliable discovery", optimized_bootnodes.len());
+    
     let mut network = Network::builder()
         .with_rollup_config(cfg)
         .with_unsafe_block_signer(chain_config.unsafe_signer)
         .with_discovery_address(disc)
         .with_gossip_address(gossip_addr)
         .with_keypair(gossip_key)
-        .with_discovery_config(ConfigBuilder::new(disc_listen.into()).build())
+        .with_discovery_config(
+            ConfigBuilder::new(disc_listen.into())
+                .build() // Minimal discovery config
+        )
         .build()
-        .map_err(|e| format!("Failed to build network driver: {}", e))?;
+        .map_err(|e| format!("Failed to build P2P network: {}", e))?;
 
-    // Add bootnodes
-    info!("📋 Configuring {} bootnodes for chain {}", chain_config.bootnodes.len(), chain_config.chain_id);
-    for (i, bootnode) in chain_config.bootnodes.iter().enumerate() {
-        info!("🔗 Adding bootnode {}: {}", i + 1, bootnode);
+    // Add optimized bootnodes for reliable peer discovery
+    for bootnode in optimized_bootnodes {
+        info!("🔗 Adding bootnode: {}", bootnode);
         network
             .discovery
             .borrow_mut()
             .disc
             .borrow_mut()
-            .add_enr(bootnode.clone())
-            .map_err(|e| format!("Failed to add bootnode {}: {}", i + 1, e))?;
-    }
-    
-    if chain_config.bootnodes.is_empty() {
-        warn!("⚠️  No bootnodes configured for chain {} - peer discovery may be limited!", chain_config.chain_id);
+            .add_enr(bootnode)
+            .map_err(|e| format!("Failed to add bootnode: {}", e))?;
     }
 
     let mut payload_recv = network.unsafe_block_recv();
     network
         .start()
         .await
-        .map_err(|e| format!("Failed to start network driver: {}", e))?;
+        .map_err(|e| format!("Failed to start P2P network: {}", e))?;
 
-    info!("✅ Kona-P2P network started successfully!");
-    info!("🎧 Listening for preconfirmation messages...");
+    info!("✅ P2P network started successfully!");
+    info!("🎧 Listening for gossip messages...");
 
-    // Update stats: we're now connected - get actual peer count
+    // Update stats
     {
         let mut stats_guard = stats.lock().unwrap();
-        // TODO: Get actual peer count from network.discovery
-        stats_guard.connected_peers = 1; // Will be updated in the loop
+        stats_guard.connected_peers = 1; // Will update with real peer count
     }
 
     let mut latest_block_number = 0u64;
 
-    // Process incoming payloads
+    // Optimized event loop with balanced polling frequency
     while *running.lock().unwrap() {
-        tokio::select! {
-            result = tokio::time::timeout(Duration::from_secs(1), payload_recv.recv()) => {
-                let result = match result {
-                    Ok(r) => r,
-                    Err(_) => {
-                        // Timeout - check running flag and continue
-                        continue;
-                    }
-                };
+        // CPU-optimized: Check every 5 seconds (balance between responsiveness and CPU)
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        
+        if !*running.lock().unwrap() {
+            break;
+        }
+        
+        // Check for new payloads (every 5 seconds)
+        match payload_recv.try_recv() {
+            Ok(payload_envelope) => {
+                let hash = payload_envelope.payload.block_hash();
+                let number = payload_envelope.payload.block_number();
                 
-                match result {
-                    Ok(payload_envelope) => {
-                        let hash = payload_envelope.payload.block_hash();
-                        let number = payload_envelope.payload.block_number();
-                        
-                        info!("🎉 PRECONF RECEIVED! Block #{} Hash: {}", number, hash);
-                        
-                        // Signal that gossip is active (stops HTTP fallback)
-                        {
-                            let mut gossip_flag = gossip_active.lock().unwrap();
-                            if !*gossip_flag {
-                                info!("🌐➡️📡 SWITCHING: HTTP polling → Gossip network (first gossip preconf received)");
-                                *gossip_flag = true;
-                                info!("🔄 Gossip network now active - HTTP fallback will stop");
-                            }
-                        }
+                info!("🎉 P2P: PRECONF RECEIVED! Block #{} Hash: {}", number, hash);
+                
+                // Signal that gossip is active (stops HTTP fallback)
+                {
+                    let mut gossip_flag = gossip_active.lock().unwrap();
+                    if !*gossip_flag {
+                        info!("🌐➡️📡 SWITCHING: HTTP → P2P Gossip");
+                        *gossip_flag = true;
+                    }
+                }
 
-                        // Update received stats
-                        {
+                // Update received stats
+                {
+                    let mut stats_guard = stats.lock().unwrap();
+                    stats_guard.received_preconfs += 1;
+                }
+
+                // Process preconf (only if newer)
+                if number > latest_block_number {
+                    match process_preconf_with_correct_format(
+                        &payload_envelope, 
+                        chain_id, 
+                        output_dir, 
+                        expected_sequencer
+                    ).await {
+                        Ok(()) => {
+                            latest_block_number = number;
                             let mut stats_guard = stats.lock().unwrap();
-                            stats_guard.received_preconfs += 1;
+                            stats_guard.processed_preconfs += 1;
+                            info!("✅ MINIMAL-P2P: Processed (total: {})", stats_guard.processed_preconfs);
                         }
-
-                        // Check if this is newer than our latest
-                        if number > latest_block_number {
-                            match process_preconf_with_correct_format(
-                                &payload_envelope, 
-                                chain_id, 
-                                output_dir, 
-                                expected_sequencer
-                            ).await {
-                                Ok(()) => {
-                                    latest_block_number = number;
-                                    let mut stats_guard = stats.lock().unwrap();
-                                    stats_guard.processed_preconfs += 1;
-                                    info!("✅ Preconf processed successfully (total: {})", stats_guard.processed_preconfs);
-                                }
-                                Err(e) => {
-                                    let mut stats_guard = stats.lock().unwrap();
-                                    stats_guard.failed_preconfs += 1;
-                                    error!("❌ Failed to process preconf: {}", e);
-                                }
-                            }
-                        } else {
-                            info!("⏭️  Skipping old preconf (block #{} <= {})", number, latest_block_number);
+                        Err(e) => {
+                            let mut stats_guard = stats.lock().unwrap();
+                            stats_guard.failed_preconfs += 1;
+                            error!("❌ MINIMAL-P2P: Failed: {}", e);
                         }
                     }
-                    Err(e) => {
-                        error!("❌ Error receiving payload: {}", e);
-                        break;
-                    }
+                } else {
+                    info!("⏭️  MINIMAL-P2P: Skipping old preconf #{}", number);
                 }
             }
-            _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                // Periodic check if we should stop
-                if !*running.lock().unwrap() {
-                    break;
-                }
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                // GPT-5 Hot-Thread Fix: yield_now() statt busy-waiting
+                tokio::task::yield_now().await;
+                continue;
+            }
+            Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+                info!("🛑 MINIMAL-P2P: Receiver closed");
+                break;
+            }
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
+                warn!("⚠️  MINIMAL-P2P: Receiver lagged");
+                continue;
             }
         }
     }
@@ -467,9 +476,9 @@ async fn process_preconf_with_correct_format(
         OpExecutionPayload::V4(payload) => payload.as_ssz_bytes(),
     };
     
-    info!("🔍 DEBUG: ExecutionPayload type: {:?}", std::any::type_name_of_val(&payload_envelope.payload));
-    info!("🔍 DEBUG: ExecutionPayload serialized size: {} bytes", execution_payload_bytes.len());
-    info!("🔍 DEBUG: ExecutionPayload first 64 bytes: {:02x?}", &execution_payload_bytes[..64.min(execution_payload_bytes.len())]);
+    // Debug logs moved to debug! level (CPU-optimized)
+    debug!("🔍 ExecutionPayload type: {:?}", std::any::type_name_of_val(&payload_envelope.payload));
+    debug!("🔍 ExecutionPayload serialized size: {} bytes", execution_payload_bytes.len());
     
     // Format: parent_beacon_block_root + execution_payload (EXACTLY like Helios)
     let mut preconf_data = Vec::new();
@@ -477,11 +486,11 @@ async fn process_preconf_with_correct_format(
     // Use parent_beacon_block_root (like Helios), not zero domain
     if let Some(parent_root) = payload_envelope.parent_beacon_block_root {
         preconf_data.extend_from_slice(parent_root.as_slice()); // 32-byte parent root
-        info!("🔍 DEBUG: Using parent_beacon_block_root: {:02x?}", &parent_root.as_slice()[..16]);
+        debug!("🔍 Using parent_beacon_block_root: {:02x?}", &parent_root.as_slice()[..16]);
     } else {
         // Fallback to zero domain if no parent root (shouldn't happen normally)
         preconf_data.extend_from_slice(&[0u8; 32]); // 32-byte zero domain
-        info!("⚠️  DEBUG: No parent_beacon_block_root, using zero domain");
+        debug!("⚠️  No parent_beacon_block_root, using zero domain");
     }
     
     preconf_data.extend_from_slice(&execution_payload_bytes);
@@ -489,17 +498,15 @@ async fn process_preconf_with_correct_format(
     info!("📊 Preconf data: {} bytes (domain: 32, payload: {})", 
           preconf_data.len(), execution_payload_bytes.len());
 
-    // Compress with ZSTD - ensure content size is stored in frame header for embedded compatibility
-    use zstd::stream::Encoder;
-    let mut encoder = Encoder::new(Vec::new(), 3)?;
-    encoder.include_contentsize(true)?; // CRITICAL: Store content size in frame header
-    encoder.write_all(&preconf_data)?;
-    let compressed_payload = encoder.finish()?;
-    
-    info!("🗜️  ZSTD compression: {} bytes -> {} bytes ({}% reduction)",
-        preconf_data.len(), 
-        compressed_payload.len(),
-        100 - (compressed_payload.len() * 100 / preconf_data.len().max(1)));
+    // GPT-5 Hot-Thread Fix: ZSTD mit bulk compressor (noch effizienter)
+    let compressed_payload = {
+        let preconf_data_clone = preconf_data.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+            // Bulk-Kompression ist effizienter als Stream für kleine Daten
+            let compressed = zstd::bulk::compress(&preconf_data_clone, 1)?; // Level 1
+            Ok(compressed)
+        }).await??
+    };
 
     // Extract signature (65 bytes) with correct v-parameter
     let signature_bytes = signature_to_bytes(&payload_envelope.signature);
@@ -631,11 +638,18 @@ pub extern "C" fn kona_bridge_get_stats(
     }
 }
 
-/// Hilfsfunktion für Logging-Setup von C aus
+/// Hilfsfunktion für Logging-Setup von C aus (CPU-optimized)
 #[no_mangle]
 pub extern "C" fn kona_bridge_init_logging() {
+    use tracing_subscriber::EnvFilter;
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new(
+                // GPT-5 Hot-Thread Fix: Sehr konservative Defaults für weniger CPU-Last
+                "warn,libp2p_swarm=warn,libp2p_tcp=warn,libp2p_gossipsub=warn,discv5=warn,kona_p2p=info,kona_bridge=info"
+            )))
+        .with_target(false)  // Reduziert String-Allocation
+        .compact()          // Kompaktere Logs = weniger I/O
         .init();
 }
 
@@ -738,6 +752,9 @@ async fn cleanup_old_files(
             break;
         }
         
+        // GPT-5 Hot-Thread Fix: Noch längere Pause zwischen Cleanup-Zyklen (60 Sekunden)
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        
         match cleanup_expired_files(&output_dir, ttl_duration).await {
             Ok(deleted_count) => {
                 if deleted_count > 0 {
@@ -824,10 +841,10 @@ async fn http_polling_fallback(
     stats: Arc<Mutex<KonaBridgeStats>>,
 ) {
     let client = reqwest::Client::new();
-    let mut interval_timer = interval(Duration::from_secs(2)); // Poll every 2 seconds
+    let mut interval_timer = interval(Duration::from_secs(15)); // GPT-5 Hot-Thread Fix: Weniger HTTP-Polling
     let mut last_data_hash: Option<String> = None;
     
-    info!("🌐 HTTP polling fallback active - polling every 2s until gossip active");
+        info!("🌐 HTTP polling active - will switch to P2P gossip when available");
     info!("🌐 HTTP endpoint: {}", endpoint);
     
     while *running.lock().unwrap() {
@@ -883,8 +900,8 @@ async fn http_polling_fallback(
             }
             Err(e) => {
                 warn!("🌐 HTTP: Polling failed: {}", e);
-                // Wait a bit longer on error
-                sleep(Duration::from_secs(5)).await;
+                // Wait longer on error (CPU-optimiert)
+                sleep(Duration::from_secs(30)).await;
             }
         }
     }
@@ -951,8 +968,8 @@ async fn process_http_preconf(
         .unwrap()
         .as_secs();
     
-    // Compress payload with ZSTD
-    let compressed = zstd::bulk::compress(&data_bytes, 3)?;
+        // Compress HTTP preconfs with ZSTD (level 1 for speed)
+        let compressed = zstd::bulk::compress(&data_bytes, 1)?;
     
     // Combine compressed payload + signature
     let mut combined = compressed;
