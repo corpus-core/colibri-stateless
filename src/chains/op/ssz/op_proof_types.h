@@ -112,7 +112,6 @@ static const ssz_def_t ETH_ACCOUNT_PROOF[] = {
     SSZ_LIST("accountProof", ssz_bytes_1024, 256),              // Patricia merkle proof
     SSZ_ADDRESS("address"),                                     // the address of the account
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected
-    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),                  // the block to be proven
     SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION)               // proof for the blockheader
 };
 
