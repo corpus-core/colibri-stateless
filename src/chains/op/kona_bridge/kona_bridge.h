@@ -44,6 +44,9 @@ typedef struct {
   uint32_t gossip_processed;   /* Anzahl über Gossip verarbeiteter Preconfs */
   uint32_t mode_switches;      /* Anzahl HTTP→Gossip Umschaltungen */
   uint32_t current_mode;       /* Aktueller Modus: 0=HTTP, 1=Gossip */
+  uint32_t total_gaps;         /* Gesamtanzahl verpasster Blöcke */
+  uint32_t http_gaps;          /* Verpasste Blöcke während HTTP-Modus */
+  uint32_t gossip_gaps;        /* Verpasste Blöcke während Gossip-Modus */
 } KonaBridgeStats;
 
 /**

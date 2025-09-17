@@ -59,8 +59,8 @@ pub struct BlockDeduplicator {
 impl BlockDeduplicator {
     pub fn new() -> Self {
         Self {
-            processed_blocks: HashSet::new(),
-            max_size: 1000, // Speichere letzte 1000 Block-Nummern
+            processed_blocks: HashSet::with_capacity(200), // Pre-allocate for 200 blocks
+            max_size: 200, // Reduziert von 1000 auf 200 für Memory-Effizienz
         }
     }
 
@@ -109,4 +109,7 @@ pub struct KonaBridgeStats {
     pub gossip_processed: c_uint,
     pub mode_switches: c_uint,
     pub current_mode: c_uint, // 0=HTTP, 1=Gossip
+    pub total_gaps: c_uint,   // Gesamtanzahl verpasster Blöcke
+    pub http_gaps: c_uint,    // Verpasste Blöcke während HTTP-Modus
+    pub gossip_gaps: c_uint,  // Verpasste Blöcke während Gossip-Modus
 }

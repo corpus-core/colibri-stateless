@@ -286,11 +286,25 @@ pub async fn run_http_primary_with_gossip_fallback(
                                 // Zähle Gaps für Status-Meldung
                                 gaps_since_last_status += missing_blocks as u32;
                                 
+                                // Reset success counter nur bei größeren Gaps (>3 blocks)
+                                if missing_blocks > 3 {
+                                    let mut tracker = health_tracker.lock().unwrap();
+                                    tracker.consecutive_success_blocks = 0;
+                                    tracing::debug!("🔄 Reset success counter due to large gap: {}", missing_blocks);
+                                }
+                                
                                 // Update gap statistics and check if we should switch to gossip
                                 let should_switch_to_gossip = {
                                     let mut tracker = health_tracker.lock().unwrap();
                                     tracker.total_gaps += missing_blocks as u32;
                                     tracker.recent_gaps += missing_blocks as u32;
+                                    
+                                    // Update stats with HTTP gaps
+                                    {
+                                        let mut stats_guard = stats.lock().unwrap();
+                                        stats_guard.total_gaps += missing_blocks as u32;
+                                        stats_guard.http_gaps += missing_blocks as u32;
+                                    }
                                     
                                     // Reset recent gaps counter every 10 minutes
                                     if let Some(last_reset) = tracker.last_gap_reset {

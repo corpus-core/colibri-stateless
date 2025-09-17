@@ -25,6 +25,7 @@ use std::{
 };
 use tracing::{error, info, warn};
 
+
 /// Startet die echte Kona-Bridge mit korrektem Preconf-Format
 #[no_mangle]
 pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut KonaBridgeHandle {
@@ -119,6 +120,9 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
         gossip_processed: 0,
         mode_switches: 0,
         current_mode: 0, // Start im HTTP-Modus
+        total_gaps: 0,   // Gesamtanzahl verpasster Blöcke
+        http_gaps: 0,    // Verpasste Blöcke während HTTP-Modus
+        gossip_gaps: 0,  // Verpasste Blöcke während Gossip-Modus
     }));
 
     let running = Arc::new(Mutex::new(true));
@@ -269,7 +273,7 @@ async fn run_http_first_network(
         last_gap_reset: Some(SystemTime::now()),
         gap_threshold: 50, // Switch to hybrid mode after 50 missing blocks
         consecutive_success_blocks: 0,
-        success_threshold: 50, // Stop gossip after 50 successful blocks
+        success_threshold: 20, // Stop gossip after 20 successful blocks (40s)
     }));
     
     // Try HTTP-first approach
@@ -377,6 +381,9 @@ pub extern "C" fn kona_bridge_get_stats(
             (*stats).gossip_processed = bridge_stats.gossip_processed;
             (*stats).mode_switches = bridge_stats.mode_switches;
             (*stats).current_mode = bridge_stats.current_mode;
+            (*stats).total_gaps = bridge_stats.total_gaps;
+            (*stats).http_gaps = bridge_stats.http_gaps;
+            (*stats).gossip_gaps = bridge_stats.gossip_gaps;
         }
         0
     } else {
@@ -397,7 +404,7 @@ pub extern "C" fn kona_bridge_init_logging() {
         
         let filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(
-                "error,libp2p_swarm=off,libp2p_tcp=off,libp2p_gossipsub=off,discv5=off,kona_p2p=error,kona_bridge=info"
+                "warn,libp2p=off,discv5=off,kona_p2p=off,kona_bridge=info,tokio=warn,hyper=warn,reqwest=warn"
             ));
             
         let result = tracing_subscriber::fmt()

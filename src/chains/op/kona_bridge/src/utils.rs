@@ -181,11 +181,9 @@ pub async fn cleanup_old_files(
         tokio::time::sleep(Duration::from_secs(60)).await;
         
         match cleanup_expired_files(&output_dir, ttl_duration).await {
-            Ok(deleted_count) => {
+            Ok(_deleted_count) => {
                 // Cleanup-Meldung wird bereits in cleanup_expired_files() geloggt
-//                if deleted_count == 0 {
-//                    info!("🧹 Cleanup completed: no expired files found");
-//                }
+                // Note: Status wird bereits in cleanup_expired_files() geloggt
             }
             Err(e) => {
                 warn!("⚠️  Cleanup failed: {}", e);

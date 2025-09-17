@@ -114,10 +114,10 @@ pub async fn run_gossip_network(
     let mut last_status_block = 0u64;
     const STATUS_INTERVAL: u64 = 200; // Status alle 200 Blöcke (ca. 6 Minuten)
 
-    // Optimized event loop with balanced polling frequency
+    // Memory-optimized event loop with reduced polling frequency
     while *running.lock().unwrap() {
-        // CPU-optimized: Check every 5 seconds (balance between responsiveness and CPU)
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        // Memory-optimized: Check every 2 seconds (faster response, less memory buildup)
+        tokio::time::sleep(Duration::from_secs(2)).await;
         
         if !*running.lock().unwrap() {
             break;
@@ -139,20 +139,38 @@ pub async fn run_gossip_network(
                     stats_guard.gossip_received += 1;
                 }
 
-                // Process preconf (only if newer)
-                if number > latest_block_number {
-                    // Race-Condition-Schutz: Prüfe Deduplizierung
-                    let is_duplicate = if let Some(ref dedup_arc) = deduplicator {
-                        let mut dedup = dedup_arc.lock().unwrap();
-                        dedup.is_duplicate(number)
-                    } else {
-                        false
-                    };
-                    
-                    if is_duplicate {
-                        tracing::debug!("🛡️  GOSSIP: Block {} already processed by HTTP - skipping", number);
-                        continue;
-                    }
+                    // Process preconf (only if newer)
+                    if number > latest_block_number {
+                        // Check for gaps in gossip stream (for statistics)
+                        if latest_block_number > 0 {
+                            let gap = number.saturating_sub(latest_block_number);
+                            if gap > 1 {
+                                let missing_blocks = gap - 1;
+                                tracing::debug!("📡 GOSSIP: Gap detected {} -> {} (missing {} blocks)", 
+                                              latest_block_number, number, missing_blocks);
+                                
+                                // Update gap statistics for Gossip mode
+                                {
+                                    let mut stats_guard = stats.lock().unwrap();
+                                    stats_guard.total_gaps += missing_blocks as u32;
+                                    stats_guard.gossip_gaps += missing_blocks as u32;
+                                }
+                            }
+                        }
+                        
+                        // Race-Condition-Schutz: Prüfe Deduplizierung
+                        let is_duplicate = if let Some(ref dedup_arc) = deduplicator {
+                            let mut dedup = dedup_arc.lock().unwrap();
+                            dedup.is_duplicate(number)
+                        } else {
+                            false
+                        };
+                        
+                        if is_duplicate {
+                            tracing::debug!("🛡️  GOSSIP: Block {} already processed by HTTP - skipping", number);
+                            // received_preconfs already incremented, but not processed (due to deduplication)
+                            continue;
+                        }
                     
                     match process_preconf_with_correct_format(
                         &payload_envelope, 
@@ -168,9 +186,10 @@ pub async fn run_gossip_network(
                             
                             // Periodische Statusmeldung alle 200 Blöcke
                             if number >= last_status_block + STATUS_INTERVAL {
-                                info!("📡 GOSSIP Status: Block #{}, Total processed: {}, HTTP: {}, Gossip: {}", 
+                                let skipped = stats_guard.gossip_received - stats_guard.gossip_processed;
+                                info!("📡 GOSSIP Status: Block #{}, Total processed: {}, HTTP: {}, Gossip: {} (skipped: {})", 
                                       number, stats_guard.processed_preconfs, 
-                                      stats_guard.http_processed, stats_guard.gossip_processed);
+                                      stats_guard.http_processed, stats_guard.gossip_processed, skipped);
                                 last_status_block = number;
                             }
                             
@@ -196,8 +215,8 @@ pub async fn run_gossip_network(
                 info!("🛑 GOSSIP: Receiver closed");
                 break;
             }
-            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
-                warn!("⚠️  GOSSIP: Receiver lagged");
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
+                tracing::debug!("📡 GOSSIP: Receiver lagged - skipped {} messages", skipped);
                 continue;
             }
         }
