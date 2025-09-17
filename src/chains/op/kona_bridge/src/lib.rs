@@ -397,7 +397,7 @@ pub extern "C" fn kona_bridge_init_logging() {
         
         let filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(
-                "warn,libp2p_swarm=error,libp2p_tcp=error,libp2p_gossipsub=error,discv5=error,kona_p2p=warn,kona_bridge=info"
+                "error,libp2p_swarm=off,libp2p_tcp=off,libp2p_gossipsub=off,discv5=off,kona_p2p=error,kona_bridge=info"
             ));
             
         let result = tracing_subscriber::fmt()

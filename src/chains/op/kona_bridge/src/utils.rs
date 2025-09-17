@@ -183,9 +183,9 @@ pub async fn cleanup_old_files(
         match cleanup_expired_files(&output_dir, ttl_duration).await {
             Ok(deleted_count) => {
                 // Cleanup-Meldung wird bereits in cleanup_expired_files() geloggt
-                if deleted_count == 0 {
-                    info!("🧹 Cleanup completed: no expired files found");
-                }
+//                if deleted_count == 0 {
+//                    info!("🧹 Cleanup completed: no expired files found");
+//                }
             }
             Err(e) => {
                 warn!("⚠️  Cleanup failed: {}", e);

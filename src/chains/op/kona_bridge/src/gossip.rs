@@ -45,7 +45,7 @@ pub async fn run_gossip_network(
 
     let gossip_key = Keypair::generate_secp256k1();
 
-    info!("🔍 Looking up rollup config for chain {}", chain_config.chain_id);
+    tracing::debug!("🔍 Looking up rollup config for chain {}", chain_config.chain_id);
     let cfg = ROLLUP_CONFIGS
         .get(&chain_config.chain_id)
         .or_else(|| {
@@ -55,11 +55,11 @@ pub async fn run_gossip_network(
         .ok_or_else(|| format!("No rollup config found for chain {} or Base fallback", chain_config.chain_id))?
         .clone();
     
-    info!("✅ Found rollup config for chain {}", chain_config.chain_id);
+    tracing::debug!("✅ Found rollup config for chain {}", chain_config.chain_id);
 
-    info!("🔍 Discovery: 0.0.0.0:{}", disc_port);
-    info!("📡 Gossip: 0.0.0.0:{}", gossip_port);
-    info!("🔐 Expected sequencer: {}", chain_config.unsafe_signer);
+    tracing::debug!("🔍 Discovery: 0.0.0.0:{}", disc_port);
+    tracing::debug!("📡 Gossip: 0.0.0.0:{}", gossip_port);
+    tracing::debug!("🔐 Expected sequencer: {}", chain_config.unsafe_signer);
 
     // Thread-optimized P2P: Use first 3 bootnodes for reliable discovery
     let optimized_bootnodes = if chain_config.bootnodes.len() > 3 {
@@ -68,7 +68,7 @@ pub async fn run_gossip_network(
         chain_config.bootnodes.clone() // Use all available
     };
     
-    info!("🔧 Thread-optimized P2P: Using {} bootnode(s) for reliable discovery", optimized_bootnodes.len());
+    tracing::debug!("🔧 Thread-optimized P2P: Using {} bootnode(s) for reliable discovery", optimized_bootnodes.len());
     
     let mut network = Network::builder()
         .with_rollup_config(cfg)
@@ -85,7 +85,7 @@ pub async fn run_gossip_network(
 
     // Add optimized bootnodes for reliable peer discovery
     for bootnode in optimized_bootnodes {
-        info!("🔗 Adding bootnode: {}", bootnode);
+        tracing::debug!("🔗 Adding bootnode: {}", bootnode);
         network
             .discovery
             .borrow_mut()
@@ -101,8 +101,8 @@ pub async fn run_gossip_network(
         .await
         .map_err(|e| format!("Failed to start P2P network: {}", e))?;
 
-    info!("✅ P2P network started successfully!");
-    info!("🎧 Listening for gossip messages...");
+    // Nur beim ersten Start loggen - nicht bei jedem Backup-Start
+    info!("📡 Gossip network started - listening for blocks...");
 
     // Update stats
     {
@@ -150,7 +150,7 @@ pub async fn run_gossip_network(
                     };
                     
                     if is_duplicate {
-                        info!("🛡️  GOSSIP: Block {} already processed by HTTP - skipping", number);
+                        tracing::debug!("🛡️  GOSSIP: Block {} already processed by HTTP - skipping", number);
                         continue;
                     }
                     

@@ -84,7 +84,7 @@ pub async fn fetch_http_preconf(
 ) -> Result<Option<(String, serde_json::Value)>, Box<dyn std::error::Error + Send + Sync>> {
     let response = client
         .get(endpoint)
-        .timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(2)) // Aggressive timeout for 2s block times
         .send()
         .await?;
     
@@ -272,7 +272,7 @@ pub async fn run_http_primary_with_gossip_fallback(
                             };
                             
                             if is_duplicate {
-                                info!("🛡️  HTTP: Block {} already processed by Gossip - skipping", block_number);
+                                tracing::debug!("🛡️  HTTP: Block {} already processed by Gossip - skipping", block_number);
                                 continue;
                             }
                         // Check for gaps in block numbers
