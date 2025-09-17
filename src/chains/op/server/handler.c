@@ -111,9 +111,11 @@ void op_server_metrics(http_server_t* server, buffer_t* data) {
     bprintf(data, "colibri_op_preconf_current_mode{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.current_mode);
 
     // Gap Metrics - zeigen verpasste Blöcke
-    bprintf(data, "# HELP colibri_op_preconf_gaps_total Total number of missed blocks (gaps in block sequence).\n");
+    // total_gaps = received - processed (echte verpasste Blöcke)
+    uint32_t real_total_gaps = stats.received_preconfs > stats.processed_preconfs ? stats.received_preconfs - stats.processed_preconfs : 0;
+    bprintf(data, "# HELP colibri_op_preconf_gaps_total Total number of missed blocks (received but not processed).\n");
     bprintf(data, "# TYPE colibri_op_preconf_gaps_total counter\n");
-    bprintf(data, "colibri_op_preconf_gaps_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.total_gaps);
+    bprintf(data, "colibri_op_preconf_gaps_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, real_total_gaps);
 
     bprintf(data, "# HELP colibri_op_preconf_http_gaps_total Number of blocks missed during HTTP mode.\n");
     bprintf(data, "# TYPE colibri_op_preconf_http_gaps_total counter\n");

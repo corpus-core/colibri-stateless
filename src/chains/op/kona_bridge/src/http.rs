@@ -299,10 +299,10 @@ pub async fn run_http_primary_with_gossip_fallback(
                                     tracker.total_gaps += missing_blocks as u32;
                                     tracker.recent_gaps += missing_blocks as u32;
                                     
-                                    // Update stats with HTTP gaps
+                                    // Update stats with HTTP gaps (nur HTTP-spezifisch)
                                     {
                                         let mut stats_guard = stats.lock().unwrap();
-                                        stats_guard.total_gaps += missing_blocks as u32;
+                                        // total_gaps wird nur beim finalen Processing gezählt
                                         stats_guard.http_gaps += missing_blocks as u32;
                                     }
                                     
@@ -429,9 +429,10 @@ pub async fn run_http_primary_with_gossip_fallback(
                             
                             // Periodische Statusmeldung alle 200 Blöcke
                             if block_number >= last_status_block + STATUS_INTERVAL {
-                                info!("🌐 HTTP Status: Block #{}, Total processed: {}, HTTP: {}, Gossip: {}, Gaps: {}", 
+                                let http_rate = stats_guard.http_processed as f64 / (block_number - last_status_block) as f64;
+                                info!("🌐 HTTP Status: Block #{}, Total processed: {}, HTTP: {} (rate: {:.3}), Gossip: {}, Gaps: {}", 
                                       block_number, stats_guard.processed_preconfs, 
-                                      stats_guard.http_processed, stats_guard.gossip_processed, gaps_since_last_status);
+                                      stats_guard.http_processed, http_rate, stats_guard.gossip_processed, gaps_since_last_status);
                                 last_status_block = block_number;
                                 gaps_since_last_status = 0; // Reset gap counter
                             }

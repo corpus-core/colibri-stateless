@@ -10,7 +10,7 @@ mod utils;
 
 use config::ChainConfig;
 use http::run_http_primary_with_gossip_fallback;
-use types::{BridgeMode, BlockDeduplicator, HttpHealthTracker, KonaBridgeConfig, KonaBridgeHandle, KonaBridgeStats};
+use types::{BridgeMode, BlockBitmaskTracker, BlockDeduplicator, HttpHealthTracker, KonaBridgeConfig, KonaBridgeHandle, KonaBridgeStats};
 use utils::cleanup_old_files;
 
 use alloy::primitives::Address;
@@ -207,6 +207,7 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
         running,
         thread_handle: Some(thread_handle),
         deduplicator: Arc::new(Mutex::new(BlockDeduplicator::new())),
+        bitmask_tracker: Arc::new(Mutex::new(BlockBitmaskTracker::new())),
     };
 
     info!("✅ Kona-P2P Bridge started successfully");

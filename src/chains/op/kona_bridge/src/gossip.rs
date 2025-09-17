@@ -141,24 +141,7 @@ pub async fn run_gossip_network(
 
                     // Process preconf (only if newer)
                     if number > latest_block_number {
-                        // Check for gaps in gossip stream (for statistics)
-                        if latest_block_number > 0 {
-                            let gap = number.saturating_sub(latest_block_number);
-                            if gap > 1 {
-                                let missing_blocks = gap - 1;
-                                tracing::debug!("📡 GOSSIP: Gap detected {} -> {} (missing {} blocks)", 
-                                              latest_block_number, number, missing_blocks);
-                                
-                                // Update gap statistics for Gossip mode
-                                {
-                                    let mut stats_guard = stats.lock().unwrap();
-                                    stats_guard.total_gaps += missing_blocks as u32;
-                                    stats_guard.gossip_gaps += missing_blocks as u32;
-                                }
-                            }
-                        }
-                        
-                        // Race-Condition-Schutz: Prüfe Deduplizierung
+                        // Race-Condition-Schutz: Prüfe Deduplizierung ZUERST
                         let is_duplicate = if let Some(ref dedup_arc) = deduplicator {
                             let mut dedup = dedup_arc.lock().unwrap();
                             dedup.is_duplicate(number)
@@ -170,6 +153,23 @@ pub async fn run_gossip_network(
                             tracing::debug!("🛡️  GOSSIP: Block {} already processed by HTTP - skipping", number);
                             // received_preconfs already incremented, but not processed (due to deduplication)
                             continue;
+                        }
+                        
+                        // Check for gaps in gossip stream NACH Deduplizierung (nur echte Gaps)
+                        if latest_block_number > 0 {
+                            let gap = number.saturating_sub(latest_block_number);
+                            if gap > 1 {
+                                let missing_blocks = gap - 1;
+                                tracing::debug!("📡 GOSSIP: Real gap detected {} -> {} (missing {} blocks)", 
+                                              latest_block_number, number, missing_blocks);
+                                
+                                // Update gap statistics for Gossip mode (nur Gossip-spezifisch)
+                                {
+                                    let mut stats_guard = stats.lock().unwrap();
+                                    // total_gaps wird nur beim finalen Processing gezählt
+                                    stats_guard.gossip_gaps += missing_blocks as u32;
+                                }
+                            }
                         }
                     
                     match process_preconf_with_correct_format(
