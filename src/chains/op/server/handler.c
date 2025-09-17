@@ -125,6 +125,10 @@ void op_server_metrics(http_server_t* server, buffer_t* data) {
     bprintf(data, "# TYPE colibri_op_preconf_gossip_gaps_total counter\n");
     bprintf(data, "colibri_op_preconf_gossip_gaps_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.gossip_gaps);
 
+    bprintf(data, "# HELP colibri_op_preconf_bitmask_gaps_total Precise gaps detected via bitmask tracking.\n");
+    bprintf(data, "# TYPE colibri_op_preconf_bitmask_gaps_total counter\n");
+    bprintf(data, "colibri_op_preconf_bitmask_gaps_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.bitmask_gaps);
+
     bprintf(data, "\n");
   }
 #else

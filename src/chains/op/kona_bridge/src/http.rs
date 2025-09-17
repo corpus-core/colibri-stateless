@@ -3,7 +3,7 @@
 use crate::{
     config::ChainConfig,
     gossip,
-    types::{BridgeMode, BlockDeduplicator, HttpHealthTracker, KonaBridgeStats},
+    types::{BridgeMode, BlockBitmaskTracker, BlockDeduplicator, HttpHealthTracker, KonaBridgeStats},
     utils::{extract_block_number_from_preconf_data, extract_block_hash_from_preconf_data, update_symlinks_lib},
 };
 use reqwest;
@@ -198,6 +198,7 @@ pub async fn run_http_primary_with_gossip_fallback(
     stats: Arc<Mutex<KonaBridgeStats>>,
     running: Arc<Mutex<bool>>,
     deduplicator: Arc<Mutex<BlockDeduplicator>>,
+    bitmask_tracker: Arc<Mutex<BlockBitmaskTracker>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     let client = reqwest::Client::new();
@@ -418,6 +419,12 @@ pub async fn run_http_primary_with_gossip_fallback(
                             }
                         }
                         last_block_number = Some(block_number);
+                        
+                        // Update bitmask tracker with processed block
+                        {
+                            let mut tracker = bitmask_tracker.lock().unwrap();
+                            tracker.mark_block_processed(block_number);
+                        }
                         
                         // Update stats
                         {

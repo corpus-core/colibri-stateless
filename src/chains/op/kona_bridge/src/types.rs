@@ -208,4 +208,5 @@ pub struct KonaBridgeStats {
     pub total_gaps: c_uint,   // Gesamtanzahl verpasster Blöcke
     pub http_gaps: c_uint,    // Verpasste Blöcke während HTTP-Modus
     pub gossip_gaps: c_uint,  // Verpasste Blöcke während Gossip-Modus
+    pub bitmask_gaps: c_uint, // Präzise Gaps via Bitmask-Tracking
 }

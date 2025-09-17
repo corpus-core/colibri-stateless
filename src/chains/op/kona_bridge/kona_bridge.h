@@ -47,6 +47,7 @@ typedef struct {
   uint32_t total_gaps;         /* Gesamtanzahl verpasster Blöcke */
   uint32_t http_gaps;          /* Verpasste Blöcke während HTTP-Modus */
   uint32_t gossip_gaps;        /* Verpasste Blöcke während Gossip-Modus */
+  uint32_t bitmask_gaps;       /* Präzise Gaps via Bitmask-Tracking */
 } KonaBridgeStats;
 
 /**

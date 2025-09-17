@@ -123,6 +123,7 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
         total_gaps: 0,   // Gesamtanzahl verpasster Blöcke
         http_gaps: 0,    // Verpasste Blöcke während HTTP-Modus
         gossip_gaps: 0,  // Verpasste Blöcke während Gossip-Modus
+        bitmask_gaps: 0, // Präzise Gaps via Bitmask-Tracking
     }));
 
     let running = Arc::new(Mutex::new(true));
@@ -295,6 +296,7 @@ async fn run_http_first_network(
             stats,
             running,
             Arc::new(Mutex::new(BlockDeduplicator::new())), // Shared Deduplicator
+            Arc::new(Mutex::new(BlockBitmaskTracker::new())), // Shared Bitmask Tracker
         ).await?;
     } else {
         info!("🌐 No HTTP endpoint - starting directly in gossip mode");
@@ -371,6 +373,13 @@ pub extern "C" fn kona_bridge_get_stats(
     let handle = unsafe { &*handle };
     
     if let Ok(bridge_stats) = handle.stats.lock() {
+        // Update bitmask gaps from tracker
+        let bitmask_gaps = if let Ok(mut tracker) = handle.bitmask_tracker.lock() {
+            tracker.get_total_gaps()
+        } else {
+            0
+        };
+        
         unsafe {
             (*stats).connected_peers = bridge_stats.connected_peers;
             (*stats).received_preconfs = bridge_stats.received_preconfs;
@@ -385,6 +394,7 @@ pub extern "C" fn kona_bridge_get_stats(
             (*stats).total_gaps = bridge_stats.total_gaps;
             (*stats).http_gaps = bridge_stats.http_gaps;
             (*stats).gossip_gaps = bridge_stats.gossip_gaps;
+            (*stats).bitmask_gaps = bitmask_gaps;
         }
         0
     } else {
