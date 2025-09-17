@@ -3,7 +3,7 @@
 use crate::{
     config::ChainConfig,
     processing::process_preconf_with_correct_format,
-    types::KonaBridgeStats,
+    types::{BlockDeduplicator, KonaBridgeStats},
 };
 use discv5::{ConfigBuilder, enr::CombinedKey};
 use kona_p2p::{LocalNode, Network};
@@ -28,6 +28,7 @@ pub async fn run_gossip_network(
     expected_sequencer: Option<&str>,
     stats: Arc<Mutex<KonaBridgeStats>>,
     running: Arc<Mutex<bool>>,
+    deduplicator: Option<Arc<Mutex<BlockDeduplicator>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     let gossip = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), gossip_port);
@@ -110,6 +111,8 @@ pub async fn run_gossip_network(
     }
 
     let mut latest_block_number = 0u64;
+    let mut last_status_block = 0u64;
+    const STATUS_INTERVAL: u64 = 200; // Status alle 200 Blöcke (ca. 6 Minuten)
 
     // Optimized event loop with balanced polling frequency
     while *running.lock().unwrap() {
@@ -126,7 +129,8 @@ pub async fn run_gossip_network(
                 let hash = payload_envelope.payload.block_hash();
                 let number = payload_envelope.payload.block_number();
                 
-                info!("🎉 P2P: PRECONF RECEIVED! Block #{} Hash: {}", number, hash);
+                // Reduziertes Logging: Nur Debug-Level für einzelne Blöcke
+                tracing::debug!("🎉 P2P: PRECONF RECEIVED! Block #{} Hash: {}", number, hash);
 
                 // Update received stats
                 {
@@ -137,6 +141,19 @@ pub async fn run_gossip_network(
 
                 // Process preconf (only if newer)
                 if number > latest_block_number {
+                    // Race-Condition-Schutz: Prüfe Deduplizierung
+                    let is_duplicate = if let Some(ref dedup_arc) = deduplicator {
+                        let mut dedup = dedup_arc.lock().unwrap();
+                        dedup.is_duplicate(number)
+                    } else {
+                        false
+                    };
+                    
+                    if is_duplicate {
+                        info!("🛡️  GOSSIP: Block {} already processed by HTTP - skipping", number);
+                        continue;
+                    }
+                    
                     match process_preconf_with_correct_format(
                         &payload_envelope, 
                         chain_id, 
@@ -148,7 +165,17 @@ pub async fn run_gossip_network(
                             let mut stats_guard = stats.lock().unwrap();
                             stats_guard.processed_preconfs += 1;
                             stats_guard.gossip_processed += 1;
-                            info!("✅ GOSSIP: Processed (total: {})", stats_guard.processed_preconfs);
+                            
+                            // Periodische Statusmeldung alle 200 Blöcke
+                            if number >= last_status_block + STATUS_INTERVAL {
+                                info!("📡 GOSSIP Status: Block #{}, Total processed: {}, HTTP: {}, Gossip: {}", 
+                                      number, stats_guard.processed_preconfs, 
+                                      stats_guard.http_processed, stats_guard.gossip_processed);
+                                last_status_block = number;
+                            }
+                            
+                            // Reduziertes Logging: Nur Debug-Level für einzelne Blöcke
+                            tracing::debug!("✅ GOSSIP: Processed (total: {})", stats_guard.processed_preconfs);
                         }
                         Err(e) => {
                             let mut stats_guard = stats.lock().unwrap();

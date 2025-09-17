@@ -10,7 +10,7 @@ mod utils;
 
 use config::ChainConfig;
 use http::run_http_primary_with_gossip_fallback;
-use types::{BridgeMode, HttpHealthTracker, KonaBridgeConfig, KonaBridgeHandle, KonaBridgeStats};
+use types::{BridgeMode, BlockDeduplicator, HttpHealthTracker, KonaBridgeConfig, KonaBridgeHandle, KonaBridgeStats};
 use utils::cleanup_old_files;
 
 use alloy::primitives::Address;
@@ -21,7 +21,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tracing::{error, info, warn};
 
@@ -202,6 +202,7 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
         stats,
         running,
         thread_handle: Some(thread_handle),
+        deduplicator: Arc::new(Mutex::new(BlockDeduplicator::new())),
     };
 
     info!("✅ Kona-P2P Bridge started successfully");
@@ -262,7 +263,13 @@ async fn run_http_first_network(
         consecutive_failures: 0,
         last_success: None,
         failure_threshold: http_failure_threshold,
-        current_mode: BridgeMode::HttpPrimary,
+        current_mode: BridgeMode::HttpOnly,
+        total_gaps: 0,
+        recent_gaps: 0,
+        last_gap_reset: Some(SystemTime::now()),
+        gap_threshold: 50, // Switch to hybrid mode after 50 missing blocks
+        consecutive_success_blocks: 0,
+        success_threshold: 50, // Stop gossip after 50 successful blocks
     }));
     
     // Try HTTP-first approach
@@ -282,6 +289,7 @@ async fn run_http_first_network(
             health_tracker,
             stats,
             running,
+            Arc::new(Mutex::new(BlockDeduplicator::new())), // Shared Deduplicator
         ).await?;
     } else {
         info!("🌐 No HTTP endpoint - starting directly in gossip mode");
@@ -295,6 +303,7 @@ async fn run_http_first_network(
             expected_sequencer,
             stats,
             running,
+            None, // Kein Deduplicator im reinen Gossip-Modus
         ).await?;
     }
     
@@ -388,7 +397,7 @@ pub extern "C" fn kona_bridge_init_logging() {
         
         let filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(
-                "warn,libp2p_swarm=warn,libp2p_tcp=warn,libp2p_gossipsub=warn,discv5=warn,kona_p2p=info,kona_bridge=info"
+                "warn,libp2p_swarm=error,libp2p_tcp=error,libp2p_gossipsub=error,discv5=error,kona_p2p=warn,kona_bridge=info"
             ));
             
         let result = tracing_subscriber::fmt()

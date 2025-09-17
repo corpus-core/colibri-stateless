@@ -4,6 +4,7 @@ use alloy::primitives::{address, Address};
 use discv5::Enr;
 
 /// Chain-spezifische Konfiguration
+#[derive(Clone)]
 pub struct ChainConfig {
     pub unsafe_signer: Address,
     pub chain_id: u64,

@@ -2,7 +2,8 @@
 
 use crate::{
     config::ChainConfig,
-    types::{BridgeMode, HttpHealthTracker, KonaBridgeStats},
+    gossip,
+    types::{BridgeMode, BlockDeduplicator, HttpHealthTracker, KonaBridgeStats},
     utils::{extract_block_number_from_preconf_data, extract_block_hash_from_preconf_data, update_symlinks_lib},
 };
 use reqwest;
@@ -11,8 +12,23 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::{fs as tokio_fs, time::{interval, sleep}};
+use tokio::{
+    fs as tokio_fs, 
+    task::JoinHandle,
+    time::{interval, sleep}
+};
 use tracing::{info, warn};
+
+/// Robust hex decoding that handles odd-length strings
+fn safe_hex_decode(hex_str: &str) -> Result<Vec<u8>, hex::FromHexError> {
+    let clean_hex = hex_str.trim_start_matches("0x");
+    let padded_hex = if clean_hex.len() % 2 == 1 {
+        format!("0{}", clean_hex)
+    } else {
+        clean_hex.to_string()
+    };
+    hex::decode(&padded_hex)
+}
 
 /// Aggressive Polling-Strategie bei erkannten Block-Lücken
 async fn try_fill_block_gaps(
@@ -96,16 +112,20 @@ pub async fn process_http_preconf(
         .ok_or("Missing 'data' field")?;
     let signature = &preconf["signature"];
     
-    // Decode hex data
-    let data_bytes = hex::decode(data_hex.trim_start_matches("0x"))?;
+    // Decode hex data (fix odd-length hex strings)
+    let data_bytes = safe_hex_decode(data_hex)
+        .map_err(|e| format!("Failed to decode data field '{}': {}", data_hex, e))?;
     
     // Create signature bytes (r + s + v)
     let r_hex = signature["r"].as_str().ok_or("Missing signature.r")?;
     let s_hex = signature["s"].as_str().ok_or("Missing signature.s")?;
     let y_parity = signature["yParity"].as_str().unwrap_or("0x0");
     
-    let r_bytes = hex::decode(r_hex.trim_start_matches("0x"))?;
-    let s_bytes = hex::decode(s_hex.trim_start_matches("0x"))?;
+    // Fix odd-length hex strings for signature components
+    let r_bytes = safe_hex_decode(r_hex)
+        .map_err(|e| format!("Failed to decode signature.r '{}': {}", r_hex, e))?;
+    let s_bytes = safe_hex_decode(s_hex)
+        .map_err(|e| format!("Failed to decode signature.s '{}': {}", s_hex, e))?;
     let v_byte = if y_parity == "0x1" { 28 } else { 27 };
     
     // Pad r and s to 32 bytes and create signature
@@ -177,6 +197,7 @@ pub async fn run_http_primary_with_gossip_fallback(
     health_tracker: Arc<Mutex<HttpHealthTracker>>,
     stats: Arc<Mutex<KonaBridgeStats>>,
     running: Arc<Mutex<bool>>,
+    deduplicator: Arc<Mutex<BlockDeduplicator>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     let client = reqwest::Client::new();
@@ -184,6 +205,12 @@ pub async fn run_http_primary_with_gossip_fallback(
     let mut last_data_hash: Option<String> = None;
     let mut last_block_number: Option<u64> = None;
     let mut consecutive_same_data = 0u32;
+    let mut last_status_block = 0u64;
+    let mut gaps_since_last_status = 0u32;
+    const STATUS_INTERVAL: u64 = 200; // Status alle 200 Blöcke (ca. 6 Minuten)
+    
+    // Gossip-Task-Verwaltung für Hybrid-Modus
+    let mut gossip_task: Option<JoinHandle<()>> = None;
     
     info!("🌐 HTTP-primary mode active: {} ({}s interval)", http_endpoint, http_poll_interval);
     
@@ -236,16 +263,97 @@ pub async fn run_http_primary_with_gossip_fallback(
                 }
                 
                 // Process and save the preconf
-                match process_http_preconf(preconf_data, chain_id, output_dir).await {
-                    Ok(block_number) => {
+                    match process_http_preconf(preconf_data, chain_id, output_dir).await {
+                        Ok(block_number) => {
+                            // Race-Condition-Schutz: Prüfe Deduplizierung
+                            let is_duplicate = {
+                                let mut dedup = deduplicator.lock().unwrap();
+                                dedup.is_duplicate(block_number)
+                            };
+                            
+                            if is_duplicate {
+                                info!("🛡️  HTTP: Block {} already processed by Gossip - skipping", block_number);
+                                continue;
+                            }
                         // Check for gaps in block numbers
                         if let Some(last_num) = last_block_number {
                             let gap = block_number.saturating_sub(last_num);
                             if gap > 1 {
-                                warn!("🔍 HTTP: Block gap detected! {} -> {} (missing {} blocks)", 
-                                      last_num, block_number, gap - 1);
+                                let missing_blocks = gap - 1;
+                                warn!("🔍 HTTP: Block gap detected! {} -> {} (missing {} blocks)",
+                                      last_num, block_number, missing_blocks);
                                 
-                                // Try to fill gaps with aggressive polling
+                                // Zähle Gaps für Status-Meldung
+                                gaps_since_last_status += missing_blocks as u32;
+                                
+                                // Update gap statistics and check if we should switch to gossip
+                                let should_switch_to_gossip = {
+                                    let mut tracker = health_tracker.lock().unwrap();
+                                    tracker.total_gaps += missing_blocks as u32;
+                                    tracker.recent_gaps += missing_blocks as u32;
+                                    
+                                    // Reset recent gaps counter every 10 minutes
+                                    if let Some(last_reset) = tracker.last_gap_reset {
+                                        if last_reset.elapsed().unwrap_or(Duration::from_secs(0)) > Duration::from_secs(600) {
+                                            tracker.recent_gaps = missing_blocks as u32;
+                                            tracker.last_gap_reset = Some(SystemTime::now());
+                                        }
+                                    }
+                                    
+                                // Check if we should start gossip backup due to too many gaps
+                                if tracker.recent_gaps >= tracker.gap_threshold && tracker.current_mode == BridgeMode::HttpOnly {
+                                    warn!("🔍 HTTP: Too many gaps detected ({} in 10min, threshold: {})", 
+                                          tracker.recent_gaps, tracker.gap_threshold);
+                                    warn!("🌐+📡 STARTING: Gossip backup (HTTP reliability issue - keeping HTTP running)");
+                                    tracker.current_mode = BridgeMode::HttpPlusGossip;
+                                    tracker.consecutive_success_blocks = 0; // Reset success counter
+                                    true
+                                } else {
+                                    false
+                                }
+                                };
+                                
+                                if should_switch_to_gossip {
+                                    // Update mode switch statistics
+                                    {
+                                        let mut stats_guard = stats.lock().unwrap();
+                                        stats_guard.mode_switches += 1;
+                                        stats_guard.current_mode = 2; // Hybrid mode (HTTP + Gossip)
+                                    }
+                                    
+                                    // Start Gossip-Backup parallel zu HTTP
+                                    if gossip_task.is_none() {
+                                        info!("🚀 Starting parallel Gossip backup task...");
+                                        let gossip_chain_config = chain_config.clone();
+                                        let gossip_output_dir = output_dir.clone();
+                                        let gossip_stats = stats.clone();
+                                        let gossip_running = running.clone();
+                                        let gossip_sequencer = expected_sequencer.map(|s| s.to_string());
+                                        let gossip_deduplicator = deduplicator.clone();
+                                        
+                                        gossip_task = Some(tokio::spawn(async move {
+                                            info!("📡 Gossip backup task started");
+                                            if let Err(e) = gossip::run_gossip_network(
+                                                chain_id,
+                                                disc_port,
+                                                gossip_port,
+                                                &gossip_output_dir,
+                                                &gossip_chain_config,
+                                                gossip_sequencer.as_deref(),
+                                                gossip_stats,
+                                                gossip_running,
+                                                Some(gossip_deduplicator),
+                                            ).await {
+                                                warn!("📡 Gossip backup failed: {}", e);
+                                            }
+                                            info!("📡 Gossip backup task stopped");
+                                        }));
+                                        
+                                        info!("🔧 HTTP continues polling while gossip backup is active");
+                                    }
+                                }
+                                
+                                // Try to fill gaps with aggressive polling (only if not switching)
                                 let filled = try_fill_block_gaps(
                                     &client,
                                     &http_endpoint,
@@ -257,7 +365,41 @@ pub async fn run_http_primary_with_gossip_fallback(
                                 ).await;
                                 
                                 if filled > 0 {
-                                    info!("🔧 Gap-fill recovered {}/{} missing blocks", filled, gap - 1);
+                                    info!("🔧 Gap-fill recovered {}/{} missing blocks", filled, missing_blocks);
+                                } else {
+                                    warn!("⚠️  Gap-fill failed: HTTP endpoint reliability issue detected");
+                                }
+                            }
+                        } else {
+                            // No gap - increment success counter
+                            let should_stop_gossip = {
+                                let mut tracker = health_tracker.lock().unwrap();
+                                tracker.consecutive_success_blocks += 1;
+                                
+                                // Check if we should stop gossip backup due to successful HTTP
+                                if tracker.current_mode == BridgeMode::HttpPlusGossip && 
+                                   tracker.consecutive_success_blocks >= tracker.success_threshold {
+                                    info!("🌐-📡 STOPPING: Gossip backup ({} successful blocks - HTTP recovered)", 
+                                          tracker.consecutive_success_blocks);
+                                    tracker.current_mode = BridgeMode::HttpOnly;
+                                    tracker.consecutive_success_blocks = 0;
+                                    true
+                                } else {
+                                    false
+                                }
+                            };
+                            
+                            if should_stop_gossip {
+                                // Update mode statistics
+                                let mut stats_guard = stats.lock().unwrap();
+                                stats_guard.current_mode = 0; // HTTP only
+                                drop(stats_guard);
+                                
+                                // Stop Gossip-Backup Task
+                                if let Some(task) = gossip_task.take() {
+                                    info!("🛑 Stopping gossip backup task...");
+                                    task.abort(); // Beende Gossip-Task
+                                    info!("✅ HTTP fully recovered - gossip backup stopped");
                                 }
                             }
                         }
@@ -270,6 +412,15 @@ pub async fn run_http_primary_with_gossip_fallback(
                             stats_guard.processed_preconfs += 1;
                             stats_guard.http_received += 1;
                             stats_guard.http_processed += 1;
+                            
+                            // Periodische Statusmeldung alle 200 Blöcke
+                            if block_number >= last_status_block + STATUS_INTERVAL {
+                                info!("🌐 HTTP Status: Block #{}, Total processed: {}, HTTP: {}, Gossip: {}, Gaps: {}", 
+                                      block_number, stats_guard.processed_preconfs, 
+                                      stats_guard.http_processed, stats_guard.gossip_processed, gaps_since_last_status);
+                                last_status_block = block_number;
+                                gaps_since_last_status = 0; // Reset gap counter
+                            }
                         }
 //                        info!("📡 HTTP: Processed preconf for block {} (source: HTTP polling)", block_number);
                     }
@@ -342,8 +493,15 @@ pub async fn run_http_primary_with_gossip_fallback(
                 expected_sequencer,
                 stats,
                 running,
+                Some(deduplicator), // Shared Deduplicator für Fallback
             ).await;
         }
+    }
+    
+    // Cleanup: Stoppe Gossip-Task falls noch aktiv
+    if let Some(task) = gossip_task.take() {
+        info!("🧹 Cleanup: Stopping remaining gossip backup task...");
+        task.abort();
     }
     
     info!("🌐 HTTP-primary mode stopped");

@@ -182,9 +182,8 @@ pub async fn cleanup_old_files(
         
         match cleanup_expired_files(&output_dir, ttl_duration).await {
             Ok(deleted_count) => {
-                if deleted_count > 0 {
-                    info!("🧹 Cleanup completed: deleted {} expired files", deleted_count);
-                } else {
+                // Cleanup-Meldung wird bereits in cleanup_expired_files() geloggt
+                if deleted_count == 0 {
                     info!("🧹 Cleanup completed: no expired files found");
                 }
             }
@@ -204,6 +203,7 @@ async fn cleanup_expired_files(
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
     let now = SystemTime::now();
     let mut deleted_count = 0;
+    let mut deleted_files = Vec::new();
     
     let mut entries = tokio_fs::read_dir(output_dir).await?;
     
@@ -234,9 +234,12 @@ async fn cleanup_expired_files(
                             // Datei ist zu alt - löschen
                             match tokio_fs::remove_file(&path).await {
                                 Ok(_) => {
-                                    info!("🗑️  Deleted expired file: {:?} (age: {}min)", 
-                                          path.file_name().unwrap_or_default(),
-                                          age.as_secs() / 60);
+                                    // Sammle gelöschte Dateien für Zusammenfassung
+                                    let filename = path.file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_string();
+                                    deleted_files.push((filename, age.as_secs() / 60));
                                     deleted_count += 1;
                                 }
                                 Err(e) => {
@@ -250,6 +253,24 @@ async fn cleanup_expired_files(
             Err(e) => {
                 warn!("⚠️  Failed to read metadata for {:?}: {}", path, e);
             }
+        }
+    }
+    
+    // Zusammenfassung der gelöschten Dateien loggen
+    if !deleted_files.is_empty() {
+        // Zeige ersten paar Dateien und Zusammenfassung
+        if deleted_files.len() <= 3 {
+            // Wenige Dateien - zeige alle
+            let file_list: Vec<String> = deleted_files.iter()
+                .map(|(name, age)| format!("{} ({}min)", name, age))
+                .collect();
+            info!("🗑️  Deleted {} expired files: {}", deleted_count, file_list.join(", "));
+        } else {
+            // Viele Dateien - zeige nur Zusammenfassung
+            let oldest_age = deleted_files.iter().map(|(_, age)| *age).max().unwrap_or(0);
+            let newest_age = deleted_files.iter().map(|(_, age)| *age).min().unwrap_or(0);
+            info!("🗑️  Deleted {} expired files (age: {}min - {}min)", 
+                  deleted_count, newest_age, oldest_age);
         }
     }
     

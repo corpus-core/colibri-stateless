@@ -1,6 +1,7 @@
 // types.rs - Datenstrukturen und Enums für die Kona-Bridge
 
 use std::{
+    collections::HashSet,
     os::raw::{c_char, c_uint},
     sync::{Arc, Mutex},
     thread,
@@ -8,11 +9,12 @@ use std::{
 };
 use tokio::runtime::Runtime;
 
-/// Bridge-Modus für HTTP-first mit Gossip-Fallback
+/// Bridge-Modus für HTTP-first mit Gossip-Backup
 #[derive(Debug, Clone, PartialEq)]
 pub enum BridgeMode {
-    HttpPrimary,    // HTTP-Polling aktiv
-    GossipFallback, // Gossip aktiv nach HTTP-Fehlern
+    HttpOnly,       // Nur HTTP-Polling aktiv
+    HttpPlusGossip, // HTTP + Gossip parallel (bei Problemen)
+    GossipFallback, // Nur Gossip aktiv (bei kompletter HTTP-Ausfall)
 }
 
 /// Tracker für HTTP-Gesundheit und Umschaltlogik
@@ -22,6 +24,14 @@ pub struct HttpHealthTracker {
     pub last_success: Option<SystemTime>,
     pub failure_threshold: u32,
     pub current_mode: BridgeMode,
+    // Gap-basierte Umschaltung
+    pub total_gaps: u32,  // Gesamtanzahl verpasster Blöcke
+    pub recent_gaps: u32, // Gaps in letzten 10 Minuten
+    pub last_gap_reset: Option<SystemTime>,
+    pub gap_threshold: u32, // Max gaps before switching (default: 10)
+    // Hybrid-Modus Tracking
+    pub consecutive_success_blocks: u32, // Lückenlose Blöcke in Folge
+    pub success_threshold: u32,          // Blöcke ohne Gap für Gossip-Stopp (default: 50)
 }
 
 /// C-kompatible Konfiguration für die Kona-Bridge
@@ -40,6 +50,41 @@ pub struct KonaBridgeConfig {
     pub chain_name: *const c_char,        // kann NULL sein
 }
 
+/// Deduplizierung für Race-Condition-Schutz
+pub struct BlockDeduplicator {
+    pub processed_blocks: HashSet<u64>, // Set der bereits verarbeiteten Block-Nummern
+    pub max_size: usize,                // Maximale Anzahl gespeicherter Block-Nummern
+}
+
+impl BlockDeduplicator {
+    pub fn new() -> Self {
+        Self {
+            processed_blocks: HashSet::new(),
+            max_size: 1000, // Speichere letzte 1000 Block-Nummern
+        }
+    }
+
+    pub fn is_duplicate(&mut self, block_number: u64) -> bool {
+        if self.processed_blocks.contains(&block_number) {
+            return true;
+        }
+
+        // Füge Block hinzu
+        self.processed_blocks.insert(block_number);
+
+        // Cleanup alter Blöcke wenn zu viele
+        if self.processed_blocks.len() > self.max_size {
+            // Entferne die kleinsten (ältesten) Block-Nummern
+            let mut blocks: Vec<u64> = self.processed_blocks.iter().cloned().collect();
+            blocks.sort();
+            let keep_from = blocks.len() - (self.max_size / 2); // Behalte neuere Hälfte
+            self.processed_blocks = blocks[keep_from..].iter().cloned().collect();
+        }
+
+        false
+    }
+}
+
 /// Handle für die laufende Bridge-Instanz
 #[allow(dead_code)]
 pub struct KonaBridgeHandle {
@@ -48,6 +93,7 @@ pub struct KonaBridgeHandle {
     pub stats: Arc<Mutex<KonaBridgeStats>>,
     pub running: Arc<Mutex<bool>>,
     pub thread_handle: Option<thread::JoinHandle<()>>,
+    pub deduplicator: Arc<Mutex<BlockDeduplicator>>, // Race-Condition-Schutz
 }
 
 /// Statistiken der Bridge
