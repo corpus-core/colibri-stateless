@@ -274,8 +274,62 @@ pub async fn run_http_primary_with_gossip_fallback(
                             };
                             
                             if is_duplicate {
-                                tracing::debug!("🛡️  HTTP: Block {} already processed by Gossip - skipping", block_number);
-                                continue;
+                                tracing::debug!("🛡️  HTTP: Block {} already processed by Gossip - but counting as HTTP success", block_number);
+                                
+                                // CRITICAL FIX: Even if duplicate, HTTP successfully found the block!
+                                // Update bitmask tracker (block was processed, just not by HTTP)
+                                {
+                                    let mut tracker = bitmask_tracker.lock().unwrap();
+                                    tracker.mark_block_processed(block_number);
+                                }
+                                
+                                // Count as HTTP success for stability measurement
+                                let should_stop_gossip = {
+                                    let mut tracker = health_tracker.lock().unwrap();
+                                    tracker.consecutive_success_blocks += 1;
+                                    
+                                    // Check if we should stop gossip backup due to successful HTTP
+                                    if tracker.current_mode == BridgeMode::HttpPlusGossip && 
+                                       tracker.consecutive_success_blocks >= tracker.success_threshold {
+                                        warn!("🌐-📡 STOPPING: Gossip backup ({} successful HTTP calls - HTTP stable) - CPU load should decrease", 
+                                              tracker.consecutive_success_blocks);
+                                        tracker.current_mode = BridgeMode::HttpOnly;
+                                        tracker.consecutive_success_blocks = 0;
+                                        true
+                                    } else if tracker.current_mode == BridgeMode::HttpPlusGossip {
+                                        tracing::debug!("🔄 HTTP stability (duplicate): {}/{} successful blocks (need {} to stop gossip)", 
+                                                      tracker.consecutive_success_blocks, tracker.success_threshold, tracker.success_threshold);
+                                        false
+                                    } else {
+                                        false
+                                    }
+                                };
+                                
+                                if should_stop_gossip {
+                                    // Update mode statistics
+                                    let mut stats_guard = stats.lock().unwrap();
+                                    stats_guard.current_mode = 0; // HTTP only
+                                    drop(stats_guard);
+                                    
+                                    // Stop Gossip-Backup Task
+                                    if let Some(task) = gossip_task.take() {
+                                        warn!("🛑 Stopping gossip backup task (HTTP duplicate success) - CPU load should drop from ~127% to normal...");
+                                        task.abort(); // Beende Gossip-Task
+                                        warn!("✅ HTTP stable (found duplicates) - gossip backup stopped - CPU load normalized");
+                                    } else {
+                                        warn!("⚠️  Should stop gossip but no task found - this shouldn't happen");
+                                    }
+                                }
+                                
+                                // Update HTTP success stats (even for duplicates)
+                                {
+                                    let mut stats_guard = stats.lock().unwrap();
+                                    stats_guard.received_preconfs += 1;
+                                    stats_guard.http_received += 1;
+                                    // Note: Don't increment processed_preconfs or http_processed (file wasn't written)
+                                }
+                                
+                                continue; // Skip file processing but count as success
                             }
                         // Check for gaps in block numbers
                         if let Some(last_num) = last_block_number {
@@ -445,20 +499,20 @@ pub async fn run_http_primary_with_gossip_fallback(
                             
                             // Periodische Statusmeldung alle 200 Blöcke
                         if block_number >= last_status_block + STATUS_INTERVAL {
-                            // CRITICAL FIX: Calculate actual HTTP success rate based on blocks processed in this interval
+                            // CRITICAL FIX: Calculate HTTP success rate based on received vs blocks seen
                             let blocks_in_interval = block_number - last_status_block;
-                            let http_blocks_processed = stats_guard.http_processed - last_http_processed;
+                            let http_blocks_received = stats_guard.http_received - last_http_processed;
                             let http_rate = if blocks_in_interval > 0 { 
-                                http_blocks_processed as f64 / blocks_in_interval as f64 
+                                http_blocks_received as f64 / blocks_in_interval as f64 
                             } else { 
                                 0.0 
                             };
                             
-                            info!("🌐 HTTP Status: Block #{}, Total processed: {}, HTTP: {} (rate: {:.3}), Gossip: {}, Gaps: {}", 
+                            info!("🌐 HTTP Status: Block #{}, Total processed: {}, HTTP received: {} (rate: {:.3}), HTTP processed: {}, Gossip: {}, Gaps: {}", 
                                   block_number, stats_guard.processed_preconfs, 
-                                  stats_guard.http_processed, http_rate, stats_guard.gossip_processed, gaps_since_last_status);
+                                  stats_guard.http_received, http_rate, stats_guard.http_processed, stats_guard.gossip_processed, gaps_since_last_status);
                             last_status_block = block_number;
-                            last_http_processed = stats_guard.http_processed; // Track for rate calculation
+                            last_http_processed = stats_guard.http_received; // Track HTTP received for rate calculation
                             gaps_since_last_status = 0; // Reset gap counter
                         }
                         }
