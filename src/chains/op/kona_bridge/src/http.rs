@@ -223,13 +223,75 @@ pub async fn run_http_primary_with_gossip_fallback(
             break;
         }
         
-        // Check if we should switch to gossip mode
+        // Check if we should switch to gossip mode (failure threshold)
         {
             let tracker = health_tracker.lock().unwrap();
             if tracker.current_mode == BridgeMode::GossipFallback {
                 info!("🌐➡️📡 SWITCHING: HTTP → P2P Gossip (failure threshold reached)");
                 drop(tracker);
                 break;
+            }
+        }
+        
+        // TIME-BASED CHECK: Start gossip if last HTTP block is too old
+        {
+            let mut tracker = health_tracker.lock().unwrap();
+            if tracker.current_mode == BridgeMode::HttpOnly {
+                if let (Some(last_block_num), Some(last_block_time)) = 
+                   (tracker.last_http_block_number, tracker.last_http_block_time) {
+                    
+                    // Estimate current block number based on time elapsed
+                    let elapsed_secs = last_block_time.elapsed().unwrap_or(Duration::from_secs(0)).as_secs();
+                    let estimated_blocks_passed = elapsed_secs / 2; // 2s per block
+                    
+                    if estimated_blocks_passed >= tracker.gap_threshold as u64 {
+                        warn!("🕐 HTTP: Last block #{} is {} seconds old (~{} blocks behind threshold: {})", 
+                              last_block_num, elapsed_secs, estimated_blocks_passed, tracker.gap_threshold);
+                        warn!("🌐+📡 STARTING: Gossip backup (HTTP too old - keeping HTTP running)");
+                        tracker.current_mode = BridgeMode::HttpPlusGossip;
+                        tracker.consecutive_success_blocks = 0;
+                        
+                        // Update mode switch statistics
+                        {
+                            let mut stats_guard = stats.lock().unwrap();
+                            stats_guard.mode_switches += 1;
+                            stats_guard.current_mode = 2; // Hybrid mode (HTTP + Gossip)
+                        }
+                        
+                        // Start Gossip-Backup parallel zu HTTP
+                        if gossip_task.is_none() {
+                            warn!("🚀 Starting parallel Gossip backup task (time-based) - CPU load will increase to ~127%");
+                            let gossip_chain_config = chain_config.clone();
+                            let gossip_output_dir = output_dir.clone();
+                            let gossip_stats = stats.clone();
+                            let gossip_running = running.clone();
+                            let gossip_sequencer = expected_sequencer.map(|s| s.to_string());
+                            let gossip_deduplicator = deduplicator.clone();
+                            let gossip_bitmask_tracker = bitmask_tracker.clone(); // Clone for async move
+                            
+                            gossip_task = Some(tokio::spawn(async move {
+                                info!("📡 Gossip backup task started (time-based)");
+                                if let Err(e) = gossip::run_gossip_network(
+                                    chain_id,
+                                    disc_port,
+                                    gossip_port,
+                                    &gossip_output_dir,
+                                    &gossip_chain_config,
+                                    gossip_sequencer.as_deref(),
+                                    gossip_stats,
+                                    gossip_running,
+                                    Some(gossip_deduplicator),
+                                    Some(gossip_bitmask_tracker), // CRITICAL FIX: Pass bitmask_tracker to gossip
+                                ).await {
+                                    warn!("📡 Gossip backup failed: {}", e);
+                                }
+                                info!("📡 Gossip backup task stopped (time-based)");
+                            }));
+                            
+                            info!("🔧 HTTP continues polling while gossip backup is active (time-based)");
+                        }
+                    }
+                }
             }
         }
         
@@ -321,12 +383,19 @@ pub async fn run_http_primary_with_gossip_fallback(
                                     }
                                 }
                                 
-                                // Update HTTP success stats (even for duplicates)
+                                // Update HTTP success stats (even for duplicates) and time tracking
                                 {
                                     let mut stats_guard = stats.lock().unwrap();
                                     stats_guard.received_preconfs += 1;
                                     stats_guard.http_received += 1;
                                     // Note: Don't increment processed_preconfs or http_processed (file wasn't written)
+                                }
+                                
+                                // CRITICAL: Update time-based tracking for duplicates too
+                                {
+                                    let mut tracker = health_tracker.lock().unwrap();
+                                    tracker.last_http_block_number = Some(block_number);
+                                    tracker.last_http_block_time = Some(SystemTime::now());
                                 }
                                 
                                 continue; // Skip file processing but count as success
@@ -370,11 +439,11 @@ pub async fn run_http_primary_with_gossip_fallback(
                                         }
                                     }
                                     
-                                // Check if we should start gossip backup due to too many gaps
-                                if tracker.recent_gaps >= tracker.gap_threshold && tracker.current_mode == BridgeMode::HttpOnly {
-                                    warn!("🔍 HTTP: Too many gaps detected ({} in 10min, threshold: {})", 
-                                          tracker.recent_gaps, tracker.gap_threshold);
-                                    warn!("🌐+📡 STARTING: Gossip backup (HTTP reliability issue - keeping HTTP running)");
+                                // TIME-BASED SWITCHING: Check if gap is too large (>30 blocks = ~1 minute)
+                                if missing_blocks >= tracker.gap_threshold as u64 && tracker.current_mode == BridgeMode::HttpOnly {
+                                    warn!("🔍 HTTP: Large gap detected! {} blocks missing (threshold: {} blocks = ~1min)", 
+                                          missing_blocks, tracker.gap_threshold);
+                                    warn!("🌐+📡 STARTING: Gossip backup (HTTP gap too large - keeping HTTP running)");
                                     tracker.current_mode = BridgeMode::HttpPlusGossip;
                                     tracker.consecutive_success_blocks = 0; // Reset success counter
                                     true
@@ -487,6 +556,13 @@ pub async fn run_http_primary_with_gossip_fallback(
                         {
                             let mut tracker = bitmask_tracker.lock().unwrap();
                             tracker.mark_block_processed(block_number);
+                        }
+                        
+                        // CRITICAL: Update time-based tracking for all HTTP blocks
+                        {
+                            let mut tracker = health_tracker.lock().unwrap();
+                            tracker.last_http_block_number = Some(block_number);
+                            tracker.last_http_block_time = Some(SystemTime::now());
                         }
                         
                         // Update stats

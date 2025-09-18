@@ -24,14 +24,17 @@ pub struct HttpHealthTracker {
     pub last_success: Option<SystemTime>,
     pub failure_threshold: u32,
     pub current_mode: BridgeMode,
-    // Gap-basierte Umschaltung
+    // Zeit-basierte robuste Umschaltung
     pub total_gaps: u32,  // Gesamtanzahl verpasster Blöcke
     pub recent_gaps: u32, // Gaps in letzten 10 Minuten
     pub last_gap_reset: Option<SystemTime>,
-    pub gap_threshold: u32, // Max gaps before switching (default: 10)
+    pub gap_threshold: u32, // Max Alter des letzten Blocks in Blöcken (default: 30 = ~1min)
     // Hybrid-Modus Tracking
     pub consecutive_success_blocks: u32, // Lückenlose Blöcke in Folge
-    pub success_threshold: u32,          // Blöcke ohne Gap für Gossip-Stopp (default: 50)
+    pub success_threshold: u32,          // Blöcke ohne Gap für Gossip-Stopp (default: 30 = ~1min)
+    // Zeit-basierte Tracking
+    pub last_http_block_number: Option<u64>, // Letzter erfolgreich empfangener HTTP-Block
+    pub last_http_block_time: Option<SystemTime>, // Zeitpunkt des letzten HTTP-Blocks
 }
 
 /// C-kompatible Konfiguration für die Kona-Bridge

@@ -264,7 +264,7 @@ async fn run_http_first_network(
         }
     }
     
-    // Initialize HTTP health tracker with aggressive gossip stop settings
+    // Initialize HTTP health tracker with time-based robust switching
     let health_tracker = Arc::new(Mutex::new(HttpHealthTracker {
         consecutive_failures: 0,
         last_success: None,
@@ -273,9 +273,11 @@ async fn run_http_first_network(
         total_gaps: 0,
         recent_gaps: 0,
         last_gap_reset: Some(SystemTime::now()),
-        gap_threshold: 20, // Switch to hybrid mode after 20 missing blocks (more aggressive)
+        gap_threshold: 30, // Switch to hybrid mode if last block >30 blocks old (~1 minute)
         consecutive_success_blocks: 0,
-        success_threshold: 10, // Stop gossip after 10 successful blocks (20s) - AGGRESSIVE
+        success_threshold: 30, // Stop gossip after 30 consecutive successful blocks (~1 minute)
+        last_http_block_number: None, // Zeit-basierte Tracking
+        last_http_block_time: None,   // Zeit-basierte Tracking
     }));
     
     // Try HTTP-first approach
