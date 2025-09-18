@@ -264,7 +264,7 @@ async fn run_http_first_network(
         }
     }
     
-    // Initialize HTTP health tracker
+    // Initialize HTTP health tracker with aggressive gossip stop settings
     let health_tracker = Arc::new(Mutex::new(HttpHealthTracker {
         consecutive_failures: 0,
         last_success: None,
@@ -273,9 +273,9 @@ async fn run_http_first_network(
         total_gaps: 0,
         recent_gaps: 0,
         last_gap_reset: Some(SystemTime::now()),
-        gap_threshold: 50, // Switch to hybrid mode after 50 missing blocks
+        gap_threshold: 20, // Switch to hybrid mode after 20 missing blocks (more aggressive)
         consecutive_success_blocks: 0,
-        success_threshold: 20, // Stop gossip after 20 successful blocks (40s)
+        success_threshold: 10, // Stop gossip after 10 successful blocks (20s) - AGGRESSIVE
     }));
     
     // Try HTTP-first approach
@@ -311,6 +311,7 @@ async fn run_http_first_network(
             stats,
             running,
             None, // Kein Deduplicator im reinen Gossip-Modus
+            None, // Kein Bitmask-Tracker im reinen Gossip-Modus
         ).await?;
     }
     

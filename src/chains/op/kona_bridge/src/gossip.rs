@@ -3,7 +3,7 @@
 use crate::{
     config::ChainConfig,
     processing::process_preconf_with_correct_format,
-    types::{BlockDeduplicator, KonaBridgeStats},
+    types::{BlockDeduplicator, BlockBitmaskTracker, KonaBridgeStats},
 };
 use discv5::{ConfigBuilder, enr::CombinedKey};
 use kona_p2p::{LocalNode, Network};
@@ -29,6 +29,7 @@ pub async fn run_gossip_network(
     stats: Arc<Mutex<KonaBridgeStats>>,
     running: Arc<Mutex<bool>>,
     deduplicator: Option<Arc<Mutex<BlockDeduplicator>>>,
+    bitmask_tracker: Option<Arc<Mutex<BlockBitmaskTracker>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     let gossip = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), gossip_port);
@@ -183,6 +184,13 @@ pub async fn run_gossip_network(
                             let mut stats_guard = stats.lock().unwrap();
                             stats_guard.processed_preconfs += 1;
                             stats_guard.gossip_processed += 1;
+                            
+                            // CRITICAL FIX: Update bitmask tracker with processed block
+                            if let Some(ref bitmask_tracker_arc) = bitmask_tracker {
+                                let mut tracker = bitmask_tracker_arc.lock().unwrap();
+                                tracker.mark_block_processed(number);
+                                tracing::debug!("🎯 GOSSIP: Marked block {} in bitmask tracker", number);
+                            }
                             
                             // Periodische Statusmeldung alle 200 Blöcke
                             if number >= last_status_block + STATUS_INTERVAL {
