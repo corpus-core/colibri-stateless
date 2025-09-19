@@ -269,10 +269,17 @@ pub async fn run_http_primary_with_gossip_fallback(
                 // Process and save the preconf
                     match process_http_preconf(preconf_data, chain_id, output_dir).await {
                         Ok(block_number) => {
-                            // Race-Condition-Schutz: Prüfe Deduplizierung
+                            // FIXED: Only check for duplicates in hybrid mode (when gossip is active)
                             let is_duplicate = {
-                                let mut dedup = deduplicator.lock().unwrap();
-                                dedup.is_duplicate(block_number)
+                                let tracker = health_tracker.lock().unwrap();
+                                if tracker.current_mode == BridgeMode::HttpPlusGossip {
+                                    // Only check duplicates when gossip is running parallel
+                                    let dedup = deduplicator.lock().unwrap();
+                                    dedup.is_duplicate(block_number)
+                                } else {
+                                    // In HTTP-only mode, never treat as duplicate
+                                    false
+                                }
                             };
                             
                             if is_duplicate {
@@ -417,6 +424,12 @@ pub async fn run_http_primary_with_gossip_fallback(
                         {
                             let mut tracker = bitmask_tracker.lock().unwrap();
                             tracker.mark_block_processed(block_number);
+                        }
+                        
+                        // Mark block as processed in deduplicator (for hybrid mode)
+                        {
+                            let mut dedup = deduplicator.lock().unwrap();
+                            dedup.mark_processed(block_number);
                         }
                         
                         // Update success tracking (simplified)

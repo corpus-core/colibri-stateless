@@ -144,7 +144,7 @@ pub async fn run_gossip_network(
                     if number > latest_block_number {
                         // Race-Condition-Schutz: Prüfe Deduplizierung ZUERST
                         let is_duplicate = if let Some(ref dedup_arc) = deduplicator {
-                            let mut dedup = dedup_arc.lock().unwrap();
+                            let dedup = dedup_arc.lock().unwrap();
                             dedup.is_duplicate(number)
                         } else {
                             false
@@ -190,6 +190,12 @@ pub async fn run_gossip_network(
                                 let mut tracker = bitmask_tracker_arc.lock().unwrap();
                                 tracker.mark_block_processed(number);
                                 tracing::debug!("🎯 GOSSIP: Marked block {} in bitmask tracker", number);
+                            }
+                            
+                            // Mark block as processed in deduplicator
+                            if let Some(ref dedup_arc) = deduplicator {
+                                let mut dedup = dedup_arc.lock().unwrap();
+                                dedup.mark_processed(number);
                             }
                             
                             // Periodische Statusmeldung alle 200 Blöcke

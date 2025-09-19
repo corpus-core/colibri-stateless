@@ -64,12 +64,14 @@ impl BlockDeduplicator {
             max_size: 200, // Reduziert von 1000 auf 200 für Memory-Effizienz
         }
     }
-    pub fn is_duplicate(&mut self, block_number: u64) -> bool {
-        if self.processed_blocks.contains(&block_number) {
-            return true;
-        }
 
-        // Füge Block hinzu
+    /// Check if block is duplicate (read-only)
+    pub fn is_duplicate(&self, block_number: u64) -> bool {
+        self.processed_blocks.contains(&block_number)
+    }
+
+    /// Mark block as processed (call after successful processing)
+    pub fn mark_processed(&mut self, block_number: u64) {
         self.processed_blocks.insert(block_number);
 
         // Cleanup alter Blöcke wenn zu viele
@@ -80,8 +82,6 @@ impl BlockDeduplicator {
             let keep_from = blocks.len() - (self.max_size / 2); // Behalte neuere Hälfte
             self.processed_blocks = blocks[keep_from..].iter().cloned().collect();
         }
-
-        false
     }
 }
 
