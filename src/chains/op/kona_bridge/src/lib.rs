@@ -21,7 +21,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
     thread,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 use tracing::{error, info, warn};
 
@@ -264,20 +264,13 @@ async fn run_http_first_network(
         }
     }
     
-    // Initialize HTTP health tracker with time-based robust switching
+    // Initialize HTTP health tracker with simplified switching
     let health_tracker = Arc::new(Mutex::new(HttpHealthTracker {
         consecutive_failures: 0,
         last_success: None,
         failure_threshold: http_failure_threshold,
         current_mode: BridgeMode::HttpOnly,
-        total_gaps: 0,
-        recent_gaps: 0,
-        last_gap_reset: Some(SystemTime::now()),
-        gap_threshold: 30, // Switch to hybrid mode if last block >30 blocks old (~1 minute)
         consecutive_success_blocks: 0,
-        success_threshold: 30, // Stop gossip after 30 consecutive successful blocks (~1 minute)
-        last_http_block_number: None, // Zeit-basierte Tracking
-        last_http_block_time: None,   // Zeit-basierte Tracking
     }));
     
     // Try HTTP-first approach

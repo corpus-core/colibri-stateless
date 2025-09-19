@@ -207,7 +207,7 @@ pub async fn run_http_primary_with_gossip_fallback(
     let mut last_block_number: Option<u64> = None;
     let mut consecutive_same_data = 0u32;
     let mut last_status_block = 0u64;
-    let mut last_http_processed = 0u32; // Track HTTP processed blocks for rate calculation
+    // Removed unused variable last_http_processed
     let mut gaps_since_last_status = 0u32;
     const STATUS_INTERVAL: u64 = 200; // Status alle 200 Blöcke (ca. 6 Minuten)
     
@@ -233,67 +233,7 @@ pub async fn run_http_primary_with_gossip_fallback(
             }
         }
         
-        // TIME-BASED CHECK: Start gossip if last HTTP block is too old
-        {
-            let mut tracker = health_tracker.lock().unwrap();
-            if tracker.current_mode == BridgeMode::HttpOnly {
-                if let (Some(last_block_num), Some(last_block_time)) = 
-                   (tracker.last_http_block_number, tracker.last_http_block_time) {
-                    
-                    // Estimate current block number based on time elapsed
-                    let elapsed_secs = last_block_time.elapsed().unwrap_or(Duration::from_secs(0)).as_secs();
-                    let estimated_blocks_passed = elapsed_secs / 2; // 2s per block
-                    
-                    if estimated_blocks_passed >= tracker.gap_threshold as u64 {
-                        warn!("🕐 HTTP: Last block #{} is {} seconds old (~{} blocks behind threshold: {})", 
-                              last_block_num, elapsed_secs, estimated_blocks_passed, tracker.gap_threshold);
-                        warn!("🌐+📡 STARTING: Gossip backup (HTTP too old - keeping HTTP running)");
-                        tracker.current_mode = BridgeMode::HttpPlusGossip;
-                        tracker.consecutive_success_blocks = 0;
-                        
-                        // Update mode switch statistics
-                        {
-                            let mut stats_guard = stats.lock().unwrap();
-                            stats_guard.mode_switches += 1;
-                            stats_guard.current_mode = 2; // Hybrid mode (HTTP + Gossip)
-                        }
-                        
-                        // Start Gossip-Backup parallel zu HTTP
-                        if gossip_task.is_none() {
-                            warn!("🚀 Starting parallel Gossip backup task (time-based) - CPU load will increase to ~127%");
-                            let gossip_chain_config = chain_config.clone();
-                            let gossip_output_dir = output_dir.clone();
-                            let gossip_stats = stats.clone();
-                            let gossip_running = running.clone();
-                            let gossip_sequencer = expected_sequencer.map(|s| s.to_string());
-                            let gossip_deduplicator = deduplicator.clone();
-                            let gossip_bitmask_tracker = bitmask_tracker.clone(); // Clone for async move
-                            
-                            gossip_task = Some(tokio::spawn(async move {
-                                info!("📡 Gossip backup task started (time-based)");
-                                if let Err(e) = gossip::run_gossip_network(
-                                    chain_id,
-                                    disc_port,
-                                    gossip_port,
-                                    &gossip_output_dir,
-                                    &gossip_chain_config,
-                                    gossip_sequencer.as_deref(),
-                                    gossip_stats,
-                                    gossip_running,
-                                    Some(gossip_deduplicator),
-                                    Some(gossip_bitmask_tracker), // CRITICAL FIX: Pass bitmask_tracker to gossip
-                                ).await {
-                                    warn!("📡 Gossip backup failed: {}", e);
-                                }
-                                info!("📡 Gossip backup task stopped (time-based)");
-                            }));
-                            
-                            info!("🔧 HTTP continues polling while gossip backup is active (time-based)");
-                        }
-                    }
-                }
-            }
-        }
+        // Simplified: Only check for HTTP failures, not time-based switching
         
         // Try HTTP polling
         match fetch_http_preconf(&client, &http_endpoint).await {
@@ -336,69 +276,16 @@ pub async fn run_http_primary_with_gossip_fallback(
                             };
                             
                             if is_duplicate {
-                                tracing::debug!("🛡️  HTTP: Block {} already processed by Gossip - but counting as HTTP success", block_number);
+                                tracing::debug!("🛡️  HTTP: Block {} already processed by Gossip - skipping duplicate", block_number);
                                 
-                                // CRITICAL FIX: Even if duplicate, HTTP successfully found the block!
-                                // Update bitmask tracker (block was processed, just not by HTTP)
-                                {
-                                    let mut tracker = bitmask_tracker.lock().unwrap();
-                                    tracker.mark_block_processed(block_number);
-                                }
-                                
-                                // Count as HTTP success for stability measurement
-                                let should_stop_gossip = {
-                                    let mut tracker = health_tracker.lock().unwrap();
-                                    tracker.consecutive_success_blocks += 1;
-                                    
-                                    // Check if we should stop gossip backup due to successful HTTP
-                                    if tracker.current_mode == BridgeMode::HttpPlusGossip && 
-                                       tracker.consecutive_success_blocks >= tracker.success_threshold {
-                                        warn!("🌐-📡 STOPPING: Gossip backup ({} successful HTTP calls - HTTP stable) - CPU load should decrease", 
-                                              tracker.consecutive_success_blocks);
-                                        tracker.current_mode = BridgeMode::HttpOnly;
-                                        tracker.consecutive_success_blocks = 0;
-                                        true
-                                    } else if tracker.current_mode == BridgeMode::HttpPlusGossip {
-                                        tracing::debug!("🔄 HTTP stability (duplicate): {}/{} successful blocks (need {} to stop gossip)", 
-                                                      tracker.consecutive_success_blocks, tracker.success_threshold, tracker.success_threshold);
-                                        false
-                                    } else {
-                                        false
-                                    }
-                                };
-                                
-                                if should_stop_gossip {
-                                    // Update mode statistics
-                                    let mut stats_guard = stats.lock().unwrap();
-                                    stats_guard.current_mode = 0; // HTTP only
-                                    drop(stats_guard);
-                                    
-                                    // Stop Gossip-Backup Task
-                                    if let Some(task) = gossip_task.take() {
-                                        warn!("🛑 Stopping gossip backup task (HTTP duplicate success) - CPU load should drop from ~127% to normal...");
-                                        task.abort(); // Beende Gossip-Task
-                                        warn!("✅ HTTP stable (found duplicates) - gossip backup stopped - CPU load normalized");
-                                    } else {
-                                        warn!("⚠️  Should stop gossip but no task found - this shouldn't happen");
-                                    }
-                                }
-                                
-                                // Update HTTP success stats (even for duplicates) and time tracking
+                                // For duplicates: Only count as HTTP received, not processed
                                 {
                                     let mut stats_guard = stats.lock().unwrap();
-                                    stats_guard.received_preconfs += 1;
                                     stats_guard.http_received += 1;
-                                    // Note: Don't increment processed_preconfs or http_processed (file wasn't written)
+                                    // Don't increment processed counters for duplicates
                                 }
                                 
-                                // CRITICAL: Update time-based tracking for duplicates too
-                                {
-                                    let mut tracker = health_tracker.lock().unwrap();
-                                    tracker.last_http_block_number = Some(block_number);
-                                    tracker.last_http_block_time = Some(SystemTime::now());
-                                }
-                                
-                                continue; // Skip file processing but count as success
+                                continue; // Skip processing completely
                             }
                         // Check for gaps in block numbers
                         if let Some(last_num) = last_block_number {
@@ -411,45 +298,25 @@ pub async fn run_http_primary_with_gossip_fallback(
                                 // Zähle Gaps für Status-Meldung
                                 gaps_since_last_status += missing_blocks as u32;
                                 
-                                // Reset success counter bei allen Gaps (für aggressive Gossip-Stop)
-                                if missing_blocks > 1 {
-                                    let mut tracker = health_tracker.lock().unwrap();
-                                    tracker.consecutive_success_blocks = 0;
-                                    tracing::debug!("🔄 Reset success counter due to gap: {} blocks", missing_blocks);
+                                // Update gap statistics 
+                                {
+                                    let mut stats_guard = stats.lock().unwrap();
+                                    stats_guard.http_gaps += missing_blocks as u32;
                                 }
                                 
-                                // Update gap statistics and check if we should switch to gossip
+                                // SIMPLIFIED: Only switch to gossip for LARGE gaps (>= 50 blocks)
                                 let should_switch_to_gossip = {
                                     let mut tracker = health_tracker.lock().unwrap();
-                                    tracker.total_gaps += missing_blocks as u32;
-                                    tracker.recent_gaps += missing_blocks as u32;
-                                    
-                                    // Update stats with HTTP gaps (nur HTTP-spezifisch)
-                                    {
-                                        let mut stats_guard = stats.lock().unwrap();
-                                        // total_gaps wird nur beim finalen Processing gezählt
-                                        stats_guard.http_gaps += missing_blocks as u32;
+                                    if missing_blocks >= 50 && tracker.current_mode == BridgeMode::HttpOnly {
+                                        warn!("🔍 HTTP: LARGE gap detected! {} blocks missing (threshold: 50 blocks)", missing_blocks);
+                                        warn!("🌐+📡 STARTING: Gossip backup (HTTP gap too large)");
+                                        
+                                        tracker.current_mode = BridgeMode::HttpPlusGossip;
+                                        tracker.consecutive_success_blocks = 0;
+                                        true
+                                    } else {
+                                        false
                                     }
-                                    
-                                    // Reset recent gaps counter every 10 minutes
-                                    if let Some(last_reset) = tracker.last_gap_reset {
-                                        if last_reset.elapsed().unwrap_or(Duration::from_secs(0)) > Duration::from_secs(600) {
-                                            tracker.recent_gaps = missing_blocks as u32;
-                                            tracker.last_gap_reset = Some(SystemTime::now());
-                                        }
-                                    }
-                                    
-                                // TIME-BASED SWITCHING: Check if gap is too large (>30 blocks = ~1 minute)
-                                if missing_blocks >= tracker.gap_threshold as u64 && tracker.current_mode == BridgeMode::HttpOnly {
-                                    warn!("🔍 HTTP: Large gap detected! {} blocks missing (threshold: {} blocks = ~1min)", 
-                                          missing_blocks, tracker.gap_threshold);
-                                    warn!("🌐+📡 STARTING: Gossip backup (HTTP gap too large - keeping HTTP running)");
-                                    tracker.current_mode = BridgeMode::HttpPlusGossip;
-                                    tracker.consecutive_success_blocks = 0; // Reset success counter
-                                    true
-                                } else {
-                                    false
-                                }
                                 };
                                 
                                 if should_switch_to_gossip {
@@ -512,23 +379,19 @@ pub async fn run_http_primary_with_gossip_fallback(
                                 }
                             }
                         } else {
-                            // No gap - increment success counter
+                            // No gap - increment success counter for gossip stopping
                             let should_stop_gossip = {
                                 let mut tracker = health_tracker.lock().unwrap();
                                 tracker.consecutive_success_blocks += 1;
                                 
-                                // Check if we should stop gossip backup due to successful HTTP
+                                // SIMPLIFIED: Stop gossip after 50 consecutive successful HTTP blocks
                                 if tracker.current_mode == BridgeMode::HttpPlusGossip && 
-                                   tracker.consecutive_success_blocks >= tracker.success_threshold {
-                                    warn!("🌐-📡 STOPPING: Gossip backup ({} successful blocks - HTTP recovered) - CPU load should decrease", 
+                                   tracker.consecutive_success_blocks >= 50 {
+                                    warn!("🌐-📡 STOPPING: Gossip backup ({} consecutive successful HTTP blocks)", 
                                           tracker.consecutive_success_blocks);
                                     tracker.current_mode = BridgeMode::HttpOnly;
                                     tracker.consecutive_success_blocks = 0;
                                     true
-                                } else if tracker.current_mode == BridgeMode::HttpPlusGossip {
-                                    tracing::debug!("🔄 HTTP stability: {}/{} successful blocks (need {} to stop gossip)", 
-                                                  tracker.consecutive_success_blocks, tracker.success_threshold, tracker.success_threshold);
-                                    false
                                 } else {
                                     false
                                 }
@@ -542,11 +405,9 @@ pub async fn run_http_primary_with_gossip_fallback(
                                 
                                 // Stop Gossip-Backup Task
                                 if let Some(task) = gossip_task.take() {
-                                    warn!("🛑 Stopping gossip backup task - CPU load should drop from ~127% to normal...");
-                                    task.abort(); // Beende Gossip-Task
-                                    warn!("✅ HTTP fully recovered - gossip backup stopped - CPU load normalized");
-                                } else {
-                                    warn!("⚠️  Should stop gossip but no task found - this shouldn't happen");
+                                    warn!("🛑 Stopping gossip backup task - HTTP stable again");
+                                    task.abort();
+                                    warn!("✅ HTTP recovered - gossip backup stopped");
                                 }
                             }
                         }
@@ -558,11 +419,10 @@ pub async fn run_http_primary_with_gossip_fallback(
                             tracker.mark_block_processed(block_number);
                         }
                         
-                        // CRITICAL: Update time-based tracking for all HTTP blocks
+                        // Update success tracking (simplified)
                         {
                             let mut tracker = health_tracker.lock().unwrap();
-                            tracker.last_http_block_number = Some(block_number);
-                            tracker.last_http_block_time = Some(SystemTime::now());
+                            tracker.last_success = Some(SystemTime::now());
                         }
                         
                         // Update stats
@@ -575,20 +435,18 @@ pub async fn run_http_primary_with_gossip_fallback(
                             
                             // Periodische Statusmeldung alle 200 Blöcke
                         if block_number >= last_status_block + STATUS_INTERVAL {
-                            // CRITICAL FIX: Calculate HTTP success rate based on received vs blocks seen
-                            let blocks_in_interval = block_number - last_status_block;
-                            let http_blocks_received = stats_guard.http_received - last_http_processed;
-                            let http_rate = if blocks_in_interval > 0 { 
-                                http_blocks_received as f64 / blocks_in_interval as f64 
+                            // SIMPLIFIED: Show simple success rate
+                            let http_success_rate = if stats_guard.http_received > 0 { 
+                                stats_guard.http_processed as f64 / stats_guard.http_received as f64 
                             } else { 
                                 0.0 
                             };
                             
-                            info!("🌐 HTTP Status: Block #{}, Total processed: {}, HTTP received: {} (rate: {:.3}), HTTP processed: {}, Gossip: {}, Gaps: {}", 
+                            info!("🌐 HTTP Status: Block #{}, Total processed: {}, HTTP: {}/{} (rate: {:.3}), Gossip: {}, Gaps: {}", 
                                   block_number, stats_guard.processed_preconfs, 
-                                  stats_guard.http_received, http_rate, stats_guard.http_processed, stats_guard.gossip_processed, gaps_since_last_status);
+                                  stats_guard.http_processed, stats_guard.http_received, http_success_rate, 
+                                  stats_guard.gossip_processed, gaps_since_last_status);
                             last_status_block = block_number;
-                            last_http_processed = stats_guard.http_received; // Track HTTP received for rate calculation
                             gaps_since_last_status = 0; // Reset gap counter
                         }
                         }
@@ -606,46 +464,11 @@ pub async fn run_http_primary_with_gossip_fallback(
                 }
             }
             Ok(None) => {
-                // No new data, but HTTP is working - still count as success for gossip stop
-                let should_stop_gossip = {
+                // No new data, but HTTP is working - reset failure counter
+                {
                     let mut tracker = health_tracker.lock().unwrap();
                     tracker.consecutive_failures = 0;
                     tracker.last_success = Some(SystemTime::now());
-                    
-                    // CRITICAL FIX: Increment success counter even for "no new data"
-                    if tracker.current_mode == BridgeMode::HttpPlusGossip {
-                        tracker.consecutive_success_blocks += 1;
-                        tracing::debug!("🔄 HTTP no-data success: {}/{} (need {} to stop gossip)", 
-                                      tracker.consecutive_success_blocks, tracker.success_threshold, tracker.success_threshold);
-                        
-                        if tracker.consecutive_success_blocks >= tracker.success_threshold {
-                            warn!("🌐-📡 STOPPING: Gossip backup ({} successful HTTP calls - HTTP stable) - CPU load should decrease", 
-                                  tracker.consecutive_success_blocks);
-                            tracker.current_mode = BridgeMode::HttpOnly;
-                            tracker.consecutive_success_blocks = 0;
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                };
-                
-                if should_stop_gossip {
-                    // Update mode statistics
-                    let mut stats_guard = stats.lock().unwrap();
-                    stats_guard.current_mode = 0; // HTTP only
-                    drop(stats_guard);
-                    
-                    // Stop Gossip-Backup Task
-                    if let Some(task) = gossip_task.take() {
-                        warn!("🛑 Stopping gossip backup task (no-data success) - CPU load should drop from ~127% to normal...");
-                        task.abort(); // Beende Gossip-Task
-                        warn!("✅ HTTP stable (no-data mode) - gossip backup stopped - CPU load normalized");
-                    } else {
-                        warn!("⚠️  Should stop gossip but no task found - this shouldn't happen");
-                    }
                 }
                 continue;
             }
