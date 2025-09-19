@@ -215,8 +215,16 @@ INTERNAL c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_co
           else // store in cache
             cache.set(bprintf(&buf, "code_%x", bytes(ac->hash, 32)), ac->code);
         }
-        else
+        else {
+          safe_free(ac);
+          ac     = NULL;
           status = c4_state_add_error(&ctx->state, bprintf(&buf, "error fetching code from rpc: %s", req->response.data));
+        }
+      }
+      else if (req && req->error) {
+        safe_free(ac);
+        ac     = NULL;
+        status = c4_state_add_error(&ctx->state, req->error);
       }
       else {
         // we need to fecth the code from rpc

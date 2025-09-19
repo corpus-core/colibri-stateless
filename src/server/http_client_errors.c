@@ -76,8 +76,24 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
     case -32700: // Parse error - Invalid JSON
       return C4_RESPONSE_ERROR_USER;
 
-    case -32600: // Invalid request - malformed request
+    case -32600: { // Invalid request - malformed request or tier limitation
+      json_t message = json_get(error, "message");
+      if (message.type == JSON_TYPE_STRING) {
+        bytes_t msg_bytes = bytes(message.start, message.len);
+        // Check for tier/subscription limitations that should be treated as method not supported
+        if (bytes_contains_string(msg_bytes, "not available on the Free tier") ||
+            bytes_contains_string(msg_bytes, "upgrade to Pay As You Go") ||
+            bytes_contains_string(msg_bytes, "Enterprise for access") ||
+            bytes_contains_string(msg_bytes, "subscription plan") ||
+            bytes_contains_string(msg_bytes, "tier limitation") ||
+            bytes_contains_string(msg_bytes, "plan does not support")) {
+          set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available on current tier");
+          return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
+        }
+      }
+      // Other -32600 errors are user errors (malformed JSON, etc.)
       return C4_RESPONSE_ERROR_USER;
+    }
 
     case -32601: // Method not found - typo in method name
       return C4_RESPONSE_ERROR_RETRY;
@@ -109,10 +125,22 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
       json_t message = json_get(error, "message");
       if (message.type == JSON_TYPE_STRING) {
         bytes_t msg_bytes = bytes(message.start, message.len);
+        // Tier/subscription limitations - method not supported
+        if (bytes_contains_string(msg_bytes, "not available on the Free tier") ||
+            bytes_contains_string(msg_bytes, "upgrade to Pay As You Go") ||
+            bytes_contains_string(msg_bytes, "Enterprise for access") ||
+            bytes_contains_string(msg_bytes, "subscription plan") ||
+            bytes_contains_string(msg_bytes, "tier limitation") ||
+            bytes_contains_string(msg_bytes, "plan does not support") ||
+            bytes_contains_string(msg_bytes, "method not supported") ||
+            bytes_contains_string(msg_bytes, "feature not enabled")) {
+          set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available on current tier");
+          return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
+        }
         // Sync-related errors - retryable
-        if (bytes_contains_string(msg_bytes, "Header not found") ||
-            bytes_contains_string(msg_bytes, "Block not found") ||
-            bytes_contains_string(msg_bytes, "not in sync")) {
+        else if (bytes_contains_string(msg_bytes, "Header not found") ||
+                 bytes_contains_string(msg_bytes, "Block not found") ||
+                 bytes_contains_string(msg_bytes, "not in sync")) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC sync error");
           return C4_RESPONSE_ERROR_RETRY;
         }
