@@ -72,17 +72,25 @@ typedef struct {
   // preconf_use_gossip removed - now using automatic HTTP fallback until gossip is active
 } http_server_t;
 
+// Method support tracking for RPC methods
+typedef struct method_support {
+  char*                  method_name;
+  bool                   is_supported;
+  struct method_support* next;
+} method_support_t;
+
 // Server health tracking structure
 typedef struct {
-  uint64_t total_requests;
-  uint64_t successful_requests;
-  uint64_t total_response_time; // in milliseconds
-  uint64_t last_used;           // timestamp
-  uint64_t consecutive_failures;
-  uint64_t marked_unhealthy_at; // timestamp when marked unhealthy
-  bool     is_healthy;          // false if too many consecutive failures
-  bool     recovery_allowed;    // true if recovery attempt is allowed
-  double   weight;              // calculated weight for load balancing
+  uint64_t          total_requests;
+  uint64_t          successful_requests;
+  uint64_t          total_response_time; // in milliseconds
+  uint64_t          last_used;           // timestamp
+  uint64_t          consecutive_failures;
+  uint64_t          marked_unhealthy_at; // timestamp when marked unhealthy
+  bool              is_healthy;          // false if too many consecutive failures
+  bool              recovery_allowed;    // true if recovery attempt is allowed
+  double            weight;              // calculated weight for load balancing
+  method_support_t* unsupported_methods; // linked list of unsupported RPC methods
 } server_health_t;
 
 typedef uint32_t beacon_client_type_t;
@@ -158,9 +166,10 @@ typedef enum {
 } store_type_t;
 
 typedef enum {
-  C4_RESPONSE_SUCCESS     = 0, // Request was successful
-  C4_RESPONSE_ERROR_RETRY = 1, // Error occurred, but retry may fix it
-  C4_RESPONSE_ERROR_USER  = 2  // User error, retry does not make sense
+  C4_RESPONSE_SUCCESS                    = 0, // Request was successful
+  C4_RESPONSE_ERROR_RETRY                = 1, // Error occurred, but retry may fix it
+  C4_RESPONSE_ERROR_USER                 = 2, // User error, retry does not make sense
+  C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED = 3  // Method not supported by this server, exclude for this method
 } c4_response_type_t;
 
 void c4_proofer_handle_request(request_t* req);
@@ -187,7 +196,13 @@ server_list_t* c4_get_server_list(data_request_type_t type);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
 
 // Load balancing functions
-int                c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type);
+int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type);
+int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method);
+
+// Method support tracking functions
+void               c4_mark_method_unsupported(server_list_t* servers, int server_index, const char* method);
+bool               c4_is_method_supported(server_list_t* servers, int server_index, const char* method);
+void               c4_cleanup_method_support(server_health_t* health);
 void               c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success);
 void               c4_calculate_server_weights(server_list_t* servers);
 bool               c4_should_reset_health_stats(server_list_t* servers);

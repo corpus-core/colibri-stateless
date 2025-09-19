@@ -55,7 +55,64 @@ void c4_reset_server_health_stats(server_list_t* servers) {
     health->marked_unhealthy_at  = 0;
     // Keep historical stats (total_requests, successful_requests, total_response_time)
     // but reset the health flags
+    // Note: We keep the unsupported_methods list as these are method-specific limitations
   }
+}
+
+// Method support tracking functions
+void c4_mark_method_unsupported(server_list_t* servers, int server_index, const char* method) {
+  if (!servers || !servers->health_stats || server_index < 0 || server_index >= servers->count || !method) return;
+
+  server_health_t* health = &servers->health_stats[server_index];
+
+  // Check if method is already marked as unsupported
+  method_support_t* current = health->unsupported_methods;
+  while (current) {
+    if (strcmp(current->method_name, method) == 0) {
+      current->is_supported = false; // Ensure it's marked as unsupported
+      return;
+    }
+    current = current->next;
+  }
+
+  // Add new unsupported method to the list
+  method_support_t* new_entry = (method_support_t*) safe_calloc(1, sizeof(method_support_t));
+  new_entry->method_name      = strdup(method);
+  new_entry->is_supported     = false;
+  new_entry->next             = health->unsupported_methods;
+  health->unsupported_methods = new_entry;
+
+  fprintf(stderr, "   [method] Server %d: Marked method '%s' as unsupported\n", server_index, method);
+}
+
+bool c4_is_method_supported(server_list_t* servers, int server_index, const char* method) {
+  if (!servers || !servers->health_stats || server_index < 0 || server_index >= servers->count || !method) return true;
+
+  server_health_t*  health  = &servers->health_stats[server_index];
+  method_support_t* current = health->unsupported_methods;
+
+  while (current) {
+    if (strcmp(current->method_name, method) == 0) {
+      return current->is_supported;
+    }
+    current = current->next;
+  }
+
+  // Method not found in unsupported list, assume it's supported
+  return true;
+}
+
+void c4_cleanup_method_support(server_health_t* health) {
+  if (!health) return;
+
+  method_support_t* current = health->unsupported_methods;
+  while (current) {
+    method_support_t* next = current->next;
+    safe_free(current->method_name);
+    safe_free(current);
+    current = next;
+  }
+  health->unsupported_methods = NULL;
 }
 
 // Calculate weights based on success rate and response time
@@ -324,6 +381,32 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
 
 #undef matches_client_type
   return -1;
+}
+
+// Select best server for a specific RPC method, excluding servers that don't support it
+int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method) {
+  if (!servers || servers->count == 0) return -1;
+
+  // If no method specified, fall back to regular selection
+  if (!method) return c4_select_best_server(servers, exclude_mask, preferred_client_type);
+
+  // Create extended exclude mask that includes servers not supporting the method
+  uint32_t method_exclude_mask = exclude_mask;
+  for (size_t i = 0; i < servers->count && i < 32; i++) {
+    if (!c4_is_method_supported(servers, i, method)) {
+      method_exclude_mask |= (1 << i);
+    }
+  }
+
+  // If all servers are excluded due to method support, fall back to regular selection
+  // (this handles cases where method support info might be incomplete/wrong)
+  if (method_exclude_mask == ((1 << servers->count) - 1)) {
+    fprintf(stderr, "   [method] No servers support method '%s', falling back to regular selection\n", method);
+    return c4_select_best_server(servers, exclude_mask, preferred_client_type);
+  }
+
+  // Use regular server selection with extended exclude mask
+  return c4_select_best_server(servers, method_exclude_mask, preferred_client_type);
 }
 
 // Case-insensitive string search helper

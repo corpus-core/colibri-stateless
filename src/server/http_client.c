@@ -28,6 +28,17 @@ static server_list_t beacon_api_servers = {0};
 static void cache_response(single_request_t* r);
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
 
+// Helper function to extract RPC method name from request payload
+static char* extract_rpc_method(data_request_t* req) {
+  if (!req || req->type != C4_DATA_TYPE_ETH_RPC || !req->payload.data || req->payload.len == 0) return NULL;
+
+  json_t json = json_get(json_parse((char*) req->payload.data), "method");
+  if (json.type == JSON_TYPE_STRING) {
+    return json_as_string(json, NULL);
+  }
+  return NULL;
+}
+
 // Context structure to associate uv_poll_t with CURL easy handle
 typedef struct {
   uv_poll_t poll_handle;
@@ -183,8 +194,21 @@ static void handle_curl_events() {
                                                             r->req); // Classify the response type
 
     // Update server health based on response type
-    bool health_success = (response_type == C4_RESPONSE_SUCCESS || response_type == C4_RESPONSE_ERROR_USER);
+    // Method not supported is not a server health issue, so we treat it as successful for health tracking
+    bool health_success = (response_type == C4_RESPONSE_SUCCESS ||
+                           response_type == C4_RESPONSE_ERROR_USER ||
+                           response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED);
     c4_update_server_health(servers, r->req->response_node_index, response_time, health_success);
+
+    // Handle method not supported errors
+    if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
+      char* rpc_method = extract_rpc_method(r->req);
+      if (rpc_method) {
+        c4_mark_method_unsupported(servers, r->req->response_node_index, rpc_method);
+        safe_free(rpc_method);
+      }
+    }
+
     bytes_t response = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
     if (response_type == C4_RESPONSE_SUCCESS && response.data) {
@@ -202,6 +226,12 @@ static void handle_curl_events() {
       // Mark as non-retryable to avoid unnecessary retries
       fprintf(stderr, "   [user ] JSON-RPC user error - marking request as non-retryable\n");
       r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
+    }
+    else if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
+      // Don't set response or mark as completely failed - let retry logic handle it
+      if (!r->req->error) r->req->error = strdup("Method not supported");
+      fprintf(stderr, "   [curl ] %s %s -> Method not supported : %s\n",
+              r->url ? r->url : r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
     }
     else {
       char* effective_url = NULL;
@@ -529,7 +559,16 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     }
     else {
       // Use intelligent server selection for initial requests
-      selected_index = c4_select_best_server(servers, r->req->node_exclude_mask, r->req->preferred_client_type);
+      // For RPC requests, use method-aware selection
+      char* rpc_method = extract_rpc_method(r->req);
+      if (rpc_method) {
+        selected_index = c4_select_best_server_for_method(servers, r->req->node_exclude_mask, r->req->preferred_client_type, rpc_method);
+        safe_free(rpc_method);
+      }
+      else {
+        selected_index = c4_select_best_server(servers, r->req->node_exclude_mask, r->req->preferred_client_type);
+      }
+
       if (selected_index == -1) {
         // This should be very rare after emergency reset logic in c4_select_best_server
         fprintf(stderr, ":: CRITICAL ERROR: No available servers even after emergency reset attempts\n");
@@ -783,6 +822,9 @@ void c4_cleanup_curl() {
 
   // Clean up server health stats and client types
   if (eth_rpc_servers.health_stats) {
+    for (size_t i = 0; i < eth_rpc_servers.count; i++) {
+      c4_cleanup_method_support(&eth_rpc_servers.health_stats[i]);
+    }
     safe_free(eth_rpc_servers.health_stats);
     eth_rpc_servers.health_stats = NULL;
   }
@@ -791,6 +833,9 @@ void c4_cleanup_curl() {
     eth_rpc_servers.client_types = NULL;
   }
   if (beacon_api_servers.health_stats) {
+    for (size_t i = 0; i < beacon_api_servers.count; i++) {
+      c4_cleanup_method_support(&beacon_api_servers.health_stats[i]);
+    }
     safe_free(beacon_api_servers.health_stats);
     beacon_api_servers.health_stats = NULL;
   }

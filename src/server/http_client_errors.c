@@ -143,7 +143,8 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
       return C4_RESPONSE_ERROR_USER;
 
     case -32004: // Method not supported
-      return C4_RESPONSE_ERROR_RETRY;
+      set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not supported");
+      return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
 
     case -32005: // Limit exceeded
       return C4_RESPONSE_ERROR_RETRY;
