@@ -30,8 +30,11 @@ fn safe_hex_decode(hex_str: &str) -> Result<Vec<u8>, hex::FromHexError> {
     hex::decode(&padded_hex)
 }
 
-/// Aggressive Polling-Strategie bei erkannten Block-Lücken
-async fn try_fill_block_gaps(
+/// DEPRECATED: Aggressive Polling-Strategie bei erkannten Block-Lücken
+/// This function is disabled because it causes HTTP rate issues.
+/// Gaps should be handled by activating gossip backup instead.
+#[allow(dead_code)]
+async fn _try_fill_block_gaps_deprecated(
     client: &reqwest::Client,
     endpoint: &str,
     last_block: u64,
@@ -205,7 +208,7 @@ pub async fn run_http_primary_with_gossip_fallback(
     let mut interval_timer = interval(Duration::from_secs(http_poll_interval));
     let mut last_data_hash: Option<String> = None;
     let mut last_block_number: Option<u64> = None;
-    let mut consecutive_same_data = 0u32;
+    let mut _consecutive_same_data = 0u32; // Kept for potential future use
     let mut last_status_block = 0u64;
     // Removed unused variable last_http_processed
     let mut gaps_since_last_status = 0u32;
@@ -241,21 +244,15 @@ pub async fn run_http_primary_with_gossip_fallback(
                 // Check if this is new data
                 if let Some(ref last_hash) = last_data_hash {
                     if *last_hash == data_hash {
-                        consecutive_same_data += 1;
+                        _consecutive_same_data += 1;
                         
-                        // If we've seen the same data multiple times, poll more aggressively
-                        let wait_time = if consecutive_same_data > 3 {
-                            Duration::from_millis(200) // Very aggressive polling after 3 identical responses
-                        } else {
-                            Duration::from_millis(500)
-                        };
-                        
-                        sleep(wait_time).await;
+                        // DISABLED: Aggressive polling causes rate problems
+                        // Just continue with normal interval instead of reducing wait time
                         continue;
                     }
                 }
                 
-                consecutive_same_data = 0; // Reset counter on new data
+                _consecutive_same_data = 0; // Reset counter on new data
                 last_data_hash = Some(data_hash.clone());
 //                info!("🌐 HTTP: New preconf received (hash: {})", &data_hash[..16]);
                 
@@ -368,22 +365,9 @@ pub async fn run_http_primary_with_gossip_fallback(
                                     }
                                 }
                                 
-                                // Try to fill gaps with aggressive polling (only if not switching)
-                                let filled = try_fill_block_gaps(
-                                    &client,
-                                    &http_endpoint,
-                                    last_num,
-                                    block_number,
-                                    chain_id,
-                                    output_dir,
-                                    20 // max 20 attempts = 2 seconds of aggressive polling
-                                ).await;
-                                
-                                if filled > 0 {
-                                    info!("🔧 Gap-fill recovered {}/{} missing blocks", filled, missing_blocks);
-                                } else {
-                                    warn!("⚠️  Gap-fill failed: HTTP endpoint reliability issue detected");
-                                }
+                                // DISABLED: Aggressive gap-fill polling causes rate problems
+                                // Just log the gap and let gossip handle it if needed
+                                warn!("⚠️  HTTP: Gap detected but gap-fill disabled to prevent rate issues");
                             }
                         } else {
                             // No gap - increment success counter for gossip stopping
