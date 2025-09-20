@@ -114,6 +114,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -i <proof_file> proof file to read\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
     fprintf(stderr, "  -p url of the proofer\n");
+    fprintf(stderr, "  -r rpc url\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
   }
@@ -121,6 +122,7 @@ int main(int argc, char* argv[]) {
   char*      method         = NULL;
   chain_id_t chain_id       = C4_CHAIN_MAINNET;
   buffer_t   args           = {0};
+  char*      rpc            = "";
   char*      input          = NULL;
   char*      test_dir       = NULL;
   char*      output         = NULL;
@@ -140,6 +142,9 @@ int main(int argc, char* argv[]) {
           case 'i':
           case 'p':
             input = argv[++i];
+            break;
+          case 'r':
+            rpc = argv[++i];
             break;
           case 'b':
             buffer_grow(&trusted_blocks, trusted_blocks.data.len + 32);
@@ -207,7 +212,7 @@ int main(int argc, char* argv[]) {
         c4_get_storage_config(&storage);
         storage.get(name, &state);
         request = read_from_proofer(input, method, (char*) args.data.data, state.data, chain_id);
-        curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[]}", input)));
+        curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[\"%s\"]}", input, rpc)));
         buffer_free(&state);
         if (output) bytes_write(request, fopen(output, "w"), true);
 #else
