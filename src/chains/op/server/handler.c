@@ -76,22 +76,25 @@ void op_server_metrics(http_server_t* server, buffer_t* data) {
     bprintf(data, "# TYPE colibri_op_preconf_failed_total counter\n");
     bprintf(data, "colibri_op_preconf_failed_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.failed_preconfs);
 
-    // Success rate metric (processed/received - simple and accurate)
-    double success_rate = stats.received_preconfs > 0 ? (double) stats.processed_preconfs / stats.received_preconfs : 0.0;
-    bprintf(data, "# HELP colibri_op_preconf_success_rate Success rate of preconfirmation processing (0.0-1.0).\n");
-    bprintf(data, "# TYPE colibri_op_preconf_success_rate gauge\n");
-    // Format success rate manually as string since bprintf doesn't support float
-    char success_rate_str[16];
-    snprintf(success_rate_str, sizeof(success_rate_str), "%.3f", success_rate);
-    bprintf(data, "colibri_op_preconf_success_rate{chain_id=\"%d\"} %s\n", (uint32_t) server->chain_id, success_rate_str);
+    // NOTE: Success rates should be calculated in Grafana using rate() functions
+    // for real-time performance instead of cumulative averages.
+    //
+    // Recommended Grafana queries for real-time metrics:
+    //
+    // Real-time success rate (current performance):
+    //   rate(colibri_op_preconf_processed_total[5m]) /
+    //   (rate(colibri_op_preconf_processed_total[5m]) + rate(colibri_op_preconf_http_gaps_total[5m]) + rate(colibri_op_preconf_gossip_gaps_total[5m]))
+    //
+    // Real-time HTTP efficiency:
+    //   rate(colibri_op_preconf_http_processed_total[5m]) / rate(colibri_op_preconf_http_received_total[5m])
+    //
+    // Real-time block rate (should be ~2 blocks/s for 2s block time):
+    //   rate(colibri_op_preconf_processed_total[5m])
 
-    // HTTP Success Rate (separate metric for HTTP efficiency)
-    double http_success_rate = stats.http_received > 0 ? (double) stats.http_processed / stats.http_received : 0.0;
-    bprintf(data, "# HELP colibri_op_preconf_http_success_rate HTTP-specific success rate (0.0-1.0).\n");
-    bprintf(data, "# TYPE colibri_op_preconf_http_success_rate gauge\n");
-    char http_success_rate_str[16];
-    snprintf(http_success_rate_str, sizeof(http_success_rate_str), "%.3f", http_success_rate);
-    bprintf(data, "colibri_op_preconf_http_success_rate{chain_id=\"%d\"} %s\n", (uint32_t) server->chain_id, http_success_rate_str);
+    // Raw counters provided below for Grafana rate() calculations
+    // No pre-calculated success rates to avoid cumulative average confusion
+
+    // HTTP efficiency should also be calculated in Grafana for real-time view
 
     // HTTP/Gossip Mode-specific metrics
     bprintf(data, "# HELP colibri_op_preconf_http_received_total Total number of preconfirmations received via HTTP.\n");
