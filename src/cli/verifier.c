@@ -118,11 +118,12 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
   }
-
+#ifdef USE_CURL
+  char* rpc = "";
+#endif
   char*      method         = NULL;
   chain_id_t chain_id       = C4_CHAIN_MAINNET;
   buffer_t   args           = {0};
-  char*      rpc            = "";
   char*      input          = NULL;
   char*      test_dir       = NULL;
   char*      output         = NULL;
@@ -143,9 +144,11 @@ int main(int argc, char* argv[]) {
           case 'p':
             input = argv[++i];
             break;
+#ifdef USE_CURL
           case 'r':
             rpc = argv[++i];
             break;
+#endif
           case 'b':
             buffer_grow(&trusted_blocks, trusted_blocks.data.len + 32);
             if (hex_to_bytes(argv[++i], -1, bytes(trusted_blocks.data.data + trusted_blocks.data.len, 32)) == 32)
