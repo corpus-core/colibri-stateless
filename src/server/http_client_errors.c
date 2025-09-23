@@ -291,6 +291,19 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
   // Server configuration/infrastructure errors (retryable, not user errors)
   if (http_code == 401 || http_code == 403 || http_code == 429) return C4_RESPONSE_ERROR_RETRY;
 
+  // Special handling for HTTP 400 with JSON-RPC errors - check if it's a method not supported error
+  if (http_code == 400 && req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
+    // Quick check: only parse JSON if "error" appears in response
+    if (bytes_contains_string(response_body, "\"error\"")) {
+      json_t response = json_parse((char*) response_body.data);
+      if (response.type == JSON_TYPE_OBJECT) {
+        json_t error = json_get(response, "error");
+        if (error.type != JSON_TYPE_NOT_FOUND)
+          return classify_jsonrpc_error(error, req);
+      }
+    }
+  }
+
   // Special handling for Beacon API sync lag
   if (req && req->type == C4_DATA_TYPE_BEACON_API && c4_is_beacon_api_sync_lag(http_code, url, response_body)) {
     fprintf(stderr, "   [sync ] Detected potential sync lag for beacon API - treating as server error, not user error\n");
