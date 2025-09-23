@@ -95,7 +95,7 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
       return C4_RESPONSE_ERROR_USER;
     }
 
-    case -32601: // Method not found - typo in method name
+    case -32601: // Method not found -  we'll retry, because it measn it may not be supported in one node, but in the other
       return C4_RESPONSE_ERROR_RETRY;
 
     case -32602: { // Invalid params - needs message analysis
