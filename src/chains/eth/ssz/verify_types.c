@@ -58,7 +58,7 @@ static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 //
 
 // A List of possible types of data matching the Proofs
-const ssz_def_t C4_ETH_REQUEST_DATA_UNION[9] = {
+const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10] = {
     SSZ_NONE,
     SSZ_BYTES32("hash"),                                       // the blochash  which is used for blockhash proof
     SSZ_BYTES("bytes", 1073741824),                            // the bytes of the data
@@ -68,6 +68,7 @@ const ssz_def_t C4_ETH_REQUEST_DATA_UNION[9] = {
     SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024), // result of eth_getLogs
     SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),             // the block data
     SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),             // the result of an eth_getProof
+    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),  // the result of an eth_simulateTransaction
 
 };
 // A List of possible types of proofs matching the Data
@@ -160,6 +161,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return C4_ETH_REQUEST_DATA_UNION + 7;
     case ETH_SSZ_DATA_PROOF:
       return C4_ETH_REQUEST_DATA_UNION + 8;
+    case ETH_SSZ_DATA_SIMULATION:
+      return C4_ETH_REQUEST_DATA_UNION + 9; // Use proper SimulationResult structure
     default: return NULL;
   }
 }

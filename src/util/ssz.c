@@ -356,7 +356,7 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
     }
     case SSZ_TYPE_VECTOR:
     case SSZ_TYPE_LIST: {
-      if (def == &ssz_string_def)
+      if (def == &ssz_string_def || def->flags & SSZ_FLAG_STRING)
         bprintf(buf, ctx->no_quotes ? "%J" : "\"%J\"", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) ob.bytes.data, .len = ob.bytes.len});
       else if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1) { // byte array
         if (def->flags & SSZ_FLAG_UINT) {

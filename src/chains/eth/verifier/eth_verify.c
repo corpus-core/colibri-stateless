@@ -39,6 +39,7 @@
 
 static const char* proofable_methods[] = {
     RPC_METHOD("eth_call", Bytes, EthCallProof),
+    RPC_METHOD("eth_simulateTransaction", EthSimulationResult, EthCallProof),
     RPC_METHOD("eth_getProof", EthProofData, EthAccountProof),
     RPC_METHOD("eth_getBalance", Uint256, EthAccountProof),
     RPC_METHOD("eth_getBlockByHash", EthBlockData, EthBlockProof),
@@ -133,8 +134,12 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
   else
 #endif
 #ifdef ETH_CALL
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF)))
-    verify_call_proof(ctx);
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF))) {
+    if (ctx->method && strcmp(ctx->method, "eth_simulateTransaction") == 0)
+      verify_simulate_proof(ctx);
+    else
+      verify_call_proof(ctx);
+  }
   else
 #endif
 #ifdef ETH_BLOCK

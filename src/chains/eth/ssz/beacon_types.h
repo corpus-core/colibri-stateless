@@ -60,15 +60,16 @@ typedef enum {
   ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF = 16,
   ETH_SSZ_VERIFY_WITNESS_PROOF      = 17,
   // data types
-  ETH_SSZ_DATA_NONE    = 18,
-  ETH_SSZ_DATA_HASH32  = 19,
-  ETH_SSZ_DATA_BYTES   = 20,
-  ETH_SSZ_DATA_UINT256 = 21,
-  ETH_SSZ_DATA_TX      = 22,
-  ETH_SSZ_DATA_RECEIPT = 23,
-  ETH_SSZ_DATA_LOGS    = 24,
-  ETH_SSZ_DATA_BLOCK   = 25,
-  ETH_SSZ_DATA_PROOF   = 26
+  ETH_SSZ_DATA_NONE       = 18,
+  ETH_SSZ_DATA_HASH32     = 19,
+  ETH_SSZ_DATA_BYTES      = 20,
+  ETH_SSZ_DATA_UINT256    = 21,
+  ETH_SSZ_DATA_TX         = 22,
+  ETH_SSZ_DATA_RECEIPT    = 23,
+  ETH_SSZ_DATA_LOGS       = 24,
+  ETH_SSZ_DATA_BLOCK      = 25,
+  ETH_SSZ_DATA_PROOF      = 26,
+  ETH_SSZ_DATA_SIMULATION = 27
 
 } eth_ssz_type_t;
 
@@ -107,7 +108,7 @@ extern const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
-extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[9];
+extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10];
 extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
 
 #define epoch_for_slot(slot, chain_spec)  ((slot) >> (chain_spec ? chain_spec->slots_per_epoch_bits : 5))

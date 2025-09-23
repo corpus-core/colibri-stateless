@@ -348,6 +348,10 @@ static void host_emit_log(void* context, const evmc_address* addr, const uint8_t
   debug_print_address("emit_log from", addr);
   EVM_LOG("emit_log: data size: %zu bytes, topics count: %zu", data_size, topics_count);
 
+  // Capture the log event if enabled
+  if (ctx->capture_events)
+    add_emitted_log(ctx, addr, data, data_size, topics, topics_count);
+
   if (data && data_size > 0 && EVM_DEBUG) {
     fprintf(stderr, "[EVM] Log data (hex): 0x");
     for (size_t i = 0; i < (data_size > 64 ? 64 : data_size); i++) {
@@ -468,8 +472,8 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
   debug_print_bytes32("  value", &message->value);
 }
 
-// Function to verify call proof
-INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result) {
+// Function to run EVM call with optional event capture
+INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events) {
   buffer_t  buffer = {0};
   address_t to     = {0};
   buffer_t  to_buf = stack_buffer(to);
@@ -495,6 +499,8 @@ INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_co
       .gas_price        = 0,
       .parent           = NULL,
       .results          = NULL,
+      .logs             = NULL,
+      .capture_events   = capture_events,
   };
 
   bytes_t code = get_code(&context, to);
@@ -526,6 +532,12 @@ INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_co
     *call_result = result.output_size ? bytes_dup(bytes(result.output_data, result.output_size)) : NULL_BYTES;
   else
     *call_result = NULL_BYTES;
+
+  // Return captured logs if requested
+  if (logs && capture_events) {
+    *logs        = context.logs;
+    context.logs = NULL; // Prevent cleanup from freeing the logs
+  }
 
   // Process the execution result
   if (result.status_code == 0) { // Success
@@ -576,4 +588,9 @@ INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_co
   EVM_LOG("=== EVM call verification complete ===");
 
   return ctx->state.error == NULL ? C4_SUCCESS : C4_ERROR;
+}
+
+// Original function for backward compatibility
+INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result) {
+  return eth_run_call_evmone_with_events(ctx, call_codes, accounts, tx, call_result, NULL, false);
 }

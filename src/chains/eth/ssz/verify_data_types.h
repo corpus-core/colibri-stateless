@@ -162,7 +162,7 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
 static const ssz_def_t ETH_STORAGE_PROOF_DATA[] = {
     SSZ_BYTES32("key"),                     // the key
     SSZ_BYTES32("value"),                   // the value
-    SSZ_LIST("proof", ssz_bytes_1024, 1024) // Patricia merkle proof
+    SSZ_LIST("proof", ssz_bytes_list, 1024) // Patricia merkle proof (simplified)
 };
 
 static const ssz_def_t ETH_STORAGE_PROOF_DATA_CONTAINER = SSZ_CONTAINER("StorageProofData", ETH_STORAGE_PROOF_DATA);
@@ -172,6 +172,101 @@ static const ssz_def_t ETH_PROOF_DATA[] = {
     SSZ_BYTES32("codeHash"),
     SSZ_UINT256("nonce"),
     SSZ_BYTES32("storageHash"),
-    SSZ_LIST("accountProof", ssz_bytes_1024, 256),                   // Patricia merkle proof
+    SSZ_LIST("accountProof", ssz_bytes_list, 256),                   // Patricia merkle proof (simplified)
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_DATA_CONTAINER, 256), // the storage proofs of the selected
 };
+
+// :: Simulation Result (based on Tenderly format)
+
+// Optional field masks (bit positions after _optmask field)
+#define ETH_SIMULATION_LOG_MASK_ANONYMOUS (1 << 0) // anonymous field
+#define ETH_SIMULATION_LOG_MASK_INPUTS    (1 << 1) // inputs field
+#define ETH_SIMULATION_LOG_MASK_NAME      (1 << 2) // name field
+#define ETH_SIMULATION_LOG_MASK_RAW       (1 << 3) // raw field
+#define ETH_SIMULATION_LOG_MASK_ALL       0xFFFF   // all fields for testing
+
+#define ETH_SIMULATION_TRACE_MASK_DECODED_INPUT  (1 << 0)  // decodedInput field
+#define ETH_SIMULATION_TRACE_MASK_DECODED_OUTPUT (1 << 1)  // decodedOutput field
+#define ETH_SIMULATION_TRACE_MASK_FROM           (1 << 2)  // from field
+#define ETH_SIMULATION_TRACE_MASK_GAS            (1 << 3)  // gas field
+#define ETH_SIMULATION_TRACE_MASK_GAS_USED       (1 << 4)  // gasUsed field
+#define ETH_SIMULATION_TRACE_MASK_INPUT          (1 << 5)  // input field
+#define ETH_SIMULATION_TRACE_MASK_METHOD         (1 << 6)  // method field
+#define ETH_SIMULATION_TRACE_MASK_OUTPUT         (1 << 7)  // output field
+#define ETH_SIMULATION_TRACE_MASK_SUBTRACES      (1 << 8)  // subtraces field
+#define ETH_SIMULATION_TRACE_MASK_TO             (1 << 9)  // to field
+#define ETH_SIMULATION_TRACE_MASK_TRACE_ADDRESS  (1 << 10) // traceAddress field
+#define ETH_SIMULATION_TRACE_MASK_TYPE           (1 << 11) // type field
+#define ETH_SIMULATION_TRACE_MASK_VALUE          (1 << 12) // value field
+#define ETH_SIMULATION_TRACE_MASK_ALL            0xFFFF    // all fields for testing
+
+#define ETH_SIMULATION_RESULT_MASK_BLOCK_NUMBER   (1 << 0) // blockNumber field
+#define ETH_SIMULATION_RESULT_MASK_CUMULATIVE_GAS (1 << 1) // cumulativeGasUsed field
+#define ETH_SIMULATION_RESULT_MASK_GAS_USED       (1 << 2) // gasUsed field
+#define ETH_SIMULATION_RESULT_MASK_LOGS           (1 << 3) // logs field
+#define ETH_SIMULATION_RESULT_MASK_LOGS_BLOOM     (1 << 4) // logsBloom field
+#define ETH_SIMULATION_RESULT_MASK_STATUS         (1 << 5) // status field
+#define ETH_SIMULATION_RESULT_MASK_TRACE          (1 << 6) // trace field
+#define ETH_SIMULATION_RESULT_MASK_TYPE           (1 << 7) // type field
+#define ETH_SIMULATION_RESULT_MASK_RETURN_VALUE   (1 << 8) // returnValue field
+#define ETH_SIMULATION_RESULT_MASK_ALL            0xFFFF   // all fields for testing
+
+// Decoded input/output parameter for ABI decoding
+static const ssz_def_t ETH_SIMULATION_INPUT_PARAM[] = {
+    SSZ_STRING("name", 256),   // parameter name (e.g. "src", "guy", "wad")
+    SSZ_STRING("type", 256),   // parameter type (e.g. "address", "uint256")
+    SSZ_STRING("value", 1024), // parameter value as string (e.g. "0xe2e2...", "299")
+};
+static const ssz_def_t ETH_SIMULATION_INPUT_PARAM_CONTAINER = SSZ_CONTAINER("InputParam", ETH_SIMULATION_INPUT_PARAM);
+
+// Raw log data (same structure as ETH_RECEIPT_DATA_LOG)
+static const ssz_def_t ETH_SIMULATION_LOG_RAW[] = {
+    SSZ_ADDRESS("address"),             // contract address that emitted the log
+    SSZ_BYTES("data", 1073741824),      // event data
+    SSZ_LIST("topics", ssz_bytes32, 8), // event topics
+};
+static const ssz_def_t ETH_SIMULATION_LOG_RAW_CONTAINER = SSZ_CONTAINER("LogRaw", ETH_SIMULATION_LOG_RAW);
+
+// Enhanced log entry for simulation result (Tenderly format)
+static const ssz_def_t ETH_SIMULATION_LOG[] = {
+    SSZ_OPT_MASK("_optmask", 2),                                   // optional fields mask for future extensions
+    SSZ_BOOLEAN("anonymous"),                                      // whether the event is anonymous (ABI decoding)
+    SSZ_LIST("inputs", ETH_SIMULATION_INPUT_PARAM_CONTAINER, 256), // decoded event inputs (ABI decoding)
+    SSZ_STRING("name", 256),                                       // event name (ABI decoding)
+    SSZ_CONTAINER("raw", ETH_SIMULATION_LOG_RAW),                  // raw log data
+};
+static const ssz_def_t ETH_SIMULATION_LOG_CONTAINER = SSZ_CONTAINER("SimulationLog", ETH_SIMULATION_LOG);
+
+// Trace entry for simulation result (Tenderly format)
+static const ssz_def_t ETH_SIMULATION_TRACE[] = {
+    SSZ_OPT_MASK("_optmask", 4),                                          // optional fields mask
+    SSZ_LIST("decodedInput", ETH_SIMULATION_INPUT_PARAM_CONTAINER, 256),  // decoded input parameters (ABI decoding)
+    SSZ_LIST("decodedOutput", ETH_SIMULATION_INPUT_PARAM_CONTAINER, 256), // decoded output parameters (ABI decoding)
+    SSZ_ADDRESS("from"),                                                  // caller address
+    SSZ_UINT64("gas"),                                                    // gas limit (will be rendered as hex)
+    SSZ_UINT64("gasUsed"),                                                // gas used (will be rendered as hex)
+    SSZ_BYTES("input", 1073741824),                                       // call input data
+    SSZ_STRING("method", 256),                                            // method name (ABI decoding, e.g. "approve")
+    SSZ_BYTES("output", 1073741824),                                      // call output data
+    SSZ_UINT32("subtraces"),                                              // number of subtraces
+    SSZ_ADDRESS("to"),                                                    // target address
+    SSZ_LIST("traceAddress", ssz_uint32_def, 256),                        // trace address path (e.g. [0])
+    SSZ_STRING("type", 32),                                               // trace type ("CALL", "CREATE", etc.)
+    SSZ_UINT256("value"),                                                 // ETH value (will be rendered as hex)
+};
+static const ssz_def_t ETH_SIMULATION_TRACE_CONTAINER = SSZ_CONTAINER("SimulationTrace", ETH_SIMULATION_TRACE);
+
+// Main simulation result structure (based on Tenderly format)
+static const ssz_def_t ETH_SIMULATION_RESULT[] = {
+    SSZ_OPT_MASK("_optmask", 4),                             // optional fields mask
+    SSZ_UINT64("blockNumber"),                               // block number where simulation was executed
+    SSZ_UINT64("cumulativeGasUsed"),                         // cumulative gas used (for simulation: same as gasUsed)
+    SSZ_UINT64("gasUsed"),                                   // gas used by the transaction
+    SSZ_LIST("logs", ETH_SIMULATION_LOG_CONTAINER, 1024),    // emitted logs
+    SSZ_BYTE_VECTOR("logsBloom", 256),                       // logs bloom filter (future extension)
+    SSZ_BOOLEAN("status"),                                   // transaction status (true = success, false = revert)
+    SSZ_LIST("trace", ETH_SIMULATION_TRACE_CONTAINER, 4096), // execution trace (future extension)
+    SSZ_UINT8("type"),                                       // transaction type
+    SSZ_BYTES("returnValue", 1073741824),                    // return value of the call
+};
+static const ssz_def_t ETH_SIMULATION_RESULT_CONTAINER = SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT);
