@@ -21,6 +21,15 @@
  * SPDX-License-Identifier: MIT
  */
 
+// : Ethereum
+
+// :: Colibri RPC-Methods
+// These RPC-Methods are special RPC-Methods in addition to the standards.
+
+// ::: colibri_simulateTransaction
+//
+// Simulates a Transaction before signing it.
+
 #include "beacon_types.h"
 #include "bytes.h"
 #include "call_ctx.h"

@@ -86,6 +86,13 @@ static ssz_ob_t web3_sha3(verify_ctx_t* ctx) {
   keccak(buf.data, buf.data.data);
   return (ssz_ob_t) {.def = &ssz_bytes32, .bytes = bytes(buf.data.data, 32)};
 }
+// : Ethereum
+
+// :: Colibri RPC-Methods
+
+// ::: colibri_decodeTransaction
+//
+// Decodes a raw transaction hex string into a transaction data object.
 
 static ssz_ob_t colibri_decodeTransaction(verify_ctx_t* ctx) {
   // Get the raw transaction hex string from parameters

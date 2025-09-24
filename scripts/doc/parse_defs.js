@@ -52,6 +52,8 @@ function add_section(line, sections) {
 function get_typename(type, args) {
     args = args.filter(_ => _ && _ != 'undefined')
     switch (type) {
+        case "OptMask":
+            return 'Uint' + (parseInt(args[0]) * 8)
         case "Union":
             return toCamelCase(args[0])
         case "List":
@@ -71,18 +73,36 @@ function get_typename(type, args) {
     }
 }
 
-function add_rpc(line, sections, comment) {
+function extractChainFromPath(filePath) {
+    // Normalisiere den Pfad und teile ihn in Segmente auf
+    const pathSegments = filePath.replace(/\\/g, '/').split('/');
+
+    // Finde den Index von 'chains'
+    const chainsIndex = pathSegments.indexOf('chains');
+
+    // Wenn 'chains' gefunden wurde und es ein nächstes Segment gibt, verwende das als Chain
+    if (chainsIndex !== -1 && chainsIndex + 1 < pathSegments.length) {
+        return pathSegments[chainsIndex + 1];
+    }
+
+    // Fallback zu 'eth' wenn kein Chain im Pfad gefunden wird
+    return 'eth';
+}
+
+function add_rpc(file, line, sections, comment) {
     let section = sections.at(-1)
     if (!section) return false
     if (line.includes('proofable_methods[] = ')) section.rpc_state = 'proofable';
     if (line.includes('local_methods[] = ')) section.rpc_state = 'local';
     if (line.includes('not_verifieable_yet_methods[] = ')) section.rpc_state = 'not_verifieable';
     if (line.includes('RPC_METHOD')) {
+        const chain = extractChainFromPath(file);
         const args = line.split('(')[1].split(')')[0].split(',').map(arg => arg.trim());
         const method = args[0].replace(/["']/g, '');
         const data_type = args[1] == 'Void' ? '' : args[1];
         const proof_type = args[2] == 'Void' ? '' : args[2];
         section.rpcs.push({
+            chain,
             method,
             data_type,
             proof_type,
@@ -185,7 +205,7 @@ function parse_ssz_file(file) {
             line = splits[0]
             comment = ((comment || '') + '\n' + splits.slice(1).join('//')).trim()
         }
-        if (add_rpc(line, sections, comment)) {
+        if (add_rpc(file, line, sections, comment)) {
             comment = ''
             continue
         }
@@ -215,6 +235,7 @@ function parse_ssz_file(file) {
             const [, type_string, name, args_string] = match
             const args = ('' + args_string).split(",").map(_ => _.trim()).filter(_ => _)
             const type = toCamelCase(type_string)
+            if (type == 'OptMask' && !comment) comment = 'bitmask defining the properties shown in json'
             def.members.push({
                 name,
                 type,
@@ -254,9 +275,17 @@ function add_sections(old_sections, new_sections) {
             old_sections.push(section)
     }
 }
+function doc_id(method) {
+    // in eth_getLogs
+    // out eth-get-logs
 
-function create_rpc_table(section, sections) {
-    section.children.forEach(child => create_rpc_table(child, sections))
+    return method
+        .replace(/_/g, '-')  // Ersetze alle _ durch -
+        .replace(/([a-z])([A-Z])/g, '$1-$2')  // Füge - zwischen lowercase und uppercase ein
+        .toLowerCase();  // Konvertiere zu lowercase
+}
+function create_rpc_table(section, sections, rpc_docs) {
+    section.children.forEach(child => create_rpc_table(child, sections, rpc_docs))
     if (!section.rpcs || section.rpcs.length == 0) return
 
     function html_link(type) {
@@ -285,7 +314,9 @@ function create_rpc_table(section, sections) {
     section.content.push('  <tbody>');
 
     for (let rpc of section.rpcs) {
-        const link = `https://docs.alchemy.com/reference/${rpc.method.replace(/_/g, '-').toLowerCase()}`
+        const doc_url = rpc_docs[rpc.chain] || 'https://www.alchemy.com/docs/node/ethereum/ethereum-api-endpoints'
+        let link = `${doc_url}/${doc_id(rpc.method)}`
+        if (rpc.method.startsWith('colibri_')) link = `../ethereum/colibri-rpc-methods/${rpc.method.toLowerCase()}.md`
         const methodLink = `<a href="${link}" target="_blank" rel="noopener noreferrer">${rpc.method}</a>`;
         const statusIcon = rpc.status == 'proofable' ? '✅' : (rpc.status == 'local' ? '🟢' : '❌');
 
@@ -320,7 +351,7 @@ function find_section_for_type(sections, type) {
     return null
 }
 
-function parse_ssz_files(files) {
+function parse_ssz_files(files, rpc_docs) {
     let types = {}
     let sections = []
     for (let file of files) {
@@ -331,7 +362,7 @@ function parse_ssz_files(files) {
 
     for (let section of sections) assign_path(section, '')
     for (let type of Object.values(types)) create_type(type, types)
-    sections.forEach(s => create_rpc_table(s, sections))
+    sections.forEach(s => create_rpc_table(s, sections, rpc_docs))
 
     return sections
 }
