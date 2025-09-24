@@ -43,12 +43,14 @@
 c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events);
 
 // Function to build simulation result in SSZ format using ssz_builder_t (Tenderly-compatible)
-static ssz_ob_t build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used) {
+static ssz_ob_t build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload) {
   ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_SIMULATION));
-  ssz_add_uint32(&builder, ETH_SIMULATION_RESULT_MASK_ALL); // _optmask
-  ssz_add_uint64(&builder, 0);                              // blockNumber
-  ssz_add_uint64(&builder, gas_used);                       // 3. cumulativeGasUsed (Index 2)
-  ssz_add_uint64(&builder, gas_used);                       // 4. gasUsed (Index 3)
+
+  // Build with minimal mask - only essential fields will be shown in JSON
+  ssz_add_uint32(&builder, ETH_SIMULATION_RESULT_MASK_GAS_USED | ETH_SIMULATION_RESULT_MASK_LOGS | ETH_SIMULATION_RESULT_MASK_STATUS | ETH_SIMULATION_RESULT_MASK_RETURN_VALUE); // _optmask - corrected bits: 3,4,6,9
+  ssz_add_uint64(&builder, execution_payload ? ssz_get_uint64(execution_payload, "blockNumber") : 0);                                                                            // blockNumber (hidden by mask)
+  ssz_add_uint64(&builder, gas_used);                                                                                                                                            // cumulativeGasUsed (hidden by mask)
+  ssz_add_uint64(&builder, gas_used);                                                                                                                                            // gasUsed (visible)
 
   // 5. logs (Index 4) - List
   ssz_builder_t logs_builder = ssz_builder_for_def(ssz_get_def(builder.def, "logs"));
@@ -59,11 +61,14 @@ static ssz_ob_t build_simulation_result_ssz(bytes_t call_result, emitted_log_t* 
 
   for (emitted_log_t* log = logs; log; log = log->next) {
     ssz_builder_t log_builder = ssz_builder_for_def(logs_builder.def->def.vector.type);
-    ssz_add_uint16(&log_builder, ETH_SIMULATION_LOG_MASK_ALL); // _optmask
-    ssz_add_uint8(&log_builder, 0);                            // anonymous
-    ssz_add_bytes(&log_builder, "inputs", NULL_BYTES);         // empty list for inputs / for now
-    ssz_add_bytes(&log_builder, "name", NULL_BYTES);           // empty name / for now
 
+    // Build log with minimal mask - only 'raw' field will be shown in JSON
+    ssz_add_uint16(&log_builder, ETH_SIMULATION_LOG_MASK_RAW); // _optmask - only raw field (bit 4)
+    ssz_add_uint8(&log_builder, 0);                            // anonymous (hidden by mask)
+    ssz_add_bytes(&log_builder, "inputs", NULL_BYTES);         // no inputs yet (hidden by mask)
+    ssz_add_bytes(&log_builder, "name", NULL_BYTES);           // name (hidden by mask)
+
+    // raw (visible) - the only field shown
     ssz_builder_t raw_builder = ssz_builder_for_def(ssz_get_def(log_builder.def, "raw"));
     ssz_add_bytes(&raw_builder, "address", bytes(log->address, 20));
     ssz_add_bytes(&raw_builder, "data", log->data);
@@ -79,12 +84,12 @@ static ssz_ob_t build_simulation_result_ssz(bytes_t call_result, emitted_log_t* 
   }
 
   // Add logs list to main builder
-  ssz_add_builders(&builder, "logs", logs_builder);
-  ssz_add_bytes(&builder, "logsBloom", NULL_BYTES); // empty filter for now
-  ssz_add_uint8(&builder, success ? 1 : 0);
-  ssz_add_bytes(&builder, "trace", NULL_BYTES);        // empty list for traces
-  ssz_add_uint8(&builder, 0);                          // type
-  ssz_add_bytes(&builder, "returnValue", call_result); // return value
+  ssz_add_builders(&builder, "logs", logs_builder);    // logs (visible)
+  ssz_add_bytes(&builder, "logsBloom", NULL_BYTES);    // logsBloom (hidden by mask)
+  ssz_add_uint8(&builder, success ? 1 : 0);            // status (visible)
+  ssz_add_bytes(&builder, "trace", NULL_BYTES);        // trace (hidden by mask)
+  ssz_add_uint8(&builder, 0);                          // type (hidden by mask)
+  ssz_add_bytes(&builder, "returnValue", call_result); // returnValue (visible)
 
   // Build and return the SSZ object
   return ssz_builder_to_bytes(&builder);
@@ -122,7 +127,7 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
   bool     success  = (call_status == C4_SUCCESS && ctx->state.error == NULL);
   uint64_t gas_used = 21000; // TODO: Get actual gas usage from EVM execution
 
-  ssz_ob_t simulation_result = build_simulation_result_ssz(call_result, logs, success, gas_used);
+  ssz_ob_t simulation_result = build_simulation_result_ssz(call_result, logs, success, gas_used, NULL);
 
   // Set the result
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
