@@ -56,7 +56,7 @@ bool op_proofer_execute(proofer_ctx_t* ctx) {
     c4_op_proof_receipt(ctx);
   else if (strcmp(ctx->method, "eth_getLogs") == 0 || strcmp(ctx->method, "eth_verifyLogs") == 0)
     c4_op_proof_logs(ctx);
-  else if (strcmp(ctx->method, "eth_call") == 0)
+  else if (strcmp(ctx->method, "eth_call") == 0 || strcmp(ctx->method, "eth_simulateTransaction") == 0)
     c4_op_proof_call(ctx);
   else if (includes(eth_account_methods, ctx->method))
     c4_op_proof_account(ctx);

@@ -43,7 +43,8 @@
 c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events);
 
 // Function to build simulation result in SSZ format using ssz_builder_t (Tenderly-compatible)
-static ssz_ob_t build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload) {
+// Shared between ETH and OP Stack
+ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload) {
   ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_SIMULATION));
 
   // Build with minimal mask - only essential fields will be shown in JSON
@@ -127,7 +128,7 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
   bool     success  = (call_status == C4_SUCCESS && ctx->state.error == NULL);
   uint64_t gas_used = 21000; // TODO: Get actual gas usage from EVM execution
 
-  ssz_ob_t simulation_result = build_simulation_result_ssz(call_result, logs, success, gas_used, NULL);
+  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(call_result, logs, success, gas_used, NULL);
 
   // Set the result
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {

@@ -293,6 +293,10 @@ static void context_apply(evmone_context_t* ctx) {
     ctx->logs = NULL; // Prevent double-free
   }
 }
+
+// Shared simulation result builder for ETH and OP Stack
+ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload);
+
 #ifdef __cplusplus
 }
 #endif
