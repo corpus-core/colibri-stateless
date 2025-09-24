@@ -120,17 +120,25 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
 }
 
 bool op_verify_block(verify_ctx_t* ctx) {
-  json_t    block_number      = json_at(ctx->args, 0);
-  bool      include_txs       = json_as_bool(json_at(ctx->args, 1));
+  bool      is_blocknumber    = strcmp(ctx->method, "eth_blockNumber") == 0;
+  json_t    block_number      = is_blocknumber ? (json_t) {.type = JSON_TYPE_STRING, .start = "\"latest\"", .len = 8} : json_at(ctx->args, 0);
+  bool      include_txs       = is_blocknumber ? false : json_as_bool(json_at(ctx->args, 1));
   ssz_ob_t  block_proof       = ssz_get(&ctx->proof, "block_proof");
   bytes32_t parent_root       = {0};
   bytes32_t withdrawel_root   = {0};
   ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number, &parent_root);
   if (!execution_payload) return false;
 
-  ssz_hash_tree_root(ssz_get(execution_payload, "withdrawals"), withdrawel_root);
-
-  eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL, *execution_payload, parent_root, withdrawel_root, include_txs);
+  if (is_blocknumber) {
+    ctx->data       = ssz_get(execution_payload, "blockNumber");
+    ctx->data.bytes = bytes_dup(ctx->data.bytes); // need to copy bytes, because payload will be deleted
+    ctx->success    = true;
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+  else {
+    ssz_hash_tree_root(ssz_get(execution_payload, "withdrawals"), withdrawel_root);
+    eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL, *execution_payload, parent_root, withdrawel_root, include_txs);
+  }
   safe_free(execution_payload);
   ctx->success = true;
   return true;
