@@ -39,7 +39,7 @@
 
 static const char* proofable_methods[] = {
     RPC_METHOD("eth_call", Bytes, EthCallProof),
-    RPC_METHOD("eth_simulateTransaction", EthSimulationResult, EthCallProof),
+    RPC_METHOD("colibri_simulateTransaction", EthSimulationResult, EthCallProof),
     RPC_METHOD("eth_getProof", EthProofData, EthAccountProof),
     RPC_METHOD("eth_getBalance", Uint256, EthAccountProof),
     RPC_METHOD("eth_getBlockByHash", EthBlockData, EthBlockProof),
@@ -69,7 +69,7 @@ static const char* local_methods[] = {
     RPC_METHOD("eth_protocolVersion", Uint256, Void),
     RPC_METHOD("web3_clientVersion", String, Void),
     RPC_METHOD("web3_sha3", Bytes32, Void),
-    RPC_METHOD("eth_decodeTransaction", EthTxData, Void),
+    RPC_METHOD("colibri_decodeTransaction", EthTxData, Void),
 };
 
 static const char* not_verifieable_yet_methods[] = {
@@ -135,7 +135,7 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
 #endif
 #ifdef ETH_CALL
       if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF))) {
-    if (ctx->method && strcmp(ctx->method, "eth_simulateTransaction") == 0)
+    if (ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0)
       verify_simulate_proof(ctx);
     else
       verify_call_proof(ctx);
