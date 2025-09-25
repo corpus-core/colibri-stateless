@@ -130,7 +130,7 @@ c4_status_t c4_proof_witness(proofer_ctx_t* ctx) {
   cache_entry->def      = witness_signed.def;
   if (witness_signed.fixed.data.len) memcpy(cache_entry->bytes.data, witness_signed.fixed.data.data, witness_signed.fixed.data.len);
   if (witness_signed.dynamic.data.len) memcpy(cache_entry->bytes.data + witness_signed.fixed.data.len, witness_signed.dynamic.data.data, witness_signed.dynamic.data.len);
-  c4_proofer_cache_set(ctx, cache_key, cache_entry, sizeof(ssz_ob_t) + cache_entry->bytes.len, DEFAULT_TTL, safe_free);
+  c4_proofer_cache_set(ctx, cache_key, cache_entry, sizeof(ssz_ob_t) + cache_entry->bytes.len, DEFAULT_TTL, free);
 #endif
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,

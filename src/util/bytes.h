@@ -32,12 +32,24 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 // Only define the attribute if the clang analyzer is running
 #ifdef __clang_analyzer__
 #define COUNTED_BY(len_field) __attribute__((counted_by_or_null(len_field)))
 #else
 #define COUNTED_BY(len_field)
+#endif
+
+// Static analyzer attributes for better code analysis
+#if defined(__clang_analyzer__) || defined(GCC_ANALYZER)
+#define NONNULL_FOR(args) __attribute__((nonnull args))
+#define NONNULL           __attribute__((nonnull))
+#define RETURNS_NONNULL   __attribute__((returns_nonnull))
+#else
+#define NONNULL_FOR(args)
+#define NONNULL
+#define RETURNS_NONNULL
 #endif
 // : APIs
 
@@ -94,52 +106,52 @@ uint64_t bytes_as_be(bytes_t data);
 
 /**
  * converts a uint16_t to a bytes_t in little endian format. expecting 2 bytes.
- * @param data the pointer to the first byte
+ * @param data the pointer to the first byte (must not be NULL)
  * @return the value in little endian format
  */
-uint16_t uint16_from_le(uint8_t* data);
+uint16_t uint16_from_le(uint8_t* data) NONNULL;
 
 /**
  * converts a uint32_t to a bytes_t in little endian format. expecting 4 bytes.
- * @param data the pointer to the first byte
+ * @param data the pointer to the first byte (must not be NULL)
  * @return the value in little endian format
  */
-uint32_t uint32_from_le(uint8_t* data);
+uint32_t uint32_from_le(uint8_t* data) NONNULL;
 
 /**
  * converts a uint64_t to a bytes_t in little endian format. expecting 8 bytes.
- * @param data the pointer to the first byte
+ * @param data the pointer to the first byte (must not be NULL)
  * @return the value in little endian format
  */
-uint64_t uint64_from_le(uint8_t* data);
+uint64_t uint64_from_le(uint8_t* data) NONNULL;
 
 /**
  * converts a uint64_t to a bytes_t in big endian format.
- * @param data the pointer to the first byte
+ * @param data the pointer to the first byte (must not be NULL)
  * @return the value in big endian format
  */
-uint64_t uint64_from_be(uint8_t* data);
+uint64_t uint64_from_be(uint8_t* data) NONNULL;
 
 /**
  * writes 8 bytes as big endian from the given value.
- * @param data the pointer to the first byte
+ * @param data the pointer to the first byte (must not be NULL)
  * @param value the value to write
  */
-void uint64_to_be(uint8_t* data, uint64_t value);
+void uint64_to_be(uint8_t* data, uint64_t value) NONNULL;
 
 /**
  * writes 8 bytes as little endian from the given value.
- * @param data the pointer to the first byte
+ * @param data the pointer to the first byte (must not be NULL)
  * @param value the value to write
  */
-void uint64_to_le(uint8_t* data, uint64_t value);
+void uint64_to_le(uint8_t* data, uint64_t value) NONNULL;
 
 /**
  * writes 4 bytes as little endian from the given value.
- * @param data the pointer to the first byte
+ * @param data the pointer to the first byte (must not be NULL)
  * @param value the value to write
  */
-void uint32_to_le(uint8_t* data, uint32_t value);
+void uint32_to_le(uint8_t* data, uint32_t value) NONNULL;
 
 /**
  * appends the given bytes to the buffer.
@@ -216,15 +228,16 @@ void buffer_grow(buffer_t* buffer, size_t min_len);
  * calls malloc and check if the returned pointer is not NULL.
  * if the memory could not be allocated, the program will exit with an error message.
  * @param size the size of the memory to allocate
- * @return the pointer to the allocated memory
+ * @return the pointer to the allocated memory (never NULL)
  */
-void* safe_malloc(size_t size);
+void* safe_malloc(size_t size) RETURNS_NONNULL;
 
 /**
  * calls calloc and check if the returned pointer is not NULL.
  * if the memory could not be allocated, the program will exit with an error message.
  * @param num the number of elements to allocate
  * @param size the size of the memory to allocate
+ * @return the pointer to the allocated memory (never NULL for non-zero sizes)
  */
 void* safe_calloc(size_t num, size_t size);
 
@@ -233,14 +246,16 @@ void* safe_calloc(size_t num, size_t size);
  * if the memory could not be allocated, the program will exit with an error message.
  * @param ptr the pointer to the memory to reallocate
  * @param new_size the new size of the memory
+ * @return the pointer to the reallocated memory (never NULL for non-zero sizes)
  */
 void* safe_realloc(void* ptr, size_t new_size);
 
 /**
  * calls free and check if the pointer is not NULL.
+ * Implemented as macro for zero overhead.
  * @param ptr the pointer to the memory to free
  */
-void safe_free(void* ptr);
+#define safe_free(ptr) free(ptr) // free(NULL) is safe and does nothing
 
 /**
  * writes to the buffer. the format is similar to printf. but those are the supported formats:

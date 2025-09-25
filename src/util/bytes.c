@@ -35,13 +35,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+// --- Macros and Constants ---
+
+// Macro for iterating over bytes in a bytes_t structure
+#define FOREACH_BYTE(bytes_data, index_var) \
+  for (uint32_t index_var = 0; index_var < (bytes_data).len; index_var++)
+
+// Macro for consistent memory allocation error messages
+#define SAFE_ALLOC_ERROR_EXIT(func_name, size_info, error_msg)                      \
+  do {                                                                              \
+    fprintf(stderr, "Error: Memory allocation failed (%s) for %s: %s. Exiting.\\n", \
+            func_name, size_info, error_msg);                                       \
+    exit(EXIT_FAILURE);                                                             \
+  } while (0)
+
+// Constants for magic numbers
+#define BUFFER_GROWTH_FACTOR_NUM 3
+#define BUFFER_GROWTH_FACTOR_DEN 2
+#define FILE_READ_CHUNK_SIZE     1024
+#define HEX_CHAR_BUFFER_SIZE     4
+#define SIZE_INFO_BUFFER_SIZE    64
+
 // --- Safe Memory Allocation Wrappers ---
 
 void* safe_malloc(size_t size) {
   void* ptr = malloc(size);
   if (size > 0 && ptr == NULL) {
-    fprintf(stderr, "Error: Memory allocation failed (malloc) for size %zu bytes: %s. Exiting.\\n", size, strerror(errno));
-    exit(EXIT_FAILURE);
+    char size_info[SIZE_INFO_BUFFER_SIZE];
+    sprintf(size_info, "size %zu bytes", size);
+    SAFE_ALLOC_ERROR_EXIT("malloc", size_info, strerror(errno));
   }
   return ptr;
 }
@@ -49,27 +71,27 @@ void* safe_malloc(size_t size) {
 void* safe_calloc(size_t num, size_t size) {
   void* ptr = calloc(num, size);
   if (num > 0 && size > 0 && ptr == NULL) {
-    fprintf(stderr, "Error: Memory allocation failed (calloc) for %zu items of size %zu bytes: %s. Exiting.\\n", num, size, strerror(errno));
-    exit(EXIT_FAILURE);
+    char size_info[SIZE_INFO_BUFFER_SIZE];
+    sprintf(size_info, "%zu items of size %zu bytes", num, size);
+    SAFE_ALLOC_ERROR_EXIT("calloc", size_info, strerror(errno));
   }
   return ptr;
 }
 
 void* safe_realloc(void* ptr, size_t new_size) {
   void* new_ptr = realloc(ptr, new_size);
-  // Note:safe_realloc(NULL, size) is equivalent tosafe_malloc(size)
-  // safe_realloc(ptr, 0) is equivalent tosafe_free(ptr) and may return NULL
+  // Note: safe_realloc(NULL, size) is equivalent to safe_malloc(size)
+  // safe_realloc(ptr, 0) is equivalent to safe_free(ptr) and may return NULL
   if (new_size > 0 && new_ptr == NULL) {
-    fprintf(stderr, "Error: Memory allocation failed (realloc) for new size %zu bytes: %s. Exiting.\\n", new_size, strerror(errno));
+    char size_info[SIZE_INFO_BUFFER_SIZE];
+    sprintf(size_info, "new size %zu bytes", new_size);
     // Important: The original block ptr is NOT freed by realloc if it fails
-    exit(EXIT_FAILURE);
+    SAFE_ALLOC_ERROR_EXIT("realloc", size_info, strerror(errno));
   }
   return new_ptr;
 }
 
-void safe_free(void* ptr) {
-  free(ptr); // safe_free(NULL) is safe and does nothing
-}
+// safe_free is now implemented as a macro for better performance (see bytes.h)
 
 // --- End Safe Memory Allocation Wrappers ---
 
@@ -152,17 +174,20 @@ void uint32_to_le(uint8_t* data, uint32_t value) {
 }
 
 void buffer_grow(buffer_t* buffer, size_t min_len) {
+  // Initial allocation: use either min_len or pre-allocated size, whichever is larger
   if (buffer->data.data == NULL) {
     if (buffer->allocated > 0 && (size_t) buffer->allocated > min_len) min_len = (size_t) buffer->allocated;
     buffer->data.data = safe_malloc(min_len);
     buffer->allocated = (int32_t) min_len;
   }
+  // Growth strategy: multiply by 3/2 until we reach required size (amortized O(1) append)
   else if (buffer->allocated >= 0 && (size_t) buffer->allocated < min_len) {
     size_t new_len = (size_t) buffer->allocated;
-    while (new_len < min_len) new_len = (new_len + 1) * 3 / 2;
+    while (new_len < min_len) new_len = (new_len + 1) * BUFFER_GROWTH_FACTOR_NUM / BUFFER_GROWTH_FACTOR_DEN;
     buffer->data.data = safe_realloc(buffer->data.data, new_len);
     buffer->allocated = (int32_t) new_len;
   }
+  // Note: negative allocated means fixed-size buffer (no growth allowed)
 }
 
 uint32_t buffer_append(buffer_t* buffer, bytes_t data) {
@@ -182,7 +207,7 @@ void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data) 
   buffer_grow(buffer, buffer->data.len + data.len - len);
   uint32_t old_end_offset = offset + len;
   uint32_t new_end_offset = offset + data.len;
-  // TODO add preallocated check
+  // Move existing data if splice position changes
   if (new_end_offset != old_end_offset && buffer->data.len - old_end_offset > 0)
     memmove(buffer->data.data + new_end_offset, buffer->data.data + old_end_offset, buffer->data.len - old_end_offset);
 
@@ -206,38 +231,47 @@ void buffer_free(buffer_t* buffer) {
 
 void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix) {
   if (prefix) fprintf(f, "%s", prefix);
-  for (uint32_t i = 0; i < data.len; i++)
+  FOREACH_BYTE(data, i) {
     fprintf(f, "%02x", data.data[i]);
+  }
   if (suffix) fprintf(f, "%s", suffix);
 }
 
 bool bytes_all_equal(bytes_t a, uint8_t value) {
-  for (uint32_t i = 0; i < a.len; i++)
+  FOREACH_BYTE(a, i) {
     if (a.data[i] != value) return false;
+  }
   return true;
 }
 
 static inline int hexchar_to_int(char c) {
   if (isdigit(c)) return c - '0';
   if (isxdigit(c)) return tolower(c) - 'a' + 10;
-  return -1; // Ungültiges Zeichen
+  return -1; // Invalid character
 }
 
 int hex_to_bytes(const char* hexstring, int len, bytes_t buffer) {
   size_t hex_len = len == -1 ? strlen(hexstring) : (size_t) len;
   if (!hexstring || !buffer.data) return -1;
+
+  // Handle odd-length hex strings by padding with leading zero
   int dst_offset = hex_len % 2;
+  // Skip optional "0x" prefix
   int src_offset = (hexstring[0] == '0' && hexstring[1] == 'x') ? 2 : 0;
+
+  // Handle leading nibble for odd-length strings
   if (dst_offset) buffer.data[0] = hexchar_to_int(hexstring[src_offset++]);
 
+  // Validate buffer has enough space for the conversion
   if ((hex_len - src_offset) % 2 || (buffer.len - dst_offset) < (hex_len - src_offset) / 2)
     return -1;
 
+  // Convert pairs of hex characters to bytes
   for (size_t i = src_offset; i < hex_len; i += 2) {
-    int high = hexchar_to_int(hexstring[i]);
-    int low  = hexchar_to_int(hexstring[i + 1]);
-    if (high == -1 || low == -1) return -1;
-    buffer.data[dst_offset++] = (high << 4) | low;
+    int high_nibble = hexchar_to_int(hexstring[i]);
+    int low_nibble  = hexchar_to_int(hexstring[i + 1]);
+    if (high_nibble == -1 || low_nibble == -1) return -1;
+    buffer.data[dst_offset++] = (high_nibble << 4) | low_nibble;
   }
 
   return dst_offset;
@@ -279,14 +313,14 @@ void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
 }
 
 void buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix) {
-  uint32_t len = data.len * 2 + (prefix ? strlen(prefix) : 0) + (suffix ? strlen(suffix) : 0);
-  buffer_grow(buffer, buffer->data.len + len + 1);
+  uint32_t total_len = data.len * 2 + (prefix ? strlen(prefix) : 0) + (suffix ? strlen(suffix) : 0);
+  buffer_grow(buffer, buffer->data.len + total_len + 1);
   buffer_add_chars(buffer, prefix);
-  char tmp[4];
+  char hex_char_buffer[HEX_CHAR_BUFFER_SIZE];
 
-  for (size_t i = 0; i < data.len; i++) {
-    sprintf(tmp, "%02x", data.data[i]);
-    buffer_add_chars(buffer, tmp);
+  FOREACH_BYTE(data, i) {
+    sprintf(hex_char_buffer, "%02x", data.data[i]);
+    buffer_add_chars(buffer, hex_char_buffer);
   }
   buffer_add_chars(buffer, suffix);
 }
@@ -294,8 +328,8 @@ void buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* su
 bytes_t bytes_dup(bytes_t data) {
   bytes_t result = {.data = safe_malloc(data.len), .len = data.len};
   if (!result.data && data.len > 0) {
-    // This case should technically not be reached if safe_malloc exits on failure,
-    // but kept for conceptual completeness or if safe_malloc behaviour changes.
+    // This case should not be reached since safe_malloc exits on failure,
+    // but kept for completeness in case safe_malloc behavior changes.
     return NULL_BYTES; // Indicate failure if malloc fails
   }
   memcpy(result.data, data.data, data.len);
@@ -309,16 +343,16 @@ void bytes_write(bytes_t data, FILE* f, bool close) {
 }
 
 bytes_t bytes_read(char* filename) {
-  unsigned char buffer[1024];
-  size_t        bytesRead;
+  unsigned char read_buffer[FILE_READ_CHUNK_SIZE];
+  size_t        bytes_read_count;
   buffer_t      data = {0};
 
   FILE* file = strcmp(filename, "-") ? fopen(filename, "rb") : stdin;
   if (file == NULL) return NULL_BYTES;
 
-  while ((bytesRead = fread(buffer, 1, 1024, file)) == sizeof(buffer))
-    buffer_append(&data, bytes(buffer, bytesRead));
-  if (bytesRead > 0) buffer_append(&data, bytes(buffer, bytesRead));
+  while ((bytes_read_count = fread(read_buffer, 1, FILE_READ_CHUNK_SIZE, file)) == sizeof(read_buffer))
+    buffer_append(&data, bytes(read_buffer, bytes_read_count));
+  if (bytes_read_count > 0) buffer_append(&data, bytes(read_buffer, bytes_read_count));
   buffer_append(&data, bytes(NULL, 1));
   data.data.len--;
 
@@ -413,7 +447,7 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
             sprintf(tmp, "%llx", (unsigned long long) value);
           }
           else {
-            // Use platform-independent formatting to avoid "lu" suffix in JSON
+            // Use platform-independent formatting to avoid "lu" suffix in JSON output
             sprintf(tmp, "%llu", (unsigned long long) value);
           }
           buffer_add_chars(buf, tmp);
@@ -480,19 +514,22 @@ bytes_t bytes_remove_leading_zeros(bytes_t data) {
 
 bool bytes_eq(bytes_t a, bytes_t b) {
   if (a.len != b.len) return false;
-  for (uint32_t i = 0; i < a.len; i++)
+  FOREACH_BYTE(a, i) {
     if (a.data[i] != b.data[i]) return false;
+  }
   return true;
 }
 uint64_t bytes_as_le(bytes_t data) {
   uint64_t result = 0;
-  for (uint32_t i = 0; i < data.len; i++)
+  FOREACH_BYTE(data, i) {
     result = (result << 8) | data.data[data.len - i - 1];
+  }
   return result;
 }
 uint64_t bytes_as_be(bytes_t data) {
   uint64_t result = 0;
-  for (uint32_t i = 0; i < data.len; i++)
+  FOREACH_BYTE(data, i) {
     result = (result << 8) | data.data[i];
+  }
   return result;
 }
