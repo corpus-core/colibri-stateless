@@ -26,9 +26,6 @@
 #include <ctype.h>
 #include <string.h>
 
-#define TEST_DEF "{tests:[{name?:bytes32,type?:address,len?:blocknumber}]}"
-char* test2 = "[address,[bytes32],block," TEST_DEF "]";
-
 #define ERROR(fmt, ...) return bprintf(NULL, fmt, ##__VA_ARGS__)
 static const char* find_end(const char* pos, char start, char end) {
   int level = 1;

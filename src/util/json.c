@@ -25,20 +25,43 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+
+// Macros for JSON object creation and constants
 #define json(jtype, data, length) \
   (json_t) { .type = jtype, .start = data, .len = length }
 
+#define JSON_INVALID(ptr)   json(JSON_TYPE_INVALID, ptr, 0)
+#define JSON_NOT_FOUND(ptr) json(JSON_TYPE_NOT_FOUND, ptr, 0)
+
+// Constants for JSON literal lengths
+#define JSON_TRUE_LEN  4
+#define JSON_FALSE_LEN 5
+#define JSON_NULL_LEN  4
+
+/**
+ * Skip whitespace characters and return pointer to next non-whitespace character.
+ * @param data pointer to current position in string
+ * @return pointer to next non-whitespace character, or NULL if end of string
+ */
 static const char* next_non_whitespace_token(const char* data) {
   while (*data && isspace(*data)) data++;
   return *data ? data : NULL;
 }
 
+/**
+ * Find the matching end character for a JSON structure, handling nesting and string escapes.
+ * Used to find closing brackets/braces while properly handling nested structures and quoted strings.
+ * @param pos current position after opening character
+ * @param start opening character to match (e.g., '{', '[', '"')
+ * @param end closing character to find (e.g., '}', ']', '"')
+ * @return pointer to matching end character, or NULL if not found
+ */
 static const char* find_end(const char* pos, char start, char end) {
   int  level     = 1;
   bool in_string = start == '"';
   for (; *pos; pos++) {
     if (in_string && *pos == '\\') {
-      if (!(*(++pos))) return NULL;
+      if (!(*(++pos))) return NULL; // Skip escaped character
       continue;
     }
     if (*pos == start && !in_string)
@@ -55,6 +78,12 @@ static const char* find_end(const char* pos, char start, char end) {
   return NULL;
 }
 
+/**
+ * Parse a JSON number and determine its length.
+ * Supports integers, floats, and scientific notation.
+ * @param start pointer to start of number
+ * @return json_t structure with type JSON_TYPE_NUMBER and correct length
+ */
 static json_t parse_number(const char* start) {
   json_t json = json(JSON_TYPE_NUMBER, start, 0);
   for (; *start; start++) {
@@ -67,7 +96,9 @@ static json_t parse_number(const char* start) {
 }
 
 json_t json_parse(const char* data) {
-  json_t      invalid = json(JSON_TYPE_INVALID, data, 0);
+  if (!data) return JSON_INVALID(NULL);
+
+  json_t      invalid = JSON_INVALID(data);
   const char* start   = next_non_whitespace_token(data);
   const char* end     = NULL;
 
@@ -83,11 +114,11 @@ json_t json_parse(const char* data) {
       end = find_end(start + 1, '"', '"');
       return end ? json(JSON_TYPE_STRING, start, end - start + 1) : invalid;
     case 't':
-      return strncmp(start, "true", 4) ? invalid : json(JSON_TYPE_BOOLEAN, start, 4);
+      return strncmp(start, "true", JSON_TRUE_LEN) ? invalid : json(JSON_TYPE_BOOLEAN, start, JSON_TRUE_LEN);
     case 'f':
-      return strncmp(start, "false", 5) ? invalid : json(JSON_TYPE_BOOLEAN, start, 5);
+      return strncmp(start, "false", JSON_FALSE_LEN) ? invalid : json(JSON_TYPE_BOOLEAN, start, JSON_FALSE_LEN);
     case 'n':
-      return strncmp(start, "null", 4) ? invalid : json(JSON_TYPE_NULL, start, 4);
+      return strncmp(start, "null", JSON_NULL_LEN) ? invalid : json(JSON_TYPE_NULL, start, JSON_NULL_LEN);
     case '-':
     case '0':
     case '1':
@@ -106,31 +137,31 @@ json_t json_parse(const char* data) {
   return invalid;
 }
 
-json_t json_next_value(json_t val, bytes_t* property_name, json_next_t type) {
-  if (val.type == JSON_TYPE_INVALID || val.type == JSON_TYPE_NOT_FOUND) return val;
-  const char* start = next_non_whitespace_token(val.start + (type == JSON_NEXT_FIRST ? 1 : val.len));
-  if (!start) return json(JSON_TYPE_INVALID, start, 0);
+json_t json_next_value(json_t value, bytes_t* property_name, json_next_t type) {
+  if (value.type == JSON_TYPE_INVALID || value.type == JSON_TYPE_NOT_FOUND) return value;
+  const char* start = next_non_whitespace_token(value.start + (type == JSON_NEXT_FIRST ? 1 : value.len));
+  if (!start) return JSON_INVALID(start);
   if (type != JSON_NEXT_FIRST) {
     if (*start == ',') {
       start++;
       start = next_non_whitespace_token(start);
-      if (!start) return json(JSON_TYPE_INVALID, val.start, 0);
+      if (!start) return JSON_INVALID(value.start);
     }
   }
   else
-    type = val.type == JSON_TYPE_OBJECT ? JSON_NEXT_PROPERTY : JSON_NEXT_VALUE;
-  if (*start == '}' || *start == ']') return json(JSON_TYPE_NOT_FOUND, start, 0);
+    type = value.type == JSON_TYPE_OBJECT ? JSON_NEXT_PROPERTY : JSON_NEXT_VALUE;
+  if (*start == '}' || *start == ']') return JSON_NOT_FOUND(start);
 
   if (type == JSON_NEXT_PROPERTY) {
-    if (*start != '"') return json(JSON_TYPE_INVALID, start, 0);
+    if (*start != '"') return JSON_INVALID(start);
     const char* end_name = find_end(start + 1, '"', '"');
-    if (!end_name) return json(JSON_TYPE_INVALID, start, 0);
+    if (!end_name) return JSON_INVALID(start);
     if (property_name) {
       property_name->data = (uint8_t*) start + 1;
       property_name->len  = end_name - start - 1;
     }
     start = next_non_whitespace_token(end_name + 1);
-    if (!start || *start != ':') return json(JSON_TYPE_INVALID, start, 0);
+    if (!start || *start != ':') return JSON_INVALID(start);
     start = next_non_whitespace_token(start + 1);
   }
 
@@ -138,82 +169,83 @@ json_t json_next_value(json_t val, bytes_t* property_name, json_next_t type) {
 }
 
 json_t json_get(json_t parent, const char* property) {
-  if (parent.type != JSON_TYPE_OBJECT) return json(JSON_TYPE_INVALID, parent.start, 0);
+  if (!property) return JSON_INVALID(parent.start);
+  if (parent.type != JSON_TYPE_OBJECT) return JSON_INVALID(parent.start);
   bytes_t property_name = NULL_BYTES;
   size_t  len           = strlen(property);
-  json_for_each_property(parent, val, property_name) {
-    if (property_name.len == len && property_name.data && memcmp(property_name.data, property, len) == 0) return val;
+  json_for_each_property(parent, value, property_name) {
+    if (property_name.len == len && property_name.data && memcmp(property_name.data, property, len) == 0) return value;
   }
-  return json(JSON_TYPE_NOT_FOUND, parent.start, 0);
+  return JSON_NOT_FOUND(parent.start);
 }
 
 json_t json_at(json_t parent, size_t index) {
-  if (parent.type != JSON_TYPE_ARRAY) return json(JSON_TYPE_INVALID, parent.start, 0);
+  if (parent.type != JSON_TYPE_ARRAY) return JSON_INVALID(parent.start);
   size_t i = 0;
-  json_for_each_value(parent, val) {
-    if (index == i++) return val;
+  json_for_each_value(parent, value) {
+    if (index == i++) return value;
   }
-  return json(JSON_TYPE_NOT_FOUND, parent.start, 0);
+  return JSON_NOT_FOUND(parent.start);
 }
 
 size_t json_len(json_t parent) {
   if (parent.type != JSON_TYPE_ARRAY) return 0;
   size_t i = 0;
-  json_for_each_value(parent, val) i++;
+  json_for_each_value(parent, value) i++;
   return i;
 }
 
-char* json_as_string(json_t val, buffer_t* buffer) {
+char* json_as_string(json_t value, buffer_t* buffer) {
   buffer_t tmp = {0};
   if (!buffer) buffer = &tmp;
   buffer->data.len = 0;
-  buffer_grow(buffer, val.len + 1);
-  if (val.type == JSON_TYPE_STRING)
+  buffer_grow(buffer, value.len + 1);
+  if (value.type == JSON_TYPE_STRING)
 
-    buffer_append(buffer, bytes((uint8_t*) val.start + 1, val.len - 2));
+    buffer_append(buffer, bytes((uint8_t*) value.start + 1, value.len - 2));
   else
-    buffer_append(buffer, bytes((uint8_t*) val.start, val.len));
+    buffer_append(buffer, bytes((uint8_t*) value.start, value.len));
 
   buffer->data.data[buffer->data.len] = '\0';
   return (char*) buffer->data.data;
 }
 
-uint64_t json_as_uint64(json_t val) {
+uint64_t json_as_uint64(json_t value) {
   uint8_t  tmp[20] = {0};
   buffer_t buffer  = stack_buffer(tmp);
-  if (val.len > 4 && val.start[1] == '0' && val.start[2] == 'x') {
-    int len = hex_to_bytes(val.start + 1, val.len - 2, bytes(tmp, 20));
+  if (value.len > 4 && value.start && value.start[1] == '0' && value.start[2] == 'x') {
+    int len = hex_to_bytes(value.start + 1, value.len - 2, bytes(tmp, 20));
     if (len == -1) return 0;
     memmove(tmp + 8 - len, tmp, len);
     memset(tmp, 0, 8 - len);
     return uint64_from_be(tmp);
   }
-  return (uint64_t) strtoull(json_as_string(val, &buffer), NULL, 10);
+  return (uint64_t) strtoull(json_as_string(value, &buffer), NULL, 10);
 }
 
-bytes_t json_as_bytes(json_t val, buffer_t* buffer) {
-  if (val.type == JSON_TYPE_NUMBER) {
+bytes_t json_as_bytes(json_t value, buffer_t* buffer) {
+  if (value.type == JSON_TYPE_NUMBER) {
     buffer->data.len = 8;
     buffer_grow(buffer, 8);
-    uint64_to_be(buffer->data.data, json_as_uint64(val));
+    uint64_to_be(buffer->data.data, json_as_uint64(value));
     return buffer->data;
   }
-  if (val.type != JSON_TYPE_STRING) return NULL_BYTES;
+  if (value.type != JSON_TYPE_STRING) return NULL_BYTES;
 
-  buffer_grow(buffer, val.len / 2);
-  buffer->data.len = val.len;
-  int len          = hex_to_bytes(val.start + 1, val.len - 2, buffer->data);
+  buffer_grow(buffer, value.len / 2);
+  buffer->data.len = value.len;
+  int len          = hex_to_bytes(value.start + 1, value.len - 2, buffer->data);
   if (len == -1) return NULL_BYTES;
   buffer->data.len = (uint32_t) len;
   return buffer->data;
 }
 
-bool json_as_bool(json_t val) {
-  return val.type == JSON_TYPE_BOOLEAN && val.start[0] == 't';
+bool json_as_bool(json_t value) {
+  return value.type == JSON_TYPE_BOOLEAN && value.start && value.start[0] == 't';
 }
 
-bool json_as_null(json_t val) {
-  return val.type == JSON_TYPE_NULL && val.start[0] == 'n';
+bool json_as_null(json_t value) {
+  return value.type == JSON_TYPE_NULL && value.start && value.start[0] == 'n';
 }
 
 void buffer_add_json(buffer_t* buffer, json_t data) {
@@ -223,14 +255,17 @@ void buffer_add_json(buffer_t* buffer, json_t data) {
 }
 
 char* json_new_string(json_t parent) {
+  if (!parent.start) return safe_malloc(1); // Return empty string for NULL input
   char* new_str = (char*) safe_malloc(parent.len + 1);
-  if (!new_str) return NULL;
+  // safe_malloc never returns NULL, so no check needed
   memcpy(new_str, parent.start, parent.len);
   new_str[parent.len] = '\0';
   return new_str;
 }
 
-bool json_equal_string(json_t val, const char* str) {
+bool json_equal_string(json_t value, const char* str) {
+  if (!str || !value.start) return false;
   int len = strlen(str);
-  return val.type == JSON_TYPE_STRING && val.len == len - 2 && memcmp(val.start + 1, str, val.len - 2) == 0;
+  if (len < 2) return false; // Prevent underflow
+  return value.type == JSON_TYPE_STRING && value.len == len - 2 && memcmp(value.start + 1, str, value.len - 2) == 0;
 }
