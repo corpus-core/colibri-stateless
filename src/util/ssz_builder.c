@@ -232,9 +232,9 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
         ssz_add_bytes(&buf, def->def.container.elements[i].name, ob.bytes);
         safe_free(ob.bytes.data);
       }
-      if (optmask_len == 4)
+      if (optmask_len == 4 && buf.fixed.data.data)
         uint32_to_le(buf.fixed.data.data + optmask_idx, (uint32_t) optmask);
-      else if (optmask_len == 8)
+      else if (optmask_len == 8 && buf.fixed.data.data)
         uint64_to_le(buf.fixed.data.data + optmask_idx, optmask);
       return ssz_builder_to_bytes(&buf);
     }
