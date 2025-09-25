@@ -60,7 +60,7 @@
 
 // : OP-Stack
 
-// :: Op-Stack Main Proof Request
+// :: Main Proof Request
 //
 // The proofs are always wrapped into a ssz-container with the name `C4Request`.
 // This Container holds the a version (4 bytes) and unions for different proof types.
@@ -82,26 +82,24 @@
 //
 
 // A List of possible types of proofs matching the Data
-static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
+static const ssz_def_t C4_OP_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF),          // a Proof of an Account like eth_getBalance or eth_getStorageAt
-    SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF),  // a Proof of a Transaction like eth_getTransactionByHash
-    SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF),          // a Proof of a TransactionReceipt
-    SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256),      // a Proof for multiple Receipts and txs
-    SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),                // a Proof of a Call like eth_call
-    SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),              // Proof for BlockData
-    SSZ_CONTAINER("BlockNumberProof", ETH_BLOCK_NUMBER_PROOF), // Proof for BlockNumber
-    SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED)           // Proof for Witness
+    SSZ_CONTAINER("AccountProof", OP_ACCOUNT_PROOF),         // a Proof of an Account like eth_getBalance or eth_getStorageAt
+    SSZ_CONTAINER("TransactionProof", OP_TRANSACTION_PROOF), // a Proof of a Transaction like eth_getTransactionByHash
+    SSZ_CONTAINER("ReceiptProof", OP_RECEIPT_PROOF),         // a Proof of a TransactionReceipt
+    SSZ_LIST("LogsProof", OP_LOGS_BLOCK_CONTAINER, 256),     // a Proof for multiple Receipts and txs
+    SSZ_CONTAINER("CallProof", OP_CALL_PROOF),               // a Proof of a Call like eth_call
+    SSZ_CONTAINER("BlockProof", OP_BLOCK_PROOF),             // Proof for BlockData
 }; // a Proof for multiple accounts
 
 // the main container defining the incoming data processed by the verifier
-static const ssz_def_t C4_REQUEST[] = {
+static const ssz_def_t C4_OP_REQUEST[] = {
     SSZ_BYTE_VECTOR("version", 4),                          // the [domain, major, minor, patch] version of the request, domaon=1 = eth
     SSZ_UNION("data", C4_ETH_REQUEST_DATA_UNION),           // the data to proof
-    SSZ_UNION("proof", C4_REQUEST_PROOFS_UNION),            // the proof of the data
+    SSZ_UNION("proof", C4_OP_REQUEST_PROOFS_UNION),         // the proof of the data
     SSZ_UNION("sync_data", C4_ETH_REQUEST_SYNCDATA_UNION)}; // the sync data containing proofs for the transition between the two periods
 
-static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQUEST);
+static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_OP_REQUEST);
 
 static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
   for (size_t i = 0; i < len; i++) {
@@ -117,21 +115,17 @@ const ssz_def_t* op_ssz_verification_type(op_ssz_type_t type) {
     case OP_SSZ_VERIFY_REQUEST:
       return &C4_REQUEST_CONTAINER;
     case OP_SSZ_VERIFY_ACCOUNT_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_ACCOUNT_PROOF);
+      return ARRAY_TYPE(C4_OP_REQUEST_PROOFS_UNION, OP_ACCOUNT_PROOF);
     case OP_SSZ_VERIFY_TRANSACTION_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_TRANSACTION_PROOF);
+      return ARRAY_TYPE(C4_OP_REQUEST_PROOFS_UNION, OP_TRANSACTION_PROOF);
     case OP_SSZ_VERIFY_RECEIPT_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_RECEIPT_PROOF);
+      return ARRAY_TYPE(C4_OP_REQUEST_PROOFS_UNION, OP_RECEIPT_PROOF);
     case OP_SSZ_VERIFY_LOGS_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, &ETH_LOGS_BLOCK_CONTAINER);
+      return ARRAY_TYPE(C4_OP_REQUEST_PROOFS_UNION, &OP_LOGS_BLOCK_CONTAINER);
     case OP_SSZ_VERIFY_CALL_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_CALL_PROOF);
+      return ARRAY_TYPE(C4_OP_REQUEST_PROOFS_UNION, OP_CALL_PROOF);
     case OP_SSZ_VERIFY_BLOCK_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_PROOF);
-    case OP_SSZ_VERIFY_BLOCK_NUMBER_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_NUMBER_PROOF);
-    case OP_SSZ_VERIFY_WITNESS_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, C4_WITNESS_SIGNED);
+      return ARRAY_TYPE(C4_OP_REQUEST_PROOFS_UNION, OP_BLOCK_PROOF);
     case OP_SSZ_VERIFY_PRECONF_PROOF:
       return ARRAY_TYPE(OP_BLOCKPROOF_UNION, OP_PRECONF);
     default: return NULL;

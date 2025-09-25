@@ -28,7 +28,7 @@ import { ProviderRpcError, Config as C4Config, MethodType as C4MethodType } from
  * 
  * Implementiert eine Sicherheitsschicht gegen NPM Supply-Chain-Attacks:
  * 1. Transaction über fallbackProvider signieren lassen
- * 2. Signierte Transaction mit eth_decodeTransaction dekodieren  
+ * 2. Signierte Transaction mit colibri_decodeTransaction dekodieren  
  * 3. Dekodierte Parameter mit Original vergleichen
  * 4. Bei Übereinstimmung: eth_sendRawTransaction ausführen
  */
@@ -45,7 +45,7 @@ export class TransactionVerifier {
     /**
      * Verifizierte Ausführung von eth_sendTransaction
      * 1. Transaction über fallbackProvider signieren lassen
-     * 2. Signierte Transaction mit eth_decodeTransaction dekodieren
+     * 2. Signierte Transaction mit colibri_decodeTransaction dekodieren
      * 3. Dekodierte Parameter mit Original vergleichen
      * 4. eth_sendRawTransaction ausführen
      */
@@ -69,7 +69,7 @@ export class TransactionVerifier {
             }) as string;
 
             // 2. Signierte Transaction dekodieren
-            const decodedTx = await rpcMethod('eth_decodeTransaction', [signedRawTx], C4MethodType.LOCAL);
+            const decodedTx = await rpcMethod('colibri_decodeTransaction', [signedRawTx], C4MethodType.LOCAL);
 
             // 3. Dekodierte Parameter mit Original vergleichen
             const isValid = this.compareTransactionParameters(txObject, decodedTx, config);

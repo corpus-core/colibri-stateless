@@ -86,12 +86,19 @@ static ssz_ob_t web3_sha3(verify_ctx_t* ctx) {
   keccak(buf.data, buf.data.data);
   return (ssz_ob_t) {.def = &ssz_bytes32, .bytes = bytes(buf.data.data, 32)};
 }
+// : Ethereum
 
-static ssz_ob_t eth_decodeTransaction(verify_ctx_t* ctx) {
+// :: Colibri RPC-Methods
+
+// ::: colibri_decodeTransaction
+//
+// Decodes a raw transaction hex string into a transaction data object.
+
+static ssz_ob_t colibri_decodeTransaction(verify_ctx_t* ctx) {
   // Get the raw transaction hex string from parameters
   json_t raw_tx_param = json_at(ctx->args, 0);
   if (raw_tx_param.type != JSON_TYPE_STRING) {
-    ctx->state.error = strdup("eth_decodeTransaction: parameter must be a hex string");
+    ctx->state.error = strdup("colibri_decodeTransaction: parameter must be a hex string");
     return (ssz_ob_t) {0};
   }
 
@@ -131,8 +138,8 @@ bool verify_eth_local(verify_ctx_t* ctx) {
     ctx->data = web3_clientVersion(ctx);
   else if (strcmp(ctx->method, "web3_sha3") == 0)
     ctx->data = web3_sha3(ctx);
-  else if (strcmp(ctx->method, "eth_decodeTransaction") == 0)
-    ctx->data = eth_decodeTransaction(ctx);
+  else if (strcmp(ctx->method, "colibri_decodeTransaction") == 0)
+    ctx->data = colibri_decodeTransaction(ctx);
   else
     RETURN_VERIFY_ERROR(ctx, "unknown local method");
   if (ctx->data.bytes.data) ctx->flags |= VERIFY_FLAG_FREE_DATA;

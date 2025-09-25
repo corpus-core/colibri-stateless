@@ -68,7 +68,7 @@ const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10] = {
     SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024), // result of eth_getLogs
     SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),             // the block data
     SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),             // the result of an eth_getProof
-    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),  // the result of an eth_simulateTransaction
+    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),  // the result of an colibri_simulateTransaction
 
 };
 // A List of possible types of proofs matching the Data

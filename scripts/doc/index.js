@@ -10,6 +10,13 @@ const doc_files = [
     "chains/eth/ssz/verify_types.c",
     "chains/eth/ssz/verify_proof_types.h",
     "chains/eth/ssz/verify_data_types.h",
+    "chains/eth/verifier/verify_simulate.c",
+    "chains/eth/verifier/verify_local.c",
+
+    "chains/op/verifier/op_verify.c",
+    "chains/op/ssz/op_types.c",
+    "chains/op/ssz/op_proof_types.h",
+
     "util/witness.c",
     "chains/eth/threat_model.md",
     "chains/eth/benchmark.md",
@@ -45,9 +52,13 @@ const extern_types = {
     DenepLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate'
 }
 
+const rpc_docs = {
+    eth: 'https://www.alchemy.com/docs/node/ethereum/ethereum-api-endpoints',
+    op: 'https://www.alchemy.com/docs/node/op-mainnet/op-mainnet-api-endpoints',
+}
 
 const summary = read_summary()
-summary.set_sections(parse_ssz_files(doc_files))
+summary.set_sections(parse_ssz_files(doc_files, rpc_docs))
 summary.set_sections(get_cmake_options())
 summary.write()
 

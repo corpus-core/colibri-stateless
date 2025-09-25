@@ -38,21 +38,21 @@
 
 static const char* proofable_methods[] = {
     RPC_METHOD("eth_call", Bytes, EthCallProof),
-    RPC_METHOD("eth_simulateTransaction", EthSimulationResult, EthCallProof),
-    RPC_METHOD("eth_getProof", EthProofData, EthAccountProof),
-    RPC_METHOD("eth_getBalance", Uint256, EthAccountProof),
-    RPC_METHOD("eth_getBlockByHash", EthBlockData, EthBlockProof),
-    RPC_METHOD("eth_getBlockByNumber", EthBlockData, EthBlockProof),
-    RPC_METHOD("eth_getCode", Bytes, EthAccountProof),
+    RPC_METHOD("colibri_simulateTransaction", EthSimulationResult, OpCallProof),
+    RPC_METHOD("eth_getProof", EthProofData, OpAccountProof),
+    RPC_METHOD("eth_getBalance", Uint256, OpAccountProof),
+    RPC_METHOD("eth_getBlockByHash", EthBlockData, OpBlockProof),
+    RPC_METHOD("eth_getBlockByNumber", EthBlockData, OpBlockProof),
+    RPC_METHOD("eth_getCode", Bytes, OpAccountProof),
     RPC_METHOD("eth_getLogs", ListEthReceiptDataLog, ListEthLogsBlock), // - currently everthing except the logIndex is verified
     RPC_METHOD("eth_verifyLogs", Void, ListEthLogsBlock),
-    RPC_METHOD("eth_getTransactionCount", Uint256, EthAccountProof),
-    RPC_METHOD("eth_getStorageAt", Bytes32, EthAccountProof),
-    RPC_METHOD("eth_getTransactionReceipt", EthReceiptData, EthReceiptProof),
-    RPC_METHOD("eth_getTransactionByHash", EthTxData, EthTransactionProof),
-    RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTxData, EthTransactionProof),
-    RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTxData, EthTransactionProof),
-    RPC_METHOD("eth_blockNumber", Uint256, EthBlockNumberProof),
+    RPC_METHOD("eth_getTransactionCount", Uint256, OpAccountProof),
+    RPC_METHOD("eth_getStorageAt", Bytes32, OpAccountProof),
+    RPC_METHOD("eth_getTransactionReceipt", ReceiptData, OpReceiptProof),
+    RPC_METHOD("eth_getTransactionByHash", EthTxData, OpTransactionProof),
+    RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTxData, OpTransactionProof),
+    RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTxData, OpTransactionProof),
+    RPC_METHOD("eth_blockNumber", Uint256, OpBlockProof),
     RPC_METHOD("eth_newPendingTransactionFilter", Void, Void),
     RPC_METHOD("eth_newFilter", Void, Void),
     RPC_METHOD("eth_newBlockFilter", Void, Void),
@@ -68,7 +68,7 @@ static const char* local_methods[] = {
     RPC_METHOD("eth_protocolVersion", Uint256, Void),
     RPC_METHOD("web3_clientVersion", String, Void),
     RPC_METHOD("web3_sha3", Bytes32, Void),
-    RPC_METHOD("eth_decodeTransaction", EthTxData, Void),
+    RPC_METHOD("colibri_decodeTransaction", EthTxData, Void),
 };
 
 static const char* not_verifieable_yet_methods[] = {
@@ -122,7 +122,7 @@ bool c4_op_verify(verify_ctx_t* ctx) {
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_LOGS_PROOF)))
     op_verify_logs_proof(ctx);
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_CALL_PROOF))) {
-    if (strcmp(ctx->method, "eth_simulateTransaction") == 0)
+    if (strcmp(ctx->method, "colibri_simulateTransaction") == 0)
       op_verify_simulate_proof(ctx);
     else
       op_verify_call_proof(ctx);

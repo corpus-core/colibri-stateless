@@ -41,23 +41,22 @@ extern "C" {
 // Example:
 //
 // ```c
-// proofer_ctx_t* ctx = c4_proofer_create("eth_getBlockByNumber", "[\"latest\", false]", C4_PROOFER_FLAG_INCLUDE_CODE);
-// to use run the c4_proofer_execute in a loop:
-// ```c
+// proofer_ctx_t* ctx = c4_proofer_create("eth_getBlockByNumber", "[\"latest\", false]", chain_id, C4_PROOFER_FLAG_INCLUDE_CODE);
+//
+// // Execute proofer in a loop:
 // data_request_t* data_request = NULL;
 // bytes_t proof = {0};
-// char* error = NULL;
 // while (true) {
 //   switch (c4_proofer_status(ctx)) {
 //     case C4_SUCCESS:
 //       proof = bytes_dup(ctx->proof);
 //       break;
 //     case C4_PENDING:
-//       while ((data_request = c4_state_get_pending_request(&ctx->state))
+//       while ((data_request = c4_state_get_pending_request(&ctx->state)))
 //          fetch_data(data_request);
 //       break;
 //     case C4_ERROR:
-//       error = strdup(ctx->state.error);
+//       printf("Error: %s\n", ctx->state.error);
 //       break;
 //   }
 // }
@@ -81,6 +80,13 @@ typedef enum {
 typedef uint32_t proofer_flags_t;
 
 #ifdef PROOFER_CACHE
+
+// Warning: Cache implementation assumes single-threaded access via libuv event loop.
+// Multi-threaded usage requires external synchronization.
+#if defined(PROOFER_CACHE) && !defined(HTTP_SERVER)
+#warning "PROOFER_CACHE without HTTP_SERVER may have thread-safety issues. Consider using with libuv-based HTTP_SERVER."
+#endif
+
 typedef void (*cache_free_cb)(void*);
 typedef struct cache_entry {
   bytes32_t           key;       // cache key
@@ -102,7 +108,7 @@ typedef struct {
   json_t          params;       // rpc- params
   bytes_t         proof;        // result or proof as bytes
   chain_id_t      chain_id;     // target chain
-  c4_state_t      state;        // proofer ctx state, holind errors and requests.
+  c4_state_t      state;        // proofer ctx state, holding errors and requests.
   proofer_flags_t flags;        // proofer flags
   bytes_t         client_state; // optional client_state representing the synced periods and trusted blockhashes
   bytes_t         witness_key;  // witness key for the proofer
@@ -116,11 +122,12 @@ typedef struct {
 
 /**
  * create a new proofer context
- * @param method the rpc-method to proof
- * @param params the rpc-params to proof
+ * @param method the rpc-method to proof (required, cannot be NULL)
+ * @param params the rpc-params to proof (optional, defaults to "[]" if NULL)
  * @param chain_id the target chain
  * @param flags the proofer flags
- * @return the proofer context, which needs to get freed with c4_proofer_free
+ * @return the proofer context, which needs to get freed with c4_proofer_free.
+ *         Always returns a valid context - check ctx->state.error for validation errors.
  */
 proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id, proofer_flags_t flags);
 
@@ -146,16 +153,92 @@ c4_status_t c4_proofer_execute(proofer_ctx_t* ctx);
 c4_status_t c4_proofer_status(proofer_ctx_t* ctx);
 
 #ifdef PROOFER_CACHE
+/**
+ * Get current time in milliseconds (monotonic or system time depending on build config)
+ * @return current time in milliseconds
+ */
 uint64_t current_ms();
+
+/**
+ * Get current Unix epoch time in milliseconds (always system time)
+ * @return current Unix timestamp in milliseconds
+ */
 uint64_t current_unix_ms();
 
-void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key);
-void  c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free);
-void  c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size);
-void  c4_proofer_cache_invalidate(bytes32_t key);
-void  c4_proofer_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
+/**
+ * Retrieve a cached value by key. First checks local cache, then global cache.
+ * If found in global cache, copies entry to local cache for thread-safety.
+ * @param ctx the proofer context
+ * @param key 32-byte cache key
+ * @return read-only pointer to cached value, or NULL if not found.
+ *         Caller MUST NOT modify the returned data.
+ *         Pointer is valid until cache cleanup or context destruction.
+ */
+const void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key);
+
+/**
+ * Store a value in the local cache. Will be moved to global cache on context destruction
+ * if duration_ms > 0.
+ * @param ctx the proofer context
+ * @param key 32-byte cache key
+ * @param value pointer to the value to cache (ownership transferred)
+ * @param size size of the cached value in bytes
+ * @param duration_ms cache TTL in milliseconds (0 = local-only, never moved to global)
+ * @param free function to free the value when cache entry is removed
+ */
+void c4_proofer_cache_set(proofer_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free);
+
+/**
+ * Clean up expired entries from global cache and enforce size limits.
+ * Removes entries that are expired OR would exceed size limit (unless in use).
+ * @param now current timestamp in milliseconds
+ * @param extra_size additional size to reserve (for new entries)
+ */
+void c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size);
+
+/**
+ * Invalidate a cache entry by key (marks as expired).
+ * @param key 32-byte cache key to invalidate
+ */
+void c4_proofer_cache_invalidate(bytes32_t key);
+
+/**
+ * Get statistics about the global cache.
+ * @param entries number of entries in global cache
+ * @param size current total size of cached data in bytes
+ * @param max_size maximum allowed cache size in bytes
+ * @param capacity current allocated capacity of the cache array
+ */
+void c4_proofer_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
 #endif
 
+/**
+ * Macro to request execution in a worker thread for CPU-intensive operations.
+ *
+ * This macro should be used before computationally expensive operations that would
+ * block the libuv event loop. It sets the C4_PROOFER_FLAG_UV_WORKER_REQUIRED flag
+ * and returns C4_PENDING to signal that the operation should be retried in a worker thread.
+ *
+ * IMPORTANT: All required cache entries MUST be fetched using c4_proofer_cache_get()
+ * BEFORE calling this macro, as cache access from worker threads is restricted to
+ * prevent race conditions.
+ *
+ * @param ctx the proofer context
+ * @param cleanup optional cleanup code to execute before returning
+ *
+ * Usage:
+ *   // Fetch all needed cache data first
+ *   merkle_tree_t* tree = c4_proofer_cache_get(ctx, tree_key);
+ *
+ *   if (tree == NULL) {
+ *     // Request worker thread for heavy computation
+ *     REQUEST_WORKER_THREAD(ctx);
+ *
+ *     tree = build_merkle_tree(...);
+ *   }
+ *
+ *   // Now safe to do CPU-intensive work...
+ */
 #define REQUEST_WORKER_THREAD_CATCH(ctx, cleanup)                                                         \
   if (ctx->flags & C4_PROOFER_FLAG_UV_SERVER_CTX && !(ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED)) { \
     ctx->flags |= C4_PROOFER_FLAG_UV_WORKER_REQUIRED;                                                     \
@@ -163,6 +246,10 @@ void  c4_proofer_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_si
     return C4_PENDING;                                                                                    \
   }
 
+/**
+ * Simplified version of REQUEST_WORKER_THREAD_CATCH without cleanup code.
+ * @param ctx the proofer context
+ */
 #define REQUEST_WORKER_THREAD(ctx) REQUEST_WORKER_THREAD_CATCH(ctx, );
 
 #ifdef __cplusplus

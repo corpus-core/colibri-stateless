@@ -24,6 +24,48 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
+#define ETH_SIMULATION_LOG_MASK_ANONYMOUS (1 << 1)                    // anonymous field (i=1)
+#define ETH_SIMULATION_LOG_MASK_INPUTS    (1 << 2)                    // inputs field (i=2)
+#define ETH_SIMULATION_LOG_MASK_NAME      (1 << 3)                    // name field (i=3)
+#define ETH_SIMULATION_LOG_MASK_RAW       (1 << 4)                    // raw field (i=4)
+#define ETH_SIMULATION_LOG_MASK_ALL       0xFFFF                      // all fields for testing
+#define ETH_SIMULATION_LOG_MASK_MINIMAL   ETH_SIMULATION_LOG_MASK_RAW // only raw log data
+
+#define ETH_SIMULATION_TRACE_MASK_DECODED_INPUT  (1 << 1)  // decodedInput field (i=1)
+#define ETH_SIMULATION_TRACE_MASK_DECODED_OUTPUT (1 << 2)  // decodedOutput field (i=2)
+#define ETH_SIMULATION_TRACE_MASK_FROM           (1 << 3)  // from field (i=3)
+#define ETH_SIMULATION_TRACE_MASK_GAS            (1 << 4)  // gas field (i=4)
+#define ETH_SIMULATION_TRACE_MASK_GAS_USED       (1 << 5)  // gasUsed field (i=5)
+#define ETH_SIMULATION_TRACE_MASK_INPUT          (1 << 6)  // input field (i=6)
+#define ETH_SIMULATION_TRACE_MASK_METHOD         (1 << 7)  // method field (i=7)
+#define ETH_SIMULATION_TRACE_MASK_OUTPUT         (1 << 8)  // output field (i=8)
+#define ETH_SIMULATION_TRACE_MASK_SUBTRACES      (1 << 9)  // subtraces field (i=9)
+#define ETH_SIMULATION_TRACE_MASK_TO             (1 << 10) // to field (i=10)
+#define ETH_SIMULATION_TRACE_MASK_TRACE_ADDRESS  (1 << 11) // traceAddress field (i=11)
+#define ETH_SIMULATION_TRACE_MASK_TYPE           (1 << 12) // type field (i=12)
+#define ETH_SIMULATION_TRACE_MASK_VALUE          (1 << 13) // value field (i=13)
+#define ETH_SIMULATION_TRACE_MASK_ALL            0xFFFF    // all fields for testing
+#define ETH_SIMULATION_TRACE_MASK_MINIMAL        0x0000    // no trace fields (empty)
+
+#define ETH_SIMULATION_RESULT_MASK_BLOCK_NUMBER   (1 << 1) // blockNumber field (i=1)
+#define ETH_SIMULATION_RESULT_MASK_CUMULATIVE_GAS (1 << 2) // cumulativeGasUsed field (i=2)
+#define ETH_SIMULATION_RESULT_MASK_GAS_USED       (1 << 3) // gasUsed field (i=3)
+#define ETH_SIMULATION_RESULT_MASK_LOGS           (1 << 4) // logs field (i=4)
+#define ETH_SIMULATION_RESULT_MASK_LOGS_BLOOM     (1 << 5) // logsBloom field (i=5)
+#define ETH_SIMULATION_RESULT_MASK_STATUS         (1 << 6) // status field (i=6)
+#define ETH_SIMULATION_RESULT_MASK_TRACE          (1 << 7) // trace field (i=7)
+#define ETH_SIMULATION_RESULT_MASK_TYPE           (1 << 8) // type field (i=8)
+#define ETH_SIMULATION_RESULT_MASK_RETURN_VALUE   (1 << 9) // returnValue field (i=9)
+#define ETH_SIMULATION_RESULT_MASK_ALL            0xFFFF   // all fields for testing
+#define ETH_SIMULATION_RESULT_MASK_MINIMAL        (ETH_SIMULATION_RESULT_MASK_GAS_USED | \
+                                            ETH_SIMULATION_RESULT_MASK_LOGS |            \
+                                            ETH_SIMULATION_RESULT_MASK_STATUS |          \
+                                            ETH_SIMULATION_RESULT_MASK_RETURN_VALUE) // essential fields only
+#define ETH_SIMULATION_RESULT_MASK_CLEAN (ETH_SIMULATION_RESULT_MASK_GAS_USED | \
+                                          ETH_SIMULATION_RESULT_MASK_LOGS |     \
+                                          ETH_SIMULATION_RESULT_MASK_STATUS |   \
+                                          ETH_SIMULATION_RESULT_MASK_RETURN_VALUE) // clean output: gasUsed, logs, status, returnValue (no logsBloom, no type)
+
 // : Ethereum
 
 // :: Transaction Proof
@@ -176,54 +218,13 @@ static const ssz_def_t ETH_PROOF_DATA[] = {
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_DATA_CONTAINER, 256), // the storage proofs of the selected
 };
 
-// :: Simulation Result (based on Tenderly format)
+// :: Colibri RPC-Methods
 
-// Optional field masks (bit positions after _optmask field)
-#define ETH_SIMULATION_LOG_MASK_ANONYMOUS (1 << 1)                    // anonymous field (i=1)
-#define ETH_SIMULATION_LOG_MASK_INPUTS    (1 << 2)                    // inputs field (i=2)
-#define ETH_SIMULATION_LOG_MASK_NAME      (1 << 3)                    // name field (i=3)
-#define ETH_SIMULATION_LOG_MASK_RAW       (1 << 4)                    // raw field (i=4)
-#define ETH_SIMULATION_LOG_MASK_ALL       0xFFFF                      // all fields for testing
-#define ETH_SIMULATION_LOG_MASK_MINIMAL   ETH_SIMULATION_LOG_MASK_RAW // only raw log data
-
-#define ETH_SIMULATION_TRACE_MASK_DECODED_INPUT  (1 << 1)  // decodedInput field (i=1)
-#define ETH_SIMULATION_TRACE_MASK_DECODED_OUTPUT (1 << 2)  // decodedOutput field (i=2)
-#define ETH_SIMULATION_TRACE_MASK_FROM           (1 << 3)  // from field (i=3)
-#define ETH_SIMULATION_TRACE_MASK_GAS            (1 << 4)  // gas field (i=4)
-#define ETH_SIMULATION_TRACE_MASK_GAS_USED       (1 << 5)  // gasUsed field (i=5)
-#define ETH_SIMULATION_TRACE_MASK_INPUT          (1 << 6)  // input field (i=6)
-#define ETH_SIMULATION_TRACE_MASK_METHOD         (1 << 7)  // method field (i=7)
-#define ETH_SIMULATION_TRACE_MASK_OUTPUT         (1 << 8)  // output field (i=8)
-#define ETH_SIMULATION_TRACE_MASK_SUBTRACES      (1 << 9)  // subtraces field (i=9)
-#define ETH_SIMULATION_TRACE_MASK_TO             (1 << 10) // to field (i=10)
-#define ETH_SIMULATION_TRACE_MASK_TRACE_ADDRESS  (1 << 11) // traceAddress field (i=11)
-#define ETH_SIMULATION_TRACE_MASK_TYPE           (1 << 12) // type field (i=12)
-#define ETH_SIMULATION_TRACE_MASK_VALUE          (1 << 13) // value field (i=13)
-#define ETH_SIMULATION_TRACE_MASK_ALL            0xFFFF    // all fields for testing
-#define ETH_SIMULATION_TRACE_MASK_MINIMAL        0x0000    // no trace fields (empty)
-
-#define ETH_SIMULATION_RESULT_MASK_BLOCK_NUMBER   (1 << 1) // blockNumber field (i=1)
-#define ETH_SIMULATION_RESULT_MASK_CUMULATIVE_GAS (1 << 2) // cumulativeGasUsed field (i=2)
-#define ETH_SIMULATION_RESULT_MASK_GAS_USED       (1 << 3) // gasUsed field (i=3)
-#define ETH_SIMULATION_RESULT_MASK_LOGS           (1 << 4) // logs field (i=4)
-#define ETH_SIMULATION_RESULT_MASK_LOGS_BLOOM     (1 << 5) // logsBloom field (i=5)
-#define ETH_SIMULATION_RESULT_MASK_STATUS         (1 << 6) // status field (i=6)
-#define ETH_SIMULATION_RESULT_MASK_TRACE          (1 << 7) // trace field (i=7)
-#define ETH_SIMULATION_RESULT_MASK_TYPE           (1 << 8) // type field (i=8)
-#define ETH_SIMULATION_RESULT_MASK_RETURN_VALUE   (1 << 9) // returnValue field (i=9)
-#define ETH_SIMULATION_RESULT_MASK_ALL            0xFFFF   // all fields for testing
-#define ETH_SIMULATION_RESULT_MASK_MINIMAL        (ETH_SIMULATION_RESULT_MASK_GAS_USED | \
-                                            ETH_SIMULATION_RESULT_MASK_LOGS |            \
-                                            ETH_SIMULATION_RESULT_MASK_STATUS |          \
-                                            ETH_SIMULATION_RESULT_MASK_RETURN_VALUE) // essential fields only
-#define ETH_SIMULATION_RESULT_MASK_CLEAN (ETH_SIMULATION_RESULT_MASK_GAS_USED | \
-                                          ETH_SIMULATION_RESULT_MASK_LOGS |     \
-                                          ETH_SIMULATION_RESULT_MASK_STATUS |   \
-                                          ETH_SIMULATION_RESULT_MASK_RETURN_VALUE) // clean output: gasUsed, logs, status, returnValue (no logsBloom, no type)
+// ::: colibri_simulateTransaction
 
 // Decoded input/output parameter for ABI decoding
 static const ssz_def_t ETH_SIMULATION_INPUT_PARAM[] = {
-    SSZ_STRING("name", 256),   // parameter name (e.g. "src", "guy", "wad")
+    SSZ_STRING("name", 256),   // parameter name (e.g. "src","wad")
     SSZ_STRING("type", 256),   // parameter type (e.g. "address", "uint256")
     SSZ_STRING("value", 1024), // parameter value as string (e.g. "0xe2e2...", "299")
 };

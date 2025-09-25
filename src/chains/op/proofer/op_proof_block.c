@@ -80,3 +80,21 @@ c4_status_t c4_op_proof_block(proofer_ctx_t* ctx) {
 
   return C4_SUCCESS;
 }
+c4_status_t c4_op_proof_blocknumber(proofer_ctx_t* ctx) {
+  // first try to fetch the block from the preconfs
+  ssz_builder_t preconf_proof = {0};
+
+  TRY_ASYNC(c4_op_create_block_proof(ctx, (json_t) {.type = JSON_TYPE_STRING, .start = "\"latest\"", .len = 8}, &preconf_proof));
+
+  // build the proof
+  ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
+  ssz_add_builders(&block_proof, "block_proof", preconf_proof);
+
+  ctx->proof = op_create_proof_request(
+      ctx->chain_id,
+      NULL_SSZ_BUILDER,
+      block_proof,
+      NULL_SSZ_BUILDER);
+
+  return C4_SUCCESS;
+}

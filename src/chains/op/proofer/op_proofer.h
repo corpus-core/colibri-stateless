@@ -36,7 +36,7 @@ c4_status_t c4_op_proof_transaction(proofer_ctx_t* ctx);
 c4_status_t c4_op_proof_receipt(proofer_ctx_t* ctx);
 c4_status_t c4_op_proof_logs(proofer_ctx_t* ctx);
 c4_status_t c4_op_proof_call(proofer_ctx_t* ctx);
-
+c4_status_t c4_op_proof_blocknumber(proofer_ctx_t* ctx);
 c4_status_t c4_op_proof_account(proofer_ctx_t* ctx);
 
 c4_status_t c4_op_create_block_proof(proofer_ctx_t* ctx, json_t block_number, ssz_builder_t* block_proof);

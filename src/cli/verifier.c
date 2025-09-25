@@ -48,7 +48,7 @@ static size_t write_data(void* ptr, size_t size, size_t nmemb, void* userdata) {
 
 static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t state, chain_id_t chain_id) {
   // fprintf(stderr, "reading from proofer: %s(%s) from %s\n", method, args, url);
-  if (strcmp(method, "eth_simulateTransaction") == 0) method = "eth_call";
+  if (strcmp(method, "colibri_simulateTransaction") == 0) method = "eth_call";
   struct curl_slist* headers         = NULL;
   buffer_t           payload         = {0};
   buffer_t           response_buffer = {0};
