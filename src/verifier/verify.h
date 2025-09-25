@@ -44,10 +44,10 @@ extern "C" {
 // :: Internal APIs
 //
 // This header should be used only if you implement new verifiers or need direct access.
-// The internal APIs are not guranteed to be stable and can be changed or removed without prior notice.
+// The internal APIs are not guaranteed to be stable and can be changed or removed without prior notice.
 
 // ::: verify.h
-// The verifier API execution a proof verification.
+// The verifier API executes a proof verification.
 // when calling c4_verify_from_bytes, c4_verify needs to be called until the status is either C4_ERROR or C4_SUCCESS.
 //
 // Example:
@@ -55,7 +55,7 @@ extern "C" {
 // ```c
 //  verify_ctx_t ctx = {0};
 //  for (
-//      c4_status_t status = c4_verify_from_bytes(&ctx, request, method, json_parse(args), chain_id);
+//      c4_status_t status = c4_verify_from_bytes(&ctx, request_bytes, method, json_parse(args), chain_id);
 //      status == C4_PENDING;
 //      status = c4_verify(&ctx))
 //      curl_fetch_all(&ctx.state);
@@ -79,7 +79,7 @@ typedef uint32_t verify_flags_t;
  * a enum as list of flags used during the verification context.
  */
 typedef enum {
-  VERIFY_FLAG_FREE_DATA = 1 << 0, // if set, the data section will be freed after the verification, which is important, if the verifier extracts data from the request.
+  VERIFY_FLAG_FREE_DATA = 1 << 0, // if set, the data section will be freed after verification. This flag is set when the verifier generates the actual result data from the proof and needs cleanup afterwards.
 } verify_flag_t;
 
 /**
@@ -105,7 +105,7 @@ typedef enum {
   METHOD_PROOFABLE     = 1, // the method is proofable
   METHOD_UNPROOFABLE   = 2, // the method is unproofable
   METHOD_NOT_SUPPORTED = 3, // the method is not supported
-  METHOD_LOCAL         = 4  // the method is executedlocal
+  METHOD_LOCAL         = 4  // the method is executed locally
 } method_type_t;
 
 /**
@@ -117,31 +117,39 @@ const ssz_def_t* c4_get_request_type(chain_type_t chain_type);
 /**
  * get the chain-type from a given request.
  *
- * The chain-type is based on the version-bytes of the request.
+ * The chain-type is based on the first byte of the request, which corresponds
+ * to the chain_type_t enum value.
+ * @param request_bytes the request bytes to analyze
+ * @return the chain type, defaults to C4_CHAIN_TYPE_ETHEREUM for invalid requests
  */
-chain_type_t c4_get_chain_type_from_req(bytes_t request);
+chain_type_t c4_get_chain_type_from_req(bytes_t request_bytes);
 
 /**
  * get the request type from a given request.
  *
- * The request-type is based on the version-bytes of the request.
+ * The request-type is based on the chain type extracted from the request.
+ * @param request_bytes the request bytes to analyze
+ * @return the SSZ definition for the request type
  */
-const ssz_def_t* c4_get_req_type_from_req(bytes_t request);
+const ssz_def_t* c4_get_req_type_from_req(bytes_t request_bytes);
 
 /**
- * the main verification function executionthe verifier in the modules.
+ * the main verification function executing the verifier in the modules.
+ * @param ctx the verification context
+ * @return C4_SUCCESS, C4_ERROR, or C4_PENDING
  */
 c4_status_t c4_verify(verify_ctx_t* ctx);
 
 /**
  * shortcut to verify a request from bytes.
  * @param ctx the verification context.
- * @param request the request as bytes.
- * @param method the method to verify.
+ * @param request_bytes the request as bytes.
+ * @param method the method to verify (required, cannot be NULL).
  * @param args the arguments for the method as json array.
  * @param chain_id the chain-id of the request.
+ * @return C4_SUCCESS, C4_ERROR, or C4_PENDING
  */
-c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id);
+c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id);
 
 /**
  * free all allocated memory from the verification context. it does not free the verification context itself.
@@ -151,13 +159,14 @@ void c4_verify_free_data(verify_ctx_t* ctx);
 /**
  * initialize the verification context.
  *
- * @param ctx the verification context.
- * @param request the request as bytes.
- * @param method the method to verify.
+ * @param ctx the verification context (required, cannot be NULL).
+ * @param request_bytes the request as bytes.
+ * @param method the method to verify (required, cannot be NULL).
  * @param args the arguments for the method as json array.
  * @param chain_id the chain-id of the request.
+ * @return C4_SUCCESS or C4_ERROR
  */
-c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id);
+c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id);
 
 /**
  * get the method type for a given chain-id and method.
