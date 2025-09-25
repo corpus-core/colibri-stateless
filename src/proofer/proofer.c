@@ -42,6 +42,10 @@
 #include <uv.h>
 #endif
 
+// Macro for efficient cache key comparison (32-byte keys)
+#define CACHE_KEY_MATCH(entry, key, key_start) \
+  (*((uint64_t*) (entry)->key) == (key_start) && memcmp((entry)->key, (key), 32) == 0)
+
 #ifdef PROOFER_CACHE
 // Structure for the global cache dynamic array
 typedef struct {
@@ -56,22 +60,22 @@ typedef struct {
 
 // Function to get current time as Unix epoch milliseconds using system calls
 uint64_t current_unix_ms() {
-  struct timeval te;
+  struct timeval time_val;
 #ifdef _WIN32
   FILETIME       ft;
-  ULARGE_INTEGER li;
+  ULARGE_INTEGER large_int;
   GetSystemTimeAsFileTime(&ft);
-  li.LowPart  = ft.dwLowDateTime;
-  li.HighPart = ft.dwHighDateTime;
+  large_int.LowPart  = ft.dwLowDateTime;
+  large_int.HighPart = ft.dwHighDateTime;
   // Convert to microseconds from Jan 1, 1601
   // Then adjust to Unix epoch (Jan 1, 1970)
-  uint64_t unix_time = (li.QuadPart - 116444736000000000LL) / 10;
-  te.tv_sec          = unix_time / 1000000;
-  te.tv_usec         = unix_time % 1000000;
+  uint64_t unix_time = (large_int.QuadPart - 116444736000000000LL) / 10;
+  time_val.tv_sec    = unix_time / 1000000;
+  time_val.tv_usec   = unix_time % 1000000;
 #else
-  gettimeofday(&te, NULL);
+  gettimeofday(&time_val, NULL);
 #endif
-  return te.tv_sec * 1000L + te.tv_usec / 1000;
+  return time_val.tv_sec * 1000L + time_val.tv_usec / 1000;
 }
 
 // Keep current_ms() as it is (with the conditional uv_now)
@@ -83,17 +87,16 @@ uint64_t current_ms() {
 #endif // C4_PROOFER_USE_UV_TIME
 }
 
-// Replace the old global linked list pointer with the new array structure
-// static cache_entry_t* global_cache          = NULL; // Old linked list head
+// Global cache implementation using dynamic array for better performance
 static global_cache_t global_cache_array    = {NULL, 0, 0, 0};
-static uint64_t       global_cache_max_size = 1024 * 1024 * 100; // 100MB
+static uint64_t       global_cache_max_size = 1024 * 1024 * 100; // 100MB max cache size
 
-void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key) {
+const void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key) {
   uint64_t key_start = *((uint64_t*) key); // optimize cache-loop by first checking the first word before doing a memcmp
 
   // 1. Check local cache (remains linked list)
   for (cache_entry_t* entry = ctx->cache; entry; entry = entry->next) {
-    if (*((uint64_t*) entry->key) == key_start && memcmp(entry->key, key, 32) == 0)
+    if (CACHE_KEY_MATCH(entry, key, key_start))
       return entry->value;
   }
 
@@ -106,22 +109,19 @@ void* c4_proofer_cache_get(proofer_ctx_t* ctx, bytes32_t key) {
   // 2. Check global cache (now an array)
   for (size_t i = 0; i < global_cache_array.count; ++i) {
     cache_entry_t* entry = &global_cache_array.entries[i]; // Get pointer to entry in array
-    if (*((uint64_t*) entry->key) == key_start && memcmp(entry->key, key, 32) == 0) {
+    if (CACHE_KEY_MATCH(entry, key, key_start)) {
 
-      // >> Add check: Skip if entry has been invalidated (timestamp set to 0)
+      // Skip invalidated entries (timestamp == 0 means invalidated)
       if (entry->timestamp == 0) {
         log_debug("Found matching key %b in global cache, but it was invalidated. Treating as miss.", bytes(key, 32));
         continue; // Skip this entry, check next
       }
-      // << End added check
 
       // Found valid entry in global cache - copy it to local cache
+      // Note: The cached value is shared (read-only) between local and global cache.
+      // This design enables memory-efficient sharing of immutable objects like Merkle trees.
       cache_entry_t* new_entry = (cache_entry_t*) safe_calloc(1, sizeof(cache_entry_t));
-      if (!new_entry) {
-        log_error("Failed to allocate memory for cache entry copy");
-        return NULL; // Allocation failed
-      }
-      memcpy(new_entry, entry, sizeof(cache_entry_t)); // Copy the entry data
+      memcpy(new_entry, entry, sizeof(cache_entry_t)); // Copy entry metadata, value pointer is shared
       new_entry->timestamp         = 0;                // Mark as local-only (will not be added back to global)
       new_entry->next              = ctx->cache;       // Link into local cache list
       new_entry->from_global_cache = true;             // mark it as from the global cache
@@ -178,7 +178,6 @@ void c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size) {
       if (write_index < read_index)
         // Move the current entry to the write_index position
         global_cache_array.entries[write_index] = global_cache_array.entries[read_index];
-      // No need to zero out the old position, it will be overwritten or fall beyond the new count
       write_index++; // Move write_index forward for the next kept entry
     }
     else {
@@ -190,8 +189,7 @@ void c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size) {
       // Free the associated value if a free function exists
       if (entry->free && entry->value)
         entry->free(entry->value);
-      // The entry structure itself at read_index will be overwritten by a later entry
-      // or will be beyond the new count 'write_index'. No explicit free needed here.
+      // Entry structure will be overwritten or fall beyond new count
     }
   }
 
@@ -229,8 +227,7 @@ static bool add_entry_to_global_cache(cache_entry_t* entry_to_add) {
     global_cache_array.capacity = new_capacity;
   }
 
-  // Calculate absolute expiry time *before* memcpy if we modify entry_to_add directly,
-  // or *after* memcpy if we modify the destination in the array. Modifying destination is cleaner.
+  // Convert relative duration to absolute expiry time
   uint64_t duration_ms = entry_to_add->timestamp; // Get the stored duration
 
   // Add the entry (copy data)
@@ -239,13 +236,12 @@ static bool add_entry_to_global_cache(cache_entry_t* entry_to_add) {
   // Now, update the copied entry in the global array
   cache_entry_t* global_entry = &global_cache_array.entries[global_cache_array.count];
 
-  // Important: Reset fields that are specific to the linked list or local context
+  // Reset fields specific to linked list or local context
   global_entry->next              = NULL;  // Not used in array
   global_entry->from_global_cache = false; // Not used for entries originating in global cache
   global_entry->use_counter       = 0;     // Reset use counter when added to global cache
 
-  // Convert relative duration to absolute expiry timestamp using current time
-  // This call to current_ms() happens here in the main thread via c4_proofer_free
+  // Convert relative duration to absolute expiry timestamp
   global_entry->timestamp = current_ms() + duration_ms;
 
   // Update counts for the array
@@ -262,9 +258,7 @@ static cache_entry_t* find_global_cache_entry(bytes32_t key) {
   uint64_t key_start = *((uint64_t*) key); // optimize cache-loop by first checking the first word before doing a memcmp
   for (size_t i = 0; i < global_cache_array.count; ++i) {
     cache_entry_t* entry = &global_cache_array.entries[i];
-    if (*((uint64_t*) entry->key) == key_start && memcmp(entry->key, key, 32) == 0) {
-      return entry; // Return pointer to the entry in the array
-    }
+    if (CACHE_KEY_MATCH(entry, key, key_start)) return entry; // Return pointer to the entry in the array
   }
   return NULL; // Not found
 }
@@ -284,17 +278,32 @@ void c4_proofer_cache_invalidate(bytes32_t key) {
 #endif
 
 proofer_ctx_t* c4_proofer_create(char* method, char* params, chain_id_t chain_id, proofer_flags_t flags) {
-  json_t params_json = json_parse(params);
-  if (params_json.type != JSON_TYPE_ARRAY) return NULL;
+  // Always create context to return error information
+  proofer_ctx_t* ctx = (proofer_ctx_t*) safe_calloc(1, sizeof(proofer_ctx_t));
+  ctx->chain_id      = chain_id;
+  ctx->flags         = flags;
+
+  // Input validation
+  if (!method) {
+    c4_state_add_error(&ctx->state, "c4_proofer_create: method cannot be NULL");
+    return ctx;
+  }
+  ctx->method = strdup(method);
+
+  // Use empty array as default if params is NULL
+  json_t params_json = json_parse(params ? params : "[]");
+  if (params_json.type != JSON_TYPE_ARRAY) {
+    c4_state_add_error(&ctx->state, "c4_proofer_create: params must be a valid JSON array");
+    return ctx;
+  }
+
   char* params_str = (char*) safe_malloc(params_json.len + 1);
   memcpy(params_str, params_json.start, params_json.len);
   params_str[params_json.len] = 0;
   params_json.start           = params_str;
-  proofer_ctx_t* ctx          = (proofer_ctx_t*) safe_calloc(1, sizeof(proofer_ctx_t));
-  ctx->method                 = strdup(method);
-  ctx->params                 = params_json;
-  ctx->chain_id               = chain_id;
-  ctx->flags                  = flags;
+
+  // Set valid parameters
+  ctx->params = params_json;
   return ctx;
 }
 
@@ -348,7 +357,7 @@ void c4_proofer_free(proofer_ctx_t* ctx) {
     ctx->cache = next; // Move to the next node in the local list
   }
 #endif // PROOFER_CACHE
-       // Finally, free the context itself
+  // Finally, free the context itself
   safe_free(ctx);
 }
 
