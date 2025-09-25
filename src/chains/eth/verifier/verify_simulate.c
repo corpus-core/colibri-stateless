@@ -28,7 +28,7 @@
 
 // ::: colibri_simulateTransaction
 //
-// Simulates a Transaction before signing it.
+// Simulates a Transaction before signing it. The input arguments are the same as eth_call, but the result represents the events created when executing the transaction.
 
 #include "beacon_types.h"
 #include "bytes.h"

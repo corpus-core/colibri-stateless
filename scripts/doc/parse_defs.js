@@ -316,7 +316,7 @@ function create_rpc_table(section, sections, rpc_docs) {
     for (let rpc of section.rpcs) {
         const doc_url = rpc_docs[rpc.chain] || 'https://www.alchemy.com/docs/node/ethereum/ethereum-api-endpoints'
         let link = `${doc_url}/${doc_id(rpc.method)}`
-        if (rpc.method.startsWith('colibri_')) link = `../ethereum/colibri-rpc-methods/${rpc.method.toLowerCase()}.md`
+        if (rpc.method.startsWith('colibri_')) link = `colibri-rpc-methods/${rpc.method.toLowerCase()}.md`
         const methodLink = `<a href="${link}" target="_blank" rel="noopener noreferrer">${rpc.method}</a>`;
         const statusIcon = rpc.status == 'proofable' ? '✅' : (rpc.status == 'local' ? '🟢' : '❌');
 

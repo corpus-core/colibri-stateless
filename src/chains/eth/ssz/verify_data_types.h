@@ -218,11 +218,13 @@ static const ssz_def_t ETH_PROOF_DATA[] = {
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_DATA_CONTAINER, 256), // the storage proofs of the selected
 };
 
-// :: Call Proof
+// :: Colibri RPC-Methods
+
+// ::: colibri_simulateTransaction
 
 // Decoded input/output parameter for ABI decoding
 static const ssz_def_t ETH_SIMULATION_INPUT_PARAM[] = {
-    SSZ_STRING("name", 256),   // parameter name (e.g. "src", "guy", "wad")
+    SSZ_STRING("name", 256),   // parameter name (e.g. "src","wad")
     SSZ_STRING("type", 256),   // parameter type (e.g. "address", "uint256")
     SSZ_STRING("value", 1024), // parameter value as string (e.g. "0xe2e2...", "299")
 };
