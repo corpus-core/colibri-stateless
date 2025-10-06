@@ -1,4 +1,6 @@
 name: Embedded Testing
+permissions:
+  contents: read
 
 on:
   push:
