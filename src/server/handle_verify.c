@@ -20,13 +20,20 @@ typedef struct {
 } verify_request_t;
 
 static bytes_t get_client_state(chain_id_t chain_id) {
+  static bool server_storage_initialized = false;
+
+  // Initialize server storage on first call
+  if (!server_storage_initialized) {
+    c4_init_server_storage();
+    server_storage_initialized = true;
+  }
+
   uint8_t          buf[100];
   buffer_t         buffer = stack_buffer(buf);
   buffer_t         result = {0};
   storage_plugin_t storage;
   c4_get_storage_config(&storage);
 
-  // TODO this is currently blocking when reading from file system, which is not good in the uv_loop, we should have a special storage plugin for this
   return storage.get(bprintf(&buffer, "states_%l", (uint64_t) chain_id), &result) ? result.data : NULL_BYTES;
 }
 

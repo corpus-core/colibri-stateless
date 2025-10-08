@@ -225,4 +225,7 @@ data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
 c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
 
+// Server storage functions
+void c4_init_server_storage();
+
 #endif // C4_SERVER_H
