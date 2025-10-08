@@ -115,7 +115,7 @@ void c4_cleanup_method_support(server_health_t* health) {
   health->unsupported_methods = NULL;
 }
 
-// Calculate weights based on success rate and response time
+// Calculate weights based on success rate, response time, and adaptive factors
 void c4_calculate_server_weights(server_list_t* servers) {
   if (!servers || !servers->health_stats) return;
 
@@ -133,22 +133,29 @@ void c4_calculate_server_weights(server_list_t* servers) {
       success_rate = (double) health->successful_requests / health->total_requests;
     }
 
-    // Calculate average response time
+    // Calculate average response time with recent bias
     double avg_response_time = 100.0; // Default 100ms
     if (health->successful_requests > 0) {
       avg_response_time = (double) health->total_response_time / health->successful_requests;
+
+      // Apply recent performance bias - prefer servers with recent good performance
+      uint64_t time_since_last_use = current_time - health->last_used;
+      if (time_since_last_use < 30000) { // Within last 30 seconds
+        // Recent performance gets higher weight
+        avg_response_time *= 0.9; // 10% bonus for recent good performance
+      }
     }
 
     // Weight based on success rate (higher success = higher weight)
     health->weight *= success_rate;
 
     // Weight based on response time (lower time = higher weight)
-    // Invert response time: weight decreases as response time increases
+    // Use exponential decay for better differentiation
     if (avg_response_time > 0) {
-      health->weight *= (1000.0 / (avg_response_time + 100.0)); // Normalize to reasonable range
+      health->weight *= exp(-avg_response_time / 500.0); // Exponential decay with 500ms half-life
     }
 
-    // Penalty for consecutive failures
+    // Penalty for consecutive failures with exponential backoff
     if (health->consecutive_failures > 0) {
       health->weight *= pow(HEALTH_CHECK_PENALTY, health->consecutive_failures);
     }
@@ -383,7 +390,7 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
   return -1;
 }
 
-// Select best server for a specific RPC method, excluding servers that don't support it
+// Enhanced server selection with method-specific performance tracking
 int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method) {
   if (!servers || servers->count == 0) return -1;
 
@@ -392,20 +399,75 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
 
   // Create extended exclude mask that includes servers not supporting the method
   uint32_t method_exclude_mask = exclude_mask;
+
+  // Apply method-specific performance weighting
+  double method_weights[32]       = {0}; // Temporary weights for this method
+  bool   has_method_specific_data = false;
+
   for (size_t i = 0; i < servers->count && i < 32; i++) {
     if (!c4_is_method_supported(servers, i, method)) {
       method_exclude_mask |= (1 << i);
+      continue;
     }
+
+    // Start with base server weight
+    method_weights[i] = servers->health_stats[i].weight;
+
+    // Apply method-specific optimizations
+    if (strstr(method, "eth_getBlockByNumber") || strstr(method, "eth_getBlockByHash")) {
+      // Block requests: prefer servers with recent block data
+      if (servers->health_stats[i].last_used > current_ms() - 10000) {
+        method_weights[i] *= 1.2; // 20% bonus for recent block requests
+      }
+    }
+    else if (strstr(method, "eth_getLogs")) {
+      // Log requests: prefer servers with good historical data performance
+      if (servers->health_stats[i].successful_requests > 50) {
+        method_weights[i] *= 1.1; // 10% bonus for experienced servers
+      }
+    }
+    else if (strstr(method, "eth_call") || strstr(method, "eth_estimateGas")) {
+      // State requests: prefer fastest servers
+      double avg_time = servers->health_stats[i].successful_requests > 0 ? (double) servers->health_stats[i].total_response_time / servers->health_stats[i].successful_requests : 1000.0;
+      if (avg_time < 200.0) {     // Sub-200ms responses
+        method_weights[i] *= 1.3; // 30% bonus for fast state queries
+      }
+    }
+
+    has_method_specific_data = true;
   }
 
   // If all servers are excluded due to method support, fall back to regular selection
-  // (this handles cases where method support info might be incomplete/wrong)
   if (method_exclude_mask == ((1 << servers->count) - 1)) {
     fprintf(stderr, "   [method] No servers support method '%s', falling back to regular selection\n", method);
     return c4_select_best_server(servers, exclude_mask, preferred_client_type);
   }
 
-  // Use regular server selection with extended exclude mask
+  // If we have method-specific data, use weighted selection
+  if (has_method_specific_data) {
+    double total_weight = 0.0;
+    for (size_t i = 0; i < servers->count && i < 32; i++) {
+      if (!(method_exclude_mask & (1 << i))) {
+        total_weight += method_weights[i];
+      }
+    }
+
+    if (total_weight > 0.0) {
+      double random_value   = ((double) rand() / RAND_MAX) * total_weight;
+      double current_weight = 0.0;
+
+      for (size_t i = 0; i < servers->count && i < 32; i++) {
+        if (!(method_exclude_mask & (1 << i))) {
+          current_weight += method_weights[i];
+          if (current_weight >= random_value) {
+            return (int) i;
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback to regular server selection with method exclude mask
   return c4_select_best_server(servers, method_exclude_mask, preferred_client_type);
 }
 

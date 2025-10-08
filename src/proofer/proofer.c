@@ -163,22 +163,94 @@ void c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size) {
 
   log_debug("Starting global cache cleanup. Current count: %d, Current size: %l", global_cache_array.count, global_cache_array.current_size);
 
-  for (size_t read_index = 0; read_index < global_cache_array.count; ++read_index) {
-    cache_entry_t* entry = global_cache_array.entries + read_index;
+  // Create array of indices for LRU sorting when size limit is exceeded
+  typedef struct {
+    size_t   index;
+    uint64_t last_access;
+    uint32_t size;
+    bool     in_use;
+    bool     expired;
+  } cleanup_entry_t;
 
-    // Determine if entry should be removed: Expired OR adding it exceeds max size (and not in use)
-    // Note: This logic preserves entries currently in use (use_counter > 0) even if they are expired or push the cache over size.
-    bool should_remove = (entry->timestamp < now || (current_kept_size + entry->size > max_size)) && entry->use_counter == 0;
+  cleanup_entry_t* cleanup_entries  = NULL;
+  bool             need_lru_cleanup = false;
+
+  // First pass: identify expired entries and check if we need LRU cleanup
+  uint64_t non_expired_size = 0;
+  for (size_t i = 0; i < global_cache_array.count; ++i) {
+    cache_entry_t* entry = global_cache_array.entries + i;
+    if (entry->timestamp >= now && entry->use_counter == 0) {
+      non_expired_size += entry->size;
+    }
+  }
+
+  if (non_expired_size > max_size) {
+    need_lru_cleanup = true;
+    cleanup_entries  = (cleanup_entry_t*) safe_malloc(global_cache_array.count * sizeof(cleanup_entry_t));
+
+    // Populate cleanup entries with access information
+    for (size_t i = 0; i < global_cache_array.count; ++i) {
+      cache_entry_t* entry           = &global_cache_array.entries[i];
+      cleanup_entries[i].index       = i;
+      cleanup_entries[i].last_access = entry->timestamp; // Use timestamp as last access approximation
+      cleanup_entries[i].size        = entry->size;
+      cleanup_entries[i].in_use      = entry->use_counter > 0;
+      cleanup_entries[i].expired     = entry->timestamp < now;
+    }
+
+    // Sort by LRU (oldest first) for non-expired, non-in-use entries
+    for (size_t i = 0; i < global_cache_array.count - 1; i++) {
+      for (size_t j = i + 1; j < global_cache_array.count; j++) {
+        cleanup_entry_t* a = &cleanup_entries[i];
+        cleanup_entry_t* b = &cleanup_entries[j];
+
+        // Prioritize removal: expired > not-in-use-old > not-in-use-new > in-use
+        bool should_swap = false;
+        if (a->in_use && !b->in_use)
+          should_swap = true;
+        else if (!a->in_use && !b->in_use && !a->expired && !b->expired && a->last_access > b->last_access)
+          should_swap = true;
+        else if (!a->expired && b->expired)
+          should_swap = true;
+
+        if (should_swap) {
+          cleanup_entry_t temp = cleanup_entries[i];
+          cleanup_entries[i]   = cleanup_entries[j];
+          cleanup_entries[j]   = temp;
+        }
+      }
+    }
+  }
+
+  for (size_t pass = 0; pass < global_cache_array.count; ++pass) {
+    size_t         read_index = need_lru_cleanup ? cleanup_entries[pass].index : pass;
+    cache_entry_t* entry      = global_cache_array.entries + read_index;
+
+    // Determine if entry should be removed
+    bool should_remove = false;
+
+    if (entry->use_counter > 0) {
+      // Never remove entries in use
+      should_remove = false;
+    }
+    else if (entry->timestamp < now) {
+      // Always remove expired entries not in use
+      should_remove = true;
+    }
+    else if (current_kept_size + entry->size > max_size) {
+      // Remove if adding would exceed size limit (LRU order ensures oldest removed first)
+      should_remove = true;
+    }
 
     if (!should_remove) {
       // Keep this entry
       current_kept_size += entry->size;
 
-      // If read_index is ahead of write_index, we need to move the entry
-      if (write_index < read_index)
-        // Move the current entry to the write_index position
+      // Move entry to write position if needed
+      if (write_index != read_index) {
         global_cache_array.entries[write_index] = global_cache_array.entries[read_index];
-      write_index++; // Move write_index forward for the next kept entry
+      }
+      write_index++;
     }
     else {
       // Remove this entry
@@ -189,13 +261,19 @@ void c4_proofer_cache_cleanup(uint64_t now, uint64_t extra_size) {
       // Free the associated value if a free function exists
       if (entry->free && entry->value)
         entry->free(entry->value);
-      // Entry structure will be overwritten or fall beyond new count
     }
+  }
+
+  // Clean up temporary array
+  if (cleanup_entries) {
+    safe_free(cleanup_entries);
   }
 
   // Update the count and size of the global cache
   global_cache_array.count        = write_index;
   global_cache_array.current_size = current_kept_size;
+
+  log_debug("Cache cleanup completed. New count: %d, New size: %l", write_index, current_kept_size);
 }
 
 // Helper function to ensure capacity and add an entry to the global cache array
