@@ -108,7 +108,7 @@ bool c4_handle_lcu(client_t* client) {
     ctx->chain_id         = http_server.chain_id;
 
     c4_send_beacon_ssz(ctx, client->request.path + 1, NULL, NULL, 120, &result);
-    c4_start_curl_requests(req);
+    c4_start_curl_requests(req, &ctx->state);
     return true;
   }
 

@@ -110,6 +110,7 @@ int main(int argc, char* argv[]) {
   uint64_t cleanup_interval_ms = 3000; // 3 seconds
 
   // register http-handler
+  c4_register_http_handler(c4_handle_verify_request);
   c4_register_http_handler(c4_handle_proof_request);
   c4_register_http_handler(c4_handle_metrics);
   c4_register_http_handler(c4_handle_status);

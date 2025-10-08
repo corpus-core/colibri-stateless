@@ -683,12 +683,11 @@ void c4_add_request(client_t* client, data_request_t* req, void* data, http_requ
   trigger_cached_curl_requests(r);
 }
 
-void c4_start_curl_requests(request_t* req) {
-  int            len = 0, i = 0;
-  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+void c4_start_curl_requests(request_t* req, c4_state_t* state) {
+  int len = 0, i = 0;
 
   // Count pending requests (server availability will be checked in c4_select_best_server)
-  for (data_request_t* r = ctx->state.requests; r; r = r->next) {
+  for (data_request_t* r = state->requests; r; r = r->next) {
     if (c4_state_is_pending(r)) len++;
   }
 
@@ -701,7 +700,7 @@ void c4_start_curl_requests(request_t* req) {
   req->requests      = (single_request_t*) safe_calloc(len, sizeof(single_request_t));
   req->request_count = len;
 
-  for (data_request_t* r = ctx->state.requests; r; r = r->next) {
+  for (data_request_t* r = state->requests; r; r = r->next) {
     if (c4_state_is_pending(r)) req->requests[i++].req = r;
   }
 

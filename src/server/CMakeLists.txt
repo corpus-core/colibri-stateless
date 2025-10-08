@@ -9,6 +9,7 @@ add_executable(server
   http_servers_select.c
   http_server.c
   handle_proof.c
+  handle_verify.c
   handle_health.c
   handle_metrics.c
   cache.c

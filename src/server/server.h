@@ -155,7 +155,8 @@ typedef struct request_t {
   size_t            request_count; // count of handles
   uint64_t          start_time;
   http_client_cb    cb;
-
+  void*             parent;
+  http_request_cb   parent_cb;
 } request_t;
 
 typedef enum {
@@ -173,7 +174,7 @@ typedef enum {
 } c4_response_type_t;
 
 void c4_proofer_handle_request(request_t* req);
-void c4_start_curl_requests(request_t* req);
+void c4_start_curl_requests(request_t* req, c4_state_t* state);
 bool c4_check_retry_request(request_t* req);
 void c4_init_curl(uv_timer_t* timer);
 void c4_cleanup_curl();
@@ -183,6 +184,7 @@ void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
 void c4_configure(int argc, char* argv[]);
 // Handlers
+bool           c4_handle_verify_request(client_t* client);
 bool           c4_handle_proof_request(client_t* client);
 bool           c4_handle_status(client_t* client);
 bool           c4_handle_health_check(client_t* client);

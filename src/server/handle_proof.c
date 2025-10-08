@@ -12,6 +12,19 @@ typedef struct {
   proofer_ctx_t* ctx;
 } proof_work_t;
 
+static void respond(request_t* req, bytes_t result, int status, char* content_type) {
+  if (req->parent_cb && req->parent) {
+    data_request_t* data = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+    if (status == 200)
+      data->response = bytes_dup(result);
+    else
+      data->error = strdup((char*) result.data);
+    req->parent_cb(req->client, req->parent, data);
+  }
+  else
+    c4_http_respond(req->client, status, content_type, result);
+}
+
 // --- executed in worker-thread ---
 static void c4_proofer_execute_worker(uv_work_t* req) {
   proof_work_t* work = (proof_work_t*) req->data;
@@ -55,30 +68,28 @@ void c4_proofer_handle_request(request_t* req) {
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   switch (c4_proofer_execute(ctx)) {
     case C4_SUCCESS:
-      c4_http_respond(req->client, 200, "application/octet-stream", ctx->proof);
+      respond(req, ctx->proof, 200, "application/octet-stream");
       proofer_request_free(req);
       return;
     case C4_ERROR: {
       buffer_t buf = {0};
       bprintf(&buf, "{\"error\":\"%s\"}", ctx->state.error);
-      c4_http_respond(req->client, 500, "application/json", buf.data);
+      respond(req, buf.data, 500, "application/json");
       buffer_free(&buf);
       proofer_request_free(req);
       return;
     }
     case C4_PENDING:
       if (c4_state_get_pending_request(&ctx->state)) // there are pending requests, let's take care of them first
-        c4_start_curl_requests(req);
+        c4_start_curl_requests(req, &ctx->state);
       else if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED) // worker is required, retry and handle it in the beginning of the next loop
         c4_proofer_handle_request(req);
       else {
         // stop here, we don't have anything to do
         char* error = "{\"error\":\"Internal proofer error: no proofer available\"}";
-        c4_http_respond(req->client, 500, "application/json", bytes((uint8_t*) error, strlen(error)));
+        respond(req, bytes((uint8_t*) error, strlen(error)), 500, "application/json");
         proofer_request_free(req);
       }
-
-      return;
   }
 }
 bool c4_handle_proof_request(client_t* client) {
