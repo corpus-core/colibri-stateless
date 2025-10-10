@@ -357,3 +357,19 @@ void c4_init_server_storage() {
 
   c4_set_storage_config(&server_storage);
 }
+
+#ifdef TEST
+// Clear the storage cache (for tests)
+void c4_clear_storage_cache() {
+  storage_cache_entry_t* entry = cache_head;
+  while (entry) {
+    storage_cache_entry_t* next = entry->next;
+    safe_free(entry->key);
+    safe_free(entry->value.data);
+    safe_free(entry);
+    entry = next;
+  }
+  cache_head        = NULL;
+  cache_initialized = false;
+}
+#endif

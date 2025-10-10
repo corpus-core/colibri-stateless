@@ -71,6 +71,10 @@ typedef struct {
   int   preconf_ttl_minutes;
   int   preconf_cleanup_interval_minutes;
   // preconf_use_gossip removed - now using automatic HTTP fallback until gossip is active
+#ifdef TEST
+  // Test recording mode: if set, all responses are written to TESTDATA_DIR/server/<test_dir>/
+  char* test_dir;
+#endif
 } http_server_t;
 
 // Method support tracking for RPC methods
@@ -229,5 +233,39 @@ c4_response_type_t      c4_classify_response(long http_code, const char* url, by
 
 // Server storage functions
 void c4_init_server_storage();
+
+// Server control functions for testing
+typedef struct {
+  uv_loop_t*  loop;
+  uv_tcp_t    server;
+  uv_timer_t  curl_timer;
+  uv_timer_t  proofer_cleanup_timer;
+  uv_signal_t sigterm_handle;
+  uv_signal_t sigint_handle;
+  uv_idle_t   init_idle_handle;
+  bool        is_running;
+  int         port;
+} server_instance_t;
+
+int  c4_server_start(server_instance_t* instance, int port);
+void c4_server_stop(server_instance_t* instance);
+void c4_server_run_once(server_instance_t* instance); // For tests: non-blocking event loop iteration
+
+#ifdef TEST
+// Test hook for URL rewriting (file:// mocking)
+// Set this to a custom function to intercept and rewrite URLs before curl uses them
+// This allows replacing real URLs with file:// URLs pointing to mock responses
+// Example: c4_test_url_rewriter = my_url_rewriter_function;
+extern char* (*c4_test_url_rewriter)(const char* url, const char* payload);
+
+// Test helper: Generate deterministic filename for mock/recorded responses
+// Returns: allocated string "test_data_dir/server/test_name/host_hash.json"
+// Caller must free the returned string
+char* c4_file_mock_get_filename(const char* host, const char* url,
+                                const char* payload, const char* test_name);
+
+// Test helper: Clear the storage cache (for test isolation)
+void c4_clear_storage_cache(void);
+#endif
 
 #endif // C4_SERVER_H

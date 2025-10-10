@@ -1,0 +1,201 @@
+/*
+ * Copyright 2025 corpus.core
+ * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+ */
+
+#include "../proofer/proofer.h"
+#include "server.h"
+#include "server_handlers.h"
+#include <curl/curl.h>
+#include <errno.h>
+#include <llhttp.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <uv.h>
+
+// Macro for simplified libuv error handling
+#define UV_CHECK(op, expr, instance)                              \
+  do {                                                            \
+    int r = (expr);                                               \
+    if (r != 0) {                                                 \
+      if (r == UV_EADDRINUSE && strcmp(op, "TCP listening") == 0) \
+        fprintf(stderr, "Error: Port %d is already in use\n",     \
+                instance ? instance->port : 0);                   \
+      else                                                        \
+        fprintf(stderr, "Error: %s failed: %s (%s)\n",            \
+                (op),                                             \
+                uv_strerror(r),                                   \
+                uv_err_name(r));                                  \
+      return 1;                                                   \
+    }                                                             \
+  } while (0)
+
+static volatile sig_atomic_t shutdown_requested            = 0;
+volatile sig_atomic_t        graceful_shutdown_in_progress = 0;
+
+// Timer callback for proofer cache cleanup
+static void on_proofer_cleanup_timer(uv_timer_t* handle) {
+  c4_proofer_cache_cleanup(current_ms(), 0);
+}
+
+// Idle callback to initialize server handlers after event loop starts
+static void on_init_idle(uv_idle_t* handle) {
+  uv_idle_stop(handle);
+  c4_server_handlers_init(&http_server);
+}
+
+// Timer callback to check if graceful shutdown can proceed
+static void on_graceful_shutdown_timer(uv_timer_t* handle) {
+  server_instance_t* instance = (server_instance_t*) handle->data;
+  if (http_server.stats.open_requests == 0) {
+    fprintf(stderr, "C4 Server: All requests completed, proceeding with shutdown...\n");
+    shutdown_requested = 1;
+    uv_timer_stop(handle);
+    if (instance && instance->loop) uv_stop(instance->loop);
+  }
+  else {
+    fprintf(stderr, "C4 Server: Waiting for %llu open requests to complete...\n",
+            http_server.stats.open_requests);
+  }
+}
+
+// Signal callback to initiate graceful shutdown
+static void on_signal(uv_signal_t* handle, int signum) {
+  server_instance_t* instance = (server_instance_t*) handle->data;
+  fprintf(stderr, "C4 Server: received signal %d — initiating graceful shutdown...\n", signum);
+
+  if (graceful_shutdown_in_progress) {
+    fprintf(stderr, "C4 Server: Graceful shutdown already in progress, forcing immediate shutdown...\n");
+    shutdown_requested = 1;
+    if (instance && instance->loop) uv_stop(instance->loop);
+    return;
+  }
+
+  graceful_shutdown_in_progress = 1;
+
+  if (http_server.stats.open_requests == 0) {
+    fprintf(stderr, "C4 Server: No open requests, shutting down immediately...\n");
+    shutdown_requested = 1;
+    if (instance && instance->loop) uv_stop(instance->loop);
+  }
+  else {
+    fprintf(stderr, "C4 Server: %llu open requests detected, waiting for completion...\n",
+            http_server.stats.open_requests);
+    static uv_timer_t graceful_timer;
+    uv_timer_init(instance->loop, &graceful_timer);
+    graceful_timer.data = instance;
+    uv_timer_start(&graceful_timer, on_graceful_shutdown_timer, 1000, 1000);
+  }
+}
+
+int c4_server_start(server_instance_t* instance, int port) {
+  if (!instance) {
+    fprintf(stderr, "Error: NULL server instance\n");
+    return 1;
+  }
+
+  memset(instance, 0, sizeof(server_instance_t));
+  instance->port = port > 0 ? port : http_server.port;
+  instance->loop = uv_default_loop();
+
+  if (!instance->loop) {
+    fprintf(stderr, "Error: Failed to initialize default uv loop\n");
+    return 1;
+  }
+
+  struct sockaddr_in addr;
+  uint64_t           cleanup_interval_ms = 3000; // 3 seconds
+
+  // Register http-handlers
+  c4_register_http_handler(c4_handle_verify_request);
+  c4_register_http_handler(c4_handle_proof_request);
+  c4_register_http_handler(c4_handle_metrics);
+  c4_register_http_handler(c4_handle_status);
+
+  UV_CHECK("TCP initialization", uv_tcp_init(instance->loop, &instance->server), instance);
+  UV_CHECK("IP address parsing", uv_ip4_addr("0.0.0.0", instance->port, &addr), instance);
+  UV_CHECK("TCP binding", uv_tcp_bind(&instance->server, (const struct sockaddr*) &addr, 0), instance);
+  UV_CHECK("TCP listening", uv_listen((uv_stream_t*) &instance->server, 128, c4_on_new_connection), instance);
+
+  // Initialize curl timer
+  UV_CHECK("Curl Timer initialization", uv_timer_init(instance->loop, &instance->curl_timer), instance);
+
+  // Initialize and start the proofer cleanup timer
+  UV_CHECK("Proofer Cleanup Timer initialization",
+           uv_timer_init(instance->loop, &instance->proofer_cleanup_timer), instance);
+  UV_CHECK("Proofer Cleanup Timer start",
+           uv_timer_start(&instance->proofer_cleanup_timer, on_proofer_cleanup_timer,
+                          cleanup_interval_ms, cleanup_interval_ms),
+           instance);
+
+  fprintf(stderr, "C4 Server starting on port %d\n", instance->port);
+
+  // Initialize curl
+  c4_init_curl(&instance->curl_timer);
+
+  // Setup signal handlers for graceful shutdown
+  UV_CHECK("SIGTERM handler init", uv_signal_init(instance->loop, &instance->sigterm_handle), instance);
+  instance->sigterm_handle.data = instance;
+  UV_CHECK("SIGTERM start", uv_signal_start(&instance->sigterm_handle, on_signal, SIGTERM), instance);
+
+  UV_CHECK("SIGINT handler init", uv_signal_init(instance->loop, &instance->sigint_handle), instance);
+  instance->sigint_handle.data = instance;
+  UV_CHECK("SIGINT start", uv_signal_start(&instance->sigint_handle, on_signal, SIGINT), instance);
+
+  // Setup idle handle to initialize server handlers
+  UV_CHECK("Init idle handle init", uv_idle_init(instance->loop, &instance->init_idle_handle), instance);
+  UV_CHECK("Init idle handle start", uv_idle_start(&instance->init_idle_handle, on_init_idle), instance);
+
+  instance->is_running = true;
+  fprintf(stderr, "C4 Server running on port %d\n", instance->port);
+
+  return 0;
+}
+
+void c4_server_run_once(server_instance_t* instance) {
+  if (!instance || !instance->is_running || !instance->loop) {
+    return;
+  }
+  uv_run(instance->loop, UV_RUN_NOWAIT);
+}
+
+void c4_server_stop(server_instance_t* instance) {
+  if (!instance || !instance->is_running) {
+    return;
+  }
+
+  fprintf(stderr, "C4 Server: Stopping server...\n");
+  instance->is_running = false;
+
+  c4_server_handlers_shutdown(&http_server);
+
+  // Stop and close timers
+  uv_timer_stop(&instance->proofer_cleanup_timer);
+  uv_close((uv_handle_t*) &instance->proofer_cleanup_timer, NULL);
+
+  uv_timer_stop(&instance->curl_timer);
+  uv_close((uv_handle_t*) &instance->curl_timer, NULL);
+
+  // Stop accepting new connections
+  uv_close((uv_handle_t*) &instance->server, NULL);
+
+  // Cleanup CURL
+  c4_cleanup_curl();
+
+  // Close signal handles
+  uv_signal_stop(&instance->sigterm_handle);
+  uv_close((uv_handle_t*) &instance->sigterm_handle, NULL);
+  uv_signal_stop(&instance->sigint_handle);
+  uv_close((uv_handle_t*) &instance->sigint_handle, NULL);
+
+  // Let libuv process pending close callbacks
+  for (int i = 0; i < 10; i++) {
+    if (uv_run(instance->loop, UV_RUN_NOWAIT) == 0) {
+      break;
+    }
+    uv_sleep(10);
+  }
+
+  fprintf(stderr, "C4 Server stopped.\n");
+}

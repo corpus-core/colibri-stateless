@@ -143,6 +143,9 @@ static void config() {
   http_server.preconf_ttl_minutes              = 30; // 30 minutes TTL
   http_server.preconf_cleanup_interval_minutes = 5;  // Cleanup every 5 minutes
   // preconf_use_gossip removed - now using automatic HTTP fallback
+#ifdef TEST
+  http_server.test_dir = NULL;
+#endif
 
   get_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
   get_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");
@@ -161,4 +164,7 @@ static void config() {
   get_int(&http_server.preconf_ttl_minutes, "PRECONF_TTL", "preconf_ttl", 'T', "TTL for preconfirmations in minutes", 1, 1440);
   get_int(&http_server.preconf_cleanup_interval_minutes, "PRECONF_CLEANUP_INTERVAL", "preconf_cleanup_interval", 'C', "cleanup interval in minutes", 1, 60);
   // preconf_use_gossip option removed - now using automatic HTTP fallback
+#ifdef TEST
+  get_string(&http_server.test_dir, "TEST_DIR", "test_dir", 'x', "TEST MODE: record all responses to TESTDATA_DIR/server/<test_dir>/");
+#endif
 }
