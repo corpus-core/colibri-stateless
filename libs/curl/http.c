@@ -153,6 +153,9 @@ static bool configure_request(curl_request_t* creq) {
     case C4_DATA_TYPE_ETH_RPC:
       servers = json_get(curl_config.config, "eth_rpc");
       break;
+    case C4_DATA_TYPE_PROOFER:
+      servers = json_get(curl_config.config, "proofer");
+      break;
     case C4_DATA_TYPE_BEACON_API:
       servers = json_get(curl_config.config, "beacon_api");
       break;

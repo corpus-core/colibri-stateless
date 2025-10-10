@@ -110,6 +110,7 @@ void c4_configure(int argc, char* argv[]) {
     fprintf(stderr, "  chain_id      : %d\n", http_server.chain_id);
     fprintf(stderr, "  rpc_nodes     : %s\n", http_server.rpc_nodes);
     fprintf(stderr, "  beacon_nodes  : %s\n", http_server.beacon_nodes);
+    fprintf(stderr, "  proofer_nodes : %s\n", http_server.proofer_nodes);
     fprintf(stderr, "  beacon_events : %d\n", http_server.stream_beacon_events);
     fprintf(stderr, "  period_store  : %s\n", http_server.period_store);
 
@@ -135,6 +136,7 @@ static void config() {
   http_server.chain_id                         = 1;
   http_server.rpc_nodes                        = "https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/,https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S,https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd";
   http_server.beacon_nodes                     = "https://lodestar-mainnet.chainsafe.io/";
+  http_server.proofer_nodes                    = "";
   http_server.stream_beacon_events             = 0;
   http_server.period_store                     = NULL;
   http_server.preconf_storage_dir              = "./preconfs";
@@ -152,6 +154,7 @@ static void config() {
   get_int(&http_server.chain_id, "CHAIN_ID", "chain_id", 'c', "chain id", 1, 0xFFFFFFF);
   get_string(&http_server.rpc_nodes, "RPC", "rpc", 'r', "list of rpc endpoints");
   get_string(&http_server.beacon_nodes, "BEACON", "beacon", 'b', "list of beacon nodes api endpoints");
+  get_string(&http_server.proofer_nodes, "PROOFER", "proofer", 'R', "list of remote proofer endpoints");
   get_int(&http_server.stream_beacon_events, "BEACON_EVENTS", "beacon_events", 'e', "activates beacon event streaming", 0, 1);
   get_string(&http_server.period_store, "DATA", "data", 'd', "path to the data-directory holding blockroots and light client updates");
   get_string(&http_server.preconf_storage_dir, "PRECONF_DIR", "preconf_dir", 'P', "directory for storing preconfirmations");

@@ -60,6 +60,7 @@ typedef struct {
   int            req_timeout;
   int            chain_id;
   char*          rpc_nodes;
+  char*          proofer_nodes;
   char*          beacon_nodes;
   int            stream_beacon_events;
   char*          period_store;

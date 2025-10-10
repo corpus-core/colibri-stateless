@@ -24,6 +24,7 @@ const char*               CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 static server_list_t eth_rpc_servers    = {0};
 static server_list_t beacon_api_servers = {0};
+static server_list_t proofer_servers    = {0};
 
 static void cache_response(single_request_t* r);
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
@@ -411,6 +412,8 @@ server_list_t* c4_get_server_list(data_request_type_t type) {
       return (server_list_t*) &eth_rpc_servers;
     case C4_DATA_TYPE_BEACON_API:
       return (server_list_t*) &beacon_api_servers;
+    case C4_DATA_TYPE_PROOFER:
+      return (server_list_t*) &proofer_servers;
     default:
       return NULL;
   }
@@ -804,7 +807,7 @@ void c4_init_curl(uv_timer_t* timer) {
 
   init_serverlist(&eth_rpc_servers, http_server.rpc_nodes);
   init_serverlist(&beacon_api_servers, http_server.beacon_nodes);
-
+  init_serverlist(&proofer_servers, http_server.proofer_nodes);
   // Auto-detect client types for servers without explicit configuration
   c4_detect_server_client_types(&eth_rpc_servers, C4_DATA_TYPE_ETH_RPC);
   c4_detect_server_client_types(&beacon_api_servers, C4_DATA_TYPE_BEACON_API);

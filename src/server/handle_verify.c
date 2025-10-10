@@ -127,7 +127,7 @@ bool c4_handle_verify_request(client_t* client) {
 
   json_t rpc_req = json_parse((char*) client->request.payload);
   if (rpc_req.type != JSON_TYPE_OBJECT) {
-    c4_write_error_response(client, 400, "Invalid request");
+    c4_write_error_response(client, 400, "Invalid request, expected a JSON-RPC request");
     return true;
   }
 
@@ -175,23 +175,20 @@ bool c4_handle_verify_request(client_t* client) {
     }
 
     case METHOD_PROOFABLE: {
-      // TODO get proofer url from config
-      char* proofer_url = NULL;
 
       // get client_state
       bytes_t client_state = get_client_state(http_server.chain_id);
 
-      if (proofer_url) {
+      if (c4_get_server_list(C4_DATA_TYPE_PROOFER)->count) {
         // we have a remote proofer, so we use it directly
         buffer_t buffer = {0};
         bprintf(&buffer, "{\"method\":\"%s\",\"params\":%j,\"c4\":\"0x%x\"}", verify_req->method, verify_req->params, client_state);
         safe_free(client_state.data);
 
         data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-        req->url            = proofer_url;
         req->method         = C4_DATA_METHOD_POST;
         req->chain_id       = http_server.chain_id;
-        req->type           = C4_DATA_TYPE_ETH_RPC;
+        req->type           = C4_DATA_TYPE_PROOFER;
         req->encoding       = C4_DATA_ENCODING_SSZ;
         req->payload        = buffer.data;
         c4_add_request(client, req, verify_req, proofer_callback);
