@@ -14,6 +14,9 @@
 #include <unistd.h>
 #include <uv.h>
 
+// Maximum number of entries in the RAM cache before eviction
+#define MAX_CACHE_ENTRIES 100
+
 // Simple linked list for RAM cache (optimized for small number of entries)
 typedef struct storage_cache_entry {
   char*                       key;
@@ -83,7 +86,7 @@ static void add_cache_entry(const char* key, bytes_t value) {
   // Check if entry already exists
   storage_cache_entry_t* existing = find_cache_entry(key);
   if (existing) {
-    // Update existing entry
+    // Update existing entry (no eviction needed)
     safe_free(existing->value.data);
     existing->value.data = safe_malloc(value.len);
     memcpy(existing->value.data, value.data, value.len);
@@ -99,6 +102,46 @@ static void add_cache_entry(const char* key, bytes_t value) {
   entry->value.len = value.len;
   entry->next      = cache_head;
   cache_head       = entry;
+
+  // Eviction policy: count entries and remove oldest if limit exceeded
+  int                    count   = 0;
+  storage_cache_entry_t* current = cache_head;
+  storage_cache_entry_t* prev    = NULL;
+
+  // Traverse the list to count entries and find the tail
+  while (current) {
+    count++;
+    if (current->next) {
+      prev    = current;
+      current = current->next;
+    }
+    else {
+      // current is now the tail (oldest entry)
+      break;
+    }
+  }
+
+  // If we exceeded the limit, remove the tail
+  if (count > MAX_CACHE_ENTRIES) {
+    if (prev) {
+      // Remove the tail by updating the previous node's next pointer
+      prev->next = NULL;
+      // Free the tail's memory
+      safe_free(current->key);
+      safe_free(current->value.data);
+      safe_free(current);
+    }
+    else {
+      // Edge case: only one entry in list (shouldn't happen if MAX_CACHE_ENTRIES >= 1)
+      // but handle it gracefully
+      if (current) {
+        cache_head = NULL;
+        safe_free(current->key);
+        safe_free(current->value.data);
+        safe_free(current);
+      }
+    }
+  }
 }
 
 // Remove entry from cache

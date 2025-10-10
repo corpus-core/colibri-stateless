@@ -265,15 +265,14 @@ static int on_message_complete(llhttp_t* parser) {
 
   // During graceful shutdown, reject all new requests with 503 Service Unavailable
   if (graceful_shutdown_in_progress) {
-    const char* error = "{\"error\":\"Server is shutting down, please try another server\"}";
-    c4_http_respond(client, 503, "application/json", bytes(error, strlen(error)));
+    c4_write_error_response(client, 503, "Server is shutting down, please try another server");
     return 0;
   }
 
   for (int i = 0; i < handlers_count; i++) {
     if (handlers[i](client)) return 0;
   }
-  c4_http_respond(client, 405, "text/plain", bytes("Method not allowed", 19));
+  c4_write_error_response(client, 405, "Method not allowed");
   return 0;
 }
 
@@ -374,6 +373,19 @@ static char* status_text(int status) {
     default:
       return "Internal Server Error";
   }
+}
+
+void c4_write_error_response(client_t* client, int status, const char* error) {
+  buffer_t buffer = {0};
+  if (!error)
+    buffer_add_chars(&buffer, "{\"error\":\"Internal error\"}");
+  else if (error[0] == '{' && json_parse(error).type == JSON_TYPE_OBJECT)
+    buffer_add_chars(&buffer, error);
+  else
+    bprintf(&buffer, "{\"error\":\"%S\"}", error);
+  c4_http_respond(client, status, "application/json", buffer.data);
+  buffer_free(&buffer);
+  return;
 }
 
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body) {
@@ -502,8 +514,8 @@ void c4_on_new_connection(uv_stream_t* server, int status) {
   if (err < 0) {
     const char* reason = uv_strerror(err);
     fprintf(stderr, "uv_accept/uv_read_start error for new client %p: %s\n", (void*) client, reason);
+    c4_write_error_response(client, 500, reason);
     // Attempt to send an error response. c4_http_respond will handle inactive/problematic handles.
-    c4_http_respond(client, 500, "text/plain", bytes(reason, strlen(reason)));
     // Ensure closure, as c4_http_respond might return if handle is inactive without calling on_write_complete.
     close_client_connection(client);
   }

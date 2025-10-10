@@ -61,8 +61,8 @@ static void verifier_handle_request(request_t* req) {
     }
     case C4_ERROR: {
       buffer_t buf = {0};
-      bprintf(&buf, "{\"id\": %J, \"error\":\"%s\"}", verify_req->id, verify_req->ctx.state.error);
-      c4_http_respond(req->client, 500, "application/json", buf.data);
+      bprintf(&buf, "{\"id\": %J, \"error\":\"%S\"}", verify_req->id, verify_req->ctx.state.error);
+      c4_http_respond(req->client, 200, "application/json", buf.data);
       buffer_free(&buf);
       free_verify_request(verify_req);
       return;
@@ -73,7 +73,7 @@ static void verifier_handle_request(request_t* req) {
       else {
         buffer_t buf = {0};
         bprintf(&buf, "{\"id\": %J, \"error\":\"%s\"}", verify_req->id, "No proofer available");
-        c4_http_respond(req->client, 500, "application/json", buf.data);
+        c4_http_respond(req->client, 200, "application/json", buf.data);
         buffer_free(&buf);
         free_verify_request(verify_req);
       }
@@ -86,14 +86,17 @@ static void proofer_callback(client_t* client, void* data, data_request_t* req) 
   c4_state_t        data_request_state = {.requests = req};
 
   if (req->error) {
-    c4_http_respond(client, 500, "application/json", bytes(req->error, strlen(req->error)));
+    c4_write_error_response(client, 500, req->error);
     c4_state_free(&data_request_state);
     free_verify_request(verify_req);
     return;
   }
 
   if (!req->response.data && c4_get_method_type(http_server.chain_id, verify_req->method) == METHOD_PROOFABLE) {
-    c4_http_respond(client, 500, "application/json", bytes("{\"error\":\"Internal proofer error: no proof available\"}", 64));
+    buffer_t buffer = {0};
+    bprintf(&buffer, "{\"id\": %J, \"error\":\"Internal proofer error: no proof available\"}", verify_req->id);
+    c4_http_respond(client, 200, "application/json", buffer.data);
+    buffer_free(&buffer);
     c4_state_free(&data_request_state);
     free_verify_request(verify_req);
     return;
@@ -102,8 +105,8 @@ static void proofer_callback(client_t* client, void* data, data_request_t* req) 
   // valid config?
   if (c4_verify_init(&verify_req->ctx, req->response, verify_req->method, verify_req->params, http_server.chain_id) != C4_SUCCESS) {
     buffer_t buffer = {0};
-    bprintf(&buffer, "{\"error\":\"%s\"}", verify_req->ctx.state.error);
-    c4_http_respond(client, 500, "application/json", buffer.data);
+    bprintf(&buffer, "{\"id\": %J, \"error\":\"%S\"}", verify_req->id, verify_req->ctx.state.error);
+    c4_http_respond(client, 200, "application/json", buffer.data);
     buffer_free(&buffer);
     c4_state_free(&data_request_state);
     free_verify_request(verify_req);
@@ -124,7 +127,7 @@ bool c4_handle_verify_request(client_t* client) {
 
   json_t rpc_req = json_parse((char*) client->request.payload);
   if (rpc_req.type != JSON_TYPE_OBJECT) {
-    c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Invalid request\"}", 27));
+    c4_write_error_response(client, 400, "Invalid request");
     return true;
   }
 
@@ -139,7 +142,7 @@ bool c4_handle_verify_request(client_t* client) {
 
   if (method.type != JSON_TYPE_STRING || verify_req->params.type != JSON_TYPE_ARRAY) {
     safe_free(verify_req);
-    c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Invalid request\"}", 27));
+    c4_write_error_response(client, 400, "Invalid request");
     return true;
   }
   else
@@ -149,26 +152,25 @@ bool c4_handle_verify_request(client_t* client) {
   switch (c4_get_method_type(http_server.chain_id, verify_req->method)) {
 
     case METHOD_UNDEFINED: {
-      safe_free(verify_req);
-      c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Method not known\"}", 27));
+      free_verify_request(verify_req);
+      c4_write_error_response(client, 400, "Method not known");
       return true;
     }
 
     case METHOD_NOT_SUPPORTED: {
-      safe_free(verify_req);
-      c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Method not supported\"}", 27));
+      free_verify_request(verify_req);
+      c4_write_error_response(client, 400, "Method not supported");
       return true;
     }
 
     case METHOD_UNPROOFABLE: {
-      safe_free(verify_req);
-      c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Method unproofable\"}", 27));
+      free_verify_request(verify_req);
+      c4_write_error_response(client, 400, "Method unproofable");
       return true;
     }
 
     case METHOD_LOCAL: {
-      data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-      proofer_callback(client, verify_req, req);
+      proofer_callback(client, verify_req, (data_request_t*) safe_calloc(1, sizeof(data_request_t)));
       return true;
     }
 
