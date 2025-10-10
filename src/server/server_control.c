@@ -160,6 +160,23 @@ void c4_server_run_once(server_instance_t* instance) {
   uv_run(instance->loop, UV_RUN_NOWAIT);
 }
 
+// Helper data structure for uv_walk during shutdown
+typedef struct {
+  uv_handle_t*       server_handle;
+  server_instance_t* instance;
+} walk_data_t;
+
+// Helper function to close active client connections during shutdown
+static void close_active_clients(uv_handle_t* handle, void* arg) {
+  walk_data_t* walk_data = (walk_data_t*) arg;
+
+  // Only close TCP handles that are client connections (not the server socket or other handles)
+  if (handle->type == UV_TCP && handle != walk_data->server_handle && !uv_is_closing(handle)) {
+    fprintf(stderr, "C4 Server: Closing active client connection %p\n", (void*) handle);
+    uv_close(handle, NULL); // Will trigger on_close callback in http_server.c to free client_t
+  }
+}
+
 void c4_server_stop(server_instance_t* instance) {
   if (!instance || !instance->is_running) {
     return;
@@ -188,6 +205,12 @@ void c4_server_stop(server_instance_t* instance) {
   uv_close((uv_handle_t*) &instance->sigterm_handle, NULL);
   uv_signal_stop(&instance->sigint_handle);
   uv_close((uv_handle_t*) &instance->sigint_handle, NULL);
+
+  // Close all active client connections by walking through all handles
+  // This ensures clean shutdown and prevents memory leaks from active connections
+  walk_data_t walk_data = {(uv_handle_t*) &instance->server, instance};
+
+  uv_walk(instance->loop, close_active_clients, &walk_data);
 
   // Let libuv process pending close callbacks
   for (int i = 0; i < 10; i++) {
