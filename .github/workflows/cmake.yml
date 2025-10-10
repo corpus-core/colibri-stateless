@@ -118,9 +118,9 @@ jobs:
       - name: Install Valgrind
         run: sudo apt-get update && sudo apt-get install -y valgrind
       - name: Build minsize
-        run: cmake -B build_minsize -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
+        run: cmake -B build_minsize -DTEST=true -DCURL=true -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
       - name: Build
-        run: cmake -B build -DTEST=true -DCURL=false -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
+        run: cmake -B build -DTEST=true -DCURL=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
 
       - name: Run Valgrind on all test binaries
         run: |
