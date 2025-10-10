@@ -20,6 +20,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#ifdef PROOFER_CACHE
+#include "../../src/proofer/proofer.h"
+#endif
+
 // Test configuration
 #define TEST_PORT 18545
 #define TEST_HOST "127.0.0.1"
@@ -59,8 +63,12 @@ static void c4_test_server_seed_for_test(const char* test_name) {
   c4_file_mock_seed_random(seed);
   current_test_name = test_name;
 
-  // Clear storage cache for test isolation
+  // Clear caches for test isolation
   c4_clear_storage_cache();
+#ifdef PROOFER_CACHE
+  // Clear proofer cache using max timestamp to remove all entries
+  c4_proofer_cache_cleanup(0xffffffffffffffffULL, 0);
+#endif
 
   // Set C4_STATES_DIR to test-specific directory
   if (test_name) {

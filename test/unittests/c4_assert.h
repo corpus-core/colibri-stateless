@@ -254,6 +254,12 @@ static void set_state(chain_id_t chain_id, char* dirname) {
 static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, proofer_flags_t flags, char* expected_result) {
   char tmp[1024];
 
+#ifdef PROOFER_CACHE
+  // Clear the global proofer cache before each test to ensure isolation
+  // Using max timestamp (0xffffffffffffffff) removes all entries
+  c4_proofer_cache_cleanup(0xffffffffffffffffULL, 0);
+#endif
+
   if ((flags & C4_PROOFER_FLAG_NO_CACHE) == 0)
     set_state(chain_id, dirname);
 

@@ -120,7 +120,7 @@ jobs:
       - name: Build minsize
         run: cmake -B build_minsize -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
       - name: Build
-        run: cmake -B build -DTEST=true -DCURL=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
+        run: cmake -B build -DTEST=true -DCURL=true -DPROOFER_CACHE=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
 
       - name: Run Valgrind on all test binaries
         run: |
@@ -128,7 +128,7 @@ jobs:
           echo "" >> valgrind_summary.md
           EXIT_CODE=0
 
-          for test_binary in ./build/test/unittests/test_*; do
+            for test_binary in ./build/test/unittests/test_*; do
             if [ -x "$test_binary" ]; then
               echo "Running valgrind on $test_binary"
               TEST_NAME=$(basename "$test_binary")
@@ -136,8 +136,21 @@ jobs:
               # Create a temporary file for valgrind output
               TEMP_OUTPUT=$(mktemp)
               
+              # Configure valgrind flags based on test type
+              VALGRIND_FLAGS="--leak-check=full --error-exitcode=1 --track-origins=yes --show-leak-kinds=all"
+              
+              if [[ "$TEST_NAME" == "test_server"* ]]; then
+                # Server tests: use suppressions for threading/libuv/curl false positives
+                VALGRIND_FLAGS="$VALGRIND_FLAGS --suppressions=test/valgrind/server.supp --fair-sched=yes"
+                VALGRIND_FLAGS="$VALGRIND_FLAGS --errors-for-leak-kinds=definite"
+                echo "  → Using server suppressions (threading/libuv/curl)"
+              else
+                # Regular tests: strict mode (fail on definite + possible leaks)
+                VALGRIND_FLAGS="$VALGRIND_FLAGS --errors-for-leak-kinds=definite,possible"
+              fi
+              
               # Run valgrind and capture both stdout and stderr
-              valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary" 2>&1 | tee "$TEMP_OUTPUT"
+              valgrind $VALGRIND_FLAGS "$test_binary" 2>&1 | tee "$TEMP_OUTPUT"
               VALGRIND_STATUS=${PIPESTATUS[0]}
               
               # Extract valgrind-specific messages (lines starting with ==)
