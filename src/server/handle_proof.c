@@ -6,14 +6,34 @@
 #include "beacon.h"
 #include "logger.h"
 #include "server.h"
+
 typedef struct {
   uv_work_t      req;
   request_t*     req_obj;
   proofer_ctx_t* ctx;
 } proof_work_t;
 
+/**
+ * Sends the proofer response to the client or to a parent callback.
+ *
+ * Two modes:
+ * 1. DIRECT (parent_cb == NULL): Sends HTTP response directly to client
+ * 2. CALLBACK (parent_cb != NULL): Calls parent_cb with result
+ *
+ * When in callback mode:
+ * - Used when the proofer is called as a sub-request from the verifier
+ * - parent_ctx points to verify_request_t
+ * - parent_cb is proofer_callback (in handle_verify.c)
+ * - Cleanup is handled by c4_proofer_handle_request() after this returns
+ *
+ * @param req Request with context and callback info
+ * @param result Result bytes (proof or error message)
+ * @param status HTTP status code
+ * @param content_type Content-Type for direct HTTP response
+ */
 static void respond(request_t* req, bytes_t result, int status, char* content_type) {
   if (req->parent_cb && req->parent_ctx) {
+    // CALLBACK MODE: Call parent_cb instead of responding directly
     data_request_t* data = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     if (status == 200)
       data->response = bytes_dup(result);
@@ -65,8 +85,23 @@ static bool c4_check_worker_request(request_t* req) {
   return false;
 }
 
+/**
+ * Handler for proofer requests.
+ * Used in two modes:
+ *
+ * 1. DIRECT: Called from c4_handle_proof_request() for /proof endpoint
+ *    - Sends proof directly as HTTP response via respond()
+ *    - proofer_request_free() is called to cleanup
+ *
+ * 2. CALLBACK: Called as sub-request from verifier (handle_verify.c)
+ *    - parent_ctx and parent_cb are set
+ *    - respond() calls parent_cb instead of sending HTTP response
+ *    - proofer_request_free() is still called to cleanup
+ *
+ * @param req Request with proofer_ctx_t* as ctx
+ */
 void c4_proofer_handle_request(request_t* req) {
-  if (c4_check_retry_request(req) || c4_check_worker_request(req)) return; // if there are data_request in the req, we either clean it up or retry in case of an error (if possible.)
+  if (c4_check_retry_request(req) || c4_check_worker_request(req)) return;
 
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
   switch (c4_proofer_execute(ctx)) {
@@ -74,6 +109,7 @@ void c4_proofer_handle_request(request_t* req) {
       respond(req, ctx->proof, 200, "application/octet-stream");
       proofer_request_free(req);
       return;
+
     case C4_ERROR: {
       buffer_t buf = {0};
       bprintf(&buf, "{\"error\":\"%s\"}", ctx->state.error);
@@ -82,6 +118,7 @@ void c4_proofer_handle_request(request_t* req) {
       proofer_request_free(req);
       return;
     }
+
     case C4_PENDING:
       if (c4_state_get_pending_request(&ctx->state)) // there are pending requests, let's take care of them first
         c4_start_curl_requests(req, &ctx->state);
