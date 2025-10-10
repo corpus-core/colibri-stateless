@@ -115,8 +115,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Valgrind
-        run: sudo apt-get update && sudo apt-get install -y valgrind
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y valgrind libcurl4-openssl-dev
       - name: Build minsize
         run: cmake -B build_minsize -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
       - name: Build
