@@ -44,6 +44,7 @@ static void free_verify_request(verify_request_t* verify_req) {
   safe_free(verify_req);
 }
 
+// handles the verification process
 static void verifier_handle_request(request_t* req) {
   verify_request_t* verify_req = (verify_request_t*) req->ctx;
 
@@ -79,40 +80,41 @@ static void verifier_handle_request(request_t* req) {
   }
 }
 
+// callback handler called once the proofs is ready
 static void proofer_callback(client_t* client, void* data, data_request_t* req) {
-  verify_request_t* verify_req = (verify_request_t*) data;
-  c4_state_t        s          = {.requests = req};
+  verify_request_t* verify_req         = (verify_request_t*) data;
+  c4_state_t        data_request_state = {.requests = req};
 
   if (req->error) {
     c4_http_respond(client, 500, "application/json", bytes(req->error, strlen(req->error)));
-    c4_state_free(&s);
+    c4_state_free(&data_request_state);
     free_verify_request(verify_req);
     return;
   }
 
-  if (!req->response.data) {
-    c4_http_respond(client, 500, "application/json", bytes("{\"error\":\"Internal proofer error: no proofer available\"}", 64));
-    c4_state_free(&s);
+  if (!req->response.data && c4_get_method_type(http_server.chain_id, verify_req->method) == METHOD_PROOFABLE) {
+    c4_http_respond(client, 500, "application/json", bytes("{\"error\":\"Internal proofer error: no proof available\"}", 64));
+    c4_state_free(&data_request_state);
     free_verify_request(verify_req);
     return;
   }
 
-  // all good, let's verify the proof
+  // valid config?
   if (c4_verify_init(&verify_req->ctx, req->response, verify_req->method, verify_req->params, http_server.chain_id) != C4_SUCCESS) {
     buffer_t buffer = {0};
     bprintf(&buffer, "{\"error\":\"%s\"}", verify_req->ctx.state.error);
     c4_http_respond(client, 500, "application/json", buffer.data);
     buffer_free(&buffer);
-    c4_state_free(&s);
+    c4_state_free(&data_request_state);
     free_verify_request(verify_req);
     return;
   }
 
-  // reset the response  req->response = NULL_BYTES;
-  verify_req->proof = req->response;
+  // all good, let's verify the proof
+  verify_req->proof = req->response;    // keep the proof, because we will cleanup the data request
   verify_req->req.cb(&verify_req->req); // execute the verifier
   req->response = NULL_BYTES;           // we clean up the the data request, but without the proof, will be freed in the callback
-  c4_state_free(&s);
+  c4_state_free(&data_request_state);
 }
 
 bool c4_handle_verify_request(client_t* client) {
@@ -143,43 +145,73 @@ bool c4_handle_verify_request(client_t* client) {
   else
     verify_req->method = bprintf(NULL, "%j", method);
 
-  // TODO get proofer url from config
-  char* proofer_url = NULL;
+  // check method
+  switch (c4_get_method_type(http_server.chain_id, verify_req->method)) {
 
-  // get client_state
-  bytes_t client_state = get_client_state(http_server.chain_id);
+    case METHOD_UNDEFINED: {
+      safe_free(verify_req);
+      c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Method not known\"}", 27));
+      return true;
+    }
 
-  if (proofer_url) {
-    // we have a remote proofer, so we use it directly
-    buffer_t buffer = {0};
-    bprintf(&buffer, "{\"method\":\"%s\",\"params\":%j,\"c4\":\"0x%x\"}", verify_req->method, verify_req->params, client_state);
-    safe_free(client_state.data);
+    case METHOD_NOT_SUPPORTED: {
+      safe_free(verify_req);
+      c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Method not supported\"}", 27));
+      return true;
+    }
 
-    data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-    req->url            = proofer_url;
-    req->method         = C4_DATA_METHOD_POST;
-    req->chain_id       = http_server.chain_id;
-    req->type           = C4_DATA_TYPE_ETH_RPC;
-    req->encoding       = C4_DATA_ENCODING_SSZ;
-    req->payload        = buffer.data;
-    c4_add_request(client, req, verify_req, proofer_callback);
-  }
-  else {
-    // we use the local proofer
-    buffer_t       client_state_buf = {0};
-    char*          params_str       = bprintf(NULL, "%J", verify_req->params);
-    request_t*     req              = (request_t*) safe_calloc(1, sizeof(request_t));
-    proofer_ctx_t* ctx              = c4_proofer_create(verify_req->method, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX | C4_PROOFER_FLAG_INCLUDE_CODE | (http_server.period_store ? C4_PROOFER_FLAG_CHAIN_STORE : 0));
-    req->start_time                 = current_ms();
-    req->client                     = client;
-    req->cb                         = c4_proofer_handle_request;
-    req->ctx                        = ctx;
-    req->parent                     = verify_req;
-    req->parent_cb                  = proofer_callback;
-    ctx->client_state               = client_state;
+    case METHOD_UNPROOFABLE: {
+      safe_free(verify_req);
+      c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Method unproofable\"}", 27));
+      return true;
+    }
 
-    safe_free(params_str);
-    req->cb(req);
+    case METHOD_LOCAL: {
+      data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+      proofer_callback(client, verify_req, req);
+      return true;
+    }
+
+    case METHOD_PROOFABLE: {
+      // TODO get proofer url from config
+      char* proofer_url = NULL;
+
+      // get client_state
+      bytes_t client_state = get_client_state(http_server.chain_id);
+
+      if (proofer_url) {
+        // we have a remote proofer, so we use it directly
+        buffer_t buffer = {0};
+        bprintf(&buffer, "{\"method\":\"%s\",\"params\":%j,\"c4\":\"0x%x\"}", verify_req->method, verify_req->params, client_state);
+        safe_free(client_state.data);
+
+        data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+        req->url            = proofer_url;
+        req->method         = C4_DATA_METHOD_POST;
+        req->chain_id       = http_server.chain_id;
+        req->type           = C4_DATA_TYPE_ETH_RPC;
+        req->encoding       = C4_DATA_ENCODING_SSZ;
+        req->payload        = buffer.data;
+        c4_add_request(client, req, verify_req, proofer_callback);
+      }
+      else {
+        // we use the local proofer
+        buffer_t       client_state_buf = {0};
+        char*          params_str       = bprintf(NULL, "%J", verify_req->params);
+        request_t*     req              = (request_t*) safe_calloc(1, sizeof(request_t));
+        proofer_ctx_t* ctx              = c4_proofer_create(verify_req->method, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX | C4_PROOFER_FLAG_INCLUDE_CODE | (http_server.period_store ? C4_PROOFER_FLAG_CHAIN_STORE : 0));
+        req->start_time                 = current_ms();
+        req->client                     = client;
+        req->cb                         = c4_proofer_handle_request;
+        req->ctx                        = ctx;
+        req->parent_ctx                 = verify_req;
+        req->parent_cb                  = proofer_callback;
+        ctx->client_state               = client_state;
+
+        safe_free(params_str);
+        req->cb(req);
+      }
+    }
   }
 
   return true;

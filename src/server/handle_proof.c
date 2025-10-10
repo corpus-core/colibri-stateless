@@ -13,13 +13,16 @@ typedef struct {
 } proof_work_t;
 
 static void respond(request_t* req, bytes_t result, int status, char* content_type) {
-  if (req->parent_cb && req->parent) {
+  if (req->parent_cb && req->parent_ctx) {
     data_request_t* data = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     if (status == 200)
       data->response = bytes_dup(result);
-    else
-      data->error = strdup((char*) result.data);
-    req->parent_cb(req->client, req->parent, data);
+    else {
+      data->error = safe_malloc(result.len + 1);
+      memcpy(data->error, result.data, result.len);
+      data->error[result.len] = '\0';
+    }
+    req->parent_cb(req->client, req->parent_ctx, data);
   }
   else
     c4_http_respond(req->client, status, content_type, result);

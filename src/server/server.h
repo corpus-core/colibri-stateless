@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <uv.h>
 // Preconf-specific callback type (uses block_number instead of period)
-typedef void (*handle_preconf_data_cb)(void* user_ptr, uint64_t block_number, bytes_t data, char* error);
+typedef void (*handle_preconf_data_cb)(void* user_ptr, uint64_t block_number, bytes_t data, const char* error);
 typedef struct {
   char*                 path;
   data_request_method_t method;
@@ -133,7 +133,7 @@ typedef bool (*http_handler)(client_t*);
 typedef struct request_t request_t;
 typedef void (*http_client_cb)(request_t*);
 typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
-typedef void (*handle_stored_data_cb)(void* u_ptr, uint64_t period, bytes_t data, char* error);
+typedef void (*handle_stored_data_cb)(void* u_ptr, uint64_t period, bytes_t data, const char* error);
 // Struktur für jede aktive Anfrage
 typedef struct {
   char*              url;
@@ -154,9 +154,9 @@ typedef struct request_t {
   single_request_t* requests;
   size_t            request_count; // count of handles
   uint64_t          start_time;
-  http_client_cb    cb;
-  void*             parent;
-  http_request_cb   parent_cb;
+  http_client_cb    cb;         // callback function to call when all requests are done
+  void*             parent_ctx; // pointer to parent context or parent caller
+  http_request_cb   parent_cb;  // callback function to call when the ctx (mostly proofer) has a result
 } request_t;
 
 typedef enum {
@@ -192,7 +192,7 @@ bool           c4_handle_metrics(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
 bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb);
-bool           c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb);
+bool           c4_get_from_store(const char* path, void* uptr, handle_stored_data_cb cb);
 bool           c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);

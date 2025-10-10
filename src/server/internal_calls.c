@@ -15,11 +15,11 @@ static void finish(request_t* req) {
 }
 
 static void throw_error(single_request_t* r, const char* error, bool must_free) {
-  r->req->error = must_free ? error : strdup(error);
+  r->req->error = must_free ? (char*) error : strdup(error);
   finish(r->parent);
 }
 
-static void call_store_cb(void* u_ptr, uint64_t period, bytes_t data, char* error) {
+static void call_store_cb(void* u_ptr, uint64_t period, bytes_t data, const char* error) {
   single_request_t* r = u_ptr;
   r->req->response    = bytes_dup(data);
   finish(r->parent);
@@ -28,13 +28,12 @@ static void call_store_cb(void* u_ptr, uint64_t period, bytes_t data, char* erro
 static bool call_store(single_request_t* r) {
   const char* path = "chain_store/";
   if (strncmp(r->req->url, path, strlen(path))) return false;
-  char* query = r->req->url + strlen(path);
   c4_get_from_store(r->req->url + strlen(path), r, call_store_cb);
   return true;
 }
 
 // Callback for preconf data loading
-static void call_preconf_cb(void* u_ptr, uint64_t block_number, bytes_t data, char* error) {
+static void call_preconf_cb(void* u_ptr, uint64_t block_number, bytes_t data, const char* error) {
   single_request_t* r = u_ptr;
   if (error) {
     r->req->error = strdup(error);

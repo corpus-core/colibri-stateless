@@ -14,19 +14,12 @@
 #include <unistd.h>
 #include <uv.h>
 
-// Hash table for RAM cache
-#define CACHE_SIZE     256
-#define MAX_KEY_LENGTH 128
-
+// Simple linked list for RAM cache (optimized for small number of entries)
 typedef struct storage_cache_entry {
   char*                       key;
   bytes_t                     value;
   struct storage_cache_entry* next;
 } storage_cache_entry_t;
-
-typedef struct {
-  storage_cache_entry_t* buckets[CACHE_SIZE];
-} ram_cache_t;
 
 // Async write operation context
 typedef struct {
@@ -46,24 +39,14 @@ typedef struct {
   char*   file_path;
 } async_delete_ctx_t;
 
-static ram_cache_t cache             = {0};
-static bool        cache_initialized = false;
-
-// Hash function for cache keys
-static uint32_t hash_key(const char* key) {
-  uint32_t hash = 5381;
-  int      c;
-  while ((c = *key++)) {
-    hash = ((hash << 5) + hash) + c;
-  }
-  return hash % CACHE_SIZE;
-}
+static storage_cache_entry_t* cache_head        = NULL;
+static bool                   cache_initialized = false;
 
 // Initialize the RAM cache
 static void init_cache() {
   if (cache_initialized) return;
 
-  memset(&cache, 0, sizeof(ram_cache_t));
+  cache_head        = NULL;
   cache_initialized = true;
 }
 
@@ -82,10 +65,9 @@ static char* get_file_path(const char* key) {
   }
 }
 
-// Find entry in cache
+// Find entry in cache (simple linear search)
 static storage_cache_entry_t* find_cache_entry(const char* key) {
-  uint32_t               bucket = hash_key(key);
-  storage_cache_entry_t* entry  = cache.buckets[bucket];
+  storage_cache_entry_t* entry = cache_head;
 
   while (entry) {
     if (strcmp(entry->key, key) == 0) {
@@ -98,8 +80,6 @@ static storage_cache_entry_t* find_cache_entry(const char* key) {
 
 // Add entry to cache
 static void add_cache_entry(const char* key, bytes_t value) {
-  uint32_t bucket = hash_key(key);
-
   // Check if entry already exists
   storage_cache_entry_t* existing = find_cache_entry(key);
   if (existing) {
@@ -111,21 +91,20 @@ static void add_cache_entry(const char* key, bytes_t value) {
     return;
   }
 
-  // Create new entry
+  // Create new entry and add to front of list
   storage_cache_entry_t* entry = safe_malloc(sizeof(storage_cache_entry_t));
   entry->key                   = strdup(key);
   entry->value.data            = safe_malloc(value.len);
   memcpy(entry->value.data, value.data, value.len);
-  entry->value.len      = value.len;
-  entry->next           = cache.buckets[bucket];
-  cache.buckets[bucket] = entry;
+  entry->value.len = value.len;
+  entry->next      = cache_head;
+  cache_head       = entry;
 }
 
 // Remove entry from cache
 static void remove_cache_entry(const char* key) {
-  uint32_t               bucket = hash_key(key);
-  storage_cache_entry_t* entry  = cache.buckets[bucket];
-  storage_cache_entry_t* prev   = NULL;
+  storage_cache_entry_t* entry = cache_head;
+  storage_cache_entry_t* prev  = NULL;
 
   while (entry) {
     if (strcmp(entry->key, key) == 0) {
@@ -133,7 +112,7 @@ static void remove_cache_entry(const char* key) {
         prev->next = entry->next;
       }
       else {
-        cache.buckets[bucket] = entry->next;
+        cache_head = entry->next;
       }
       safe_free(entry->key);
       safe_free(entry->value.data);
