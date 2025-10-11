@@ -26,7 +26,7 @@ void tearDown(void) {
   c4_test_server_teardown();
 }
 
-// Test 1: Health check endpoint
+// Test 1: test verifying a remote proofer-request with a file mock
 void test_remote_proofer(void) {
   c4_test_server_seed_for_test("block_number");
 

@@ -132,6 +132,8 @@ typedef struct {
   bool              being_closed;             // Flag to track if this client is being closed
   bool              message_complete_reached; // True if on_message_complete was called for the current request
   bool              keep_alive_idle;          // True if the connection is idle in keep-alive mode, awaiting next request
+  size_t            headers_size_received;    // Total size of headers received (for DoS protection)
+  size_t            body_size_received;       // Actual body bytes received (for request smuggling protection)
 } client_t;
 typedef bool (*http_handler)(client_t*);
 

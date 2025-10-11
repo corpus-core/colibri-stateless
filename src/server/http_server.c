@@ -5,6 +5,8 @@
 
 #include "llhttp.h"
 #include "server.h"
+#include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +15,11 @@
 static http_handler* handlers = NULL;
 static int           handlers_count;
 
+// Security limits for DoS protection
+#define MAX_BODY_SIZE          (10 * 1024 * 1024) // 10MB for JSON-RPC
+#define MAX_HEADERS_SIZE       (64 * 1024)        // 64KB for all headers combined
+#define MAX_SINGLE_HEADER_SIZE (8 * 1024)         // 8KB per individual header value
+
 // Function prototypes
 static void  on_close(uv_handle_t* handle);
 static void  on_write_complete(uv_write_t* req, int status);
@@ -20,6 +27,7 @@ static int   on_url(llhttp_t* parser, const char* at, size_t length);
 static int   on_method(llhttp_t* parser, const char* at, size_t length);
 static int   on_header_field(llhttp_t* parser, const char* at, size_t length);
 static int   on_header_value(llhttp_t* parser, const char* at, size_t length);
+static int   on_headers_complete(llhttp_t* parser);
 static int   on_body(llhttp_t* parser, const char* at, size_t length);
 static int   on_message_complete(llhttp_t* parser);
 static void  alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf);
@@ -65,6 +73,10 @@ static void reset_client_request_data(client_t* client) {
   client->request.payload_len = 0;
   // client->request.method is an enum, gets overwritten by parser.
   memset(client->current_header, 0, sizeof(client->current_header));
+
+  // Reset security tracking counters
+  client->headers_size_received    = 0;
+  client->body_size_received       = 0;
   client->message_complete_reached = false; // Reset for keep-alive
 }
 
@@ -114,6 +126,15 @@ static int on_method(llhttp_t* parser, const char* at, size_t length) {
 
 static int on_header_field(llhttp_t* parser, const char* at, size_t length) {
   client_t* client = (client_t*) parser->data;
+
+  // Track total header size for DoS protection
+  client->headers_size_received += length;
+  if (client->headers_size_received > MAX_HEADERS_SIZE) {
+    fprintf(stderr, "SECURITY: Rejected request with oversized headers (%zu bytes, max: %d) from client %p\n",
+            client->headers_size_received, MAX_HEADERS_SIZE, (void*) client);
+    return HPE_USER;
+  }
+
   if (length > sizeof(client->current_header) - 1) return HPE_INVALID_HEADER_TOKEN;
   strncpy(client->current_header, at, length);
   client->current_header[length] = '\0';
@@ -122,6 +143,22 @@ static int on_header_field(llhttp_t* parser, const char* at, size_t length) {
 
 static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
   client_t* client = (client_t*) parser->data;
+
+  // Track total header size and validate individual header value size
+  client->headers_size_received += length;
+  if (client->headers_size_received > MAX_HEADERS_SIZE) {
+    fprintf(stderr, "SECURITY: Rejected request with oversized headers (%zu bytes, max: %d) from client %p\n",
+            client->headers_size_received, MAX_HEADERS_SIZE, (void*) client);
+    return HPE_USER;
+  }
+
+  // Also reject individual header values that are too large
+  if (length > MAX_SINGLE_HEADER_SIZE) {
+    fprintf(stderr, "SECURITY: Rejected request with oversized header value (%zu bytes, max: %d) from client %p\n",
+            length, MAX_SINGLE_HEADER_SIZE, (void*) client);
+    return HPE_USER;
+  }
+
   if (strcasecmp(client->current_header, "Content-Type") == 0)
     client->request.content_type = strndup(at, length);
   else if (strcasecmp(client->current_header, "Accept") == 0)
@@ -139,8 +176,41 @@ static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
   return 0;
 }
 
+static int on_headers_complete(llhttp_t* parser) {
+  client_t* client = (client_t*) parser->data;
+
+  // Validate Content-Length before receiving body
+  // parser->content_length is set by llhttp from the Content-Length header
+  if (parser->content_length != ULLONG_MAX && parser->content_length > MAX_BODY_SIZE) {
+    fprintf(stderr, "SECURITY: Rejected request with Content-Length %llu (max: %d) from client %p\n",
+            (unsigned long long) parser->content_length, MAX_BODY_SIZE, (void*) client);
+    return HPE_USER; // Custom error to trigger rejection
+  }
+
+  return 0;
+}
+
 static int on_body(llhttp_t* parser, const char* at, size_t length) {
-  client_t* client        = (client_t*) parser->data;
+  client_t* client = (client_t*) parser->data;
+
+  // Track actual body bytes received for request smuggling protection
+  client->body_size_received += length;
+
+  // Validate that we don't receive more bytes than Content-Length specifies
+  // This prevents HTTP request smuggling attacks
+  if (parser->content_length != ULLONG_MAX && client->body_size_received > parser->content_length) {
+    fprintf(stderr, "SECURITY: Request smuggling attempt detected - body size %zu exceeds Content-Length %llu from client %p\n",
+            client->body_size_received, (unsigned long long) parser->content_length, (void*) client);
+    return HPE_USER;
+  }
+
+  // Additional safety check: body should not exceed our maximum
+  if (client->body_size_received > MAX_BODY_SIZE) {
+    fprintf(stderr, "SECURITY: Body size %zu exceeds maximum %d from client %p\n",
+            client->body_size_received, MAX_BODY_SIZE, (void*) client);
+    return HPE_USER;
+  }
+
   client->request.payload = (uint8_t*) safe_malloc(length);
   memcpy(client->request.payload, at, length);
   client->request.payload_len = length;
@@ -294,14 +364,46 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
     client->keep_alive_idle = false; // Activity detected, not idle anymore
     llhttp_errno_t err      = llhttp_execute(&(client->parser), buf->base, nread);
     if (err != HPE_OK) {
-      error_reason = llhttp_get_error_reason(&(client->parser));
-      if (error_reason == NULL || strlen(error_reason) == 0) {
-        // Provide a more generic error if llhttp_get_error_reason is unhelpful
-        snprintf(temp_reason_buffer, sizeof(temp_reason_buffer), "HTTP parsing error: %s", llhttp_errno_name(err));
-        error_reason = temp_reason_buffer;
+      // Map specific errors to appropriate HTTP status codes FIRST
+      // This allows us to override llhttp's default error messages
+      if (err == HPE_CB_HEADERS_COMPLETE) {
+        // HPE_CB_HEADERS_COMPLETE: Error from on_headers_complete callback (Content-Length validation)
+        error_status_code = 413; // Payload Too Large
+        error_reason      = "Request payload too large";
       }
+      else if (err == HPE_USER) {
+        // HPE_USER is returned from our callbacks (header/body validation)
+        // Check which limit was exceeded based on client state
+        if (client->headers_size_received > MAX_HEADERS_SIZE ||
+            client->headers_size_received > 0) {
+          // Headers were being processed when error occurred
+          error_status_code = 431; // Request Header Fields Too Large
+          error_reason      = "Request header fields too large";
+        }
+        else if (client->body_size_received > 0) {
+          // Body was being processed when error occurred
+          error_status_code = 400; // Bad Request
+          error_reason      = "Invalid request body";
+        }
+        else {
+          // Generic user error
+          error_status_code = 400; // Bad Request
+          error_reason      = "Invalid request";
+        }
+      }
+      else {
+        // For other errors, use llhttp's error message
+        error_status_code = 400; // Bad Request for other parsing errors
+        error_reason      = llhttp_get_error_reason(&(client->parser));
+        if (error_reason == NULL || strlen(error_reason) == 0) {
+          // Provide a more generic error if llhttp_get_error_reason is unhelpful
+          snprintf(temp_reason_buffer, sizeof(temp_reason_buffer), "HTTP parsing error: %s", llhttp_errno_name(err));
+          error_reason = temp_reason_buffer;
+        }
+      }
+
       fprintf(stderr, "llhttp error: %s (code: %d) on client %p\n", error_reason, err, (void*) client);
-      error_status_code      = 400; // Bad Request
+
       should_call_responder  = true;
       immediate_close_needed = true;
     }
@@ -362,14 +464,18 @@ static char* status_text(int status) {
   switch (status) {
     case 200:
       return "OK";
-    case 404:
-      return "Not Found";
     case 400:
       return "Bad Request";
     case 401:
       return "Unauthorized";
     case 403:
       return "Forbidden";
+    case 404:
+      return "Not Found";
+    case 413:
+      return "Payload Too Large";
+    case 431:
+      return "Request Header Fields Too Large";
     default:
       return "Internal Server Error";
   }
@@ -501,6 +607,7 @@ void c4_on_new_connection(uv_stream_t* server, int status) {
   client->settings.on_method           = on_method;
   client->settings.on_header_field     = on_header_field;
   client->settings.on_header_value     = on_header_value;
+  client->settings.on_headers_complete = on_headers_complete;
   client->settings.on_body             = on_body;
   client->settings.on_message_complete = on_message_complete;
 

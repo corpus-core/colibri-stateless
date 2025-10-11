@@ -25,7 +25,7 @@
 #endif
 
 // Test configuration
-#define TEST_PORT 18545
+#define TEST_PORT 28545
 #define TEST_HOST "127.0.0.1"
 
 // TESTDATA_DIR is defined by CMake via -DTESTDATA_DIR="..."
@@ -127,6 +127,7 @@ static void c4_test_server_setup(http_server_t* config) {
   int result = c4_server_start(&server_instance, http_server.port);
   if (result != 0) {
     fprintf(stderr, "Failed to start server: %d\n", result);
+    exit(1);
     return;
   }
 
