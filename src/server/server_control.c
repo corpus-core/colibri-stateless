@@ -209,7 +209,7 @@ void c4_server_stop(server_instance_t* instance) {
 
   uv_walk(instance->loop, close_active_clients, &walk_data);
 
-  // Let libuv process pending close callbacks
+  // Let libuv process pending close callbacks (quick check)
   for (int i = 0; i < 10; i++) {
     if (uv_run(instance->loop, UV_RUN_NOWAIT) == 0) {
       break;
@@ -217,8 +217,12 @@ void c4_server_stop(server_instance_t* instance) {
     uv_sleep(10);
   }
 
+  // Run loop until ALL handles are closed (blocking until complete)
+  // This ensures memcache handles are fully closed before cleanup
+  uv_run(instance->loop, UV_RUN_DEFAULT);
+
   // Cleanup CURL after all libuv handles are closed
-  // IMPORTANT: Must be AFTER uv_walk/uv_run to avoid use-after-free
+  // IMPORTANT: Must be AFTER uv_run(DEFAULT) to avoid use-after-free
   // (curl cleanup frees memcache which contains libuv handles)
   c4_cleanup_curl();
 
