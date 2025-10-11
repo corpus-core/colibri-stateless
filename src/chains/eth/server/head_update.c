@@ -228,6 +228,8 @@ static void handle_new_head_cb(request_t* req) {
       bytes_t  root_hash           = ssz_get(&sig_block, "parentRoot").bytes;
       ssz_ob_t execution           = ssz_get(&sig_body, "executionPayload");
       c4_beacon_cache_update_blockdata(ctx, beacon_block, ssz_get_uint64(&execution, "timestamp"), root_hash.data);
+      // Free the original beacon_block after cache update (cache made its own copy)
+      safe_free(beacon_block);
       proofer_request_free(req);
       return;
     }
