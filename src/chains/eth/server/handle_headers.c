@@ -25,12 +25,8 @@ static void c4_proxy_callback(client_t* client, void* data, data_request_t* req)
 
   if (req->response.data)
     c4_http_respond(client, 200, "application/json", req->response);
-  else {
-    buffer_t buf = {0};
-    bprintf(&buf, "{\"error\":\"%s\"}", req->error);
-    c4_http_respond(client, 500, "application/json", buf.data);
-    buffer_free(&buf);
-  }
+  else
+    c4_write_error_response(client, 500, req->error);
   safe_free(req->url);
   safe_free(req->response.data);
   safe_free(req->error);

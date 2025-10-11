@@ -330,6 +330,7 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
   }
 
   // Weighted random selection using same criteria as weight calculation
+  // Note: rand() can be seeded with srand() for deterministic testing
   double random_value   = ((double) rand() / RAND_MAX) * total_weight;
   double current_weight = 0.0;
 
@@ -583,6 +584,16 @@ static size_t detection_write_callback(void* contents, size_t size, size_t nmemb
 // Auto-detect client types for all servers in a list using parallel requests
 void c4_detect_server_client_types(server_list_t* servers, data_request_type_t type) {
   if (!servers || !servers->client_types || servers->count == 0) return;
+
+#ifdef TEST
+  // Skip client type detection in TEST mode when URL rewriter is active
+  // Tests can explicitly set client types if needed
+  // c4_test_url_rewriter is declared in server.h
+  if (c4_test_url_rewriter) {
+    fprintf(stderr, ":: Skipping client type detection in TEST mode\n");
+    return;
+  }
+#endif
 
   const char* detection_endpoint = NULL;
   const char* rpc_payload        = NULL;

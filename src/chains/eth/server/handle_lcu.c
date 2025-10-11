@@ -53,11 +53,8 @@ static void handle_lcu_result(void* u_ptr, uint64_t period, bytes_t data, char* 
   if (ctx->results < ctx->count) return; // not finished yet, still pending updates
 
   // handle response
-  if (ctx->error) {
-    char* json = bprintf(NULL, "{\"error\":\"%s\"}", ctx->error);
-    c4_http_respond(ctx->client, 500, "application/json", bytes((uint8_t*) json, strlen(json)));
-    free(json);
-  }
+  if (ctx->error)
+    c4_write_error_response(ctx->client, 500, ctx->error);
   else {
     buffer_t result = {0};
     for (i = 0; i < ctx->count; i++)
@@ -76,11 +73,8 @@ static void handle_lcu_result(void* u_ptr, uint64_t period, bytes_t data, char* 
 static void handle_lcu_beacon_client(request_t* req) {
   if (c4_check_retry_request(req)) return;
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
-  if (ctx->state.error) {
-    char* error = bprintf(NULL, "{\"error\":\"%s\"}", ctx->state.error);
-    c4_http_respond(req->client, 500, "application/json", bytes((uint8_t*) error, strlen(error)));
-    safe_free(error);
-  }
+  if (ctx->state.error)
+    c4_write_error_response(req->client, 500, ctx->state.error);
   else
     c4_http_respond(req->client, 200, "application/octet-stream", ctx->state.requests->response);
 
@@ -108,13 +102,12 @@ bool c4_handle_lcu(client_t* client) {
     ctx->chain_id         = http_server.chain_id;
 
     c4_send_beacon_ssz(ctx, client->request.path + 1, NULL, NULL, 120, &result);
-    c4_start_curl_requests(req);
+    c4_start_curl_requests(req, &ctx->state);
     return true;
   }
 
   if (!start || !count) {
-    char* error = "{\"error\":\"Invalid arguments\"}";
-    c4_http_respond(client, 500, "application/json", bytes((uint8_t*) error, strlen(error)));
+    c4_write_error_response(client, 500, "Invalid arguments");
     return true;
   }
 

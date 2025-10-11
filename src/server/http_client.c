@@ -7,6 +7,10 @@
 #include "logger.h"
 #include "server.h"
 #include <stddef.h> // Added for offsetof
+#ifdef TEST
+#include "util/bytes.h"
+#include "util/crypto.h"
+#endif
 
 // container_of macro to get the pointer to the containing struct
 #define container_of(ptr, type, member) ((type*) ((char*) (ptr) - offsetof(type, member)))
@@ -19,11 +23,156 @@ typedef struct pending_request {
 
 static pending_request_t* pending_requests = NULL;
 static CURLM*             multi_handle;
-static mc_t*              memcache_client;
-const char*               CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
+static mc_t*              memcache_client = NULL;
+const char*               CURL_METHODS[]  = {"GET", "POST", "PUT", "DELETE"};
+
+#ifdef TEST
+// Test hook for URL rewriting (file:// mocking)
+// ONLY compiled in test builds (-DTEST=1)
+// This is a security risk in production!
+char* (*c4_test_url_rewriter)(const char* url, const char* payload) = NULL;
+
+// Generate deterministic filename for mock/recorded responses
+// Returns: allocated string "test_data_dir/server/test_name/host_hash.json"
+// Caller must free the returned string
+char* c4_file_mock_get_filename(const char* host, const char* url,
+                                const char* payload, const char* test_name) {
+  if (!test_name) return NULL;
+
+  // Create hash of host + url + payload
+  buffer_t buf = {0};
+  bprintf(&buf, "%s:%s:%s",
+          host ? host : "",
+          url ? url : "",
+          payload ? payload : "");
+
+  bytes32_t hash;
+  sha256(buf.data, hash);
+
+  // Create filename: TESTDATA_DIR/server/test_name/host_hash.json
+  buffer_t filename = {0};
+  bprintf(&filename, "%s/server/%s/%s_%x.json",
+          TESTDATA_DIR,
+          test_name,
+          host ? host : "default",
+          bytes(hash, 16)); // First 16 bytes of hash
+
+  buffer_free(&buf);
+  char* result       = (char*) filename.data.data;
+  filename.data.data = NULL; // Prevent buffer_free from freeing it
+  return result;
+}
+
+// Helper to record responses when http_server.test_dir is set
+// Writes responses to TESTDATA_DIR/server/<test_dir>/<host>_<hash>.json
+static void c4_record_test_response(const char* url, const char* payload,
+                                    bytes_t response, long http_code) {
+  if (!http_server.test_dir || !url) return;
+
+  // Extract host from URL (e.g., "http://host:port/path" -> "host")
+  char*       host       = NULL;
+  const char* host_start = strstr(url, "://");
+  if (host_start) {
+    host_start += 3; // Skip "://"
+    const char* host_end = strchr(host_start, ':');
+    if (!host_end) host_end = strchr(host_start, '/');
+    if (host_end) {
+      size_t len = host_end - host_start;
+      host       = strndup(host_start, len);
+    }
+    else {
+      host = strdup(host_start);
+    }
+  }
+
+  // Use central filename generation function
+  char* filename = c4_file_mock_get_filename(host, url, payload, http_server.test_dir);
+  if (!filename) {
+    free(host);
+    return;
+  }
+
+  // Ensure directory exists
+  char* last_slash = strrchr(filename, '/');
+  if (last_slash) {
+    *last_slash = '\0';
+    // Simple mkdir -p equivalent
+    char tmp[512];
+    snprintf(tmp, sizeof(tmp), "mkdir -p %s", filename);
+    system(tmp);
+    *last_slash = '/';
+  }
+
+  // Write response to file
+  FILE* f = fopen(filename, "w");
+  if (f) {
+    fprintf(f, "# HTTP %ld\n", http_code);
+    fprintf(f, "# URL: %s\n", url);
+    fprintf(f, "# Host: %s\n", host ? host : "");
+    fprintf(f, "# Payload: %s\n", payload ? payload : "");
+    if (response.data && response.len > 0) {
+      fwrite(response.data, 1, response.len, f);
+    }
+    fclose(f);
+    fprintf(stderr, "[RECORD] %s -> %s\n", host ? host : "unknown", filename);
+  }
+  else {
+    fprintf(stderr, "[RECORD] Failed to write %s\n", filename);
+  }
+
+  free(filename);
+  free(host);
+}
+
+// Parse mock file response (file:// URLs)
+// Mock files have format:
+//   # HTTP 200
+//   # URL: ...
+//   # Host: ...
+//   # Payload: ...
+//   <actual response data>
+// Returns: http_code (or 0 if not found), modifies buffer to contain only response data
+static long parse_mock_response(buffer_t* buffer) {
+  if (!buffer || !buffer->data.data || buffer->data.len == 0) return 0;
+
+  long  http_code   = 200; // Default to 200 if not specified
+  char* content     = (char*) buffer->data.data;
+  char* content_end = content + buffer->data.len;
+  char* line_start  = content;
+
+  // Parse header lines (starting with #)
+  while (line_start < content_end && *line_start == '#') {
+    char* line_end = strchr(line_start, '\n');
+    if (!line_end) line_end = content_end;
+
+    // Check for HTTP status line: "# HTTP 200"
+    if (strncmp(line_start, "# HTTP ", 7) == 0) {
+      http_code = atol(line_start + 7);
+    }
+
+    // Move to next line
+    line_start = line_end;
+    if (line_start < content_end && *line_start == '\n') line_start++;
+  }
+
+  // Calculate actual response data (skip headers)
+  size_t header_size = line_start - content;
+  if (header_size > 0 && header_size < buffer->data.len) {
+    // Move response data to beginning of buffer
+    size_t response_len = buffer->data.len - header_size;
+    memmove(buffer->data.data, line_start, response_len);
+    buffer->data.len                = response_len;
+    buffer->data.data[response_len] = '\0'; // Null terminate
+  }
+
+  return http_code;
+}
+
+#endif
 
 static server_list_t eth_rpc_servers    = {0};
 static server_list_t beacon_api_servers = {0};
+static server_list_t proofer_servers    = {0};
 
 static void cache_response(single_request_t* r);
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
@@ -185,6 +334,19 @@ static void handle_curl_events() {
     pending_request_t* pending   = pending_find(r);
     long               http_code = 0;
     if (msg->data.result == CURLE_OK) curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+
+#ifdef TEST
+    // For file:// URLs (mock responses), parse the HTTP code from the file content
+    if (msg->data.result == CURLE_OK && http_code == 0) {
+      const char* url = r->url ? r->url : r->req->url;
+      if (url && strncmp(url, "file://", 7) == 0) {
+        http_code = parse_mock_response(&r->buffer);
+        fprintf(stderr, "   [mock ] Parsed mock response from %s: HTTP %ld, %u bytes\n",
+                url, http_code, (unsigned int) r->buffer.data.len);
+      }
+    }
+#endif
+
     server_list_t* servers           = c4_get_server_list(r->req->type);
     r->end_time                      = current_ms();
     uint64_t           response_time = r->end_time - r->start_time;
@@ -209,13 +371,22 @@ static void handle_curl_events() {
       }
     }
 
+#ifdef TEST
+    // Record response if test_dir is set
+    c4_record_test_response(r->url ? r->url : r->req->url,
+                            r->req->payload.data ? (char*) r->req->payload.data : NULL,
+                            r->buffer.data,
+                            http_code);
+#endif
+
     bytes_t response = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
     if (response_type == C4_RESPONSE_SUCCESS && response.data) {
       fprintf(stderr, "   [curl ] %s %s -> OK %d bytes (%s)\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, r->url ? r->url : r->req->url);
       r->req->response = response; // set the response
       cache_response(r);           // and write to cache
-      r->buffer = (buffer_t) {0};  // reset the buffer, so we don't clean up the data
+
+      r->buffer = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
     }
     else if (response_type == C4_RESPONSE_ERROR_USER && r->req->type == C4_DATA_TYPE_ETH_RPC && response.data) {
       // For JSON-RPC user errors, set the response so application logic can extract detailed error messages
@@ -411,6 +582,8 @@ server_list_t* c4_get_server_list(data_request_type_t type) {
       return (server_list_t*) &eth_rpc_servers;
     case C4_DATA_TYPE_BEACON_API:
       return (server_list_t*) &beacon_api_servers;
+    case C4_DATA_TYPE_PROOFER:
+      return (server_list_t*) &proofer_servers;
     default:
       return NULL;
   }
@@ -480,7 +653,7 @@ static char* generate_cache_key(data_request_t* req) {
 // Function to handle successful response and cache it
 static void cache_response(single_request_t* r) {
   uint32_t ttl = get_request_ttl(r->req);
-  if (ttl > 0 && r->req->response.data && r->req->response.len > 0) { // Added check for valid response data
+  if (ttl > 0 && r->req->response.data && r->req->response.len > 0 && memcache_client) { // Added check for valid response data
     char* key = generate_cache_key(r->req);
     if (key) { // Check if key generation succeeded
                // Use r->req->response directly instead of r->buffer
@@ -604,6 +777,20 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     pending_add(r);
     CURL* easy = curl_easy_init();
     r->curl    = easy;
+
+#ifdef TEST
+    // Apply test URL rewriter if set (for file:// based mocking)
+    // ONLY in test builds!
+    if (c4_test_url_rewriter) {
+      char* rewritten = c4_test_url_rewriter(r->url,
+                                             r->req->payload.data ? (char*) r->req->payload.data : NULL);
+      if (rewritten && rewritten != r->url) {
+        free(r->url);
+        r->url = rewritten;
+      }
+    }
+#endif
+
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     if (r->req->payload.len && r->req->payload.data) {
       curl_easy_setopt(easy, CURLOPT_POSTFIELDS, r->req->payload.data);
@@ -639,8 +826,8 @@ static void trigger_cached_curl_requests(request_t* req) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
     r->start_time             = start_time;
-    r->parent                 = req; // Set the parent pointer
-    if (!pending->ttl) {             // not cached, so we trigger a uncached request
+    r->parent                 = req;         // Set the parent pointer
+    if (!pending->ttl || !memcache_client) { // not cached, so we trigger a uncached request
       trigger_uncached_curl_request(r, NULL, 0);
       continue;
     }
@@ -683,12 +870,11 @@ void c4_add_request(client_t* client, data_request_t* req, void* data, http_requ
   trigger_cached_curl_requests(r);
 }
 
-void c4_start_curl_requests(request_t* req) {
-  int            len = 0, i = 0;
-  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+void c4_start_curl_requests(request_t* req, c4_state_t* state) {
+  int len = 0, i = 0;
 
   // Count pending requests (server availability will be checked in c4_select_best_server)
-  for (data_request_t* r = ctx->state.requests; r; r = r->next) {
+  for (data_request_t* r = state->requests; r; r = r->next) {
     if (c4_state_is_pending(r)) len++;
   }
 
@@ -701,7 +887,7 @@ void c4_start_curl_requests(request_t* req) {
   req->requests      = (single_request_t*) safe_calloc(len, sizeof(single_request_t));
   req->request_count = len;
 
-  for (data_request_t* r = ctx->state.requests; r; r = r->next) {
+  for (data_request_t* r = state->requests; r; r = r->next) {
     if (c4_state_is_pending(r)) req->requests[i++].req = r;
   }
 
@@ -796,16 +982,18 @@ void c4_init_curl(uv_timer_t* timer) {
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
 
-  // Initialize memcached client
-  memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
-  if (!memcache_client) {
-    fprintf(stderr, "Failed to create memcached client\n");
-    return;
+  if (http_server.memcached_host) {
+    // Initialize memcached client
+    memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
+    if (!memcache_client) {
+      fprintf(stderr, "Failed to create memcached client\n");
+      return;
+    }
   }
 
   init_serverlist(&eth_rpc_servers, http_server.rpc_nodes);
   init_serverlist(&beacon_api_servers, http_server.beacon_nodes);
-
+  init_serverlist(&proofer_servers, http_server.proofer_nodes);
   // Auto-detect client types for servers without explicit configuration
   c4_detect_server_client_types(&eth_rpc_servers, C4_DATA_TYPE_ETH_RPC);
   c4_detect_server_client_types(&beacon_api_servers, C4_DATA_TYPE_BEACON_API);

@@ -2,13 +2,16 @@
 
 find_package(CURL REQUIRED)
 
-add_executable(server 
-  main.c
+# Create a static library with all server logic (for testing)
+add_library(serverlib STATIC
+  server_control.c
   http_client.c
   http_client_errors.c
   http_servers_select.c
   http_server.c
   handle_proof.c
+  handle_verify.c
+  handle_verify_storage.c
   handle_health.c
   handle_metrics.c
   cache.c
@@ -17,20 +20,25 @@ add_executable(server
   internal_calls.c
 )
 
-target_include_directories(server PUBLIC ${CMAKE_BINARY_DIR})
-target_include_directories(server PUBLIC ../../libs)
-target_include_directories(server PUBLIC ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include)
-target_include_directories(server PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
+target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR})
+target_include_directories(serverlib PUBLIC ../../libs)
+target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include)
+target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
 
-target_link_libraries(server PRIVATE libuv llhttp proofer util verifier CURL::libcurl ${SERVER_HANDLER_LIBS})
+target_link_libraries(serverlib PUBLIC libuv llhttp proofer util verifier CURL::libcurl ${SERVER_HANDLER_LIBS})
+
+# Additional system libraries that might be needed
+if(UNIX AND NOT APPLE)
+  target_link_libraries(serverlib PUBLIC pthread m dl)
+elseif(APPLE)
+  target_link_libraries(serverlib PUBLIC "-framework CoreFoundation" "-framework Security")
+endif()
+
+# Create the executable with just main()
+add_executable(server main.c)
+
+target_link_libraries(server PRIVATE serverlib)
 
 set_target_properties(server PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
-
-  # Additional system libraries that might be needed
-  if(UNIX AND NOT APPLE)
-    target_link_libraries(server PRIVATE pthread m dl)
-  elseif(APPLE)
-    target_link_libraries(server PRIVATE "-framework CoreFoundation" "-framework Security")
-  endif()

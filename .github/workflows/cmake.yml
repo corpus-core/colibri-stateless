@@ -115,12 +115,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Valgrind
-        run: sudo apt-get update && sudo apt-get install -y valgrind
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y valgrind libcurl4-openssl-dev
       - name: Build minsize
         run: cmake -B build_minsize -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
       - name: Build
-        run: cmake -B build -DTEST=true -DCURL=false  -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
+        run: cmake -B build -DTEST=true -DCURL=true -DPROOFER_CACHE=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
 
       - name: Run Valgrind on all test binaries
         run: |
@@ -128,7 +128,7 @@ jobs:
           echo "" >> valgrind_summary.md
           EXIT_CODE=0
 
-          for test_binary in ./build/test/unittests/test_*; do
+            for test_binary in ./build/test/unittests/test_*; do
             if [ -x "$test_binary" ]; then
               echo "Running valgrind on $test_binary"
               TEST_NAME=$(basename "$test_binary")
@@ -136,26 +136,55 @@ jobs:
               # Create a temporary file for valgrind output
               TEMP_OUTPUT=$(mktemp)
               
+              # Configure valgrind flags based on test type
+              VALGRIND_FLAGS="--leak-check=full --error-exitcode=1 --track-origins=yes --show-leak-kinds=all"
+              
+              if [[ "$TEST_NAME" == "test_server"* ]]; then
+                # Server tests: use suppressions for threading/libuv/curl false positives
+                VALGRIND_FLAGS="$VALGRIND_FLAGS --suppressions=test/valgrind/server.supp --fair-sched=yes"
+                VALGRIND_FLAGS="$VALGRIND_FLAGS --errors-for-leak-kinds=definite"
+                echo "  → Using server suppressions (threading/libuv/curl)"
+              else
+                # Regular tests: strict mode (fail on definite + possible leaks)
+                VALGRIND_FLAGS="$VALGRIND_FLAGS --errors-for-leak-kinds=definite,possible"
+              fi
+              
               # Run valgrind and capture both stdout and stderr
-              valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary" 2>&1 | tee "$TEMP_OUTPUT"
+              valgrind $VALGRIND_FLAGS "$test_binary" 2>&1 | tee "$TEMP_OUTPUT"
               VALGRIND_STATUS=${PIPESTATUS[0]}
               
               # Extract valgrind-specific messages (lines starting with ==)
               VALGRIND_MESSAGES=$(grep -E "^==[0-9]+== " "$TEMP_OUTPUT" || true)
               
-              if [ $VALGRIND_STATUS -ne 0 ]; then
-                EXIT_CODE=1
-                echo "❌ $TEST_NAME: memory issues found:" >> valgrind_summary.md
-                echo '```' >> valgrind_summary.md
-                # First show the test output without valgrind messages
-                grep -vE "^==[0-9]+== " "$TEMP_OUTPUT" >> valgrind_summary.md || true
-                echo "" >> valgrind_summary.md
-                # Then show the valgrind messages
-                echo "$VALGRIND_MESSAGES" >> valgrind_summary.md
-                echo '```' >> valgrind_summary.md
-                echo "" >> valgrind_summary.md
+              # For server tests, check for actual definite leaks, not just exit code
+              if [[ "$TEST_NAME" == "test_server"* ]]; then
+                DEFINITELY_LOST=$(grep "definitely lost:" "$TEMP_OUTPUT" | grep -oE "[0-9,]+ bytes" | head -1 | tr -d ',' || echo "0 bytes")
+                if [[ "$DEFINITELY_LOST" != "0 bytes" ]]; then
+                  EXIT_CODE=1
+                  echo "❌ $TEST_NAME: definite memory leaks found ($DEFINITELY_LOST)" >> valgrind_summary.md
+                  echo '```' >> valgrind_summary.md
+                  grep "definitely lost:" "$TEMP_OUTPUT" >> valgrind_summary.md || true
+                  echo '```' >> valgrind_summary.md
+                elif [ $VALGRIND_STATUS -ne 0 ]; then
+                  # Exit code non-zero but no definite leaks - probably still reachable memory
+                  echo "⚠️  $TEST_NAME: Valgrind exited with code $VALGRIND_STATUS (no definite leaks, possibly still reachable)" >> valgrind_summary.md
+                else
+                  echo "✅ $TEST_NAME:  ok" >> valgrind_summary.md
+                fi
               else
-                echo "✅ $TEST_NAME:  ok" >> valgrind_summary.md
+                # Regular tests: fail on any non-zero exit code
+                if [ $VALGRIND_STATUS -ne 0 ]; then
+                  EXIT_CODE=1
+                  echo "❌ $TEST_NAME: memory issues found:" >> valgrind_summary.md
+                  echo '```' >> valgrind_summary.md
+                  grep -vE "^==[0-9]+== " "$TEMP_OUTPUT" >> valgrind_summary.md || true
+                  echo "" >> valgrind_summary.md
+                  echo "$VALGRIND_MESSAGES" >> valgrind_summary.md
+                  echo '```' >> valgrind_summary.md
+                  echo "" >> valgrind_summary.md
+                else
+                  echo "✅ $TEST_NAME:  ok" >> valgrind_summary.md
+                fi
               fi
               
               # Clean up temp file

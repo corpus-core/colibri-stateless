@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <uv.h>
 // Preconf-specific callback type (uses block_number instead of period)
-typedef void (*handle_preconf_data_cb)(void* user_ptr, uint64_t block_number, bytes_t data, char* error);
+typedef void (*handle_preconf_data_cb)(void* user_ptr, uint64_t block_number, bytes_t data, const char* error);
 typedef struct {
   char*                 path;
   data_request_method_t method;
@@ -60,6 +60,7 @@ typedef struct {
   int            req_timeout;
   int            chain_id;
   char*          rpc_nodes;
+  char*          proofer_nodes;
   char*          beacon_nodes;
   int            stream_beacon_events;
   char*          period_store;
@@ -70,6 +71,10 @@ typedef struct {
   int   preconf_ttl_minutes;
   int   preconf_cleanup_interval_minutes;
   // preconf_use_gossip removed - now using automatic HTTP fallback until gossip is active
+#ifdef TEST
+  // Test recording mode: if set, all responses are written to TESTDATA_DIR/server/<test_dir>/
+  char* test_dir;
+#endif
 } http_server_t;
 
 // Method support tracking for RPC methods
@@ -127,13 +132,15 @@ typedef struct {
   bool              being_closed;             // Flag to track if this client is being closed
   bool              message_complete_reached; // True if on_message_complete was called for the current request
   bool              keep_alive_idle;          // True if the connection is idle in keep-alive mode, awaiting next request
+  size_t            headers_size_received;    // Total size of headers received (for DoS protection)
+  size_t            body_size_received;       // Actual body bytes received (for request smuggling protection)
 } client_t;
 typedef bool (*http_handler)(client_t*);
 
 typedef struct request_t request_t;
 typedef void (*http_client_cb)(request_t*);
 typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
-typedef void (*handle_stored_data_cb)(void* u_ptr, uint64_t period, bytes_t data, char* error);
+typedef void (*handle_stored_data_cb)(void* u_ptr, uint64_t period, bytes_t data, const char* error);
 // Struktur für jede aktive Anfrage
 typedef struct {
   char*              url;
@@ -154,8 +161,9 @@ typedef struct request_t {
   single_request_t* requests;
   size_t            request_count; // count of handles
   uint64_t          start_time;
-  http_client_cb    cb;
-
+  http_client_cb    cb;         // callback function to call when all requests are done
+  void*             parent_ctx; // pointer to parent context or parent caller
+  http_request_cb   parent_cb;  // callback function to call when the ctx (mostly proofer) has a result
 } request_t;
 
 typedef enum {
@@ -173,16 +181,19 @@ typedef enum {
 } c4_response_type_t;
 
 void c4_proofer_handle_request(request_t* req);
-void c4_start_curl_requests(request_t* req);
+void c4_start_curl_requests(request_t* req, c4_state_t* state);
 bool c4_check_retry_request(request_t* req);
 void c4_init_curl(uv_timer_t* timer);
 void c4_cleanup_curl();
 void c4_on_new_connection(uv_stream_t* server, int status);
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body);
+void c4_write_error_response(client_t* client, int status, const char* error);
+void c4_http_server_on_close_callback(uv_handle_t* handle); // Cleanup callback for closing client connections
 void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
 void c4_configure(int argc, char* argv[]);
 // Handlers
+bool           c4_handle_verify_request(client_t* client);
 bool           c4_handle_proof_request(client_t* client);
 bool           c4_handle_status(client_t* client);
 bool           c4_handle_health_check(client_t* client);
@@ -190,7 +201,7 @@ bool           c4_handle_metrics(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
 bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb);
-bool           c4_get_from_store(char* path, void* uptr, handle_stored_data_cb cb);
+bool           c4_get_from_store(const char* path, void* uptr, handle_stored_data_cb cb);
 bool           c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
@@ -222,5 +233,42 @@ char*                   c4_request_fix_url(char* url, single_request_t* r, beaco
 data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
 c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
+
+// Server storage functions
+void c4_init_server_storage();
+
+// Server control functions for testing
+typedef struct {
+  uv_loop_t*  loop;
+  uv_tcp_t    server;
+  uv_timer_t  curl_timer;
+  uv_timer_t  proofer_cleanup_timer;
+  uv_signal_t sigterm_handle;
+  uv_signal_t sigint_handle;
+  uv_idle_t   init_idle_handle;
+  bool        is_running;
+  int         port;
+} server_instance_t;
+
+int  c4_server_start(server_instance_t* instance, int port);
+void c4_server_stop(server_instance_t* instance);
+void c4_server_run_once(server_instance_t* instance); // For tests: non-blocking event loop iteration
+
+#ifdef TEST
+// Test hook for URL rewriting (file:// mocking)
+// Set this to a custom function to intercept and rewrite URLs before curl uses them
+// This allows replacing real URLs with file:// URLs pointing to mock responses
+// Example: c4_test_url_rewriter = my_url_rewriter_function;
+extern char* (*c4_test_url_rewriter)(const char* url, const char* payload);
+
+// Test helper: Generate deterministic filename for mock/recorded responses
+// Returns: allocated string "test_data_dir/server/test_name/host_hash.json"
+// Caller must free the returned string
+char* c4_file_mock_get_filename(const char* host, const char* url,
+                                const char* payload, const char* test_name);
+
+// Test helper: Clear the storage cache (for test isolation)
+void c4_clear_storage_cache(void);
+#endif
 
 #endif // C4_SERVER_H

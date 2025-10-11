@@ -238,7 +238,7 @@ static void handle_new_head_cb(request_t* req) {
     }
     case C4_PENDING:
       if (c4_state_get_pending_request(&ctx->state)) // there are pending requests, let's take care of them first
-        c4_start_curl_requests(req);
+        c4_start_curl_requests(req, &ctx->state);
       else {
         log_error("Error fetching sigblock and parent: %s", ctx->state.error);
         proofer_request_free(req);
@@ -280,7 +280,7 @@ static void c4_handle_finalized_checkpoint_cb(request_t* req) {
     }
     case C4_PENDING:
       if (c4_state_get_pending_request(&ctx->state)) // there are pending requests, let's take care of them first
-        c4_start_curl_requests(req);
+        c4_start_curl_requests(req, &ctx->state);
       else {
         log_error("Error fetching sigblock and parent: %s", ctx->state.error);
         proofer_request_free(req);

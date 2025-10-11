@@ -27,6 +27,16 @@ set(TEST_INCLUDES
   ${CMAKE_SOURCE_DIR}/src 
 )
 
+# Add server-specific includes if HTTP_SERVER is enabled
+if(HTTP_SERVER)
+  list(APPEND TEST_INCLUDES
+    ${CMAKE_SOURCE_DIR}/src/proofer
+    ${CMAKE_SOURCE_DIR}/src/verifier
+    ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include
+    ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
+  )
+endif()
+
 #add_definitions(-DTEST_DATA_DIR=${CMAKE_SOURCE_DIR}/test/data)
 
 foreach(test_source ${TEST_SOURCES})
@@ -41,18 +51,26 @@ foreach(test_source ${TEST_SOURCES})
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
     target_link_libraries(${test_name} unity verifier proofer)
+    
+    # Add server dependencies if HTTP_SERVER is enabled
+    if(HTTP_SERVER)
+        target_compile_definitions(${test_name} PRIVATE HTTP_SERVER)
+        target_link_libraries(${test_name} serverlib llhttp_static uv_a)
+        add_dependencies(${test_name} llhttp_static uv_a serverlib)
+        
+        # Find CURL for server tests
+        find_package(CURL REQUIRED)
+        target_link_libraries(${test_name} CURL::libcurl)
+    endif()
 
     # Suppress MSVC warning C4113 for test targets
     if(MSVC)
         target_compile_options(${test_name} PRIVATE /wd4113)
     endif()
 
-#    target_compile_definitions(${test_name} PRIVATE TESTDATA_DIR="${CMAKE_SOURCE_DIR}/test/data")
-
     # Füge den Test zu CTest hinzu
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
-
 
 if(MSVC)
     # Add Windows-specific definitions for test compatibility
