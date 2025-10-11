@@ -194,24 +194,28 @@ static int on_body(llhttp_t* parser, const char* at, size_t length) {
   client_t* client = (client_t*) parser->data;
 
   // Track actual body bytes received for request smuggling protection
-  client->body_size_received += length;
+  size_t new_total = client->body_size_received + length;
 
   // Validate that we don't receive more bytes than Content-Length specifies
-  // This prevents HTTP request smuggling attacks
-  if (parser->content_length != ULLONG_MAX && client->body_size_received > parser->content_length) {
-    fprintf(stderr, "SECURITY: Request smuggling attempt detected - body size %zu exceeds Content-Length %llu from client %p\n",
-            client->body_size_received, (unsigned long long) parser->content_length, (void*) client);
-    return HPE_USER;
+  // Only check if Content-Length was explicitly provided (not ULLONG_MAX and not 0)
+  // Note: parser->content_length is 0 when no Content-Length header is present
+  if (parser->content_length != ULLONG_MAX && parser->content_length > 0) {
+    if (new_total > parser->content_length) {
+      fprintf(stderr, "SECURITY: Request smuggling attempt detected - body size %zu exceeds Content-Length %llu from client %p\n",
+              new_total, (unsigned long long) parser->content_length, (void*) client);
+      return HPE_USER;
+    }
   }
 
   // Additional safety check: body should not exceed our maximum
-  if (client->body_size_received > MAX_BODY_SIZE) {
+  if (new_total > MAX_BODY_SIZE) {
     fprintf(stderr, "SECURITY: Body size %zu exceeds maximum %d from client %p\n",
-            client->body_size_received, MAX_BODY_SIZE, (void*) client);
+            new_total, MAX_BODY_SIZE, (void*) client);
     return HPE_USER;
   }
 
-  client->request.payload = (uint8_t*) safe_malloc(length);
+  client->body_size_received = new_total;
+  client->request.payload    = (uint8_t*) safe_malloc(length);
   memcpy(client->request.payload, at, length);
   client->request.payload_len = length;
   return 0;

@@ -341,8 +341,8 @@ static void handle_curl_events() {
       const char* url = r->url ? r->url : r->req->url;
       if (url && strncmp(url, "file://", 7) == 0) {
         http_code = parse_mock_response(&r->buffer);
-        fprintf(stderr, "   [mock ] Parsed mock response from %s: HTTP %ld, %zu bytes\n",
-                url, http_code, r->buffer.data.len);
+        fprintf(stderr, "   [mock ] Parsed mock response from %s: HTTP %ld, %u bytes\n",
+                url, http_code, (unsigned int) r->buffer.data.len);
       }
     }
 #endif
