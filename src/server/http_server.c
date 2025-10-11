@@ -100,6 +100,12 @@ static void on_close(uv_handle_t* handle) {
   safe_free(client->request.geo_longitude);
 #endif
   safe_free(client);
+  handle->data = NULL;
+}
+
+// Public wrapper for on_close callback (for use in server_control.c)
+void c4_http_server_on_close_callback(uv_handle_t* handle) {
+  on_close(handle);
 }
 
 static int on_url(llhttp_t* parser, const char* at, size_t length) {

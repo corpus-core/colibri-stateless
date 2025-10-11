@@ -173,7 +173,7 @@ static void close_active_clients(uv_handle_t* handle, void* arg) {
   // Only close TCP handles that are client connections (not the server socket or other handles)
   if (handle->type == UV_TCP && handle != walk_data->server_handle && !uv_is_closing(handle)) {
     fprintf(stderr, "C4 Server: Closing active client connection %p\n", (void*) handle);
-    uv_close(handle, NULL); // Will trigger on_close callback in http_server.c to free client_t
+    uv_close(handle, c4_http_server_on_close_callback); // Properly free client_t in callback
   }
 }
 

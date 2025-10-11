@@ -188,6 +188,7 @@ void c4_cleanup_curl();
 void c4_on_new_connection(uv_stream_t* server, int status);
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body);
 void c4_write_error_response(client_t* client, int status, const char* error);
+void c4_http_server_on_close_callback(uv_handle_t* handle); // Cleanup callback for closing client connections
 void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
 void c4_configure(int argc, char* argv[]);
