@@ -99,8 +99,10 @@ static void on_close(uv_handle_t* handle) {
   safe_free(client->request.geo_latitude);
   safe_free(client->request.geo_longitude);
 #endif
-  safe_free(client);
+  // Clear handle->data BEFORE freeing client to avoid use-after-free
+  // (handle is part of the client structure, so accessing it after free is invalid)
   handle->data = NULL;
+  safe_free(client);
 }
 
 // Public wrapper for on_close callback (for use in server_control.c)

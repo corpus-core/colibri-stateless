@@ -197,9 +197,6 @@ void c4_server_stop(server_instance_t* instance) {
   // Stop accepting new connections
   uv_close((uv_handle_t*) &instance->server, NULL);
 
-  // Cleanup CURL
-  c4_cleanup_curl();
-
   // Close signal handles
   uv_signal_stop(&instance->sigterm_handle);
   uv_close((uv_handle_t*) &instance->sigterm_handle, NULL);
@@ -219,6 +216,11 @@ void c4_server_stop(server_instance_t* instance) {
     }
     uv_sleep(10);
   }
+
+  // Cleanup CURL after all libuv handles are closed
+  // IMPORTANT: Must be AFTER uv_walk/uv_run to avoid use-after-free
+  // (curl cleanup frees memcache which contains libuv handles)
+  c4_cleanup_curl();
 
   fprintf(stderr, "C4 Server stopped.\n");
 }
