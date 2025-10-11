@@ -268,6 +268,7 @@ void c4_handle_new_head(json_t head) {
 }
 
 static void c4_handle_finalized_checkpoint_cb(request_t* req) {
+  if (c4_check_retry_request(req)) return;
   proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
 
   switch (c4_eth_update_finality(ctx)) {
