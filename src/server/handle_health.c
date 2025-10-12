@@ -8,6 +8,8 @@
 #include "server.h"
 
 bool c4_handle_status(client_t* client) {
+  if (strcmp(client->request.path, "/health") != 0) return false;
+
   buffer_t data = {0};
   uint64_t now  = current_ms();
   bprintf(&data,
