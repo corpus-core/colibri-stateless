@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  server-valgrind:
+    build:
+      context: ../..
+      dockerfile: bindings/docker/Dockerfile.valgrind
+    image: c4-server:valgrind
+    container_name: c4-server-valgrind
+    ports:
+      - "8090:8090"
+    depends_on:
+      memcached:
+        condition: service_healthy
+    volumes:
+      # Mount logs directory for persistent valgrind reports
+      - ./valgrind-logs:/app/logs
+      # Mount config if needed
+      # - ./config:/app/config:ro
+    environment:
+      # Valgrind configuration
+      - PORT=8090
+      - MEMCACHED_HOST=memcached # Use the service name as the hostname
+      - BEACON=https://ethereum-mainnet.core.chainstack.com/beacon/364e0a05996fe175eb1975ddc6e9147d/,http://unstable.mainnet.beacon-api.nimbus.team/,https://lodestar-mainnet.chainsafe.io/
+      - RPC=https://ethereum-mainnet.core.chainstack.com/364e0a05996fe175eb1975ddc6e9147d,https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/,https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S,https://rpc.ankr.com/eth/c14449317accec005863d22c7515f6b69667abb29ba2b5e099abf490bcb875b1,https://eth.llamarpc.com,https://rpc.payload.de,https://ethereum-rpc.publicnode.com
+      - CHAIN_ID=1
+      - BEACON_EVENTS=true      
+      - VALGRIND_OPTS=--leak-check=full --show-leak-kinds=definite --track-origins=yes --fair-sched=yes
+      - VALGRIND_LOG=/app/logs/valgrind.log
+      # Uncomment for verbose valgrind output
+      # VALGRIND_VERBOSE: "1"
+      # Uncomment for XML output (for CI integration)
+      # VALGRIND_XML: "1"
+      
+      # Server configuration (same as production)
+      # C4_BEACON_URL: "https://mainnet.beacon-api.com"
+      # C4_ETH_RPC_URL: "https://mainnet.infura.io/v3/YOUR_KEY"
+      # Add other environment variables as needed
+    # Resource limits (similar to production)
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # Memcached service (same as production)
+  memcached:
+    image: memcached:alpine
+    ports:
+      - "11211:11211"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo stats | nc 127.0.0.1 11211"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # Optional: Log viewer for real-time monitoring
+  # Uncomment if you want a web UI for logs
+  # logviewer:
+  #   image: amir20/dozzle:latest
+  #   container_name: c4-logs-viewer
+  #   ports:
+  #     - "9999:8080"
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   depends_on:
+  #     - server-valgrind
+
+volumes:
+  valgrind-logs:
+    driver: local
+

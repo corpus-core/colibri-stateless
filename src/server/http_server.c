@@ -431,17 +431,16 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
       // EOF occurred unexpectedly (e.g., mid-request or before parser was reset for keep-alive idle state)
       // Or, if message_complete_reached is false, it implies an incomplete request.
       if (!client->message_complete_reached) { // Check if a message was even completed in this cycle
-        snprintf(temp_reason_buffer, sizeof(temp_reason_buffer), "Incomplete request: client connection ended prematurely (code: %zd)", nread);
-        error_reason = temp_reason_buffer;
-        fprintf(stderr, "WARN: %s on client %p\n", error_reason, (void*) client);
-        error_status_code     = 400;  // Bad Request
-        should_call_responder = true; // Try to send a 400 error
+        // Client disconnected before completing the request - just log it
+        // Don't try to send a 400 response, as the client is already gone (EOF received)
+        fprintf(stderr, "INFO: Client %p disconnected before completing request (code: %zd)\n", (void*) client, nread);
+        // should_call_responder remains false - no point responding to a disconnected client
       }
       else {
         // message_complete_reached is true, but keep_alive_idle was false.
         // This could happen if EOF arrives right after on_message_complete but before on_write_complete could set keep_alive_idle.
         // Or client closed a non-keep-alive connection after response was sent.
-        fprintf(stderr, "INFO: Client %p connection ended (code: %zd) after message completion processing.\n", (void*) client, nread);
+        // This is normal behavior for non-keep-alive connections.
         // No error response needed if message was already handled.
       }
       immediate_close_needed = true;

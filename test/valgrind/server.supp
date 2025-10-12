@@ -69,6 +69,32 @@
    obj:*/libcrypto.so*
 }
 
+# OpenSSL uninitialised values (performance optimization, not a bug)
+# OpenSSL deliberately uses uninitialised padding for performance
+{
+   openssl_uninit_write_storage
+   Memcheck:Param
+   write(buf)
+   fun:*write*
+   ...
+   fun:uv__fs_work
+   fun:worker
+}
+
+{
+   openssl_ssl3_uninit_value
+   Memcheck:Value8
+   ...
+   obj:*/libssl.so*
+}
+
+{
+   openssl_ssl3_uninit_cond
+   Memcheck:Cond
+   ...
+   obj:*/libssl.so*
+}
+
 # dlopen/dlsym - dynamic library loading
 {
    dlopen_leak

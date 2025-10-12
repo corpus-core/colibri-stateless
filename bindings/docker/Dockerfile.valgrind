@@ -1,0 +1,93 @@
+# Valgrind Docker Image - For production-like memory debugging
+# Based on production Dockerfile but with debug symbols and valgrind
+
+FROM debian:bookworm-slim AS builder
+
+# Install build dependencies (same as production + valgrind)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake \
+    clang \
+    git \
+    build-essential \
+    ca-certificates \
+    libcurl4-openssl-dev \
+    pkg-config \
+    libssl-dev \
+    wget \
+    valgrind \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust (required for Kona-P2P bridge)
+RUN wget -O rustup-init.sh https://sh.rustup.rs \
+    && chmod +x rustup-init.sh \
+    && ./rustup-init.sh -y --default-toolchain stable \
+    && rm rustup-init.sh
+ENV PATH="/root/.cargo/bin:${PATH}"
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
+# Set working directory for the build
+WORKDIR /build
+
+# Copy all source code
+COPY CMakeLists.txt ./
+COPY CMakePresets.json ./
+COPY src ./src
+COPY libs ./libs
+COPY bindings ./bindings
+COPY test/valgrind ./test/valgrind
+
+# Configure and build with DEBUG symbols (not Release!)
+# Use DWARF-4 format for Valgrind compatibility (DWARF-5 not fully supported)
+ENV CC=clang
+ENV CXX=clang++
+ENV CFLAGS="-gdwarf-4"
+ENV CXXFLAGS="-gdwarf-4"
+RUN cmake \
+    -DHTTP_SERVER=ON \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCHAIN_OP=ON \
+    -DCHAIN_ETH=ON \
+    -DEVMONE=OFF \
+    -DPROOFER_CACHE=true \
+    . && make server
+
+# Use Debian slim for runtime (keep valgrind for analysis)
+FROM debian:bookworm-slim AS final
+
+# Install runtime dependencies + valgrind
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    valgrind \
+    procps \
+    vim-tiny \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy the built server executable with debug symbols
+COPY --from=builder /build/bin/server /app/server
+
+# Copy valgrind suppressions
+COPY --from=builder /build/test/valgrind/server.supp /app/server.supp
+
+# Copy startup script
+COPY bindings/docker/valgrind-server.sh /app/valgrind-server.sh
+RUN chmod +x /app/valgrind-server.sh
+
+# Expose the default server port
+EXPOSE 8090
+
+# Environment variables for valgrind configuration
+ENV VALGRIND_OPTS="--leak-check=full --show-leak-kinds=definite --track-origins=yes --fair-sched=yes"
+ENV VALGRIND_LOG="/app/logs/valgrind.log"
+
+# Create logs directory
+RUN mkdir -p /app/logs
+
+# Default command: run server under valgrind
+CMD ["/app/valgrind-server.sh"]
+
