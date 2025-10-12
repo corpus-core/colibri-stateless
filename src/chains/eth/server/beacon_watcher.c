@@ -57,6 +57,16 @@ static char* BEACON_WATCHER_URL = NULL;
 #define INACTIVITY_TIMEOUT_MS 30000
 #define RECONNECT_DELAY_MS    5000
 
+#ifdef TEST
+// Test helper to override beacon watcher URL
+void c4_test_set_beacon_watcher_url(const char* url) {
+  if (BEACON_WATCHER_URL) {
+    safe_free(BEACON_WATCHER_URL);
+  }
+  BEACON_WATCHER_URL = url ? strdup(url) : NULL;
+}
+#endif
+
 // Forward declarations
 static void start_beacon_watch();
 static void stop_beacon_watch();

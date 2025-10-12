@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-
-
 #define _GNU_SOURCE
 #include "cache.h"
 #include "server.h"
@@ -290,13 +288,23 @@ void memcache_free(mc_t** client_p) {
   // Clean up any queued operations
   mc_cleanup_queue(client);
 
-  // Close connections
-  for (unsigned int i = 0; i < client->size; i++)
-    uv_close((uv_handle_t*) &client->connections[i].tcp, on_conn_close);
+  // Close connections (only if not already closing)
+  // During shutdown, uv_walk may have already closed these handles
+  for (unsigned int i = 0; i < client->size; i++) {
+    if (!uv_is_closing((uv_handle_t*) &client->connections[i].tcp)) {
+      uv_close((uv_handle_t*) &client->connections[i].tcp, on_conn_close);
+    }
+  }
 
-  safe_free(client->connections);
-  safe_free(client);
-  *client_p = NULL;
+  // IMPORTANT: Do NOT free client->connections or client here!
+  // libuv still has internal references to these handles in the loop's handle queue.
+  // Freeing them now would cause use-after-free when uv_loop_close() iterates the queue.
+  // This is a controlled "leak" - the OS will reclaim memory when the process exits anyway.
+  // A proper fix would require refcounting or async cleanup, but that's overkill for shutdown.
+
+  // safe_free(client->connections);  // UNSAFE - libuv still has references
+  // safe_free(client);                // UNSAFE - would invalidate all connection->client pointers
+  *client_p = NULL; // Clear the pointer to prevent double-free attempts
 }
 
 static mc_conn_t* mc_get_connection(mc_t* client) {

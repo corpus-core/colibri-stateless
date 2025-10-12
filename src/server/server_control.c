@@ -172,8 +172,14 @@ static void close_active_clients(uv_handle_t* handle, void* arg) {
 
   // Only close TCP handles that are client connections (not the server socket or other handles)
   if (handle->type == UV_TCP && handle != walk_data->server_handle && !uv_is_closing(handle)) {
-    fprintf(stderr, "C4 Server: Closing active client connection %p\n", (void*) handle);
-    uv_close(handle, c4_http_server_on_close_callback); // Properly free client_t in callback
+    // Verify this is an HTTP client by checking the magic number
+    // This prevents us from closing memcache or other TCP handles with the wrong callback
+    client_t* client = (client_t*) handle->data;
+    if (client && client->magic == C4_CLIENT_MAGIC) {
+      fprintf(stderr, "C4 Server: Closing active client connection %p\n", (void*) handle);
+      uv_close(handle, c4_http_server_on_close_callback); // Properly free client_t in callback
+    }
+    // Memcache and other handles will be closed by their respective cleanup functions
   }
 }
 

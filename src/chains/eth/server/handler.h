@@ -28,4 +28,9 @@ void c4_handle_finalized_checkpoint(json_t checkpoint);
 void c4_watch_beacon_events();
 void c4_stop_beacon_watcher();
 
+#ifdef TEST
+// Test helper to override beacon watcher URL for testing
+void c4_test_set_beacon_watcher_url(const char* url);
+#endif
+
 #endif // ETH_SERVER_HANDLER_H

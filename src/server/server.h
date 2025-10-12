@@ -122,7 +122,11 @@ typedef struct {
 
 extern http_server_t         http_server;
 extern volatile sig_atomic_t graceful_shutdown_in_progress;
+// Magic number to identify valid HTTP client structs (0xC4C11E47 = "C4 CLIENT")
+#define C4_CLIENT_MAGIC 0xC4C11E47
+
 typedef struct {
+  uint32_t          magic; // Magic number to identify valid client structs
   uv_tcp_t          handle;
   llhttp_t          parser;
   llhttp_settings_t settings;

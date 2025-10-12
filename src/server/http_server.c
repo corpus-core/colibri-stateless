@@ -89,6 +89,14 @@ static void on_close(uv_handle_t* handle) {
   client_t* client = (client_t*) handle->data;
   if (!client) return;
 
+  // Verify this is actually a client_t struct using magic number
+  // This prevents accidentally freeing memcache or other handles
+  if (client->magic != C4_CLIENT_MAGIC) {
+    fprintf(stderr, "ERROR: on_close called with invalid client (magic: 0x%x, expected: 0x%x) - skipping cleanup\n",
+            client->magic, C4_CLIENT_MAGIC);
+    return;
+  }
+
   safe_free(client->request.path);
   safe_free(client->request.content_type);
   safe_free(client->request.accept);
@@ -101,7 +109,8 @@ static void on_close(uv_handle_t* handle) {
 #endif
   // Clear handle->data BEFORE freeing client to avoid use-after-free
   // (handle is part of the client structure, so accessing it after free is invalid)
-  handle->data = NULL;
+  handle->data  = NULL;
+  client->magic = 0; // Invalidate magic number
   safe_free(client);
 }
 
@@ -607,6 +616,7 @@ void c4_on_new_connection(uv_stream_t* server, int status) {
   }
   uv_loop_t* loop   = server->loop;
   client_t*  client = (client_t*) safe_calloc(1, sizeof(client_t));
+  client->magic     = C4_CLIENT_MAGIC; // Set magic number for validation
   uv_tcp_init(loop, &client->handle);
   client->handle.data              = client;
   client->being_closed             = false;
