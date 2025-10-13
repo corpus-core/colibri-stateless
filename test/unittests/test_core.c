@@ -560,13 +560,17 @@ void test_edge_cases() {
   buffer_t buf3 = {0};
   buffer_append(&buf3, bytes("World", 5));
   buffer_splice(&buf3, 0, 0, bytes("Hello ", 6));
+  buffer_append(&buf3, bytes("", 1)); // Null-Terminator hinzufügen
+  buf3.data.len--;
   TEST_ASSERT_EQUAL_STRING("Hello World", buffer_as_string(buf3));
   buffer_free(&buf3);
-
+  
   // Test: buffer_splice am Ende
   buffer_t buf4 = {0};
   buffer_append(&buf4, bytes("Hello", 5));
   buffer_splice(&buf4, 5, 0, bytes(" World", 6));
+  buffer_append(&buf4, bytes("", 1)); // Null-Terminator hinzufügen
+  buf4.data.len--;
   TEST_ASSERT_EQUAL_STRING("Hello World", buffer_as_string(buf4));
   buffer_free(&buf4);
 }
