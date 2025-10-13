@@ -564,7 +564,7 @@ void test_edge_cases() {
   buf3.data.len--;
   TEST_ASSERT_EQUAL_STRING("Hello World", buffer_as_string(buf3));
   buffer_free(&buf3);
-  
+
   // Test: buffer_splice am Ende
   buffer_t buf4 = {0};
   buffer_append(&buf4, bytes("Hello", 5));
