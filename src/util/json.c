@@ -195,18 +195,122 @@ size_t json_len(json_t parent) {
   return i;
 }
 
+static void json_deescape_string(buffer_t* buffer) {
+  if (!buffer) return;
+  for (size_t i = 0; i < buffer->data.len; i++) {
+    if (buffer->data.data[i] == '\\' && i + 1 < buffer->data.len) {
+      uint8_t replacement[4];
+      size_t  replacement_len = 0;
+      uint8_t next_char       = buffer->data.data[i + 1];
+
+      switch (next_char) {
+        case '"':
+          replacement[0]  = '"';
+          replacement_len = 1;
+          break;
+        case '\\':
+          replacement[0]  = '\\';
+          replacement_len = 1;
+          break;
+        case '/':
+          replacement[0]  = '/';
+          replacement_len = 1;
+          break;
+        case 'b':
+          replacement[0]  = '\b';
+          replacement_len = 1;
+          break;
+        case 'f':
+          replacement[0]  = '\f';
+          replacement_len = 1;
+          break;
+        case 'n':
+          replacement[0]  = '\n';
+          replacement_len = 1;
+          break;
+        case 'r':
+          replacement[0]  = '\r';
+          replacement_len = 1;
+          break;
+        case 't':
+          replacement[0]  = '\t';
+          replacement_len = 1;
+          break;
+        case 'u':
+          // Unicode escape sequence: \uXXXX
+          if (i + 5 < buffer->data.len) {
+            // Parse the 4 hex digits
+            uint16_t codepoint = 0;
+            bool     valid     = true;
+            for (int j = 0; j < 4; j++) {
+              uint8_t hex_char = buffer->data.data[i + 2 + j];
+              uint8_t hex_val  = 0;
+              if (hex_char >= '0' && hex_char <= '9')
+                hex_val = hex_char - '0';
+              else if (hex_char >= 'a' && hex_char <= 'f')
+                hex_val = hex_char - 'a' + 10;
+              else if (hex_char >= 'A' && hex_char <= 'F')
+                hex_val = hex_char - 'A' + 10;
+              else {
+                valid = false;
+                break;
+              }
+              codepoint = (codepoint << 4) | hex_val;
+            }
+
+            if (valid) {
+              // Convert Unicode codepoint to UTF-8
+              if (codepoint <= 0x7F) {
+                // 1-byte UTF-8
+                replacement[0]  = (uint8_t) codepoint;
+                replacement_len = 1;
+              }
+              else if (codepoint <= 0x7FF) {
+                // 2-byte UTF-8
+                replacement[0]  = 0xC0 | ((codepoint >> 6) & 0x1F);
+                replacement[1]  = 0x80 | (codepoint & 0x3F);
+                replacement_len = 2;
+              }
+              else {
+                // 3-byte UTF-8 (covers BMP)
+                replacement[0]  = 0xE0 | ((codepoint >> 12) & 0x0F);
+                replacement[1]  = 0x80 | ((codepoint >> 6) & 0x3F);
+                replacement[2]  = 0x80 | (codepoint & 0x3F);
+                replacement_len = 3;
+              }
+              buffer_splice(buffer, i, 6, bytes(replacement, replacement_len));
+              i += replacement_len - 1;
+              continue;
+            }
+          }
+          // Invalid unicode escape, skip
+          continue;
+        default:
+          // Unknown escape sequence, skip
+          continue;
+      }
+
+      // Replace the escape sequence with the unescaped character
+      buffer_splice(buffer, i, 2, bytes(replacement, replacement_len));
+    }
+  }
+}
+
 char* json_as_string(json_t value, buffer_t* buffer) {
   buffer_t tmp = {0};
   if (!buffer) buffer = &tmp;
   buffer->data.len = 0;
   buffer_grow(buffer, value.len + 1);
-  if (value.type == JSON_TYPE_STRING)
-
+  if (value.type == JSON_TYPE_STRING) {
     buffer_append(buffer, bytes((uint8_t*) value.start + 1, value.len - 2));
-  else
+    buffer->data.data[buffer->data.len] = '\0';
+    buffer->data.len++;
+    json_deescape_string(buffer);
+  }
+  else {
     buffer_append(buffer, bytes((uint8_t*) value.start, value.len));
-
-  buffer->data.data[buffer->data.len] = '\0';
+    buffer->data.data[buffer->data.len] = '\0';
+  }
   return (char*) buffer->data.data;
 }
 
@@ -255,12 +359,7 @@ void buffer_add_json(buffer_t* buffer, json_t data) {
 }
 
 char* json_new_string(json_t parent) {
-  if (!parent.start) return safe_malloc(1); // Return empty string for NULL input
-  char* new_str = (char*) safe_malloc(parent.len + 1);
-  // safe_malloc never returns NULL, so no check needed
-  memcpy(new_str, parent.start, parent.len);
-  new_str[parent.len] = '\0';
-  return new_str;
+  return json_as_string(parent, NULL);
 }
 
 bool json_equal_string(json_t value, const char* str) {

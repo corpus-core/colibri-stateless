@@ -284,31 +284,100 @@ void buffer_add_chars(buffer_t* buffer, const char* data) {
   buffer->data.len -= 1;
 }
 
-static inline int is_special_char(char c) {
-  return c == '"' || c == '\\' || c == '\n';
-}
-
 void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
   if (!data) return;
-  int len         = strlen(data);
-  int escaped_len = len;
+  const uint8_t* str = (const uint8_t*) data;
+  int            len = strlen(data);
+
+  // Calculate additional bytes needed for escape sequences
+  int escaped_len = 0;
   for (int i = 0; i < len; i++) {
-    if (is_special_char(data[i])) {
-      escaped_len++;
-      if (data[i] == '\n') escaped_len++;
+    uint8_t c = str[i];
+
+    switch (c) {
+      // Special JSON characters that need escaping (add 1 byte for backslash)
+      case '"':
+      case '\\':
+      case '\b':
+      case '\f':
+      case '\n':
+      case '\r':
+      case '\t':
+        escaped_len += 1; // Add 1 byte for the backslash
+        break;
+
+      default:
+        if (c < 0x20) {
+          // Other control characters: escape as \uXXXX (add 5 bytes: \uXXXX)
+          escaped_len += 5;
+        }
+        // else: no additional bytes needed
+        break;
     }
   }
-  buffer_grow(buffer, buffer->data.len + escaped_len + 1);
-  for (int i = 0; i < len; i++) {
-    if (is_special_char(data[i]))
-      buffer->data.data[buffer->data.len++] = '\\';
-    if (data[i] == '\n') {
-      buffer->data.data[buffer->data.len++] = '\\';
-      buffer->data.data[buffer->data.len++] = 'n';
-    }
-    else
-      buffer->data.data[buffer->data.len++] = data[i];
+
+  buffer_grow(buffer, buffer->data.len + len + escaped_len + 1);
+
+  // Fast path: if no escaping needed, use buffer_append
+  if (escaped_len == 0) {
+    buffer_append(buffer, bytes(str, len));
+    buffer->data.data[buffer->data.len] = 0;
+    return;
   }
+
+  // Perform the actual escaping
+  for (int i = 0; i < len; i++) {
+    uint8_t c = str[i];
+
+    switch (c) {
+      case '"':
+        buffer->data.data[buffer->data.len++] = '\\';
+        buffer->data.data[buffer->data.len++] = '"';
+        break;
+      case '\\':
+        buffer->data.data[buffer->data.len++] = '\\';
+        buffer->data.data[buffer->data.len++] = '\\';
+        break;
+      case '\b':
+        buffer->data.data[buffer->data.len++] = '\\';
+        buffer->data.data[buffer->data.len++] = 'b';
+        break;
+      case '\f':
+        buffer->data.data[buffer->data.len++] = '\\';
+        buffer->data.data[buffer->data.len++] = 'f';
+        break;
+      case '\n':
+        buffer->data.data[buffer->data.len++] = '\\';
+        buffer->data.data[buffer->data.len++] = 'n';
+        break;
+      case '\r':
+        buffer->data.data[buffer->data.len++] = '\\';
+        buffer->data.data[buffer->data.len++] = 'r';
+        break;
+      case '\t':
+        buffer->data.data[buffer->data.len++] = '\\';
+        buffer->data.data[buffer->data.len++] = 't';
+        break;
+
+      default:
+        if (c < 0x20) {
+          // Other control characters: escape as \uXXXX
+          static const char hex_digits[]        = "0123456789abcdef";
+          buffer->data.data[buffer->data.len++] = '\\';
+          buffer->data.data[buffer->data.len++] = 'u';
+          buffer->data.data[buffer->data.len++] = '0';
+          buffer->data.data[buffer->data.len++] = '0';
+          buffer->data.data[buffer->data.len++] = hex_digits[(c >> 4) & 0x0F];
+          buffer->data.data[buffer->data.len++] = hex_digits[c & 0x0F];
+        }
+        else {
+          // Regular character (including UTF-8 multi-byte sequences)
+          buffer->data.data[buffer->data.len++] = c;
+        }
+        break;
+    }
+  }
+
   buffer->data.data[buffer->data.len] = 0;
 }
 
