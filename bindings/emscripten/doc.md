@@ -202,8 +202,13 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ proofer: ["https://mainnet.colibri-proof.tech" ]})
     ```
+- `checkpointz` - urls for checkpointz servers    
+    An array of Checkpointz server endpoints for fetching trusted checkpoint data and weak subjectivity validation. These servers provide finalized beacon block roots that the verifier uses for secure initialization and periodic validation. The verifier automatically queries these servers when no trusted checkpoint is provided or when validating long sync gaps. Multiple URLs enable automatic fallback for resilience. Defaults to public Checkpointz servers for mainnet.
+    ```js
+    new Colibri({ checkpointz: [ 'https://sync-mainnet.beaconcha.in', 'https://beaconstate.info', 'https://sync.invis.tools', 'https://beaconstate.ethstaker.cc' ]})
+    ```
 - `trusted_block_hashes` - beacon block hashes used as trusted anchor    
-    Thise array of blockhashes will be used as anchor for fetching the keys for the sync committee. So instead of starting with the genesis you can define a starting block, where you know the blockhash. If not trusted blockhash is set the beacon-api will be used to fetch one, but defining it is safer.
+    This array of blockhashes will be used as anchor for fetching the keys for the sync committee. So instead of starting with the genesis you can define a starting block, where you know the blockhash. If no trusted blockhash is set, the verifier will automatically fetch the latest finalized checkpoint from a Checkpointz server, making initialization secure and convenient. Providing an explicit trusted checkpoint is recommended for maximum security control but is no longer required.
     ```js
     new Colibri({ trusted_block_hashes: [ "0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7" ]})
     ```

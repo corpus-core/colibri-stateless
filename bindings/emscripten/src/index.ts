@@ -102,7 +102,11 @@ function log(msg: string) {
 export async function handle_request(req: DataRequest, conf: C4Config) {
 
   const free_buffers: number[] = [];
-  const servers = req.type == "checkpointz" ? conf.checkpointz : (req.type == "beacon_api" ? ((conf.proofer && conf.proofer.length) ? conf.proofer : conf.beacon_apis) : conf.rpcs);
+  const servers = req.type == "checkpointz"
+    ? (conf.checkpointz || [])
+    : (req.type == "beacon_api"
+      ? ((conf.proofer && conf.proofer.length) ? conf.proofer : conf.beacon_apis)
+      : conf.rpcs);
   const c4w = await getC4w();
   let path = (req.type == 'eth_rpc' && req.payload)
     ? `rpc: ${req.payload?.method}(${req.payload?.params.join(',')})`
