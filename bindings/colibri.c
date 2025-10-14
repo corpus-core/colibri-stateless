@@ -86,6 +86,8 @@ static const char* data_request_type_to_string(data_request_type_t type) {
       return "eth_rpc";
     case C4_DATA_TYPE_REST_API:
       return "rest_api";
+    case C4_DATA_TYPE_CHECKPOINTZ:
+      return "checkpointz";
   }
 }
 static void add_data_request(buffer_t* result, data_request_t* data_request) {

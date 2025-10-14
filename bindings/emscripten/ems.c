@@ -85,6 +85,8 @@ static const char* data_request_type_to_string(data_request_type_t type) {
       return "rest_api";
     case C4_DATA_TYPE_INTERN:
       return "intern";
+    case C4_DATA_TYPE_CHECKPOINTZ:
+      return "checkpointz";
   }
 }
 static void add_data_request(buffer_t* result, data_request_t* data_request) {

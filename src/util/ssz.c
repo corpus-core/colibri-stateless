@@ -101,6 +101,7 @@ static bool failure(char* fnt) {
     }                                                              \
     return true;                                                   \
   } while (0)
+
 bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
   switch (ob.def->type) {
     case SSZ_TYPE_BOOLEAN:

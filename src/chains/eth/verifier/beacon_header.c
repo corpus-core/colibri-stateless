@@ -21,7 +21,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-
 #include "../util/bytes.h"
 #include "../util/crypto.h"
 #include "../util/ssz.h"
@@ -49,9 +48,9 @@ static const ssz_def_t FORK_DATA[] = {
 static const ssz_def_t FORK_DATA_CONTAINER = SSZ_CONTAINER("ForkDate", FORK_DATA);
 
 bool eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain) {
-  uint8_t       buffer[36] = {0};
-  bytes32_t     root       = {0};
-  chain_spec_t* chain      = c4_eth_get_chain_spec(chain_id);
+  uint8_t             buffer[36] = {0};
+  bytes32_t           root       = {0};
+  const chain_spec_t* chain      = c4_eth_get_chain_spec(chain_id);
 
   // compute fork_data root hash to the seconf 32 bytes of bffer
   if (!chain) return false;
@@ -136,8 +135,10 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
   if (slot == 0) THROW_ERROR("slot is missing in beacon header!");
   if (!spec) THROW_ERROR("unsupported chain id!");
 
+  uint32_t period = slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits);
+
   // get the validators and make sure we have the right ones for the requested period
-  TRY_ASYNC(c4_get_validators(ctx, slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits), &sync_state));
+  TRY_ASYNC(c4_get_validators(ctx, period, &sync_state));
 
   // compute blockhash
   ssz_hash_tree_root(*header, root);
@@ -147,6 +148,21 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
 
   // verify the signature
   bool valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
+
+  // Edge case: Period transition without immediate finality
+  // If the signature is invalid, try with the previous period's validators
+  // This can happen when finality is delayed at the start of a new period
+  // and the old sync committee keys are still valid
+  if (!valid && period > 0) {
+#ifndef C4_STATIC_MEMORY
+    safe_free(sync_state.validators.data);
+#endif
+    // Try to get validators from previous period
+    TRY_ASYNC(c4_get_validators(ctx, period - 1, &sync_state));
+
+    // Verify again with previous period's validators
+    valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
+  }
 
 #ifndef C4_STATIC_MEMORY
   safe_free(sync_state.validators.data);

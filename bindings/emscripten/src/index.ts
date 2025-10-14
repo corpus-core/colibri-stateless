@@ -102,7 +102,7 @@ function log(msg: string) {
 export async function handle_request(req: DataRequest, conf: C4Config) {
 
   const free_buffers: number[] = [];
-  const servers = req.type == "beacon_api" ? ((conf.proofer && conf.proofer.length) ? conf.proofer : conf.beacon_apis) : conf.rpcs;
+  const servers = req.type == "checkpointz" ? conf.checkpointz : (req.type == "beacon_api" ? ((conf.proofer && conf.proofer.length) ? conf.proofer : conf.beacon_apis) : conf.rpcs);
   const c4w = await getC4w();
   let path = (req.type == 'eth_rpc' && req.payload)
     ? `rpc: ${req.payload?.method}(${req.payload?.params.join(',')})`
@@ -172,6 +172,7 @@ const default_config: {
     beacon_apis: string[];
     rpcs: string[];
     proofer: string[];
+    checkpointz: string[];
     pollingInterval: number;
   }
 } = {
@@ -180,6 +181,7 @@ const default_config: {
     beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
     rpcs: ["https://rpc.ankr.com/eth"],
     proofer: ["https://mainnet1.colibri-proof.tech"],
+    checkpointz: ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
     pollingInterval: 12000,
   },
   '11155111': { // Sepolia
@@ -187,6 +189,7 @@ const default_config: {
     beacon_apis: ["https://ethereum-sepolia-beacon-api.publicnode.com"],
     rpcs: ["https://ethereum-sepolia-rpc.publicnode.com"],
     proofer: ["https://sepolia.colibri-proof.tech"],
+    checkpointz: [], // No public checkpointz for Sepolia yet
     pollingInterval: 12000,
   },
   '100': { // gnosis
@@ -194,6 +197,7 @@ const default_config: {
     beacon_apis: ["https://gnosis.colibri-proof.tech"],
     rpcs: ["https://rpc.ankr.com/gnosis"],
     proofer: ["https://gnosis.colibri-proof.tech"],
+    checkpointz: [], // TODO: Add Gnosis checkpointz servers
     pollingInterval: 5000,
   },
   '10200': { // gnosis chiado
@@ -201,6 +205,7 @@ const default_config: {
     beacon_apis: ["https://gnosis-chiado-beacon-api.publicnode.com"],
     rpcs: ["https://gnosis-chiado-rpc.publicnode.com"],
     proofer: ["https://chiado.colibri-proof.tech"],
+    checkpointz: [], // No public checkpointz for Chiado yet
     pollingInterval: 5000,
   },
 }
@@ -263,12 +268,13 @@ export default class C4Client {
       rpcs: chain_config.rpcs || [],
       beacon_apis: chain_config.beacon_apis || [],
       proofer: chain_config.proofer || [],
+      checkpointz: chain_config.checkpointz || [],
       ...config, // User config overrides defaults
       chainId,
     } as C4Config;
 
     // Schutz vor Config-Manipulation anwenden
-    PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'proofer']);
+    PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'proofer', 'checkpointz']);
 
     this.config = baseConfig;
 

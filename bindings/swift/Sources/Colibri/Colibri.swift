@@ -215,6 +215,7 @@ public class Colibri {
     public var eth_rpcs: [String] = []
     public var beacon_apis: [String] = []
     public var proofers: [String] = ["https://c4.incubed.net"]
+    public var checkpointz: [String] = ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"]
     public var trustedBlockHashes: [String] = []
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
@@ -482,7 +483,9 @@ public class Colibri {
                     // Determine server list based on the flag and request type
                     let requestType = request["type"] as? String
                     let servers: [String]
-                    if useProoferFallback && requestType == "beacon" && !self.proofers.isEmpty {
+                    if requestType == "checkpointz" {
+                        servers = self.checkpointz
+                    } else if useProoferFallback && requestType == "beacon" && !self.proofers.isEmpty {
                         servers = self.proofers
                     } else if requestType == "beacon" {
                         servers = self.beacon_apis

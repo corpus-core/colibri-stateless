@@ -193,6 +193,7 @@ void buffer_add_json(buffer_t* buffer, json_t data) NONNULL_FOR((1));
  *    - "hexuint"   : hex-encoded unsigned integer (no leading zeros, max 32 bytes)
  *    - "hex32"     : hex string with max 32 bytes length
  *    - "uint"      : JSON number (integer)
+ *    - "suint"     : JSON string (integer) like "1234567890"
  *    - "bool"      : JSON boolean (true/false)
  *    - "block"     : block identifier (hex uint or "latest", "safe", "finalized")
  *

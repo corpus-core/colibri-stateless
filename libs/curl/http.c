@@ -54,7 +54,8 @@ static char*  chain_store    = NULL;
 const char*   CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 #define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\",\"https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd\"]," \
-                       "\"beacon_api\":[\"https://lodestar-mainnet.chainsafe.io\"]}"
+                       "\"beacon_api\":[\"https://lodestar-mainnet.chainsafe.io\"],"                                                                                                                                                                                                                  \
+                       "\"checkpointz\":[\"https://sync-mainnet.beaconcha.in\",\"https://beaconstate.info\",\"https://sync.invis.tools\",\"https://beaconstate.ethstaker.cc\"]}"
 
 char*       cache_dir = NULL;
 static void curl_request_free(curl_request_t* creq) {
@@ -158,6 +159,9 @@ static bool configure_request(curl_request_t* creq) {
       break;
     case C4_DATA_TYPE_BEACON_API:
       servers = json_get(curl_config.config, "beacon_api");
+      break;
+    case C4_DATA_TYPE_CHECKPOINTZ:
+      servers = json_get(curl_config.config, "checkpointz");
       break;
     case C4_DATA_TYPE_REST_API:
       break;
@@ -376,6 +380,9 @@ void curl_fetch_all(c4_state_t* state) {
                     break;
                   case C4_DATA_TYPE_BEACON_API:
                     servers = json_get(curl_config.config, "beacon_api");
+                    break;
+                  case C4_DATA_TYPE_CHECKPOINTZ:
+                    servers = json_get(curl_config.config, "checkpointz");
                     break;
                   default:
                     break;

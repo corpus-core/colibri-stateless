@@ -1,0 +1,10 @@
+{
+  "data": {
+    "finality": {
+      "finalized": {
+        "epoch": "356353",
+        "root": "0x46d52dc3db74df14187554fb7afd5cc4af4558e3c8ca185e409955d6ac148572"
+      }
+    }
+  }
+}

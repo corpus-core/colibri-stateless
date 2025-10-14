@@ -72,6 +72,7 @@ class Colibri(
     var proofers: Array<String> = arrayOf("https://c4.incubed.net"), // Default value
     var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
     var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
+    var checkpointz: Array<String> = arrayOf("https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"), // Default checkpointz servers
     var trustedBlockHashes: Array<String> = arrayOf(), // Default empty array
     var includeCode: Boolean = false, // Default value
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
@@ -287,7 +288,11 @@ class Colibri(
                                 val request = requests.getJSONObject(i)
                                  // Ensure type field exists before accessing
                                  val type = request.optString("type", "eth_rpc") // Default or handle missing type
-                                val servers = if (type == "beacon_api") beaconApis else ethRpcs
+                                val servers = when (type) {
+                                    "checkpointz" -> checkpointz
+                                    "beacon_api" -> beaconApis
+                                    else -> ethRpcs
+                                }
                                  try {
                                      fetchRequest(servers, request)
                                  } catch (e: Exception) {
@@ -446,13 +451,11 @@ class Colibri(
                                 val request = requests.getJSONObject(i)
                                  val type = request.optString("type", "eth_rpc")
                                 // Prioritize proofers if not empty and type is beacon_api
-                                val servers = if (type == "beacon_api" && proofers.isNotEmpty()) {
-                                     proofers
-                                } else if (type == "beacon_api") {
-                                     beaconApis
-                                 } else {
-                                     ethRpcs
-                                 }
+                                val servers = when (type) {
+                                    "checkpointz" -> checkpointz
+                                    "beacon_api" -> if (proofers.isNotEmpty()) proofers else beaconApis
+                                    else -> ethRpcs
+                                }
                                  try {
                                      fetchRequest(servers, request)
                                  } catch (e: Exception) {
