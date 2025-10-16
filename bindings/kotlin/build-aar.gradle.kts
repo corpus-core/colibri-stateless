@@ -10,7 +10,39 @@ plugins {
 }
 
 group = "com.corpuscore"
-version = "1.0.0" // Adjust as needed
+
+// Dynamic version based on Git tag or branch
+fun getProjectVersion(): String {
+    return try {
+        val tagVersion = providers.exec {
+            commandLine("git", "describe", "--tags", "--exact-match", "HEAD")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim()
+        
+        if (tagVersion.isNotEmpty() && !tagVersion.contains("fatal")) {
+            tagVersion.removePrefix("v")
+        } else {
+            // Not on a tag, check if on dev branch
+            val branchName = providers.exec {
+                commandLine("git", "rev-parse", "--abbrev-ref", "HEAD")
+                isIgnoreExitValue = true
+            }.standardOutput.asText.get().trim()
+            
+            val baseVersion = "1.0.0"
+            if (branchName == "dev") {
+                "$baseVersion-SNAPSHOT"
+            } else {
+                "$baseVersion-${branchName}-SNAPSHOT"
+            }
+        }
+    } catch (e: Exception) {
+        println("Warning: Could not determine version from git: ${e.message}")
+        "1.0.0-SNAPSHOT"
+    }
+}
+
+version = getProjectVersion()
+println("Building AAR with version: $version")
 
 // Configure the path to generated Java sources
 val generatedSourcesPath = project.findProperty("generatedSourcesPath")?.toString() 
@@ -102,13 +134,23 @@ afterEvaluate {
         publications {
             register<MavenPublication>("release") {
                 from(components["release"])
-                groupId = "com.corpuscore"
+                groupId = "tech.corpuscore"
                 artifactId = "colibri-aar"
-                version = "1.0.0"
+                version = project.version.toString()
             }
         }
         repositories {
             maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/corpus-core/colibri-stateless")
+                credentials {
+                    username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("githubActor")?.toString()
+                    password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("githubToken")?.toString()
+                }
+            }
+            // Optional: Maven Central (for later)
+            maven {
+                name = "MavenCentral"
                 url = uri("https://your.maven.repo") // Replace with your Maven repository URL
                 credentials {
                     username = project.findProperty("mavenUsername")?.toString()
