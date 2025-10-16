@@ -30,6 +30,14 @@ extern "C" {
 
 #include "../../src/proofer/proofer.h"
 
+typedef struct {
+  json_t checkpointz;
+  json_t beacon_api;
+  json_t eth_rpc;
+  json_t proofer;
+  json_t chain_store;
+} curl_nodes_t;
+
 void curl_fetch(data_request_t* req);
 void curl_fetch_all(c4_state_t* state);
 void curl_set_config(json_t config);
