@@ -49,12 +49,8 @@ typedef struct {
   char*           url;
 } curl_request_t;
 
-curl_nodes_t curl_nodes = {0};
-
-// curl_config_t curl_config = {0};
-
-static char* chain_store    = NULL;
-const char*  CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
+static curl_nodes_t curl_nodes     = {0};
+const char*         CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 #define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://ethereum-mainnet.core.chainstack.com/364e0a05996fe175eb1975ddc6e9147d\",\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\",\"https://rpc.ankr.com/eth/c14449317accec005863d22c7515f6b69667abb29ba2b5e099abf490bcb875b1\",\"https://eth.llamarpc.com\",\"https://rpc.payload.de\",\"https://ethereum-rpc.publicnode.com\"]," \
                        "\"beacon_api\":[\"https://ethereum-mainnet.core.chainstack.com/beacon/364e0a05996fe175eb1975ddc6e9147d/\",\"http://unstable.mainnet.beacon-api.nimbus.team/\",\"https://lodestar-mainnet.chainsafe.io/\"],"                                                                                                                                                                                                                                                     \
@@ -122,10 +118,6 @@ static void curl_request_free(curl_request_t* creq) {
 void curl_set_cache_dir(const char* dir) {
   cache_dir = strdup(dir);
   MKDIR(cache_dir);
-}
-
-void curl_set_chain_store(const char* dir) {
-  chain_store = bprintf(NULL, "[\"file://%s\"]", dir);
 }
 
 #define return_error(req, msg) \
