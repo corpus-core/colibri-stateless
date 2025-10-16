@@ -24,7 +24,7 @@ static void c4_proxy_callback(client_t* client, void* data, data_request_t* req)
   }
 
   if (req->response.data)
-    c4_http_respond(client, 200, "application/json", req->response);
+    c4_http_respond(client, 200, req->encoding == C4_DATA_ENCODING_SSZ ? "application/octet-stream" : "application/json", req->response);
   else
     c4_write_error_response(client, 500, req->error);
   safe_free(req->url);
