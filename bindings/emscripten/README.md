@@ -177,10 +177,14 @@ The constructor of the colibri client accepts a configuration-object, which may 
      ```js
      new Colibri({ beacon_apis: [ 'https://lodestar-mainnet.chainsafe.io' ]})
      ```
-- `checkpointz` - urls for checkpointz servers    
-    An array of Checkpointz server endpoints for fetching trusted checkpoint data and weak subjectivity validation. These servers provide finalized beacon block roots that the verifier uses for secure initialization and periodic validation. Multiple URLs enable automatic fallback. Defaults to public Checkpointz servers for mainnet.
+- `checkpointz` - urls for checkpoint servers (Checkpointz or Beacon API)    
+    An array of server endpoints for fetching finalized checkpoint data and weak subjectivity validation. Supports both dedicated Checkpointz servers and standard Beacon API nodes, as the verifier uses the Beacon-API-compatible endpoint `/eth/v1/beacon/states/head/finality_checkpoints`. These servers provide finalized beacon block roots used for secure initialization and periodic validation. Multiple URLs enable automatic fallback. Defaults to public Checkpointz servers for mainnet, but you can also use your own Beacon node for maximum trust.
      ```js
+     // Using public Checkpointz servers (default)
      new Colibri({ checkpointz: [ 'https://sync-mainnet.beaconcha.in', 'https://beaconstate.info' ]})
+     
+     // Or using your own Beacon node
+     new Colibri({ checkpointz: [ 'http://localhost:5052' ]})
      ```
 - `rpcs` - RPCs for the executionlayer    
     a array of rpc-endpoints for accessing the execution layer. If you are using the remote proofer, you may not need it at all. But creating your proofs locally will require to access data from the execution layer. Having more than one rpc-url allows to use fallbacks in case one is not available.

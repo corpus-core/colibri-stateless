@@ -172,23 +172,22 @@ static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count
 
 static bool req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
   buffer_t tmp = {0};
-  bprintf(&tmp, "checkpointz/v1/status");
+  bprintf(&tmp, "eth/v1/beacon/states/head/finality_checkpoints");
 
   data_request_t* req = c4_state_get_data_request_by_url(state, (char*) tmp.data.data);
   if (req) buffer_free(&tmp);
   if (req && req->response.data) {
     json_t res = json_parse((char*) req->response.data);
 
-    // Validate JSON structure
-    const char* err = json_validate(res, "{data:{finality:{finalized:{epoch:suint,root:bytes32}}}}", "checkpointz status");
+    // Validate JSON structure (Beacon API compatible format)
+    const char* err = json_validate(res, "{data:{finalized:{epoch:suint,root:bytes32}}}", "finality checkpoints");
     if (err) {
       c4_state_add_error(state, err);
       return false;
     }
 
     json_t data      = json_get(res, "data");
-    json_t finality  = json_get(data, "finality");
-    json_t finalized = json_get(finality, "finalized");
+    json_t finalized = json_get(data, "finalized");
     json_t epoch     = json_get(finalized, "epoch");
     json_t root      = json_get(finalized, "root");
 

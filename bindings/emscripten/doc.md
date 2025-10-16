@@ -202,10 +202,14 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ proofer: ["https://mainnet.colibri-proof.tech" ]})
     ```
-- `checkpointz` - urls for checkpointz servers    
-    An array of Checkpointz server endpoints for fetching trusted checkpoint data and weak subjectivity validation. These servers provide finalized beacon block roots that the verifier uses for secure initialization and periodic validation. The verifier automatically queries these servers when no trusted checkpoint is provided or when validating long sync gaps. Multiple URLs enable automatic fallback for resilience. Defaults to public Checkpointz servers for mainnet.
+- `checkpointz` - urls for checkpoint servers (Checkpointz or Beacon API)    
+    An array of server endpoints for fetching finalized checkpoint data and weak subjectivity validation. Supports both dedicated Checkpointz servers and standard Beacon API nodes, as the verifier uses the Beacon-API-compatible endpoint `/eth/v1/beacon/states/head/finality_checkpoints`. These servers provide finalized beacon block roots that the verifier uses for secure initialization and periodic validation. The verifier automatically queries these servers when no trusted checkpoint is provided or when validating long sync gaps. Multiple URLs enable automatic fallback for resilience. Defaults to public Checkpointz servers for mainnet, but you can also use your own Beacon node for maximum trust.
     ```js
+    // Using public Checkpointz servers (default for mainnet)
     new Colibri({ checkpointz: [ 'https://sync-mainnet.beaconcha.in', 'https://beaconstate.info', 'https://sync.invis.tools', 'https://beaconstate.ethstaker.cc' ]})
+    
+    // Or using your own Beacon node for maximum trust
+    new Colibri({ checkpointz: [ 'http://localhost:5052' ]})
     ```
 - `trusted_block_hashes` - beacon block hashes used as trusted anchor    
     This array of blockhashes will be used as anchor for fetching the keys for the sync committee. So instead of starting with the genesis you can define a starting block, where you know the blockhash. If no trusted blockhash is set, the verifier will automatically fetch the latest finalized checkpoint from a Checkpointz server, making initialization secure and convenient. Providing an explicit trusted checkpoint is recommended for maximum security control but is no longer required.
