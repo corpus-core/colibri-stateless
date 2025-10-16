@@ -6,16 +6,57 @@ The Colibri bindings for Kotlin/Java are built using CMake and Gradle. It can be
 
 > 💡 **Quick Start**: Check out the [Example Android App](https://github.com/corpus-core/colibri-stateless/tree/dev/bindings/kotlin/example) for a complete working implementation!
 
-## Usage
+## Installation
 
-### Java
+The Colibri Kotlin/Java bindings are published to [GitHub Packages](https://github.com/corpus-core/colibri-stateless/packages) and are **publicly available without authentication**.
 
-Add the dependency to your `build.gradle` file:
+### Adding the Repository
+
+Add the GitHub Packages repository to your project:
+
+**Groovy (build.gradle):**
 ```groovy
-implementation 'com.corpuscore.colibri:colibri-java:0.1.0'
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/corpus-core/colibri-stateless")
+    }
+}
 ```
 
-use it like this:
+**Kotlin DSL (build.gradle.kts):**
+```kotlin
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/corpus-core/colibri-stateless")
+    }
+}
+```
+
+> **Note:** The packages are public and no authentication is required for downloading.
+
+### Versioning
+
+The packages are automatically published with semantic versioning:
+
+- **Release versions** (e.g., `1.0.0`, `1.2.3`): Created from Git tags like `v1.0.0`
+- **Snapshot versions** (e.g., `1.0.0-SNAPSHOT`): Built from the `dev` branch on every push
+
+For production use, always pin to a specific release version. Use SNAPSHOT versions only for development and testing.
+
+## Usage
+
+### Java (JAR)
+
+Add the JAR dependency to your `build.gradle` file:
+```groovy
+dependencies {
+    implementation 'com.corpuscore:colibri-jar:1.0.0'
+}
+```
+
+Use it like this:
 ```java
 import com.corpuscore.colibri.Colibri;
 import com.corpuscore.colibri.ColibriException;
@@ -48,24 +89,27 @@ public class Example {
 
 ### Kotlin
 
-Add the dependency to your `build.gradle` file:
+#### For Android (AAR)
 
-```groovy
-repositories {
-    google()
-    mavenCentral()
-    // Add the repository where Colibri is published
-    maven {
-        url = uri("https://your.maven.repo")
-    }
-}
+For Android projects, use the AAR artifact that includes native libraries for all Android ABIs (armeabi-v7a, arm64-v8a, x86, x86_64):
 
+```kotlin
 dependencies {
     implementation("com.corpuscore:colibri-aar:1.0.0")
 }
 ```
 
-use it like this:
+#### For JVM/Server (JAR)
+
+For server-side Kotlin or JVM projects, use the JAR artifact that includes native libraries for Linux, macOS (ARM64), and Windows:
+
+```kotlin
+dependencies {
+    implementation("com.corpuscore:colibri-jar:1.0.0")
+}
+```
+
+Use it like this:
 
 ```kotlin
 import android.os.Bundle
@@ -149,6 +193,7 @@ The example app includes:
 
 ## Resources
 
+- 📦 **[GitHub Packages](https://github.com/corpus-core/colibri-stateless/packages)** - All published versions (JAR & AAR)
 - 📖 **[Kotlin/Java Documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)** - This complete documentation
 - 🔗 **[Supported RPC Methods](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods)** - Full list of available Ethereum RPC calls
 - 🏗️ **[Building Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/building)** - Build from source instructions

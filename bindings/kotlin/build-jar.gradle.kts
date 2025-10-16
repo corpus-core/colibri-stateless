@@ -113,6 +113,14 @@ fun getProjectVersion(): String {
 version = getProjectVersion()
 println("Building JAR with version: $version")
 
+// Read README for package description
+val readmeFile = project.projectDir.resolve("README.md")
+val packageDescription = if (readmeFile.exists()) {
+    readmeFile.readText()
+} else {
+    "Colibri Stateless - Kotlin/Java Bindings (JAR)"
+}
+
 // Configure the path to generated Java sources
 val generatedSourcesPath = project.findProperty("generatedSourcesPath")?.toString() 
     ?: "${projectDir}/../../build/bindings/kotlin/java"
@@ -230,8 +238,35 @@ publishing {
         create<MavenPublication>("jar") {
             from(components["java"])
             artifactId = "colibri-jar"
-            groupId = "tech.corpuscore"
+            groupId = "com.corpuscore"
             version = project.version.toString()
+            
+            pom {
+                name.set("Colibri Stateless - Kotlin/Java Bindings (JAR)")
+                description.set(packageDescription)
+                url.set("https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java")
+                
+                licenses {
+                    license {
+                        name.set("MIT License")
+                        url.set("https://opensource.org/licenses/MIT")
+                    }
+                }
+                
+                developers {
+                    developer {
+                        id.set("corpus-core")
+                        name.set("Corpus Core Team")
+                        email.set("simon@corpus.io")
+                    }
+                }
+                
+                scm {
+                    connection.set("scm:git:git://github.com/corpus-core/colibri-stateless.git")
+                    developerConnection.set("scm:git:ssh://github.com/corpus-core/colibri-stateless.git")
+                    url.set("https://github.com/corpus-core/colibri-stateless")
+                }
+            }
         }
     }
     repositories {

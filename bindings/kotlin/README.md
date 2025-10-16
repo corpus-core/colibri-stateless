@@ -13,13 +13,43 @@ The Colibri bindings for Kotlin/Java are built using CMake and Gradle. It can be
 
 > 💡 **Quick Start**: Check out the [Example Android App](./example) for a complete working implementation!
 
+## Installation
+
+### Adding the Repository
+
+Add the GitHub Packages repository to your `build.gradle` or `build.gradle.kts`:
+
+**Groovy (build.gradle):**
+```groovy
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/corpus-core/colibri-stateless")
+    }
+}
+```
+
+**Kotlin DSL (build.gradle.kts):**
+```kotlin
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/corpus-core/colibri-stateless")
+    }
+}
+```
+
+> **Note:** The packages are public and **no authentication is required** for downloading.
+
 ## Usage
 
-### Java
+### Java (JAR)
 
 Add the dependency to your `build.gradle` file:
 ```groovy
-implementation 'com.corpuscore.colibri:colibri-java:0.1.0'
+dependencies {
+    implementation 'com.corpuscore:colibri-jar:1.0.0'
+}
 ```
 
 use it like this:
@@ -47,26 +77,29 @@ public class Example {
 }
 ```
 
-### Kotlin
+### Kotlin/Android (AAR)
 
-Add the dependency to your `build.gradle` file:
+For Android projects, use the AAR artifact:
 
-```groovy
-repositories {
-    google()
-    mavenCentral()
-    // Add the repository where Colibri is published
-    maven {
-        url = uri("https://your.maven.repo")
-    }
-}
-
+```kotlin
 dependencies {
     implementation("com.corpuscore:colibri-aar:1.0.0")
 }
 ```
 
-use it like this:
+Or for server-side Kotlin, use the JAR:
+
+```kotlin
+dependencies {
+    implementation("com.corpuscore:colibri-jar:1.0.0")
+}
+```
+
+**Available Versions:**
+- Release versions: `1.0.0`, `1.0.1`, etc. (from Git tags like `v1.0.0`)
+- Snapshot versions: `1.0.0-SNAPSHOT` (from dev branch, updated on each push)
+
+Use it like this:
 
 ```kotlin
 import com.corpuscore.colibri.Colibri
@@ -110,6 +143,7 @@ cd example && ./gradlew build && ./gradlew installDebug
 
 ## Resources
 
+- 📦 **[GitHub Packages](https://github.com/corpus-core/colibri-stateless/packages)** - All published versions
 - 📖 **[Complete Documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)** - Detailed API reference and guides
 - 🔗 **[Supported RPC Methods](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods)** - Full list of available Ethereum RPC calls
 - 🏗️ **[Building Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/building)** - Build from source instructions
