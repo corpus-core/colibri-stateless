@@ -68,7 +68,7 @@ if not native_extension_exists:
                 include_dirs=[
                     str(project_root / "bindings"),
                     str(project_root / "src/util"),
-                    str(project_root / "src/proofer"),
+                    str(project_root / "src/prover"),
                     str(project_root / "src/verifier"),
                 ],
                 language='c++',

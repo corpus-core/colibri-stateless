@@ -1,4 +1,4 @@
-name: Docker Proofer CI
+name: Docker Prover CI
 
 on:
   workflow_call:
@@ -25,7 +25,7 @@ permissions:
 
 jobs:
 
-  docker-proofer:
+  docker-prover:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -59,7 +59,8 @@ jobs:
         with:
           context: .
           file: bindings/docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # Multi-platform only for releases, single platform for dev/main/PRs (faster)
+          platforms: ${{ inputs.ref_type == 'tag' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: ${{ inputs.push_image }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

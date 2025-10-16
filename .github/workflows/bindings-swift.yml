@@ -321,7 +321,7 @@ jobs:
               find ../ios_package/c4_swift.xcframework -name "c4_swift" -exec file {} \; 2>/dev/null || echo "No binary found"
               
               echo "📋 Symbol check (first 5 matches):"
-              find ../ios_package/c4_swift.xcframework -name "c4_swift" -exec nm -gU {} \; 2>/dev/null | grep -E "(c4_create_proofer_ctx|buffer_append)" | head -5 || echo "Target symbols not found"
+              find ../ios_package/c4_swift.xcframework -name "c4_swift" -exec nm -gU {} \; 2>/dev/null | grep -E "(c4_create_prover_ctx|buffer_append)" | head -5 || echo "Target symbols not found"
               
               echo "📋 All c4_ symbols (first 10):"
               find ../ios_package/c4_swift.xcframework -name "c4_swift" -exec nm -gU {} \; 2>/dev/null | grep "c4_" | head -10 || echo "No c4_ symbols found"

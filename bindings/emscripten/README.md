@@ -28,7 +28,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for ethers (v6)
     const provider = new BrowserProvider(client);
@@ -48,7 +48,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for ethers (v6)
     const provider = new ethers.providers.Web3Provider(client);
@@ -70,7 +70,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for web3.js
     const web3 = new Web3(client);
@@ -93,7 +93,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the Colibri client
-    const colibriClient = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+    const colibriClient = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Create a viem Public Client using Colibri as a custom EIP-1193 transport
     const viemClient = createPublicClient({
@@ -173,7 +173,7 @@ The constructor of the colibri client accepts a configuration-object, which may 
      new Colibri({ chainId: 0x7})
      ```
 - `beacon_apis` - urls for the beacon apis    
-    An array of endpoints for accessing the beacon chain using the official [Eth Beacon Node API](https://ethereum.github.io/beacon-APIs/). The Array may contain more than one url, and if one API is not responding the next URL will work as fallback. This beacon API is currently used eitehr when building proofs directly or even if you are using a remote proofer, the LightClientUpdates (every 27h) will be fetched directly from the beacon API.   
+    An array of endpoints for accessing the beacon chain using the official [Eth Beacon Node API](https://ethereum.github.io/beacon-APIs/). The Array may contain more than one url, and if one API is not responding the next URL will work as fallback. This beacon API is currently used eitehr when building proofs directly or even if you are using a remote prover, the LightClientUpdates (every 27h) will be fetched directly from the beacon API.   
      ```js
      new Colibri({ beacon_apis: [ 'https://lodestar-mainnet.chainsafe.io' ]})
      ```
@@ -187,17 +187,17 @@ The constructor of the colibri client accepts a configuration-object, which may 
      new Colibri({ checkpointz: [ 'http://localhost:5052' ]})
      ```
 - `rpcs` - RPCs for the executionlayer    
-    a array of rpc-endpoints for accessing the execution layer. If you are using the remote proofer, you may not need it at all. But creating your proofs locally will require to access data from the execution layer. Having more than one rpc-url allows to use fallbacks in case one is not available.
+    a array of rpc-endpoints for accessing the execution layer. If you are using the remote prover, you may not need it at all. But creating your proofs locally will require to access data from the execution layer. Having more than one rpc-url allows to use fallbacks in case one is not available.
      ```js
      new Colibri({ beacon_apis: [
         "https://nameless-sly-reel.quiknode.pro/<APIKEY>/",
         "https://eth-mainnet.g.alchemy.com/v2/<APIKEY>",
         "https://rpc.ankr.com/eth/<APIKEY>" ]})
      ```
-- `proofer` - urls for remove proofer
-    a array of endpoints for remote proofer. This allows to generate the proof in the backend, where caches can speed up the process.
+- `prover` - urls for remove prover
+    a array of endpoints for remote prover. This allows to generate the proof in the backend, where caches can speed up the process.
     ```js
-    new Colibri({ proofer: ["https://mainnet.colibri-proof.tech" ]})
+    new Colibri({ prover: ["https://mainnet.colibri-proof.tech" ]})
     ```
 - `trusted_block_hashes` - beacon block hashes used as trusted anchor    
     Thise array of blockhashes will be used as anchor for fetching the keys for the sync committee. So instead of starting with the genesis you can define a starting block, where you know the blockhash. If not trusted blockhash is set the beacon-api will be used to fetch one, but defining it is safer.
@@ -324,7 +324,7 @@ After a successful build (using either method), the JS/WASM module will be in th
 
 ## Concept
 
-The idea behind C4 is to create a ultra light client or better verifier which can be used in Websites, Mobile applications, but especially in embedded systems. The Proofer is a library which can used within you mobile app or in the backend to create Proof that the given data is valid. The Verifier is a library which can be used within the embedded system to verify this Proof.
+The idea behind C4 is to create a ultra light client or better verifier which can be used in Websites, Mobile applications, but especially in embedded systems. The Prover is a library which can used within you mobile app or in the backend to create Proof that the given data is valid. The Verifier is a library which can be used within the embedded system to verify this Proof.
 
 The verifier itself is almost stateless and only needs to store the state of the sync committee, which changes every 27h. But with the latest sync committee the verifier is able to verify any proof with the signatures matching the previously verified public keys of the sync committee.
 This allows independent Verification and security on any devices without the need to process every blockheader (as light clients usually would do).

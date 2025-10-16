@@ -556,8 +556,8 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         colibri.requestHandler = mockHandler
         colibri.chainId = UInt64(chainId)  // Set chain ID from test.json
         
-        // 🎯 IMPORTANT: Clear proofers to force LOCAL proof creation (not remote fetching)
-        colibri.proofers = []  // Force local C-library proof creation for testing
+        // 🎯 IMPORTANT: Clear provers to force LOCAL proof creation (not remote fetching)
+        colibri.provers = []  // Force local C-library proof creation for testing
         
         // 🗄️ Register mock storage for this test (reads state/sync files from test directory)
         let mockStorage = MockFileStorage(testDirectory: testDirectory)
@@ -688,12 +688,12 @@ if [ -d "$TEST_DATA_PATH" ]; then
         if [ -d "$dir" ] && [ -f "$dir/test.json" ]; then
             test_name="$(basename "$dir")"
             
-            # Check if test requires features not supported by local proofer
+            # Check if test requires features not supported by local prover
             requires_chain_store=$(jq -r '.requires_chain_store // false' "$dir/test.json")
             has_trusted_blockhash=$(jq -r '.trusted_blockhash // null' "$dir/test.json")
             
             if [ "$requires_chain_store" = "true" ]; then
-                echo "  ⏸️ Skipping $test_name (requires chain store - only supported by remote proofer)"
+                echo "  ⏸️ Skipping $test_name (requires chain store - only supported by remote prover)"
                 SKIPPED_TESTS+=("$test_name (requires chain store)")
             elif [ "$has_trusted_blockhash" != "null" ]; then
                 echo "  ⏸️ Skipping $test_name (uses trusted blockhash - not yet implemented in Swift)"
@@ -741,5 +741,5 @@ EOF
 echo "✅ GeneratedIntegrationTests.swift erstellt: $GENERATED_TESTS_FILE"
 echo "📊 Generiert: ${#TEST_DIRS[@]} Test-Funktionen"
 if [ ${#SKIPPED_TESTS[@]} -gt 0 ]; then
-    echo "⏸️ Übersprungen: ${#SKIPPED_TESTS[@]} Tests (benötigen Remote-Proofer Features)"
+    echo "⏸️ Übersprungen: ${#SKIPPED_TESTS[@]} Tests (benötigen Remote-Prover Features)"
 fi

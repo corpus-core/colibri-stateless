@@ -15,7 +15,7 @@
 // Unity setup - called before each test
 void setUp(void) {
   http_server_t config = {0};
-  config.proofer_nodes = "https://mainnet1.colibri-proof.tech";
+  config.prover_nodes  = "https://mainnet1.colibri-proof.tech";
   config.port          = TEST_PORT;
   config.chain_id      = 1;
   c4_test_server_setup(&config); // Use default test configuration
@@ -26,8 +26,8 @@ void tearDown(void) {
   c4_test_server_teardown();
 }
 
-// Test 1: test verifying a remote proofer-request with a file mock
-void test_remote_proofer(void) {
+// Test 1: test verifying a remote prover-request with a file mock
+void test_remote_prover(void) {
   c4_test_server_seed_for_test("block_number");
 
   int   status_code = 0;
@@ -135,7 +135,7 @@ void test_deterministic_server_selection(void) {
 // Main test runner
 int main(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_remote_proofer);
+  RUN_TEST(test_remote_prover);
   //  RUN_TEST(test_health_check);
   //  RUN_TEST(test_rpc_request_with_file_mock);
   //  RUN_TEST(test_retry_with_multiple_servers);

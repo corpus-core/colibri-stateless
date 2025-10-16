@@ -4,18 +4,18 @@
 
 ![ETH2.0_Spec_Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
 
-Colibri Stateless is a highly efficient proofer/verifier for Ethereum and upcoming support for various Layer-2 solutions and other blockchains. The core library is written in C and provides bindings for JavaScript/TypeScript, Swift, Kotlin/Java, and Python.
+Colibri Stateless is a highly efficient prover/verifier for Ethereum and upcoming support for various Layer-2 solutions and other blockchains. The core library is written in C and provides bindings for JavaScript/TypeScript, Swift, Kotlin/Java, and Python.
 
 ## Overview
 
 ```mermaid
 flowchart
-    P[Proofer] --> V[Verifier]
+    P[Prover] --> V[Verifier]
     V --> P
     P -.-> RPC
 ```
 
-Colibri Stateless enables the creation of an ultra-light client or verifier that can be used in websites, mobile applications, and especially in embedded systems. The proofer creates cryptographic proofs for the validity of blockchain data, while the verifier validates these proofs - almost statelessly.
+Colibri Stateless enables the creation of an ultra-light client or verifier that can be used in websites, mobile applications, and especially in embedded systems. The prover creates cryptographic proofs for the validity of blockchain data, while the verifier validates these proofs - almost statelessly.
 
 The verifier only needs to store the state of the sync committee, which changes every 27 hours. With the current sync committee, it can verify any proof with the corresponding BLS signatures without having to process every block header.
 
@@ -59,7 +59,7 @@ npm install @corpus-core/colibri-stateless
 ```typescript
 import Colibri from "@corpus-core/colibri-stateless";
 
-const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 const block = await client.request('eth_getBlockByNumber', ['latest', false]);
 console.log("Latest block:", block.number);
 ```
@@ -100,7 +100,7 @@ import Colibri
 
 let colibri = Colibri()
 colibri.chainId = 1  // Ethereum Mainnet
-colibri.proofers = ["https://c4.incubed.net"]
+colibri.provers = ["https://c4.incubed.net"]
 
 // RPC call with automatic proof verification
 let result = try await colibri.rpc(method: "eth_getBalance", params: [

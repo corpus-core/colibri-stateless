@@ -19,7 +19,7 @@ class TestColibriInit:
         client = Colibri()
         
         assert client.chain_id == 1
-        assert len(client.proofers) > 0
+        assert len(client.provers) > 0
         assert len(client.eth_rpcs) > 0
         assert len(client.beacon_apis) > 0
         assert client.trusted_block_hashes == []
@@ -31,7 +31,7 @@ class TestColibriInit:
         storage = MemoryStorage()
         client = Colibri(
             chain_id=11155111,  # Sepolia
-            proofers=["https://custom-proofer.com"],
+            provers=["https://custom-prover.com"],
             eth_rpcs=["https://custom-rpc.com"],
             beacon_apis=["https://custom-beacon.com"],
             trusted_block_hashes=["0x123abc"],
@@ -40,7 +40,7 @@ class TestColibriInit:
         )
         
         assert client.chain_id == 11155111
-        assert client.proofers == ["https://custom-proofer.com"]
+        assert client.provers == ["https://custom-prover.com"]
         assert client.eth_rpcs == ["https://custom-rpc.com"]
         assert client.beacon_apis == ["https://custom-beacon.com"]
         assert client.trusted_block_hashes == ["0x123abc"]
@@ -51,17 +51,17 @@ class TestColibriInit:
         """Test that default configurations exist for supported chains"""
         # Mainnet
         client1 = Colibri(chain_id=1)
-        assert len(client1.proofers) > 0
+        assert len(client1.provers) > 0
         assert len(client1.eth_rpcs) > 0
         
         # Sepolia
         client2 = Colibri(chain_id=11155111)
-        assert len(client2.proofers) > 0
+        assert len(client2.provers) > 0
         assert len(client2.eth_rpcs) > 0
         
         # Gnosis
         client3 = Colibri(chain_id=100)
-        assert len(client3.proofers) > 0
+        assert len(client3.provers) > 0
         assert len(client3.eth_rpcs) > 0
 
 
@@ -187,7 +187,7 @@ class TestClientErrorHandling:
         # Should not raise an error, just use defaults
         client = Colibri(chain_id=999999)
         assert client.chain_id == 999999
-        assert len(client.proofers) > 0  # Should have fallback defaults
+        assert len(client.provers) > 0  # Should have fallback defaults
     
     @pytest.mark.asyncio
     async def test_rpc_with_empty_params(self):
@@ -208,27 +208,27 @@ class TestClientHelpers:
         """Test that default server configurations are reasonable"""
         # Test that each supported chain has proper defaults
         for chain_id in [1, 11155111, 100, 10200]:
-            proofers = Colibri._get_default_proofers(chain_id)
+            provers = Colibri._get_default_provers(chain_id)
             eth_rpcs = Colibri._get_default_eth_rpcs(chain_id)
             beacon_apis = Colibri._get_default_beacon_apis(chain_id)
             
-            assert len(proofers) > 0, f"Chain {chain_id} should have default proofers"
+            assert len(provers) > 0, f"Chain {chain_id} should have default provers"
             assert len(eth_rpcs) > 0, f"Chain {chain_id} should have default ETH RPCs"
             assert len(beacon_apis) > 0, f"Chain {chain_id} should have default beacon APIs"
             
             # URLs should be valid HTTPS
-            for url in proofers + eth_rpcs + beacon_apis:
+            for url in provers + eth_rpcs + beacon_apis:
                 assert url.startswith("https://"), f"URL {url} should use HTTPS"
     
     def test_unknown_chain_defaults(self):
         """Test defaults for unknown chain"""
         unknown_chain_id = 999999
         
-        proofers = Colibri._get_default_proofers(unknown_chain_id)
+        provers = Colibri._get_default_provers(unknown_chain_id)
         eth_rpcs = Colibri._get_default_eth_rpcs(unknown_chain_id)
         beacon_apis = Colibri._get_default_beacon_apis(unknown_chain_id)
         
         # Should have fallback defaults
-        assert len(proofers) > 0
+        assert len(provers) > 0
         assert len(eth_rpcs) > 0
         assert len(beacon_apis) > 0

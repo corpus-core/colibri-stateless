@@ -88,19 +88,19 @@ add_verifier(
 )
 
 
-add_proofer(
-  NAME op_proofer
+add_prover(
+  NAME op_prover
   SOURCES 
-    proofer/op_tools.c
-    proofer/op_proofer.c
-    proofer/op_proof_block.c
-    proofer/op_proof_transaction.c
-    proofer/op_proof_receipt.c
-    proofer/op_proof_logs.c
-    proofer/op_proof_call.c
-    proofer/op_proof_account.c
-  DEPENDS util eth_proofer eth_verifier op_verifier
-  PROOF op_proofer_execute
+    prover/op_tools.c
+    prover/op_prover.c
+    prover/op_proof_block.c
+    prover/op_proof_transaction.c
+    prover/op_proof_receipt.c
+    prover/op_proof_logs.c
+    prover/op_proof_call.c
+    prover/op_proof_account.c
+  DEPENDS util eth_prover eth_verifier op_verifier
+  PROOF op_prover_execute
 )
 
 # Build bridges first, so we can determine dependencies
@@ -112,7 +112,7 @@ if(HTTP_SERVER)
 endif()
 
 # Determine dependencies based on available bridges
-set(OP_SERVER_DEPENDS op_proofer)
+set(OP_SERVER_DEPENDS op_prover)
 if(HTTP_SERVER AND TARGET kona_preconf_capture)
     list(APPEND OP_SERVER_DEPENDS kona_preconf_capture)
     message(STATUS "✅ Kona-P2P bridge will be linked to op_server_handler")

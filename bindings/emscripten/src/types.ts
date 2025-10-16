@@ -102,7 +102,7 @@ export interface Cache {
 export interface ChainConfig {
     beacon_apis: string[];
     rpcs: string[];
-    proofer?: string[];
+    prover?: string[];
     checkpointz?: string[];
     trusted_block_hashes: string[];
     verify?: (method: string, args: any[]) => boolean;

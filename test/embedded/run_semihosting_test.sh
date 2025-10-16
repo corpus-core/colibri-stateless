@@ -20,7 +20,7 @@ docker run --rm -it \
       -DEMBEDDED=ON \\
       -DCMAKE_BUILD_TYPE=MinSizeRel \\
       -DCURL=OFF \\
-      -DPROOFER=OFF \\
+      -DPROVER=OFF \\
       -DCLI=OFF \\
       -DINCLUDE=test/embedded
     

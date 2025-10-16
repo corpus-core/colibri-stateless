@@ -61,7 +61,7 @@ static void init_config() {
   curl_nodes.eth_rpc     = json_dup(json_get(config, "eth_rpc"));
   curl_nodes.beacon_api  = json_dup(json_get(config, "beacon_api"));
   curl_nodes.checkpointz = json_dup(json_get(config, "checkpointz"));
-  curl_nodes.proofer     = json_dup(json_get(config, "proofer"));
+  curl_nodes.prover      = json_dup(json_get(config, "prover"));
 
   char*   config_file = getenv("C4_CONFIG");
   bytes_t content     = {0};
@@ -85,7 +85,7 @@ void curl_set_config(json_t config) {
   if ((nodes = json_get(config, "eth_rpc")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.eth_rpc, nodes);
   if ((nodes = json_get(config, "beacon_api")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.beacon_api, nodes);
   if ((nodes = json_get(config, "checkpointz")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.checkpointz, nodes);
-  if ((nodes = json_get(config, "proofer")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.proofer, nodes);
+  if ((nodes = json_get(config, "prover")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.prover, nodes);
   if ((nodes = json_get(config, "chain_store")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.chain_store, nodes);
 }
 
@@ -99,8 +99,8 @@ static json_t get_nodes(data_request_type_t type) {
       return curl_nodes.beacon_api;
     case C4_DATA_TYPE_CHECKPOINTZ:
       return curl_nodes.checkpointz;
-    case C4_DATA_TYPE_PROOFER:
-      return curl_nodes.proofer;
+    case C4_DATA_TYPE_PROVER:
+      return curl_nodes.prover;
     case C4_DATA_TYPE_INTERN:
       return curl_nodes.chain_store;
     default:

@@ -22,7 +22,7 @@
  */
 
 #include "plugin.h"
-#include "proofer.h"
+#include "prover.h"
 #include "sync_committee.h"
 #include "verify.h"
 #include <emscripten.h>
@@ -35,12 +35,12 @@ typedef struct {
   verify_ctx_t verify;
 } c4w_verify_ctx_t;
 
-proofer_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id, uint32_t flags) {
-  return c4_proofer_create(method, args, chain_id, flags);
+prover_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id, uint32_t flags) {
+  return c4_prover_create(method, args, chain_id, flags);
 }
 
-void EMSCRIPTEN_KEEPALIVE c4w_free_proof_ctx(proofer_ctx_t* ctx) {
-  c4_proofer_free(ctx);
+void EMSCRIPTEN_KEEPALIVE c4w_free_proof_ctx(prover_ctx_t* ctx) {
+  c4_prover_free(ctx);
 }
 static const char* status_to_string(c4_status_t status) {
   switch (status) {
@@ -105,9 +105,9 @@ void EMSCRIPTEN_KEEPALIVE c4w_set_trusted_blockhashes(uint64_t chain_id, uint8_t
   c4_eth_set_trusted_blockhashes(chain_id, bytes(blockhashes, len));
 }
 
-char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(proofer_ctx_t* ctx) {
+char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(prover_ctx_t* ctx) {
   buffer_t    result = {0};
-  c4_status_t status = c4_proofer_execute(ctx);
+  c4_status_t status = c4_prover_execute(ctx);
   bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
   switch (status) {
     case C4_SUCCESS:

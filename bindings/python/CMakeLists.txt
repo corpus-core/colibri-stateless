@@ -23,15 +23,15 @@ pybind11_add_module(_native
 target_include_directories(_native PRIVATE
     ${CMAKE_SOURCE_DIR}/bindings
     ${CMAKE_SOURCE_DIR}/src/util
-    ${CMAKE_SOURCE_DIR}/src/proofer
+    ${CMAKE_SOURCE_DIR}/src/prover
     ${CMAKE_SOURCE_DIR}/src/verifier
 )
 
 # Link main functionality libraries into the Python module
-# CMake will automatically resolve all dependencies (eth_verifier, eth_proofer, crypto, etc.)
+# CMake will automatically resolve all dependencies (eth_verifier, eth_prover, crypto, etc.)
 target_link_libraries(_native PRIVATE
     verifier
-    proofer
+    prover
 )
 
 # Platform-specific libraries
@@ -95,10 +95,10 @@ add_custom_command(TARGET _native POST_BUILD
 )
 
 # Add dependencies to ensure proper build order
-add_dependencies(_native verifier proofer)
+add_dependencies(_native verifier prover)
 
 # Debug info
 message(STATUS "Python bindings configured:")
-message(STATUS "  Main libraries: verifier, proofer (with auto-resolved dependencies)")
+message(STATUS "  Main libraries: verifier, prover (with auto-resolved dependencies)")
 message(STATUS "  Python: ${Python_EXECUTABLE}")
 message(STATUS "  pybind11: ${pybind11_VERSION}")

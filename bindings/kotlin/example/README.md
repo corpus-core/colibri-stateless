@@ -44,6 +44,6 @@ Note: You need to build the Colibri AAR first, as the example app depends on it.
 The app is configured to use public Ethereum RPC endpoints:
 - ETH RPC: `rpc.ankr.com/eth`, `eth.public-rpc.com`, `ethereum.publicnode.com`
 - Beacon API: `lodestar-mainnet.chainsafe.io`, `beaconstate.info`, `mainnet.beacon.publicnode.com`
-- Proofer: `c4.incubed.net`
+- Prover: `c4.incubed.net`
 
 These endpoints are hardcoded for simplicity in this example app.

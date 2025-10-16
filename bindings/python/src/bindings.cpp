@@ -126,8 +126,8 @@ bytes_t python_to_bytes_t(py::bytes data) {
 }
 
 // Wrapper functions with proper memory management
-std::string proofer_execute_json_status_wrapper(proofer_t* ctx) {
-  char* result = c4_proofer_execute_json_status(ctx);
+std::string prover_execute_json_status_wrapper(prover_t* ctx) {
+  char* result = c4_prover_execute_json_status(ctx);
   if (!result) return "";
 
   std::string str(result);
@@ -144,8 +144,8 @@ std::string verify_execute_json_status_wrapper(void* ctx) {
   return str;
 }
 
-py::bytes proofer_get_proof_wrapper(proofer_t* ctx) {
-  bytes_t proof = c4_proofer_get_proof(ctx);
+py::bytes prover_get_proof_wrapper(prover_t* ctx) {
+  bytes_t proof = c4_prover_get_proof(ctx);
   return bytes_t_to_python(proof);
 }
 
@@ -168,8 +168,8 @@ void* verify_create_ctx_wrapper(py::bytes proof, const std::string& method, cons
       const_cast<char*>(trusted_block_hashes.c_str()));
 }
 
-proofer_t* create_proofer_ctx_wrapper(const std::string& method, const std::string& params, uint64_t chain_id, uint32_t flags) {
-  return c4_create_proofer_ctx(
+prover_t* create_prover_ctx_wrapper(const std::string& method, const std::string& params, uint64_t chain_id, uint32_t flags) {
+  return c4_create_prover_ctx(
       const_cast<char*>(method.c_str()),
       const_cast<char*>(params.c_str()),
       chain_id,
@@ -224,22 +224,22 @@ PYBIND11_MODULE(_native, m) {
   m.def("clear_storage", &clear_storage,
         "Clear Python storage callbacks to prevent segfaults on exit");
 
-  // Proofer functions
-  m.def("create_proofer_ctx", &create_proofer_ctx_wrapper,
-        "Create a new proofer context",
+  // Prover functions
+  m.def("create_prover_ctx", &create_prover_ctx_wrapper,
+        "Create a new prover context",
         py::arg("method"), py::arg("params"), py::arg("chain_id"), py::arg("flags"),
         py::return_value_policy::take_ownership);
 
-  m.def("proofer_execute_json_status", &proofer_execute_json_status_wrapper,
-        "Execute the proofer and return JSON status",
+  m.def("prover_execute_json_status", &prover_execute_json_status_wrapper,
+        "Execute the prover and return JSON status",
         py::arg("ctx"));
 
-  m.def("proofer_get_proof", &proofer_get_proof_wrapper,
-        "Get the proof from the proofer context",
+  m.def("prover_get_proof", &prover_get_proof_wrapper,
+        "Get the proof from the prover context",
         py::arg("ctx"));
 
-  m.def("free_proofer_ctx", &c4_free_proofer_ctx,
-        "Free the proofer context",
+  m.def("free_prover_ctx", &c4_free_prover_ctx,
+        "Free the prover context",
         py::arg("ctx"));
 
   // Verifier functions

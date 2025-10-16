@@ -37,7 +37,7 @@ COPY bindings ./bindings
 # Configure and build the server with Kona-P2P bridge
 ENV CC=clang
 ENV CXX=clang++
-RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROOFER_CACHE=true . && make server
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true . && make server
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final
@@ -56,7 +56,7 @@ COPY --from=builder /build/bin/server /app/server
 
 # Add OCI labels for better GHCR integration
 LABEL org.opencontainers.image.title="Colibri Prover"
-LABEL org.opencontainers.image.description="Highly efficient proofer server for Ethereum and Layer-2 solutions"
+LABEL org.opencontainers.image.description="Highly efficient prover server for Ethereum and Layer-2 solutions"
 LABEL org.opencontainers.image.url="https://github.com/corpus-core/colibri-stateless"
 LABEL org.opencontainers.image.source="https://github.com/corpus-core/colibri-stateless"
 LABEL org.opencontainers.image.documentation="https://corpus-core.gitbook.io/specification-colibri-stateless"

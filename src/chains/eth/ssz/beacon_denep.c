@@ -98,7 +98,7 @@ const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[] = {
     SSZ_UINT64("blobGasUsed"),                                                     // the gas used for the blob transactions
     SSZ_UINT64("excessBlobGas")};                                                  // the excess blob gas of the block
 
-#ifdef PROOFER
+#ifdef PROVER
 // a checkpoint is a tuple of epoch and root
 static const ssz_def_t CHECKPOINT[] = {
     SSZ_UINT64("epoch"), // the epoch of the checkpoint
@@ -303,7 +303,7 @@ const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE[7] = {
 
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id) {
   switch (type) {
-#ifdef PROOFER
+#ifdef PROVER
     case ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER:
       return is_gnosis_chain(chain_id)
                  ? &SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER

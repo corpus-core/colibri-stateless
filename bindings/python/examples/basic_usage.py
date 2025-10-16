@@ -26,7 +26,7 @@ async def main():
         storage=MemoryStorage()  # Use in-memory storage for this example
     )
     print(f"   Chain ID: {client.chain_id}")
-    print(f"   Proofers: {client.proofers}")
+    print(f"   Provers: {client.provers}")
     print(f"   ETH RPCs: {client.eth_rpcs}")
     print(f"   Beacon APIs: {client.beacon_apis}")
     

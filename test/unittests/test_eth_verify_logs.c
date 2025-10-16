@@ -39,7 +39,7 @@ void test_denep() {
 }
 
 void test_electra() {
-  run_rpc_test("eth_getLogs_electra", C4_PROOFER_FLAG_NO_CACHE);
+  run_rpc_test("eth_getLogs_electra", C4_PROVER_FLAG_NO_CACHE);
 }
 
 int main(void) {

@@ -30,7 +30,7 @@ set(TEST_INCLUDES
 # Add server-specific includes if HTTP_SERVER is enabled
 if(HTTP_SERVER)
   list(APPEND TEST_INCLUDES
-    ${CMAKE_SOURCE_DIR}/src/proofer
+    ${CMAKE_SOURCE_DIR}/src/prover
     ${CMAKE_SOURCE_DIR}/src/verifier
     ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include
     ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
@@ -50,7 +50,7 @@ foreach(test_source ${TEST_SOURCES})
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
-    target_link_libraries(${test_name} unity verifier proofer)
+    target_link_libraries(${test_name} unity verifier prover)
     
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)

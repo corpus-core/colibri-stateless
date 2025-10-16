@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-#include "../proofer/proofer.h"
+#include "../prover/prover.h"
 #include "server.h"
 #include "server_handlers.h"
 #include <curl/curl.h>
@@ -34,9 +34,9 @@
 static volatile sig_atomic_t shutdown_requested            = 0;
 volatile sig_atomic_t        graceful_shutdown_in_progress = 0;
 
-// Timer callback for proofer cache cleanup
-static void on_proofer_cleanup_timer(uv_timer_t* handle) {
-  c4_proofer_cache_cleanup(current_ms(), 0);
+// Timer callback for prover cache cleanup
+static void on_prover_cleanup_timer(uv_timer_t* handle) {
+  c4_prover_cache_cleanup(current_ms(), 0);
 }
 
 // Idle callback to initialize server handlers after event loop starts
@@ -121,11 +121,11 @@ int c4_server_start(server_instance_t* instance, int port) {
   // Initialize curl timer
   UV_CHECK("Curl Timer initialization", uv_timer_init(instance->loop, &instance->curl_timer), instance);
 
-  // Initialize and start the proofer cleanup timer
-  UV_CHECK("Proofer Cleanup Timer initialization",
-           uv_timer_init(instance->loop, &instance->proofer_cleanup_timer), instance);
-  UV_CHECK("Proofer Cleanup Timer start",
-           uv_timer_start(&instance->proofer_cleanup_timer, on_proofer_cleanup_timer,
+  // Initialize and start the prover cleanup timer
+  UV_CHECK("Prover Cleanup Timer initialization",
+           uv_timer_init(instance->loop, &instance->prover_cleanup_timer), instance);
+  UV_CHECK("Prover Cleanup Timer start",
+           uv_timer_start(&instance->prover_cleanup_timer, on_prover_cleanup_timer,
                           cleanup_interval_ms, cleanup_interval_ms),
            instance);
 
@@ -194,8 +194,8 @@ void c4_server_stop(server_instance_t* instance) {
   c4_server_handlers_shutdown(&http_server);
 
   // Stop and close timers
-  uv_timer_stop(&instance->proofer_cleanup_timer);
-  uv_close((uv_handle_t*) &instance->proofer_cleanup_timer, NULL);
+  uv_timer_stop(&instance->prover_cleanup_timer);
+  uv_close((uv_handle_t*) &instance->prover_cleanup_timer, NULL);
 
   uv_timer_stop(&instance->curl_timer);
   uv_close((uv_handle_t*) &instance->curl_timer, NULL);

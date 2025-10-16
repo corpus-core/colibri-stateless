@@ -76,7 +76,7 @@ import Colibri
 
 let colibri = Colibri()
 colibri.chainId = 1  // Ethereum Mainnet
-colibri.proofers = ["https://c4.incubed.net"]  // Remote proofer
+colibri.provers = ["https://c4.incubed.net"]  // Remote prover
 ```
 
 ### 2. Method Support Check

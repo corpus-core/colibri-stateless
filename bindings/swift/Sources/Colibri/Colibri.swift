@@ -214,7 +214,7 @@ public class Colibri {
     // Configuration with defaults
     public var eth_rpcs: [String] = []
     public var beacon_apis: [String] = []
-    public var proofers: [String] = ["https://c4.incubed.net"]
+    public var provers: [String] = ["https://c4.incubed.net"]
     public var checkpointz: [String] = ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"]
     public var trustedBlockHashes: [String] = []
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
@@ -264,13 +264,13 @@ public class Colibri {
             free(paramsPtr)
         }
         
-        guard let ctx = c4_create_proofer_ctx(methodPtr, paramsPtr, chainId, includeCode ? 1 : 0) else {
+        guard let ctx = c4_create_prover_ctx(methodPtr, paramsPtr, chainId, includeCode ? 1 : 0) else {
             throw ColibriError.contextCreationFailed
         }
-        defer { c4_free_proofer_ctx(ctx) }
+        defer { c4_free_prover_ctx(ctx) }
 
         while true {
-            guard let jsonStatusPtr = c4_proofer_execute_json_status(ctx) else {
+            guard let jsonStatusPtr = c4_prover_execute_json_status(ctx) else {
                 throw ColibriError.nullPointerReceived
             }
             let jsonStatus = String(cString: jsonStatusPtr)
@@ -284,7 +284,7 @@ public class Colibri {
 
             switch status {
             case "success":
-                let proof = c4_proofer_get_proof(ctx)
+                let proof = c4_prover_get_proof(ctx)
                 // Create a new Data instance with copied bytes
                 let proofData = Data(bytes: UnsafeRawPointer(proof.data), count: Int(proof.len))
                 return proofData
@@ -295,7 +295,7 @@ public class Colibri {
                 guard let requests = statusDict["requests"] as? [[String: Any]] else {
                     throw ColibriError.invalidJSON
                 }
-                try await handleRequests(requests, useProoferFallback: false)
+                try await handleRequests(requests, useProverFallback: false)
             default:
                 throw ColibriError.unknownStatus(status)
             }
@@ -372,8 +372,8 @@ public class Colibri {
                 guard let requests = state["requests"] as? [[String: Any]] else {
                     throw ColibriError.invalidJSON
                 }
-                // Call handleRequests, enabling the proofer fallback logic
-                try await handleRequests(requests, useProoferFallback: true)
+                // Call handleRequests, enabling the prover fallback logic
+                try await handleRequests(requests, useProverFallback: true)
             default:
                 throw ColibriError.unknownStatus(status)
             }
@@ -388,9 +388,9 @@ public class Colibri {
         switch methodType {
         case .PROOFABLE:
             // Assuming params is a JSON string representing an array or object
-            // We prefer fetching from a proofer if available
-            if !proofers.isEmpty {
-                 proof = try await fetchRpc(urls: proofers, method: method, params: params, asProof: true)
+            // We prefer fetching from a prover if available
+            if !provers.isEmpty {
+                 proof = try await fetchRpc(urls: provers, method: method, params: params, asProof: true)
             } else {
                  proof = try await createProof(method: method, params: params)
             }
@@ -434,7 +434,7 @@ public class Colibri {
     }
 
     // Helper function to handle pending requests
-    private func handleRequests(_ requests: [[String: Any]], useProoferFallback: Bool = false) async throws {
+    private func handleRequests(_ requests: [[String: Any]], useProverFallback: Bool = false) async throws {
         await withTaskGroup(of: Void.self) { group in
             for request in requests {
                 group.addTask {
@@ -485,8 +485,8 @@ public class Colibri {
                     let servers: [String]
                     if requestType == "checkpointz" {
                         servers = self.checkpointz
-                    } else if useProoferFallback && requestType == "beacon" && !self.proofers.isEmpty {
-                        servers = self.proofers
+                    } else if useProverFallback && requestType == "beacon" && !self.provers.isEmpty {
+                        servers = self.provers
                     } else if requestType == "beacon" {
                         servers = self.beacon_apis
                     } else {

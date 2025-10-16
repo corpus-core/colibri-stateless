@@ -35,7 +35,7 @@ The Colibri Python Bindings provide a modern, async-first Python API for verifie
 │  • Memory management & cleanup                                  │
 ├─────────────────────────────────────────────────────────────────┤
 │                   Core C Libraries                              │
-│  • Proofer (proof generation)                                   │
+│  • Prover (proof generation)                                   │
 │  • Verifier (proof verification)                                │
 │  • Storage plugin system                                        │
 │  • Cryptographic libraries (blst, ed25519)                      │
@@ -79,7 +79,7 @@ from colibri import Colibri
 
 async def main():
     # Initialize client for Ethereum Mainnet
-    client = Colibri(chain_id=1, proofers=["https://mainnet.colibri-proof.tech"])
+    client = Colibri(chain_id=1, provers=["https://mainnet.colibri-proof.tech"])
     
     # Get current block number
     block_number = await client.rpc("eth_blockNumber", [])
@@ -102,10 +102,10 @@ import asyncio
 from colibri import Colibri
 
 async def main():
-    # Force local proof generation (no remote proofers)
+    # Force local proof generation (no remote provers)
     client = Colibri(
         chain_id=1,
-        proofers=[],  # Empty = local proof generation
+        provers=[],  # Empty = local proof generation
         eth_rpcs=["https://eth.llamarpc.com"],
         beacon_apis=["https://lodestar-mainnet.chainsafe.io"]
     )
@@ -136,7 +136,7 @@ class MultiChainClient:
         if chain_id not in self.clients:
             self.clients[chain_id] = Colibri(
                 chain_id=chain_id,
-                proofers=["https://mainnet.colibri-proof.tech"]
+                provers=["https://mainnet.colibri-proof.tech"]
             )
         return self.clients[chain_id]
     
@@ -172,7 +172,7 @@ class Colibri:
     def __init__(
         self,
         chain_id: int = 1,
-        proofers: Optional[List[str]] = None,
+        provers: Optional[List[str]] = None,
         eth_rpcs: Optional[List[str]] = None,
         beacon_apis: Optional[List[str]] = None,
         trusted_block_hashes: Optional[List[str]] = None,
@@ -184,7 +184,7 @@ class Colibri:
         
         Args:
             chain_id: Blockchain chain ID (1=Ethereum, 137=Polygon, etc.)
-            proofers: Remote proofer URLs (empty list = local proof generation)
+            provers: Remote prover URLs (empty list = local proof generation)
             eth_rpcs: Ethereum RPC endpoints for execution layer
             beacon_apis: Beacon chain API endpoints
             trusted_block_hashes: Trusted block hashes for anchoring
@@ -219,7 +219,7 @@ def get_method_support(self, method: str) -> MethodType:
     
     Returns:
         MethodType.LOCAL: Supported locally
-        MethodType.REMOTE: Requires remote proofer
+        MethodType.REMOTE: Requires remote prover
         MethodType.UNSUPPORTED: Not supported
     """
 ```
@@ -343,7 +343,7 @@ mock_requests = MockRequestHandler({
 # Test with mocks
 client = Colibri(
     chain_id=1,
-    proofers=[],  # Force local testing
+    provers=[],  # Force local testing
     storage=mock_storage,
     request_handler=mock_requests
 )
@@ -394,7 +394,7 @@ mock_requests = FileBasedMockRequestHandler("my_test_data/requests/")
 
 client = Colibri(
     chain_id=1,
-    proofers=[],
+    provers=[],
     storage=mock_storage,
     request_handler=mock_requests
 )
@@ -417,7 +417,7 @@ OPTIMISM = 10
 # Configure for specific chain
 client = Colibri(
     chain_id=POLYGON,
-    proofers=["https://polygon.colibri-proof.tech"],
+    provers=["https://polygon.colibri-proof.tech"],
     eth_rpcs=["https://polygon-rpc.com"],
     beacon_apis=["https://polygon-beacon.example.com"]
 )
@@ -432,7 +432,7 @@ client = Colibri(
     chain_id=1,
     
     # Remote proof generation (faster, requires trust)
-    proofers=["https://mainnet.colibri-proof.tech"],
+    provers=["https://mainnet.colibri-proof.tech"],
     
     # Local proof generation (slower, trustless)
     eth_rpcs=[
@@ -685,10 +685,10 @@ except ProofError as e:
     support = client.get_method_support("eth_blockNumber")
     print(f"Method support: {support}")
     
-    # Try with remote proofer
+    # Try with remote prover
     client_remote = Colibri(
         chain_id=1,
-        proofers=["https://mainnet.colibri-proof.tech"]
+        provers=["https://mainnet.colibri-proof.tech"]
     )
     result = await client_remote.rpc("eth_blockNumber", [])
 ```

@@ -18,7 +18,7 @@ final class ColibriIntegrationTests: XCTestCase {
         super.setUp()
         colibri = Colibri()
         colibri.chainId = 1
-        colibri.proofers = []  // Force local proof generation for tests
+        colibri.provers = []  // Force local proof generation for tests
     }
     
     override func tearDown() {
@@ -31,7 +31,7 @@ final class ColibriIntegrationTests: XCTestCase {
     func testColibriInitialization() {
         XCTAssertNotNil(colibri, "Colibri should initialize successfully")
         XCTAssertEqual(colibri.chainId, 1, "Chain ID should be set correctly")
-        XCTAssertEqual(colibri.proofers.count, 0, "Proofers should be empty for local testing")
+        XCTAssertEqual(colibri.provers.count, 0, "Provers should be empty for local testing")
     }
     
     func testChainIdConfiguration() {
@@ -43,10 +43,10 @@ final class ColibriIntegrationTests: XCTestCase {
         }
     }
     
-    func testProoferConfiguration() {
-        let testProofers = ["https://test1.com", "https://test2.com"]
-        colibri.proofers = testProofers
-        XCTAssertEqual(colibri.proofers, testProofers, "Proofers should be set correctly")
+    func testProverConfiguration() {
+        let testProvers = ["https://test1.com", "https://test2.com"]
+        colibri.provers = testProvers
+        XCTAssertEqual(colibri.provers, testProvers, "Provers should be set correctly")
     }
     
     // MARK: - Method Support Tests
@@ -167,7 +167,7 @@ final class ColibriIntegrationTests: XCTestCase {
         measure {
             let testColibri = Colibri()
             testColibri.chainId = 1
-            testColibri.proofers = []
+            testColibri.provers = []
         }
     }
     

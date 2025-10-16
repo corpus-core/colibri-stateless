@@ -101,7 +101,7 @@ let package = Package(
                 .unsafeFlags([
                     "../../build_quick/bindings/swift/libc4_swift_binding.a",
                     "../../build_quick/src/util/libutil.a",
-                    "../../build_quick/src/proofer/libproofer.a", 
+                    "../../build_quick/src/prover/libprover.a", 
                     "../../build_quick/src/verifier/libverifier.a",
                     "../../build_quick/libs/crypto/libcrypto.a",
                     "../../build_quick/libs/blst/libblst.a"

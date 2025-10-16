@@ -1,8 +1,8 @@
 # List to store all verifier properties
 set(VERIFIER_PROPERTIES "" CACHE INTERNAL "List of all verifier properties")
 
-# List to store all proofer properties
-set(PROOFER_PROPERTIES "" CACHE INTERNAL "List of all proofer properties")
+# List to store all prover properties
+set(PROVER_PROPERTIES "" CACHE INTERNAL "List of all prover properties")
 
 function(add_verifier)
     # Only process if VERIFIER is enabled
@@ -34,9 +34,9 @@ function(add_verifier)
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
 endfunction()
 
-function(add_proofer)
-    # Only process if PROOFER is enabled
-    if(NOT PROOFER)
+function(add_prover)
+    # Only process if PROVER is enabled
+    if(NOT PROVER)
         return()
     endif()
 
@@ -44,25 +44,25 @@ function(add_proofer)
     set(options "")
     set(oneValueArgs NAME PROOF)
     set(multiValueArgs SOURCES DEPENDS)
-    cmake_parse_arguments(PROOFER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    cmake_parse_arguments(PROVER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     # Add the library
-    add_library(${PROOFER_NAME} STATIC ${PROOFER_SOURCES})
+    add_library(${PROVER_NAME} STATIC ${PROVER_SOURCES})
     
     # Set include directories
-    target_include_directories(${PROOFER_NAME} PUBLIC ../../proofer proofer)
+    target_include_directories(${PROVER_NAME} PUBLIC ../../prover prover)
 
     
     # Link dependencies
-    target_link_libraries(${PROOFER_NAME} PUBLIC ${PROOFER_DEPENDS})
-    target_link_libraries(proofer PUBLIC ${PROOFER_NAME})
+    target_link_libraries(${PROVER_NAME} PUBLIC ${PROVER_DEPENDS})
+    target_link_libraries(prover PUBLIC ${PROVER_NAME})
 
     # Get the current global list
-    get_property(CURRENT_PROPERTIES CACHE PROOFER_PROPERTIES PROPERTY VALUE)
+    get_property(CURRENT_PROPERTIES CACHE PROVER_PROPERTIES PROPERTY VALUE)
     
     # Append to the global list
-    list(APPEND CURRENT_PROPERTIES "${PROOFER_NAME}:${PROOFER_PROOF}")
-    set(PROOFER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all proofer properties" FORCE)
+    list(APPEND CURRENT_PROPERTIES "${PROVER_NAME}:${PROVER_PROOF}")
+    set(PROVER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all prover properties" FORCE)
 endfunction()
 
 # Function to generate verifiers.h
@@ -127,40 +127,40 @@ function(generate_verifiers_header)
     file(APPEND ${VERIFIERS_H} "#endif // VERIFIERS_H\n")
 endfunction()
 
-# Function to generate proofers.h
-function(generate_proofers_header)
-    # Only generate if PROOFER is enabled
-    if(NOT PROOFER)
+# Function to generate provers.h
+function(generate_provers_header)
+    # Only generate if PROVER is enabled
+    if(NOT PROVER)
         return()
     endif()
     
-    set(PROOFERS_H "${CMAKE_BINARY_DIR}/proofers.h")
+    set(PROVERS_H "${CMAKE_BINARY_DIR}/provers.h")
     
     # Start with header guard and includes
-    file(WRITE ${PROOFERS_H} "#ifndef PROOFERS_H\n")
-    file(APPEND ${PROOFERS_H} "#define PROOFERS_H\n\n")
+    file(WRITE ${PROVERS_H} "#ifndef PROVERS_H\n")
+    file(APPEND ${PROVERS_H} "#define PROVERS_H\n\n")
 
-    # Add function declarations for each proofer
-    foreach(prop ${PROOFER_PROPERTIES})
+    # Add function declarations for each prover
+    foreach(prop ${PROVER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 0 name)
         list(GET parts 1 proof)
         
-        file(APPEND ${PROOFERS_H} "bool ${proof}(proofer_ctx_t* ctx);\n\n")
+        file(APPEND ${PROVERS_H} "bool ${proof}(prover_ctx_t* ctx);\n\n")
     endforeach()
 
-    # Add proofer_execute function
-    file(APPEND ${PROOFERS_H} "static void proofer_execute(proofer_ctx_t* ctx) {\n")
-    foreach(prop ${PROOFER_PROPERTIES})
+    # Add prover_execute function
+    file(APPEND ${PROVERS_H} "static void prover_execute(prover_ctx_t* ctx) {\n")
+    foreach(prop ${PROVER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 1 proof)
-        file(APPEND ${PROOFERS_H} "  if (${proof}(ctx)) return;\n")
+        file(APPEND ${PROVERS_H} "  if (${proof}(ctx)) return;\n")
     endforeach()
-    file(APPEND ${PROOFERS_H} "  ctx->state.error = strdup(\"Unsupported chain\");\n")
-    file(APPEND ${PROOFERS_H} "}\n\n")
+    file(APPEND ${PROVERS_H} "  ctx->state.error = strdup(\"Unsupported chain\");\n")
+    file(APPEND ${PROVERS_H} "}\n\n")
 
     # Close header guard
-    file(APPEND ${PROOFERS_H} "#endif // PROOFERS_H\n")
+    file(APPEND ${PROVERS_H} "#endif // PROVERS_H\n")
 endfunction()
 
 # List for all server handler properties
@@ -184,7 +184,7 @@ function(add_server_handler)
         ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include
         ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
     )
-    target_link_libraries(${HANDLER_NAME} PUBLIC libuv llhttp proofer util verifier ${HANDLER_DEPENDS} )
+    target_link_libraries(${HANDLER_NAME} PUBLIC libuv llhttp prover util verifier ${HANDLER_DEPENDS} )
     # target_link_libraries(server PUBLIC ${HANDLER_NAME}) # This is the problematic line
 
     # Get current list of properties

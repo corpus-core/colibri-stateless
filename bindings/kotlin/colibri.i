@@ -21,7 +21,7 @@ typedef struct bytes_t {
 %}
 
 // Add typemap for char* return values that need to be freed
-%typemap(out) char* c4_verify_execute_json_status, char* c4_proofer_execute_json_status {
+%typemap(out) char* c4_verify_execute_json_status, char* c4_prover_execute_json_status {
     if ($1) {
         $result = (*jenv)->NewStringUTF(jenv, (const char *)$1);
         free($1);  // Free the dynamically allocated string
@@ -67,12 +67,12 @@ typedef struct bytes_t {
 %typemap(javain) void* "$javainput"
 %typemap(javaout) void* { return $jnicall; }
 
-// Handle proofer_t* as an opaque pointer
-%typemap(jni) proofer_t* "jlong"
-%typemap(jtype) proofer_t* "long"
-%typemap(jstype) proofer_t* "long"
-%typemap(javain) proofer_t* "$javainput"
-%typemap(javaout) proofer_t* { return $jnicall; }
+// Handle prover_t* as an opaque pointer
+%typemap(jni) prover_t* "jlong"
+%typemap(jtype) prover_t* "long"
+%typemap(jstype) prover_t* "long"
+%typemap(javain) prover_t* "$javainput"
+%typemap(javaout) prover_t* { return $jnicall; }
 
 // --- Add native bridge initialization function ---
 // This function is implemented in jni_bridge.c, not the core library.

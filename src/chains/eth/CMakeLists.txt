@@ -125,24 +125,24 @@ add_verifier(
   METHOD_TYPE c4_eth_get_method_type
 )
 
-add_proofer(
-  NAME eth_proofer
+add_prover(
+  NAME eth_prover
   SOURCES 
-    proofer/eth_proofer.c
-    proofer/proof_account.c
-    proofer/proof_transaction.c
-    proofer/proof_logs.c
-    proofer/proof_call.c
-    proofer/beacon.c
-    proofer/proof_receipt.c
-    proofer/eth_req.c
-    proofer/eth_tools.c
-    proofer/proof_sync.c
-    proofer/proof_block.c
-    proofer/proof_witness.c
-    proofer/historic_proof.c
+    prover/eth_prover.c
+    prover/proof_account.c
+    prover/proof_transaction.c
+    prover/proof_logs.c
+    prover/proof_call.c
+    prover/beacon.c
+    prover/proof_receipt.c
+    prover/eth_req.c
+    prover/eth_tools.c
+    prover/proof_sync.c
+    prover/proof_block.c
+    prover/proof_witness.c
+    prover/historic_proof.c
   DEPENDS util eth_verifier
-  PROOF eth_proofer_execute
+  PROOF eth_prover_execute
 )
 
 add_server_handler(
@@ -155,7 +155,7 @@ add_server_handler(
     server/handle_headers.c
     server/client_detection.c
     server/client_mappings.c
-  DEPENDS eth_proofer
+  DEPENDS eth_prover
   INIT_FUNC eth_server_init
   SHUTDOWN_FUNC eth_server_shutdown
   GET_DETECTION_REQUEST_FUNC eth_get_detection_request
