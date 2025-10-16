@@ -768,7 +768,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     else if (strlen(req_url) == 0 && strlen(base_url) > 0)
       r->url = strdup(base_url);
     else if (strlen(req_url) > 0 && strlen(base_url) > 0)
-      r->url = bprintf(NULL, "%s%s", base_url, req_url);
+      r->url = bprintf(NULL, "%s%s%s", base_url, base_url[strlen(base_url) - 1] == '/' ? "" : "/", req_url);
     else {
       fprintf(stderr, ":: ERROR: Empty URL\n");
       r->req->error = bprintf(NULL, "Empty URL");
