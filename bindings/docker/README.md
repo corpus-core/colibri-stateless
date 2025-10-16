@@ -56,11 +56,15 @@ docker build -t colibri-prover -f bindings/docker/Dockerfile .
 
 ## Multi-Architecture Support
 
-The published images support the following platforms:
-- `linux/amd64` (x86_64)
-- `linux/arm64` (ARM64/AArch64)
+Multi-platform images (both architectures) are **only available for releases**:
+- `latest` - Latest stable release (linux/amd64, linux/arm64)
+- `vX.Y.Z` - Version tags like v1.0.0 (linux/amd64, linux/arm64)
 
-Docker will automatically pull the correct image for your platform.
+Development and main branch builds use single platform for faster builds:
+- `main` - Main branch (linux/amd64 only)
+- `dev` - Development branch (linux/amd64 only)
+
+Docker will automatically pull the correct image for your platform. For production use, we recommend using a specific release tag to get multi-architecture support.
 
 ## Available Tags
 
