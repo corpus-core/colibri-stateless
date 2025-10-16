@@ -79,6 +79,11 @@ static ssz_ob_t web3_clientVersion(verify_ctx_t* ctx) {
   return (ssz_ob_t) {.def = &ssz_string_def, .bytes = result};
 }
 
+static ssz_ob_t net_version(verify_ctx_t* ctx) {
+  const char* version = bprintf(NULL, "%l", (uint64_t) ctx->chain_id);
+  return (ssz_ob_t) {.def = &ssz_string_def, .bytes = bytes(version, strlen(version))};
+}
+
 static ssz_ob_t web3_sha3(verify_ctx_t* ctx) {
   buffer_t buf = {0};
   json_as_bytes(json_at(ctx->args, 0), &buf);
@@ -138,6 +143,8 @@ bool verify_eth_local(verify_ctx_t* ctx) {
     ctx->data = web3_clientVersion(ctx);
   else if (strcmp(ctx->method, "web3_sha3") == 0)
     ctx->data = web3_sha3(ctx);
+  else if (strcmp(ctx->method, "net_version") == 0)
+    ctx->data = net_version(ctx);
   else if (strcmp(ctx->method, "colibri_decodeTransaction") == 0)
     ctx->data = colibri_decodeTransaction(ctx);
   else

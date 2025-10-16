@@ -190,7 +190,7 @@ int main(int argc, char* argv[]) {
   if (input == NULL) {
     input = getenv("C4_PROOFER");
     if (input == NULL)
-      input = "https://mainnet.colibri-proof.tech";
+      input = "https://mainnet1.colibri-proof.tech";
   }
   if (trusted_blocks.data.len > 0)
     c4_eth_set_trusted_blockhashes(chain_id, trusted_blocks.data);
