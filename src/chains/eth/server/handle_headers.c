@@ -45,7 +45,7 @@ bool c4_proxy(client_t* client) {
   req->type           = C4_DATA_TYPE_BEACON_API;
   req->encoding       = C4_DATA_ENCODING_JSON;
 
-  if (client->request.content_type && strncmp(client->request.content_type, "application/octet-stream", strlen("application/octet-stream")) == 0)
+  if (client->request.accept && strncmp(client->request.accept, "application/octet-stream", strlen("application/octet-stream")) == 0)
     req->encoding = C4_DATA_ENCODING_SSZ;
   c4_add_request(client, req, NULL, c4_proxy_callback);
   return true;
