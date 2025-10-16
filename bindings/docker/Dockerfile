@@ -54,6 +54,16 @@ WORKDIR /app
 # Copy the built server executable from the builder stage
 COPY --from=builder /build/bin/server /app/server
 
+# Add OCI labels for better GHCR integration
+LABEL org.opencontainers.image.title="Colibri Prover"
+LABEL org.opencontainers.image.description="Highly efficient proofer server for Ethereum and Layer-2 solutions"
+LABEL org.opencontainers.image.url="https://github.com/corpus-core/colibri-stateless"
+LABEL org.opencontainers.image.source="https://github.com/corpus-core/colibri-stateless"
+LABEL org.opencontainers.image.documentation="https://corpus-core.gitbook.io/specification-colibri-stateless"
+LABEL org.opencontainers.image.vendor="Corpus Core"
+LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
+LABEL org.opencontainers.image.license-notice="This server component is licensed under PolyForm Noncommercial License 1.0.0. Free for non-commercial use only. Commercial use requires a separate license. Contact jork@corpus.io for commercial licensing."
+
 # Expose the default server port
 EXPOSE 8090
 
