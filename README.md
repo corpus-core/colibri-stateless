@@ -132,6 +132,31 @@ print(f"Current block: {block_number}")
 
 📖 [**Full Python Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/python)
 
+#### Docker / Prover Server
+
+Run your own prover server using Docker:
+
+```bash
+# Pull from GitHub Container Registry
+docker pull ghcr.io/corpus-core/colibri-prover:latest
+
+# Run with Docker
+docker run -p 8090:8090 ghcr.io/corpus-core/colibri-prover:latest
+
+# Or use Docker Compose with Memcached (recommended)
+# See bindings/docker/README.md for full configuration
+```
+
+**Available tags:**
+- `latest` - Latest stable release (linux/amd64, linux/arm64)
+- `main` - Main branch (linux/amd64)
+- `dev` - Development branch (linux/amd64)
+- `vX.Y.Z` - Specific versions
+
+The prover server is lightweight (single-threaded, ~100MB internal cache) and benefits greatly from Memcached for caching external requests (24h TTL).
+
+[**Full Docker Documentation**](bindings/docker/README.md) |  [**GitHub Container Registry**](https://github.com/corpus-core/colibri-stateless/pkgs/container/colibri-prover)
+
 ## Documentation
 
 Complete documentation with detailed specifications, API references, and examples can be found at:
