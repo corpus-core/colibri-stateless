@@ -408,7 +408,7 @@ static void handle_curl_events() {
     else {
       char* effective_url = NULL;
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
-      if (!r->req->error) r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, curl_easy_strerror(res), bprintf(&r->buffer, " ")); // create error message
+      if (!r->req->error) r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, msg->data.result == CURLE_OK ? "" : curl_easy_strerror(msg->data.result), bprintf(&r->buffer, " ")); // create error message
       fprintf(stderr, "   [curl ] %s %s -> ERROR : %s\n", effective_url ? effective_url : (r->url ? r->url : r->req->url), r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
 
       // For non-JSON-RPC user errors, mark as non-retryable to avoid unnecessary retries
