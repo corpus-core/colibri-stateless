@@ -47,6 +47,7 @@ class Colibri:
         proofers: List[str] = None,
         eth_rpcs: List[str] = None,
         beacon_apis: List[str] = None,
+        checkpointz: List[str] = None,
         trusted_block_hashes: List[str] = None,
         include_code: bool = False,
         storage: Optional[ColibriStorage] = None,
@@ -60,6 +61,7 @@ class Colibri:
             proofers: List of proofer server URLs
             eth_rpcs: List of Ethereum RPC URLs
             beacon_apis: List of beacon chain API URLs
+            checkpointz: List of checkpointz server URLs
             trusted_block_hashes: List of trusted block hashes for verification
             include_code: Whether to include code in proofs
             storage: Storage implementation (defaults to DefaultStorage)
@@ -70,6 +72,7 @@ class Colibri:
         self.proofers = proofers if proofers is not None else self._get_default_proofers(chain_id)
         self.eth_rpcs = eth_rpcs if eth_rpcs is not None else self._get_default_eth_rpcs(chain_id)
         self.beacon_apis = beacon_apis if beacon_apis is not None else self._get_default_beacon_apis(chain_id)
+        self.checkpointz = checkpointz if checkpointz is not None else self._get_default_checkpointz(chain_id)
         self.trusted_block_hashes = trusted_block_hashes if trusted_block_hashes is not None else []
         self.include_code = include_code
         self.request_handler = request_handler
@@ -123,6 +126,17 @@ class Colibri:
             10200: ["https://gnosis-chiado-beacon-api.publicnode.com"],
         }
         return defaults.get(chain_id, ["https://lodestar-mainnet.chainsafe.io"])
+
+    @staticmethod
+    def _get_default_checkpointz(chain_id: int) -> List[str]:
+        """Get default checkpointz URLs for chain"""
+        defaults = {
+            1: ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
+            11155111: [],  # No public checkpointz for Sepolia yet
+            100: [],  # TODO: Add Gnosis checkpointz servers
+            10200: [],  # No public checkpointz for Chiado yet
+        }
+        return defaults.get(chain_id, [])
 
     def get_method_support(self, method: str) -> MethodType:
         """
@@ -381,7 +395,9 @@ class Colibri:
                         return
 
                 # Determine server list
-                if request.request_type == "beacon_api":
+                if request.request_type == "checkpointz":
+                    servers = self.checkpointz
+                elif request.request_type == "beacon_api":
                     if use_proofer_fallback and self.proofers:
                         servers = self.proofers
                     else:

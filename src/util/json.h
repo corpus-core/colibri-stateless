@@ -163,6 +163,12 @@ bool json_equal_string(json_t value, const char* str) NONNULL_FOR((2));
  */
 void buffer_add_json(buffer_t* buffer, json_t data) NONNULL_FOR((1));
 
+/**
+ * Duplicate a JSON value. this will allocate new memory for json.start. Make sure to free this.
+ * @param json JSON value to duplicate
+ * @return duplicated JSON value
+ */
+json_t json_dup(json_t json);
 // Convenience macros for type conversion
 #define json_as_uint32(value)             ((uint32_t) json_as_uint64(value))
 #define json_as_uint16(value)             ((uint16_t) json_as_uint64(value))
@@ -174,11 +180,71 @@ void buffer_add_json(buffer_t* buffer, json_t data) NONNULL_FOR((1));
 #define json_get_bytes(object, name, buf) json_as_bytes(json_get(object, name), buf)
 
 /**
- * Validate JSON against a schema definition (defined in json_validate.c).
+ * Validate JSON against a schema definition.
+ *
+ * This function validates a JSON value against a schema definition string and returns
+ * NULL on success or an error message on validation failure.
+ *
  * @param value JSON value to validate
- * @param def schema definition string
- * @param error_prefix prefix for error messages
- * @return NULL on success, error message on failure
+ * @param def schema definition string (see schema syntax below)
+ * @param error_prefix prefix for error messages (e.g. "request.params")
+ * @return NULL on success, dynamically allocated error message string on failure
+ *
+ * SCHEMA SYNTAX:
+ *
+ * 1. PRIMITIVE TYPES:
+ *    - "bytes32"   : hex string with exactly 32 bytes (66 chars with 0x prefix)
+ *    - "address"   : hex string with exactly 20 bytes (42 chars with 0x prefix)
+ *    - "bytes"     : hex string with arbitrary length (must have 0x prefix)
+ *    - "hexuint"   : hex-encoded unsigned integer (no leading zeros, max 32 bytes)
+ *    - "hex32"     : hex string with max 32 bytes length
+ *    - "uint"      : JSON number (integer)
+ *    - "suint"     : JSON string (integer) like "1234567890"
+ *    - "bool"      : JSON boolean (true/false)
+ *    - "block"     : block identifier (hex uint or "latest", "safe", "finalized")
+ *
+ * 2. ARRAYS:
+ *    Syntax: [element_type]
+ *    Example: "[bytes32]" - array of 32-byte hex strings
+ *    Example: "[{name:uint,value:bytes}]" - array of objects
+ *    Note: All elements must match the specified type
+ *
+ * 3. OBJECTS:
+ *    Syntax: {field1:type1,field2:type2,...}
+ *    Example: "{hash:bytes32,number:hexuint}"
+ *
+ *    Optional fields: Use '?' after field name
+ *    Example: "{required:uint,optional?:bytes}"
+ *    Note: Optional fields can be missing or null
+ *
+ * 4. WILDCARD OBJECTS (dynamic keys):
+ *    Syntax: {*:value_type}
+ *    Example: "{*:bytes32}" - object with arbitrary keys, all values must be bytes32
+ *    Use case: For objects with unknown/dynamic property names
+ *
+ * 5. NESTED STRUCTURES:
+ *    Types can be nested arbitrarily:
+ *    Example: "{logs:[{address:address,topics:[bytes32],data:bytes}]}"
+ *
+ * EXAMPLES:
+ *
+ *   // Ethereum transaction
+ *   "{hash:bytes32,from:address,to?:address,value:hexuint,data:bytes}"
+ *
+ *   // Array of log entries
+ *   "[{address:address,topics:[bytes32],data:bytes}]"
+ *
+ *   // Storage proof with wildcard object for dynamic storage
+ *   "{balance:hexuint,storage:{*:bytes32}}"
+ *
+ * USAGE:
+ *
+ *   json_t tx = json_parse(data);
+ *   const char* err = json_validate(tx, "{hash:bytes32,value:hexuint}", "tx");
+ *   if (err) {
+ *     printf("Validation error: %s\n", err);
+ *     free((void*)err);
+ *   }
  */
 const char* json_validate(json_t value, const char* def, const char* error_prefix);
 

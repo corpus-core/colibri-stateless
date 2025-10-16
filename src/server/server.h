@@ -62,6 +62,7 @@ typedef struct {
   char*          rpc_nodes;
   char*          proofer_nodes;
   char*          beacon_nodes;
+  char*          checkpointz_nodes;
   int            stream_beacon_events;
   char*          period_store;
   bytes32_t      witness_key;

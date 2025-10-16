@@ -112,7 +112,7 @@ int main(int argc, char* argv[]) {
             break;
 #ifdef USE_CURL
           case 'd': {
-            curl_set_chain_store(argv[++i]);
+            curl_set_config(json_parse(bprintf(NULL, "{\"chain_store\":[\"file://%s\"]}", argv[++i])));
             flags |= C4_PROOFER_FLAG_CHAIN_STORE;
             char* path   = bprintf(NULL, "./states_%l", (uint64_t) chain_id);
             client_state = bytes_read(path);

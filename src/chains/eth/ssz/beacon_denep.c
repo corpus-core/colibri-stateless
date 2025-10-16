@@ -284,6 +284,12 @@ const ssz_def_t LIGHT_CLIENT_HEADER[] = {
     SSZ_CONTAINER("execution", EXECUTION_PAYLOAD_HEADER), // the header of the execution layer proved within the beacon block
     SSZ_VECTOR("executionBranch", ssz_bytes32, 4)};       // the merkle proof of the execution layer proved within the beacon block
 
+// the light client bootstrap is used for initial sync from a trusted checkpoint
+const ssz_def_t DENEP_LIGHT_CLIENT_BOOTSTRAP[3] = {
+    SSZ_CONTAINER("header", LIGHT_CLIENT_HEADER),              // header matching the requested beacon block root
+    SSZ_CONTAINER("currentSyncCommittee", SYNC_COMMITTEE),     // current sync committee corresponding to header.beacon.state_root
+    SSZ_VECTOR("currentSyncCommitteeBranch", ssz_bytes32, 5)}; // merkle proof for current sync committee (depth 5 in Deneb)
+
 // the light client update is used to verify the transition between two periods of the SyncCommittee.
 // This data will be fetched directly through the beacon Chain API since it contains all required data.
 const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE[7] = {

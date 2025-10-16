@@ -34,14 +34,19 @@ static void c4_proxy_callback(client_t* client, void* data, data_request_t* req)
 }
 
 bool c4_proxy(client_t* client) {
-  const char* path = "/eth/v1/beacon/headers/";
-  if (strncmp(client->request.path, path, strlen(path)) != 0) return false;
+  const char* path_headers     = "/eth/v1/beacon/headers/";
+  const char* path_lightclient = "/eth/v1/beacon/light_client";
+
+  if (strncmp(client->request.path, path_headers, strlen(path_headers)) != 0 && strncmp(client->request.path, path_lightclient, strlen(path_lightclient)) != 0) return false;
   data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
   req->url            = strdup(client->request.path + 1);
   req->method         = C4_DATA_METHOD_GET;
-  req->chain_id       = C4_CHAIN_MAINNET;
+  req->chain_id       = http_server.chain_id;
   req->type           = C4_DATA_TYPE_BEACON_API;
   req->encoding       = C4_DATA_ENCODING_JSON;
+
+  if (client->request.content_type && strncmp(client->request.content_type, "application/octet-stream", strlen("application/octet-stream")) == 0)
+    req->encoding = C4_DATA_ENCODING_SSZ;
   c4_add_request(client, req, NULL, c4_proxy_callback);
   return true;
 }

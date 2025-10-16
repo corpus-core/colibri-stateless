@@ -247,6 +247,12 @@ const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7] = {
 
 static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 
+// the light client bootstrap is used for initial sync from a trusted checkpoint
+const ssz_def_t ELECTRA_LIGHT_CLIENT_BOOTSTRAP[3] = {
+    SSZ_CONTAINER("header", LIGHT_CLIENT_HEADER),              // header matching the requested beacon block root
+    SSZ_CONTAINER("currentSyncCommittee", SYNC_COMMITTEE),     // current sync committee corresponding to header.beacon.state_root
+    SSZ_VECTOR("currentSyncCommitteeBranch", ssz_bytes32, 6)}; // merkle proof for current sync committee (depth 6 in Electra)
+
 // the block header of the execution layer proved within the beacon block
 static const ssz_def_t EXECUTION_PAYLOAD_HEADER[] = {
     SSZ_BYTES32("parentHash"),         // the hash of the parent block

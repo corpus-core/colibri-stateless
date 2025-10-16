@@ -157,6 +157,16 @@ static const char* check_block(json_t val, const char* error_prefix) {
   if (strncmp("\"latest\"", val.start, 8) == 0 || strncmp("\"safe\"", val.start, 6) == 0 || strncmp("\"finalized\"", val.start, 11) == 0) return NULL;
   return check_hex(val, 0, true, error_prefix);
 }
+
+static const char* check_suint(json_t val, const char* error_prefix) {
+  // this is a uint number in quotes as string (no hex, only 0-9+)
+  if (val.type != JSON_TYPE_STRING) ERROR("%sExpected suint", error_prefix);
+  for (int i = 1; i < val.len - 1; i++) {
+    if (!isdigit(val.start[i])) ERROR("%sExpected suint", error_prefix);
+  }
+  return NULL;
+}
+
 const char* json_validate(json_t val, const char* def, const char* error_prefix) {
   if (*def == '[') return check_array(val, def, error_prefix ? error_prefix : "");
   if (*def == '{') return check_object(val, def, error_prefix ? error_prefix : "");
@@ -166,6 +176,7 @@ const char* json_validate(json_t val, const char* def, const char* error_prefix)
   if (strncmp(def, "hex32", 5) == 0) return check_hex(val, -32, false, error_prefix);
   if (strncmp(def, "bytes", 5) == 0) return check_hex(val, 0, false, error_prefix);
   if (strncmp(def, "uint", 4) == 0) return val.type == JSON_TYPE_NUMBER ? NULL : strdup("Expected uint");
+  if (strncmp(def, "suint", 5) == 0) return val.type == JSON_TYPE_STRING ? NULL : strdup("Expected suint");
   if (strncmp(def, "bool", 4) == 0) return val.type == JSON_TYPE_BOOLEAN ? NULL : strdup("Expected boolean");
   if (strncmp(def, "block", 5) == 0) return check_block(val, error_prefix);
   ERROR("%sUnknown type %s", error_prefix ? error_prefix : "", def);

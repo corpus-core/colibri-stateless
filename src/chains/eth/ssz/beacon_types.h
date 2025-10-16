@@ -80,8 +80,9 @@ typedef struct {
   chain_id_t          chain_id;
   const uint64_t*     fork_epochs;
   const bytes32_t     genesis_validators_root;
-  const int           slots_per_epoch_bits;   // 5 = 32 slots per epoch
-  const int           epochs_per_period_bits; // 8 = 256 epochs per period
+  const int           slots_per_epoch_bits;     // 5 = 32 slots per epoch
+  const int           epochs_per_period_bits;   // 8 = 256 epochs per period
+  const uint64_t      weak_subjectivity_epochs; // max epochs before checkpoint validation required
   fork_version_func_t fork_version_func;
 } chain_spec_t;
 
@@ -101,6 +102,8 @@ extern const ssz_def_t BEACON_BLOCK_HEADER[5];
 extern const ssz_def_t LIGHT_CLIENT_HEADER[3];
 extern const ssz_def_t SYNC_COMMITTEE[2];
 extern const ssz_def_t SYNC_AGGREGATE[2];
+extern const ssz_def_t DENEP_LIGHT_CLIENT_BOOTSTRAP[3];
+extern const ssz_def_t ELECTRA_LIGHT_CLIENT_BOOTSTRAP[3];
 extern const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t DENEP_EXECUTION_PAYLOAD[17];
