@@ -28,13 +28,13 @@
 extern "C" {
 #endif
 
-#include "../../src/proofer/proofer.h"
+#include "../../src/prover/prover.h"
 
 typedef struct {
   json_t checkpointz;
   json_t beacon_api;
   json_t eth_rpc;
-  json_t proofer;
+  json_t prover;
   json_t chain_store;
 } curl_nodes_t;
 

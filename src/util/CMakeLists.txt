@@ -25,7 +25,7 @@ if(FILE_STORAGE AND NOT WASM)
 endif()
 
 
-option(PRECOMPILE_ZERO_HASHES "if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the proofer, but not in the verfier" ON)
+option(PRECOMPILE_ZERO_HASHES "if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the prover, but not in the verfier" ON)
 if(PRECOMPILE_ZERO_HASHES)
     add_definitions(-DPRECOMPILE_ZERO_HASHES)
 endif()

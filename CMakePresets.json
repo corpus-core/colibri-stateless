@@ -31,7 +31,7 @@
         {
             "name": "full-features",
             "displayName": "Full incl. Server",
-            "description": "Aktiviert Tests, HTTP-Server und Proofer-Cache",
+            "description": "Aktiviert Tests, HTTP-Server und Prover-Cache",
             "inherits": "default",
             "binaryDir": "${sourceDir}/build/full",
             "cacheVariables": {

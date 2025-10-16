@@ -34,7 +34,7 @@ The Colibri Swift Bindings enable you to verify Ethereum RPC calls with cryptogr
 │  • Memory management                                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                   Core C Libraries                              │
-│  • Proofer (proof generation)                                   │
+│  • Prover (proof generation)                                   │
 │  • Verifier (proof verification)                                │
 │  • Storage plugin system                                        │
 │  • Cryptographic libraries (blst, ed25519)                      │
@@ -60,7 +60,7 @@ import Colibri
 
 let colibri = Colibri()
 colibri.chainId = 1  // Ethereum Mainnet
-colibri.proofers = ["https://c4.incubed.net"]
+colibri.provers = ["https://c4.incubed.net"]
 
 // RPC call with automatic proof verification
 let result = try await colibri.rpc(method: "eth_getBalance", params: [
@@ -108,7 +108,7 @@ swift test
 
 **What happens during build:**
 
-1. **Compile C Libraries** - All core libraries (Proofer, Verifier, Crypto)
+1. **Compile C Libraries** - All core libraries (Prover, Verifier, Crypto)
 2. **Swift Storage Bridge** - C-Swift interop for storage system
 3. **Generate Integration Tests** - Automatic generation of test functions from `test/data`
 4. **Prepare Package** - Swift Package with all dependencies
@@ -177,8 +177,8 @@ public class Colibri {
     /// Blockchain Chain ID (e.g. 1 for Ethereum Mainnet)
     public var chainId: UInt64
     
-    /// List of Proofer URLs (empty = local proof generation)
-    public var proofers: [String]
+    /// List of Prover URLs (empty = local proof generation)
+    public var provers: [String]
     
     /// Initialization
     public init()
@@ -617,7 +617,7 @@ class DebugRequestHandler: RequestHandler {
 
 ### iOS Considerations
 
-- **App Transport Security**: HTTPS required for all proofer URLs
+- **App Transport Security**: HTTPS required for all prover URLs
 - **Background Tasks**: RPC calls in background apps may be terminated
 - **Memory Limits**: Adjust storage cache size to iOS memory limits
 - **Network Reachability**: Offline capabilities through local proof generation

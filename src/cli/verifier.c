@@ -46,8 +46,8 @@ static size_t write_data(void* ptr, size_t size, size_t nmemb, void* userdata) {
   return size * nmemb;
 }
 
-static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t state, chain_id_t chain_id) {
-  // fprintf(stderr, "reading from proofer: %s(%s) from %s\n", method, args, url);
+static bytes_t read_from_prover(char* url, char* method, char* args, bytes_t state, chain_id_t chain_id) {
+  // fprintf(stderr, "reading from prover: %s(%s) from %s\n", method, args, url);
   if (strcmp(method, "colibri_simulateTransaction") == 0) method = "eth_call";
   struct curl_slist* headers         = NULL;
   buffer_t           payload         = {0};
@@ -65,14 +65,14 @@ static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t st
   curl_easy_cleanup(curl);
 
   if (response_buffer.data.len == 0) {
-    fprintf(stderr, "proofer returned empty response\n");
+    fprintf(stderr, "prover returned empty response\n");
     exit(EXIT_FAILURE);
   }
   if (response_buffer.data.data[0] == '{') {
     json_t json  = json_parse((char*) response_buffer.data.data);
     json_t error = json_get(json, "error");
     if (error.type == JSON_TYPE_STRING) {
-      fprintf(stderr, "proofer returned error: %s\n", json_new_string(error));
+      fprintf(stderr, "prover returned error: %s\n", json_new_string(error));
     }
     exit(EXIT_FAILURE);
   }
@@ -86,7 +86,7 @@ static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t st
 
 // ::: verify
 // The verify command is used to verify a proof for a given method and parameters.
-// You can pass either a proof file as input or a url to a proofer-service. If non are specified the default proofer-service will be used.
+// You can pass either a proof file as input or a url to a prover-service. If non are specified the default prover-service will be used.
 //
 // ````sh
 //     # Verify a proof for the eth_getBlockByNumber method
@@ -102,7 +102,7 @@ static bytes_t read_from_proofer(char* url, char* method, char* args, bytes_t st
 // | `-t`           | `<test_dir>`    | Test directory             |         |
 // | `-i`           | `<proof_file>`  | Proof file to verify       |         |
 // | `-o`           | `<proof_file>`  | Proof file to write        |         |
-// | `-p`           | `<proofer_url>` | URL of the proofer         |         |
+// | `-p`           | `<prover_url>` | URL of the prover         |         |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
@@ -115,7 +115,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -t <test_dir>  test directory\n");
     fprintf(stderr, "  -i <proof_file> proof file to read\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
-    fprintf(stderr, "  -p url of the proofer\n");
+    fprintf(stderr, "  -p url of the prover\n");
     fprintf(stderr, "  -r rpc url\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
@@ -216,7 +216,7 @@ int main(int argc, char* argv[]) {
         storage_plugin_t storage;
         c4_get_storage_config(&storage);
         storage.get(name, &state);
-        request = read_from_proofer(input, method, (char*) args.data.data, state.data, chain_id);
+        request = read_from_prover(input, method, (char*) args.data.data, state.data, chain_id);
         curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[\"%s\"]}", input, rpc)));
         buffer_free(&state);
         if (output) bytes_write(request, fopen(output, "w"), true);

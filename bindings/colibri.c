@@ -24,7 +24,7 @@
 #include "colibri.h"
 #include "beacon_types.h"
 #include "plugin.h"
-#include "proofer.h"
+#include "prover.h"
 #include "ssz.h"
 #include "sync_committee.h"
 #include "verify.h"
@@ -40,9 +40,9 @@ typedef struct {
   bool         initialised;
 } c4_verify_ctx_t;
 
-proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
-  //  fprintf(stderr, "c4_create_proofer_ctx: %s, %s\n", method, params);
-  return (void*) c4_proofer_create(method, params, chain_id, flags);
+prover_t* c4_create_prover_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
+  //  fprintf(stderr, "c4_create_prover_ctx: %s, %s\n", method, params);
+  return (void*) c4_prover_create(method, params, chain_id, flags);
 }
 
 static const char* status_to_string(c4_status_t status) {
@@ -102,10 +102,10 @@ static void add_data_request(buffer_t* result, data_request_t* data_request) {
   bprintf(result, "\"type\": \"%s\"}", data_request_type_to_string(data_request->type));
 }
 
-char* c4_proofer_execute_json_status(proofer_t* proofer) {
-  buffer_t       result = {0};
-  proofer_ctx_t* ctx    = (proofer_ctx_t*) proofer;
-  c4_status_t    status = c4_proofer_execute(ctx);
+char* c4_prover_execute_json_status(prover_t* prover) {
+  buffer_t      result = {0};
+  prover_ctx_t* ctx    = (prover_ctx_t*) prover;
+  c4_status_t   status = c4_prover_execute(ctx);
   bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
   switch (status) {
     case C4_SUCCESS:
@@ -130,12 +130,12 @@ char* c4_proofer_execute_json_status(proofer_t* proofer) {
     }
   }
   bprintf(&result, "}");
-  //  fprintf(stderr, "c4_proofer_execute_json_status result: %s\n", result.data.data);
+  //  fprintf(stderr, "c4_prover_execute_json_status result: %s\n", result.data.data);
   return buffer_as_string(result);
 }
 
-void c4_free_proofer_ctx(proofer_t* ctx) {
-  c4_proofer_free((proofer_ctx_t*) ctx);
+void c4_free_prover_ctx(prover_t* ctx) {
+  c4_prover_free((prover_ctx_t*) ctx);
 }
 void c4_req_set_response(void* req_ptr, bytes_t data, uint16_t node_index) {
   //  fprintf(stderr, "c4_req_set_response: %p\n : %d\n", req_ptr, data.len);
@@ -151,8 +151,8 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index) {
   ctx->response_node_index = node_index;
 }
 
-bytes_t c4_proofer_get_proof(proofer_t* proofer) {
-  proofer_ctx_t* ctx = (proofer_ctx_t*) proofer;
+bytes_t c4_prover_get_proof(prover_t* prover) {
+  prover_ctx_t* ctx = (prover_ctx_t*) prover;
   return ctx->proof;
 }
 

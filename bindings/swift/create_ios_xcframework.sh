@@ -24,16 +24,16 @@ LIBRARIES=(
     "libs/crypto/libcrypto.a"
     "libs/blst/libblst.a" 
     "src/util/libutil.a"
-    "src/proofer/libproofer.a"
+    "src/prover/libprover.a"
     "src/verifier/libverifier.a"
     "bindings/swift/libc4_swift_binding.a"
     # ETH Chain support
     "src/chains/eth/libeth_verifier.a"
-    "src/chains/eth/libeth_proofer.a"
+    "src/chains/eth/libeth_prover.a"
     "src/chains/eth/precompiles/libeth_precompiles.a"
     # OP Stack support (NEW - these were missing!)
     "src/chains/op/libop_verifier.a"
-    "src/chains/op/libop_proofer.a"
+    "src/chains/op/libop_prover.a"
     # EVMOne dependencies (always included as EVMONE is enabled by default)
     "libs/intx/libintx_wrapper.a"
     "libs/evmone/libevmone_wrapper.a"

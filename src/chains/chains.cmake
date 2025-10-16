@@ -1,8 +1,8 @@
 # List to store all verifier properties
 set(VERIFIER_PROPERTIES "" CACHE INTERNAL "List of all verifier properties")
 
-# List to store all proofer properties
-set(PROOFER_PROPERTIES "" CACHE INTERNAL "List of all proofer properties")
+# List to store all prover properties
+set(PROOFER_PROPERTIES "" CACHE INTERNAL "List of all prover properties")
 
 function(add_verifier)
     # Only process if VERIFIER is enabled
@@ -34,7 +34,7 @@ function(add_verifier)
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
 endfunction()
 
-function(add_proofer)
+function(add_prover)
     # Only process if PROOFER is enabled
     if(NOT PROOFER)
         return()
@@ -50,19 +50,19 @@ function(add_proofer)
     add_library(${PROOFER_NAME} STATIC ${PROOFER_SOURCES})
     
     # Set include directories
-    target_include_directories(${PROOFER_NAME} PUBLIC ../../proofer proofer)
+    target_include_directories(${PROOFER_NAME} PUBLIC ../../prover prover)
 
     
     # Link dependencies
     target_link_libraries(${PROOFER_NAME} PUBLIC ${PROOFER_DEPENDS})
-    target_link_libraries(proofer PUBLIC ${PROOFER_NAME})
+    target_link_libraries(prover PUBLIC ${PROOFER_NAME})
 
     # Get the current global list
     get_property(CURRENT_PROPERTIES CACHE PROOFER_PROPERTIES PROPERTY VALUE)
     
     # Append to the global list
     list(APPEND CURRENT_PROPERTIES "${PROOFER_NAME}:${PROOFER_PROOF}")
-    set(PROOFER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all proofer properties" FORCE)
+    set(PROOFER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all prover properties" FORCE)
 endfunction()
 
 # Function to generate verifiers.h
@@ -127,30 +127,30 @@ function(generate_verifiers_header)
     file(APPEND ${VERIFIERS_H} "#endif // VERIFIERS_H\n")
 endfunction()
 
-# Function to generate proofers.h
-function(generate_proofers_header)
+# Function to generate provers.h
+function(generate_provers_header)
     # Only generate if PROOFER is enabled
     if(NOT PROOFER)
         return()
     endif()
     
-    set(PROOFERS_H "${CMAKE_BINARY_DIR}/proofers.h")
+    set(PROOFERS_H "${CMAKE_BINARY_DIR}/provers.h")
     
     # Start with header guard and includes
     file(WRITE ${PROOFERS_H} "#ifndef PROOFERS_H\n")
     file(APPEND ${PROOFERS_H} "#define PROOFERS_H\n\n")
 
-    # Add function declarations for each proofer
+    # Add function declarations for each prover
     foreach(prop ${PROOFER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 0 name)
         list(GET parts 1 proof)
         
-        file(APPEND ${PROOFERS_H} "bool ${proof}(proofer_ctx_t* ctx);\n\n")
+        file(APPEND ${PROOFERS_H} "bool ${proof}(prover_ctx_t* ctx);\n\n")
     endforeach()
 
-    # Add proofer_execute function
-    file(APPEND ${PROOFERS_H} "static void proofer_execute(proofer_ctx_t* ctx) {\n")
+    # Add prover_execute function
+    file(APPEND ${PROOFERS_H} "static void prover_execute(prover_ctx_t* ctx) {\n")
     foreach(prop ${PROOFER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 1 proof)
@@ -184,7 +184,7 @@ function(add_server_handler)
         ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include
         ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
     )
-    target_link_libraries(${HANDLER_NAME} PUBLIC libuv llhttp proofer util verifier ${HANDLER_DEPENDS} )
+    target_link_libraries(${HANDLER_NAME} PUBLIC libuv llhttp prover util verifier ${HANDLER_DEPENDS} )
     # target_link_libraries(server PUBLIC ${HANDLER_NAME}) # This is the problematic line
 
     # Get current list of properties

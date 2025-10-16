@@ -44,7 +44,7 @@ class Colibri:
     def __init__(
         self,
         chain_id: int = 1,
-        proofers: List[str] = None,
+        provers: List[str] = None,
         eth_rpcs: List[str] = None,
         beacon_apis: List[str] = None,
         checkpointz: List[str] = None,
@@ -58,7 +58,7 @@ class Colibri:
         
         Args:
             chain_id: Blockchain chain ID (default: 1 for Ethereum Mainnet)
-            proofers: List of proofer server URLs
+            provers: List of prover server URLs
             eth_rpcs: List of Ethereum RPC URLs
             beacon_apis: List of beacon chain API URLs
             checkpointz: List of checkpointz server URLs
@@ -69,7 +69,7 @@ class Colibri:
         """
         self.chain_id = chain_id
         # Fix Python falsy-array bug: [] or default returns default!
-        self.proofers = proofers if proofers is not None else self._get_default_proofers(chain_id)
+        self.provers = provers if provers is not None else self._get_default_provers(chain_id)
         self.eth_rpcs = eth_rpcs if eth_rpcs is not None else self._get_default_eth_rpcs(chain_id)
         self.beacon_apis = beacon_apis if beacon_apis is not None else self._get_default_beacon_apis(chain_id)
         self.checkpointz = checkpointz if checkpointz is not None else self._get_default_checkpointz(chain_id)
@@ -95,8 +95,8 @@ class Colibri:
         self._global_storage = global_storage
 
     @staticmethod
-    def _get_default_proofers(chain_id: int) -> List[str]:
-        """Get default proofer URLs for chain"""
+    def _get_default_provers(chain_id: int) -> List[str]:
+        """Get default prover URLs for chain"""
         defaults = {
             1: ["https://mainnet1.colibri-proof.tech"],
             11155111: ["https://sepolia.colibri-proof.tech"],
@@ -194,9 +194,9 @@ class Colibri:
             raise ProofError("Native module not available")
 
         try:
-            # Create proofer context
+            # Create prover context
             params_json = json.dumps(params)
-            ctx = native.create_proofer_ctx(
+            ctx = native.create_prover_ctx(
                 method, 
                 params_json, 
                 self.chain_id, 
@@ -204,19 +204,19 @@ class Colibri:
             )
             
             if not ctx:
-                raise ProofError(f"Failed to create proofer context for {method}")
+                raise ProofError(f"Failed to create prover context for {method}")
 
             try:
                 # Execute proof generation with request handling
                 while True:
-                    status_json = native.proofer_execute_json_status(ctx)
+                    status_json = native.prover_execute_json_status(ctx)
                     if not status_json:
-                        raise ProofError("Proofer execution returned null")
+                        raise ProofError("Prover execution returned null")
                     
                     status = json.loads(status_json)
                     
                     if status["status"] == "success":
-                        return native.proofer_get_proof(ctx)
+                        return native.prover_get_proof(ctx)
                     elif status["status"] == "error":
                         raise ProofError(status.get("error", "Unknown proof error"))
                     elif status["status"] == "pending":
@@ -225,7 +225,7 @@ class Colibri:
                         raise ProofError(f"Unknown status: {status['status']}")
             
             finally:
-                native.free_proofer_ctx(ctx)
+                native.free_prover_ctx(ctx)
                 
         except json.JSONDecodeError as e:
             raise ProofError(f"Invalid JSON in proof response: {e}") from e
@@ -308,7 +308,7 @@ class Colibri:
                     elif status["status"] == "error":
                         raise VerificationError(status.get("error", "Unknown verification error"))
                     elif status["status"] == "pending":
-                        await self._handle_requests(status.get("requests", []), use_proofer_fallback=True)
+                        await self._handle_requests(status.get("requests", []), use_prover_fallback=True)
                     else:
                         raise VerificationError(f"Unknown status: {status['status']}")
             
@@ -339,10 +339,10 @@ class Colibri:
         method_type = self.get_method_support(method)
         
         if method_type == MethodType.PROOFABLE:
-            # Try to fetch proof from proofer first
-            if self.proofers:
+            # Try to fetch proof from prover first
+            if self.provers:
                 try:
-                    proof = await self._fetch_rpc(self.proofers, method, params, as_proof=True)
+                    proof = await self._fetch_rpc(self.provers, method, params, as_proof=True)
                 except Exception:
                     # Fallback to local proof creation
                     proof = await self.create_proof(method, params)
@@ -367,14 +367,14 @@ class Colibri:
     async def _handle_requests(
         self, 
         requests: List[Dict[str, Any]], 
-        use_proofer_fallback: bool = False
+        use_prover_fallback: bool = False
     ) -> None:
         """
         Handle pending data requests from the C library
         
         Args:
             requests: List of request dictionaries
-            use_proofer_fallback: Whether to use proofer URLs for beacon API requests
+            use_prover_fallback: Whether to use prover URLs for beacon API requests
         """
         async def handle_single_request(request_dict: Dict[str, Any]) -> None:
             try:
@@ -398,8 +398,8 @@ class Colibri:
                 if request.request_type == "checkpointz":
                     servers = self.checkpointz
                 elif request.request_type == "beacon_api":
-                    if use_proofer_fallback and self.proofers:
-                        servers = self.proofers
+                    if use_prover_fallback and self.provers:
+                        servers = self.provers
                     else:
                         servers = self.beacon_apis
                 else:

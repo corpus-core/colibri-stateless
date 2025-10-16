@@ -25,7 +25,7 @@ target_include_directories(serverlib PUBLIC ../../libs)
 target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include)
 target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
 
-target_link_libraries(serverlib PUBLIC libuv llhttp proofer util verifier CURL::libcurl ${SERVER_HANDLER_LIBS})
+target_link_libraries(serverlib PUBLIC libuv llhttp prover util verifier CURL::libcurl ${SERVER_HANDLER_LIBS})
 
 # Additional system libraries that might be needed
 if(UNIX AND NOT APPLE)

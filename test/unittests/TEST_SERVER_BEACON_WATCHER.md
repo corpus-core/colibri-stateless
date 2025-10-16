@@ -137,7 +137,7 @@ cmake .. -DTEST=1 -DHTTP_SERVER=1 -DPROOFER_CACHE=1
 make test_server_beacon_watcher -j8
 ```
 
-**Hinweis**: `-DPROOFER_CACHE=1` ist erforderlich, da Beacon Event Handler `c4_proofer_cache_invalidate()` aufrufen.
+**Hinweis**: `-DPROOFER_CACHE=1` ist erforderlich, da Beacon Event Handler `c4_prover_cache_invalidate()` aufrufen.
 
 ### Run
 ```bash

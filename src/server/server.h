@@ -6,7 +6,7 @@
 #ifndef C4_SERVER_H
 #define C4_SERVER_H
 
-#include "proofer.h"
+#include "prover.h"
 #include <curl/curl.h>
 #include <llhttp.h>
 #include <stdlib.h>
@@ -60,7 +60,7 @@ typedef struct {
   int            req_timeout;
   int            chain_id;
   char*          rpc_nodes;
-  char*          proofer_nodes;
+  char*          prover_nodes;
   char*          beacon_nodes;
   char*          checkpointz_nodes;
   int            stream_beacon_events;
@@ -162,13 +162,13 @@ typedef struct {
 
 typedef struct request_t {
   client_t*         client; // client request
-  void*             ctx;    // proofer
+  void*             ctx;    // prover
   single_request_t* requests;
   size_t            request_count; // count of handles
   uint64_t          start_time;
   http_client_cb    cb;         // callback function to call when all requests are done
   void*             parent_ctx; // pointer to parent context or parent caller
-  http_request_cb   parent_cb;  // callback function to call when the ctx (mostly proofer) has a result
+  http_request_cb   parent_cb;  // callback function to call when the ctx (mostly prover) has a result
 } request_t;
 
 typedef enum {
@@ -185,7 +185,7 @@ typedef enum {
   C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED = 3  // Method not supported by this server, exclude for this method
 } c4_response_type_t;
 
-void c4_proofer_handle_request(request_t* req);
+void c4_prover_handle_request(request_t* req);
 void c4_start_curl_requests(request_t* req, c4_state_t* state);
 bool c4_check_retry_request(request_t* req);
 void c4_init_curl(uv_timer_t* timer);
@@ -247,7 +247,7 @@ typedef struct {
   uv_loop_t*  loop;
   uv_tcp_t    server;
   uv_timer_t  curl_timer;
-  uv_timer_t  proofer_cleanup_timer;
+  uv_timer_t  prover_cleanup_timer;
   uv_signal_t sigterm_handle;
   uv_signal_t sigint_handle;
   uv_idle_t   init_idle_handle;

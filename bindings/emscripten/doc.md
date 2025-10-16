@@ -25,7 +25,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for ethers (v6)
     const provider = new BrowserProvider(client);
@@ -46,7 +46,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for ethers (v6)
     const provider = new ethers.providers.Web3Provider(client);
@@ -67,7 +67,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for web3.js
     const web3 = new Web3(client);
@@ -90,7 +90,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the Colibri client
-    const colibriClient = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+    const colibriClient = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Create a viem Public Client using Colibri as a custom EIP-1193 transport
     const viemClient = createPublicClient({
@@ -160,7 +160,7 @@ async function main() {
 
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri({proofer:['https://mainnet.colibri-proof.tech']});
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Create a proof for the given method and arguments as UInt8Array
     const proof = await client.createProof(method, args);
@@ -185,22 +185,22 @@ The constructor of the colibri client accepts a configuration-object, which may 
      new Colibri({ chainId: 'gnosis'})
      ```
 - `beacon_apis` - urls for the beacon apis    
-    An array of endpoints for accessing the beacon chain using the official [Eth Beacon Node API](https://ethereum.github.io/beacon-APIs/). The Array may contain more than one url, and if one API is not responding the next URL will work as fallback. This beacon API is currently used eitehr when building proofs directly or even if you are using a remote proofer, the LightClientUpdates (every 27h) will be fetched directly from the beacon API.   
+    An array of endpoints for accessing the beacon chain using the official [Eth Beacon Node API](https://ethereum.github.io/beacon-APIs/). The Array may contain more than one url, and if one API is not responding the next URL will work as fallback. This beacon API is currently used eitehr when building proofs directly or even if you are using a remote prover, the LightClientUpdates (every 27h) will be fetched directly from the beacon API.   
      ```js
      new Colibri({ beacon_apis: [ 'https://lodestar-mainnet.chainsafe.io' ]})
      ```
 - `rpcs` - RPCs for the executionlayer    
-    a array of rpc-endpoints for accessing the execution layer. If you are using the remote proofer, you may not need it at all. But creating your proofs locally will require to access data from the execution layer. Having more than one rpc-url allows to use fallbacks in case one is not available.
+    a array of rpc-endpoints for accessing the execution layer. If you are using the remote prover, you may not need it at all. But creating your proofs locally will require to access data from the execution layer. Having more than one rpc-url allows to use fallbacks in case one is not available.
      ```js
      new Colibri({ beacon_apis: [
         "https://nameless-sly-reel.quiknode.pro/<APIKEY>/",
         "https://eth-mainnet.g.alchemy.com/v2/<APIKEY>",
         "https://rpc.ankr.com/eth/<APIKEY>" ]})
      ```
-- `proofer` - urls for remove proofer
-    a array of endpoints for remote proofer. This allows to generate the proof in the backend, where caches can speed up the process.
+- `prover` - urls for remove prover
+    a array of endpoints for remote prover. This allows to generate the proof in the backend, where caches can speed up the process.
     ```js
-    new Colibri({ proofer: ["https://mainnet.colibri-proof.tech" ]})
+    new Colibri({ prover: ["https://mainnet.colibri-proof.tech" ]})
     ```
 - `checkpointz` - urls for checkpoint servers (Checkpointz or Beacon API)    
     An array of server endpoints for fetching finalized checkpoint data and weak subjectivity validation. Supports both dedicated Checkpointz servers and standard Beacon API nodes, as the verifier uses the Beacon-API-compatible endpoint `/eth/v1/beacon/states/head/finality_checkpoints`. These servers provide finalized beacon block roots that the verifier uses for secure initialization and periodic validation. The verifier automatically queries these servers when no trusted checkpoint is provided or when validating long sync gaps. Multiple URLs enable automatic fallback for resilience. Defaults to public Checkpointz servers for mainnet, but you can also use your own Beacon node for maximum trust.

@@ -16,11 +16,11 @@ struct ColibriTestApp {
         print("\n📋 1. BASIC INITIALIZATION")
         let colibri = Colibri()
         colibri.chainId = 1  // Ethereum Mainnet
-        colibri.proofers = ["https://c4.incubed.net"]  // Use remote proofer for real calls
+        colibri.provers = ["https://c4.incubed.net"]  // Use remote prover for real calls
         
         print("   ✅ Colibri client initialized")
         print("   🔗 Chain ID: \(colibri.chainId)")
-        print("   🌐 Proofers: \(colibri.proofers)")
+        print("   🌐 Provers: \(colibri.provers)")
         
         // MARK: - 2. Method Support Check
         print("\n📋 2. METHOD SUPPORT CHECK")
@@ -36,7 +36,7 @@ struct ColibriTestApp {
         print("\n📋 3. SIMPLE RPC CALL (LOCAL PROOF)")
         do {
             // Use local proof generation (no network required)
-            colibri.proofers = []  // Force local proof generation
+            colibri.provers = []  // Force local proof generation
             
             let result = try await colibri.rpc(method: "eth_blockNumber", params: "[]")
             print("   ✅ Local proof successful")

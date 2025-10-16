@@ -6,7 +6,7 @@
 #include "beacon.h"
 #include "logger.h"
 #include "plugin.h"
-#include "proofer.h"
+#include "prover.h"
 #include "server.h"
 #include "verify.h"
 
@@ -29,32 +29,32 @@
  * 1. LOCAL METHOD (no proof needed)
  *    ├─ Allocate verify_request_t
  *    ├─ Allocate empty data_request_t
- *    └─ Call proofer_callback() immediately → PHASE 2
+ *    └─ Call prover_callback() immediately → PHASE 2
  *
  * 2. REMOTE PROOFER (proof from external server)
  *    ├─ Allocate verify_request_t
  *    ├─ Create data_request_t with remote URL
  *    ├─ c4_add_request() starts async HTTP request
- *    └─ proofer_callback() is called when response arrives → PHASE 2
+ *    └─ prover_callback() is called when response arrives → PHASE 2
  *
  * 3. LOCAL PROOFER (generate proof locally)
  *    ├─ Allocate verify_request_t
- *    ├─ Create proofer_ctx_t
+ *    ├─ Create prover_ctx_t
  *    ├─ Create SEPARATE request_t with:
- *    │  ├─ ctx = proofer_ctx_t
- *    │  ├─ cb = c4_proofer_handle_request
+ *    │  ├─ ctx = prover_ctx_t
+ *    │  ├─ cb = c4_prover_handle_request
  *    │  ├─ parent_ctx = verify_request_t  ← IMPORTANT: for callback routing
- *    │  └─ parent_cb = proofer_callback   ← IMPORTANT: for callback routing
- *    ├─ Call c4_proofer_handle_request()
+ *    │  └─ parent_cb = prover_callback   ← IMPORTANT: for callback routing
+ *    ├─ Call c4_prover_handle_request()
  *    │  ├─ Generates proof
  *    │  ├─ respond() checks parent_cb != NULL
- *    │  │  └─ Calls proofer_callback(client, parent_ctx, data_request_t*)
- *    │  └─ proofer_request_free() cleans up request_t and proofer_ctx_t
- *    └─ proofer_callback() is called when proof is ready → PHASE 2
+ *    │  │  └─ Calls prover_callback(client, parent_ctx, data_request_t*)
+ *    │  └─ prover_request_free() cleans up request_t and prover_ctx_t
+ *    └─ prover_callback() is called when proof is ready → PHASE 2
  *
  * PHASE 2: VERIFY PROOF
  * =====================
- * Entry Point: proofer_callback()
+ * Entry Point: prover_callback()
  *
  * ├─ Receives proof (or error) as data_request_t
  * ├─ Initializes verify_ctx with c4_verify_init()
@@ -78,11 +78,11 @@
  *    └─ ctx                  : Pointer back to verify_request_t (circular ref)
  *
  * For LOCAL PROOFER, an additional SEPARATE request_t is created:
- * request_t (for proofer)
- * ├─ ctx                     : proofer_ctx_t*
- * ├─ cb                      : c4_proofer_handle_request
+ * request_t (for prover)
+ * ├─ ctx                     : prover_ctx_t*
+ * ├─ cb                      : c4_prover_handle_request
  * ├─ parent_ctx              : verify_request_t* (for callback routing)
- * └─ parent_cb               : proofer_callback (bridge to phase 2)
+ * └─ parent_cb               : prover_callback (bridge to phase 2)
  *
  * MEMORY MANAGEMENT & CLEANUP PATHS
  * ==================================
@@ -91,7 +91,7 @@
  *
  * Cleanup occurs in:
  * 1. c4_handle_verify_request() on validation errors
- * 2. proofer_callback() on proof errors or verify init errors
+ * 2. prover_callback() on proof errors or verify init errors
  * 3. verifier_handle_request() after successful verification or error
  *
  * free_verify_request() frees:
@@ -101,13 +101,13 @@
  * └─ verify_req itself
  *
  * Note: verify_req->req (embedded struct) is NOT freed separately
- * Note: The separate request_t for LOCAL PROOFER is freed by proofer_request_free()
+ * Note: The separate request_t for LOCAL PROOFER is freed by prover_request_free()
  *
  * WHY IS IT SO COMPLEX?
  * =====================
  *
  * The design uses "parent_ctx" and "parent_cb" to create a generic mechanism:
- * The proofer (handle_proof.c) can either respond directly to clients OR
+ * The prover (handle_proof.c) can either respond directly to clients OR
  * serve as a sub-request for the verifier.
  *
  * The respond() function in handle_proof.c checks:
@@ -223,9 +223,9 @@ static void verifier_handle_request(request_t* req) {
       if (c4_state_get_pending_request(&verify_req->ctx.state)) // there are pending requests, let's take care of them first
         c4_start_curl_requests(&verify_req->req, &verify_req->ctx.state);
       else {
-        // No proofer available and no pending requests - this shouldn't happen
+        // No prover available and no pending requests - this shouldn't happen
         buffer_t buf = {0};
-        bprintf(&buf, "{\"id\": %J, \"error\":\"%s\"}", verify_req->id, "No proofer available");
+        bprintf(&buf, "{\"id\": %J, \"error\":\"%s\"}", verify_req->id, "No prover available");
         c4_http_respond(req->client, 200, "application/json", buf.data);
         buffer_free(&buf);
         free_verify_request(verify_req);
@@ -254,7 +254,7 @@ static void verifier_handle_request(request_t* req) {
  * @param data Pointer to verify_request_t (as void* for generic callback signature)
  * @param req The data_request_t with the proof or error message
  */
-static void proofer_callback(client_t* client, void* data, data_request_t* req) {
+static void prover_callback(client_t* client, void* data, data_request_t* req) {
   verify_request_t* verify_req         = (verify_request_t*) data;
   c4_state_t        data_request_state = {.requests = req};
 
@@ -269,7 +269,7 @@ static void proofer_callback(client_t* client, void* data, data_request_t* req) 
   // For proofable methods, we must have a proof
   if (!req->response.data && c4_get_method_type(http_server.chain_id, verify_req->method) == METHOD_PROOFABLE) {
     buffer_t buffer = {0};
-    bprintf(&buffer, "{\"id\": %J, \"error\":\"Internal proofer error: no proof available\"}", verify_req->id);
+    bprintf(&buffer, "{\"id\": %J, \"error\":\"Internal prover error: no proof available\"}", verify_req->id);
     c4_http_respond(client, 200, "application/json", buffer.data);
     buffer_free(&buffer);
     c4_state_free(&data_request_state);
@@ -370,7 +370,7 @@ bool c4_handle_verify_request(client_t* client) {
 
     case METHOD_LOCAL: {
       // No proof needed - create empty data_request_t and go directly to Phase 2
-      proofer_callback(client, verify_req, (data_request_t*) safe_calloc(1, sizeof(data_request_t)));
+      prover_callback(client, verify_req, (data_request_t*) safe_calloc(1, sizeof(data_request_t)));
       return true;
     }
 
@@ -381,7 +381,7 @@ bool c4_handle_verify_request(client_t* client) {
 
       if (c4_get_server_list(C4_DATA_TYPE_PROOFER)->count) {
         // REMOTE PROOFER PATH
-        // We have a remote proofer configured, use it to get the proof
+        // We have a remote prover configured, use it to get the proof
         buffer_t buffer = {0};
         bprintf(&buffer, "{\"method\":\"%s\",\"params\":%j,\"c4\":\"0x%x\"}", verify_req->method, verify_req->params, client_state);
         safe_free(client_state.data);
@@ -393,42 +393,42 @@ bool c4_handle_verify_request(client_t* client) {
         req->encoding       = C4_DATA_ENCODING_SSZ;
         req->payload        = buffer.data;
 
-        // Start async HTTP request, proofer_callback will be called with the result
-        c4_add_request(client, req, verify_req, proofer_callback);
+        // Start async HTTP request, prover_callback will be called with the result
+        c4_add_request(client, req, verify_req, prover_callback);
       }
       else {
         // LOCAL PROOFER PATH
-        // Use local proofer to generate the proof
-        // This uses the parent_ctx/parent_cb mechanism to route back to proofer_callback
+        // Use local prover to generate the proof
+        // This uses the parent_ctx/parent_cb mechanism to route back to prover_callback
 
-        char*          params_str = bprintf(NULL, "%J", verify_req->params);
-        request_t*     req        = (request_t*) safe_calloc(1, sizeof(request_t));
-        proofer_ctx_t* ctx        = c4_proofer_create(
+        char*         params_str = bprintf(NULL, "%J", verify_req->params);
+        request_t*    req        = (request_t*) safe_calloc(1, sizeof(request_t));
+        prover_ctx_t* ctx        = c4_prover_create(
             verify_req->method,
             params_str,
             (chain_id_t) http_server.chain_id,
             C4_PROOFER_FLAG_UV_SERVER_CTX | C4_PROOFER_FLAG_INCLUDE_CODE | (http_server.period_store ? C4_PROOFER_FLAG_CHAIN_STORE : 0));
 
-        // Setup request_t for proofer (SEPARATE from verify_req->req!)
+        // Setup request_t for prover (SEPARATE from verify_req->req!)
         req->start_time = current_ms();
         req->client     = client;
-        req->cb         = c4_proofer_handle_request; // Proofer handler
-        req->ctx        = ctx;                       // Context for proofer
+        req->cb         = c4_prover_handle_request; // Prover handler
+        req->ctx        = ctx;                      // Context for prover
 
-        // IMPORTANT: parent_ctx and parent_cb enable routing back to proofer_callback
+        // IMPORTANT: parent_ctx and parent_cb enable routing back to prover_callback
         // The respond() function in handle_proof.c checks these and when set calls:
         //   parent_cb(client, parent_ctx, data_request_t*)
         // instead of responding directly
-        req->parent_ctx = verify_req;       // Callback routing context
-        req->parent_cb  = proofer_callback; // Callback routing function
+        req->parent_ctx = verify_req;      // Callback routing context
+        req->parent_cb  = prover_callback; // Callback routing function
 
         ctx->client_state = client_state;
 
         safe_free(params_str);
 
         // Start proof generation
-        // May call proofer_callback immediately or later (async)
-        // The separate request_t will be freed by proofer_request_free()
+        // May call prover_callback immediately or later (async)
+        // The separate request_t will be freed by prover_request_free()
         req->cb(req);
       }
     }

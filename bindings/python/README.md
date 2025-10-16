@@ -22,7 +22,7 @@ from colibri import Colibri
 
 async def main():
     # Initialize client for Ethereum Mainnet
-    client = Colibri(chain_id=1, proofers=["https://mainnet.colibri-proof.tech"])
+    client = Colibri(chain_id=1, provers=["https://mainnet.colibri-proof.tech"])
     
     # Make verified RPC call
     result = await client.rpc("eth_blockNumber", [])

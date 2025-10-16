@@ -7,7 +7,7 @@
 #include "beacon_types.h"
 #include "handler.h"
 #include "logger.h"
-#include "proofer/proofer.h"
+#include "prover/prover.h"
 #include "server.h"
 #include "util/json.h"
 #include "util/logger.h"
@@ -20,8 +20,8 @@
 #include <time.h>
 #include <uv.h>
 
-static void proofer_request_free(request_t* req) {
-  c4_proofer_free((proofer_ctx_t*) req->ctx);
+static void prover_request_free(request_t* req) {
+  c4_prover_free((prover_ctx_t*) req->ctx);
   safe_free(req);
 }
 
@@ -189,7 +189,7 @@ static void append_data(char* path, bytes_t data) {
   }
 }
 
-static c4_status_t handle_head(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* sig_block, ssz_ob_t* data_block) {
+static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* sig_block, ssz_ob_t* data_block) {
   c4_status_t         status      = C4_SUCCESS;
   const chain_spec_t* spec        = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
   uint32_t            period      = b->slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits);
@@ -209,7 +209,7 @@ static c4_status_t handle_head(proofer_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* s
 
 static void handle_new_head_cb(request_t* req) {
   if (c4_check_retry_request(req)) return; // if there are data_request in the req, we either clean it up or retry in case of an error (if possible.)
-  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+  prover_ctx_t*  ctx = (prover_ctx_t*) req->ctx;
   beacon_head_t* b   = (beacon_head_t*) ctx->proof.data;
   ssz_ob_t       sig_block, data_block;
 
@@ -217,7 +217,7 @@ static void handle_new_head_cb(request_t* req) {
     case C4_SUCCESS: {
       bytes32_t cache_key = {0};
       sprintf((char*) cache_key, "Slatest");
-      c4_proofer_cache_invalidate(cache_key);
+      c4_prover_cache_invalidate(cache_key);
       beacon_block_t* beacon_block = (beacon_block_t*) safe_calloc(1, sizeof(beacon_block_t));
       ssz_ob_t        sig_body     = ssz_get(&sig_block, "body");
       beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
@@ -230,12 +230,12 @@ static void handle_new_head_cb(request_t* req) {
       c4_beacon_cache_update_blockdata(ctx, beacon_block, ssz_get_uint64(&execution, "timestamp"), root_hash.data);
       // Free the original beacon_block after cache update (cache made its own copy)
       safe_free(beacon_block);
-      proofer_request_free(req);
+      prover_request_free(req);
       return;
     }
     case C4_ERROR: {
       log_error("Error fetching sigblock and parent: %s", ctx->state.error);
-      proofer_request_free(req);
+      prover_request_free(req);
       return;
     }
     case C4_PENDING:
@@ -243,7 +243,7 @@ static void handle_new_head_cb(request_t* req) {
         c4_start_curl_requests(req, &ctx->state);
       else {
         log_error("Error fetching sigblock and parent: %s", ctx->state.error);
-        proofer_request_free(req);
+        prover_request_free(req);
       }
 
       return;
@@ -255,9 +255,9 @@ void c4_handle_new_head(json_t head) {
   beacon_head_t* b      = (beacon_head_t*) safe_calloc(1, sizeof(beacon_head_t));
   buffer_t       buffer = stack_buffer(b->root);
   b->slot               = json_get_uint64(head, "slot");
-  bytes_t        root   = json_get_bytes(head, "block", &buffer);
-  request_t*     req    = (request_t*) safe_calloc(1, sizeof(request_t));
-  proofer_ctx_t* ctx    = (proofer_ctx_t*) safe_calloc(1, sizeof(proofer_ctx_t));
+  bytes_t       root    = json_get_bytes(head, "block", &buffer);
+  request_t*    req     = (request_t*) safe_calloc(1, sizeof(request_t));
+  prover_ctx_t* ctx     = (prover_ctx_t*) safe_calloc(1, sizeof(prover_ctx_t));
   req->client           = NULL;
   req->cb               = handle_new_head_cb;
   req->ctx              = ctx;
@@ -269,16 +269,16 @@ void c4_handle_new_head(json_t head) {
 
 static void c4_handle_finalized_checkpoint_cb(request_t* req) {
   if (c4_check_retry_request(req)) return;
-  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+  prover_ctx_t* ctx = (prover_ctx_t*) req->ctx;
 
   switch (c4_eth_update_finality(ctx)) {
     case C4_SUCCESS: {
-      proofer_request_free(req);
+      prover_request_free(req);
       return;
     }
     case C4_ERROR: {
       log_error("Error fetching sigblock and parent: %s", ctx->state.error);
-      proofer_request_free(req);
+      prover_request_free(req);
       return;
     }
     case C4_PENDING:
@@ -286,15 +286,15 @@ static void c4_handle_finalized_checkpoint_cb(request_t* req) {
         c4_start_curl_requests(req, &ctx->state);
       else {
         log_error("Error fetching sigblock and parent: %s", ctx->state.error);
-        proofer_request_free(req);
+        prover_request_free(req);
       }
   }
 }
 
 void c4_handle_finalized_checkpoint(json_t checkpoint) {
-  request_t* req                           = (request_t*) safe_calloc(1, sizeof(request_t));
-  req->cb                                  = c4_handle_finalized_checkpoint_cb;
-  req->ctx                                 = safe_calloc(1, sizeof(proofer_ctx_t));
-  ((proofer_ctx_t*) req->ctx)->client_type = BEACON_CLIENT_EVENT_SERVER;
+  request_t* req                          = (request_t*) safe_calloc(1, sizeof(request_t));
+  req->cb                                 = c4_handle_finalized_checkpoint_cb;
+  req->ctx                                = safe_calloc(1, sizeof(prover_ctx_t));
+  ((prover_ctx_t*) req->ctx)->client_type = BEACON_CLIENT_EVENT_SERVER;
   req->cb(req);
 }

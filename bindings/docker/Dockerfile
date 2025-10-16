@@ -56,7 +56,7 @@ COPY --from=builder /build/bin/server /app/server
 
 # Add OCI labels for better GHCR integration
 LABEL org.opencontainers.image.title="Colibri Prover"
-LABEL org.opencontainers.image.description="Highly efficient proofer server for Ethereum and Layer-2 solutions"
+LABEL org.opencontainers.image.description="Highly efficient prover server for Ethereum and Layer-2 solutions"
 LABEL org.opencontainers.image.url="https://github.com/corpus-core/colibri-stateless"
 LABEL org.opencontainers.image.source="https://github.com/corpus-core/colibri-stateless"
 LABEL org.opencontainers.image.documentation="https://corpus-core.gitbook.io/specification-colibri-stateless"

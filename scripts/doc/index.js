@@ -21,7 +21,7 @@ const doc_files = [
     "chains/eth/threat_model.md",
     "chains/eth/benchmark.md",
     // cli
-    "cli/proofer.c",
+    "cli/prover.c",
     "cli/ssz.c",
     "cli/verifier.c",
     // bindings
@@ -32,7 +32,7 @@ const doc_files = [
 
     // api
     "verifier/verify.h",
-    "proofer/proofer.h",
+    "prover/prover.h",
     "util/bytes.h",
     "../bindings/colibri.h"
 ]

@@ -6,7 +6,7 @@
 #include "beacon.h"
 #include "handler.h"
 #include "logger.h"
-#include "proofer/proofer.h"
+#include "prover/prover.h"
 #include "util/logger.h"
 
 typedef struct {
@@ -72,13 +72,13 @@ static void handle_lcu_result(void* u_ptr, uint64_t period, bytes_t data, char* 
 
 static void handle_lcu_beacon_client(request_t* req) {
   if (c4_check_retry_request(req)) return;
-  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
+  prover_ctx_t* ctx = (prover_ctx_t*) req->ctx;
   if (ctx->state.error)
     c4_write_error_response(req->client, 500, ctx->state.error);
   else
     c4_http_respond(req->client, 200, "application/octet-stream", ctx->state.requests->response);
 
-  c4_proofer_free((proofer_ctx_t*) req->ctx);
+  c4_prover_free((prover_ctx_t*) req->ctx);
   safe_free(req);
 }
 
@@ -92,14 +92,14 @@ bool c4_handle_lcu(client_t* client) {
 
   if (!http_server.period_store) {
     // take the response from the beacon-client
-    ssz_ob_t       result = {0};
-    request_t*     req    = (request_t*) safe_calloc(1, sizeof(request_t));
-    proofer_ctx_t* ctx    = safe_calloc(1, sizeof(proofer_ctx_t));
-    req->start_time       = current_ms();
-    req->client           = client;
-    req->cb               = handle_lcu_beacon_client;
-    req->ctx              = ctx;
-    ctx->chain_id         = http_server.chain_id;
+    ssz_ob_t      result = {0};
+    request_t*    req    = (request_t*) safe_calloc(1, sizeof(request_t));
+    prover_ctx_t* ctx    = safe_calloc(1, sizeof(prover_ctx_t));
+    req->start_time      = current_ms();
+    req->client          = client;
+    req->cb              = handle_lcu_beacon_client;
+    req->ctx             = ctx;
+    ctx->chain_id        = http_server.chain_id;
 
     c4_send_beacon_ssz(ctx, client->request.path + 1, NULL, NULL, 120, &result);
     c4_start_curl_requests(req, &ctx->state);

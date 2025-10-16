@@ -67,9 +67,9 @@
 //
 //  The 4 `Version` Bytes are encoded as `dom, major, minor, patch`.
 //  - 0 : `domain` . describe which chain-type is used. 1 =  ethereum
-//  - 1 : `major` . the major version of the proofer.
-//  - 2 : `minor` . the minor version of the proofer.
-//  - 3 : `patch` . the patch version of the proofer.
+//  - 1 : `major` . the major version of the prover.
+//  - 2 : `minor` . the minor version of the prover.
+//  - 3 : `patch` . the patch version of the prover.
 //
 // the `data` union can hold different types which represents the final data to be verified.
 //

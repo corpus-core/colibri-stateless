@@ -21,7 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "../proofer/proofer.h"
+#include "../prover/prover.h"
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
 #endif
@@ -41,7 +41,7 @@
 //
 // ## Configuration
 //
-// while you can pass arguments to the the proofer or verifier, when it comes to configuring the backend apis, you can use create a config-file. colibri tools will try to find it in the following order:
+// while you can pass arguments to the the prover or verifier, when it comes to configuring the backend apis, you can use create a config-file. colibri tools will try to find it in the following order:
 //
 // 1. look for a file with the path specified in the `C4_CONFIG` environment variable
 // 2. look in the current directory for a file named `c4_config.json`
@@ -150,10 +150,10 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&buffer, "]");
 
-  proofer_ctx_t* ctx = c4_proofer_create(method, (char*) buffer.data.data, chain_id, flags);
-  ctx->client_state  = client_state;
+  prover_ctx_t* ctx = c4_prover_create(method, (char*) buffer.data.data, chain_id, flags);
+  ctx->client_state = client_state;
   while (true) {
-    switch (c4_proofer_execute(ctx)) {
+    switch (c4_prover_execute(ctx)) {
       case C4_SUCCESS:
         if (outputfile)
           bytes_write(ctx->proof, fopen(outputfile, "wb"), true);
@@ -177,5 +177,5 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  c4_proofer_free(ctx);
+  c4_prover_free(ctx);
 }

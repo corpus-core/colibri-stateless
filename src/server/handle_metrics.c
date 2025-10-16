@@ -31,9 +31,9 @@
 #include <sys/resource.h> // For getrusage()
 #endif
 
-// Forward declaration for c4_proofer_cache_stats if PROOFER_CACHE is defined
+// Forward declaration for c4_prover_cache_stats if PROOFER_CACHE is defined
 #ifdef PROOFER_CACHE
-void c4_proofer_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
+void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
 #endif
 
 typedef struct {
@@ -599,20 +599,20 @@ bool c4_handle_metrics(client_t* client) {
   bool     method_metrics_described = false; // Flag, um HELP/TYPE für Methoden-Metriken nur einmal zu schreiben
 #ifdef PROOFER_CACHE
   uint64_t entries = 0, size = 0, max_size = 0, capacity = 0;
-  c4_proofer_cache_stats(&entries, &size, &max_size, &capacity);
+  c4_prover_cache_stats(&entries, &size, &max_size, &capacity);
 
-  bprintf(&data, "# HELP colibri_proofer_cache_entries Current number of entries in the proofer cache.\n");
-  bprintf(&data, "# TYPE colibri_proofer_cache_entries gauge\n");
-  bprintf(&data, "colibri_proofer_cache_entries %l\n", entries);
-  bprintf(&data, "# HELP colibri_proofer_cache_size Current size of the proofer cache in bytes.\n");
-  bprintf(&data, "# TYPE colibri_proofer_cache_size gauge\n");
-  bprintf(&data, "colibri_proofer_cache_size %l\n", size);
-  bprintf(&data, "# HELP colibri_proofer_cache_max_size Maximum size of the proofer cache in bytes.\n");
-  bprintf(&data, "# TYPE colibri_proofer_cache_max_size gauge\n");
-  bprintf(&data, "colibri_proofer_cache_max_size %l\n", max_size);
-  bprintf(&data, "# HELP colibri_proofer_cache_capacity Maximum capacity of the proofer cache in bytes.\n");
-  bprintf(&data, "# TYPE colibri_proofer_cache_capacity gauge\n");
-  bprintf(&data, "colibri_proofer_cache_capacity %l\n", capacity);
+  bprintf(&data, "# HELP colibri_prover_cache_entries Current number of entries in the prover cache.\n");
+  bprintf(&data, "# TYPE colibri_prover_cache_entries gauge\n");
+  bprintf(&data, "colibri_prover_cache_entries %l\n", entries);
+  bprintf(&data, "# HELP colibri_prover_cache_size Current size of the prover cache in bytes.\n");
+  bprintf(&data, "# TYPE colibri_prover_cache_size gauge\n");
+  bprintf(&data, "colibri_prover_cache_size %l\n", size);
+  bprintf(&data, "# HELP colibri_prover_cache_max_size Maximum size of the prover cache in bytes.\n");
+  bprintf(&data, "# TYPE colibri_prover_cache_max_size gauge\n");
+  bprintf(&data, "colibri_prover_cache_max_size %l\n", max_size);
+  bprintf(&data, "# HELP colibri_prover_cache_capacity Maximum capacity of the prover cache in bytes.\n");
+  bprintf(&data, "# TYPE colibri_prover_cache_capacity gauge\n");
+  bprintf(&data, "colibri_prover_cache_capacity %l\n", capacity);
 #endif
   // RSS Metrik
   bprintf(&data, "# HELP colibri_process_resident_memory_bytes Current resident set size (RSS) of the process in bytes.\n");

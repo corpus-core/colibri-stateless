@@ -238,10 +238,10 @@ async def run_test_case(test_case):
     mock_storage = FileBasedMockStorage(test_dir)
     mock_request_handler = FileBasedMockRequestHandler(test_dir)
     
-    # Create client with NO proofers to force local proof creation
+    # Create client with NO provers to force local proof creation
     client = Colibri(
         chain_id=chain_id,
-        proofers=[],  # CRITICAL: No remote proofers! Use only mock data
+        provers=[],  # CRITICAL: No remote provers! Use only mock data
         storage=mock_storage,
         request_handler=mock_request_handler
     )

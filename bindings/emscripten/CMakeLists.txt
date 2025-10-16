@@ -53,7 +53,7 @@ configure_file(
 )
 
 add_executable(c4w ems.c)
-target_link_libraries(c4w proofer verifier)
+target_link_libraries(c4w prover verifier)
 set_target_properties(c4w PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${EMSCRIPTEN_OUTPUT_DIR}
     LINK_FLAGS "${EMC_PROPS}"

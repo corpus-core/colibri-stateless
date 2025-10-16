@@ -88,4 +88,4 @@ else()
 endif()
 
 # Link libraries in both cases
-target_link_libraries(c4_java proofer util verifier)
+target_link_libraries(c4_java prover util verifier)

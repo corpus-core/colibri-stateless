@@ -60,7 +60,7 @@ add_library(c4_swift_binding STATIC
 )
 
 # Add build dependencies based on enabled features
-set(C4_SWIFT_BUILD_DEPS util proofer verifier)
+set(C4_SWIFT_BUILD_DEPS util prover verifier)
 
 # Add EVMOne build dependencies if enabled
 if(EVMONE)
@@ -71,11 +71,11 @@ add_dependencies(c4_swift_binding ${C4_SWIFT_BUILD_DEPS})
 target_include_directories(c4_swift_binding 
     PRIVATE 
     ../../src/util
-    ../../src/proofer
+    ../../src/prover
     ../../src/verifier
 )
 # Link dependencies based on enabled features
-set(C4_SWIFT_DEPENDENCIES util proofer verifier)
+set(C4_SWIFT_DEPENDENCIES util prover verifier)
 
 # Add EVMOne dependencies if enabled
 if(EVMONE)

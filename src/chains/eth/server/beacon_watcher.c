@@ -8,7 +8,7 @@
 #include "handler.h"
 #include "json.h"
 #include "logger.h"
-#include "proofer.h"
+#include "prover.h"
 #include "server.h"
 #include "state.h"
 #include <curl/curl.h>
@@ -239,7 +239,7 @@ static void handle_beacon_event(char* event, char* data) {
   //    // Parse JSON in 'data'
   //    // Construct the 'Slatest' key
   //    // bytes32_t slatest_key; ...
-  //    // c4_proofer_cache_invalidate(slatest_key);
+  //    // c4_prover_cache_invalidate(slatest_key);
   // }
   // --- !!! ---
 }

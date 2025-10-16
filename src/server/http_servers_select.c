@@ -6,7 +6,7 @@
 #include "beacon_types.h"
 #include "chains/eth/server/eth_clients.h"
 #include "logger.h"
-#include "proofer.h"
+#include "prover.h"
 #include "server.h"
 #include "server_handlers.h"
 #include "util/json.h"

@@ -25,7 +25,7 @@ project(c4)
 # Core build options
 option(CURL "Enable CURL support" ON)
 option(WITNESS_SIGNER "Enable witness signing" ON)
-option(PROOFER "Build the proofer library" ON)
+option(PROOFER "Build the prover library" ON)
 option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized. It is faster but uses 25k more memory in cache per period." ON)
@@ -253,7 +253,7 @@ include(src/chains/chains.cmake)
 
 # Define the path for the generated headers
 add_definitions(-DVERIFIERS_PATH="${CMAKE_BINARY_DIR}/verifiers.h")
-add_definitions(-DPROOFERS_PATH="${CMAKE_BINARY_DIR}/proofers.h")
+add_definitions(-DPROOFERS_PATH="${CMAKE_BINARY_DIR}/provers.h")
 
 # Add the binary directory to the include path for generated headers
 include_directories(${CMAKE_BINARY_DIR})
@@ -307,7 +307,7 @@ add_custom_target(valgrind
 )
 
 generate_verifiers_header()
-generate_proofers_header()
+generate_provers_header()
 generate_server_handlers_header()
 
 # Combined static library target
@@ -355,9 +355,9 @@ if(NOT EMBEDDED)
         endif()
         
         if(PROOFER)
-            # Include the proofer target itself
-            list(APPEND ALL_LIBS_TO_COMBINE proofer)
-            get_all_library_dependencies(proofer LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
+            # Include the prover target itself
+            list(APPEND ALL_LIBS_TO_COMBINE prover)
+            get_all_library_dependencies(prover LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
         endif()
         
         # Combine all discovered dependencies with the main targets
@@ -453,7 +453,7 @@ endif()
 # Shared library if requested and not embedded
 if(SHAREDLIB AND NOT EMBEDDED)
     add_library(c4 SHARED src/util/version.c bindings/colibri.c)
-    target_link_libraries(c4 PRIVATE crypto verifier util blst  proofer    verifier)
+    target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier)
     set_target_properties(c4 PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
         VERSION 1.0

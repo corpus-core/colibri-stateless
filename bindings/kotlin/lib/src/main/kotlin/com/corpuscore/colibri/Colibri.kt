@@ -69,7 +69,7 @@ typealias RequestHandler = (requestDetails: Map<String, Any?>) -> ByteArray?
 
 class Colibri(
     var chainId: BigInteger = BigInteger.ONE, // Default value
-    var proofers: Array<String> = arrayOf("https://c4.incubed.net"), // Default value
+    var provers: Array<String> = arrayOf("https://c4.incubed.net"), // Default value
     var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
     var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
     var checkpointz: Array<String> = arrayOf("https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"), // Default checkpointz servers
@@ -238,9 +238,9 @@ class Colibri(
     suspend fun getProof(method: String, args: Array<Any?>): ByteArray { // Allow nullable args
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args) // Use helper
-            // Create the proofer context with properly formatted JSON args
-            val ctx = com.corpuscore.colibri.c4.c4_create_proofer_ctx(method, jsonArgs, chainId, if (includeCode) 1 else 0)
-                ?: throw ColibriException("Failed to create proofer context for method $method")
+            // Create the prover context with properly formatted JSON args
+            val ctx = com.corpuscore.colibri.c4.c4_create_prover_ctx(method, jsonArgs, chainId, if (includeCode) 1 else 0)
+                ?: throw ColibriException("Failed to create prover context for method $method")
 
             // Add iteration limit to prevent infinite loops
             val maxIterations = 50
@@ -251,10 +251,10 @@ class Colibri(
                     iteration++
 //                    println("getProof: Iteration $iteration/$maxIterations")
 
-                    // Execute the proofer and get the JSON status
-                     val statusJsonPtr = com.corpuscore.colibri.c4.c4_proofer_execute_json_status(ctx)
+                    // Execute the prover and get the JSON status
+                     val statusJsonPtr = com.corpuscore.colibri.c4.c4_prover_execute_json_status(ctx)
                      if (statusJsonPtr == null) {
-                        throw ColibriException("Proofer execution returned null status for method $method")
+                        throw ColibriException("Prover execution returned null status for method $method")
                      }
                      val stateString = statusJsonPtr.toString() // Convert SWIG C pointer/object to string if needed
                      // TODO: Verify how SWIG handles string return. Assuming it's direct or needs .toString()
@@ -262,23 +262,23 @@ class Colibri(
                     val state = try {
                          JSONObject(stateString)
                      } catch (e: Exception) {
-                         throw ColibriException("Failed to parse proofer status JSON: ${e.message}. JSON: $stateString")
+                         throw ColibriException("Failed to parse prover status JSON: ${e.message}. JSON: $stateString")
                      }
 
                     when (state.getString("status")) {
                         "success" -> {
-                             // Assuming c4_proofer_get_proof returns ByteArray directly or a SWIG type convertible to it
-                             val proofData = com.corpuscore.colibri.c4.c4_proofer_get_proof(ctx)
+                             // Assuming c4_prover_get_proof returns ByteArray directly or a SWIG type convertible to it
+                             val proofData = com.corpuscore.colibri.c4.c4_prover_get_proof(ctx)
                              // SWIG might return SWIGTYPE_p_unsigned_char or similar, needs explicit cast/conversion if not automatic
                              if (proofData is ByteArray) {
                                  return@withContext proofData
                              } else {
                                  // Handle unexpected type if necessary, this depends heavily on SWIG config
-                                 throw ColibriException("Unexpected type returned by c4_proofer_get_proof: ${proofData?.javaClass?.name}")
+                                 throw ColibriException("Unexpected type returned by c4_prover_get_proof: ${proofData?.javaClass?.name}")
                              }
                         }
                         "error" -> {
-                            throw ColibriException("Proofer error for method $method: ${state.optString("error", "Unknown error")}")
+                            throw ColibriException("Prover error for method $method: ${state.optString("error", "Unknown error")}")
                         }
                         "pending" -> {
 //                            println("pending")
@@ -302,7 +302,7 @@ class Colibri(
                                  }
                             }
                         }
-                         else -> throw ColibriException("Unknown proofer status: ${state.getString("status")}")
+                         else -> throw ColibriException("Unknown prover status: ${state.getString("status")}")
                     }
                 }
 
@@ -310,8 +310,8 @@ class Colibri(
                 throw ColibriException("getProof exceeded max iterations ($maxIterations) for method $method without reaching success or error state.")
 
             } finally {
-//                println("getProof: Freeing proofer context")
-                com.corpuscore.colibri.c4.c4_free_proofer_ctx(ctx)
+//                println("getProof: Freeing prover context")
+                com.corpuscore.colibri.c4.c4_free_prover_ctx(ctx)
             }
         }
     }
@@ -450,10 +450,10 @@ class Colibri(
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
                                  val type = request.optString("type", "eth_rpc")
-                                // Prioritize proofers if not empty and type is beacon_api
+                                // Prioritize provers if not empty and type is beacon_api
                                 val servers = when (type) {
                                     "checkpointz" -> checkpointz
-                                    "beacon_api" -> if (proofers.isNotEmpty()) proofers else beaconApis
+                                    "beacon_api" -> if (provers.isNotEmpty()) provers else beaconApis
                                     else -> ethRpcs
                                 }
                                  try {
@@ -488,12 +488,12 @@ class Colibri(
          when (methodType) {
              MethodType.PROOFABLE -> {
                  // TODO: Implement optional verify hook if needed
-                 if (proofers.isNotEmpty()) {
-                  //   println("rpc: Fetching proof for $method from proofer...")
+                 if (provers.isNotEmpty()) {
+                  //   println("rpc: Fetching proof for $method from prover...")
                      proof = try {
-                          fetchRpc(proofers, method, formatArgsArray(args), true)
+                          fetchRpc(provers, method, formatArgsArray(args), true)
                      } catch (e: Exception) {
-                          println("rpc: Failed to fetch proof from proofer, falling back to local creation. Error: ${e.message}")
+                          println("rpc: Failed to fetch proof from prover, falling back to local creation. Error: ${e.message}")
                           println("rpc: Creating proof locally for $method...")
                           getProof(method, args) // Create proof locally if fetch fails
                      }

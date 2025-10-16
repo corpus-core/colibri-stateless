@@ -105,7 +105,7 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
   const servers = req.type == "checkpointz"
     ? (conf.checkpointz || [])
     : (req.type == "beacon_api"
-      ? ((conf.proofer && conf.proofer.length) ? conf.proofer : conf.beacon_apis)
+      ? ((conf.prover && conf.prover.length) ? conf.prover : conf.beacon_apis)
       : conf.rpcs);
   const c4w = await getC4w();
   let path = (req.type == 'eth_rpc' && req.payload)
@@ -175,7 +175,7 @@ const default_config: {
     alias: string[];
     beacon_apis: string[];
     rpcs: string[];
-    proofer: string[];
+    prover: string[];
     checkpointz: string[];
     pollingInterval: number;
   }
@@ -184,7 +184,7 @@ const default_config: {
     alias: ["mainnet", "eth", "0x1"],
     beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
     rpcs: ["https://rpc.ankr.com/eth"],
-    proofer: ["https://mainnet1.colibri-proof.tech"],
+    prover: ["https://mainnet1.colibri-proof.tech"],
     checkpointz: ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
     pollingInterval: 12000,
   },
@@ -192,7 +192,7 @@ const default_config: {
     alias: ["sepolia", "0xaa36a7"],
     beacon_apis: ["https://ethereum-sepolia-beacon-api.publicnode.com"],
     rpcs: ["https://ethereum-sepolia-rpc.publicnode.com"],
-    proofer: ["https://sepolia.colibri-proof.tech"],
+    prover: ["https://sepolia.colibri-proof.tech"],
     checkpointz: [], // No public checkpointz for Sepolia yet
     pollingInterval: 12000,
   },
@@ -200,7 +200,7 @@ const default_config: {
     alias: ["gnosis", "xdai", "0x64"],
     beacon_apis: ["https://gnosis.colibri-proof.tech"],
     rpcs: ["https://rpc.ankr.com/gnosis"],
-    proofer: ["https://gnosis.colibri-proof.tech"],
+    prover: ["https://gnosis.colibri-proof.tech"],
     checkpointz: [], // TODO: Add Gnosis checkpointz servers
     pollingInterval: 5000,
   },
@@ -208,7 +208,7 @@ const default_config: {
     alias: ["chiado", "0x27d8"],
     beacon_apis: ["https://gnosis-chiado-beacon-api.publicnode.com"],
     rpcs: ["https://gnosis-chiado-rpc.publicnode.com"],
-    proofer: ["https://chiado.colibri-proof.tech"],
+    prover: ["https://chiado.colibri-proof.tech"],
     checkpointz: [], // No public checkpointz for Chiado yet
     pollingInterval: 5000,
   },
@@ -271,14 +271,14 @@ export default class C4Client {
       trusted_block_hashes: [],
       rpcs: chain_config.rpcs || [],
       beacon_apis: chain_config.beacon_apis || [],
-      proofer: chain_config.proofer || [],
+      prover: chain_config.prover || [],
       checkpointz: chain_config.checkpointz || [],
       ...config, // User config overrides defaults
       chainId,
     } as C4Config;
 
     // Schutz vor Config-Manipulation anwenden
-    PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'proofer', 'checkpointz']);
+    PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'prover', 'checkpointz']);
 
     this.config = baseConfig;
 
@@ -304,7 +304,7 @@ export default class C4Client {
     )
   }
 
-  private async getProoferConfig() {
+  private async getProverConfig() {
     const c4w = await getC4w();
     if (!c4w.storage) return '0x'
     const state = c4w.storage.get('states_' + this.config.chainId)
@@ -443,8 +443,8 @@ export default class C4Client {
         if (this.config.verify && !this.config.verify(method, args)) {
           return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
         }
-        const proof = this.config.proofer && this.config.proofer.length
-          ? await fetch_rpc(this.config.proofer, { method, params: cleanup_args(method, args), c4: await this.getProoferConfig() }, true)
+        const proof = this.config.prover && this.config.prover.length
+          ? await fetch_rpc(this.config.prover, { method, params: cleanup_args(method, args), c4: await this.getProverConfig() }, true)
           : await this.createProof(method, args);
         return this.verifyProof(method, args, proof);
       }

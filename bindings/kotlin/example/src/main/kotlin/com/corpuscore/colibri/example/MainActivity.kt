@@ -40,7 +40,7 @@ class MainActivity : AppCompatActivity() {
                     "https://beaconstate.info",
                     "https://mainnet.beacon.publicnode.com"
                 ),
-                proofers = arrayOf("https://c4.incubed.net")
+                provers = arrayOf("https://c4.incubed.net")
             )
             
             // Set up refresh button click listener

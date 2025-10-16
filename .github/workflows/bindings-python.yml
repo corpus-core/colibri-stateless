@@ -217,7 +217,7 @@ jobs:
             file "$EXTENSION_FILE"
             
             # Test basic import
-            PYTHONPATH=src python3 -c "import colibri; from colibri import Colibri; print('✅ Import works'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_getProof'); print('✅ Integration works:', support.name)"
+            PYTHONPATH=src python3 -c "import colibri; from colibri import Colibri; print('✅ Import works'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_getProof'); print('✅ Integration works:', support.name)"
           else
             echo "❌ Native extension not found!"
             find src/colibri -name "_native*" || echo "No _native files found"
@@ -240,7 +240,7 @@ jobs:
           dir src\colibri\_native*.pyd >nul 2>&1
           if %errorlevel%==0 (
             echo Native extension found
-            python -c "import sys; sys.path.insert(0, 'src'); import colibri; from colibri import Colibri; print('Import successful'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_getProof'); print('Works:', support.name)"
+            python -c "import sys; sys.path.insert(0, 'src'); import colibri; from colibri import Colibri; print('Import successful'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_getProof'); print('Works:', support.name)"
           ) else (
             echo Native extension not found!
             dir src\colibri
@@ -271,7 +271,7 @@ jobs:
           python -m pip install pytest pytest-asyncio aiohttp
           
           REM Simple integration test for Windows
-          python -c "import sys; sys.path.insert(0, 'src'); from colibri.testing import discover_tests; from colibri import Colibri; tests = discover_tests(); print('Discovered ' + str(len(tests)) + ' test cases'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('Basic functionality works:', support.name)"
+          python -c "import sys; sys.path.insert(0, 'src'); from colibri.testing import discover_tests; from colibri import Colibri; tests = discover_tests(); print('Discovered ' + str(len(tests)) + ' test cases'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_chainId'); print('Basic functionality works:', support.name)"
           
       - name: Build Python Wheel (Unix)
         if: matrix.os != 'windows-latest'
@@ -339,7 +339,7 @@ jobs:
           python -m pip install dist/*.whl
           
           # Test import from installed wheel
-          python -c "import colibri; from colibri import Colibri; print('✅ Wheel installation works'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('✅ Installed wheel works:', support.name)"
+          python -c "import colibri; from colibri import Colibri; print('✅ Wheel installation works'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_chainId'); print('✅ Installed wheel works:', support.name)"
           
       - name: Test Wheel Installation (Windows)
         if: matrix.os == 'windows-latest'
@@ -368,7 +368,7 @@ jobs:
           )
           
           REM Test import from installed wheel
-          python -c "import colibri; from colibri import Colibri; print('Wheel installation works'); client = Colibri(chain_id=1, proofers=[]); support = client.get_method_support('eth_chainId'); print('Installed wheel works:', support.name)"
+          python -c "import colibri; from colibri import Colibri; print('Wheel installation works'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_chainId'); print('Installed wheel works:', support.name)"
           
       - name: Upload Wheel Artifacts
         uses: actions/upload-artifact@v4
