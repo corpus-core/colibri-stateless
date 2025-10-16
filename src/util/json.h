@@ -163,6 +163,12 @@ bool json_equal_string(json_t value, const char* str) NONNULL_FOR((2));
  */
 void buffer_add_json(buffer_t* buffer, json_t data) NONNULL_FOR((1));
 
+/**
+ * Duplicate a JSON value. this will allocate new memory for json.start. Make sure to free this.
+ * @param json JSON value to duplicate
+ * @return duplicated JSON value
+ */
+json_t json_dup(json_t json);
 // Convenience macros for type conversion
 #define json_as_uint32(value)             ((uint32_t) json_as_uint64(value))
 #define json_as_uint16(value)             ((uint16_t) json_as_uint64(value))

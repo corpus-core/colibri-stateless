@@ -295,6 +295,13 @@ static void json_deescape_string(buffer_t* buffer) {
     }
   }
 }
+json_t json_dup(json_t json) {
+  char* val       = (char*) bytes_dup(bytes(json.start, json.len + 1)).data;
+  val[json.len]   = 0;
+  json_t new_json = json;
+  new_json.start  = val;
+  return new_json;
+}
 
 char* json_as_string(json_t value, buffer_t* buffer) {
   buffer_t tmp = {0};
