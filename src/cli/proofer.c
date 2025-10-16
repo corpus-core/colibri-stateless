@@ -113,14 +113,14 @@ int main(int argc, char* argv[]) {
 #ifdef USE_CURL
           case 'd': {
             curl_set_config(json_parse(bprintf(NULL, "{\"chain_store\":[\"file://%s\"]}", argv[++i])));
-            flags |= C4_PROOFER_FLAG_CHAIN_STORE;
+            flags |= C4_PROVER_FLAG_CHAIN_STORE;
             char* path   = bprintf(NULL, "./states_%l", (uint64_t) chain_id);
             client_state = bytes_read(path);
             break;
           }
 #endif
           case 'i':
-            flags |= C4_PROOFER_FLAG_INCLUDE_CODE;
+            flags |= C4_PROVER_FLAG_INCLUDE_CODE;
             break;
 #ifdef TEST
 #ifdef USE_CURL

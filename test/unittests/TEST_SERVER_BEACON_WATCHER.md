@@ -133,11 +133,11 @@ c4_test_set_beacon_watcher_url("http://127.0.0.1:28546/eth/v1/events?topics=..."
 ### Build
 ```bash
 mkdir build-test && cd build-test
-cmake .. -DTEST=1 -DHTTP_SERVER=1 -DPROOFER_CACHE=1
+cmake .. -DTEST=1 -DHTTP_SERVER=1 -DPROVER_CACHE=1
 make test_server_beacon_watcher -j8
 ```
 
-**Hinweis**: `-DPROOFER_CACHE=1` ist erforderlich, da Beacon Event Handler `c4_prover_cache_invalidate()` aufrufen.
+**Hinweis**: `-DPROVER_CACHE=1` ist erforderlich, da Beacon Event Handler `c4_prover_cache_invalidate()` aufrufen.
 
 ### Run
 ```bash
@@ -187,7 +187,7 @@ ERROR: Failed to fetch beacon block ...
 
 ### 2. Produktiv-Code Fehler (Pre-existing)
 
-Wenn ohne `-DPROOFER_CACHE=1` gebaut wird:
+Wenn ohne `-DPROVER_CACHE=1` gebaut wird:
 ```
 error: call to undeclared function 'c4_eth_update_finality'
 error: call to undeclared function 'c4_beacon_cache_update_blockdata'

@@ -2,7 +2,7 @@
 
 ## Cache
 
-the cmake-option -DPROOFER_CACHE activates a cache for objects. There is an global and a ctx-cache. when using `c4_prover_cache_get` first the ctx-cache is checked and only if we don't have an entry there the global cache will be searched. But if we find something in the global cache we also create an entry in the ctx-cache. So the next time this is checked, the result will come from the ctx-cache. Why? because this way we can make sure it is threadsafe.
+the cmake-option -DPROVER_CACHE activates a cache for objects. There is an global and a ctx-cache. when using `c4_prover_cache_get` first the ctx-cache is checked and only if we don't have an entry there the global cache will be searched. But if we find something in the global cache we also create an entry in the ctx-cache. So the next time this is checked, the result will come from the ctx-cache. Why? because this way we can make sure it is threadsafe.
 
 `c4_prover_cache_set` will always just put something in the ctx-cache and only when releasing the context this cache-entry will be copied into the global cache. Also only cache entries with a ttl != 0 will be stored globally. This way you can also create cache_entries which are only stored within the ctx.
 

@@ -21,10 +21,10 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "prover.h"
 #include "../util/json.h"
 #include "../util/state.h"
-#include "prover.h"
-#include PROOFERS_PATH
+#include PROVERS_PATH
 #include "logger.h"
 #include <stdbool.h>
 #include <stdlib.h>
@@ -37,7 +37,7 @@
 #include <sys/time.h>
 #endif
 
-#ifdef C4_PROOFER_USE_UV_TIME
+#ifdef C4_PROVER_USE_UV_TIME
 // Also include uv.h if using uv time source for current_ms()
 #include <uv.h>
 #endif
@@ -46,7 +46,7 @@
 #define CACHE_KEY_MATCH(entry, key, key_start) \
   (*((uint64_t*) (entry)->key) == (key_start) && memcmp((entry)->key, (key), 32) == 0)
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
 // Structure for the global cache dynamic array
 typedef struct {
   cache_entry_t* entries;      // Pointer to the array of cache entries
@@ -80,11 +80,11 @@ uint64_t current_unix_ms() {
 
 // Keep current_ms() as it is (with the conditional uv_now)
 uint64_t current_ms() {
-#ifdef C4_PROOFER_USE_UV_TIME
+#ifdef C4_PROVER_USE_UV_TIME
   return uv_now(uv_default_loop());
 #else
   return current_unix_ms();
-#endif // C4_PROOFER_USE_UV_TIME
+#endif // C4_PROVER_USE_UV_TIME
 }
 
 // Global cache implementation using dynamic array for better performance
@@ -101,7 +101,7 @@ const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key) {
   }
 
   // if we are running in the worker-thread, we don't access the global cache anymore
-  if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED) {
+  if (ctx->flags & C4_PROVER_FLAG_UV_WORKER_REQUIRED) {
     log_warn("[CACHEMISS] trying to access the global cache with cachekey %b, but we are running in the worker-thread. Make sure you tried to access in queue thread first!", bytes(key, 32));
     return NULL;
   }
@@ -313,7 +313,7 @@ void c4_prover_free(prover_ctx_t* ctx) {
   if (ctx->params.start) safe_free((void*) ctx->params.start);
   if (ctx->proof.data) safe_free(ctx->proof.data);
   if (ctx->client_state.data) safe_free(ctx->client_state.data);
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   while (ctx->cache) {
     cache_entry_t* next                = ctx->cache->next;
     cache_entry_t* current_local_entry = ctx->cache; // Keep pointer to current local entry
@@ -356,7 +356,7 @@ void c4_prover_free(prover_ctx_t* ctx) {
     safe_free(current_local_entry);
     ctx->cache = next; // Move to the next node in the local list
   }
-#endif // PROOFER_CACHE
+#endif // PROVER_CACHE
   // Finally, free the context itself
   safe_free(ctx);
 }

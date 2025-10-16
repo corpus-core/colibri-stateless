@@ -21,8 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ETH_PROOFER_H
-#define ETH_PROOFER_H
+#ifndef ETH_PROVER_H
+#define ETH_PROVER_H
 
 #ifdef __cplusplus
 extern "C" {

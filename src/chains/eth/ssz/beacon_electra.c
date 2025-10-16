@@ -51,7 +51,7 @@
 #define MAX_INDEXED_ATTESTATION_INDICES_LENGTH 131072 // 2048 * 64
 
 // New SSZ types for Electra Execution Layer Requests
-#ifdef PROOFER
+#ifdef PROVER
 
 static const ssz_def_t DEPOSIT_REQUEST[] = {
     SSZ_BYTE_VECTOR("pubkey", 48),
@@ -276,7 +276,7 @@ static const ssz_def_t EXECUTION_PAYLOAD_HEADER[] = {
 // --- Main function to get Electra SSZ types ---
 const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_id) {
   switch (type) {
-#ifdef PROOFER
+#ifdef PROVER
     case ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER:
       return is_gnosis_chain(chain_id)
                  ? &BEACON_BLOCK_BODY_GNOSIS_CONTAINER

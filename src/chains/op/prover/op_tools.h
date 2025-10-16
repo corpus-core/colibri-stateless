@@ -21,8 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef OP_PROOFER_TOOLS_H
-#define OP_PROOFER_TOOLS_H
+#ifndef OP_PROVER_TOOLS_H
+#define OP_PROVER_TOOLS_H
 
 #ifdef __cplusplus
 extern "C" {

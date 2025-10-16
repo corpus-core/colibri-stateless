@@ -41,7 +41,7 @@ c4_status_t c4_op_create_block_proof(prover_ctx_t* ctx, json_t block_number, ssz
   buffer_t buf2         = stack_buffer(path);
   bytes_t  preconf_data = {0};
 
-  if ((ctx->flags & C4_PROOFER_FLAG_UNSTABLE_LATEST) == 0 && block_number.start[1] == 'l')
+  if ((ctx->flags & C4_PROVER_FLAG_UNSTABLE_LATEST) == 0 && block_number.start[1] == 'l')
     bprintf(&buf2, "preconf/pre_latest");
   else
     bprintf(&buf2, "preconf/%j", block_number);

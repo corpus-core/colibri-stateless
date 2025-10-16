@@ -52,7 +52,7 @@ static void respond(request_t* req, bytes_t result, int status, char* content_ty
 static void c4_prover_execute_worker(uv_work_t* req) {
   proof_work_t* work = (proof_work_t*) req->data;
   c4_prover_execute(work->ctx);
-  work->ctx->flags &= ~C4_PROOFER_FLAG_UV_WORKER_REQUIRED;
+  work->ctx->flags &= ~C4_PROVER_FLAG_UV_WORKER_REQUIRED;
 }
 
 static void c4_prover_execute_after(uv_work_t* req, int status) {
@@ -70,7 +70,7 @@ static void prover_request_free(request_t* req) {
 }
 static bool c4_check_worker_request(request_t* req) {
   prover_ctx_t* ctx = (prover_ctx_t*) req->ctx;
-  if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED && c4_prover_status(ctx) == C4_PENDING && c4_state_get_pending_request(&ctx->state) == NULL) {
+  if (ctx->flags & C4_PROVER_FLAG_UV_WORKER_REQUIRED && c4_prover_status(ctx) == C4_PENDING && c4_state_get_pending_request(&ctx->state) == NULL) {
     // no data are required and no pending request, so we can execute the prover in the worker thread
     proof_work_t* work = (proof_work_t*) safe_calloc(1, sizeof(proof_work_t));
     work->req_obj      = req;
@@ -122,7 +122,7 @@ void c4_prover_handle_request(request_t* req) {
     case C4_PENDING:
       if (c4_state_get_pending_request(&ctx->state)) // there are pending requests, let's take care of them first
         c4_start_curl_requests(req, &ctx->state);
-      else if (ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED) // worker is required, retry and handle it in the beginning of the next loop
+      else if (ctx->flags & C4_PROVER_FLAG_UV_WORKER_REQUIRED) // worker is required, retry and handle it in the beginning of the next loop
         c4_prover_handle_request(req);
       else {
         // stop here, we don't have anything to do
@@ -153,12 +153,12 @@ bool c4_handle_proof_request(client_t* client) {
   char*         method_str       = bprintf(NULL, "%j", method);
   char*         params_str       = bprintf(NULL, "%J", params);
   request_t*    req              = (request_t*) safe_calloc(1, sizeof(request_t));
-  prover_ctx_t* ctx              = c4_prover_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROOFER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROOFER_FLAG_CHAIN_STORE : 0));
+  prover_ctx_t* ctx              = c4_prover_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROVER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0));
   req->start_time                = current_ms();
   req->client                    = client;
   req->cb                        = c4_prover_handle_request;
   req->ctx                       = ctx;
-  if (include_code.type == JSON_TYPE_BOOLEAN && include_code.start[0] == 't') ctx->flags |= C4_PROOFER_FLAG_INCLUDE_CODE;
+  if (include_code.type == JSON_TYPE_BOOLEAN && include_code.start[0] == 't') ctx->flags |= C4_PROVER_FLAG_INCLUDE_CODE;
   if (client_state.type == JSON_TYPE_STRING) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
   if (!bytes_all_zero(bytes(http_server.witness_key, 32))) ctx->witness_key = bytes(http_server.witness_key, 32);
 

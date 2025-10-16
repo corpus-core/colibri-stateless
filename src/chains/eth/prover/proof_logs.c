@@ -137,7 +137,7 @@ static c4_status_t get_receipts(prover_ctx_t* ctx, proof_logs_block_t* blocks) {
     buffer_reset(&buf);
     json_t block_number = json_parse(bprintf(&buf, "\"0x%lx\"", block->block_number));
     TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block->beacon_block));
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
     // we get the merkle tree from the cache if available now so we can use it later in the worker thread
     bytes32_t cachekey;
     if (status == C4_SUCCESS && block->beacon_block.execution.bytes.data &&
@@ -176,7 +176,7 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
 
   TRY_ASYNC(c4_check_historic_proof(ctx, &block->block_proof, &block->beacon_block));
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   bytes32_t cachekey;
   root = (node_t*) c4_prover_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, block->block_hash.data));
   if (!root) {
@@ -188,11 +188,11 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
       patricia_set_value(&root,
                          c4_eth_create_tx_path(json_get_uint32(r, "transactionIndex"), &buf),
                          c4_serialize_receipt(r, &receipts_buf));
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
       len++;
 #endif
     }
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
     c4_prover_cache_set(ctx, cachekey, root, 500 * len + 200, 200 * 1000, (cache_free_cb) patricia_node_free);
   }
 #endif
@@ -204,7 +204,7 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
   }
   // create multiproof for the transactions
   proof_create_multiproof(ctx, block);
-#ifndef PROOFER_CACHE
+#ifndef PROVER_CACHE
   patricia_node_free(root);
 #endif
   buffer_free(&buf);

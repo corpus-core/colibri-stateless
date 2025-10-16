@@ -99,7 +99,7 @@ static json_t get_nodes(data_request_type_t type) {
       return curl_nodes.beacon_api;
     case C4_DATA_TYPE_CHECKPOINTZ:
       return curl_nodes.checkpointz;
-    case C4_DATA_TYPE_PROOFER:
+    case C4_DATA_TYPE_PROVER:
       return curl_nodes.prover;
     case C4_DATA_TYPE_INTERN:
       return curl_nodes.chain_store;

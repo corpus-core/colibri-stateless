@@ -50,7 +50,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define C4_PROOFER_FLAG_NO_CACHE (1 << 30)
+#define C4_PROVER_FLAG_NO_CACHE (1 << 30)
 #define ASSERT_HEX_STRING_EQUAL(expected_hex, actual_array, size, message)              \
   do {                                                                                  \
     uint8_t expected_bytes[size];                                                       \
@@ -110,7 +110,7 @@ static void reset_local_filecache() {
       .max_sync_states = 3};
   c4_set_storage_config(&plgn);
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   c4_prover_cache_cleanup(UINT64_MAX, 0);
 #endif
 }
@@ -254,13 +254,13 @@ static void set_state(chain_id_t chain_id, char* dirname) {
 static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, prover_flags_t flags, char* expected_result) {
   char tmp[1024];
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   // Clear the global prover cache before each test to ensure isolation
   // Using max timestamp (0xffffffffffffffff) removes all entries
   c4_prover_cache_cleanup(0xffffffffffffffffULL, 0);
 #endif
 
-  if ((flags & C4_PROOFER_FLAG_NO_CACHE) == 0)
+  if ((flags & C4_PROVER_FLAG_NO_CACHE) == 0)
     set_state(chain_id, dirname);
 
   bytes_t  proof_data   = {0};
@@ -350,7 +350,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 }
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
-  verify_count(dirname, method, args, chain_id, 1, C4_PROOFER_FLAG_INCLUDE_CODE | C4_PROOFER_FLAG_CHAIN_STORE, NULL);
+  verify_count(dirname, method, args, chain_id, 1, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_CHAIN_STORE, NULL);
 }
 
 static void run_rpc_test(char* dirname, prover_flags_t flags) {

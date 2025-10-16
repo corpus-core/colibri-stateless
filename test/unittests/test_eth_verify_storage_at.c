@@ -36,11 +36,11 @@ void tearDown(void) {
 
 void test_nonce() {
   run_rpc_test("eth_getStorageAt1", 0);
-  run_rpc_test("eth_getStorageAt1", C4_PROOFER_FLAG_NO_CACHE);
+  run_rpc_test("eth_getStorageAt1", C4_PROVER_FLAG_NO_CACHE);
 }
 
 void test_nonce_electra() {
-  run_rpc_test("eth_getStorageAt_electra", C4_PROOFER_FLAG_NO_CACHE);
+  run_rpc_test("eth_getStorageAt_electra", C4_PROVER_FLAG_NO_CACHE);
 }
 
 int main(void) {

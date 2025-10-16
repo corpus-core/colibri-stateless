@@ -157,7 +157,7 @@ static c4_status_t get_receipts(prover_ctx_t* ctx, proof_logs_block_t* blocks) {
     buffer_reset(&buf);
     json_t block_number = json_parse(bprintf(&buf, "\"0x%lx\"", block->block_number));
     TRY_ADD_ASYNC(status, c4_op_create_block_proof(ctx, block_number, &block->block_proof));
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
     // we get the merkle tree from the cache if available now so we can use it later in the worker thread
     if (status == C4_SUCCESS && get_cache_key(block) && c4_prover_cache_get(ctx, block->cache_key))
       continue;
@@ -174,7 +174,7 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
   buffer_t  receipts_buf = {0};
   buffer_t  buf          = stack_buffer(tmp);
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   root = (node_t*) c4_prover_cache_get(ctx, get_cache_key(block));
   if (!root) {
     REQUEST_WORKER_THREAD(ctx);
@@ -185,11 +185,11 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
       patricia_set_value(&root,
                          c4_eth_create_tx_path(json_get_uint32(r, "transactionIndex"), &buf),
                          c4_serialize_receipt(r, &receipts_buf));
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
       len++;
 #endif
     }
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
     c4_prover_cache_set(ctx, block->cache_key, root, 500 * len + 200, 200 * 1000, (cache_free_cb) patricia_node_free);
   }
 #endif
@@ -198,7 +198,7 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
   for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next)
     tx->proof = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx->tx_index, &buf));
 
-#ifndef PROOFER_CACHE
+#ifndef PROVER_CACHE
   patricia_node_free(root);
 #endif
   buffer_free(&buf);

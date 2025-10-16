@@ -21,8 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef C4_PROOFER_H
-#define C4_PROOFER_H
+#ifndef C4_PROVER_H
+#define C4_PROVER_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,7 +41,7 @@ extern "C" {
 // Example:
 //
 // ```c
-// prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", "[\"latest\", false]", chain_id, C4_PROOFER_FLAG_INCLUDE_CODE);
+// prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", "[\"latest\", false]", chain_id, C4_PROVER_FLAG_INCLUDE_CODE);
 //
 // // Execute prover in a loop:
 // data_request_t* data_request = NULL;
@@ -67,11 +67,11 @@ extern "C" {
  * a bitmask holding flags used during the prover context.
  */
 typedef enum {
-  C4_PROOFER_FLAG_INCLUDE_CODE       = 1 << 0, // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed
-  C4_PROOFER_FLAG_UV_SERVER_CTX      = 1 << 1, // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROOFER_FLAG_UV_WORKER_REQUIRED flag.
-  C4_PROOFER_FLAG_UV_WORKER_REQUIRED = 1 << 2, // requests the proof execution to run in a worker thread instead of the main eventloop.
-  C4_PROOFER_FLAG_CHAIN_STORE        = 1 << 3, // allows the prover to use internal request with data from the chain stroe
-  C4_PROOFER_FLAG_UNSTABLE_LATEST    = 1 << 4, // usually we use latest-1, but if this is set we return the real "latest"
+  C4_PROVER_FLAG_INCLUDE_CODE       = 1 << 0, // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed
+  C4_PROVER_FLAG_UV_SERVER_CTX      = 1 << 1, // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROVER_FLAG_UV_WORKER_REQUIRED flag.
+  C4_PROVER_FLAG_UV_WORKER_REQUIRED = 1 << 2, // requests the proof execution to run in a worker thread instead of the main eventloop.
+  C4_PROVER_FLAG_CHAIN_STORE        = 1 << 3, // allows the prover to use internal request with data from the chain stroe
+  C4_PROVER_FLAG_UNSTABLE_LATEST    = 1 << 4, // usually we use latest-1, but if this is set we return the real "latest"
 } prover_flag_types_t;
 
 /**
@@ -79,12 +79,12 @@ typedef enum {
  */
 typedef uint32_t prover_flags_t;
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
 
 // Warning: Cache implementation assumes single-threaded access via libuv event loop.
 // Multi-threaded usage requires external synchronization.
-#if defined(PROOFER_CACHE) && !defined(HTTP_SERVER)
-#warning "PROOFER_CACHE without HTTP_SERVER may have thread-safety issues. Consider using with libuv-based HTTP_SERVER."
+#if defined(PROVER_CACHE) && !defined(HTTP_SERVER)
+#warning "PROVER_CACHE without HTTP_SERVER may have thread-safety issues. Consider using with libuv-based HTTP_SERVER."
 #endif
 
 typedef void (*cache_free_cb)(void*);
@@ -112,7 +112,7 @@ typedef struct {
   prover_flags_t flags;        // prover flags
   bytes_t        client_state; // optional client_state representing the synced periods and trusted blockhashes
   bytes_t        witness_key;  // witness key for the prover
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   cache_entry_t* cache; // cache for the prover (only active in the server context)
 #endif
 #ifdef HTTP_SERVER
@@ -152,7 +152,7 @@ c4_status_t c4_prover_execute(prover_ctx_t* ctx);
  */
 c4_status_t c4_prover_status(prover_ctx_t* ctx);
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
 /**
  * Get current time in milliseconds (monotonic or system time depending on build config)
  * @return current time in milliseconds
@@ -216,7 +216,7 @@ void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size
  * Macro to request execution in a worker thread for CPU-intensive operations.
  *
  * This macro should be used before computationally expensive operations that would
- * block the libuv event loop. It sets the C4_PROOFER_FLAG_UV_WORKER_REQUIRED flag
+ * block the libuv event loop. It sets the C4_PROVER_FLAG_UV_WORKER_REQUIRED flag
  * and returns C4_PENDING to signal that the operation should be retried in a worker thread.
  *
  * IMPORTANT: All required cache entries MUST be fetched using c4_prover_cache_get()
@@ -239,11 +239,11 @@ void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size
  *
  *   // Now safe to do CPU-intensive work...
  */
-#define REQUEST_WORKER_THREAD_CATCH(ctx, cleanup)                                                         \
-  if (ctx->flags & C4_PROOFER_FLAG_UV_SERVER_CTX && !(ctx->flags & C4_PROOFER_FLAG_UV_WORKER_REQUIRED)) { \
-    ctx->flags |= C4_PROOFER_FLAG_UV_WORKER_REQUIRED;                                                     \
-    cleanup;                                                                                              \
-    return C4_PENDING;                                                                                    \
+#define REQUEST_WORKER_THREAD_CATCH(ctx, cleanup)                                                       \
+  if (ctx->flags & C4_PROVER_FLAG_UV_SERVER_CTX && !(ctx->flags & C4_PROVER_FLAG_UV_WORKER_REQUIRED)) { \
+    ctx->flags |= C4_PROVER_FLAG_UV_WORKER_REQUIRED;                                                    \
+    cleanup;                                                                                            \
+    return C4_PENDING;                                                                                  \
   }
 
 /**

@@ -13,8 +13,8 @@ typedef struct {
   uint64_t    chain_id;
   const char* sequencer_address; // 20 bytes hex string (always available)
 
-#ifdef PROOFER
-  // Additional fields only available when building with PROOFER support
+#ifdef PROVER
+  // Additional fields only available when building with PROVER support
   const char* name;
   const char* http_endpoint;
   int         hardfork_version;
@@ -30,7 +30,7 @@ typedef struct {
 } op_chain_config_t;
 
 // Macro to define chain configurations conditionally
-#ifdef PROOFER
+#ifdef PROVER
 #define OP_CHAIN_CONFIG(id, signer, chain_name, endpoint, hf) \
   {.chain_id = (id), .sequencer_address = (signer), .name = (chain_name), .http_endpoint = (endpoint), .hardfork_version = (hf), .kona_disc_port = 9090, .kona_gossip_port = 9091, .kona_ttl_minutes = 60, .kona_cleanup_interval = 5, .kona_http_poll_interval = 1, .kona_http_failure_threshold = 5}
 #else

@@ -25,11 +25,11 @@ project(c4)
 # Core build options
 option(CURL "Enable CURL support" ON)
 option(WITNESS_SIGNER "Enable witness signing" ON)
-option(PROOFER "Build the prover library" ON)
+option(PROVER "Build the prover library" ON)
 option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized. It is faster but uses 25k more memory in cache per period." ON)
-option(PROOFER_CACHE "Caches blockhashes and maps, which makes a lot of sense on a server" OFF)
+option(PROVER_CACHE "Caches blockhashes and maps, which makes a lot of sense on a server" OFF)
 option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 
@@ -78,8 +78,8 @@ if (HTTP_SERVER)
         add_definitions(-DHTTP_SERVER_GEO)
     endif()
     # Only add UV time definition if cache is also enabled, matching libuv link condition
-    if (PROOFER_CACHE)
-        add_definitions(-DC4_PROOFER_USE_UV_TIME)
+    if (PROVER_CACHE)
+        add_definitions(-DC4_PROVER_USE_UV_TIME)
     endif()
 endif()
 
@@ -87,7 +87,7 @@ endif()
 if(EMBEDDED)
     # Force embedded-friendly options
     set(CURL OFF)
-    set(PROOFER OFF)
+    set(PROVER OFF)
     set(CLI OFF)
     set(STATIC_MEMORY ON)
     set(BLS_DESERIALIZE OFF)
@@ -185,11 +185,11 @@ if(KOTLIN)
 endif()
 
 # Feature flags and compiler settings
-if (PROOFER_CACHE) 
-    add_definitions(-DPROOFER_CACHE)
+if (PROVER_CACHE) 
+    add_definitions(-DPROVER_CACHE)
 endif()
-if (PROOFER) 
-    add_definitions(-DPROOFER)
+if (PROVER) 
+    add_definitions(-DPROVER)
 endif()
 if(CURL)
     add_definitions(-DUSE_CURL)
@@ -253,7 +253,7 @@ include(src/chains/chains.cmake)
 
 # Define the path for the generated headers
 add_definitions(-DVERIFIERS_PATH="${CMAKE_BINARY_DIR}/verifiers.h")
-add_definitions(-DPROOFERS_PATH="${CMAKE_BINARY_DIR}/provers.h")
+add_definitions(-DPROVERS_PATH="${CMAKE_BINARY_DIR}/provers.h")
 
 # Add the binary directory to the include path for generated headers
 include_directories(${CMAKE_BINARY_DIR})
@@ -354,7 +354,7 @@ if(NOT EMBEDDED)
             get_all_library_dependencies(verifier LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
         endif()
         
-        if(PROOFER)
+        if(PROVER)
             # Include the prover target itself
             list(APPEND ALL_LIBS_TO_COMBINE prover)
             get_all_library_dependencies(prover LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)

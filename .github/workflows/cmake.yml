@@ -42,7 +42,7 @@ jobs:
             -DETH_CALL=OFF \
             -DETH_ACCOUNT=OFF \
             -DEVMLIGHT=OFF \
-            -DPROOFER=OFF \
+            -DPROVER=OFF \
             -DCLI=OFF \
             -DINCLUDE=test/embedded
           cat build/compile_commands.json
@@ -120,7 +120,7 @@ jobs:
       - name: Build minsize
         run: cmake -B build_minsize -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
       - name: Build
-        run: cmake -B build -DTEST=true -DCURL=true -DPROOFER_CACHE=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
+        run: cmake -B build -DTEST=true -DCURL=true -DPROVER_CACHE=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
 
       - name: Run Valgrind on all test binaries
         run: |

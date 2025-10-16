@@ -40,12 +40,12 @@ void test_call() {
   char* dir             = "eth_call1";
   char* expected_result = "\"0x0000000000000000000000000000000000000000000000000011c04f6834033e\"";
 
-  verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROOFER_FLAG_INCLUDE_CODE, expected_result);
+  verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROVER_FLAG_INCLUDE_CODE, expected_result);
 }
 
 void test_electra() {
-  run_rpc_test("eth_call_electra", C4_PROOFER_FLAG_NO_CACHE);
-  //  run_rpc_test("eth_call3", C4_PROOFER_FLAG_INCLUDE_CODE);
+  run_rpc_test("eth_call_electra", C4_PROVER_FLAG_NO_CACHE);
+  //  run_rpc_test("eth_call3", C4_PROVER_FLAG_INCLUDE_CODE);
 }
 
 int main(void) {

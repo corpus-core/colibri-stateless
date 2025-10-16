@@ -583,7 +583,7 @@ server_list_t* c4_get_server_list(data_request_type_t type) {
       return (server_list_t*) &eth_rpc_servers;
     case C4_DATA_TYPE_BEACON_API:
       return (server_list_t*) &beacon_api_servers;
-    case C4_DATA_TYPE_PROOFER:
+    case C4_DATA_TYPE_PROVER:
       return (server_list_t*) &prover_servers;
     case C4_DATA_TYPE_CHECKPOINTZ:
       return (server_list_t*) &checkpointz_servers;

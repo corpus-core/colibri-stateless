@@ -95,7 +95,7 @@ static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, 
 c4_status_t c4_eth_get_receipt_proof(prover_ctx_t* ctx, bytes32_t block_hash, json_t block_receipts, uint32_t tx_index, json_t* receipt, ssz_ob_t* receipt_proof) {
 
 // now we should have all data required to create the proof
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   bytes32_t cachekey;
   c4_eth_receipt_cachekey(cachekey, block_hash);
   node_t* receipt_tree = (node_t*) c4_prover_cache_get(ctx, cachekey);

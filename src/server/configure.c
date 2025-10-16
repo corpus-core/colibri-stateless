@@ -158,7 +158,7 @@ static void config() {
   get_int(&http_server.chain_id, "CHAIN_ID", "chain_id", 'c', "chain id", 1, 0xFFFFFFF);
   get_string(&http_server.rpc_nodes, "RPC", "rpc", 'r', "list of rpc endpoints");
   get_string(&http_server.beacon_nodes, "BEACON", "beacon", 'b', "list of beacon nodes api endpoints");
-  get_string(&http_server.prover_nodes, "PROOFER", "prover", 'R', "list of remote prover endpoints");
+  get_string(&http_server.prover_nodes, "PROVER", "prover", 'R', "list of remote prover endpoints");
   get_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
   get_int(&http_server.stream_beacon_events, "BEACON_EVENTS", "beacon_events", 'e', "activates beacon event streaming", 0, 1);
   get_string(&http_server.period_store, "DATA", "data", 'd', "path to the data-directory holding blockroots and light client updates");

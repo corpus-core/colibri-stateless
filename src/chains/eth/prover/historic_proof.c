@@ -157,7 +157,7 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   beacon_type_t       beacon_type   = BEACON_TYPE_NONE;
 
   if (chain == NULL) THROW_ERROR("unsupported chain id!");
-  if (!ctx->client_state.len || !(ctx->flags & C4_PROOFER_FLAG_CHAIN_STORE)) return C4_SUCCESS;  // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
+  if (!ctx->client_state.len || !(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;   // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
   uint32_t state_period = c4_eth_get_last_period(ctx->client_state);                             // this is the oldest period we have in the client state
   uint32_t block_period = slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits); // the period of the target block
   if (!state_period) return C4_SUCCESS;                                                          // the client does not have a state yet, so he might as well get the head and verify the block.

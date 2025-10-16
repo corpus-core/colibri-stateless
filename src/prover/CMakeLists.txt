@@ -25,6 +25,6 @@ add_library(prover STATIC
 target_include_directories(prover INTERFACE .)
 target_link_libraries(prover PUBLIC util)
 
-if (PROOFER_CACHE AND HTTP_SERVER)
+if (PROVER_CACHE AND HTTP_SERVER)
     target_link_libraries(prover PUBLIC libuv)
 endif()

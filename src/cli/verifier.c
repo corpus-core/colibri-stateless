@@ -188,7 +188,7 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&args, "]");
   if (input == NULL) {
-    input = getenv("C4_PROOFER");
+    input = getenv("C4_PROVER");
     if (input == NULL)
       input = "https://mainnet1.colibri-proof.tech";
   }

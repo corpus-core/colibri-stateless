@@ -71,7 +71,7 @@ docker build -t c4-embedded -f test/embedded/Dockerfile.embedded .
 # Build all embedded targets
 docker run --rm -v $(pwd):/workspace c4-embedded bash -c "cd /workspace && \
   cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=/workspace/test/embedded/toolchain.cmake \
-  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROOFER=OFF -DCLI=OFF \
+  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROVER=OFF -DCLI=OFF \
   -DINCLUDE=test/embedded && \
   cmake --build build --target verify_embedded.elf minimal_verify.elf semihosting_test.elf"
 
@@ -90,7 +90,7 @@ If you have the ARM toolchain installed locally:
 # Create build directory and configure
 mkdir -p build
 cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=$PWD/test/embedded/toolchain.cmake \
-  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROOFER=OFF -DCLI=OFF \
+  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROVER=OFF -DCLI=OFF \
   -DINCLUDE=test/embedded
 
 # Build targets

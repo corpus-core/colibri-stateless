@@ -31,7 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
 static inline void create_cache_block_key(bytes32_t key, json_t block) {
   buffer_t buffer = {.allocated = -32, .data = {.data = key, .len = 0}};
   if (strncmp(block.start, "\"latest\"", 8) == 0)
@@ -302,7 +302,7 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
   json_get_bytes(json_get(result, "current_justified"), "root", &buf_justified);
   json_get_bytes(json_get(result, "finalized"), "root", &buf_finalized);
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   bytes32_t key = {0};
   sprintf((char*) key, FINALITY_KEY);
   c4_prover_cache_set(ctx, key, bytes_dup(bytes(hashes, sizeof(hashes))).data, sizeof(hashes), 1000 * 60 * 7, free); // 6 min
@@ -311,7 +311,7 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
   return C4_SUCCESS;
 }
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx) {
   bytes32_t     key  = {0};
   beacon_head_t hash = {0};
@@ -322,7 +322,7 @@ c4_status_t c4_eth_update_finality(prover_ctx_t* ctx) {
 #endif
 
 static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, bytes32_t sig_root, bytes32_t data_root) {
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   beacon_head_t* cached = c4_beacon_cache_get_slot(ctx, block);
   if (cached) {
     memcpy(data_root, cached->root, 32);
@@ -355,7 +355,7 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
   // convert the execution block number to beacon block hashes
   TRY_ASYNC(eth_get_block_roots(ctx, block, sig_root, data_root));
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   // is the data_root already cached?
   if (!bytes_all_zero(bytes(data_root, 32)) && c4_beacon_cache_get_blockdata(ctx, data_root, beacon_block))
     return C4_SUCCESS;
@@ -376,7 +376,7 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
   memcpy(beacon_block->sign_parent_root, ssz_get(&sig_block, "parentRoot").bytes.data, 32);
   memcpy(beacon_block->data_block_root, data_root, 32);
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   if (strncmp(block.start, "\"latest\"", 8) == 0) { // for latest we take the timestamp, so we can define the ttl
     ssz_ob_t execution = ssz_get(&sig_body, "executionPayload");
     c4_beacon_cache_update_blockdata(ctx, beacon_block, ssz_get_uint64(&execution, "timestamp"), beacon_block->data_block_root);

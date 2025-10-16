@@ -31,8 +31,8 @@
 #include <sys/resource.h> // For getrusage()
 #endif
 
-// Forward declaration for c4_prover_cache_stats if PROOFER_CACHE is defined
-#ifdef PROOFER_CACHE
+// Forward declaration for c4_prover_cache_stats if PROVER_CACHE is defined
+#ifdef PROVER_CACHE
 void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
 #endif
 
@@ -597,7 +597,7 @@ bool c4_handle_metrics(client_t* client) {
   buffer_t data                     = {0};
   size_t   current_rss              = get_current_rss();
   bool     method_metrics_described = false; // Flag, um HELP/TYPE für Methoden-Metriken nur einmal zu schreiben
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   uint64_t entries = 0, size = 0, max_size = 0, capacity = 0;
   c4_prover_cache_stats(&entries, &size, &max_size, &capacity);
 

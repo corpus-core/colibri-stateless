@@ -36,7 +36,7 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
 c4_status_t   c4_eth_get_receipt_proof(prover_ctx_t* ctx, bytes32_t block_hash, json_t block_receipts, uint32_t tx_index, json_t* receipt, ssz_ob_t* receipt_proof);
 c4_status_t   c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner);
 
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
 uint8_t* c4_eth_receipt_cachekey(bytes32_t target, bytes32_t blockhash);
 #endif
 

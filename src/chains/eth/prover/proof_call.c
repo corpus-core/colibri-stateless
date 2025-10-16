@@ -72,7 +72,7 @@ static void add_account(prover_ctx_t* ctx, ssz_builder_t* builder, json_t values
   buffer_t         buf          = {0};
   ssz_builder_t    account      = ssz_builder_for_def(builder->def->def.vector.type);
   const ssz_def_t* code_def     = ssz_get_def(account.def, "code");
-  bool             include_code = ctx->flags & C4_PROOFER_FLAG_INCLUDE_CODE;
+  bool             include_code = ctx->flags & C4_PROVER_FLAG_INCLUDE_CODE;
 
   add_dynamic_byte_list(json_get(values, "accountProof"), &account, "accountProof");
   ssz_add_bytes(&account, "address", address);
@@ -144,7 +144,7 @@ static c4_status_t handle_access_list(prover_ctx_t* ctx, json_t storage, bytes_t
 
     if (memcmp(code_hash, EMPTY_HASH, 32) == 0)
       code.type = JSON_TYPE_NOT_FOUND;
-    else if ((ctx->flags & C4_PROOFER_FLAG_INCLUDE_CODE) == 0)
+    else if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_CODE) == 0)
       code.type = JSON_TYPE_BOOLEAN;
     else
       TRY_ASYNC(eth_get_code(ctx, (json_t) {.type = JSON_TYPE_STRING, .start = (const char*) account.data - 1, .len = account.len + 2}, &code, 0));

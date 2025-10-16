@@ -38,7 +38,7 @@ typedef enum {
   C4_DATA_TYPE_ETH_RPC     = 1, // Handled by the eth RPC
   C4_DATA_TYPE_REST_API    = 2, // Handled by the REST API
   C4_DATA_TYPE_INTERN      = 3, // Handled internally within the prover server
-  C4_DATA_TYPE_PROOFER     = 4, // Handled by the prover server
+  C4_DATA_TYPE_PROVER      = 4, // Handled by the prover server
   C4_DATA_TYPE_CHECKPOINTZ = 5  // Handled by the a checkpointz server
 
 } data_request_type_t;

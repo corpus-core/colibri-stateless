@@ -31,13 +31,13 @@
  *    ├─ Allocate empty data_request_t
  *    └─ Call prover_callback() immediately → PHASE 2
  *
- * 2. REMOTE PROOFER (proof from external server)
+ * 2. REMOTE PROVER (proof from external server)
  *    ├─ Allocate verify_request_t
  *    ├─ Create data_request_t with remote URL
  *    ├─ c4_add_request() starts async HTTP request
  *    └─ prover_callback() is called when response arrives → PHASE 2
  *
- * 3. LOCAL PROOFER (generate proof locally)
+ * 3. LOCAL PROVER (generate proof locally)
  *    ├─ Allocate verify_request_t
  *    ├─ Create prover_ctx_t
  *    ├─ Create SEPARATE request_t with:
@@ -77,7 +77,7 @@
  *    ├─ cb                   : verifier_handle_request (phase 2 handler)
  *    └─ ctx                  : Pointer back to verify_request_t (circular ref)
  *
- * For LOCAL PROOFER, an additional SEPARATE request_t is created:
+ * For LOCAL PROVER, an additional SEPARATE request_t is created:
  * request_t (for prover)
  * ├─ ctx                     : prover_ctx_t*
  * ├─ cb                      : c4_prover_handle_request
@@ -101,7 +101,7 @@
  * └─ verify_req itself
  *
  * Note: verify_req->req (embedded struct) is NOT freed separately
- * Note: The separate request_t for LOCAL PROOFER is freed by prover_request_free()
+ * Note: The separate request_t for LOCAL PROVER is freed by prover_request_free()
  *
  * WHY IS IT SO COMPLEX?
  * =====================
@@ -241,8 +241,8 @@ static void verifier_handle_request(request_t* req) {
  *
  * Called from:
  * 1. LOCAL METHOD: Directly from c4_handle_verify_request with empty data_request_t
- * 2. REMOTE PROOFER: From c4_add_request_response after HTTP request completes
- * 3. LOCAL PROOFER: From respond() in handle_proof.c via parent_cb mechanism
+ * 2. REMOTE PROVER: From c4_add_request_response after HTTP request completes
+ * 3. LOCAL PROVER: From respond() in handle_proof.c via parent_cb mechanism
  *
  * Flow:
  * 1. Check for errors in req (e.g. HTTP error, no response)
@@ -379,8 +379,8 @@ bool c4_handle_verify_request(client_t* client) {
       // Get client_state for proof generation/verification
       bytes_t client_state = get_client_state(http_server.chain_id);
 
-      if (c4_get_server_list(C4_DATA_TYPE_PROOFER)->count) {
-        // REMOTE PROOFER PATH
+      if (c4_get_server_list(C4_DATA_TYPE_PROVER)->count) {
+        // REMOTE PROVER PATH
         // We have a remote prover configured, use it to get the proof
         buffer_t buffer = {0};
         bprintf(&buffer, "{\"method\":\"%s\",\"params\":%j,\"c4\":\"0x%x\"}", verify_req->method, verify_req->params, client_state);
@@ -389,7 +389,7 @@ bool c4_handle_verify_request(client_t* client) {
         data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
         req->method         = C4_DATA_METHOD_POST;
         req->chain_id       = http_server.chain_id;
-        req->type           = C4_DATA_TYPE_PROOFER;
+        req->type           = C4_DATA_TYPE_PROVER;
         req->encoding       = C4_DATA_ENCODING_SSZ;
         req->payload        = buffer.data;
 
@@ -397,7 +397,7 @@ bool c4_handle_verify_request(client_t* client) {
         c4_add_request(client, req, verify_req, prover_callback);
       }
       else {
-        // LOCAL PROOFER PATH
+        // LOCAL PROVER PATH
         // Use local prover to generate the proof
         // This uses the parent_ctx/parent_cb mechanism to route back to prover_callback
 
@@ -407,7 +407,7 @@ bool c4_handle_verify_request(client_t* client) {
             verify_req->method,
             params_str,
             (chain_id_t) http_server.chain_id,
-            C4_PROOFER_FLAG_UV_SERVER_CTX | C4_PROOFER_FLAG_INCLUDE_CODE | (http_server.period_store ? C4_PROOFER_FLAG_CHAIN_STORE : 0));
+            C4_PROVER_FLAG_UV_SERVER_CTX | C4_PROVER_FLAG_INCLUDE_CODE | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0));
 
         // Setup request_t for prover (SEPARATE from verify_req->req!)
         req->start_time = current_ms();

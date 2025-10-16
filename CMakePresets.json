@@ -11,7 +11,7 @@
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
                 "CHAIN_OP": "1",
                 "HTTP_SERVER": "1",
-                "PROOFER_CACHE": "1",
+                "PROVER_CACHE": "1",
                 "TEST": "1"
             }
         },
@@ -37,7 +37,7 @@
             "cacheVariables": {
                 "TEST": "1",
                 "HTTP_SERVER": "1",
-                "PROOFER_CACHE": "1",
+                "PROVER_CACHE": "1",
                 "CHAIN_OP": "0",
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1"
@@ -57,7 +57,7 @@
                 "WASM": "1",
                 "CHAIN_OP": "0",
                 "HTTP_SERVER": "0",
-                "PROOFER_CACHE": "0",
+                "PROVER_CACHE": "0",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
                 "CMAKE_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
             }

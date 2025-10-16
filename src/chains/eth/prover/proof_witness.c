@@ -98,7 +98,7 @@ c4_status_t c4_proof_witness(prover_ctx_t* ctx) {
   json_t        wit_type = json_at(ctx->params, 0);
   ssz_builder_t witness  = {0};
   if (ctx->witness_key.len != 32) THROW_ERROR("Witness key is not set");
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   bytes32_t cache_key = {0};
   create_cache_key(ctx->params, &cache_key);
 
@@ -124,7 +124,7 @@ c4_status_t c4_proof_witness(prover_ctx_t* ctx) {
   if (witness.def == NULL) THROW_ERROR_WITH("Invalid witness builder");
 
   ssz_builder_t witness_signed = c4_witness_sign(witness, ctx->witness_key.data);
-#ifdef PROOFER_CACHE
+#ifdef PROVER_CACHE
   ssz_ob_t* cache_entry = (ssz_ob_t*) safe_malloc(sizeof(ssz_ob_t) + witness_signed.fixed.data.len + witness_signed.dynamic.data.len);
   cache_entry->bytes    = bytes(((void*) cache_entry) + sizeof(ssz_ob_t), witness_signed.fixed.data.len + witness_signed.dynamic.data.len);
   cache_entry->def      = witness_signed.def;

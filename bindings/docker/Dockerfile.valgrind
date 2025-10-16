@@ -50,7 +50,7 @@ RUN cmake \
     -DCHAIN_OP=ON \
     -DCHAIN_ETH=ON \
     -DEVMONE=OFF \
-    -DPROOFER_CACHE=true \
+    -DPROVER_CACHE=true \
     . && make server
 
 # Use Debian slim for runtime (keep valgrind for analysis)
