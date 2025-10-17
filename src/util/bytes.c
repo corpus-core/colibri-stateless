@@ -208,8 +208,8 @@ void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data) 
   uint32_t old_end_offset = offset + len;
   uint32_t new_end_offset = offset + data.len;
   // Move existing data if splice position changes
-  if (new_end_offset != old_end_offset && buffer->data.len - old_end_offset > 0)
-    memmove(buffer->data.data + new_end_offset, buffer->data.data + old_end_offset, buffer->data.len - old_end_offset);
+  if (new_end_offset != old_end_offset && ((uint32_t) buffer->data.len) - old_end_offset > 0)
+    memmove(buffer->data.data + new_end_offset, buffer->data.data + old_end_offset, ((uint32_t) buffer->data.len) - old_end_offset);
 
   if (data.len) {
     if (data.data)
