@@ -158,14 +158,14 @@ void req_set_error_wrapper(uintptr_t req_ptr, const std::string& error, uint16_t
   c4_req_set_error(reinterpret_cast<void*>(req_ptr), const_cast<char*>(error.c_str()), node_index);
 }
 
-void* verify_create_ctx_wrapper(py::bytes proof, const std::string& method, const std::string& args, uint64_t chain_id, const std::string& trusted_block_hashes) {
+void* verify_create_ctx_wrapper(py::bytes proof, const std::string& method, const std::string& args, uint64_t chain_id, const std::string& trusted_checkpoint) {
   bytes_t proof_data = python_to_bytes_t(proof);
   return c4_verify_create_ctx(
       proof_data,
       const_cast<char*>(method.c_str()),
       const_cast<char*>(args.c_str()),
       chain_id,
-      const_cast<char*>(trusted_block_hashes.c_str()));
+      const_cast<char*>(trusted_checkpoint.c_str()));
 }
 
 prover_t* create_prover_ctx_wrapper(const std::string& method, const std::string& params, uint64_t chain_id, uint32_t flags) {

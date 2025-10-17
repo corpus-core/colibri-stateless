@@ -175,7 +175,7 @@ class Colibri:
         provers: Optional[List[str]] = None,
         eth_rpcs: Optional[List[str]] = None,
         beacon_apis: Optional[List[str]] = None,
-        trusted_block_hashes: Optional[List[str]] = None,
+        trusted_checkpoint: Optional[str] = None,
         request_handler: Optional[RequestHandler] = None,
         storage: Optional[ColibriStorage] = None
     ):
@@ -187,7 +187,7 @@ class Colibri:
             provers: Remote prover URLs (empty list = local proof generation)
             eth_rpcs: Ethereum RPC endpoints for execution layer
             beacon_apis: Beacon chain API endpoints
-            trusted_block_hashes: Trusted block hashes for anchoring
+            trusted_checkpoint: Optional trusted checkpoint block hash for anchoring
             request_handler: Custom HTTP request handler
             storage: Custom storage implementation
         """
@@ -446,10 +446,8 @@ client = Colibri(
         "https://beaconcha.in/api/v1/client/events"
     ],
     
-    # Trusted anchoring points
-    trusted_block_hashes=[
-        "0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7"
-    ],
+    # Optional trusted anchoring point
+    trusted_checkpoint="0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7",
     
     # Custom implementations
     storage=MyCustomStorage(),

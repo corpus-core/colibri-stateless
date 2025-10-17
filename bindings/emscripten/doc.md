@@ -211,10 +211,10 @@ The constructor of the colibri client accepts a configuration-object, which may 
     // Or using your own Beacon node for maximum trust
     new Colibri({ checkpointz: [ 'http://localhost:5052' ]})
     ```
-- `trusted_block_hashes` - beacon block hashes used as trusted anchor    
-    This array of blockhashes will be used as anchor for fetching the keys for the sync committee. So instead of starting with the genesis you can define a starting block, where you know the blockhash. If no trusted blockhash is set, the verifier will automatically fetch the latest finalized checkpoint from a Checkpointz server, making initialization secure and convenient. Providing an explicit trusted checkpoint is recommended for maximum security control but is no longer required.
+- `trusted_checkpoint` - optional beacon block hash used as trusted anchor    
+    This single blockhash will be used as anchor for fetching the keys for the sync committee. So instead of starting with the genesis you can define a starting block, where you know the blockhash. If no trusted checkpoint is set, the verifier will automatically fetch the latest finalized checkpoint from a Checkpointz server, making initialization secure and convenient. Providing an explicit trusted checkpoint is recommended for maximum security control but is no longer required.
     ```js
-    new Colibri({ trusted_block_hashes: [ "0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7" ]})
+    new Colibri({ trusted_checkpoint: "0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7" })
     ```
 - `cache` - cache impl for rpc-requests    
     you can provide your own implementation to cache JSON-RPC requests. those function will be used before a request is send, also allowing mock handlers to cache responses for tests.
