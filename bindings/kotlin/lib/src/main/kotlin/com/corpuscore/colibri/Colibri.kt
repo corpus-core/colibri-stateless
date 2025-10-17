@@ -73,7 +73,7 @@ class Colibri(
     var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
     var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
     var checkpointz: Array<String> = arrayOf("https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"), // Default checkpointz servers
-    var trustedBlockHashes: Array<String> = arrayOf(), // Default empty array
+    var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
@@ -111,7 +111,7 @@ class Colibri(
         println("Chain ID: $chainId")
         println("ETH RPCs: ${ethRpcs.joinToString(", ")}")
         println("Beacon APIs: ${beaconApis.joinToString(", ")}")
-        println("Trusted Block Hashes: ${trustedBlockHashes.joinToString(", ")}")
+        println("Trusted Checkpoint: ${trustedCheckpoint ?: "none"}")
         println("Include Code: $includeCode")
     }
 
@@ -394,10 +394,10 @@ class Colibri(
     suspend fun verifyProof(proof: ByteArray, method: String, args: Array<Any?>): Any? { // Allow nullable args, return Any?
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args) // Use helper
-             val trustedHashesJson = formatArgsArray(trustedBlockHashes.map { it as Any? }.toTypedArray()) // Format trusted hashes
+            val trustedCheckpointStr = trustedCheckpoint ?: ""
 
-            // Assuming c4_verify_create_ctx takes JSON strings for args and trusted hashes
-            val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedHashesJson)
+            // Assuming c4_verify_create_ctx takes JSON strings for args and trusted checkpoint
+            val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedCheckpointStr)
                  ?: throw ColibriException("Failed to create verifier context for method $method")
 
             // Add iteration limit to prevent infinite loops

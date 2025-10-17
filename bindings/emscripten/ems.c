@@ -101,10 +101,6 @@ static void add_data_request(buffer_t* result, data_request_t* data_request) {
   bprintf(result, "\"type\": \"%s\"}", data_request_type_to_string(data_request->type));
 }
 
-void EMSCRIPTEN_KEEPALIVE c4w_set_trusted_blockhashes(uint64_t chain_id, uint8_t* blockhashes, int len) {
-  c4_eth_set_trusted_blockhashes(chain_id, bytes(blockhashes, len));
-}
-
 char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(prover_ctx_t* ctx) {
   buffer_t    result = {0};
   c4_status_t status = c4_prover_execute(ctx);
@@ -145,10 +141,16 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
   ctx->response_node_index = node_index;
 }
 
-void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id) {
+void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint) {
   c4w_verify_ctx_t* ctx = calloc(1, sizeof(c4w_verify_ctx_t));
   ctx->proof            = bytes_dup(bytes(proof, proof_len));
   c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id);
+
+  if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
+    bytes32_t checkpoint;
+    hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
+    c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
+  }
 
   return (void*) ctx;
 }

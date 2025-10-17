@@ -48,7 +48,7 @@ class Colibri:
         eth_rpcs: List[str] = None,
         beacon_apis: List[str] = None,
         checkpointz: List[str] = None,
-        trusted_block_hashes: List[str] = None,
+        trusted_checkpoint: Optional[str] = None,
         include_code: bool = False,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
@@ -62,7 +62,7 @@ class Colibri:
             eth_rpcs: List of Ethereum RPC URLs
             beacon_apis: List of beacon chain API URLs
             checkpointz: List of checkpointz server URLs
-            trusted_block_hashes: List of trusted block hashes for verification
+            trusted_checkpoint: Optional trusted checkpoint as hex string (0x-prefixed, 66 chars)
             include_code: Whether to include code in proofs
             storage: Storage implementation (defaults to DefaultStorage)
             request_handler: Optional request handler for testing
@@ -73,7 +73,7 @@ class Colibri:
         self.eth_rpcs = eth_rpcs if eth_rpcs is not None else self._get_default_eth_rpcs(chain_id)
         self.beacon_apis = beacon_apis if beacon_apis is not None else self._get_default_beacon_apis(chain_id)
         self.checkpointz = checkpointz if checkpointz is not None else self._get_default_checkpointz(chain_id)
-        self.trusted_block_hashes = trusted_block_hashes if trusted_block_hashes is not None else []
+        self.trusted_checkpoint = trusted_checkpoint
         self.include_code = include_code
         self.request_handler = request_handler
 
@@ -261,14 +261,14 @@ class Colibri:
         try:
             # Create verification context
             params_json = json.dumps(params)
-            trusted_hashes_json = json.dumps(self.trusted_block_hashes)
+            trusted_checkpoint_str = self.trusted_checkpoint if self.trusted_checkpoint else ""
             
             ctx = native.create_verify_ctx(
                 proof, 
                 method, 
                 params_json, 
                 self.chain_id, 
-                trusted_hashes_json
+                trusted_checkpoint_str
             )
             
             if not ctx:

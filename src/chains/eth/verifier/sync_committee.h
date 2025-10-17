@@ -72,9 +72,8 @@ const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_
 bool              c4_update_from_sync_data(verify_ctx_t* ctx);
 bool              c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates);
 bool              c4_set_sync_period(uint32_t period, ssz_ob_t sync_committee, chain_id_t chain_id, bytes32_t previous_pubkey_hash);
-c4_chain_state_t  c4_get_chain_state(chain_id_t chain_id);                                  // make sure to free the chain_state.blocks after use
-void              c4_eth_set_trusted_blockhashes(chain_id_t chain_id, bytes_t blockhashes); // old - will be deleted
-void              c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint); // new - must be used
+c4_chain_state_t  c4_get_chain_state(chain_id_t chain_id); // make sure to free the chain_state.blocks after use
+void              c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint);
 uint32_t          c4_eth_get_oldest_period(bytes_t state);
 fork_id_t         c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data);
 

@@ -157,19 +157,6 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
   if (conf.debug) log(`::: ${path} (Error: ${last_error})`);
 }
 
-function check_trusted_blockhashes(trusted_block_hashes: string[], c4w: C4W, chainId: number) {
-  const blockhashes = new Uint8Array(32 * trusted_block_hashes.length);
-  for (let i = 0; i < trusted_block_hashes.length; i++) {
-    if (trusted_block_hashes[i].length != 66 || !trusted_block_hashes[i].startsWith("0x")) throw new Error("Invalid trustedblockhash : " + trusted_block_hashes[i]);
-    for (let j = 0; j < 32; j++)
-      blockhashes[i * 32 + j] = parseInt(trusted_block_hashes[i].slice(2 + j * 2, 4 + j * 2), 16);
-  }
-  const ptr = copy_to_c(blockhashes, c4w);
-  c4w._c4w_set_trusted_blockhashes(BigInt(chainId), ptr, blockhashes.length);
-  c4w._free(ptr);
-  trusted_block_hashes.length = 0;
-}
-
 const default_config: {
   [key: string]: {
     alias: string[];
@@ -268,7 +255,7 @@ export default class C4Client {
     // Schutz vor Config-Manipulation durch Deep-Freeze
     const baseConfig = {
       chains: {},
-      trusted_block_hashes: [],
+      trusted_checkpoint: undefined,
       rpcs: chain_config.rpcs || [],
       beacon_apis: chain_config.beacon_apis || [],
       prover: chain_config.prover || [],
@@ -381,16 +368,18 @@ export default class C4Client {
 
     try {
 
-      if (this.config.trusted_block_hashes && this.config.trusted_block_hashes.length > 0)
-        check_trusted_blockhashes(this.config.trusted_block_hashes, c4w, parseInt(this.config.chainId as any));
-
       // Call the C function
+      const checkpoint_ptr = this.config.trusted_checkpoint
+        ? as_char_ptr(this.config.trusted_checkpoint, c4w, free_buffers)
+        : 0;
+
       ctx = c4w._c4w_create_verify_ctx(
         copy_to_c(proof, c4w, free_buffers),
         proof.length,
         as_char_ptr(method, c4w, free_buffers),
         as_char_ptr(JSON.stringify(args), c4w, free_buffers),
-        BigInt(this.config.chainId));
+        BigInt(this.config.chainId),
+        checkpoint_ptr);
 
       while (true) {
         const state = as_json(c4w._c4w_verify_proof(ctx), c4w, true);

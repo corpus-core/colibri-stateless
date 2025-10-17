@@ -245,7 +245,7 @@ PYBIND11_MODULE(_native, m) {
   // Verifier functions
   m.def("create_verify_ctx", &verify_create_ctx_wrapper,
         "Create a new verification context",
-        py::arg("proof"), py::arg("method"), py::arg("args"), py::arg("chain_id"), py::arg("trusted_block_hashes"),
+        py::arg("proof"), py::arg("method"), py::arg("args"), py::arg("chain_id"), py::arg("trusted_checkpoint"),
         py::return_value_policy::take_ownership);
 
   m.def("verify_execute_json_status", &verify_execute_json_status_wrapper,

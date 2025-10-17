@@ -135,7 +135,7 @@ INTERNAL void c4_set_chain_state(chain_id_t chain_id, c4_chain_state_t* state) {
   storage_conf.set(name, bytes);
 }
 
-void c4_eth_set_checkpoint(chain_id_t chain_id, bytes32_t checkpoint) {
+void c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint) {
   if (!checkpoint || chain_id == 0) return;
   c4_chain_state_t state = c4_get_chain_state(chain_id);
   if (state.status == C4_STATE_SYNC_EMPTY) {
@@ -369,7 +369,7 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
       // No state exists - fetch checkpoint from checkpointz server
       if (req_checkpointz_status(state, ctx->chain_id, &checkpoint_epoch, checkpoint_root)) {
         // Set the checkpoint as trusted blockhash
-        c4_eth_set_trusted_blockhashes(ctx->chain_id, bytes(checkpoint_root, 32));
+        c4_eth_set_trusted_checkpoint(ctx->chain_id, checkpoint_root);
         // Recursively call init_sync_state to process the bootstrap with the new trusted checkpoint
         return init_sync_state(ctx);
       }

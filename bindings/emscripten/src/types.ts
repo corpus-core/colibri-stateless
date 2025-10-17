@@ -104,7 +104,7 @@ export interface ChainConfig {
     rpcs: string[];
     prover?: string[];
     checkpointz?: string[];
-    trusted_block_hashes: string[];
+    trusted_checkpoint?: string;
     verify?: (method: string, args: any[]) => boolean;
     pollingInterval?: number;
     proofStrategy?: ProofStrategy;
