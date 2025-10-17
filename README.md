@@ -68,21 +68,36 @@ console.log("Latest block:", block.number);
 
 #### Kotlin/Java
 
+**Installation via GitHub Packages:**
+
 ```kotlin
-// Add to your build.gradle
-implementation 'io.corpus.colibri:colibri-stateless:latest'
+// Add to your build.gradle.kts
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/corpus-core/colibri-stateless")
+    }
+}
+
+dependencies {
+    // For JVM/Server (JAR with Linux, macOS, Windows natives)
+    implementation("com.corpuscore:colibri-jar:1.0.0")
+    
+    // For Android (AAR with all Android ABIs)
+    implementation("com.corpuscore:colibri-aar:1.0.0")
+}
 ```
 
 **Hello World:**
 ```kotlin
-import io.corpus.colibri.Colibri
+import com.corpuscore.colibri.Colibri
 
 val client = Colibri()
-val blockNumber = client.rpc("eth_blockNumber", arrayOf())
-println("Current block: $blockNumber")
+val result = client.rpc("eth_blockNumber", arrayOf())
+val blockNumber = String(result).removePrefix("0x").toLong(16)
+println("Current block: #$blockNumber")
 ```
 
-📖 [**Full Kotlin/Java Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)
+📦 [**GitHub Packages**](https://github.com/corpus-core/colibri-stateless/packages) | 📖 [**Full Kotlin/Java Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)
 
 #### Swift
 

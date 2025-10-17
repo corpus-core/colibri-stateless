@@ -234,10 +234,11 @@ static bool req_bootstrap(c4_state_t* state, bytes32_t block_root, chain_id_t ch
 
 static c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes32_t trusted_checkpoint) {
   // Parse bootstrap data as SSZ
-  fork_id_t        fork               = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
-  const ssz_def_t* bootstrap_def_list = (fork <= C4_FORK_DENEB) ? DENEP_LIGHT_CLIENT_BOOTSTRAP : ELECTRA_LIGHT_CLIENT_BOOTSTRAP;
-  const ssz_def_t  bootstrap_def      = {.name = "LightClientBootstrap", .type = SSZ_TYPE_CONTAINER, .def.container = {.elements = bootstrap_def_list, .len = 3}};
-  ssz_ob_t         bootstrap          = {.bytes = bootstrap_data, .def = &bootstrap_def};
+  fork_id_t        fork                 = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
+  const ssz_def_t* bootstrap_def_list   = (fork <= C4_FORK_DENEB) ? DENEP_LIGHT_CLIENT_BOOTSTRAP : ELECTRA_LIGHT_CLIENT_BOOTSTRAP;
+  const ssz_def_t  bootstrap_def        = {.name = "LightClientBootstrap", .type = SSZ_TYPE_CONTAINER, .def.container = {.elements = bootstrap_def_list, .len = 3}};
+  ssz_ob_t         bootstrap            = {.bytes = bootstrap_data, .def = &bootstrap_def};
+  bytes32_t        previous_pubkey_hash = {0}; // in case of a bootstrap, there is no previous pubkey hash, so we set it to 0
 
   // Validate SSZ structure (checks offsets and ensures all properties exist)
   if (!ssz_is_valid(bootstrap, true, &ctx->state))
@@ -278,21 +279,17 @@ static c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data
   uint32_t period = (slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits));
 
   // Save sync committee for current period
-  return c4_set_sync_period(period, slot, blockhash, current_sync_committee, ctx->chain_id) ? C4_SUCCESS : C4_ERROR;
+  return c4_set_sync_period(period, slot, blockhash, current_sync_committee, ctx->chain_id, previous_pubkey_hash) ? C4_SUCCESS : C4_ERROR;
 }
 
-INTERNAL bool c4_set_sync_period(uint32_t period, uint64_t slot, bytes32_t blockhash, ssz_ob_t sync_committee, chain_id_t chain_id) {
+INTERNAL bool c4_set_sync_period(uint32_t period, uint64_t slot, bytes32_t blockhash, ssz_ob_t sync_committee, chain_id_t chain_id, bytes32_t previous_pubkey_hash) {
   const chain_spec_t* spec          = c4_eth_get_chain_spec(chain_id);
   storage_plugin_t    storage_conf  = {0};
   c4_chain_state_t    state         = c4_get_chain_state(chain_id);
   uint32_t            allocated_len = state.len;
   char                name[100];
-  bytes32_t           sync_root = {0};
 
   if (!spec) return false;
-
-  // Calculate the root of the sync committee
-  ssz_hash_tree_root(sync_committee, sync_root);
 
   // Extract validators (pubkeys) from sync committee
   bytes_t validators = ssz_get(&sync_committee, "pubkeys").bytes;
@@ -362,7 +359,7 @@ INTERNAL bool c4_set_sync_period(uint32_t period, uint64_t slot, bytes32_t block
   sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
   buffer_t storage_data = {0};
   buffer_append(&storage_data, validators);
-  buffer_append(&storage_data, bytes(sync_root, 32));
+  buffer_append(&storage_data, bytes(previous_pubkey_hash, 32));
   storage_conf.set(name, storage_data.data);
   buffer_free(&storage_data);
 
@@ -470,17 +467,8 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
   sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, period);
 
   if (found && storage_conf.get) storage_conf.get(name, &validators);
-
-  // Try to load previous sync committee root from period - 1
-  if (period > 0 && storage_conf.get) {
-    sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, period - 1);
-    storage_conf.get(name, &prev_data);
-    // Extract last 32 bytes as previous_root if available
-    if (prev_data.data.len >= 32) {
-      memcpy(previous_root, prev_data.data.data + prev_data.data.len - 32, 32);
-    }
-    buffer_free(&prev_data);
-  }
+  if (validators.data.len % 48 == 32)
+    memcpy(previous_root, validators.data.data + validators.data.len - 32, 32);
 
 #ifdef BLS_DESERIALIZE
   // Check if validators need deserialization (only pubkeys, not including the 32-byte root)
@@ -516,7 +504,7 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
       .highest_period  = highest_period,
       .last_checkpoint = chain_state.last_checkpoint,
       .validators      = validators.data};
-  memcpy(result.previous_sync_committee_root, previous_root, 32);
+  memcpy(result.previous_pubkeys_hash, previous_root, 32);
   return result;
 }
 
@@ -645,11 +633,23 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
   // Edge case: We have the next period but not the current one
   // This can happen when finality was delayed at period transition
   // We can verify against the previous_sync_committee_root of the next period
-  if (sync_state->highest_period != period + 1 || bytes_all_zero(bytes(sync_state->previous_sync_committee_root, 32)))
+  if (sync_state->highest_period != period + 1)
     return C4_SUCCESS; // Not applicable - this is not an error, just means edge case doesn't apply
+  // would it be possible to sync form the lowest period?
+  if (sync_state->lowest_period == 0 || sync_state->lowest_period > period) THROW_ERROR("Failed to get previous validators, because there is no anchor like the the following period.");
+
+  // get the sync_state from the next period
+  c4_sync_state_t next_sync_state = get_validators_from_cache(ctx, period + 1);
+  if (next_sync_state.validators.data == NULL) THROW_ERROR("Failed to get previous validators, because there is no anchor like the the following period.");
+
+  bytes32_t previous_hash = {0};
+  bytes32_t no_prev       = {0};
+  memcpy(previous_hash, sync_state->previous_pubkeys_hash, 32);
+  safe_free(sync_state->validators.data);
 
   // Fetch light client update for the current period
-  bytes_t client_update = {0};
+  bytes_t   client_update = {0};
+  bytes32_t computed_root = {0};
   if (req_client_update(&ctx->state, period, 1, ctx->chain_id, &client_update)) {
     // Parse the update and extract nextSyncCommittee
     fork_id_t        fork               = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update);
@@ -671,12 +671,20 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
     if (ssz_is_error(next_sync_committee))
       THROW_ERROR("Failed to extract nextSyncCommittee from light client update");
 
-    bytes32_t computed_root = {0};
-    ssz_hash_tree_root(next_sync_committee, computed_root);
+#ifdef BLS_DESERIALIZE
+    bytes_t b = blst_deserialize_p1_affine(ssz_get(&next_sync_committee, "pubkeys").bytes.data, 512, NULL);
+#else
+    bytes_t b = bytes_dup(ssz_get(&next_sync_committee, "pubkeys").bytes);
+#endif
+    sha256(b, computed_root);
 
-    // Verify root matches the previous_root of the next period
-    if (memcmp(computed_root, sync_state->previous_sync_committee_root, 32) != 0)
+    bool valid = memcmp(previous_hash, computed_root, 32) == 0;
+    if (valid)
+      sync_state->validators = b;
+    else {
+      safe_free(b.data);
       THROW_ERROR("Sync committee root mismatch in period transition edge case");
+    }
 
     // Root matches - extract slot and blockhash from finalized header
     ssz_ob_t  finalized = ssz_get(&update_ob, "finalizedHeader");
@@ -686,19 +694,23 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
     ssz_hash_tree_root(header, blockhash);
 
     // Store the sync committee for this period (+1 because nextSyncCommittee is for next period)
-    const chain_spec_t* spec        = c4_eth_get_chain_spec(ctx->chain_id);
-    uint32_t            next_period = (slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
-    if (!c4_set_sync_period(next_period, slot, blockhash, next_sync_committee, ctx->chain_id))
+    const chain_spec_t* spec = c4_eth_get_chain_spec(ctx->chain_id);
+    if (!c4_set_sync_period(period, slot, blockhash, next_sync_committee, ctx->chain_id, no_prev)) {
+      safe_free(b.data);
       THROW_ERROR("Failed to store sync committee for period transition");
+    }
+    else {
+      // TODO write to storage
+      return C4_SUCCESS;
+    }
 
-    *sync_state = get_validators_from_cache(ctx, period); // update the sync state
     return C4_SUCCESS;
   }
   else
     return ctx->state.error ? C4_ERROR : C4_PENDING;
 }
 
-INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_state_t* target_state) {
+INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_state_t* target_state, bytes32_t pubkey_hash) {
   c4_sync_state_t sync_state = get_validators_from_cache(ctx, period);
 
   if (sync_state.validators.data == NULL) {
@@ -706,7 +718,7 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
       if (sync_state.highest_period) THROW_ERROR("the last sync state is higher than the required period, but we cannot sync backwards");
       TRY_ASYNC(init_sync_state(ctx));
       // we must have a initial state now, so let's call it again to get the state for the period we need.
-      return c4_get_validators(ctx, period, target_state);
+      return c4_get_validators(ctx, period, target_state, NULL);
     }
 
     // Try edge case: sync from next period using previous_root
@@ -721,7 +733,7 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
     // Normal sync path
     bytes_t client_update = {0};
     if (req_client_update(&ctx->state, sync_state.lowest_period, sync_state.current_period - sync_state.lowest_period, ctx->chain_id, &client_update)) {
-      if (!c4_handle_client_updates(ctx, client_update, NULL))
+      if (!c4_handle_client_updates(ctx, client_update))
         return c4_state_get_pending_request(&ctx->state) ? C4_PENDING : c4_state_add_error(&ctx->state, "Failed to handle client updates");
     }
     else
@@ -737,5 +749,8 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
   }
 
   *target_state = sync_state;
+  if (pubkey_hash)
+    sha256(sync_state.validators, pubkey_hash);
+
   return C4_SUCCESS;
 }

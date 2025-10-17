@@ -94,7 +94,7 @@ static c4_status_t c4_verify_header_proof(verify_ctx_t* ctx, ssz_ob_t header, ss
   if (memcmp(last_block_root, ssz_get(&signed_header, "parentRoot").bytes.data, 32))
     THROW_ERROR("invalid parent root for header proof!");
 
-  return c4_verify_blockroot_signature(ctx, &signed_header, &sync_committee_bits, &sync_committee_signature, 0);
+  return c4_verify_blockroot_signature(ctx, &signed_header, &sync_committee_bits, &sync_committee_signature, 0, NULL);
 }
 
 static c4_status_t c4_verify_historic_proof(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t sync_committee_bits, ssz_ob_t sync_committee_signature, ssz_ob_t historic_proof) {
@@ -108,7 +108,7 @@ static c4_status_t c4_verify_historic_proof(verify_ctx_t* ctx, ssz_ob_t header, 
   if (memcmp(state_root, ssz_get(&signed_header, "stateRoot").bytes.data, 32))
     THROW_ERROR("invalid state root for historic proof!");
 
-  return c4_verify_blockroot_signature(ctx, &signed_header, &sync_committee_bits, &sync_committee_signature, 0);
+  return c4_verify_blockroot_signature(ctx, &signed_header, &sync_committee_bits, &sync_committee_signature, 0, NULL);
 }
 
 c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof) {
@@ -117,7 +117,7 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
   ssz_ob_t historic_proof           = ssz_get(&block_proof, "historic_proof");
 
   if (historic_proof.bytes.len == 0) // direct proof - the signature matches the current header
-    return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0);
+    return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0, NULL);
 
   if (strcmp(historic_proof.def->name, "header_proof") == 0) // header proof - the signature matches the signed header in the header_proof
     return c4_verify_header_proof(ctx, header, sync_committee_bits, sync_committee_signature, historic_proof);
@@ -126,7 +126,7 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
   return c4_verify_historic_proof(ctx, header, sync_committee_bits, sync_committee_signature, historic_proof);
 }
 
-c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot) {
+c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash) {
   bytes32_t           root       = {0};
   c4_sync_state_t     sync_state = {0};
   const chain_spec_t* spec       = c4_eth_get_chain_spec(ctx->chain_id);
@@ -138,7 +138,7 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
   uint32_t period = slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits);
 
   // get the validators and make sure we have the right ones for the requested period
-  TRY_ASYNC(c4_get_validators(ctx, period, &sync_state));
+  TRY_ASYNC(c4_get_validators(ctx, period, &sync_state, pubkey_hash));
 
   // compute blockhash
   ssz_hash_tree_root(*header, root);
@@ -158,7 +158,7 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
     safe_free(sync_state.validators.data);
 #endif
     // Try to get validators from previous period
-    TRY_ASYNC(c4_get_validators(ctx, period - 1, &sync_state));
+    TRY_ASYNC(c4_get_validators(ctx, period - 1, &sync_state, NULL));
 
     // Verify again with previous period's validators
     valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);

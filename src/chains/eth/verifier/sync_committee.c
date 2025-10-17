@@ -49,13 +49,14 @@ static uint64_t finalized_root_gindex(chain_id_t chain_id, uint64_t slot) {
   return fork == C4_FORK_DENEB ? DENEP_FINALIZED_ROOT_GINDEX : ELECTRA_FINALIZED_ROOT_GINDEX;
 }
 
-static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update, bytes32_t trusted_checkpoint) {
+static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
 
   bytes32_t sync_root             = {0};
   bytes32_t merkle_root           = {0};
   bytes32_t attested_blockhash    = {0};
   bytes32_t finalized_blockhash   = {0};
   bytes32_t finalized_header_root = {0};
+  bytes32_t previous_pubkey_hash  = {0};
   // Extract components (no need for ssz_is_error checks after validation in c4_handle_client_updates)
   ssz_ob_t attested            = ssz_get(update, "attestedHeader");
   ssz_ob_t attested_header     = ssz_get(&attested, "beacon");
@@ -75,14 +76,8 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update, byte
   ssz_hash_tree_root(attested_header, attested_blockhash);
 
   // verify the signature of the old sync committee against the attested header
-  if (trusted_checkpoint) {
-    if (!bytes_all_zero(bytes(trusted_checkpoint, 32)) && memcmp(trusted_checkpoint, attested_blockhash, 32))
-      RETURN_VERIFY_ERROR(ctx, "invalid blockhash!");
-  }
-  else {
-    if (c4_verify_blockroot_signature(ctx, &attested_header, &sync_bits, &signature, attested_slot) != C4_SUCCESS)
-      return false;
-  }
+  if (c4_verify_blockroot_signature(ctx, &attested_header, &sync_bits, &signature, attested_slot, previous_pubkey_hash) != C4_SUCCESS)
+    return false;
 
   // verify nextSyncCommittee merkle proof against attested state root
   ssz_hash_tree_root(sync_committee, sync_root);
@@ -101,7 +96,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update, byte
   const chain_spec_t* spec   = c4_eth_get_chain_spec(ctx->chain_id);
   uint32_t            period = (finalized_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
   ssz_hash_tree_root(finalized_header, finalized_blockhash);
-  return c4_set_sync_period(period, finalized_slot, finalized_blockhash, sync_committee, ctx->chain_id);
+  return c4_set_sync_period(period, finalized_slot, finalized_blockhash, sync_committee, ctx->chain_id, previous_pubkey_hash);
 }
 
 INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
@@ -114,7 +109,7 @@ INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
     for (uint32_t i = 0; i < updates_len; i++) {
       ssz_ob_t update = ssz_at(ctx->sync_data, i);
       if (ssz_is_error(update)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
-      if (!update_light_client_update(ctx, &update, NULL)) return false;
+      if (!update_light_client_update(ctx, &update)) return false;
     }
     return true;
   }
@@ -131,10 +126,11 @@ fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
   return c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
 }
 
-INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates, bytes32_t trusted_checkpoint) {
+INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates) {
 
   uint64_t length  = 0;
   bool     success = true;
+
   // just to make sure the result is not a json with an error message
   if (client_updates.len && client_updates.data[0] == '{') {
     json_t json = json_parse((char*) client_updates.data);
@@ -190,7 +186,7 @@ INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates
       break;
     }
 
-    if (!update_light_client_update(ctx, &client_update_ob, trusted_checkpoint)) {
+    if (!update_light_client_update(ctx, &client_update_ob)) {
       success = false;
       break;
     }
