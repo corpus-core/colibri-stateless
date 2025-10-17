@@ -44,13 +44,13 @@ static uint8_t sync_buffer[C4_STATIC_KEYS_48_SIZE];
 #endif
 #endif
 
-uint32_t c4_eth_get_last_period(bytes_t state) {
+uint32_t c4_eth_get_oldest_period(bytes_t state) {
   c4_trusted_block_t* blocks      = (c4_trusted_block_t*) state.data;
   uint32_t            len         = state.len / sizeof(c4_trusted_block_t);
   uint32_t            last_period = 0;
   for (int i = 0; i < len; i++) {
     uint32_t p = uint32_from_le(blocks[i].period_bytes);
-    if (!last_period || last_period > p) last_period = p;
+    if (!last_period || p < last_period) last_period = p;
   }
   return last_period;
 }
