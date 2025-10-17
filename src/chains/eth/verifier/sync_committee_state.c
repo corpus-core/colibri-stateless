@@ -70,7 +70,7 @@ static c4_chain_state_t state_deserialize(bytes_t data) {
       return (c4_chain_state_t) {0}; // invalid status
   }
   state.status = status;
-  if (status == C4_STATE_SYNC_PERIODS && state.data.periods[0] == 0) status = C4_STATE_SYNC_EMPTY;
+  if (status == C4_STATE_SYNC_PERIODS && state.data.periods[0] == 0) state.status = C4_STATE_SYNC_EMPTY;
   return state;
 }
 
@@ -106,6 +106,10 @@ INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
 
   if (storage_conf.get(name, &tmp) && tmp.data.data)
     state = state_deserialize(tmp.data);
+
+#ifndef C4_STATIC_MEMORY
+  buffer_free(&tmp);
+#endif
 
   return state;
 }
