@@ -98,7 +98,7 @@ test('RPC-Proof Test Suite', async (t) => {
             if (test_conf.requires_chain_store) return;
             let conf = { chain: test_conf.chain, cache: create_cache(`${testdir}/${test}`) }
             if (test_conf.trusted_blockhash) {
-                conf.trusted_block_hashes = [test_conf.trusted_blockhash]
+                conf.trusted_checkpoint = test_conf.trusted_blockhash
                 //                return;
             }
             //            console.log(`### ${test} ######`)

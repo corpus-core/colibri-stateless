@@ -22,7 +22,7 @@ class TestColibriInit:
         assert len(client.provers) > 0
         assert len(client.eth_rpcs) > 0
         assert len(client.beacon_apis) > 0
-        assert client.trusted_block_hashes == []
+        assert client.trusted_checkpoint is None
         assert client.include_code is False
         assert client.storage is not None
     
@@ -34,7 +34,7 @@ class TestColibriInit:
             provers=["https://custom-prover.com"],
             eth_rpcs=["https://custom-rpc.com"],
             beacon_apis=["https://custom-beacon.com"],
-            trusted_block_hashes=["0x123abc"],
+            trusted_checkpoint="0x123abc",
             include_code=True,
             storage=storage
         )
@@ -43,7 +43,7 @@ class TestColibriInit:
         assert client.provers == ["https://custom-prover.com"]
         assert client.eth_rpcs == ["https://custom-rpc.com"]
         assert client.beacon_apis == ["https://custom-beacon.com"]
-        assert client.trusted_block_hashes == ["0x123abc"]
+        assert client.trusted_checkpoint == "0x123abc"
         assert client.include_code is True
         assert client.storage is storage
     

@@ -248,7 +248,7 @@ class ColibriTest {
         val colibri = Colibri(chainId = chainId, requestHandler = mockHandler)
 
         if (trusted_blockhash != null) {
-            colibri.trustedBlockHashes = arrayOf(trusted_blockhash)
+            colibri.trustedCheckpoint = trusted_blockhash
         }
 
         // Run the test logic 
