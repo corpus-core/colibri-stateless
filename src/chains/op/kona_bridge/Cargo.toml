@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# SECURITY NOTE: alloy v0.15.10 contains alloy-dyn-abi with known DoS vulnerability (GHSA-76c9-3jph-rj3q)
+# However, this is a FALSE POSITIVE for kona_bridge:
+# - The vulnerable function eip712_signing_hash() is never called
+# - TypedData is not used (no EIP-712 signing)
+# - Only alloy::primitives and alloy::signers are used (not alloy-dyn-abi)
+# - Cannot update to newer alloy versions due to kona git dependency compatibility
+# See: .github/SECURITY_ASSESSMENT_alloy-dyn-abi.md for detailed analysis
 alloy = { version = "=0.15.10" }
 kona-p2p = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
 kona-registry = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
@@ -15,7 +22,7 @@ tokio = { version = "1.44.2", features = ["full"] }
 axum = "0.8.3"
 
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.85"
