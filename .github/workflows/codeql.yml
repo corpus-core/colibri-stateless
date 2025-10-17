@@ -45,7 +45,7 @@ jobs:
       - name: Configure CMake (C/C++)
         if: matrix.language == 'c-cpp'
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DKOTLIN=false -DWASM=false -DTEST=false
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DKOTLIN=false -DWASM=false -DTEST=false -DCURL=false
 
       - name: Build (C/C++)
         if: matrix.language == 'c-cpp'
