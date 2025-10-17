@@ -364,11 +364,10 @@ static void run_rpc_test(char* dirname, prover_flags_t flags) {
   chain_id_t chain_id          = (chain_id_t) json_get_uint64(test, "chain_id");
   char*      expected_result   = bprintf(NULL, "%J", json_get(test, "expected_result"));
 
-  if (trusted_blockhash.type == JSON_TYPE_STRING) {
-    bytes32_t trusted_blockhash_bytes;
-    buffer_t  buf = stack_buffer(trusted_blockhash_bytes);
-    json_as_bytes(trusted_blockhash, &buf);
-    c4_eth_set_trusted_blockhashes(chain_id, bytes(trusted_blockhash_bytes, 32));
+  if (trusted_blockhash.type == JSON_TYPE_STRING && trusted_blockhash.len == 68) {
+    bytes32_t checkpoint;
+    hex_to_bytes(trusted_blockhash.start + 1, 66, bytes(checkpoint, 32));
+    c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
   }
 
   verify_count(dirname, method, args, chain_id, 1, flags, expected_result);

@@ -156,23 +156,14 @@ bytes_t c4_prover_get_proof(prover_t* prover) {
   return ctx->proof;
 }
 
-void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes) {
+void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint) {
   c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
   ctx->proof           = bytes_dup(proof);
-  c4_status_t status   = c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t) {0}), (chain_id_t) chain_id);
-  if (trusted_block_hashes && strlen(trusted_block_hashes) > 69) {
-    json_t  trusted_blocks = json_parse(strdup(trusted_block_hashes));
-    bytes_t hash_bytes     = {.len = json_len(trusted_blocks) * 32};
-    hash_bytes.data        = calloc(hash_bytes.len, sizeof(uint8_t));
-    if (trusted_blocks.type == JSON_TYPE_ARRAY) {
-      for (int i = 0; i < json_len(trusted_blocks); i++) {
-        json_t hash = json_at(trusted_blocks, i);
-        if (hash.type == JSON_TYPE_STRING && hash.len == 68)
-          hex_to_bytes(hash.start + 1, hash.len - 2, bytes(hash_bytes.data + i * 32, 32));
-      }
-      c4_eth_set_trusted_blockhashes(chain_id, hash_bytes);
-      safe_free(hash_bytes.data);
-    }
+  c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t) {0}), (chain_id_t) chain_id);
+  if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
+    bytes32_t checkpoint;
+    hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
+    c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
   }
   return (void*) ctx;
 }

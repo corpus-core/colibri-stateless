@@ -113,9 +113,10 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  * @param method the method of the requested data
  * @param args the args as json array string
  * @param chain_id the chain id
+ * @param trusted_checkpoint optional trusted checkpoint as hex string (0x-prefixed, 66 chars)
  * @return the result of the verification as json string ( needs to be freed by the caller )
  */
-void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes);
+void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint);
 
 /**
  * verifies the proof created by the prover_ctx_t and returns the result as json string.

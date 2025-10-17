@@ -95,8 +95,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   // +1 because nextSyncCommittee is for the next period
   const chain_spec_t* spec   = c4_eth_get_chain_spec(ctx->chain_id);
   uint32_t            period = (finalized_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
-  ssz_hash_tree_root(finalized_header, finalized_blockhash);
-  return c4_set_sync_period(period, finalized_slot, finalized_blockhash, sync_committee, ctx->chain_id, previous_pubkey_hash);
+  return c4_set_sync_period(period, sync_committee, ctx->chain_id, previous_pubkey_hash);
 }
 
 INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {

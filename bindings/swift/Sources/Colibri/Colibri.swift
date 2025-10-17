@@ -216,7 +216,7 @@ public class Colibri {
     public var beacon_apis: [String] = []
     public var provers: [String] = ["https://c4.incubed.net"]
     public var checkpointz: [String] = ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"]
-    public var trustedBlockHashes: [String] = []
+    public var trustedCheckpoint: String? = nil
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
     
@@ -304,29 +304,31 @@ public class Colibri {
 
     // Verify proof asynchronously
     public func verifyProof(proof: Data, method: String, params: String) async throws -> Any {
-        // Format trusted block hashes as JSON array string
-        let trustedBlockHashesStr: String
-        if trustedBlockHashes.isEmpty {
-            trustedBlockHashesStr = "[]"
+        // Handle optional trusted checkpoint
+        let trustedCheckpointCStr: UnsafeMutablePointer<CChar>?
+        if let checkpoint = trustedCheckpoint {
+            trustedCheckpointCStr = checkpoint.withCString { strdup($0) }
         } else {
-            let quotedHashes = trustedBlockHashes.map { "\"\($0)\"" }
-            trustedBlockHashesStr = "[\(quotedHashes.joined(separator: ","))]"
+            trustedCheckpointCStr = nil
         }
         
         let methodPtr = method.withCString { strdup($0) }
         let paramsPtr = params.withCString { strdup($0) }
-        let trustedBlockHashesPtr = trustedBlockHashesStr.withCString { strdup($0) }
         
         guard let methodCStr = methodPtr,
-              let paramsCStr = paramsPtr,
-              let trustedBlockHashesCStr = trustedBlockHashesPtr else {
+              let paramsCStr = paramsPtr else {
+            if let ptr = trustedCheckpointCStr {
+                free(ptr)
+            }
             throw ColibriError.invalidInput
         }
         
         defer {
             free(methodPtr)
             free(paramsPtr)
-            free(trustedBlockHashesPtr)
+            if let ptr = trustedCheckpointCStr {
+                free(ptr)
+            }
         }
         
         // Create bytes_t struct for proof data with safe memory handling
@@ -337,7 +339,7 @@ public class Colibri {
             )
         }
         
-        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedBlockHashesCStr) else {
+        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedCheckpointCStr) else {
             throw ColibriError.contextCreationFailed
         }
         defer { c4_verify_free_ctx(ctx) }

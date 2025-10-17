@@ -76,7 +76,7 @@ async def main():
         chain_id=1,
         eth_rpcs=["https://rpc.ankr.com/eth", "https://cloudflare-eth.com"],
         beacon_apis=["https://lodestar-mainnet.chainsafe.io"],
-        trusted_block_hashes=[],
+        trusted_checkpoint=None,
         include_code=True,
         storage=DefaultStorage()  # Use file-based storage
     )

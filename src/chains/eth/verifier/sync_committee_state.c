@@ -43,16 +43,46 @@ static uint8_t keys_48_buffer[C4_STATIC_KEYS_48_SIZE];
 static uint8_t sync_buffer[C4_STATIC_KEYS_48_SIZE];
 #endif
 #endif
+static inline uint32_t period_count(c4_chain_state_t* state) {
+  if (state->status != C4_STATE_SYNC_PERIODS) return 0;
+  for (int i = 0; i < MAX_SYNC_PERIODS; i++) {
+    if (state->data.periods[i] == 0) return i;
+  }
+  return MAX_SYNC_PERIODS;
+}
+
+static c4_chain_state_t state_deserialize(bytes_t data) {
+  c4_chain_state_t state = {0};
+  if (data.len == 0) return state;
+  c4_state_sync_type_t status = (c4_state_sync_type_t) data.data[0];
+
+  switch (status) {
+    case C4_STATE_SYNC_PERIODS: {
+      for (int i = 0; i < MAX_SYNC_PERIODS && data.len > i * 4 + 4; i++)
+        state.data.periods[i] = uint32_from_le(data.data + 1 + i * 4);
+      break;
+    }
+    case C4_STATE_SYNC_CHECKPOINT:
+      if (data.len != 33) return (c4_chain_state_t) {0}; // invalid length
+      memcpy(state.data.checkpoint, data.data + 1, 32);
+      break;
+    default:
+      return (c4_chain_state_t) {0}; // invalid status
+  }
+  state.status = status;
+  if (status == C4_STATE_SYNC_PERIODS && state.data.periods[0] == 0) state.status = C4_STATE_SYNC_EMPTY;
+  return state;
+}
 
 uint32_t c4_eth_get_oldest_period(bytes_t state) {
-  c4_trusted_block_t* blocks      = (c4_trusted_block_t*) state.data;
-  uint32_t            len         = state.len / sizeof(c4_trusted_block_t);
-  uint32_t            last_period = 0;
-  for (int i = 0; i < len; i++) {
-    uint32_t p = uint32_from_le(blocks[i].period_bytes);
-    if (!last_period || p < last_period) last_period = p;
+  c4_chain_state_t chain_state = state_deserialize(state);
+  if (chain_state.status != C4_STATE_SYNC_PERIODS) return 0;
+  uint32_t oldest_period = 0;
+  for (int i = 0; i < MAX_SYNC_PERIODS; i++) {
+    if (chain_state.data.periods[i] == 0) break;
+    if (!oldest_period || chain_state.data.periods[i] < oldest_period) oldest_period = chain_state.data.periods[i];
   }
-  return last_period;
+  return oldest_period;
 }
 
 INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
@@ -71,80 +101,52 @@ INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
 
   sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
 #ifndef C4_STATIC_MEMORY
-  tmp.allocated = sizeof(c4_trusted_block_t) * storage_conf.max_sync_states;
+  tmp.allocated = MAX_STATES_SIZE;
 #endif
 
-  if (storage_conf.get(name, &tmp) && tmp.data.data) {
-    state.blocks          = (c4_trusted_block_t*) tmp.data.data;
-    state.len             = tmp.data.len / sizeof(c4_trusted_block_t);
-    state.last_checkpoint = (tmp.data.len % sizeof(c4_trusted_block_t) == 8) ? uint64_from_le(tmp.data.data + tmp.data.len - 8) : 0;
-  }
+  if (storage_conf.get(name, &tmp) && tmp.data.data)
+    state = state_deserialize(tmp.data);
+
+#ifndef C4_STATIC_MEMORY
+  buffer_free(&tmp);
+#endif
 
   return state;
 }
+INTERNAL void c4_set_chain_state(chain_id_t chain_id, c4_chain_state_t* state) {
+  if (!state || chain_id == 0) return;
+  char             name[100];
+  storage_plugin_t storage_conf = {0};
+  c4_get_storage_config(&storage_conf);
+  uint8_t data[MAX_STATES_SIZE];
+  bytes_t bytes = bytes(data, 1);
+  data[0]       = state->status;
+  switch (state->status) {
+    case C4_STATE_SYNC_PERIODS:
+      for (int i = 0; i < MAX_SYNC_PERIODS && state->data.periods[i] != 0; i++) {
+        uint32_to_le(data + 1 + i * 4, state->data.periods[i]);
+        bytes.len += 4;
+      }
+      break;
+    case C4_STATE_SYNC_CHECKPOINT:
+      memcpy(data + 1, state->data.checkpoint, 32);
+      bytes.len += 32;
+      break;
+    default:
+      break;
+  }
+  sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
+  storage_conf.set(name, bytes);
+}
 
-void c4_eth_set_trusted_blockhashes(chain_id_t chain_id, bytes_t blockhashes) {
-  if (blockhashes.len == 0 || blockhashes.data == NULL || blockhashes.len % 32 != 0 || chain_id == 0) return;
+void c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint) {
+  if (!checkpoint || chain_id == 0) return;
   c4_chain_state_t state = c4_get_chain_state(chain_id);
-  if (state.len == 0) {
-    char             name[100];
-    storage_plugin_t storage_conf = {0};
-    c4_get_storage_config(&storage_conf);
-    state.blocks = safe_calloc(blockhashes.len / 32, sizeof(c4_trusted_block_t));
-    state.len    = blockhashes.len / 32;
-    for (int i = 0; i < state.len; i++)
-      memcpy(state.blocks[i].blockhash, blockhashes.data + i * 32, 32);
-    sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
-    storage_conf.set(name, bytes(state.blocks, state.len * sizeof(c4_trusted_block_t)));
+  if (state.status == C4_STATE_SYNC_EMPTY) {
+    state.status = C4_STATE_SYNC_CHECKPOINT;
+    memcpy(state.data.checkpoint, checkpoint, 32);
+    c4_set_chain_state(chain_id, &state);
   }
-#ifndef C4_STATIC_MEMORY
-  safe_free(state.blocks);
-#endif
-}
-
-static bool req_header(c4_state_t* state, json_t slot, chain_id_t chain_id, json_t* data) {
-  buffer_t tmp = {0};
-  if (slot.type == JSON_TYPE_STRING)
-    bprintf(&tmp, "eth/v1/beacon/headers/%j", slot);
-  else
-    bprintf(&tmp, "eth/v1/beacon/headers/head");
-
-  data_request_t* req = c4_state_get_data_request_by_url(state, (char*) tmp.data.data);
-  if (req) buffer_free(&tmp);
-  if (req && req->response.data) {
-    json_t res = json_parse((char*) req->response.data);
-    if (res.type == JSON_TYPE_OBJECT) res = json_get(res, "data");
-    if (res.type == JSON_TYPE_OBJECT) res = json_get(res, "header");
-    if (res.type == JSON_TYPE_OBJECT) res = json_get(res, "message");
-    if (res.type == JSON_TYPE_OBJECT) {
-      *data = res;
-      return true;
-    }
-    else {
-      state->error = strdup("Invalid response for header");
-      return false;
-    }
-  }
-  else if (req && req->error) {
-    state->error = strdup(req->error);
-    return false;
-  }
-  data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
-  new_req->chain_id       = chain_id;
-  new_req->url            = (char*) tmp.data.data;
-  new_req->encoding       = C4_DATA_ENCODING_JSON;
-  new_req->type           = C4_DATA_TYPE_BEACON_API;
-
-  c4_state_add_request(state, new_req);
-
-  return false;
-}
-
-static inline int trusted_blocks_len(c4_chain_state_t chain_state) {
-  int len = 0;
-  for (int i = 0; i < chain_state.len; i++)
-    len += uint64_from_le(chain_state.blocks[i].slot_bytes) ? 0 : 1;
-  return len;
 }
 
 static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count, chain_id_t chain_id, bytes_t* data) {
@@ -279,14 +281,13 @@ static c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data
   uint32_t period = (slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits));
 
   // Save sync committee for current period
-  return c4_set_sync_period(period, slot, blockhash, current_sync_committee, ctx->chain_id, previous_pubkey_hash) ? C4_SUCCESS : C4_ERROR;
+  return c4_set_sync_period(period, current_sync_committee, ctx->chain_id, previous_pubkey_hash) ? C4_SUCCESS : C4_ERROR;
 }
 
-INTERNAL bool c4_set_sync_period(uint32_t period, uint64_t slot, bytes32_t blockhash, ssz_ob_t sync_committee, chain_id_t chain_id, bytes32_t previous_pubkey_hash) {
-  const chain_spec_t* spec          = c4_eth_get_chain_spec(chain_id);
-  storage_plugin_t    storage_conf  = {0};
-  c4_chain_state_t    state         = c4_get_chain_state(chain_id);
-  uint32_t            allocated_len = state.len;
+INTERNAL bool c4_set_sync_period(uint32_t period, ssz_ob_t sync_committee, chain_id_t chain_id, bytes32_t previous_pubkey_hash) {
+  const chain_spec_t* spec         = c4_eth_get_chain_spec(chain_id);
+  storage_plugin_t    storage_conf = {0};
+  c4_chain_state_t    state        = c4_get_chain_state(chain_id);
   char                name[100];
 
   if (!spec) return false;
@@ -294,24 +295,23 @@ INTERNAL bool c4_set_sync_period(uint32_t period, uint64_t slot, bytes32_t block
   // Extract validators (pubkeys) from sync committee
   bytes_t validators = ssz_get(&sync_committee, "pubkeys").bytes;
 
-  // check if we had only trusted blocks
-  if (trusted_blocks_len(state)) {
-    safe_free(state.blocks);
-    state.blocks  = NULL;
-    state.len     = 0;
-    allocated_len = 0;
+  // check if we don't have
+  if (state.status != C4_STATE_SYNC_PERIODS) {
+    state.status = C4_STATE_SYNC_PERIODS;
+    memset(state.data.periods, 0, MAX_SYNC_PERIODS * 4);
   }
 
   c4_get_storage_config(&storage_conf);
+  uint32_t periods = period_count(&state);
 
-  while (state.len >= storage_conf.max_sync_states && state.blocks) {
+  while (periods >= storage_conf.max_sync_states) {
     uint32_t oldest       = 0;
     uint32_t latest       = 0;
     int      oldest_index = 0;
 
     // find the oldest and latest period
-    for (int i = 0; i < state.len; i++) {
-      uint32_t p = uint32_from_le(state.blocks[i].period_bytes);
+    for (int i = 0; state.data.periods[i]; i++) {
+      uint32_t p = state.data.periods[i];
       if (p > latest || latest == 0)
         latest = p;
       if (p < oldest || oldest == 0) {
@@ -320,12 +320,12 @@ INTERNAL bool c4_set_sync_period(uint32_t period, uint64_t slot, bytes32_t block
       }
     }
 
-    if (state.len > 2) {
+    if (periods > 2) {
       // we want to keep the oldest and the latest, but remove the second oldest
       uint32_t oldest_2nd       = 0;
       int      oldest_2nd_index = 0;
-      for (int i = 0; i < state.len; i++) {
-        uint32_t p = uint32_from_le(state.blocks[i].period_bytes);
+      for (int i = 0; i < periods; i++) {
+        uint32_t p = state.data.periods[i];
         if (p > oldest && p < latest && (p < oldest_2nd || oldest_2nd == 0)) {
           oldest_2nd       = p;
           oldest_2nd_index = i;
@@ -337,23 +337,12 @@ INTERNAL bool c4_set_sync_period(uint32_t period, uint64_t slot, bytes32_t block
 
     sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, oldest);
     storage_conf.del(name);
-    if (oldest_index < state.len - 1) memmove(state.blocks + oldest_index, state.blocks + oldest_index + 1, (state.len - oldest_index - 1) * sizeof(c4_trusted_block_t));
-    state.len--;
+    if (oldest_index < periods - 1) memmove(state.data.periods + oldest_index, state.data.periods + oldest_index + 1, (periods - oldest_index - 1) * sizeof(uint32_t));
+    periods--;
   }
 
-#ifdef C4_STATIC_MEMORY
-  state.blocks = (c4_trusted_block_t*) state_buffer;
-#else
-  if (allocated_len == 0)
-    state.blocks = safe_calloc(sizeof(c4_trusted_block_t), 1);
-  else if (allocated_len < state.len + 1)
-    state.blocks = safe_realloc(state.blocks, sizeof(c4_trusted_block_t) * (state.len + 1));
-#endif
-  if (!state.blocks) return false; // Safety check for static analyzer
-  uint64_to_le(state.blocks[state.len].slot_bytes, slot);
-  uint32_to_le(state.blocks[state.len].period_bytes, period);
-  memcpy(state.blocks[state.len].blockhash, blockhash, 32);
-  state.len++;
+  state.data.periods[periods] = period;
+  periods++;
 
   // Store validators + sync_root (32 bytes appended)
   sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
@@ -363,20 +352,13 @@ INTERNAL bool c4_set_sync_period(uint32_t period, uint64_t slot, bytes32_t block
   storage_conf.set(name, storage_data.data);
   buffer_free(&storage_data);
 
-  sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
-  storage_conf.set(name, bytes(state.blocks, state.len * sizeof(c4_trusted_block_t)));
-
-#ifndef C4_STATIC_MEMORY
-  safe_free(state.blocks);
-#endif
-
+  c4_set_chain_state(chain_id, &state);
   return true;
 }
 
 static c4_status_t init_sync_state(verify_ctx_t* ctx) {
   c4_chain_state_t    chain_state      = c4_get_chain_state(ctx->chain_id);
   c4_state_t*         state            = &ctx->state;
-  bool                success          = false;
   bytes_t             bootstrap_data   = {0};
   bytes_t             client_update    = {0};
   bytes32_t           checkpoint_root  = {0};
@@ -385,51 +367,31 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
 
   if (!spec) THROW_ERROR("unsupported chain id!");
 
-  if (chain_state.len == 0) {
-#ifndef C4_STATIC_MEMORY
-    safe_free(chain_state.blocks);
-#endif
+  switch (chain_state.status) {
+    case C4_STATE_SYNC_EMPTY:
 
-    // No state exists - fetch checkpoint from checkpointz server
-    success = req_checkpointz_status(state, ctx->chain_id, &checkpoint_epoch, checkpoint_root);
-    if (success) {
-      // Set the checkpoint as trusted blockhash
-      c4_eth_set_trusted_blockhashes(ctx->chain_id, bytes(checkpoint_root, 32));
-      // Recursively call init_sync_state to process the bootstrap with the new trusted checkpoint
-      return init_sync_state(ctx);
-    }
-    else
-      // Request is either pending or failed
-      return state->error ? C4_ERROR : C4_PENDING;
-  }
-  else if (trusted_blocks_len(chain_state)) {
-    // We have a trusted checkpoint - use bootstrap
-    bytes32_t trusted_checkpoint = {0};
-    for (int i = 0; i < chain_state.len; i++) {
-      if (!uint64_from_le(chain_state.blocks[i].slot_bytes)) {
-        memcpy(trusted_checkpoint, chain_state.blocks[i].blockhash, 32);
-        break;
+      // No state exists - fetch checkpoint from checkpointz server
+      if (req_checkpointz_status(state, ctx->chain_id, &checkpoint_epoch, checkpoint_root)) {
+        // Set the checkpoint as trusted blockhash
+        c4_eth_set_trusted_checkpoint(ctx->chain_id, checkpoint_root);
+        // Recursively call init_sync_state to process the bootstrap with the new trusted checkpoint
+        return init_sync_state(ctx);
       }
+      else
+        // Request is either pending or failed
+        return state->error ? C4_ERROR : C4_PENDING;
+
+    case C4_STATE_SYNC_CHECKPOINT: {
+      // We have a trusted checkpoint - use bootstrap
+      if (req_bootstrap(state, chain_state.data.checkpoint, ctx->chain_id, &bootstrap_data))
+        TRY_ASYNC(c4_handle_bootstrap(ctx, bootstrap_data, chain_state.data.checkpoint));
+
+      return state->error ? C4_ERROR : (c4_state_get_pending_request(state) ? C4_PENDING : C4_SUCCESS);
     }
 
-    success = req_bootstrap(state, trusted_checkpoint, ctx->chain_id, &bootstrap_data);
-    if (success) {
-      TRY_ASYNC(c4_handle_bootstrap(ctx, bootstrap_data, trusted_checkpoint));
-    }
+    case C4_STATE_SYNC_PERIODS:
+      THROW_ERROR("init_sync_state called with existing sync committee state");
   }
-  else {
-    // This case should not occur - init_sync_state is only called when there's no state
-    // If we have sync committee states, c4_get_validators should handle the sync
-#ifndef C4_STATIC_MEMORY
-    safe_free(chain_state.blocks);
-#endif
-    THROW_ERROR("init_sync_state called with existing sync committee state");
-  }
-
-#ifndef C4_STATIC_MEMORY
-  safe_free(chain_state.blocks);
-#endif
-  return state->error ? C4_ERROR : (c4_state_get_pending_request(state) ? C4_PENDING : C4_SUCCESS);
 }
 
 static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t period) {
@@ -451,20 +413,17 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
 #endif
 
 #endif
+  char name[100];
   bool found = false;
   c4_get_storage_config(&storage_conf);
+  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, period);
 
-  for (uint32_t i = 0; i < chain_state.len; i++) {
-    uint32_t p = uint32_from_le(chain_state.blocks[i].period_bytes);
+  for (uint32_t i = 0; chain_state.status == C4_STATE_SYNC_PERIODS && i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++) {
+    uint32_t p = chain_state.data.periods[i];
     if (p == period) found = true;
     lowest_period  = p > lowest_period && p <= period ? p : lowest_period;
     highest_period = p > highest_period ? p : highest_period;
   }
-#ifndef C4_STATIC_MEMORY
-  safe_free(chain_state.blocks);
-#endif
-  char name[100];
-  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, period);
 
   if (found && storage_conf.get) storage_conf.get(name, &validators);
   if (validators.data.len % 48 == 32)
@@ -498,12 +457,11 @@ static c4_sync_state_t get_validators_from_cache(verify_ctx_t* ctx, uint32_t per
   if (validators.data.len == 0) validators.data.data = NULL; // just to make sure we mark it as not found, even if we are using static memory
 
   c4_sync_state_t result = {
-      .deserialized    = validators.data.data && validators.data.len > 512 * 48,
-      .current_period  = period,
-      .lowest_period   = lowest_period,
-      .highest_period  = highest_period,
-      .last_checkpoint = chain_state.last_checkpoint,
-      .validators      = validators.data};
+      .deserialized   = validators.data.data && validators.data.len > 512 * 48,
+      .current_period = period,
+      .lowest_period  = lowest_period,
+      .highest_period = highest_period,
+      .validators     = validators.data};
   memcpy(result.previous_pubkeys_hash, previous_root, 32);
   return result;
 }
@@ -515,8 +473,8 @@ static void clear_sync_state(chain_id_t chain_id) {
 
   // Delete all sync states for this chain
   c4_chain_state_t chain_state = c4_get_chain_state(chain_id);
-  for (uint32_t i = 0; i < chain_state.len; i++) {
-    uint32_t p = uint32_from_le(chain_state.blocks[i].period_bytes);
+  for (uint32_t i = 0; chain_state.status == C4_STATE_SYNC_PERIODS && i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++) {
+    uint32_t p = chain_state.data.periods[i];
     char     name[100];
     sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, p);
     storage_conf.del(name);
@@ -526,14 +484,46 @@ static void clear_sync_state(chain_id_t chain_id) {
   char name[100];
   sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
   storage_conf.del(name);
+}
 
-#ifndef C4_STATIC_MEMORY
-  safe_free(chain_state.blocks);
-#endif
+static uint64_t find_last_verified_finality_checkpoint(verify_ctx_t* ctx, bytes32_t checkpoint_root) {
+  ssz_ob_t finalized_header = {0};
+  uint64_t finalized_slot   = 0;
+  for (data_request_t* req = ctx->state.requests; req; req = req->next) {
+    if (req->type == C4_DATA_TYPE_BEACON_API && strncmp(req->url, "eth/v1/beacon/light_client/updates", 34) == 0 && req->response.data && req->response.len > 0 && req->encoding == C4_DATA_ENCODING_SSZ) {
+      bytes_t  client_updates = req->response;
+      uint64_t length         = 0;
+      for (uint32_t pos = 0; pos + 12 < client_updates.len; pos += length + 8) {
+        uint32_t data_offset        = pos + 8 + 4;
+        uint32_t data_length_offset = 4;
+        length                      = uint64_from_le(client_updates.data + pos);
+
+        if (pos + 8 + length > client_updates.len && length > 12) break;
+
+        bytes_t          client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
+        fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
+        const ssz_def_t* client_update_list  = eth_get_light_client_update_list(fork);
+        if (!client_update_list) break;
+
+        ssz_ob_t update    = {.bytes = client_update_bytes, .def = client_update_list->def.vector.type};
+        ssz_ob_t finalized = ssz_get(&update, "finalizedHeader");
+        ssz_ob_t header    = ssz_get(&finalized, "beacon");
+        uint64_t slot      = ssz_get_uint64(&header, "slot");
+        if (slot > finalized_slot) {
+          finalized_slot   = slot;
+          finalized_header = header;
+        }
+      }
+    }
+  }
+  if (finalized_slot == 0) return 0;
+  ssz_hash_tree_root(finalized_header, checkpoint_root);
+  return finalized_slot;
 }
 
 static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_state_t* sync_state, uint32_t target_period) {
-  const chain_spec_t* spec = c4_eth_get_chain_spec(ctx->chain_id);
+  const chain_spec_t* spec                                   = c4_eth_get_chain_spec(ctx->chain_id);
+  bytes32_t           last_verified_finality_checkpoint_root = {0};
   if (!spec) return C4_SUCCESS; // Cannot validate without spec
 
   // Calculate period difference
@@ -545,15 +535,12 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_state_t
   // Check if we exceed weak subjectivity period
   if (epoch_diff <= spec->weak_subjectivity_epochs) return C4_SUCCESS; // Within WSP
 
-  // We exceeded WSP - need to validate against checkpointz
-  if (sync_state->last_checkpoint == 0) {
-    // No checkpoint to validate against - clear state and force re-initialization
+  // first find the last finality checkpoint we have verifier during a light_client_update.
+  uint64_t finality_slot = find_last_verified_finality_checkpoint(ctx, last_verified_finality_checkpoint_root);
+  if (!finality_slot) {
     clear_sync_state(ctx->chain_id);
-    return c4_state_add_error(&ctx->state, "Weak subjectivity period exceeded without checkpoint");
+    return c4_state_add_error(&ctx->state, "Checkpoint slot not found in local state");
   }
-
-  // Request block root from checkpointz for the finality checkpoint
-  uint64_t finality_slot = sync_state->last_checkpoint;
 
   buffer_t url_buf = {0};
   bprintf(&url_buf, "eth/v1/beacon/blocks/%l/root", finality_slot);
@@ -581,9 +568,7 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_state_t
 
     // Validate JSON structure
     const char* err = json_validate(res, "{data:{root:bytes32}}", "checkpointz block root");
-    if (err) {
-      return c4_state_add_error(&ctx->state, err);
-    }
+    if (err) return c4_state_add_error(&ctx->state, err);
 
     json_t data = json_get(res, "data");
     json_t root = json_get(data, "root");
@@ -592,31 +577,7 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_state_t
     buffer_t  root_buf         = {.data = bytes(checkpointz_root, 32), .allocated = -32};
     json_as_bytes(root, &root_buf);
 
-    // Compare with our finality checkpoint
-    // We need to get the blockhash from our stored state for this checkpoint
-    c4_chain_state_t chain_state    = c4_get_chain_state(ctx->chain_id);
-    bytes32_t        our_checkpoint = {0};
-    bool             found          = false;
-
-    for (uint32_t i = 0; i < chain_state.len; i++) {
-      uint64_t stored_slot = uint64_from_le(chain_state.blocks[i].slot_bytes);
-      if (stored_slot == finality_slot) {
-        memcpy(our_checkpoint, chain_state.blocks[i].blockhash, 32);
-        found = true;
-        break;
-      }
-    }
-
-#ifndef C4_STATIC_MEMORY
-    safe_free(chain_state.blocks);
-#endif
-
-    if (!found) {
-      clear_sync_state(ctx->chain_id);
-      return c4_state_add_error(&ctx->state, "Checkpoint slot not found in local state");
-    }
-
-    if (memcmp(checkpointz_root, our_checkpoint, 32) != 0) {
+    if (memcmp(checkpointz_root, last_verified_finality_checkpoint_root, 32) != 0) {
       clear_sync_state(ctx->chain_id);
       return c4_state_add_error(&ctx->state, "Weak subjectivity check failed: checkpoint mismatch");
     }
@@ -686,22 +647,10 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
       THROW_ERROR("Sync committee root mismatch in period transition edge case");
     }
 
-    // Root matches - extract slot and blockhash from finalized header
-    ssz_ob_t  finalized = ssz_get(&update_ob, "finalizedHeader");
-    ssz_ob_t  header    = ssz_get(&finalized, "beacon");
-    uint64_t  slot      = ssz_get_uint64(&header, "slot");
-    bytes32_t blockhash = {0};
-    ssz_hash_tree_root(header, blockhash);
-
     // Store the sync committee for this period (+1 because nextSyncCommittee is for next period)
-    const chain_spec_t* spec = c4_eth_get_chain_spec(ctx->chain_id);
-    if (!c4_set_sync_period(period, slot, blockhash, next_sync_committee, ctx->chain_id, no_prev)) {
+    if (!c4_set_sync_period(period, next_sync_committee, ctx->chain_id, no_prev)) {
       safe_free(b.data);
       THROW_ERROR("Failed to store sync committee for period transition");
-    }
-    else {
-      // TODO write to storage
-      return C4_SUCCESS;
     }
 
     return C4_SUCCESS;

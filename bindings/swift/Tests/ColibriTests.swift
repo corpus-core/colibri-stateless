@@ -22,7 +22,7 @@ final class ColibriTests: XCTestCase {
         XCTAssertNotNil(colibri)
         XCTAssertEqual(colibri.chainId, 1)
         XCTAssertEqual(colibri.includeCode, false)
-        XCTAssertTrue(colibri.trustedBlockHashes.isEmpty)
+        XCTAssertNil(colibri.trustedCheckpoint)
         print("✅ Colibri initialization successful")
     }
     
