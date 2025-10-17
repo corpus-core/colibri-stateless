@@ -21,7 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "sync_committee.h"
+#include "sync_committee.h" // Includes c4_process_update_fn typedef
 #include "beacon_types.h"
 #include "eth_verify.h"
 #include "json.h"
@@ -32,10 +32,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DENEP_NEXT_SYNC_COMMITTEE_GINDEX   55
-#define ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX 87
-#define DENEP_FINALIZED_ROOT_GINDEX        105
-#define ELECTRA_FINALIZED_ROOT_GINDEX      169
+#define DENEP_CURRENT_SYNC_COMMITTEE_GINDEX   54
+#define ELECTRA_CURRENT_SYNC_COMMITTEE_GINDEX 86
+#define DENEP_NEXT_SYNC_COMMITTEE_GINDEX      55
+#define ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX    87
+#define DENEP_FINALIZED_ROOT_GINDEX           105
+#define ELECTRA_FINALIZED_ROOT_GINDEX         169
+
+INTERNAL uint64_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  fork_id_t           fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
+  return fork == C4_FORK_DENEB ? DENEP_CURRENT_SYNC_COMMITTEE_GINDEX : ELECTRA_CURRENT_SYNC_COMMITTEE_GINDEX;
+}
 
 static uint64_t next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
   const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
@@ -56,7 +64,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   bytes32_t attested_blockhash    = {0};
   bytes32_t finalized_blockhash   = {0};
   bytes32_t finalized_header_root = {0};
-  bytes32_t previous_pubkey_hash  = {0};
+  bytes32_t previous_pubkeys_hash = {0};
   // Extract components (no need for ssz_is_error checks after validation in c4_handle_client_updates)
   ssz_ob_t attested            = ssz_get(update, "attestedHeader");
   ssz_ob_t attested_header     = ssz_get(&attested, "beacon");
@@ -76,7 +84,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   ssz_hash_tree_root(attested_header, attested_blockhash);
 
   // verify the signature of the old sync committee against the attested header
-  if (c4_verify_blockroot_signature(ctx, &attested_header, &sync_bits, &signature, attested_slot, previous_pubkey_hash) != C4_SUCCESS)
+  if (c4_verify_blockroot_signature(ctx, &attested_header, &sync_bits, &signature, attested_slot, previous_pubkeys_hash) != C4_SUCCESS)
     return false;
 
   // verify nextSyncCommittee merkle proof against attested state root
@@ -95,7 +103,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   // +1 because nextSyncCommittee is for the next period
   const chain_spec_t* spec   = c4_eth_get_chain_spec(ctx->chain_id);
   uint32_t            period = (finalized_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
-  return c4_set_sync_period(period, sync_committee, ctx->chain_id, previous_pubkey_hash);
+  return c4_set_sync_period(period, sync_committee, ctx->chain_id, previous_pubkeys_hash);
 }
 
 INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
@@ -125,77 +133,105 @@ fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
   return c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
 }
 
-INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates) {
+/**
+ * Detects the format of light client updates (Standard SSZ or Lighthouse variant).
+ * Lighthouse format uses a different offset structure.
+ *
+ * @param data The raw bytes of light client updates
+ * @return true if Lighthouse format, false for standard format
+ */
+static bool detect_update_format(bytes_t data) {
+  // Lighthouse detection: check if length is sufficient, second offset is non-zero, and first value is reasonable
+  return data.len > MIN_UPDATE_SIZE &&
+         !bytes_all_zero(bytes_slice(data, SSZ_OFFSET_SIZE, SSZ_OFFSET_SIZE)) &&
+         uint32_from_le(data.data) < 1000;
+}
 
-  uint64_t length  = 0;
-  bool     success = true;
+/**
+ * Process light client updates with a callback function for each update.
+ * This handles both standard SSZ and Lighthouse formats.
+ *
+ * @param ctx Verification context
+ * @param light_client_updates Raw bytes containing one or more light client updates
+ * @param process_update Callback function to process each individual update
+ * @return true if all updates were processed successfully, false otherwise
+ */
+INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_client_updates, bool (*process_update)(verify_ctx_t*, ssz_ob_t*)) {
+  uint64_t length     = 0;
+  bool     success    = true;
+  bool     lighthouse = detect_update_format(light_client_updates);
+  int      idx        = 0;
 
-  // just to make sure the result is not a json with an error message
-  if (client_updates.len && client_updates.data[0] == '{') {
-    json_t json = json_parse((char*) client_updates.data);
-    json_t msg  = json_get(json, "message");
-    if (msg.start) {
-      ctx->state.error = bprintf(NULL, "Invalid client updates: %j", msg);
-      return false;
-    };
-  }
+  for (uint32_t pos = 0; pos + MIN_UPDATE_SIZE < light_client_updates.len; pos += length + SSZ_LENGTH_SIZE, idx++) {
+    uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
+    uint32_t data_length_offset = SSZ_OFFSET_SIZE;
 
-  // detect lighthouse
-  bool lighthouse = client_updates.len > 12 && !bytes_all_zero(bytes_slice(client_updates, 4, 4)) && uint32_from_le(client_updates.data) < 1000;
-  int  idx        = 0;
-
-  //  bytes_write(client_updates, fopen("client_updates.ssz", "wb"), true);
-
-  for (uint32_t pos = 0; pos + 12 < client_updates.len; pos += length + 8, idx++) {
-    uint32_t data_offset        = pos + 8 + 4;
-    uint32_t data_length_offset = 4;
     if (lighthouse) {
-      pos = uint32_from_le(client_updates.data + (idx * 4));
-      if (pos + 12 > client_updates.len) {
+      // Check bounds before reading offset
+      if (idx * SSZ_OFFSET_SIZE + SSZ_OFFSET_SIZE > light_client_updates.len) {
+        success = false;
+        c4_state_add_error(&ctx->state, "invalid lighthouse index exceeds data bounds!");
+        break;
+      }
+      pos = uint32_from_le(light_client_updates.data + (idx * SSZ_OFFSET_SIZE));
+      if (pos + MIN_UPDATE_SIZE > light_client_updates.len) {
         success = false;
         c4_state_add_error(&ctx->state, "invalid offset in lighthouse client update!");
         break;
       }
-      data_offset = pos + 16 + 4;
-      //      data_length_offset = 0;
+      data_offset = pos + LIGHTHOUSE_OFFSET_SIZE + SSZ_OFFSET_SIZE;
     }
-    length = uint64_from_le(client_updates.data + pos);
 
-    if (pos + 8 + length > client_updates.len && length > 12) {
+    length = uint64_from_le(light_client_updates.data + pos);
+
+    // Check for integer overflow and bounds
+    if (length > MIN_UPDATE_SIZE && (pos + SSZ_LENGTH_SIZE + length > light_client_updates.len || pos + SSZ_LENGTH_SIZE + length < pos)) {
+      success = false;
+      c4_state_add_error(&ctx->state, "invalid length causes overflow or exceeds bounds!");
+      break;
+    }
+
+    bytes_t          light_client_update_bytes = bytes(light_client_updates.data + data_offset, length - data_length_offset);
+    fork_id_t        fork                      = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update_bytes);
+    const ssz_def_t* light_client_update_list  = eth_get_light_client_update_list(fork);
+
+    if (!light_client_update_list) {
       success = false;
       break;
     }
-    bytes_t          client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
-    fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
-    const ssz_def_t* client_update_list  = eth_get_light_client_update_list(fork);
-    if (!client_update_list) {
-      success = false;
-      break;
-    }
-    //    bytes_write(client_update_bytes, fopen("client_updates_bytes.ssz", "wb"), true);
 
-    ssz_ob_t client_update_ob = {
-        .bytes = client_update_bytes,
-        .def   = client_update_list->def.vector.type};
+    ssz_ob_t light_client_update_ob = {
+        .bytes = light_client_update_bytes,
+        .def   = light_client_update_list->def.vector.type};
 
     // Validate SSZ structure (checks offsets and ensures all properties exist)
-    if (!ssz_is_valid(client_update_ob, true, &ctx->state)) {
+    if (!ssz_is_valid(light_client_update_ob, true, &ctx->state)) {
       success = false;
       c4_state_add_error(&ctx->state, "Invalid SSZ structure in light client update");
       break;
     }
 
-    if (!update_light_client_update(ctx, &client_update_ob)) {
+    // Process this update using the callback
+    if (!process_update(ctx, &light_client_update_ob)) {
       success = false;
       break;
     }
   }
 
-  // each entry:
-  //  - 8 bytes (uint64) length
-  //- 4 bytes forDigest
-  //- LightClientUpdate
-
-  // wrap into request
   return success;
+}
+
+INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t light_client_updates) {
+  // Check for JSON error message
+  if (light_client_updates.len && light_client_updates.data[0] == '{') {
+    json_t json = json_parse((char*) light_client_updates.data);
+    json_t msg  = json_get(json, "message");
+    if (msg.start) {
+      ctx->state.error = bprintf(NULL, "Invalid light client updates: %j", msg);
+      return false;
+    };
+  }
+
+  // Process all light client updates using the general processor
+  return c4_process_light_client_updates(ctx, light_client_updates, update_light_client_update);
 }

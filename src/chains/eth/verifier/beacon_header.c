@@ -127,9 +127,9 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
 }
 
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash) {
-  bytes32_t           root       = {0};
-  c4_sync_state_t     sync_state = {0};
-  const chain_spec_t* spec       = c4_eth_get_chain_spec(ctx->chain_id);
+  bytes32_t            root       = {0};
+  c4_sync_validators_t sync_state = {0};
+  const chain_spec_t*  spec       = c4_eth_get_chain_spec(ctx->chain_id);
 
   if (slot == 0) slot = ssz_get_uint64(header, "slot") + 1;
   if (slot == 0) THROW_ERROR("slot is missing in beacon header!");
