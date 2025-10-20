@@ -30,6 +30,10 @@
 #include <stdlib.h> // For malloc and free
 #include <string.h>
 
+// ECDSA recovery id adjustment constant
+// Ethereum uses recovery ids 27/28, but the underlying library expects 0/1
+#define ECDSA_RECOVERY_ID_OFFSET 27
+
 void sha256(bytes_t data, uint8_t* out) {
   SHA256_CTX ctx;
   sha256_Init(&ctx);
@@ -52,81 +56,129 @@ void sha256_merkle(bytes_t data1, bytes_t data2, uint8_t* out) {
   sha256_Final(&ctx, out);
 }
 
+// BLS signature domain separation tag for Ethereum 2.0
 static const uint8_t blst_dst[]   = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 static const size_t  blst_dst_len = sizeof(blst_dst) - 1;
+
 #ifdef BLS_DESERIALIZE
 bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys, uint8_t* out) {
+  if (num_public_keys <= 0) return NULL_BYTES;
+
   blst_p1_affine* pubkeys = out ? (blst_p1_affine*) out : (blst_p1_affine*) safe_malloc(num_public_keys * sizeof(blst_p1_affine));
+
   for (int i = 0; i < num_public_keys; i++) {
-    if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * 48) != BLST_SUCCESS) {
-      safe_free(pubkeys);
+    if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+      if (!out) safe_free(pubkeys); // Only free if we allocated
       return NULL_BYTES;
     }
   }
   return bytes((uint8_t*) pubkeys, num_public_keys * sizeof(blst_p1_affine));
 }
 #endif
-bool blst_verify(bytes32_t       message_hash,    /**< 32 bytes hashed message */
-                 bls_signature_t signature,       /**< 96 bytes signature */
-                 uint8_t*        public_keys,     /**< 48 bytes public key array */
-                 int             num_public_keys, /**< number of public keys */
+bool blst_verify(bytes32_t       message_hash,
+                 bls_signature_t signature,
+                 uint8_t*        public_keys,
+                 int             num_public_keys,
                  bytes_t         pubkeys_used,
-                 bool            deserialized // if true the publickeys are already deserialized (96 bytes(p1_affine))
-) {                                           /**< num_public_keys.len = num_public_keys/8 and indicates with the bits set which of the public keys are part of the signature */
+                 bool            deserialized) {
+  // Input validation
+  if (num_public_keys <= 0) return false;
+  if (pubkeys_used.data == NULL) return false;
 
-  if (pubkeys_used.len != num_public_keys / 8) return false;
+  // Validate bitmask length: must be ceil(num_public_keys / 8)
+  if (pubkeys_used.len != (num_public_keys + 7) / 8) return false;
 
-  // generate the aggregated pubkey
+  // Step 1: Aggregate the public keys according to the bitmask
   blst_p2_affine sig;
   blst_p1_affine pubkey_aggregated;
   blst_p1        pubkey_sum;
   bool           first_key = true;
+
   for (int i = 0; i < num_public_keys; i++) {
+    // Check if this public key is included in the signature (via bitmask)
     if (pubkeys_used.data[i / 8] & (1 << (i % 8))) {
       blst_p1_affine pubkey_affine;
-      if (deserialized)
-        pubkey_affine = ((blst_p1_affine*) public_keys)[i];
-      else if (blst_p1_deserialize(&pubkey_affine, public_keys + i * 48) != BLST_SUCCESS)
-        return false;
 
+      if (deserialized) {
+        // Public keys are already deserialized affine points
+        pubkey_affine = ((blst_p1_affine*) public_keys)[i];
+      }
+      else {
+        // Deserialize compressed public key (48 bytes)
+        if (blst_p1_deserialize(&pubkey_affine, public_keys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS)
+          return false;
+      }
+
+      // Aggregate the public key
       if (first_key) {
         blst_p1_from_affine(&pubkey_sum, &pubkey_affine);
         first_key = false;
       }
-      else
+      else {
         blst_p1_add_or_double_affine(&pubkey_sum, &pubkey_sum, &pubkey_affine);
+      }
     }
   }
+
+  // Ensure at least one public key was aggregated
+  if (first_key) return false;
+
   blst_p1_to_affine(&pubkey_aggregated, &pubkey_sum);
 
-  // deserialize signature
+  // Step 2: Deserialize the signature
   if (blst_p2_deserialize(&sig, signature) != BLST_SUCCESS) return false;
 
-  // Pairing...
+  // Step 3: Perform pairing verification
+  // Verify that e(pubkey, H(message)) == e(G1, signature)
   blst_pairing* ctx = (blst_pairing*) safe_malloc(blst_pairing_sizeof());
   if (!ctx) return false;
+
   blst_pairing_init(ctx, true, blst_dst, blst_dst_len);
-  if (blst_pairing_aggregate_pk_in_g1(ctx, &pubkey_aggregated, &sig, message_hash, 32, NULL, 0) != BLST_SUCCESS) {
+
+  if (blst_pairing_aggregate_pk_in_g1(ctx, &pubkey_aggregated, &sig, message_hash, BYTES32_SIZE, NULL, 0) != BLST_SUCCESS) {
     safe_free(ctx);
     return false;
   }
+
   blst_pairing_commit(ctx);
   bool result = blst_pairing_finalverify(ctx, NULL);
 
-  // cleanup
+  // Cleanup
   safe_free(ctx);
   return result;
 }
 
 bool secp256k1_recover(const bytes32_t digest, bytes_t signature, uint8_t* pubkey) {
-  uint8_t pub[65] = {0};
-  if (ecdsa_recover_pub_from_sig(&secp256k1, pub, signature.data, digest, signature.data[64] % 27))
+  // Input validation
+  if (signature.data == NULL) return false;
+
+  // Signature must be exactly 65 bytes (r || s || v)
+  if (signature.len != SECP256K1_SIGNATURE_SIZE) return false;
+
+  uint8_t pub[SECP256K1_SIGNATURE_SIZE] = {0};
+
+  // Recover public key from signature
+  // The recovery id (v) is adjusted by subtracting the Ethereum offset (27)
+  uint8_t recovery_id = signature.data[64];
+  if (recovery_id >= ECDSA_RECOVERY_ID_OFFSET) {
+    recovery_id -= ECDSA_RECOVERY_ID_OFFSET;
+  }
+
+  if (ecdsa_recover_pub_from_sig(&secp256k1, pub, signature.data, digest, recovery_id))
     return false;
-  else
-    memcpy(pubkey, pub + 1, 64);
+
+  // Copy the uncompressed public key (skip the 0x04 prefix byte)
+  memcpy(pubkey, pub + 1, SECP256K1_PUBKEY_SIZE);
   return true;
 }
 
-void secp256k1_sign(const bytes32_t pk, const bytes32_t digest, uint8_t* signature) {
-  ecdsa_sign_digest(&secp256k1, pk, digest, signature, signature + 64, NULL);
+bool secp256k1_sign(const bytes32_t sk, const bytes32_t digest, uint8_t* signature) {
+  // Sign the digest
+  // signature format: r (32 bytes) || s (32 bytes) || v (1 byte recovery id)
+  int result = ecdsa_sign_digest(&secp256k1, sk, digest, signature, signature + 64, NULL);
+
+  // Adjust recovery id to Ethereum format (add 27)
+  signature[64] += ECDSA_RECOVERY_ID_OFFSET;
+
+  return result == 0; // 0 indicates success
 }

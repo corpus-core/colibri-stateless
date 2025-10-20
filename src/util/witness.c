@@ -59,7 +59,10 @@ ssz_builder_t c4_witness_sign(ssz_builder_t data, bytes32_t private_key) {
 
 // sign
 #ifdef WITNESS_SIGNER
-  secp256k1_sign(private_key, hash, signature);
+  if (!secp256k1_sign(private_key, hash, signature)) {
+    // Signing failed - clear signature buffer
+    memset(signature, 0, 65);
+  }
 #else
   memset(signature, 0, 65);
 #endif
