@@ -47,7 +47,7 @@ extern "C" {
 // data_request_t* data_request = NULL;
 // bytes_t proof = {0};
 // while (true) {
-//   switch (c4_prover_status(ctx)) {
+//   switch (c4_prover_execute(ctx)) {
 //     case C4_SUCCESS:
 //       proof = bytes_dup(ctx->proof);
 //       break;
