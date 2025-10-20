@@ -96,26 +96,19 @@ void* safe_realloc(void* ptr, size_t new_size) {
 // --- End Safe Memory Allocation Wrappers ---
 
 uint32_t uint32_from_le(uint8_t* data) {
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-  // Check alignment before dereferencing
-  if (((uintptr_t) data % sizeof(uint32_t)) == 0) {
-    // Safe to dereference
+  // Alignment check optimization for 32-bit ARM architectures (e.g., ARMv7-a)
+  // where unaligned loads are significantly more expensive than aligned ones.
+  // On modern architectures (x86-64, ARM64), unaligned loads are fast enough
+  // that the check overhead isn't worth it.
+#if defined(__arm__) && !defined(__aarch64__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  if (((uintptr_t) data & 3) == 0) {
     return *(uint32_t*) data;
   }
-  else {
-    // Fallback to manual byte manipulation
-    return (uint32_t) data[0] |
-           ((uint32_t) data[1] << 8) |
-           ((uint32_t) data[2] << 16) |
-           ((uint32_t) data[3] << 24);
-  }
-#else
-  // Manual byte manipulation for big-endian or unknown endianness
+#endif
   return (uint32_t) data[0] |
          ((uint32_t) data[1] << 8) |
          ((uint32_t) data[2] << 16) |
          ((uint32_t) data[3] << 24);
-#endif
 }
 
 uint16_t uint16_from_le(uint8_t* data) {
@@ -124,6 +117,16 @@ uint16_t uint16_from_le(uint8_t* data) {
 }
 
 uint64_t uint64_from_le(uint8_t* data) {
+  // Alignment check optimization for 32-bit ARM architectures (e.g., ARMv7-a)
+  // where aligned loads use ldrd (2 instructions) vs 8 individual ldrb
+  // instructions for unaligned data - a massive performance difference.
+  // On modern architectures (x86-64, ARM64), unaligned loads are fast enough
+  // that the check overhead isn't worth it.
+#if defined(__arm__) && !defined(__aarch64__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  if (((uintptr_t) data & 7) == 0) {
+    return *(uint64_t*) data;
+  }
+#endif
   return (uint64_t) data[0] |
          ((uint64_t) data[1] << 8) |
          ((uint64_t) data[2] << 16) |
@@ -156,17 +159,33 @@ void uint64_to_be(uint8_t* data, uint64_t value) {
 }
 
 void uint64_to_le(uint8_t* data, uint64_t value) {
-  data[7] = (value >> 56) & 0xFF;
-  data[6] = (value >> 48) & 0xFF;
-  data[5] = (value >> 40) & 0xFF;
-  data[4] = (value >> 32) & 0xFF;
-  data[3] = (value >> 24) & 0xFF;
-  data[2] = (value >> 16) & 0xFF;
-  data[1] = (value >> 8) & 0xFF;
+  // Alignment check optimization for 32-bit ARM architectures where
+  // aligned stores (strd) are much faster than 8 individual byte stores.
+#if defined(__arm__) && !defined(__aarch64__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  if (((uintptr_t) data & 7) == 0) {
+    *(uint64_t*) data = value;
+    return;
+  }
+#endif
   data[0] = value & 0xFF;
+  data[1] = (value >> 8) & 0xFF;
+  data[2] = (value >> 16) & 0xFF;
+  data[3] = (value >> 24) & 0xFF;
+  data[4] = (value >> 32) & 0xFF;
+  data[5] = (value >> 40) & 0xFF;
+  data[6] = (value >> 48) & 0xFF;
+  data[7] = (value >> 56) & 0xFF;
 }
 
 void uint32_to_le(uint8_t* data, uint32_t value) {
+  // Alignment check optimization for 32-bit ARM architectures where
+  // aligned stores (str) are much faster than 4 individual byte stores.
+#if defined(__arm__) && !defined(__aarch64__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  if (((uintptr_t) data & 3) == 0) {
+    *(uint32_t*) data = value;
+    return;
+  }
+#endif
   data[0] = value & 0xFF;
   data[1] = (value >> 8) & 0xFF;
   data[2] = (value >> 16) & 0xFF;
