@@ -35,6 +35,7 @@ const doc_files = [
     "prover/prover.h",
     "util/bytes.h",
     "util/ssz.h",
+    "util/crypto.h",
     "util/state.h",
     "../bindings/colibri.h"
 ]

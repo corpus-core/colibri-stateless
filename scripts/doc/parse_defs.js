@@ -118,6 +118,12 @@ function add_rpc(file, line, sections, comment) {
 function add_function_def(sections, line, doc_comment, file, line_number) {
     let section = sections.at(-1)
     if (!section) return
+    let ns = line.indexOf('NONNULL_FOR(')
+    let ne = line.indexOf(');')
+
+    if (ns > -1 && ne > ns)
+        line = line.substring(0, ns) + line.substring(ne + 2)
+
     const last_line = line.trim().split('\n').at(-1)
     // prover_t* c4_create_prover_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags);
     let p = last_line.indexOf('(')

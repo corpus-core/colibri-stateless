@@ -101,7 +101,7 @@ void sha256_merkle(bytes_t data1, bytes_t data2, uint8_t* out) NONNULL_FOR((3));
  * @param out Optional pre-allocated buffer for the result. If NULL, memory will be allocated.
  * @return A bytes_t containing the deserialized public keys, or NULL_BYTES on error
  */
-bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys, uint8_t* out) NONNULL_FOR((1, 3));
+bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys, uint8_t* out);
 #endif
 
 /**
