@@ -35,8 +35,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#define BYTES_PER_CHUNK 32
-
 typedef struct {
   buffer_t* witnesses;
   buffer_t* proof;
@@ -52,6 +50,13 @@ typedef struct {
   merkle_proot_ctx_t* proof;
 } merkle_ctx_t;
 
+/**
+ * Computes the ceiling of log2 for a given value.
+ * Used to calculate the depth of Merkle trees.
+ *
+ * @param val The value to compute log2_ceil for
+ * @return The ceiling of log2(val), or 0 if val < 2
+ */
 static inline uint32_t log2_ceil(uint32_t val) {
   if (val < 2) return 0;
 
@@ -66,11 +71,13 @@ static inline uint32_t log2_ceil(uint32_t val) {
   return (val & (val - 1)) == 0 ? floor_log2 : floor_log2 + 1;
 }
 
+/**
+ * Checks if a type is a basic SSZ type (uint, boolean, or none).
+ * Basic types are serialized directly without nested structure.
+ */
 static bool is_basic_type(const ssz_def_t* def) {
   return def->type == SSZ_TYPE_UINT || def->type == SSZ_TYPE_BOOLEAN || def->type == SSZ_TYPE_NONE;
 }
-
-static bool is_basic_type(const ssz_def_t* def);
 
 gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...) {
   if (!def || num_elements <= 0) return 0;
@@ -283,9 +290,9 @@ static int calc_num_leafes(const ssz_ob_t* ob, bool only_used) {
         return len;
     }
     case SSZ_TYPE_BIT_LIST:
-      return (((only_used ? ssz_len(*ob) : def->def.vector.len) + 255) >> 8);
+      return (((only_used ? ssz_len(*ob) : def->def.vector.len) + (SSZ_BITS_PER_CHUNK - 1)) >> 8);
     case SSZ_TYPE_BIT_VECTOR:
-      return (def->def.vector.len + 255) >> 8;
+      return (def->def.vector.len + (SSZ_BITS_PER_CHUNK - 1)) >> 8;
     default:
       return 1;
   }
@@ -306,11 +313,15 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
     }
     case SSZ_TYPE_BIT_LIST: {
       uint32_t bit_len = ssz_len(ob);
-      uint32_t chunks  = (bit_len + 255) >> 8;
+      uint32_t chunks  = (bit_len + (SSZ_BITS_PER_CHUNK - 1)) >> 8;
       if (index < chunks) {
-        uint32_t rest = ob.bytes.len - (index << 5) - (bit_len % 8 ? 0 : 1);
-        if (rest > 32) rest = 32;
-        memcpy(out, ob.bytes.data + (index << 5), rest);
+        uint32_t byte_offset = index << 5; // index * 32
+        // Buffer overflow protection
+        if (byte_offset >= ob.bytes.len) return;
+        uint32_t rest = ob.bytes.len - byte_offset;
+        if (bit_len % 8 == 0) rest--; // Account for sentinel byte
+        if (rest > SSZ_BYTES_PER_CHUNK) rest = SSZ_BYTES_PER_CHUNK;
+        memcpy(out, ob.bytes.data + byte_offset, rest);
         if (index == chunks - 1 && bit_len % 8)
           out[rest - 1] -= 1 << (bit_len % 8);
       }
@@ -328,16 +339,16 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
         return;
       }
 
-      int offset = index * BYTES_PER_CHUNK;
+      int offset = index * SSZ_BYTES_PER_CHUNK;
       int len    = ob.bytes.len - offset;
-      if (len > BYTES_PER_CHUNK) len = BYTES_PER_CHUNK;
+      if (len > SSZ_BYTES_PER_CHUNK) len = SSZ_BYTES_PER_CHUNK;
       if (offset < ob.bytes.len)
         memcpy(out, ob.bytes.data + offset, len);
       break;
     }
     case SSZ_TYPE_UINT:
     case SSZ_TYPE_BOOLEAN:
-      if (ob.bytes.len <= BYTES_PER_CHUNK)
+      if (ob.bytes.len <= SSZ_BYTES_PER_CHUNK)
         memcpy(out, ob.bytes.data, ob.bytes.len);
       break;
     case SSZ_TYPE_UNION:
@@ -346,6 +357,18 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
   }
 }
 
+/**
+ * Recursively computes a node in the Merkle tree.
+ *
+ * Traverses the tree depth-first, computing leaf values at the bottom
+ * and hashing pairs of children to compute parent nodes.
+ * Optionally records witness nodes for proof generation.
+ *
+ * @param ctx Merkle context with object data and proof state
+ * @param index Index of the node at the current depth
+ * @param depth Current depth in the tree (0 = root)
+ * @param out Output buffer for the node hash (32 bytes)
+ */
 static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
   uint8_t temp[64];
 
@@ -405,6 +428,34 @@ static inline void calc_leafes(merkle_ctx_t* ctx, ssz_ob_t ob) {
   ctx->ob              = ob;
 }
 
+/**
+ * Mixes in the length for list and bit list types.
+ * This is part of the SSZ hash_tree_root algorithm for variable-length types.
+ *
+ * @param root The current root hash (will be modified in place)
+ * @param length The length to mix in
+ * @param ctx Merkle context for proof generation (can be NULL)
+ */
+static void mix_in_length(uint8_t* root, uint32_t length, merkle_ctx_t* ctx) {
+  uint8_t length_bytes[32] = {0};
+  uint64_to_le(length_bytes, (uint64_t) length);
+  sha256_merkle(bytes(root, 32), bytes(length_bytes, 32), root);
+
+  if (ctx && ctx->proof) {
+    int pos = gindex_indexOf(ctx->proof->witnesses, ctx->root_gindex + 1);
+    if (pos >= 0 && ctx->proof->proof->data.data)
+      memcpy(ctx->proof->proof->data.data + pos * 32, length_bytes, 32);
+  }
+}
+
+/**
+ * Computes the hash tree root of an SSZ object.
+ * Implements the SSZ Merkleization algorithm with optional proof generation.
+ *
+ * @param ob The SSZ object to hash
+ * @param out Output buffer for the root hash (32 bytes)
+ * @param parent Parent context for nested hashing (NULL for root level)
+ */
 static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent) {
   memset(out, 0, 32);
   if (!ob.def) return;
@@ -421,18 +472,9 @@ static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent) {
   else
     merkle_hash(&ctx, 0, 0, out);
 
-  // mix_in_length s
-  if (ob.def->type == SSZ_TYPE_LIST || ob.def->type == SSZ_TYPE_BIT_LIST) {
-    uint8_t length[32] = {0};
-    uint64_to_le(length, (uint64_t) ssz_len(ob));
-    sha256_merkle(bytes(out, 32), bytes(length, 32), out);
-
-    if (ctx.proof) {
-      int pos = gindex_indexOf(ctx.proof->witnesses, ctx.root_gindex + 1);
-      if (pos >= 0 && ctx.proof->proof->data.data)
-        memcpy(ctx.proof->proof->data.data + pos * 32, length, 32);
-    }
-  }
+  // Mix in length for variable-length types (lists and bit lists)
+  if (ob.def->type == SSZ_TYPE_LIST || ob.def->type == SSZ_TYPE_BIT_LIST)
+    mix_in_length(out, ssz_len(ob), &ctx);
 }
 
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
@@ -497,15 +539,28 @@ typedef struct {
 static bytes_t merkle_get_data(merkle_proof_data_t* proof, gindex_t idx) {
   for (uint32_t i = 0; i < proof->leafes_len; i++) {
     if (proof->leafes_gindex[i] == idx)
-      return bytes_slice(proof->leafes_data, i * BYTES_PER_CHUNK, BYTES_PER_CHUNK);
+      return bytes_slice(proof->leafes_data, i * SSZ_BYTES_PER_CHUNK, SSZ_BYTES_PER_CHUNK);
   }
   for (uint32_t i = 0; i < proof->witnesses_len; i++) {
     if (proof->witnesses_gindex[i] == idx)
-      return bytes_slice(proof->witnesses_data, i * BYTES_PER_CHUNK, BYTES_PER_CHUNK);
+      return bytes_slice(proof->witnesses_data, i * SSZ_BYTES_PER_CHUNK, SSZ_BYTES_PER_CHUNK);
   }
   return NULL_BYTES;
 }
 
+/**
+ * Verifies a Merkle proof by reconstructing nodes from a leaf to the root.
+ *
+ * Starts at a leaf (identified by start gindex) and walks up the tree to
+ * the root (end gindex), using witness nodes from the proof to compute
+ * parent hashes along the way.
+ *
+ * @param proof Proof data containing witnesses and leaf values
+ * @param start Starting gindex (leaf to verify)
+ * @param end Ending gindex (typically 1 for root)
+ * @param out Output buffer for the computed root hash
+ * @return true if proof is valid, false if a required witness is missing
+ */
 static bool merkle_proof(merkle_proof_data_t* proof, gindex_t start, gindex_t end, bytes32_t out) {
   bytes32_t tmp        = {0};
   bytes_t   start_data = merkle_get_data(proof, start);

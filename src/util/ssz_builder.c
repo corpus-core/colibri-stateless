@@ -33,7 +33,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-// finds a definition by name within a container or a union
+/**
+ * Finds a field definition by name within a container.
+ *
+ * @param def The container type definition to search
+ * @param name Name of the field to find
+ * @return Pointer to the field's type definition, or NULL if not found
+ */
 static const ssz_def_t* find_def(const ssz_def_t* def, const char* name) {
   if (def->type != SSZ_TYPE_CONTAINER) return NULL;
   for (int i = 0; i < def->def.container.len; i++) {
@@ -44,7 +50,8 @@ static const ssz_def_t* find_def(const ssz_def_t* def, const char* name) {
 void ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t data) {
   const ssz_def_t* child_def = buffer->def->def.vector.type;
   if (ssz_is_dynamic(child_def)) {
-    uint32_t offset = 4 * num_elements + buffer->dynamic.data.len;
+    // For dynamic elements: add offset to fixed portion, data to dynamic portion
+    uint32_t offset = SSZ_OFFSET_SIZE * num_elements + buffer->dynamic.data.len;
     ssz_add_uint32(buffer, offset);
     buffer_append(&buffer->dynamic, data);
   }
@@ -54,6 +61,7 @@ void ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t
 
 void ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t data) {
   const ssz_def_t* def = find_def(buffer->def, name);
+  // Special handling for union types: add selector byte before data
   if (def && def->type == SSZ_TYPE_UNION) {
     bool found = false;
     for (int i = 0; i < def->def.container.len; i++) {
@@ -190,6 +198,8 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
   buf.def           = def;
   switch (def->type) {
     case SSZ_TYPE_CONTAINER: {
+      // Container: iterate over all fields, convert JSON to SSZ
+      // Handle optional fields (opt_mask) and CamelCase/snake_case field names
       uint64_t optmask     = 0;
       int      optmask_len = 0;
       int      optmask_idx = -1;
@@ -202,9 +212,10 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
         }
         json_t element = json_get(json, def->def.container.elements[i].name);
         if (element.type == JSON_TYPE_NOT_FOUND) {
-          // try again, but change the camelcase name with pascal case
+          // Field not found: try converting CamelCase to snake_case
+          // e.g., "blockNumber" -> "block_number"
           buffer_t pascal_name = {0};
-          for (char* c = def->def.container.elements[i].name; *c; c++) {
+          for (const char* c = def->def.container.elements[i].name; *c; c++) {
             char cc = *c;
             if (cc >= 'A' && cc <= 'Z') {
               if (pascal_name.data.len && pascal_name.data.data[pascal_name.data.len - 1] != '_')
@@ -239,6 +250,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       return ssz_builder_to_bytes(&buf);
     }
     case SSZ_TYPE_UINT: {
+      // Uint: convert JSON number to little-endian bytes
       buffer_append(&buf.fixed, bytes(NULL, def->def.uint.len));
       if (def->def.uint.len <= 8) {
         uint64_t val = json_as_uint64(json);
@@ -257,6 +269,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
     }
     case SSZ_TYPE_BOOLEAN: {
+      // Boolean: convert JSON boolean to 0 or 1
       buffer_grow(&buf.fixed, 1);
       buf.fixed.data.data[0] = json_as_bool(json) ? 1 : 0;
       return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
@@ -265,6 +278,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       return (ssz_ob_t) {.def = def, .bytes = {0}};
     }
     case SSZ_TYPE_VECTOR: {
+      // Vector: convert JSON array to fixed-length SSZ vector
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1) {
         bytes_t bytes = json_as_bytes(json, &buf.fixed);
         if (bytes.len > def->def.vector.len)
@@ -283,6 +297,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       }
     }
     case SSZ_TYPE_LIST: {
+      // List: convert JSON array to variable-length SSZ list
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
         return (ssz_ob_t) {.def = def, .bytes = json_as_bytes(json, &buf.fixed)};
       uint32_t len = json_len(json);

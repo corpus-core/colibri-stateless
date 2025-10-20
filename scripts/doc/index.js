@@ -34,6 +34,7 @@ const doc_files = [
     "verifier/verify.h",
     "prover/prover.h",
     "util/bytes.h",
+    "util/ssz.h",
     "../bindings/colibri.h"
 ]
 
