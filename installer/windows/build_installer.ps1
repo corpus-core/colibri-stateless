@@ -65,16 +65,28 @@ New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
 Push-Location $BuildDir
 try {
-    cmake -G "Visual Studio 17 2022" -A x64 `
-        -DCMAKE_BUILD_TYPE=$Configuration `
-        -DHTTP_SERVER=ON `
-        -DPROVER=ON `
-        -DVERIFIER=ON `
-        -DPROVER_CACHE=ON `
-        -DCLI=OFF `
-        -DTEST=OFF `
-        -DINSTALLER=ON `
-        "$ProjectRoot"
+    # Use CMAKE_TOOLCHAIN_FILE if set (for vcpkg)
+    $cmakeArgs = @(
+        "-G", "Visual Studio 17 2022",
+        "-A", "x64",
+        "-DCMAKE_BUILD_TYPE=$Configuration",
+        "-DHTTP_SERVER=ON",
+        "-DPROVER=ON",
+        "-DVERIFIER=ON",
+        "-DPROVER_CACHE=ON",
+        "-DCLI=OFF",
+        "-DTEST=OFF",
+        "-DINSTALLER=ON"
+    )
+    
+    if ($env:CMAKE_TOOLCHAIN_FILE) {
+        Write-Host "Using CMake toolchain file: $env:CMAKE_TOOLCHAIN_FILE" -ForegroundColor Green
+        $cmakeArgs += "-DCMAKE_TOOLCHAIN_FILE=$env:CMAKE_TOOLCHAIN_FILE"
+    }
+    
+    $cmakeArgs += "$ProjectRoot"
+    
+    & cmake @cmakeArgs
     
     cmake --build . --config $Configuration --target server -j 4
     

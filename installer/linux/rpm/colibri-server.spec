@@ -11,6 +11,7 @@ BuildRequires:  cmake >= 3.10
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  openssl-devel
+BuildRequires:  libcurl-devel
 Requires:       openssl
 Recommends:     memcached
 

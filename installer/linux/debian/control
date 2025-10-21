@@ -2,7 +2,7 @@ Source: colibri-server
 Section: net
 Priority: optional
 Maintainer: Corpus Core <simon@corpus.io>
-Build-Depends: debhelper (>= 10), cmake (>= 3.10), gcc, g++
+Build-Depends: debhelper (>= 10), cmake (>= 3.10), gcc, g++, libcurl4-openssl-dev, libssl-dev
 Standards-Version: 4.1.2
 Homepage: https://github.com/corpus-core/colibri-stateless
 

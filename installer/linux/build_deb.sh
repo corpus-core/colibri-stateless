@@ -16,15 +16,23 @@ if ! command -v dpkg-buildpackage &> /dev/null; then
     exit 1
 fi
 
+# Copy debian directory to project root (dpkg-buildpackage expects it there)
+echo "Copying debian directory to project root..."
+rm -rf "$PROJECT_ROOT/debian"
+cp -r "$SCRIPT_DIR/debian" "$PROJECT_ROOT/debian"
+
 # Make scripts executable
-chmod +x "$PROJECT_ROOT/installer/linux/debian/rules"
-chmod +x "$PROJECT_ROOT/installer/linux/debian/postinst"
-chmod +x "$PROJECT_ROOT/installer/linux/debian/prerm"
-chmod +x "$PROJECT_ROOT/installer/linux/debian/postrm"
+chmod +x "$PROJECT_ROOT/debian/rules"
+chmod +x "$PROJECT_ROOT/debian/postinst"
+chmod +x "$PROJECT_ROOT/debian/prerm"
+chmod +x "$PROJECT_ROOT/debian/postrm"
 
 # Build the package
 cd "$PROJECT_ROOT"
 dpkg-buildpackage -us -uc -b
+
+# Clean up temporary debian directory
+rm -rf "$PROJECT_ROOT/debian"
 
 echo ""
 echo "====================================================================="
