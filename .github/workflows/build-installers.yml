@@ -52,7 +52,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: recursive
     
@@ -71,7 +71,7 @@ jobs:
         ./build_deb.sh
     
     - name: Upload Debian package
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: debian-package
         path: ../colibri-server_*.deb
@@ -84,7 +84,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: recursive
     
@@ -100,7 +100,7 @@ jobs:
         ./build_rpm.sh
     
     - name: Upload RPM package
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: rpm-package
         path: ~/rpmbuild/RPMS/*/colibri-server-*.rpm
@@ -112,7 +112,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: recursive
     
@@ -129,7 +129,7 @@ jobs:
         ./build_pkg.sh "$VERSION"
     
     - name: Upload macOS package
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-package
         path: "*.pkg"
@@ -141,7 +141,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: recursive
     
@@ -161,7 +161,7 @@ jobs:
       shell: powershell
     
     - name: Upload Windows installer
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-installer
         path: build\colibri-server-*.msi
@@ -174,7 +174,7 @@ jobs:
     
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
     
     - name: Create Release
       uses: softprops/action-gh-release@v1
