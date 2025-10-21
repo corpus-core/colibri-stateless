@@ -74,7 +74,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: debian-package
-        path: ../colibri-server_*.deb
+        path: colibri-server_*.deb
 
   build-linux-rpm:
     name: Build RPM Package
@@ -161,11 +161,25 @@ jobs:
         }
         echo "Using vcpkg at: $vcpkgRoot"
         
+        # Ensure vcpkg is up to date
+        Push-Location $vcpkgRoot
+        .\vcpkg.exe integrate install
+        Pop-Location
+        
         # Install CURL
         & "$vcpkgRoot\vcpkg.exe" install curl:x64-windows
         
-        # Set CMake toolchain file
-        echo "CMAKE_TOOLCHAIN_FILE=$vcpkgRoot\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        # Set CMake toolchain file as environment variable
+        $toolchainFile = "$vcpkgRoot\scripts\buildsystems\vcpkg.cmake"
+        echo "CMAKE_TOOLCHAIN_FILE=$toolchainFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        
+        # Verify installation
+        if (Test-Path "$vcpkgRoot\installed\x64-windows\include\curl\curl.h") {
+          echo "CURL headers found at: $vcpkgRoot\installed\x64-windows\include\curl\curl.h"
+        } else {
+          echo "WARNING: CURL headers not found!"
+        }
       shell: powershell
     
     - name: Install WiX Toolset

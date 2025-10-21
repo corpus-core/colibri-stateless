@@ -82,6 +82,13 @@ try {
     if ($env:CMAKE_TOOLCHAIN_FILE) {
         Write-Host "Using CMake toolchain file: $env:CMAKE_TOOLCHAIN_FILE" -ForegroundColor Green
         $cmakeArgs += "-DCMAKE_TOOLCHAIN_FILE=$env:CMAKE_TOOLCHAIN_FILE"
+        
+        # Also set vcpkg-specific paths if VCPKG_ROOT is available
+        if ($env:VCPKG_ROOT) {
+            Write-Host "Setting vcpkg paths from VCPKG_ROOT: $env:VCPKG_ROOT" -ForegroundColor Green
+            $cmakeArgs += "-DCURL_INCLUDE_DIR=$env:VCPKG_ROOT\installed\x64-windows\include"
+            $cmakeArgs += "-DCURL_LIBRARY=$env:VCPKG_ROOT\installed\x64-windows\lib\libcurl.lib"
+        }
     }
     
     $cmakeArgs += "$ProjectRoot"
