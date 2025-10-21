@@ -1,0 +1,27 @@
+[Unit]
+Description=Colibri Stateless Prover Server
+Documentation=https://corpus-core.gitbook.io/specification-colibri-stateless
+After=network.target
+
+[Service]
+Type=simple
+User=colibri
+Group=colibri
+WorkingDirectory=/var/lib/colibri
+ExecStart=/usr/bin/colibri-server -c /etc/colibri/server.conf
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=colibri-server
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/colibri /etc/colibri
+
+[Install]
+WantedBy=multi-user.target
+

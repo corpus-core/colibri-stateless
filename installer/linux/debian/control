@@ -1,0 +1,24 @@
+Source: colibri-server
+Section: net
+Priority: optional
+Maintainer: Corpus Core <simon@corpus.io>
+Build-Depends: debhelper (>= 10), cmake (>= 3.10), gcc, g++
+Standards-Version: 4.1.2
+Homepage: https://github.com/corpus-core/colibri-stateless
+
+Package: colibri-server
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libc6 (>= 2.27), libssl3 | libssl1.1
+Recommends: memcached
+Description: Colibri Stateless Prover Server
+ Colibri Stateless is a highly efficient prover/verifier for Ethereum
+ and Layer-2 solutions. This package provides the prover server that
+ can create cryptographic proofs for blockchain data.
+ .
+ The server includes:
+  - Ethereum mainnet and testnet support
+  - Light client proof generation
+  - BLS signature verification
+  - Memcached integration for caching
+  - RESTful API for proof requests
+

@@ -5,14 +5,42 @@
 
 #include "../util/chains.h"
 #include "server.h"
+#include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 http_server_t http_server = {0};
 static void   config();
+static void   load_config_file();
 
 static char**   args        = NULL;
 static int      args_count  = 0;
 static buffer_t help_buffer = {0};
+
+// Config parameter registry for dynamic Web-UI
+#define MAX_CONFIG_PARAMS 50
+static config_param_t config_params[MAX_CONFIG_PARAMS];
+static int            config_params_count = 0;
+
+// Register a config parameter for Web-UI
+static void register_config_param(char* env_name, char* arg_name, char* descr, config_param_type_t type, void* value_ptr, int min, int max) {
+  if (config_params_count >= MAX_CONFIG_PARAMS) return;
+  config_param_t* p = &config_params[config_params_count++];
+  p->name           = env_name;
+  p->arg_name       = arg_name;
+  p->description    = descr;
+  p->type           = type;
+  p->value_ptr      = value_ptr;
+  p->min            = min;
+  p->max            = max;
+}
+
+// Get all registered config parameters (for Web-UI)
+const config_param_t* c4_get_config_params(int* count) {
+  *count = config_params_count;
+  return config_params;
+}
 
 static char* get_arg(char* name, char shortcut, bool has_value) {
   for (int i = 0; i < args_count - (has_value ? 1 : 0); i++) {
@@ -41,6 +69,7 @@ static void add_help_line(char shortcut, char* name, char* env_name, char* descr
 
 static int get_string(char** target, char* env_name, char* arg_nane, char shortcut, char* descr) {
   add_help_line(shortcut, arg_nane, env_name, descr, *target);
+  register_config_param(env_name, arg_nane, descr, CONFIG_PARAM_STRING, target, 0, 0);
   char* val       = getenv(env_name);
   char* arg_value = get_arg(arg_nane, shortcut, true);
   if (arg_value)
@@ -51,6 +80,7 @@ static int get_string(char** target, char* env_name, char* arg_nane, char shortc
 
 static int get_key(bytes32_t target, char* env_name, char* arg_nane, char shortcut, char* descr) {
   add_help_line(shortcut, arg_nane, env_name, descr, "");
+  register_config_param(env_name, arg_nane, descr, CONFIG_PARAM_KEY, target, 0, 0);
   char* val       = getenv(env_name);
   char* arg_value = get_arg(arg_nane, shortcut, true);
   if (arg_value)
@@ -66,16 +96,17 @@ static int get_int(int* target, char* env_name, char* arg_nane, char shortcut, c
   char* default_value = bprintf(NULL, "%d", *target);
   add_help_line(shortcut, arg_nane, env_name, descr, default_value);
   safe_free(default_value);
+  register_config_param(env_name, arg_nane, descr, CONFIG_PARAM_INT, target, min, max);
   char* env_value = getenv(env_name);
   char* arg_value = get_arg(arg_nane, shortcut, max != 1);
   int   val       = 0;
   bool  set       = false;
   if (env_value) {
-    val = max == 1 ? (strcmp(env_value, "true") == 0) : atoi(env_value);
+    val = max == 1 ? (strcmp(env_value, "true") == 0 || strcmp(env_value, "1") == 0) : atoi(env_value);
     set = true;
   }
   if (arg_value) {
-    val = max == 1 ? (strcmp(arg_value, "true") == 0) : atoi(arg_value);
+    val = max == 1 ? (strcmp(arg_value, "true") == 0 || strcmp(arg_value, "1") == 0) : atoi(arg_value);
     set = true;
   }
   if (!set) return 0;
@@ -113,6 +144,7 @@ void c4_configure(int argc, char* argv[]) {
     fprintf(stderr, "  prover_nodes : %s\n", http_server.prover_nodes);
     fprintf(stderr, "  beacon_events : %d\n", http_server.stream_beacon_events);
     fprintf(stderr, "  period_store  : %s\n", http_server.period_store);
+    fprintf(stderr, "  web_ui_enabled: %d\n", http_server.web_ui_enabled);
 
     // Show OP Stack preconf configuration if this is an OP Stack chain
     if (c4_chain_type(http_server.chain_id) == C4_CHAIN_TYPE_OP) {
@@ -126,9 +158,97 @@ void c4_configure(int argc, char* argv[]) {
   buffer_free(&help_buffer);
 }
 
+// Trim whitespace from both ends of a string
+static char* trim(char* str) {
+  if (!str) return NULL;
+  // Trim leading space
+  while (isspace((unsigned char) *str)) str++;
+  if (*str == 0) return str;
+  // Trim trailing space
+  char* end = str + strlen(str) - 1;
+  while (end > str && isspace((unsigned char) *end)) end--;
+  end[1] = '\0';
+  return str;
+}
+
+// Load configuration from a file
+// Format: KEY=VALUE (one per line, # for comments)
+static void load_config_file() {
+  const char* config_paths[] = {
+      "./server.conf",
+      "/etc/colibri/server.conf",
+      "/usr/local/etc/colibri/server.conf",
+      NULL};
+
+#ifdef _WIN32
+  char        win_path[512];
+  const char* programdata = getenv("PROGRAMDATA");
+  if (programdata) {
+    snprintf(win_path, sizeof(win_path), "%s\\Colibri\\server.conf", programdata);
+    config_paths[1] = win_path;
+  }
+#endif
+
+  // Try to find and load config file
+  FILE* f    = NULL;
+  int   path = 0;
+  while (config_paths[path] != NULL) {
+    f = fopen(config_paths[path], "r");
+    if (f) {
+      fprintf(stderr, "Loading config from: %s\n", config_paths[path]);
+      break;
+    }
+    path++;
+  }
+
+  if (!f) {
+    // No config file found, use defaults
+    return;
+  }
+
+  char line[2048];
+  int  line_num = 0;
+
+  while (fgets(line, sizeof(line), f)) {
+    line_num++;
+
+    // Trim whitespace
+    char* trimmed = trim(line);
+
+    // Skip empty lines and comments
+    if (trimmed[0] == '\0' || trimmed[0] == '#') continue;
+
+    // Find '=' separator
+    char* eq = strchr(trimmed, '=');
+    if (!eq) {
+      fprintf(stderr, "Warning: Invalid line %d in config file (no '=' found)\n", line_num);
+      continue;
+    }
+
+    // Split into key and value
+    *eq       = '\0';
+    char* key = trim(trimmed);
+    char* val = trim(eq + 1);
+
+    if (strlen(key) == 0 || strlen(val) == 0) {
+      fprintf(stderr, "Warning: Empty key or value on line %d in config file\n", line_num);
+      continue;
+    }
+
+    // Set the environment variable (will be picked up by get_* functions)
+    // Only set if not already set (env vars and cmd line take precedence)
+    if (!getenv(key)) {
+      setenv(key, val, 0);
+    }
+  }
+
+  fclose(f);
+}
+
 static void config() {
+  // Set default values
   http_server.port                             = 8090;
-  http_server.memcached_host                   = "localhost";
+  http_server.memcached_host                   = ""; // Empty by default - memcached is optional
   http_server.memcached_port                   = 11211;
   http_server.memcached_pool                   = 20;
   http_server.loglevel                         = 0;
@@ -144,9 +264,17 @@ static void config() {
   http_server.preconf_ttl_minutes              = 30; // 30 minutes TTL
   http_server.preconf_cleanup_interval_minutes = 5;  // Cleanup every 5 minutes
   // preconf_use_gossip removed - now using automatic HTTP fallback
+
+  // Web UI (disabled by default for security)
+  http_server.web_ui_enabled = 0;
+
 #ifdef TEST
   http_server.test_dir = NULL;
 #endif
+
+  // Load config file (if exists)
+  // Priority: defaults < config file < env vars < command line
+  load_config_file();
 
   get_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
   get_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");
@@ -166,6 +294,9 @@ static void config() {
   get_int(&http_server.preconf_ttl_minutes, "PRECONF_TTL", "preconf_ttl", 'T', "TTL for preconfirmations in minutes", 1, 1440);
   get_int(&http_server.preconf_cleanup_interval_minutes, "PRECONF_CLEANUP_INTERVAL", "preconf_cleanup_interval", 'C', "cleanup interval in minutes", 1, 60);
   // preconf_use_gossip option removed - now using automatic HTTP fallback
+
+  get_int(&http_server.web_ui_enabled, "WEB_UI_ENABLED", "web_ui_enabled", 'u', "enable web-based configuration UI (0=disabled, 1=enabled)", 0, 1);
+
 #ifdef TEST
   get_string(&http_server.test_dir, "TEST_DIR", "test_dir", 'x', "TEST MODE: record all responses to TESTDATA_DIR/server/<test_dir>/");
 #endif

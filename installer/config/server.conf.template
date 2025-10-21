@@ -1,0 +1,80 @@
+# Colibri Stateless Server Configuration
+# This file contains the configuration for the Colibri prover/verifier server.
+# Values can be overridden by environment variables or command-line arguments.
+
+# Server Settings
+# Port to listen on for HTTP requests
+PORT={{PORT}}
+
+# Logging level (0=Error, 1=Warning, 2=Info, 3=Debug)
+LOG_LEVEL={{LOG_LEVEL}}
+
+# Request timeout in seconds
+REQUEST_TIMEOUT={{REQUEST_TIMEOUT}}
+
+# Blockchain Configuration
+# Chain ID (1=Ethereum Mainnet, 11155111=Sepolia, 17000=Holesky)
+CHAIN_ID={{CHAIN_ID}}
+
+# RPC Endpoints
+# Comma-separated list of Ethereum RPC endpoints
+RPC={{RPC}}
+
+# Beacon Chain API Endpoints
+# Comma-separated list of Beacon Chain API endpoints
+BEACON={{BEACON}}
+
+# Remote Prover Endpoints (optional)
+# Comma-separated list of remote prover servers
+PROVER={{PROVER}}
+
+# Checkpointz Endpoints
+# Comma-separated list of checkpointz servers for initial sync
+CHECKPOINTZ={{CHECKPOINTZ}}
+
+# Memcached Configuration (Optional)
+# Memcached improves performance by caching external RPC/Beacon API requests.
+# To enable: Install memcached and set MEMCACHED_HOST to your memcached server.
+# To disable: Leave MEMCACHED_HOST empty (default).
+#
+# Install memcached:
+#   - Ubuntu/Debian: sudo apt-get install memcached
+#   - RedHat/CentOS: sudo yum install memcached
+#   - macOS: brew install memcached
+#   - Windows: Download from https://memcached.org/
+MEMCACHED_HOST={{MEMCACHED_HOST}}
+
+# Memcached port (only used if MEMCACHED_HOST is set)
+MEMCACHED_PORT={{MEMCACHED_PORT}}
+
+# Memcached connection pool size (only used if MEMCACHED_HOST is set)
+MEMCACHED_POOL={{MEMCACHED_POOL}}
+
+# Advanced Options
+# Enable beacon event streaming (0=disabled, 1=enabled)
+BEACON_EVENTS={{BEACON_EVENTS}}
+
+# Path to data directory for storing blockroots and light client updates
+# Leave empty to disable persistent storage
+DATA={{DATA}}
+
+# Witness signing key (hex-encoded private key or path to key file)
+# Leave empty if witness signing is not required
+WITNESS_KEY={{WITNESS_KEY}}
+
+# OP Stack Preconfirmation Configuration
+# (Only relevant for OP Stack chains)
+# Directory for storing preconfirmations
+PRECONF_DIR={{PRECONF_DIR}}
+
+# TTL for preconfirmations in minutes
+PRECONF_TTL={{PRECONF_TTL}}
+
+# Cleanup interval for old preconfirmations in minutes
+PRECONF_CLEANUP_INTERVAL={{PRECONF_CLEANUP_INTERVAL}}
+
+# Web Configuration UI
+# Enable the web-based configuration interface (0=disabled, 1=enabled)
+# WARNING: Only enable on local/trusted networks! No authentication is implemented.
+WEB_UI_ENABLED={{WEB_UI_ENABLED}}
+

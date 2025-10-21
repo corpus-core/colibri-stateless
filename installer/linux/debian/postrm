@@ -1,0 +1,38 @@
+#!/bin/bash
+# Post-removal script for colibri-server
+
+set -e
+
+case "$1" in
+    purge)
+        # Only remove user and data on purge (not on upgrade)
+        echo "Purging colibri-server..."
+        
+        # Remove user
+        if id -u colibri > /dev/null 2>&1; then
+            echo "Removing colibri user..."
+            userdel colibri || true
+        fi
+        
+        # Ask if user wants to keep data
+        echo "Note: Configuration and data in /var/lib/colibri and /etc/colibri"
+        echo "      have been preserved. Remove manually if desired."
+        ;;
+    
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Keep config and data on normal removal
+        ;;
+    
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+# Reload systemd
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+fi
+
+exit 0
+

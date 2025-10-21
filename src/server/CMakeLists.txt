@@ -2,6 +2,23 @@
 
 find_package(CURL REQUIRED)
 
+# Generate embedded HTML for config UI
+set(CONFIG_HTML_INPUT ${CMAKE_CURRENT_SOURCE_DIR}/web_ui/config.html)
+set(CONFIG_HTML_HEADER ${CMAKE_CURRENT_BINARY_DIR}/config_html.h)
+
+add_custom_command(
+  OUTPUT ${CONFIG_HTML_HEADER}
+  COMMAND ${CMAKE_COMMAND} 
+    -DINPUT_FILE=${CONFIG_HTML_INPUT}
+    -DOUTPUT_FILE=${CONFIG_HTML_HEADER}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/web_ui/embed_html.cmake
+  DEPENDS ${CONFIG_HTML_INPUT} ${CMAKE_CURRENT_SOURCE_DIR}/web_ui/embed_html.cmake
+  COMMENT "Embedding config.html into C header"
+  VERBATIM
+)
+
+add_custom_target(generate_config_html DEPENDS ${CONFIG_HTML_HEADER})
+
 # Create a static library with all server logic (for testing)
 add_library(serverlib STATIC
   server_control.c
@@ -14,6 +31,7 @@ add_library(serverlib STATIC
   handle_verify_storage.c
   handle_health.c
   handle_metrics.c
+  handle_config.c
   cache.c
   configure.c
   store.c
@@ -21,9 +39,13 @@ add_library(serverlib STATIC
 )
 
 target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR})
+target_include_directories(serverlib PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(serverlib PUBLIC ../../libs)
 target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include)
 target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
+
+# Make sure config HTML is generated before building serverlib
+add_dependencies(serverlib generate_config_html)
 
 target_link_libraries(serverlib PUBLIC libuv llhttp prover util verifier CURL::libcurl ${SERVER_HANDLER_LIBS})
 

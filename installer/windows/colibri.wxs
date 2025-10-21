@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  
+  <?define ProductName = "Colibri Server" ?>
+  <?define ProductVersion = "1.0.0" ?>
+  <?define Manufacturer = "Corpus Core" ?>
+  <?define UpgradeCode = "12345678-1234-1234-1234-123456789ABC" ?>
+  
+  <Product Id="*" 
+           Name="$(var.ProductName)" 
+           Language="1033" 
+           Version="$(var.ProductVersion)" 
+           Manufacturer="$(var.Manufacturer)" 
+           UpgradeCode="$(var.UpgradeCode)">
+    
+    <Package InstallerVersion="200" 
+             Compressed="yes" 
+             InstallScope="perMachine"
+             Description="Colibri Stateless Prover Server"
+             Comments="Ethereum proof generation server" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Custom UI for configuration -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <UIRef Id="WixUI_InstallDir" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+
+    <!-- Custom properties for user input -->
+    <Property Id="SERVER_PORT" Value="8090" />
+    <Property Id="CHAIN_ID" Value="1" />
+    <Property Id="LOG_LEVEL" Value="0" />
+
+    <!-- Directory structure -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <!-- Program Files -->
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLFOLDER" Name="Colibri">
+          <Component Id="MainExecutable" Guid="*">
+            <File Id="ColibriServerExe" 
+                  Source="..\..\build\default\bin\server.exe" 
+                  KeyPath="yes"
+                  Name="colibri-server.exe" />
+          </Component>
+        </Directory>
+      </Directory>
+
+      <!-- ProgramData for config -->
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="ColibriDataFolder" Name="Colibri">
+          <Component Id="ConfigFile" Guid="*">
+            <File Id="ServerConfig" 
+                  Source="..\config\server.conf.default" 
+                  Name="server.conf"
+                  KeyPath="yes" />
+            
+            <!-- Replace placeholders in config -->
+            <util:XmlFile Id="SetPort" 
+                          Action="setValue" 
+                          File="[ColibriDataFolder]server.conf"
+                          ElementPath="/configuration/appSettings/add[\[]@key='PORT'[\]]/@value"
+                          Value="[SERVER_PORT]" 
+                          SelectionLanguage="XPath" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <!-- Features -->
+    <Feature Id="ProductFeature" Title="Colibri Server" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="ConfigFile" />
+    </Feature>
+
+    <!-- Custom actions for service installation -->
+    <CustomAction Id="InstallService" 
+                  Directory="INSTALLFOLDER" 
+                  ExecCommand="[SystemFolder]sc.exe create ColibriServer binPath= &quot;[INSTALLFOLDER]colibri-server.exe -c [CommonAppDataFolder]Colibri\server.conf&quot; start= auto DisplayName= &quot;Colibri Stateless Server&quot;"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="StartService"
+                  Directory="INSTALLFOLDER"
+                  ExecCommand="[SystemFolder]sc.exe start ColibriServer"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="StopService"
+                  Directory="INSTALLFOLDER"
+                  ExecCommand="[SystemFolder]sc.exe stop ColibriServer"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="UninstallService"
+                  Directory="INSTALLFOLDER"
+                  ExecCommand="[SystemFolder]sc.exe delete ColibriServer"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!-- Add firewall rule -->
+    <CustomAction Id="AddFirewallRule"
+                  Directory="INSTALLFOLDER"
+                  ExecCommand="[SystemFolder]netsh.exe advfirewall firewall add rule name=&quot;Colibri Server&quot; dir=in action=allow protocol=TCP localport=[SERVER_PORT]"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="RemoveFirewallRule"
+                  Directory="INSTALLFOLDER"
+                  ExecCommand="[SystemFolder]netsh.exe advfirewall firewall delete rule name=&quot;Colibri Server&quot;"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!-- Installation sequence -->
+    <InstallExecuteSequence>
+      <Custom Action="InstallService" After="InstallFiles">NOT Installed</Custom>
+      <Custom Action="AddFirewallRule" After="InstallService">NOT Installed</Custom>
+      <Custom Action="StartService" After="AddFirewallRule">NOT Installed</Custom>
+      
+      <Custom Action="StopService" Before="RemoveFiles">Installed AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="UninstallService" After="StopService">Installed AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="RemoveFirewallRule" After="UninstallService">Installed AND NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+
+  </Product>
+</Wix>
+

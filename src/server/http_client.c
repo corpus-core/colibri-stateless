@@ -985,7 +985,7 @@ void c4_init_curl(uv_timer_t* timer) {
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
 
-  if (http_server.memcached_host) {
+  if (http_server.memcached_host && *http_server.memcached_host) {
     // Initialize memcached client
     memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
     if (!memcache_client) {

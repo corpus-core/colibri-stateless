@@ -1,0 +1,51 @@
+#!/bin/bash
+# Post-installation script for colibri-server
+
+set -e
+
+# Create colibri user if it doesn't exist
+if ! id -u colibri > /dev/null 2>&1; then
+    echo "Creating colibri user..."
+    useradd --system --home-dir /var/lib/colibri --create-home \
+        --shell /usr/sbin/nologin --comment "Colibri Server" colibri
+fi
+
+# Create working directory
+mkdir -p /var/lib/colibri
+chown colibri:colibri /var/lib/colibri
+chmod 755 /var/lib/colibri
+
+# Set permissions on config directory
+chown -R root:colibri /etc/colibri
+chmod 750 /etc/colibri
+chmod 640 /etc/colibri/server.conf
+
+# Reload systemd
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    
+    # Enable service
+    systemctl enable colibri-server.service || true
+    
+    # Start service
+    if [ "$1" = "configure" ]; then
+        echo "Starting colibri-server service..."
+        systemctl start colibri-server.service || true
+    fi
+fi
+
+echo ""
+echo "====================================================================="
+echo "Colibri Server has been installed successfully!"
+echo ""
+echo "Configuration file: /etc/colibri/server.conf"
+echo "Edit this file to customize your server settings."
+echo ""
+echo "To start the service:   systemctl start colibri-server"
+echo "To stop the service:    systemctl stop colibri-server"
+echo "To view logs:           journalctl -u colibri-server -f"
+echo "====================================================================="
+echo ""
+
+exit 0
+

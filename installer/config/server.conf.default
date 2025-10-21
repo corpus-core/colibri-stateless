@@ -1,0 +1,80 @@
+# Colibri Stateless Server Configuration
+# This file contains the configuration for the Colibri prover/verifier server.
+# Values can be overridden by environment variables or command-line arguments.
+
+# Server Settings
+# Port to listen on for HTTP requests
+PORT=8090
+
+# Logging level (0=Error, 1=Warning, 2=Info, 3=Debug)
+LOG_LEVEL=0
+
+# Request timeout in seconds
+REQUEST_TIMEOUT=120
+
+# Blockchain Configuration
+# Chain ID (1=Ethereum Mainnet, 11155111=Sepolia, 17000=Holesky)
+CHAIN_ID=1
+
+# RPC Endpoints
+# Comma-separated list of Ethereum RPC endpoints
+RPC=https://eth.llamarpc.com,https://rpc.payload.de,https://ethereum-rpc.publicnode.com
+
+# Beacon Chain API Endpoints
+# Comma-separated list of Beacon Chain API endpoints
+BEACON=https://lodestar-mainnet.chainsafe.io/
+
+# Remote Prover Endpoints (optional)
+# Comma-separated list of remote prover servers
+PROVER=https://mainnet1.colibri-proof.tech/proof
+
+# Checkpointz Endpoints
+# Comma-separated list of checkpointz servers for initial sync
+CHECKPOINTZ=https://sync-mainnet.beaconcha.in,https://beaconstate.info,https://sync.invis.tools,https://beaconstate.ethstaker.cc
+
+# Memcached Configuration (Optional)
+# Memcached improves performance by caching external RPC/Beacon API requests.
+# To enable: Install memcached and set MEMCACHED_HOST to your memcached server.
+# To disable: Leave MEMCACHED_HOST empty (default).
+#
+# Install memcached:
+#   - Ubuntu/Debian: sudo apt-get install memcached
+#   - RedHat/CentOS: sudo yum install memcached
+#   - macOS: brew install memcached
+#   - Windows: Download from https://memcached.org/
+MEMCACHED_HOST=
+
+# Memcached port (only used if MEMCACHED_HOST is set)
+MEMCACHED_PORT=11211
+
+# Memcached connection pool size (only used if MEMCACHED_HOST is set)
+MEMCACHED_POOL=20
+
+# Advanced Options
+# Enable beacon event streaming (0=disabled, 1=enabled)
+BEACON_EVENTS=0
+
+# Path to data directory for storing blockroots and light client updates
+# Leave empty to disable persistent storage
+DATA=
+
+# Witness signing key (hex-encoded private key or path to key file)
+# Leave empty if witness signing is not required
+WITNESS_KEY=
+
+# OP Stack Preconfirmation Configuration
+# (Only relevant for OP Stack chains)
+# Directory for storing preconfirmations
+PRECONF_DIR=./preconfs
+
+# TTL for preconfirmations in minutes
+PRECONF_TTL=30
+
+# Cleanup interval for old preconfirmations in minutes
+PRECONF_CLEANUP_INTERVAL=5
+
+# Web Configuration UI
+# Enable the web-based configuration interface (0=disabled, 1=enabled)
+# WARNING: Only enable on local/trusted networks! No authentication is implemented.
+WEB_UI_ENABLED=0
+
