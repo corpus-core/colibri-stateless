@@ -49,7 +49,7 @@ make -j4 server
 rm -rf %{buildroot}
 
 # Install binary
-install -D -m 0755 build/default/bin/server %{buildroot}/usr/bin/colibri-server
+install -D -m 0755 build/bin/server %{buildroot}/usr/bin/colibri-server
 
 # Install config
 install -D -m 0644 installer/config/server.conf.default %{buildroot}/etc/colibri/server.conf

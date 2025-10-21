@@ -46,7 +46,7 @@ FetchContent_MakeAvailable(blst)
 # Set up initial flags
 # Always use -fPIC for static libraries that will be linked into shared libraries or PIE executables
 if(KOTLIN OR PYTHON OR (NOT WIN32 AND NOT EMSCRIPTEN))
-    set(EXTRA_C_FLAGS "-fPIC ")
+    set(EXTRA_C_FLAGS "-fPIC\ ")
 endif()
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)

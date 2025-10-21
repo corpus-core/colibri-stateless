@@ -24,7 +24,7 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	# Install binary
-	install -D -m 0755 build/default/bin/server debian/colibri-server/usr/bin/colibri-server
+	install -D -m 0755 build/bin/server debian/colibri-server/usr/bin/colibri-server
 	
 	# Install default config
 	install -D -m 0644 installer/config/server.conf.default debian/colibri-server/etc/colibri/server.conf
