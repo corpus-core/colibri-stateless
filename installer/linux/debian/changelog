@@ -1,0 +1,13 @@
+colibri-server (1.0.0-1) stable; urgency=low
+
+  * Initial release
+  * Ethereum mainnet and testnet support
+  * Light client proof generation and verification
+  * BLS signature verification
+  * Memcached integration for caching
+  * systemd service integration
+  * RESTful API for proof requests
+  * Web UI for configuration (optional)
+
+ -- Corpus Core <jork@corpus.io>  Tue, 21 Oct 2025 12:00:00 +0000
+

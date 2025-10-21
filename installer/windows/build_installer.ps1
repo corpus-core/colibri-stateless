@@ -15,13 +15,45 @@ $Version = "1.0.0"
 Write-Host "Building Colibri Server Windows installer..." -ForegroundColor Green
 Write-Host "Project root: $ProjectRoot"
 
-# Check if WiX is installed
-$wixPath = "${env:ProgramFiles(x86)}\WiX Toolset v3.11\bin"
-if (-not (Test-Path "$wixPath\candle.exe")) {
-    $wixPath = "${env:ProgramFiles}\WiX Toolset v3.11\bin"
+# Check if WiX is installed - try multiple locations
+$wixPath = $null
+
+# Try candle.exe in PATH first
+$candleInPath = Get-Command candle.exe -ErrorAction SilentlyContinue
+if ($candleInPath) {
+    $wixPath = Split-Path $candleInPath.Source
+    Write-Host "Found WiX in PATH: $wixPath" -ForegroundColor Green
 }
-if (-not (Test-Path "$wixPath\candle.exe")) {
+
+# Try common installation paths
+if (-not $wixPath) {
+    $searchPaths = @(
+        "${env:ProgramFiles(x86)}\WiX Toolset v3.11\bin",
+        "${env:ProgramFiles}\WiX Toolset v3.11\bin",
+        "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin",
+        "${env:ProgramFiles}\WiX Toolset v3.14\bin"
+    )
+    
+    # Also search for any WiX version
+    $wixDirs = Get-ChildItem "${env:ProgramFiles(x86)}\" -Filter "WiX*" -Directory -ErrorAction SilentlyContinue
+    foreach ($dir in $wixDirs) {
+        $searchPaths += Join-Path $dir.FullName "bin"
+    }
+    
+    foreach ($path in $searchPaths) {
+        if (Test-Path "$path\candle.exe") {
+            $wixPath = $path
+            Write-Host "Found WiX at: $wixPath" -ForegroundColor Green
+            break
+        }
+    }
+}
+
+if (-not $wixPath) {
     Write-Host "ERROR: WiX Toolset not found!" -ForegroundColor Red
+    Write-Host "Searched paths:" -ForegroundColor Yellow
+    Write-Host "  - PATH environment variable" -ForegroundColor Yellow
+    Write-Host "  - ${env:ProgramFiles(x86)}\WiX Toolset v*\bin" -ForegroundColor Yellow
     Write-Host "Download from: https://wixtoolset.org/releases/"
     exit 1
 }
