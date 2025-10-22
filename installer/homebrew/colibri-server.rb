@@ -41,6 +41,21 @@ class ColibriServer < Formula
     sha256 "6d099e93ff00fa9b18346f4bcd97dcc48c3e91286f7e16c4ac5515a7171c3149"
   end
   
+  resource "evmone" do
+    url "https://github.com/ethereum/evmone/archive/refs/tags/v0.15.0.tar.gz"
+    sha256 "6eb2122c98bd86a083015b4e41f46b16df4d9bff608d2bf2f2d985ec18e6d640"
+  end
+  
+  resource "intx" do
+    url "https://github.com/chfast/intx/archive/refs/tags/v0.10.0.tar.gz"
+    sha256 "80513a8ca8b039fa8d40ce88a1910baefc5273259282cf664a10f0707f41cd75"
+  end
+  
+  resource "ethash" do
+    url "https://github.com/chfast/ethash/archive/refs/tags/v1.1.0.tar.gz"
+    sha256 "73b327f3c23f407389845d936c1138af6328c5841a331c1abe3a2add53c558aa"
+  end
+  
   def install
     # Extract all resources into their respective directories
     resource("blst").stage { (buildpath/"libs/blst/blst").install Dir["*"] }
@@ -48,6 +63,9 @@ class ColibriServer < Formula
     resource("llhttp").stage { (buildpath/"libs/llhttp/llhttp").install Dir["*"] }
     resource("zstd").stage { (buildpath/"libs/zstd/zstd").install Dir["*"] }
     resource("tommath").stage { (buildpath/"libs/tommath/tommath").install Dir["*"] }
+    resource("evmone").stage { (buildpath/"libs/evmone/evmone").install Dir["*"] }
+    resource("intx").stage { (buildpath/"libs/intx/intx").install Dir["*"] }
+    resource("ethash").stage { (buildpath/"libs/evmone/ethash").install Dir["*"] }
     # Build directory
     mkdir "build" do
       system "cmake", "..",
