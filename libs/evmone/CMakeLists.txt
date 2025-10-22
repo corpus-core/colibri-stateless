@@ -83,8 +83,9 @@ endif()
 # include keccak
 FetchContent_Declare(
     ethhash_external
-    URL "https://github.com/chfast/ethash/archive/refs/tags/v1.1.0.tar.gz"
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    GIT_REPOSITORY https://github.com/chfast/ethash.git
+    GIT_TAG v1.1.0
+    GIT_SHALLOW TRUE
 )
 
 FetchContent_GetProperties(ethhash_external)
