@@ -190,47 +190,36 @@ static void load_config_file() {
     fprintf(stderr, "Loading config from: %s\n", explicit_config);
     // Load from explicit file (rest of function below)
     char line[1024];
+    int  line_num = 0;
     while (fgets(line, sizeof(line), f)) {
-      // Remove trailing newline/whitespace
-      char* end = line + strlen(line) - 1;
-      while (end > line && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t')) {
-        *end = '\0';
-        end--;
-      }
+      line_num++;
+
+      // Trim whitespace from both ends
+      char* trimmed = trim(line);
 
       // Skip empty lines and comments
-      if (line[0] == '\0' || line[0] == '#') continue;
+      if (trimmed[0] == '\0' || trimmed[0] == '#') continue;
 
       // Find '=' separator
-      char* eq = strchr(line, '=');
+      char* eq = strchr(trimmed, '=');
       if (!eq) {
-        fprintf(stderr, "Warning: Invalid line in config file: %s\n", line);
+        fprintf(stderr, "Warning: Invalid line %d in config file (no '=' found)\n", line_num);
         continue;
       }
 
       // Split into key and value
-      *eq         = '\0';
-      char* key   = line;
-      char* value = eq + 1;
-
-      // Trim trailing whitespace from key
-      char* key_end = key + strlen(key) - 1;
-      while (key_end > key && (*key_end == ' ' || *key_end == '\t')) {
-        *key_end = '\0';
-        key_end--;
-      }
-
-      // Trim leading whitespace from value
-      while (*value == ' ' || *value == '\t') value++;
+      *eq       = '\0';
+      char* key = trim(trimmed);
+      char* val = trim(eq + 1);
 
       // Skip if key or value is empty
-      if (*key == '\0' || *value == '\0') {
-        fprintf(stderr, "Warning: Empty key or value on line in config file\n");
+      if (strlen(key) == 0 || strlen(val) == 0) {
+        fprintf(stderr, "Warning: Empty key or value on line %d in config file\n", line_num);
         continue;
       }
 
       // Set environment variable (will be overridden by actual env vars and command line)
-      setenv(key, value, 0); // 0 = don't overwrite existing env vars
+      setenv(key, val, 0); // 0 = don't overwrite existing env vars
     }
     fclose(f);
     return;
