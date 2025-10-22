@@ -34,10 +34,10 @@
 
     <!-- Directory structure -->
     <Directory Id="TARGETDIR" Name="SourceDir">
-      <!-- Program Files -->
-      <Directory Id="ProgramFilesFolder">
+      <!-- Program Files (64-bit) -->
+      <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="Colibri">
-          <Component Id="MainExecutable" Guid="*">
+          <Component Id="MainExecutable" Guid="*" Win64="yes">
             <File Id="ColibriServerExe" 
                   Source="$(var.ServerExePath)" 
                   KeyPath="yes"
@@ -49,7 +49,7 @@
       <!-- ProgramData for config -->
       <Directory Id="CommonAppDataFolder">
         <Directory Id="ColibriDataFolder" Name="Colibri">
-          <Component Id="ConfigFile" Guid="*">
+          <Component Id="ConfigFile" Guid="*" Win64="yes">
             <File Id="ServerConfig" 
                   Source="..\config\server.conf.default" 
                   Name="server.conf"
