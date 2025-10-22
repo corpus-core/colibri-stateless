@@ -1,142 +1,304 @@
-# Homebrew Tap Setup for Colibri Server
+: Installer
 
-This directory contains the Homebrew formula for easy installation of Colibri Server on macOS.
+:: Homebrew
 
-## Important: Formula Location
+This guide explains how to install, configure, and manage the Colibri Server using Homebrew on macOS.
 
-The `colibri-server.rb` formula should be maintained in a separate GitHub repository for Homebrew distribution:
+## Prerequisites
 
-**Repository:** `corpus-core/homebrew-colibri`  
-**URL:** https://github.com/corpus-core/homebrew-colibri
+- macOS 10.15 (Catalina) or later
+- [Homebrew](https://brew.sh/) installed
 
-## For Users
+## Installation
 
-📖 **See [HOMEBREW.md](HOMEBREW.md) for complete installation and usage instructions.**
+### Step 1: Add the Colibri Tap
 
-**Quick Start:**
 ```bash
 brew tap corpus-core/colibri
+```
+
+### Step 2: Install Colibri Server
+
+```bash
 brew install colibri-server
+```
+
+This will install:
+- `colibri-server` - The main server executable
+- `colibri-prover` - CLI tool for generating proofs
+- `colibri-verifier` - CLI tool for verifying proofs
+- `colibri-ssz` - CLI tool for SSZ encoding/decoding
+
+### Step 3: Configure the Server
+
+The configuration file is located at:
+```
+/opt/homebrew/etc/colibri/server.conf
+```
+
+Edit the configuration file to customize your setup:
+```bash
+nano /opt/homebrew/etc/colibri/server.conf
+```
+
+#### Important Configuration Options:
+
+**Network Binding (Security):**
+```ini
+# For local use only (secure, recommended for Metamask):
+HOST=127.0.0.1
+
+# For remote access (use with caution):
+HOST=0.0.0.0
+```
+
+**Port:**
+```ini
+PORT=8090
+```
+
+**Chain Configuration:**
+```ini
+CHAIN_ID=1  # 1=Ethereum Mainnet, 11155111=Sepolia, 17000=Holesky
+```
+
+**RPC Endpoints:**
+```ini
+RPC=https://eth.llamarpc.com,https://rpc.payload.de
+BEACON=https://lodestar-mainnet.chainsafe.io/
+```
+
+## Service Management
+
+Colibri Server can run as a background service (daemon) using Homebrew's built-in service management.
+
+### Start the Service
+
+```bash
 brew services start colibri-server
 ```
 
-## For Maintainers: Setting Up the Homebrew Tap
+The server will:
+- Start automatically on system boot
+- Restart automatically if it crashes
+- Run in the background
 
-### 1. Create the Tap Repository
-
-Create a new GitHub repository named `homebrew-colibri` under the `corpus-core` organization:
+### Stop the Service
 
 ```bash
-# Repository name MUST start with "homebrew-"
-# https://github.com/corpus-core/homebrew-colibri
+brew services stop colibri-server
 ```
 
-### 2. Add the Formula
+### Restart the Service
 
 ```bash
-git clone https://github.com/corpus-core/homebrew-colibri.git
-cd homebrew-colibri
-
-# Create Formula directory (required by Homebrew)
-mkdir -p Formula
-
-# Copy the formula
-cp /path/to/colibri-stateless/installer/homebrew/colibri-server.rb Formula/
-
-# Commit and push
-git add Formula/colibri-server.rb
-git commit -m "Add colibri-server formula"
-git push origin main
+brew services restart colibri-server
 ```
 
-### 3. Update SHA256 for Each Release
-
-When creating a new release, update the SHA256 checksum in the formula:
+### Check Service Status
 
 ```bash
-# Generate SHA256 for the release tarball
-curl -sL https://github.com/corpus-core/colibri-stateless/archive/refs/tags/v1.0.0.tar.gz | shasum -a 256
-
-# Update the formula:
-# 1. Edit Formula/colibri-server.rb
-# 2. Update the 'url' line with the new version tag
-# 3. Update the 'sha256' line with the generated checksum
-# 4. Commit and push:
-git add Formula/colibri-server.rb
-git commit -m "Update colibri-server to v1.0.0"
-git push origin main
+brew services list | grep colibri
 ```
 
-### 4. Testing the Formula Locally
-
-Before pushing changes, test the formula locally:
+or
 
 ```bash
-# Test installation from local formula
-brew install --build-from-source Formula/colibri-server.rb
+brew services info colibri-server
+```
 
-# Run Homebrew's formula audit
-brew audit --strict colibri-server
+## Viewing Logs
 
-# Run tests
-brew test colibri-server
+Logs are stored in:
+```
+/opt/homebrew/var/log/colibri-server.log       # Standard output
+/opt/homebrew/var/log/colibri-server.error.log # Error output
+```
 
-# Uninstall test installation
+### Tail the logs in real-time:
+
+```bash
+tail -f /opt/homebrew/var/log/colibri-server.log
+```
+
+or
+
+```bash
+tail -f /opt/homebrew/var/log/colibri-server.error.log
+```
+
+### View last 100 lines:
+
+```bash
+tail -100 /opt/homebrew/var/log/colibri-server.log
+```
+
+## Running Manually (Without Service)
+
+If you prefer to run the server manually (e.g., for testing):
+
+```bash
+colibri-server -f /opt/homebrew/etc/colibri/server.conf
+```
+
+Press `Ctrl+C` to stop the server.
+
+## CLI Tools Usage
+
+### Generating Proofs
+
+```bash
+colibri-prover eth_getBalance '["0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"]' > proof.ssz
+```
+
+### Verifying Proofs
+
+```bash
+colibri-verifier eth_getBalance proof.ssz
+```
+
+### SSZ Operations
+
+```bash
+colibri-ssz -t BeaconBlock -h block.ssz
+```
+
+For detailed usage, run:
+```bash
+colibri-prover --help
+colibri-verifier --help
+colibri-ssz --help
+```
+
+## Updating Colibri Server
+
+```bash
+brew update
+brew upgrade colibri-server
+```
+
+After upgrading, restart the service:
+```bash
+brew services restart colibri-server
+```
+
+## Uninstallation
+
+### Stop and Remove the Service
+
+```bash
+brew services stop colibri-server
+```
+
+### Uninstall the Package
+
+```bash
 brew uninstall colibri-server
 ```
 
-### 5. Submitting to Homebrew Core (Optional)
+### Remove Configuration (Optional)
 
-Once the formula is stable and popular, you can submit it to Homebrew's core repository:
-
-1. Fork https://github.com/Homebrew/homebrew-core
-2. Add your formula to `Formula/c/colibri-server.rb`
-3. Submit a pull request
-
-**Requirements for Core:**
-- Must have 75+ GitHub stars
-- Must be well-documented
-- Must pass all audits
-- Must have stable versioned releases
-
-## Formula Structure
-
-The `colibri-server.rb` formula:
-
-```ruby
-class ColibriServer < Formula
-  desc "Trustless stateless-client for Ethereum and L1/L2 networks"
-  homepage "https://corpuscore.tech/"
-  url "https://github.com/corpus-core/colibri-stateless/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "..."  # Updated for each release
-  license "MIT"
-  
-  depends_on "cmake" => :build
-  depends_on "rust" => :build
-  depends_on "curl"
-  
-  def install
-    # Build and install binaries
-  end
-  
-  service do
-    # Background service configuration
-  end
-  
-  test do
-    # Smoke tests
-  end
-end
+```bash
+rm -rf /opt/homebrew/etc/colibri
+rm -f /opt/homebrew/var/log/colibri-server*.log
 ```
 
-## Versioning
+### Remove the Tap (Optional)
 
-- Update the `url` line for each new release
-- Generate new SHA256 with: `shasum -a 256 <tarball>`
-- Follow [Semantic Versioning](https://semver.org/)
+```bash
+brew untap corpus-core/colibri
+```
+
+## Troubleshooting
+
+### Server Won't Start
+
+1. **Check the logs:**
+   ```bash
+   tail -f /opt/homebrew/var/log/colibri-server.error.log
+   ```
+
+2. **Verify configuration:**
+   ```bash
+   colibri-server --help
+   ```
+
+3. **Check if port is already in use:**
+   ```bash
+   lsof -i :8090
+   ```
+
+### Permission Issues
+
+Homebrew services run as your user, so no `sudo` is required. If you encounter permission issues:
+
+```bash
+chmod 644 /opt/homebrew/etc/colibri/server.conf
+```
+
+### Service Not Starting on Boot
+
+```bash
+brew services restart colibri-server
+```
+
+This will re-register the service with the system.
+
+## Using Colibri as Metamask RPC Provider
+
+1. Start the service: `brew services start colibri-server`
+2. In Metamask, go to Settings → Networks → Add Network
+3. Configure:
+   - **Network Name:** Colibri Local
+   - **RPC URL:** `http://127.0.0.1:8090`
+   - **Chain ID:** 1 (or your configured chain)
+   - **Currency Symbol:** ETH
+
+4. Metamask will now use your local Colibri server for all RPC requests, providing verified and trustless data.
+
+## Advanced Configuration
+
+### Performance Tuning with Memcached
+
+For better performance, install and enable Memcached:
+
+```bash
+brew install memcached
+brew services start memcached
+```
+
+Then edit your config:
+```ini
+MEMCACHED_HOST=localhost
+MEMCACHED_PORT=11211
+```
+
+Restart the service:
+```bash
+brew services restart colibri-server
+```
+
+### Web Configuration UI
+
+⚠️ **Security Warning:** Only enable on trusted networks!
+
+Edit your config:
+```ini
+WEB_UI_ENABLED=1
+```
+
+Access at: `http://127.0.0.1:8090/config.html`
 
 ## Support
 
-- **GitHub Issues:** https://github.com/corpus-core/colibri-stateless/issues
 - **Documentation:** https://corpus-core.gitbook.io/specification-colibri-stateless
+- **GitHub:** https://github.com/corpus-core/colibri-stateless
+- **Issues:** https://github.com/corpus-core/colibri-stateless/issues
 - **Email:** jork@corpus.io
+
+## License
+
+- **Core Library:** MIT License
+- **Server Component:** PolyForm Noncommercial License 1.0.0 (Commercial licenses available)
+
+For commercial licensing, contact: jork@corpus.io

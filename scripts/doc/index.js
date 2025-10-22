@@ -36,6 +36,7 @@ const doc_files = [
     "../installer/macos/README.md",
     "../installer/linux/README.md",
     "../installer/windows/README.md",
+    "../installer/homebrew/README.md",
 
 
     // api

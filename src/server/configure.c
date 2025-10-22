@@ -209,7 +209,7 @@ static void load_config_file() {
       }
 
       // Split into key and value
-      *eq      = '\0';
+      *eq         = '\0';
       char* key   = line;
       char* value = eq + 1;
 
