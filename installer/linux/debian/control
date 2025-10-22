@@ -1,24 +1,30 @@
 Source: colibri-server
 Section: net
 Priority: optional
-Maintainer: Corpus Core <simon@corpus.io>
-Build-Depends: debhelper (>= 10), cmake (>= 3.10), gcc, g++, libcurl4-openssl-dev, libssl-dev
-Standards-Version: 4.1.2
-Homepage: https://github.com/corpus-core/colibri-stateless
+Maintainer: Simon Jentzsch <simon@corpus.io>
+Build-Depends: debhelper (>= 10), cmake (>= 3.20), gcc, g++, libcurl4-openssl-dev, libssl-dev
+Standards-Version: 4.5.0
+Homepage: https://corpuscore.tech/
+Vcs-Git: https://github.com/corpus-core/colibri-stateless.git
+Vcs-Browser: https://github.com/corpus-core/colibri-stateless
 
 Package: colibri-server
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, libc6 (>= 2.27), libssl3 | libssl1.1
+Depends: ${shlibs:Depends}, ${misc:Depends}, libc6 (>= 2.27), libssl3 | libssl1.1, libcurl4
 Recommends: memcached
-Description: Colibri Stateless Prover Server
- Colibri Stateless is a highly efficient prover/verifier for Ethereum
- and Layer-2 solutions. This package provides the prover server that
- can create cryptographic proofs for blockchain data.
+Description: Trustless stateless-client for Ethereum and L1/L2 networks
+ Colibri.stateless is a trustless stateless-client for Ethereum and other
+ L1 and L2 networks. It enables applications to access and verify blockchain
+ data independently by cryptographic proofs, without relying on trusted third
+ parties. Designed for IoT, mobile, and web environments, it uses zk-proofs
+ to deliver secure, efficient, and fully self-sovereign blockchain interaction.
  .
- The server includes:
-  - Ethereum mainnet and testnet support
-  - Light client proof generation
-  - BLS signature verification
-  - Memcached integration for caching
-  - RESTful API for proof requests
+ This package installs the server and CLI tools:
+  - colibri-server: Main prover/verifier server with HTTP API
+  - colibri-prover: Generate cryptographic proofs
+  - colibri-verifier: Verify cryptographic proofs
+  - colibri-ssz: SSZ serialization utilities
+ .
+ Documentation: https://corpus-core.gitbook.io/specification-colibri-stateless
+ Copyright: corpus.core - https://corpuscore.tech/
 

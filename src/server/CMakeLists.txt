@@ -57,10 +57,10 @@ elseif(APPLE)
 endif()
 
 # Create the executable with just main()
-add_executable(server main.c)
+add_executable(colibri-server main.c)
 
-target_link_libraries(server PRIVATE serverlib)
+target_link_libraries(colibri-server PRIVATE serverlib)
 
-set_target_properties(server PROPERTIES
+set_target_properties(colibri-server PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )

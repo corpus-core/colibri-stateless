@@ -32,3 +32,10 @@ bindings/swift/test_ios_app/.build
 bindings/swift/Sources/CColibri/include/colibri.h
 src/chains/op/verifier/op_zstd.c
 src/chains/op/kona_bridge/target
+# Installer process documentation (internal use only)
+installer/DISTRIBUTION.md
+installer/QUICK_START.md
+installer/macos/CODE_SIGNING.md
+installer/ppa/README.md
+installer/copr/README.md
+installer/homebrew/README.md

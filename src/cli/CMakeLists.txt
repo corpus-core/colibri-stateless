@@ -25,45 +25,42 @@ if (WASM)
 endif()
 
 if (CLI)    
-    add_executable(proof prover.c)
-#    target_include_directories(proof PRIVATE ../util ../prover ../verifier)
-    set_target_properties(proof PROPERTIES
+    add_executable(colibri-prover prover.c)
+    set_target_properties(colibri-prover PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
 
-    
-
-    add_executable(ssz ssz.c)
-    target_link_libraries(ssz PRIVATE 
+    add_executable(colibri-ssz ssz.c)
+    target_link_libraries(colibri-ssz PRIVATE 
       verifier
       prover
     )
-    set_target_properties(ssz PROPERTIES
+    set_target_properties(colibri-ssz PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
 
-    add_executable(verify verifier.c)
-    set_target_properties(verify PROPERTIES
+    add_executable(colibri-verifier verifier.c)
+    set_target_properties(colibri-verifier PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
 
     if(CURL)
-        target_link_libraries(proof PRIVATE 
+        target_link_libraries(colibri-prover PRIVATE 
             curl_fetch
             prover
             verifier
         )
-        target_link_libraries(verify PRIVATE 
+        target_link_libraries(colibri-verifier PRIVATE 
             curl_fetch
             verifier
         )
 
     else()
-        target_link_libraries(proof PRIVATE 
+        target_link_libraries(colibri-prover PRIVATE 
             prover
             verifier
         )   
-        target_link_libraries(verify PRIVATE 
+        target_link_libraries(colibri-verifier PRIVATE 
             verifier
         )
 

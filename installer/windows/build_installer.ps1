@@ -95,7 +95,11 @@ try {
     
     & cmake @cmakeArgs
     
-    cmake --build . --config $Configuration --target server -j 4
+    # Build server and CLI tools
+    cmake --build . --config $Configuration --target colibri-server -j 4
+    cmake --build . --config $Configuration --target colibri-prover -j 4
+    cmake --build . --config $Configuration --target colibri-verifier -j 4
+    cmake --build . --config $Configuration --target colibri-ssz -j 4
     
     if (-not $?) {
         throw "Build failed"
@@ -104,17 +108,33 @@ try {
     Pop-Location
 }
 
-# Verify binary exists - try both possible locations
-$ServerExe = "$BuildDir\bin\$Configuration\server.exe"
+# Verify binaries exist - try both possible locations
+$ServerExe = "$BuildDir\bin\$Configuration\colibri-server.exe"
 if (-not (Test-Path $ServerExe)) {
     # Try alternative path with 'default' subdirectory
-    $ServerExe = "$BuildDir\default\bin\$Configuration\server.exe"
+    $ServerExe = "$BuildDir\default\bin\$Configuration\colibri-server.exe"
     if (-not (Test-Path $ServerExe)) {
         Write-Host "ERROR: Server binary not found at either:" -ForegroundColor Red
-        Write-Host "  $BuildDir\bin\$Configuration\server.exe" -ForegroundColor Red
-        Write-Host "  $BuildDir\default\bin\$Configuration\server.exe" -ForegroundColor Red
+        Write-Host "  $BuildDir\bin\$Configuration\colibri-server.exe" -ForegroundColor Red
+        Write-Host "  $BuildDir\default\bin\$Configuration\colibri-server.exe" -ForegroundColor Red
         exit 1
     }
+}
+
+# Verify CLI tools
+$CliToolsDir = Split-Path $ServerExe -Parent
+$ProverExe = Join-Path $CliToolsDir "colibri-prover.exe"
+$VerifierExe = Join-Path $CliToolsDir "colibri-verifier.exe"
+$SszExe = Join-Path $CliToolsDir "colibri-ssz.exe"
+
+if (-not (Test-Path $ProverExe)) {
+    Write-Host "WARNING: colibri-prover.exe not found at $ProverExe" -ForegroundColor Yellow
+}
+if (-not (Test-Path $VerifierExe)) {
+    Write-Host "WARNING: colibri-verifier.exe not found at $VerifierExe" -ForegroundColor Yellow
+}
+if (-not (Test-Path $SszExe)) {
+    Write-Host "WARNING: colibri-ssz.exe not found at $SszExe" -ForegroundColor Yellow
 }
 
 # Build the installer
@@ -125,12 +145,16 @@ $OutputDir = "$ProjectRoot\build"
 Push-Location $InstallerDir
 try {
     Write-Host "Using server binary: $ServerExe" -ForegroundColor Green
+    Write-Host "Using CLI tools from: $CliToolsDir" -ForegroundColor Green
     
     # Compile WiX source
     & "$wixPath\candle.exe" -nologo -arch x64 `
         -dConfiguration=$Configuration `
         -dProjectRoot=$ProjectRoot `
         -dServerExePath="$ServerExe" `
+        -dProverExePath="$ProverExe" `
+        -dVerifierExePath="$VerifierExe" `
+        -dSszExePath="$SszExe" `
         colibri.wxs
     
     if (-not $?) {

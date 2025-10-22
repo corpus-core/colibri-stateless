@@ -3,7 +3,7 @@
   
   <?define ProductName = "Colibri Server" ?>
   <?define ProductVersion = "1.0.0" ?>
-  <?define Manufacturer = "Corpus Core" ?>
+  <?define Manufacturer = "corpus.core" ?>
   <?define UpgradeCode = "12345678-1234-1234-1234-123456789ABC" ?>
   
   <Product Id="*" 
@@ -16,8 +16,19 @@
     <Package InstallerVersion="200" 
              Compressed="yes" 
              InstallScope="perMachine"
-             Description="Colibri Stateless Prover Server"
-             Comments="Ethereum proof generation server" />
+             Description="Colibri Stateless Prover Server for Ethereum"
+             Comments="Trustless stateless-client for Ethereum and other L1/L2 networks"
+             Manufacturer="corpus.core" />
+
+    <!-- Add/Remove Programs metadata -->
+    <Property Id="ARPURLINFOABOUT" Value="https://corpuscore.tech/" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/corpus-core/colibri-stateless/releases" />
+    <Property Id="ARPCONTACT" Value="simon@corpus.io" />
+    <Property Id="ARPCOMMENTS" Value="Ethereum stateless prover and verifier server - https://corpus-core.gitbook.io/specification-colibri-stateless" />
+    
+    <!-- Application Icon -->
+    <Icon Id="ProductIcon" SourceFile="..\assets\c4_logo.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
@@ -37,11 +48,26 @@
       <!-- Program Files (64-bit) -->
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="Colibri">
+          <!-- Server Binary -->
           <Component Id="MainExecutable" Guid="*" Win64="yes">
             <File Id="ColibriServerExe" 
                   Source="$(var.ServerExePath)" 
                   KeyPath="yes"
                   Name="colibri-server.exe" />
+          </Component>
+          
+          <!-- CLI Tools -->
+          <Component Id="CliTools" Guid="*" Win64="yes">
+            <File Id="ColibriProverExe" 
+                  Source="$(var.ProverExePath)" 
+                  Name="colibri-prover.exe" />
+            <File Id="ColibriVerifierExe" 
+                  Source="$(var.VerifierExePath)" 
+                  Name="colibri-verifier.exe" />
+            <File Id="ColibriSszExe" 
+                  Source="$(var.SszExePath)" 
+                  KeyPath="yes"
+                  Name="colibri-ssz.exe" />
           </Component>
         </Directory>
       </Directory>
@@ -63,6 +89,7 @@
     <!-- Features -->
     <Feature Id="ProductFeature" Title="Colibri Server" Level="1">
       <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="CliTools" />
       <ComponentRef Id="ConfigFile" />
     </Feature>
 

@@ -56,12 +56,12 @@
 // }
 // ````
 
-// ::: proof
-// The proof command is used to create proofs for a given method and parameters. It works without any backend.
+// ::: colibri-prover
+// The colibri-prover command is used to create proofs for a given method and parameters. It works without any backend.
 //
 // ````sh
 //     # Create a proof for the eth_getBlockByNumber method
-//     proof -o block_proof.ssz eth_getBlockByNumber latest false
+//     colibri-prover -o block_proof.ssz eth_getBlockByNumber latest false
 // ````
 //
 // ## Options

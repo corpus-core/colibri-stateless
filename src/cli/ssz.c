@@ -43,12 +43,12 @@ const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
 
 // :: CLI
 
-// ::: ssz
-// a simple tool converting a ssz-formated proof into json.
+// ::: colibri-ssz
+// The colibri-ssz tool is used to convert SSZ-formatted proofs into JSON.
 //
 // ````sh
-//     # Convert a ssz-formated proof into json
-//     ssz -o block.json block_proof.ssz
+//     # Convert a ssz-formatted proof into json
+//     colibri-ssz -o block.json block_proof.ssz
 // ````
 //
 // ## Options

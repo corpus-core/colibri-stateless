@@ -39,15 +39,15 @@ echo "Preparing package contents..."
 PACKAGE_ROOT="$BUILD_DIR/root"
 
 # Find the server binary (could be in bin/ or default/bin/ depending on CMake setup)
-if [ -f "bin/server" ]; then
-    SERVER_BIN="bin/server"
-elif [ -f "default/bin/server" ]; then
-    SERVER_BIN="default/bin/server"
+if [ -f "bin/colibri-server" ]; then
+    SERVER_BIN="bin/colibri-server"
+elif [ -f "default/bin/colibri-server" ]; then
+    SERVER_BIN="default/bin/colibri-server"
 else
     echo "Error: Cannot find server binary!"
     echo "Checked:"
-    echo "  - bin/server"
-    echo "  - default/bin/server"
+    echo "  - bin/colibri-server"
+    echo "  - default/bin/colibri-server"
     ls -la bin/ 2>/dev/null || echo "  bin/ directory not found"
     ls -la default/bin/ 2>/dev/null || echo "  default/bin/ directory not found"
     exit 1

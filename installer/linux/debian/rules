@@ -14,17 +14,22 @@ override_dh_auto_configure:
 		-DPROVER=ON \
 		-DVERIFIER=ON \
 		-DPROVER_CACHE=ON \
-		-DCLI=OFF \
+		-DCLI=ON \
 		-DTEST=OFF \
 		-DINSTALLER=ON \
 		..
 
 override_dh_auto_build:
-	cd build && $(MAKE) -j4 server
+	cd build && $(MAKE) -j4 colibri-server colibri-prover colibri-verifier colibri-ssz
 
 override_dh_auto_install:
-	# Install binary
-	install -D -m 0755 build/bin/server debian/colibri-server/usr/bin/colibri-server
+	# Install server binary
+	install -D -m 0755 build/bin/colibri-server debian/colibri-server/usr/bin/colibri-server
+	
+	# Install CLI tools
+	install -D -m 0755 build/bin/colibri-prover debian/colibri-server/usr/bin/colibri-prover
+	install -D -m 0755 build/bin/colibri-verifier debian/colibri-server/usr/bin/colibri-verifier
+	install -D -m 0755 build/bin/colibri-ssz debian/colibri-server/usr/bin/colibri-ssz
 	
 	# Install default config
 	install -D -m 0644 installer/config/server.conf.default debian/colibri-server/etc/colibri/server.conf
