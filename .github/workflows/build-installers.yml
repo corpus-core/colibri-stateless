@@ -310,3 +310,60 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: create-release
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout main repository
+      uses: actions/checkout@v4
+    
+    - name: Update Homebrew Formula
+      run: |
+        # Extract version from tag (refs/tags/v1.0.0 -> 1.0.0)
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "Version: $VERSION"
+        
+        # Generate SHA256 for the release tarball
+        TARBALL_URL="https://github.com/corpus-core/colibri-stateless/archive/refs/tags/v${VERSION}.tar.gz"
+        echo "Downloading tarball from: $TARBALL_URL"
+        SHA256=$(curl -sL "$TARBALL_URL" | shasum -a 256 | cut -d' ' -f1)
+        echo "SHA256: $SHA256"
+        
+        # Clone the Homebrew tap repository
+        git clone https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/corpus-core/homebrew-colibri.git
+        cd homebrew-colibri
+        
+        # Create Formula directory if it doesn't exist
+        mkdir -p Formula
+        
+        # Copy the current formula as a base (if this is the first time)
+        if [ ! -f Formula/colibri-server.rb ]; then
+          cp ../installer/homebrew/colibri-server.rb Formula/
+        fi
+        
+        # Update the formula with new version and SHA256
+        sed -i "s|archive/refs/tags/v.*\.tar\.gz|archive/refs/tags/v${VERSION}.tar.gz|g" Formula/colibri-server.rb
+        sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|g" Formula/colibri-server.rb
+        
+        # Configure git
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        # Commit and push changes
+        git add Formula/colibri-server.rb
+        git commit -m "Update colibri-server to v${VERSION}
+
+        - Update download URL to v${VERSION}
+        - Update SHA256 checksum: ${SHA256}
+        
+        Automated release by GitHub Actions" || echo "No changes to commit"
+        
+        git push origin main
+        
+        echo "✅ Homebrew formula updated successfully!"
+      env:
+        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+
