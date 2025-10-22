@@ -66,15 +66,17 @@ jobs:
       run: chmod +x installer/linux/debian/{rules,postinst,prerm,postrm}
     
     - name: Build Debian package
+      env:
+        VERSION: ${{ needs.determine-version.outputs.version }}
       run: |
         cd installer/linux
-        ./build_deb.sh
+        ./build_deb.sh "$VERSION"
     
     - name: Upload Debian package
       uses: actions/upload-artifact@v4
       with:
         name: debian-package
-        path: colibri-server_*.deb
+        path: installer/linux/colibri-server_*.deb
 
   build-linux-rpm:
     name: Build RPM Package
@@ -98,16 +100,18 @@ jobs:
           openssl-devel libcurl-devel make tar gzip
     
     - name: Build RPM package
+      env:
+        VERSION: ${{ needs.determine-version.outputs.version }}
       run: |
         cd installer/linux
         chmod +x build_rpm.sh
-        ./build_rpm.sh
+        ./build_rpm.sh "$VERSION"
     
     - name: Upload RPM package
       uses: actions/upload-artifact@v4
       with:
         name: rpm-package
-        path: ~/rpmbuild/RPMS/*/colibri-server-*.rpm
+        path: installer/linux/*.rpm
 
   build-macos:
     name: Build macOS Package
@@ -197,16 +201,18 @@ jobs:
       shell: powershell
     
     - name: Build Windows installer
+      env:
+        VERSION: ${{ needs.determine-version.outputs.version }}
       run: |
         cd installer\windows
-        .\build_installer.ps1
+        .\build_installer.ps1 -Version "$env:VERSION"
       shell: powershell
     
     - name: Upload Windows installer
       uses: actions/upload-artifact@v4
       with:
         name: windows-installer
-        path: build\colibri-server-*.msi
+        path: installer\windows\colibri-server-*.msi
 
   create-release:
     name: Create Release

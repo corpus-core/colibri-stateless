@@ -104,8 +104,8 @@ class ColibriServer < Formula
       bin.install "bin/colibri-ssz"
     end
     
-    # Install config file
-    etc.install "installer/config/server.conf.default" => "colibri/server.conf"
+    # Install config file (path relative to buildpath, not build dir)
+    (etc/"colibri").install buildpath/"installer/config/server.conf.default" => "server.conf"
     
     # Documentation
     doc.install "README.md"

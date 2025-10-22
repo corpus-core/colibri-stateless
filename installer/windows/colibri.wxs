@@ -2,7 +2,11 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   
   <?define ProductName = "Colibri Server" ?>
-  <?define ProductVersion = "1.0.0" ?>
+  <?if $(var.Version) ?>
+    <?define ProductVersion = "$(var.Version)" ?>
+  <?else?>
+    <?define ProductVersion = "1.0.0" ?>
+  <?endif?>
   <?define Manufacturer = "corpus.core" ?>
   <?define UpgradeCode = "12345678-1234-1234-1234-123456789ABC" ?>
   

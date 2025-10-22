@@ -2,7 +2,8 @@
 # Requires: WiX Toolset (https://wixtoolset.org/)
 
 param(
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [string]$Version = "1.0.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,9 +11,9 @@ $ErrorActionPreference = "Stop"
 # Paths
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
-$Version = "1.0.0"
 
 Write-Host "Building Colibri Server Windows installer..." -ForegroundColor Green
+Write-Host "Version: $Version"
 Write-Host "Project root: $ProjectRoot"
 
 # Check if WiX is installed - try multiple locations
@@ -140,7 +141,7 @@ if (-not (Test-Path $SszExe)) {
 # Build the installer
 Write-Host "Building MSI installer..." -ForegroundColor Cyan
 $InstallerDir = "$ProjectRoot\installer\windows"
-$OutputDir = "$ProjectRoot\build"
+$OutputDir = $InstallerDir
 
 Push-Location $InstallerDir
 try {
@@ -151,6 +152,7 @@ try {
     & "$wixPath\candle.exe" -nologo -arch x64 `
         -dConfiguration=$Configuration `
         -dProjectRoot=$ProjectRoot `
+        -dVersion=$Version `
         -dServerExePath="$ServerExe" `
         -dProverExePath="$ProverExe" `
         -dVerifierExePath="$VerifierExe" `

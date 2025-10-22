@@ -3,11 +3,13 @@
 
 set -e
 
+VERSION="${1:-1.0.0}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-VERSION="1.0.0"
 
 echo "Building Colibri Server RPM package..."
+echo "Version: $VERSION"
 echo "Project root: $PROJECT_ROOT"
 
 # Check if required tools are installed
@@ -30,20 +32,25 @@ tar --exclude='.git' --exclude='build' --exclude='node_modules' \
     --transform="s|^colibri-stateless|colibri-server-${VERSION}|" \
     -czf "$TARBALL" colibri-stateless
 
-# Copy spec file
+# Copy and update spec file
 cp "$PROJECT_ROOT/installer/linux/rpm/colibri-server.spec" "$RPMBUILD_DIR/SPECS/"
+echo "Updating version in spec file to $VERSION..."
+sed -i "s/^Version:.*/Version:        $VERSION/" "$RPMBUILD_DIR/SPECS/colibri-server.spec"
 
 # Build the package
 echo "Building RPM package..."
 cd "$RPMBUILD_DIR"
 rpmbuild -bb SPECS/colibri-server.spec
 
+# Copy .rpm to installer/linux for easier upload
+cp RPMS/*/colibri-server-*.rpm "$SCRIPT_DIR/" || true
+
 echo ""
 echo "====================================================================="
 echo "RPM package built successfully!"
-echo "Package location: $RPMBUILD_DIR/RPMS/"
+echo "Package: $SCRIPT_DIR/colibri-server-${VERSION}-*.rpm"
 echo ""
-echo "To install: sudo rpm -ivh $RPMBUILD_DIR/RPMS/*/colibri-server-*.rpm"
-echo "Or:         sudo dnf install $RPMBUILD_DIR/RPMS/*/colibri-server-*.rpm"
+echo "To install: sudo rpm -ivh colibri-server-*.rpm"
+echo "Or:         sudo dnf install colibri-server-*.rpm"
 echo "====================================================================="
 
