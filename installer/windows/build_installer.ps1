@@ -8,12 +8,26 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Convert version to WiX format (x.x.x.x)
+# If version has only 3 parts (e.g., 1.2.3), add .0 to make it 1.2.3.0
+$versionParts = $Version.Split('.')
+if ($versionParts.Count -eq 3) {
+    $Version = "$Version.0"
+}
+elseif ($versionParts.Count -lt 3) {
+    # Pad with zeros if needed
+    while ($versionParts.Count -lt 4) {
+        $Version = "$Version.0"
+        $versionParts = $Version.Split('.')
+    }
+}
+
 # Paths
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
 Write-Host "Building Colibri Server Windows installer..." -ForegroundColor Green
-Write-Host "Version: $Version"
+Write-Host "Version: $Version (WiX format)"
 Write-Host "Project root: $ProjectRoot"
 
 # Check if WiX is installed - try multiple locations
