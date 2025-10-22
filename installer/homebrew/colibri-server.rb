@@ -55,6 +55,11 @@ class ColibriServer < Formula
     url "https://github.com/chfast/ethash/archive/refs/tags/v1.1.0.tar.gz"
     sha256 "73b327f3c23f407389845d936c1138af6328c5841a331c1abe3a2add53c558aa"
   end
+
+  resource "evmc" do
+    url "https://github.com/ethereum/evmc/archive/refs/tags/v12.1.0.tar.gz"
+    sha256 "0d5458015bf38a5358fad04cc290d21ec40122d1eb6420e0b33ae25546984bcd"
+  end
   
   def install
     # Extract all resources into their respective directories
@@ -66,6 +71,7 @@ class ColibriServer < Formula
     resource("evmone").stage { (buildpath/"libs/evmone/evmone").install Dir["*"] }
     resource("intx").stage { (buildpath/"libs/intx/intx").install Dir["*"] }
     resource("ethash").stage { (buildpath/"libs/evmone/ethash").install Dir["*"] }
+    resource("evmc").stage { (buildpath/"libs/evmone/evmone/evmc").install Dir["*"] }
     # Build directory
     mkdir "build" do
       # Tell CMake where to find the pre-extracted dependencies (bypasses FetchContent)
