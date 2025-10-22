@@ -104,11 +104,17 @@ try {
     Pop-Location
 }
 
-# Verify binary exists
-$ServerExe = "$BuildDir\default\bin\$Configuration\server.exe"
+# Verify binary exists - try both possible locations
+$ServerExe = "$BuildDir\bin\$Configuration\server.exe"
 if (-not (Test-Path $ServerExe)) {
-    Write-Host "ERROR: Server binary not found at: $ServerExe" -ForegroundColor Red
-    exit 1
+    # Try alternative path with 'default' subdirectory
+    $ServerExe = "$BuildDir\default\bin\$Configuration\server.exe"
+    if (-not (Test-Path $ServerExe)) {
+        Write-Host "ERROR: Server binary not found at either:" -ForegroundColor Red
+        Write-Host "  $BuildDir\bin\$Configuration\server.exe" -ForegroundColor Red
+        Write-Host "  $BuildDir\default\bin\$Configuration\server.exe" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # Build the installer
