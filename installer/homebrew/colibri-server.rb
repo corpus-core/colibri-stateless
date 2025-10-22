@@ -92,6 +92,7 @@ class ColibriServer < Formula
              "-DFETCHCONTENT_SOURCE_DIR_EVMONE_EXTERNAL=#{buildpath}/libs/evmone/evmone",
              "-DFETCHCONTENT_SOURCE_DIR_INTX=#{buildpath}/libs/intx/intx",
              "-DFETCHCONTENT_SOURCE_DIR_ETHHASH_EXTERNAL=#{buildpath}/libs/evmone/ethash",
+             "-DFETCHCONTENT_SOURCE_DIR_EVMC=#{buildpath}/libs/evmone/evmone/evmc",
              *std_cmake_args
       system "make", "-j#{ENV.make_jobs}", "colibri-server", "colibri-prover", "colibri-verifier", "colibri-ssz"
       
