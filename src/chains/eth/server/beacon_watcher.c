@@ -17,6 +17,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <uv.h>
+#ifdef _WIN32
+#include "../../../util/win_compat.h"
+#endif
 
 // Provide strnstr implementation if it's not available (e.g., on non-BSD/non-GNU systems)
 #ifndef HAVE_STRNSTR // Guard against redefinition

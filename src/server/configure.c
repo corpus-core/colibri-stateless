@@ -9,6 +9,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "../util/win_compat.h"
+#endif
 
 http_server_t http_server = {0};
 static void   config();
