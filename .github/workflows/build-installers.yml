@@ -213,19 +213,27 @@ jobs:
     needs: [build-linux-deb, build-linux-rpm, build-macos, build-windows]
     runs-on: ubuntu-22.04
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
     
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
     
+    - name: List downloaded artifacts
+      run: |
+        echo "Downloaded artifacts:"
+        ls -la
+        find . -type f -name "*.deb" -o -name "*.rpm" -o -name "*.pkg" -o -name "*.msi"
+    
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          debian-package/*.deb
-          rpm-package/*.rpm
-          macos-package/*.pkg
-          windows-installer/*.msi
+          debian-package/*
+          rpm-package/*
+          macos-package/*
+          windows-installer/*
         draft: false
         prerelease: false
         body: |
@@ -244,9 +252,16 @@ jobs:
           sudo rpm -ivh colibri-server-*.rpm
           ```
           
-          **macOS:**
+          **macOS (PKG):**
           ```bash
           sudo installer -pkg colibri-server-*.pkg -target /
+          ```
+          
+          **macOS (Homebrew):**
+          ```bash
+          brew tap corpus-core/colibri
+          brew install colibri-server
+          brew services start colibri-server
           ```
           
           **Windows:**
@@ -255,9 +270,9 @@ jobs:
           msiexec /i colibri-server-*.msi
           ```
           
-          ### Deinstallation
+          ### Uninstallation
           
-          **macOS:**
+          **macOS (PKG):**
           ```bash
           # Download uninstall script
           curl -O https://raw.githubusercontent.com/corpus-core/colibri-stateless/main/installer/macos/uninstall.sh
@@ -265,7 +280,14 @@ jobs:
           sudo ./uninstall.sh
           ```
           
-          Or see [UNINSTALL.md](https://github.com/corpus-core/colibri-stateless/blob/main/installer/macos/UNINSTALL.md) for manual deinstallation.
+          Or see [UNINSTALL.md](https://github.com/corpus-core/colibri-stateless/blob/main/installer/macos/UNINSTALL.md) for manual uninstallation.
+          
+          **macOS (Homebrew):**
+          ```bash
+          brew services stop colibri-server
+          brew uninstall colibri-server
+          brew untap corpus-core/colibri
+          ```
           
           **Linux:**
           ```bash
