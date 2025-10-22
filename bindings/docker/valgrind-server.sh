@@ -36,7 +36,7 @@ if [ -n "$VALGRIND_XML" ]; then
 fi
 
 echo "Starting server under valgrind..."
-echo "Command: $VALGRIND_CMD /app/server $@"
+echo "Command: $VALGRIND_CMD /app/colibri-server $@"
 echo ""
 echo "Logs will be written to: ${VALGRIND_LOG}"
 echo "Server output below:"
@@ -47,7 +47,7 @@ echo ""
 trap 'echo ""; echo "Shutting down valgrind..."; kill -TERM $PID 2>/dev/null; wait $PID; echo "Valgrind report saved to ${VALGRIND_LOG}"; exit 0' SIGTERM SIGINT
 
 # Run valgrind with server
-$VALGRIND_CMD /app/server "$@" &
+$VALGRIND_CMD /app/colibri-server "$@" &
 PID=$!
 
 # Wait for valgrind to finish

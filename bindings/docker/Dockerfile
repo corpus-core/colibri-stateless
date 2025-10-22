@@ -37,7 +37,7 @@ COPY bindings ./bindings
 # Configure and build the server with Kona-P2P bridge
 ENV CC=clang
 ENV CXX=clang++
-RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true . && make server
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true . && make colibri-server
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final
@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy the built server executable from the builder stage
-COPY --from=builder /build/bin/server /app/server
+COPY --from=builder /build/bin/colibri-server /app/colibri-server
 
 # Add OCI labels for better GHCR integration
 LABEL org.opencontainers.image.title="Colibri Prover"
@@ -68,4 +68,4 @@ LABEL org.opencontainers.image.license-notice="This server component is licensed
 EXPOSE 8090
 
 # Default command to run the server
-CMD ["/app/server"]
+CMD ["/app/colibri-server"]

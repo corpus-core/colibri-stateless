@@ -49,9 +49,12 @@ fi
 echo ""
 remove_file "/Library/LaunchDaemons/io.corpuscore.colibri-server.plist"
 
-# Remove binary
+# Remove binaries
 echo ""
 remove_file "/usr/local/bin/colibri-server"
+remove_file "/usr/local/bin/colibri-prover"
+remove_file "/usr/local/bin/colibri-verifier"
+remove_file "/usr/local/bin/colibri-ssz"
 
 # Ask user if they want to remove configuration and logs
 echo ""

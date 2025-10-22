@@ -113,15 +113,15 @@ By default (`INSTALLER=OFF`):
 ```bash
 mkdir build && cd build
 cmake -DHTTP_SERVER=ON -DPROVER=ON ..
-make -j4 server
-./default/bin/server
+make -j4 colibri-server
+./default/bin/colibri-server
 ```
 
 **Packaging for distribution:**
 ```bash
 mkdir build && cd build
 cmake -DHTTP_SERVER=ON -DPROVER=ON -DINSTALLER=ON ..
-make -j4 server
+make -j4 colibri-server
 cpack  # Creates platform-specific package
 ```
 
@@ -440,13 +440,13 @@ To test the server without installing:
 mkdir -p build/test
 cd build/test
 cmake -DCMAKE_BUILD_TYPE=Release -DHTTP_SERVER=ON -DPROVER=ON -DVERIFIER=ON ../..
-make -j4 server
+make -j4 colibri-server
 
 # Create config
 cp ../../installer/config/server.conf.default ./server.conf
 
 # Run manually
-./default/bin/server -c server.conf
+./default/bin/colibri-server -c server.conf
 ```
 
 ## License

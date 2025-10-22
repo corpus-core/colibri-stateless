@@ -74,7 +74,7 @@ try {
         "-DPROVER=ON",
         "-DVERIFIER=ON",
         "-DPROVER_CACHE=ON",
-        "-DCLI=OFF",
+        "-DCLI=ON",
         "-DTEST=OFF",
         "-DINSTALLER=ON"
     )

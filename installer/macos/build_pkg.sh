@@ -28,11 +28,11 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -DPROVER=ON \
     -DVERIFIER=ON \
     -DPROVER_CACHE=ON \
-    -DCLI=OFF \
+    -DCLI=ON \
     -DTEST=OFF \
     -DINSTALLER=ON \
     ../..
-make -j4 server
+make -j4 colibri-server colibri-prover colibri-verifier colibri-ssz
 
 # Prepare package contents
 echo "Preparing package contents..."
@@ -55,9 +55,24 @@ fi
 
 echo "Found server binary at: $SERVER_BIN"
 
-# Install binary
+# Install server binary
 install -d "$PACKAGE_ROOT/usr/local/bin"
 install -m 0755 "$SERVER_BIN" "$PACKAGE_ROOT/usr/local/bin/colibri-server"
+
+# Install CLI tools
+CLI_BIN_DIR="$(dirname "$SERVER_BIN")"
+if [ -f "$CLI_BIN_DIR/colibri-prover" ]; then
+    install -m 0755 "$CLI_BIN_DIR/colibri-prover" "$PACKAGE_ROOT/usr/local/bin/colibri-prover"
+    echo "Installed CLI tool: colibri-prover"
+fi
+if [ -f "$CLI_BIN_DIR/colibri-verifier" ]; then
+    install -m 0755 "$CLI_BIN_DIR/colibri-verifier" "$PACKAGE_ROOT/usr/local/bin/colibri-verifier"
+    echo "Installed CLI tool: colibri-verifier"
+fi
+if [ -f "$CLI_BIN_DIR/colibri-ssz" ]; then
+    install -m 0755 "$CLI_BIN_DIR/colibri-ssz" "$PACKAGE_ROOT/usr/local/bin/colibri-ssz"
+    echo "Installed CLI tool: colibri-ssz"
+fi
 
 # Install config
 install -d "$PACKAGE_ROOT/usr/local/etc/colibri"
