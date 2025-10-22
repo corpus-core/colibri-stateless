@@ -80,6 +80,8 @@ PRECONF_CLEANUP_INTERVAL=5
 
 # Web Configuration UI
 # Enable the web-based configuration interface (0=disabled, 1=enabled)
-# WARNING: Only enable on local/trusted networks! No authentication is implemented.
-WEB_UI_ENABLED=0
+# Safe to enable when HOST=127.0.0.1 (localhost only, default).
+# WARNING: If you change HOST to 0.0.0.0, disable this or use a firewall!
+# No authentication is implemented.
+WEB_UI_ENABLED=1
 
