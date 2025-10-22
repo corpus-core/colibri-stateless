@@ -52,6 +52,7 @@ typedef struct {
 
 #define STR_BYTES(msg) bytes(msg, strlen(msg) - 1)
 typedef struct {
+  char*          host;           // Host/IP to bind to (default: 127.0.0.1 for security)
   char*          memcached_host;
   int            memcached_port;
   int            memcached_pool;
@@ -72,6 +73,10 @@ typedef struct {
   int   preconf_ttl_minutes;
   int   preconf_cleanup_interval_minutes;
   // preconf_use_gossip removed - now using automatic HTTP fallback until gossip is active
+
+  // Web UI configuration
+  int web_ui_enabled; // 0=disabled, 1=enabled (default: 0 for security)
+
 #ifdef TEST
   // Test recording mode: if set, all responses are written to TESTDATA_DIR/server/<test_dir>/
   char* test_dir;
@@ -197,12 +202,34 @@ void c4_http_server_on_close_callback(uv_handle_t* handle); // Cleanup callback 
 void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
 void c4_configure(int argc, char* argv[]);
+
+// Config parameter registry (for dynamic Web-UI)
+typedef enum {
+  CONFIG_PARAM_INT,
+  CONFIG_PARAM_STRING,
+  CONFIG_PARAM_KEY
+} config_param_type_t;
+
+typedef struct {
+  char*               name;        // env variable name
+  char*               arg_name;    // command line arg name
+  char*               description; // human-readable description
+  config_param_type_t type;        // parameter type
+  void*               value_ptr;   // pointer to actual value
+  int                 min;         // min value (for int)
+  int                 max;         // max value (for int)
+} config_param_t;
+
+const config_param_t* c4_get_config_params(int* count);
 // Handlers
 bool           c4_handle_verify_request(client_t* client);
 bool           c4_handle_proof_request(client_t* client);
 bool           c4_handle_status(client_t* client);
 bool           c4_handle_health_check(client_t* client);
 bool           c4_handle_metrics(client_t* client);
+bool           c4_handle_get_config(client_t* client);
+bool           c4_handle_post_config(client_t* client);
+bool           c4_handle_config_ui(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
 bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb);

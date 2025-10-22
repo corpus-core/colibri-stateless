@@ -43,12 +43,12 @@ const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
 
 // :: CLI
 
-// ::: ssz
-// a simple tool converting a ssz-formated proof into json.
+// ::: colibri-ssz
+// The colibri-ssz tool is used to convert SSZ-formatted proofs into JSON.
 //
 // ````sh
-//     # Convert a ssz-formated proof into json
-//     ssz -o block.json block_proof.ssz
+//     # Convert a ssz-formatted proof into json
+//     colibri-ssz -o block.json block_proof.ssz
 // ````
 //
 // ## Options
@@ -64,7 +64,7 @@ const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
 // | `<field1> ...` |                 | Fields to include in JSON output |         |
 
 int main(int argc, char* argv[]) {
-  if (argc == 1) {
+  if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s -t <typename> -o <outfile> -nh <file.ssz> <field1> <field2> ...\n"
                     "\n"
                     "  -c            : chain_id ( ust be prior to the type name)\n"

@@ -84,13 +84,13 @@ static bytes_t read_from_prover(char* url, char* method, char* args, bytes_t sta
 
 // :: CLI
 
-// ::: verify
-// The verify command is used to verify a proof for a given method and parameters.
-// You can pass either a proof file as input or a url to a prover-service. If non are specified the default prover-service will be used.
+// ::: colibri-verifier
+// The colibri-verifier command is used to verify a proof for a given method and parameters.
+// You can pass either a proof file as input or a url to a prover-service. If none are specified the default prover-service will be used.
 //
 // ````sh
 //     # Verify a proof for the eth_getBlockByNumber method
-//     verify -i block_proof.ssz eth_getBlockByNumber latest false
+//     colibri-verifier -i block_proof.ssz eth_getBlockByNumber latest false
 // ````
 //
 // ## Options
@@ -107,7 +107,7 @@ static bytes_t read_from_prover(char* url, char* method, char* args, bytes_t sta
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
 int main(int argc, char* argv[]) {
-  if (argc == 1 || strcmp(argv[1], "-h") == 0) {
+  if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s <OPTIONS> <method> <args> \n", argv[0]);
     fprintf(stderr, "OPTIONS: \n");
     fprintf(stderr, "  -c <chain_id> \n");

@@ -1,5 +1,8 @@
 #include "eth_clients.h"
 #include "handler.h"
+#ifdef _WIN32
+#include "../../../util/win_compat.h"
+#endif
 
 // Case-insensitive string search helper from the original file
 static bool contains_client_name(const char* response, const char* client_name) {

@@ -56,12 +56,12 @@
 // }
 // ````
 
-// ::: proof
-// The proof command is used to create proofs for a given method and parameters. It works without any backend.
+// ::: colibri-prover
+// The colibri-prover command is used to create proofs for a given method and parameters. It works without any backend.
 //
 // ````sh
 //     # Create a proof for the eth_getBlockByNumber method
-//     proof -o block_proof.ssz eth_getBlockByNumber latest false
+//     colibri-prover -o block_proof.ssz eth_getBlockByNumber latest false
 // ````
 //
 // ## Options
@@ -78,7 +78,7 @@
 // | `<params>`     |                 | Parameters for the method                                                   |              |
 
 int main(int argc, char* argv[]) {
-  if (argc < 2) {
+  if (argc < 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s [options] <method> <params> > proof.ssz\n"
                     "\n"
                     "  -c <chain_id>    : selected chain (default MAINNET = 1)\n"

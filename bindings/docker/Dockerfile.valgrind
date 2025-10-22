@@ -51,7 +51,7 @@ RUN cmake \
     -DCHAIN_ETH=ON \
     -DEVMONE=OFF \
     -DPROVER_CACHE=true \
-    . && make server
+    . && make colibri-server
 
 # Use Debian slim for runtime (keep valgrind for analysis)
 FROM debian:bookworm-slim AS final
@@ -69,7 +69,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy the built server executable with debug symbols
-COPY --from=builder /build/bin/server /app/server
+COPY --from=builder /build/bin/colibri-server /app/colibri-server
 
 # Copy valgrind suppressions
 COPY --from=builder /build/test/valgrind/server.supp /app/server.supp

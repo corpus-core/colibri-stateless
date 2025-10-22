@@ -1,0 +1,290 @@
+name: Build Installers
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'dev'
+      - 'installer'
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - 'main'
+      - 'dev'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: true
+        default: '1.0.0'
+
+jobs:
+  determine-version:
+    name: Determine Version
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            # Extract version from tag (v1.2.3 -> 1.2.3)
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+            echo "Building release version: $VERSION"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+            echo "Building manual version: $VERSION"
+          else
+            # For branches, use short commit SHA
+            VERSION="dev-${{ github.sha }}"
+            VERSION="${VERSION:0:15}"
+            echo "Building dev version: $VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  build-linux-deb:
+    name: Build Debian Package
+    runs-on: ubuntu-22.04
+    needs: determine-version
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y dpkg-dev debhelper cmake gcc g++ \
+          libssl-dev libcurl4-openssl-dev build-essential
+    
+    - name: Make scripts executable
+      run: chmod +x installer/linux/debian/{rules,postinst,prerm,postrm}
+    
+    - name: Build Debian package
+      run: |
+        cd installer/linux
+        ./build_deb.sh
+    
+    - name: Upload Debian package
+      uses: actions/upload-artifact@v4
+      with:
+        name: debian-package
+        path: colibri-server_*.deb
+
+  build-linux-rpm:
+    name: Build RPM Package
+    runs-on: ubuntu-22.04
+    needs: determine-version
+    container: fedora:38
+    
+    steps:
+    - name: Install Git
+      run: |
+        dnf install -y git
+    
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        dnf install -y rpm-build rpmdevtools cmake gcc gcc-c++ \
+          openssl-devel libcurl-devel make tar gzip
+    
+    - name: Build RPM package
+      run: |
+        cd installer/linux
+        chmod +x build_rpm.sh
+        ./build_rpm.sh
+    
+    - name: Upload RPM package
+      uses: actions/upload-artifact@v4
+      with:
+        name: rpm-package
+        path: ~/rpmbuild/RPMS/*/colibri-server-*.rpm
+
+  build-macos:
+    name: Build macOS Package
+    runs-on: macos-13
+    needs: determine-version
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        brew install cmake
+    
+    - name: Build macOS package
+      env:
+        VERSION: ${{ needs.determine-version.outputs.version }}
+      run: |
+        cd installer/macos
+        chmod +x build_pkg.sh
+        ./build_pkg.sh "$VERSION"
+    
+    - name: Upload macOS package
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-package
+        path: "*.pkg"
+
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-2022
+    needs: determine-version
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v1.1
+    
+    - name: Install vcpkg and CURL
+      run: |
+        # Install vcpkg (comes pre-installed on GitHub runners)
+        $vcpkgRoot = "$env:VCPKG_INSTALLATION_ROOT"
+        if (-not $vcpkgRoot) {
+          $vcpkgRoot = "C:\vcpkg"
+        }
+        echo "Using vcpkg at: $vcpkgRoot"
+        
+        # Ensure vcpkg is up to date
+        Push-Location $vcpkgRoot
+        .\vcpkg.exe integrate install
+        Pop-Location
+        
+        # Install CURL
+        & "$vcpkgRoot\vcpkg.exe" install curl:x64-windows
+        
+        # Set CMake toolchain file as environment variable
+        $toolchainFile = "$vcpkgRoot\scripts\buildsystems\vcpkg.cmake"
+        echo "CMAKE_TOOLCHAIN_FILE=$toolchainFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        
+        # Verify installation
+        if (Test-Path "$vcpkgRoot\installed\x64-windows\include\curl\curl.h") {
+          echo "CURL headers found at: $vcpkgRoot\installed\x64-windows\include\curl\curl.h"
+        } else {
+          echo "WARNING: CURL headers not found!"
+        }
+      shell: powershell
+    
+    - name: Install WiX Toolset
+      run: |
+        choco install wixtoolset -y
+        # Wait for installation to complete
+        Start-Sleep -Seconds 5
+        # Find WiX installation
+        $wixPath = Get-ChildItem "C:\Program Files (x86)\" -Filter "WiX*" -Directory | Select-Object -First 1
+        if ($wixPath) {
+          $wixBin = Join-Path $wixPath.FullName "bin"
+          echo "Found WiX at: $wixBin"
+          echo $wixBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        }
+      shell: powershell
+    
+    - name: Build Windows installer
+      run: |
+        cd installer\windows
+        .\build_installer.ps1
+      shell: powershell
+    
+    - name: Upload Windows installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer
+        path: build\colibri-server-*.msi
+
+  create-release:
+    name: Create Release
+    needs: [build-linux-deb, build-linux-rpm, build-macos, build-windows]
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          debian-package/*.deb
+          rpm-package/*.rpm
+          macos-package/*.pkg
+          windows-installer/*.msi
+        draft: false
+        prerelease: false
+        body: |
+          ## Colibri Server Release ${{ github.ref_name }}
+          
+          ### Installation
+          
+          **Linux (Debian/Ubuntu):**
+          ```bash
+          sudo dpkg -i colibri-server_*.deb
+          sudo apt-get install -f
+          ```
+          
+          **Linux (RPM):**
+          ```bash
+          sudo rpm -ivh colibri-server-*.rpm
+          ```
+          
+          **macOS:**
+          ```bash
+          sudo installer -pkg colibri-server-*.pkg -target /
+          ```
+          
+          **Windows:**
+          Double-click the MSI file or run:
+          ```powershell
+          msiexec /i colibri-server-*.msi
+          ```
+          
+          ### Deinstallation
+          
+          **macOS:**
+          ```bash
+          # Download uninstall script
+          curl -O https://raw.githubusercontent.com/corpus-core/colibri-stateless/main/installer/macos/uninstall.sh
+          chmod +x uninstall.sh
+          sudo ./uninstall.sh
+          ```
+          
+          Or see [UNINSTALL.md](https://github.com/corpus-core/colibri-stateless/blob/main/installer/macos/UNINSTALL.md) for manual deinstallation.
+          
+          **Linux:**
+          ```bash
+          # Debian/Ubuntu
+          sudo apt-get remove colibri-server
+          
+          # RPM
+          sudo rpm -e colibri-server
+          ```
+          
+          **Windows:**
+          Use "Add/Remove Programs" or:
+          ```powershell
+          msiexec /x colibri-server-*.msi
+          ```
+          
+          ### Documentation
+          
+          See [installer/README.md](https://github.com/corpus-core/colibri-stateless/blob/main/installer/README.md) for detailed installation and configuration instructions.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

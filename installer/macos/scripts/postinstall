@@ -1,0 +1,43 @@
+#!/bin/bash
+# Post-installation script for Colibri Server on macOS
+
+set -e
+
+echo "Configuring Colibri Server..."
+
+# Create working directory
+mkdir -p /var/lib/colibri
+chmod 755 /var/lib/colibri
+
+# Set permissions on config
+chown root:wheel /usr/local/etc/colibri/server.conf
+chmod 644 /usr/local/etc/colibri/server.conf
+
+# Install and load LaunchDaemon
+PLIST_SOURCE="/usr/local/share/colibri/io.corpuscore.colibri-server.plist"
+PLIST_TARGET="/Library/LaunchDaemons/io.corpuscore.colibri-server.plist"
+
+if [ -f "$PLIST_SOURCE" ]; then
+    cp "$PLIST_SOURCE" "$PLIST_TARGET"
+    chmod 644 "$PLIST_TARGET"
+    chown root:wheel "$PLIST_TARGET"
+    
+    # Load the service
+    launchctl load "$PLIST_TARGET" 2>/dev/null || true
+    
+    echo ""
+    echo "====================================================================="
+    echo "Colibri Server has been installed successfully!"
+    echo ""
+    echo "Configuration file: /usr/local/etc/colibri/server.conf"
+    echo "Edit this file to customize your server settings."
+    echo ""
+    echo "To start the service:   sudo launchctl start io.corpuscore.colibri-server"
+    echo "To stop the service:    sudo launchctl stop io.corpuscore.colibri-server"
+    echo "To view logs:           tail -f /var/log/colibri-server.log"
+    echo "====================================================================="
+    echo ""
+fi
+
+exit 0
+

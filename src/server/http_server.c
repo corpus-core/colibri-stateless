@@ -11,6 +11,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <uv.h>
+#ifdef _WIN32
+#include "../util/win_compat.h"
+#endif
 
 static http_handler* handlers = NULL;
 static int           handlers_count;

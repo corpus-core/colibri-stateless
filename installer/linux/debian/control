@@ -1,0 +1,30 @@
+Source: colibri-server
+Section: net
+Priority: optional
+Maintainer: Simon Jentzsch <simon@corpus.io>
+Build-Depends: debhelper (>= 10), cmake (>= 3.20), gcc, g++, libcurl4-openssl-dev, libssl-dev
+Standards-Version: 4.5.0
+Homepage: https://corpuscore.tech/
+Vcs-Git: https://github.com/corpus-core/colibri-stateless.git
+Vcs-Browser: https://github.com/corpus-core/colibri-stateless
+
+Package: colibri-server
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libc6 (>= 2.27), libssl3 | libssl1.1, libcurl4
+Recommends: memcached
+Description: Trustless stateless-client for Ethereum and L1/L2 networks
+ Colibri.stateless is a trustless stateless-client for Ethereum and other
+ L1 and L2 networks. It enables applications to access and verify blockchain
+ data independently by cryptographic proofs, without relying on trusted third
+ parties. Designed for IoT, mobile, and web environments, it uses zk-proofs
+ to deliver secure, efficient, and fully self-sovereign blockchain interaction.
+ .
+ This package installs the server and CLI tools:
+  - colibri-server: Main prover/verifier server with HTTP API
+  - colibri-prover: Generate cryptographic proofs
+  - colibri-verifier: Verify cryptographic proofs
+  - colibri-ssz: SSZ serialization utilities
+ .
+ Documentation: https://corpus-core.gitbook.io/specification-colibri-stateless
+ Copyright: corpus.core - https://corpuscore.tech/
+

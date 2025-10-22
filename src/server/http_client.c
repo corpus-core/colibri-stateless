@@ -191,9 +191,10 @@ static char* extract_rpc_method(data_request_t* req) {
 
 // Context structure to associate uv_poll_t with CURL easy handle
 typedef struct {
-  uv_poll_t poll_handle;
-  CURL*     easy_handle;
-  bool      is_done_processing; // Flag set by handle_curl_events
+  uv_poll_t     poll_handle;
+  CURL*         easy_handle;
+  curl_socket_t socket;             // Store socket descriptor for cross-platform access
+  bool          is_done_processing; // Flag set by handle_curl_events
 } curl_poll_context_t;
 
 // Custom close callback for uv_poll_t handles
@@ -451,8 +452,8 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
     // fprintf(stderr, "poll_cb: ignoring call on closing/invalid handle %p\n", handle);
     return;
   }
-  // Retrieve context if needed (though not strictly necessary for current logic)
-  // curl_poll_context_t* context = (curl_poll_context_t*) handle->data;
+  // Retrieve context to get socket descriptor
+  curl_poll_context_t* context = (curl_poll_context_t*) handle->data;
 
   // Check if there was an error
   if (status < 0) {
@@ -465,7 +466,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
   if (events & UV_WRITABLE) flags |= CURL_CSELECT_OUT;
 
   int           running_handles;
-  curl_socket_t socket = handle->io_watcher.fd;
+  curl_socket_t socket = context->socket; // Use stored socket from context
 
   // Make sure the socket is valid
   if (socket < 0) {
@@ -543,6 +544,7 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
       return -1;
     }
     context->easy_handle = easy;
+    context->socket      = s; // Store socket descriptor for cross-platform access
     int err              = uv_poll_init_socket(uv_default_loop(), &context->poll_handle, s);
     if (err != 0) {
       fprintf(stderr, "Failed to initialize poll handle: %s\n", uv_strerror(err));
@@ -985,7 +987,7 @@ void c4_init_curl(uv_timer_t* timer) {
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
 
-  if (http_server.memcached_host) {
+  if (http_server.memcached_host && *http_server.memcached_host) {
     // Initialize memcached client
     memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
     if (!memcache_client) {

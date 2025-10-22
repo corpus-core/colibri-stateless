@@ -72,6 +72,9 @@ set(INCLUDE "" CACHE STRING "Additional directory to include in build")
 option(HTTP_SERVER "Build the HTTP server using libuv and llhttp" OFF)
 option(HTTP_SERVER_GEO "support for geo-location" ON)
 
+# Add option for building installer packages
+option(INSTALLER "Build installer packages (requires HTTP_SERVER=ON)" OFF)
+
 if (HTTP_SERVER)
     add_definitions(-DHTTP_SERVER)
     if (HTTP_SERVER_GEO)
@@ -459,4 +462,9 @@ if(SHAREDLIB AND NOT EMBEDDED)
         VERSION 1.0
         SOVERSION 1
     )
+endif()
+
+# Installer configuration
+if(INSTALLER)
+    add_subdirectory(installer)
 endif()

@@ -1,0 +1,43 @@
+#!/usr/bin/make -f
+# Debian rules file for colibri-server
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DHTTP_SERVER=ON \
+		-DPROVER=ON \
+		-DVERIFIER=ON \
+		-DPROVER_CACHE=ON \
+		-DCLI=ON \
+		-DTEST=OFF \
+		-DINSTALLER=ON \
+		..
+
+override_dh_auto_build:
+	cd build && $(MAKE) -j4 colibri-server colibri-prover colibri-verifier colibri-ssz
+
+override_dh_auto_install:
+	# Install server binary
+	install -D -m 0755 build/bin/colibri-server debian/colibri-server/usr/bin/colibri-server
+	
+	# Install CLI tools
+	install -D -m 0755 build/bin/colibri-prover debian/colibri-server/usr/bin/colibri-prover
+	install -D -m 0755 build/bin/colibri-verifier debian/colibri-server/usr/bin/colibri-verifier
+	install -D -m 0755 build/bin/colibri-ssz debian/colibri-server/usr/bin/colibri-ssz
+	
+	# Install default config
+	install -D -m 0644 installer/config/server.conf.default debian/colibri-server/etc/colibri/server.conf
+	
+	# Install systemd service
+	install -D -m 0644 installer/scripts/systemd/colibri-server.service \
+		debian/colibri-server/lib/systemd/system/colibri-server.service
+
+override_dh_auto_clean:
+	rm -rf build
+

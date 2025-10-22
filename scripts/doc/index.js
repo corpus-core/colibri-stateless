@@ -24,11 +24,20 @@ const doc_files = [
     "cli/prover.c",
     "cli/ssz.c",
     "cli/verifier.c",
+
     // bindings
     "../bindings/emscripten/doc.md",
     "../bindings/kotlin/doc.md",
     "../bindings/swift/doc.md",
     "../bindings/python/doc.md",
+
+    // installer
+    "../installer/README.md",
+    "../installer/macos/README.md",
+    "../installer/linux/README.md",
+    "../installer/windows/README.md",
+    "../installer/homebrew/README.md",
+
 
     // api
     "verifier/verify.h",
