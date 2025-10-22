@@ -15,13 +15,46 @@ class ColibriServer < Formula
   depends_on "rust" => :build
   depends_on "curl"
   
+  # External dependencies (normally fetched via FetchContent, but Homebrew doesn't allow that)
+  resource "blst" do
+    url "https://github.com/supranational/blst/archive/refs/tags/v0.3.13.tar.gz"
+    sha256 "89772cef338e93bc0348ae531462752906e8fa34738e38035308a7931dd2948f"
+  end
+  
+  resource "libuv" do
+    url "https://github.com/libuv/libuv/archive/refs/tags/v1.50.0.tar.gz"
+    sha256 "b1ec56444ee3f1e10c8bd3eed16ba47016ed0b94fe42137435aaf2e0bd574579"
+  end
+  
+  resource "llhttp" do
+    url "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz"
+    sha256 "3c163891446e529604b590f9ad097b2e98b5ef7e4d3ddcf1cf98b62ca668f23e"
+  end
+  
+  resource "zstd" do
+    url "https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz"
+    sha256 "30f35f71c1203369dc979ecde0400ffea93c27391bfd2ac5a9715d2173d92ff7"
+  end
+  
+  resource "tommath" do
+    url "https://github.com/libtom/libtommath/archive/refs/tags/v1.3.0.tar.gz"
+    sha256 "6d099e93ff00fa9b18346f4bcd97dcc48c3e91286f7e16c4ac5515a7171c3149"
+  end
+  
   def install
+    # Extract all resources into their respective directories
+    resource("blst").stage { (buildpath/"libs/blst/blst").install Dir["*"] }
+    resource("libuv").stage { (buildpath/"libs/libuv/libuv").install Dir["*"] }
+    resource("llhttp").stage { (buildpath/"libs/llhttp/llhttp").install Dir["*"] }
+    resource("zstd").stage { (buildpath/"libs/zstd/zstd").install Dir["*"] }
+    resource("tommath").stage { (buildpath/"libs/tommath/tommath").install Dir["*"] }
     # Build directory
     mkdir "build" do
       system "cmake", "..",
              "-DCMAKE_BUILD_TYPE=Release",
              "-DHTTP_SERVER=ON",
              "-DPROVER=ON",
+             "-DPROVER_CACHE=ON",
              "-DVERIFIER=ON",
              "-DCLI=ON",
              "-DTEST=OFF",
