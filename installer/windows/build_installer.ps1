@@ -124,10 +124,13 @@ $OutputDir = "$ProjectRoot\build"
 
 Push-Location $InstallerDir
 try {
+    Write-Host "Using server binary: $ServerExe" -ForegroundColor Green
+    
     # Compile WiX source
     & "$wixPath\candle.exe" -nologo -arch x64 `
         -dConfiguration=$Configuration `
         -dProjectRoot=$ProjectRoot `
+        -dServerExePath="$ServerExe" `
         colibri.wxs
     
     if (-not $?) {

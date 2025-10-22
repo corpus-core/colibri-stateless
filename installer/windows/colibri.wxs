@@ -39,7 +39,7 @@
         <Directory Id="INSTALLFOLDER" Name="Colibri">
           <Component Id="MainExecutable" Guid="*">
             <File Id="ColibriServerExe" 
-                  Source="..\..\build\default\bin\server.exe" 
+                  Source="$(var.ServerExePath)" 
                   KeyPath="yes"
                   Name="colibri-server.exe" />
           </Component>
