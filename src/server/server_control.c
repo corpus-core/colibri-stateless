@@ -4,6 +4,7 @@
  */
 
 #include "../prover/prover.h"
+#include "../util/version.h"
 #include "server.h"
 #include "server_handlers.h"
 #include <curl/curl.h>
@@ -132,7 +133,7 @@ int c4_server_start(server_instance_t* instance, int port) {
                           cleanup_interval_ms, cleanup_interval_ms),
            instance);
 
-  fprintf(stderr, "C4 Server starting on %s:%d\n", http_server.host, instance->port);
+  fprintf(stderr, "C4 Server %s starting on %s:%d\n", c4_client_version, http_server.host, instance->port);
 
   // Initialize curl
   c4_init_curl(&instance->curl_timer);
@@ -151,7 +152,7 @@ int c4_server_start(server_instance_t* instance, int port) {
   UV_CHECK("Init idle handle start", uv_idle_start(&instance->init_idle_handle, on_init_idle), instance);
 
   instance->is_running = true;
-  fprintf(stderr, "C4 Server running on %s:%d\n", http_server.host, instance->port);
+  fprintf(stderr, "C4 Server %s running on %s:%d\n", c4_client_version, http_server.host, instance->port);
 
   return 0;
 }

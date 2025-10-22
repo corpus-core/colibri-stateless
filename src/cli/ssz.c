@@ -27,6 +27,7 @@
 #include "chains.h"
 #include "crypto.h"
 #include "verify.h"
+#include "version.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,7 +65,13 @@ const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
 // | `<field1> ...` |                 | Fields to include in JSON output |         |
 
 int main(int argc, char* argv[]) {
-  if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+  // Check for --version
+  if (argc >= 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
+    c4_print_version(stdout, "colibri-ssz");
+    exit(EXIT_SUCCESS);
+  }
+
+  if (argc == 1 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s -t <typename> -o <outfile> -nh <file.ssz> <field1> <field2> ...\n"
                     "\n"
                     "  -c            : chain_id ( ust be prior to the type name)\n"
@@ -73,6 +80,7 @@ int main(int argc, char* argv[]) {
                     "  -h            : show hash_root\n"
                     "  -n            : show typename\n"
                     "  -s            : show serialization\n"
+                    "  --version, -v : display version information\n"
                     "\n",
             argv[0]);
     exit(EXIT_FAILURE);

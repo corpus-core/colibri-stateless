@@ -3,11 +3,21 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
+#include "../util/version.h"
 #include "server.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char* argv[]) {
+  // Check for --version before configure
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
+      c4_print_version(stdout, "colibri-server");
+      return 0;
+    }
+  }
+
   c4_configure(argc, argv);
 
   server_instance_t instance;

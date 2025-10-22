@@ -30,7 +30,20 @@
 #define CHAIN_TYPE    1 // ETH=1
 
 #include <stdint.h>
+#include <stdio.h>
 
-extern const uint8_t c4_version_bytes[4];
+// the Version of the Protocol used when creating proof. This should only be changed, if the proof format changes.
+extern const uint8_t c4_protocol_version_bytes[4];
+
+// the client-version, which should be set during the build-process.
+extern const char* c4_client_version;
+
+/**
+ * Print version information and build flags to the specified file stream.
+ *
+ * @param out Output stream (e.g., stdout or stderr)
+ * @param program_name Name of the program (e.g., "colibri-server")
+ */
+void c4_print_version(FILE* out, const char* program_name);
 
 #endif

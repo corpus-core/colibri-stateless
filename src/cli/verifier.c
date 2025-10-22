@@ -107,6 +107,12 @@ static bytes_t read_from_prover(char* url, char* method, char* args, bytes_t sta
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
 int main(int argc, char* argv[]) {
+  // Check for --version
+  if (argc >= 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
+    c4_print_version(stdout, "colibri-verifier");
+    exit(EXIT_SUCCESS);
+  }
+
   if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s <OPTIONS> <method> <args> \n", argv[0]);
     fprintf(stderr, "OPTIONS: \n");
@@ -117,6 +123,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
     fprintf(stderr, "  -p url of the prover\n");
     fprintf(stderr, "  -r rpc url\n");
+    fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
   }

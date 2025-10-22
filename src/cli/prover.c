@@ -30,6 +30,7 @@
 #include "../util/json.h"
 #include "../util/ssz.h"
 #include "../util/state.h"
+#include "../util/version.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -78,6 +79,12 @@
 // | `<params>`     |                 | Parameters for the method                                                   |              |
 
 int main(int argc, char* argv[]) {
+  // Check for --version
+  if (argc >= 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
+    c4_print_version(stdout, "colibri-prover");
+    exit(EXIT_SUCCESS);
+  }
+
   if (argc < 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s [options] <method> <params> > proof.ssz\n"
                     "\n"
@@ -87,6 +94,7 @@ int main(int argc, char* argv[]) {
                     "  -o <outputfile>  : ssz file with the proof ( default to stdout )\n"
                     "  -d <chain_store> : use chain_data from the chain_store found within the path\n"
                     "  -i               : include code in the proof\n"
+                    "  --version, -v    : display version information\n"
                     "\n",
             argv[0]);
     exit(EXIT_FAILURE);

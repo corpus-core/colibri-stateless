@@ -18,7 +18,7 @@ static void set_data(ssz_builder_t* req, const char* name, ssz_builder_t data) {
 bytes_t op_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_builder_t proof, ssz_builder_t sync_data) {
   ssz_builder_t c4_req    = (ssz_builder_t) {.def = op_ssz_verification_type(OP_SSZ_VERIFY_REQUEST), .dynamic = {0}, .fixed = {0}};
   uint8_t       vbytes[4] = {0};
-  memcpy(vbytes, c4_version_bytes, 4);
+  memcpy(vbytes, c4_protocol_version_bytes, 4);
   vbytes[0] = C4_CHAIN_TYPE_OP;
 
   // build the request

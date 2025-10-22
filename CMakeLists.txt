@@ -22,6 +22,29 @@
 cmake_minimum_required(VERSION 3.10...3.32)
 project(c4)
 
+# Version information - try to get from git, fallback to default
+execute_process(
+    COMMAND git describe --tags --always --dirty
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+
+if(NOT GIT_VERSION)
+    set(GIT_VERSION "0.1.0-dev")
+endif()
+
+# Allow overriding version (e.g., from CI)
+if(DEFINED ENV{C4_VERSION})
+    set(C4_VERSION $ENV{C4_VERSION})
+else()
+    set(C4_VERSION ${GIT_VERSION})
+endif()
+
+message(STATUS "C4 Version: ${C4_VERSION}")
+add_definitions(-DC4_VERSION="${C4_VERSION}")
+
 # Core build options
 option(CURL "Enable CURL support" ON)
 option(WITNESS_SIGNER "Enable witness signing" ON)
