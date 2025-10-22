@@ -175,9 +175,9 @@ try {
     
     # Compile WiX source
     & "$wixPath\candle.exe" -nologo -arch x64 `
-        -dConfiguration=$Configuration `
-        -dProjectRoot=$ProjectRoot `
-        -dVersion=$Version `
+        -dConfiguration="$Configuration" `
+        -dProjectRoot="$ProjectRoot" `
+        -dVersion="$Version" `
         -dServerExePath="$ServerExe" `
         -dProverExePath="$ProverExe" `
         -dVerifierExePath="$VerifierExe" `
