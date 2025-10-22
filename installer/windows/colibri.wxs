@@ -57,13 +57,21 @@
           </Component>
           
           <!-- CLI Tools -->
-          <Component Id="CliTools" Guid="*" Win64="yes">
+          <Component Id="CliProver" Guid="*" Win64="yes">
             <File Id="ColibriProverExe" 
                   Source="$(var.ProverExePath)" 
+                  KeyPath="yes"
                   Name="colibri-prover.exe" />
+          </Component>
+          
+          <Component Id="CliVerifier" Guid="*" Win64="yes">
             <File Id="ColibriVerifierExe" 
                   Source="$(var.VerifierExePath)" 
+                  KeyPath="yes"
                   Name="colibri-verifier.exe" />
+          </Component>
+          
+          <Component Id="CliSsz" Guid="*" Win64="yes">
             <File Id="ColibriSszExe" 
                   Source="$(var.SszExePath)" 
                   KeyPath="yes"
@@ -89,7 +97,9 @@
     <!-- Features -->
     <Feature Id="ProductFeature" Title="Colibri Server" Level="1">
       <ComponentRef Id="MainExecutable" />
-      <ComponentRef Id="CliTools" />
+      <ComponentRef Id="CliProver" />
+      <ComponentRef Id="CliVerifier" />
+      <ComponentRef Id="CliSsz" />
       <ComponentRef Id="ConfigFile" />
     </Feature>
 
