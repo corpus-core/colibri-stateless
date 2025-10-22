@@ -139,7 +139,7 @@ static void on_file_opened_for_append(uv_fs_t* req) {
   append_req->uv_buf = uv_buf_init((char*) append_req->data_to_write.data, append_req->data_to_write.len);
   uv_fs_write(uv_default_loop(), &append_req->fs_req, append_req->file_descriptor, &append_req->uv_buf, 1, -1, on_file_written_for_append);
 }
-
+/*
 static void append_data(char* path, bytes_t data) {
   if (!path || !data.data || data.len == 0) {
     log_warn("Ungültiger Pfad oder Daten für append_data.");
@@ -188,7 +188,7 @@ static void append_data(char* path, bytes_t data) {
     // uv_fs_req_cleanup ist hier nicht nötig, da der Request nicht erfolgreich initialisiert wurde
   }
 }
-
+*/
 static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* sig_block, ssz_ob_t* data_block) {
   c4_status_t         status      = C4_SUCCESS;
   const chain_spec_t* spec        = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
