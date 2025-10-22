@@ -5,11 +5,23 @@ set -e
 
 VERSION="${1:-1.0.0}"
 
+# RPM doesn't allow + or - in version, so split into VERSION and RELEASE
+# e.g., "0.0.0+devabcdef" -> VERSION="0.0.0" RELEASE="0.devabcdef"
+if [[ "$VERSION" == *"+"* ]]; then
+    # Split at + sign
+    RPM_VERSION="${VERSION%%+*}"
+    RPM_RELEASE="0.${VERSION##*+}"
+else
+    RPM_VERSION="$VERSION"
+    RPM_RELEASE="1"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 echo "Building Colibri Server RPM package..."
-echo "Version: $VERSION"
+echo "Version: $RPM_VERSION"
+echo "Release: $RPM_RELEASE"
 echo "Project root: $PROJECT_ROOT"
 
 # Check if required tools are installed
@@ -24,18 +36,19 @@ fi
 RPMBUILD_DIR="$HOME/rpmbuild"
 mkdir -p "$RPMBUILD_DIR"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
-# Create source tarball
-TARBALL="$RPMBUILD_DIR/SOURCES/colibri-server-${VERSION}.tar.gz"
+# Create source tarball using RPM_VERSION
+TARBALL="$RPMBUILD_DIR/SOURCES/colibri-server-${RPM_VERSION}.tar.gz"
 echo "Creating source tarball: $TARBALL"
 cd "$PROJECT_ROOT/.."
 tar --exclude='.git' --exclude='build' --exclude='node_modules' \
-    --transform="s|^colibri-stateless|colibri-server-${VERSION}|" \
+    --transform="s|^colibri-stateless|colibri-server-${RPM_VERSION}|" \
     -czf "$TARBALL" colibri-stateless
 
 # Copy and update spec file
 cp "$PROJECT_ROOT/installer/linux/rpm/colibri-server.spec" "$RPMBUILD_DIR/SPECS/"
-echo "Updating version in spec file to $VERSION..."
-sed -i "s/^Version:.*/Version:        $VERSION/" "$RPMBUILD_DIR/SPECS/colibri-server.spec"
+echo "Updating version to $RPM_VERSION and release to $RPM_RELEASE..."
+sed -i "s/^Version:.*/Version:        $RPM_VERSION/" "$RPMBUILD_DIR/SPECS/colibri-server.spec"
+sed -i "s/^Release:.*/Release:        $RPM_RELEASE%{?dist}/" "$RPMBUILD_DIR/SPECS/colibri-server.spec"
 
 # Build the package
 echo "Building RPM package..."
@@ -48,7 +61,7 @@ cp RPMS/*/colibri-server-*.rpm "$SCRIPT_DIR/" || true
 echo ""
 echo "====================================================================="
 echo "RPM package built successfully!"
-echo "Package: $SCRIPT_DIR/colibri-server-${VERSION}-*.rpm"
+echo "Package: $SCRIPT_DIR/colibri-server-${RPM_VERSION}-${RPM_RELEASE}.*.rpm"
 echo ""
 echo "To install: sudo rpm -ivh colibri-server-*.rpm"
 echo "Or:         sudo dnf install colibri-server-*.rpm"

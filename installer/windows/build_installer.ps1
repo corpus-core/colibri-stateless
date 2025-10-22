@@ -9,16 +9,27 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Convert version to WiX format (x.x.x.x)
-# If version has only 3 parts (e.g., 1.2.3), add .0 to make it 1.2.3.0
-$versionParts = $Version.Split('.')
-if ($versionParts.Count -eq 3) {
-    $Version = "$Version.0"
+# WiX only accepts numeric versions with dots, no + or other characters
+if ($Version -match '\+') {
+    # Dev version like "0.0.0+devabcdef" -> "0.0.0.1"
+    $Version = $Version.Split('+')[0]
+    $versionParts = $Version.Split('.')
+    if ($versionParts.Count -eq 3) {
+        $Version = "$Version.1"  # Use .1 for dev builds
+    }
 }
-elseif ($versionParts.Count -lt 3) {
-    # Pad with zeros if needed
-    while ($versionParts.Count -lt 4) {
+else {
+    # Regular version conversion
+    $versionParts = $Version.Split('.')
+    if ($versionParts.Count -eq 3) {
         $Version = "$Version.0"
-        $versionParts = $Version.Split('.')
+    }
+    elseif ($versionParts.Count -lt 3) {
+        # Pad with zeros if needed
+        while ($versionParts.Count -lt 4) {
+            $Version = "$Version.0"
+            $versionParts = $Version.Split('.')
+        }
     }
 }
 

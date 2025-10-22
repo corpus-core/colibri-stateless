@@ -38,9 +38,11 @@ jobs:
             VERSION="${{ github.event.inputs.version }}"
             echo "Building manual version: $VERSION"
           else
-            # For branches, use short commit SHA
-            VERSION="dev-${{ github.sha }}"
-            VERSION="${VERSION:0:15}"
+            # For branches, use 0.0.0 with commit SHA suffix
+            # Format: 0.0.0+devSHORTSHA (valid for both DEB and RPM)
+            SHORT_SHA="${{ github.sha }}"
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            VERSION="0.0.0+dev${SHORT_SHA}"
             echo "Building dev version: $VERSION"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
