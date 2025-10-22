@@ -166,7 +166,7 @@ bool c4_handle_config_ui(client_t* client) {
     const char* error_html =
         "<!DOCTYPE html><html><head><title>Web UI Disabled</title></head>"
         "<body style='font-family: sans-serif; text-align: center; padding: 50px;'>"
-        "<h1>🔒 Web UI Disabled</h1>"
+        "<h1>&#128274; Web UI Disabled</h1>"
         "<p>The configuration web interface is currently disabled for security reasons.</p>"
         "<p>To enable it, add <code>WEB_UI_ENABLED=1</code> to your config file or use the <code>-u</code> flag.</p>"
         "<p><strong>Warning:</strong> Only enable this on local/trusted networks!</p>"
