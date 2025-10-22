@@ -62,16 +62,18 @@ class ColibriServer < Formula
   end
   
   def install
-    # Extract all resources into their respective directories
-    resource("blst").stage { (buildpath/"libs/blst/blst").install Dir["*"] }
-    resource("libuv").stage { (buildpath/"libs/libuv/libuv").install Dir["*"] }
-    resource("llhttp").stage { (buildpath/"libs/llhttp/llhttp").install Dir["*"] }
-    resource("zstd").stage { (buildpath/"libs/zstd/zstd").install Dir["*"] }
-    resource("tommath").stage { (buildpath/"libs/tommath/tommath").install Dir["*"] }
-    resource("evmone").stage { (buildpath/"libs/evmone/evmone").install Dir["*"] }
-    resource("intx").stage { (buildpath/"libs/intx/intx").install Dir["*"] }
-    resource("ethash").stage { (buildpath/"libs/evmone/ethash").install Dir["*"] }
-    resource("evmc").stage { (buildpath/"libs/evmone/evmone/evmc").install Dir["*"] }
+    # Extract all resources into CMake's expected _deps structure
+    resource("blst").stage { (buildpath/"build/_deps/blst-src").install Dir["*"] }
+    resource("libuv").stage { (buildpath/"build/_deps/libuv-src").install Dir["*"] }
+    resource("llhttp").stage { (buildpath/"build/_deps/llhttp-src").install Dir["*"] }
+    resource("zstd").stage { (buildpath/"build/_deps/zstd-src").install Dir["*"] }
+    resource("tommath").stage { (buildpath/"build/_deps/libtommath-src").install Dir["*"] }
+    resource("evmone").stage { (buildpath/"build/_deps/evmone_external-src").install Dir["*"] }
+    resource("intx").stage { (buildpath/"build/_deps/intx-src").install Dir["*"] }
+    resource("ethash").stage { (buildpath/"build/_deps/ethhash_external-src").install Dir["*"] }
+    # evmc is a submodule of evmone
+    resource("evmc").stage { (buildpath/"build/_deps/evmone_external-src/evmc").install Dir["*"] }
+    
     # Build directory
     mkdir "build" do
       # Tell CMake where to find the pre-extracted dependencies (bypasses FetchContent)
@@ -84,15 +86,14 @@ class ColibriServer < Formula
              "-DCLI=ON",
              "-DTEST=OFF",
              "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
-             "-DFETCHCONTENT_SOURCE_DIR_BLST=#{buildpath}/libs/blst/blst",
-             "-DFETCHCONTENT_SOURCE_DIR_LIBUV=#{buildpath}/libs/libuv/libuv",
-             "-DFETCHCONTENT_SOURCE_DIR_LLHTTP=#{buildpath}/libs/llhttp/llhttp",
-             "-DFETCHCONTENT_SOURCE_DIR_ZSTD=#{buildpath}/libs/zstd/zstd",
-             "-DFETCHCONTENT_SOURCE_DIR_LIBTOMMATH=#{buildpath}/libs/tommath/tommath",
-             "-DFETCHCONTENT_SOURCE_DIR_EVMONE_EXTERNAL=#{buildpath}/libs/evmone/evmone",
-             "-DFETCHCONTENT_SOURCE_DIR_INTX=#{buildpath}/libs/intx/intx",
-             "-DFETCHCONTENT_SOURCE_DIR_ETHHASH_EXTERNAL=#{buildpath}/libs/evmone/ethash",
-             "-DFETCHCONTENT_SOURCE_DIR_EVMC=#{buildpath}/libs/evmone/evmone/evmc",
+             "-DFETCHCONTENT_SOURCE_DIR_BLST=#{buildpath}/build/_deps/blst-src",
+             "-DFETCHCONTENT_SOURCE_DIR_LIBUV=#{buildpath}/build/_deps/libuv-src",
+             "-DFETCHCONTENT_SOURCE_DIR_LLHTTP=#{buildpath}/build/_deps/llhttp-src",
+             "-DFETCHCONTENT_SOURCE_DIR_ZSTD=#{buildpath}/build/_deps/zstd-src",
+             "-DFETCHCONTENT_SOURCE_DIR_LIBTOMMATH=#{buildpath}/build/_deps/libtommath-src",
+             "-DFETCHCONTENT_SOURCE_DIR_EVMONE_EXTERNAL=#{buildpath}/build/_deps/evmone_external-src",
+             "-DFETCHCONTENT_SOURCE_DIR_INTX=#{buildpath}/build/_deps/intx-src",
+             "-DFETCHCONTENT_SOURCE_DIR_ETHHASH_EXTERNAL=#{buildpath}/build/_deps/ethhash_external-src",
              *std_cmake_args
       system "make", "-j#{ENV.make_jobs}", "colibri-server", "colibri-prover", "colibri-verifier", "colibri-ssz"
       
