@@ -3,6 +3,11 @@
 # Values can be overridden by environment variables or command-line arguments.
 
 # Server Settings
+# Host/IP address to bind to
+# Use 127.0.0.1 for localhost only (secure default, recommended for local Metamask usage)
+# Use 0.0.0.0 to accept connections from all network interfaces (for remote access)
+HOST={{HOST}}
+
 # Port to listen on for HTTP requests
 PORT={{PORT}}
 

@@ -117,7 +117,7 @@ int c4_server_start(server_instance_t* instance, int port) {
   c4_register_http_handler(c4_handle_status);
 
   UV_CHECK("TCP initialization", uv_tcp_init(instance->loop, &instance->server), instance);
-  UV_CHECK("IP address parsing", uv_ip4_addr("0.0.0.0", instance->port, &addr), instance);
+  UV_CHECK("IP address parsing", uv_ip4_addr(http_server.host, instance->port, &addr), instance);
   UV_CHECK("TCP binding", uv_tcp_bind(&instance->server, (const struct sockaddr*) &addr, 0), instance);
   UV_CHECK("TCP listening", uv_listen((uv_stream_t*) &instance->server, 128, c4_on_new_connection), instance);
 
@@ -132,7 +132,7 @@ int c4_server_start(server_instance_t* instance, int port) {
                           cleanup_interval_ms, cleanup_interval_ms),
            instance);
 
-  fprintf(stderr, "C4 Server starting on port %d\n", instance->port);
+  fprintf(stderr, "C4 Server starting on %s:%d\n", http_server.host, instance->port);
 
   // Initialize curl
   c4_init_curl(&instance->curl_timer);
@@ -151,7 +151,7 @@ int c4_server_start(server_instance_t* instance, int port) {
   UV_CHECK("Init idle handle start", uv_idle_start(&instance->init_idle_handle, on_init_idle), instance);
 
   instance->is_running = true;
-  fprintf(stderr, "C4 Server running on port %d\n", instance->port);
+  fprintf(stderr, "C4 Server running on %s:%d\n", http_server.host, instance->port);
 
   return 0;
 }

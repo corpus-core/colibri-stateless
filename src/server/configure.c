@@ -135,6 +135,7 @@ void c4_configure(int argc, char* argv[]) {
   }
   else {
     fprintf(stderr, "Starting server with config:\n");
+    fprintf(stderr, "  host          : %s\n", http_server.host);
     fprintf(stderr, "  port          : %d\n", http_server.port);
     fprintf(stderr, "  memcached_host: %s\n", http_server.memcached_host);
     fprintf(stderr, "  memcached_port: %d\n", http_server.memcached_port);
@@ -250,6 +251,7 @@ static void load_config_file() {
 
 static void config() {
   // Set default values
+  http_server.host                             = "127.0.0.1"; // Localhost only by default (security best practice)
   http_server.port                             = 8090;
   http_server.memcached_host                   = ""; // Empty by default - memcached is optional
   http_server.memcached_port                   = 11211;
@@ -279,6 +281,7 @@ static void config() {
   // Priority: defaults < config file < env vars < command line
   load_config_file();
 
+  get_string(&http_server.host, "HOST", "host", 'h', "Host/IP address to bind to (127.0.0.1=localhost only, 0.0.0.0=all interfaces)");
   get_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
   get_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");
   get_key(http_server.witness_key, "WITNESS_KEY", "witness_key", 'w', "hexcode or path to a private key used as signer for the witness");

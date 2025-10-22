@@ -52,6 +52,7 @@ typedef struct {
 
 #define STR_BYTES(msg) bytes(msg, strlen(msg) - 1)
 typedef struct {
+  char*          host;           // Host/IP to bind to (default: 127.0.0.1 for security)
   char*          memcached_host;
   int            memcached_port;
   int            memcached_pool;
