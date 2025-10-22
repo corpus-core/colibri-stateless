@@ -64,7 +64,7 @@ const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
 // | `<field1> ...` |                 | Fields to include in JSON output |         |
 
 int main(int argc, char* argv[]) {
-  if (argc == 1) {
+  if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s -t <typename> -o <outfile> -nh <file.ssz> <field1> <field2> ...\n"
                     "\n"
                     "  -c            : chain_id ( ust be prior to the type name)\n"

@@ -130,6 +130,7 @@ void c4_configure(int argc, char* argv[]) {
   if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
     fprintf(stderr, "Usage: %s [options]\n", args[0]);
     fprintf(stderr, "  -h, --help                                 show this help message\n");
+    fprintf(stderr, "  -f, --config           CONFIG_FILE         path to config file (default: search in ./server.conf, /etc/colibri/server.conf, /usr/local/etc/colibri/server.conf)\n");
     fprintf(stderr, "%s\n", help_buffer.data.data);
     exit(0);
   }
@@ -178,6 +179,64 @@ static char* trim(char* str) {
 // Load configuration from a file
 // Format: KEY=VALUE (one per line, # for comments)
 static void load_config_file() {
+  // Check for explicit config file path from command line
+  char* explicit_config = get_arg("config", 'f', true);
+  if (explicit_config) {
+    FILE* f = fopen(explicit_config, "r");
+    if (!f) {
+      fprintf(stderr, "Error: Could not open config file: %s\n", explicit_config);
+      exit(1);
+    }
+    fprintf(stderr, "Loading config from: %s\n", explicit_config);
+    // Load from explicit file (rest of function below)
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+      // Remove trailing newline/whitespace
+      char* end = line + strlen(line) - 1;
+      while (end > line && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t')) {
+        *end = '\0';
+        end--;
+      }
+
+      // Skip empty lines and comments
+      if (line[0] == '\0' || line[0] == '#') continue;
+
+      // Find '=' separator
+      char* eq = strchr(line, '=');
+      if (!eq) {
+        fprintf(stderr, "Warning: Invalid line in config file: %s\n", line);
+        continue;
+      }
+
+      // Split into key and value
+      *eq      = '\0';
+      char* key   = line;
+      char* value = eq + 1;
+
+      // Trim trailing whitespace from key
+      char* key_end = key + strlen(key) - 1;
+      while (key_end > key && (*key_end == ' ' || *key_end == '\t')) {
+        *key_end = '\0';
+        key_end--;
+      }
+
+      // Trim leading whitespace from value
+      while (*value == ' ' || *value == '\t') value++;
+
+      // Skip if key or value is empty
+      if (*key == '\0' || *value == '\0') {
+        fprintf(stderr, "Warning: Empty key or value on line in config file\n");
+        continue;
+      }
+
+      // Set environment variable (will be overridden by actual env vars and command line)
+      setenv(key, value, 0); // 0 = don't overwrite existing env vars
+    }
+    fclose(f);
+    return;
+  }
+
+  // Default search paths if no explicit config specified
   const char* config_paths[] = {
       "./server.conf",
       "/etc/colibri/server.conf",

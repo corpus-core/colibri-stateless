@@ -12,8 +12,8 @@ class ColibriServer < Formula
   head "https://github.com/corpus-core/colibri-stateless.git", branch: "main"
   
   depends_on "cmake" => :build
+  depends_on "rust" => :build
   depends_on "curl"
-  depends_on "openssl@3"
   
   def install
     # Build directory
@@ -43,7 +43,7 @@ class ColibriServer < Formula
   end
   
   service do
-    run [opt_bin/"colibri-server", "-c", etc/"colibri/server.conf"]
+    run [opt_bin/"colibri-server", "-f", etc/"colibri/server.conf"]
     keep_alive true
     log_path var/"log/colibri-server.log"
     error_log_path var/"log/colibri-server.error.log"
@@ -51,9 +51,11 @@ class ColibriServer < Formula
   end
   
   test do
-    # Test that the binary runs
-    system "#{bin}/colibri-server", "--version" rescue nil
-    system "#{bin}/colibri-verifier", "--help" rescue nil
+    # Test that the binaries run and show help
+    system "#{bin}/colibri-server", "--help"
+    system "#{bin}/colibri-prover", "--help"
+    system "#{bin}/colibri-verifier", "--help"
+    system "#{bin}/colibri-ssz", "--help"
   end
 end
 

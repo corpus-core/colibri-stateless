@@ -107,7 +107,7 @@ static bytes_t read_from_prover(char* url, char* method, char* args, bytes_t sta
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
 int main(int argc, char* argv[]) {
-  if (argc == 1 || strcmp(argv[1], "-h") == 0) {
+  if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s <OPTIONS> <method> <args> \n", argv[0]);
     fprintf(stderr, "OPTIONS: \n");
     fprintf(stderr, "  -c <chain_id> \n");

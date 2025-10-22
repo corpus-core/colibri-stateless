@@ -78,7 +78,7 @@
 // | `<params>`     |                 | Parameters for the method                                                   |              |
 
 int main(int argc, char* argv[]) {
-  if (argc < 2) {
+  if (argc < 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s [options] <method> <params> > proof.ssz\n"
                     "\n"
                     "  -c <chain_id>    : selected chain (default MAINNET = 1)\n"
