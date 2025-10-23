@@ -34,8 +34,13 @@ static const ssz_def_t OP_STATE_BLOCK_UNION[] = {
     SSZ_UINT64("blockNumber") // proof for the right blocknumber
 };
 
+static const ssz_def_t OP_PRECONF_PAYLOAD_UNION[] = {
+    SSZ_BYTES("compressed_zstd", 1073741824),
+    SSZ_BYTES("uncompressed", 1073741824),
+};
+
 static const ssz_def_t OP_PRECONF[] = {
-    SSZ_BYTES("payload", 1073741824),
+    SSZ_UNION("payload", OP_PRECONF_PAYLOAD_UNION),
     SSZ_BYTE_VECTOR("signature", 65),
 };
 
