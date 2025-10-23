@@ -139,6 +139,62 @@
             cursor: not-allowed;
         }
 
+        .switch-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #475569;
+            transition: 0.3s;
+            border-radius: 26px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: #3b82f6;
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(24px);
+        }
+
+        .switch-label {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
         .actions {
             padding: 20px 30px;
             background: #1e293b;
@@ -273,6 +329,13 @@
             setTimeout(() => { msgDiv.innerHTML = ''; }, 5000);
         }
 
+        function updateSwitchLabel(checkbox, envName) {
+            const label = document.getElementById('label-' + envName);
+            if (label) {
+                label.textContent = checkbox.checked ? 'Enabled' : 'Disabled';
+            }
+        }
+
         function saveAndRestart() {
             const saveBtn = document.getElementById('saveBtn');
             saveBtn.disabled = true;
@@ -284,7 +347,14 @@
                 if (param.type === 'key') return; // Skip sensitive keys
                 const input = document.getElementById('input-' + param.env);
                 if (input) {
-                    const value = param.type === 'int' ? parseInt(input.value) : input.value;
+                    let value;
+                    if (input.type === 'checkbox') {
+                        value = input.checked ? 1 : 0;
+                    } else if (param.type === 'int') {
+                        value = parseInt(input.value);
+                    } else {
+                        value = input.value;
+                    }
                     parameters.push({ env: param.env, value: value });
                 }
             });
@@ -367,7 +437,8 @@
                     html += '</div>';
                     html += '<div class="param-desc">' + param.description + '</div>';
 
-                    if (param.type === 'int' && param.min !== undefined) {
+                    // Show range only for non-boolean int parameters
+                    if (param.type === 'int' && param.min !== undefined && !(param.min === 0 && param.max === 1)) {
                         html += '<div class="param-range">Range: ' + param.min + ' - ' + param.max + '</div>';
                     }
 
@@ -375,16 +446,28 @@
                     if (value !== undefined && param.type !== 'key') {
                         // Editable input field
                         if (param.type === 'int') {
-                            html += '<input type="number" class="param-input" id="input-' + param.env + 
+                            // Boolean parameters (0/1) use a switch
+                            if (param.min === 0 && param.max === 1) {
+                                const isChecked = value === 1 ? 'checked' : '';
+                                html += '<div class="switch-container">';
+                                html += '<label class="switch">';
+                                html += '<input type="checkbox" id="input-' + param.env + '" ' + isChecked + ' onchange="updateSwitchLabel(this, \'' + param.env + '\')">';
+                                html += '<span class="slider"></span>';
+                                html += '</label>';
+                                html += '<span class="switch-label" id="label-' + param.env + '">' + (value === 1 ? 'Enabled' : 'Disabled') + '</span>';
+                                html += '</div>';
+                            } else {
+                                html += '<input type="number" class="param-input" id="input-' + param.env +
                                     '" value="' + value + '" min="' + param.min + '" max="' + param.max + '">';
+                            }
                         } else {
                             // String type - use textarea for long values
                             if (typeof value === 'string' && value.length > 100) {
-                                html += '<textarea class="param-input" id="input-' + param.env + 
-                                        '" rows="3">' + value + '</textarea>';
+                                html += '<textarea class="param-input" id="input-' + param.env +
+                                    '" rows="3">' + value + '</textarea>';
                             } else {
-                                html += '<input type="text" class="param-input" id="input-' + param.env + 
-                                        '" value="' + value + '">';
+                                html += '<input type="text" class="param-input" id="input-' + param.env +
+                                    '" value="' + value + '">';
                             }
                         }
                     } else if (param.type === 'key') {
