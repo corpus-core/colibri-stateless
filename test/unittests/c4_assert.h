@@ -293,7 +293,9 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 
       case C4_SUCCESS:
         proof_data = proof_ctx->proof;
-        //        ssz_dump_to_file(stdout, (ssz_ob_t) {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = proof_data}, true, true);
+        FILE* f    = fopen("new_proof.ssz", "w");
+        ssz_dump_to_file(f, (ssz_ob_t) {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = proof_data}, true, true);
+        fclose(f);
         break;
     }
   }

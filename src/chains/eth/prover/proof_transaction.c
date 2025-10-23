@@ -48,7 +48,7 @@ static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, bea
   ssz_add_uint64(&eth_tx_proof, ssz_get_uint64(&block_data->execution, "baseFeePerGas"));
   ssz_add_bytes(&eth_tx_proof, "proof", tx_proof);
   ssz_add_builders(&eth_tx_proof, "header", c4_proof_add_header(block_data->header, body_root));
-  ssz_add_blockroot_proof(&eth_tx_proof, block_data, block_proof);
+  ssz_add_header_proof(&eth_tx_proof, block_data, block_proof);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,

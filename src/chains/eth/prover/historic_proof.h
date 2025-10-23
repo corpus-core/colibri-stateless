@@ -47,7 +47,7 @@ typedef struct {
 } blockroot_proof_t;
 
 c4_status_t c4_check_historic_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* block);
-void        ssz_add_blockroot_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof);
+void        ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof);
 void        c4_free_block_proof(blockroot_proof_t* block_proof);
 #ifdef __cplusplus
 }

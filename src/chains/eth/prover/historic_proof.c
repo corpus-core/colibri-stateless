@@ -233,33 +233,30 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   return C4_SUCCESS;
 }
 
-void ssz_add_blockroot_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof) {
+void ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof) {
+  ssz_builder_t bp             = ssz_builder_for_def(ssz_get_def(builder->def, "header_proof")->def.container.elements + block_proof.type);
+  ssz_ob_t      sync_aggregate = block_proof.sync_aggregate;
+
   switch (block_proof.type) {
-    case HISTORIC_PROOF_HEADER: {
-      ssz_builder_t bp = ssz_builder_for_def(ssz_get_def(builder->def, "historic_proof")->def.container.elements + 2);
+    case HISTORIC_PROOF_HEADER:
       ssz_add_bytes(&bp, "headers", block_proof.historic_proof);
       ssz_add_bytes(&bp, "header", block_proof.proof_header);
-      ssz_add_builders(builder, "historic_proof", bp);
-      ssz_add_bytes(builder, "sync_committee_bits", ssz_get(&block_proof.sync_aggregate, "syncCommitteeBits").bytes);
-      ssz_add_bytes(builder, "sync_committee_signature", ssz_get(&block_proof.sync_aggregate, "syncCommitteeSignature").bytes);
       break;
-    }
+
     case HISTORIC_PROOF_DIRECT: {
-      ssz_builder_t bp = ssz_builder_for_def(ssz_get_def(builder->def, "historic_proof")->def.container.elements + 1);
       ssz_add_bytes(&bp, "proof", block_proof.historic_proof);
       ssz_add_bytes(&bp, "header", block_proof.proof_header);
       ssz_add_uint64(&bp, (uint64_t) block_proof.gindex);
-      ssz_add_builders(builder, "historic_proof", bp);
-      ssz_add_bytes(builder, "sync_committee_bits", ssz_get(&block_proof.sync_aggregate, "syncCommitteeBits").bytes);
-      ssz_add_bytes(builder, "sync_committee_signature", ssz_get(&block_proof.sync_aggregate, "syncCommitteeSignature").bytes);
       break;
     }
     case HISTORIC_PROOF_NONE:
-      ssz_add_bytes(builder, "historic_proof", bytes(NULL, 1));
-      ssz_add_bytes(builder, "sync_committee_bits", ssz_get(&block_data->sync_aggregate, "syncCommitteeBits").bytes);
-      ssz_add_bytes(builder, "sync_committee_signature", ssz_get(&block_data->sync_aggregate, "syncCommitteeSignature").bytes);
+      sync_aggregate = block_data->sync_aggregate;
       break;
   }
+  ssz_add_bytes(&bp, "sync_committee_bits", ssz_get(&sync_aggregate, "syncCommitteeBits").bytes);
+  ssz_add_bytes(&bp, "sync_committee_signature", ssz_get(&sync_aggregate, "syncCommitteeSignature").bytes);
+
+  ssz_add_builders(builder, "header_proof", bp);
 }
 
 void c4_free_block_proof(blockroot_proof_t* block_proof) {

@@ -1,0 +1,5 @@
+# HTTP 200
+# URL: https://sync-mainnet.beaconcha.in/eth/v1/beacon/states/head/finality_checkpoints
+# Host: sync-mainnet.beaconcha.in
+# Payload: 
+{"data":{"finalized":{"epoch":"402108","root":"0x44d239617f3c090407c99c7ae87166760401f14aebe7c810c2aadc8be397cf51"},"current_justified":{"epoch":"402109","root":"0x493247199f9c48b99b741b7616a6549b27260e7f6844b859ca99f5ed8c123687"},"previous_justified":{"epoch":"402108","root":"0x44d239617f3c090407c99c7ae87166760401f14aebe7c810c2aadc8be397cf51"}}}

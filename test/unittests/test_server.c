@@ -15,8 +15,9 @@
 // Unity setup - called before each test
 void setUp(void) {
   http_server_t config = {0};
-  config.prover_nodes  = "https://mainnet1.colibri-proof.tech";
+  config.prover_nodes  = "http://localhost:8090";
   config.port          = TEST_PORT;
+  config.host          = TEST_HOST;
   config.chain_id      = 1;
   c4_test_server_setup(&config); // Use default test configuration
 }
@@ -38,7 +39,7 @@ void test_remote_prover(void) {
 
   char* body = extract_json_body(response);
   TEST_ASSERT_NOT_NULL(body);
-  TEST_ASSERT_EQUAL_STRING("{\"id\": 1, \"result\": \"0x1674e1d\"}", body);
+  TEST_ASSERT_EQUAL_STRING("{\"id\": 1, \"result\": \"0x168bc6e\"}", body);
 
   free(body);
   free(response);

@@ -53,7 +53,7 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
   ssz_add_bytes(&block_proof, "proof", execution_payload_proof);
   safe_free(execution_payload_proof.data);
   ssz_add_builders(&block_proof, "header", c4_proof_add_header(block.header, body_root));
-  ssz_add_blockroot_proof(&block_proof, &block, historic_proof);
+  ssz_add_header_proof(&block_proof, &block, historic_proof);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
@@ -87,7 +87,7 @@ c4_status_t c4_proof_block_number(prover_ctx_t* ctx) {
   ssz_add_bytes(&block_proof, "timestamp", ssz_get(&block.execution, "timestamp").bytes);
   ssz_add_bytes(&block_proof, "proof", execution_payload_proof);
   ssz_add_builders(&block_proof, "header", c4_proof_add_header(block.header, body_root));
-  ssz_add_blockroot_proof(&block_proof, &block, historic_proof);
+  ssz_add_header_proof(&block_proof, &block, historic_proof);
   safe_free(execution_payload_proof.data);
 
   ctx->proof = eth_create_proof_request(
