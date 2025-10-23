@@ -221,6 +221,8 @@ typedef struct {
 } config_param_t;
 
 const config_param_t* c4_get_config_params(int* count);
+const char* c4_get_config_file_path();
+int c4_save_config_file(const char* updates);
 // Handlers
 bool           c4_handle_verify_request(client_t* client);
 bool           c4_handle_proof_request(client_t* client);
@@ -229,6 +231,7 @@ bool           c4_handle_health_check(client_t* client);
 bool           c4_handle_metrics(client_t* client);
 bool           c4_handle_get_config(client_t* client);
 bool           c4_handle_post_config(client_t* client);
+bool           c4_handle_restart_server(client_t* client);
 bool           c4_handle_config_ui(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);

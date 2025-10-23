@@ -114,6 +114,82 @@
             color: #e2e8f0;
         }
 
+        .param-input,
+        .param-input textarea {
+            font-family: monospace;
+            padding: 8px 12px;
+            background: #0f172a;
+            border: 1px solid #475569;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #e2e8f0;
+            width: 100%;
+            transition: border-color 0.2s;
+            resize: vertical;
+        }
+
+        .param-input:focus,
+        textarea.param-input:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+
+        .param-input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .actions {
+            padding: 20px 30px;
+            background: #1e293b;
+            border-top: 1px solid #334155;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #2563eb;
+        }
+
+        .btn-secondary {
+            background: #334155;
+            color: #e2e8f0;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #475569;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .success {
+            background: #064e3b;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            border-radius: 4px;
+            color: #6ee7b7;
+            margin-bottom: 20px;
+        }
+
         .info-box {
             background: #1e3a5f;
             border-left: 4px solid #3b82f6;
@@ -173,22 +249,109 @@
         </div>
         <div class="content">
             <div class="info-box">
-                <strong>&#8505; Read-Only Mode:</strong> Configuration editing will be available in a future update.
-                To change settings, edit the config file and restart the server.
+                <strong>&#8505; Configuration Editor:</strong> Modify server settings and restart to apply changes.
+                A backup of your current config will be created automatically.
             </div>
+            <div id="message"></div>
             <div id="loading" class="loading">
                 <div class="spinner"></div>
                 <p>Loading configuration...</p>
             </div>
             <div id="config-data"></div>
         </div>
+        <div class="actions" id="actions" style="display: none;">
+            <button class="btn btn-secondary" onclick="location.reload()">Reset</button>
+            <button class="btn btn-primary" onclick="saveAndRestart()" id="saveBtn">Save & Restart Server</button>
+        </div>
     </div>
     <script>
+        let configData = null;
+
+        function showMessage(message, isError = false) {
+            const msgDiv = document.getElementById('message');
+            msgDiv.innerHTML = '<div class="' + (isError ? 'error' : 'success') + '">' + message + '</div>';
+            setTimeout(() => { msgDiv.innerHTML = ''; }, 5000);
+        }
+
+        function saveAndRestart() {
+            const saveBtn = document.getElementById('saveBtn');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+
+            // Collect all updated values
+            const parameters = [];
+            configData.parameters.forEach(param => {
+                if (param.type === 'key') return; // Skip sensitive keys
+                const input = document.getElementById('input-' + param.env);
+                if (input) {
+                    const value = param.type === 'int' ? parseInt(input.value) : input.value;
+                    parameters.push({ env: param.env, value: value });
+                }
+            });
+
+            // Save config
+            fetch('/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ parameters: parameters })
+            })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.error) {
+                        showMessage(result.message || result.error, true);
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Save & Restart Server';
+                        return;
+                    }
+
+                    if (result.success && result.restart_required) {
+                        showMessage('Configuration saved. Restarting server...');
+                        saveBtn.textContent = 'Restarting...';
+
+                        // Wait a moment for the response to be sent, then restart
+                        setTimeout(() => {
+                            fetch('/api/restart', { method: 'POST' })
+                                .then(() => {
+                                    showMessage('Server is restarting. This page will reconnect automatically...');
+                                    // Poll for server to come back online
+                                    setTimeout(checkServerStatus, 3000);
+                                })
+                                .catch(err => {
+                                    // Server shutdown is expected, so catch is normal
+                                    showMessage('Server is restarting. This page will reconnect automatically...');
+                                    setTimeout(checkServerStatus, 3000);
+                                });
+                        }, 500);
+                    }
+                })
+                .catch(err => {
+                    showMessage('Error saving configuration: ' + err, true);
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save & Restart Server';
+                });
+        }
+
+        function checkServerStatus() {
+            fetch('/config')
+                .then(r => {
+                    if (r.ok) {
+                        location.reload();
+                    } else {
+                        setTimeout(checkServerStatus, 2000);
+                    }
+                })
+                .catch(() => {
+                    setTimeout(checkServerStatus, 2000);
+                });
+        }
+
         fetch('/config')
             .then(r => r.json())
             .then(data => {
                 document.getElementById('loading').style.display = 'none';
+                document.getElementById('actions').style.display = 'flex';
                 const container = document.getElementById('config-data');
+                configData = data;
 
                 if (!data.parameters) {
                     container.innerHTML = '<div class="error">Invalid response format</div>';
@@ -210,10 +373,22 @@
 
                     const value = param.value;
                     if (value !== undefined && param.type !== 'key') {
-                        const displayValue = typeof value === 'string' && value.length > 200
-                            ? value.substring(0, 200) + '...'
-                            : value;
-                        html += '<div class="param-value">' + displayValue + '</div>';
+                        // Editable input field
+                        if (param.type === 'int') {
+                            html += '<input type="number" class="param-input" id="input-' + param.env + 
+                                    '" value="' + value + '" min="' + param.min + '" max="' + param.max + '">';
+                        } else {
+                            // String type - use textarea for long values
+                            if (typeof value === 'string' && value.length > 100) {
+                                html += '<textarea class="param-input" id="input-' + param.env + 
+                                        '" rows="3">' + value + '</textarea>';
+                            } else {
+                                html += '<input type="text" class="param-input" id="input-' + param.env + 
+                                        '" value="' + value + '">';
+                            }
+                        }
+                    } else if (param.type === 'key') {
+                        html += '<div class="param-value">&#128274; Hidden (sensitive data)</div>';
                     }
 
                     html += '</div>';

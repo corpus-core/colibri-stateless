@@ -21,6 +21,9 @@ static char**   args        = NULL;
 static int      args_count  = 0;
 static buffer_t help_buffer = {0};
 
+// Track the config file path for saving changes
+static char* current_config_file_path = NULL;
+
 // Config parameter registry for dynamic Web-UI
 #define MAX_CONFIG_PARAMS 50
 static config_param_t config_params[MAX_CONFIG_PARAMS];
@@ -188,6 +191,7 @@ static void load_config_file() {
       exit(1);
     }
     fprintf(stderr, "Loading config from: %s\n", explicit_config);
+    current_config_file_path = strdup(explicit_config);
     // Load from explicit file (rest of function below)
     char line[1024];
     int  line_num = 0;
@@ -248,6 +252,7 @@ static void load_config_file() {
     f = fopen(config_paths[path], "r");
     if (f) {
       fprintf(stderr, "Loading config from: %s\n", config_paths[path]);
+      current_config_file_path = strdup(config_paths[path]);
       break;
     }
     path++;
@@ -354,4 +359,135 @@ static void config() {
 #ifdef TEST
   get_string(&http_server.test_dir, "TEST_DIR", "test_dir", 'x', "TEST MODE: record all responses to TESTDATA_DIR/server/<test_dir>/");
 #endif
+}
+
+/**
+ * Get the current config file path
+ * 
+ * @return Path to the config file that was loaded, or NULL if no file was loaded
+ */
+const char* c4_get_config_file_path() {
+  return current_config_file_path;
+}
+
+/**
+ * Save configuration to file
+ * 
+ * Creates a backup of the existing config file and writes the new configuration.
+ * 
+ * @param updates Buffer containing key=value pairs to update (can be partial)
+ * @return 0 on success, -1 on error
+ */
+int c4_save_config_file(const char* updates) {
+  if (!current_config_file_path) {
+    fprintf(stderr, "Error: No config file path available for saving\n");
+    return -1;
+  }
+
+  // Create backup of existing config
+  char backup_path[1024];
+  snprintf(backup_path, sizeof(backup_path), "%s.backup", current_config_file_path);
+  
+  // Read existing config into memory
+  FILE* original = fopen(current_config_file_path, "r");
+  if (!original) {
+    fprintf(stderr, "Error: Could not open config file for reading: %s\n", current_config_file_path);
+    return -1;
+  }
+
+  // Parse updates into a simple key-value map
+  #define MAX_UPDATES 50
+  struct {
+    char key[128];
+    char value[1024];
+  } update_map[MAX_UPDATES];
+  int update_count = 0;
+
+  // Parse updates string (format: "KEY1=VALUE1\nKEY2=VALUE2\n...")
+  char* updates_copy = strdup(updates);
+  char* line = strtok(updates_copy, "\n");
+  while (line && update_count < MAX_UPDATES) {
+    char* eq = strchr(line, '=');
+    if (eq) {
+      *eq = '\0';
+      char* key = trim(line);
+      char* val = trim(eq + 1);
+      if (strlen(key) > 0 && strlen(val) > 0) {
+        strncpy(update_map[update_count].key, key, sizeof(update_map[0].key) - 1);
+        strncpy(update_map[update_count].value, val, sizeof(update_map[0].value) - 1);
+        update_count++;
+      }
+    }
+    line = strtok(NULL, "\n");
+  }
+  free(updates_copy);
+
+  // Write updated config to temporary file
+  char temp_path[1024];
+  snprintf(temp_path, sizeof(temp_path), "%s.tmp", current_config_file_path);
+  FILE* temp = fopen(temp_path, "w");
+  if (!temp) {
+    fprintf(stderr, "Error: Could not create temporary config file: %s\n", temp_path);
+    fclose(original);
+    return -1;
+  }
+
+  // Read original config line by line, updating values as needed
+  char line_buf[2048];
+  while (fgets(line_buf, sizeof(line_buf), original)) {
+    char* trimmed = trim(line_buf);
+    
+    // Keep comments and empty lines as-is
+    if (trimmed[0] == '\0' || trimmed[0] == '#') {
+      fprintf(temp, "%s", line_buf);
+      continue;
+    }
+
+    // Check if this line should be updated
+    char* eq = strchr(trimmed, '=');
+    if (eq) {
+      *eq = '\0';
+      char* key = trim(trimmed);
+      bool updated = false;
+      
+      for (int i = 0; i < update_count; i++) {
+        if (strcmp(key, update_map[i].key) == 0) {
+          fprintf(temp, "%s=%s\n", update_map[i].key, update_map[i].value);
+          update_map[i].key[0] = '\0'; // Mark as written
+          updated = true;
+          break;
+        }
+      }
+      
+      if (!updated) {
+        fprintf(temp, "%s", line_buf);
+      }
+    } else {
+      fprintf(temp, "%s", line_buf);
+    }
+  }
+
+  // Add any new keys that weren't in the original file
+  for (int i = 0; i < update_count; i++) {
+    if (update_map[i].key[0] != '\0') {
+      fprintf(temp, "%s=%s\n", update_map[i].key, update_map[i].value);
+    }
+  }
+
+  fclose(original);
+  fclose(temp);
+
+  // Create backup
+  rename(current_config_file_path, backup_path);
+  
+  // Move temp file to config file
+  if (rename(temp_path, current_config_file_path) != 0) {
+    fprintf(stderr, "Error: Could not write new config file\n");
+    // Restore backup
+    rename(backup_path, current_config_file_path);
+    return -1;
+  }
+
+  fprintf(stderr, "Config file updated: %s (backup: %s)\n", current_config_file_path, backup_path);
+  return 0;
 }
