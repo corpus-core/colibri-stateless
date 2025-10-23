@@ -114,6 +114,13 @@
                   Impersonate="no"
                   Return="ignore" />
 
+    <CustomAction Id="ConfigureServiceRecovery"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="[SystemFolder]sc.exe failure ColibriServer reset= 86400 actions= restart/5000/restart/10000/restart/30000"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <CustomAction Id="StartService"
                   Directory="INSTALLFOLDER"
                   ExeCommand="[SystemFolder]sc.exe start ColibriServer"
@@ -153,7 +160,8 @@
     <!-- Installation sequence -->
     <InstallExecuteSequence>
       <Custom Action="InstallService" After="InstallFiles">NOT Installed</Custom>
-      <Custom Action="AddFirewallRule" After="InstallService">NOT Installed</Custom>
+      <Custom Action="ConfigureServiceRecovery" After="InstallService">NOT Installed</Custom>
+      <Custom Action="AddFirewallRule" After="ConfigureServiceRecovery">NOT Installed</Custom>
       <Custom Action="StartService" After="AddFirewallRule">NOT Installed</Custom>
       
       <Custom Action="StopService" Before="RemoveFiles">Installed AND NOT UPGRADINGPRODUCTCODE</Custom>

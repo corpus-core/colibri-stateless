@@ -112,6 +112,7 @@ int c4_server_start(server_instance_t* instance, int port) {
   c4_register_http_handler(c4_handle_config_ui);
   c4_register_http_handler(c4_handle_get_config);
   c4_register_http_handler(c4_handle_post_config);
+  c4_register_http_handler(c4_handle_restart_server);
   c4_register_http_handler(c4_handle_verify_request);
   c4_register_http_handler(c4_handle_proof_request);
   c4_register_http_handler(c4_handle_metrics);
