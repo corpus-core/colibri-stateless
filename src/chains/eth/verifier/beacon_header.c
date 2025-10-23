@@ -74,7 +74,7 @@ static bool calculate_signing_message(verify_ctx_t* ctx, uint64_t slot, bytes32_
   return true;
 }
 
-static c4_status_t c4_verify_header_proof(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t sync_committee_bits, ssz_ob_t sync_committee_signature, ssz_ob_t header_proof) {
+static c4_status_t c4_verify_headers_proof(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t sync_committee_bits, ssz_ob_t sync_committee_signature, ssz_ob_t header_proof) {
   ssz_ob_t  headers           = ssz_get(&header_proof, "headers"); // the intermediate headers between the current block and the block with the signature
   ssz_ob_t  signed_header     = ssz_get(&header_proof, "header");  // the block matching the signature
   uint32_t  header_count      = ssz_len(headers);                  // the number of intermediate headers
@@ -112,18 +112,18 @@ static c4_status_t c4_verify_historic_proof(verify_ctx_t* ctx, ssz_ob_t header, 
 }
 
 c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof) {
-  ssz_ob_t sync_committee_bits      = ssz_get(&block_proof, "sync_committee_bits");
-  ssz_ob_t sync_committee_signature = ssz_get(&block_proof, "sync_committee_signature");
-  ssz_ob_t historic_proof           = ssz_get(&block_proof, "historic_proof");
+  ssz_ob_t header_proof             = ssz_get(&block_proof, "header_proof");
+  ssz_ob_t sync_committee_bits      = ssz_get(&header_proof, "sync_committee_bits");
+  ssz_ob_t sync_committee_signature = ssz_get(&header_proof, "sync_committee_signature");
 
-  if (historic_proof.bytes.len == 0) // direct proof - the signature matches the current header
+  if (strcmp(header_proof.def->name, "signature_proof") == 0) // direct proof - the signature matches the current header
     return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0, NULL);
 
-  if (strcmp(historic_proof.def->name, "header_proof") == 0) // header proof - the signature matches the signed header in the header_proof
-    return c4_verify_header_proof(ctx, header, sync_committee_bits, sync_committee_signature, historic_proof);
+  if (strcmp(header_proof.def->name, "header_proof") == 0) // header proof - the signature matches the signed header in the header_proof
+    return c4_verify_headers_proof(ctx, header, sync_committee_bits, sync_committee_signature, header_proof);
 
   // historic proof
-  return c4_verify_historic_proof(ctx, header, sync_committee_bits, sync_committee_signature, historic_proof);
+  return c4_verify_historic_proof(ctx, header, sync_committee_bits, sync_committee_signature, header_proof);
 }
 
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash) {

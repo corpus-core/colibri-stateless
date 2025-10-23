@@ -227,7 +227,7 @@ static c4_status_t serialize_log_proof(prover_ctx_t* ctx, proof_logs_block_t* bl
     ssz_add_bytes(&block_ssz, "blockHash", block->block_hash);
     ssz_add_bytes(&block_ssz, "proof", block->proof);
     ssz_add_builders(&block_ssz, "header", c4_proof_add_header(block->beacon_block.header, block->body_root));
-    ssz_add_blockroot_proof(&block_ssz, &block->beacon_block, block->block_proof);
+    ssz_add_header_proof(&block_ssz, &block->beacon_block, block->block_proof);
 
     ssz_builder_t tx_list = ssz_builder_for_def(txs_def);
     for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {

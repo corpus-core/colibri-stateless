@@ -90,7 +90,7 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
   ssz_add_block_proof(&state_proof, block, block_index);
   ssz_add_bytes(&state_proof, "proof", proof);
   ssz_add_builders(&state_proof, "header", c4_proof_add_header(block->header, body_root));
-  ssz_add_blockroot_proof(&state_proof, block, *historic_proof);
+  ssz_add_header_proof(&state_proof, block, *historic_proof);
 
   safe_free(proof.data);
   return state_proof;

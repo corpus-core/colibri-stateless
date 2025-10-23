@@ -51,7 +51,7 @@ static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, beacon_block_t* b
   ssz_add_bytes(&eth_tx_proof, "receipt_proof", receipt_proof.bytes);
   ssz_add_bytes(&eth_tx_proof, "block_proof", tx_proof);
   ssz_add_builders(&eth_tx_proof, "header", c4_proof_add_header(block_data->header, body_root));
-  ssz_add_blockroot_proof(&eth_tx_proof, block_data, block_proof);
+  ssz_add_header_proof(&eth_tx_proof, block_data, block_proof);
 
   buffer_free(&tmp);
 
