@@ -44,16 +44,15 @@
 
 static const ssz_def_t EXECUTION_PAYLOAD_CONTAINER = SSZ_CONTAINER("payload", DENEP_EXECUTION_PAYLOAD);
 
-static bool verify_signature(bytes_t data, bytes_t signature, uint64_t chain_id, address_t address) {
+static void verify_signature(bytes_t data, bytes_t signature, uint64_t chain_id, address_t address) {
   uint8_t buf[96] = {0};
   uint8_t pub[64] = {0};
   uint64_to_be(buf + 64 - 8, chain_id);
   keccak(data, buf + 64);
   keccak(bytes(buf, 96), buf);
-  if (!secp256k1_recover(buf, signature, pub)) return false;
+  secp256k1_recover(buf, signature, pub);
   keccak(bytes(pub, 64), buf);
   memcpy(address, buf + 12, 20);
-  return true;
 }
 
 ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash) {
@@ -80,11 +79,7 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
   }
 
   // Verify signature from sequencer
-  if (!verify_signature(decompressed_data, signature.bytes, ctx->chain_id, signer)) {
-    safe_free(decompressed_data.data);
-    c4_state_add_error(&ctx->state, "failed to recover sequencer public key");
-    return NULL;
-  }
+  verify_signature(decompressed_data, signature.bytes, ctx->chain_id, signer);
 
   if (memcmp(config->sequencer_address, signer, 20)) {
     safe_free(decompressed_data.data);
