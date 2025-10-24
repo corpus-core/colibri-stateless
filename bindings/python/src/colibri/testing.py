@@ -2,6 +2,8 @@
 Testing utilities and mock implementations for Colibri Python bindings
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
