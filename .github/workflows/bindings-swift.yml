@@ -204,13 +204,14 @@ jobs:
             echo "$test_output" | grep -E "(✅|📊|🧪)" | head -5 >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️  Swift tests had issues: $test_output"
-            echo "- ⚠️ **Swift Tests**: Had issues (may require server setup)" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Swift tests failed"
+            echo "- ❌ **Swift Tests**: Tests failed" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "#### Test Output" >> $GITHUB_STEP_SUMMARY
+            echo "#### Test Output (Last 30 lines)" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "$test_output" | tail -10 >> $GITHUB_STEP_SUMMARY
+            echo "$test_output" | tail -30 >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            exit 1
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
