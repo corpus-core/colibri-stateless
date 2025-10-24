@@ -155,218 +155,138 @@ jobs:
             echo "Found $ARTIFACT_COUNT artifacts: $ARTIFACT_NAMES"
           done
 
-      # Download CMake workflow artifacts - with correct commit SHA
-      - name: Download CMake Workflow Artifacts
-        id: download_cmake
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: cmake.yml
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/cmake
-
-      # Check if we managed to download artifacts
-      - name: Verify Downloaded CMake Artifacts
+      # Download all release artifacts using a loop for better maintainability
+      - name: Download All Release Artifacts
         run: |
-          echo "Checking for CMake artifacts..."
-          if [ -d "artifacts/cmake" ] && [ "$(find artifacts/cmake -type f | wc -l)" -gt 0 ]; then
-            echo "Listing downloaded CMake artifacts:"
-            find artifacts/cmake -type f | sort
+          echo "📦 Starting artifact downloads..."
+          echo ""
+          
+          # First, download all CMake matrix artifacts (multiple artifacts with pattern)
+          echo "⬇️  Downloading CMake matrix artifacts (all cmake-release-*)"
+          
+          WORKFLOW_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/cmake.yml/runs?head_sha=${{ github.event.workflow_run.head_sha }}&status=completed")
+          
+          RUN_ID=$(echo "$WORKFLOW_RUNS" | jq -r '.workflow_runs | map(select(.conclusion == "success")) | .[0].id')
+          
+          if [ "$RUN_ID" != "null" ] && [ -n "$RUN_ID" ]; then
+            ARTIFACTS_JSON=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts")
+            
+            # Find all cmake-release-* artifacts
+            CMAKE_ARTIFACTS=$(echo "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.name | startswith("cmake-release-")) | .id')
+            
+            mkdir -p "artifacts/cmake"
+            CMAKE_COUNT=0
+            
+            for ARTIFACT_ID in $CMAKE_ARTIFACTS; do
+              ARTIFACT_NAME=$(echo "$ARTIFACTS_JSON" | jq -r ".artifacts[] | select(.id == $ARTIFACT_ID) | .name")
+              echo "   - Downloading: $ARTIFACT_NAME"
+              
+              curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
+                -o "artifacts/cmake/${ARTIFACT_NAME}.zip"
+              
+              if [ -f "artifacts/cmake/${ARTIFACT_NAME}.zip" ]; then
+                cd "artifacts/cmake"
+                unzip -q "${ARTIFACT_NAME}.zip" -d "$ARTIFACT_NAME"
+                rm "${ARTIFACT_NAME}.zip"
+                cd ../..
+                CMAKE_COUNT=$((CMAKE_COUNT+1))
+              fi
+            done
+            
+            if [ "$CMAKE_COUNT" -gt 0 ]; then
+              echo "   ✅ Downloaded $CMAKE_COUNT CMake artifacts successfully"
+            else
+              echo "   ⚠️  No CMake artifacts found"
+            fi
           else
-            echo "WARNING: No CMake artifacts were downloaded. Creating empty directory."
-            mkdir -p artifacts/cmake
+            echo "   ⚠️  WARNING: No successful CMake workflow run found"
+            mkdir -p "artifacts/cmake"
           fi
-
-      # Download bindings artifacts - start with Swift package
-      - name: Download Swift Package
-        id: download_swift
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: swift_package
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/swift_package
-
-      - name: Verify Swift Package
-        run: |
-          if [ -d "artifacts/swift_package" ] && [ "$(find artifacts/swift_package -type f | wc -l)" -gt 0 ]; then
-            echo "Swift package artifacts found:"
-            find artifacts/swift_package -type f | head -5 # Show just the first few for brevity
-          else
-            echo "WARNING: No Swift package artifacts were downloaded."
-            mkdir -p artifacts/swift_package
-          fi
-
-      - name: Download WASM Package
-        id: download_wasm
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: c4-wasm
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/wasm
-
-      - name: Verify WASM Package
-        run: |
-          if [ -d "artifacts/wasm" ] && [ "$(find artifacts/wasm -type f | wc -l)" -gt 0 ]; then
-            echo "WASM artifacts found:"
-            find artifacts/wasm -type f
-          else
-            echo "WARNING: No WASM artifacts were downloaded."
-            mkdir -p artifacts/wasm
-          fi
-
-      - name: Download AAR Package
-        id: download_aar
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: colibri-aar
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/aar
-
-      - name: Verify AAR Package
-        run: |
-          if [ -d "artifacts/aar" ] && [ "$(find artifacts/aar -type f | wc -l)" -gt 0 ]; then
-            echo "AAR artifacts found:"
-            find artifacts/aar -type f
-          else
-            echo "WARNING: No AAR artifacts were downloaded."
-            mkdir -p artifacts/aar
-          fi
-
-      - name: Download JAR Package
-        id: download_jar
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: colibri-jar
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/jar
-
-      - name: Verify JAR Package
-        run: |
-          if [ -d "artifacts/jar" ] && [ "$(find artifacts/jar -type f | wc -l)" -gt 0 ]; then
-            echo "JAR artifacts found:"
-            find artifacts/jar -type f
-          else
-            echo "WARNING: No JAR artifacts were downloaded."
-            mkdir -p artifacts/jar
-          fi
-
-      - name: Download Python Wheels
-        id: download_python
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: python-universal-distribution
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/python
-
-      - name: Verify Python Wheels
-        run: |
-          if [ -d "artifacts/python" ] && [ "$(find artifacts/python -name "*.whl" | wc -l)" -gt 0 ]; then
-            echo "Python wheel artifacts found:"
-            find artifacts/python -name "*.whl" -exec ls -la {} \;
-          else
-            echo "WARNING: No Python wheel artifacts were downloaded."
-            mkdir -p artifacts/python
-          fi
-
-      - name: Download Debian Package
-        id: download_debian
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: build-installers.yml
-          name: debian-package
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/debian-package
-
-      - name: Verify Debian Package
-        run: |
-          if [ -d "artifacts/debian-package" ] && [ "$(find artifacts/debian-package -name "*.deb" | wc -l)" -gt 0 ]; then
-            echo "Debian package artifacts found:"
-            find artifacts/debian-package -name "*.deb"
-          else
-            echo "WARNING: No Debian package artifacts were downloaded."
-            mkdir -p artifacts/debian-package
-          fi
-
-      - name: Download RPM Package
-        id: download_rpm
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: build-installers.yml
-          name: rpm-package
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/rpm-package
-
-      - name: Verify RPM Package
-        run: |
-          if [ -d "artifacts/rpm-package" ] && [ "$(find artifacts/rpm-package -name "*.rpm" | wc -l)" -gt 0 ]; then
-            echo "RPM package artifacts found:"
-            find artifacts/rpm-package -name "*.rpm"
-          else
-            echo "WARNING: No RPM package artifacts were downloaded."
-            mkdir -p artifacts/rpm-package
-          fi
-
-      - name: Download macOS Package
-        id: download_macos
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: build-installers.yml
-          name: macos-package
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/macos-package
-
-      - name: Verify macOS Package
-        run: |
-          if [ -d "artifacts/macos-package" ] && [ "$(find artifacts/macos-package -name "*.pkg" | wc -l)" -gt 0 ]; then
-            echo "macOS package artifacts found:"
-            find artifacts/macos-package -name "*.pkg"
-          else
-            echo "WARNING: No macOS package artifacts were downloaded."
-            mkdir -p artifacts/macos-package
-          fi
-
-      - name: Download Windows Installer
-        id: download_windows
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: build-installers.yml
-          name: windows-installer
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/windows-installer
-
-      - name: Verify Windows Installer
-        run: |
-          if [ -d "artifacts/windows-installer" ] && [ "$(find artifacts/windows-installer -name "*.msi" | wc -l)" -gt 0 ]; then
-            echo "Windows installer artifacts found:"
-            find artifacts/windows-installer -name "*.msi"
-          else
-            echo "WARNING: No Windows installer artifacts were downloaded."
-            mkdir -p artifacts/windows-installer
-          fi
+          
+          echo ""
+          
+          # Define single-name artifacts to download: "workflow|artifact_name|target_path|verify_pattern"
+          ARTIFACTS=(
+            "bindings.yml|swift_package|swift_package|*"
+            "bindings.yml|c4-wasm|wasm|*.zip"
+            "bindings.yml|colibri-aar|aar|*.aar"
+            "bindings.yml|colibri-jar|jar|*.jar"
+            "bindings.yml|python-universal-distribution|python|*.whl"
+            "build-installers.yml|debian-package|debian-package|*.deb"
+            "build-installers.yml|rpm-package|rpm-package|*.rpm"
+            "build-installers.yml|macos-package|macos-package|*.pkg"
+            "build-installers.yml|windows-installer|windows-installer|*.msi"
+          )
+          
+          # Download single-name artifacts
+          for artifact_def in "${ARTIFACTS[@]}"; do
+            IFS='|' read -r workflow_file artifact_name target_path verify_pattern <<< "$artifact_def"
+            
+            echo "⬇️  Downloading: $artifact_name from $workflow_file"
+            
+            # Get workflow runs for this commit
+            WORKFLOW_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$workflow_file/runs?head_sha=${{ github.event.workflow_run.head_sha }}&status=completed")
+            
+            # Find successful run ID
+            RUN_ID=$(echo "$WORKFLOW_RUNS" | jq -r '.workflow_runs | map(select(.conclusion == "success")) | .[0].id')
+            
+            if [ "$RUN_ID" = "null" ] || [ -z "$RUN_ID" ]; then
+              echo "   ⚠️  WARNING: No successful run found for $workflow_file"
+              mkdir -p "artifacts/$target_path"
+              continue
+            fi
+            
+            # Get artifact ID
+            ARTIFACTS_JSON=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts")
+            
+            ARTIFACT_ID=$(echo "$ARTIFACTS_JSON" | jq -r ".artifacts | map(select(.name == \"$artifact_name\")) | .[0].id")
+            
+            if [ "$ARTIFACT_ID" = "null" ] || [ -z "$ARTIFACT_ID" ]; then
+              echo "   ⚠️  WARNING: Artifact $artifact_name not found in run $RUN_ID"
+              mkdir -p "artifacts/$target_path"
+              continue
+            fi
+            
+            # Download artifact
+            mkdir -p "artifacts/$target_path"
+            curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
+              -o "artifacts/$target_path/artifact.zip"
+            
+            # Extract artifact
+            if [ -f "artifacts/$target_path/artifact.zip" ]; then
+              cd "artifacts/$target_path"
+              unzip -q artifact.zip
+              rm artifact.zip
+              cd ../..
+              
+              # Verify
+              if [ "$verify_pattern" != "*" ]; then
+                FILE_COUNT=$(find "artifacts/$target_path" -name "$verify_pattern" | wc -l)
+              else
+                FILE_COUNT=$(find "artifacts/$target_path" -type f | wc -l)
+              fi
+              
+              if [ "$FILE_COUNT" -gt 0 ]; then
+                echo "   ✅ Downloaded successfully: $FILE_COUNT file(s)"
+              else
+                echo "   ⚠️  Downloaded but no files matching pattern found"
+              fi
+            else
+              echo "   ❌ Download failed"
+            fi
+            
+            echo ""
+          done
+          
+          echo "📦 All artifact downloads complete"
 
       - name: Prepare Release Files
         run: |
@@ -584,56 +504,35 @@ jobs:
             echo "- ❌ No CMake artifacts found" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ -d "artifacts/swift_package" ] && [ "$(find artifacts/swift_package -type f | wc -l)" -gt 0 ]; then
-            echo "- ✅ Swift package: $(find artifacts/swift_package -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ No Swift package found" >> $GITHUB_STEP_SUMMARY
-          fi
+          # Check all artifacts using the same definition as download step
+          ARTIFACT_CHECKS=(
+            "Swift package|swift_package|*"
+            "WASM package|wasm|*.zip"
+            "AAR package|aar|*.aar"
+            "JAR package|jar|*.jar"
+            "Python wheels|python|*.whl"
+            "Debian packages|debian-package|*.deb"
+            "RPM packages|rpm-package|*.rpm"
+            "macOS packages|macos-package|*.pkg"
+            "Windows installers|windows-installer|*.msi"
+          )
 
-          if [ -d "artifacts/wasm" ] && [ "$(find artifacts/wasm -type f | wc -l)" -gt 0 ]; then
-            echo "- ✅ WASM package: $(find artifacts/wasm -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ No WASM package found" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -d "artifacts/aar" ] && [ "$(find artifacts/aar -type f | wc -l)" -gt 0 ]; then
-            echo "- ✅ AAR package: $(find artifacts/aar -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ No AAR package found" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -d "artifacts/jar" ] && [ "$(find artifacts/jar -type f | wc -l)" -gt 0 ]; then
-            echo "- ✅ JAR package: $(find artifacts/jar -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ No JAR package found" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -d "artifacts/python" ] && [ "$(find artifacts/python -name "*.whl" | wc -l)" -gt 0 ]; then
-            echo "- ✅ Python wheels: $(find artifacts/python -name "*.whl" | wc -l) files" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ No Python wheels found" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -d "artifacts/debian-package" ] && [ "$(find artifacts/debian-package -name "*.deb" | wc -l)" -gt 0 ]; then
-            echo "- ✅ Debian packages: $(find artifacts/debian-package -name "*.deb" | wc -l) files" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ No Debian packages found" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -d "artifacts/rpm-package" ] && [ "$(find artifacts/rpm-package -name "*.rpm" | wc -l)" -gt 0 ]; then
-            echo "- ✅ RPM packages: $(find artifacts/rpm-package -name "*.rpm" | wc -l) files" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ No RPM packages found" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -d "artifacts/macos-package" ] && [ "$(find artifacts/macos-package -name "*.pkg" | wc -l)" -gt 0 ]; then
-            echo "- ✅ macOS packages: $(find artifacts/macos-package -name "*.pkg" | wc -l) files" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ No macOS packages found" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -d "artifacts/windows-installer" ] && [ "$(find artifacts/windows-installer -name "*.msi" | wc -l)" -gt 0 ]; then
-            echo "- ✅ Windows installers: $(find artifacts/windows-installer -name "*.msi" | wc -l) files" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ No Windows installers found" >> $GITHUB_STEP_SUMMARY
-          fi
+          for artifact_check in "${ARTIFACT_CHECKS[@]}"; do
+            IFS='|' read -r display_name target_path verify_pattern <<< "$artifact_check"
+            
+            if [ -d "artifacts/$target_path" ]; then
+              if [ "$verify_pattern" != "*" ]; then
+                FILE_COUNT=$(find "artifacts/$target_path" -name "$verify_pattern" 2>/dev/null | wc -l)
+              else
+                FILE_COUNT=$(find "artifacts/$target_path" -type f 2>/dev/null | wc -l)
+              fi
+              
+              if [ "$FILE_COUNT" -gt 0 ]; then
+                echo "- ✅ $display_name: $FILE_COUNT files" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "- ❌ No $display_name found" >> $GITHUB_STEP_SUMMARY
+              fi
+            else
+              echo "- ❌ No $display_name found" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
