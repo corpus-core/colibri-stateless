@@ -1,0 +1,831 @@
+openapi: 3.1.0
+
+info:
+  title: Colibri Stateless REST API
+  version: 4.1.0
+  description: |
+    REST API for Colibri Stateless - a highly efficient prover and verifier for Ethereum and Layer-2 solutions.
+    
+    The Colibri server provides:
+    - **Proof Generation** (`/proof`) - Creates cryptographic proofs for blockchain data
+    - **Proof Verification** (`/rpc`) - Verifies proofs and returns verified JSON-RPC responses
+    - **Beacon Chain API** (`/eth/v1/beacon/*`) - Proxied beacon chain endpoints for light client sync
+    - **Health & Metrics** - Monitoring endpoints for operational status
+    
+    **Note:** This server currently supports only single JSON-RPC requests (batch requests are not supported).
+    
+    For detailed specifications on proof formats and request structures, see:
+    - [Ethereum Main Proof Request (C4Request)](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/ethereum-main-proof-request)
+    - [Full GitBook Documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/)
+  
+  contact:
+    name: Corpus Core
+    url: https://corpus-core.gitbook.io/specification-colibri-stateless/
+  
+  license:
+    name: PolyForm-Noncommercial-1.0.0
+    url: https://polyformproject.org/licenses/noncommercial/1.0.0/
+
+servers:
+  - url: http://{host}:{port}
+    description: Colibri Stateless Server
+    variables:
+      host:
+        default: '127.0.0.1'
+        description: Server host address
+      port:
+        default: '8090'
+        description: Server port
+
+tags:
+  - name: Prover
+    description: Endpoints for generating cryptographic proofs
+  - name: Verifier
+    description: Endpoints for verifying proofs and executing JSON-RPC calls
+  - name: Configuration
+    description: Server configuration and management (requires WEB_UI_ENABLED)
+  - name: Health
+    description: Health checks and monitoring
+  - name: Beacon
+    description: Ethereum Beacon Chain light client endpoints
+
+paths:
+  /proof:
+    post:
+      tags:
+        - Prover
+      summary: Generate Proof
+      description: |
+        Generates a cryptographic proof for a JSON-RPC request.
+        
+        This endpoint accepts standard JSON-RPC requests with additional optional properties:
+        - `c4`: Hex-encoded state of the requested client for proof decisions
+        - `include_code`: Include bytecode in eth_call proofs
+        
+        The response is an SSZ-encoded `C4Request` container defined in the [Ethereum Main Proof Request specification](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/ethereum-main-proof-request).
+        
+        **Supported Methods:**
+        - `eth_call` - Execute contract call with proof
+        - `eth_getBalance` - Get account balance with proof
+        - `eth_getStorageAt` - Get storage value with proof
+        - `eth_getTransactionByHash` - Get transaction with proof
+        - `eth_getTransactionReceipt` - Get receipt with proof
+        - `eth_getLogs` - Get logs with proof
+        - `eth_getBlockByNumber` - Get block data with proof
+        - `eth_getBlockByHash` - Get block data with proof
+        - `eth_getCode` - Get contract code with proof
+        - And more...
+      
+      operationId: generateProof
+      
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProofRequest'
+            examples:
+              eth_call:
+                summary: eth_call example
+                value:
+                  jsonrpc: '2.0'
+                  method: eth_call
+                  params:
+                    - to: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+                      data: '0x06fdde03'
+                    - latest
+                  id: 1
+                  include_code: true
+              eth_getBalance:
+                summary: eth_getBalance example
+                value:
+                  jsonrpc: '2.0'
+                  method: eth_getBalance
+                  params:
+                    - '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+                    - latest
+                  id: 1
+              eth_getStorageAt:
+                summary: eth_getStorageAt example
+                value:
+                  jsonrpc: '2.0'
+                  method: eth_getStorageAt
+                  params:
+                    - '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+                    - '0x0'
+                    - latest
+                  id: 1
+      
+      responses:
+        '200':
+          description: Proof generated successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: |
+                  SSZ-encoded C4Request container. See the [C4Request specification](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/ethereum-main-proof-request) for detailed structure.
+                  
+                  The container includes:
+                  - `version`: 4-byte version (domain, major, minor, patch)
+                  - `data`: Union of different proof data types
+                  - `proof`: Union of different proof types
+                  - `sync_data`: Optional light client updates
+        
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rpc:
+    post:
+      tags:
+        - Verifier
+      summary: Verify and Execute JSON-RPC Request
+      description: |
+        Processes a JSON-RPC request by generating (locally) or fetching (remotely) a proof,
+        verifying it, and returning the verified JSON-RPC response.
+        
+        This endpoint combines proof generation and verification in one call, providing
+        a transparent interface for verified blockchain data access.
+        
+        **Supported Methods:** Same as `/proof` endpoint
+      
+      operationId: verifyAndExecute
+      
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JsonRpcRequest'
+            examples:
+              eth_call:
+                summary: eth_call example
+                value:
+                  jsonrpc: '2.0'
+                  method: eth_call
+                  params:
+                    - to: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+                      data: '0x06fdde03'
+                    - latest
+                  id: 1
+              eth_getBalance:
+                summary: eth_getBalance example  
+                value:
+                  jsonrpc: '2.0'
+                  method: eth_getBalance
+                  params:
+                    - '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+                    - latest
+                  id: 1
+      
+      responses:
+        '200':
+          description: Request verified and executed successfully
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/JsonRpcResponse'
+                  - $ref: '#/components/schemas/JsonRpcErrorResponse'
+              examples:
+                success:
+                  summary: Successful response
+                  value:
+                    jsonrpc: '2.0'
+                    result: '0x0000000000000000000000000000000000000000000000000de0b6b3a7640000'
+                    id: 1
+                error:
+                  summary: JSON-RPC error
+                  value:
+                    jsonrpc: '2.0'
+                    error:
+                      code: -32000
+                      message: 'execution reverted'
+                    id: 1
+        
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /config.html:
+    get:
+      tags:
+        - Configuration
+      summary: Get Configuration Web UI
+      description: |
+        Serves the web-based configuration interface for managing server settings.
+        
+        **Security Note:** This endpoint is disabled by default. Enable it with `WEB_UI_ENABLED=1`
+        environment variable or the `-u` command-line flag. Only enable on trusted networks.
+      
+      operationId: getConfigUI
+      
+      responses:
+        '200':
+          description: Configuration UI HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+                description: HTML page with interactive configuration editor
+        
+        '403':
+          description: Web UI is disabled
+          content:
+            text/html:
+              schema:
+                type: string
+                description: HTML error page explaining how to enable the Web UI
+
+  /config:
+    get:
+      tags:
+        - Configuration
+      summary: Get Server Configuration
+      description: |
+        Returns the current server configuration as JSON.
+        
+        **Security Note:** This endpoint is disabled by default. Enable it with `WEB_UI_ENABLED=1`.
+      
+      operationId: getConfig
+      
+      responses:
+        '200':
+          description: Current server configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+              example:
+                parameters:
+                  - name: host
+                    env: HOST
+                    description: 'Host/IP address to bind to (127.0.0.1=localhost only, 0.0.0.0=all interfaces)'
+                    type: string
+                    value: '127.0.0.1'
+                  - name: port
+                    env: PORT
+                    description: Port to listen on
+                    type: int
+                    value: 8090
+                    min: 1
+                    max: 65535
+                  - name: rpc_nodes
+                    env: RPC_NODES
+                    description: 'Comma-separated list of Ethereum RPC node URLs'
+                    type: string
+                    value: 'https://eth-mainnet.g.alchemy.com/v2/...'
+        
+        '403':
+          description: Web UI is disabled
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health Check
+      description: |
+        Returns the server health status and operational statistics.
+        
+        Use this endpoint for monitoring and health checks in production deployments.
+      
+      operationId: healthCheck
+      
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+                stats:
+                  total_requests: 1523
+                  total_errors: 12
+                  last_sync_event: 125705
+                  last_request_time: 1698234567
+                  open_requests: 3
+        
+        '500':
+          description: Server is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: Prometheus Metrics
+      description: |
+        Returns Prometheus-compatible metrics for monitoring server performance and operations.
+        
+        Configure your Prometheus instance to scrape this endpoint for comprehensive
+        monitoring of proof generation, verification, and RPC operations.
+      
+      operationId: getMetrics
+      
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Prometheus text-based exposition format
+              example: |
+                # HELP c4_total_requests Total number of requests processed
+                # TYPE c4_total_requests counter
+                c4_total_requests 1523
+                # HELP c4_total_errors Total number of errors encountered
+                # TYPE c4_total_errors counter
+                c4_total_errors 12
+                # HELP c4_open_requests Number of currently open requests
+                # TYPE c4_open_requests gauge
+                c4_open_requests 3
+        
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /eth/v1/beacon/headers/{block_id}:
+    get:
+      tags:
+        - Beacon
+      summary: Get Beacon Block Header
+      description: |
+        Retrieves the beacon block header for a given block identifier.
+        
+        This endpoint is part of the Ethereum Beacon Chain API and is used for
+        light client sync operations. Requests are proxied to configured beacon nodes.
+      
+      operationId: getBlockHeader
+      
+      parameters:
+        - name: block_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: |
+            Block identifier. Can be one of:
+            - `head` - Canonical head in node's view
+            - `genesis` - Genesis block
+            - `finalized` - Latest finalized block
+            - `<slot>` - Specific slot number
+            - `<hex_root>` - Hex-encoded block root with 0x prefix
+          example: head
+      
+      responses:
+        '200':
+          description: Block header retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - execution_optimistic
+                  - finalized
+                  - data
+                properties:
+                  execution_optimistic:
+                    type: boolean
+                    description: True if the response references an unverified execution payload
+                  finalized:
+                    type: boolean
+                    description: True if the response references the finalized history
+                  data:
+                    type: object
+                    required:
+                      - root
+                      - canonical
+                      - header
+                    properties:
+                      root:
+                        type: string
+                        format: hex
+                        pattern: '^0x[a-fA-F0-9]{64}$'
+                      canonical:
+                        type: boolean
+                      header:
+                        type: object
+                        description: SignedBeaconBlockHeader object
+        
+        '400':
+          $ref: '#/components/responses/BeaconBadRequest'
+        '404':
+          $ref: '#/components/responses/BeaconNotFound'
+        '500':
+          $ref: '#/components/responses/BeaconError'
+
+  /eth/v1/beacon/light_client/bootstrap/{block_root}:
+    get:
+      tags:
+        - Beacon
+      summary: Get Light Client Bootstrap
+      description: |
+        Requests the LightClientBootstrap structure for a given post-Altair beacon block root.
+        
+        This is used to initialize light clients with the current sync committee.
+        See the [Ethereum Consensus Specs](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/altair/light-client/sync-protocol.md#lightclientbootstrap)
+        for details.
+      
+      operationId: getLightClientBootstrap
+      
+      parameters:
+        - name: block_root
+          in: path
+          required: true
+          schema:
+            type: string
+            format: hex
+            pattern: '^0x[a-fA-F0-9]{64}$'
+          description: Hex-encoded block root with 0x prefix
+          example: '0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2'
+      
+      responses:
+        '200':
+          description: Light client bootstrap data
+          headers:
+            Eth-Consensus-Version:
+              required: true
+              schema:
+                type: string
+                enum: [phase0, altair, bellatrix, capella, deneb, electra, fulu]
+              description: The active consensus version
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - version
+                  - data
+                properties:
+                  version:
+                    type: string
+                    enum: [phase0, altair, bellatrix, capella, deneb, electra, fulu]
+                  data:
+                    type: object
+                    description: LightClientBootstrap structure
+        
+        '400':
+          $ref: '#/components/responses/BeaconBadRequest'
+        '404':
+          $ref: '#/components/responses/BeaconNotFound'
+        '500':
+          $ref: '#/components/responses/BeaconError'
+
+  /eth/v1/beacon/light_client/updates:
+    get:
+      tags:
+        - Beacon
+      summary: Get Light Client Updates
+      description: |
+        Requests LightClientUpdate instances in the sync committee period range
+        [start_period, start_period + count), leading up to the current head.
+        
+        Used for light client sync to track sync committee changes across periods.
+        See the [Ethereum Consensus Specs](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/altair/light-client/sync-protocol.md#lightclientupdate)
+        for details.
+      
+      operationId: getLightClientUpdatesByRange
+      
+      parameters:
+        - name: start_period
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Starting sync committee period
+          example: '1'
+        
+        - name: count
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Number of periods to request
+          example: '1'
+      
+      responses:
+        '200':
+          description: Array of light client updates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - version
+                    - data
+                  properties:
+                    version:
+                      type: string
+                      enum: [phase0, altair, bellatrix, capella, deneb, electra, fulu]
+                    data:
+                      type: object
+                      description: LightClientUpdate structure
+        
+        '400':
+          $ref: '#/components/responses/BeaconBadRequest'
+        '500':
+          $ref: '#/components/responses/BeaconError'
+
+  /openapi.yaml:
+    get:
+      tags:
+        - Configuration
+      summary: Get OpenAPI Specification
+      description: Returns this OpenAPI specification document in YAML format
+      operationId: getOpenApiSpec
+      responses:
+        '200':
+          description: OpenAPI specification
+          content:
+            text/yaml:
+              schema:
+                type: string
+
+components:
+  schemas:
+    JsonRpcRequest:
+      type: object
+      required:
+        - jsonrpc
+        - method
+        - params
+        - id
+      properties:
+        jsonrpc:
+          type: string
+          enum: ['2.0']
+          description: JSON-RPC version
+        method:
+          type: string
+          description: RPC method name
+          example: eth_call
+        params:
+          type: array
+          description: Method parameters
+          items: {}
+        id:
+          oneOf:
+            - type: string
+            - type: number
+            - type: 'null'
+          description: Request identifier
+      example:
+        jsonrpc: '2.0'
+        method: eth_getBalance
+        params: ['0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb', 'latest']
+        id: 1
+
+    ProofRequest:
+      allOf:
+        - $ref: '#/components/schemas/JsonRpcRequest'
+        - type: object
+          properties:
+            c4:
+              type: string
+              format: hex
+              description: |
+                Hex-encoded state of the requested client. Allows the prover to make
+                decisions about required header proofs (e.g., for historic blocks).
+              example: '0x1234567890abcdef'
+            include_code:
+              type: boolean
+              description: |
+                If true, eth_call proofs will include the required contract bytecode
+                in the proof, enabling stateless verification.
+              default: false
+      example:
+        jsonrpc: '2.0'
+        method: eth_call
+        params:
+          - to: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+            data: '0x06fdde03'
+          - latest
+        id: 1
+        include_code: true
+
+    JsonRpcResponse:
+      type: object
+      required:
+        - jsonrpc
+        - result
+        - id
+      properties:
+        jsonrpc:
+          type: string
+          enum: ['2.0']
+        result:
+          description: Method result (type varies by method)
+        id:
+          oneOf:
+            - type: string
+            - type: number
+            - type: 'null'
+      example:
+        jsonrpc: '2.0'
+        result: '0x0000000000000000000000000000000000000000000000000de0b6b3a7640000'
+        id: 1
+
+    JsonRpcErrorResponse:
+      type: object
+      required:
+        - jsonrpc
+        - error
+        - id
+      properties:
+        jsonrpc:
+          type: string
+          enum: ['2.0']
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: integer
+              description: JSON-RPC error code
+              example: -32000
+            message:
+              type: string
+              description: Error message
+              example: 'execution reverted'
+            data:
+              description: Additional error data (optional)
+        id:
+          oneOf:
+            - type: string
+            - type: number
+            - type: 'null'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+      example:
+        error: 'Internal server error'
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - stats
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          description: Overall health status
+        stats:
+          type: object
+          required:
+            - total_requests
+            - total_errors
+            - last_sync_event
+            - last_request_time
+            - open_requests
+          properties:
+            total_requests:
+              type: integer
+              description: Total number of requests processed since server start
+              example: 1523
+            total_errors:
+              type: integer
+              description: Total number of errors encountered
+              example: 12
+            last_sync_event:
+              type: integer
+              description: Timestamp of last sync committee event
+              example: 125705
+            last_request_time:
+              type: integer
+              description: Unix timestamp of last request
+              example: 1698234567
+            open_requests:
+              type: integer
+              description: Number of currently active requests
+              example: 3
+
+    ConfigResponse:
+      type: object
+      required:
+        - parameters
+      properties:
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigParameter'
+
+    ConfigParameter:
+      type: object
+      required:
+        - name
+        - env
+        - description
+        - type
+      properties:
+        name:
+          type: string
+          description: Parameter name
+          example: port
+        env:
+          type: string
+          description: Environment variable name
+          example: PORT
+        description:
+          type: string
+          description: Human-readable parameter description
+          example: Port to listen on
+        type:
+          type: string
+          enum: [int, string, key]
+          description: Parameter type
+        value:
+          description: Current parameter value (not included for 'key' type)
+        min:
+          type: integer
+          description: Minimum value (for 'int' type)
+        max:
+          type: integer
+          description: Maximum value (for 'int' type)
+
+    BeaconErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          description: Error code or HTTP status code
+        message:
+          type: string
+          description: Error message
+        stacktraces:
+          type: array
+          description: Optional stack traces (debug mode only)
+          items:
+            type: string
+
+  responses:
+    BeaconBadRequest:
+      description: Bad request - invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BeaconErrorResponse'
+          example:
+            code: 400
+            message: 'Invalid block ID: current'
+
+    BeaconNotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BeaconErrorResponse'
+          example:
+            code: 404
+            message: 'Block not found'
+
+    BeaconError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BeaconErrorResponse'
+          example:
+            code: 500
+            message: 'Internal server error'
+
+  securitySchemes: {}
+
+externalDocs:
+  description: Full Colibri Stateless Documentation
+  url: https://corpus-core.gitbook.io/specification-colibri-stateless/
+
