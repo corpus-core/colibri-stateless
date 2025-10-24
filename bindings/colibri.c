@@ -88,6 +88,10 @@ static const char* data_request_type_to_string(data_request_type_t type) {
       return "rest_api";
     case C4_DATA_TYPE_CHECKPOINTZ:
       return "checkpointz";
+    case C4_DATA_TYPE_PROVER:
+      return "prover";
+    case C4_DATA_TYPE_INTERN:
+      return "internal";
   }
 }
 static void add_data_request(buffer_t* result, data_request_t* data_request) {
@@ -112,7 +116,7 @@ char* c4_prover_execute_json_status(prover_t* prover) {
       bprintf(&result, "\"result\": \"0x%lx\", \"result_len\": %d", (uint64_t) ctx->proof.data, ctx->proof.len);
       break;
     case C4_ERROR:
-      bprintf(&result, "\"error\": \"%s\"", ctx->state.error);
+      bprintf(&result, "\"error\": \"%S\"", ctx->state.error);
       break;
     case C4_PENDING: {
       bprintf(&result, "\"requests\": [");
@@ -176,10 +180,10 @@ char* c4_verify_execute_json_status(void* ptr) {
   bprintf(&buf, "{\"status\": \"%s\",", status_to_string(status));
   switch (status) {
     case C4_SUCCESS:
-      bprintf(&buf, "\"result\": %Z,", ctx->ctx.data);
+      bprintf(&buf, "\"result\": %Z", ctx->ctx.data);
       break;
     case C4_ERROR:
-      bprintf(&buf, "\"error\": \"%s\"", ctx->ctx.state.error);
+      bprintf(&buf, "\"error\": \"%S\"", ctx->ctx.state.error);
       break;
     case C4_PENDING: {
       bprintf(&buf, "\"requests\": [");
