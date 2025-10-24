@@ -57,6 +57,13 @@ jobs:
           BINDINGS_SUCCESS=$(echo "$BINDINGS_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
           echo "Bindings successful runs: $BINDINGS_SUCCESS"
 
+          echo "Checking Build Installers workflow..."
+          INSTALLERS_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-installers.yml/runs?status=completed&head_sha=$HEAD_SHA")
+
+          INSTALLERS_SUCCESS=$(echo "$INSTALLERS_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
+          echo "Build Installers successful runs: $INSTALLERS_SUCCESS"
+
           # Check if this commit has any tags
           echo "Checking for tags..."
           TAGS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -67,15 +74,16 @@ jobs:
           echo "Matching tags: $MATCHING_TAGS"
 
           # Make decision
-          if [[ "$CMAKE_SUCCESS" -gt 0 && "$BINDINGS_SUCCESS" -gt 0 && -n "$MATCHING_TAGS" ]]; then
-            # Both workflows succeeded and there's at least one tag - proceed with release
-            echo "Both workflows succeeded and tag found - should create release"
+          if [[ "$CMAKE_SUCCESS" -gt 0 && "$BINDINGS_SUCCESS" -gt 0 && "$INSTALLERS_SUCCESS" -gt 0 && -n "$MATCHING_TAGS" ]]; then
+            # All workflows succeeded and there's at least one tag - proceed with release
+            echo "All workflows succeeded and tag found - should create release"
             echo "should_release=true" >> $GITHUB_OUTPUT
           else
             # Conditions not met - don't proceed
             echo "Not all conditions met for release:"
             echo "- CMake success: $CMAKE_SUCCESS (need > 0)"
             echo "- Bindings success: $BINDINGS_SUCCESS (need > 0)"
+            echo "- Build Installers success: $INSTALLERS_SUCCESS (need > 0)"
             echo "- Tags found: $MATCHING_TAGS"
             echo "should_release=false" >> $GITHUB_OUTPUT
           fi
@@ -276,6 +284,90 @@ jobs:
             mkdir -p artifacts/python
           fi
 
+      - name: Download Debian Package
+        id: download_debian
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build-installers.yml
+          name: debian-package
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/debian-package
+
+      - name: Verify Debian Package
+        run: |
+          if [ -d "artifacts/debian-package" ] && [ "$(find artifacts/debian-package -name "*.deb" | wc -l)" -gt 0 ]; then
+            echo "Debian package artifacts found:"
+            find artifacts/debian-package -name "*.deb"
+          else
+            echo "WARNING: No Debian package artifacts were downloaded."
+            mkdir -p artifacts/debian-package
+          fi
+
+      - name: Download RPM Package
+        id: download_rpm
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build-installers.yml
+          name: rpm-package
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/rpm-package
+
+      - name: Verify RPM Package
+        run: |
+          if [ -d "artifacts/rpm-package" ] && [ "$(find artifacts/rpm-package -name "*.rpm" | wc -l)" -gt 0 ]; then
+            echo "RPM package artifacts found:"
+            find artifacts/rpm-package -name "*.rpm"
+          else
+            echo "WARNING: No RPM package artifacts were downloaded."
+            mkdir -p artifacts/rpm-package
+          fi
+
+      - name: Download macOS Package
+        id: download_macos
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build-installers.yml
+          name: macos-package
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/macos-package
+
+      - name: Verify macOS Package
+        run: |
+          if [ -d "artifacts/macos-package" ] && [ "$(find artifacts/macos-package -name "*.pkg" | wc -l)" -gt 0 ]; then
+            echo "macOS package artifacts found:"
+            find artifacts/macos-package -name "*.pkg"
+          else
+            echo "WARNING: No macOS package artifacts were downloaded."
+            mkdir -p artifacts/macos-package
+          fi
+
+      - name: Download Windows Installer
+        id: download_windows
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build-installers.yml
+          name: windows-installer
+          workflow_conclusion: success
+          commit: ${{github.event.workflow_run.head_sha}}
+          path: artifacts/windows-installer
+
+      - name: Verify Windows Installer
+        run: |
+          if [ -d "artifacts/windows-installer" ] && [ "$(find artifacts/windows-installer -name "*.msi" | wc -l)" -gt 0 ]; then
+            echo "Windows installer artifacts found:"
+            find artifacts/windows-installer -name "*.msi"
+          else
+            echo "WARNING: No Windows installer artifacts were downloaded."
+            mkdir -p artifacts/windows-installer
+          fi
+
       - name: Prepare Release Files
         run: |
           cd artifacts
@@ -379,6 +471,20 @@ jobs:
             echo "Warning: No CMake artifacts found"
           fi
 
+          # Move installer packages
+          for installer_type in debian-package rpm-package macos-package windows-installer; do
+            if [ -d "$installer_type" ] && [ "$(ls -A $installer_type)" ]; then
+              find $installer_type -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.pkg" -o -name "*.msi" \) -exec cp {} release_files/ \;
+              INSTALLER_COUNT=$(find release_files -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.pkg" -o -name "*.msi" \) | wc -l)
+              if [ "$INSTALLER_COUNT" -gt 0 ]; then
+                echo "Added installer packages to release from $installer_type"
+                TOTAL_FILES=$((TOTAL_FILES+1))
+              fi
+            else
+              echo "Warning: $installer_type directory is empty or does not exist"
+            fi
+          done
+
           # List all collected release files
           echo "Collected $TOTAL_FILES release files:"
           ls -la release_files/
@@ -399,25 +505,62 @@ jobs:
           generate_release_notes: true
           draft: false
           body: |
-            # Colibri Release ${{ needs.check-workflows-and-tag.outputs.tag_name }}
-
             This release includes binaries and libraries for multiple platforms.
 
-            ## Included Artifacts
-
-            - **CMake builds** (various platforms)
-            - **Swift package** (iOS/macOS)
-            - **JavaScript/WASM package** (Web/Node.js)
-            - **Android AAR** (Android/Kotlin)
-            - **JVM JAR** (Java/Kotlin)
-            - **Python wheels** (Linux/macOS/Windows)
-
-            ### Python Installation
+            ## Installation
             
+            ### System Packages
+            
+            **Linux (Debian/Ubuntu):**
+            ```bash
+            sudo dpkg -i colibri-server_*.deb
+            sudo apt-get install -f
+            ```
+            
+            **Linux (RPM):**
+            ```bash
+            sudo rpm -ivh colibri-server-*.rpm
+            ```
+            
+            **macOS (PKG):**
+            ```bash
+            sudo installer -pkg colibri-server-*.pkg -target /
+            ```
+            
+            **macOS (Homebrew):**
+            ```bash
+            brew tap corpus-core/colibri
+            brew install colibri-server
+            brew services start colibri-server
+            ```
+            
+            **Windows (MSI):**
+            ```powershell
+            msiexec /i colibri-server-*.msi
+            ```
+            
+            ### Development Libraries
+            
+            **Python:**
             ```bash
             pip install colibri-stateless
             ```
-
+            
+            **Swift/iOS:** Download the Swift package artifact
+            
+            **JavaScript/WASM:** Download the c4-wasm artifact
+            
+            **Android/Kotlin:** Download the AAR or JAR artifact
+            
+            ## Included Artifacts
+            
+            - System installers (DEB, RPM, PKG, MSI)
+            - CMake builds (Linux, macOS, Windows)
+            - Swift package (iOS/macOS)
+            - JavaScript/WASM package
+            - Android AAR & JVM JAR
+            - Python wheels
+            
             If some artifacts are missing, they may not have been successfully built in the pipeline.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -469,4 +612,28 @@ jobs:
             echo "- ✅ Python wheels: $(find artifacts/python -name "*.whl" | wc -l) files" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ❌ No Python wheels found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "artifacts/debian-package" ] && [ "$(find artifacts/debian-package -name "*.deb" | wc -l)" -gt 0 ]; then
+            echo "- ✅ Debian packages: $(find artifacts/debian-package -name "*.deb" | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No Debian packages found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "artifacts/rpm-package" ] && [ "$(find artifacts/rpm-package -name "*.rpm" | wc -l)" -gt 0 ]; then
+            echo "- ✅ RPM packages: $(find artifacts/rpm-package -name "*.rpm" | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No RPM packages found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "artifacts/macos-package" ] && [ "$(find artifacts/macos-package -name "*.pkg" | wc -l)" -gt 0 ]; then
+            echo "- ✅ macOS packages: $(find artifacts/macos-package -name "*.pkg" | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No macOS packages found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "artifacts/windows-installer" ] && [ "$(find artifacts/windows-installer -name "*.msi" | wc -l)" -gt 0 ]; then
+            echo "- ✅ Windows installers: $(find artifacts/windows-installer -name "*.msi" | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No Windows installers found" >> $GITHUB_STEP_SUMMARY
           fi
