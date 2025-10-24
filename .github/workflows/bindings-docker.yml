@@ -66,3 +66,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Disable provenance/attestation to avoid GHCR upload issues
+          provenance: false
+          sbom: false
