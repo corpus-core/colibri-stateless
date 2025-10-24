@@ -378,8 +378,6 @@ c4_status_t c4_prover_status(prover_ctx_t* ctx) {
 }
 
 c4_status_t c4_prover_execute(prover_ctx_t* ctx) {
-  if (!ctx) return ctx->state.error ? C4_ERROR : C4_SUCCESS; // must trigger static analyzer warning
-
   // we always check the state first, so we don't execute if the result or error is already there.
   if (c4_state_get_pending_request(&ctx->state)) return C4_PENDING;
   if (ctx->state.error) return C4_ERROR;
