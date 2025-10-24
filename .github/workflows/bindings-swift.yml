@@ -181,8 +181,8 @@ jobs:
           echo "### 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Capture test output (with timeout and output control)
-          if test_output=$(timeout 300 swift test 2>&1); then
+          # Capture test output
+          if test_output=$(swift test 2>&1); then
             echo "✅ Swift tests passed"
             
             # Zeige Test-Zusammenfassung in Console
