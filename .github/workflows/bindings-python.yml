@@ -257,8 +257,8 @@ jobs:
           # Simple integration test
           PYTHONPATH=src python3 -c "from colibri.testing import discover_tests; tests = discover_tests(); print(f'🎯 Discovered {len(tests)} test cases')"
           
-          # Run pytest
-          PYTHONPATH=src python3 -m pytest tests/ -v --tb=short || echo "⚠️ Some tests may require additional setup"
+          # Run pytest - fail the step if tests fail
+          PYTHONPATH=src python3 -m pytest tests/ -v --tb=short
           
       - name: Run Integration Tests (Windows)
         if: matrix.os == 'windows-latest'
