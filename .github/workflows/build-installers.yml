@@ -1,24 +1,17 @@
 name: Build Installers
 
 on:
-  push:
-    branches:
-      - 'main'
-      - 'dev'
-      - 'installer'
-    tags:
-      - 'v*.*.*'
-  pull_request:
-    branches:
-      - 'main'
-      - 'dev'
   workflow_dispatch:
     inputs:
       version:
         description: 'Version to build'
         required: true
         default: '1.0.0'
-  workflow_call:  # Allow this workflow to be called by other workflows
+  workflow_call:  # Called by main-ci.yml workflow
+    secrets:
+      PAT_TOKEN:
+        required: false
+        description: 'Personal Access Token for Homebrew repository updates'
 
 jobs:
   determine-version:

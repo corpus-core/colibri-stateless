@@ -564,7 +564,7 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         StorageBridge.registerStorage(mockStorage)
         
         if let trustedBlockhash = trustedBlockhash {
-            colibri.trustedBlockHashes = [trustedBlockhash]
+            colibri.trustedCheckpoint = trustedBlockhash
         }
         
         // Execute the test using rpc() which handles createProof/verifyProof internally

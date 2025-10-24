@@ -26,6 +26,8 @@ jobs:
   # System installers (DEB, RPM, PKG, MSI)
   build-installers:
     uses: ./.github/workflows/build-installers.yml
+    secrets:
+      PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
 
   # Language bindings
   swift:

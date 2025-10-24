@@ -3,13 +3,7 @@
 name: CMake on multiple platforms
 
 on:
-  push:
-    branches: ["main", "dev"]
-    tags:
-      - "v*" # Trigger on version tags
-  pull_request:
-    branches: ["main", "dev"]
-  workflow_call:  # Allow this workflow to be called by other workflows
+  workflow_call:  # Called by main-ci.yml workflow
 
 jobs:
   build-embedded:
