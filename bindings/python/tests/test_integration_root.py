@@ -212,7 +212,7 @@ class TestSpecificIntegrationCases:
         test_json_path = blocknum_dir / 'test.json'
         if not test_json_path.exists():
             pytest.skip("test.json not found in eth_blockNumber_electra")
-            
+        
         import json
         with open(test_json_path) as f:
             config = json.load(f)
@@ -221,9 +221,11 @@ class TestSpecificIntegrationCases:
         mock_storage = FileBasedMockStorage(blocknum_dir)
         mock_request_handler = FileBasedMockRequestHandler(blocknum_dir)
         
-        # Create client
+        # Create client with NO provers to force local proof creation
+        # Integration tests should use mock data, not remote provers
         client = Colibri(
             chain_id=config['chain_id'],
+            provers=[],  # CRITICAL: Empty list forces local proof creation with mock data
             storage=mock_storage,
             request_handler=mock_request_handler
         )
@@ -281,9 +283,11 @@ class TestSpecificIntegrationCases:
         mock_storage = FileBasedMockStorage(balance_dir)
         mock_request_handler = FileBasedMockRequestHandler(balance_dir)
         
-        # Create client
+        # Create client with NO provers to force local proof creation
+        # Integration tests should use mock data, not remote provers
         client = Colibri(
             chain_id=config['chain_id'],
+            provers=[],  # CRITICAL: Empty list forces local proof creation with mock data
             storage=mock_storage,
             request_handler=mock_request_handler
         )

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 class MethodType(IntEnum):
     """Enum for RPC method support types"""
-    UNKNOWN = 0
+    UNDEFINED = 0      # Method is not defined/recognized
     PROOFABLE = 1
     UNPROOFABLE = 2  
     NOT_SUPPORTED = 3
@@ -21,7 +21,7 @@ class MethodType(IntEnum):
     def description(self) -> str:
         """Human-readable description of the method type"""
         descriptions = {
-            MethodType.UNKNOWN: "Unknown method type",
+            MethodType.UNDEFINED: "Method not defined/recognized",
             MethodType.PROOFABLE: "Method supports proof generation",
             MethodType.UNPROOFABLE: "Method doesn't support proofs, direct RPC call",
             MethodType.NOT_SUPPORTED: "Method not supported",
