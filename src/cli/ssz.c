@@ -65,6 +65,12 @@ const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
 // | `<field1> ...` |                 | Fields to include in JSON output |         |
 
 int main(int argc, char* argv[]) {
+
+  // should trigger scan-build warning
+  char tmp2[5] = {0};
+  memcpy(tmp2, "test", 20);
+  sprintf(tmp2, "test%s", "test");
+
   // Check for --version
   if (argc >= 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
     c4_print_version(stdout, "colibri-ssz");
