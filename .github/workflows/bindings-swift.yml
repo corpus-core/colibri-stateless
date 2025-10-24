@@ -181,36 +181,44 @@ jobs:
           echo "### 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Capture test output
-          if test_output=$(swift test 2>&1); then
+          # Capture test output (with timeout and output control)
+          if test_output=$(timeout 300 swift test 2>&1); then
             echo "✅ Swift tests passed"
-            echo "- ✅ **Swift Tests**: All tests passed" >> $GITHUB_STEP_SUMMARY
             
-            # Extract test summary
-            test_count=$(echo "$test_output" | grep -o "Executed [0-9]* tests" | tail -1 || echo "Tests executed")
+            # Zeige Test-Zusammenfassung in Console
+            echo "$test_output" | tail -20
+            
+            # Extrahiere wichtige Metriken
+            test_count=$(echo "$test_output" | grep -o "Test Suite.*passed" | tail -1 || echo "")
+            passed_count=$(echo "$test_output" | grep -o "[0-9]* passed" | tail -1 || echo "")
+            
+            # Schreibe kompakte Summary
+            echo "- ✅ **Swift Tests**: All tests passed" >> $GITHUB_STEP_SUMMARY || true
             if [[ -n "$test_count" ]]; then
-              echo "- 📊 **Test Summary**: $test_count" >> $GITHUB_STEP_SUMMARY
+              echo "- 📊 **Test Summary**: $test_count" >> $GITHUB_STEP_SUMMARY || true
+            fi
+            if [[ -n "$passed_count" ]]; then
+              echo "- ✅ **Tests Passed**: $passed_count" >> $GITHUB_STEP_SUMMARY || true
             fi
             
-            # Extract performance info if available
-            if echo "$test_output" | grep -q "getMethodSupport"; then
-              echo "- 🚀 **Native C Integration**: Working (getMethodSupport tested)" >> $GITHUB_STEP_SUMMARY
-            fi
+            # Zähle durchgeführte Integration-Tests
+            integration_tests=$(echo "$test_output" | grep -c "testIntegration_" || echo "0")
+            echo "- 🧪 **Integration Tests**: $integration_tests test functions executed" >> $GITHUB_STEP_SUMMARY || true
             
-            # Extract key test results
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "#### Test Details" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "$test_output" | grep -E "(✅|📊|🧪)" | head -5 >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ Swift tests failed"
-            echo "- ❌ **Swift Tests**: Tests failed" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "#### Test Output (Last 30 lines)" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "$test_output" | tail -30 >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            EXIT_CODE=$?
+            echo "❌ Swift tests failed (exit code: $EXIT_CODE)"
+            
+            # Zeige Fehler in Console
+            echo "$test_output" | tail -50
+            
+            # Schreibe Fehler ins Summary (begrenzt)
+            echo "- ❌ **Swift Tests**: Tests failed (exit code $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY || true
+            echo "" >> $GITHUB_STEP_SUMMARY || true
+            echo "#### Test Output (Last 30 lines)" >> $GITHUB_STEP_SUMMARY || true
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY || true
+            echo "$test_output" | tail -30 >> $GITHUB_STEP_SUMMARY || true
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY || true
             exit 1
           fi
           
