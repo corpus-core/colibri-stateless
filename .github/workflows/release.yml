@@ -251,12 +251,14 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.check-workflows-and-tag.outputs.tag_name }}
-          files: artifacts/release_files/*
+          files: release_files/*
           generate_release_notes: true
           draft: false
+          append_body: true
           body: |
-            This release includes binaries and libraries for multiple platforms.
-
+            
+            ---
+            
             ## Installation
             
             ### System Packages
