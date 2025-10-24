@@ -189,20 +189,23 @@ jobs:
                   WHEEL_COUNT=$(find release_files -name "*.whl" | wc -l)
                   if [ "$WHEEL_COUNT" -gt 0 ]; then
                     # Also create a zip of all wheels
-                    cd "$artifact_dir"
-                    zip -r ../../release_files/colibri-python-wheels.zip ./*.whl
-                    cd ../..
+                    WHEELS=$(find "$artifact_dir" -name "*.whl")
+                    if [ -n "$WHEELS" ]; then
+                      cd "$artifact_dir"
+                      find . -name "*.whl" -exec zip ../../release_files/colibri-python-wheels.zip {} +
+                      cd ../..
+                    fi
                     echo "  ✅ Added $WHEEL_COUNT Python wheels"
                     TOTAL_FILES=$((TOTAL_FILES+WHEEL_COUNT+1))
                   fi
                   ;;
                   
-                cmake-release-*)
-                  # Copy CMake release archives
+                *-Release-*|cmake-release-*)
+                  # Copy CMake release archives (pattern: os-latest-Release-compiler)
                   find "$artifact_dir" -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release_files/ \;
-                  CMAKE_FILES=$(find release_files -type f \( -name "colibri-*.zip" -o -name "colibri-*.tar.gz" \) | wc -l)
+                  CMAKE_FILES=$(find "$artifact_dir" -type f \( -name "*.zip" -o -name "*.tar.gz" \) | wc -l)
                   if [ "$CMAKE_FILES" -gt 0 ]; then
-                    echo "  ✅ Added CMake build: $artifact_name"
+                    echo "  ✅ Added CMake build: $artifact_name ($CMAKE_FILES files)"
                     TOTAL_FILES=$((TOTAL_FILES+CMAKE_FILES))
                   fi
                   ;;
@@ -326,7 +329,7 @@ jobs:
           echo "### Artifact Summary" >> $GITHUB_STEP_SUMMARY
 
           # Check all artifact types from main-ci.yml
-          CMAKE_COUNT=$(find artifacts -type d -name "cmake-release-*" | wc -l)
+          CMAKE_COUNT=$(find artifacts -type d -name "*-Release-*" -o -name "cmake-release-*" | wc -l)
           if [ "$CMAKE_COUNT" -gt 0 ]; then
             echo "- ✅ CMake artifacts: $CMAKE_COUNT builds" >> $GITHUB_STEP_SUMMARY
           else
