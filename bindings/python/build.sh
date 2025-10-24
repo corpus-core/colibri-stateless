@@ -151,9 +151,34 @@ log "Using CMake $CMAKE_VERSION"
 log "Checking pybind11 availability..."
 if ! $PYTHON -c "import pybind11" &> /dev/null; then
     log_warning "pybind11 not found, attempting to install..."
-    $PYTHON -m pip install pybind11
+    
+    # Try different installation methods
+    INSTALL_SUCCESS=false
+    
+    # Method 1: Try regular pip install
+    if $PYTHON -m pip install pybind11 &> /dev/null; then
+        INSTALL_SUCCESS=true
+    # Method 2: Try pip install with --user flag (for system-managed Python)
+    elif $PYTHON -m pip install --user pybind11 &> /dev/null; then
+        INSTALL_SUCCESS=true
+        log "Installed pybind11 with --user flag"
+    # Method 3: Try brew install on macOS
+    elif [[ "$(uname)" == "Darwin" ]] && command -v brew &> /dev/null; then
+        log "Attempting to install pybind11 via Homebrew..."
+        if brew install pybind11 &> /dev/null; then
+            INSTALL_SUCCESS=true
+            log "Installed pybind11 via Homebrew"
+        fi
+    fi
+    
+    # Verify installation
     if ! $PYTHON -c "import pybind11" &> /dev/null; then
-        log_error "Failed to install or import pybind11"
+        log_error "Failed to install pybind11"
+        log_error ""
+        log_error "Please install pybind11 manually using one of these methods:"
+        log_error "  1. Using Homebrew (macOS):     brew install pybind11"
+        log_error "  2. Using pip with --user:      $PYTHON -m pip install --user pybind11"
+        log_error "  3. Using virtual environment:  python3 -m venv venv && source venv/bin/activate && pip install pybind11"
         exit 1
     fi
 fi

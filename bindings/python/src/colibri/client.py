@@ -154,7 +154,7 @@ class Colibri:
                 type_int = native.get_method_support(self.chain_id, method)
                 return MethodType(type_int)
             except (ValueError, TypeError):
-                return MethodType.UNKNOWN
+                return MethodType.UNDEFINED
         
         # Fallback implementation for testing
         proofable_methods = {
@@ -173,7 +173,7 @@ class Colibri:
         elif method.startswith("eth_"):
             return MethodType.UNPROOFABLE
         else:
-            return MethodType.NOT_SUPPORTED
+            return MethodType.UNDEFINED
 
     async def create_proof(self, method: str, params: List[Any]) -> bytes:
         """
@@ -281,27 +281,12 @@ class Colibri:
                     if not status_json:
                         raise VerificationError("Verification execution returned null")
                     
-                    # Debug: Print the raw JSON response from C
-                    # DEBUG: Raw C JSON response available for debugging
-                    
+                    # Parse JSON response from C library
                     try:
                         status = json.loads(status_json)
                     except json.JSONDecodeError as e:
-                        # Workaround: Try to fix trailing comma issue from C
-                        if "," in status_json and status_json.rstrip().endswith(",}"):
-                            # Workaround: Fix trailing comma in C JSON
-                            fixed_json = status_json.replace(",}", "}")
-                            print(f"   Fixed JSON: {repr(fixed_json)}")
-                            try:
-                                status = json.loads(fixed_json)
-                                # JSON parsing successful after fix
-                            except json.JSONDecodeError as e2:
-                                print(f"Still invalid after fix: {e2}")
-                                raise VerificationError(f"Invalid JSON in verification response: {e2}")
-                        else:
-                            # JSON parse error occurred
-                            print(f"   Raw response: {status_json}")
-                            raise VerificationError(f"Invalid JSON in verification response: {e}")
+                        # JSON parsing failed - this indicates a bug in the C library
+                        raise VerificationError(f"Invalid JSON from C library: {e}") from e
                     
                     if status["status"] == "success":
                         return status.get("result")
@@ -358,7 +343,7 @@ class Colibri:
             # Local methods use empty proof
             return await self.verify_proof(b"", method, params)
             
-        elif method_type == MethodType.NOT_SUPPORTED:
+        elif method_type == MethodType.NOT_SUPPORTED or method_type == MethodType.UNDEFINED:
             raise ColibriError(f"Method {method} is not supported")
             
         else:

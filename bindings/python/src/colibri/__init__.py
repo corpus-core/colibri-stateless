@@ -6,8 +6,8 @@ Python bindings for the Colibri stateless Ethereum proof library.
 
 import atexit
 from .storage import ColibriStorage, DefaultStorage, MemoryStorage  
-from .types import MethodType, ColibriError
-from .testing import MockStorage, MockRequestHandler
+from .types import MethodType, ColibriError, RPCError
+from .testing import MockStorage, MockRequestHandler, MockProofData, TestHelper
 
 # Try to import native module
 try:
@@ -24,21 +24,20 @@ _global_storage = None
 _storage_registered = False
 
 def _register_global_storage(storage: ColibriStorage = None):
-    """Register global storage once for the entire module"""
+    """Register global storage (can be changed, but affects all Colibri instances)"""
     global _global_storage, _storage_registered
     
-    if _storage_registered:
-        # Already registered - check if it's the same type
-        if storage is not None and type(storage) != type(_global_storage):
-            import warnings
-            warnings.warn(
-                f"Storage already registered as {type(_global_storage).__name__}, "
-                f"ignoring {type(storage).__name__}. C storage is global across all instances.",
-                RuntimeWarning
-            )
-        return _global_storage
+    # Allow storage re-registration for testing
+    # Note: This affects ALL Colibri instances as C storage is global
+    if _storage_registered and storage is not None:
+        if type(storage) != type(_global_storage):
+            # Storage type is changing - re-register
+            _storage_registered = False
         
     if storage is None:
+        if _storage_registered:
+            # Return existing storage
+            return _global_storage
         storage = DefaultStorage()
     
     _global_storage = storage
@@ -79,6 +78,9 @@ __all__ = [
     "MemoryStorage",
     "MethodType",
     "ColibriError",
+    "RPCError",
     "MockStorage",
     "MockRequestHandler",
+    "MockProofData",
+    "TestHelper",
 ]

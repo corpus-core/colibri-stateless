@@ -185,10 +185,11 @@ class TestMockStorage:
         # Perform operations
         storage.get("test_key")
         storage.set("test_key", b"test_data")
+        storage.get("test_key")  # Get again to verify the set worked
         storage.delete("test_key")
         
         # Check calls were tracked
-        assert storage.get_calls == ["test_key", "test_key"]  # Two gets: initial and after set
+        assert storage.get_calls == ["test_key", "test_key"]  # Two gets: before and after set
         assert storage.set_calls == [("test_key", b"test_data")]
         assert storage.delete_calls == ["test_key"]
         

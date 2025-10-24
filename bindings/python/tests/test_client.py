@@ -100,14 +100,15 @@ class TestMethodSupport:
             assert support == MethodType.LOCAL, f"Method {method} should be local"
     
     def test_get_method_support_not_supported(self):
-        """Test detection of unsupported methods"""
+        """Test detection of undefined/unsupported methods"""
         client = Colibri()
         
-        unsupported_methods = ["web3_sha3", "debug_traceTransaction"]
+        # Methods that are not defined in the C library return UNDEFINED
+        undefined_methods = ["debug_traceTransaction", "eth_unsupportedMethod", "custom_fakeMethod"]
         
-        for method in unsupported_methods:
+        for method in undefined_methods:
             support = client.get_method_support(method)
-            assert support == MethodType.NOT_SUPPORTED, f"Method {method} should not be supported"
+            assert support == MethodType.UNDEFINED, f"Method {method} should be undefined"
 
 
 class TestClientWithMocks:
