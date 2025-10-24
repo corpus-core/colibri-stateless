@@ -125,7 +125,7 @@ let swift_storage_get_callback: @convention(c) (UnsafePointer<CChar>?, UnsafeMut
     // Allocate C memory and copy Swift Data
     let buffer = malloc(data.count)
     if let buffer = buffer {
-        data.withUnsafeBytes { bytes in
+        _ = data.withUnsafeBytes { bytes in
             memcpy(buffer, bytes.baseAddress, data.count)
         }
         out_len.pointee = UInt32(data.count)
