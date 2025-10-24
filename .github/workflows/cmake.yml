@@ -408,79 +408,88 @@ jobs:
           cp analysis_summary.md build/static-analysis-report/
 
           {
-            # Include the analysis summary
+            # Include the analysis summary header
             cat analysis_summary.md
             
             # Only include build output if bugs were found
             if [ "${{ steps.scan-build.outputs.no_bugs }}" != "true" ]; then
+              echo ""
+              echo "### 🔍 Detected Issues"
+              echo ""
               
-              # Process the output to create a markdown list with code blocks
-              awk '
-                BEGIN { in_issue = 0; issue_text = ""; code_block = ""; }
-                
-                # Skip cmake progress lines
-                /^\[/ { next }
-                
-                # Start of a warning/error - collect the line
-                /:[0-9]+:[0-9]+: (warning|error|note):/ {
-                  if ($0 ~ /\/libs\//) { next }
+              # Filter and format scan-build output
+              # Only show issues from src/ (exclude libs/, test/, build/, _deps/)
+              grep -E "^/.+\.(c|h):[0-9]+:[0-9]+: (warning|error):" build/scan-build-output.txt | \
+              grep -v "/libs/" | \
+              grep -v "/test/" | \
+              grep -v "/build/" | \
+              grep -v "/_deps/" | \
+              grep -v "/\.build/" | \
+              while IFS= read -r line; do
+                # Extract components: file:line:col: type: message [checker]
+                if [[ "$line" =~ ^(.+):([0-9]+):([0-9]+):[[:space:]]+(warning|error):[[:space:]]+(.+)[[:space:]]+\[([^\]]+)\] ]]; then
+                  filepath="${BASH_REMATCH[1]}"
+                  linenum="${BASH_REMATCH[2]}"
+                  colnum="${BASH_REMATCH[3]}"
+                  severity="${BASH_REMATCH[4]}"
+                  message="${BASH_REMATCH[5]}"
+                  checker="${BASH_REMATCH[6]}"
                   
-                  # If we were processing a previous issue, print it
-                  if (in_issue) {
-                    print issue_text
-                    if (code_block != "") {
-                      print "  ```c"
-                      print code_block "  ```"
-                      print ""
-                    }
-                  }
+                  # Shorten file path to start from src/
+                  shortpath=$(echo "$filepath" | sed 's|.*/src/|src/|')
                   
-                  # Extract file path and line info
-                  match($0, /([^:]+):([0-9]+):([0-9]+): (warning|error|note): (.+) \[(.+)\]/, arr)
-                  file = arr[1]
-                  # Keep path from src/ onwards
-                  sub(".*/src/", "src/", file)
+                  # Set icon based on severity
+                  if [ "$severity" = "error" ]; then
+                    icon="❌"
+                  else
+                    icon="⚠️"
+                  fi
                   
-                  # Set icon based on issue type
-                  if (arr[4] == "error") {
-                    icon = "❌"
-                  } else if (arr[4] == "warning") {
-                    icon = "⚠️"
-                  } else {
-                    icon = "ℹ️"
-                  }
+                  # Print formatted issue
+                  echo "#### $icon \`$checker\`"
+                  echo ""
+                  echo "**$message**"
+                  echo ""
+                  echo "📁 Location: \`$shortpath:$linenum:$colnum\`"
+                  echo ""
                   
-                  # Format the new issue
-                  issue_text = sprintf("- %s **%s** [%s]\\n  in %s:%s:%s", icon, arr[5], arr[6], file, arr[2], arr[3])
+                  # Try to extract code context (next 2-3 lines after the error line)
+                  # Look for lines with pipe character showing code
+                  context_found=false
+                  while IFS= read -r context_line; do
+                    if [[ "$context_line" =~ ^[[:space:]]*[0-9]+[[:space:]]*\| ]]; then
+                      if [ "$context_found" = false ]; then
+                        echo '```c'
+                        context_found=true
+                      fi
+                      echo "$context_line"
+                    elif [[ "$context_line" =~ ^[[:space:]]*\|[[:space:]]*\^ ]]; then
+                      # This is the pointer line
+                      echo "$context_line"
+                    elif [ "$context_found" = true ]; then
+                      # End of code block
+                      break
+                    fi
+                  done < <(grep -A 5 "$shortpath:$linenum:$colnum" build/scan-build-output.txt 2>/dev/null)
                   
-                  in_issue = 1
-                  code_block = ""
-                  next
-                }
-                
-                # Collect code block lines while in an issue
-                in_issue && /^[ ]*[0-9]+[ ]*\|/ {
-                  code_block = code_block "  " $0 "\\n"
-                  # Also collect the pointer line that follows
-                  getline pointer_line
-                  if (pointer_line ~ /[ ]*\|/) {
-                    code_block = code_block "  " pointer_line "\\n"
-                  }
-                  next
-                }
-                
-                # Print the last issue when we reach the end
-                END {
-                  if (in_issue) {
-                    print issue_text
-                    if (code_block != "") {
-                      print "  ```c"
-                      print code_block "  ```"
-                      print ""
-                    }
-                  }
-                }
-              ' build/scan-build-output.txt
+                  if [ "$context_found" = true ]; then
+                    echo '```'
+                  fi
+                  echo ""
+                  echo "---"
+                  echo ""
+                fi
+              done
+              
+              # Count issues
+              ISSUE_COUNT=$(grep -E "^/.+\.(c|h):[0-9]+:[0-9]+: (warning|error):" build/scan-build-output.txt | \
+                grep -v "/libs/" | grep -v "/test/" | grep -v "/build/" | grep -v "/_deps/" | grep -v "/\.build/" | wc -l)
+              
+              if [ "$ISSUE_COUNT" -eq 0 ]; then
+                echo "ℹ️ All detected issues are from excluded directories (libs/, test/, build/)."
+              else
+                echo "**Total issues in source code: $ISSUE_COUNT**"
+              fi
             fi
           } >> $GITHUB_STEP_SUMMARY
 
