@@ -721,6 +721,9 @@ jobs:
         if: (success() || failure()) && matrix.os == 'ubuntu-latest' && matrix.c_compiler == 'clang' # only run for ubuntu-latest with clang
         with:
           report_paths: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
+          detailed_summary: true
+          include_passed: true
+          check_name: C Tests Results       
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 
