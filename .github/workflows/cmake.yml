@@ -9,6 +9,7 @@ on:
       - "v*" # Trigger on version tags
   pull_request:
     branches: ["main", "dev"]
+  workflow_call:  # Allow this workflow to be called by other workflows
 
 jobs:
   build-embedded:

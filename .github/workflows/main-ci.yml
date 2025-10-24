@@ -1,4 +1,4 @@
-name: Bindings Pipeline
+name: Main CI Pipeline
 
 on:
   push:
@@ -15,9 +15,19 @@ permissions:
   pull-requests: write
   actions: read
   packages: write # Required for pushing Docker images to GHCR
+  security-events: write # Required for CodeQL
 
 
 jobs:
+  # Core build and test pipeline
+  cmake:
+    uses: ./.github/workflows/cmake.yml
+
+  # System installers (DEB, RPM, PKG, MSI)
+  build-installers:
+    uses: ./.github/workflows/build-installers.yml
+
+  # Language bindings
   swift:
     uses: ./.github/workflows/bindings-swift.yml
     secrets:

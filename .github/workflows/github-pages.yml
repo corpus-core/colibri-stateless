@@ -3,7 +3,7 @@ name: Deploy GitHub Pages
 on:
   # Run after the main workflow completes successfully
   workflow_run:
-    workflows: ["CMake on multiple platforms"]
+    workflows: ["Main CI Pipeline"]
     types:
       - completed
     branches: [main, dev]

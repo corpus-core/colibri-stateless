@@ -2,7 +2,7 @@ name: Release Creation
 
 on:
   workflow_run:
-    workflows: ["CMake on multiple platforms", "Bindings Pipeline"]
+    workflows: ["Main CI Pipeline"]
     types:
       - completed
     branches: [main, dev]
@@ -42,27 +42,13 @@ jobs:
           HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
           echo "Commit SHA: $HEAD_SHA"
 
-          # Check if both workflows have completed successfully for this SHA
-          echo "Checking CMake workflow..."
-          CMAKE_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/cmake.yml/runs?status=completed&head_sha=$HEAD_SHA")
+          # Check if Main CI Pipeline workflow has completed successfully for this SHA
+          echo "Checking Main CI Pipeline workflow..."
+          MAIN_CI_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/main-ci.yml/runs?status=completed&head_sha=$HEAD_SHA")
 
-          CMAKE_SUCCESS=$(echo "$CMAKE_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
-          echo "CMake successful runs: $CMAKE_SUCCESS"
-
-          echo "Checking Bindings workflow..."
-          BINDINGS_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/bindings.yml/runs?status=completed&head_sha=$HEAD_SHA")
-
-          BINDINGS_SUCCESS=$(echo "$BINDINGS_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
-          echo "Bindings successful runs: $BINDINGS_SUCCESS"
-
-          echo "Checking Build Installers workflow..."
-          INSTALLERS_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-installers.yml/runs?status=completed&head_sha=$HEAD_SHA")
-
-          INSTALLERS_SUCCESS=$(echo "$INSTALLERS_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
-          echo "Build Installers successful runs: $INSTALLERS_SUCCESS"
+          MAIN_CI_SUCCESS=$(echo "$MAIN_CI_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
+          echo "Main CI Pipeline successful runs: $MAIN_CI_SUCCESS"
 
           # Check if this commit has any tags
           echo "Checking for tags..."
@@ -74,16 +60,14 @@ jobs:
           echo "Matching tags: $MATCHING_TAGS"
 
           # Make decision
-          if [[ "$CMAKE_SUCCESS" -gt 0 && "$BINDINGS_SUCCESS" -gt 0 && "$INSTALLERS_SUCCESS" -gt 0 && -n "$MATCHING_TAGS" ]]; then
-            # All workflows succeeded and there's at least one tag - proceed with release
-            echo "All workflows succeeded and tag found - should create release"
+          if [[ "$MAIN_CI_SUCCESS" -gt 0 && -n "$MATCHING_TAGS" ]]; then
+            # Main CI Pipeline succeeded and there's at least one tag - proceed with release
+            echo "Main CI Pipeline succeeded and tag found - should create release"
             echo "should_release=true" >> $GITHUB_OUTPUT
           else
             # Conditions not met - don't proceed
             echo "Not all conditions met for release:"
-            echo "- CMake success: $CMAKE_SUCCESS (need > 0)"
-            echo "- Bindings success: $BINDINGS_SUCCESS (need > 0)"
-            echo "- Build Installers success: $INSTALLERS_SUCCESS (need > 0)"
+            echo "- Main CI Pipeline success: $MAIN_CI_SUCCESS (need > 0)"
             echo "- Tags found: $MATCHING_TAGS"
             echo "should_release=false" >> $GITHUB_OUTPUT
           fi
