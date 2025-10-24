@@ -64,17 +64,27 @@ paths:
         
         The response is an SSZ-encoded `C4Request` container defined in the [Ethereum Main Proof Request specification](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/ethereum-main-proof-request).
         
-        **Supported Methods:**
-        - `eth_call` - Execute contract call with proof
-        - `eth_getBalance` - Get account balance with proof
-        - `eth_getStorageAt` - Get storage value with proof
-        - `eth_getTransactionByHash` - Get transaction with proof
-        - `eth_getTransactionReceipt` - Get receipt with proof
-        - `eth_getLogs` - Get logs with proof
-        - `eth_getBlockByNumber` - Get block data with proof
-        - `eth_getBlockByHash` - Get block data with proof
-        - `eth_getCode` - Get contract code with proof
-        - And more...
+        **Supported Methods with Proofs:**
+        
+        This endpoint only accepts RPC methods that have an associated ProofType. The ProofType determines the structure used in the `C4Request.proof` union.
+        
+        For the complete list of supported methods and their proof types, see the [Supported RPC Methods](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods) documentation.
+        
+        **Common Methods:**
+        - `eth_call` → EthCallProof
+        - `eth_getBalance` → EthAccountProof
+        - `eth_getStorageAt` → EthAccountProof
+        - `eth_getCode` → EthAccountProof
+        - `eth_getProof` → EthAccountProof
+        - `eth_getTransactionByHash` → EthTransactionProof
+        - `eth_getTransactionReceipt` → EthReceiptProof
+        - `eth_getLogs` → List[EthLogsBlock]
+        - `eth_getBlockByNumber` → EthBlockProof
+        - `eth_getBlockByHash` → EthBlockProof
+        - `eth_blockNumber` → EthBlockNumberProof
+        - `colibri_simulateTransaction` → EthCallProof
+        
+        **Note:** Methods without a ProofType (like `eth_chainId`, `web3_clientVersion`) are not supported by this endpoint. Use the `/rpc` endpoint instead, which handles all methods.
       
       operationId: generateProof
       
@@ -146,13 +156,38 @@ paths:
         - Verifier
       summary: Verify and Execute JSON-RPC Request
       description: |
-        Processes a JSON-RPC request by generating (locally) or fetching (remotely) a proof,
-        verifying it, and returning the verified JSON-RPC response.
+        **Primary Use Case: Local RPC Provider Replacement**
         
-        This endpoint combines proof generation and verification in one call, providing
-        a transparent interface for verified blockchain data access.
+        This endpoint is designed to serve as a **complete, trustless replacement for traditional RPC providers**. When running the Colibri server locally (using the [installer packages](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/installer)), you can configure this endpoint as your RPC provider in wallets like MetaMask, enabling fully verified, trustless access to the blockchain without relying on third-party infrastructure.
         
-        **Supported Methods:** Same as `/proof` endpoint
+        **How It Works:**
+        
+        The endpoint processes JSON-RPC requests through the following flow:
+        1. **Proof Generation**: Creates or fetches cryptographic proofs for the request (locally or from configured prover nodes)
+        2. **Verification**: Verifies the proof against the current sync committee state
+        3. **Response**: Returns the verified JSON-RPC response in standard format
+        
+        **Supported Methods:**
+        
+        This endpoint supports **all** Ethereum JSON-RPC methods, including:
+        - Methods with proofs (see [Supported RPC Methods](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods))
+        - Local methods without proofs (`eth_chainId`, `web3_clientVersion`, etc.)
+        - Filter methods (`eth_newFilter`, `eth_getFilterChanges`, etc.)
+        - Subscription methods (`eth_subscribe`, `eth_unsubscribe`)
+        
+        **Local Setup Example:**
+        
+        ```bash
+        # Install and run locally (macOS/Linux/Windows)
+        # See: https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/installer
+        
+        # Configure in MetaMask:
+        # Network Name: Colibri Verified Ethereum
+        # RPC URL: http://localhost:8090/rpc
+        # Chain ID: 1 (or your configured chain)
+        ```
+        
+        The `/config` and `/config.html` endpoints complement this use case by providing an easy-to-use configuration interface for non-developers, allowing them to adjust settings like RPC nodes, beacon nodes, and caching without editing configuration files.
       
       operationId: verifyAndExecute
       
@@ -223,8 +258,18 @@ paths:
       description: |
         Serves the web-based configuration interface for managing server settings.
         
-        **Security Note:** This endpoint is disabled by default. Enable it with `WEB_UI_ENABLED=1`
-        environment variable or the `-u` command-line flag. Only enable on trusted networks.
+        **Use Case: Local RPC Provider Setup**
+        
+        This endpoint is specifically designed for users running Colibri locally as a trustless RPC provider (see `/rpc` endpoint). The Web UI provides an accessible way for non-developers to configure the server without editing configuration files directly.
+        
+        **Configuration Options:**
+        - RPC node endpoints (upstream Ethereum nodes)
+        - Beacon node endpoints (for light client sync)
+        - Memcached settings (for proof caching)
+        - Network settings (host, port, chain ID)
+        - Prover settings (local vs. remote proof generation)
+        
+        **Security Note:** This endpoint is disabled by default for security reasons. Enable it with `WEB_UI_ENABLED=1` environment variable or the `-u` command-line flag. **Only enable on trusted networks** (typically localhost for local RPC provider setup).
       
       operationId: getConfigUI
       
@@ -253,7 +298,9 @@ paths:
       description: |
         Returns the current server configuration as JSON.
         
-        **Security Note:** This endpoint is disabled by default. Enable it with `WEB_UI_ENABLED=1`.
+        This endpoint is used by the configuration Web UI (`/config.html`) to display and manage settings. It's part of the local RPC provider setup workflow, allowing programmatic access to server configuration for management tools.
+        
+        **Security Note:** This endpoint is disabled by default. Enable it with `WEB_UI_ENABLED=1` environment variable or the `-u` command-line flag. Only enable on trusted networks.
       
       operationId: getConfig
       
@@ -290,6 +337,113 @@ paths:
             text/html:
               schema:
                 type: string
+    
+    post:
+      tags:
+        - Configuration
+      summary: Update Server Configuration
+      description: |
+        Updates the server configuration and triggers an automatic restart.
+        
+        **How It Works:**
+        
+        1. **Validation**: The server validates all parameter values against their definitions (type, range, etc.)
+        2. **Save**: Valid parameters are written to the configuration file
+        3. **Restart**: The server executes `exit(0)`, relying on the service manager (systemd, launchd, docker-compose) to restart it with the new configuration
+        
+        **Requirements:**
+        
+        - Server must be started with a config file: `-f <CONFIG>` or `--config <CONFIG>`
+        - `WEB_UI_ENABLED=1` must be set (enabled by default with [installer packages](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/installer))
+        - Service manager (systemd/launchd/docker-compose) must be configured to restart on exit
+        
+        **Restrictions:**
+        
+        - **Sensitive parameters** (type: `key`) cannot be updated via this endpoint for security reasons
+        - **Integer parameters** must be within their defined min/max range
+        - Changes take effect after server restart (typically 1-2 seconds)
+        
+        **Use Case:**
+        
+        This endpoint is specifically designed for the local RPC provider setup, allowing non-technical users to adjust settings like RPC endpoints, beacon nodes, or caching options through the Web UI without manually editing configuration files.
+        
+        **Security Note:** This endpoint is disabled by default. Only enable on trusted networks (typically localhost for local installations).
+      
+      operationId: updateConfig
+      
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpdateRequest'
+            example:
+              parameters:
+                - env: PORT
+                  value: 8091
+                - env: RPC_NODES
+                  value: 'https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY,https://rpc.ankr.com/eth'
+                - env: MEMCACHED_HOST
+                  value: 'localhost'
+      
+      responses:
+        '200':
+          description: Configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigUpdateResponse'
+              example:
+                success: true
+                restart_required: true
+                message: 'Configuration saved. Restart server to apply changes.'
+                updated_count: 3
+        
+        '400':
+          description: Validation error or invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                validation_failed:
+                  summary: Parameter validation failed
+                  value:
+                    error: 'Validation failed'
+                    message: 'Parameter port value 99999 out of range [1, 65535].'
+                no_config_file:
+                  summary: Server started without config file
+                  value:
+                    error: 'No config file'
+                    message: 'Server was started without a config file. Cannot save changes.'
+                invalid_json:
+                  summary: Invalid JSON format
+                  value:
+                    error: 'Invalid JSON'
+                    message: 'Request body must be valid JSON object'
+                no_updates:
+                  summary: No valid parameters found
+                  value:
+                    error: 'No updates'
+                    message: 'No valid parameters found in request'
+        
+        '403':
+          description: Web UI is disabled
+          content:
+            text/html:
+              schema:
+                type: string
+                description: HTML error page explaining how to enable the Web UI
+        
+        '500':
+          description: Failed to save configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: 'Save failed'
+                message: 'Could not write config file'
 
   /health:
     get:
@@ -773,6 +927,62 @@ components:
         max:
           type: integer
           description: Maximum value (for 'int' type)
+    
+    ConfigUpdateRequest:
+      type: object
+      required:
+        - parameters
+      properties:
+        parameters:
+          type: array
+          description: Array of parameters to update
+          items:
+            type: object
+            required:
+              - env
+              - value
+            properties:
+              env:
+                type: string
+                description: Environment variable name (must match a valid parameter)
+                example: PORT
+              value:
+                oneOf:
+                  - type: string
+                  - type: integer
+                description: New value for the parameter (type depends on parameter definition)
+                example: 8091
+      example:
+        parameters:
+          - env: PORT
+            value: 8091
+          - env: RPC_NODES
+            value: 'https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY'
+    
+    ConfigUpdateResponse:
+      type: object
+      required:
+        - success
+        - restart_required
+        - message
+        - updated_count
+      properties:
+        success:
+          type: boolean
+          description: Whether the configuration was successfully updated
+          example: true
+        restart_required:
+          type: boolean
+          description: Whether a server restart is required (always true for successful updates)
+          example: true
+        message:
+          type: string
+          description: Human-readable status message
+          example: 'Configuration saved. Restart server to apply changes.'
+        updated_count:
+          type: integer
+          description: Number of parameters that were successfully updated
+          example: 2
 
     BeaconErrorResponse:
       type: object
