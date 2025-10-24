@@ -60,6 +60,10 @@ The OpenAPI specification below provides interactive documentation for all avail
 [OpenAPI colibri-api]
 {% endopenapi-operation %}
 
+{% openapi-operation spec="colibri-api" path="/config" method="post" %}
+[OpenAPI colibri-api]
+{% endopenapi-operation %}
+
 {% openapi-operation spec="colibri-api" path="/health" method="get" %}
 [OpenAPI colibri-api]
 {% endopenapi-operation %}
@@ -86,7 +90,7 @@ The OpenAPI specification below provides interactive documentation for all avail
 
 ### Schemas
 
-{% openapi-schemas spec="colibri-api" schemas="JsonRpcRequest,ProofRequest,JsonRpcResponse,JsonRpcErrorResponse,ErrorResponse,HealthResponse,ConfigResponse,ConfigParameter,BeaconErrorResponse" grouped="true" %}
+{% openapi-schemas spec="colibri-api" schemas="JsonRpcRequest,ProofRequest,JsonRpcResponse,JsonRpcErrorResponse,ErrorResponse,HealthResponse,ConfigResponse,ConfigParameter,ConfigUpdateRequest,ConfigUpdateResponse,BeaconErrorResponse" grouped="true" %}
 [OpenAPI colibri-api]
 {% endopenapi-schemas %}
 
@@ -155,6 +159,33 @@ curl -X POST http://localhost:8090/proof \
 ```
 
 The `include_code` property ensures that the contract bytecode is included in the proof, enabling fully stateless verification.
+
+### Update Configuration
+
+Update server configuration programmatically (requires `WEB_UI_ENABLED=1` and a config file):
+
+```bash
+curl -X POST http://localhost:8090/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parameters": [
+      {"env": "PORT", "value": 8091},
+      {"env": "RPC_NODES", "value": "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY"}
+    ]
+  }'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "restart_required": true,
+  "message": "Configuration saved. Restart server to apply changes.",
+  "updated_count": 2
+}
+```
+
+**Note:** After a successful configuration update, the server automatically restarts (via `exit(0)`), relying on the service manager (systemd/launchd/docker-compose) to restart it with the new settings. This is automatically configured by the [installer packages](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/installer).
 
 ### Health Check
 

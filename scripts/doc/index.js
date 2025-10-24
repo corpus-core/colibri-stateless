@@ -1,5 +1,5 @@
 const { parse_ssz_files } = require('./parse_defs')
-const { read_summary } = require('./utils')
+const { read_summary, get_doc_path, get_full_src_path } = require('./utils')
 const { get_cmake_options } = require('./cmake')
 const { find_links_in_dir, replace_links_in_dir } = require('./links')
 
@@ -20,6 +20,8 @@ const doc_files = [
     "util/witness.c",
     "chains/eth/threat_model.md",
     "chains/eth/benchmark.md",
+    "server/API.md",
+
     // cli
     "cli/prover.c",
     "cli/ssz.c",
