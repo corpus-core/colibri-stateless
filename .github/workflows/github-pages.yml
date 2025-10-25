@@ -37,6 +37,9 @@ jobs:
           workflow: cmake.yml
           workflow_conclusion: success
           path: artifacts
+          # Download only from the latest successful run (not from all history)
+          search_artifacts: true
+          skip_unpack: false
 
       - name: List artifact contents for debugging
         run: |
@@ -451,16 +454,31 @@ jobs:
 
           # Executable size
           if [ -d "artifacts/memory-analysis" ]; then
-            # Use the pre-generated metrics.json file from build_embedded job
-            if [ -f "artifacts/memory-analysis/metrics.json" ]; then
-              echo "Using pre-generated metrics from build_embedded job"
-              cat artifacts/memory-analysis/metrics.json
+            # Debug: Show all memory-analysis directories
+            echo "DEBUG: Searching for memory-analysis directories:"
+            find artifacts -type d -name "memory-analysis" | sort
+            
+            # Debug: Show all metrics.json files with timestamps
+            echo "DEBUG: All metrics.json files found (with timestamps):"
+            find artifacts -name "metrics.json" -type f -printf '%T+ %p\n' | sort
+            
+            # Use the most recent metrics.json file from build_embedded job
+            # Find the newest metrics.json in any memory-analysis directory (sorted by modification time)
+            echo "DEBUG: Searching for newest metrics.json in memory-analysis directories:"
+            find artifacts -name "metrics.json" -path "*/memory-analysis/*" -type f -printf '%T@ %p\n' | sort -rn
+            
+            METRICS_FILE=$(find artifacts -name "metrics.json" -path "*/memory-analysis/*" -type f -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)
+            echo "DEBUG: Selected metrics file: $METRICS_FILE"
+            
+            if [ -n "$METRICS_FILE" ] && [ -f "$METRICS_FILE" ]; then
+              echo "Using pre-generated metrics from: $METRICS_FILE"
+              cat "$METRICS_FILE"
               
               # Extract embedded metrics from metrics.json
-              TEXT_SIZE=$(grep -o '"text_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
-              DATA_SIZE=$(grep -o '"data_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
-              BSS_SIZE=$(grep -o '"bss_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
-              TOTAL_SIZE=$(grep -o '"total_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
+              TEXT_SIZE=$(grep -o '"text_size": [^,]*' "$METRICS_FILE" | awk '{print $2}')
+              DATA_SIZE=$(grep -o '"data_size": [^,]*' "$METRICS_FILE" | awk '{print $2}')
+              BSS_SIZE=$(grep -o '"bss_size": [^,]*' "$METRICS_FILE" | awk '{print $2}')
+              TOTAL_SIZE=$(grep -o '"total_size": [^,]*' "$METRICS_FILE" | awk '{print $2}')
               
               echo "Extracted text size: $TEXT_SIZE"
               echo "Extracted data size: $DATA_SIZE"
