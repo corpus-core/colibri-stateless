@@ -306,9 +306,14 @@ int hex_to_bytes(const char* hexstring, int len, bytes_t buffer) {
 
 void buffer_add_chars(buffer_t* buffer, const char* data) {
   if (!data) return;
-  size_t len = strlen(data);
-  buffer_append(buffer, bytes((uint8_t*) data, len + 1));
-  buffer->data.len -= 1;
+  size_t   len          = strlen(data);
+  uint32_t appended_len = buffer_append(buffer, bytes((uint8_t*) data, len + 1));
+  if (appended_len > 0) {
+    buffer->data.len -= 1; // Don't count NULL-terminator in length
+    // Ensure NULL-terminator is always set, even if buffer was truncated
+    if (buffer->data.len < (uint32_t) abs(buffer->allocated))
+      buffer->data.data[buffer->data.len] = '\0';
+  }
 }
 
 static inline void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
@@ -617,7 +622,7 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
   const char* last_pos = fmt;
   const char* p        = fmt;
   for (; *p; p++) {
-    if (*p == '%') {
+    if (*p == '%' && *(p + 1)) {
       if (p != last_pos) buffer_append(buf, bytes((uint8_t*) last_pos, p - last_pos));
       switch (*(p + 1)) {
         case 's': // normal string
@@ -709,12 +714,12 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
   }
   va_end(args);
   if (last_pos != p)
-    buffer_add_chars(buf, last_pos);                                // automaticly appen NULL-Terminator
+    buffer_add_chars(buf, last_pos);                            // automaticly appen NULL-Terminator
   else if (buffer_grow(buf, buf->data.len + 1) > buf->data.len) // can we add the NULL-Terminator?
-    buf->data.data[buf->data.len] = 0;                              // then add it
-  else {                                                            // so we reached a limit without space for the NULL-Terminator
-    buf->data.len--;                                                // remove the last character
-    buf->data.data[buf->data.len] = 0;                              // then add it
+    buf->data.data[buf->data.len] = 0;                          // then add it
+  else {                                                        // so we reached a limit without space for the NULL-Terminator
+    buf->data.len--;                                            // remove the last character
+    buf->data.data[buf->data.len] = 0;                          // then add it
   }
   return (char*) buf->data.data;
 }
