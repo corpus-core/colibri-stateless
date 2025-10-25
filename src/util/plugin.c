@@ -36,11 +36,9 @@ storage_plugin_t storage_conf = {0};
 static char* combine_filename(char* name) {
   const char* base_path = getenv("C4_STATES_DIR");
   if (base_path != NULL) {
-    size_t length    = strlen(base_path) + strlen(name) + 2;
-    char*  full_path = safe_malloc(length);
-    if (full_path == NULL) return NULL;
-    snprintf(full_path, length, "%s/%s", base_path, name);
-    return full_path;
+    buffer_t buf = {0};
+    bprintf(&buf, "%s/%s", base_path, name);
+    return (char*) buf.data.data; // Transfer ownership
   }
   else
     return strdup(name);

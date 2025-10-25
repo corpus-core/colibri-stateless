@@ -79,11 +79,47 @@ jobs:
           echo "| .data (RAM) | $(numfmt --to=iec --format="%.2f" $DATA_SIZE) | Initialized data |" >> $GITHUB_STEP_SUMMARY
           echo "| .bss (RAM) | $(numfmt --to=iec --format="%.2f" $BSS_SIZE) | Uninitialized data |" >> $GITHUB_STEP_SUMMARY
           echo "| Total | $(numfmt --to=iec --format="%.2f" $TOTAL_SIZE) | Total memory footprint |" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Printf Symbol Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          PRINTF_SYMBOLS=$(arm-none-eabi-nm build/test/embedded/verify_embedded.elf | grep -iE "(printf|sprintf|snprintf|fprintf|vprintf|vsnprintf)" || echo "")
+          if [ -z "$PRINTF_SYMBOLS" ]; then
+            echo "✅ No printf-family symbols found in binary" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Printf-family symbols found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$PRINTF_SYMBOLS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Top 20 Largest Symbols" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Size (bytes) | Type | Symbol |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------------|------|--------|" >> $GITHUB_STEP_SUMMARY
+          arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf | tail -20 | tac | while read addr size type name; do
+            if [ -n "$size" ] && [ -n "$name" ]; then
+              echo "| $size | $type | \`$name\` |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
 
 
           # Create artifact with detailed memory analysis
           mkdir -p memory_analysis
+          
+          # Export all symbols with sizes
           arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf > memory_analysis/symbols_by_size.txt
+          arm-none-eabi-nm --print-size --radix=d build/test/embedded/verify_embedded.elf > memory_analysis/all_symbols.txt
+          
+          # Check for printf-family symbols
+          echo "Checking for printf-family symbols..." > memory_analysis/printf_check.txt
+          arm-none-eabi-nm build/test/embedded/verify_embedded.elf | grep -iE "(printf|sprintf|snprintf|fprintf|vprintf|vsnprintf)" >> memory_analysis/printf_check.txt || echo "No printf symbols found" >> memory_analysis/printf_check.txt
+          
+          # Get top 50 largest symbols
+          echo "Top 50 largest symbols:" > memory_analysis/top_symbols.txt
+          arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf | tail -50 >> memory_analysis/top_symbols.txt
+          
           arm-none-eabi-objdump -h build/test/embedded/verify_embedded.elf > memory_analysis/section_headers.txt
           arm-none-eabi-readelf -S build/test/embedded/verify_embedded.elf > memory_analysis/section_details.txt
           arm-none-eabi-size --format=berkeley build/test/embedded/verify_embedded.elf > memory_analysis/size_summary.txt

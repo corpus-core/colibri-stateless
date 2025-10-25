@@ -257,11 +257,18 @@ void buffer_free(buffer_t* buffer) {
 }
 
 void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix) {
-  if (prefix) fprintf(f, "%s", prefix);
+  buffer_t buf = {0};
+  if (prefix) buffer_add_chars(&buf, prefix);
   FOREACH_BYTE(data, i) {
-    fprintf(f, "%02x", data.data[i]);
+    char hex_char[3];
+    hex_char[0] = hex_digits[(data.data[i] >> 4) & 0x0F];
+    hex_char[1] = hex_digits[data.data[i] & 0x0F];
+    hex_char[2] = '\0';
+    buffer_add_chars(&buf, hex_char);
   }
-  if (suffix) fprintf(f, "%s", suffix);
+  if (suffix) buffer_add_chars(&buf, suffix);
+  fwrite(buf.data.data, 1, buf.data.len, f);
+  buffer_free(&buf);
 }
 
 bool bytes_all_equal(bytes_t a, uint8_t value) {
@@ -458,7 +465,7 @@ bytes_t bytes_read(char* filename) {
   data.data.len--;
 
   if (ferror(file)) {
-    fprintf(stderr, "Error reading file: %s\n", filename);
+    fbprintf(stderr, "Error reading file: %s\n", filename);
     buffer_free(&data);
     data.data = NULL_BYTES;
   }

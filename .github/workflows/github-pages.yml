@@ -1,12 +1,8 @@
 name: Deploy GitHub Pages
 
 on:
-  # Run after the main workflow completes successfully
-  workflow_run:
-    workflows: ["Main CI Pipeline"]
-    types:
-      - completed
-    branches: [main, dev]
+  # Called by main-ci.yml workflow
+  workflow_call:
 
   # Manual trigger option
   workflow_dispatch:
@@ -26,7 +22,6 @@ jobs:
   # Build job
   build:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

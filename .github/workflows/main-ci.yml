@@ -16,6 +16,8 @@ permissions:
   actions: read
   packages: write # Required for pushing Docker images to GHCR
   security-events: write # Required for CodeQL
+  pages: write # Required for GitHub Pages deployment
+  id-token: write # Required for GitHub Pages deployment
 
 
 jobs:
@@ -54,4 +56,11 @@ jobs:
       push_image: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v')) }}
       ref_name: ${{ github.ref_name }}
       ref_type: ${{ github.ref_type }}
+
+  # GitHub Pages Deployment - startet nach cmake Job
+  deploy-pages:
+    needs: cmake
+    # Nur bei Push zu main/dev (nicht bei PRs)
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    uses: ./.github/workflows/github-pages.yml
 
