@@ -171,14 +171,6 @@ uint32_t buffer_append(buffer_t* buffer, bytes_t data);
 void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data);
 
 /**
- * append chars to a buffer while escaping special characters.
- * an additional NULL-Terminator will be added to the end of the buffer.
- * @param buffer the buffer to append to
- * @param data the data to append
- */
-void buffer_add_chars_escaped(buffer_t* buffer, const char* data);
-
-/**
  * append chars to a buffer.
  * An additional NULL-Terminator will be added to the end of the buffer.
  * @param buffer the buffer to append to
@@ -266,6 +258,7 @@ void* safe_realloc(void* ptr, size_t new_size);
  * - `%dx`: uint32_t as hex
  * - `%z`: ssz_ob_t as json using numbers for uint
  * - `%Z`: ssz_ob_t as json using hex without leading zeros for uint
+ * - `%r`: raw bytes as string
  *
  * @param buf the buffer to write to
  * @param fmt the format string
