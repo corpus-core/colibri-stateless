@@ -250,14 +250,14 @@ void* safe_realloc(void* ptr, size_t new_size);
  * - `%x`: bytes_t as hex
  * - `%u`: bytes_t as hex without leading zeros
  * - `%c`: char as char
- * - `%j`: json_t adds as json string
- * - `%J`: json_t adds as json string , but on case of a string, the quotes are removed
+ * - `%J`: json_t adds as json string
+ * - `%j`: json_t adds as json string, but in case of a string, the quotes are removed
  * - `%l`: uint64_t as number
  * - `%lx`: uint64_t as hex
  * - `%d`: uint32_t as number
  * - `%dx`: uint32_t as hex
- * - `%z`: ssz_ob_t as json using numbers for uint
- * - `%Z`: ssz_ob_t as json using hex without leading zeros for uint
+ * - `%z`: ssz_ob_t as value using numbers for uint (quotes are removed)
+ * - `%Z`: ssz_ob_t as value using hex without leading zeros for uint (quotes are removed)
  * - `%r`: raw bytes as string
  *
  * @param buf the buffer to write to
@@ -352,21 +352,21 @@ void buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
  * This macro creates a fixed-size buffer from a stack-allocated array and uses
  * bprintf to format data directly into it. The result stays valid after the macro
  * completes, as it writes into the provided variable.
- * 
+ *
  * Example usage:
  * ```c
  * char name[100];
  * sbprintf(name, "%s/%s", parent_dir, file_name);
  * // name can now be used as a normal string
  * ```
- * 
+ *
  * @param var Stack-allocated array to write into (e.g., char[100])
  * @param format Format string (bprintf syntax: %s, %d, %l, %lx, %x, %S, etc.)
  * @param ... Format arguments
  */
-#define sbprintf(var, format, ...) \
-  do { \
-    buffer_t _buf = stack_buffer(var); \
+#define sbprintf(var, format, ...)         \
+  do {                                     \
+    buffer_t _buf = stack_buffer(var);     \
     bprintf(&_buf, format, ##__VA_ARGS__); \
   } while (0)
 
@@ -375,23 +375,23 @@ void buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
  * This macro creates a temporary buffer, formats the data using bprintf,
  * writes it to the specified file using fwrite, and cleans up automatically.
  * Useful for replacing fprintf without linking printf family functions.
- * 
+ *
  * Example usage:
  * ```c
  * fbprintf(stderr, "Error code: %d\n", error_code);
  * fbprintf(log_file, "Processing item %l of %l\n", current, total);
  * ```
- * 
+ *
  * @param file FILE* pointer to write to (e.g., stdout, stderr, or fopen result)
  * @param format Format string (bprintf syntax: %s, %d, %l, %lx, %x, %S, etc.)
  * @param ... Format arguments
  */
-#define fbprintf(file, format, ...) \
-  do { \
-    buffer_t __buf = {0}; \
+#define fbprintf(file, format, ...)                          \
+  do {                                                       \
+    buffer_t __buf = {0};                                    \
     char*    __str = bprintf(&__buf, format, ##__VA_ARGS__); \
-    fwrite(__str, 1, __buf.data.len, file); \
-    buffer_free(&__buf); \
+    fwrite(__str, 1, __buf.data.len, file);                  \
+    buffer_free(&__buf);                                     \
   } while (0)
 
 #ifdef __cplusplus

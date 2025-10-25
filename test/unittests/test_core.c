@@ -404,6 +404,64 @@ void test_bprintf_extended() {
   buffer_free(&buf);
 }
 
+void test_bprintf_json_ssz() {
+  buffer_t buf = {0};
+
+  // Test: %j - JSON without quotes for strings
+  buffer_reset(&buf);
+  bprintf(&buf, "value:%j", json_parse("\"val\""));
+  TEST_ASSERT_EQUAL_STRING("value:val", buffer_as_string(buf));
+
+  // Test: %J - JSON with quotes for strings
+  buffer_reset(&buf);
+  bprintf(&buf, "value:%J", json_parse("\"val\""));
+  TEST_ASSERT_EQUAL_STRING("value:\"val\"", buffer_as_string(buf));
+
+  // Test: %j - JSON with number (no quotes)
+  buffer_reset(&buf);
+  bprintf(&buf, "value:%j", json_parse("5"));
+  TEST_ASSERT_EQUAL_STRING("value:5", buffer_as_string(buf));
+
+  // Test: %j - JSON with array
+  buffer_reset(&buf);
+  bprintf(&buf, "value:%j", json_parse("[]"));
+  TEST_ASSERT_EQUAL_STRING("value:[]", buffer_as_string(buf));
+
+  // Test: %J - JSON with object
+  buffer_reset(&buf);
+  bprintf(&buf, "data:%J", json_parse("{\"key\":\"value\"}"));
+  TEST_ASSERT_EQUAL_STRING("data:{\"key\":\"value\"}", buffer_as_string(buf));
+
+  // Test: %z - SSZ as decimal number
+  ssz_def_t def = SSZ_UINT("test", 4); // uint32_t
+  uint8_t   data[4];
+  uint32_to_le(data, 15);
+  ssz_ob_t ob = {.def = &def, .bytes = bytes(data, 4)};
+
+  buffer_reset(&buf);
+  bprintf(&buf, "%z", ob);
+  TEST_ASSERT_EQUAL_STRING("15", buffer_as_string(buf));
+
+  // Test: %Z - SSZ as hex without leading zeros
+  buffer_reset(&buf);
+  bprintf(&buf, "%Z", ob);
+  TEST_ASSERT_EQUAL_STRING("\"0xf\"", buffer_as_string(buf));
+
+  // Test: %z - SSZ with larger number
+  uint32_to_le(data, 255);
+  ob.bytes = bytes(data, 4);
+  buffer_reset(&buf);
+  bprintf(&buf, "%z", ob);
+  TEST_ASSERT_EQUAL_STRING("255", buffer_as_string(buf));
+
+  // Test: %Z - SSZ with larger number
+  buffer_reset(&buf);
+  bprintf(&buf, "%Z", ob);
+  TEST_ASSERT_EQUAL_STRING("\"0xff\"", buffer_as_string(buf));
+
+  buffer_free(&buf);
+}
+
 void test_sbprintf() {
   // Test: sbprintf with stack buffer
   char name[32];
@@ -696,6 +754,7 @@ int main(void) {
   RUN_TEST(test_json);
   RUN_TEST(test_bprintf);
   RUN_TEST(test_bprintf_extended);
+  RUN_TEST(test_bprintf_json_ssz);
   RUN_TEST(test_sbprintf);
   RUN_TEST(test_fbprintf);
   RUN_TEST(test_le_be);
