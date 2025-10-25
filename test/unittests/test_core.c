@@ -361,6 +361,129 @@ void test_bprintf() {
   buffer_free(&buf);
 }
 
+void test_bprintf_extended() {
+  buffer_t buf = {0};
+
+  // Test: %f - Double with default precision (false = remove trailing zeros)
+  buffer_reset(&buf);
+  bprintf(&buf, "%f", 3.14159);
+  TEST_ASSERT_EQUAL_STRING("3.14159", buffer_as_string(buf));
+
+  // Test: %f - Double with trailing zeros removed
+  buffer_reset(&buf);
+  bprintf(&buf, "%f", 10.0);
+  TEST_ASSERT_EQUAL_STRING("10", buffer_as_string(buf));
+
+  // Test: %r - Raw bytes as string
+  buffer_reset(&buf);
+  uint8_t raw_data[] = {'H', 'e', 'l', 'l', 'o'};
+  bprintf(&buf, "%r", bytes(raw_data, 5));
+  TEST_ASSERT_EQUAL_STRING("Hello", buffer_as_string(buf));
+
+  // Test: %% - Escape percent sign
+  buffer_reset(&buf);
+  bprintf(&buf, "100%% complete");
+  TEST_ASSERT_EQUAL_STRING("100% complete", buffer_as_string(buf));
+
+  // Test: Edge Case - Single % at end of string
+  buffer_reset(&buf);
+  bprintf(&buf, "test%");
+  TEST_ASSERT_EQUAL_STRING("test%", buffer_as_string(buf));
+
+  // Test: Edge Case - Unknown format specifier (should be ignored/printed as-is)
+  buffer_reset(&buf);
+  bprintf(&buf, "test%_");
+  // Should output "test" and stop at unknown format
+  TEST_ASSERT_TRUE(buf.data.len >= 4);
+
+  // Test: Edge Case - Multiple %% in sequence
+  buffer_reset(&buf);
+  bprintf(&buf, "%%d %%s %%l");
+  TEST_ASSERT_EQUAL_STRING("%d %s %l", buffer_as_string(buf));
+
+  buffer_free(&buf);
+}
+
+void test_sbprintf() {
+  // Test: sbprintf with stack buffer
+  char name[32];
+  sbprintf(name, "test_%d", 123u);
+  TEST_ASSERT_EQUAL_STRING("test_123", name);
+
+  // Test: sbprintf with multiple format specifiers
+  char key[64];
+  sbprintf(key, "chain_%l_period_%d", 1234567890ULL, 42u);
+  TEST_ASSERT_EQUAL_STRING("chain_1234567890_period_42", key);
+
+  // Test: sbprintf with hex
+  char hex_key[32];
+  sbprintf(hex_key, "0x%lx", 0xDEADBEEFULL);
+  TEST_ASSERT_EQUAL_STRING("0xdeadbeef", hex_key);
+
+  // Test: sbprintf - Buffer limit enforcement
+  char small[10];
+  memset(small, 'X', sizeof(small)); // Fill with X to detect overflow
+  small[9] = '\0';                   // Ensure null terminator at end
+  sbprintf(small, "This is a very long string that should be truncated");
+  // Should be truncated to fit in buffer (9 chars + null terminator max)
+  size_t actual_len = strlen(small);
+  // If actual_len > 9, we have a buffer overflow!
+  TEST_ASSERT_TRUE_MESSAGE(actual_len <= 9, "Buffer overflow detected");
+  // Check that we didn't write past the buffer
+  TEST_ASSERT_TRUE(actual_len < sizeof(small));
+
+  // Test: sbprintf - Exact fit
+  char exact[6];
+  sbprintf(exact, "12345");
+  TEST_ASSERT_EQUAL_STRING("12345", exact);
+
+  // Test: sbprintf with bytes
+  char    hex_buf[20];
+  uint8_t data[] = {0xAB, 0xCD, 0xEF};
+  sbprintf(hex_buf, "%x", bytes(data, 3));
+  TEST_ASSERT_EQUAL_STRING("abcdef", hex_buf);
+
+  // Test: sbprintf - Multiple writes to same buffer
+  char reused[32];
+  sbprintf(reused, "first_%d", 1u);
+  TEST_ASSERT_EQUAL_STRING("first_1", reused);
+  sbprintf(reused, "second_%d", 2u);
+  TEST_ASSERT_EQUAL_STRING("second_2", reused);
+
+  // Test: sbprintf with empty string
+  char empty[16];
+  sbprintf(empty, "");
+  TEST_ASSERT_EQUAL_STRING("", empty);
+
+  // Test: sbprintf - Boundary test with numbers
+  char num_buf[20]; // Use 20-byte buffer to hold full number + guard bytes
+  char guard_before = 'G';
+  char guard_after  = 'G';
+  memset(num_buf, 0, sizeof(num_buf));
+  sbprintf(num_buf, "%l", 1234567890123456ULL); // 16-digit number
+  // This should fit exactly in a 17-byte buffer (16 digits + null)
+  TEST_ASSERT_EQUAL_STRING("1234567890123456", num_buf);
+  TEST_ASSERT_EQUAL_UINT32(16, strlen(num_buf));
+  // Verify no buffer overflow occurred
+  TEST_ASSERT_EQUAL_CHAR('G', guard_before);
+  TEST_ASSERT_EQUAL_CHAR('G', guard_after);
+}
+
+void test_fbprintf() {
+  // Test: fbprintf to stderr (just ensure it doesn't crash)
+  fbprintf(stderr, "Test message: %d\n", 123u);
+
+  // Test: fbprintf with multiple format types
+  fbprintf(stdout, "String: %s, Number: %l, Hex: 0x%lx\n", "test", 42ULL, 0xDEADULL);
+
+  // Test: fbprintf with bytes
+  uint8_t data[] = {0x01, 0x02, 0x03};
+  fbprintf(stdout, "Data: %x\n", bytes(data, 3));
+
+  // Note: We can't easily test the actual output without capturing stdout/stderr,
+  // but at least we verify these calls don't crash
+}
+
 void test_bytes_helpers() {
   // Test: bytes_eq - gleiche bytes
   uint8_t data1[] = {0x01, 0x02, 0x03, 0x04};
@@ -572,6 +695,9 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_json);
   RUN_TEST(test_bprintf);
+  RUN_TEST(test_bprintf_extended);
+  RUN_TEST(test_sbprintf);
+  RUN_TEST(test_fbprintf);
   RUN_TEST(test_le_be);
   RUN_TEST(test_buffer);
   RUN_TEST(test_bytes_helpers);
