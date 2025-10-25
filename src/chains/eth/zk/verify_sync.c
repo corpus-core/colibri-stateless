@@ -21,8 +21,12 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../../../util/bytes.h"
 #include "zk_util.h"
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define PROOF_OFFSET 49358
 
@@ -55,7 +59,7 @@ int main(int argc, char** argv) {
   size_t  read = 0;
   FILE*   file = fopen(argv[1], "rb");
   if (!file) {
-    printf("Failed to open file: %s\n", argv[1]);
+    fbprintf(stderr, "Failed to open file: %s\n", argv[1]);
     return 1;
   }
   // read all from stdin
@@ -67,7 +71,7 @@ int main(int argc, char** argv) {
   fclose(file);
   uint64_t period = verify_sync_proof(sync_proof);
   if (period)
-    printf("Proof is valid for period %d\n", (uint32_t) period);
+    fbprintf(stdout, "Proof is valid for period %d\n", (uint32_t) period);
   else
-    printf("Proof is invalid\n");
+    fbprintf(stdout, "Proof is invalid\n");
 }

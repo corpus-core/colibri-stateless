@@ -419,18 +419,18 @@ static void rlp_dump(node_t* node) {
   buffer_free(&builder.fixed);
 }
 static void dump_node(node_t* node, int level, int idx) {
-  for (int i = 0; i < level; i++) printf("  ");
-  if (idx < 16) printf("%x: ", idx);
+  for (int i = 0; i < level; i++) fbprintf(stdout, "  ");
+  if (idx < 16) fbprintf(stdout, "%dx: ", idx);
   if (!node)
-    printf("-\n");
+    fbprintf(stdout, "-\n");
   else if (node->type == NODE_TYPE_LEAF) {
-    printf("Leaf ( %s", (node->values.leaf.path.data[0] & 16) ? "odd" : "even");
+    fbprintf(stdout, "Leaf ( %s", (node->values.leaf.path.data[0] & 16) ? "odd" : "even");
     print_hex(stdout, node->values.leaf.path, " path: ", ", ");
     print_hex(stdout, node->values.leaf.value, "value: ", " )");
     rlp_dump(node);
   }
   else if (node->type == NODE_TYPE_EXTENSION) {
-    printf("Extension ( %s", (node->values.extension.path.data[0] & 16) ? "odd" : "even");
+    fbprintf(stdout, "Extension ( %s", (node->values.extension.path.data[0] & 16) ? "odd" : "even");
     print_hex(stdout, node->values.extension.path, " path: ", ")");
     rlp_dump(node);
     dump_node(node->values.extension.child, level + 1, 16);
@@ -445,8 +445,8 @@ static void dump_node(node_t* node, int level, int idx) {
           if (node->values.branch.children[n] != NULL) break;
         }
         if (n > i + 1) {
-          for (int c = 0; c < level + 1; c++) printf("  ");
-          printf("%x: - (... %x)\n", i, n - 1);
+          for (int c = 0; c < level + 1; c++) fbprintf(stdout, "  ");
+          fbprintf(stdout, "%dx: - (... %dx)\n", i, n - 1);
           i = n - 1;
           continue;
         }

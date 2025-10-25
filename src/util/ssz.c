@@ -91,7 +91,7 @@ size_t ssz_fixed_length(const ssz_def_t* def) {
  * Prints error message and returns false.
  */
 static bool failure(const char* fnt) {
-  printf("Invalid %s\n", fnt);
+  fbprintf(stderr, "Invalid %s\n", fnt);
   return false;
 }
 

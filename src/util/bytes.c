@@ -45,8 +45,8 @@
 // Macro for consistent memory allocation error messages
 #define SAFE_ALLOC_ERROR_EXIT(func_name, size_info, error_msg)                      \
   do {                                                                              \
-    fprintf(stderr, "Error: Memory allocation failed (%s) for %s: %s. Exiting.\\n", \
-            func_name, size_info, error_msg);                                       \
+    fbprintf(stderr, "Error: Memory allocation failed (%s) for %s: %s. Exiting.\n", \
+             func_name, size_info, error_msg);                                      \
     exit(EXIT_FAILURE);                                                             \
   } while (0)
 
@@ -65,7 +65,7 @@ void* safe_malloc(size_t size) {
   void* ptr = malloc(size);
   if (size > 0 && ptr == NULL) {
     char size_info[SIZE_INFO_BUFFER_SIZE];
-    sprintf(size_info, "size %zu bytes", size);
+    sbprintf(size_info, "size %l bytes", (uint64_t) size);
     SAFE_ALLOC_ERROR_EXIT("malloc", size_info, strerror(errno));
   }
   return ptr;
@@ -75,7 +75,7 @@ void* safe_calloc(size_t num, size_t size) {
   void* ptr = calloc(num, size);
   if (num > 0 && size > 0 && ptr == NULL) {
     char size_info[SIZE_INFO_BUFFER_SIZE];
-    sprintf(size_info, "%zu items of size %zu bytes", num, size);
+    sbprintf(size_info, "%l items of size %l bytes", (uint64_t) num, (uint64_t) size);
     SAFE_ALLOC_ERROR_EXIT("calloc", size_info, strerror(errno));
   }
   return ptr;
@@ -87,7 +87,7 @@ void* safe_realloc(void* ptr, size_t new_size) {
   // safe_realloc(ptr, 0) is equivalent to safe_free(ptr) and may return NULL
   if (new_size > 0 && new_ptr == NULL) {
     char size_info[SIZE_INFO_BUFFER_SIZE];
-    sprintf(size_info, "new size %zu bytes", new_size);
+    sbprintf(size_info, "new size %l bytes", (uint64_t) new_size);
     // Important: The original block ptr is NOT freed by realloc if it fails
     SAFE_ALLOC_ERROR_EXIT("realloc", size_info, strerror(errno));
   }

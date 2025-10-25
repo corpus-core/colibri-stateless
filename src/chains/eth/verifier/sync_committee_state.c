@@ -140,7 +140,7 @@ INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
 
   c4_get_storage_config(&storage_conf);
 
-  sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
 #ifndef C4_STATIC_MEMORY
   tmp.allocated = MAX_STATES_SIZE;
 #endif
@@ -176,7 +176,7 @@ INTERNAL void c4_set_chain_state(chain_id_t chain_id, c4_chain_state_t* state) {
     default:
       break;
   }
-  sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
   storage_conf.set(name, bytes);
 }
 
@@ -377,7 +377,7 @@ static uint32_t cleanup_old_periods(c4_chain_state_t* state, chain_id_t chain_id
     }
 
     // Delete from storage and remove from periods array
-    sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, oldest);
+    sbprintf(name, "sync_%l_%d", (uint64_t) chain_id, oldest);
     storage_conf.del(name);
     if (oldest_index < periods - 1)
       memmove(state->data.periods + oldest_index, state->data.periods + oldest_index + 1, (periods - oldest_index - 1) * sizeof(uint32_t));
@@ -402,7 +402,7 @@ static bool store_sync_period(uint32_t period, bytes_t validators, bytes32_t pre
   c4_get_storage_config(&storage_conf);
   char name[100];
 
-  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
+  sbprintf(name, "sync_%l_%d", (uint64_t) chain_id, period);
 
 #ifdef C4_STATIC_MEMORY
   // Use static buffer on embedded devices
@@ -527,7 +527,7 @@ static c4_sync_validators_t get_validators_from_cache(verify_ctx_t* ctx, uint32_
   char name[100];
   bool found = false;
   c4_get_storage_config(&storage_conf);
-  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, period);
+  sbprintf(name, "sync_%l_%d", (uint64_t) ctx->chain_id, period);
 
   for (uint32_t i = 0; chain_state.status == C4_STATE_SYNC_PERIODS && i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++) {
     uint32_t p = chain_state.data.periods[i];
@@ -593,13 +593,13 @@ static void clear_sync_state(chain_id_t chain_id) {
   for (uint32_t i = 0; chain_state.status == C4_STATE_SYNC_PERIODS && i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++) {
     uint32_t p = chain_state.data.periods[i];
     char     name[100];
-    sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, p);
+    sbprintf(name, "sync_%l_%d", (uint64_t) chain_id, p);
     storage_conf.del(name);
   }
 
   // Delete chain state
   char name[100];
-  sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
   storage_conf.del(name);
 }
 

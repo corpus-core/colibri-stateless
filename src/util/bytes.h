@@ -347,6 +347,53 @@ void buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
   (bytes_t) { .data = parent.data + offet, .len = length }
 #define bytes_all_zero(a) bytes_all_equal(a, 0)
 
+/**
+ * Stack-based bprintf - writes formatted output into an existing stack variable.
+ * This macro creates a fixed-size buffer from a stack-allocated array and uses
+ * bprintf to format data directly into it. The result stays valid after the macro
+ * completes, as it writes into the provided variable.
+ * 
+ * Example usage:
+ * ```c
+ * char name[100];
+ * sbprintf(name, "%s/%s", parent_dir, file_name);
+ * // name can now be used as a normal string
+ * ```
+ * 
+ * @param var Stack-allocated array to write into (e.g., char[100])
+ * @param format Format string (bprintf syntax: %s, %d, %l, %lx, %x, %S, etc.)
+ * @param ... Format arguments
+ */
+#define sbprintf(var, format, ...) \
+  do { \
+    buffer_t _buf = stack_buffer(var); \
+    bprintf(&_buf, format, ##__VA_ARGS__); \
+  } while (0)
+
+/**
+ * File-based bprintf - formats and writes output directly to a FILE stream.
+ * This macro creates a temporary buffer, formats the data using bprintf,
+ * writes it to the specified file using fwrite, and cleans up automatically.
+ * Useful for replacing fprintf without linking printf family functions.
+ * 
+ * Example usage:
+ * ```c
+ * fbprintf(stderr, "Error code: %d\n", error_code);
+ * fbprintf(log_file, "Processing item %l of %l\n", current, total);
+ * ```
+ * 
+ * @param file FILE* pointer to write to (e.g., stdout, stderr, or fopen result)
+ * @param format Format string (bprintf syntax: %s, %d, %l, %lx, %x, %S, etc.)
+ * @param ... Format arguments
+ */
+#define fbprintf(file, format, ...) \
+  do { \
+    buffer_t __buf = {0}; \
+    char*    __str = bprintf(&__buf, format, ##__VA_ARGS__); \
+    fwrite(__str, 1, __buf.data.len, file); \
+    buffer_free(&__buf); \
+  } while (0)
+
 #ifdef __cplusplus
 }
 #endif
