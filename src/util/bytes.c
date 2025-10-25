@@ -686,15 +686,10 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           buffer_append(buf, bytes((uint8_t*) &c, 1));
           break;
         }
+        case 'Z':
         case 'z': {
-          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, false);
-          buffer_add_chars(buf, s);
-          safe_free(s);
-          break;
-        }
-        case 'Z': {
-          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, true);
-          buffer_add_chars(buf, s);
+          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, *(p + 1) == 'Z');
+          buffer_append(buf, bytes((uint8_t*) s, strlen(s)));
           safe_free(s);
           break;
         }
