@@ -120,15 +120,15 @@ void test_buffer() {
   TEST_ASSERT_EQUAL_STRING("Test", buffer_as_string(buf6));
   buffer_free(&buf6);
 
-  // Test: buffer_add_chars_escaped
+  // Test: bprintf %S - Escaped String
   buffer_t buf7 = {0};
-  buffer_add_chars_escaped(&buf7, "Hello \"World\"\n");
+  bprintf(&buf7, "%S", "Hello \"World\"\n");
   TEST_ASSERT_EQUAL_STRING("Hello \\\"World\\\"\\n", buffer_as_string(buf7));
   buffer_free(&buf7);
 
-  // Test: buffer_add_chars_escaped mit Kontrollzeichen
+  // Test: bprintf %S mit Kontrollzeichen
   buffer_t buf8 = {0};
-  buffer_add_chars_escaped(&buf8, "Tab:\tBackslash:\\Quote:\"");
+  bprintf(&buf8, "%S", "Tab:\tBackslash:\\Quote:\"");
   TEST_ASSERT_EQUAL_STRING("Tab:\\tBackslash:\\\\Quote:\\\"", buffer_as_string(buf8));
   buffer_free(&buf8);
 
@@ -518,8 +518,8 @@ void test_edge_cases() {
   buffer_add_chars(&buf, NULL);
   TEST_ASSERT_EQUAL_UINT32(0, buf.data.len);
 
-  // Test: buffer_add_chars_escaped mit NULL
-  buffer_add_chars_escaped(&buf, NULL);
+  // Test: bprintf %S mit NULL
+  bprintf(&buf, "%S", (const char*) NULL);
   TEST_ASSERT_EQUAL_UINT32(0, buf.data.len);
 
   buffer_free(&buf);

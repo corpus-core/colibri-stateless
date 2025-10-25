@@ -227,9 +227,13 @@ uint32_t buffer_append(buffer_t* buffer, bytes_t data) {
 }
 
 void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data) {
-  buffer_grow(buffer, buffer->data.len + data.len - len);
+  if (data.len > len) { // if the buffer grows, check the limits
+    size_t max_len = buffer_grow(buffer, buffer->data.len + data.len - len);
+    if (buffer->data.len + data.len - len > max_len) return;
+  }
   uint32_t old_end_offset = offset + len;
   uint32_t new_end_offset = offset + data.len;
+
   // Move existing data if splice position changes
   if (new_end_offset != old_end_offset && ((uint32_t) buffer->data.len) - old_end_offset > 0)
     memmove(buffer->data.data + new_end_offset, buffer->data.data + old_end_offset, ((uint32_t) buffer->data.len) - old_end_offset);
@@ -307,7 +311,7 @@ void buffer_add_chars(buffer_t* buffer, const char* data) {
   buffer->data.len -= 1;
 }
 
-void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
+static inline void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
   if (!data) return;
   const uint8_t* str = (const uint8_t*) data;
   int            len = strlen(data);
