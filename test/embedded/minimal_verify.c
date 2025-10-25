@@ -36,8 +36,8 @@ static void semihosting_print(const char* message) {
 
 // Simple function to print status messages using both methods
 static void print_status(const char* message) {
-  printf("Status: %s\n", message);
-  fflush(stdout);
+  //  printf("Status: %s\n", message);
+  //  fflush(stdout);
 
   // Also try direct semihosting
   semihosting_print(message);
@@ -47,13 +47,15 @@ static void print_status(const char* message) {
 static void test_memory_allocation(size_t size) {
   print_status("Testing memory allocation");
 
-  char buf[100];
-  snprintf(buf, sizeof(buf), "Attempting to allocate %zu bytes", size);
+  char     buf[100];
+  buffer_t tmp_buf = stack_buffer(buf);
+  bprintf(&tmp_buf, "Attempting to allocate %d bytes", (uint32_t) size);
   semihosting_print(buf);
 
   void* test_memory = safe_malloc(size);
   if (test_memory) {
-    snprintf(buf, sizeof(buf), "Successfully allocated %zu bytes of memory", size);
+    tmp_buf = stack_buffer(buf);
+    bprintf(&tmp_buf, "Successfully allocated %d bytes of memory", (uint32_t) size);
     semihosting_print(buf);
 
     // Write some pattern to the memory to ensure it's usable
@@ -72,7 +74,8 @@ static void test_memory_allocation(size_t size) {
     semihosting_print("Memory freed successfully");
   }
   else {
-    snprintf(buf, sizeof(buf), "Failed to allocate %zu bytes of memory", size);
+    tmp_buf = stack_buffer(buf);
+    bprintf(&tmp_buf, "Failed to allocate %d bytes of memory", (uint32_t) size);
     semihosting_print(buf);
   }
 }
@@ -91,14 +94,16 @@ int main(void) {
   print_status("Starting minimal embedded verification test");
 
   // Report memory sizes
-  char buf[100];
+  char     buf[100];
+  buffer_t tmp_buf;
 
   // Initialize verification context
   static verify_ctx_t ctx = {0};
   semihosting_print("Verification context initialized");
 
   // Report size of verification context
-  snprintf(buf, sizeof(buf), "Size of verify_ctx_t: %zu bytes", sizeof(verify_ctx_t));
+  tmp_buf = stack_buffer(buf);
+  bprintf(&tmp_buf, "Size of verify_ctx_t: %d bytes", (uint32_t) sizeof(verify_ctx_t));
   semihosting_print(buf);
 
   // Test memory allocations
@@ -113,7 +118,8 @@ int main(void) {
 
   // Try to allocate a buffer for the full verification process
   size_t verification_buffer_size = 64 * 1024; // 64KB
-  snprintf(buf, sizeof(buf), "Attempting to allocate verification buffer of %zu bytes", verification_buffer_size);
+  tmp_buf                         = stack_buffer(buf);
+  bprintf(&tmp_buf, "Attempting to allocate verification buffer of %d bytes", (uint32_t) verification_buffer_size);
   semihosting_print(buf);
 
   void* verification_buffer = safe_malloc(verification_buffer_size);
@@ -131,14 +137,17 @@ int main(void) {
       .len  = 9};
 
   print_status("Initialized test data");
-  snprintf(buf, sizeof(buf), "Data content: %s, length: %zu", (char*) dummy_data.data, dummy_data.len);
+  tmp_buf = stack_buffer(buf);
+  bprintf(&tmp_buf, "Data content: %s, length: %d", (char*) dummy_data.data, (uint32_t) dummy_data.len);
   semihosting_print(buf);
 
   // Print verification library info
-  snprintf(buf, sizeof(buf), "Verifier initialized, library size: %zu bytes", sizeof(verify_ctx_t));
+  tmp_buf = stack_buffer(buf);
+  bprintf(&tmp_buf, "Verifier initialized, library size: %d bytes", (uint32_t) sizeof(verify_ctx_t));
   semihosting_print(buf);
 
-  snprintf(buf, sizeof(buf), "Data size: %zu bytes", dummy_data.len);
+  tmp_buf = stack_buffer(buf);
+  bprintf(&tmp_buf, "Data size: %d bytes", (uint32_t) dummy_data.len);
   semihosting_print(buf);
 
   semihosting_print("Test completed successfully!");
