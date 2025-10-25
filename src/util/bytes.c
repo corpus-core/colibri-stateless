@@ -710,7 +710,7 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
   va_end(args);
   if (last_pos != p)
     buffer_add_chars(buf, last_pos);                                // automaticly appen NULL-Terminator
-  else if (buffer_grow(buf, buf->data.len + 1) - buf->data.len > 0) // can we add the NULL-Terminator?
+  else if (buffer_grow(buf, buf->data.len + 1) > buf->data.len) // can we add the NULL-Terminator?
     buf->data.data[buf->data.len] = 0;                              // then add it
   else {                                                            // so we reached a limit without space for the NULL-Terminator
     buf->data.len--;                                                // remove the last character
