@@ -132,13 +132,6 @@ void test_buffer() {
   TEST_ASSERT_EQUAL_STRING("Tab:\\tBackslash:\\\\Quote:\\\"", buffer_as_string(buf8));
   buffer_free(&buf8);
 
-  // Test: buffer_add_hex_chars
-  buffer_t buf9       = {0};
-  uint8_t  hex_data[] = {0x12, 0x34, 0xAB, 0xCD};
-  buffer_add_hex_chars(&buf9, bytes(hex_data, 4), "0x", NULL);
-  TEST_ASSERT_EQUAL_STRING("0x1234abcd", buffer_as_string(buf9));
-  buffer_free(&buf9);
-
   // Test: buffer_add_be
   buffer_t buf10 = {0};
   buffer_add_be(&buf10, 0x12345678, 4);

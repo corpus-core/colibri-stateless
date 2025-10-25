@@ -201,14 +201,6 @@ void buffer_add_be(buffer_t* buffer, uint64_t value, uint32_t len);
  * @param len the length of the value to append
  */
 void buffer_add_le(buffer_t* buffer, uint64_t value, uint32_t len);
-/**
- * append bytes as hex chars to a buffer.
- * @param buffer the buffer to append to
- * @param data the data to append
- * @param prefix the prefix to add or NULL
- * @param suffix the suffix to add or NULL
- */
-void buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix);
 
 /**
  * frees a buffer.
@@ -221,8 +213,9 @@ void buffer_free(buffer_t* buffer);
  * If the allocated is <0 and this is a fixed buffer, it will do nothing.
  * @param buffer the buffer to grow
  * @param min_len the minimum length of the buffer
+ * @return the available length of the buffer. Never write more than this value to the buffer.
  */
-void buffer_grow(buffer_t* buffer, size_t min_len);
+size_t buffer_grow(buffer_t* buffer, size_t min_len);
 
 /**
  * calls malloc and check if the returned pointer is not NULL.
