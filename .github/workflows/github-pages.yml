@@ -37,9 +37,8 @@ jobs:
           workflow: cmake.yml
           workflow_conclusion: success
           path: artifacts
-          # Download only from the latest successful run (not from all history)
-          search_artifacts: true
-          skip_unpack: false
+          # By default, downloads from the latest successful workflow run
+          if_no_artifact_found: warn
 
       - name: List artifact contents for debugging
         run: |
