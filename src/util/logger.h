@@ -41,13 +41,15 @@ typedef enum {
 void        c4_set_log_level(log_level_t level);
 log_level_t c4_get_log_level();
 
-#define _log(prefix, fmt, ...)                                  \
-  {                                                             \
-    buffer_t buf = {0};                                         \
-    bprintf(&buf, fmt, ##__VA_ARGS__);                          \
-    fprintf(stderr, "%s\033[0m\033[32m %s:%d\033[0m %s\n",      \
-            prefix, __func__, __LINE__, (char*) buf.data.data); \
-    buffer_free(&buf);                                          \
+#define _log(prefix, fmt, ...)                              \
+  {                                                         \
+    buffer_t log_buf = {0};                                 \
+    bprintf(&log_buf, "%s\033[0m\033[32m %s:%d\033[0m ",    \
+            prefix, __func__, __LINE__);                    \
+    bprintf(&log_buf, fmt, ##__VA_ARGS__);                  \
+    buffer_add_chars(&log_buf, "\n");                       \
+    fwrite(log_buf.data.data, 1, log_buf.data.len, stderr); \
+    buffer_free(&log_buf);                                  \
   }
 #define log_error(fmt, ...)                                                \
   do {                                                                     \
