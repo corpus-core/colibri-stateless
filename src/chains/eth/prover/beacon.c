@@ -35,9 +35,9 @@
 static inline void create_cache_block_key(bytes32_t key, json_t block) {
   buffer_t buffer = {.allocated = -32, .data = {.data = key, .len = 0}};
   if (strncmp(block.start, "\"latest\"", 8) == 0)
-    sprintf((char*) key + 1, "%s", "latest");
+    sbprintf(((char*) key) + 1, "%s", "latest");
   else if (strncmp(block.start, "\"safe\"", 6) == 0 || strncmp(block.start, "\"finalized\"", 12) == 0) {
-    sprintf((char*) key, FINALITY_KEY);
+    sbprintf((char*) key, "%s", FINALITY_KEY);
     return;
   }
   else if (block.start[1] == '0' && block.start[2] == 'x') {
@@ -74,8 +74,8 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   memcpy(key + 1, block_root + 1, 31);
 
   // cache the block
-  size_t full_size = sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
-  uint8_t* cached  = safe_malloc(full_size);
+  size_t   full_size = sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
+  uint8_t* cached    = safe_malloc(full_size);
   memcpy(cached, beacon_block, sizeof(beacon_block_t));
   memcpy(cached + sizeof(beacon_block_t), beacon_block->header.bytes.data, beacon_block->header.bytes.len);
   memcpy(cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len, beacon_block->sync_aggregate.bytes.data, beacon_block->sync_aggregate.bytes.len);
@@ -94,7 +94,7 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   memset(key, 0, 32);
   *key = 'S';
   if (latest_timestamp) {
-    sprintf((char*) key, "%s", "Slatest");
+    sbprintf((char*) key, "%s", "Slatest");
     uint64_t now_unix_ms                  = current_unix_ms(); // Use Unix epoch time
     uint64_t block_interval_ms            = 12000;
     uint64_t buffer_ms                    = 2000; // buffer to make sure the block is actually available.
@@ -271,7 +271,7 @@ static inline c4_status_t eth_get_by_number(prover_ctx_t* ctx, uint64_t block_nu
   json_t header    = {0};
 
   // if we have the blocknumber, we fetch the next block, since we know this is the signing block
-  sprintf(tmp, "\"0x%" PRIx64 "\"", block_number + 1);
+  sbprintf(tmp, "\"0x%lx\"", block_number + 1);
   TRY_ASYNC(eth_get_block(ctx, (json_t) {.start = tmp, .len = strlen(tmp), .type = JSON_TYPE_STRING}, false, &eth_block));
 
   // get the beacon block matching the parent hash
@@ -304,7 +304,7 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
 
 #ifdef PROVER_CACHE
   bytes32_t key = {0};
-  sprintf((char*) key, FINALITY_KEY);
+  sbprintf((char*) key, "%s", FINALITY_KEY);
   c4_prover_cache_set(ctx, key, bytes_dup(bytes(hashes, sizeof(hashes))).data, sizeof(hashes), 1000 * 60 * 7, free); // 6 min
 #endif
   memcpy(hash, hashes[safe ? 0 : 1].root, 32);
@@ -315,7 +315,7 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx) {
   bytes32_t     key  = {0};
   beacon_head_t hash = {0};
-  sprintf((char*) key, FINALITY_KEY);
+  sbprintf((char*) key, "%s", FINALITY_KEY);
   c4_prover_cache_invalidate(key);
   return eth_get_final_hash(ctx, false, &hash);
 }

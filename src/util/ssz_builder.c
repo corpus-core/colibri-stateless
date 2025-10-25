@@ -92,7 +92,7 @@ void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_
 void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data) {
   const ssz_def_t* def = find_def(buffer->def, name);
   if (!def) {
-    printf("ssz_add_bytes: name %s not found in %s\n", name, buffer->def->name);
+    fbprintf(stderr, "ssz_add_bytes: name %s not found in %s\n", name, buffer->def->name);
     return;
   }
   buffer_t* bytes        = &(buffer->fixed);
@@ -103,8 +103,8 @@ void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data) {
   for (int i = 0; i < buffer->def->def.container.len; i++) {
     if (buffer->def->def.container.elements + i == def) {
       if (offset != buffer->fixed.data.len) {
-        printf("ssz_add_bytes: %d ( +%d ) %s\n", buffer->fixed.data.len, data.len, name);
-        printf("ssz_add_bytes:    offset mismatch %zu != %d\n", offset, buffer->fixed.data.len);
+        fbprintf(stderr, "ssz_add_bytes: %d ( +%d ) %s\n", buffer->fixed.data.len, data.len, name);
+        fbprintf(stderr, "ssz_add_bytes:    offset mismatch %l != %d\n", (uint64_t) offset, buffer->fixed.data.len);
       }
       break;
     }

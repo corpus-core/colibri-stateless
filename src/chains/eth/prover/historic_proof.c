@@ -97,7 +97,7 @@ static void verify_proof(char* name, bytes32_t leaf, bytes32_t root, bytes_t pro
   bprintf(&debug, "-gidx :%l\n", gindex);
   bprintf(&debug, "-root :0x%b\n", bytes(root, 32));
   bprintf(&debug, "-res  :0x%b\n", bytes(out, 32));
-  printf("%s\n", (char*) debug.data.data);
+  fbprintf(stdout, "%s\n", (char*) debug.data.data);
   safe_free(debug.data.data);
 }
 
