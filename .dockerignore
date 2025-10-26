@@ -1,0 +1,57 @@
+# Build directories
+build/
+build_*/
+_build/
+_build_*/
+
+# CMake cache and FetchContent
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+_deps/
+**/CMakeCache.txt
+**/CMakeFiles/
+**/cmake_install.cmake
+**/_deps/
+
+# Compiled binaries
+bin/
+*.o
+*.a
+*.so
+*.dylib
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+
+# Test results
+valgrind_results/
+*.log
+
+# Coverage
+coverage/
+build_coverage/
+*.gcda
+*.gcno
+*.gcov
+
