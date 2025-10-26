@@ -603,6 +603,7 @@ static void clear_sync_state(chain_id_t chain_id) {
   storage_conf.del(name);
 }
 
+#ifdef WEAK_SUBJECTIVITY_CHECK
 /**
  * Find the most recent finalized checkpoint from verified light client updates.
  * Iterates through all cached light_client/updates requests to find the highest finalized slot.
@@ -647,6 +648,44 @@ static uint64_t find_last_verified_finality_checkpoint(verify_ctx_t* ctx, bytes3
   return finalized_slot;
 }
 
+/**
+ * Weak Subjectivity Period (WSP) Validation
+ * 
+ * This function protects against long-range attacks when a client syncs after being offline
+ * for longer than the weak subjectivity period (typically ~2 weeks / 256 epochs).
+ * 
+ * ## Security Model
+ * 
+ * Without this check, an attacker with majority stake could create an alternative chain history
+ * and convince the client to follow it. This is possible because:
+ * 1. After the WSP, the attacker's validators have exited and can no longer be slashed
+ * 2. The attacker can create a fake chain with fabricated signatures
+ * 3. A light client cannot detect this without an external checkpoint
+ * 
+ * ## Implementation
+ * 
+ * When a sync gap exceeds the WSP, this function:
+ * 1. Finds the last verified finalized checkpoint from cached light client updates
+ * 2. Queries checkpointz (external beacon node) for the block root at that slot
+ * 3. Verifies that both roots match, confirming we're on the canonical chain
+ * 
+ * ## When to Disable (WEAK_SUBJECTIVITY_CHECK=OFF)
+ * 
+ * Disabling this check is acceptable when:
+ * - Device has no HTTP access (e.g., Bluetooth-only embedded devices)
+ * - Protected value is small relative to attack cost
+ * - Application can tolerate the increased risk
+ * 
+ * ⚠️ WARNING: Disabling increases long-range attack risk during extended offline periods!
+ * 
+ * For detailed security analysis, see:
+ * https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf
+ * 
+ * @param ctx Verification context
+ * @param sync_state Current sync committee state
+ * @param target_period Target period to sync to
+ * @return C4_SUCCESS if validation passes, C4_ERROR if checkpoint mismatch, C4_PENDING if waiting for checkpointz response
+ */
 static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validators_t* sync_state, uint32_t target_period) {
   const chain_spec_t* spec                                   = c4_eth_get_chain_spec(ctx->chain_id);
   bytes32_t           last_verified_finality_checkpoint_root = {0};
@@ -692,12 +731,24 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
     // Parse JSON response: {"data":{"root":"0x..."}}
     json_t res = json_parse((char*) req->response.data);
 
-    // Validate JSON structure
-    const char* err = json_validate(res, "{data:{root:bytes32}}", "checkpointz block root");
-    if (err) return c4_state_add_error(&ctx->state, err);
-
     json_t data = json_get(res, "data");
     json_t root = json_get(data, "root");
+
+    // Lightweight validation: just check the root token directly
+    // This saves ~2 KB by avoiding json_validate
+    if (!data.start || data.type != JSON_TYPE_OBJECT)
+      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'data' object");
+
+    if (!root.start || root.type != JSON_TYPE_STRING)
+      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'root' field");
+
+    // Check if root starts with "0x prefix (including opening quote)
+    if (root.len < 4 || strncmp(root.start, "\"0x", 3) != 0)
+      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: root must start with 0x prefix");
+
+    // Check if root has correct length for a hex string: "0x" + 64 hex chars = 66 chars (without quotes)
+    if (root.len != 68) // includes opening and closing quotes
+      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: root must be 66 hex characters (with 0x prefix)");
 
     bytes32_t checkpointz_root = {0};
     buffer_t  root_buf         = {.data = bytes(checkpointz_root, 32), .allocated = -32};
@@ -713,6 +764,7 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
 
   return C4_PENDING;
 }
+#endif // WEAK_SUBJECTIVITY_CHECK
 
 /**
  * Pragmatic fallback to sync a period using the next period's previous_pubkeys_hash.
@@ -882,7 +934,9 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
 
     // Check weak subjectivity period BEFORE loading new sync state
     // If this fails, clear_sync_state() is called inside to force re-initialization
+#ifdef WEAK_SUBJECTIVITY_CHECK
     TRY_ASYNC(c4_check_weak_subjectivity(ctx, &sync_state, period));
+#endif
 
     // Load new sync state after successful WSP check
     sync_state = get_validators_from_cache(ctx, period);
