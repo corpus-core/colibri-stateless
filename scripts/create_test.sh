@@ -4,7 +4,7 @@
 # Usage: ./create_test.sh <arguments>
 
 echo "Running proof with arguments: $@"
-../build/bin/proof -o proof.ssz -t "$@"
+../build/default/bin/colibri-prover -o proof.ssz -t "$@"
 
 # Check if proof command was successful
 if [ $? -ne 0 ]; then
@@ -13,7 +13,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Running verify with arguments: $@"
-../build/bin/verify -i proof.ssz -t "$@"
+../build/default/bin/colibri-verifier -i proof.ssz -t "$@"
 
 # Check if verify command was successful
 if [ $? -ne 0 ]; then
