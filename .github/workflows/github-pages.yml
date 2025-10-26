@@ -31,28 +31,12 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Get latest successful cmake.yml run ID
-        id: get_run_id
-        run: |
-          # Get the latest successful cmake.yml run ID
-          RUN_ID=$(gh run list \
-            --workflow=cmake.yml \
-            --status=success \
-            --limit=1 \
-            --json databaseId \
-            --jq '.[0].databaseId')
-          echo "Latest successful cmake.yml run ID: $RUN_ID"
-          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ github.token }}
-      
-      - name: Download all artifacts
-        uses: dawidd6/action-download-artifact@v6
+      - name: Download all artifacts from current workflow run
+        uses: actions/download-artifact@v4
         with:
-          workflow: cmake.yml
-          run_id: ${{ steps.get_run_id.outputs.run_id }}
           path: artifacts
-          if_no_artifact_found: warn
+          # Downloads all artifacts from the current workflow run (main-ci.yml)
+          # This works because github-pages.yml is called as a reusable workflow from main-ci.yml
 
       - name: List artifact contents for debugging
         run: |
