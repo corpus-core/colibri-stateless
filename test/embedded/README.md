@@ -8,20 +8,32 @@ This directory contains the necessary files to build and test the Colibri verifi
 
 The Colibri verifier's memory footprint depends on build configuration:
 
-### Default Embedded Build
-- **Flash/ROM**: ~150 KB (with USE_PRECOMPUTED_CP=0, printf removal)
+### Default Embedded Build (STATIC_MEMORY=ON)
+- **Flash/ROM**: 150.65 KB (with USE_PRECOMPUTED_CP=0, printf removal)
 - **RAM**: ~108 KB minimum, 128 KB recommended
-  - 8 KB for static data (BSS)
+  - **33 KB for static data (BSS)** - includes 25 KB BLS pubkey static allocation
   - 15 KB for proof data (heap)
   - 8 KB for BLST cryptographic operations
-  - 50 KB for BLS keys
   - ~27 KB for stack and other runtime allocations
+  - 25 KB for BLS keys (in BSS, not heap, due to STATIC_MEMORY=ON)
 
-### Optimized Build (PRECOMPILE_ZERO_HASHES=OFF, WEAK_SUBJECTIVITY_CHECK=OFF)
-- **Flash/ROM**: ~147-148 KB (additional ~3 KB savings)
-- **RAM**: ~107 KB minimum (saves ~1 KB from zero hash cache)
+### Optimized Build (PRECOMPILE_ZERO_HASHES=OFF, USE_CHECKPOINTZ=OFF)
+- **Flash/ROM**: **149.04 KB** ✅ (additional 1.61 KB savings)
+- **RAM**: ~107 KB minimum
+  - Saves ~1 KB from zero hash cache
+  - BSS stays ~33 KB (static BLS keys)
+  - Heap reduced to ~15 KB (no BLS key allocation)
 
-During key updates, an additional ~25 KB of RAM might be temporarily needed (or 0 KB if BLS_DESERIALIZE=OFF).
+### Ultra-Minimal Build (+ MESSAGES=OFF)
+- **Flash/ROM**: **~145-147 KB** (estimated, additional several KB from string removal)
+- **RAM**: Same as optimized build (~107 KB)
+
+**Total optimization from original build**: 208.01 KB → 149.04 KB (or ~145 KB with MESSAGES=OFF) = **28-30% reduction** 🚀
+
+**Memory Layout Notes**:
+- **STATIC_MEMORY=ON** (default for EMBEDDED): BLS keys in BSS (~25 KB), no heap allocation
+- **STATIC_MEMORY=OFF**: BLS keys on heap (~25 KB heap usage), BSS ~8 KB
+- During key updates with BLS_DESERIALIZE=ON: Additional ~25 KB RAM temporarily needed
 
 ## Supported Hardware
 
@@ -124,6 +136,20 @@ rm -rf test/embedded/backup
 
 The Colibri verifier provides several CMake flags to reduce binary size for embedded devices. Configure these based on your application requirements:
 
+#### Quick Reference: Memory & Size Optimization Flags
+
+| Flag | Default | Impact | Savings | Trade-off |
+|------|---------|--------|---------|-----------|
+| `PRECOMPILE_ZERO_HASHES` | ON | RAM | ~1 KB RAM | Slower block verification (if ETH_BLOCK=ON) |
+| `USE_CHECKPOINTZ` | ON | Code Size | ~2-3 KB | Requires manual checkpoint config, no WSP |
+| `BLS_DESERIALIZE` | ON (OFF for EMBEDDED) | RAM | ~25 KB RAM/period | Slower signature verification |
+| `STATIC_MEMORY` | OFF (ON for EMBEDDED) | Heap→BSS | 0 (moves 25 KB) | Increases BSS, reduces heap |
+| `MESSAGES` | ON | Code Size | Several KB | No human-readable errors |
+
+**Recommended for embedded**: All OFF except `STATIC_MEMORY=ON`
+
+---
+
 #### 1. Feature Selection Flags
 
 | Flag | Default | Binary Impact | Description |
@@ -215,6 +241,63 @@ Without checkpointz, two risks emerge:
 - ✅ Saves ~25 KB RAM per sync committee period
 - ✅ Recommended for embedded (default for EMBEDDED=ON)
 
+#### 5. STATIC_MEMORY (Heap vs BSS Trade-off)
+
+```cmake
+-DSTATIC_MEMORY=ON  # Moves ~25 KB from heap to BSS
+```
+
+**What it does**: Uses static allocation for BLS public keys instead of dynamic heap allocation.
+
+**When to enable**:
+- ✅ Embedded devices with limited heap but sufficient BSS/static memory
+- ✅ Systems where deterministic memory layout is important
+- ✅ When you want to avoid heap fragmentation
+
+**Trade-offs**:
+- ⚠️ Increases BSS section by ~25 KB (static memory)
+- ✅ Reduces heap pressure (no dynamic allocation for pubkeys)
+- ✅ More predictable memory layout
+- ✅ Eliminates heap allocation failures for pubkeys
+- ✅ Default for EMBEDDED=ON
+
+**Memory Impact**:
+- **Before (STATIC_MEMORY=OFF)**: Pubkeys allocated on heap (~25 KB heap usage)
+- **After (STATIC_MEMORY=ON)**: Pubkeys in BSS section (~25 KB static memory)
+
+#### 6. MESSAGES (Code Size vs Debug Info)
+
+```cmake
+-DMESSAGES=OFF  # Saves several KB of string literals
+```
+
+**What it does**: Removes all detailed error messages from the binary. Error messages generated with `RETURN_VERIFY_ERROR` macro are replaced with a short "E" identifier.
+
+**When to disable**:
+- ✅ Production embedded devices without debugging capability
+- ✅ Devices where binary size is critical
+- ✅ Headless systems that don't display error messages to users
+
+**When to KEEP enabled**:
+- 🛡️ Development and testing phase
+- 🛡️ Systems with debugging interface
+- 🛡️ When you need detailed error diagnostics
+
+**Trade-offs**:
+- ⚠️ No human-readable error messages (only "E" codes)
+- ⚠️ Harder to debug issues in production
+- ✅ Saves several KB of code size (string literals removed)
+- ✅ Reduces binary bloat from error strings
+
+**Example**:
+```c
+// With MESSAGES=ON:
+// Error: "Invalid SSZ structure in bootstrap data"
+
+// With MESSAGES=OFF:
+// Error: "E"
+```
+
 ### Example Configurations
 
 #### Minimal Light Client (Bluetooth-only, No HTTP)
@@ -249,6 +332,26 @@ cmake -B build \
 ```
 **Savings**: ~1 KB (keeps security, disables only zero hash cache)  
 **Benefits**: Auto-bootstrap + weak subjectivity protection
+
+#### Ultra-Minimal Production Build (No Debug, Maximum Size Savings)
+```cmake
+cmake -B build \
+  -DEMBEDDED=ON \
+  -DETH_BLOCK=OFF \
+  -DETH_TX=ON \
+  -DETH_RECEIPT=OFF \
+  -DETH_LOGS=OFF \
+  -DETH_CALL=OFF \
+  -DETH_ACCOUNT=OFF \
+  -DEVMONE=OFF \
+  -DPRECOMPILE_ZERO_HASHES=OFF \
+  -DUSE_CHECKPOINTZ=OFF \
+  -DMESSAGES=OFF \
+  -DCURL=OFF
+```
+**Savings**: Additional several KB beyond 149.04 KB (removes all error strings)  
+**Note**: Initial checkpoint required, no debug messages  
+**Use Case**: Production devices without debugging capability
 
 ### Additional Optimization Tips
 
