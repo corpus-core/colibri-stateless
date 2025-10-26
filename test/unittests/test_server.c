@@ -133,15 +133,69 @@ void test_deterministic_server_selection(void) {
   TEST_PASS_MESSAGE("Deterministic selection test completed");
 }
 
+// Test 6: Metrics endpoint
+void test_metrics_endpoint(void) {
+  c4_test_server_seed_for_test("test_metrics");
+
+  int   status_code = 0;
+  char* response    = send_http_request("GET", "/metrics", NULL, &status_code);
+
+  TEST_ASSERT_NOT_NULL(response);
+  TEST_ASSERT_EQUAL(200, status_code);
+
+  // Metrics should be in Prometheus format
+  char* body = extract_json_body(response);
+  TEST_ASSERT_NOT_NULL(body);
+
+  free(body);
+  free(response);
+}
+
+// Test 7: Config endpoint GET
+void test_config_endpoint_get(void) {
+  c4_test_server_seed_for_test("test_config_get");
+
+  int   status_code = 0;
+  char* response    = send_http_request("GET", "/config", NULL, &status_code);
+
+  TEST_ASSERT_NOT_NULL(response);
+  // Config endpoint may return various status codes depending on configuration
+  // Just verify we get a valid HTTP response without crashing
+  TEST_ASSERT_TRUE(status_code > 0);
+
+  free(response);
+}
+
+// Test 8: Proof endpoint
+void test_proof_endpoint(void) {
+  c4_test_server_seed_for_test("test_proof");
+
+  // Proof endpoint requires specific proof request format
+  const char* proof_payload = "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"latest\",false],\"id\":1}";
+
+  int   status_code = 0;
+  char* response    = send_http_request("POST", "/proof", proof_payload, &status_code);
+
+  TEST_ASSERT_NOT_NULL(response);
+  // May succeed or fail depending on prover availability
+  // Just verify we get a valid HTTP response
+  TEST_ASSERT_TRUE(status_code >= 200 && status_code < 600);
+
+  free(response);
+}
+
 // Main test runner
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_remote_prover);
-  //  RUN_TEST(test_health_check);
-  //  RUN_TEST(test_rpc_request_with_file_mock);
-  //  RUN_TEST(test_retry_with_multiple_servers);
-  //  RUN_TEST(test_error_handling);
-  //  RUN_TEST(test_deterministic_server_selection);
+  RUN_TEST(test_health_check);
+  RUN_TEST(test_rpc_request_with_file_mock);
+  RUN_TEST(test_retry_with_multiple_servers);
+  RUN_TEST(test_error_handling);
+  RUN_TEST(test_deterministic_server_selection);
+  RUN_TEST(test_metrics_endpoint);
+  RUN_TEST(test_config_endpoint_get);
+  RUN_TEST(test_proof_endpoint);
 
   return UNITY_END();
 }

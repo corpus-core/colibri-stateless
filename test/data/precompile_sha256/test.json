@@ -1,0 +1,6 @@
+{
+  "method":"eth_call",
+  "params":[{"to":"0x0000000000000000000000000000000000000002","data":"0x48656c6c6f20576f726c6421"},"latest"],
+  "chain_id": 1,
+  "expected_result": "0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"
+}

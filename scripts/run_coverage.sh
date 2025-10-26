@@ -45,7 +45,8 @@ if ! command -v gcovr &> /dev/null; then
 fi
 
 # Verzeichnisse vorbereiten
-PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build_coverage"
 COVERAGE_DIR="$BUILD_DIR/coverage-report"
 
@@ -100,12 +101,13 @@ if [[ "$HTML_ONLY" == "false" ]]; then
         cd "$BUILD_DIR"
 
         echo -e "${BLUE}⚙️  Konfiguriere CMake mit Coverage-Flags...${NC}"
-        echo -e "${CYAN}   Optionen: TEST=true CURL=false CMAKE_BUILD_TYPE=Debug COVERAGE=true${NC}"
+        echo -e "${CYAN}   Optionen: TEST=true CURL=true HTTP_SERVER=true PROVER_CACHE=true CMAKE_BUILD_TYPE=Debug COVERAGE=true${NC}"
 
         # CMake Konfiguration (identisch zur CI)
         cmake \
           -DCMAKE_BUILD_TYPE=Debug \
           -DTEST=true \
+          -DCURL=true \
           -DPROVER_CACHE=true \
           -DHTTP_SERVER=true \
           -DCOVERAGE=true \
@@ -152,42 +154,62 @@ echo -e "${BLUE}📊 Generiere Coverage-Reports...${NC}"
 # Coverage-Report Verzeichnis erstellen
 mkdir -p "$COVERAGE_DIR"
 
+# Build list of excludes from ignore file
+IGNORE_FILE="$SCRIPT_DIR/coverage_ignore.txt"
+EXCLUDE_ARGS=""
+
+# Read coverage ignore list and build exclude arguments
+if [ -f "$IGNORE_FILE" ]; then
+    echo -e "${CYAN}📋 Lade Ignore-Liste: $IGNORE_FILE${NC}"
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^#.*$ ]] && continue
+        [[ -z "$line" ]] && continue
+        # Add exclude argument
+        EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude $PROJECT_ROOT/$line"
+        echo -e "${CYAN}   - Ignoriere: $line${NC}"
+    done < "$IGNORE_FILE"
+fi
+
 # Gleiche Excludes wie in der CI (mit absoluten Pfaden für Third-Party Code)
-echo -e "${CYAN}   Excludes: libs/, build*/, test/, src/cli/, _deps/${NC}"
+echo -e "${CYAN}   Standard-Excludes: libs/, build*/, test/, src/cli/, _deps/${NC}"
 
 # 1. XML-Report für maschinelle Verarbeitung (identisch zur CI)
 echo -e "${BLUE}📄 Generiere XML-Report...${NC}"
-gcovr --root "$PROJECT_ROOT" "$BUILD_DIR" \
-      --exclude "$PROJECT_ROOT/libs/.*" \
-      --exclude "$BUILD_DIR/_deps/.*" \
-      --exclude ".*/build.*/.*" \
-      --exclude ".*/build_.*" \
-      --exclude "$PROJECT_ROOT/test/.*" \
-      --exclude "$PROJECT_ROOT/src/cli/.*" \
-      --xml "$BUILD_DIR/coverage.xml"
+eval "gcovr --root \"$PROJECT_ROOT\" \"$BUILD_DIR\" \
+      --exclude \"$PROJECT_ROOT/libs/.*\" \
+      --exclude \"$BUILD_DIR/_deps/.*\" \
+      --exclude \".*/build.*/.*\" \
+      --exclude \".*/build_.*\" \
+      --exclude \"$PROJECT_ROOT/test/.*\" \
+      --exclude \"$PROJECT_ROOT/src/cli/.*\" \
+      $EXCLUDE_ARGS \
+      --xml \"$BUILD_DIR/coverage.xml\""
 
 # 2. HTML-Report mit Details (identisch zur CI)
 echo -e "${BLUE}🌐 Generiere HTML-Report...${NC}"
-gcovr --root "$PROJECT_ROOT" "$BUILD_DIR" \
-      --exclude "$PROJECT_ROOT/libs/.*" \
-      --exclude "$BUILD_DIR/_deps/.*" \
-      --exclude ".*/build.*/.*" \
-      --exclude ".*/build_.*" \
-      --exclude "$PROJECT_ROOT/test/.*" \
-      --exclude "$PROJECT_ROOT/src/cli/.*" \
-      --html-details "$COVERAGE_DIR/index.html" \
-      --html-title "Colibri Coverage Report"
+eval "gcovr --root \"$PROJECT_ROOT\" \"$BUILD_DIR\" \
+      --exclude \"$PROJECT_ROOT/libs/.*\" \
+      --exclude \"$BUILD_DIR/_deps/.*\" \
+      --exclude \".*/build.*/.*\" \
+      --exclude \".*/build_.*\" \
+      --exclude \"$PROJECT_ROOT/test/.*\" \
+      --exclude \"$PROJECT_ROOT/src/cli/.*\" \
+      $EXCLUDE_ARGS \
+      --html-details \"$COVERAGE_DIR/index.html\" \
+      --html-title \"Colibri Coverage Report\""
 
 # 3. Text-Zusammenfassung für die Konsole
 echo -e "${BLUE}📝 Generiere Text-Zusammenfassung...${NC}"
-gcovr --root "$PROJECT_ROOT" "$BUILD_DIR" \
-      --exclude "$PROJECT_ROOT/libs/.*" \
-      --exclude "$BUILD_DIR/_deps/.*" \
-      --exclude ".*/build.*/.*" \
-      --exclude ".*/build_.*" \
-      --exclude "$PROJECT_ROOT/test/.*" \
-      --exclude "$PROJECT_ROOT/src/cli/.*" \
-      --print-summary > "$COVERAGE_DIR/coverage_summary.txt"
+eval "gcovr --root \"$PROJECT_ROOT\" \"$BUILD_DIR\" \
+      --exclude \"$PROJECT_ROOT/libs/.*\" \
+      --exclude \"$BUILD_DIR/_deps/.*\" \
+      --exclude \".*/build.*/.*\" \
+      --exclude \".*/build_.*\" \
+      --exclude \"$PROJECT_ROOT/test/.*\" \
+      --exclude \"$PROJECT_ROOT/src/cli/.*\" \
+      $EXCLUDE_ARGS \
+      --print-summary > \"$COVERAGE_DIR/coverage_summary.txt\""
 
 echo -e "\n${GREEN}✅ Coverage-Reports erfolgreich generiert${NC}"
 
@@ -195,13 +217,14 @@ echo -e "\n${GREEN}✅ Coverage-Reports erfolgreich generiert${NC}"
 echo -e "\n${BLUE}════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}📈 Coverage-Zusammenfassung${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════${NC}"
-gcovr --root "$PROJECT_ROOT" "$BUILD_DIR" \
-      --exclude "$PROJECT_ROOT/libs/.*" \
-      --exclude "$BUILD_DIR/_deps/.*" \
-      --exclude ".*/build.*/.*" \
-      --exclude ".*/build_.*" \
-      --exclude "$PROJECT_ROOT/test/.*" \
-      --exclude "$PROJECT_ROOT/src/cli/.*"
+eval "gcovr --root \"$PROJECT_ROOT\" \"$BUILD_DIR\" \
+      --exclude \"$PROJECT_ROOT/libs/.*\" \
+      --exclude \"$BUILD_DIR/_deps/.*\" \
+      --exclude \".*/build.*/.*\" \
+      --exclude \".*/build_.*\" \
+      --exclude \"$PROJECT_ROOT/test/.*\" \
+      --exclude \"$PROJECT_ROOT/src/cli/.*\" \
+      $EXCLUDE_ARGS"
 echo -e "${BLUE}════════════════════════════════════════════════${NC}"
 
 # Zeige Dateipfade

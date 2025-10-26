@@ -69,37 +69,20 @@ if [ $? -ne 0 ]; then
 fi
 echo -e "${GREEN}✓ Proof created${NC}"
 
-# Verify proof and capture result
-echo -e "${BLUE}🔍 Verifying proof...${NC}"
-"$BUILD_DIR/bin/colibri-verifier" -i "$PROOF_FILE" "$RPC_METHOD" $RPC_ARGS | tee "$RESULT_FILE"
+# Create test data directory first (needed for -t flag)
+echo -e "${BLUE}📁 Creating test directory...${NC}"
+mkdir -p "$TEST_DATA_DIR"
+
+# Verify proof and let verifier automatically create test.json
+# Note: -t expects testname, not full path. Verifier writes to test/data/<testname>/test.json
+echo -e "${BLUE}🔍 Verifying proof and generating test.json...${NC}"
+"$BUILD_DIR/bin/colibri-verifier" -i "$PROOF_FILE" -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS | tee "$RESULT_FILE"
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Verification failed!${NC}"
     exit 1
 fi
-echo -e "${GREEN}✓ Proof verified${NC}"
-
-# Extract result from verification output
-# The verifier outputs the JSON result directly (between first { and last })
-# First, try to extract JSON with "result" field (for methods that return {result: ...})
-EXPECTED_RESULT=$(grep -o '"result":[^}]*}' "$RESULT_FILE" | head -1 | sed 's/"result"://' | tr -d '\n' 2>/dev/null)
-
-if [ -z "$EXPECTED_RESULT" ] || [ "$EXPECTED_RESULT" = '""' ]; then
-    # Try to extract complete JSON object (everything between first { and last })
-    # Use awk to extract from first { to last }
-    EXPECTED_RESULT=$(awk '/^{/,/^}/' "$RESULT_FILE" | tr -d '\n' 2>/dev/null)
-fi
-
-if [ -z "$EXPECTED_RESULT" ] || [ "$EXPECTED_RESULT" = '""' ]; then
-    # Fallback: Use null if nothing found
-    EXPECTED_RESULT='null'
-fi
-
-echo -e "${BLUE}📊 Expected result:${NC} $EXPECTED_RESULT"
-
-# Create test data directory
-echo -e "${BLUE}📁 Creating test directory...${NC}"
-mkdir -p "$TEST_DATA_DIR"
+echo -e "${GREEN}✓ Proof verified and test.json created${NC}"
 
 # Copy state files from temporary directory
 echo -e "${BLUE}💾 Copying state files...${NC}"
@@ -115,46 +98,14 @@ else
     echo -e "${YELLOW}⚠️  No state directory found${NC}"
 fi
 
-# Copy proof to test directory
-echo -e "${BLUE}📄 Copying proof...${NC}"
+# Copy proof to test directory (optional - tests build their own proofs)
+# This is mainly useful for manual inspection and comparison
+echo -e "${BLUE}📄 Copying proof for reference...${NC}"
 cp "$PROOF_FILE" "$TEST_DATA_DIR/proof.ssz"
-echo -e "${GREEN}✓ Proof saved to $TEST_DATA_DIR/proof.ssz${NC}"
+echo -e "${GREEN}✓ Reference proof saved to $TEST_DATA_DIR/proof.ssz${NC}"
 
-# Generate test.json
-echo -e "${BLUE}📝 Generating test.json...${NC}"
-
-# Build params JSON array
-# Convert space-separated args to JSON array format
-PARAMS_JSON="["
-FIRST=true
-for arg in $RPC_ARGS; do
-    if [ "$FIRST" = true ]; then
-        FIRST=false
-    else
-        PARAMS_JSON="$PARAMS_JSON,"
-    fi
-    
-    # Check if arg looks like JSON (starts with { or [)
-    if [[ "$arg" =~ ^[\{\[] ]]; then
-        PARAMS_JSON="$PARAMS_JSON$arg"
-    else
-        # Quote string args
-        PARAMS_JSON="$PARAMS_JSON\"$arg\""
-    fi
-done
-PARAMS_JSON="$PARAMS_JSON]"
-
-# Create test.json
-cat > "$TEST_DATA_DIR/test.json" << EOF
-{
-  "method":"$RPC_METHOD",
-  "params":$PARAMS_JSON,
-  "chain_id": 1,
-  "expected_result": $EXPECTED_RESULT
-}
-EOF
-
-echo -e "${GREEN}✓ test.json created${NC}"
+# test.json was already created by verifier with -t flag
+echo -e "${BLUE}📝 Generated test.json:${NC}"
 cat "$TEST_DATA_DIR/test.json"
 
 # Cleanup

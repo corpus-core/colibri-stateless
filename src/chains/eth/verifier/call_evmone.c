@@ -460,12 +460,42 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
 
 // Function to run EVM call with optional event capture
 INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events) {
-  buffer_t  buffer = {0};
-  address_t to     = {0};
-  buffer_t  to_buf = stack_buffer(to);
+  buffer_t       buffer  = {0};
+  address_t      to      = {0};
+  buffer_t       to_buf  = stack_buffer(to);
+  evmone_message message = {0};
 
   // Check if the transaction has a "to" address
   if (json_get_bytes(tx, "to", &to_buf).len != 20) THROW_ERROR("Invalid transaction: to address is not 20 bytes");
+
+  // Initialize the EVM message
+  set_message(&message, tx, &buffer);
+
+  // is this a call to a precompile directly?
+  if (bytes_all_zero(bytes(to, 19)) && to[19]) {
+    buffer_t     output     = {0};
+    uint64_t     gas_used   = 0;
+    pre_result_t pre_result = eth_execute_precompile(to, bytes(message.input_data, message.input_size), &output, &gas_used);
+    buffer_free(&buffer);
+    *call_result = output.data;
+    switch (pre_result) {
+      case PRE_SUCCESS:
+        return C4_SUCCESS;
+      case PRE_ERROR:
+        ctx->state.error = strdup("Precompile error");
+        return C4_ERROR;
+      case PRE_OUT_OF_BOUNDS:
+        ctx->state.error = strdup("Precompile out of bounds");
+        return C4_ERROR;
+      case PRE_INVALID_INPUT:
+        ctx->state.error = strdup("Precompile Invalid Input");
+        return C4_ERROR;
+        break;
+      default:
+        ctx->state.error = strdup("Precompile unknown error");
+        return C4_ERROR;
+    }
+  }
 
   EVM_LOG("Creating EVM executor...");
   void* executor = evmone_create_executor();
@@ -491,10 +521,6 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
 
   bytes_t code = get_code(&context, to);
   EVM_LOG("Contract code size: %u bytes", (uint32_t) code.len);
-
-  // Initialize the EVM message
-  evmone_message message;
-  set_message(&message, tx, &buffer);
 
   // Execute the code
   evmone_result result = evmone_execute(

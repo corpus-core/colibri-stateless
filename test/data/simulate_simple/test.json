@@ -1,0 +1,6 @@
+{
+  "method":"colibri_simulateTransaction",
+  "params":[{"to":"0x0742d35Cc6634C0532925a3b844Bc9e7595f0bEb","data":"0x06fdde03"},"latest"],
+  "chain_id": 1,
+  "expected_result": {  "gasUsed":"0x5208",  "logs":[  ],  "status":"0x1",  "returnValue":"0x"}
+}
