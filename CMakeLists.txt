@@ -117,6 +117,16 @@ if(EMBEDDED)
     set(CLI OFF)
     set(STATIC_MEMORY ON)
     set(BLS_DESERIALIZE OFF)
+    
+    # Disable features that increase binary size
+    set(ETH_BLOCK OFF CACHE BOOL "Disable block verification for embedded (saves precompiled zero hashes)" FORCE)
+    set(WEAK_SUBJECTIVITY_CHECK OFF CACHE BOOL "Disable weak subjectivity check for embedded (saves entire WSP code)" FORCE)
+    
+    message(STATUS "Embedded build optimizations:")
+    message(STATUS "  - ETH_BLOCK disabled (saves PRECOMPILE_ZERO_HASHES ~1 KB)")
+    message(WARNING "  - WEAK_SUBJECTIVITY_CHECK disabled (saves ~2-3 KB)")
+    message(STATUS "    ⚠️  This increases long-range attack risk during sync gaps > 2 weeks")
+    message(STATUS "    ℹ️  Acceptable for embedded devices without HTTP or low-value applications")
         
     # Force portable implementations
     add_definitions(-DBLST_PORTABLE -DEMBEDDED)

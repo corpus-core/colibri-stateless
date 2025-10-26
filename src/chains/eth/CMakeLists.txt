@@ -26,7 +26,16 @@ option(ETH_RECEIPT  "support eth receipt verification. eth_getTransactionReceipt
 option(ETH_LOGS  "support eth logs verification. eth_getLogs" ON)
 option(ETH_CALL  "support eth call verification. eth_call, eth_estimateGas" ON)
 option(ETH_UTIL  "support eth utils like eth_chainId or web3_sha3" ON)
+option(WEAK_SUBJECTIVITY_CHECK "enable weak subjectivity check via checkpointz for updates older than 2 weeks (requires HTTP access, saves entire WSP validation code ~2-3 KB if disabled). SECURITY WARNING: Disabling this check increases the risk of long-range attacks when syncing after extended offline periods. Only disable for embedded devices without HTTP access where the attack cost outweighs the protected value. See: https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf" ON)
 
+if(WEAK_SUBJECTIVITY_CHECK)
+    add_definitions(-DWEAK_SUBJECTIVITY_CHECK)
+else()
+    message(WARNING "⚠️  Weak subjectivity check disabled - increases long-range attack risk!")
+    message(STATUS "    Saves ~2-3 KB by removing entire WSP validation")
+    message(STATUS "    Only recommended for embedded devices without HTTP access")
+    message(STATUS "    See: https://github.com/runtimeverification/beacon-chain-verification")
+endif()
 
 option(EVMONE "uses evmone to verify eth_calls" ON)
 option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas." OFF)

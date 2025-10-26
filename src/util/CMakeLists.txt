@@ -26,6 +26,13 @@ endif()
 
 
 option(PRECOMPILE_ZERO_HASHES "if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the prover, but not in the verfier" ON)
+
+# Automatically disable PRECOMPILE_ZERO_HASHES if ETH_BLOCK is disabled (only needed for block verification)
+if(NOT ETH_BLOCK AND PRECOMPILE_ZERO_HASHES)
+    message(STATUS "Disabling PRECOMPILE_ZERO_HASHES because ETH_BLOCK is disabled (saves ~1 KB)")
+    set(PRECOMPILE_ZERO_HASHES OFF CACHE BOOL "Disabled automatically because ETH_BLOCK is OFF" FORCE)
+endif()
+
 if(PRECOMPILE_ZERO_HASHES)
     add_definitions(-DPRECOMPILE_ZERO_HASHES)
 endif()
