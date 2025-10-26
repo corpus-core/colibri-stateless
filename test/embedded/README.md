@@ -79,7 +79,7 @@ docker build -t c4-embedded -f test/embedded/Dockerfile.embedded .
 docker run --rm -v $(pwd):/workspace c4-embedded bash -c "cd /workspace && \
   cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=/workspace/test/embedded/toolchain.cmake \
   -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROVER=OFF -DCLI=OFF \
-  -DPRECOMPILE_ZERO_HASHES=OFF -DWEAK_SUBJECTIVITY_CHECK=OFF \
+  -DPRECOMPILE_ZERO_HASHES=OFF -DUSE_CHECKPOINTZ=OFF \
   -DINCLUDE=test/embedded && \
   cmake --build build --target verify_embedded.elf minimal_verify.elf semihosting_test.elf"
 
@@ -99,7 +99,7 @@ If you have the ARM toolchain installed locally:
 mkdir -p build
 cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=$PWD/test/embedded/toolchain.cmake \
   -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROVER=OFF -DCLI=OFF \
-  -DPRECOMPILE_ZERO_HASHES=OFF -DWEAK_SUBJECTIVITY_CHECK=OFF \
+  -DPRECOMPILE_ZERO_HASHES=OFF -DUSE_CHECKPOINTZ=OFF \
   -DINCLUDE=test/embedded
 
 # Build targets
@@ -156,40 +156,50 @@ The Colibri verifier provides several CMake flags to reduce binary size for embe
 - ✅ Saves 1 KB of RAM
 - ✅ No security impact
 
-#### 3. WEAK_SUBJECTIVITY_CHECK (Security vs Size Trade-off)
+#### 3. USE_CHECKPOINTZ (Security vs Size Trade-off)
 
 ```cmake
--DWEAK_SUBJECTIVITY_CHECK=OFF  # Saves ~2-3 KB
+-DUSE_CHECKPOINTZ=OFF  # Saves ~2-3 KB
 ```
 
-**What it does**: Disables weak subjectivity period validation when syncing after extended offline periods (>2 weeks).
+**What it does**: Disables checkpoint fetching from checkpointz (beacon node) for:
+1. **Bootstrap**: Automatic initial checkpoint fetching when starting without a configured checkpoint
+2. **Weak Subjectivity**: Checkpoint validation when syncing after extended offline periods (>2 weeks)
 
-**⚠️ SECURITY WARNING**: This increases the risk of long-range attacks!
+**⚠️ SECURITY WARNING**: This increases the risk of long-range attacks and requires manual checkpoint configuration!
 
 **When to disable**:
 - ✅ Embedded devices **without HTTP access** (e.g., Bluetooth-only)
 - ✅ Applications protecting **small values** (attack cost >> protected value)
 - ✅ Devices that sync frequently (< 2 week offline periods)
+- ✅ When you can provide initial checkpoint in configuration
 
 **When to KEEP enabled**:
 - 🛡️ Devices with internet connectivity
 - 🛡️ High-value applications
 - 🛡️ Devices that may be offline for weeks
+- 🛡️ When bootstrap convenience is important (auto-fetch checkpoint)
 
 **Security Model**:
 
-Without weak subjectivity checks, an attacker who controlled >2/3 of validators in the past could:
-1. Wait for validators to exit (avoid slashing)
-2. Create a fake alternative chain history
-3. Convince your light client to follow the fake chain
+Without checkpointz, two risks emerge:
+
+1. **Bootstrap Risk**: Device cannot auto-fetch initial checkpoint
+   - **Mitigation**: Provide checkpoint in configuration at device initialization
+
+2. **Weak Subjectivity Risk**: An attacker who controlled >2/3 of validators in the past could:
+   - Wait for validators to exit (avoid slashing)
+   - Create a fake alternative chain history
+   - Convince your light client to follow the fake chain
 
 **Attack Cost**: Very high (requires past majority stake control), but increases risk.
 
 **Reference**: [Weak Subjectivity Analysis (Runtime Verification)](https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf)
 
 **Trade-offs**:
-- ⚠️ Increases long-range attack risk
-- ✅ Saves ~2-3 KB of code
+- ⚠️ Requires manual checkpoint configuration for bootstrap
+- ⚠️ Increases long-range attack risk during extended offline periods
+- ✅ Saves ~2-3 KB of code (removes `json_validate` and checkpointz logic)
 - ✅ No HTTP dependency needed
 
 #### 4. BLS_DESERIALIZE (Memory vs Speed)
@@ -207,7 +217,7 @@ Without weak subjectivity checks, an attacker who controlled >2/3 of validators 
 
 ### Example Configurations
 
-#### Minimal Light Client (Sync Only, No HTTP)
+#### Minimal Light Client (Bluetooth-only, No HTTP)
 ```cmake
 cmake -B build \
   -DEMBEDDED=ON \
@@ -219,10 +229,11 @@ cmake -B build \
   -DETH_ACCOUNT=OFF \
   -DEVMONE=OFF \
   -DPRECOMPILE_ZERO_HASHES=OFF \
-  -DWEAK_SUBJECTIVITY_CHECK=OFF \
+  -DUSE_CHECKPOINTZ=OFF \
   -DCURL=OFF
 ```
-**Savings**: ~3-4 KB vs default embedded build
+**Savings**: 1.61 KB (150.65 KB → **149.04 KB** ✅)  
+**Note**: Initial checkpoint must be provided in device configuration
 
 #### Full Verifier with Security (HTTP-enabled)
 ```cmake
@@ -233,10 +244,11 @@ cmake -B build \
   -DETH_CALL=OFF \
   -DEVMONE=OFF \
   -DPRECOMPILE_ZERO_HASHES=OFF \
-  -DWEAK_SUBJECTIVITY_CHECK=ON \  # Keep security check
+  -DUSE_CHECKPOINTZ=ON \  # Keep checkpoint fetching
   -DCURL=ON
 ```
-**Savings**: ~1 KB vs default, keeps security
+**Savings**: ~1 KB (keeps security, disables only zero hash cache)  
+**Benefits**: Auto-bootstrap + weak subjectivity protection
 
 ### Additional Optimization Tips
 

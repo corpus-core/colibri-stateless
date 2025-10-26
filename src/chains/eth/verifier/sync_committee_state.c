@@ -215,6 +215,14 @@ static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count
   return false;
 }
 
+#ifdef USE_CHECKPOINTZ
+/**
+ * Request checkpoint status from checkpointz (beacon node).
+ * Used during bootstrap to fetch the current finalized checkpoint when no initial checkpoint is provided.
+ *
+ * ⚠️ This function requires HTTP access to a beacon node and is disabled when USE_CHECKPOINTZ=OFF.
+ * For embedded devices without HTTP, an initial checkpoint must be provided in the configuration.
+ */
 static bool req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
   buffer_t tmp = {0};
   bprintf(&tmp, "eth/v1/beacon/states/head/finality_checkpoints");
@@ -255,6 +263,19 @@ static bool req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint6
   c4_state_add_request(state, new_req);
   return false;
 }
+#else
+/**
+ * Stub for req_checkpointz_status when USE_CHECKPOINTZ is disabled.
+ * Returns an error indicating that an initial checkpoint must be provided in the configuration.
+ */
+static bool req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
+  (void) chain_id;
+  (void) checkpoint_epoch;
+  (void) checkpoint_root;
+  c4_state_add_error(state, "Checkpointz disabled (USE_CHECKPOINTZ=OFF). Initial checkpoint must be provided in configuration for bootstrap.");
+  return false;
+}
+#endif // USE_CHECKPOINTZ
 
 static bool req_bootstrap(c4_state_t* state, bytes32_t block_root, chain_id_t chain_id, bytes_t* data) {
   buffer_t tmp = {0};
@@ -603,7 +624,7 @@ static void clear_sync_state(chain_id_t chain_id) {
   storage_conf.del(name);
 }
 
-#ifdef WEAK_SUBJECTIVITY_CHECK
+#ifdef USE_CHECKPOINTZ
 /**
  * Find the most recent finalized checkpoint from verified light client updates.
  * Iterates through all cached light_client/updates requests to find the highest finalized slot.
@@ -669,12 +690,13 @@ static uint64_t find_last_verified_finality_checkpoint(verify_ctx_t* ctx, bytes3
  * 2. Queries checkpointz (external beacon node) for the block root at that slot
  * 3. Verifies that both roots match, confirming we're on the canonical chain
  *
- * ## When to Disable (WEAK_SUBJECTIVITY_CHECK=OFF)
+ * ## When to Disable (USE_CHECKPOINTZ=OFF)
  *
- * Disabling this check is acceptable when:
+ * Disabling checkpointz (which disables this function AND bootstrap checkpoint fetching) is acceptable when:
  * - Device has no HTTP access (e.g., Bluetooth-only embedded devices)
  * - Protected value is small relative to attack cost
  * - Application can tolerate the increased risk
+ * - Initial checkpoint is provided manually in configuration
  *
  * ⚠️ WARNING: Disabling increases long-range attack risk during extended offline periods!
  *
@@ -764,7 +786,7 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
 
   return C4_PENDING;
 }
-#endif // WEAK_SUBJECTIVITY_CHECK
+#endif // USE_CHECKPOINTZ
 
 /**
  * Pragmatic fallback to sync a period using the next period's previous_pubkeys_hash.
@@ -934,7 +956,7 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
 
     // Check weak subjectivity period BEFORE loading new sync state
     // If this fails, clear_sync_state() is called inside to force re-initialization
-#ifdef WEAK_SUBJECTIVITY_CHECK
+#ifdef USE_CHECKPOINTZ
     TRY_ASYNC(c4_check_weak_subjectivity(ctx, &sync_state, period));
 #endif
 

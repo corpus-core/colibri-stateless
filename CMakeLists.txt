@@ -121,7 +121,7 @@ if(EMBEDDED)
     message(STATUS "Embedded build mode enabled")
     message(STATUS "  Consider disabling optional features to save memory:")
     message(STATUS "    -DPRECOMPILE_ZERO_HASHES=OFF  (saves ~1 KB, safe if ETH_BLOCK=OFF)")
-    message(STATUS "    -DWEAK_SUBJECTIVITY_CHECK=OFF (saves ~2-3 KB, see security warning)")
+    message(STATUS "    -DUSE_CHECKPOINTZ=OFF         (saves ~2-3 KB, requires manual checkpoint config)")
     message(STATUS "  See test/embedded/README.md for optimization guide")
         
     # Force portable implementations

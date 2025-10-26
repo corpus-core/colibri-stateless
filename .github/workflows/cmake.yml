@@ -40,7 +40,7 @@ jobs:
             -DPROVER=OFF \
             -DCLI=OFF \
             -DPRECOMPILE_ZERO_HASHES=OFF \
-            -DWEAK_SUBJECTIVITY_CHECK=OFF \
+            -DUSE_CHECKPOINTZ=OFF \
             -DINCLUDE=test/embedded
           cat build/compile_commands.json
 
