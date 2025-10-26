@@ -201,6 +201,8 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   blockroot_proof_t historic_proof = {0};
   c4_status_t       status         = C4_SUCCESS;
 
+  // Validate arguments before processing
+  CHECK_JSON(ctx->params, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
   uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
   bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;
