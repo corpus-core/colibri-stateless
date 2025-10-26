@@ -650,37 +650,37 @@ static uint64_t find_last_verified_finality_checkpoint(verify_ctx_t* ctx, bytes3
 
 /**
  * Weak Subjectivity Period (WSP) Validation
- * 
+ *
  * This function protects against long-range attacks when a client syncs after being offline
  * for longer than the weak subjectivity period (typically ~2 weeks / 256 epochs).
- * 
+ *
  * ## Security Model
- * 
+ *
  * Without this check, an attacker with majority stake could create an alternative chain history
  * and convince the client to follow it. This is possible because:
  * 1. After the WSP, the attacker's validators have exited and can no longer be slashed
  * 2. The attacker can create a fake chain with fabricated signatures
  * 3. A light client cannot detect this without an external checkpoint
- * 
+ *
  * ## Implementation
- * 
+ *
  * When a sync gap exceeds the WSP, this function:
  * 1. Finds the last verified finalized checkpoint from cached light client updates
  * 2. Queries checkpointz (external beacon node) for the block root at that slot
  * 3. Verifies that both roots match, confirming we're on the canonical chain
- * 
+ *
  * ## When to Disable (WEAK_SUBJECTIVITY_CHECK=OFF)
- * 
+ *
  * Disabling this check is acceptable when:
  * - Device has no HTTP access (e.g., Bluetooth-only embedded devices)
  * - Protected value is small relative to attack cost
  * - Application can tolerate the increased risk
- * 
+ *
  * ⚠️ WARNING: Disabling increases long-range attack risk during extended offline periods!
- * 
+ *
  * For detailed security analysis, see:
  * https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf
- * 
+ *
  * @param ctx Verification context
  * @param sync_state Current sync committee state
  * @param target_period Target period to sync to

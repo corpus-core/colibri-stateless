@@ -25,16 +25,13 @@ if(FILE_STORAGE AND NOT WASM)
 endif()
 
 
-option(PRECOMPILE_ZERO_HASHES "if activated zero hashes are cached which costs up to 1kb in RAM, but are needed in order to calc BeaconBodys in the prover, but not in the verfier" ON)
-
-# Automatically disable PRECOMPILE_ZERO_HASHES if ETH_BLOCK is disabled (only needed for block verification)
-if(NOT ETH_BLOCK AND PRECOMPILE_ZERO_HASHES)
-    message(STATUS "Disabling PRECOMPILE_ZERO_HASHES because ETH_BLOCK is disabled (saves ~1 KB)")
-    set(PRECOMPILE_ZERO_HASHES OFF CACHE BOOL "Disabled automatically because ETH_BLOCK is OFF" FORCE)
-endif()
+option(PRECOMPILE_ZERO_HASHES "Enable precomputed zero hashes cache (1 KB RAM). Required for ETH_BLOCK verification but not needed for light client sync. Disable for embedded devices to save memory." ON)
 
 if(PRECOMPILE_ZERO_HASHES)
     add_definitions(-DPRECOMPILE_ZERO_HASHES)
+    message(STATUS "PRECOMPILE_ZERO_HASHES enabled (uses ~1 KB RAM for zero hash cache)")
+else()
+    message(STATUS "PRECOMPILE_ZERO_HASHES disabled (saves ~1 KB RAM)")
 endif()
 
 add_library(util STATIC 
