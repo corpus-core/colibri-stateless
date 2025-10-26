@@ -543,34 +543,53 @@ jobs:
       - name: Checkout Project
         uses: actions/checkout@v4.2.2
 
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev
+
       - name: Build Project
         uses: threeal/cmake-action@v2.0.0
         with:
-          options: TEST=true CURL=false CMAKE_BUILD_TYPE=Debug COVERAGE=true
+          options: TEST=true CURL=true HTTP_SERVER=true PROVER_CACHE=true CMAKE_BUILD_TYPE=Debug COVERAGE=true
 
       - name: Test Project
         uses: threeal/ctest-action@v1.1.0
         with:
           test-dir: build/test/unittests
 
-      - name: Check Test Coverage
-        uses: threeal/gcovr-action@v1.1.0
-        with:
-          excludes: libs.* build.* test.* src.cli.*
-          xml-out: coverage.xml
-
-      - name: Generate HTML Coverage Report
+      - name: Generate Coverage Reports
         run: |
-          # Install gcovr (should already be installed by gcovr-action, but just in case)
+          # Install gcovr
           pip install gcovr
+
+          # Build exclude arguments from coverage_ignore.txt
+          EXCLUDE_ARGS=""
+          if [ -f scripts/coverage_ignore.txt ]; then
+            echo "Loading coverage ignore list..."
+            while IFS= read -r line || [ -n "$line" ]; do
+              # Skip comments and empty lines
+              [[ "$line" =~ ^#.*$ ]] && continue
+              [[ -z "$line" ]] && continue
+              # Add exclude argument
+              EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude $line"
+              echo "  - Excluding: $line"
+            done < scripts/coverage_ignore.txt
+          fi
 
           # Create coverage report directory
           mkdir -p build/coverage-report
 
-          # Run gcovr to generate HTML report
-          gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*" \
+          # Generate XML report (for Codecov/CodeClimate)
+          eval "gcovr --exclude \"libs.*\" --exclude \"build.*\" --exclude \"test.*\" --exclude \"src.cli.*\" \
+                $EXCLUDE_ARGS \
+                --xml coverage.xml"
+
+          # Generate HTML report
+          eval "gcovr --exclude \"libs.*\" --exclude \"build.*\" --exclude \"test.*\" --exclude \"src.cli.*\" \
+                $EXCLUDE_ARGS \
                 --html-details build/coverage-report/index.html \
-                --html-title "Colibri Coverage Report"
+                --html-title \"Colibri Coverage Report\""
 
       - name: Move Coverage Report
         run: |

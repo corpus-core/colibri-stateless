@@ -41,8 +41,63 @@ void test_chainId() {
   c4_verify_free_data(&ctx);
 }
 
+void test_chainId_sepolia() {
+  verify_ctx_t ctx    = {0};
+  c4_status_t  status = c4_verify_from_bytes(&ctx, NULL_BYTES, "eth_chainId", (json_t) {.start = "[]", .len = 2, .type = JSON_TYPE_ARRAY}, C4_CHAIN_SEPOLIA);
+  TEST_ASSERT_MESSAGE(status == C4_SUCCESS, "c4_verify_from_bytes failed for Sepolia");
+  // Sepolia chain ID is 11155111 (0xaa36a7)
+  TEST_ASSERT_MESSAGE(ctx.data.bytes.len == 8, "Invalid chain ID length");
+  c4_verify_free_data(&ctx);
+}
+
+void test_protocolVersion() {
+  verify_ctx_t ctx    = {0};
+  c4_status_t  status = c4_verify_from_bytes(&ctx, NULL_BYTES, "eth_protocolVersion", (json_t) {.start = "[]", .len = 2, .type = JSON_TYPE_ARRAY}, C4_CHAIN_MAINNET);
+  TEST_ASSERT_MESSAGE(status == C4_SUCCESS, "c4_verify_from_bytes failed for eth_protocolVersion");
+  TEST_ASSERT_MESSAGE(ctx.data.bytes.len > 0, "Protocol version should not be empty");
+  c4_verify_free_data(&ctx);
+}
+
+void test_clientVersion() {
+  verify_ctx_t ctx    = {0};
+  c4_status_t  status = c4_verify_from_bytes(&ctx, NULL_BYTES, "web3_clientVersion", (json_t) {.start = "[]", .len = 2, .type = JSON_TYPE_ARRAY}, C4_CHAIN_MAINNET);
+  TEST_ASSERT_MESSAGE(status == C4_SUCCESS, "c4_verify_from_bytes failed for web3_clientVersion");
+  TEST_ASSERT_MESSAGE(ctx.data.bytes.len > 0, "Client version should not be empty");
+  c4_verify_free_data(&ctx);
+}
+
+void test_gasPrice() {
+  verify_ctx_t ctx    = {0};
+  c4_status_t  status = c4_verify_from_bytes(&ctx, NULL_BYTES, "eth_gasPrice", (json_t) {.start = "[]", .len = 2, .type = JSON_TYPE_ARRAY}, C4_CHAIN_MAINNET);
+  // Gas price is not implemented locally, should return error or pending
+  TEST_ASSERT_MESSAGE(status == C4_ERROR || status == C4_PENDING, "eth_gasPrice should not succeed locally");
+  c4_verify_free_data(&ctx);
+}
+
+void test_invalid_method() {
+  verify_ctx_t ctx    = {0};
+  c4_status_t  status = c4_verify_from_bytes(&ctx, NULL_BYTES, "invalid_method", (json_t) {.start = "[]", .len = 2, .type = JSON_TYPE_ARRAY}, C4_CHAIN_MAINNET);
+  TEST_ASSERT_MESSAGE(status == C4_ERROR, "Invalid method should return error");
+  c4_verify_free_data(&ctx);
+}
+
+void test_chainId_with_invalid_params() {
+  verify_ctx_t ctx = {0};
+  // Pass invalid params (should be empty array)
+  c4_status_t status = c4_verify_from_bytes(&ctx, NULL_BYTES, "eth_chainId", (json_t) {.start = "[123]", .len = 5, .type = JSON_TYPE_ARRAY}, C4_CHAIN_MAINNET);
+  // Should still succeed as params are ignored for chainId
+  TEST_ASSERT_MESSAGE(status == C4_SUCCESS, "eth_chainId should ignore extra params");
+  c4_verify_free_data(&ctx);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_chainId);
+  RUN_TEST(test_chainId_sepolia);
+  RUN_TEST(test_protocolVersion);
+  RUN_TEST(test_clientVersion);
+  RUN_TEST(test_gasPrice);
+  RUN_TEST(test_invalid_method);
+  RUN_TEST(test_chainId_with_invalid_params);
   return UNITY_END();
 }

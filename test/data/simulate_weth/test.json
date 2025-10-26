@@ -1,0 +1,6 @@
+{
+  "method":"colibri_simulateTransaction",
+  "params":[{"to":"0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","data":"0xd0e30db0","from":"0x3610bad33Aac567d2c5Fb03e47EEc5c2172fD42a","value":"0x16345785d8a0000"},"latest"],
+  "chain_id": 1,
+  "expected_result": {  "gasUsed":"0x5208",  "logs":[    {      "raw":{        "address":"0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",        "data":"0x000000000000000000000000000000000000000000000000016345785d8a0000",        "topics":[          "0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c",          "0x0000000000000000000000003610bad33aac567d2c5fb03e47eec5c2172fd42a"        ]      }    }  ],  "status":"0x1",  "returnValue":"0x"}
+}
