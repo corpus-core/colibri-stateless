@@ -39,3 +39,14 @@ installer/macos/CODE_SIGNING.md
 installer/ppa/README.md
 installer/copr/README.md
 installer/homebrew/README.md
+
+# Test artifacts and temporary files
+compile_commands.json
+/states_*
+/sync_*
+/test.json
+/scripts/*.ssz
+/scripts/states_*
+/scripts/sync_*
+/scripts/beacon-node-oapi.json
+/*.ssz
