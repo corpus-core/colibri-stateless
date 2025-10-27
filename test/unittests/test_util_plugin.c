@@ -26,7 +26,17 @@
 #include "unity.h"
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef _WIN32
 #include <unistd.h>
+#else
+#include <windows.h>
+#endif
+
+#ifdef _WIN32
+#define setenv(name, value, overwrite) _putenv_s(name, value)
+#define unsetenv(name)                 _putenv_s(name, "")
+#endif
 
 void setUp(void) {
   // Reset storage config before each test
