@@ -825,39 +825,8 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   }
 }
 
-// Variant of trigger_uncached_curl_request that does NOT call call_callback_if_done
-// Used during batch initialization in trigger_cached_curl_requests to avoid use-after-free
-static void trigger_uncached_curl_request_batch(void* data, char* value, size_t value_len) {
-  single_request_t*  r       = (single_request_t*) data;
-  pending_request_t* pending = value == NULL ? pending_find_matching(r) : NULL;
-
-  if (r->req->type == C4_DATA_TYPE_INTERN && !value) {
-    c4_handle_internal_request(r);
-    return;
-  }
-
-  if (pending) {
-    pending_add_to_same_requests(pending, r);
-    fprintf(stderr, "   [join ] %s %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "");
-  }
-  else if (value) {
-    // Cache hit - create response from cached data
-    fprintf(stderr, "   [cache] %s %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "");
-    r->req->response = bytes_dup(bytes(value, value_len));
-    r->curl          = NULL;
-    r->cached        = true;
-    r->end_time      = current_ms();
-    // NOTE: Do NOT call call_callback_if_done here! Will be called once after all inits
-  }
-  else {
-    // Cache miss - proceed with normal request but without callback
-    trigger_uncached_curl_request(r, NULL, 0);
-  }
-}
-
 static void trigger_cached_curl_requests(request_t* req) {
   uint64_t start_time = current_ms();
-
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
@@ -867,18 +836,15 @@ static void trigger_cached_curl_requests(request_t* req) {
       trigger_uncached_curl_request(r, NULL, 0);
       continue;
     }
-    // Check cache first using batch variant to avoid immediate callbacks
+    // Check cache first
     char* key = generate_cache_key(pending);
-    int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request_batch);
+    int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
     safe_free(key);
     if (ret) {
       fprintf(stderr, "CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
       trigger_uncached_curl_request(r, NULL, 0);
     }
   }
-
-  // After all requests are initialized, check if we're done and call callback once
-  call_callback_if_done(req);
 }
 
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb) {
