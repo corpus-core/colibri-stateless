@@ -1005,6 +1005,28 @@ void c4_init_curl(uv_timer_t* timer) {
   c4_detect_server_client_types(&beacon_api_servers, C4_DATA_TYPE_BEACON_API);
 }
 
+static void free_server_list(server_list_t* list) {
+  if (!list) return;
+  if (list->health_stats) {
+    for (size_t i = 0; i < list->count; i++)
+      c4_cleanup_method_support(&list->health_stats[i]);
+    safe_free(list->health_stats);
+    list->health_stats = NULL;
+  }
+  if (list->client_types) {
+    safe_free(list->client_types);
+    list->client_types = NULL;
+  }
+  if (list->urls) {
+    for (size_t i = 0; i < list->count; i++)
+      safe_free(list->urls[i]);
+    safe_free(list->urls);
+    list->urls = NULL;
+  }
+  list->count      = 0;
+  list->next_index = 0;
+}
+
 void c4_cleanup_curl() {
   // Close all handles and let the cleanup function free the resources
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, NULL);
@@ -1014,27 +1036,8 @@ void c4_cleanup_curl() {
     memcache_free(&memcache_client);
   }
 
-  // Clean up server health stats and client types
-  if (eth_rpc_servers.health_stats) {
-    for (size_t i = 0; i < eth_rpc_servers.count; i++) {
-      c4_cleanup_method_support(&eth_rpc_servers.health_stats[i]);
-    }
-    safe_free(eth_rpc_servers.health_stats);
-    eth_rpc_servers.health_stats = NULL;
-  }
-  if (eth_rpc_servers.client_types) {
-    safe_free(eth_rpc_servers.client_types);
-    eth_rpc_servers.client_types = NULL;
-  }
-  if (beacon_api_servers.health_stats) {
-    for (size_t i = 0; i < beacon_api_servers.count; i++) {
-      c4_cleanup_method_support(&beacon_api_servers.health_stats[i]);
-    }
-    safe_free(beacon_api_servers.health_stats);
-    beacon_api_servers.health_stats = NULL;
-  }
-  if (beacon_api_servers.client_types) {
-    safe_free(beacon_api_servers.client_types);
-    beacon_api_servers.client_types = NULL;
-  }
+  free_server_list(&eth_rpc_servers);
+  free_server_list(&beacon_api_servers);
+  free_server_list(&prover_servers);
+  free_server_list(&checkpointz_servers);
 }
