@@ -37,9 +37,16 @@ if(ANDROID)
         GIT_SHALLOW TRUE)
 else()
     # For other platforms, use URL approach for consistency
-    FetchContent_Declare(zstd
-        URL "https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz"
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
+        # CMake 3.24+: Use DOWNLOAD_EXTRACT_TIMESTAMP
+        FetchContent_Declare(zstd
+            URL "https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz"
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    else()
+        # CMake < 3.24: Don't use DOWNLOAD_EXTRACT_TIMESTAMP
+        FetchContent_Declare(zstd
+            URL "https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz")
+    endif()
 endif()
 
 # Configure build options before making available
