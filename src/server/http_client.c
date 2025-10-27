@@ -825,9 +825,9 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   }
 }
 
-// Callback wrapper that doesn't immediately call the parent callback
-// Used to prevent use-after-free when multiple cache hits occur
-static void trigger_uncached_curl_request_no_callback(void* data, char* value, size_t value_len) {
+// Variant of trigger_uncached_curl_request that does NOT call call_callback_if_done
+// Used during batch initialization in trigger_cached_curl_requests to avoid use-after-free
+static void trigger_uncached_curl_request_batch(void* data, char* value, size_t value_len) {
   single_request_t*  r       = (single_request_t*) data;
   pending_request_t* pending = value == NULL ? pending_find_matching(r) : NULL;
 
@@ -847,10 +847,10 @@ static void trigger_uncached_curl_request_no_callback(void* data, char* value, s
     r->curl          = NULL;
     r->cached        = true;
     r->end_time      = current_ms();
-    // Don't call callback here - will be called once at the end
+    // NOTE: Do NOT call call_callback_if_done here! Will be called once after all inits
   }
   else {
-    // Cache miss - proceed with normal request
+    // Cache miss - proceed with normal request but without callback
     trigger_uncached_curl_request(r, NULL, 0);
   }
 }
@@ -867,9 +867,9 @@ static void trigger_cached_curl_requests(request_t* req) {
       trigger_uncached_curl_request(r, NULL, 0);
       continue;
     }
-    // Check cache first
+    // Check cache first using batch variant to avoid immediate callbacks
     char* key = generate_cache_key(pending);
-    int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request_no_callback);
+    int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request_batch);
     safe_free(key);
     if (ret) {
       fprintf(stderr, "CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
@@ -877,7 +877,7 @@ static void trigger_cached_curl_requests(request_t* req) {
     }
   }
 
-  // Check if all requests are done and call callback once
+  // After all requests are initialized, check if we're done and call callback once
   call_callback_if_done(req);
 }
 
