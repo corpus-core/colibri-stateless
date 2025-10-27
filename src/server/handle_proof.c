@@ -66,21 +66,7 @@ static void prover_request_free(request_t* req) {
   if (req->start_time)
     c4_metrics_add_request(C4_DATA_TYPE_INTERN, ctx->method, ctx->state.error ? strlen(ctx->state.error) : ctx->proof.len, current_ms() - req->start_time, ctx->state.error == NULL, false);
   c4_prover_free((prover_ctx_t*) req->ctx);
-
-  // Free the requests array to avoid memory leak
-  if (req->requests) {
-    for (size_t i = 0; i < req->request_count; i++) {
-      single_request_t* r = req->requests + i;
-      buffer_free(&r->buffer);
-      safe_free(r->url);
-      if (r->headers) {
-        curl_slist_free_all(r->headers);
-        r->headers = NULL;
-      }
-    }
-    safe_free(req->requests);
-  }
-
+  // NOTE: We do NOT free req->requests here - that's handled elsewhere
   safe_free(req);
 }
 static bool c4_check_worker_request(request_t* req) {
