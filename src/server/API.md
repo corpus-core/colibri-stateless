@@ -44,55 +44,56 @@ The OpenAPI specification below provides interactive documentation for all avail
 
 ### Endpoints
 
-{% openapi-operation spec="colibri-api" path="/proof" method="post" %}
-[OpenAPI colibri-api]
+{% openapi-operation spec="colibri-api" path="/rpc" method="post" %}
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
-{% openapi-operation spec="colibri-api" path="/rpc" method="post" %}
-[OpenAPI colibri-api]
+{% openapi-operation spec="colibri-api" path="/proof" method="post" %}
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 {% openapi-operation spec="colibri-api" path="/config.html" method="get" %}
-[OpenAPI colibri-api]
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 {% openapi-operation spec="colibri-api" path="/config" method="get" %}
-[OpenAPI colibri-api]
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 {% openapi-operation spec="colibri-api" path="/config" method="post" %}
-[OpenAPI colibri-api]
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 {% openapi-operation spec="colibri-api" path="/health" method="get" %}
-[OpenAPI colibri-api]
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 {% openapi-operation spec="colibri-api" path="/metrics" method="get" %}
-[OpenAPI colibri-api]
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 {% openapi-operation spec="colibri-api" path="/eth/v1/beacon/headers/{block_id}" method="get" %}
-[OpenAPI colibri-api]
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 {% openapi-operation spec="colibri-api" path="/eth/v1/beacon/light_client/bootstrap/{block_root}" method="get" %}
-[OpenAPI colibri-api]
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 {% openapi-operation spec="colibri-api" path="/eth/v1/beacon/light_client/updates" method="get" %}
-[OpenAPI colibri-api]
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 {% openapi-operation spec="colibri-api" path="/openapi.yaml" method="get" %}
-[OpenAPI colibri-api]
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
 ### Schemas
 
-{% openapi-schemas spec="colibri-api" schemas="JsonRpcRequest,ProofRequest,JsonRpcResponse,JsonRpcErrorResponse,ErrorResponse,HealthResponse,ConfigResponse,ConfigParameter,ConfigUpdateRequest,ConfigUpdateResponse,BeaconErrorResponse" grouped="true" %}
-[OpenAPI colibri-api]
+{% openapi-schemas spec="colibri-api" schemas="ProofRequest,JsonRpcRequest,JsonRpcResponse,JsonRpcErrorResponse,ErrorResponse,HealthResponse,ConfigResponse,ConfigParameter,ConfigUpdateRequest,ConfigUpdateResponse,BeaconErrorResponse" grouped="true" %}
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-schemas %}
+
 
 ## Quick Start Examples
 

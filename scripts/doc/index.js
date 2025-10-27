@@ -20,7 +20,6 @@ const doc_files = [
     "util/witness.c",
     "chains/eth/threat_model.md",
     "chains/eth/benchmark.md",
-    "server/API.md",
 
     // cli
     "cli/prover.c",
@@ -48,7 +47,9 @@ const doc_files = [
     "util/ssz.h",
     "util/crypto.h",
     "util/state.h",
-    "../bindings/colibri.h"
+    "../bindings/colibri.h",
+    "server/API.md",
+
 ]
 
 // the folders where to replace the links
