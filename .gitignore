@@ -50,3 +50,4 @@ compile_commands.json
 /scripts/sync_*
 /scripts/beacon-node-oapi.json
 /*.ssz
+valgrind_results
