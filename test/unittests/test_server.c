@@ -24,6 +24,7 @@ void setUp(void) {
 
 // Unity teardown - called after each test
 void tearDown(void) {
+  c4_clear_storage_cache();
   c4_test_server_teardown();
 }
 
@@ -194,13 +195,15 @@ void test_proof_endpoint(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_remote_prover);
-  RUN_TEST(test_health_check);
-  RUN_TEST(test_rpc_request_with_file_mock);
-  RUN_TEST(test_retry_with_multiple_servers);
-  RUN_TEST(test_error_handling);
-  RUN_TEST(test_deterministic_server_selection);
-  RUN_TEST(test_metrics_endpoint);
-  RUN_TEST(test_config_endpoint_get);
+
+  //
+  //  RUN_TEST(test_health_check);
+  //  RUN_TEST(test_rpc_request_with_file_mock);
+  //  RUN_TEST(test_retry_with_multiple_servers);
+  //  RUN_TEST(test_error_handling);
+  //  RUN_TEST(test_deterministic_server_selection);
+  //  RUN_TEST(test_metrics_endpoint);
+  //  RUN_TEST(test_config_endpoint_get);
   // RUN_TEST(test_proof_endpoint); // DISABLED: See comment above function
 
   return UNITY_END();

@@ -219,16 +219,18 @@ for test_binary in /build/test/unittests/test_*; do
     TEMP_OUTPUT=\$(mktemp)
     
     # Configure valgrind flags based on test type
-    VALGRIND_FLAGS="--leak-check=full --error-exitcode=1 --track-origins=yes --show-leak-kinds=all"
+    # Note: 'still reachable' memory is not shown (--show-leak-kinds) and doesn't cause errors
+    VALGRIND_FLAGS="--leak-check=full --error-exitcode=1 --track-origins=yes"
     
     if [[ "\$TEST_NAME" == "test_server"* ]]; then
       # Server tests: use suppressions for threading/libuv/curl false positives
+      # Only show and error on definite leaks (ignore possible, still reachable, indirect)
       VALGRIND_FLAGS="\$VALGRIND_FLAGS --suppressions=/test/valgrind/server.supp --fair-sched=yes"
-      VALGRIND_FLAGS="\$VALGRIND_FLAGS --errors-for-leak-kinds=definite"
+      VALGRIND_FLAGS="\$VALGRIND_FLAGS --show-leak-kinds=definite --errors-for-leak-kinds=definite"
       echo "  → Using server suppressions (threading/libuv/curl)"
     else
       # Regular tests: strict mode (fail on definite + possible leaks)
-      VALGRIND_FLAGS="\$VALGRIND_FLAGS --errors-for-leak-kinds=definite,possible"
+      VALGRIND_FLAGS="\$VALGRIND_FLAGS --show-leak-kinds=definite,possible --errors-for-leak-kinds=definite,possible"
     fi
     
     # Run valgrind and capture both stdout and stderr
@@ -383,6 +385,7 @@ echo -e "${YELLOW}Dies kann mehrere Minuten dauern...${NC}"
 docker run --rm \
   -v "$PROJECT_ROOT/build/valgrind:/build:ro" \
   -v "$PROJECT_ROOT/test:/test:ro" \
+  -v "$PROJECT_ROOT/test:/src/test:ro" \
   -v "$RESULTS_DIR:/results" \
   "$IMAGE_NAME" \
   bash /results/run_valgrind_tests.sh
@@ -399,6 +402,7 @@ if [[ "$MEMORY_ANALYSIS" == "true" ]]; then
     if [[ "$SPECIFIC_TEST" == "verify_only" ]]; then
       docker run --rm \
         -v "$PROJECT_ROOT/build/valgrind:/build:ro" \
+        -v "$PROJECT_ROOT/test:/src/test:ro" \
         -v "$RESULTS_DIR:/results" \
         "$IMAGE_NAME" \
         bash /results/run_memory_analysis.sh || true
@@ -409,6 +413,7 @@ if [[ "$MEMORY_ANALYSIS" == "true" ]]; then
   else
     docker run --rm \
       -v "$PROJECT_ROOT/build/valgrind:/build:ro" \
+      -v "$PROJECT_ROOT/test:/src/test:ro" \
       -v "$RESULTS_DIR:/results" \
       "$IMAGE_NAME" \
       bash /results/run_memory_analysis.sh || true
