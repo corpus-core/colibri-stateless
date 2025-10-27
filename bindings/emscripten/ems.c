@@ -176,7 +176,7 @@ char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
       bprintf(&result, "\"result\": %Z", ctx->data);
       break;
     case C4_ERROR:
-      bprintf(&result, "\"error\": \"%s\"", ctx->state.error);
+      bprintf(&result, "\"error\": \"%S\"", ctx->state.error);
       break;
     case C4_PENDING: {
       bprintf(&result, "\"requests\": [");
