@@ -29,9 +29,16 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
 endif()
 
 # Use the tarball URL as recommended instead of git repo
-FetchContent_Declare(llhttp
-  URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz"
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
+  # CMake 3.24+: Use DOWNLOAD_EXTRACT_TIMESTAMP
+  FetchContent_Declare(llhttp
+    URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz"
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+else()
+  # CMake < 3.24: Don't use DOWNLOAD_EXTRACT_TIMESTAMP
+  FetchContent_Declare(llhttp
+    URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz")
+endif()
 
 # Set cache variables for static library build
 set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "")

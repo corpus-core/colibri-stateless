@@ -29,9 +29,16 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
 endif()
 
 # Fetch libuv from GitHub using URL approach for consistency
-FetchContent_Declare(libuv
-    URL "https://github.com/libuv/libuv/archive/refs/tags/v1.50.0.tar.gz"
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
+  # CMake 3.24+: Use DOWNLOAD_EXTRACT_TIMESTAMP
+  FetchContent_Declare(libuv
+      URL "https://github.com/libuv/libuv/archive/refs/tags/v1.50.0.tar.gz"
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+else()
+  # CMake < 3.24: Don't use DOWNLOAD_EXTRACT_TIMESTAMP
+  FetchContent_Declare(libuv
+      URL "https://github.com/libuv/libuv/archive/refs/tags/v1.50.0.tar.gz")
+endif()
 
 # Configure build options before making available
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
