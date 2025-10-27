@@ -64,25 +64,6 @@ void test_health_check(void) {
   free(response);
 }
 
-// Test 2: Simple RPC request with file mock
-void test_rpc_request_with_file_mock(void) {
-  c4_test_server_seed_for_test("test_rpc_request");
-
-  // Mock files should exist at:
-  // test/data/server/test_rpc_request/eth-rpc-1_<hash>.json
-
-  const char* rpc_payload =
-      "{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}";
-
-  int   status_code = 0;
-  char* response    = send_http_request("POST", "/rpc", rpc_payload, &status_code);
-
-  TEST_ASSERT_NOT_NULL(response);
-  // Status depends on handler implementation and mock file existence
-
-  free(response);
-}
-
 // Test 3: Retry logic with multiple servers
 void test_retry_with_multiple_servers(void) {
   c4_test_server_seed_for_test("test_retry_multi_server");
@@ -197,13 +178,13 @@ int main(void) {
   RUN_TEST(test_remote_prover);
 
   //
-  //  RUN_TEST(test_health_check);
+  RUN_TEST(test_health_check);
   //  RUN_TEST(test_rpc_request_with_file_mock);
   //  RUN_TEST(test_retry_with_multiple_servers);
-  //  RUN_TEST(test_error_handling);
+  RUN_TEST(test_error_handling);
   //  RUN_TEST(test_deterministic_server_selection);
-  //  RUN_TEST(test_metrics_endpoint);
-  //  RUN_TEST(test_config_endpoint_get);
+  RUN_TEST(test_metrics_endpoint);
+  RUN_TEST(test_config_endpoint_get);
   // RUN_TEST(test_proof_endpoint); // DISABLED: See comment above function
 
   return UNITY_END();
