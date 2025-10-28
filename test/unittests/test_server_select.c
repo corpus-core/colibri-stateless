@@ -26,6 +26,11 @@ static void init_servers(size_t count) {
 }
 
 static void free_servers(void) {
+  if (servers.health_stats) {
+    for (size_t i = 0; i < servers.count; i++) {
+      c4_cleanup_method_support(&servers.health_stats[i]);
+    }
+  }
   if (servers.urls) {
     for (size_t i = 0; i < servers.count; i++) free(servers.urls[i]);
   }
