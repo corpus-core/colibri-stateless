@@ -15,3 +15,9 @@ src/chains/eth/precompiles/precompiles_ec.c
 # Witness utilities (in development)
 src/util/witness.c
 
+# Just the entry-point - not testable
+src/server/main.c
+
+# the connector the memcached - not testable in a unittest, only integrationtest
+src/server/cache.c
+
