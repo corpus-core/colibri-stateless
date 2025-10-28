@@ -620,12 +620,45 @@ jobs:
 
       - name: Create Coverage Summary File
         run: |
-          # Extract coverage percentage from coverage.xml
+          # Ensure gcovr is available
+          pip install gcovr
+
+          # Rebuild exclude arguments exactly like in the report generation step
+          EXCLUDE_ARGS=""
+          if [ -f scripts/coverage_ignore.txt ]; then
+            echo "Loading coverage ignore list (for summary generation)..."
+            while IFS= read -r line || [ -n "$line" ]; do
+              [[ "$line" =~ ^#.*$ ]] && continue
+              [[ -z "$line" ]] && continue
+              EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude $line"
+            done < scripts/coverage_ignore.txt
+          fi
+
+          # Ensure output directory exists
+          mkdir -p build/coverage-report
+
+          # Use the already generated cobertura XML (with excludes) to extract total line coverage
           if [ -f "coverage.xml" ]; then
-            # Use gcovr to create a text summary
-            pip install gcovr
-            gcovr --xml coverage.xml --print-summary > build/coverage-report/coverage_summary.txt
-            
+            TOTAL=$(python3 - <<'PY'
+import xml.etree.ElementTree as ET
+root = ET.parse('coverage.xml').getroot()
+line_rate = root.attrib.get('line-rate', '0')
+try:
+    pct = float(line_rate) * 100.0
+except ValueError:
+    pct = 0.0
+print(f"{pct:.1f}")
+PY
+)
+
+            # Write a stable first line that other workflows can parse reliably
+            echo "Total coverage: ${TOTAL}%" > build/coverage-report/coverage_summary.txt
+
+            # Append a human-readable gcovr text summary computed with the SAME excludes
+            eval "gcovr --exclude \"libs.*\" --exclude \"build.*\" --exclude \"test.*\" --exclude \"src.cli.*\" \
+                  $EXCLUDE_ARGS \
+                  --print-summary" >> build/coverage-report/coverage_summary.txt
+
             echo "Created coverage summary:"
             cat build/coverage-report/coverage_summary.txt
           else
