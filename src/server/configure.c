@@ -135,7 +135,13 @@ void c4_configure(int argc, char* argv[]) {
     fprintf(stderr, "  -h, --help                                 show this help message\n");
     fprintf(stderr, "  -f, --config           CONFIG_FILE         path to config file (default: search in ./server.conf, /etc/colibri/server.conf, /usr/local/etc/colibri/server.conf)\n");
     fprintf(stderr, "%s\n", help_buffer.data.data);
+    // In TEST builds, don't exit the process so tests can capture output
+#ifdef TEST
+    buffer_free(&help_buffer);
+    return;
+#else
     exit(0);
+#endif
   }
   else {
     fprintf(stderr, "Starting server with config:\n");
