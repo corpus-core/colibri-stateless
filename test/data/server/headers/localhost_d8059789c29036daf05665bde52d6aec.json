@@ -1,0 +1,5 @@
+# HTTP 200
+# URL: http://localhost:5052/eth/v1/beacon/headers/0x75502f5e17b68b4d1870bebbe6468d50e8f87af1aacaf21a537678b2eca2b2d5
+# Host: localhost
+# Payload: 
+{"data":{"root":"0x75502f5e17b68b4d1870bebbe6468d50e8f87af1aacaf21a537678b2eca2b2d5","canonical":true,"header":{"message":{"slot":"12903171","proposer_index":"174427","parent_root":"0xb1ef330bf7afcd9716317e1321ca6cf003deffb7c97b4313fb2909f17ea28644","state_root":"0xf2e217f7aaf6a20232651776fbf7d75e903066bdcb303bff8b5ab582798bf124","body_root":"0x16c99be0aec94f902cf258a13e26f9a7fc2a92059396851fdc7fc7eb0359e9e4"},"signature":"0xb4c52e999d46b7b9ec1403f5a222ad7e3c0866b2f3c349bcfdd45f11a0c430b3663ac7e35ffd520e603964a9afc6484806cb3d93af6dae002a57e5a6e53e4e7767a8a24c33346fe6331218de3700646804b31c2c239ed6136ea522496d9f1ec1"}},"execution_optimistic":true,"finalized":false}
