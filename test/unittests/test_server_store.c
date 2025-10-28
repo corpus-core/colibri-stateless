@@ -2,12 +2,14 @@
  * Server store tests
  */
 
-#include "../../src/server/server.h"
-#include "unity.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef HTTP_SERVER
+
+#include "../../src/server/server.h"
+#include "unity.h"
 
 bool c4_get_from_store(const char* path, void* uptr, handle_stored_data_cb cb);
 bool c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
@@ -69,3 +71,13 @@ int main(void) {
   RUN_TEST(test_store_get_preconf_missing);
   return UNITY_END();
 }
+
+#else // !HTTP_SERVER
+
+// Stub main when HTTP_SERVER is not enabled
+int main(void) {
+  fprintf(stderr, "test_server_store: Skipped (HTTP_SERVER not enabled)\n");
+  return 0;
+}
+
+#endif // HTTP_SERVER

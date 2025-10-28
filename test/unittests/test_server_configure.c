@@ -1,14 +1,15 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 /*
  * Server configure tests
  */
-
+#ifdef HTTP_SERVER
 #include "../../src/server/server.h"
 #include "unity.h"
 
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -128,3 +129,13 @@ int main(void) {
   RUN_TEST(test_configure_save_updates);
   return UNITY_END();
 }
+
+#else // !HTTP_SERVER
+
+// Stub main when HTTP_SERVER is not enabled
+int main(void) {
+  fprintf(stderr, "test_server_configure: Skipped (HTTP_SERVER not enabled)\n");
+  return 0;
+}
+
+#endif // HTTP_SERVER
