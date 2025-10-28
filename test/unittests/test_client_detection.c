@@ -2,6 +2,7 @@
  * Tests for client detection parsing (beacon and rpc)
  */
 
+#ifdef HTTP_SERVER
 #include "../../src/chains/eth/server/eth_clients.h"
 #include "../../src/server/server.h"
 #include "unity.h"
@@ -48,3 +49,10 @@ int main(void) {
   RUN_TEST(test_detect_rpc_geth);
   return UNITY_END();
 }
+#else
+#include <stdio.h>
+int main(void) {
+  fprintf(stderr, "test_client_detection: Skipped (HTTP_SERVER not enabled)\n");
+  return 0;
+}
+#endif
