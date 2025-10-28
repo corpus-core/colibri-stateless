@@ -12,6 +12,7 @@
 #include "server.h"
 #include "state.h"
 #include <curl/curl.h>
+#include <errno.h>
 #include <stddef.h> // For size_t needed by strnstr impl
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,6 +68,48 @@ void c4_test_set_beacon_watcher_url(const char* url) {
     safe_free(BEACON_WATCHER_URL);
   }
   BEACON_WATCHER_URL = url ? strdup(url) : NULL;
+}
+
+// Test flag to disable reconnect (for file:// playback)
+static bool test_disable_reconnect = false;
+
+void c4_test_set_beacon_watcher_no_reconnect(bool disable) {
+  test_disable_reconnect = disable;
+}
+
+// Record SSE data to file when test_dir is set
+static FILE* test_sse_recording_file = NULL;
+
+static void c4_record_sse_data(const char* data, size_t len) {
+  if (!http_server.test_dir || !data || len == 0) return;
+
+  if (!test_sse_recording_file) {
+    // Create filename: TESTDATA_DIR/server/<test_dir>/beacon_events.sse
+    // Use absolute path from TESTDATA_DIR
+    char filename[512];
+    snprintf(filename, sizeof(filename), "%s/server/%s/beacon_events.sse",
+             TESTDATA_DIR, http_server.test_dir);
+
+    // Ensure directory exists
+    char mkdir_cmd[600];
+    snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s/server/%s",
+             TESTDATA_DIR, http_server.test_dir);
+    system(mkdir_cmd);
+
+    test_sse_recording_file = fopen(filename, "a");
+    if (test_sse_recording_file) {
+      fprintf(stderr, "[RECORD] SSE events -> %s\n", filename);
+    }
+    else {
+      fprintf(stderr, "[RECORD] Failed to open %s for writing (errno=%d)\n", filename, errno);
+      perror("[RECORD] Error details");
+    }
+  }
+
+  if (test_sse_recording_file) {
+    fwrite(data, 1, len, test_sse_recording_file);
+    fflush(test_sse_recording_file);
+  }
 }
 #endif
 
@@ -193,6 +236,19 @@ static size_t sse_write_callback(char* ptr, size_t size, size_t nmemb, void* use
 
   log_debug("Beacon watcher received %zu bytes", total_size);
 
+  // Guard against writes after stop
+  if (!state || !state->is_running) {
+    log_warn("Beacon watcher write after stop (dropping %zu bytes)", total_size);
+    return total_size; // swallow bytes to avoid curl error
+  }
+
+#ifdef TEST
+  // Record SSE data when test_dir is set
+  if (http_server.test_dir) {
+    c4_record_sse_data(ptr, total_size);
+  }
+#endif
+
   // Append data to buffer
   if (!buffer_append(&state->buffer, bytes((uint8_t*) ptr, total_size))) {
     log_error("Failed to append data to beacon watcher buffer!");
@@ -212,6 +268,15 @@ static size_t sse_write_callback(char* ptr, size_t size, size_t nmemb, void* use
 // --- Timer Callbacks ---
 
 static void on_inactivity_timeout(uv_timer_t* handle) {
+#ifdef TEST
+  if (test_disable_reconnect) {
+    log_info("Inactivity timeout in test mode - stopping watcher (no reconnect)");
+    stop_beacon_watch();
+    watcher_state.is_running = false;
+    return;
+  }
+#endif
+
   log_warn("Beacon watcher inactivity timeout (%d ms)! Assuming connection lost.", INACTIVITY_TIMEOUT_MS);
   stop_beacon_watch();
   schedule_reconnect();
@@ -226,10 +291,15 @@ static void on_reconnect_timer(uv_timer_t* handle) {
 
 static void handle_beacon_event(char* event, char* data) {
   log_info("Beacon Event Received: Type='%s'", event);
-  if (strcmp(event, "head") == 0)
+  http_server.stats.beacon_events_total++;
+  if (strcmp(event, "head") == 0) {
+    http_server.stats.beacon_events_head++;
     c4_handle_new_head(json_parse(data));
-  else if (strcmp(event, "finalized_checkpoint") == 0)
+  }
+  else if (strcmp(event, "finalized_checkpoint") == 0) {
+    http_server.stats.beacon_events_finalized++;
     c4_handle_finalized_checkpoint(json_parse(data));
+  }
   else {
     log_warn("Unsupported Beacon Event Received: Type='%s'", event);
   }
@@ -536,6 +606,13 @@ static void start_beacon_watch() {
   log_debug("Beacon watcher connection initiated and added to multi handle.");
 }
 
+// --- Test helpers ---
+#ifdef TEST
+bool c4_beacon_watcher_is_running(void) {
+  return watcher_state.is_running;
+}
+#endif
+
 static void stop_beacon_watch() {
   log_info("Stopping current beacon watch connection...");
   if (watcher_state.easy_handle) {
@@ -555,6 +632,14 @@ static void stop_beacon_watch() {
 }
 
 static void schedule_reconnect() {
+#ifdef TEST
+  if (test_disable_reconnect) {
+    log_info("Reconnect disabled in test mode - stopping watcher");
+    watcher_state.is_running = false;
+    return;
+  }
+#endif
+
   log_info("Scheduling beacon watcher reconnect in %d ms", RECONNECT_DELAY_MS);
   uv_timer_start(&watcher_state.reconnect_timer, on_reconnect_timer, RECONNECT_DELAY_MS, 0);
 }
