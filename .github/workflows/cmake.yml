@@ -583,11 +583,13 @@ jobs:
           # Generate XML report (for Codecov/CodeClimate)
           eval "gcovr --exclude \"libs.*\" --exclude \"build.*\" --exclude \"test.*\" --exclude \"src.cli.*\" \
                 $EXCLUDE_ARGS \
+                --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
                 --xml coverage.xml"
 
           # Generate HTML report
           eval "gcovr --exclude \"libs.*\" --exclude \"build.*\" --exclude \"test.*\" --exclude \"src.cli.*\" \
                 $EXCLUDE_ARGS \
+                --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
                 --html-details build/coverage-report/index.html \
                 --html-title \"Colibri Coverage Report\""
 
