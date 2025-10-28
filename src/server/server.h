@@ -43,6 +43,10 @@ typedef struct {
   uint64_t last_sync_event;
   uint64_t last_request_time;
   uint64_t open_requests;
+  // Beacon watcher event counters (TEST and runtime diagnostics)
+  uint64_t beacon_events_total;
+  uint64_t beacon_events_head;
+  uint64_t beacon_events_finalized;
 #ifdef HTTP_SERVER_GEO
   geo_location_t* geo_locations;
   size_t          geo_locations_count;
