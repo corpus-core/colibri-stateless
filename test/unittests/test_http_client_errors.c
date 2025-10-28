@@ -37,6 +37,8 @@ void test_rpc_200_invalid_params_retry(void) {
   c4_response_type_t r    = c4_classify_response(200, "/rpc", sbytes(body), &req);
   TEST_ASSERT_EQUAL(C4_RESPONSE_ERROR_RETRY, r);
   TEST_ASSERT_NOT_NULL(req.error);
+  free(req.error);
+  req.error = NULL;
 }
 
 void test_rpc_400_method_not_supported(void) {
@@ -45,6 +47,10 @@ void test_rpc_400_method_not_supported(void) {
   const char*        body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32004,\"message\":\"method not supported\"}}";
   c4_response_type_t r    = c4_classify_response(400, "/rpc", sbytes(body), &req);
   TEST_ASSERT_EQUAL(C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED, r);
+  if (req.error) {
+    free(req.error);
+    req.error = NULL;
+  }
 }
 
 void test_beacon_sync_lag_retry(void) {
