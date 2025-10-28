@@ -639,17 +639,7 @@ jobs:
 
           # Use the already generated cobertura XML (with excludes) to extract total line coverage
           if [ -f "coverage.xml" ]; then
-            TOTAL=$(python3 - <<'PY'
-import xml.etree.ElementTree as ET
-root = ET.parse('coverage.xml').getroot()
-line_rate = root.attrib.get('line-rate', '0')
-try:
-    pct = float(line_rate) * 100.0
-except ValueError:
-    pct = 0.0
-print(f"{pct:.1f}")
-PY
-)
+            TOTAL=$(python3 -c "import xml.etree.ElementTree as ET; r=ET.parse('coverage.xml').getroot(); lr=r.attrib.get('line-rate','0'); print(f'{float(lr)*100:.1f}')")
 
             # Write a stable first line that other workflows can parse reliably
             echo "Total coverage: ${TOTAL}%" > build/coverage-report/coverage_summary.txt
