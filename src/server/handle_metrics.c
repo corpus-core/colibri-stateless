@@ -622,6 +622,19 @@ bool c4_handle_metrics(client_t* client) {
   // CPU Time Metriken
   c4_write_process_cpu_metrics(&data);
 
+  // Beacon Watcher Event-Metriken
+  bprintf(&data, "# HELP colibri_beacon_events_total Total number of beacon events processed.\n");
+  bprintf(&data, "# TYPE colibri_beacon_events_total counter\n");
+  bprintf(&data, "colibri_beacon_events_total %l\n", http_server.stats.beacon_events_total);
+
+  bprintf(&data, "# HELP colibri_beacon_events_head_total Total number of 'head' beacon events processed.\n");
+  bprintf(&data, "# TYPE colibri_beacon_events_head_total counter\n");
+  bprintf(&data, "colibri_beacon_events_head_total %l\n", http_server.stats.beacon_events_head);
+
+  bprintf(&data, "# HELP colibri_beacon_events_finalized_total Total number of 'finalized_checkpoint' beacon events processed.\n");
+  bprintf(&data, "# TYPE colibri_beacon_events_finalized_total counter\n");
+  bprintf(&data, "colibri_beacon_events_finalized_total %l\n\n", http_server.stats.beacon_events_finalized);
+
   // Erweiterte Prozess-Statistiken
   process_platform_stats_t platform_stats = {0}; // Initialisieren mit Nullen
   if (get_process_platform_stats(&platform_stats)) {
