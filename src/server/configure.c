@@ -197,6 +197,7 @@ static void load_config_file() {
       exit(1);
     }
     fprintf(stderr, "Loading config from: %s\n", explicit_config);
+    if (current_config_file_path) free(current_config_file_path);
     current_config_file_path = strdup(explicit_config);
     // Load from explicit file (rest of function below)
     char line[1024];
