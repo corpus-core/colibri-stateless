@@ -8,15 +8,17 @@
 
 #include "test_server_helper.h"
 
+// Persistent buffer for period_store path to avoid strdup/free
+static char g_period_store_path[512];
+
 void setUp(void) {
   http_server_t config = (http_server_t) {0};
   config.port          = TEST_PORT;
   config.host          = TEST_HOST;
   config.chain_id      = 1;
-  // Use provided period_store with prepared data
-  char pstore[512];
-  snprintf(pstore, sizeof(pstore), "%s/server/period_store", TESTDATA_DIR);
-  config.period_store = strdup(pstore);
+  // Use provided period_store with prepared data (persistent buffer)
+  snprintf(g_period_store_path, sizeof(g_period_store_path), "%s/server/period_store", TESTDATA_DIR);
+  config.period_store = g_period_store_path;
   // Use localhost:5052 to match recorded URLs
   config.beacon_nodes = (char*) "http://localhost:5052/";
   c4_test_server_setup(&config);
