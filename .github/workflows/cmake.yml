@@ -811,7 +811,7 @@ jobs:
           -DCURL_LIBRARY="${env:VCPKG_ROOT}\\installed\\x64-windows\\lib\\libcurl.lib"
           -S ${{ github.workspace }}
 
-      - name: Build (Linux, nur Fehlerausgaben bei Fehlschlag)
+      - name: Build (Linux, show only errors on failure)
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -832,7 +832,7 @@ jobs:
           fi
           exit $BUILD_EXIT
 
-      - name: Build (macOS, nur Fehlerausgaben bei Fehlschlag)
+      - name: Build (macOS, show only errors on failure)
         if: runner.os == 'macOS'
         shell: bash
         run: |
@@ -853,12 +853,12 @@ jobs:
           fi
           exit $BUILD_EXIT
 
-      - name: Build (Windows, nur Fehlerausgaben bei Fehlschlag)
+      - name: Build (Windows, show only errors on failure)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-          # Build ausführen und vollständige Ausgabe in Datei spiegeln
+          # Run build and mirror full output to a file
           & cmake --build "${{ steps.strings.outputs.build-output-dir }}" --config "${{ matrix.build_type }}" *>&1 | Tee-Object -FilePath build_output.txt
           $buildExit = $LASTEXITCODE
           if ($buildExit -ne 0) {

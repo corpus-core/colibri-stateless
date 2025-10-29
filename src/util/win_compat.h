@@ -39,6 +39,11 @@ static inline int setenv(const char* name, const char* value, int overwrite) {
   return _putenv_s(name, value);
 }
 
+// unsetenv -> _putenv_s(name, "") clears the variable on Windows
+static inline int unsetenv(const char* name) {
+  return _putenv_s(name, "");
+}
+
 // strndup - not available on Windows
 static inline char* c4_strndup(const char* s, size_t n) {
   size_t len    = strnlen(s, n);
