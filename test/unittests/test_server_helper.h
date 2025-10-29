@@ -12,13 +12,15 @@
 
 #include "../../src/server/server.h"
 #include "../../src/util/bytes.h"
+#ifdef _WIN32
+#include "../../src/util/win_compat.h"
+#endif
 #include "file_mock_helper.h"
 #include <curl/curl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
-#include "../../src/util/win_compat.h"
 #include <process.h>
 #include <windows.h>
 #else
@@ -94,12 +96,20 @@ static void c4_test_server_seed_for_test(const char* test_name) {
 }
 
 // Server thread function
+static inline void c4_sleep_us(unsigned int usec) {
+#ifdef _WIN32
+  Sleep((usec + 999) / 1000);
+#else
+  usleep(usec);
+#endif
+}
+
 static void* server_thread_func(void* arg) {
   server_instance_t* instance = (server_instance_t*) arg;
 
   while (!server_should_stop && instance->is_running) {
     c4_server_run_once(instance);
-    usleep(1000); // 1ms sleep to prevent busy-waiting
+    c4_sleep_us(1000); // 1ms sleep to prevent busy-waiting
   }
 
   return NULL;
@@ -180,7 +190,7 @@ static void c4_test_server_setup(http_server_t* config) {
   pthread_create(&server_thread, NULL, server_thread_func, &server_instance);
 
   // Give server time to start accepting connections
-  usleep(100000); // 100ms
+  c4_sleep_us(100000); // 100ms
 }
 
 // Teardown function - call from Unity tearDown()
@@ -190,7 +200,7 @@ static void c4_test_server_teardown(void) {
 
   // Give server thread a moment to see the stop signal
   // Server thread checks every 1ms, so 10ms should be plenty
-  usleep(10000); // 10ms
+  c4_sleep_us(10000); // 10ms
 
   // Join thread (should be quick now that it's stopping)
   pthread_join(server_thread, NULL);
