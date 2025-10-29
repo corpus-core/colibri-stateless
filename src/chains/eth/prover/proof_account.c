@@ -119,7 +119,7 @@ c4_status_t c4_proof_account(prover_ctx_t* ctx) {
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
   TRY_ADD_ASYNC(status, eth_get_proof(ctx, address, storage_keys, &eth_proof, ssz_get_uint64(&block.execution, "blockNumber")));
-  TRY_ADD_ASYNC(status, c4_check_historic_proof(ctx, &historic_proof, &block));
+  TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
   if (status != C4_SUCCESS) {
     c4_free_block_proof(&historic_proof);
     return status;

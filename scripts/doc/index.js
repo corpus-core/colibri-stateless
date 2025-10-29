@@ -64,7 +64,10 @@ const extern_types = {
     BeaconBlockHeader: 'https://ethereum.github.io/consensus-specs/specs/phase0/beacon-chain/#beaconblockheader',
     DenepExecutionPayload: 'https://ethereum.github.io/consensus-specs/specs/deneb/beacon-chain/#executionpayload',
     LightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
-    DenepLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate'
+    DenepLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
+    ElectraLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
+    ElectraLightClientBootstrap: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientbootstrap',
+    DenepLightClientBootstrap: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientbootstrap',
 }
 
 const rpc_docs = {

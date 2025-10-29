@@ -103,10 +103,10 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
     uint64_t duration_ms = 1; // Default to minimum TTL
     if (predicted_next_block_unix_ms > now_unix_ms)
       duration_ms = predicted_next_block_unix_ms - now_unix_ms;
-    else
-      // Block prediction is already in the past or now, maybe the buffer wasn't enough
-      // or clocks are skewed. Set a very short duration.
-      log_warn("Predictive TTL calculation resulted in past time for Slatest (Block Ts: %l, Now: %l). Setting minimal TTL.", latest_timestamp, now_unix_ms / 1000);
+    //    else
+    // Block prediction is already in the past or now, maybe the buffer wasn't enough
+    // or clocks are skewed. Set a very short duration.
+    //      log_warn("Predictive TTL calculation resulted in past time for Slatest (Block Ts: %l, Now: %l). Setting minimal TTL.", latest_timestamp, now_unix_ms / 1000);
     c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, duration_ms, free);
   }
   *key = 'S';

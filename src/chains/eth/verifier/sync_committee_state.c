@@ -91,7 +91,7 @@ static inline uint32_t period_count(c4_chain_state_t* state) {
  * @param data Serialized state data
  * @return Deserialized chain state, or empty state if invalid
  */
-static c4_chain_state_t state_deserialize(bytes_t data) {
+c4_chain_state_t c4_state_deserialize(bytes_t data) {
   c4_chain_state_t state = {0};
   if (data.len == 0) return state;
   c4_state_sync_type_t status = (c4_state_sync_type_t) data.data[0];
@@ -115,17 +115,6 @@ static c4_chain_state_t state_deserialize(bytes_t data) {
   return state;
 }
 
-uint32_t c4_eth_get_oldest_period(bytes_t state) {
-  c4_chain_state_t chain_state = state_deserialize(state);
-  if (chain_state.status != C4_STATE_SYNC_PERIODS) return 0;
-  uint32_t oldest_period = 0;
-  for (int i = 0; i < MAX_SYNC_PERIODS; i++) {
-    if (chain_state.data.periods[i] == 0) break;
-    if (!oldest_period || chain_state.data.periods[i] < oldest_period) oldest_period = chain_state.data.periods[i];
-  }
-  return oldest_period;
-}
-
 INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
   c4_chain_state_t state = {0};
   char             name[100];
@@ -146,7 +135,7 @@ INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
 #endif
 
   if (storage_conf.get(name, &tmp) && tmp.data.data)
-    state = state_deserialize(tmp.data);
+    state = c4_state_deserialize(tmp.data);
 
 #ifndef C4_STATIC_MEMORY
   buffer_free(&tmp);

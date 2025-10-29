@@ -43,7 +43,7 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
 
   // fetch the block
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_at(ctx->params, 0), &block));
-  TRY_ASYNC(c4_check_historic_proof(ctx, &historic_proof, &block));
+  TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
 
   // create merkle proof
   bytes_t execution_payload_proof = ssz_create_proof(block.body, body_root, ssz_gindex(block.body.def, 1, "executionPayload"));
@@ -75,7 +75,7 @@ c4_status_t c4_proof_block_number(prover_ctx_t* ctx) {
 
   // fetch the block
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block));
-  TRY_ASYNC(c4_check_historic_proof(ctx, &historic_proof, &block));
+  TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
 
   // create merkle proof
   bytes_t execution_payload_proof = ssz_create_multi_proof(block.body, body_root, 2,

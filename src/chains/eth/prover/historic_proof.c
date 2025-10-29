@@ -157,11 +157,11 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   beacon_type_t       beacon_type   = BEACON_TYPE_NONE;
 
   if (chain == NULL) THROW_ERROR("unsupported chain id!");
-  if (!ctx->client_state.len || !(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;   // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
-  uint32_t state_period = c4_eth_get_oldest_period(ctx->client_state);                           // this is the oldest period we have in the client state
-  uint32_t block_period = slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits); // the period of the target block
-  if (!state_period) return C4_SUCCESS;                                                          // the client does not have a state yet, so he might as well get the head and verify the block.
-  if (block_period >= state_period) return C4_SUCCESS;                                           // the target block is within the current range of the client
+  if (!ctx->client_state.len || !(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS; // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
+  uint64_t state_period = block_proof->sync.oldest_period;                                     // this is the oldest period we have in the client state
+  uint64_t block_period = block_proof->sync.required_period;                                   // the period of the target block
+  if (!state_period) return C4_SUCCESS;                                                        // the client does not have a state yet, so he might as well get the head and verify the block.
+  if (block_period >= state_period) return C4_SUCCESS;                                         // the target block is within the current range of the client
 
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
   TRY_ADD_ASYNC(status, get_beacon_type(ctx, &beacon_type));                                 // make sure we which beacon client we are using
@@ -265,11 +265,46 @@ void c4_free_block_proof(blockroot_proof_t* block_proof) {
   safe_free(block_proof->proof_header.data);
 }
 
-c4_status_t c4_check_historic_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
+static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sync_data, const chain_spec_t* chain) {
+  if (!ctx->client_state.data || !ctx->client_state.len || !sync_data || !chain) return C4_SUCCESS;
+  c4_chain_state_t chain_state = c4_state_deserialize(ctx->client_state);
+  sync_data->status            = chain_state.status;
+  switch (sync_data->status) {
+    case C4_STATE_SYNC_EMPTY: return C4_SUCCESS;
+    case C4_STATE_SYNC_PERIODS:
+      for (int i = 0; i < MAX_SYNC_PERIODS && chain_state.data.periods[i]; i++) {
+        if (!sync_data->oldest_period || chain_state.data.periods[i] < sync_data->oldest_period) sync_data->oldest_period = chain_state.data.periods[i];
+        if (!sync_data->newest_period || chain_state.data.periods[i] > sync_data->newest_period) sync_data->newest_period = chain_state.data.periods[i];
+      }
+      break;
+    case C4_STATE_SYNC_CHECKPOINT: {
+      sync_data->checkpoint = chain_state.data.checkpoint;
+      char path[200]        = {0};
+      sbprintf(path, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(sync_data->checkpoint, 32));
+      // send request for checkpoint
+      ssz_ob_t  result = {0};
+      ssz_def_t def    = SSZ_CONTAINER("bootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP);
+      TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, &def, DEFAULT_TTL, &result));
 
-  // check if we need a direct or header proof
-  c4_status_t status = check_historic_proof_direct(ctx, block_proof, src_block);
-  if (status != C4_SUCCESS || block_proof->historic_proof.len) return status;
+      ssz_ob_t header              = ssz_get(&result, "header");
+      ssz_ob_t beacon              = ssz_get(&header, "beacon");
+      sync_data->checkpoint_period = (uint64_t) (ssz_get_uint64(&beacon, "slot") >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
+      sync_data->newest_period     = sync_data->checkpoint_period;
+      sync_data->oldest_period     = sync_data->checkpoint_period;
+
+      break;
+    }
+  }
+  return C4_SUCCESS;
+}
+
+c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
+  const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
+  if (!chain) THROW_ERROR("unsupported chain id!");
+  block_proof->sync.required_period = (uint64_t) (src_block->slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
+  TRY_ASYNC(update_syncdata_state(ctx, &block_proof->sync, chain));
+  TRY_ASYNC(check_historic_proof_direct(ctx, block_proof, src_block));
+  if (block_proof->historic_proof.len) return C4_SUCCESS;
 
   // check if we need a header proof
   return check_historic_proof_header(ctx, block_proof, src_block);
