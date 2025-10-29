@@ -12,6 +12,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <process.h>
+#define getpid _getpid
+#endif
 
 // from configure.c
 void        c4_configure(int argc, char* argv[]);
@@ -28,8 +32,14 @@ static char* write_file(const char* path, const char* content) {
 }
 
 void setUp(void) {
-  // Prepare a temp config file
+// Prepare a temp config file
+#ifdef _WIN32
+  const char* base = getenv("TEMP");
+  if (!base || !*base) base = ".";
+  snprintf(tmp_cfg, sizeof(tmp_cfg), "%s/c4_cfg_api_%d.conf", base, getpid());
+#else
   snprintf(tmp_cfg, sizeof(tmp_cfg), "/tmp/c4_cfg_api_%d.conf", getpid());
+#endif
   // Enable Web UI for tests; set a specific port value
   write_file(tmp_cfg, "WEB_UI_ENABLED=1\nPORT=28545\n");
 
