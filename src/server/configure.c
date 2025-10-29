@@ -340,12 +340,9 @@ int c4_save_config_file(const char* updates) {
   char backup_path[1024];
   snprintf(backup_path, sizeof(backup_path), "%s.backup", current_config_file_path);
 
-  // Read existing config into memory
-  FILE* original = fopen(current_config_file_path, "r");
-  if (!original) {
-    fprintf(stderr, "Error: Could not open config file for reading: %s\n", current_config_file_path);
-    return -1;
-  }
+  // Read existing config into memory (optional)
+  FILE* original     = fopen(current_config_file_path, "r");
+  bool  has_original = (original != NULL);
 
 // Parse updates into a simple key-value map with dynamic storage
 #define MAX_UPDATES      50
@@ -410,47 +407,49 @@ int c4_save_config_file(const char* updates) {
     return -1;
   }
 
-  // Read original config line by line, updating values as needed
-  char line_buf[2048];
-  while (fgets(line_buf, sizeof(line_buf), original)) {
-    // Make a copy for trimming (since trim() modifies in-place)
-    char line_copy[2048];
-    strncpy(line_copy, line_buf, sizeof(line_copy) - 1);
-    line_copy[sizeof(line_copy) - 1] = '\0';
+  // Read original config line by line, updating values as needed (if it exists)
+  if (has_original) {
+    char line_buf[2048];
+    while (fgets(line_buf, sizeof(line_buf), original)) {
+      // Make a copy for trimming (since trim() modifies in-place)
+      char line_copy[2048];
+      strncpy(line_copy, line_buf, sizeof(line_copy) - 1);
+      line_copy[sizeof(line_copy) - 1] = '\0';
 
-    char* trimmed = trim(line_copy);
+      char* trimmed = trim(line_copy);
 
-    // Keep comments and empty lines as-is
-    if (trimmed[0] == '\0' || trimmed[0] == '#') {
-      fprintf(temp, "%s", line_buf);
-      continue;
-    }
+      // Keep comments and empty lines as-is
+      if (trimmed[0] == '\0' || trimmed[0] == '#') {
+        fprintf(temp, "%s", line_buf);
+        continue;
+      }
 
-    // Check if this line should be updated
-    char* eq = strchr(trimmed, '=');
-    if (eq) {
-      *eq           = '\0';
-      char* key     = trim(trimmed);
-      bool  updated = false;
+      // Check if this line should be updated
+      char* eq = strchr(trimmed, '=');
+      if (eq) {
+        *eq           = '\0';
+        char* key     = trim(trimmed);
+        bool  updated = false;
 
-      for (int i = 0; i < update_count; i++) {
-        if (update_map[i].key && strcmp(key, update_map[i].key) == 0) {
-          fprintf(temp, "%s=%s\n", update_map[i].key, update_map[i].value);
-          free(update_map[i].key);
-          free(update_map[i].value);
-          update_map[i].key   = NULL; // Mark as written
-          update_map[i].value = NULL;
-          updated             = true;
-          break;
+        for (int i = 0; i < update_count; i++) {
+          if (update_map[i].key && strcmp(key, update_map[i].key) == 0) {
+            fprintf(temp, "%s=%s\n", update_map[i].key, update_map[i].value);
+            free(update_map[i].key);
+            free(update_map[i].value);
+            update_map[i].key   = NULL; // Mark as written
+            update_map[i].value = NULL;
+            updated             = true;
+            break;
+          }
+        }
+
+        if (!updated) {
+          fprintf(temp, "%s", line_buf);
         }
       }
-
-      if (!updated) {
+      else {
         fprintf(temp, "%s", line_buf);
       }
-    }
-    else {
-      fprintf(temp, "%s", line_buf);
     }
   }
 
@@ -463,17 +462,19 @@ int c4_save_config_file(const char* updates) {
     }
   }
 
-  fclose(original);
+  if (has_original) fclose(original);
   fclose(temp);
 
-  // Create backup
-  rename(current_config_file_path, backup_path);
+  // Create backup if original existed
+  if (has_original) {
+    rename(current_config_file_path, backup_path);
+  }
 
   // Move temp file to config file
   if (rename(temp_path, current_config_file_path) != 0) {
     fprintf(stderr, "Error: Could not write new config file\n");
-    // Restore backup
-    rename(backup_path, current_config_file_path);
+    // Restore backup if we had one
+    if (has_original) rename(backup_path, current_config_file_path);
     return -1;
   }
 
