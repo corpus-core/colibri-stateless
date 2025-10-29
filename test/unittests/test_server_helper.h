@@ -11,14 +11,22 @@
 #ifdef HTTP_SERVER
 
 #include "../../src/server/server.h"
+#include "../../src/util/bytes.h"
 #include "file_mock_helper.h"
-#include <arpa/inet.h>
-#include <pthread.h>
+#include <curl/curl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "../../src/util/win_compat.h"
+#include <process.h>
+#include <windows.h>
+#else
+#include <arpa/inet.h>
+#include <pthread.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #ifdef PROVER_CACHE
 #include "../../src/prover/prover.h"
@@ -94,6 +102,34 @@ static void* server_thread_func(void* arg) {
   return NULL;
 }
 
+#ifdef _WIN32
+// Minimal pthread shim for Windows/MSVC
+typedef HANDLE pthread_t;
+
+static void usleep(unsigned int usec) { Sleep((usec + 999) / 1000); }
+
+static unsigned __stdcall c4_thread_start(void* arg) {
+  server_thread_func(arg);
+  _endthreadex(0);
+  return 0;
+}
+
+static int pthread_create(pthread_t* thread, void* attr, void* (*start_routine)(void*), void* arg) {
+  (void) attr;
+  uintptr_t h = _beginthreadex(NULL, 0, (unsigned(__stdcall*)(void*)) c4_thread_start, arg, 0, NULL);
+  if (!h) return -1;
+  *thread = (HANDLE) h;
+  return 0;
+}
+
+static int pthread_join(pthread_t thread, void* retval) {
+  (void) retval;
+  WaitForSingleObject(thread, INFINITE);
+  CloseHandle(thread);
+  return 0;
+}
+#endif
+
 // Setup function - call from Unity setUp()
 // config: Optional custom configuration (NULL = use defaults)
 static void c4_test_server_setup(http_server_t* config) {
@@ -161,112 +197,64 @@ static void c4_test_server_teardown(void) {
 }
 
 // Helper function to send HTTP request and receive response
+static size_t curl_write_cb(void* contents, size_t size, size_t nmemb, void* userp) {
+  size_t    realsize = size * nmemb;
+  buffer_t* buf      = (buffer_t*) userp;
+  buffer_append(buf, bytes(contents, realsize));
+  return realsize;
+}
+
 static char* send_http_request(const char* method, const char* path,
                                const char* body, int* status_code) {
-  int sock = socket(AF_INET, SOCK_STREAM, 0);
-  if (sock < 0) {
-    fprintf(stderr, "Failed to create socket\n");
+  CURL* curl = curl_easy_init();
+  if (!curl) return NULL;
+
+  char url[512];
+  snprintf(url, sizeof(url), "http://%s:%d%s", TEST_HOST, TEST_PORT, path ? path : "/");
+  buffer_t response = {0};
+
+  curl_easy_setopt(curl, CURLOPT_URL, url);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+  // Include HTTP headers in the response buffer to keep legacy behavior
+  curl_easy_setopt(curl, CURLOPT_HEADER, 1L);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+
+  if (strcasecmp(method, "POST") == 0 || strcasecmp(method, "PUT") == 0 || strcasecmp(method, "DELETE") == 0) {
+    if (strcasecmp(method, "POST") == 0)
+      curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    else if (strcasecmp(method, "PUT") == 0)
+      curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
+    else if (strcasecmp(method, "DELETE") == 0)
+      curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+
+    struct curl_slist* headers = NULL;
+    headers                    = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    if (body) {
+      curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+      curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long) strlen(body));
+    }
+  }
+
+  CURLcode res = curl_easy_perform(curl);
+  if (res != CURLE_OK) {
+    curl_easy_cleanup(curl);
+    if (response.data.data) free(response.data.data);
     return NULL;
   }
 
-  struct sockaddr_in server_addr;
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port   = htons(TEST_PORT);
-  inet_pton(AF_INET, TEST_HOST, &server_addr.sin_addr);
+  long http_code = 0;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+  if (status_code) *status_code = (int) http_code;
 
-  if (connect(sock, (struct sockaddr*) &server_addr, sizeof(server_addr)) < 0) {
-    fprintf(stderr, "Failed to connect to server\n");
-    close(sock);
-    return NULL;
-  }
-
-  // Build HTTP request
-  char request[4096];
-  if (body) {
-    snprintf(request, sizeof(request),
-             "%s %s HTTP/1.1\r\n"
-             "Host: %s:%d\r\n"
-             "Content-Type: application/json\r\n"
-             "Content-Length: %zu\r\n"
-             "Connection: close\r\n"
-             "\r\n"
-             "%s",
-             method, path, TEST_HOST, TEST_PORT, strlen(body), body);
-  }
-  else {
-    snprintf(request, sizeof(request),
-             "%s %s HTTP/1.1\r\n"
-             "Host: %s:%d\r\n"
-             "Connection: close\r\n"
-             "\r\n",
-             method, path, TEST_HOST, TEST_PORT);
-  }
-
-  // Send request
-  send(sock, request, strlen(request), 0);
-
-  // Set receive timeout to avoid hanging on keep-alive connections
-  struct timeval timeout;
-  timeout.tv_sec  = 2; // 2 seconds timeout
-  timeout.tv_usec = 0;
-  setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
-  // Receive response
-  char*   response = (char*) malloc(65536);
-  ssize_t total    = 0;
-  ssize_t n;
-
-  // Read headers first to get Content-Length
-  size_t header_end       = 0;
-  bool   headers_complete = false;
-
-  while (!headers_complete && total < 65535) {
-    n = recv(sock, response + total, 65536 - total - 1, 0);
-    if (n <= 0) break;
-
-    total += n;
-    response[total] = '\0';
-
-    // Check for end of headers
-    char* header_end_marker = strstr(response, "\r\n\r\n");
-    if (header_end_marker) {
-      headers_complete = true;
-      header_end       = header_end_marker + 4 - response;
-    }
-  }
-
-  // Parse Content-Length from headers
-  size_t content_length = 0;
-  if (headers_complete) {
-    char* cl_header = strstr(response, "Content-Length: ");
-    if (cl_header) {
-      content_length = atoi(cl_header + 16);
-    }
-
-    // Calculate how much body we already have
-    size_t body_received = total - header_end;
-
-    // Read remaining body based on Content-Length
-    while (content_length > 0 && body_received < content_length && total < 65535) {
-      n = recv(sock, response + total, 65536 - total - 1, 0);
-      if (n <= 0) break;
-      total += n;
-      body_received += n;
-    }
-  }
-
-  response[total] = '\0';
-  close(sock);
-
-  // Parse status code
-  if (status_code) {
-    char* status_line = strstr(response, "HTTP/1.1 ");
-    if (status_line) {
-      *status_code = atoi(status_line + 9);
-    }
-  }
-
-  return response;
+  curl_easy_cleanup(curl);
+  // Null-terminate
+  buffer_add_chars(&response, "");
+  char* out = strdup((char*) response.data.data);
+  free(response.data.data);
+  return out;
 }
 
 // Helper to extract JSON body from HTTP response
