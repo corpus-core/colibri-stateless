@@ -46,9 +46,12 @@
 
 // Global server instance and thread
 static server_instance_t server_instance;
-static pthread_t         server_thread;
-static volatile bool     server_should_stop = false;
-static const char*       current_test_name  = NULL;
+#ifdef _WIN32
+typedef HANDLE pthread_t;
+#endif
+static pthread_t     server_thread;
+static volatile bool server_should_stop = false;
+static const char*   current_test_name  = NULL;
 
 // c4_test_url_rewriter is declared in server.h (TEST builds only)
 
@@ -104,9 +107,10 @@ static void* server_thread_func(void* arg) {
 
 #ifdef _WIN32
 // Minimal pthread shim for Windows/MSVC
-typedef HANDLE pthread_t;
-
+#ifndef C4_HAVE_USLEEP
+#define C4_HAVE_USLEEP 1
 static void usleep(unsigned int usec) { Sleep((usec + 999) / 1000); }
+#endif
 
 static unsigned __stdcall c4_thread_start(void* arg) {
   server_thread_func(arg);

@@ -26,29 +26,33 @@
 
 #ifdef _WIN32
 
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
 // Windows equivalents for POSIX functions
 
 // setenv -> _putenv_s
 static inline int setenv(const char* name, const char* value, int overwrite) {
-    if (!overwrite && getenv(name)) {
-        return 0;
-    }
-    return _putenv_s(name, value);
+  if (!overwrite && getenv(name)) {
+    return 0;
+  }
+  return _putenv_s(name, value);
 }
 
 // strndup - not available on Windows
-static inline char* strndup(const char* s, size_t n) {
-    size_t len = strnlen(s, n);
-    char* result = (char*)malloc(len + 1);
-    if (result) {
-        memcpy(result, s, len);
-        result[len] = '\0';
-    }
-    return result;
+static inline char* c4_strndup(const char* s, size_t n) {
+  size_t len    = strnlen(s, n);
+  char*  result = (char*) malloc(len + 1);
+  if (result) {
+    memcpy(result, s, len);
+    result[len] = '\0';
+  }
+  return result;
 }
+
+#ifndef strndup
+#define strndup c4_strndup
+#endif
 
 // strncasecmp -> _strnicmp
 #define strncasecmp _strnicmp
@@ -59,26 +63,25 @@ static inline char* strndup(const char* s, size_t n) {
 // memmem - GNU extension, not available on Windows
 static inline void* memmem(const void* haystack, size_t haystacklen,
                            const void* needle, size_t needlelen) {
-    if (needlelen == 0) {
-        return (void*)haystack;
-    }
-    if (haystacklen < needlelen) {
-        return NULL;
-    }
-    
-    const unsigned char* h = (const unsigned char*)haystack;
-    const unsigned char* n = (const unsigned char*)needle;
-    size_t i;
-    
-    for (i = 0; i <= haystacklen - needlelen; i++) {
-        if (memcmp(h + i, n, needlelen) == 0) {
-            return (void*)(h + i);
-        }
-    }
+  if (needlelen == 0) {
+    return (void*) haystack;
+  }
+  if (haystacklen < needlelen) {
     return NULL;
+  }
+
+  const unsigned char* h = (const unsigned char*) haystack;
+  const unsigned char* n = (const unsigned char*) needle;
+  size_t               i;
+
+  for (i = 0; i <= haystacklen - needlelen; i++) {
+    if (memcmp(h + i, n, needlelen) == 0) {
+      return (void*) (h + i);
+    }
+  }
+  return NULL;
 }
 
 #endif // _WIN32
 
 #endif // WIN_COMPAT_H
-

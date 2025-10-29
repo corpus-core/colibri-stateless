@@ -12,7 +12,9 @@
 #include "../../src/chains/eth/server/handler.h"
 #include "../../src/server/server.h" // Access http_server to toggle stream flag
 #include "test_server_helper.h"
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 // Unity setup - called before each test
 void setUp(void) {
