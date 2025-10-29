@@ -211,7 +211,8 @@ static char* send_http_request(const char* method, const char* path,
 
   char url[512];
   snprintf(url, sizeof(url), "http://%s:%d%s", TEST_HOST, TEST_PORT, path ? path : "/");
-  buffer_t response = {0};
+  buffer_t           response = {0};
+  struct curl_slist* headers  = NULL;
 
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
@@ -229,8 +230,7 @@ static char* send_http_request(const char* method, const char* path,
     else if (strcasecmp(method, "DELETE") == 0)
       curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
 
-    struct curl_slist* headers = NULL;
-    headers                    = curl_slist_append(headers, "Content-Type: application/json");
+    headers = curl_slist_append(headers, "Content-Type: application/json");
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     if (body) {
       curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
@@ -240,6 +240,7 @@ static char* send_http_request(const char* method, const char* path,
 
   CURLcode res = curl_easy_perform(curl);
   if (res != CURLE_OK) {
+    if (headers) curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
     if (response.data.data) free(response.data.data);
     return NULL;
@@ -249,6 +250,7 @@ static char* send_http_request(const char* method, const char* path,
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
   if (status_code) *status_code = (int) http_code;
 
+  if (headers) curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
   // Null-terminate
   buffer_add_chars(&response, "");
