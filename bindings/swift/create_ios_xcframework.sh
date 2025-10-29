@@ -104,7 +104,7 @@ echo "📋 Erstelle Info.plist Dateien..."
 
 create_info_plist() {
     local framework_dir="$1"
-    local platform="$2"
+    local platform_variant="$2"  # iPhoneOS or iPhoneSimulator
     local min_version="$3"
     
     # Delete existing plist if it exists
@@ -117,12 +117,14 @@ create_info_plist() {
         -c "Add :CFBundleShortVersionString string 1.0" \
         -c "Add :MinimumOSVersion string $min_version" \
         -c "Add :CFBundleExecutable string c4_swift" \
+        -c "Add :CFBundleSupportedPlatforms array" \
+        -c "Add :CFBundleSupportedPlatforms:0 string $platform_variant" \
         "$framework_dir/Info.plist"
 }
 
-create_info_plist "$IOS_ARM_FRAMEWORK" "iOS" "13.0"
-create_info_plist "$IOS_X86_FRAMEWORK" "iOS" "13.0"
-create_info_plist "$IOS_ARM_SIM_FRAMEWORK" "iOS" "13.0"
+create_info_plist "$IOS_ARM_FRAMEWORK" "iPhoneOS" "13.0"
+create_info_plist "$IOS_X86_FRAMEWORK" "iPhoneSimulator" "13.0"
+create_info_plist "$IOS_ARM_SIM_FRAMEWORK" "iPhoneSimulator" "13.0"
 
 # Create iOS XCFramework
 XCFRAMEWORK_PATH="$IOS_ARM_BUILD/c4_swift.xcframework"
