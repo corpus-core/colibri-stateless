@@ -12,11 +12,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SWIFT_DIR="$ROOT_DIR/bindings/swift"
 BUILD_iOS_X86_DIR="$ROOT_DIR/build_ios_x86"
 BUILD_iOS_ARM_DIR="$ROOT_DIR/build_ios_arm"
-BUILD_iOS_ARM_SIM_DIR="$ROOT_DIR/build_ios_arm_sim"
 
 # Cleanup alte iOS Builds
 echo "🧹 Cleanup alte iOS Builds..."
-rm -rf "$BUILD_iOS_X86_DIR" "$BUILD_iOS_ARM_DIR" "$BUILD_iOS_ARM_SIM_DIR"
+rm -rf "$BUILD_iOS_X86_DIR" "$BUILD_iOS_ARM_DIR"
 
 # Prüfe ob wir auf macOS sind
 if [[ "$(uname)" != "Darwin" ]]; then
@@ -73,15 +72,13 @@ build_ios_arch() {
 
 # Build iOS Architekturen
 build_ios_arch "iOS Simulator x86_64" "$BUILD_iOS_X86_DIR" "x86_64" "$SIMULATOR_SDK"
-build_ios_arch "iOS Simulator arm64" "$BUILD_iOS_ARM_SIM_DIR" "arm64" "$SIMULATOR_SDK"
 build_ios_arch "iOS Device arm64" "$BUILD_iOS_ARM_DIR" "arm64" "$DEVICE_SDK"
 
 # Erstelle iOS XCFramework
-echo "🔨 Erstelle iOS XCFramework (Device + Simulator x86_64 + Simulator arm64)..."
+echo "🔨 Erstelle iOS XCFramework (Device + Simulator x86_64)..."
 "$SWIFT_DIR/create_ios_xcframework.sh" \
     "$BUILD_iOS_ARM_DIR" \
     "$BUILD_iOS_X86_DIR" \
-    "$BUILD_iOS_ARM_SIM_DIR" \
     "$ROOT_DIR/bindings/colibri.h" \
     "$SWIFT_DIR/xcframework/modules/module.modulemap"
 
@@ -96,8 +93,6 @@ if [[ -d "$XCFRAMEWORK_PATH" ]]; then
     file "$XCFRAMEWORK_PATH/ios-arm64/c4_swift.framework/c4_swift" 2>/dev/null || echo "  [nicht gefunden]"
     echo "📱 iOS Simulator (x86_64):"  
     file "$XCFRAMEWORK_PATH/ios-x86_64-simulator/c4_swift.framework/c4_swift" 2>/dev/null || echo "  [nicht gefunden]"
-    echo "📱 iOS Simulator (arm64):"  
-    file "$XCFRAMEWORK_PATH/ios-arm64-simulator/c4_swift.framework/c4_swift" 2>/dev/null || echo "  [nicht gefunden]"
     
     # Größe anzeigen
     echo "📏 Framework-Größe:"
