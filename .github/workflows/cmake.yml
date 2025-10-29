@@ -753,17 +753,14 @@ jobs:
           brew update
           brew install curl
 
-      - name: Setup vcpkg (Windows)
+      - name: Setup vcpkg and install curl (Windows)
         if: runner.os == 'Windows'
-        id: vcpkg
-        uses: microsoft/setup-vcpkg@v1
-        with:
-          vcpkgTriplet: x64-windows
-
-      - name: Install curl via vcpkg (Windows)
-        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          vcpkg install curl:x64-windows
+          git clone https://github.com/microsoft/vcpkg $env:USERPROFILE\vcpkg
+          & $env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat
+          echo "VCPKG_ROOT=$env:USERPROFILE\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $env:USERPROFILE\vcpkg\vcpkg.exe install curl:x64-windows
 
       - name: Configure CMake (Linux)
         if: runner.os == 'Linux'
@@ -796,6 +793,7 @@ jobs:
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: >
           cmake -B ${{ steps.strings.outputs.build-output-dir }}
           -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
@@ -804,9 +802,9 @@ jobs:
           -DTEST=true
           -DCURL=true
           -DHTTP_SERVER=1
-          -DCMAKE_TOOLCHAIN_FILE=${{ steps.vcpkg.outputs.vcpkgRoot }}\scripts\buildsystems\vcpkg.cmake
-          -DCURL_INCLUDE_DIR=${{ steps.vcpkg.outputs.vcpkgRoot }}\installed\x64-windows\include
-          -DCURL_LIBRARY=${{ steps.vcpkg.outputs.vcpkgRoot }}\installed\x64-windows\lib\libcurl.lib
+          -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake
+          -DCURL_INCLUDE_DIR=$env:VCPKG_ROOT\installed\x64-windows\include
+          -DCURL_LIBRARY=$env:VCPKG_ROOT\installed\x64-windows\lib\libcurl.lib
           -S ${{ github.workspace }}
 
       - name: Build
