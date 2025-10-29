@@ -12,7 +12,15 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <unistd.h>
+#else
+#include "../../src/util/win_compat.h"
+#include <direct.h>
+#include <process.h>
+#define getpid      _getpid
+#define mkdir(p, m) _mkdir(p)
+#endif
 
 // Declarations
 void        c4_configure(int argc, char* argv[]);
@@ -22,8 +30,15 @@ int         c4_save_config_file(const char* updates);
 static char tmpdir[512];
 
 static void make_tmpdir(void) {
+#ifdef _WIN32
+  const char* base = getenv("TEMP");
+  if (!base || !*base) base = ".";
+  snprintf(tmpdir, sizeof(tmpdir), "%s/c4_cfg_test_%d", base, getpid());
+  mkdir(tmpdir, 0700);
+#else
   snprintf(tmpdir, sizeof(tmpdir), "/tmp/c4_cfg_test_%d", getpid());
   mkdir(tmpdir, 0700);
+#endif
 }
 
 static char* write_file(const char* dir, const char* name, const char* content) {
@@ -43,7 +58,11 @@ void setUp(void) {
 void tearDown(void) {
   // Best-effort cleanup
   char cmd[1024];
+#ifdef _WIN32
+  snprintf(cmd, sizeof(cmd), "rmdir /s /q \"%s\"", tmpdir);
+#else
   snprintf(cmd, sizeof(cmd), "rm -rf %s", tmpdir);
+#endif
   system(cmd);
 }
 
@@ -59,7 +78,11 @@ void test_configure_help_no_exit(void) {
 
   // Restore stderr
   fflush(stderr);
+#ifdef _WIN32
+  freopen("CON", "w", stderr);
+#else
   freopen("/dev/tty", "w", stderr);
+#endif
 
   // Read file
   FILE* rf = fopen(help_path, "r");
@@ -111,12 +134,12 @@ void test_configure_save_updates(void) {
   TEST_ASSERT_EQUAL(0, rc);
 
   // Verify file contains updates
-  FILE* f = fopen(cfg_path, "r");
-  TEST_ASSERT_NOT_NULL(f);
+  FILE* f2 = fopen(cfg_path, "r");
+  TEST_ASSERT_NOT_NULL(f2);
   char   buf[2048];
-  size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+  size_t n = fread(buf, 1, sizeof(buf) - 1, f2);
   buf[n]   = 0;
-  fclose(f);
+  fclose(f2);
   TEST_ASSERT_NOT_NULL(strstr(buf, "PORT=12345"));
   TEST_ASSERT_NOT_NULL(strstr(buf, "WEB_UI_ENABLED=1"));
 }
