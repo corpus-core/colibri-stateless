@@ -659,6 +659,46 @@ jobs:
             echo "Total coverage: 0%" > build/coverage-report/coverage_summary.txt
           fi
 
+      - name: Count Lines of Code
+        run: |
+          # Count lines of code in source files (excluding libs, test, build directories)
+          echo "Counting lines of code..."
+          
+          # Count lines in .c and .h files in src/ directory
+          TOTAL_LOC=$(find src -type f \( -name "*.c" -o -name "*.h" \) -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          
+          # Count by file type for detailed breakdown
+          C_LOC=$(find src -type f -name "*.c" -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          H_LOC=$(find src -type f -name "*.h" -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          
+          echo "Total LOC: $TOTAL_LOC"
+          echo "C files: $C_LOC"
+          echo "Header files: $H_LOC"
+          
+          # Create LOC summary file for artifact
+          mkdir -p build/coverage-report
+          echo "Total LOC: $TOTAL_LOC" > build/coverage-report/loc_summary.txt
+          echo "C files: $C_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Header files: $H_LOC" >> build/coverage-report/loc_summary.txt
+          
+          # Create JSON metrics file for easier parsing
+          echo "{" > build/coverage-report/loc_metrics.json
+          echo "  \"total_loc\": $TOTAL_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"c_loc\": $C_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"h_loc\": $H_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"commit\": \"$(git rev-parse --short HEAD)\"," >> build/coverage-report/loc_metrics.json
+          echo "  \"date\": \"$(git show -s --format=%ci HEAD)\"" >> build/coverage-report/loc_metrics.json
+          echo "}" >> build/coverage-report/loc_metrics.json
+          
+          # Add to GitHub Step Summary
+          echo "## Lines of Code Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total LOC | $TOTAL_LOC |" >> $GITHUB_STEP_SUMMARY
+          echo "| C files | $C_LOC |" >> $GITHUB_STEP_SUMMARY
+          echo "| Header files | $H_LOC |" >> $GITHUB_STEP_SUMMARY
+
       - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
         with:
