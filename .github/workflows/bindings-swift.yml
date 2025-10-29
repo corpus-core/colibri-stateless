@@ -84,8 +84,9 @@ jobs:
             echo "### 🎯 iOS Platform Coverage" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             
-            required_platforms=("ios-arm64" "ios-x86_64-simulator")
+            required_platforms=("ios-arm64" "ios-x86_64-simulator" "ios-arm64-simulator")
             platforms_found=0
+            total_required=${#required_platforms[@]}
             for platform in "${required_platforms[@]}"; do
               if [[ -d "$XCFRAMEWORK_PATH/$platform" ]]; then
                 echo "  ✅ $platform: Found"
@@ -98,7 +99,7 @@ jobs:
             done
             
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**iOS Platform Coverage**: $platforms_found/2 platforms built successfully" >> $GITHUB_STEP_SUMMARY
+            echo "**iOS Platform Coverage**: $platforms_found/$total_required platforms built successfully" >> $GITHUB_STEP_SUMMARY
             
             # Hinweis zu macOS
             echo "" >> $GITHUB_STEP_SUMMARY

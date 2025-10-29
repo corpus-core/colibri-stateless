@@ -5,19 +5,21 @@
 
 set -e
 
-if [[ $# -lt 4 ]]; then
-    echo "Usage: $0 <ios_arm_dir> <ios_x86_dir> <header_file> <modulemap_file>"
+if [[ $# -lt 5 ]]; then
+    echo "Usage: $0 <ios_arm_dir> <ios_x86_dir> <ios_arm_sim_dir> <header_file> <modulemap_file>"
     exit 1
 fi
 
 IOS_ARM_BUILD="$1"
 IOS_X86_BUILD="$2" 
-HEADER_FILE="$3"
-MODULEMAP_FILE="$4"
+IOS_ARM_SIM_BUILD="$3"
+HEADER_FILE="$4"
+MODULEMAP_FILE="$5"
 
-echo "🚀 Erstelle iOS XCFramework (Device + Simulator)..."
+echo "🚀 Erstelle iOS XCFramework (Device + Simulator x86_64 + Simulator arm64)..."
 echo "📱 iOS arm64: $IOS_ARM_BUILD"
 echo "📱 iOS x86_64 Simulator: $IOS_X86_BUILD"
+echo "📱 iOS arm64 Simulator: $IOS_ARM_SIM_BUILD"
 
 # Libraries to combine (iOS-only with OP Stack support)
 LIBRARIES=(
@@ -46,11 +48,13 @@ LIBRARIES=(
 # Framework directories
 IOS_ARM_FRAMEWORK="$IOS_ARM_BUILD/framework/ios-arm64/c4_swift.framework"
 IOS_X86_FRAMEWORK="$IOS_X86_BUILD/framework/ios-x86_64-simulator/c4_swift.framework"
+IOS_ARM_SIM_FRAMEWORK="$IOS_ARM_SIM_BUILD/framework/ios-arm64-simulator/c4_swift.framework"
 
 # Create framework directories
 echo "📁 Erstelle Framework-Strukturen..."
 mkdir -p "$IOS_ARM_FRAMEWORK"/{Headers,Modules}
 mkdir -p "$IOS_X86_FRAMEWORK"/{Headers,Modules}
+mkdir -p "$IOS_ARM_SIM_FRAMEWORK"/{Headers,Modules}
 
 # Function to create combined library for each platform
 create_combined_library() {
@@ -85,11 +89,12 @@ create_combined_library() {
 
 # Create combined libraries for iOS platforms
 create_combined_library "$IOS_ARM_BUILD" "$IOS_ARM_FRAMEWORK" "iOS arm64"
-create_combined_library "$IOS_X86_BUILD" "$IOS_X86_FRAMEWORK" "iOS x86_64 Simulator"  
+create_combined_library "$IOS_X86_BUILD" "$IOS_X86_FRAMEWORK" "iOS x86_64 Simulator"
+create_combined_library "$IOS_ARM_SIM_BUILD" "$IOS_ARM_SIM_FRAMEWORK" "iOS arm64 Simulator"
 
 # Copy headers and module maps to all frameworks
 echo "📄 Kopiere Headers und Module Maps..."
-for framework in "$IOS_ARM_FRAMEWORK" "$IOS_X86_FRAMEWORK"; do
+for framework in "$IOS_ARM_FRAMEWORK" "$IOS_X86_FRAMEWORK" "$IOS_ARM_SIM_FRAMEWORK"; do
     cp "$HEADER_FILE" "$framework/Headers/"
     cp "$MODULEMAP_FILE" "$framework/Modules/"
 done
@@ -117,6 +122,7 @@ create_info_plist() {
 
 create_info_plist "$IOS_ARM_FRAMEWORK" "iOS" "13.0"
 create_info_plist "$IOS_X86_FRAMEWORK" "iOS" "13.0"
+create_info_plist "$IOS_ARM_SIM_FRAMEWORK" "iOS" "13.0"
 
 # Create iOS XCFramework
 XCFRAMEWORK_PATH="$IOS_ARM_BUILD/c4_swift.xcframework"
@@ -125,6 +131,7 @@ echo "🎯 Erstelle iOS XCFramework: $XCFRAMEWORK_PATH"
 xcodebuild -create-xcframework \
     -framework "$IOS_ARM_FRAMEWORK" \
     -framework "$IOS_X86_FRAMEWORK" \
+    -framework "$IOS_ARM_SIM_FRAMEWORK" \
     -output "$XCFRAMEWORK_PATH"
 
 echo "🎉 iOS XCFramework erfolgreich erstellt!"
