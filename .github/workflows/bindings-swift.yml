@@ -282,17 +282,24 @@ jobs:
           export SIMULATOR_SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
           echo "📋 iOS Simulator SDK: $SIMULATOR_SDK"
           
+          # Wähle die korrekte Simulator-Architektur je nach Host
+          IOS_TRIPLE="x86_64-apple-ios13.0-simulator"
+          if [[ "$(uname -m)" == "arm64" ]]; then
+            IOS_TRIPLE="arm64-apple-ios13.0-simulator"
+          fi
+          echo "📋 Using iOS triple: $IOS_TRIPLE"
+          
           # Build for iOS Simulator using explicit SDK and triple (forces correct platform)
           echo "📋 Explicit iOS Simulator SDK and triple to avoid macOS host platform..."
           if swift build --verbose \
             --sdk $SIMULATOR_SDK \
-            --triple x86_64-apple-ios13.0-simulator 2>&1; then
+            --triple $IOS_TRIPLE 2>&1; then
             echo "✅ Test App builds successfully"
             
             echo "🧪 Running Integration Tests on iOS Simulator..."
             if test_output=$(swift test --verbose \
               --sdk $SIMULATOR_SDK \
-              --triple x86_64-apple-ios13.0-simulator 2>&1); then
+              --triple $IOS_TRIPLE 2>&1); then
               echo "✅ Integration Tests passed"
               echo "- ✅ **iOS Integration**: All tests passed" >> $GITHUB_STEP_SUMMARY
             else
@@ -341,7 +348,7 @@ jobs:
             echo "#### Build Error (Verbose Output)" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             # Get full verbose build error with explicit SDK and triple
-            swift build --verbose --sdk $SIMULATOR_SDK --triple x86_64-apple-ios13.0-simulator 2>&1 | tail -50 >> $GITHUB_STEP_SUMMARY
+            swift build --verbose --sdk $SIMULATOR_SDK --triple $IOS_TRIPLE 2>&1 | tail -50 >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             
             echo "" >> $GITHUB_STEP_SUMMARY
