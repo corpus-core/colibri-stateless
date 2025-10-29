@@ -741,7 +741,32 @@ jobs:
         run: |
           echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
-      - name: Configure CMake
+      - name: Install curl (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev
+
+      - name: Install curl (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install curl
+
+      - name: Setup vcpkg (Windows)
+        if: runner.os == 'Windows'
+        id: vcpkg
+        uses: microsoft/setup-vcpkg@v1
+        with:
+          vcpkgTriplet: x64-windows
+
+      - name: Install curl via vcpkg (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install curl:x64-windows
+
+      - name: Configure CMake (Linux)
+        if: runner.os == 'Linux'
         # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
         # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
         run: >
@@ -750,7 +775,38 @@ jobs:
           -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DTEST=true
-          -DCURL=false
+          -DCURL=true
+          -DHTTP_SERVER=1
+          -S ${{ github.workspace }}
+
+      - name: Configure CMake (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: >
+          cmake -B ${{ steps.strings.outputs.build-output-dir }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DTEST=true
+          -DCURL=true
+          -DHTTP_SERVER=1
+          -DCURL_INCLUDE_DIR=$(brew --prefix curl)/include
+          -DCURL_LIBRARY=$(brew --prefix curl)/lib/libcurl.dylib
+          -S ${{ github.workspace }}
+
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        run: >
+          cmake -B ${{ steps.strings.outputs.build-output-dir }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DTEST=true
+          -DCURL=true
+          -DHTTP_SERVER=1
+          -DCMAKE_TOOLCHAIN_FILE=${{ steps.vcpkg.outputs.vcpkgRoot }}\scripts\buildsystems\vcpkg.cmake
+          -DCURL_INCLUDE_DIR=${{ steps.vcpkg.outputs.vcpkgRoot }}\installed\x64-windows\include
+          -DCURL_LIBRARY=${{ steps.vcpkg.outputs.vcpkgRoot }}\installed\x64-windows\lib\libcurl.lib
           -S ${{ github.workspace }}
 
       - name: Build
