@@ -79,25 +79,54 @@ jobs:
             
             echo "" >> $GITHUB_STEP_SUMMARY
             
-            # Prüfe ob alle erwarteten iOS Platformen vorhanden sind
-            echo "🎯 Checking for required iOS platforms..."
+            # Prüfe iOS-Abdeckung über Info.plist (robust gegen kombinierte Slices wie ios-arm64_x86_64-simulator)
+            echo "🎯 Checking iOS platform coverage via Info.plist..."
             echo "### 🎯 iOS Platform Coverage" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            
-            required_platforms=("ios-arm64" "ios-x86_64-simulator" "ios-arm64-simulator")
-            platforms_found=0
-            total_required=${#required_platforms[@]}
-            for platform in "${required_platforms[@]}"; do
-              if [[ -d "$XCFRAMEWORK_PATH/$platform" ]]; then
-                echo "  ✅ $platform: Found"
-                echo "- ✅ **$platform**: Available" >> $GITHUB_STEP_SUMMARY
-                ((platforms_found++))
-              else
-                echo "  ❌ $platform: Missing"
-                echo "- ❌ **$platform**: Missing" >> $GITHUB_STEP_SUMMARY
-              fi
-            done
-            
+
+            INFO_PLIST="$XCFRAMEWORK_PATH/Info.plist"
+            device_arm64=0
+            sim_arm64=0
+            sim_x86_64=0
+            if [[ -f "$INFO_PLIST" ]]; then
+              count=$(/usr/libexec/PlistBuddy -c 'Print :AvailableLibraries' "$INFO_PLIST" 2>/dev/null | grep -c "Dict" || echo 0)
+              idx=0
+              while [[ $idx -lt ${count:-0} ]]; do
+                platform=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:$idx:SupportedPlatform" "$INFO_PLIST" 2>/dev/null || echo "")
+                variant=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:$idx:SupportedPlatformVariant" "$INFO_PLIST" 2>/dev/null || echo "")
+                archs=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:$idx:SupportedArchitectures" "$INFO_PLIST" 2>/dev/null || echo "")
+                if [[ "$platform" == "ios" && -z "$variant" ]]; then
+                  echo "  📱 Device slice architectures: $archs"
+                  if echo "$archs" | grep -q "arm64"; then device_arm64=1; fi
+                fi
+                if [[ "$platform" == "ios" && "$variant" == "simulator" ]]; then
+                  echo "  🧪 Simulator slice architectures: $archs"
+                  if echo "$archs" | grep -q "arm64"; then sim_arm64=1; fi
+                  if echo "$archs" | grep -q "x86_64"; then sim_x86_64=1; fi
+                fi
+                idx=$((idx+1))
+              done
+            fi
+
+            # Bericht
+            if [[ $device_arm64 -eq 1 ]]; then
+              echo "- ✅ **ios-arm64 (device)**: Available" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ❌ **ios-arm64 (device)**: Missing" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ $sim_arm64 -eq 1 ]]; then
+              echo "- ✅ **ios-arm64-simulator**: Available" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ❌ **ios-arm64-simulator**: Missing" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ $sim_x86_64 -eq 1 ]]; then
+              echo "- ✅ **ios-x86_64-simulator**: Available" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ❌ **ios-x86_64-simulator**: Missing" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            platforms_found=$((device_arm64 + sim_arm64 + sim_x86_64))
+            total_required=3
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**iOS Platform Coverage**: $platforms_found/$total_required platforms built successfully" >> $GITHUB_STEP_SUMMARY
             
