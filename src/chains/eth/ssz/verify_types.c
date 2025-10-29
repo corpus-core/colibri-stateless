@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
-
+static const ssz_def_t C4_ETH_LC_SYNCDATA[];
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
@@ -71,6 +71,7 @@ const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10] = {
     SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),  // the result of an colibri_simulateTransaction
 
 };
+
 // A List of possible types of proofs matching the Data
 static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,
@@ -88,19 +89,15 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // this light client bootstrap can be fetched directly from the beacon chain API
-    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP)    // this light client bootstrap can be fetched directly from the beacon chain API
+    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // Electra Fork Structureed LightClient Bootstrap
+    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP)      // Denep Fork Structureed LightClient Bootstrap
 };
 
+// a List of LightClient Updates as returned fomr light_client/updates endpoint.
 static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
     SSZ_NONE,
-    SSZ_LIST("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE_CONTAINER, 512),    // this light client update can be fetched directly from the beacon chain API
-    SSZ_LIST("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER, 512) // this light client update can be fetched directly from the beacon chain API
-};
-
-const ssz_def_t C4_ETH_LC_SYNCDATA[] = {
-    SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee
-    SSZ_UNION("update", C4_ETH_SYNCDATA_UPDATE_UNION),       // optional update data for the sync committee
+    SSZ_LIST("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER, 512), // Electra Fork Structureed LightClient Update
+    SSZ_LIST("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE_CONTAINER, 512)      // Denep Fork Structureed LightClient Update
 };
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -117,6 +114,21 @@ static const ssz_def_t C4_REQUEST[] = {
     SSZ_UNION("sync_data", C4_ETH_REQUEST_SYNCDATA_UNION)}; // the sync data containing proofs for the transition between the two periods
 
 static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQUEST);
+
+// :: SyncCommittee Proof
+//
+// The Verifier always needs the pubkeys of the sync committee for a given period in order to verify the BLS signature of a Beacon BlockHeader.
+//
+// if a verifier requests a proof from a remote prover, the verifier may use the c4-property of the RPC-Request to describe it's state of the knpown periods or checkpoint.
+// if the verifier only reports a checkpoint, a bootstrap is added profing the current_sync_committee for the given checkpoint.
+// if the header requested has a higher period that the bootstrap or the latest period, all required lightClientUpdates will be proveded.
+//
+
+// LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
+static const ssz_def_t C4_ETH_LC_SYNCDATA[] = {
+    SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
+    SSZ_UNION("update", C4_ETH_SYNCDATA_UPDATE_UNION),       // optional update data for the sync committee
+};
 
 static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
   for (size_t i = 0; i < len; i++) {
