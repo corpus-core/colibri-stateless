@@ -126,14 +126,21 @@ create_info_plist "$IOS_ARM_FRAMEWORK" "iPhoneOS" "13.0"
 create_info_plist "$IOS_X86_FRAMEWORK" "iPhoneSimulator" "13.0"
 create_info_plist "$IOS_ARM_SIM_FRAMEWORK" "iPhoneSimulator" "13.0"
 
-# Create iOS XCFramework
+# Merge simulator architectures into a single fat static library
+echo "🧬 Merging simulator architectures (x86_64 + arm64) into a universal simulator library..."
+lipo -create \
+    "$IOS_X86_FRAMEWORK/c4_swift" \
+    "$IOS_ARM_SIM_FRAMEWORK/c4_swift" \
+    -output "$IOS_X86_FRAMEWORK/c4_swift"
+echo "✅ Simulator universal library: $(file "$IOS_X86_FRAMEWORK/c4_swift" | cut -d: -f2-)"
+
+# Create iOS XCFramework (device arm64 + simulator universal)
 XCFRAMEWORK_PATH="$IOS_ARM_BUILD/c4_swift.xcframework"
 echo "🎯 Erstelle iOS XCFramework: $XCFRAMEWORK_PATH"
 
 xcodebuild -create-xcframework \
     -framework "$IOS_ARM_FRAMEWORK" \
     -framework "$IOS_X86_FRAMEWORK" \
-    -framework "$IOS_ARM_SIM_FRAMEWORK" \
     -output "$XCFRAMEWORK_PATH"
 
 echo "🎉 iOS XCFramework erfolgreich erstellt!"
