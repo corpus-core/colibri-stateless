@@ -774,6 +774,7 @@ jobs:
           -DTEST=true
           -DCURL=true
           -DHTTP_SERVER=1
+          -DPROVER_CACHE=true
           -S ${{ github.workspace }}
 
       - name: Configure CMake (macOS)
@@ -787,6 +788,7 @@ jobs:
           -DTEST=true
           -DCURL=true
           -DHTTP_SERVER=1
+          -DPROVER_CACHE=true
           -DCURL_INCLUDE_DIR=$(brew --prefix curl)/include
           -DCURL_LIBRARY=$(brew --prefix curl)/lib/libcurl.dylib
           -S ${{ github.workspace }}
@@ -802,9 +804,10 @@ jobs:
           -DTEST=true
           -DCURL=true
           -DHTTP_SERVER=1
-          -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake
-          -DCURL_INCLUDE_DIR=$env:VCPKG_ROOT\installed\x64-windows\include
-          -DCURL_LIBRARY=$env:VCPKG_ROOT\installed\x64-windows\lib\libcurl.lib
+          -DPROVER_CACHE=true
+          -DCMAKE_TOOLCHAIN_FILE="${env:VCPKG_ROOT}\\scripts\\buildsystems\\vcpkg.cmake"
+          -DCURL_INCLUDE_DIR="${env:VCPKG_ROOT}\\installed\\x64-windows\\include"
+          -DCURL_LIBRARY="${env:VCPKG_ROOT}\\installed\\x64-windows\\lib\\libcurl.lib"
           -S ${{ github.workspace }}
 
       - name: Build
