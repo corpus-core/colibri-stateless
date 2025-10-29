@@ -193,8 +193,12 @@ static void load_config_file() {
   if (explicit_config) {
     FILE* f = fopen(explicit_config, "r");
     if (!f) {
-      fprintf(stderr, "Error: Could not open config file: %s\n", explicit_config);
-      exit(1);
+      // If an explicit config path is provided but file doesn't exist,
+      // accept the path and continue with defaults. The Web/API can create/save later.
+      fprintf(stderr, "Warning: Config file not found, using defaults: %s\n", explicit_config);
+      if (current_config_file_path) free(current_config_file_path);
+      current_config_file_path = strdup(explicit_config);
+      return;
     }
     fprintf(stderr, "Loading config from: %s\n", explicit_config);
     if (current_config_file_path) free(current_config_file_path);
