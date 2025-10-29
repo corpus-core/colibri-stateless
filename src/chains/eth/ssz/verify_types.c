@@ -86,10 +86,28 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
 }; // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
+static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
+    SSZ_NONE,
+    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // this light client bootstrap can be fetched directly from the beacon chain API
+    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP)    // this light client bootstrap can be fetched directly from the beacon chain API
+};
+
+static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
+    SSZ_NONE,
+    SSZ_LIST("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE_CONTAINER, 512),    // this light client update can be fetched directly from the beacon chain API
+    SSZ_LIST("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER, 512) // this light client update can be fetched directly from the beacon chain API
+};
+
+const ssz_def_t C4_ETH_LC_SYNCDATA[] = {
+    SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee
+    SSZ_UNION("update", C4_ETH_SYNCDATA_UPDATE_UNION),       // optional update data for the sync committee
+};
+
+// A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_LIST("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE_CONTAINER, 512),      // this light client update can be fetched directly from the beacon chain API
-    SSZ_LIST("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER, 512)}; // this light client update can be fetched directly from the beacon chain API
+    SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA), // Light Client Sync Data
+};
 
 // the main container defining the incoming data processed by the verifier
 static const ssz_def_t C4_REQUEST[] = {
@@ -112,9 +130,9 @@ static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def
 const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork) {
   switch (fork) {
     case C4_FORK_DENEB:
-      return ARRAY_TYPE(C4_ETH_REQUEST_SYNCDATA_UNION, &DENEP_LIGHT_CLIENT_UPDATE_CONTAINER);
+      return ARRAY_TYPE(C4_ETH_SYNCDATA_UPDATE_UNION, &DENEP_LIGHT_CLIENT_UPDATE_CONTAINER);
     case C4_FORK_ELECTRA:
-      return ARRAY_TYPE(C4_ETH_REQUEST_SYNCDATA_UNION, &ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER);
+      return ARRAY_TYPE(C4_ETH_SYNCDATA_UPDATE_UNION, &ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER);
     default:
       return NULL;
   }

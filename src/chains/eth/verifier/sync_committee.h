@@ -127,6 +127,17 @@ bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates);
 bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_client_updates, bool (*process_update)(verify_ctx_t*, ssz_ob_t*));
 
 /**
+ * Handle and process raw light client bootstrap data from Beacon API.
+ * Validates and stores sync committees for the bootstrap data.
+ *
+ * @param ctx Verification context
+ * @param bootstrap_data Raw SSZ-encoded light client bootstrap data
+ * @param trusted_checkpoint Trusted block root (32 bytes)
+ * @return C4_SUCCESS on success, C4_ERROR on failure, C4_PENDING if waiting for network requests
+ */
+
+c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes32_t trusted_checkpoint);
+/**
  * Store a sync committee period in persistent storage.
  * Also stores SHA256(previous period's keys) as previous_pubkeys_hash for edge-case handling.
  * Automatically manages storage limits by removing old periods when necessary.

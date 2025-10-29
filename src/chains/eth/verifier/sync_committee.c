@@ -110,13 +110,25 @@ INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return true;
 
-  if (ctx->sync_data.def == eth_get_light_client_update_list(C4_FORK_DENEB) ||
-      ctx->sync_data.def == eth_get_light_client_update_list(C4_FORK_ELECTRA)) {
-    uint32_t updates_len = ssz_len(ctx->sync_data);
-    for (uint32_t i = 0; i < updates_len; i++) {
-      ssz_ob_t update = ssz_at(ctx->sync_data, i);
-      if (ssz_is_error(update)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
-      if (!update_light_client_update(ctx, &update)) return false;
+  if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0) {
+    ssz_ob_t bootstrap = ssz_get(&ctx->sync_data, "bootstrap");
+    ssz_ob_t updates   = ssz_get(&ctx->sync_data, "update");
+
+    // do we have bootstrap data?
+    if (bootstrap.def->type == SSZ_TYPE_CONTAINER) {
+      c4_chain_state_t chain_state = c4_get_chain_state(ctx->chain_id);
+      if (chain_state.status == C4_STATE_SYNC_EMPTY) RETURN_VERIFY_ERROR(ctx, "bootstrap data found, but no checkpoint set!");
+      if (chain_state.status == C4_STATE_SYNC_CHECKPOINT && !c4_handle_bootstrap(ctx, bootstrap.bytes, chain_state.data.checkpoint)) return false;
+    }
+
+    // run all light client updates
+    if (updates.def->type == SSZ_TYPE_LIST) {
+      uint32_t updates_len = ssz_len(updates);
+      for (uint32_t i = 0; i < updates_len; i++) {
+        ssz_ob_t update = ssz_at(updates, i);
+        if (ssz_is_error(update)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
+        if (!update_light_client_update(ctx, &update)) return false;
+      }
     }
     return true;
   }
