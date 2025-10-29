@@ -811,9 +811,70 @@ jobs:
           -DCURL_LIBRARY="${env:VCPKG_ROOT}\\installed\\x64-windows\\lib\\libcurl.lib"
           -S ${{ github.workspace }}
 
-      - name: Build
-        # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
-        run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+      - name: Build (Linux, nur Fehlerausgaben bei Fehlschlag)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }} 2>&1 | tee build_output.txt
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "## Build Errors ($RUNNER_OS ${{ matrix.c_compiler }})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            MATCHES=$(grep -iE '(^|[ :])error([ :]|$)|fatal error|undefined reference|unresolved external' build_output.txt || true)
+            if [ -n "$MATCHES" ]; then
+              echo "$MATCHES" >> $GITHUB_STEP_SUMMARY
+            else
+              tail -n 300 build_output.txt >> $GITHUB_STEP_SUMMARY
+            fi
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          exit $BUILD_EXIT
+
+      - name: Build (macOS, nur Fehlerausgaben bei Fehlschlag)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }} 2>&1 | tee build_output.txt
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "## Build Errors ($RUNNER_OS ${{ matrix.c_compiler }})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            MATCHES=$(grep -iE '(^|[ :])error([ :]|$)|fatal error|undefined reference|unresolved external' build_output.txt || true)
+            if [ -n "$MATCHES" ]; then
+              echo "$MATCHES" >> $GITHUB_STEP_SUMMARY
+            else
+              tail -n 300 build_output.txt >> $GITHUB_STEP_SUMMARY
+            fi
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          exit $BUILD_EXIT
+
+      - name: Build (Windows, nur Fehlerausgaben bei Fehlschlag)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # Build ausführen und vollständige Ausgabe in Datei spiegeln
+          & cmake --build "${{ steps.strings.outputs.build-output-dir }}" --config "${{ matrix.build_type }}" *>&1 | Tee-Object -FilePath build_output.txt
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -ne 0) {
+            $pattern = '(?i)(^|[ :])error([ :]|$)|fatal error|LNK[0-9]+|MSB[0-9]+|unresolved external'
+            $matches = Select-String -Path build_output.txt -Pattern $pattern | ForEach-Object { $_.Line }
+            Add-Content $env:GITHUB_STEP_SUMMARY "## Build Errors ($env:RUNNER_OS ${{ matrix.c_compiler }})"
+            Add-Content $env:GITHUB_STEP_SUMMARY ""
+            Add-Content $env:GITHUB_STEP_SUMMARY '```'
+            if ($matches -and $matches.Count -gt 0) {
+              $matches | ForEach-Object { Add-Content $env:GITHUB_STEP_SUMMARY $_ }
+            } else {
+              Get-Content build_output.txt -Tail 300 | ForEach-Object { Add-Content $env:GITHUB_STEP_SUMMARY $_ }
+            }
+            Add-Content $env:GITHUB_STEP_SUMMARY '```'
+          }
+          exit $buildExit
 
       - name: Test
         working-directory: ${{ steps.strings.outputs.build-output-dir }}
