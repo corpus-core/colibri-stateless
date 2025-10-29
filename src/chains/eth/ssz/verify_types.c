@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
-static const ssz_def_t C4_ETH_LC_SYNCDATA[];
+static const ssz_def_t C4_ETH_LC_SYNCDATA[2];
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
@@ -125,7 +125,7 @@ static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQU
 //
 
 // LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
-static const ssz_def_t C4_ETH_LC_SYNCDATA[] = {
+static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
     SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
     SSZ_UNION("update", C4_ETH_SYNCDATA_UPDATE_UNION),       // optional update data for the sync committee
 };

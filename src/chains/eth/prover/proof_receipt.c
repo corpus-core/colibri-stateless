@@ -131,7 +131,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
   TRY_ASYNC(status);
 
-  TRY_ASYNC(c4_check_historic_proof(ctx, &block_proof, &block));
+  TRY_ASYNC(c4_check_blockroot_proof(ctx, &block_proof, &block));
 
   TRY_ASYNC_CATCH(c4_eth_get_receipt_proof(ctx, ssz_get(&(block.execution), "blockHash").bytes.data, block_receipts, tx_index, &receipt, &receipt_proof),
                   c4_free_block_proof(&block_proof));

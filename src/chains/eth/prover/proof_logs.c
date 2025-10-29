@@ -174,7 +174,7 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
 
   block->block_hash = ssz_get(&block->beacon_block.execution, "blockHash").bytes;
 
-  TRY_ASYNC(c4_check_historic_proof(ctx, &block->block_proof, &block->beacon_block));
+  TRY_ASYNC(c4_check_blockroot_proof(ctx, &block->block_proof, &block->beacon_block));
 
 #ifdef PROVER_CACHE
   bytes32_t cachekey;
