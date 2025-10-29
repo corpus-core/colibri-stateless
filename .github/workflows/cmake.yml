@@ -661,31 +661,63 @@ jobs:
 
       - name: Count Lines of Code
         run: |
-          # Count lines of code in source files (excluding libs, test, build directories)
+          # Count lines of code in source files across multiple directories
           echo "Counting lines of code..."
           
-          # Count lines in .c and .h files in src/ directory
-          TOTAL_LOC=$(find src -type f \( -name "*.c" -o -name "*.h" \) -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          # Define directories to scan
+          DIRS="src bindings installer test"
           
-          # Count by file type for detailed breakdown
-          C_LOC=$(find src -type f -name "*.c" -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
-          H_LOC=$(find src -type f -name "*.h" -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          # Count by file type
+          echo "Counting by file type..."
+          C_LOC=$(find $DIRS -type f -name "*.c" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          H_LOC=$(find $DIRS -type f -name "*.h" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          CPP_LOC=$(find $DIRS -type f -name "*.cpp" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          PY_LOC=$(find $DIRS -type f -name "*.py" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          TS_LOC=$(find $DIRS -type f -name "*.ts" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          JS_LOC=$(find $DIRS -type f -name "*.js" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          KT_LOC=$(find $DIRS -type f \( -name "*.kt" -o -name "*.kts" \) 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          SWIFT_LOC=$(find $DIRS -type f -name "*.swift" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          SH_LOC=$(find $DIRS -type f -name "*.sh" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          
+          # Calculate total
+          TOTAL_LOC=$((C_LOC + H_LOC + CPP_LOC + PY_LOC + TS_LOC + JS_LOC + KT_LOC + SWIFT_LOC + SH_LOC))
           
           echo "Total LOC: $TOTAL_LOC"
-          echo "C files: $C_LOC"
-          echo "Header files: $H_LOC"
+          echo "  C files (.c): $C_LOC"
+          echo "  Header files (.h): $H_LOC"
+          echo "  C++ files (.cpp): $CPP_LOC"
+          echo "  Python files (.py): $PY_LOC"
+          echo "  TypeScript files (.ts): $TS_LOC"
+          echo "  JavaScript files (.js): $JS_LOC"
+          echo "  Kotlin files (.kt, .kts): $KT_LOC"
+          echo "  Swift files (.swift): $SWIFT_LOC"
+          echo "  Shell files (.sh): $SH_LOC"
           
           # Create LOC summary file for artifact
           mkdir -p build/coverage-report
           echo "Total LOC: $TOTAL_LOC" > build/coverage-report/loc_summary.txt
-          echo "C files: $C_LOC" >> build/coverage-report/loc_summary.txt
-          echo "Header files: $H_LOC" >> build/coverage-report/loc_summary.txt
+          echo "C files (.c): $C_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Header files (.h): $H_LOC" >> build/coverage-report/loc_summary.txt
+          echo "C++ files (.cpp): $CPP_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Python files (.py): $PY_LOC" >> build/coverage-report/loc_summary.txt
+          echo "TypeScript files (.ts): $TS_LOC" >> build/coverage-report/loc_summary.txt
+          echo "JavaScript files (.js): $JS_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Kotlin files (.kt, .kts): $KT_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Swift files (.swift): $SWIFT_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Shell files (.sh): $SH_LOC" >> build/coverage-report/loc_summary.txt
           
           # Create JSON metrics file for easier parsing
           echo "{" > build/coverage-report/loc_metrics.json
           echo "  \"total_loc\": $TOTAL_LOC," >> build/coverage-report/loc_metrics.json
           echo "  \"c_loc\": $C_LOC," >> build/coverage-report/loc_metrics.json
           echo "  \"h_loc\": $H_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"cpp_loc\": $CPP_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"py_loc\": $PY_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"ts_loc\": $TS_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"js_loc\": $JS_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"kt_loc\": $KT_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"swift_loc\": $SWIFT_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"sh_loc\": $SH_LOC," >> build/coverage-report/loc_metrics.json
           echo "  \"commit\": \"$(git rev-parse --short HEAD)\"," >> build/coverage-report/loc_metrics.json
           echo "  \"date\": \"$(git show -s --format=%ci HEAD)\"" >> build/coverage-report/loc_metrics.json
           echo "}" >> build/coverage-report/loc_metrics.json
@@ -693,11 +725,44 @@ jobs:
           # Add to GitHub Step Summary
           echo "## Lines of Code Statistics" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Total LOC | $TOTAL_LOC |" >> $GITHUB_STEP_SUMMARY
-          echo "| C files | $C_LOC |" >> $GITHUB_STEP_SUMMARY
-          echo "| Header files | $H_LOC |" >> $GITHUB_STEP_SUMMARY
+          echo "**Total Lines of Code: $TOTAL_LOC**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Breakdown by File Type" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File Type | Lines | Percentage |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|------------|" >> $GITHUB_STEP_SUMMARY
+          
+          # Calculate percentages and display (avoid division by zero)
+          if [ "$TOTAL_LOC" -gt 0 ]; then
+            C_PCT=$(awk "BEGIN {printf \"%.1f\", ($C_LOC / $TOTAL_LOC) * 100}")
+            H_PCT=$(awk "BEGIN {printf \"%.1f\", ($H_LOC / $TOTAL_LOC) * 100}")
+            CPP_PCT=$(awk "BEGIN {printf \"%.1f\", ($CPP_LOC / $TOTAL_LOC) * 100}")
+            PY_PCT=$(awk "BEGIN {printf \"%.1f\", ($PY_LOC / $TOTAL_LOC) * 100}")
+            TS_PCT=$(awk "BEGIN {printf \"%.1f\", ($TS_LOC / $TOTAL_LOC) * 100}")
+            JS_PCT=$(awk "BEGIN {printf \"%.1f\", ($JS_LOC / $TOTAL_LOC) * 100}")
+            KT_PCT=$(awk "BEGIN {printf \"%.1f\", ($KT_LOC / $TOTAL_LOC) * 100}")
+            SWIFT_PCT=$(awk "BEGIN {printf \"%.1f\", ($SWIFT_LOC / $TOTAL_LOC) * 100}")
+            SH_PCT=$(awk "BEGIN {printf \"%.1f\", ($SH_LOC / $TOTAL_LOC) * 100}")
+          else
+            C_PCT="0.0"; H_PCT="0.0"; CPP_PCT="0.0"; PY_PCT="0.0"; TS_PCT="0.0"
+            JS_PCT="0.0"; KT_PCT="0.0"; SWIFT_PCT="0.0"; SH_PCT="0.0"
+          fi
+          
+          echo "| C (.c) | $C_LOC | ${C_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Header (.h) | $H_LOC | ${H_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| C++ (.cpp) | $CPP_LOC | ${CPP_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Python (.py) | $PY_LOC | ${PY_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| TypeScript (.ts) | $TS_LOC | ${TS_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| JavaScript (.js) | $JS_LOC | ${JS_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Kotlin (.kt, .kts) | $KT_LOC | ${KT_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Swift (.swift) | $SWIFT_LOC | ${SWIFT_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Shell (.sh) | $SH_LOC | ${SH_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Scanned Directories" >> $GITHUB_STEP_SUMMARY
+          echo "- \`src/\` - Core source code" >> $GITHUB_STEP_SUMMARY
+          echo "- \`bindings/\` - Language bindings" >> $GITHUB_STEP_SUMMARY
+          echo "- \`installer/\` - Installation scripts" >> $GITHUB_STEP_SUMMARY
+          echo "- \`test/\` - Test files" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
