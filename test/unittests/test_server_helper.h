@@ -106,10 +106,14 @@ static void* server_thread_func(void* arg) {
 }
 
 #ifdef _WIN32
-// Minimal pthread shim for Windows/MSVC
+// Minimal pthread shim für Windows/MSVC
 #ifndef C4_HAVE_USLEEP
 #define C4_HAVE_USLEEP 1
-static void usleep(unsigned int usec) { Sleep((usec + 999) / 1000); }
+static inline int c4_usleep_win(unsigned int usec) {
+  Sleep((usec + 999) / 1000);
+  return 0;
+}
+#define usleep c4_usleep_win
 #endif
 
 static unsigned __stdcall c4_thread_start(void* arg) {
