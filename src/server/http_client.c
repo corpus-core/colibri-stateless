@@ -7,9 +7,43 @@
 #include "logger.h"
 #include "server.h"
 #include <stddef.h> // Added for offsetof
+#include <string.h>
 #ifdef TEST
 #include "util/bytes.h"
 #include "util/crypto.h"
+#endif
+
+// Provide strnstr implementation if it's not available (e.g., on non-BSD/non-GNU systems)
+#ifndef HAVE_STRNSTR
+static char* strnstr(const char* haystack, const char* needle, size_t len) {
+  size_t needle_len;
+
+  if (!needle || *needle == '\0') {
+    return (char*) haystack; // Empty needle matches immediately
+  }
+  needle_len = strlen(needle);
+  if (needle_len == 0) {
+    return (char*) haystack; // Also empty
+  }
+  if (needle_len > len) {
+    return NULL; // Needle is longer than the search length
+  }
+
+  // Iterate up to the last possible starting position within len
+  for (size_t i = 0; i <= len - needle_len; ++i) {
+    // Stop if we hit the end of the haystack string itself
+    if (haystack[i] == '\0') {
+      break;
+    }
+    // Compare the needle at the current position
+    if (strncmp(&haystack[i], needle, needle_len) == 0) {
+      return (char*) &haystack[i]; // Found match
+    }
+  }
+
+  return NULL; // Not found
+}
+#define HAVE_STRNSTR
 #endif
 
 // container_of macro to get the pointer to the containing struct

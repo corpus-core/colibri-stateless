@@ -33,6 +33,7 @@
 #ifdef _WIN32
 #include <direct.h>
 #define MKDIR(path) _mkdir(path)
+#include "../../src/util/win_compat.h"
 #else
 #include <unistd.h>
 #define MKDIR(path) mkdir(path, 0755)
