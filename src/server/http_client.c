@@ -8,6 +8,9 @@
 #include "server.h"
 #include <stddef.h> // Added for offsetof
 #include <string.h>
+#ifdef _WIN32
+#include "util/win_compat.h"
+#endif
 #ifdef TEST
 #include "util/bytes.h"
 #include "util/crypto.h"
@@ -15,7 +18,7 @@
 
 // Provide strnstr implementation if it's not available (e.g., on non-BSD/non-GNU systems)
 #ifndef HAVE_STRNSTR
-static char* strnstr(const char* haystack, const char* needle, size_t len) {
+static char* c4_strnstr(const char* haystack, const char* needle, size_t len) {
   size_t needle_len;
 
   if (!needle || *needle == '\0') {
@@ -43,7 +46,8 @@ static char* strnstr(const char* haystack, const char* needle, size_t len) {
 
   return NULL; // Not found
 }
-#define HAVE_STRNSTR
+// Map to our local implementation when the platform libc doesn't provide strnstr
+#define strnstr c4_strnstr
 #endif
 
 // container_of macro to get the pointer to the containing struct
