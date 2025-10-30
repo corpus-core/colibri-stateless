@@ -92,7 +92,7 @@ void ssz_add_ob(ssz_builder_t* buffer, const char* name, ssz_ob_t ob) {
   if (def && def->type == SSZ_TYPE_UNION) {
     bool found = false;
     for (int i = 0; i < def->def.container.len; i++) {
-      if (def->def.container.elements + i == ob.def || (ob.def->type == SSZ_TYPE_CONTAINER && def->def.container.elements[i].def.container.elements == ob.def->def.container.elements)) {
+      if (def->def.container.elements + i == ob.def || strcmp(def->def.container.elements[i].name, ob.def->name) == 0 || (ob.def->type == SSZ_TYPE_CONTAINER && def->def.container.elements[i].def.container.elements == ob.def->def.container.elements)) {
         found     = true;
         free_ptr  = safe_malloc(data.len + 1);
         *free_ptr = (uint8_t) i;

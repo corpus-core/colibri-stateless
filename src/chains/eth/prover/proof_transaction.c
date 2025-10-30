@@ -39,6 +39,10 @@
 static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof, blockroot_proof_t block_proof) {
 
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF);
+  ssz_builder_t sync_proof   = NULL_SSZ_BUILDER;
+
+  // get the sync_proof if needed
+  TRY_ASYNC(c4_get_syncdata_proof(ctx, &block_proof.sync, &sync_proof));
 
   // build the proof
   ssz_add_bytes(&eth_tx_proof, "transaction", ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index).bytes);
@@ -54,7 +58,7 @@ static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, bea
       ctx->chain_id,
       NULL_SSZ_BUILDER,
       eth_tx_proof,
-      NULL_SSZ_BUILDER);
+      sync_proof);
 
   return C4_SUCCESS;
 }
