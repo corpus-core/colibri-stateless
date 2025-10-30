@@ -164,3 +164,27 @@ export function copy_to_c(data: Uint8Array, c4w: C4W, free_ptrs?: number[]): num
     if (free_ptrs) free_ptrs.push(ptr);
     return ptr;
 }
+
+/**
+ * Returns the prover config state for a given chain as hex string with 0x prefix.
+ * @param chainId Chain identifier
+ * @return Hex string (e.g. "0x...") or "0x" if no state present
+ */
+export async function get_prover_config_hex(chainId: number): Promise<string> {
+    const c4w = await getC4w();
+    if (!c4w.storage) return '0x';
+    const state = c4w.storage.get('states_' + chainId);
+    return '0x' + (state ? Array.from(state).map(_ => _.toString(16).padStart(2, '0')).join('') : '');
+}
+
+/**
+ * Sets the trusted checkpoint inside the C context to initialize state.
+ * @param chainId Chain identifier
+ * @param checkpoint Trusted checkpoint root hex string
+ */
+export async function set_trusted_checkpoint(chainId: number, checkpoint: string): Promise<void> {
+    const c4w = await getC4w();
+    const free_buffers: number[] = [];
+    c4w._c4w_create_verify_ctx(0, 0, 0, 0, BigInt(chainId), as_char_ptr(checkpoint, c4w, free_buffers));
+    free_buffers.forEach(ptr => c4w._free(ptr));
+}
