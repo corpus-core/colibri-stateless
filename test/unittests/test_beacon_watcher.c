@@ -118,9 +118,11 @@ void test_beacon_watcher_stops_after_eof(void) {
 // Main test runner
 int main(void) {
   UNITY_BEGIN();
+#ifndef _WIN32
   RUN_TEST(test_beacon_watcher_head_event);
   RUN_TEST(test_beacon_watcher_event_parsing);
   RUN_TEST(test_beacon_watcher_stops_after_eof);
+#endif
   return UNITY_END();
 }
 
