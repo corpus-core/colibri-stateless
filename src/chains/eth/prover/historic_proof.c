@@ -318,6 +318,7 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder) {
   // nothing to be done - no data to be added.
+  if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0) return C4_SUCCESS;
   if (sync_data->checkpoint_period == 0 && sync_data->required_period <= sync_data->newest_period) return C4_SUCCESS;
 
   builder->def            = C4_ETH_REQUEST_SYNCDATA_UNION + 1; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
@@ -347,6 +348,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
       }
       break;
     case C4_STATE_SYNC_CHECKPOINT: {
+      if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0) return C4_SUCCESS;
       sync_data->checkpoint = chain_state.data.checkpoint;
       ssz_ob_t result       = {0};
       TRY_ASYNC(fetch_bootstrap_data(ctx, sync_data, &result));
@@ -361,7 +363,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
     }
   }
 
-  if (sync_data->newest_period < sync_data->required_period)
+  if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) && sync_data->newest_period < sync_data->required_period)
     return fetch_updates_data(ctx, sync_data, NULL);
   return C4_SUCCESS;
 }

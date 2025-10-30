@@ -41,7 +41,7 @@ const ssz_def_t C4_WITNESS_SIGNED[2] = {
 
 const ssz_def_t C4_WITNESS_SIGNED_CONTAINER = SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED);
 
-ssz_def_t* c4_witness_get_def(const char* name) {
+const ssz_def_t* c4_witness_get_def(const char* name) {
   for (int i = 0; i < sizeof(C4_WITNESS_UNION) / sizeof(C4_WITNESS_UNION[0]); i++) {
     if (strcmp(name, C4_WITNESS_UNION[i].name) == 0) return C4_WITNESS_UNION + i;
   }
