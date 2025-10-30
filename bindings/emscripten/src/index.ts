@@ -29,6 +29,8 @@ import {
   C4W,
   copy_to_c,
   getC4w,
+  get_prover_config_hex,
+  set_trusted_checkpoint,
   Storage as C4Storage
 } from "./wasm.js";
 import { EventEmitter } from './eventEmitter.js';
@@ -43,9 +45,11 @@ import {
   ProviderMessage,
   ChainConfig
 } from './types.js';
+import { default_config, get_chain_id, chain_conf } from './chains.js';
 import { SubscriptionManager, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
 import Strategy from './strategy.js';
 import { TransactionVerifier, PrototypeProtection } from './transactionVerifier.js';
+import { fetch_from_servers } from './http.js';
 
 export { Strategy };
 
@@ -123,103 +127,22 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
       return;
     }
   }
-  let node_index = 0;
-  let last_error = "All nodes failed";
-  for (const server of servers) {
-    if (req.exclude_mask & (1 << node_index)) {
-      node_index++;
-      continue;
-    }
-    try {
-      const response = await fetch(server + (req.url ? ('/' + req.url) : ''), {
-        method: req.method,
-        body: req.payload ? JSON.stringify(req.payload) : undefined,
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": req.encoding == "json" ? "application/json" : "application/octet-stream"
-        }
-      });
-
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}, Details: ${await response.text()}`);
-
-      const bytes = await response.blob().then(blob => blob.arrayBuffer());
-      const data = new Uint8Array(bytes);
-      c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, node_index);
-      if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
-
-      if (conf.cache && cacheable) conf.cache.set(req, data);
-      return;
-    } catch (e) {
-      last_error = (e instanceof Error) ? e.message : String(e);
-    }
-    node_index++;
+  try {
+    const accept = req.encoding == "json" ? 'json' : 'octet';
+    const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask);
+    c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, nodeIndex);
+    if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
+    if (conf.cache && cacheable) conf.cache.set(req, data);
+  } catch (e) {
+    const last_error = (e instanceof Error) ? e.message : String(e);
+    c4w._c4w_req_set_error(req.req_ptr, as_char_ptr(last_error, c4w, free_buffers), 0);
+    if (conf.debug) log(`::: ${path} (Error: ${last_error})`);
+  } finally {
+    free_buffers.forEach(ptr => c4w._free(ptr));
   }
-  c4w._c4w_req_set_error(req.req_ptr, as_char_ptr(last_error, c4w, free_buffers), 0);
-  free_buffers.forEach(ptr => c4w._free(ptr));
-  if (conf.debug) log(`::: ${path} (Error: ${last_error})`);
 }
 
-const default_config: {
-  [key: string]: {
-    alias: string[];
-    beacon_apis: string[];
-    rpcs: string[];
-    prover: string[];
-    checkpointz: string[];
-    pollingInterval: number;
-  }
-} = {
-  '1': { // mainnet
-    alias: ["mainnet", "eth", "0x1"],
-    beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
-    rpcs: ["https://rpc.ankr.com/eth"],
-    prover: ["https://mainnet1.colibri-proof.tech"],
-    checkpointz: ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
-    pollingInterval: 12000,
-  },
-  '11155111': { // Sepolia
-    alias: ["sepolia", "0xaa36a7"],
-    beacon_apis: ["https://ethereum-sepolia-beacon-api.publicnode.com"],
-    rpcs: ["https://ethereum-sepolia-rpc.publicnode.com"],
-    prover: ["https://sepolia.colibri-proof.tech"],
-    checkpointz: [], // No public checkpointz for Sepolia yet
-    pollingInterval: 12000,
-  },
-  '100': { // gnosis
-    alias: ["gnosis", "xdai", "0x64"],
-    beacon_apis: ["https://gnosis.colibri-proof.tech"],
-    rpcs: ["https://rpc.ankr.com/gnosis"],
-    prover: ["https://gnosis.colibri-proof.tech"],
-    checkpointz: [], // TODO: Add Gnosis checkpointz servers
-    pollingInterval: 5000,
-  },
-  '10200': { // gnosis chiado
-    alias: ["chiado", "0x27d8"],
-    beacon_apis: ["https://gnosis-chiado-beacon-api.publicnode.com"],
-    rpcs: ["https://gnosis-chiado-rpc.publicnode.com"],
-    prover: ["https://chiado.colibri-proof.tech"],
-    checkpointz: [], // No public checkpointz for Chiado yet
-    pollingInterval: 5000,
-  },
-}
-
-function get_chain_id(chain_id: string): number {
-  const chain_id_num = parseInt(chain_id);
-  if (!isNaN(chain_id_num)) return chain_id_num;
-  for (const chain in default_config) {
-    if (default_config[chain].alias.includes(chain_id))
-      return parseInt(chain);
-  }
-  throw new Error("Invalid chain id: " + chain_id);
-}
-
-function chain_conf(config: C4Config, chainId: number | string): ChainConfig | undefined {
-  const k = config?.chains?.[chainId as number];
-  if (k) return k;
-  const k2 = default_config[chainId + ''];
-  if (k2) return k2 as any;
-  return undefined;
-}
+// default_config, get_chain_id, chain_conf ausgelagert nach ./chains.ts
 
 function cleanup_args(method: string, args: any[]): any[] {
   if (method == "eth_verifyLogs") return args.map(arg => ({
@@ -240,23 +163,35 @@ export default class C4Client {
   private initMap: Map<number | string, boolean> = new Map();
   private flags: number = 0;
 
-  // Schutz vor Prototype Pollution durch Einfrieren kritischer Methoden
+  // Protect against prototype pollution by freezing critical methods
   private static readonly CRITICAL_METHODS = ['rpc', 'request', 'verifyProof', 'createProof'] as const;
 
   static {
-    // Schutz vor Prototype Pollution anwenden
+    // Apply prototype pollution protection
     PrototypeProtection.protectClass(C4Client, C4Client.CRITICAL_METHODS);
   }
 
 
 
 
+  /**
+   * Creates a new Colibri client instance.
+   *
+   * Example:
+   * ```ts
+   * import Colibri from '@corpus-core/colibri-stateless';
+   * const client = new Colibri({ chainId: 1 });
+   * const blockNumber = await client.request({ method: 'eth_blockNumber' });
+   * ```
+   *
+   * @param config Optional partial configuration; user config overrides defaults.
+   */
   constructor(config?: Partial<C4Config>) {
     const chainId = config?.chainId ? get_chain_id(config?.chainId + '') : 1;
     const chain_config = { ...default_config[chainId + ''] };
 
 
-    // Schutz vor Config-Manipulation durch Deep-Freeze
+    // Protect against config manipulation (deep-freeze at sensitive boundaries)
     const baseConfig = {
       chains: {},
       trusted_checkpoint: undefined,
@@ -268,7 +203,7 @@ export default class C4Client {
       chainId,
     } as C4Config;
 
-    // Schutz vor Config-Manipulation anwenden
+    // Apply config immutability/protection
     PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'prover', 'checkpointz']);
 
     this.config = baseConfig;
@@ -281,7 +216,7 @@ export default class C4Client {
     this.eventEmitter = new EventEmitter();
     this.connectionState = new ConnectionState(
       { chainId: parseInt(this.config.chainId + ''), debug: this.config.debug },
-      async () => this.rpc('eth_chainId', [], C4MethodType.LOCAL), // Use the specific callback
+      async () => this.rpc('eth_chainId', [], C4MethodType.LOCAL), // specific callback to detect chainId
       this.eventEmitter
     );
 
@@ -295,12 +230,7 @@ export default class C4Client {
     )
   }
 
-  private async getProverConfig() {
-    const c4w = await getC4w();
-    if (!c4w.storage) return '0x'
-    const state = c4w.storage.get('states_' + this.config.chainId)
-    return '0x' + (state ? Array.from(state).map(_ => _.toString(16).padStart(2, '0')).join('') : '')
-  }
+  // Prover config helpers are moved to wasm.ts (get_prover_config_hex)
 
   private async fetch_checkpointz() {
     let checkpoint: string | undefined = undefined
@@ -320,15 +250,12 @@ export default class C4Client {
     if (!checkpoint) throw new Error('No checkpoint found');
     this.config.trusted_checkpoint = checkpoint;
 
-    const c4w = await getC4w();
-    const free_buffers: number[] = [];
-    // we need to set the trusted checkpoint here, so the state updates and we can use the state in the proof call already.
-    c4w._c4w_create_verify_ctx(0, 0, 0, 0, BigInt(this.config.chainId), as_char_ptr(checkpoint, c4w, free_buffers));
-    free_buffers.forEach(ptr => c4w._free(ptr));
+    // set trusted checkpoint in C state so we can use it in proof calls immediately
+    await set_trusted_checkpoint(this.config.chainId as number, checkpoint);
   }
 
   /**
-   * checks, whether the rpc-method is supported or proofable.
+   * Checks whether the RPC method is supported or proofable.
    * @param method - The method to check
    * @returns The method type
    */
@@ -341,7 +268,7 @@ export default class C4Client {
   }
 
   /**
-   * creates a proof for the given method and arguments
+   * Creates a proof for the given method and arguments.
    * @param method - The method to create a proof for
    * @param args - The arguments to create a proof for
    * @returns The proof
@@ -380,7 +307,7 @@ export default class C4Client {
   }
 
   /**
-   * verifies a proof for the given method and arguments
+   * Verifies a proof for the given method and arguments.
    * @param method - The method to verify the proof for
    * @param args - The arguments to verify the proof for
    * @param proof - The proof to verify
@@ -427,10 +354,10 @@ export default class C4Client {
   }
 
   /**
-   * executes a rpc-method, which includes
-   * -creating or fetching the proof
-   * -verifying the proof
-   * -returning the result
+   * Executes an RPC method. This includes:
+   * - Creating or fetching the proof
+   * - Verifying the proof
+   * - Returning the result
    * @param method - The method to execute
    * @param args - The arguments to execute the method with
    * @returns The result
@@ -440,11 +367,11 @@ export default class C4Client {
     // This rpc method is for the underlying data fetching/proving.
     if (!this.initMap.get(this.config.chainId)) {
       this.initMap.set(this.config.chainId, true);
-      if (this.config.checkpointz && this.config.checkpointz.length > 0 && !this.config.trusted_checkpoint && (await this.getProverConfig()).length == 2)
+      if (this.config.checkpointz && this.config.checkpointz.length > 0 && !this.config.trusted_checkpoint && (await get_prover_config_hex(this.config.chainId as number)).length == 2)
         await this.fetch_checkpointz();
 
     }
-    // Spezielle Behandlung für eth_sendTransaction mit Verifikation
+    // Special handling for eth_sendTransaction with verification
     if (method === 'eth_sendTransaction' && (this.config as any).verifyTransactions) {
       return await TransactionVerifier.verifyAndSendTransaction(
         args[0],
@@ -463,7 +390,7 @@ export default class C4Client {
           return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
         }
         const proof = this.config.prover && this.config.prover.length
-          ? await fetch_rpc(this.config.prover, { method, params: cleanup_args(method, args), c4: await this.getProverConfig() }, true)
+          ? await fetch_rpc(this.config.prover, { method, params: cleanup_args(method, args), c4: await get_prover_config_hex(this.config.chainId as number) }, true)
           : await this.createProof(method, args);
         return this.verifyProof(method, args, proof);
       }
@@ -516,6 +443,12 @@ export default class C4Client {
     }
   }
 
+  /**
+   * Registers an event listener on the Colibri client.
+   * @param event Event name (e.g. 'connect', 'disconnect', 'message')
+   * @param callback Callback invoked with event data
+   * @return This client for chaining
+   */
   public on(event: string, callback: (data: any) => void): this {
     this.eventEmitter.on(event, callback);
     if ((event === 'connect' || event === 'disconnect') && !this.connectionState.initialConnectionAttempted) {
@@ -526,6 +459,12 @@ export default class C4Client {
     return this;
   }
 
+  /**
+   * Removes a previously registered event listener from the Colibri client.
+   * @param event Event name
+   * @param callback Same function reference passed to on()
+   * @return This client for chaining
+   */
   public removeListener(event: string, callback: (data: any) => void): this {
     this.eventEmitter.removeListener(event, callback);
     return this;
