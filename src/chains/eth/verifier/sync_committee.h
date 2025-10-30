@@ -41,7 +41,7 @@ extern "C" {
 // Light client update format constants
 #define SSZ_OFFSET_SIZE        4
 #define SSZ_LENGTH_SIZE        8
-#define MIN_UPDATE_SIZE        12
+#define UPDATE_PREFIX_SIZE     (SSZ_OFFSET_SIZE + SSZ_LENGTH_SIZE)
 #define LIGHTHOUSE_HEADER_SIZE 4
 #define LIGHTHOUSE_OFFSET_SIZE 16
 
@@ -168,14 +168,6 @@ c4_chain_state_t c4_get_chain_state(chain_id_t chain_id);
  * @param checkpoint Trusted block root (32 bytes)
  */
 void c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint);
-
-/**
- * Get the oldest sync committee period stored for a chain.
- *
- * @param state Serialized chain state data
- * @return Oldest period number, or 0 if no periods stored
- */
-uint32_t c4_eth_get_oldest_period(bytes_t state);
 
 /**
  * Detect the fork (Deneb/Electra) for a light client update based on slot.

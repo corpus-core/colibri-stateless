@@ -265,6 +265,71 @@ void c4_free_block_proof(blockroot_proof_t* block_proof) {
   safe_free(block_proof->proof_header.data);
 }
 
+static c4_status_t fetch_bootstrap_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_ob_t* bootstrap) {
+  if (!sync_data->checkpoint) return C4_SUCCESS;
+  char path[200] = {0};
+  sbprintf(path, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(sync_data->checkpoint, 32));
+  // send request for checkpoint
+  ssz_ob_t result = {0};
+  //  ssz_def_t def    = SSZ_CONTAINER("bootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP);
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &result));
+
+  const ssz_def_t* bootstrap_union_def = ssz_get_def(C4_ETH_REQUEST_SYNCDATA_UNION + 1, "bootstrap");
+  fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
+  result.def                           = &bootstrap_union_def->def.container.elements[fork - C4_FORK_CAPELLA]; // get the correct bootstrap definition for the fork
+  if (!ssz_is_valid(result, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
+  *bootstrap = result;
+
+  return C4_SUCCESS;
+}
+
+static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* updates) {
+  if (!sync_data->checkpoint) return C4_SUCCESS;
+  ssz_ob_t result     = {0};
+  uint32_t count      = (uint32_t) (sync_data->required_period - sync_data->newest_period);
+  char     query[100] = {0};
+  sbprintf(query, "start_period=%l&count=%l", sync_data->newest_period, sync_data->required_period - sync_data->newest_period);
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
+
+  bytes_t  client_updates = result.bytes;
+  uint64_t length         = 0;
+  for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
+    uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
+    uint32_t data_length_offset = SSZ_OFFSET_SIZE;
+    length                      = uint64_from_le(client_updates.data + pos);
+
+    if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > UPDATE_PREFIX_SIZE) break;
+
+    bytes_t   client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
+    fork_id_t fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
+    ssz_ob_t  update              = {.bytes = client_update_bytes, .def = eth_get_light_client_update(fork)};
+    if (!update.def) THROW_ERROR("Invalid update data!");
+
+    bytes_t prefixed = bytes(safe_malloc(update.bytes.len + 1), update.bytes.len + 1);
+    memcpy(prefixed.data + 1, update.bytes.data, update.bytes.len);
+    prefixed.data[0] = (uint8_t) (fork - C4_FORK_DENEB);
+    ssz_add_dynamic_list_bytes(updates, count, prefixed);
+    safe_free(prefixed.data);
+  }
+
+  return C4_SUCCESS;
+}
+
+c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder) {
+  // nothing to be done - no data to be added.
+  if (sync_data->checkpoint_period == 0 && sync_data->required_period <= sync_data->newest_period) return C4_SUCCESS;
+
+  builder->def            = C4_ETH_REQUEST_SYNCDATA_UNION + 1; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
+  ssz_ob_t      bootstrap = {.def = &ssz_none};
+  ssz_builder_t updates   = {.def = &ssz_none};
+  if (sync_data->checkpoint_period) TRY_ASYNC(fetch_bootstrap_data(ctx, sync_data, &bootstrap));
+  if (sync_data->required_period > sync_data->newest_period) TRY_ASYNC(fetch_updates_data(ctx, sync_data, &updates));
+
+  ssz_add_ob(builder, "bootstrap", bootstrap);
+  ssz_add_builders(builder, "updates", updates);
+  return C4_SUCCESS;
+}
+
 static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sync_data, const chain_spec_t* chain) {
   if (!ctx->client_state.data || !ctx->client_state.len || !sync_data || !chain) return C4_SUCCESS;
   c4_chain_state_t chain_state = c4_state_deserialize(ctx->client_state);
@@ -279,12 +344,8 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
       break;
     case C4_STATE_SYNC_CHECKPOINT: {
       sync_data->checkpoint = chain_state.data.checkpoint;
-      char path[200]        = {0};
-      sbprintf(path, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(sync_data->checkpoint, 32));
-      // send request for checkpoint
-      ssz_ob_t  result = {0};
-      ssz_def_t def    = SSZ_CONTAINER("bootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP);
-      TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, &def, DEFAULT_TTL, &result));
+      ssz_ob_t result       = {0};
+      TRY_ASYNC(fetch_bootstrap_data(ctx, sync_data, &result));
 
       ssz_ob_t header              = ssz_get(&result, "header");
       ssz_ob_t beacon              = ssz_get(&header, "beacon");
@@ -301,11 +362,15 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
 c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
   const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
   if (!chain) THROW_ERROR("unsupported chain id!");
+
+  // set the periods in the sync daata
   block_proof->sync.required_period = (uint64_t) (src_block->slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
   TRY_ASYNC(update_syncdata_state(ctx, &block_proof->sync, chain));
+
+  // should we use historic summaries?
   TRY_ASYNC(check_historic_proof_direct(ctx, block_proof, src_block));
   if (block_proof->historic_proof.len) return C4_SUCCESS;
 
-  // check if we need a header proof
+  // no proof means we use the current, but do we we need headers-proof?
   return check_historic_proof_header(ctx, block_proof, src_block);
 }

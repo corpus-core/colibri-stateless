@@ -630,19 +630,19 @@ static uint64_t find_last_verified_finality_checkpoint(verify_ctx_t* ctx, bytes3
     if (req->type == C4_DATA_TYPE_BEACON_API && strncmp(req->url, "eth/v1/beacon/light_client/updates", 34) == 0 && req->response.data && req->response.len > 0 && req->encoding == C4_DATA_ENCODING_SSZ) {
       bytes_t  client_updates = req->response;
       uint64_t length         = 0;
-      for (uint32_t pos = 0; pos + MIN_UPDATE_SIZE < client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
+      for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
         uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
         uint32_t data_length_offset = SSZ_OFFSET_SIZE;
         length                      = uint64_from_le(client_updates.data + pos);
 
-        if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > MIN_UPDATE_SIZE) break;
+        if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > UPDATE_PREFIX_SIZE) break;
 
         bytes_t          client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
         fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
-        const ssz_def_t* client_update_list  = eth_get_light_client_update_list(fork);
-        if (!client_update_list) break;
+        const ssz_def_t* client_update_def   = eth_get_light_client_update(fork);
+        if (!client_update_def) break;
 
-        ssz_ob_t update    = {.bytes = client_update_bytes, .def = client_update_list->def.vector.type};
+        ssz_ob_t update    = {.bytes = client_update_bytes, .def = client_update_def};
         ssz_ob_t finalized = ssz_get(&update, "finalizedHeader");
         ssz_ob_t header    = ssz_get(&finalized, "beacon");
         uint64_t slot      = ssz_get_uint64(&header, "slot");
@@ -848,20 +848,20 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
   bytes32_t computed_root       = {0};
   if (req_client_update(&ctx->state, period, 1, ctx->chain_id, &light_client_update)) {
     // Parse the SSZ-encoded update
-    fork_id_t        fork               = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update);
-    const ssz_def_t* client_update_list = eth_get_light_client_update_list(fork);
+    fork_id_t        fork              = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update);
+    const ssz_def_t* client_update_def = eth_get_light_client_update(fork);
 
-    if (!client_update_list || light_client_update.len < MIN_UPDATE_SIZE)
+    if (!client_update_def || light_client_update.len < UPDATE_PREFIX_SIZE)
       THROW_ERROR("Invalid light client update format in edge case sync");
 
     // Navigate to the first update in the list
     uint32_t offset = uint32_from_le(light_client_update.data);
-    if (offset + MIN_UPDATE_SIZE > light_client_update.len)
+    if (offset + UPDATE_PREFIX_SIZE > light_client_update.len)
       THROW_ERROR("Invalid offset in light client update list");
 
     uint64_t length                    = uint64_from_le(light_client_update.data + offset);
-    bytes_t  light_client_update_bytes = bytes(light_client_update.data + offset + MIN_UPDATE_SIZE, length - SSZ_OFFSET_SIZE);
-    ssz_ob_t update_ob                 = {.bytes = light_client_update_bytes, .def = client_update_list->def.vector.type};
+    bytes_t  light_client_update_bytes = bytes(light_client_update.data + offset + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE);
+    ssz_ob_t update_ob                 = {.bytes = light_client_update_bytes, .def = client_update_def};
 
     // Step 4: Extract nextSyncCommittee from the update (this is period N+1's committee in period N's update)
     ssz_ob_t next_sync_committee = ssz_get(&update_ob, "nextSyncCommittee");

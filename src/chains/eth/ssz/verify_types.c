@@ -89,15 +89,14 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // Electra Fork Structureed LightClient Bootstrap
-    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP)      // Denep Fork Structureed LightClient Bootstrap
+    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP),    // Denep Fork Structureed LightClient Bootstrap
+    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP) // Electra Fork Structureed LightClient Bootstrap
 };
 
 // a List of LightClient Updates as returned fomr light_client/updates endpoint.
 static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
-    SSZ_NONE,
-    SSZ_LIST("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER, 512), // Electra Fork Structureed LightClient Update
-    SSZ_LIST("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE_CONTAINER, 512)      // Denep Fork Structureed LightClient Update
+    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),    // Denep Fork Structureed LightClient Update
+    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE) // Electra Fork Structureed LightClient Update
 };
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -115,6 +114,8 @@ static const ssz_def_t C4_REQUEST[] = {
 
 static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQUEST);
 
+static const ssz_def_t C4_ETH_SYNCDATA_UPDATE = SSZ_UNION("updates", C4_ETH_SYNCDATA_UPDATE_UNION);
+
 // :: SyncCommittee Proof
 //
 // The Verifier always needs the pubkeys of the sync committee for a given period in order to verify the BLS signature of a Beacon BlockHeader.
@@ -127,7 +128,7 @@ static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQU
 // LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
 static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
     SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
-    SSZ_UNION("update", C4_ETH_SYNCDATA_UPDATE_UNION),       // optional update data for the sync committee
+    SSZ_LIST("update", C4_ETH_SYNCDATA_UPDATE, 1024)         // optional update data for the sync committee
 };
 
 static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
@@ -139,12 +140,12 @@ static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def
 #define ARRAY_IDX(a, target)  array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 #define ARRAY_TYPE(a, target) a + array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 
-const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork) {
+const ssz_def_t* eth_get_light_client_update(fork_id_t fork) {
   switch (fork) {
     case C4_FORK_DENEB:
-      return ARRAY_TYPE(C4_ETH_SYNCDATA_UPDATE_UNION, &DENEP_LIGHT_CLIENT_UPDATE_CONTAINER);
+      return C4_ETH_SYNCDATA_UPDATE_UNION;
     case C4_FORK_ELECTRA:
-      return ARRAY_TYPE(C4_ETH_SYNCDATA_UPDATE_UNION, &ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER);
+      return C4_ETH_SYNCDATA_UPDATE_UNION + 1;
     default:
       return NULL;
   }

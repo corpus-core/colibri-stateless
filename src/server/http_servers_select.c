@@ -796,9 +796,9 @@ static bytes_t convert_lighthouse_to_ssz(data_request_t* req, json_t result, uin
     json_t   data = json_get(entry, "data");
     uint64_t slot = json_get_uint64(json_get(json_get(data, "attested_header"), "beacon"), "slot");
     if (slot >= slot_start + found * slots_per_epoch && slot < slot_start + (found + 1) * slots_per_epoch && found < count) {
-      const ssz_def_t* client_update_list = eth_get_light_client_update_list(c4_chain_fork_id(chain->chain_id, slot));
-      if (!client_update_list) continue;
-      ssz_ob_t ob = ssz_from_json(data, client_update_list->def.vector.type, &state);
+      const ssz_def_t* client_update_def = eth_get_light_client_update(c4_chain_fork_id(chain->chain_id, slot));
+      if (!client_update_def) continue;
+      ssz_ob_t ob = ssz_from_json(data, client_update_def, &state);
       if (state.error) {
         if (ob.bytes.data) safe_free(ob.bytes.data);
         req->error = bprintf(NULL, "Failed to convert lighthouse light client update to ssz: %s", state.error);

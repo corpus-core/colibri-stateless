@@ -516,9 +516,6 @@ static const ssz_def_t ETH_SYNC_PROOF[] = {
     SSZ_LIST("proof", ssz_bytes32, 256) // proof merkle proof from the signing root to the pubkeys of the next_synccommittee
 };
 
-static const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE_CONTAINER   = SSZ_CONTAINER("LightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE);
-static const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE);
-
 static const ssz_def_t ETH_EXECUTION_PAYLOAD_UNION[] = {
     SSZ_CONTAINER("DenepExecutionPayload", DENEP_EXECUTION_PAYLOAD),
     SSZ_CONTAINER("GnosisExecutionPayload", GNOSIS_EXECUTION_PAYLOAD),
