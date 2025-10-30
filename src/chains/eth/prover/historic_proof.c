@@ -284,12 +284,13 @@ static c4_status_t fetch_bootstrap_data(prover_ctx_t* ctx, syncdata_state_t* syn
 }
 
 static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* updates) {
-  if (!sync_data->checkpoint) return C4_SUCCESS;
   ssz_ob_t result     = {0};
   uint32_t count      = (uint32_t) (sync_data->required_period - sync_data->newest_period);
   char     query[100] = {0};
   sbprintf(query, "start_period=%l&count=%l", sync_data->newest_period, sync_data->required_period - sync_data->newest_period);
   TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
+
+  if (!updates) return C4_SUCCESS;
 
   bytes_t  client_updates = result.bytes;
   uint64_t length         = 0;
@@ -321,15 +322,18 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
 
   builder->def            = C4_ETH_REQUEST_SYNCDATA_UNION + 1; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
   ssz_ob_t      bootstrap = {.def = &ssz_none};
-  ssz_builder_t updates   = {.def = &ssz_none};
+  ssz_builder_t updates   = ssz_builder_for_def(ssz_get_def(builder->def, "update"));
   if (sync_data->checkpoint_period) TRY_ASYNC(fetch_bootstrap_data(ctx, sync_data, &bootstrap));
   if (sync_data->required_period > sync_data->newest_period) TRY_ASYNC(fetch_updates_data(ctx, sync_data, &updates));
 
   ssz_add_ob(builder, "bootstrap", bootstrap);
-  ssz_add_builders(builder, "updates", updates);
+  ssz_add_builders(builder, "update", updates);
   return C4_SUCCESS;
 }
 
+/**
+ * updates the sync_data, but also runs the request to fetch the bootstrap or updates data.
+ */
 static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sync_data, const chain_spec_t* chain) {
   if (!ctx->client_state.data || !ctx->client_state.len || !sync_data || !chain) return C4_SUCCESS;
   c4_chain_state_t chain_state = c4_state_deserialize(ctx->client_state);
@@ -356,6 +360,9 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
       break;
     }
   }
+
+  if (sync_data->newest_period < sync_data->required_period)
+    return fetch_updates_data(ctx, sync_data, NULL);
   return C4_SUCCESS;
 }
 
@@ -364,13 +371,18 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
   if (!chain) THROW_ERROR("unsupported chain id!");
 
   // set the periods in the sync daata
+  // we also allow pending requests here
   block_proof->sync.required_period = (uint64_t) (src_block->slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
-  TRY_ASYNC(update_syncdata_state(ctx, &block_proof->sync, chain));
+  c4_status_t update_status         = update_syncdata_state(ctx, &block_proof->sync, chain);
+
+  // we continue, if only light_clientupdates are pending, but we wait for checkpoints, since we need to make decisions based on the checkpoint period.
+  if (update_status == C4_ERROR || (update_status == C4_PENDING && block_proof->sync.checkpoint && !block_proof->sync.checkpoint_period)) return update_status;
 
   // should we use historic summaries?
   TRY_ASYNC(check_historic_proof_direct(ctx, block_proof, src_block));
-  if (block_proof->historic_proof.len) return C4_SUCCESS;
+  if (block_proof->historic_proof.len) return update_status;
 
   // no proof means we use the current, but do we we need headers-proof?
-  return check_historic_proof_header(ctx, block_proof, src_block);
+  TRY_ASYNC(check_historic_proof_header(ctx, block_proof, src_block));
+  return update_status;
 }

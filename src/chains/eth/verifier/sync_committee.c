@@ -122,14 +122,14 @@ INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
     }
 
     // run all light client updates
-    if (updates.def->type == SSZ_TYPE_LIST) {
-      uint32_t updates_len = ssz_len(updates);
-      for (uint32_t i = 0; i < updates_len; i++) {
-        ssz_ob_t update = ssz_at(updates, i);
-        if (ssz_is_error(update)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
-        if (!update_light_client_update(ctx, &update)) return false;
-      }
+    uint32_t updates_len = ssz_len(updates);
+    for (uint32_t i = 0; i < updates_len; i++) {
+      ssz_ob_t update = ssz_union(ssz_at(updates, i));
+      if (!update_light_client_update(ctx, &update)) return false;
     }
+
+    // we may want to clean up the sync data, so we don't sync again.
+    ctx->sync_data.def = &ssz_none;
     return true;
   }
   else
