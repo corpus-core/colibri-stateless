@@ -25,9 +25,9 @@ jobs:
         with:
           version: 4.0.3
 
-      - name: Build with Emscripten
+      - name: Build with Emscripten (Split WASM for npm)
         run: |
-          emcmake cmake -B build -DWASM=true -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
+          emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
           cmake --build build
 
       - name: Run tests

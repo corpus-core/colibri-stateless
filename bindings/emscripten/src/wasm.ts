@@ -52,9 +52,26 @@ export type C4WModule = {
     then: (cb: (mod: C4W) => void) => void;
 };
 
+let wasmUrlOverride: string | null = null;
+/**
+ * Optionally override the URL/path used to load the WASM binary when not embedded.
+ * @param url Absolute/relative URL in browsers, or filesystem path in Node.
+ */
+export function set_wasm_url(url: string) {
+    wasmUrlOverride = url;
+}
+
 export async function loadC4WModule(): Promise<C4W> {
     const module = (await import("./c4w.js")) as any;
-    return module.default(); // Emscripten initializes the module
+
+    const args: any = {};
+    if (wasmUrlOverride) {
+        args.locateFile = (path: string) => path.endsWith('.wasm') ? (wasmUrlOverride as string) : path;
+    } else if (isBrowserEnvironment()) {
+        // Default browser-friendly resolution so bundlers copy the asset without extra config
+        args.locateFile = (path: string) => path.endsWith('.wasm') ? new URL('./c4w.wasm', import.meta.url).toString() : path;
+    }
+    return module.default(args); // Emscripten initializes the module
 }
 
 let module: C4W | null = null;
