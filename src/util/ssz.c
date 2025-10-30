@@ -428,8 +428,8 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
         buffer_add_chars(buf, "[\n");
         for (int i = 0; i < ssz_len(ob); i++) {
           ssz_ob_t val = ssz_at(ob, i);
-          if (val.def->type == SSZ_TYPE_UNION) val = ssz_union(val);
-          if (val.def->type == SSZ_TYPE_NONE) continue;
+          if (val.def && val.def->type == SSZ_TYPE_UNION) val = ssz_union(val);
+          if (!val.def || val.def->type == SSZ_TYPE_NONE) continue;
           dump(ctx, val, false, intend + 2);
           if (i < ssz_len(ob) - 1) buffer_add_chars(buf, ",\n");
         }
