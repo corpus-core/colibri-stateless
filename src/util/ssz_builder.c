@@ -96,8 +96,8 @@ void ssz_add_ob(ssz_builder_t* buffer, const char* name, ssz_ob_t ob) {
         found     = true;
         free_ptr  = safe_malloc(data.len + 1);
         *free_ptr = (uint8_t) i;
-        data      = bytes(free_ptr, data.len + 1);
-        memcpy(free_ptr, data.data + 1, data.len);
+        memcpy(free_ptr + 1, data.data, data.len);
+        data = bytes(free_ptr, data.len + 1);
         break;
       }
     }

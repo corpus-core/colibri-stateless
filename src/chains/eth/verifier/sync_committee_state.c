@@ -212,7 +212,7 @@ static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count
  * ⚠️ This function requires HTTP access to a beacon node and is disabled when USE_CHECKPOINTZ=OFF.
  * For embedded devices without HTTP, an initial checkpoint must be provided in the configuration.
  */
-static bool req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
+bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
   buffer_t tmp = {0};
   bprintf(&tmp, "eth/v1/beacon/states/head/finality_checkpoints");
 
@@ -257,7 +257,7 @@ static bool req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint6
  * Stub for req_checkpointz_status when USE_CHECKPOINTZ is disabled.
  * Returns an error indicating that an initial checkpoint must be provided in the configuration.
  */
-static bool req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
+static bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
   (void) chain_id;
   (void) checkpoint_epoch;
   (void) checkpoint_root;
@@ -481,7 +481,7 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
     case C4_STATE_SYNC_EMPTY:
 
       // No state exists - fetch checkpoint from checkpointz server
-      if (req_checkpointz_status(state, ctx->chain_id, &checkpoint_epoch, checkpoint_root)) {
+      if (c4_req_checkpointz_status(state, ctx->chain_id, &checkpoint_epoch, checkpoint_root)) {
         // Set the checkpoint as trusted blockhash
         c4_eth_set_trusted_checkpoint(ctx->chain_id, checkpoint_root);
         // Recursively call init_sync_state to process the bootstrap with the new trusted checkpoint
