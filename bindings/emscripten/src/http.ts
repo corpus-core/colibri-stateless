@@ -20,6 +20,8 @@
  *
  * SPDX-License-Identifier: MIT
  */
+import { getC4w, as_char_ptr, copy_to_c } from './wasm.js';
+import { Config as C4Config, DataRequest } from './types.js';
 
 export type AcceptKind = 'json' | 'octet';
 
@@ -79,8 +81,6 @@ export async function fetch_from_servers(
 
 // --- Higher level helpers used by Colibri client ---
 
-import { getC4w, as_char_ptr, copy_to_c } from './wasm.js';
-import { Config as C4Config, DataRequest } from './types.js';
 
 function log(msg: string) {
   console.error(msg);
