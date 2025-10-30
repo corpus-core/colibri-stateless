@@ -96,6 +96,8 @@ async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false
   }
   throw new Error(last_error);
 }
+
+
 function log(msg: string) {
   console.error(msg);
 }
@@ -235,6 +237,8 @@ export default class C4Client {
   private eventEmitter: EventEmitter;
   private connectionState: ConnectionState;
   private subscriptionManager: SubscriptionManager;
+  private initMap: Map<number | string, boolean> = new Map();
+  private flags: number = 0;
 
   // Schutz vor Prototype Pollution durch Einfrieren kritischer Methoden
   private static readonly CRITICAL_METHODS = ['rpc', 'request', 'verifyProof', 'createProof'] as const;
@@ -298,8 +302,29 @@ export default class C4Client {
     return '0x' + (state ? Array.from(state).map(_ => _.toString(16).padStart(2, '0')).join('') : '')
   }
 
-  private get flags(): number {
-    return this.config.include_code ? 1 : 0;
+  private async fetch_checkpointz() {
+    let checkpoint: string | undefined = undefined
+    for (const url of this.config.checkpointz || []) {
+      const response = await fetch(url + (url.endsWith('/') ? '' : '/') + 'eth/v1/beacon/states/head/finality_checkpoints', {
+        method: 'GET',
+        headers: {
+          "Content-Type": "application/json"
+        }
+      })
+      if (response.ok) {
+        const res = await response.json();
+        checkpoint = res?.data?.finalized?.root
+        break;
+      }
+    }
+    if (!checkpoint) throw new Error('No checkpoint found');
+    this.config.trusted_checkpoint = checkpoint;
+
+    const c4w = await getC4w();
+    const free_buffers: number[] = [];
+    // we need to set the trusted checkpoint here, so the state updates and we can use the state in the proof call already.
+    c4w._c4w_create_verify_ctx(0, 0, 0, 0, BigInt(this.config.chainId), as_char_ptr(checkpoint, c4w, free_buffers));
+    free_buffers.forEach(ptr => c4w._free(ptr));
   }
 
   /**
@@ -413,7 +438,12 @@ export default class C4Client {
   async rpc(method: string, args: any[], method_type?: C4MethodType): Promise<any> {
     // eth_subscribe and eth_unsubscribe are handled by C4Client.request before this method is called.
     // This rpc method is for the underlying data fetching/proving.
+    if (!this.initMap.get(this.config.chainId)) {
+      this.initMap.set(this.config.chainId, true);
+      if (this.config.checkpointz && this.config.checkpointz.length > 0 && !this.config.trusted_checkpoint && (await this.getProverConfig()).length == 2)
+        await this.fetch_checkpointz();
 
+    }
     // Spezielle Behandlung für eth_sendTransaction mit Verifikation
     if (method === 'eth_sendTransaction' && (this.config as any).verifyTransactions) {
       return await TransactionVerifier.verifyAndSendTransaction(
