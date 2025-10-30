@@ -166,7 +166,7 @@ export default class C4Client {
 
   private async fetch_checkpointz() {
     let checkpoint: string | undefined = undefined
-    for (const url of this.config.checkpointz || []) {
+    for (const url of [...(this.config.checkpointz || []), ...(this.config.beacon_apis || []), ...(this.config.prover || [])]) {
       const response = await fetch(url + (url.endsWith('/') ? '' : '/') + 'eth/v1/beacon/states/head/finality_checkpoints', {
         method: 'GET',
         headers: {
@@ -176,7 +176,7 @@ export default class C4Client {
       if (response.ok) {
         const res = await response.json();
         checkpoint = res?.data?.finalized?.root
-        break;
+        if (checkpoint) break;
       }
     }
     if (!checkpoint) throw new Error('No checkpoint found');

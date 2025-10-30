@@ -130,11 +130,21 @@ export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean 
  */
 export async function handle_request(req: DataRequest, conf: C4Config) {
   const free_buffers: number[] = [];
-  const servers = req.type == 'checkpointz'
-    ? (conf.checkpointz || [])
-    : (req.type == 'beacon_api'
-      ? ((conf.prover && conf.prover.length) ? conf.prover : conf.beacon_apis)
-      : conf.rpcs);
+  let servers: string[] = [];
+  switch (req.type) {
+    case 'checkpointz':
+      servers = [...(conf.checkpointz || []), ...(conf.beacon_apis || []), ...(conf.prover || [])];
+      break;
+    case 'beacon_api':
+      servers = [...(conf.beacon_apis || []), ...(conf.prover || [])];
+      break;
+    case 'prover':
+      servers = [...(conf.prover || [])];
+      break;
+    default:
+      servers = conf.rpcs || [];
+      break;
+  }
   const c4w = await getC4w();
   let path = (req.type == 'eth_rpc' && req.payload)
     ? `rpc: ${req.payload?.method}(${req.payload?.params.join(',')})`

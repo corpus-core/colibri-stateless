@@ -38,7 +38,7 @@ export const default_config: {
     beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
     rpcs: ["https://rpc.ankr.com/eth"],
     prover: ["https://mainnet1.colibri-proof.tech"],
-    checkpointz: ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
+    checkpointz: [], //"https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
     pollingInterval: 12000,
   },
   '11155111': { // Sepolia
