@@ -54,6 +54,11 @@ static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, cha
 static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, ssz_builder_t account_proofs, beacon_block_t* block_data, json_t block_number, blockroot_proof_t* historic_proof) {
 
   ssz_builder_t eth_call_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_CALL_PROOF);
+  ssz_builder_t sync_proof     = NULL_SSZ_BUILDER;
+
+  // get the sync_proof if needed
+  TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof->sync, &sync_proof));
+
   ssz_add_builders(&eth_call_proof, "accounts", account_proofs);
   ssz_add_builders(&eth_call_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data, historic_proof));
 
@@ -61,7 +66,7 @@ static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, ssz_builder_t accoun
       ctx->chain_id,
       NULL_SSZ_BUILDER,
       eth_call_proof,
-      NULL_SSZ_BUILDER);
+      sync_proof);
 
   return C4_SUCCESS;
 }

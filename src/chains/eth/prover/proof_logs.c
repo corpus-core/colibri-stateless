@@ -213,7 +213,7 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
   return C4_SUCCESS;
 }
 
-static c4_status_t serialize_log_proof(prover_ctx_t* ctx, proof_logs_block_t* blocks, json_t logs) {
+static c4_status_t serialize_log_proof(prover_ctx_t* ctx, proof_logs_block_t* blocks, json_t logs, ssz_builder_t sync_proof) {
 
   buffer_t         tmp         = {0};
   ssz_builder_t    block_list  = ssz_builder_for_type(ETH_SSZ_VERIFY_LOGS_PROOF);
@@ -245,15 +245,19 @@ static c4_status_t serialize_log_proof(prover_ctx_t* ctx, proof_logs_block_t* bl
       ctx->chain_id,
       proof_logs_block_proof_type(ctx) == ETH_GET_LOGS ? FROM_JSON(logs, ETH_SSZ_DATA_LOGS) : NULL_SSZ_BUILDER,
       block_list,
-      NULL_SSZ_BUILDER);
+      sync_proof);
 
   buffer_free(&tmp);
   return C4_SUCCESS;
 }
 
 c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
-  json_t              logs   = {0};
-  proof_logs_block_t* blocks = NULL;
+  json_t              logs          = {0};
+  proof_logs_block_t* blocks        = NULL;
+  const chain_spec_t* chain         = c4_eth_get_chain_spec(ctx->chain_id);
+  ssz_builder_t       sync_proof    = NULL_SSZ_BUILDER;
+  proof_logs_block_t* highest_block = NULL;
+
   if (proof_logs_block_proof_type(ctx) == ETH_GET_LOGS)
     TRY_ASYNC(eth_get_logs(ctx, ctx->params, &logs));
   else
@@ -263,13 +267,23 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   TRY_ASYNC_CATCH(get_receipts(ctx, blocks), free_blocks(blocks));
 
   // now we have all the blockreceipts and the beaconblock.
+  if (ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC && ctx->client_state.data && ctx->client_state.len) {
+    for (proof_logs_block_t* block = blocks; block; block = block->next) {
+      if (!highest_block || block->beacon_block.slot > highest_block->beacon_block.slot) highest_block = block;
+    }
+    for (proof_logs_block_t* block = blocks; block; block = block->next)
+      block->block_proof.sync.required_period = highest_block->beacon_block.slot << (chain->slots_per_epoch_bits + chain->epochs_per_period_bits);
+  }
 
   // create the merkle proofs for all the blocks
   for (proof_logs_block_t* block = blocks; block; block = block->next)
     TRY_ASYNC_CATCH(proof_block(ctx, block), free_blocks(blocks));
 
+  if (ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC && highest_block)
+    TRY_ASYNC(c4_get_syncdata_proof(ctx, &highest_block->block_proof.sync, &sync_proof));
+
   // serialize the proof
-  serialize_log_proof(ctx, blocks, logs);
+  serialize_log_proof(ctx, blocks, logs, sync_proof);
 
   free_blocks(blocks);
   return C4_SUCCESS;
