@@ -35,7 +35,7 @@
 const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
   if (strcmp(typename, "signedblock") == 0) return eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_ELECTRA, chain_id);
   if (strcmp(typename, "blockbody") == 0) return eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_ELECTRA, chain_id);
-  if (strcmp(typename, "lcu") == 0) return eth_get_light_client_update_list(C4_FORK_ELECTRA)->def.vector.type;
+  if (strcmp(typename, "lcu") == 0) return eth_get_light_client_update(C4_FORK_ELECTRA);
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
 }

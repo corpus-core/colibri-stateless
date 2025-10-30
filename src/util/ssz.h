@@ -896,6 +896,15 @@ typedef struct {
 void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data);
 
 /**
+ * Adds a field to a container builder by name.
+ *
+ * @param buffer The builder to add to
+ * @param name Name of the field (must exist in container definition)
+ * @param ob The SSZ object to add for this field
+ */
+void ssz_add_ob(ssz_builder_t* buffer, const char* name, ssz_ob_t ob);
+
+/**
  * Adds a nested builder as a field to a container builder.
  *
  * Converts the nested builder to bytes and adds it to the parent.

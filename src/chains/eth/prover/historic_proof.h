@@ -58,6 +58,24 @@ typedef struct {
   syncdata_state_t      sync;
 } blockroot_proof_t;
 
+/**
+ * checks whether additional data is needed in order to proof the blockroot.asm
+ *
+ * Additional data would be:
+ *
+ * - light_client_bootstrap, because the client is only having the checkpoint.asm
+ * - light_client_updates, because the client's last period is older than the required period
+ * - historic_proof, because the client's oldest period is still newer than the required period
+ * - header_proof, because the sync_committee did not reach the 2/3 majority and we need to add headers in between.
+ *
+ * This function only fetches the data and sets it in the blockroot_proof_t if needed.
+ *
+ * @brief Check the blockroot proof for the given block
+ * @param ctx The context of the prover
+ * @param block_proof The blockroot proof holding the state
+ * @param block The block to check the proof for
+ * @return The status of the check
+ */
 c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* block);
 void        ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof);
 void        c4_free_block_proof(blockroot_proof_t* block_proof);

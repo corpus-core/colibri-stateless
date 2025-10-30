@@ -83,6 +83,34 @@ void ssz_add_builders(ssz_builder_t* buffer, const char* name, ssz_builder_t dat
   safe_free(element.bytes.data);
   element.bytes.data = NULL;
 }
+
+void ssz_add_ob(ssz_builder_t* buffer, const char* name, ssz_ob_t ob) {
+  const ssz_def_t* def      = find_def(buffer->def, name);
+  bytes_t          data     = ob.bytes;
+  uint8_t*         free_ptr = NULL;
+  // Special handling for union types: add selector byte before data
+  if (def && def->type == SSZ_TYPE_UNION) {
+    bool found = false;
+    for (int i = 0; i < def->def.container.len; i++) {
+      if (def->def.container.elements + i == ob.def || (ob.def->type == SSZ_TYPE_CONTAINER && def->def.container.elements[i].def.container.elements == ob.def->def.container.elements)) {
+        found     = true;
+        free_ptr  = safe_malloc(data.len + 1);
+        *free_ptr = (uint8_t) i;
+        data      = bytes(free_ptr, data.len + 1);
+        memcpy(free_ptr, data.data + 1, data.len);
+        break;
+      }
+    }
+    if (!found) {
+      log_error("ssz_add_builders: Uniontype %s not found in %s.%s\n", ob.def->name, buffer->def->name, name);
+      return;
+    }
+  }
+
+  ssz_add_bytes(buffer, name, data);
+  safe_free(free_ptr);
+}
+
 void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_builder_t data) {
   ssz_ob_t element = ssz_builder_to_bytes(&data);
   ssz_add_dynamic_list_bytes(buffer, num_elements, element.bytes);
