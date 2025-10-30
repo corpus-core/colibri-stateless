@@ -150,7 +150,7 @@ bool c4_handle_proof_request(client_t* client) {
     c4_write_error_response(client, 400, "Invalid request");
     return true;
   }
-  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | C4_PROVER_FLAG_INCLUDE_SYNC | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0);
+  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0);
   buffer_t       client_state_buf = {0};
   char*          method_str       = bprintf(NULL, "%j", method);
   char*          params_str       = bprintf(NULL, "%J", params);
@@ -161,7 +161,8 @@ bool c4_handle_proof_request(client_t* client) {
   req->cb                         = c4_prover_handle_request;
   req->ctx                        = ctx;
   if (include_code.type == JSON_TYPE_BOOLEAN && include_code.start[0] == 't') ctx->flags |= C4_PROVER_FLAG_INCLUDE_CODE;
-  if (client_state.type == JSON_TYPE_STRING) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
+  if (client_state.type == JSON_TYPE_STRING && client_state.len > 4) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
+  if (ctx->client_state.len > 4) ctx->flags |= C4_PROVER_FLAG_INCLUDE_SYNC;
   if (!bytes_all_zero(bytes(http_server.witness_key, 32))) ctx->witness_key = bytes(http_server.witness_key, 32);
 
   safe_free(method_str);
