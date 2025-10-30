@@ -77,4 +77,91 @@ export async function fetch_from_servers(
   throw new Error(lastError);
 }
 
+// --- Higher level helpers used by Colibri client ---
+
+import { getC4w, as_char_ptr, copy_to_c } from './wasm.js';
+import { Config as C4Config, DataRequest } from './types.js';
+
+function log(msg: string) {
+  console.error(msg);
+}
+
+/**
+ * Posts a JSON-RPC payload across multiple URLs and returns result or proof bytes.
+ * @param urls Ordered list of RPC endpoints
+ * @param payload JSON-RPC payload (id will be set to 1 if not provided)
+ * @param as_proof Expect octet-stream (true) or JSON result (false)
+ * @return result value for JSON or raw bytes for proofs
+ */
+export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false): Promise<any> {
+  let last_error = 'All nodes failed';
+  for (const url of urls) {
+    const response = await fetch(url, {
+      method: 'POST',
+      body: JSON.stringify({ id: 1, jsonrpc: '2.0', ...payload }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': as_proof ? 'application/octet-stream' : 'application/json',
+      },
+    });
+    if (response.ok) {
+      if (!as_proof) {
+        const res = await response.json();
+        if (res.error) {
+          last_error = res.error?.message || res.error;
+          continue;
+        }
+        return res.result;
+      }
+      const bytes = await response.blob().then(blob => blob.arrayBuffer());
+      return new Uint8Array(bytes);
+    } else {
+      last_error = `HTTP error! Status: ${response.status}, Details: ${await response.text()}`;
+    }
+  }
+  throw new Error(last_error);
+}
+
+/**
+ * Handles a C4 data request by fetching from configured servers, setting the
+ * response or error back into the C context, and leveraging cache if present.
+ * @param req DataRequest descriptor from C
+ * @param conf Colibri configuration
+ */
+export async function handle_request(req: DataRequest, conf: C4Config) {
+  const free_buffers: number[] = [];
+  const servers = req.type == 'checkpointz'
+    ? (conf.checkpointz || [])
+    : (req.type == 'beacon_api'
+      ? ((conf.prover && conf.prover.length) ? conf.prover : conf.beacon_apis)
+      : conf.rpcs);
+  const c4w = await getC4w();
+  let path = (req.type == 'eth_rpc' && req.payload)
+    ? `rpc: ${req.payload?.method}(${req.payload?.params.join(',')})`
+    : req.url;
+
+  let cacheable = conf.cache && conf.cache.cacheable(req);
+  if (cacheable && conf.cache) {
+    const data = conf.cache.get(req);
+    if (data) {
+      if (conf.debug) log(`::: ${path} (len=${data.length} bytes) CACHED`);
+      c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, 0);
+      return;
+    }
+  }
+  try {
+    const accept = req.encoding == 'json' ? 'json' : 'octet';
+    const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask);
+    c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, nodeIndex);
+    if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
+    if (conf.cache && cacheable) conf.cache.set(req, data);
+  } catch (e) {
+    const last_error = (e instanceof Error) ? e.message : String(e);
+    c4w._c4w_req_set_error(req.req_ptr, as_char_ptr(last_error, c4w, free_buffers), 0);
+    if (conf.debug) log(`::: ${path} (Error: ${last_error})`);
+  } finally {
+    free_buffers.forEach(ptr => c4w._free(ptr));
+  }
+}
+
 
