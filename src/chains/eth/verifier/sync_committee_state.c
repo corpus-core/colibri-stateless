@@ -257,7 +257,7 @@ bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t*
  * Stub for req_checkpointz_status when USE_CHECKPOINTZ is disabled.
  * Returns an error indicating that an initial checkpoint must be provided in the configuration.
  */
-static bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
+bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
   (void) chain_id;
   (void) checkpoint_epoch;
   (void) checkpoint_root;
