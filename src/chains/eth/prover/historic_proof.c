@@ -374,7 +374,7 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
 
   // set the periods in the sync daata
   // we also allow pending requests here
-  block_proof->sync.required_period = (uint64_t) (src_block->slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
+  block_proof->sync.required_period = max64(block_proof->sync.required_period, (uint64_t) (src_block->slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits)));
   c4_status_t update_status         = update_syncdata_state(ctx, &block_proof->sync, chain);
 
   // we continue, if only light_clientupdates are pending, but we wait for checkpoints, since we need to make decisions based on the checkpoint period.

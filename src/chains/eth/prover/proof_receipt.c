@@ -42,6 +42,10 @@ static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, beacon_block_t* b
   buffer_t      tmp          = {0};
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_RECEIPT_PROOF);
   uint32_t      tx_index     = json_get_uint32(receipt, "transactionIndex");
+  ssz_builder_t sync_proof   = NULL_SSZ_BUILDER;
+
+  // get the sync_proof if needed
+  TRY_ASYNC(c4_get_syncdata_proof(ctx, &block_proof.sync, &sync_proof));
 
   // build the proof
   ssz_add_bytes(&eth_tx_proof, "transaction", ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index).bytes);
@@ -59,7 +63,7 @@ static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, beacon_block_t* b
       ctx->chain_id,
       FROM_JSON(receipt, ETH_SSZ_DATA_RECEIPT),
       eth_tx_proof,
-      NULL_SSZ_BUILDER);
+      sync_proof);
 
   return C4_SUCCESS;
 }

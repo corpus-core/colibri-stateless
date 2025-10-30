@@ -72,6 +72,10 @@ static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof,
   buffer_t      tmp               = {0};
   ssz_builder_t eth_data          = {0};
   ssz_builder_t eth_account_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF);
+  ssz_builder_t sync_proof        = NULL_SSZ_BUILDER;
+
+  // get the sync_proof if needed
+  TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
   // make sure we have the full code
   if (strcmp(ctx->method, "eth_getCode") == 0) TRY_ASYNC(eth_get_code(ctx, address, &json_code, 0));
@@ -92,7 +96,7 @@ static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof,
       ctx->chain_id,
       eth_data,
       eth_account_proof,
-      NULL_SSZ_BUILDER);
+      sync_proof);
 
   // empty sync_data
   buffer_free(&tmp);
