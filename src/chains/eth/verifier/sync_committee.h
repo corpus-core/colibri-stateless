@@ -190,6 +190,9 @@ fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data);
 uint64_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
 
 c4_chain_state_t c4_state_deserialize(bytes_t data);
+
+bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root);
+
 #ifdef __cplusplus
 }
 #endif

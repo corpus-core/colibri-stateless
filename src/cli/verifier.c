@@ -201,6 +201,20 @@ int main(int argc, char* argv[]) {
   }
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);
+  else if (c4_get_chain_state(chain_id).status == C4_STATE_SYNC_EMPTY) {
+    bytes32_t  checkpoint = {0};
+    uint64_t   epoch      = 0;
+    c4_state_t state      = {0};
+    if (!c4_req_checkpointz_status(&state, chain_id, &epoch, checkpoint) && !state.error) {
+      curl_fetch_all(&state);
+      if (c4_req_checkpointz_status(&state, chain_id, &epoch, checkpoint))
+        c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
+    }
+    if (!epoch) {
+      fprintf(stderr, "failed to get checkpoint from checkpointz : %s\n", state.error);
+      exit(EXIT_FAILURE);
+    }
+  }
   if (!method) {
     fprintf(stderr, "method is required\n");
     exit(EXIT_FAILURE);

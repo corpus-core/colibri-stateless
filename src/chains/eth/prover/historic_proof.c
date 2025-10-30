@@ -349,7 +349,8 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
       break;
     case C4_STATE_SYNC_CHECKPOINT: {
       if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0) return C4_SUCCESS;
-      sync_data->checkpoint = chain_state.data.checkpoint;
+      // we put the pointer to ctx->client_state.data + 1 because the first byte is the status of the sync data.
+      sync_data->checkpoint = ctx->client_state.data + 1; // chain_state.data.checkpoint;
       ssz_ob_t result       = {0};
       TRY_ASYNC(fetch_bootstrap_data(ctx, sync_data, &result));
 

@@ -118,7 +118,7 @@ INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
     if (bootstrap.def->type == SSZ_TYPE_CONTAINER) {
       c4_chain_state_t chain_state = c4_get_chain_state(ctx->chain_id);
       if (chain_state.status == C4_STATE_SYNC_EMPTY) RETURN_VERIFY_ERROR(ctx, "bootstrap data found, but no checkpoint set!");
-      if (chain_state.status == C4_STATE_SYNC_CHECKPOINT && !c4_handle_bootstrap(ctx, bootstrap.bytes, chain_state.data.checkpoint)) return false;
+      if (chain_state.status == C4_STATE_SYNC_CHECKPOINT && c4_handle_bootstrap(ctx, bootstrap.bytes, chain_state.data.checkpoint) != C4_SUCCESS) return false;
     }
 
     // run all light client updates
