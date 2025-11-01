@@ -117,7 +117,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Usage: %s <OPTIONS> <method> <args> \n", argv[0]);
     fprintf(stderr, "OPTIONS: \n");
     fprintf(stderr, "  -c <chain_id> \n");
-    fprintf(stderr, "  -b <block_hash> trusted blockhash\n");
+    fprintf(stderr, "  -b <block_hash> trusted checkpoint\n");
     fprintf(stderr, "  -t <test_dir>  test directory\n");
     fprintf(stderr, "  -i <proof_file> proof file to read\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
@@ -241,6 +241,9 @@ int main(int argc, char* argv[]) {
         c4_get_storage_config(&storage);
         storage.get(name, &state);
         request = read_from_prover(input, method, (char*) args.data.data, state.data, chain_id);
+
+        if (!rpc) rpc = bprintf(NULL, "%s%sunverified_rpc", input, input[strlen(input) - 1] == '/' ? "" : "/");
+
         curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[\"%s\"]}", input, rpc)));
         buffer_free(&state);
         if (output) bytes_write(request, fopen(output, "w"), true);

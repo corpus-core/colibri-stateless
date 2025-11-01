@@ -42,6 +42,8 @@ tags:
     description: Endpoints for generating cryptographic proofs
   - name: Verifier
     description: Endpoints for verifying proofs and executing JSON-RPC calls
+  - name: Unverified
+    description: Unverified proxy endpoints that forward requests to upstream RPC nodes (no verification)
   - name: Configuration
     description: Server configuration and management (requires WEB_UI_ENABLED)
   - name: Health
@@ -243,6 +245,78 @@ paths:
                       message: 'execution reverted'
                     id: 1
         
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /unverified_rpc:
+    post:
+      tags:
+        - Unverified
+      summary: Unverified JSON-RPC Proxy
+      description: |
+        Forwards JSON-RPC requests directly to configured upstream RPC nodes according to the active `chain_id` without performing any verification.
+
+        Use cases include:
+        - Fetching contract bytecode via `eth_getCode` after the contract's `codeHash` has been verified by a proof (e.g., during `eth_call` verification), enabling a hash check of the downloaded code.
+        - Performing high-throughput `eth_getLogs` queries for discovery, followed by explicit verification of matched events using `eth_verifyLogs`.
+
+        This endpoint is intended for performance and convenience; responses are not verified by the Colibri server.
+      operationId: unverifiedRpcProxy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JsonRpcRequest'
+            examples:
+              eth_getCode:
+                summary: eth_getCode example
+                value:
+                  jsonrpc: '2.0'
+                  method: eth_getCode
+                  params:
+                    - '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'
+                    - latest
+                  id: 1
+              eth_getLogs:
+                summary: eth_getLogs example
+                value:
+                  jsonrpc: '2.0'
+                  method: eth_getLogs
+                  params:
+                    - fromBlock: '0x0'
+                      toBlock: latest
+                      address: '0x0000000000000000000000000000000000000000'
+                      topics: []
+                  id: 1
+      responses:
+        '200':
+          description: Proxied JSON-RPC response (not verified)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/JsonRpcResponse'
+                  - $ref: '#/components/schemas/JsonRpcErrorResponse'
+              examples:
+                success:
+                  summary: Successful proxied response
+                  value:
+                    jsonrpc: '2.0'
+                    result: '0x'
+                    id: 1
+                error:
+                  summary: Proxied JSON-RPC error
+                  value:
+                    jsonrpc: '2.0'
+                    error:
+                      code: -32000
+                      message: 'execution reverted'
+                    id: 1
         '500':
           description: Internal server error
           content:

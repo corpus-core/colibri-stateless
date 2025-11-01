@@ -142,7 +142,7 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
       servers = [...(conf.prover || [])];
       break;
     default:
-      servers = conf.rpcs || [];
+      servers = conf.rpcs || [...((conf.prover || []).map(p => p + (p.endsWith('/') ? '' : '/') + 'unverified_rpc'))];
       break;
   }
   const c4w = await getC4w();

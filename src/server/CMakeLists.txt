@@ -46,6 +46,7 @@ add_library(serverlib STATIC
   http_server.c
   handle_proof.c
   handle_verify.c
+  handle_unverified_rpc.c
   handle_verify_storage.c
   handle_health.c
   handle_metrics.c
