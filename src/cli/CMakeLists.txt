@@ -44,6 +44,10 @@ if (CLI)
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
 
+    if(ETH_METRICS)
+        target_compile_definitions(colibri-verifier PRIVATE ETH_METRICS=1)
+    endif()
+
     if(CURL)
         target_link_libraries(colibri-prover PRIVATE 
             curl_fetch

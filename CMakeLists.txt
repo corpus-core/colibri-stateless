@@ -56,6 +56,9 @@ option(PROVER_CACHE "Caches blockhashes and maps, which makes a lot of sense on 
 option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 
+# ETH metrics (prover + verifier)
+option(ETH_METRICS "Enable ETH metrics" OFF)
+
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(WASM "Build WebAssembly target" OFF)
@@ -107,6 +110,11 @@ if (HTTP_SERVER)
     if (PROVER_CACHE)
         add_definitions(-DC4_PROVER_USE_UV_TIME)
     endif()
+endif()
+
+# Global define for ETH_METRICS (applies to prover + verifier + server)
+if(ETH_METRICS)
+    add_definitions(-DETH_METRICS)
 endif()
 
 

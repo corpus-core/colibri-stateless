@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../server/eth_server_metrics.h"
 #include "beacon.h"
 #include "beacon_types.h"
 #include "eth_account.h"
@@ -206,17 +207,38 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   blockroot_proof_t historic_proof = {0};
   c4_status_t       status         = C4_SUCCESS;
 
+  uint64_t t_start = 0;
+  uint64_t t0 = 0, dt_beacon = 0, dt_debug = 0, dt_check = 0, dt_proofs = 0, dt_build = 0;
+  MEASURE_START(t_start);
+
   // Validate arguments before processing
   CHECK_JSON(ctx->params, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
+  MEASURE_START(t0);
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
+  MEASURE_LAP(dt_beacon, t0);
   uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
   bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;
+  MEASURE_START(t0);
   TRY_ADD_ASYNC(status, eth_debug_trace_call(ctx, tx, &trace, target_block));
+  MEASURE_LAP(dt_debug, t0);
+  MEASURE_START(t0);
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
+  MEASURE_LAP(dt_check, t0);
   TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof));
+  MEASURE_START(t0);
   TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data), ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
+  MEASURE_LAP(dt_proofs, t0);
 
+  MEASURE_START(t0);
   status = create_eth_call_proof(ctx, accounts, &block, block_number, &historic_proof);
+  MEASURE_LAP(dt_build, t0);
+  uint64_t t_total = 0;
+  MEASURE_TOTAL(t_total, t_start);
+#ifdef ETH_METRICS
+  uint32_t    num_accounts = (uint32_t) json_len(trace);
+  extern void eth_metrics_record_prover_eth_call(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, uint64_t);
+  eth_metrics_record_prover_eth_call(dt_beacon, dt_debug, dt_check, dt_proofs, dt_build, num_accounts, t_total);
+#endif
   c4_free_block_proof(&historic_proof);
   return status;
 }

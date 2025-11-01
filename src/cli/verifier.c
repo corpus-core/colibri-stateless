@@ -36,6 +36,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../chains/eth/verifier/eth_verifier_metrics.h"
+
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
 #include <curl/curl.h>
@@ -61,8 +63,15 @@ static bytes_t read_from_prover(char* url, char* method, char* args, bytes_t sta
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
+#ifdef ETH_METRICS
+  uint64_t t0 = 0;
+  MEASURE_START(t0);
+#endif
   curl_easy_perform(curl);
   curl_easy_cleanup(curl);
+#ifdef ETH_METRICS
+  eth_verifier_metrics_set_read_from_prover(ELAPSED_MS(t0));
+#endif
 
   if (response_buffer.data.len == 0) {
     fprintf(stderr, "prover returned empty response\n");
@@ -128,7 +137,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 #ifdef USE_CURL
-  char* rpc = "";
+  char* rpc = "http://localhost:8545";
 #endif
   char*      method             = NULL;
   chain_id_t chain_id           = C4_CHAIN_MAINNET;
@@ -262,7 +271,12 @@ int main(int argc, char* argv[]) {
       break;
   }
 
-  verify_ctx_t ctx = {0};
+  verify_ctx_t ctx             = {0};
+  uint64_t     verify_start_ms = 0;
+#ifdef ETH_METRICS
+  eth_verifier_metrics_reset();
+  MEASURE_START(verify_start_ms);
+#endif
   for (
       c4_status_t status = c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
       status == C4_PENDING;
@@ -276,6 +290,9 @@ int main(int argc, char* argv[]) {
   }
 #endif
   if (ctx.success) {
+#ifdef ETH_METRICS
+    eth_verifier_metrics_set_verify_total(ELAPSED_MS(verify_start_ms));
+#endif
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
       char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"expected_result\": %Z\n}",
@@ -286,6 +303,9 @@ int main(int argc, char* argv[]) {
     }
     ssz_dump_to_file_no_quotes(stdout, ctx.data);
     fflush(stdout);
+#ifdef ETH_METRICS
+    eth_verifier_metrics_fprint_line(stderr);
+#endif
     return EXIT_SUCCESS;
   }
   else if (ctx.state.error) {

@@ -37,6 +37,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "eth_verifier_metrics.h"
+
 c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result);
 
 bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root) {
@@ -74,7 +76,17 @@ bool verify_call_proof(verify_ctx_t* ctx) {
 
   if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) return false;
 #ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result);
+  c4_status_t call_status = C4_SUCCESS;
+#ifdef ETH_METRICS
+  {
+    uint64_t t0 = 0;
+    MEASURE_START(t0);
+    call_status = eth_run_call_evmone(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result);
+    eth_verifier_metrics_add_evm_run(ELAPSED_MS(t0));
+  }
+#else
+  call_status = eth_run_call_evmone(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result);
+#endif
 #else
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
@@ -90,9 +102,27 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   eth_free_codes(call_codes);
   if (call_status != C4_SUCCESS) return false;
   if (!match) RETURN_VERIFY_ERROR(ctx, "Call result mismatch");
-  if (!c4_eth_verify_accounts(ctx, accounts, state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
-  if (!eth_verify_state_proof(ctx, state_proof, state_root)) false;
+  {
+#ifdef ETH_METRICS
+    uint64_t t0 = 0;
+    MEASURE_START(t0);
+#endif
+    if (!c4_eth_verify_accounts(ctx, accounts, state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
+    if (!eth_verify_state_proof(ctx, state_proof, state_root)) false;
+#ifdef ETH_METRICS
+    eth_verifier_metrics_add_accounts_proof(ELAPSED_MS(t0));
+#endif
+  }
+#ifdef ETH_METRICS
+  {
+    uint64_t t0 = 0;
+    MEASURE_START(t0);
+    if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
+    eth_verifier_metrics_add_header_verify(ELAPSED_MS(t0));
+  }
+#else
   if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
+#endif
 
   ctx->success = true;
   return ctx->success;

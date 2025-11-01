@@ -83,6 +83,7 @@ set(VERIFIER_SOURCES
   ssz/beacon_types.c
   ssz/beacon_denep.c
   ssz/beacon_electra.c
+  verifier/metrics.c
 )
 set(VERIFIER_DEPS util)
 
@@ -166,11 +167,13 @@ add_server_handler(
     server/handle_headers.c
     server/client_detection.c
     server/client_mappings.c
+    server/eth_server_metrics.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init
   SHUTDOWN_FUNC eth_server_shutdown
   GET_DETECTION_REQUEST_FUNC eth_get_detection_request
   PARSE_VERSION_RESPONSE_FUNC eth_parse_version_response
   GET_CLIENT_MAPPINGS_FUNC eth_get_client_mappings
+  METRICS_FUNC eth_server_metrics
 )
 
