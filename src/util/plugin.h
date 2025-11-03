@@ -30,6 +30,9 @@ extern "C" {
 
 #include "bytes.h"
 
+#ifdef FILE_STORAGE
+extern char* state_data_dir;
+#endif
 // storage plugin
 
 typedef struct {

@@ -67,9 +67,16 @@ option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
 option(STATIC_MEMORY "if true, the memory will be statically allocated, which only makes sense for embedded systems" OFF)
 option(MESSAGES "if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory" ON)
+option(FILE_STORAGE "if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR" ON)
+
 if(MESSAGES)
     add_definitions(-DMESSAGES)
 endif()
+
+if(FILE_STORAGE AND NOT WASM)
+    add_definitions(-DFILE_STORAGE)
+endif()
+
 if(WITNESS_SIGNER)
     add_definitions(-DWITNESS_SIGNER)
 endif()
