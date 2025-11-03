@@ -5,6 +5,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_req.h"
 #include "handler.h"
 #include "logger.h"
 #include "prover/prover.h"
@@ -189,17 +190,47 @@ static void append_data(char* path, bytes_t data) {
   }
 }
 */
-static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* sig_block, ssz_ob_t* data_block) {
-  c4_status_t         status      = C4_SUCCESS;
-  const chain_spec_t* spec        = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
-  uint32_t            period      = b->slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits);
-  char                tmp[300]    = {0};
-  char                tmp2[300]   = {0};
-  buffer_t            buf1        = stack_buffer(tmp);
-  buffer_t            buf2        = stack_buffer(tmp2);
-  bytes_t             block_roots = {0};
-  bytes_t             lcu         = {0};
-  TRY_ASYNC(c4_eth_get_signblock_and_parent(ctx, b->root, NULL, sig_block, data_block, NULL));
+static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
+  c4_status_t         status       = C4_SUCCESS;
+  const chain_spec_t* spec         = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
+  uint32_t            period       = b->slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits);
+  char                tmp[300]     = {0};
+  char                tmp2[300]    = {0};
+  bytes_t             block_roots  = {0};
+  bytes_t             lcu          = {0};
+  json_t              latest_block = {0};
+  ssz_ob_t            sig_block    = {0};
+  ssz_ob_t            data_block   = {0};
+  bytes32_t           data_root    = {0};
+
+  // fetch the requests
+  TRY_ADD_ASYNC(status, c4_eth_get_signblock_and_parent(ctx, b->root, NULL, &sig_block, &data_block, data_root));
+  c4_status_t latest_status = c4_send_eth_rpc(ctx, "eth_blockNumber", "[]", 0, &latest_block);
+  if (latest_status == C4_PENDING && ctx->state.requests->type == C4_DATA_TYPE_ETH_RPC) ctx->state.requests->node_exclude_mask = (uint16_t) (0xFFFF - 1); // exclude all, but the first node, because we always wnat to get the latest from the first.
+  TRY_ADD_ASYNC(status, latest_status);
+  TRY_ASYNC(status);
+
+  // all requests are done, let's update the latest block number
+  beacon_block_t* beacon_block = (beacon_block_t*) safe_calloc(1, sizeof(beacon_block_t));
+  ssz_ob_t        sig_body     = ssz_get(&sig_block, "body");
+  beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
+  beacon_block->header         = data_block;
+  beacon_block->body           = ssz_get(&data_block, "body");
+  beacon_block->execution      = ssz_get(&beacon_block->body, "executionPayload");
+  beacon_block->sync_aggregate = ssz_get(&sig_body, "syncAggregate");
+  bytes_t root_hash            = ssz_get(&sig_block, "parentRoot").bytes;
+  memcpy(beacon_block->data_block_root, data_root, 32);
+  memcpy(beacon_block->sign_parent_root, root_hash.data, 32);
+
+  c4_beacon_cache_update_blockdata(ctx, beacon_block, 0, root_hash.data);
+
+  // Free the original beacon_block after cache update (cache made its own copy)
+  safe_free(beacon_block);
+
+  // now set the latest block number
+  uint64_t latest_block_number = json_as_uint64(latest_block);
+  if (latest_block_number)
+    TRY_ASYNC(c4_set_latest_block(ctx, latest_block_number));
 
   return C4_SUCCESS;
 
@@ -210,26 +241,9 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* si
 static void handle_new_head_cb(request_t* req) {
   if (c4_check_retry_request(req)) return; // if there are data_request in the req, we either clean it up or retry in case of an error (if possible.)
   prover_ctx_t*  ctx = (prover_ctx_t*) req->ctx;
-  beacon_head_t* b   = (beacon_head_t*) ctx->proof.data;
-  ssz_ob_t       sig_block, data_block;
-
-  switch (handle_head(ctx, b, &sig_block, &data_block)) {
+  beacon_head_t* b   = (beacon_head_t*) ctx->proof.data; // we are misusing the proof.data for our custom pointer, because this will be free correctlly.
+  switch (handle_head(ctx, b)) {
     case C4_SUCCESS: {
-      bytes32_t cache_key = {0};
-      sprintf((char*) cache_key, "Slatest");
-      c4_prover_cache_invalidate(cache_key);
-      beacon_block_t* beacon_block = (beacon_block_t*) safe_calloc(1, sizeof(beacon_block_t));
-      ssz_ob_t        sig_body     = ssz_get(&sig_block, "body");
-      beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
-      beacon_block->header         = data_block;
-      beacon_block->body           = ssz_get(&data_block, "body");
-      beacon_block->execution      = ssz_get(&beacon_block->body, "executionPayload");
-      beacon_block->sync_aggregate = ssz_get(&sig_body, "syncAggregate");
-      bytes_t  root_hash           = ssz_get(&sig_block, "parentRoot").bytes;
-      ssz_ob_t execution           = ssz_get(&sig_body, "executionPayload");
-      c4_beacon_cache_update_blockdata(ctx, beacon_block, ssz_get_uint64(&execution, "timestamp"), root_hash.data);
-      // Free the original beacon_block after cache update (cache made its own copy)
-      safe_free(beacon_block);
       prover_request_free(req);
       return;
     }

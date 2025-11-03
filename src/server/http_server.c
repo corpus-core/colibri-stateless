@@ -61,7 +61,8 @@ static void close_client_connection(client_t* client) {
   //   fprintf(stderr, "Debug: Closing an inactive client handle %p via close_client_connection\n", (void*)client);
   // }
 
-  uv_close((uv_handle_t*) &client->handle, on_close);
+  if (client->handle.data)
+    uv_close((uv_handle_t*) &client->handle, on_close);
 }
 
 static void reset_client_request_data(client_t* client) {

@@ -234,11 +234,11 @@ static size_t sse_write_callback(char* ptr, size_t size, size_t nmemb, void* use
   beacon_watcher_state_t* state      = (beacon_watcher_state_t*) userdata;
   size_t                  total_size = size * nmemb;
 
-  log_debug("Beacon watcher received %zu bytes", total_size);
+  log_debug("Beacon watcher received %d bytes", (int) total_size);
 
   // Guard against writes after stop
   if (!state || !state->is_running) {
-    log_warn("Beacon watcher write after stop (dropping %zu bytes)", total_size);
+    log_warn("Beacon watcher write after stop (dropping %d bytes)", (int) total_size);
     return total_size; // swallow bytes to avoid curl error
   }
 
