@@ -161,7 +161,7 @@ int main(int argc, char* argv[]) {
           case 'i':
           case 'p':
             input = argv[++i];
-            if (input && strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
+            if (input && (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0)) {
               set_config("prover", input);
               input = NULL;
             }
@@ -210,7 +210,7 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&args, "]");
 
-  char* config = get_default_config(chain_name, &chain_id, NULL);
+  get_default_config(chain_name, &chain_id, NULL);
 
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);
