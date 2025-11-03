@@ -23,6 +23,7 @@
 
 #include "beacon_types.h"
 #include "bytes.h"
+#include "config.h"
 #include "crypto.h"
 #include "logger.h"
 #include "plugin.h"
@@ -123,19 +124,19 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
     fprintf(stderr, "  -p url of the prover\n");
     fprintf(stderr, "  -r rpc url\n");
+    fprintf(stderr, "  -h checkpointz url\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
   }
-#ifdef USE_CURL
-  char* rpc = "";
-#endif
   char*      method             = NULL;
   chain_id_t chain_id           = C4_CHAIN_MAINNET;
   buffer_t   args               = {0};
   char*      input              = NULL;
   char*      test_dir           = NULL;
+  char*      chain_name         = NULL;
   char*      output             = NULL;
+  char*      prover_url         = NULL;
   bytes32_t  trusted_checkpoint = {0};
   bool       has_checkpoint     = false;
   buffer_add_chars(&args, "[");
@@ -148,15 +149,23 @@ int main(int argc, char* argv[]) {
             c4_set_log_level(atoi(argv[++i]));
             break;
           case 'c':
-            chain_id = atoi(argv[++i]);
+            chain_name = argv[++i];
             break;
           case 'i':
           case 'p':
             input = argv[++i];
+            if (input && strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
+              set_config("prover", input);
+              prover_url = input;
+              input      = NULL;
+            }
             break;
 #ifdef USE_CURL
+          case 'h':
+            set_config("checkpointz", argv[++i]);
+            break;
           case 'r':
-            rpc = argv[++i];
+            set_config("eth_rpc", argv[++i]);
             break;
 #endif
           case 'b':
@@ -194,11 +203,17 @@ int main(int argc, char* argv[]) {
     }
   }
   buffer_add_chars(&args, "]");
-  if (input == NULL) {
-    input = getenv("C4_PROVER");
-    if (input == NULL)
-      input = "https://mainnet1.colibri-proof.tech";
+
+  char* config = get_default_config(chain_name, &chain_id, NULL);
+
+  if (!input && !prover_url) {
+    json_t prover = json_get(json_parse(config), "prover");
+    if (prover.type == JSON_TYPE_ARRAY) {
+      buffer_t buffer = {0};
+      prover_url      = json_as_string(json_at(prover, 0), &buffer);
+    }
   }
+
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);
   else if (c4_get_chain_state(chain_id).status == C4_STATE_SYNC_EMPTY) {
@@ -232,7 +247,7 @@ int main(int argc, char* argv[]) {
       fprintf(stderr, "method not supported: %s\n", method);
       exit(EXIT_FAILURE);
     case METHOD_PROOFABLE:
-      if (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
+      if (prover_url) {
 #ifdef USE_CURL
         char name[100];
         sprintf(name, "states_%d", (uint32_t) chain_id);
@@ -240,11 +255,7 @@ int main(int argc, char* argv[]) {
         storage_plugin_t storage;
         c4_get_storage_config(&storage);
         storage.get(name, &state);
-        request = read_from_prover(input, method, (char*) args.data.data, state.data, chain_id);
-
-        if (!rpc) rpc = bprintf(NULL, "%s%sunverified_rpc", input, input[strlen(input) - 1] == '/' ? "" : "/");
-
-        curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[\"%s\"]}", input, rpc)));
+        request = read_from_prover(prover_url, method, (char*) args.data.data, state.data, chain_id);
         buffer_free(&state);
         if (output) bytes_write(request, fopen(output, "w"), true);
 #else
