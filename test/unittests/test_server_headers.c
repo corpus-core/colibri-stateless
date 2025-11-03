@@ -1,5 +1,5 @@
 /*
- * Server tests for /eth/v1/beacon/headers/* (proxied via file mocks)
+ * Server tests for /eth/v1/beacon/headers/ (proxied via file mocks)
  */
 
 #include "unity.h"

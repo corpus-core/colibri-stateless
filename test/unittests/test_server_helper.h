@@ -65,7 +65,10 @@ static char* test_url_rewriter(const char* url, const char* payload) {
 // Set seed based on test name for deterministic behavior
 // Call this at the start of each test function to ensure consistent results
 // even when tests are commented out or reordered
+extern bool c4_watcher_check_block_number;
 static void c4_test_server_seed_for_test(const char* test_name) {
+  c4_watcher_check_block_number = false;
+
   // Generate deterministic seed from test name
   uint32_t seed = 42; // base seed
   if (test_name) {
