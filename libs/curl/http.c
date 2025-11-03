@@ -56,8 +56,8 @@ const char*         CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 #define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584\",\"https://ethereum-mainnet.core.chainstack.com/364e0a05996fe175eb1975ddc6e9147d\",\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\",\"https://rpc.ankr.com/eth/c14449317accec005863d22c7515f6b69667abb29ba2b5e099abf490bcb875b1\",\"https://eth.llamarpc.com\",\"https://rpc.payload.de\",\"https://ethereum-rpc.publicnode.com\"]," \
                        "\"beacon_api\":[\"https://ethereum-mainnet.core.chainstack.com/beacon/364e0a05996fe175eb1975ddc6e9147d/\",\"http://unstable.mainnet.beacon-api.nimbus.team/\",\"https://lodestar-mainnet.chainsafe.io/\"],"                                                                                                                                                                                                                                                                                                                                         \
                        "\"checkpointz\":[\"https://sync-mainnet.beaconcha.in\",\"https://beaconstate.info\",\"https://sync.invis.tools\",\"https://beaconstate.ethstaker.cc\"]}"
-static void
-init_config() {
+
+static void init_config() {
   if (!bytes_all_zero(bytes(&curl_nodes, sizeof(curl_nodes)))) return;
   json_t config          = json_parse(DEFAULT_CONFIG);
   curl_nodes.eth_rpc     = json_dup(json_get(config, "eth_rpc"));
@@ -91,23 +91,47 @@ void curl_set_config(json_t config) {
   if ((nodes = json_get(config, "chain_store")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.chain_store, nodes);
 }
 
+static void add_nodes(buffer_t* buffer, json_t nodes) {
+  if (json_len(nodes) == 0) return;
+  if (buffer->data.len == 0)
+    buffer_append(buffer, bytes(nodes.start, nodes.len - 1));
+  else {
+    buffer_append(buffer, bytes(",", 1));
+    buffer_append(buffer, bytes(nodes.start + 1, nodes.len - 2));
+  }
+}
+
 static json_t get_nodes(data_request_type_t type) {
   init_config();
+  buffer_t buffer = {0};
 
   switch (type) {
     case C4_DATA_TYPE_ETH_RPC:
-      return curl_nodes.eth_rpc;
+      add_nodes(&buffer, curl_nodes.eth_rpc);
+      if (buffer.data.len == 0 && curl_nodes.prover.type == JSON_TYPE_ARRAY && curl_nodes.prover.len > 2)
+        bprintf(&buffer, "[\"%junverified_rpc\"", json_at(curl_nodes.prover, 0));
+      break;
     case C4_DATA_TYPE_BEACON_API:
-      return curl_nodes.beacon_api;
+      add_nodes(&buffer, curl_nodes.beacon_api);
+      add_nodes(&buffer, curl_nodes.prover);
+      break;
     case C4_DATA_TYPE_CHECKPOINTZ:
-      return curl_nodes.checkpointz;
+      add_nodes(&buffer, curl_nodes.checkpointz);
+      add_nodes(&buffer, curl_nodes.beacon_api);
+      add_nodes(&buffer, curl_nodes.prover);
+      break;
     case C4_DATA_TYPE_PROVER:
-      return curl_nodes.prover;
+      add_nodes(&buffer, curl_nodes.prover);
+      break;
     case C4_DATA_TYPE_INTERN:
       return curl_nodes.chain_store;
     default:
-      return (json_t) {0};
+      break;
   }
+  if (buffer.data.len == 0)
+    buffer_add_chars(&buffer, "[");
+  buffer_add_chars(&buffer, "]");
+  return (json_t) {.start = (char*) buffer.data.data, .len = buffer.data.len, .type = JSON_TYPE_ARRAY};
 }
 
 char*       cache_dir = NULL;
@@ -185,9 +209,13 @@ static bool configure_request(curl_request_t* creq) {
 #endif
   json_t servers = get_nodes(req->type);
 
-  if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) return_error(req, "Invalid servers in config");
+  if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) {
+    safe_free(servers.start);
+    return_error(req, "Invalid servers in config");
+  }
   int i = 0;
   if (req->type == C4_DATA_TYPE_REST_API) {
+    safe_free(servers.start);
     if (req->response_node_index) return_error(req, "Failed request");
     req->response_node_index = 1;
     creq->url                = strdup(req->url);
@@ -210,8 +238,11 @@ static bool configure_request(curl_request_t* creq) {
           buffer_add_chars(&url, req->url);
       }
       creq->url = (char*) url.data.data;
+      safe_free(servers.start);
       return true;
     }
+  safe_free(servers.start);
+
   return_error(req, "Failed request, no more nodes to try");
 }
 
@@ -391,7 +422,7 @@ void curl_fetch_all(c4_state_t* state) {
                 json_for_each_value(servers, server) {
                   node_count++;
                 }
-
+                safe_free(servers.start);
                 // If we have more nodes to try
                 if (creq->request->response_node_index < node_count) {
                   // Store this error as the last error

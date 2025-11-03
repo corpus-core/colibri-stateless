@@ -54,20 +54,14 @@ bool eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain) 
 
   // compute fork_data root hash to the seconf 32 bytes of bffer
   if (!chain) return false;
-  fork_id_t fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot - 1, chain));
-  chain->fork_version_func(chain_id, fork, buffer);                   // write fork_version as first 4 bytes into the buffer
-  if (!c4_chain_genesis_validators_root(chain_id, buffer + 4)) false; // add the genesis_validator_root as the the other 32 bytes to the buffer.
+  chain->fork_version_func(chain_id, c4_chain_fork_id(chain_id, epoch_for_slot(slot - 1, chain)), buffer); // write fork_version as first 4 bytes into the buffer
+  if (!c4_chain_genesis_validators_root(chain_id, buffer + 4)) false;                                      // add the genesis_validator_root as the the other 32 bytes to the buffer.
 
   ssz_hash_tree_root(ssz_ob(FORK_DATA_CONTAINER, bytes(buffer, 36)), base_digest); // calculate base_digest
 
-  if (fork > C4_FORK_FULU) {
-    // TODO: now we have to handle the blob_parameters to update the base_digest
-  }
-
   // build domain by replacing the first 4 bytes with the sync committee domain which creates the domain-data in the 2nd 32 bytes of buffer
-  domain[0] = 7;                       // Domain-Type SYNC_COMMITTEE
-  memset(domain, 0, 3);                // Domain-Type
-  memcpy(domain + 4, base_digest, 28); // last 28 bytes of the base_digest
+  memcpy(domain, "\x07\x00\x00\x00", 4); // Domain-Type SYNC_COMMITTEE                // Domain-Type
+  memcpy(domain + 4, base_digest, 28);   // last 28 bytes of the base_digest
   return true;
 }
 
