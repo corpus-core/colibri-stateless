@@ -267,7 +267,7 @@ static cache_entry_t* find_global_cache_entry(bytes32_t key) {
   uint64_t key_start = *((uint64_t*) key); // optimize cache-loop by first checking the first word before doing a memcmp
   for (size_t i = 0; i < global_cache_array.count; ++i) {
     cache_entry_t* entry = &global_cache_array.entries[i];
-    if (CACHE_KEY_MATCH(entry, key, key_start)) return entry; // Return pointer to the entry in the array
+    if (CACHE_KEY_MATCH(entry, key, key_start) && entry->timestamp > 0) return entry; // Return pointer to the entry in the array
   }
   return NULL; // Not found
 }

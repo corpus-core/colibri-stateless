@@ -80,6 +80,7 @@ c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, 
 c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type);
 c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result);
 #ifdef PROVER_CACHE
+c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number);
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx);
 void        c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root);
 #endif

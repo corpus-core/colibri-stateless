@@ -140,6 +140,10 @@ int main(int argc, char* argv[]) {
   char*      output             = NULL;
   bytes32_t  trusted_checkpoint = {0};
   bool       has_checkpoint     = false;
+  char*      rpc_url            = NULL;
+  char*      beacon_url         = NULL;
+  char*      checkpointz_url    = NULL;
+  char*      prover_url         = NULL;
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
 
@@ -162,16 +166,16 @@ int main(int argc, char* argv[]) {
           case 'p':
             input = argv[++i];
             if (input && (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0)) {
-              set_config("prover", input);
-              input = NULL;
+              prover_url = input;
+              input      = NULL;
             }
             break;
 #ifdef USE_CURL
           case 'x':
-            set_config("checkpointz", argv[++i]);
+            checkpointz_url = argv[++i];
             break;
           case 'r':
-            set_config("eth_rpc", argv[++i]);
+            rpc_url = argv[++i];
             break;
 #endif
           case 'b':
@@ -211,6 +215,10 @@ int main(int argc, char* argv[]) {
   buffer_add_chars(&args, "]");
 
   get_default_config(chain_name, &chain_id, NULL);
+  if (prover_url) set_config("prover", prover_url);
+  if (rpc_url) set_config("eth_rpc", rpc_url);
+  if (beacon_url) set_config("beacon_api", beacon_url);
+  if (checkpointz_url) set_config("checkpointz", checkpointz_url);
 
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);

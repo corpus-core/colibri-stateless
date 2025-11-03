@@ -52,6 +52,9 @@ static beacon_head_t* c4_beacon_cache_get_slot(prover_ctx_t* ctx, json_t block) 
   bytes32_t key = {0};
   create_cache_block_key(key, block);
   beacon_head_t* cached = (beacon_head_t*) c4_prover_cache_get(ctx, key);
+  if (strncmp(block.start, "\"latest\"", 8) == 0 && !cached) {
+    log_warn("Slatest block not found in cache, but it is requested! This should not happen!");
+  }
   if (cached && strncmp(block.start, "\"finalized\"", 12) == 0) return cached + 1;
   return cached;
 }
@@ -65,6 +68,27 @@ static bool c4_beacon_cache_get_blockdata(prover_ctx_t* ctx, bytes32_t block_roo
     return true;
   }
   return false;
+}
+
+c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number) {
+  beacon_block_t block    = {0};
+  uint8_t        tmp[100] = {0};
+  buffer_t       buf      = stack_buffer(tmp);
+  bytes32_t      key      = {0};
+  chain_spec_t*  chain    = c4_eth_get_chain_spec(ctx->chain_id);
+  if (chain == NULL) THROW_ERROR("unsupported chain id!");
+
+  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse(bprintf(&buf, "\"0x%lx\"", latest_block_number)), &block));
+
+  beacon_head_t head = {.slot = block.slot};
+  memcpy(head.root, block.data_block_root, 32);
+  bytes_t slot_data = bytes(&head, sizeof(beacon_head_t));
+  log_info("Setting latest block %l (0x%lx) in cache", latest_block_number, latest_block_number);
+
+  memcpy(key, "Slatest", 7);
+  c4_prover_cache_invalidate(key);                                                      // invalidate oldkey
+  c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, 20000, free); // set the new key
+  return C4_SUCCESS;
 }
 
 void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root) {
@@ -273,6 +297,9 @@ static inline c4_status_t eth_get_by_number(prover_ctx_t* ctx, uint64_t block_nu
   // if we have the blocknumber, we fetch the next block, since we know this is the signing block
   sbprintf(tmp, "\"0x%lx\"", block_number + 1);
   TRY_ASYNC(eth_get_block(ctx, (json_t) {.start = tmp, .len = strlen(tmp), .type = JSON_TYPE_STRING}, false, &eth_block));
+
+  if (eth_block.type == JSON_TYPE_NOT_FOUND || eth_block.type == JSON_TYPE_NULL)
+    THROW_ERROR_WITH("The Block after %l, which should contain the parentBeaconBlockRoot for the data block can not be found in the execution layer!", block_number);
 
   // get the beacon block matching the parent hash
   return get_beacon_header_from_eth_block(ctx, eth_block, &header, sig_root, data_root);

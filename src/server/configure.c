@@ -4,6 +4,7 @@
  */
 
 #include "../util/chains.h"
+#include "logger.h"
 #include "server.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -170,6 +171,8 @@ void c4_configure(int argc, char* argv[]) {
     }
   }
   buffer_free(&help_buffer);
+
+  c4_set_log_level(http_server.loglevel);
 }
 
 // Trim whitespace from both ends of a string
@@ -489,7 +492,7 @@ static void config() {
   http_server.memcached_host                   = ""; // Empty by default - memcached is optional
   http_server.memcached_port                   = 11211;
   http_server.memcached_pool                   = 20;
-  http_server.loglevel                         = 0;
+  http_server.loglevel                         = LOG_WARN;
   http_server.req_timeout                      = 120;
   http_server.chain_id                         = 1;
   http_server.rpc_nodes                        = "https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/,https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S,https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd";
@@ -520,7 +523,7 @@ static void config() {
   get_key(http_server.witness_key, "WITNESS_KEY", "witness_key", 'w', "hexcode or path to a private key used as signer for the witness");
   get_int(&http_server.memcached_port, "MEMCACHED_PORT", "memcached_port", 'P', "port of the memcached server", 1, 65535);
   get_int(&http_server.memcached_pool, "MEMCACHED_POOL", "memcached_pool", 'S', "pool size of the memcached server", 1, 100);
-  get_int(&http_server.loglevel, "LOG_LEVEL", "log_level", 'l', "log level", 0, 3);
+  get_int(&http_server.loglevel, "LOG_LEVEL", "log_level", 'l', "log level", 0, 5);
   get_int(&http_server.req_timeout, "REQUEST_TIMEOUT", "req_timeout", 't', "request timeout", 1, 300);
   get_int(&http_server.chain_id, "CHAIN_ID", "chain_id", 'c', "chain id", 1, 0xFFFFFFF);
   get_string(&http_server.rpc_nodes, "RPC", "rpc", 'r', "list of rpc endpoints");
