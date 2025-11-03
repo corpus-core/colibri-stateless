@@ -223,12 +223,13 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
   memcpy(beacon_block->sign_parent_root, root_hash.data, 32);
 
   c4_beacon_cache_update_blockdata(ctx, beacon_block, 0, root_hash.data);
+  uint64_t beacon_block_number = ssz_get_uint64(&beacon_block->execution, "blockNumber");
 
   // Free the original beacon_block after cache update (cache made its own copy)
   safe_free(beacon_block);
 
   // now set the latest block number
-  uint64_t latest_block_number = json_as_uint64(latest_block);
+  uint64_t latest_block_number = min64(beacon_block_number, json_as_uint64(latest_block));
   if (latest_block_number)
     TRY_ASYNC(c4_set_latest_block(ctx, latest_block_number));
 
