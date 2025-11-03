@@ -21,6 +21,8 @@
 #include <time.h>
 #include <uv.h>
 
+bool c4_watcher_check_block_number = true;
+
 static void prover_request_free(request_t* req) {
   c4_prover_free((prover_ctx_t*) req->ctx);
   safe_free(req);
@@ -205,7 +207,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
 
   // fetch the requests
   TRY_ADD_ASYNC(status, c4_eth_get_signblock_and_parent(ctx, b->root, NULL, &sig_block, &data_block, data_root));
-  c4_status_t latest_status = c4_send_eth_rpc(ctx, "eth_blockNumber", "[]", 0, &latest_block);
+  c4_status_t latest_status = c4_watcher_check_block_number ? c4_send_eth_rpc(ctx, "eth_blockNumber", "[]", 0, &latest_block) : C4_SUCCESS;
   if (latest_status == C4_PENDING && ctx->state.requests->type == C4_DATA_TYPE_ETH_RPC) ctx->state.requests->node_exclude_mask = (uint16_t) (0xFFFF - 1); // exclude all, but the first node, because we always wnat to get the latest from the first.
   TRY_ADD_ASYNC(status, latest_status);
   TRY_ASYNC(status);
@@ -229,7 +231,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
   safe_free(beacon_block);
 
   // now set the latest block number
-  uint64_t latest_block_number = min64(beacon_block_number, json_as_uint64(latest_block));
+  uint64_t latest_block_number = min64(beacon_block_number, c4_watcher_check_block_number ? json_as_uint64(latest_block) : beacon_block_number);
   if (latest_block_number)
     TRY_ASYNC(c4_set_latest_block(ctx, latest_block_number));
 
