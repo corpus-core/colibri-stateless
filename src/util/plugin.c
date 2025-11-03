@@ -32,14 +32,15 @@
 
 storage_plugin_t storage_conf = {0};
 #ifdef FILE_STORAGE
+char* state_data_dir = NULL;
 
 static char* combine_filename(char* name) {
-  const char* base_path = getenv("C4_STATES_DIR");
-  if (base_path != NULL) {
-    buffer_t buf = {0};
-    bprintf(&buf, "%s/%s", base_path, name);
-    return (char*) buf.data.data; // Transfer ownership
-  }
+  if (state_data_dir == NULL)
+    state_data_dir = getenv("C4_STATES_DIR");
+  if (state_data_dir == NULL)
+    state_data_dir = ".";
+  if (strcmp(state_data_dir, "."))
+    return bprintf(NULL, "%s/%s", state_data_dir, name);
   else
     return strdup(name);
 }

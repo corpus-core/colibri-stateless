@@ -19,10 +19,6 @@
 #
 # SPDX-License-Identifier: MIT
 
-option(FILE_STORAGE "if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR" ON)
-if(FILE_STORAGE AND NOT WASM)
-    add_definitions(-DFILE_STORAGE)
-endif()
 
 
 option(PRECOMPILE_ZERO_HASHES "Enable precomputed zero hashes cache (1 KB RAM). Required for ETH_BLOCK verification but not needed for light client sync. Disable for embedded devices to save memory." ON)
