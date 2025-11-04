@@ -32,6 +32,16 @@ static bool bytes_contains_string(bytes_t data, const char* needle) {
 #endif
 }
 
+// Quick helper: check if a JSON-RPC request is for a specific method without full parse
+static bool req_is_method(data_request_t* req, const char* method_name) {
+  if (!req || req->type != C4_DATA_TYPE_ETH_RPC || !req->payload.data || req->payload.len == 0 || !method_name) return false;
+  // Look for a compact pattern to avoid allocating: "method":"<name>"
+  char pattern[128];
+  int  n = snprintf(pattern, sizeof(pattern), "\"method\":\"%s\"", method_name);
+  if (n <= 0 || (size_t) n >= sizeof(pattern)) return false;
+  return bytes_contains_string(req->payload, pattern);
+}
+
 // Helper function to set JSON-RPC error message from error object
 static void set_jsonrpc_error_message(data_request_t* req, json_t error, int error_code, const char* prefix) {
   if (req->error) return; // Don't overwrite existing error
@@ -110,6 +120,16 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
             bytes_contains_string(msg_bytes, "wrong")) {
           return C4_RESPONSE_ERROR_USER;
         }
+        // eth_getProof specific: providers that don't serve historical proofs
+        if (req_is_method(req, "eth_getProof") && (bytes_contains_string(msg_bytes, "distance to target block exceeds maximum proof window") ||
+                                                   bytes_contains_string(msg_bytes, "proof window") ||
+                                                   bytes_contains_string(msg_bytes, "only latest state") ||
+                                                   bytes_contains_string(msg_bytes, "state not available") ||
+                                                   bytes_contains_string(msg_bytes, "state unavailable") ||
+                                                   bytes_contains_string(msg_bytes, "proofs are only available for latest"))) {
+          set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available for requested state");
+          return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
+        }
       }
       // Other -32602 errors might be server incompatibility - retry
       set_jsonrpc_error_message(req, error, error_code, "JSON-RPC invalid params");
@@ -135,6 +155,15 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
             bytes_contains_string(msg_bytes, "method not supported") ||
             bytes_contains_string(msg_bytes, "feature not enabled")) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available on current tier");
+          return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
+        }
+        // eth_getProof: historical state not served → treat as method-not-supported for this provider
+        if (req_is_method(req, "eth_getProof") && (bytes_contains_string(msg_bytes, "distance to target block exceeds maximum proof window") ||
+                                                   bytes_contains_string(msg_bytes, "proof window") ||
+                                                   bytes_contains_string(msg_bytes, "only latest state") ||
+                                                   bytes_contains_string(msg_bytes, "state not available") ||
+                                                   bytes_contains_string(msg_bytes, "state unavailable"))) {
+          set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available for requested state");
           return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
         }
         // Sync-related errors - retryable
