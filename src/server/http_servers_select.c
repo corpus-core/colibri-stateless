@@ -9,6 +9,7 @@
 #include "prover.h"
 #include "server.h"
 #include "server_handlers.h"
+#include "util/chain_props.h"
 #include "util/json.h"
 #include "util/logger.h"
 #include <math.h>
@@ -19,11 +20,11 @@
 
 // Constants for load balancing
 #define MAX_CONSECUTIVE_FAILURES   2
-#define HEALTH_CHECK_PENALTY       0.5    // Weight penalty for unhealthy servers
-#define MIN_WEIGHT                 0.1    // Minimum weight to avoid division by zero
-#define USER_ERROR_RESET_THRESHOLD 0.8    // If 80%+ servers are unhealthy, assume user error
-#define RECOVERY_TIMEOUT_MS        60000  // 60 seconds before allowing recovery attempts
-#define RECOVERY_SUCCESS_THRESHOLD 5      // Number of successful requests from other servers before allowing recovery
+#define HEALTH_CHECK_PENALTY       0.5   // Weight penalty for unhealthy servers
+#define MIN_WEIGHT                 0.1   // Minimum weight to avoid division by zero
+#define USER_ERROR_RESET_THRESHOLD 0.8   // If 80%+ servers are unhealthy, assume user error
+#define RECOVERY_TIMEOUT_MS        60000 // 60 seconds before allowing recovery attempts
+#define RECOVERY_SUCCESS_THRESHOLD 5     // Number of successful requests from other servers before allowing recovery
 
 // Check if too many servers are unhealthy (indicating potential user error)
 bool c4_should_reset_health_stats(server_list_t* servers) {
@@ -437,7 +438,27 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
 }
 
 // Select best server for a specific RPC method, excluding servers that don't support it
-int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method) {
+// Estimate whether a server likely has the requested block; returns factor [0..1]
+static double c4_block_factor_for(server_list_t* servers, int idx, uint64_t requested_block, bool has_block) {
+  if (!has_block || !servers || idx < 0 || idx >= (int) servers->count) return 1.0;
+  server_health_t* h = &servers->health_stats[idx];
+  if (h->latest_block == 0 || h->head_last_seen_ms == 0) return 1.0;
+  // Predict head using chain-specific block time
+  uint64_t           now_ms        = current_ms();
+  uint64_t           elapsed_ms    = (now_ms > h->head_last_seen_ms) ? (now_ms - h->head_last_seen_ms) : 0;
+  chain_properties_t props         = {0};
+  uint64_t           block_time_ms = 0;
+  if (c4_chains_get_props(http_server.chain_id, &props)) block_time_ms = props.block_time;
+  if (block_time_ms == 0) block_time_ms = 12000;
+  uint64_t predicted_head = h->latest_block + (elapsed_ms / block_time_ms);
+  if (requested_block <= predicted_head) return 1.0; // older blocks very likely available
+  uint64_t delta = requested_block - predicted_head;
+  if (delta == 1) return 0.5; // soft penalty when just one ahead
+  if (delta == 2) return 0.2; // stronger penalty
+  return 0.0;                 // treat as effectively unavailable
+}
+
+int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method, uint64_t requested_block, bool has_block) {
   if (!servers || servers->count == 0) return -1;
 
   // If no method specified, fall back to regular selection
@@ -464,27 +485,27 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
   double total_weight = 0.0;
   for (size_t i = 0; i < servers->count; i++) {
     if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && c4_matches_client_type(servers, preferred_client_type, i))
-      total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+      total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
   }
 
   if (total_weight <= 0.0 && preferred_client_type != 0) {
     for (size_t i = 0; i < servers->count; i++) {
       if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy)
-        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
     }
   }
 
   if (total_weight <= 0.0) {
     for (size_t i = 0; i < servers->count; i++) {
       if (!(method_exclude_mask & (1 << i)) && (preferred_client_type == 0 || c4_matches_client_type(servers, preferred_client_type, i)))
-        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
     }
   }
 
   if (total_weight <= 0.0) {
     for (size_t i = 0; i < servers->count; i++) {
       if (!(method_exclude_mask & (1 << i))) {
-        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
       }
     }
   }
@@ -505,7 +526,7 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
 
   for (size_t i = 0; i < servers->count; i++) {
     if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && c4_matches_client_type(servers, preferred_client_type, i)) {
-      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
       current_weight += w;
       if (current_weight >= random_value) return (int) i;
     }
@@ -514,7 +535,7 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
   if (preferred_client_type != 0) {
     for (size_t i = 0; i < servers->count; i++) {
       if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && !c4_matches_client_type(servers, preferred_client_type, i)) {
-        double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+        double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
         current_weight += w;
         if (current_weight >= random_value) return (int) i;
       }
@@ -524,7 +545,7 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
   for (size_t i = 0; i < servers->count; i++) {
     if (!(method_exclude_mask & (1 << i)) && !servers->health_stats[i].is_healthy &&
         (preferred_client_type == 0 || c4_matches_client_type(servers, preferred_client_type, i))) {
-      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
       current_weight += w;
       if (current_weight >= random_value) return (int) i;
     }
@@ -532,7 +553,7 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
 
   for (size_t i = 0; i < servers->count; i++) {
     if (!(method_exclude_mask & (1 << i))) {
-      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
       current_weight += w;
       if (current_weight >= random_value) {
         return (int) i;
@@ -1014,10 +1035,10 @@ void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
   if (!success) {
     bool hard_error = (http_code == 0) || (http_code >= 500);
     if (hard_error || (cls == C4_RESPONSE_ERROR_RETRY && h->consecutive_failures >= 1)) {
-      h->is_healthy           = false;
-      h->recovery_allowed     = false;
-      h->marked_unhealthy_at  = now;
-      h->weight              *= 0.1; // heavy penalty immediately
+      h->is_healthy          = false;
+      h->recovery_allowed    = false;
+      h->marked_unhealthy_at = now;
+      h->weight *= 0.1; // heavy penalty immediately
     }
   }
   if (h->last_adjust_ms == 0 || (int64_t) (now - h->last_adjust_ms) >= http_server.conc_cooldown_ms) {

@@ -96,6 +96,18 @@ extern const chain_id_t C4_CHAIN_BOLT_DEVNET;
 extern const chain_id_t C4_CHAIN_BOLT_STAGING;
 extern const chain_id_t C4_CHAIN_BOLT_MAINNET;
 
+// Generic chain properties (extensible)
+typedef struct {
+  uint64_t     block_time; // in ms
+  char*        chain_name;
+  chain_type_t chain_type;
+  chain_id_t   id;
+  uint32_t     flags; // reserved
+} chain_properties_t;
+
+// returns true if the chain_id is known and the properties have been set
+static inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* props);
+
 chain_type_t c4_chain_type(chain_id_t chain_id);
 uint64_t     c4_chain_specific_id(chain_id_t chain_id);
 #ifdef __cplusplus

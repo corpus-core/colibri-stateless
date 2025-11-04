@@ -34,6 +34,44 @@ function(add_verifier)
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
 endfunction()
 
+# Chain properties registration and header generation
+function(add_chain_props)
+    set(options "")
+    set(oneValueArgs FUNC)
+    set(multiValueArgs "")
+    cmake_parse_arguments(CHAINP "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    get_property(CURRENT CACHE CHAIN_PROPS_PROPERTIES PROPERTY VALUE)
+    list(APPEND CURRENT "${CHAINP_FUNC}")
+    set(CHAIN_PROPS_PROPERTIES "${CURRENT}" CACHE INTERNAL "List of chain props provider functions" FORCE)
+endfunction()
+
+function(generate_chain_props_header)
+    set(CHAIN_PROPS_H "${CMAKE_BINARY_DIR}/chain_props.h")
+    file(WRITE ${CHAIN_PROPS_H} "#ifndef CHAIN_PROPS_H\n")
+    file(APPEND ${CHAIN_PROPS_H} "#define CHAIN_PROPS_H\n\n")
+    file(APPEND ${CHAIN_PROPS_H} "#include \"util/chains.h\"\n\n")
+
+    # Deduplicate providers to avoid duplicate calls/prototypes
+    set(UNIQ_CHAIN_PROPS ${CHAIN_PROPS_PROPERTIES})
+    list(REMOVE_DUPLICATES UNIQ_CHAIN_PROPS)
+
+    foreach(func ${UNIQ_CHAIN_PROPS})
+        if(NOT "${func}" STREQUAL "")
+            file(APPEND ${CHAIN_PROPS_H} "bool ${func}(chain_id_t chain_id, chain_properties_t* props);\n")
+        endif()
+    endforeach()
+
+    file(APPEND ${CHAIN_PROPS_H} "\nstatic inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* out_props) {\n  if (!out_props) return false;\n#ifdef HTTP_SERVER\n")
+    foreach(func ${UNIQ_CHAIN_PROPS})
+        if(NOT "${func}" STREQUAL "")
+          file(APPEND ${CHAIN_PROPS_H} "  if (${func}(chain_id, out_props)) return true;\n")
+        endif()
+    endforeach()
+    file(APPEND ${CHAIN_PROPS_H} "#endif\n")
+    file(APPEND ${CHAIN_PROPS_H} "  return false;\n}\n\n")
+    file(APPEND ${CHAIN_PROPS_H} "#endif // CHAIN_PROPS_H\n")
+endfunction()
+
 function(add_prover)
     # Only process if PROVER is enabled
     if(NOT PROVER)
