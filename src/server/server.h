@@ -317,6 +317,7 @@ void                 c4_detect_server_client_types(server_list_t* servers, data_
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type);
 const char*          c4_client_type_to_name(beacon_client_type_t client_type, http_server_t* http_server);
 bool                 c4_start_rpc_head_poller(server_list_t* servers);
+void                 c4_stop_rpc_head_poller(void);
 
 // handle client type adjustments
 char*                   c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);

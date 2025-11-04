@@ -200,6 +200,9 @@ void c4_server_stop(server_instance_t* instance) {
 
   c4_server_handlers_shutdown(&http_server);
 
+  // Stop head poller to avoid lingering libuv handles
+  c4_stop_rpc_head_poller();
+
   // Stop and close timers
   uv_timer_stop(&instance->prover_cleanup_timer);
   uv_close((uv_handle_t*) &instance->prover_cleanup_timer, NULL);

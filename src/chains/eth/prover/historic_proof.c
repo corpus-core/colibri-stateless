@@ -302,7 +302,7 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
     if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > UPDATE_PREFIX_SIZE) break;
 
     bytes_t   client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
-    fork_id_t fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
+    fork_id_t fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
     ssz_ob_t  update              = {.bytes = client_update_bytes, .def = eth_get_light_client_update(fork)};
     if (!update.def) THROW_ERROR("Invalid update data!");
 
