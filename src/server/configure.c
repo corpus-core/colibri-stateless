@@ -509,6 +509,19 @@ static void config() {
   // Web UI (disabled by default for security)
   http_server.web_ui_enabled = 0;
 
+  // Heuristic load-balancing defaults
+  http_server.max_concurrency_default    = 8;
+  http_server.max_concurrency_cap        = 64;
+  http_server.latency_target_ms          = 200;
+  http_server.conc_cooldown_ms           = 30000;
+  http_server.overflow_slots             = 1;
+  http_server.saturation_wait_ms         = 100;
+  http_server.method_stats_half_life_sec = 60;
+  http_server.block_availability_window  = 512;
+  http_server.block_availability_ttl_sec = 300;
+  http_server.rpc_head_poll_interval_ms  = 6000;
+  http_server.rpc_head_poll_enabled      = 1;
+
 #ifdef TEST
   http_server.test_dir = NULL;
 #endif
@@ -538,6 +551,19 @@ static void config() {
   // preconf_use_gossip option removed - now using automatic HTTP fallback
 
   get_int(&http_server.web_ui_enabled, "WEB_UI_ENABLED", "web_ui_enabled", 'u', "enable web-based configuration UI (0=disabled, 1=enabled)", 0, 1);
+
+  // Heuristic load-balancing configuration (ENV/args)
+  get_int(&http_server.max_concurrency_default, "C4_MAX_CONCURRENCY_DEFAULT", "max_concurrency_default", 'M', "default per-server max concurrency", 1, 4096);
+  get_int(&http_server.max_concurrency_cap, "C4_MAX_CONCURRENCY_CAP", "max_concurrency_cap", 'K', "cap for dynamic concurrency", 1, 65535);
+  get_int(&http_server.latency_target_ms, "C4_LATENCY_TARGET_MS", "latency_target_ms", 'L', "target latency for AIMD (ms)", 10, 100000);
+  get_int(&http_server.conc_cooldown_ms, "C4_CONC_COOLDOWN_MS", "conc_cooldown_ms", 'o', "cooldown for concurrency adjustments (ms)", 0, 600000);
+  get_int(&http_server.overflow_slots, "C4_OVERFLOW_SLOTS", "overflow_slots", 'v', "overflow slots per server when saturated", 0, 16);
+  get_int(&http_server.saturation_wait_ms, "C4_SATURATION_WAIT_MS", "saturation_wait_ms", 'W', "short wait on saturation before overflow (ms)", 0, 10000);
+  get_int(&http_server.method_stats_half_life_sec, "C4_METHOD_STATS_HALF_LIFE_SEC", "method_stats_half_life_sec", 'H', "half-life for method stats (sec)", 1, 3600);
+  get_int(&http_server.block_availability_window, "C4_BLOCK_AVAIL_WINDOW", "block_availability_window", 'B', "block availability window size", 64, 8192);
+  get_int(&http_server.block_availability_ttl_sec, "C4_BLOCK_AVAIL_TTL_SEC", "block_availability_ttl_sec", 'J', "block availability TTL (sec)", 10, 86400);
+  get_int(&http_server.rpc_head_poll_interval_ms, "C4_RPC_HEAD_POLL_INTERVAL_MS", "rpc_head_poll_interval_ms", 'q', "interval for eth_blockNumber polling (ms)", 500, 60000);
+  get_int(&http_server.rpc_head_poll_enabled, "C4_RPC_HEAD_POLL_ENABLED", "rpc_head_poll_enabled", 'Q', "enable head polling (0/1)", 0, 1);
 
 #ifdef TEST
   get_string(&http_server.test_dir, "TEST_DIR", "test_dir", 'x', "TEST MODE: record all responses to TESTDATA_DIR/server/<test_dir>/");

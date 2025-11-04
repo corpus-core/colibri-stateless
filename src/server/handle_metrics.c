@@ -476,6 +476,27 @@ static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t typ
     bprintf(data, "colibri_server_weight{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
             type_name, server_name, i, health->weight);
 
+    // Inflight and max concurrency
+    bprintf(data, "colibri_server_inflight{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+            type_name, server_name, i, (uint64_t) health->inflight);
+    bprintf(data, "colibri_server_max_concurrency{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+            type_name, server_name, i, (uint64_t) health->max_concurrency);
+
+    // EWMA latency
+    bprintf(data, "colibri_server_ewma_latency_ms{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
+            type_name, server_name, i, health->ewma_latency_ms);
+
+    // Capacity factor (derived)
+    uint32_t max_c      = health->max_concurrency > 0 ? health->max_concurrency : 1;
+    uint32_t infl       = health->inflight;
+    double   cap_factor = ((double) ((max_c > infl ? (max_c - infl) : 0) + 1)) / ((double) (max_c + 1));
+    bprintf(data, "colibri_server_capacity_factor{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
+            type_name, server_name, i, cap_factor);
+
+    // Recent rate-limit flag
+    bprintf(data, "colibri_server_rate_limited_recent{type=\"%s\",server=\"%s\",index=\"%l\"} %d\n",
+            type_name, server_name, i, health->rate_limited_recent ? 1 : 0);
+
     // Success rate (0.0 to 1.0)
     bprintf(data, "colibri_server_success_rate{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
             type_name, server_name, i, success_rate);
@@ -521,6 +542,12 @@ static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t typ
     // Human-readable client type (1=detected, 0=unknown/not detected)
     bprintf(data, "colibri_server_client_info{type=\"%s\",server=\"%s\",index=\"%l\",client=\"%s\"} %d\n",
             type_name, server_name, i, client_name, client_type != 0 ? 1 : 0);
+
+    // Estimated head (only meaningful for ETH RPC)
+    if (strcmp(type_name, "eth") == 0) {
+      bprintf(data, "colibri_server_estimated_head{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+              type_name, server_name, i, health->latest_block);
+    }
   }
 }
 

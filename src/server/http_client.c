@@ -400,7 +400,14 @@ static void handle_curl_events() {
     bool health_success = (response_type == C4_RESPONSE_SUCCESS ||
                            response_type == C4_RESPONSE_ERROR_USER ||
                            response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED);
-    c4_update_server_health(servers, r->req->response_node_index, response_time, health_success);
+    // Update via unified end hook (also adjusts AIMD and method stats)
+    {
+      char* rpc_method = extract_rpc_method(r->req);
+      c4_on_request_end(servers, r->req->response_node_index, response_time,
+                        health_success, response_type, http_code,
+                        rpc_method, NULL);
+      if (rpc_method) safe_free(rpc_method);
+    }
 
     // Handle method not supported errors
     if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
@@ -857,6 +864,8 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     // Configure SSL settings for this easy handle
     configure_ssl_settings(easy);
 
+    // Mark request start for concurrency tracking (best-effort)
+    c4_on_request_start(servers, selected_index, /*allow_overflow=*/true);
     curl_multi_add_handle(multi_handle, easy);
     //    fprintf(stderr, "send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     // callback will be called when the request by handle_curl_events when all are done.
@@ -1041,6 +1050,8 @@ void c4_init_curl(uv_timer_t* timer) {
   // Auto-detect client types for servers without explicit configuration
   c4_detect_server_client_types(&eth_rpc_servers, C4_DATA_TYPE_ETH_RPC);
   c4_detect_server_client_types(&beacon_api_servers, C4_DATA_TYPE_BEACON_API);
+  // Start RPC head polling (optional, based on ENV)
+  c4_start_rpc_head_poller(&eth_rpc_servers);
 }
 
 static void free_server_list(server_list_t* list) {

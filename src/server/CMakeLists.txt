@@ -43,6 +43,7 @@ add_library(serverlib STATIC
   http_client.c
   http_client_errors.c
   http_servers_select.c
+  http_head_poller.c
   http_server.c
   handle_proof.c
   handle_verify.c

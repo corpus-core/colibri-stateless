@@ -178,6 +178,21 @@ void c4_calculate_server_weights(server_list_t* servers) {
     if (time_since_last_use > 10000) { // 10 seconds
       health->weight *= 1.1;           // Small bonus for unused servers
     }
+
+    // Incorporate capacity factor based on current inflight vs. max_concurrency
+    // capacity_factor = (available + 1) / (max + 1) to avoid zeroing
+    uint32_t max_c           = health->max_concurrency > 0 ? health->max_concurrency : 1;
+    uint32_t infl            = health->inflight;
+    double   capacity_factor = ((double) ((max_c > infl ? (max_c - infl) : 0) + 1)) / ((double) (max_c + 1));
+    health->weight *= capacity_factor;
+
+    // Optional small staleness penalty if head polling is enabled and data is stale
+    if (http_server.rpc_head_poll_enabled && health->latest_block > 0 && health->head_last_seen_ms > 0) {
+      uint64_t stale_ms = current_time - health->head_last_seen_ms;
+      if (stale_ms > 15000) { // 15s stale
+        health->weight *= 0.9;
+      }
+    }
   }
 }
 
@@ -227,6 +242,43 @@ void c4_attempt_server_recovery(server_list_t* servers) {
       }
     }
   }
+}
+
+// Method factor helper at file scope (used by method-aware selection)
+static double c4_method_factor_for(server_list_t* s, int i, const char* m) {
+  if (!s || i < 0 || i >= (int) s->count) return 1.0;
+  server_health_t* h      = &s->health_stats[i];
+  double           factor = 1.0;
+  if (h->rate_limited_recent && h->rate_limited_at_ms > 0 && current_ms() - h->rate_limited_at_ms < 60000) {
+    factor *= 0.8;
+  }
+  if (http_server.rpc_head_poll_enabled && h->head_last_seen_ms > 0) {
+    uint64_t stale_ms = current_ms() - h->head_last_seen_ms;
+    if (stale_ms > 15000) factor *= 0.9;
+  }
+  if (m && h->method_stats) {
+    method_stats_t* ms = h->method_stats;
+    while (ms) {
+      if (strcmp(ms->name, m) == 0) {
+        double nf = ms->not_found_ewma;
+        if (nf > 0.0) {
+          double pen = 1.0 - fmin(0.9, nf * 0.7);
+          factor *= pen;
+        }
+        if (ms->rate_limited_recent) factor *= 0.85;
+        break;
+      }
+      ms = ms->next;
+    }
+  }
+  return factor;
+}
+
+static bool c4_matches_client_type(server_list_t* servers, uint32_t preferred_client_type, size_t i) {
+  return ((preferred_client_type == 0) ||
+          (!servers->client_types) ||
+          (servers->client_types[i] & preferred_client_type) ||
+          (servers->client_types[i] == 0));
 }
 
 // Check if all servers are effectively unavailable (emergency reset condition)
@@ -406,8 +458,95 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
     return c4_select_best_server(servers, exclude_mask, preferred_client_type);
   }
 
-  // Use regular server selection with extended exclude mask
-  return c4_select_best_server(servers, method_exclude_mask, preferred_client_type);
+  // Method-aware selection: weight each candidate by a method-specific factor
+
+  // Selection mirrors c4_select_best_server, but with method factors folded in
+  double total_weight = 0.0;
+  for (size_t i = 0; i < servers->count; i++) {
+    if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && c4_matches_client_type(servers, preferred_client_type, i))
+      total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+  }
+
+  if (total_weight <= 0.0 && preferred_client_type != 0) {
+    for (size_t i = 0; i < servers->count; i++) {
+      if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy)
+        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+    }
+  }
+
+  if (total_weight <= 0.0) {
+    for (size_t i = 0; i < servers->count; i++) {
+      if (!(method_exclude_mask & (1 << i)) && (preferred_client_type == 0 || c4_matches_client_type(servers, preferred_client_type, i)))
+        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+    }
+  }
+
+  if (total_weight <= 0.0) {
+    for (size_t i = 0; i < servers->count; i++) {
+      if (!(method_exclude_mask & (1 << i))) {
+        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+      }
+    }
+  }
+
+  if (total_weight <= 0.0) {
+    for (size_t i = 0; i < servers->count; i++) {
+      int idx = (servers->next_index + i) % servers->count;
+      if (!(method_exclude_mask & (1 << idx))) {
+        servers->next_index = (idx + 1) % servers->count;
+        return idx;
+      }
+    }
+    return -1;
+  }
+
+  double random_value   = ((double) rand() / RAND_MAX) * total_weight;
+  double current_weight = 0.0;
+
+  for (size_t i = 0; i < servers->count; i++) {
+    if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && c4_matches_client_type(servers, preferred_client_type, i)) {
+      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+      current_weight += w;
+      if (current_weight >= random_value) return (int) i;
+    }
+  }
+
+  if (preferred_client_type != 0) {
+    for (size_t i = 0; i < servers->count; i++) {
+      if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && !c4_matches_client_type(servers, preferred_client_type, i)) {
+        double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+        current_weight += w;
+        if (current_weight >= random_value) return (int) i;
+      }
+    }
+  }
+
+  for (size_t i = 0; i < servers->count; i++) {
+    if (!(method_exclude_mask & (1 << i)) && !servers->health_stats[i].is_healthy &&
+        (preferred_client_type == 0 || c4_matches_client_type(servers, preferred_client_type, i))) {
+      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+      current_weight += w;
+      if (current_weight >= random_value) return (int) i;
+    }
+  }
+
+  for (size_t i = 0; i < servers->count; i++) {
+    if (!(method_exclude_mask & (1 << i))) {
+      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method);
+      current_weight += w;
+      if (current_weight >= random_value) {
+        return (int) i;
+      }
+    }
+  }
+
+  for (size_t i = 0; i < servers->count; i++) {
+    if (!(method_exclude_mask & (1 << i))) {
+      return (int) i;
+    }
+  }
+
+  return -1;
 }
 
 // Case-insensitive string search helper
@@ -546,6 +685,17 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
     list->health_stats[count].weight              = 1.0;
     list->health_stats[count].last_used           = current_ms();
     list->health_stats[count].marked_unhealthy_at = 0;
+    // Initialize dynamic capacity / latency / head fields
+    list->health_stats[count].inflight            = 0;
+    list->health_stats[count].max_concurrency     = (uint32_t) (http_server.max_concurrency_default > 0 ? http_server.max_concurrency_default : 1);
+    list->health_stats[count].min_concurrency     = 1;
+    list->health_stats[count].ewma_latency_ms     = 100.0;
+    list->health_stats[count].last_adjust_ms      = 0;
+    list->health_stats[count].rate_limited_recent = false;
+    list->health_stats[count].rate_limited_at_ms  = 0;
+    list->health_stats[count].latest_block        = 0;
+    list->health_stats[count].head_last_seen_ms   = 0;
+    list->health_stats[count].method_stats        = NULL;
     list->client_types[count]                     = client_type;
 
     count++;
@@ -754,6 +904,8 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
   fprintf(stderr, ":: Client type detection completed\n");
 }
 
+// (Head-Poller ausgelagert nach src/server/http_head_poller.c)
+
 // Update server health statistics
 void c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success) {
   if (!servers || !servers->health_stats || server_index < 0 || server_index >= servers->count) return;
@@ -781,6 +933,106 @@ void c4_update_server_health(server_list_t* servers, int server_index, uint64_t 
   // Attempt server recovery periodically
   if (health->total_requests % 20 == 0) {
     c4_attempt_server_recovery(servers);
+  }
+}
+
+// ---- Concurrency lifecycle hooks and AIMD adjustment ----
+static method_stats_t* c4_get_or_create_method_stats(server_health_t* health, const char* method) {
+  if (!health || !method) return NULL;
+  method_stats_t* cur = health->method_stats;
+  while (cur) {
+    if (strcmp(cur->name, method) == 0) return cur;
+    cur = cur->next;
+  }
+  method_stats_t* m      = (method_stats_t*) safe_calloc(1, sizeof(method_stats_t));
+  m->name                = strdup(method);
+  m->ewma_latency_ms     = 0.0;
+  m->success_ewma        = 0.0;
+  m->not_found_ewma      = 0.0;
+  m->rate_limited_recent = false;
+  m->last_update_ms      = current_ms();
+  m->next                = health->method_stats;
+  health->method_stats   = m;
+  return m;
+}
+
+bool c4_on_request_start(server_list_t* servers, int idx, bool allow_overflow) {
+  if (!servers || idx < 0 || idx >= (int) servers->count) return false;
+  server_health_t* h     = &servers->health_stats[idx];
+  uint32_t         max_c = h->max_concurrency > 0 ? h->max_concurrency : 1;
+  if (h->inflight >= max_c) {
+    if (allow_overflow && http_server.overflow_slots > 0 && h->inflight < max_c + (uint32_t) http_server.overflow_slots) {
+      h->inflight++;
+      return true;
+    }
+    return false;
+  }
+  h->inflight++;
+  return true;
+}
+
+void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
+                       bool success, c4_response_type_t cls, long http_code,
+                       const char* method, const char* method_context) {
+  if (!servers || idx < 0 || idx >= (int) servers->count) return;
+  server_health_t* h = &servers->health_stats[idx];
+  if (h->inflight > 0) h->inflight--;
+
+  // Update global per-server health
+  c4_update_server_health(servers, idx, resp_time_ms, success);
+
+  // Update EWMA latency
+  double alpha = 0.1;
+  if (resp_time_ms > 0) {
+    if (h->ewma_latency_ms <= 0.0)
+      h->ewma_latency_ms = (double) resp_time_ms;
+    else
+      h->ewma_latency_ms = alpha * (double) resp_time_ms + (1.0 - alpha) * h->ewma_latency_ms;
+  }
+
+  // Update per-method stats if available
+  if (method) {
+    method_stats_t* ms = c4_get_or_create_method_stats(h, method);
+    if (ms) {
+      if (resp_time_ms > 0) {
+        if (ms->ewma_latency_ms <= 0.0)
+          ms->ewma_latency_ms = (double) resp_time_ms;
+        else
+          ms->ewma_latency_ms = alpha * (double) resp_time_ms + (1.0 - alpha) * ms->ewma_latency_ms;
+      }
+      double success_val   = success ? 1.0 : 0.0;
+      ms->success_ewma     = (ms->success_ewma == 0.0 ? success_val : (alpha * success_val + (1.0 - alpha) * ms->success_ewma));
+      double not_found_val = (cls == C4_RESPONSE_ERROR_RETRY || cls == C4_RESPONSE_ERROR_USER) && http_code == 404 ? 1.0 : 0.0;
+      ms->not_found_ewma   = (ms->not_found_ewma == 0.0 ? not_found_val : (alpha * not_found_val + (1.0 - alpha) * ms->not_found_ewma));
+      ms->last_update_ms   = current_ms();
+    }
+  }
+
+  // AIMD concurrency adjustment
+  uint64_t now = current_ms();
+  if (h->last_adjust_ms == 0 || (int64_t) (now - h->last_adjust_ms) >= http_server.conc_cooldown_ms) {
+    bool saturated = h->inflight >= h->max_concurrency;
+    if (success && h->ewma_latency_ms > 0.0 && h->ewma_latency_ms <= (double) http_server.latency_target_ms && !saturated) {
+      if (h->max_concurrency < (uint32_t) http_server.max_concurrency_cap) h->max_concurrency++;
+      h->last_adjust_ms = now;
+    }
+    else if (!success || cls == C4_RESPONSE_ERROR_RETRY || http_code == 429 || (h->ewma_latency_ms > (double) http_server.latency_target_ms && saturated)) {
+      uint32_t new_max = (uint32_t) ((double) h->max_concurrency * 0.7);
+      if (new_max < h->min_concurrency) new_max = h->min_concurrency;
+      h->max_concurrency = new_max;
+      h->last_adjust_ms  = now;
+    }
+  }
+}
+
+void c4_signal_rate_limited(server_list_t* servers, int idx, const char* method) {
+  if (!servers || idx < 0 || idx >= (int) servers->count) return;
+  server_health_t* h     = &servers->health_stats[idx];
+  h->rate_limited_recent = true;
+  h->rate_limited_at_ms  = current_ms();
+  if (method) {
+    method_stats_t* ms = c4_get_or_create_method_stats(h, method);
+    if (ms) ms->rate_limited_recent = true;
   }
 }
 

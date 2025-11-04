@@ -81,6 +81,19 @@ typedef struct {
   // Web UI configuration
   int web_ui_enabled; // 0=disabled, 1=enabled (default: 0 for security)
 
+  // Heuristic load-balancing configuration (ENV-driven)
+  int max_concurrency_default;    // default per-server concurrency limit
+  int max_concurrency_cap;        // absolute cap for dynamic concurrency
+  int latency_target_ms;          // target latency for AIMD increase
+  int conc_cooldown_ms;           // cooldown for concurrency adjustments
+  int overflow_slots;             // allowed overflow slots when saturated
+  int saturation_wait_ms;         // short wait before overflow on saturation
+  int method_stats_half_life_sec; // half-life for method statistics EWMA
+  int block_availability_window;  // optional bitmap window size
+  int block_availability_ttl_sec; // TTL for block availability learning
+  int rpc_head_poll_interval_ms;  // interval for eth_blockNumber polling
+  int rpc_head_poll_enabled;      // enable/disable head polling
+
 #ifdef TEST
   // Test recording mode: if set, all responses are written to TESTDATA_DIR/server/<test_dir>/
   char* test_dir;
@@ -106,7 +119,35 @@ typedef struct {
   bool              recovery_allowed;    // true if recovery attempt is allowed
   double            weight;              // calculated weight for load balancing
   method_support_t* unsupported_methods; // linked list of unsupported RPC methods
+  // Dynamic capacity and latency tracking
+  uint32_t inflight;            // current concurrent requests
+  uint32_t max_concurrency;     // dynamic concurrency limit
+  uint32_t min_concurrency;     // minimum concurrency (>=1)
+  double   ewma_latency_ms;     // smoothed response latency
+  uint64_t last_adjust_ms;      // last AIMD adjustment time
+  bool     rate_limited_recent; // rate limit seen recently
+  uint64_t rate_limited_at_ms;  // timestamp of last 429/limit
+  // Head polling (RPC): latest observed head and staleness
+  uint64_t latest_block;      // last known head block number
+  uint64_t head_last_seen_ms; // timestamp when head was last observed
+  // Per-method statistics (linked list)
+  struct method_stats* method_stats;
 } server_health_t;
+
+/**
+ * @brief Per-method statistics entry maintained per server.
+ *
+ * Tracks smoothed latency and success/not-found rates for a specific method.
+ */
+typedef struct method_stats {
+  char*                name;                // method name key
+  double               ewma_latency_ms;     // smoothed latency for this method
+  double               success_ewma;        // success ratio EWMA
+  double               not_found_ewma;      // not-found ratio EWMA
+  bool                 rate_limited_recent; // method recently rate limited
+  uint64_t             last_update_ms;      // last stats update timestamp
+  struct method_stats* next;                // next entry in list
+} method_stats_t;
 
 typedef uint32_t beacon_client_type_t;
 
@@ -263,17 +304,26 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
 bool               c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
 void               c4_attempt_server_recovery(server_list_t* servers);
 
+// Concurrency hooks for request lifecycle
+bool c4_on_request_start(server_list_t* servers, int idx, bool allow_overflow);
+void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
+                       bool success, c4_response_type_t cls, long http_code,
+                       const char* method, const char* method_context);
+void c4_signal_rate_limited(server_list_t* servers, int idx, const char* method);
+
 // Server configuration and client type detection functions
 void                 c4_parse_server_config(server_list_t* list, char* servers);
 void                 c4_detect_server_client_types(server_list_t* servers, data_request_type_t type);
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type);
 const char*          c4_client_type_to_name(beacon_client_type_t client_type, http_server_t* http_server);
+bool                 c4_start_rpc_head_poller(server_list_t* servers);
 
 // handle client type adjustments
 char*                   c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);
 data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
 c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
+bool                    c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
 
 // Server storage functions
 void c4_init_server_storage();
