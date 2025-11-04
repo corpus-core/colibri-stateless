@@ -23,17 +23,19 @@ typedef struct {
   uint64_t           start_ms;
 } head_easy_ctx_t;
 
-typedef struct {
-  uv_poll_t     poll_handle;
-  curl_socket_t socket;
+typedef struct head_poll_ctx_t {
+  uv_poll_t               poll_handle;
+  curl_socket_t           socket;
+  struct head_poll_ctx_t* next;
 } head_poll_ctx_t;
 
 static uv_timer_t     g_head_timer;      // scheduling timer for submitting requests
 static uv_timer_t     g_head_curl_timer; // curl timeout driver
 static bool           g_head_timer_initialized      = false;
 static bool           g_head_curl_timer_initialized = false;
-static server_list_t* g_head_servers                = NULL;
-static CURLM*         g_head_multi                  = NULL;
+static server_list_t*   g_head_servers = NULL;
+static CURLM*           g_head_multi   = NULL;
+static head_poll_ctx_t* g_head_polls   = NULL; // linked list of active poll handles
 
 static void c4_head_handle_curl_events();
 
@@ -89,7 +91,11 @@ static int c4_head_timer_callback(CURLM* multi, long timeout_ms, void* userp) {
   return 0;
 }
 
-static void c4_head_poll_close_cb(uv_handle_t* h) { safe_free(h); }
+static void c4_head_poll_close_cb(uv_handle_t* h) {
+  if (!h) return;
+  head_poll_ctx_t* ctx = (head_poll_ctx_t*) h->data;
+  if (ctx) safe_free(ctx);
+}
 
 static int c4_head_socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, void* socketp) {
   (void) easy;
@@ -100,6 +106,12 @@ static int c4_head_socket_callback(CURL* easy, curl_socket_t s, int what, void* 
       uv_poll_stop(&ctx->poll_handle);
       uv_close((uv_handle_t*) &ctx->poll_handle, c4_head_poll_close_cb);
       curl_multi_assign(g_head_multi, s, NULL);
+      // Remove from list
+      head_poll_ctx_t** p = &g_head_polls;
+      while (*p) {
+        if (*p == ctx) { *p = ctx->next; break; }
+        p = &(*p)->next;
+      }
     }
     return 0;
   }
@@ -109,6 +121,9 @@ static int c4_head_socket_callback(CURL* easy, curl_socket_t s, int what, void* 
     uv_poll_init_socket(uv_default_loop(), &ctx->poll_handle, s);
     ctx->poll_handle.data = ctx;
     curl_multi_assign(g_head_multi, s, ctx);
+    // Track handle
+    ctx->next   = g_head_polls;
+    g_head_polls = ctx;
   }
   int events = 0;
   if (what & CURL_POLL_IN) events |= UV_READABLE;
@@ -204,4 +219,35 @@ bool c4_start_rpc_head_poller(server_list_t* servers) {
   uv_timer_start(&g_head_timer, c4_head_poll_cb, interval, interval);
   fprintf(stderr, ":: RPC head polling started (interval %llu ms)\n", (unsigned long long) interval);
   return true;
+}
+
+void c4_stop_rpc_head_poller(void) {
+  // Stop submission timer
+  if (g_head_timer_initialized) {
+    uv_timer_stop(&g_head_timer);
+    uv_close((uv_handle_t*) &g_head_timer, NULL);
+    g_head_timer_initialized = false;
+  }
+  // Stop curl timer
+  if (g_head_curl_timer_initialized) {
+    uv_timer_stop(&g_head_curl_timer);
+    uv_close((uv_handle_t*) &g_head_curl_timer, NULL);
+    g_head_curl_timer_initialized = false;
+  }
+  // Close all active poll handles
+  head_poll_ctx_t* cur = g_head_polls;
+  while (cur) {
+    head_poll_ctx_t* next = cur->next;
+    uv_poll_stop(&cur->poll_handle);
+    uv_close((uv_handle_t*) &cur->poll_handle, c4_head_poll_close_cb);
+    cur = next;
+  }
+  g_head_polls = NULL;
+
+  // Cleanup CURL multi
+  if (g_head_multi) {
+    curl_multi_cleanup(g_head_multi);
+    g_head_multi = NULL;
+  }
+  g_head_servers = NULL;
 }

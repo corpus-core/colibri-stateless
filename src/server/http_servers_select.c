@@ -18,11 +18,11 @@
 #include <time.h>
 
 // Constants for load balancing
-#define MAX_CONSECUTIVE_FAILURES   3
+#define MAX_CONSECUTIVE_FAILURES   2
 #define HEALTH_CHECK_PENALTY       0.5    // Weight penalty for unhealthy servers
 #define MIN_WEIGHT                 0.1    // Minimum weight to avoid division by zero
 #define USER_ERROR_RESET_THRESHOLD 0.8    // If 80%+ servers are unhealthy, assume user error
-#define RECOVERY_TIMEOUT_MS        300000 // 5 minutes before allowing recovery attempts
+#define RECOVERY_TIMEOUT_MS        60000  // 60 seconds before allowing recovery attempts
 #define RECOVERY_SUCCESS_THRESHOLD 5      // Number of successful requests from other servers before allowing recovery
 
 // Check if too many servers are unhealthy (indicating potential user error)
@@ -1010,6 +1010,16 @@ void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
 
   // AIMD concurrency adjustment
   uint64_t now = current_ms();
+  // Fast-mark unhealthy for hard server errors (curl/network or 5xx)
+  if (!success) {
+    bool hard_error = (http_code == 0) || (http_code >= 500);
+    if (hard_error || (cls == C4_RESPONSE_ERROR_RETRY && h->consecutive_failures >= 1)) {
+      h->is_healthy           = false;
+      h->recovery_allowed     = false;
+      h->marked_unhealthy_at  = now;
+      h->weight              *= 0.1; // heavy penalty immediately
+    }
+  }
   if (h->last_adjust_ms == 0 || (int64_t) (now - h->last_adjust_ms) >= http_server.conc_cooldown_ms) {
     bool saturated = h->inflight >= h->max_concurrency;
     if (success && h->ewma_latency_ms > 0.0 && h->ewma_latency_ms <= (double) http_server.latency_target_ms && !saturated) {

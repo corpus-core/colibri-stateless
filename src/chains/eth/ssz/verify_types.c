@@ -145,6 +145,7 @@ const ssz_def_t* eth_get_light_client_update(fork_id_t fork) {
     case C4_FORK_DENEB:
       return C4_ETH_SYNCDATA_UPDATE_UNION;
     case C4_FORK_ELECTRA:
+    case C4_FORK_FULU:
       return C4_ETH_SYNCDATA_UPDATE_UNION + 1;
     default:
       return NULL;
