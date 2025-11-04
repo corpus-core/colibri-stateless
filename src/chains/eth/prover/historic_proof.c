@@ -276,7 +276,7 @@ static c4_status_t fetch_bootstrap_data(prover_ctx_t* ctx, syncdata_state_t* syn
 
   const ssz_def_t* bootstrap_union_def = ssz_get_def(C4_ETH_REQUEST_SYNCDATA_UNION + 1, "bootstrap");
   fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
-  result.def                           = &bootstrap_union_def->def.container.elements[fork - C4_FORK_CAPELLA]; // get the correct bootstrap definition for the fork
+  result.def                           = &bootstrap_union_def->def.container.elements[fork == C4_FORK_DENEB ? 1 : 2]; // get the correct bootstrap definition for the fork
   if (!ssz_is_valid(result, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
   *bootstrap = result;
 
