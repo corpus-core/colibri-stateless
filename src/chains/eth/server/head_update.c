@@ -232,7 +232,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
 
   // now set the latest block number
   uint64_t latest_block_number = min64(beacon_block_number, c4_watcher_check_block_number ? json_as_uint64(latest_block) : beacon_block_number);
-  if (latest_block_number)
+  if (latest_block_number && c4_watcher_check_block_number)
     TRY_ASYNC(c4_set_latest_block(ctx, latest_block_number));
 
   return C4_SUCCESS;
