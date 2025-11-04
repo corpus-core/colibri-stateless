@@ -119,7 +119,7 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   *key = 'S';
   if (latest_timestamp) {
     sbprintf((char*) key, "%s", "Slatest");
-    /*
+    /*:: [ $COUNT of $ALL ] $service_to_build
     uint64_t now_unix_ms                  = current_unix_ms(); // Use Unix epoch time
     uint64_t block_interval_ms            = 12000;
     uint64_t buffer_ms                    = 2000; // buffer to make sure the block is actually available.

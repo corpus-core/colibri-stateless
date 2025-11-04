@@ -785,7 +785,32 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
       // For RPC requests, use method-aware selection
       char* rpc_method = extract_rpc_method(r->req);
       if (rpc_method) {
-        selected_index = c4_select_best_server_for_method(servers, r->req->node_exclude_mask, r->req->preferred_client_type, rpc_method);
+        // Attempt to extract requested block number for known methods
+        uint64_t requested_block = 0;
+        bool     has_block       = false;
+        if (r->req->payload.data && r->req->payload.len > 0) {
+          json_t root   = json_parse((char*) r->req->payload.data);
+          json_t params = json_get(root, "params");
+          if (params.type == JSON_TYPE_ARRAY) {
+            // debug_traceCall / eth_call: block tag at index 1
+            if (strcmp(rpc_method, "debug_traceCall") == 0 || strcmp(rpc_method, "eth_call") == 0) {
+              json_t tag = json_at(params, 1);
+              if (tag.type != JSON_TYPE_NOT_FOUND) {
+                requested_block = json_as_uint64(tag);
+                has_block       = requested_block > 0;
+              }
+            }
+            // eth_getProof: block tag at index 2
+            else if (strcmp(rpc_method, "eth_getProof") == 0) {
+              json_t tag = json_at(params, 2);
+              if (tag.type != JSON_TYPE_NOT_FOUND) {
+                requested_block = json_as_uint64(tag);
+                has_block       = requested_block > 0;
+              }
+            }
+          }
+        }
+        selected_index = c4_select_best_server_for_method(servers, r->req->node_exclude_mask, r->req->preferred_client_type, rpc_method, requested_block, has_block);
         safe_free(rpc_method);
       }
       else {
