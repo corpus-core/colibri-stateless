@@ -272,7 +272,6 @@ void c4_handle_new_head(json_t head) {
   beacon_head_t* b      = (beacon_head_t*) safe_calloc(1, sizeof(beacon_head_t));
   buffer_t       buffer = stack_buffer(b->root);
   b->slot               = json_get_uint64(head, "slot");
-  bytes_t       root    = json_get_bytes(head, "block", &buffer);
   request_t*    req     = (request_t*) safe_calloc(1, sizeof(request_t));
   prover_ctx_t* ctx     = (prover_ctx_t*) safe_calloc(1, sizeof(prover_ctx_t));
   req->client           = NULL;
@@ -281,6 +280,7 @@ void c4_handle_new_head(json_t head) {
   ctx->proof            = bytes(b, sizeof(beacon_head_t));
   ctx->chain_id         = http_server.chain_id;
   ctx->client_type      = BEACON_CLIENT_EVENT_SERVER;
+  json_get_bytes(head, "block", &buffer); // write the block root to the beacon_head_t
   handle_new_head_cb(req);
 }
 
