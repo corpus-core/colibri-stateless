@@ -136,6 +136,9 @@ add_verifier(
   METHOD_TYPE c4_eth_get_method_type
 )
 
+# Register ETH chain properties provider
+add_chain_props(FUNC c4_eth_chain_props)
+
 add_prover(
   NAME eth_prover
   SOURCES 
@@ -162,6 +165,7 @@ add_server_handler(
     server/handler.c
     server/beacon_watcher.c
     server/head_update.c
+    server/chain_props.c
     server/handle_lcu.c
     server/handle_headers.c
     server/client_detection.c

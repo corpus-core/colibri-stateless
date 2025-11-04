@@ -290,7 +290,7 @@ void           c4_metrics_add_request(data_request_type_t type, const char* meth
 
 // Load balancing functions
 int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type);
-int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method);
+int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method, uint64_t requested_block, bool has_block);
 
 // Method support tracking functions
 void               c4_mark_method_unsupported(server_list_t* servers, int server_index, const char* method);

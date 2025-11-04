@@ -293,6 +293,7 @@ include(src/chains/chains.cmake)
 # Define the path for the generated headers
 add_definitions(-DVERIFIERS_PATH="${CMAKE_BINARY_DIR}/verifiers.h")
 add_definitions(-DPROVERS_PATH="${CMAKE_BINARY_DIR}/provers.h")
+add_definitions(-DCHAIN_PROPS_PATH="${CMAKE_BINARY_DIR}/chain_props.h")
 
 # Add the binary directory to the include path for generated headers
 include_directories(${CMAKE_BINARY_DIR})
@@ -348,6 +349,7 @@ add_custom_target(valgrind
 generate_verifiers_header()
 generate_provers_header()
 generate_server_handlers_header()
+generate_chain_props_header()
 
 # Combined static library target
 if(NOT EMBEDDED)
