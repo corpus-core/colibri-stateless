@@ -111,7 +111,7 @@ jobs:
 
   build-macos:
     name: Build macOS Package
-    runs-on: macos-13
+    runs-on: macos-latest
     needs: determine-version
     
     steps:
