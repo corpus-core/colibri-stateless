@@ -1,5 +1,5 @@
+#include "chains.h"
 #include "chains/eth/ssz/beacon_types.h"
-#include "util/chains.h"
 
 bool c4_eth_chain_props(chain_id_t chain_id, chain_properties_t* props) {
   if (!props) return false;

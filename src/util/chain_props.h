@@ -1,7 +1,7 @@
 #ifndef C4_CHAIN_PROPS_H
 #define C4_CHAIN_PROPS_H
 
-#include "util/chains.h"
+#include "chains.h"
 
 #ifdef CHAIN_PROPS_PATH
 #include CHAIN_PROPS_PATH
@@ -11,5 +11,3 @@ bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* props);
 #endif
 
 #endif // C4_CHAIN_PROPS_H
-
-
