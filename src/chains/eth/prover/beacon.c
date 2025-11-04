@@ -119,18 +119,20 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   *key = 'S';
   if (latest_timestamp) {
     sbprintf((char*) key, "%s", "Slatest");
+    /*
     uint64_t now_unix_ms                  = current_unix_ms(); // Use Unix epoch time
     uint64_t block_interval_ms            = 12000;
     uint64_t buffer_ms                    = 2000; // buffer to make sure the block is actually available.
     uint64_t predicted_next_block_unix_ms = (latest_timestamp * 1000) + block_interval_ms + buffer_ms;
-
-    uint64_t duration_ms = 1; // Default to minimum TTL
-    if (predicted_next_block_unix_ms > now_unix_ms)
-      duration_ms = predicted_next_block_unix_ms - now_unix_ms;
+*/
+    uint64_t duration_ms = 20000; // Default to minimum TTL
+                                  //    if (predicted_next_block_unix_ms > now_unix_ms)
+                                  //      duration_ms = predicted_next_block_unix_ms - now_unix_ms;
     //    else
     // Block prediction is already in the past or now, maybe the buffer wasn't enough
     // or clocks are skewed. Set a very short duration.
     //      log_warn("Predictive TTL calculation resulted in past time for Slatest (Block Ts: %l, Now: %l). Setting minimal TTL.", latest_timestamp, now_unix_ms / 1000);
+    c4_prover_cache_invalidate(key); // invalidate oldkey
     c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, duration_ms, free);
   }
   *key = 'S';

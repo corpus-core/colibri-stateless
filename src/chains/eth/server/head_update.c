@@ -193,7 +193,6 @@ static void append_data(char* path, bytes_t data) {
 }
 */
 static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
-  c4_watcher_check_block_number    = false;
   c4_status_t         status       = C4_SUCCESS;
   const chain_spec_t* spec         = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
   uint32_t            period       = b->slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits);
