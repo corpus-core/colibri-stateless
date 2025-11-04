@@ -313,3 +313,40 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
   // All other 4xx codes are user errors
   return C4_RESPONSE_ERROR_USER;
 }
+
+// Public helper: conservative detection whether the error indicates "not found"
+// across JSON-RPC and Beacon responses.
+bool c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body) {
+  if (http_code == 404) return true;
+  if (!req) return false;
+  if (req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
+    if (bytes_contains_string(response_body, "\"error\"")) {
+      json_t response = json_parse((char*) response_body.data);
+      if (response.type == JSON_TYPE_OBJECT) {
+        json_t error = json_get(response, "error");
+        json_t code  = json_get(error, "code");
+        json_t msg   = json_get(error, "message");
+        int    ec    = 0;
+        if (code.type == JSON_TYPE_NUMBER) {
+          char* cs = json_as_string(code, NULL);
+          if (cs) {
+            ec = atoi(cs);
+            safe_free(cs);
+          }
+        }
+        // Known not-found patterns in message
+        bool msg_nf = false;
+        if (msg.type == JSON_TYPE_STRING) {
+          bytes_t m = bytes(msg.start, msg.len);
+          msg_nf    = bytes_contains_string(m, "not found") || bytes_contains_string(m, "Header not found") || bytes_contains_string(m, "Block not found");
+        }
+        if (ec == -32601 || msg_nf) return true; // method not found or explicit not found
+      }
+    }
+  }
+  // Beacon API: reuse sync-lag detection as a proxy for not found
+  if (req->type == C4_DATA_TYPE_BEACON_API) {
+    return c4_is_beacon_api_sync_lag(http_code, req->url, response_body);
+  }
+  return false;
+}
