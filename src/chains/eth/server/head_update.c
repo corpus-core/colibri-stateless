@@ -21,7 +21,7 @@
 #include <time.h>
 #include <uv.h>
 
-bool c4_watcher_check_block_number = true;
+bool c4_watcher_check_block_number = false;
 
 static void prover_request_free(request_t* req) {
   c4_prover_free((prover_ctx_t*) req->ctx);
