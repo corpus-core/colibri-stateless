@@ -308,7 +308,7 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 
     bytes_t prefixed = bytes(safe_malloc(update.bytes.len + 1), update.bytes.len + 1);
     memcpy(prefixed.data + 1, update.bytes.data, update.bytes.len);
-    prefixed.data[0] = (uint8_t) (fork - C4_FORK_DENEB);
+    prefixed.data[0] = (uint8_t) (fork == C4_FORK_DENEB ? 0 : 1);
     ssz_add_dynamic_list_bytes(updates, count, prefixed);
     safe_free(prefixed.data);
   }
