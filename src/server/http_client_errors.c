@@ -274,22 +274,27 @@ static c4_response_type_t classify_jsonrpc_error(json_t error, data_request_t* r
 static bool c4_is_beacon_api_sync_lag(long http_code, const char* url, bytes_t response_body) {
   if (http_code != 404 || !url) return false;
 
-  // Check if this is a beacon API endpoint
-  if (!(strstr(url, "/beacon/blocks/") || strstr(url, "/beacon/headers/") ||
-        strstr(url, "/historical_summaries/") || strstr(url, "/nimbus/") || strstr(url, "/lodestar/"))) {
-    return false;
-  }
+  // Check if this is a beacon API endpoint (blocks/headers/historical/clients) or light-client endpoints
+  bool is_beacon_path = (strstr(url, "/beacon/blocks/") || strstr(url, "/beacon/headers/") ||
+                         strstr(url, "/historical_summaries/") || strstr(url, "/nimbus/") || strstr(url, "/lodestar/") ||
+                         strstr(url, "/eth/v1/beacon/light_client/bootstrap/") ||
+                         strstr(url, "/eth/v1/beacon/light_client/updates/"));
+  if (!is_beacon_path) return false;
 
-  // Check if response indicates the block/header simply isn't available yet (sync lag)
   if (!response_body.data || response_body.len == 0) return false;
 
-  return (bytes_contains_string(response_body, "Block header/data has not been found") ||
-          bytes_contains_string(response_body, "Block not found") ||
-          bytes_contains_string(response_body, "Header not found") ||
-          bytes_contains_string(response_body, "block not found") ||
-          bytes_contains_string(response_body, "header not found") ||
-          bytes_contains_string(response_body, "unknown block") ||
-          bytes_contains_string(response_body, "unknown header"));
+  // Treat common not-available signals as sync/availability lag → retryable
+  return (
+      bytes_contains_string(response_body, "Block header/data has not been found") ||
+      bytes_contains_string(response_body, "Block not found") ||
+      bytes_contains_string(response_body, "Header not found") ||
+      bytes_contains_string(response_body, "block not found") ||
+      bytes_contains_string(response_body, "header not found") ||
+      bytes_contains_string(response_body, "unknown block") ||
+      bytes_contains_string(response_body, "unknown header") ||
+      // Light client bootstrap specific
+      bytes_contains_string(response_body, "bootstrap unavailable") ||
+      bytes_contains_string(response_body, "LC bootstrap unavailable"));
 }
 
 // Main function to classify response based on HTTP code and content
