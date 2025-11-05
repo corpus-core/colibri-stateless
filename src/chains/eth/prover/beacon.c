@@ -382,7 +382,7 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
   else if (block.type == JSON_TYPE_STRING && block.len > 4 && block.start[1] == '0' && block.start[2] == 'x') // blocknumber
     TRY_ASYNC(eth_get_by_number(ctx, json_as_uint64(block), sig_root, data_root));
   else
-    THROW_ERROR("Invalid block!");
+    THROW_ERROR_WITH("Invalid block: %J", block);
 
   return C4_SUCCESS;
 }
