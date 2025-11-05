@@ -145,6 +145,7 @@ add_prover(
     prover/eth_prover.c
     prover/proof_account.c
     prover/proof_transaction.c
+    prover/tx_cache.c
     prover/proof_logs.c
     prover/proof_call.c
     prover/beacon.c
@@ -163,7 +164,7 @@ add_server_handler(
   NAME eth_server_handler
   SOURCES 
     server/handler.c
-    server/beacon_watcher.c
+    server/head_watcher.c
     server/head_update.c
     server/chain_props.c
     server/handle_lcu.c
