@@ -58,6 +58,7 @@ option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
+option(BLOCK_HASH_CACHE "Cache block hashes for faster verification within the same block" ON)
 option(WASM "Build WebAssembly target" OFF)
 option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)
@@ -75,6 +76,10 @@ endif()
 
 if(FILE_STORAGE AND NOT WASM)
     add_definitions(-DFILE_STORAGE)
+endif()
+
+if(BLOCK_HASH_CACHE)
+    add_definitions(-DBLOCK_HASH_CACHE)
 endif()
 
 if(WITNESS_SIGNER)

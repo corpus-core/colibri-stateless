@@ -32,6 +32,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef BLOCK_HASH_CACHE
+#define BLOCKHASH_COUNT 10
+static uint8_t  blockhash_cache[BLOCKHASH_COUNT * 32] = {0};
+static uint32_t blockhash_cache_index                 = 0;
+
+static bool is_already_validated(bytes32_t blockhash) {
+  for (uint32_t i = 0; i < BLOCKHASH_COUNT; i++) {
+    if (memcmp(blockhash_cache + 32 * i, blockhash, 32) == 0) return true;
+  }
+  return false;
+}
+
+static void add_to_blockhash_cache(bytes32_t blockhash) {
+  memcpy(blockhash_cache + blockhash_cache_index * 32, blockhash, 32);
+  blockhash_cache_index = (blockhash_cache_index + 1) % BLOCKHASH_COUNT;
+}
+#endif
 
 // combining the root with a domain to ensure uniqueness of the signing message
 static const ssz_def_t SIGNING_DATA[] = {
@@ -128,6 +145,7 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash) {
   bytes32_t            root       = {0};
   c4_sync_validators_t sync_state = {0};
+  bool                 valid      = false;
   const chain_spec_t*  spec       = c4_eth_get_chain_spec(ctx->chain_id);
 
   if (slot == 0) slot = ssz_get_uint64(header, "slot") + 1;
@@ -136,17 +154,21 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
 
   uint32_t period = slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits);
 
-  // get the validators and make sure we have the right ones for the requested period
-  TRY_ASYNC(c4_get_validators(ctx, period, &sync_state, pubkey_hash));
-
   // compute blockhash
   ssz_hash_tree_root(*header, root);
 
   // compute signing message and store it in root again
   calculate_signing_message(ctx, slot, root, root);
 
+#ifdef BLOCK_HASH_CACHE
+  valid = is_already_validated(root);
+#endif
+
+  // get the validators and make sure we have the right ones for the requested period
+  TRY_ASYNC(c4_get_validators(ctx, period, &sync_state, pubkey_hash));
+
   // verify the signature
-  bool valid = blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
+  valid = valid || blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
 
   // Edge case: Period transition without immediate finality
   // If the signature is invalid, try with the previous period's validators
@@ -169,6 +191,9 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
 
   if (!valid)
     THROW_ERROR("invalid blockhash signature!");
+#ifdef BLOCK_HASH_CACHE
+  add_to_blockhash_cache(root);
+#endif
 
   return C4_SUCCESS;
 }
