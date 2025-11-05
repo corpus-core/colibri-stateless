@@ -31,6 +31,7 @@
 #include "prover.h"
 #include "ssz.h"
 #include "sync_committee.h"
+#include "tx_cache.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -64,14 +65,16 @@ static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, bea
 }
 
 c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
-  bytes32_t         body_root    = {0};
-  json_t            txhash       = json_at(ctx->params, 0);
-  json_t            tx_data      = {0};
-  beacon_block_t    block        = {0};
-  uint32_t          tx_index     = 0;
-  json_t            block_number = {0};
-  blockroot_proof_t block_proof  = {0};
-  c4_status_t       status       = C4_SUCCESS;
+  bytes32_t         body_root        = {0};
+  json_t            txhash           = json_at(ctx->params, 0);
+  json_t            tx_data          = {0};
+  beacon_block_t    block            = {0};
+  uint32_t          tx_index         = 0;
+  json_t            block_number     = {0};
+  blockroot_proof_t block_proof      = {0};
+  uint8_t           block_buffer[32] = {0};
+  buffer_t          block_buf        = stack_buffer(block_buffer);
+  c4_status_t       status           = C4_SUCCESS;
 
   if (strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0) {
     tx_index     = json_as_uint32(json_at(ctx->params, 1));
@@ -79,10 +82,19 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   }
   else { // eth_getTransactionByHash
     if (txhash.type != JSON_TYPE_STRING || txhash.len != 68 || txhash.start[1] != '0' || txhash.start[2] != 'x') THROW_ERROR("Invalid hash");
-    TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
-    tx_index     = json_get_uint32(tx_data, "transactionIndex");
-    block_number = json_get(tx_data, "blockNumber");
-    if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') THROW_ERROR("Invalid block number");
+#ifdef PROVER_CACHE
+    uint64_t  block_number_val = 0;
+    bytes32_t tx_hash          = {0};
+    hex_to_bytes(txhash.start + 1, txhash.len - 2, bytes(tx_hash, 32));
+    if (c4_eth_tx_cache_get(tx_hash, &block_number_val, &tx_index))
+      block_number = json_parse(bprintf(&block_buf, "\"0x%lx\"", block_number_val));
+#endif
+    if (block_number.type == JSON_TYPE_INVALID) {
+      TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+      tx_index     = json_get_uint32(tx_data, "transactionIndex");
+      block_number = json_get(tx_data, "blockNumber");
+      if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') THROW_ERROR("Invalid block number");
+    }
   }
 
   // geth the beacon-block with signature

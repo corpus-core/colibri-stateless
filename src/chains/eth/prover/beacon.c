@@ -27,6 +27,7 @@
 #include "json.h"
 #include "logger.h"
 #include "prover.h"
+#include "tx_cache.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,8 +76,6 @@ c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number)
   uint8_t        tmp[100] = {0};
   buffer_t       buf      = stack_buffer(tmp);
   bytes32_t      key      = {0};
-  chain_spec_t*  chain    = c4_eth_get_chain_spec(ctx->chain_id);
-  if (chain == NULL) THROW_ERROR("unsupported chain id!");
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse(bprintf(&buf, "\"0x%lx\"", latest_block_number)), &block));
 
@@ -139,13 +138,26 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   memcpy(key + 1, ssz_get(&beacon_block->execution, "blockHash").bytes.data + 1, 31);
   c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, ttl, free); // keep it for 1 day
   memset(key + 1, 0, 31);
-  uint8_t* block_number_src     = ssz_get(&beacon_block->execution, "blockNumber").bytes.data;
+  ssz_ob_t block_number_ob      = ssz_get(&beacon_block->execution, "blockNumber");
+  uint8_t* block_number_src     = block_number_ob.bytes.data;
   uint8_t  block_number_data[8] = {0};
   for (int i = 0; i < 8; i++)
     block_number_data[7 - i] = block_number_src[i];
   bytes_t block_number = bytes_remove_leading_zeros(bytes(block_number_data, 8));
   memcpy(key + 1, block_number.data, block_number.len);
   c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, ttl, free); // keep it for 1 day
+
+  // cache the transactions in the tx cache.
+  ssz_ob_t  txs              = ssz_get(&beacon_block->execution, "transactions");
+  uint32_t  len              = ssz_len(txs);
+  bytes32_t tx_hash          = {0};
+  uint64_t  block_number_val = ssz_uint64(block_number_ob);
+  // Reserve once for batch insertion to avoid per-insert cleanup
+  c4_eth_tx_cache_reserve(len);
+  for (uint32_t i = 0; i < len; i++) {
+    keccak(ssz_at(txs, i).bytes, tx_hash);
+    c4_eth_tx_cache_set(tx_hash, block_number_val, i);
+  }
 }
 
 #endif
