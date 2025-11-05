@@ -32,6 +32,7 @@
 #include "prover.h"
 #include "rlp.h"
 #include "ssz.h"
+#include "tx_cache.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -123,16 +124,31 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   blockroot_proof_t block_proof    = {0};
   ssz_ob_t          receipt_proof  = {0};
   c4_status_t       status         = C4_SUCCESS;
+  uint32_t          tx_index       = 0;
+  json_t            block_number   = {0};
 
   CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
 
-  TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+#ifdef PROVER_CACHE
+  // check tx cache for the block number and tx index if we have it
+  uint8_t   block_buffer[32] = {0};
+  buffer_t  block_buf        = stack_buffer(block_buffer);
+  uint64_t  block_number_val = 0;
+  bytes32_t tx_hash          = {0};
+  hex_to_bytes(txhash.start + 1, txhash.len - 2, bytes(tx_hash, 32));
+  if (c4_eth_tx_cache_get(tx_hash, &block_number_val, &tx_index))
+    block_number = json_parse(bprintf(&block_buf, "\"0x%lx\"", block_number_val));
+#endif
 
-  uint32_t tx_index     = json_get_uint32(tx_data, "transactionIndex");
-  json_t   block_number = json_get(tx_data, "blockNumber");
+  // not found in cache, so we need to get it from the RPC
+  if (block_number.type == JSON_TYPE_INVALID) {
+    TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+    tx_index     = json_get_uint32(tx_data, "transactionIndex");
+    block_number = json_get(tx_data, "blockNumber");
+  }
 
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
-  TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
+  TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts)); // TODO skip this request if we we have it in the cache.
   TRY_ASYNC(status);
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &block_proof, &block));
