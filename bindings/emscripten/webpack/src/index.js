@@ -1,5 +1,5 @@
 // Import the main module entry point using the alias configured in webpack.config.js
-import Colibri from '@corpus-core/colibri-stateless';
+import Colibri from '@c4w/index.js';
 
 // Function to run the test logic
 async function runTest() {
