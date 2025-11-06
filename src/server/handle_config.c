@@ -19,6 +19,7 @@
 
 #include "../util/json.h"
 #include "server.h"
+#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -344,8 +345,8 @@ bool c4_handle_restart_server(client_t* client) {
   buffer_free(&data);
 
   // Log the restart
-  fprintf(stderr, "C4 Server: Configuration restart requested via Web UI\n");
-  fprintf(stderr, "C4 Server: Initiating graceful shutdown for restart...\n");
+  log_info("C4 Server: Configuration restart requested via Web UI");
+  log_info("C4 Server: Initiating graceful shutdown for restart...");
 
   // Trigger graceful shutdown (server will exit with code 0)
   // The service manager (systemd/launchd/Windows Service) will automatically restart
@@ -356,7 +357,7 @@ bool c4_handle_restart_server(client_t* client) {
   // The graceful shutdown will wait for open requests to complete
   if (http_server.stats.open_requests <= 1) {
     // Only this request is open, proceed immediately
-    fprintf(stderr, "C4 Server: No other open requests, proceeding with restart...\n");
+    log_info("C4 Server: No other open requests, proceeding with restart...");
     exit(0);
   }
 

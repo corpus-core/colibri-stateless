@@ -1,7 +1,7 @@
 // kona_preconf_capture.c - Direkte Kona-Bridge Integration
 #include "kona_preconf_capture.h"
 #include "../verifier/op_chains_conf.h"
-#include "util/logger.h"
+#include "logger.h"
 #include <pthread.h>
 #include <stdlib.h>
 #include <time.h>

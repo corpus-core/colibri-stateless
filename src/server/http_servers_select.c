@@ -11,7 +11,6 @@
 #include "server_handlers.h"
 #include "util/chain_props.h"
 #include "util/json.h"
-#include "util/logger.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,7 +47,7 @@ bool c4_should_reset_health_stats(server_list_t* servers) {
 void c4_reset_server_health_stats(server_list_t* servers) {
   if (!servers || !servers->health_stats) return;
 
-  fprintf(stderr, ":: Resetting server health stats - detected user error pattern\n");
+  log_info(":: Resetting server health stats - detected user error pattern");
 
   for (size_t i = 0; i < servers->count; i++) {
     server_health_t* health      = &servers->health_stats[i];
@@ -86,7 +85,7 @@ void c4_mark_method_unsupported(server_list_t* servers, int server_index, const 
   new_entry->next             = health->unsupported_methods;
   health->unsupported_methods = new_entry;
 
-  fprintf(stderr, "   [method] Server %d: Marked method '%s' as unsupported\n", server_index, method);
+  log_warn("   [method] Server " BRIGHT_BLUE("%s") ": Marked method '" BOLD("%s") "' as unsupported", c4_extract_server_name(servers->urls[server_index]), method);
 }
 
 bool c4_is_method_supported(server_list_t* servers, int server_index, const char* method) {
@@ -165,7 +164,7 @@ void c4_calculate_server_weights(server_list_t* servers) {
     if (was_healthy && !health->is_healthy) {
       health->marked_unhealthy_at = current_time;
       health->recovery_allowed    = false;
-      fprintf(stderr, "   [health] Server %zu marked as unhealthy\n", i);
+      log_warn("   [health] Server %l marked as unhealthy", (uint64_t) i);
     }
 
     if (!health->is_healthy) {
@@ -241,8 +240,7 @@ void c4_attempt_server_recovery(server_list_t* servers) {
         health->consecutive_failures = MAX_CONSECUTIVE_FAILURES - 1; // Allow one chance
         health->is_healthy           = true;
         health->weight               = MIN_WEIGHT; // Start with minimal weight
-        fprintf(stderr, "   [recovery] Server %zu allowed recovery attempt (%s)\n",
-                i, timeout_passed ? "timeout" : "success threshold");
+        log_info("   [recovery] Server " BRIGHT_BLUE("%s") " allowed recovery attempt (%s)", c4_extract_server_name(servers->urls[i]), timeout_passed ? "timeout" : "success threshold");
       }
     }
   }
@@ -301,7 +299,7 @@ static bool c4_all_servers_unavailable(server_list_t* servers, uint32_t exclude_
 static void c4_emergency_reset_all_servers(server_list_t* servers) {
   if (!servers || !servers->health_stats) return;
 
-  fprintf(stderr, ":: EMERGENCY RESET: All servers unavailable - resetting all health stats\n");
+  log_error(":: EMERGENCY RESET: All servers unavailable - resetting all health stats");
 
   for (size_t i = 0; i < servers->count; i++) {
     server_health_t* health      = &servers->health_stats[i];
@@ -312,8 +310,7 @@ static void c4_emergency_reset_all_servers(server_list_t* servers) {
     health->marked_unhealthy_at  = 0;
 
     // Keep historical stats but give servers a fresh chance
-    fprintf(stderr, "   [reset] Server %zu: %s restored to healthy state\n",
-            i, servers->urls[i]);
+    log_info("   [reset] Server %l: %s restored to healthy state", (uint64_t) i, servers->urls[i]);
   }
 }
 
@@ -482,7 +479,7 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
   // If all servers are excluded due to method support, fall back to regular selection
   // (this handles cases where method support info might be incomplete/wrong)
   if (method_exclude_mask == ((1 << servers->count) - 1)) {
-    fprintf(stderr, "   [method] No servers support method '%s', falling back to regular selection\n", method);
+    log_warn("   [method] No servers support method '%s', falling back to regular selection", method);
     return c4_select_best_server(servers, exclude_mask, preferred_client_type);
   }
 
@@ -701,11 +698,11 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
       // Parse client type string using mapping
       client_type = c4_parse_config_name(type_str, &http_server);
       if (client_type == BEACON_CLIENT_UNKNOWN) {
-        fprintf(stderr, "   [config] Unknown client type '%s' for server %s\n", type_str, url_part);
+        log_warn("   [config] Unknown client type '%s' for server %s", type_str, url_part);
       }
     }
     if (client_type != BEACON_CLIENT_UNKNOWN)
-      fprintf(stderr, "   [config] Server %d: %s (Type: %s)\n", count, url_part, c4_client_type_to_name(client_type, &http_server));
+      log_info("   [config] Server %d: %s (Type: %s)", count, url_part, c4_client_type_to_name(client_type, &http_server));
 
     list->urls[count]                             = strdup(url_part);
     list->health_stats[count].is_healthy          = true;
@@ -768,7 +765,7 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
   // Tests can explicitly set client types if needed
   // c4_test_url_rewriter is declared in server.h
   if (c4_test_url_rewriter) {
-    fprintf(stderr, ":: Skipping client type detection in TEST mode\n");
+    log_info(":: Skipping client type detection in TEST mode");
     return;
   }
 #endif
@@ -778,13 +775,13 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
 
   // Get detection parameters from chain-specific handler
   if (!c4_server_handlers_get_detection_request(&http_server, type, &detection_endpoint, &rpc_payload)) {
-    fprintf(stderr, ":: Client type detection not implemented for this server type yet\n");
+    log_info(":: Client type detection not implemented for this server type yet");
     return;
   }
 
-  fprintf(stderr, ":: Auto-detecting client types for %s servers using %s...\n",
-          type == C4_DATA_TYPE_BEACON_API ? "beacon" : "rpc",
-          type == C4_DATA_TYPE_BEACON_API ? detection_endpoint : "web3_clientVersion");
+  log_info(":: Auto-detecting client types for %s servers using %s...",
+           type == C4_DATA_TYPE_BEACON_API ? "beacon" : "rpc",
+           type == C4_DATA_TYPE_BEACON_API ? detection_endpoint : "web3_clientVersion");
 
   // Count servers that need detection
   size_t detection_count = 0;
@@ -794,7 +791,7 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
   }
 
   if (detection_count == 0) {
-    fprintf(stderr, "   [detect] All servers already have known client types\n");
+    log_info("   [detect] All servers already have known client types");
     return;
   }
 
@@ -816,14 +813,14 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
                                    (base_url[strlen(base_url) - 1] == '/') ? "" : "/",
                                    detection_endpoint);
     else {
-      fprintf(stderr, "   [detect] Server %zu (%s): has invalid URL\n", i, base_url ? base_url : "<empty>");
+      log_warn("   [detect] Server %l (%s): has invalid URL", (uint64_t) i, base_url ? base_url : "<empty>");
       continue;
     }
 
     // Setup CURL easy handle
     req->easy_handle = curl_easy_init();
     if (!req->easy_handle) {
-      fprintf(stderr, "   [detect] Failed to create CURL handle for server %zu\n", i);
+      log_error("   [detect] Failed to create CURL handle for server %l", (uint64_t) i);
       safe_free(req->detection_url);
       continue;
     }
@@ -857,7 +854,7 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
   CURLMcode mc = curl_multi_perform(multi_handle, &running_handles);
 
   if (mc != CURLM_OK)
-    fprintf(stderr, "   [detect] curl_multi_perform failed: %s\n", curl_multi_strerror(mc));
+    log_error("   [detect] curl_multi_perform failed: %s", curl_multi_strerror(mc));
   else {
     // Wait for all requests to complete
     while (running_handles > 0) {
@@ -897,12 +894,12 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
 
         if (detected_type != BEACON_CLIENT_UNKNOWN) {
           servers->client_types[req->server_index] = detected_type;
-          fprintf(stderr, "   [detect] Server %zu (%s): Detected type %s\n",
-                  req->server_index, servers->urls[req->server_index], c4_client_type_to_name(detected_type, &http_server));
+          log_info("   [detect] Server %l (%s): Detected type %s",
+                   (uint64_t) req->server_index, servers->urls[req->server_index], c4_client_type_to_name(detected_type, &http_server));
         }
         else {
-          fprintf(stderr, "   [detect] Server %zu (%s): Could not determine client type from response\n",
-                  req->server_index, servers->urls[req->server_index]);
+          log_warn("   [detect] Server %l (%s): Could not determine client type from response",
+                   (uint64_t) req->server_index, servers->urls[req->server_index]);
         }
       }
       else {
@@ -929,7 +926,7 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
   safe_free(requests);
   curl_multi_cleanup(multi_handle);
 
-  fprintf(stderr, ":: Client type detection completed\n");
+  log_info(":: Client type detection completed");
 }
 
 // (Head-Poller ausgelagert nach src/server/http_head_poller.c)

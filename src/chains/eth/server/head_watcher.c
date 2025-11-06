@@ -98,10 +98,10 @@ static void c4_record_sse_data(const char* data, size_t len) {
 
     test_sse_recording_file = fopen(filename, "a");
     if (test_sse_recording_file) {
-      fprintf(stderr, "[RECORD] SSE events -> %s\n", filename);
+      log_info("[RECORD] SSE events -> %s", filename);
     }
     else {
-      fprintf(stderr, "[RECORD] Failed to open %s for writing (errno=%d)\n", filename, errno);
+      log_error("[RECORD] Failed to open %s for writing (errno=%d)", filename, (uint32_t) errno);
       perror("[RECORD] Error details");
     }
   }

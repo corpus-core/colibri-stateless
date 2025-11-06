@@ -118,7 +118,7 @@ static int get_int(int* target, char* env_name, char* arg_nane, char shortcut, c
   }
   if (!set) return 0;
   if (val < min || val > max) {
-    fprintf(stderr, "Invalid value for %s: %d (must be between %d and %d)\n", env_name, val, min, max);
+    log_error("Invalid value for %s: %d (must be between %d and %d)", env_name, (uint32_t) val, (uint32_t) min, (uint32_t) max);
     return 1;
   }
   *target = val;
@@ -132,10 +132,10 @@ void c4_configure(int argc, char* argv[]) {
   config();
 
   if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-    fprintf(stderr, "Usage: %s [options]\n", args[0]);
-    fprintf(stderr, "  -h, --help                                 show this help message\n");
-    fprintf(stderr, "  -f, --config           CONFIG_FILE         path to config file (default: search in ./server.conf, /etc/colibri/server.conf, /usr/local/etc/colibri/server.conf)\n");
-    fprintf(stderr, "%s\n", help_buffer.data.data);
+    log_info("Usage: %s [options]", args[0]);
+    log_info("  -h, --help                                 show this help message");
+    log_info("  -f, --config           CONFIG_FILE         path to config file (default: search in ./server.conf, /etc/colibri/server.conf, /usr/local/etc/colibri/server.conf)");
+    log_info("%s", help_buffer.data.data);
     // In TEST builds, don't exit the process so tests can capture output
 #ifdef TEST
     buffer_free(&help_buffer);
@@ -145,29 +145,29 @@ void c4_configure(int argc, char* argv[]) {
 #endif
   }
   else {
-    fprintf(stderr, "Starting server with config:\n");
-    fprintf(stderr, "  host          : %s\n", http_server.host);
-    fprintf(stderr, "  port          : %d\n", http_server.port);
-    fprintf(stderr, "  memcached_host: %s\n", http_server.memcached_host);
-    fprintf(stderr, "  memcached_port: %d\n", http_server.memcached_port);
-    fprintf(stderr, "  memcached_pool: %d\n", http_server.memcached_pool);
-    fprintf(stderr, "  loglevel      : %d\n", http_server.loglevel);
-    fprintf(stderr, "  req_timeout   : %d\n", http_server.req_timeout);
-    fprintf(stderr, "  chain_id      : %d\n", http_server.chain_id);
-    fprintf(stderr, "  rpc_nodes     : %s\n", http_server.rpc_nodes);
-    fprintf(stderr, "  beacon_nodes  : %s\n", http_server.beacon_nodes);
-    fprintf(stderr, "  prover_nodes : %s\n", http_server.prover_nodes);
-    fprintf(stderr, "  beacon_events : %d\n", http_server.stream_beacon_events);
-    fprintf(stderr, "  period_store  : %s\n", http_server.period_store);
-    fprintf(stderr, "  web_ui_enabled: %d\n", http_server.web_ui_enabled);
+    log_info("Starting server with config:");
+    log_info("  host          : %s", http_server.host);
+    log_info("  port          : %d", (uint32_t) http_server.port);
+    log_info("  memcached_host: %s", http_server.memcached_host);
+    log_info("  memcached_port: %d", (uint32_t) http_server.memcached_port);
+    log_info("  memcached_pool: %d", (uint32_t) http_server.memcached_pool);
+    log_info("  loglevel      : %d", (uint32_t) http_server.loglevel);
+    log_info("  req_timeout   : %d", (uint32_t) http_server.req_timeout);
+    log_info("  chain_id      : %d", (uint32_t) http_server.chain_id);
+    log_info("  rpc_nodes     : %s", http_server.rpc_nodes);
+    log_info("  beacon_nodes  : %s", http_server.beacon_nodes);
+    log_info("  prover_nodes : %s", http_server.prover_nodes);
+    log_info("  beacon_events : %d", (uint32_t) http_server.stream_beacon_events);
+    log_info("  period_store  : %s", http_server.period_store);
+    log_info("  web_ui_enabled: %d", (uint32_t) http_server.web_ui_enabled);
 
     // Show OP Stack preconf configuration if this is an OP Stack chain
     if (c4_chain_type(http_server.chain_id) == C4_CHAIN_TYPE_OP) {
-      fprintf(stderr, "  --- OP Stack Preconf Configuration ---\n");
-      fprintf(stderr, "  preconf_storage_dir    : %s\n", http_server.preconf_storage_dir ? http_server.preconf_storage_dir : "(null)");
-      fprintf(stderr, "  preconf_ttl_minutes    : %d\n", http_server.preconf_ttl_minutes);
-      fprintf(stderr, "  preconf_cleanup_interval: %d\n", http_server.preconf_cleanup_interval_minutes);
-      fprintf(stderr, "  preconf_mode           : automatic (HTTP fallback until gossip active)\n");
+      log_info("  --- OP Stack Preconf Configuration ---");
+      log_info("  preconf_storage_dir    : %s", http_server.preconf_storage_dir ? http_server.preconf_storage_dir : "(null)");
+      log_info("  preconf_ttl_minutes    : %d", (uint32_t) http_server.preconf_ttl_minutes);
+      log_info("  preconf_cleanup_interval: %d", (uint32_t) http_server.preconf_cleanup_interval_minutes);
+      log_info("  preconf_mode           : automatic (HTTP fallback until gossip active)");
     }
   }
   buffer_free(&help_buffer);
@@ -198,12 +198,12 @@ static void load_config_file() {
     if (!f) {
       // If an explicit config path is provided but file doesn't exist,
       // accept the path and continue with defaults. The Web/API can create/save later.
-      fprintf(stderr, "Warning: Config file not found, using defaults: %s\n", explicit_config);
+      log_warn("Warning: Config file not found, using defaults: %s", explicit_config);
       if (current_config_file_path) free(current_config_file_path);
       current_config_file_path = strdup(explicit_config);
       return;
     }
-    fprintf(stderr, "Loading config from: %s\n", explicit_config);
+    log_info("Loading config from: %s", explicit_config);
     if (current_config_file_path) free(current_config_file_path);
     current_config_file_path = strdup(explicit_config);
     // Load from explicit file (rest of function below)
@@ -221,7 +221,7 @@ static void load_config_file() {
       // Find '=' separator
       char* eq = strchr(trimmed, '=');
       if (!eq) {
-        fprintf(stderr, "Warning: Invalid line %d in config file (no '=' found)\n", line_num);
+        log_warn("Warning: Invalid line %d in config file (no '=' found)", (uint32_t) line_num);
         continue;
       }
 
@@ -232,7 +232,7 @@ static void load_config_file() {
 
       // Skip if key or value is empty
       if (strlen(key) == 0 || strlen(val) == 0) {
-        fprintf(stderr, "Warning: Empty key or value on line %d in config file\n", line_num);
+        log_warn("Warning: Empty key or value on line %d in config file", (uint32_t) line_num);
         continue;
       }
 
@@ -265,7 +265,7 @@ static void load_config_file() {
   while (config_paths[path] != NULL) {
     f = fopen(config_paths[path], "r");
     if (f) {
-      fprintf(stderr, "Loading config from: %s\n", config_paths[path]);
+      log_info("Loading config from: %s", config_paths[path]);
       current_config_file_path = strdup(config_paths[path]);
       break;
     }
@@ -292,7 +292,7 @@ static void load_config_file() {
     // Find '=' separator
     char* eq = strchr(trimmed, '=');
     if (!eq) {
-      fprintf(stderr, "Warning: Invalid line %d in config file (no '=' found)\n", line_num);
+      log_warn("Warning: Invalid line %d in config file (no '=' found)", (uint32_t) line_num);
       continue;
     }
 
@@ -302,7 +302,7 @@ static void load_config_file() {
     char* val = trim(eq + 1);
 
     if (strlen(key) == 0 || strlen(val) == 0) {
-      fprintf(stderr, "Warning: Empty key or value on line %d in config file\n", line_num);
+      log_warn("Warning: Empty key or value on line %d in config file", (uint32_t) line_num);
       continue;
     }
 
@@ -335,7 +335,7 @@ const char* c4_get_config_file_path() {
  */
 int c4_save_config_file(const char* updates) {
   if (!current_config_file_path) {
-    fprintf(stderr, "Error: No config file path available for saving\n");
+    log_error("Error: No config file path available for saving");
     return -1;
   }
 
@@ -372,7 +372,7 @@ int c4_save_config_file(const char* updates) {
 
       // Validate key length
       if (strlen(key) >= MAX_KEY_LENGTH) {
-        fprintf(stderr, "Error: Config key too long (max %d chars): %s\n", MAX_KEY_LENGTH - 1, key);
+        log_error("Error: Config key too long (max %d chars): %s", (uint32_t) (MAX_KEY_LENGTH - 1), key);
         free(updates_copy);
         for (int i = 0; i < update_count; i++) {
           free(update_map[i].key);
@@ -383,7 +383,7 @@ int c4_save_config_file(const char* updates) {
 
       // Validate value length
       if (strlen(val) >= MAX_VALUE_LENGTH) {
-        fprintf(stderr, "Error: Config value too long (max %d chars) for key: %s\n", MAX_VALUE_LENGTH - 1, key);
+        log_error("Error: Config value too long (max %d chars) for key: %s", (uint32_t) (MAX_VALUE_LENGTH - 1), key);
         free(updates_copy);
         for (int i = 0; i < update_count; i++) {
           free(update_map[i].key);
@@ -405,7 +405,7 @@ int c4_save_config_file(const char* updates) {
   snprintf(temp_path, sizeof(temp_path), "%s.tmp", current_config_file_path);
   FILE* temp = fopen(temp_path, "w");
   if (!temp) {
-    fprintf(stderr, "Error: Could not create temporary config file: %s\n", temp_path);
+    log_error("Error: Could not create temporary config file: %s", temp_path);
     fclose(original);
     return -1;
   }
@@ -475,13 +475,13 @@ int c4_save_config_file(const char* updates) {
 
   // Move temp file to config file
   if (rename(temp_path, current_config_file_path) != 0) {
-    fprintf(stderr, "Error: Could not write new config file\n");
+    log_error("Error: Could not write new config file");
     // Restore backup if we had one
     if (has_original) rename(backup_path, current_config_file_path);
     return -1;
   }
 
-  fprintf(stderr, "Config file updated: %s (backup: %s)\n", current_config_file_path, backup_path);
+  log_info("Config file updated: %s (backup: %s)", current_config_file_path, backup_path);
   return 0;
 }
 

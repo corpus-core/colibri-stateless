@@ -153,10 +153,10 @@ static void c4_record_test_response(const char* url, const char* payload,
       fwrite(response.data, 1, response.len, f);
     }
     fclose(f);
-    fprintf(stderr, "[RECORD] %s -> %s\n", host ? host : "unknown", filename);
+    log_info("[RECORD] %s -> %s", host ? host : "unknown", filename);
   }
   else {
-    fprintf(stderr, "[RECORD] Failed to write %s\n", filename);
+    log_error("[RECORD] Failed to write %s", filename);
   }
 
   free(filename);
@@ -266,7 +266,7 @@ static void cleanup_easy_handle_and_context(uv_handle_t* handle) {
     safe_free(context);
   }
   else {
-    fprintf(stderr, "WARNING: cleanup_easy_handle_and_context called with handle not part of a context?\n");
+    log_warn("cleanup_easy_handle_and_context called with handle not part of a context?");
   }
 }
 
@@ -382,8 +382,8 @@ static void handle_curl_events() {
       const char* url = r->url ? r->url : r->req->url;
       if (url && strncmp(url, "file://", 7) == 0) {
         http_code = parse_mock_response(&r->buffer);
-        fprintf(stderr, "   [mock ] Parsed mock response from %s: HTTP %ld, %u bytes\n",
-                url, http_code, (unsigned int) r->buffer.data.len);
+        log_info("   [mock ] Parsed mock response from %s: HTTP %l, %d bytes",
+                 url, (uint64_t) http_code, (uint32_t) r->buffer.data.len);
       }
     }
 #endif
@@ -541,7 +541,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
 
   // Check if there was an error
   if (status < 0) {
-    fprintf(stderr, "Socket poll error: %s\n", uv_strerror(status));
+    log_error("Socket poll error: %s", uv_strerror(status));
     return;
   }
 
@@ -559,7 +559,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
 
   CURLMcode rc = curl_multi_socket_action(multi_handle, socket, flags, &running_handles);
   if (rc != CURLM_OK) {
-    fprintf(stderr, "curl_multi_socket_action error: %s\n", curl_multi_strerror(rc));
+    log_error("curl_multi_socket_action error: %s", curl_multi_strerror(rc));
   }
 
   handle_curl_events();
@@ -574,7 +574,7 @@ static void timer_cb(uv_timer_t* handle) {
   int       running_handles;
   CURLMcode rc = curl_multi_socket_action(multi_handle, CURL_SOCKET_TIMEOUT, 0, &running_handles);
   if (rc != CURLM_OK) {
-    fprintf(stderr, "curl_multi_socket_action error in timer: %s\n", curl_multi_strerror(rc));
+    log_error("curl_multi_socket_action error in timer: %s", curl_multi_strerror(rc));
   }
 
   handle_curl_events();
@@ -624,14 +624,14 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   if (!context) {
     context = (curl_poll_context_t*) safe_calloc(1, sizeof(curl_poll_context_t));
     if (!context) {
-      fprintf(stderr, "Failed to allocate poll context\n");
+      log_error("Failed to allocate poll context");
       return -1;
     }
     context->easy_handle = easy;
     context->socket      = s; // Store socket descriptor for cross-platform access
     int err              = uv_poll_init_socket(uv_default_loop(), &context->poll_handle, s);
     if (err != 0) {
-      fprintf(stderr, "Failed to initialize poll handle: %s\n", uv_strerror(err));
+      log_error("Failed to initialize poll handle: %s", uv_strerror(err));
       safe_free(context);
       return -1;
     }
@@ -648,7 +648,7 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   // Start or update polling for events
   int err = uv_poll_start(&context->poll_handle, events, poll_cb);
   if (err != 0) {
-    fprintf(stderr, "Failed to start polling: %s\n", uv_strerror(err));
+    log_error("Failed to start polling: %s", uv_strerror(err));
     // If starting polling failed, we should clean up the context/handle
     // Only do this if we *just* created the context in this call (!socketp check equivalent)
     if (!socketp) {                     // Check if context was created in this call
@@ -695,7 +695,7 @@ typedef struct {
 
 static void c4_add_request_response(request_t* req) {
   if (!req || !req->ctx) {
-    fprintf(stderr, "ERROR: Invalid request or context in c4_add_request_response\n");
+    log_error("Invalid request or context in c4_add_request_response");
     return;
   }
 
@@ -705,7 +705,7 @@ static void c4_add_request_response(request_t* req) {
 
   // Check that client is still valid and not being closed
   if (!res->client || res->client->being_closed)
-    fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding response\n");
+    log_warn("Client is no longer valid or is being closed - discarding response");
   else
     // Client is still valid, deliver the response
     res->cb(req->client, res->data, dr);
@@ -756,7 +756,7 @@ static void cache_response(single_request_t* r) {
 // Helper function to configure SSL settings for an easy handle
 static void configure_ssl_settings(CURL* easy) {
   if (!easy) {
-    fprintf(stderr, "configure_ssl_settings: NULL easy handle passed\n");
+    log_error("configure_ssl_settings: NULL easy handle passed");
     return;
   }
 
@@ -857,7 +857,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
       if (selected_index == -1) {
         // This should be very rare after emergency reset logic in c4_select_best_server
-        fprintf(stderr, ":: CRITICAL ERROR: No available servers even after emergency reset attempts\n");
+        log_error(":: CRITICAL ERROR: No available servers even after emergency reset attempts");
         r->req->error = bprintf(NULL, "All servers exhausted - check network connectivity");
         r->end_time   = current_ms();
         call_callback_if_done(r->parent);
@@ -880,7 +880,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     else if (strlen(req_url) > 0 && strlen(base_url) > 0)
       r->url = bprintf(NULL, "%s%s%s", base_url, base_url[strlen(base_url) - 1] == '/' ? "" : "/", req_url);
     else {
-      fprintf(stderr, ":: ERROR: Empty URL\n");
+      log_error(":: ERROR: Empty URL");
       r->req->error = bprintf(NULL, "Empty URL");
       r->end_time   = current_ms();
       call_callback_if_done(r->parent);
@@ -969,7 +969,7 @@ static void trigger_cached_curl_requests(request_t* req) {
     int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
     safe_free(key);
     if (ret) {
-      fprintf(stderr, "CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+      log_error("CACHE-Error : %d %s %s", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
       trigger_uncached_curl_request(r, NULL, 0);
     }
   }
@@ -978,7 +978,7 @@ static void trigger_cached_curl_requests(request_t* req) {
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb) {
   // Check if client is valid and not being closed
   if (!client || client->being_closed) {
-    fprintf(stderr, "ERROR: Attempted to add request to invalid or closing client\n");
+    log_error("Attempted to add request to invalid or closing client");
     // Clean up resources since we won't be processing this request
     if (req) {
       safe_free(req->url);
@@ -1135,7 +1135,7 @@ void c4_init_curl(uv_timer_t* timer) {
     // Initialize memcached client
     memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
     if (!memcache_client) {
-      fprintf(stderr, "Failed to create memcached client\n");
+      log_error("Failed to create memcached client");
       return;
     }
   }

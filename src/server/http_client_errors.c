@@ -6,7 +6,7 @@
 #include "server.h"
 #include "state.h"
 #include "util/json.h"
-#include "util/logger.h"
+#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -257,7 +257,7 @@ static c4_response_type_t classify_jsonrpc_error(json_t error, data_request_t* r
     }
     // Error object without code - treat as server error
     set_jsonrpc_simple_error_message(req, error, "JSON-RPC error without code");
-    fprintf(stderr, "   [jsonrpc] JSON-RPC error without code - retryable\n");
+    log_warn("   [jsonrpc] JSON-RPC error without code - retryable");
     return C4_RESPONSE_ERROR_RETRY;
   }
   else if (error.type == JSON_TYPE_STRING) {
@@ -271,7 +271,7 @@ static c4_response_type_t classify_jsonrpc_error(json_t error, data_request_t* r
       else
         req->error = strdup("JSON-RPC string error");
     }
-    fprintf(stderr, "   [jsonrpc] JSON-RPC string error - retryable\n");
+    log_warn("   [jsonrpc] JSON-RPC string error - retryable");
     return C4_RESPONSE_ERROR_RETRY;
   }
 
@@ -359,7 +359,7 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
 
   // Special handling for Beacon API sync lag
   if (req && req->type == C4_DATA_TYPE_BEACON_API && c4_is_beacon_api_sync_lag(http_code, url, response_body)) {
-    fprintf(stderr, "   [sync ] Detected potential sync lag for beacon API - treating as server error, not user error\n");
+    log_warn("   [sync ] Detected potential sync lag for beacon API - treating as server error, not user error");
     return C4_RESPONSE_ERROR_RETRY;
   }
 

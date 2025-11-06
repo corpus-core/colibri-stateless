@@ -2,7 +2,7 @@
 #include "../verifier/op_chains_conf.h"
 #include "kona_preconf_capture.h"
 #include "util/bytes.h"
-#include "util/logger.h"
+#include "logger.h"
 #include <libgen.h>
 #include <limits.h>
 #include <stdio.h>

@@ -12,7 +12,6 @@
 #include "server.h"
 #include "tx_cache.h"
 #include "util/json.h"
-#include "util/logger.h"
 #include "util/state.h"
 #include <fcntl.h>
 #include <stdio.h>

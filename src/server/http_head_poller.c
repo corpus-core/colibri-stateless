@@ -1,7 +1,7 @@
 #include "chain_props.h"
 #include "server.h"
 #include "util/json.h"
-#include "util/logger.h"
+#include "logger.h"
 #include <string.h>
 
 // Local write callback (like detection_write_callback) for head polling
@@ -256,7 +256,7 @@ bool c4_start_rpc_head_poller(server_list_t* servers) {
     interval = (block_time_ms > 0) ? block_time_ms : 12000;
   }
   uv_timer_start(&g_head_timer, c4_head_poll_cb, interval, interval);
-  fprintf(stderr, ":: RPC head polling started (interval %llu ms)\n", (unsigned long long) interval);
+  log_info(":: RPC head polling started (interval %l ms)", (uint64_t) interval);
   return true;
 }
 

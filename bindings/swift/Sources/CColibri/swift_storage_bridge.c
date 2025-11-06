@@ -12,6 +12,7 @@
 // Use the REAL header files from the C library (correct ABI)
 #include "../../../../src/util/bytes.h"
 #include "../../../../src/util/plugin.h"
+#include "logger.h"
 
 // Function pointer types for Swift callbacks
 typedef void* (*swift_storage_get_fn)(const char* key, uint32_t* out_len);
@@ -27,7 +28,7 @@ static swift_storage_delete_fn g_swift_delete = NULL;
 
 static bool bridge_storage_get(char* key, buffer_t* buffer) {
   if (!g_swift_get) {
-    fprintf(stderr, "Swift Storage Bridge Error: get function not registered\n");
+    log_error("Swift Storage Bridge Error: get function not registered");
     return false;
   }
 
@@ -55,7 +56,7 @@ static bool bridge_storage_get(char* key, buffer_t* buffer) {
 
 static void bridge_storage_set(char* key, bytes_t value) {
   if (!g_swift_set) {
-    fprintf(stderr, "Swift Storage Bridge Error: set function not registered\n");
+    log_error("Swift Storage Bridge Error: set function not registered");
     return;
   }
 
@@ -64,7 +65,7 @@ static void bridge_storage_set(char* key, bytes_t value) {
 
 static void bridge_storage_del(char* key) {
   if (!g_swift_delete) {
-    fprintf(stderr, "Swift Storage Bridge Error: delete function not registered\n");
+    log_error("Swift Storage Bridge Error: delete function not registered");
     return;
   }
 

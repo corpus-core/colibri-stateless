@@ -4,6 +4,7 @@
  */
 
 #include "server.h"
+#include "logger.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -11,7 +12,7 @@
 static void rpc_callback(client_t* client, void* data, data_request_t* req) {
   // Check if client is still valid before responding
   if (!client || client->being_closed) {
-    fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding proxy response\n");
+    log_warn("Client is no longer valid or is being closed - discarding proxy response");
     // Clean up resources
     if (req) {
       safe_free(req->response.data);
