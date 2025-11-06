@@ -454,7 +454,10 @@ static double c4_block_factor_for(server_list_t* servers, int idx, uint64_t requ
   if (requested_block <= predicted_head) return 1.0; // older blocks very likely available
   uint64_t delta = requested_block - predicted_head;
   // Methods that require the exact requested block: be strict
-  if (method && (strcmp(method, "eth_getProof") == 0 || strcmp(method, "debug_traceCall") == 0 || strcmp(method, "eth_call") == 0)) {
+  if (method && (strcmp(method, "eth_getProof") == 0 ||
+                 strcmp(method, "debug_traceCall") == 0 ||
+                 strcmp(method, "eth_call") == 0 ||
+                 strcmp(method, "eth_getBlockReceipts") == 0)) {
     return 0.0; // exclude nodes that are behind to avoid immediate failure
   }
   if (delta == 1) return 0.5; // soft penalty when just one ahead

@@ -313,6 +313,20 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
   if (http_code >= 200 && http_code < 300) {
     // For JSON-RPC, we need to check for error field even with 200 status
     if (req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
+      // Treat result:null as retryable for certain methods where null indicates unavailability
+      // rather than a valid absence. This avoids false positives when a lagging node returns null.
+      bool has_null_result = bytes_contains_string(response_body, "\"result\":null");
+      if (has_null_result) {
+        bool null_retry =
+            req_is_method(req, "eth_getBlockReceipts") ||
+            req_is_method(req, "eth_getBlockByHash")   ||
+            req_is_method(req, "eth_getBlockByNumber");
+        if (null_retry) {
+          if (!req->error) req->error = strdup("JSON-RPC result is null");
+          log_warn("   [json ] Treating result=null as retryable for this method");
+          return C4_RESPONSE_ERROR_RETRY;
+        }
+      }
       // Quick check: only parse JSON if "error" appears in first 100 bytes
       // This avoids expensive JSON parsing for successful responses
       if (bytes_contains_string(bytes_slice(response_body, 0, response_body.len < 100 ? response_body.len : 100), "\"error\"")) {

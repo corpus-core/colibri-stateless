@@ -228,6 +228,48 @@ static char* extract_rpc_method(data_request_t* req) {
   return NULL;
 }
 
+// Helper: Extract requested block number for known methods; sets out_has_block when parsed
+static void extract_requested_block_for_method(data_request_t* req, const char* rpc_method, uint64_t* out_block, bool* out_has_block) {
+  if (!req || !rpc_method || !out_block || !out_has_block) return;
+  *out_block     = 0;
+  *out_has_block = false;
+  if (!req->payload.data || req->payload.len == 0) return;
+
+  json_t root   = json_parse((char*) req->payload.data);
+  json_t params = json_get(root, "params");
+  if (params.type != JSON_TYPE_ARRAY) return;
+
+  // debug_traceCall / eth_call: block tag at index 1
+  if (strcmp(rpc_method, "debug_traceCall") == 0 || strcmp(rpc_method, "eth_call") == 0) {
+    json_t tag = json_at(params, 1);
+    if (tag.type != JSON_TYPE_NOT_FOUND) {
+      *out_block     = json_as_uint64(tag);
+      *out_has_block = *out_block > 0;
+    }
+    return;
+  }
+
+  // eth_getProof: block tag at index 2
+  if (strcmp(rpc_method, "eth_getProof") == 0) {
+    json_t tag = json_at(params, 2);
+    if (tag.type != JSON_TYPE_NOT_FOUND) {
+      *out_block     = json_as_uint64(tag);
+      *out_has_block = *out_block > 0;
+    }
+    return;
+  }
+
+  // eth_getBlockReceipts: block tag at index 0
+  if (strcmp(rpc_method, "eth_getBlockReceipts") == 0) {
+    json_t tag = json_at(params, 0);
+    if (tag.type != JSON_TYPE_NOT_FOUND) {
+      *out_block     = json_as_uint64(tag);
+      *out_has_block = *out_block > 0;
+    }
+    return;
+  }
+}
+
 // Context structure to associate uv_poll_t with CURL easy handle
 typedef struct {
   uv_poll_t     poll_handle;
@@ -823,31 +865,10 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
       // For RPC requests, use method-aware selection
       char* rpc_method = extract_rpc_method(r->req);
       if (rpc_method) {
-        // Attempt to extract requested block number for known methods
+        // Extract requested block number for known methods (if present)
         uint64_t requested_block = 0;
         bool     has_block       = false;
-        if (r->req->payload.data && r->req->payload.len > 0) {
-          json_t root   = json_parse((char*) r->req->payload.data);
-          json_t params = json_get(root, "params");
-          if (params.type == JSON_TYPE_ARRAY) {
-            // debug_traceCall / eth_call: block tag at index 1
-            if (strcmp(rpc_method, "debug_traceCall") == 0 || strcmp(rpc_method, "eth_call") == 0) {
-              json_t tag = json_at(params, 1);
-              if (tag.type != JSON_TYPE_NOT_FOUND) {
-                requested_block = json_as_uint64(tag);
-                has_block       = requested_block > 0;
-              }
-            }
-            // eth_getProof: block tag at index 2
-            else if (strcmp(rpc_method, "eth_getProof") == 0) {
-              json_t tag = json_at(params, 2);
-              if (tag.type != JSON_TYPE_NOT_FOUND) {
-                requested_block = json_as_uint64(tag);
-                has_block       = requested_block > 0;
-              }
-            }
-          }
-        }
+        extract_requested_block_for_method(r->req, rpc_method, &requested_block, &has_block);
         selected_index = c4_select_best_server_for_method(servers, r->req->node_exclude_mask, r->req->preferred_client_type, rpc_method, requested_block, has_block);
         safe_free(rpc_method);
       }
