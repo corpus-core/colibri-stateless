@@ -326,12 +326,12 @@ void curl_fetch(data_request_t* req) {
   curl_request_free(&creq);
 }
 
-static void log_request(curl_request_t* creq, bool success, bytes_t data, char* error) {
+static void log_request(curl_request_t* creq, bool success, bytes_t data, char* error, uint64_t duration_ms) {
   buffer_t buf = {0};
   if (error)
     bprintf(&buf, "-> %s", error);
   else if (success)
-    bprintf(&buf, "(%d bytes)", data.len);
+    bprintf(&buf, "(%d bytes, %l ms)", data.len, duration_ms);
   else
     bprintf(&buf, "-> %r ", data);
   if (creq->request->payload.len && creq->request->payload.data)
@@ -401,7 +401,16 @@ void curl_fetch_all(c4_state_t* state) {
           curl_request_t* creq        = NULL;
 
           curl_easy_getinfo(easy_handle, CURLINFO_PRIVATE, &creq);
-
+          /* Prefer microsecond API if verfügbar */
+          curl_off_t total_time_us = 0;
+          uint64_t   duration_ms   = 0;
+          if (curl_easy_getinfo(easy_handle, CURLINFO_TOTAL_TIME_T, &total_time_us) == CURLE_OK)
+            duration_ms = (uint64_t) (total_time_us / 1000);
+          else {
+            double total_time_s = 0.0;
+            if (curl_easy_getinfo(easy_handle, CURLINFO_TOTAL_TIME, &total_time_s) == CURLE_OK)
+              duration_ms = (uint64_t) (total_time_s * 1000.0);
+          }
           if (creq) {
 
             long response_code;
@@ -409,7 +418,7 @@ void curl_fetch_all(c4_state_t* state) {
 
             if (message->data.result == CURLE_OK && response_code >= 200 && response_code < 300) {
               // Success case
-              log_request(creq, true, creq->buffer.data, NULL);
+              log_request(creq, true, creq->buffer.data, NULL, duration_ms);
 
               creq->request->response = creq->buffer.data;
               creq->buffer            = (buffer_t) {0};
@@ -426,7 +435,7 @@ void curl_fetch_all(c4_state_t* state) {
               // Error case - store error but mark for retry if possible
               char* error_msg = bprintf(NULL, "%s : %s", message->data.result == CURLE_OK ? "" : curl_easy_strerror(message->data.result), bprintf(&creq->buffer, " "));
 
-              log_request(creq, false, creq->buffer.data, error_msg);
+              log_request(creq, false, creq->buffer.data, error_msg, 0);
 
               // Check if we need to keep retrying with different nodes
               if (creq->request->type != C4_DATA_TYPE_REST_API) {

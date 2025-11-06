@@ -456,7 +456,7 @@ static void handle_curl_events() {
     bytes_t response = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
     if (response_type == C4_RESPONSE_SUCCESS && response.data) {
-      fprintf(stderr, "   [curl ] %s %s -> OK %d bytes (%s)\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, r->url ? r->url : r->req->url);
+      fprintf(stderr, "   [curl ] %s %s -> OK %d bytes, %l ms from %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, response_time, r->url ? r->url : r->req->url);
       r->req->response = response; // set the response
       cache_response(r);           // and write to cache
 
@@ -464,25 +464,25 @@ static void handle_curl_events() {
     }
     else if (response_type == C4_RESPONSE_ERROR_USER && r->req->type == C4_DATA_TYPE_ETH_RPC && response.data) {
       // For JSON-RPC user errors, set the response so application logic can extract detailed error messages
-      fprintf(stderr, "   [curl ] %s %s -> USER ERROR %d bytes  (%s) : %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, r->url ? r->url : r->req->url, response.data ? (char*) response.data : "");
+      fprintf(stderr, "   [curl ] %s %s -> USER ERROR %d bytes  (%s) : from %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, r->url ? r->url : r->req->url, response.data ? (char*) response.data : "");
       r->req->response = response;       // set the response with JSON-RPC error details
       r->buffer        = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
 
       // Mark as non-retryable to avoid unnecessary retries
-      fprintf(stderr, "   [user ] JSON-RPC user error - marking request as non-retryable\n");
+      fprintf(stderr, "   [curl ] JSON-RPC user error - marking request as non-retryable\n");
       r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
     }
     else if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
       // Don't set response or mark as completely failed - let retry logic handle it
       if (!r->req->error) r->req->error = strdup("Method not supported");
-      fprintf(stderr, "   [curl ] %s %s -> Method not supported : %s\n",
+      fprintf(stderr, "   [curl ] %s %s -> Method not supported : from %s\n",
               r->url ? r->url : r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
     }
     else {
       char* effective_url = NULL;
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
       if (!r->req->error) r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, msg->data.result == CURLE_OK ? "" : curl_easy_strerror(msg->data.result), bprintf(&r->buffer, " ")); // create error message
-      fprintf(stderr, "   [curl ] %s %s -> ERROR : %s\n", effective_url ? effective_url : (r->url ? r->url : r->req->url), r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
+      fprintf(stderr, "   [curl ] %s -> ERROR : %s : from %s\n", r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error, effective_url ? effective_url : (r->url ? r->url : r->req->url));
 
       // For non-JSON-RPC user errors, mark as non-retryable to avoid unnecessary retries
       if (response_type == C4_RESPONSE_ERROR_USER) {
