@@ -61,6 +61,7 @@ typedef struct pending_request {
 
 static pending_request_t* pending_requests = NULL;
 static CURLM*             multi_handle;
+static CURLSH*            g_curl_share = NULL;
 static mc_t*              memcache_client = NULL;
 const char*               CURL_METHODS[]  = {"GET", "POST", "PUT", "DELETE"};
 
@@ -394,6 +395,32 @@ static void handle_curl_events() {
                                                             r->url ? r->url : r->req->url,
                                                             r->buffer.data,
                                                             r->req); // Classify the response type
+
+    // Collect libcurl-level metrics
+    {
+      long   http_version = 0;
+      long   num_connects = 0;
+      double connect_time = 0.0;
+      double app_time     = 0.0;
+      curl_easy_getinfo(easy, CURLINFO_HTTP_VERSION, &http_version);
+      curl_easy_getinfo(easy, CURLINFO_NUM_CONNECTS, &num_connects);
+      curl_easy_getinfo(easy, CURLINFO_CONNECT_TIME, &connect_time);
+      curl_easy_getinfo(easy, CURLINFO_APPCONNECT_TIME, &app_time);
+      http_server.curl.total_requests++;
+      http_server.curl.total_connects += (uint64_t) num_connects;
+      // Portable Reuse-Heuristik: wenn keine neuen Connects in diesem Transfer, wurde die Verbindung wiederverwendet
+      if (num_connects == 0) http_server.curl.reused_connections_total++;
+      if (http_version >= CURL_HTTP_VERSION_2_0)
+        http_server.curl.http2_requests_total++;
+      else
+        http_server.curl.http1_requests_total++;
+      if (num_connects > 0 && app_time > 0.0) http_server.curl.tls_handshakes_total++;
+      const double w = 0.1;
+      if (connect_time > 0.0)
+        http_server.curl.avg_connect_time_ms = (1.0 - w) * http_server.curl.avg_connect_time_ms + w * (connect_time * 1000.0);
+      if (app_time > 0.0)
+        http_server.curl.avg_appconnect_time_ms = (1.0 - w) * http_server.curl.avg_appconnect_time_ms + w * (app_time * 1000.0);
+    }
 
     // Update server health based on response type
     // Method not supported is not a server health issue, so we treat it as successful for health tracking
@@ -886,6 +913,24 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[r->req->method]);
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r);
 
+    // Preferred HTTP version and connection reuse settings
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, http_server.curl.http2_enabled ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
+    curl_easy_setopt(easy, CURLOPT_PIPEWAIT, 1L);
+    curl_easy_setopt(easy, CURLOPT_DNS_CACHE_TIMEOUT, 600L);
+    if (http_server.curl.tcp_keepalive_enabled) {
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPALIVE, 1L);
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPIDLE, (long) http_server.curl.tcp_keepidle_s);
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPINTVL, (long) http_server.curl.tcp_keepintvl_s);
+    }
+#ifdef CURLOPT_UPKEEP_INTERVAL_MS
+    if (http_server.curl.upkeep_interval_ms > 0)
+      curl_easy_setopt(easy, CURLOPT_UPKEEP_INTERVAL_MS, (long) http_server.curl.upkeep_interval_ms);
+#endif
+#ifdef CURLOPT_MAXAGE_CONN
+    curl_easy_setopt(easy, CURLOPT_MAXAGE_CONN, 300L);
+#endif
+    if (g_curl_share) curl_easy_setopt(easy, CURLOPT_SHARE, g_curl_share);
+
     // Configure SSL settings for this easy handle
     configure_ssl_settings(easy);
 
@@ -1053,11 +1098,26 @@ void c4_init_curl(uv_timer_t* timer) {
   // Initialize global curl state with SSL support
   curl_global_init(CURL_GLOBAL_SSL | CURL_GLOBAL_DEFAULT);
 
+  // Initialize shared object for DNS and SSL session sharing
+  g_curl_share = curl_share_init();
+  if (g_curl_share) {
+    curl_share_setopt(g_curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+    curl_share_setopt(g_curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+  }
+
   // Initialize multi handle
   multi_handle = curl_multi_init();
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, socket_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
+
+  // Configure connection pool limits and HTTP/2 multiplexing
+  curl_multi_setopt(multi_handle, CURLMOPT_MAX_HOST_CONNECTIONS, (long) http_server.curl.pool_max_host);
+  curl_multi_setopt(multi_handle, CURLMOPT_MAX_TOTAL_CONNECTIONS, (long) http_server.curl.pool_max_total);
+#ifdef CURLPIPE_MULTIPLEX
+  curl_multi_setopt(multi_handle, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
+#endif
+  curl_multi_setopt(multi_handle, CURLMOPT_MAXCONNECTS, (long) http_server.curl.pool_maxconnects);
 
   if (http_server.memcached_host && *http_server.memcached_host) {
     // Initialize memcached client
@@ -1106,6 +1166,10 @@ void c4_cleanup_curl() {
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, NULL);
   curl_multi_cleanup(multi_handle);
   curl_global_cleanup();
+  if (g_curl_share) {
+    curl_share_cleanup(g_curl_share);
+    g_curl_share = NULL;
+  }
   if (memcache_client) {
     memcache_free(&memcache_client);
   }

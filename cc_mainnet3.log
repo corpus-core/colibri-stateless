@@ -1,0 +1,39 @@
+[INFO] Pulling latest changes...
+Already up to date.
+[INFO] Checking running services before update...
+read /home/admin/devops/ccmainnet3: is a directory
+[INFO] include global file: ../_global/autoheal/docker-compose.override.yml
+[INFO] include global file: ../_global/cadvisor/docker-compose.override.yml
+[INFO] include global file: ../_global/promtail/docker-compose.override.yml
+[INFO] Checking for services to build from local git repositories...
+[INFO] No services require building from source.
+:: [ DOCKER ] 
+[INFO] Running docker compose with: -f docker-compose.yml -f ./erigon/docker-compose.override.yml -f ./lodestar/docker-compose.override.yml -f ./memcached/docker-compose.override.yml -f ../_global/autoheal/docker-compose.override.yml -f ../_global/cadvisor/docker-compose.override.yml -f ../_global/promtail/docker-compose.override.yml
+ consensus Pulling 
+ execution Pulling 
+ consensus Pulled 
+ execution Pulled 
+ Container ccmainnet3-memcached-1  Running
+ Container lodestar_mainnet  Running
+ Container cadvisor  Running
+ Container ccmainnet3-autoheal-1  Running
+ Container promtail  Running
+ Container erigon_mainnet  Running
+ Container ccmainnet3-erigon-init-1  Starting
+ Container ccmainnet3-erigon-init-1  Started
+ Container lodestar_mainnet  Waiting
+ Container ccmainnet3-erigon-init-1  Waiting
+ Container ccmainnet3-memcached-1  Waiting
+ Container ccmainnet3-autoheal-1  Waiting
+ Container cadvisor  Waiting
+ Container erigon_mainnet  Waiting
+ Container promtail  Waiting
+ Container ccmainnet3-erigon-init-1  Healthy
+ Container lodestar_mainnet  Healthy
+ Container ccmainnet3-autoheal-1  Healthy
+ Container ccmainnet3-memcached-1  Healthy
+ Container erigon_mainnet  Healthy
+ Container cadvisor  Healthy
+ Container promtail  Healthy
+[INFO] Checking services for config changes...
+:: [INFO] Update complete on ccmainnet3 !

@@ -10,7 +10,7 @@ let chains = process.argv.slice(2);
 if (chains.length == 0) chains = ['mainnet', 'gnosis'];
 
 for (const chain of chains) {
-    const c4 = new Colibri({ chainId: chain, debug: true });
+    const c4 = new Colibri({ chainId: chain, debug: true, prover: ['http://localhost:8090'] });
     const state = {}
     let r = await c4.request({ method: 'eth_subscribe', params: ['newHeads'] });
     c4.on('message', (msg) => {

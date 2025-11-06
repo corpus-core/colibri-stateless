@@ -522,6 +522,16 @@ static void config() {
   http_server.rpc_head_poll_interval_ms  = 6000;
   http_server.rpc_head_poll_enabled      = 1;
 
+  // cURL pool defaults
+  http_server.curl.http2_enabled         = 1;
+  http_server.curl.pool_max_host         = 4;
+  http_server.curl.pool_max_total        = 64;
+  http_server.curl.pool_maxconnects      = 128;
+  http_server.curl.upkeep_interval_ms    = 15000;
+  http_server.curl.tcp_keepalive_enabled = 1;
+  http_server.curl.tcp_keepidle_s        = 30;
+  http_server.curl.tcp_keepintvl_s       = 15;
+
 #ifdef TEST
   http_server.test_dir = NULL;
 #endif
@@ -564,6 +574,16 @@ static void config() {
   get_int(&http_server.block_availability_ttl_sec, "C4_BLOCK_AVAIL_TTL_SEC", "block_availability_ttl_sec", 'J', "block availability TTL (sec)", 10, 86400);
   get_int(&http_server.rpc_head_poll_interval_ms, "C4_RPC_HEAD_POLL_INTERVAL_MS", "rpc_head_poll_interval_ms", 'q', "interval for eth_blockNumber polling (ms)", 500, 60000);
   get_int(&http_server.rpc_head_poll_enabled, "C4_RPC_HEAD_POLL_ENABLED", "rpc_head_poll_enabled", 'Q', "enable head polling (0/1)", 0, 1);
+
+  // cURL pool configuration (ENV/args)
+  get_int(&http_server.curl.http2_enabled, "C4_HTTP2", "http2", 0, "enable HTTP/2 (0/1)", 0, 1);
+  get_int(&http_server.curl.pool_max_host, "C4_POOL_MAX_HOST", "pool_max_host", 0, "max connections per host", 1, 1024);
+  get_int(&http_server.curl.pool_max_total, "C4_POOL_MAX_TOTAL", "pool_max_total", 0, "max total connections", 1, 65536);
+  get_int(&http_server.curl.pool_maxconnects, "C4_POOL_MAXCONNECTS", "pool_maxconnects", 0, "connection cache size", 1, 65536);
+  get_int(&http_server.curl.upkeep_interval_ms, "C4_UPKEEP_MS", "upkeep_ms", 0, "upkeep interval (ms)", 0, 600000);
+  get_int(&http_server.curl.tcp_keepalive_enabled, "C4_TCP_KEEPALIVE", "tcp_keepalive", 0, "TCP keepalive (0/1)", 0, 1);
+  get_int(&http_server.curl.tcp_keepidle_s, "C4_TCP_KEEPIDLE", "tcp_keepidle", 0, "TCP keepidle seconds", 1, 3600);
+  get_int(&http_server.curl.tcp_keepintvl_s, "C4_TCP_KEEPINTVL", "tcp_keepintvl", 0, "TCP keepintvl seconds", 1, 3600);
 
 #ifdef TEST
   get_string(&http_server.test_dir, "TEST_DIR", "test_dir", 'x', "TEST MODE: record all responses to TESTDATA_DIR/server/<test_dir>/");

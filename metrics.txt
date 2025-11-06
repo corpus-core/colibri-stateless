@@ -1,0 +1,220 @@
+# HELP colibri_server_healthy Server health status (1=healthy, 0=unhealthy).
+# TYPE colibri_server_healthy gauge
+# HELP colibri_server_weight Current load balancing weight for the server.
+# TYPE colibri_server_weight gauge
+# HELP colibri_server_success_rate Success rate of requests to the server (0.0-1.0).
+# TYPE colibri_server_success_rate gauge
+# HELP colibri_server_avg_response_time_ms Average response time in milliseconds.
+# TYPE colibri_server_avg_response_time_ms gauge
+# HELP colibri_server_consecutive_failures Number of consecutive failures.
+# TYPE colibri_server_consecutive_failures gauge
+# HELP colibri_server_total_requests Total number of requests sent to the server.
+# TYPE colibri_server_total_requests counter
+# HELP colibri_server_successful_requests Total number of successful requests to the server.
+# TYPE colibri_server_successful_requests counter
+# HELP colibri_server_recovery_allowed Whether the server is allowed to recover (1=yes, 0=no).
+# TYPE colibri_server_recovery_allowed gauge
+# HELP colibri_server_last_used_ms_ago Time since server was last used in milliseconds.
+# TYPE colibri_server_last_used_ms_ago gauge
+# HELP colibri_server_unhealthy_duration_ms Time the server has been unhealthy in milliseconds.
+# TYPE colibri_server_unhealthy_duration_ms gauge
+# HELP colibri_server_client_type Client type bitmask for the server (0=unknown).
+# TYPE colibri_server_client_type gauge
+# HELP colibri_server_client_info Client type information with human-readable name as label (1=detected, 0=unknown).
+# TYPE colibri_server_client_info gauge
+colibri_server_healthy{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 1
+colibri_server_weight{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 2.607562
+colibri_server_inflight{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 0
+colibri_server_max_concurrency{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 10
+colibri_server_ewma_latency_ms{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 218.811649
+colibri_server_capacity_factor{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 1
+colibri_server_rate_limited_recent{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 0
+colibri_server_success_rate{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 1
+colibri_server_avg_response_time_ms{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 283.5
+colibri_server_consecutive_failures{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 0
+colibri_server_total_requests{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 10
+colibri_server_successful_requests{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 10
+colibri_server_recovery_allowed{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 1
+colibri_server_last_used_ms_ago{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 22862
+colibri_server_unhealthy_duration_ms{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 0
+colibri_server_client_type{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 0
+colibri_server_client_info{type="eth",server="eth-mainnet.g.alchemy.com",index="0",client="Unknown"} 0
+colibri_server_estimated_head{type="eth",server="eth-mainnet.g.alchemy.com",index="0"} 23726389
+colibri_server_healthy{type="eth",server="localhost:8545",index="1"} 1
+colibri_server_weight{type="eth",server="localhost:8545",index="1"} 0.11
+colibri_server_inflight{type="eth",server="localhost:8545",index="1"} 0
+colibri_server_max_concurrency{type="eth",server="localhost:8545",index="1"} 5
+colibri_server_ewma_latency_ms{type="eth",server="localhost:8545",index="1"} 97.6
+colibri_server_capacity_factor{type="eth",server="localhost:8545",index="1"} 1
+colibri_server_rate_limited_recent{type="eth",server="localhost:8545",index="1"} 0
+colibri_server_success_rate{type="eth",server="localhost:8545",index="1"} 0
+colibri_server_avg_response_time_ms{type="eth",server="localhost:8545",index="1"} 0
+colibri_server_consecutive_failures{type="eth",server="localhost:8545",index="1"} 1
+colibri_server_total_requests{type="eth",server="localhost:8545",index="1"} 1
+colibri_server_successful_requests{type="eth",server="localhost:8545",index="1"} 0
+colibri_server_recovery_allowed{type="eth",server="localhost:8545",index="1"} 0
+colibri_server_last_used_ms_ago{type="eth",server="localhost:8545",index="1"} 58713
+colibri_server_unhealthy_duration_ms{type="eth",server="localhost:8545",index="1"} 0
+colibri_server_client_type{type="eth",server="localhost:8545",index="1"} 1024
+colibri_server_client_info{type="eth",server="localhost:8545",index="1",client="Erigon"} 1
+colibri_server_estimated_head{type="eth",server="localhost:8545",index="1"} 23726373
+colibri_server_healthy{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 1
+colibri_server_weight{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 0.11
+colibri_server_inflight{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 0
+colibri_server_max_concurrency{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 5
+colibri_server_ewma_latency_ms{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 99
+colibri_server_capacity_factor{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 1
+colibri_server_rate_limited_recent{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 0
+colibri_server_success_rate{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 0
+colibri_server_avg_response_time_ms{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 0
+colibri_server_consecutive_failures{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 1
+colibri_server_total_requests{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 1
+colibri_server_successful_requests{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 0
+colibri_server_recovery_allowed{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 0
+colibri_server_last_used_ms_ago{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 43039
+colibri_server_unhealthy_duration_ms{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 0
+colibri_server_client_type{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 256
+colibri_server_client_info{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2",client="Geth"} 1
+colibri_server_estimated_head{type="eth",server="ethereum-mainnet.core.chainstack.com",index="2"} 23726389
+colibri_server_healthy{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 1
+colibri_server_weight{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0.11
+colibri_server_inflight{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0
+colibri_server_max_concurrency{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 5
+colibri_server_ewma_latency_ms{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 94
+colibri_server_capacity_factor{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 1
+colibri_server_rate_limited_recent{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0
+colibri_server_success_rate{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0
+colibri_server_avg_response_time_ms{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0
+colibri_server_consecutive_failures{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 1
+colibri_server_total_requests{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 1
+colibri_server_successful_requests{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0
+colibri_server_recovery_allowed{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0
+colibri_server_last_used_ms_ago{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 58896
+colibri_server_unhealthy_duration_ms{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0
+colibri_server_client_type{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0
+colibri_server_client_info{type="eth",server="nameless-sly-reel.quiknode.pro",index="3",client="Unknown"} 0
+colibri_server_estimated_head{type="eth",server="nameless-sly-reel.quiknode.pro",index="3"} 0
+colibri_server_healthy{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 1
+colibri_server_weight{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 3.303055
+colibri_server_inflight{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 0
+colibri_server_max_concurrency{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 9
+colibri_server_ewma_latency_ms{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 139.5183
+colibri_server_capacity_factor{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 1
+colibri_server_rate_limited_recent{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 0
+colibri_server_success_rate{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 1
+colibri_server_avg_response_time_ms{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 202.75
+colibri_server_consecutive_failures{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 0
+colibri_server_total_requests{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 4
+colibri_server_successful_requests{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 4
+colibri_server_recovery_allowed{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 1
+colibri_server_last_used_ms_ago{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 31788
+colibri_server_unhealthy_duration_ms{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 0
+colibri_server_client_type{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 0
+colibri_server_client_info{type="eth",server="eth-mainnet.g.alchemy.com",index="4",client="Unknown"} 0
+colibri_server_estimated_head{type="eth",server="eth-mainnet.g.alchemy.com",index="4"} 23726389
+colibri_server_healthy{type="eth",server="rpc.ankr.com",index="5"} 1
+colibri_server_weight{type="eth",server="rpc.ankr.com",index="5"} 1.553672
+colibri_server_inflight{type="eth",server="rpc.ankr.com",index="5"} 0
+colibri_server_max_concurrency{type="eth",server="rpc.ankr.com",index="5"} 10
+colibri_server_ewma_latency_ms{type="eth",server="rpc.ankr.com",index="5"} 87.857
+colibri_server_capacity_factor{type="eth",server="rpc.ankr.com",index="5"} 1
+colibri_server_rate_limited_recent{type="eth",server="rpc.ankr.com",index="5"} 0
+colibri_server_success_rate{type="eth",server="rpc.ankr.com",index="5"} 0.666667
+colibri_server_avg_response_time_ms{type="eth",server="rpc.ankr.com",index="5"} 74
+colibri_server_consecutive_failures{type="eth",server="rpc.ankr.com",index="5"} 0
+colibri_server_total_requests{type="eth",server="rpc.ankr.com",index="5"} 3
+colibri_server_successful_requests{type="eth",server="rpc.ankr.com",index="5"} 2
+colibri_server_recovery_allowed{type="eth",server="rpc.ankr.com",index="5"} 0
+colibri_server_last_used_ms_ago{type="eth",server="rpc.ankr.com",index="5"} 22791
+colibri_server_unhealthy_duration_ms{type="eth",server="rpc.ankr.com",index="5"} 0
+colibri_server_client_type{type="eth",server="rpc.ankr.com",index="5"} 0
+colibri_server_client_info{type="eth",server="rpc.ankr.com",index="5",client="Unknown"} 0
+colibri_server_estimated_head{type="eth",server="rpc.ankr.com",index="5"} 23726389
+colibri_server_healthy{type="eth",server="eth.llamarpc.com",index="6"} 1
+colibri_server_weight{type="eth",server="eth.llamarpc.com",index="6"} 0.11
+colibri_server_inflight{type="eth",server="eth.llamarpc.com",index="6"} 0
+colibri_server_max_concurrency{type="eth",server="eth.llamarpc.com",index="6"} 5
+colibri_server_ewma_latency_ms{type="eth",server="eth.llamarpc.com",index="6"} 109.1
+colibri_server_capacity_factor{type="eth",server="eth.llamarpc.com",index="6"} 1
+colibri_server_rate_limited_recent{type="eth",server="eth.llamarpc.com",index="6"} 0
+colibri_server_success_rate{type="eth",server="eth.llamarpc.com",index="6"} 0
+colibri_server_avg_response_time_ms{type="eth",server="eth.llamarpc.com",index="6"} 0
+colibri_server_consecutive_failures{type="eth",server="eth.llamarpc.com",index="6"} 1
+colibri_server_total_requests{type="eth",server="eth.llamarpc.com",index="6"} 1
+colibri_server_successful_requests{type="eth",server="eth.llamarpc.com",index="6"} 0
+colibri_server_recovery_allowed{type="eth",server="eth.llamarpc.com",index="6"} 0
+colibri_server_last_used_ms_ago{type="eth",server="eth.llamarpc.com",index="6"} 58936
+colibri_server_unhealthy_duration_ms{type="eth",server="eth.llamarpc.com",index="6"} 0
+colibri_server_client_type{type="eth",server="eth.llamarpc.com",index="6"} 0
+colibri_server_client_info{type="eth",server="eth.llamarpc.com",index="6",client="Unknown"} 0
+colibri_server_estimated_head{type="eth",server="eth.llamarpc.com",index="6"} 23726389
+colibri_server_healthy{type="eth",server="rpc.payload.de",index="7"} 1
+colibri_server_weight{type="eth",server="rpc.payload.de",index="7"} 0.11
+colibri_server_inflight{type="eth",server="rpc.payload.de",index="7"} 0
+colibri_server_max_concurrency{type="eth",server="rpc.payload.de",index="7"} 5
+colibri_server_ewma_latency_ms{type="eth",server="rpc.payload.de",index="7"} 97.2
+colibri_server_capacity_factor{type="eth",server="rpc.payload.de",index="7"} 1
+colibri_server_rate_limited_recent{type="eth",server="rpc.payload.de",index="7"} 0
+colibri_server_success_rate{type="eth",server="rpc.payload.de",index="7"} 0
+colibri_server_avg_response_time_ms{type="eth",server="rpc.payload.de",index="7"} 0
+colibri_server_consecutive_failures{type="eth",server="rpc.payload.de",index="7"} 1
+colibri_server_total_requests{type="eth",server="rpc.payload.de",index="7"} 1
+colibri_server_successful_requests{type="eth",server="rpc.payload.de",index="7"} 0
+colibri_server_recovery_allowed{type="eth",server="rpc.payload.de",index="7"} 0
+colibri_server_last_used_ms_ago{type="eth",server="rpc.payload.de",index="7"} 58316
+colibri_server_unhealthy_duration_ms{type="eth",server="rpc.payload.de",index="7"} 0
+colibri_server_client_type{type="eth",server="rpc.payload.de",index="7"} 0
+colibri_server_client_info{type="eth",server="rpc.payload.de",index="7",client="Unknown"} 0
+colibri_server_estimated_head{type="eth",server="rpc.payload.de",index="7"} 23726389
+colibri_server_healthy{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 1
+colibri_server_weight{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 0.11
+colibri_server_inflight{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 0
+colibri_server_max_concurrency{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 5
+colibri_server_ewma_latency_ms{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 100.8
+colibri_server_capacity_factor{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 1
+colibri_server_rate_limited_recent{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 0
+colibri_server_success_rate{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 0
+colibri_server_avg_response_time_ms{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 0
+colibri_server_consecutive_failures{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 1
+colibri_server_total_requests{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 1
+colibri_server_successful_requests{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 0
+colibri_server_recovery_allowed{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 0
+colibri_server_last_used_ms_ago{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 46710
+colibri_server_unhealthy_duration_ms{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 0
+colibri_server_client_type{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 1024
+colibri_server_client_info{type="eth",server="ethereum-rpc.publicnode.com",index="8",client="Erigon"} 1
+colibri_server_estimated_head{type="eth",server="ethereum-rpc.publicnode.com",index="8"} 23726389
+colibri_server_healthy{type="beacon",server="localhost:5052",index="0"} 1
+colibri_server_weight{type="beacon",server="localhost:5052",index="0"} 1
+colibri_server_inflight{type="beacon",server="localhost:5052",index="0"} 0
+colibri_server_max_concurrency{type="beacon",server="localhost:5052",index="0"} 10
+colibri_server_ewma_latency_ms{type="beacon",server="localhost:5052",index="0"} 108.475983
+colibri_server_capacity_factor{type="beacon",server="localhost:5052",index="0"} 1
+colibri_server_rate_limited_recent{type="beacon",server="localhost:5052",index="0"} 0
+colibri_server_success_rate{type="beacon",server="localhost:5052",index="0"} 1
+colibri_server_avg_response_time_ms{type="beacon",server="localhost:5052",index="0"} 118.666667
+colibri_server_consecutive_failures{type="beacon",server="localhost:5052",index="0"} 0
+colibri_server_total_requests{type="beacon",server="localhost:5052",index="0"} 6
+colibri_server_successful_requests{type="beacon",server="localhost:5052",index="0"} 6
+colibri_server_recovery_allowed{type="beacon",server="localhost:5052",index="0"} 1
+colibri_server_last_used_ms_ago{type="beacon",server="localhost:5052",index="0"} 27011
+colibri_server_unhealthy_duration_ms{type="beacon",server="localhost:5052",index="0"} 0
+colibri_server_client_type{type="beacon",server="localhost:5052",index="0"} 2
+colibri_server_client_info{type="beacon",server="localhost:5052",index="0",client="Lodestar"} 1
+colibri_server_healthy{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 1
+colibri_server_weight{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 1
+colibri_server_inflight{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 0
+colibri_server_max_concurrency{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 9
+colibri_server_ewma_latency_ms{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 121.92
+colibri_server_capacity_factor{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 1
+colibri_server_rate_limited_recent{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 0
+colibri_server_success_rate{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 1
+colibri_server_avg_response_time_ms{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 215
+colibri_server_consecutive_failures{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 0
+colibri_server_total_requests{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 2
+colibri_server_successful_requests{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 2
+colibri_server_recovery_allowed{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 1
+colibri_server_last_used_ms_ago{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 27155
+colibri_server_unhealthy_duration_ms{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 0
+colibri_server_client_type{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1"} 2
+colibri_server_client_info{type="beacon",server="lodestar-mainnet.chainsafe.io",index="1",client="Lodestar"} 1

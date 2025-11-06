@@ -55,6 +55,28 @@ typedef struct {
 } server_stats_t;
 
 #define STR_BYTES(msg) bytes(msg, strlen(msg) - 1)
+// Global cURL connection pool configuration and runtime statistics
+typedef struct {
+  int http2_enabled;         // enable HTTP/2 if available (1/0)
+  int pool_max_host;         // CURLMOPT_MAX_HOST_CONNECTIONS
+  int pool_max_total;        // CURLMOPT_MAX_TOTAL_CONNECTIONS
+  int pool_maxconnects;      // CURLMOPT_MAXCONNECTS
+  int upkeep_interval_ms;    // CURLOPT_UPKEEP_INTERVAL_MS for easy handles
+  int tcp_keepalive_enabled; // CURLOPT_TCP_KEEPALIVE (1/0)
+  int tcp_keepidle_s;        // CURLOPT_TCP_KEEPIDLE
+  int tcp_keepintvl_s;       // CURLOPT_TCP_KEEPINTVL
+  // Counters
+  uint64_t total_requests;           // all transfers via libcurl
+  uint64_t total_connects;           // sum of CURLINFO_NUM_CONNECTS
+  uint64_t reused_connections_total; // number of reused connections
+  uint64_t http2_requests_total;     // transfers over HTTP/2
+  uint64_t http1_requests_total;     // transfers over HTTP/1.x
+  uint64_t tls_handshakes_total;     // heuristic: !reused && appconnect_time>0
+  // Running averages (EWMA)
+  double avg_connect_time_ms;    // avg TCP connect time
+  double avg_appconnect_time_ms; // avg TLS handshake time
+} curl_stats_t;
+
 typedef struct {
   char*          host; // Host/IP to bind to (default: 127.0.0.1 for security)
   char*          memcached_host;
@@ -98,6 +120,8 @@ typedef struct {
   // Test recording mode: if set, all responses are written to TESTDATA_DIR/server/<test_dir>/
   char* test_dir;
 #endif
+  // Global cURL pool configuration and metrics
+  curl_stats_t curl;
 } http_server_t;
 
 // Method support tracking for RPC methods

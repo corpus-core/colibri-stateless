@@ -585,6 +585,73 @@ static void c4_write_server_health_metrics(buffer_t* data) {
   bprintf(data, "\n");
 }
 
+// Prints global cURL pool configuration and runtime metrics
+static void c4_write_curl_metrics(buffer_t* data) {
+  bprintf(data, "# HELP colibri_curl_pool_max_host Max connections per host.\n");
+  bprintf(data, "# TYPE colibri_curl_pool_max_host gauge\n");
+  bprintf(data, "colibri_curl_pool_max_host %d\n", http_server.curl.pool_max_host);
+
+  bprintf(data, "# HELP colibri_curl_pool_max_total Max total connections.\n");
+  bprintf(data, "# TYPE colibri_curl_pool_max_total gauge\n");
+  bprintf(data, "colibri_curl_pool_max_total %d\n", http_server.curl.pool_max_total);
+
+  bprintf(data, "# HELP colibri_curl_pool_maxconnects Connection cache size (hint).\n");
+  bprintf(data, "# TYPE colibri_curl_pool_maxconnects gauge\n");
+  bprintf(data, "colibri_curl_pool_maxconnects %d\n", http_server.curl.pool_maxconnects);
+
+  bprintf(data, "# HELP colibri_curl_http2_enabled HTTP/2 enabled (1/0).\n");
+  bprintf(data, "# TYPE colibri_curl_http2_enabled gauge\n");
+  bprintf(data, "colibri_curl_http2_enabled %d\n", http_server.curl.http2_enabled);
+
+  bprintf(data, "# HELP colibri_curl_upkeep_interval_ms Upkeep interval in ms.\n");
+  bprintf(data, "# TYPE colibri_curl_upkeep_interval_ms gauge\n");
+  bprintf(data, "colibri_curl_upkeep_interval_ms %d\n", http_server.curl.upkeep_interval_ms);
+
+  bprintf(data, "# HELP colibri_curl_tcp_keepalive_enabled TCP keepalive enabled (1/0).\n");
+  bprintf(data, "# TYPE colibri_curl_tcp_keepalive_enabled gauge\n");
+  bprintf(data, "colibri_curl_tcp_keepalive_enabled %d\n", http_server.curl.tcp_keepalive_enabled);
+
+  bprintf(data, "# HELP colibri_curl_tcp_keepidle_seconds TCP keepidle seconds.\n");
+  bprintf(data, "# TYPE colibri_curl_tcp_keepidle_seconds gauge\n");
+  bprintf(data, "colibri_curl_tcp_keepidle_seconds %d\n", http_server.curl.tcp_keepidle_s);
+
+  bprintf(data, "# HELP colibri_curl_tcp_keepintvl_seconds TCP keepintvl seconds.\n");
+  bprintf(data, "# TYPE colibri_curl_tcp_keepintvl_seconds gauge\n");
+  bprintf(data, "colibri_curl_tcp_keepintvl_seconds %d\n", http_server.curl.tcp_keepintvl_s);
+
+  bprintf(data, "# HELP colibri_curl_total_requests Total libcurl transfers.\n");
+  bprintf(data, "# TYPE colibri_curl_total_requests counter\n");
+  bprintf(data, "colibri_curl_total_requests %l\n", http_server.curl.total_requests);
+
+  bprintf(data, "# HELP colibri_curl_total_connects New TCP connects observed.\n");
+  bprintf(data, "# TYPE colibri_curl_total_connects counter\n");
+  bprintf(data, "colibri_curl_total_connects %l\n", http_server.curl.total_connects);
+
+  bprintf(data, "# HELP colibri_curl_reused_connections_total Reused connections.\n");
+  bprintf(data, "# TYPE colibri_curl_reused_connections_total counter\n");
+  bprintf(data, "colibri_curl_reused_connections_total %l\n", http_server.curl.reused_connections_total);
+
+  bprintf(data, "# HELP colibri_curl_http2_requests_total HTTP/2 requests.\n");
+  bprintf(data, "# TYPE colibri_curl_http2_requests_total counter\n");
+  bprintf(data, "colibri_curl_http2_requests_total %l\n", http_server.curl.http2_requests_total);
+
+  bprintf(data, "# HELP colibri_curl_http1_requests_total HTTP/1.x requests.\n");
+  bprintf(data, "# TYPE colibri_curl_http1_requests_total counter\n");
+  bprintf(data, "colibri_curl_http1_requests_total %l\n", http_server.curl.http1_requests_total);
+
+  bprintf(data, "# HELP colibri_curl_tls_handshakes_total TLS handshakes (heuristic).\n");
+  bprintf(data, "# TYPE colibri_curl_tls_handshakes_total counter\n");
+  bprintf(data, "colibri_curl_tls_handshakes_total %l\n", http_server.curl.tls_handshakes_total);
+
+  bprintf(data, "# HELP colibri_curl_avg_connect_time_ms Avg TCP connect time (ms).\n");
+  bprintf(data, "# TYPE colibri_curl_avg_connect_time_ms gauge\n");
+  bprintf(data, "colibri_curl_avg_connect_time_ms %f\n", http_server.curl.avg_connect_time_ms);
+
+  bprintf(data, "# HELP colibri_curl_avg_appconnect_time_ms Avg TLS handshake time (ms).\n");
+  bprintf(data, "# TYPE colibri_curl_avg_appconnect_time_ms gauge\n");
+  bprintf(data, "colibri_curl_avg_appconnect_time_ms %f\n", http_server.curl.avg_appconnect_time_ms);
+}
+
 #ifdef HTTP_SERVER_GEO
 // Comparison function for qsort to sort by count descending
 static int compare_geo_locations_desc(const void* a, const void* b) {
@@ -733,6 +800,8 @@ bool c4_handle_metrics(client_t* client) {
   c4_write_prometheus_bucket_metrics(&data, &beacon_requests, "beacon", "Beacon API (e.g. /eth/v1/beacon/genesis)", &method_metrics_described);
 
   // Server Health Statistics
+  c4_write_curl_metrics(&data);
+
   c4_write_server_health_metrics(&data);
 
 #ifdef HTTP_SERVER_GEO

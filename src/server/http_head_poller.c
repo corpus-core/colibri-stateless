@@ -192,6 +192,22 @@ static void c4_head_poll_cb(uv_timer_t* handle) {
     curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
+    // Connection reuse and HTTP preferences
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, http_server.curl.http2_enabled ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
+    curl_easy_setopt(easy, CURLOPT_PIPEWAIT, 1L);
+    curl_easy_setopt(easy, CURLOPT_DNS_CACHE_TIMEOUT, 600L);
+    if (http_server.curl.tcp_keepalive_enabled) {
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPALIVE, 1L);
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPIDLE, (long) http_server.curl.tcp_keepidle_s);
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPINTVL, (long) http_server.curl.tcp_keepintvl_s);
+    }
+#ifdef CURLOPT_UPKEEP_INTERVAL_MS
+    if (http_server.curl.upkeep_interval_ms > 0)
+      curl_easy_setopt(easy, CURLOPT_UPKEEP_INTERVAL_MS, (long) http_server.curl.upkeep_interval_ms);
+#endif
+#ifdef CURLOPT_MAXAGE_CONN
+    curl_easy_setopt(easy, CURLOPT_MAXAGE_CONN, 300L);
+#endif
     ctx->headers = curl_slist_append(ctx->headers, "Content-Type: application/json");
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, ctx->headers);
     curl_easy_setopt(easy, CURLOPT_POSTFIELDS, rpc_payload);
@@ -210,6 +226,13 @@ bool c4_start_rpc_head_poller(server_list_t* servers) {
     g_head_multi = curl_multi_init();
     curl_multi_setopt(g_head_multi, CURLMOPT_SOCKETFUNCTION, c4_head_socket_callback);
     curl_multi_setopt(g_head_multi, CURLMOPT_TIMERFUNCTION, c4_head_timer_callback);
+    // Apply pool limits for the head poller as well
+    curl_multi_setopt(g_head_multi, CURLMOPT_MAX_HOST_CONNECTIONS, (long) http_server.curl.pool_max_host);
+    curl_multi_setopt(g_head_multi, CURLMOPT_MAX_TOTAL_CONNECTIONS, (long) http_server.curl.pool_max_total);
+#ifdef CURLPIPE_MULTIPLEX
+    curl_multi_setopt(g_head_multi, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
+#endif
+    curl_multi_setopt(g_head_multi, CURLMOPT_MAXCONNECTS, (long) http_server.curl.pool_maxconnects);
   }
   if (!g_head_timer_initialized) {
     uv_timer_init(uv_default_loop(), &g_head_timer);
