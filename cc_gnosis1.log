@@ -1,0 +1,1685 @@
+[INFO] Pulling latest changes...
+Already up to date.
+[INFO] Checking running services before update...
+[INFO] include global file: ../_global/autoheal/docker-compose.override.yml
+[INFO] include global file: ../_global/cadvisor/docker-compose.override.yml
+[INFO] include global file: ../_global/promtail/docker-compose.override.yml
+[INFO] Checking for services to build from local git repositories...
+[INFO] Found .repo file for service c4_chiado (URL: https://github.com/corpus-core/colibri-stateless.git)
+[INFO] Source directory ./c4_chiado/source found. Managing repository for c4_chiado...
+From https://github.com/corpus-core/colibri-stateless
+   8510f62..844792a  dev        -> origin/dev
+[INFO] For c4_chiado (dev), now pulling default branch...
+[INFO] Changes detected for c4_chiado (old HEAD: 8510f62c2d0af6c260a4c64b0b63c2f09c9717a8, new HEAD: 844792a6401bfb2d9c9a0f15e740248cd72bf6ba).
+[INFO] Found .repo file for service c4_gnosis (URL: https://github.com/corpus-core/colibri-stateless.git)
+[INFO] Source directory ./c4_gnosis/source found. Managing repository for c4_gnosis...
+[INFO] For c4_gnosis (dev), now pulling default branch...
+From https://github.com/corpus-core/colibri-stateless
+   8510f62..844792a  dev        -> origin/dev
+[INFO] Changes detected for c4_gnosis (old HEAD: 8510f62c2d0af6c260a4c64b0b63c2f09c9717a8, new HEAD: 844792a6401bfb2d9c9a0f15e740248cd72bf6ba).
+[INFO] Found .repo file for service c4_mainnet (URL: https://github.com/corpus-core/colibri-stateless.git)
+[INFO] Source directory ./c4_mainnet/source found. Managing repository for c4_mainnet...
+[INFO] For c4_mainnet (dev), now pulling default branch...
+From https://github.com/corpus-core/colibri-stateless
+   8510f62..844792a  dev        -> origin/dev
+[INFO] Changes detected for c4_mainnet (old HEAD: 8510f62c2d0af6c260a4c64b0b63c2f09c9717a8, new HEAD: 844792a6401bfb2d9c9a0f15e740248cd72bf6ba).
+[INFO] Found .repo file for service c4_sepolia (URL: https://github.com/corpus-core/colibri-stateless.git)
+[INFO] Source directory ./c4_sepolia/source found. Managing repository for c4_sepolia...
+From https://github.com/corpus-core/colibri-stateless
+   8510f62..844792a  dev        -> origin/dev
+[INFO] For c4_sepolia (dev), now pulling default branch...
+[INFO] Changes detected for c4_sepolia (old HEAD: 8510f62c2d0af6c260a4c64b0b63c2f09c9717a8, new HEAD: 844792a6401bfb2d9c9a0f15e740248cd72bf6ba).
+[INFO] Building services with detected source changes: c4_chiado c4_gnosis c4_mainnet c4_sepolia
+:: [ 1 of 4 ] c4_chiado
+[INFO] Building c4_chiado...
+Compose can now delegate builds to bake for better performance.
+ To do so, set COMPOSE_BAKE=true.
+#0 building with "default" instance using docker driver
+
+#1 [c4_chiado internal] load build definition from Dockerfile
+#1 transferring dockerfile: 2.57kB 0.0s done
+#1 DONE 0.1s
+
+#2 [c4_chiado internal] load metadata for docker.io/library/debian:bookworm-slim
+#2 DONE 1.0s
+
+#3 [c4_chiado internal] load .dockerignore
+#3 transferring context: 564B 0.0s done
+#3 DONE 0.0s
+
+#4 [c4_chiado builder  1/10] FROM docker.io/library/debian:bookworm-slim@sha256:936abff852736f951dab72d91a1b6337cf04217b2a77a5eaadc7c0f2f1ec1758
+#4 DONE 0.0s
+
+#5 [c4_chiado internal] load build context
+#5 transferring context: 11.90MB 1.9s done
+#5 DONE 1.9s
+
+#6 [c4_chiado builder  4/10] WORKDIR /build
+#6 CACHED
+
+#7 [c4_chiado builder  5/10] COPY CMakeLists.txt ./
+#7 CACHED
+
+#8 [c4_chiado builder  2/10] RUN apt-get update && apt-get install -y --no-install-recommends     cmake     clang     git     build-essential     ca-certificates     libcurl4-openssl-dev     pkg-config     libssl-dev     wget     && update-ca-certificates     && rm -rf /var/lib/apt/lists/*
+#8 CACHED
+
+#9 [c4_chiado builder  3/10] RUN wget -O rustup-init.sh https://sh.rustup.rs     && chmod +x rustup-init.sh     && ./rustup-init.sh -y --default-toolchain stable     && rm rustup-init.sh
+#9 CACHED
+
+#10 [c4_chiado builder  6/10] COPY CMakePresets.json ./
+#10 CACHED
+
+#11 [c4_chiado builder  7/10] COPY src ./src
+#11 DONE 0.6s
+
+#12 [c4_chiado builder  8/10] COPY libs ./libs
+#12 DONE 0.3s
+
+#13 [c4_chiado builder  9/10] COPY bindings ./bindings
+#13 DONE 0.4s
+
+#14 [c4_chiado builder 10/10] RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true . && make colibri-server
+#14 5.495 -- The C compiler identification is Clang 14.0.6
+#14 6.032 -- The CXX compiler identification is Clang 14.0.6
+#14 6.082 -- Detecting C compiler ABI info
+#14 6.450 -- Detecting C compiler ABI info - done
+#14 6.468 -- Check for working C compiler: /usr/bin/clang - skipped
+#14 6.469 -- Detecting C compile features
+#14 6.472 -- Detecting C compile features - done
+#14 6.485 -- Detecting CXX compiler ABI info
+#14 7.110 -- Detecting CXX compiler ABI info - done
+#14 7.131 -- Check for working CXX compiler: /usr/bin/clang++ - skipped
+#14 7.131 -- Detecting CXX compile features
+#14 7.133 -- Detecting CXX compile features - done
+#14 7.203 -- C4 Version: 0.1.0-dev
+#14 12.22 -- Found CURL: /usr/lib/x86_64-linux-gnu/libcurl.so (found version "7.88.1")  
+#14 14.84 -- x86_64 micro-architecture level: 2
+#14 22.86 -- Patched execution_state.hpp to replace std::aligned_alloc
+#14 22.86 -- Patched evmc.hpp to handle iOS compatibility
+#14 22.86 -- Patched eof.cpp to handle iOS compatibility
+#14 22.86 -- Patched instructions_calls.cpp to handle iOS compatibility
+#14 22.86 -- Patched baseline_analysis.cpp for C++20 compatibility
+#14 22.86 -- Patched instructions.hpp for consteval compatibility
+#14 22.86 -- Patched baseline_execution.cpp for consteval compatibility
+#14 22.87 -- Patched instructions_calls.cpp for consteval compatibility
+#14 25.16 -- The ASM compiler identification is Clang with GNU-like command-line
+#14 25.18 -- Found assembler: /usr/bin/clang
+#14 25.19 -- ZSTD VERSION: 1.5.6
+#14 25.21 -- Performing Test C_FLAG_WALL
+#14 25.56 -- Performing Test C_FLAG_WALL - Success
+#14 25.56 -- Performing Test CXX_FLAG_WALL
+#14 26.06 -- Performing Test CXX_FLAG_WALL - Success
+#14 26.06 -- Performing Test C_FLAG_WEXTRA
+#14 26.39 -- Performing Test C_FLAG_WEXTRA - Success
+#14 26.39 -- Performing Test CXX_FLAG_WEXTRA
+#14 27.03 -- Performing Test CXX_FLAG_WEXTRA - Success
+#14 27.03 -- Performing Test C_FLAG_WUNDEF
+#14 27.49 -- Performing Test C_FLAG_WUNDEF - Success
+#14 27.50 -- Performing Test CXX_FLAG_WUNDEF
+#14 28.09 -- Performing Test CXX_FLAG_WUNDEF - Success
+#14 28.10 -- Performing Test C_FLAG_WSHADOW
+#14 28.45 -- Performing Test C_FLAG_WSHADOW - Success
+#14 28.45 -- Performing Test CXX_FLAG_WSHADOW
+#14 29.10 -- Performing Test CXX_FLAG_WSHADOW - Success
+#14 29.11 -- Performing Test C_FLAG_WCAST_ALIGN
+#14 29.56 -- Performing Test C_FLAG_WCAST_ALIGN - Success
+#14 29.57 -- Performing Test CXX_FLAG_WCAST_ALIGN
+#14 30.29 -- Performing Test CXX_FLAG_WCAST_ALIGN - Success
+#14 30.29 -- Performing Test C_FLAG_WCAST_QUAL
+#14 30.72 -- Performing Test C_FLAG_WCAST_QUAL - Success
+#14 30.73 -- Performing Test CXX_FLAG_WCAST_QUAL
+#14 31.42 -- Performing Test CXX_FLAG_WCAST_QUAL - Success
+#14 31.42 -- Performing Test C_FLAG_WSTRICT_PROTOTYPES
+#14 32.09 -- Performing Test C_FLAG_WSTRICT_PROTOTYPES - Success
+#14 32.10 -- Performing Test LD_FLAG_Z_NOEXECSTACK
+#14 32.50 -- Performing Test LD_FLAG_Z_NOEXECSTACK - Failed
+#14 32.50 -- Performing Test C_FLAG_QUNUSED_ARGUMENTS
+#14 32.94 -- Performing Test C_FLAG_QUNUSED_ARGUMENTS - Success
+#14 32.94 -- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS
+#14 33.50 -- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS - Success
+#14 33.51 -- Performing Test C_FLAG_WA_NOEXECSTACK
+#14 33.98 -- Performing Test C_FLAG_WA_NOEXECSTACK - Success
+#14 33.98 -- Performing Test CXX_FLAG_WA_NOEXECSTACK
+#14 34.63 -- Performing Test CXX_FLAG_WA_NOEXECSTACK - Success
+#14 34.63 -- CMAKE_INSTALL_PREFIX: /usr/local
+#14 34.63 -- CMAKE_INSTALL_LIBDIR: lib
+#14 34.63 -- ZSTD_LEGACY_SUPPORT defined!
+#14 34.63 -- ZSTD_MULTITHREAD_SUPPORT is enabled
+#14 34.64 -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+#14 35.10 -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+#14 35.11 -- Found Threads: TRUE  
+#14 37.54 -- Performing Test UV_LINT_W4
+#14 37.78 -- Performing Test UV_LINT_W4 - Failed
+#14 37.79 -- Performing Test UV_LINT_NO_UNUSED_PARAMETER_MSVC
+#14 37.97 -- Performing Test UV_LINT_NO_UNUSED_PARAMETER_MSVC - Failed
+#14 37.97 -- Performing Test UV_LINT_NO_CONDITIONAL_CONSTANT_MSVC
+#14 38.13 -- Performing Test UV_LINT_NO_CONDITIONAL_CONSTANT_MSVC - Failed
+#14 38.13 -- Performing Test UV_LINT_NO_NONSTANDARD_MSVC
+#14 38.30 -- Performing Test UV_LINT_NO_NONSTANDARD_MSVC - Failed
+#14 38.30 -- Performing Test UV_LINT_NO_NONSTANDARD_EMPTY_TU_MSVC
+#14 38.53 -- Performing Test UV_LINT_NO_NONSTANDARD_EMPTY_TU_MSVC - Failed
+#14 38.53 -- Performing Test UV_LINT_NO_NONSTANDARD_FILE_SCOPE_MSVC
+#14 38.84 -- Performing Test UV_LINT_NO_NONSTANDARD_FILE_SCOPE_MSVC - Failed
+#14 38.84 -- Performing Test UV_LINT_NO_NONSTANDARD_NONSTATIC_DLIMPORT_MSVC
+#14 39.07 -- Performing Test UV_LINT_NO_NONSTANDARD_NONSTATIC_DLIMPORT_MSVC - Failed
+#14 39.07 -- Performing Test UV_LINT_NO_HIDES_LOCAL
+#14 39.30 -- Performing Test UV_LINT_NO_HIDES_LOCAL - Failed
+#14 39.30 -- Performing Test UV_LINT_NO_HIDES_PARAM
+#14 39.50 -- Performing Test UV_LINT_NO_HIDES_PARAM - Failed
+#14 39.51 -- Performing Test UV_LINT_NO_HIDES_GLOBAL
+#14 39.71 -- Performing Test UV_LINT_NO_HIDES_GLOBAL - Failed
+#14 39.71 -- Performing Test UV_LINT_NO_CONDITIONAL_ASSIGNMENT_MSVC
+#14 39.95 -- Performing Test UV_LINT_NO_CONDITIONAL_ASSIGNMENT_MSVC - Failed
+#14 39.97 -- Performing Test UV_LINT_NO_UNSAFE_MSVC
+#14 40.32 -- Performing Test UV_LINT_NO_UNSAFE_MSVC - Failed
+#14 40.32 -- Performing Test UV_LINT_WALL
+#14 40.87 -- Performing Test UV_LINT_WALL - Success
+#14 40.88 -- Performing Test UV_LINT_NO_UNUSED_PARAMETER
+#14 41.33 -- Performing Test UV_LINT_NO_UNUSED_PARAMETER - Success
+#14 41.34 -- Performing Test UV_LINT_STRICT_PROTOTYPES
+#14 41.79 -- Performing Test UV_LINT_STRICT_PROTOTYPES - Success
+#14 41.80 -- Performing Test UV_LINT_EXTRA
+#14 42.24 -- Performing Test UV_LINT_EXTRA - Success
+#14 42.24 -- Performing Test UV_LINT_UTF8_MSVC
+#14 42.47 -- Performing Test UV_LINT_UTF8_MSVC - Failed
+#14 42.48 -- Performing Test UV_F_STRICT_ALIASING
+#14 42.91 -- Performing Test UV_F_STRICT_ALIASING - Success
+#14 42.92 -- summary of build options:
+#14 42.92     Install prefix:  /usr/local
+#14 42.92     Target system:   Linux
+#14 42.92     Compiler:
+#14 42.92       C compiler:    /usr/bin/clang (Clang)
+#14 42.92       CFLAGS:          -Wno-incompatible-pointer-types
+#14 42.92 
+#14 45.30 -- 
+#14 45.30 -- 
+#14 45.30 -- Project configure summary:
+#14 45.30 -- 
+#14 45.30 --   CMake build type .................: RELEASE
+#14 45.30 --   Install prefix ...................: /usr/local
+#14 45.30 --   Build shared library .............: OFF
+#14 45.30 --   Build static library .............: ON
+#14 45.30 -- 
+#14 45.31 -- PRECOMPILE_ZERO_HASHES enabled (uses ~1 KB RAM for zero hash cache)
+#14 45.40 -- Found Cargo: /root/.cargo/bin/cargo
+#14 45.40 -- Building Kona-P2P bridge with static linking
+#14 45.40 -- Skipping Kona integration test - test_integration.c not found
+#14 45.40 -- ✅ Kona-P2P bridge will be linked to op_server_handler
+#14 45.52 -- Configuring done
+#14 46.23 -- Generating done
+#14 46.30 -- Build files have been written to: /build
+#14 46.55 [  0%] Embedding openapi.yaml into C header
+#14 46.63 [  0%] Built target generate_openapi_yaml
+#14 46.73 [  0%] Building C object libs/crypto/CMakeFiles/crypto.dir/ecdsa.c.o
+#14 47.44 [  1%] Building C object libs/crypto/CMakeFiles/crypto.dir/bignum.c.o
+#14 49.23 [  1%] Building C object libs/crypto/CMakeFiles/crypto.dir/rand.c.o
+#14 49.44 [  1%] Building C object libs/crypto/CMakeFiles/crypto.dir/secp256k1.c.o
+#14 49.67 [  2%] Building C object libs/crypto/CMakeFiles/crypto.dir/memzero.c.o
+#14 49.89 [  2%] Building C object libs/crypto/CMakeFiles/crypto.dir/sha3.c.o
+#14 50.52 [  2%] Building C object libs/crypto/CMakeFiles/crypto.dir/sha2.c.o
+#14 51.32 [  4%] Building C object libs/crypto/CMakeFiles/crypto.dir/ripemd160.c.o
+#14 52.12 [  4%] Building C object libs/crypto/CMakeFiles/crypto.dir/curves.c.o
+#14 52.28 [  5%] Building C object libs/crypto/CMakeFiles/crypto.dir/rfc6979.c.o
+#14 52.46 [  5%] Building C object libs/crypto/CMakeFiles/crypto.dir/hmac_drbg.c.o
+#14 52.70 [  5%] Linking C static library libcrypto.a
+#14 53.09 [  5%] Built target crypto
+#14 53.30 [  5%] Building blst for native architecture
+#14 53.93 + /usr/bin/clang -fPIC -ffunction-sections -fdata-sections -D__ADX__ -D__BLST_PORTABLE__ -c /build/_deps/blst-src/src/server.c
+#14 54.86 + /usr/bin/clang -fPIC -ffunction-sections -fdata-sections -D__ADX__ -D__BLST_PORTABLE__ -c /build/_deps/blst-src/build/assembly.S
+#14 55.30 + ar rc libblst.a assembly.o server.o
+#14 55.46 [  5%] Built target blst_lib
+#14 55.56 [  5%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/debug.c.o
+#14 55.69 [  5%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/entropy_common.c.o
+#14 56.29 [  6%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/error_private.c.o
+#14 56.53 [  6%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/fse_decompress.c.o
+#14 57.50 [  6%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/pool.c.o
+#14 57.96 [  8%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/threading.c.o
+#14 58.13 [  8%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/xxhash.c.o
+#14 58.61 [  9%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/zstd_common.c.o
+#14 58.95 [  9%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/fse_compress.c.o
+#14 59.78 [  9%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/hist.c.o
+#14 60.62 [ 10%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/huf_compress.c.o
+#14 63.12 [ 10%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress.c.o
+#14 69.35 [ 10%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress_literals.c.o
+#14 69.88 [ 12%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress_sequences.c.o
+#14 70.64 [ 12%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress_superblock.c.o
+#14 71.50 [ 12%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_double_fast.c.o
+#14 76.65 [ 13%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_fast.c.o
+#14 81.81 [ 13%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_lazy.c.o
+#14 97.09 [ 14%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_ldm.c.o
+#14 98.02 [ 14%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_opt.c.o
+#14 102.9 [ 14%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstdmt_compress.c.o
+#14 104.5 [ 16%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/huf_decompress.c.o
+#14 109.5 [ 16%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/zstd_ddict.c.o
+#14 109.9 [ 16%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/zstd_decompress.c.o
+#14 111.7 [ 17%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/zstd_decompress_block.c.o
+#14 117.8 [ 17%] Building ASM object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/huf_decompress_amd64.S.o
+#14 118.1 [ 18%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/cover.c.o
+#14 119.2 [ 18%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/divsufsort.c.o
+#14 123.0 [ 18%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/fastcover.c.o
+#14 123.7 [ 20%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/zdict.c.o
+#14 125.1 [ 20%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v01.c.o
+#14 128.6 [ 20%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v02.c.o
+#14 133.4 [ 21%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v03.c.o
+#14 137.1 [ 21%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v04.c.o
+#14 140.2 [ 21%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v05.c.o
+#14 143.3 [ 22%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v06.c.o
+#14 145.9 [ 22%] Building C object libs/zstd/zstd_build/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v07.c.o
+#14 149.3 [ 24%] Linking C static library libzstd.a
+#14 149.7 [ 24%] Built target libzstd_static
+#14 149.8 [ 24%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/fs-poll.c.o
+#14 150.4 [ 25%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/idna.c.o
+#14 151.1 [ 25%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/inet.c.o
+#14 151.8 [ 26%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/random.c.o
+#14 152.1 [ 26%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/strscpy.c.o
+#14 152.4 [ 26%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/strtok.c.o
+#14 152.6 [ 28%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/thread-common.c.o
+#14 152.9 [ 28%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/threadpool.c.o
+#14 153.3 [ 28%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/timer.c.o
+#14 153.7 [ 29%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/uv-common.c.o
+#14 154.7 [ 29%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/uv-data-getter-setters.c.o
+#14 155.0 [ 30%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/version.c.o
+#14 155.3 [ 30%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/async.c.o
+#14 155.7 [ 30%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/core.c.o
+#14 157.0 [ 32%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/dl.c.o
+#14 157.3 [ 32%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/fs.c.o
+#14 158.8 [ 32%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/getaddrinfo.c.o
+#14 159.2 [ 33%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/getnameinfo.c.o
+#14 159.5 [ 33%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/loop-watcher.c.o
+#14 160.0 [ 33%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/loop.c.o
+#14 160.3 [ 34%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/pipe.c.o
+#14 160.8 [ 34%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/poll.c.o
+#14 161.2 [ 36%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/process.c.o
+#14 161.8 [ 36%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/random-devurandom.c.o
+#14 162.1 [ 36%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/signal.c.o
+#14 162.8 [ 37%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/stream.c.o
+#14 163.5 [ 37%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/tcp.c.o
+#14 163.9 [ 37%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/thread.c.o
+#14 164.3 [ 38%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/tty.c.o
+#14 164.5 [ 38%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/udp.c.o
+#14 165.1 [ 40%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/proctitle.c.o
+#14 165.4 [ 40%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/linux.c.o
+#14 166.9 [ 40%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/procfs-exepath.c.o
+#14 167.2 [ 41%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/random-getrandom.c.o
+#14 167.5 [ 41%] Building C object _deps/libuv-build/CMakeFiles/uv_a.dir/src/unix/random-sysctl-linux.c.o
+#14 167.8 [ 41%] Linking C static library libuv.a
+#14 168.1 [ 41%] Built target uv_a
+#14 168.1 [ 41%] Building C object _deps/llhttp-build/CMakeFiles/llhttp_static.dir/src/llhttp.c.o
+#14 172.3 [ 41%] Building C object _deps/llhttp-build/CMakeFiles/llhttp_static.dir/src/http.c.o
+#14 172.6 [ 42%] Building C object _deps/llhttp-build/CMakeFiles/llhttp_static.dir/src/api.c.o
+#14 173.2 [ 42%] Linking C static library libllhttp.a
+#14 173.4 [ 42%] Built target llhttp_static
+#14 173.6 [ 42%] Building C object src/util/CMakeFiles/util.dir/bytes.c.o
+#14 175.8 [ 42%] Building C object src/util/CMakeFiles/util.dir/ssz.c.o
+#14 176.5 [ 44%] Building C object src/util/CMakeFiles/util.dir/ssz_merkle.c.o
+#14 177.2 [ 44%] Building C object src/util/CMakeFiles/util.dir/ssz_builder.c.o
+#14 177.7 [ 45%] Building C object src/util/CMakeFiles/util.dir/crypto.c.o
+#14 178.0 [ 45%] Building C object src/util/CMakeFiles/util.dir/plugin.c.o
+#14 178.2 [ 45%] Building C object src/util/CMakeFiles/util.dir/json.c.o
+#14 178.7 [ 46%] Building C object src/util/CMakeFiles/util.dir/json_validate.c.o
+#14 179.1 [ 46%] Building C object src/util/CMakeFiles/util.dir/logger.c.o
+#14 179.3 [ 46%] Building C object src/util/CMakeFiles/util.dir/chains.c.o
+#14 179.5 [ 48%] Building C object src/util/CMakeFiles/util.dir/state.c.o
+#14 179.7 [ 48%] Building C object src/util/CMakeFiles/util.dir/version.c.o
+#14 179.9 [ 48%] Building C object src/util/CMakeFiles/util.dir/witness.c.o
+#14 180.1 [ 49%] Linking C static library libutil.a
+#14 180.4 [ 49%] Built target util
+#14 180.5 [ 50%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/sync_committee.c.o
+#14 180.9 [ 50%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/sync_committee_state.c.o
+#14 181.5 [ 50%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/beacon_header.c.o
+#14 181.8 [ 52%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/eth_tx.c.o
+#14 182.6 [ 52%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/eth_account.c.o
+#14 183.1 [ 52%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/eth_verify.c.o
+#14 183.3 [ 53%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/patricia_trie.c.o
+#14 183.9 [ 53%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/patricia.c.o
+#14 184.2 [ 54%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/rlp.c.o
+#14 184.5 [ 54%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/ssz/verify_types.c.o
+#14 184.7 [ 54%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/ssz/beacon_types.c.o
+#14 184.9 [ 56%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/ssz/beacon_denep.c.o
+#14 185.1 [ 56%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/ssz/beacon_electra.c.o
+#14 185.3 [ 56%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/verify_account_proof.c.o
+#14 185.5 [ 57%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/verify_tx_proof.c.o
+#14 185.7 [ 57%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/verify_block.c.o
+#14 186.0 [ 57%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/verify_receipt_proof.c.o
+#14 186.2 [ 58%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/verify_logs_proof.c.o
+#14 186.6 [ 58%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/verify_call.c.o
+#14 186.8 [ 60%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/verify_simulate.c.o
+#14 187.1 [ 60%] Building C object src/chains/eth/CMakeFiles/eth_verifier.dir/verifier/verify_local.c.o
+#14 187.3 [ 60%] Linking C static library libeth_verifier.a
+#14 187.6 [ 60%] Built target eth_verifier
+#14 187.8 [ 61%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_verify.c.o
+#14 188.1 [ 61%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_zstd.c.o
+#14 188.3 [ 62%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_chains_conf.c.o
+#14 188.4 [ 62%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/ssz/op_types.c.o
+#14 188.6 [ 62%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_verify_account.c.o
+#14 188.8 [ 64%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_verify_tx.c.o
+#14 189.0 [ 64%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_verify_block.c.o
+#14 189.2 [ 64%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_verify_receipt.c.o
+#14 189.4 [ 65%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_verify_logs.c.o
+#14 189.7 [ 65%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_verify_call.c.o
+#14 189.9 [ 66%] Building C object src/chains/op/CMakeFiles/op_verifier.dir/verifier/op_verify_simulate.c.o
+#14 190.1 [ 66%] Linking C static library libop_verifier.a
+#14 190.3 [ 66%] Built target op_verifier
+#14 190.4 [ 66%] Building C object src/verifier/CMakeFiles/verifier.dir/verify.c.o
+#14 190.6 [ 68%] Linking C static library libverifier.a
+#14 190.9 [ 68%] Built target verifier
+#14 191.0 [ 69%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/eth_prover.c.o
+#14 191.2 [ 69%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/proof_account.c.o
+#14 191.5 [ 69%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/proof_transaction.c.o
+#14 191.7 [ 70%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/tx_cache.c.o
+#14 192.1 [ 70%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/proof_logs.c.o
+#14 192.6 [ 72%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/proof_call.c.o
+#14 193.0 [ 72%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/beacon.c.o
+#14 193.6 [ 72%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/proof_receipt.c.o
+#14 193.9 [ 73%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/eth_req.c.o
+#14 194.1 [ 73%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/eth_tools.c.o
+#14 194.3 [ 73%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/proof_sync.c.o
+#14 194.6 [ 74%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/proof_block.c.o
+#14 194.8 [ 74%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/proof_witness.c.o
+#14 195.0 [ 76%] Building C object src/chains/eth/CMakeFiles/eth_prover.dir/prover/historic_proof.c.o
+#14 195.4 [ 76%] Linking C static library libeth_prover.a
+#14 195.6 [ 76%] Built target eth_prover
+#14 195.7 [ 77%] Building C object src/chains/op/CMakeFiles/op_prover.dir/prover/op_tools.c.o
+#14 195.8 [ 77%] Building C object src/chains/op/CMakeFiles/op_prover.dir/prover/op_prover.c.o
+#14 196.0 [ 78%] Building C object src/chains/op/CMakeFiles/op_prover.dir/prover/op_proof_block.c.o
+#14 196.3 [ 78%] Building C object src/chains/op/CMakeFiles/op_prover.dir/prover/op_proof_transaction.c.o
+#14 196.5 [ 78%] Building C object src/chains/op/CMakeFiles/op_prover.dir/prover/op_proof_receipt.c.o
+#14 196.7 [ 80%] Building C object src/chains/op/CMakeFiles/op_prover.dir/prover/op_proof_logs.c.o
+#14 197.0 [ 80%] Building C object src/chains/op/CMakeFiles/op_prover.dir/prover/op_proof_call.c.o
+#14 197.2 [ 80%] Building C object src/chains/op/CMakeFiles/op_prover.dir/prover/op_proof_account.c.o
+#14 197.4 [ 81%] Linking C static library libop_prover.a
+#14 197.7 [ 81%] Built target op_prover
+#14 197.8 [ 81%] Building C object src/prover/CMakeFiles/prover.dir/prover.c.o
+#14 198.3 [ 82%] Linking C static library libprover.a
+#14 198.5 [ 82%] Built target prover
+#14 198.6 [ 82%] Building C object src/chains/eth/CMakeFiles/eth_server_handler.dir/server/handler.c.o
+#14 198.8 [ 84%] Building C object src/chains/eth/CMakeFiles/eth_server_handler.dir/server/head_watcher.c.o
+#14 199.3 [ 84%] Building C object src/chains/eth/CMakeFiles/eth_server_handler.dir/server/head_update.c.o
+#14 199.6 [ 84%] Building C object src/chains/eth/CMakeFiles/eth_server_handler.dir/server/chain_props.c.o
+#14 199.8 [ 85%] Building C object src/chains/eth/CMakeFiles/eth_server_handler.dir/server/handle_lcu.c.o
+#14 200.1 [ 85%] Building C object src/chains/eth/CMakeFiles/eth_server_handler.dir/server/handle_headers.c.o
+#14 200.3 [ 85%] Building C object src/chains/eth/CMakeFiles/eth_server_handler.dir/server/client_detection.c.o
+#14 200.6 [ 86%] Building C object src/chains/eth/CMakeFiles/eth_server_handler.dir/server/client_mappings.c.o
+#14 200.8 [ 86%] Linking C static library libeth_server_handler.a
+#14 201.0 [ 86%] Built target eth_server_handler
+#14 201.1 [ 86%] Building C object src/chains/op/kona_bridge/CMakeFiles/op_chains_conf_obj.dir/__/verifier/op_chains_conf.c.o
+#14 201.2 [ 86%] Built target op_chains_conf_obj
+#14 201.3 [ 88%] Building Kona-P2P Rust static library
+#14 202.1     Updating crates.io index
+#14 202.2     Updating git repository `https://github.com/op-rs/kona`
+#14 208.4 From https://github.com/op-rs/kona
+#14 208.4  * [new ref]           b079a57fcfbb444d051e859f1e80f445daf5a2c7 -> refs/commit/b079a57fcfbb444d051e859f1e80f445daf5a2c7
+#14 209.5     Updating git submodule `https://github.com/ethereum-optimism/superchain-registry.git`
+#14 210.8 From https://github.com/ethereum-optimism/superchain-registry
+#14 210.8  * [new ref]         a9b57281842bf5742cf9e69114c6b81c622ca186 -> refs/commit/a9b57281842bf5742cf9e69114c6b81c622ca186
+#14 216.4  Downloading crates ...
+#14 216.5   Downloaded block-buffer v0.9.0
+#14 216.6   Downloaded alloy-sol-macro-input v1.1.0
+#14 216.6   Downloaded data-encoding-macro v0.1.18
+#14 216.6   Downloaded bs58 v0.5.1
+#14 216.7   Downloaded hex_fmt v0.3.0
+#14 216.8   Downloaded hmac v0.12.1
+#14 216.8   Downloaded libp2p-yamux v0.47.0
+#14 216.9   Downloaded polyval v0.6.2
+#14 216.9   Downloaded rustls-pemfile v1.0.4
+#14 217.0   Downloaded strum_macros v0.27.1
+#14 217.0   Downloaded web-time v1.1.0
+#14 217.1   Downloaded writeable v0.5.5
+#14 217.1   Downloaded zerofrom v0.1.6
+#14 217.1   Downloaded zeroize_derive v1.4.2
+#14 217.1   Downloaded zstd-safe v7.2.4
+#14 217.2   Downloaded utf8parse v0.2.2
+#14 217.2   Downloaded xml-rs v0.8.26
+#14 217.2   Downloaded uint v0.9.5
+#14 217.2   Downloaded tokio-util v0.7.14
+#14 217.3   Downloaded tracing-core v0.1.33
+#14 217.3   Downloaded url v2.5.4
+#14 217.3   Downloaded x509-parser v0.16.0
+#14 217.4   Downloaded regex v1.11.1
+#14 217.7   Downloaded serde_json v1.0.140
+#14 217.8   Downloaded x25519-dalek v2.0.1
+#14 217.8   Downloaded zerocopy v0.7.35
+#14 218.0   Downloaded winnow v0.7.6
+#14 218.1   Downloaded zerovec v0.10.4
+#14 218.1   Downloaded vcpkg v0.2.15
+#14 218.6   Downloaded zerocopy v0.8.24
+#14 218.8   Downloaded rustls v0.23.26
+#14 218.9   Downloaded regex-syntax v0.8.5
+#14 219.0   Downloaded tracing-subscriber v0.3.20
+#14 219.0   Downloaded syn v1.0.109
+#14 219.1   Downloaded libc v0.2.172
+#14 219.3   Downloaded sha3-asm v0.1.4
+#14 219.4   Downloaded regex-automata v0.4.9
+#14 219.5   Downloaded rustix v1.0.5
+#14 219.7   Downloaded syn v2.0.100
+#14 219.8   Downloaded openssl v0.10.72
+#14 219.8   Downloaded reqwest v0.12.15
+#14 219.9   Downloaded sharded-slab v0.1.7
+#14 219.9   Downloaded socket2 v0.5.9
+#14 219.9   Downloaded serde_derive v1.0.219
+#14 220.0   Downloaded ucd-trie v0.1.7
+#14 220.0   Downloaded tracing-futures v0.2.5
+#14 220.0   Downloaded snow v0.9.6
+#14 220.1   Downloaded rustls-webpki v0.103.1
+#14 220.3   Downloaded c-kzg v2.1.0
+#14 220.4   Downloaded time v0.3.41
+#14 220.5   Downloaded serde v1.0.219
+#14 220.5   Downloaded tokio v1.44.2
+#14 220.8   Downloaded ruint v1.14.0
+#14 220.8   Downloaded wyz v0.5.1
+#14 220.9   Downloaded valuable v0.1.1
+#14 220.9   Downloaded sha3 v0.10.8
+#14 220.9   Downloaded tracing v0.1.41
+#14 220.9   Downloaded tower v0.5.2
+#14 221.0   Downloaded toml_edit v0.22.24
+#14 221.2   Downloaded spin v0.9.8
+#14 221.3   Downloaded smallvec v1.15.0
+#14 221.3   Downloaded zstd-sys v2.0.16+zstd.1.5.7
+#14 221.4   Downloaded serde_with v3.12.0
+#14 221.5   Downloaded unsigned-varint v0.8.0
+#14 221.5   Downloaded unicode-xid v0.2.6
+#14 221.5   Downloaded try-lock v0.2.5
+#14 221.5   Downloaded snap v1.1.1
+#14 221.6   Downloaded quinn-proto v0.11.10
+#14 221.6   Downloaded zstd v0.13.3
+#14 221.6   Downloaded zerovec-derive v0.10.3
+#14 221.6   Downloaded zeroize v1.8.1
+#14 221.7   Downloaded zerofrom-derive v0.1.6
+#14 221.7   Downloaded encoding_rs v0.8.35
+#14 221.8   Downloaded yasna v0.5.2
+#14 221.8   Downloaded typenum v1.18.0
+#14 221.8   Downloaded sha2 v0.10.8
+#14 221.8   Downloaded serde_with_macros v3.12.0
+#14 221.9   Downloaded proptest v1.6.0
+#14 221.9   Downloaded moka v0.12.10
+#14 222.0   Downloaded yoke-derive v0.7.5
+#14 222.0   Downloaded yoke v0.7.5
+#14 222.0   Downloaded yamux v0.13.4
+#14 222.0   Downloaded yamux v0.12.1
+#14 222.0   Downloaded xmltree v0.10.3
+#14 222.1   Downloaded want v0.3.1
+#14 222.1   Downloaded wait-timeout v0.2.1
+#14 222.1   Downloaded utf16_iter v1.0.5
+#14 222.1   Downloaded ring v0.17.14
+#14 222.4   Downloaded unarray v0.1.4
+#14 222.4   Downloaded tracing-log v0.2.0
+#14 222.4   Downloaded toml v0.8.20
+#14 222.4   Downloaded tinyvec v1.9.0
+#14 222.4   Downloaded serdect v0.2.0
+#14 222.5   Downloaded serde_urlencoded v0.7.1
+#14 222.5   Downloaded rustls-webpki v0.101.7
+#14 222.6   Downloaded portable-atomic v1.11.0
+#14 222.6   Downloaded num-traits v0.2.19
+#14 222.7   Downloaded unsigned-varint v0.7.2
+#14 222.7   Downloaded tracing-attributes v0.1.28
+#14 222.7   Downloaded toml_datetime v0.6.8
+#14 222.7   Downloaded tokio-stream v0.1.17
+#14 222.7   Downloaded time-core v0.1.4
+#14 222.8   Downloaded threadpool v1.8.1
+#14 222.8   Downloaded tempfile v3.19.1
+#14 222.8   Downloaded syn-solidity v1.1.0
+#14 222.8   Downloaded subtle v2.6.1
+#14 222.8   Downloaded strum v0.27.1
+#14 222.8   Downloaded strsim v0.11.1
+#14 222.9   Downloaded signature v2.2.0
+#14 222.9   Downloaded signal-hook-registry v1.4.5
+#14 222.9   Downloaded secp256k1 v0.31.0
+#14 222.9   Downloaded secp256k1-sys v0.11.0
+#14 223.1   Downloaded write16 v1.0.0
+#14 223.2   Downloaded uuid v1.16.0
+#14 223.2   Downloaded unicode-ident v1.0.18
+#14 223.2   Downloaded uint v0.10.0
+#14 223.2   Downloaded tower-service v0.3.3
+#14 223.2   Downloaded tower-layer v0.3.3
+#14 223.2   Downloaded tokio-native-tls v0.3.1
+#14 223.3   Downloaded linux-raw-sys v0.9.4
+#14 223.7   Downloaded tokio-macros v2.5.0
+#14 223.7   Downloaded tinyvec_macros v0.1.1
+#14 223.7   Downloaded tinystr v0.7.6
+#14 223.7   Downloaded tiny-keccak v2.0.2
+#14 223.8   Downloaded time-macros v0.2.22
+#14 223.8   Downloaded thread_local v1.1.8
+#14 223.8   Downloaded thiserror-impl v2.0.12
+#14 223.8   Downloaded thiserror-impl v1.0.69
+#14 223.8   Downloaded thiserror v2.0.12
+#14 223.9   Downloaded thiserror v1.0.69
+#14 223.9   Downloaded tap v1.0.1
+#14 223.9   Downloaded tagptr v0.2.0
+#14 223.9   Downloaded synstructure v0.13.1
+#14 223.9   Downloaded sync_wrapper v1.0.2
+#14 224.0   Downloaded sync_wrapper v0.1.2
+#14 224.0   Downloaded static_assertions v1.1.0
+#14 224.0   Downloaded sha2 v0.9.9
+#14 224.0   Downloaded serde_path_to_error v0.1.17
+#14 224.0   Downloaded secp256k1 v0.30.0
+#14 224.0   Downloaded ryu v1.0.20
+#14 224.1   Downloaded quinn v0.11.7
+#14 224.1   Downloaded quick-protobuf v0.8.1
+#14 224.2   Downloaded nix v0.26.4
+#14 224.2   Downloaded secp256k1-sys v0.10.1
+#14 224.4   Downloaded hickory-proto v0.25.0-alpha.5
+#14 224.5   Downloaded version_check v0.9.5
+#14 224.6   Downloaded utf8_iter v1.0.4
+#14 224.6   Downloaded untrusted v0.9.0
+#14 224.6   Downloaded universal-hash v0.5.1
+#14 224.6   Downloaded serde_repr v0.1.20
+#14 224.6   Downloaded semver-parser v0.10.3
+#14 224.6   Downloaded semver v1.0.26
+#14 224.6   Downloaded semver v0.11.0
+#14 224.6   Downloaded sec1 v0.7.3
+#14 224.6   Downloaded scopeguard v1.2.0
+#14 224.6   Downloaded rw-stream-sink v0.4.0
+#14 224.6   Downloaded rusty-fork v0.3.0
+#14 224.7   Downloaded rustversion v1.0.20
+#14 224.7   Downloaded rustls-pki-types v1.11.0
+#14 224.7   Downloaded rustls-pemfile v2.2.0
+#14 224.7   Downloaded rtnetlink v0.13.1
+#14 224.8   Downloaded reqwest v0.11.27
+#14 224.8   Downloaded rand_core v0.9.3
+#14 224.8   Downloaded rand v0.9.1
+#14 224.9   Downloaded rand v0.8.5
+#14 224.9   Downloaded quote v1.0.40
+#14 224.9   Downloaded quinn-udp v0.5.11
+#14 224.9   Downloaded quick-error v1.2.3
+#14 224.9   Downloaded prometheus-client v0.22.3
+#14 225.0   Downloaded proc-macro2 v1.0.95
+#14 225.0   Downloaded proc-macro-crate v3.3.0
+#14 225.0   Downloaded ppv-lite86 v0.2.21
+#14 225.0   Downloaded powerfmt v0.2.0
+#14 225.0   Downloaded nom v7.1.3
+#14 225.1   Downloaded netlink-packet-route v0.17.1
+#14 225.1   Downloaded memchr v2.7.4
+#14 225.2   Downloaded itertools v0.14.0
+#14 225.2   Downloaded itertools v0.13.0
+#14 225.3   Downloaded icu_properties_data v1.5.1
+#14 225.3   Downloaded stable_deref_trait v1.2.0
+#14 225.3   Downloaded spki v0.7.3
+#14 225.4   Downloaded slab v0.4.9
+#14 225.4   Downloaded shlex v1.3.0
+#14 225.4   Downloaded serde_spanned v0.6.8
+#14 225.4   Downloaded rusticata-macros v4.1.0
+#14 225.4   Downloaded rustc_version v0.4.1
+#14 225.4   Downloaded rustc-hex v2.1.0
+#14 225.4   Downloaded rustc-hash v2.1.1
+#14 225.4   Downloaded rfc6979 v0.4.0
+#14 225.4   Downloaded resolv-conf v0.7.1
+#14 225.4   Downloaded rcgen v0.13.2
+#14 225.5   Downloaded rand_xorshift v0.3.0
+#14 225.5   Downloaded rand_chacha v0.9.0
+#14 225.5   Downloaded radium v0.7.0
+#14 225.5   Downloaded quick-protobuf-codec v0.3.1
+#14 225.5   Downloaded prometheus-client-derive-encode v0.4.2
+#14 225.5   Downloaded proc-macro-error2 v2.0.1
+#14 225.5   Downloaded proc-macro-error-attr2 v2.0.0
+#14 225.5   Downloaded primitive-types v0.12.2
+#14 225.6   Downloaded pin-project-lite v0.2.16
+#14 225.6   Downloaded pin-project v1.1.10
+#14 225.7   Downloaded pest v2.8.0
+#14 225.8   Downloaded op-alloy-consensus v0.15.5
+#14 225.8   Downloaded once_cell v1.21.3
+#14 225.8   Downloaded num-bigint v0.4.6
+#14 225.9   Downloaded nu-ansi-term v0.50.3
+#14 225.9   Downloaded netlink-proto v0.11.5
+#14 225.9   Downloaded netlink-packet-utils v0.5.2
+#14 225.9   Downloaded native-tls v0.2.14
+#14 226.0   Downloaded multihash v0.19.3
+#14 226.0   Downloaded multibase v0.9.1
+#14 226.0   Downloaded multiaddr v0.18.2
+#14 226.0   Downloaded mio v1.0.3
+#14 226.1   Downloaded minimal-lexical v0.2.1
+#14 226.1   Downloaded lru v0.13.0
+#14 226.1   Downloaded lock_api v0.4.12
+#14 226.1   Downloaded libsecp256k1-gen-ecmult v0.3.0
+#14 226.1   Downloaded libsecp256k1 v0.7.2
+#14 226.2   Downloaded libp2p v0.55.0
+#14 226.2   Downloaded libm v0.2.11
+#14 226.3   Downloaded itertools v0.10.5
+#14 226.4   Downloaded indexmap v2.9.0
+#14 226.4   Downloaded idna v1.0.3
+#14 226.4   Downloaded hyper v0.14.32
+#14 226.5   Downloaded curve25519-dalek v4.1.3
+#14 226.5   Downloaded rustc_version v0.3.3
+#14 226.5   Downloaded ruint-macro v1.2.1
+#14 226.5   Downloaded rlp v0.5.2
+#14 226.6   Downloaded rand_core v0.6.4
+#14 226.6   Downloaded rand_chacha v0.3.1
+#14 226.6   Downloaded poly1305 v0.8.0
+#14 226.6   Downloaded pkg-config v0.3.32
+#14 226.6   Downloaded pin-utils v0.1.0
+#14 226.6   Downloaded pem v3.0.5
+#14 226.6   Downloaded paste v1.0.15
+#14 226.7   Downloaded parking_lot_core v0.9.10
+#14 226.7   Downloaded parking_lot v0.12.3
+#14 226.7   Downloaded parity-scale-codec-derive v3.7.4
+#14 226.8   Downloaded parity-scale-codec v3.7.4
+#14 226.8   Downloaded option-ext v0.2.0
+#14 226.8   Downloaded openssl-sys v0.9.107
+#14 226.8   Downloaded openssl-probe v0.1.6
+#14 226.8   Downloaded op-alloy-rpc-types-engine v0.15.5
+#14 226.9   Downloaded oid-registry v0.7.1
+#14 226.9   Downloaded nybbles v0.3.4
+#14 226.9   Downloaded num_enum v0.7.3
+#14 226.9   Downloaded num_cpus v1.16.0
+#14 226.9   Downloaded num-integer v0.1.46
+#14 227.0   Downloaded num-conv v0.1.0
+#14 227.0   Downloaded nohash-hasher v0.2.0
+#14 227.0   Downloaded netlink-sys v0.8.7
+#14 227.0   Downloaded netlink-packet-core v0.7.0
+#14 227.0   Downloaded multistream-select v0.13.0
+#14 227.0   Downloaded more-asserts v0.3.1
+#14 227.0   Downloaded mime v0.3.17
+#14 227.1   Downloaded md5 v0.7.0
+#14 227.1   Downloaded matchit v0.8.4
+#14 227.1   Downloaded matchers v0.2.0
+#14 227.1   Downloaded macro-string v0.1.4
+#14 227.1   Downloaded lru v0.12.5
+#14 227.1   Downloaded log v0.4.27
+#14 227.2   Downloaded litemap v0.7.5
+#14 227.2   Downloaded libsecp256k1-gen-genmult v0.3.0
+#14 227.2   Downloaded libsecp256k1-core v0.3.0
+#14 227.2   Downloaded libp2p-swarm v0.46.0
+#14 227.2   Downloaded libp2p-gossipsub v0.48.0
+#14 227.3   Downloaded lazy_static v1.5.0
+#14 227.3   Downloaded keccak-asm v0.1.4
+#14 227.3   Downloaded keccak v0.1.5
+#14 227.3   Downloaded k256 v0.13.4
+#14 227.3   Downloaded jobserver v0.1.34
+#14 227.3   Downloaded itoa v1.0.15
+#14 227.3   Downloaded is_terminal_polyfill v1.70.1
+#14 227.3   Downloaded ipnet v2.11.0
+#14 227.4   Downloaded inout v0.1.4
+#14 227.4   Downloaded indexmap v1.9.3
+#14 227.4   Downloaded impl-trait-for-tuples v0.2.3
+#14 227.4   Downloaded icu_normalizer v1.5.0
+#14 227.5   Downloaded icu_locid_transform_data v1.5.1
+#14 227.5   Downloaded icu_collections v1.5.0
+#14 227.5   Downloaded hyper v1.6.0
+#14 227.6   Downloaded http v1.3.1
+#14 227.6   Downloaded hkdf v0.12.4
+#14 227.6   Downloaded hickory-resolver v0.25.0-alpha.5
+#14 227.6   Downloaded h2 v0.4.9
+#14 227.7   Downloaded h2 v0.3.27
+#14 227.7   Downloaded futures-util v0.3.31
+#14 227.8   Downloaded discv5 v0.9.1
+#14 227.8   Downloaded clap_builder v4.5.37
+#14 227.9   Downloaded chrono v0.4.40
+#14 227.9   Downloaded pkcs8 v0.10.2
+#14 228.0   Downloaded pin-project-internal v1.1.10
+#14 228.0   Downloaded percent-encoding v2.3.1
+#14 228.0   Downloaded parking v2.2.1
+#14 228.0   Downloaded openssl-macros v0.1.1
+#14 228.0   Downloaded opaque-debug v0.3.1
+#14 228.0   Downloaded num_enum_derive v0.7.3
+#14 228.0   Downloaded libp2p-upnp v0.4.0
+#14 228.0   Downloaded libp2p-tls v0.6.1
+#14 228.0   Downloaded libp2p-swarm-derive v0.35.0
+#14 228.0   Downloaded libp2p-quic v0.12.0
+#14 228.0   Downloaded libp2p-ping v0.46.0
+#14 228.1   Downloaded libp2p-noise v0.46.0
+#14 228.1   Downloaded libp2p-metrics v0.16.0
+#14 228.1   Downloaded libp2p-mdns v0.47.0
+#14 228.1   Downloaded libp2p-identity v0.2.10
+#14 228.1   Downloaded libp2p-identify v0.46.0
+#14 228.1   Downloaded libp2p-dns v0.43.0
+#14 228.2   Downloaded libp2p-core v0.43.0
+#14 228.2   Downloaded libp2p-connection-limits v0.5.0
+#14 228.2   Downloaded impl-codec v0.6.0
+#14 228.2   Downloaded igd-next v0.15.1
+#14 228.2   Downloaded if-watch v3.2.1
+#14 228.2   Downloaded idna_adapter v1.2.0
+#14 228.2   Downloaded ident_case v1.0.1
+#14 228.3   Downloaded icu_provider_macros v1.5.0
+#14 228.3   Downloaded icu_provider v1.5.0
+#14 228.3   Downloaded icu_properties v1.5.1
+#14 228.4   Downloaded icu_normalizer_data v1.5.1
+#14 228.4   Downloaded icu_locid_transform v1.5.0
+#14 228.4   Downloaded icu_locid v1.5.0
+#14 228.5   Downloaded hyper-util v0.1.11
+#14 228.5   Downloaded hyper-tls v0.6.0
+#14 228.5   Downloaded hmac-drbg v0.3.0
+#14 228.5   Downloaded hashbrown v0.14.5
+#14 228.6   Downloaded hashbrown v0.12.3
+#14 228.6   Downloaded getrandom v0.2.15
+#14 228.6   Downloaded futures-core v0.3.31
+#14 228.6   Downloaded elliptic-curve v0.13.8
+#14 228.7   Downloaded ed25519-dalek v2.1.1
+#14 228.7   Downloaded derive_more-impl v2.0.1
+#14 228.7   Downloaded derive_more v2.0.1
+#14 228.8   Downloaded der-parser v9.0.0
+#14 228.8   Downloaded darling_core v0.20.11
+#14 228.9   Downloaded alloy-consensus v0.15.9
+#14 229.3   Downloaded crypto-bigint v0.5.5
+#14 229.4   Downloaded crossbeam-channel v0.5.15
+#14 229.4   Downloaded blst v0.3.14
+#14 229.5   Downloaded alloy-genesis v0.15.10
+#14 229.6   Downloaded libp2p-tcp v0.43.0
+#14 229.6   Downloaded libp2p-allow-block-list v0.5.0
+#14 229.6   Downloaded iana-time-zone v0.1.63
+#14 229.7   Downloaded hyper-tls v0.5.0
+#14 229.7   Downloaded httpdate v1.0.3
+#14 229.7   Downloaded httparse v1.10.1
+#14 229.7   Downloaded http-body-util v0.1.3
+#14 229.8   Downloaded http-body v1.0.1
+#14 229.8   Downloaded http-body v0.4.6
+#14 229.8   Downloaded http v0.2.12
+#14 229.8   Downloaded hostname v0.4.1
+#14 229.8   Downloaded hmac v0.8.1
+#14 229.8   Downloaded hex v0.4.3
+#14 229.9   Downloaded heck v0.5.0
+#14 229.9   Downloaded hashbrown v0.15.2
+#14 229.9   Downloaded getrandom v0.3.2
+#14 229.9   Downloaded generic-array v0.14.7
+#14 230.0   Downloaded futures-timer v3.0.3
+#14 230.0   Downloaded futures-sink v0.3.31
+#14 230.0   Downloaded futures-rustls v0.26.0
+#14 230.0   Downloaded futures-executor v0.3.31
+#14 230.0   Downloaded futures-channel v0.3.31
+#14 230.0   Downloaded futures v0.3.31
+#14 230.1   Downloaded form_urlencoded v1.2.1
+#14 230.1   Downloaded fastrand v2.3.0
+#14 230.1   Downloaded event-listener v5.4.0
+#14 230.1   Downloaded ed25519 v2.2.3
+#14 230.1   Downloaded ecdsa v0.16.9
+#14 230.1   Downloaded derivative v2.2.0
+#14 230.2   Downloaded der v0.7.9
+#14 230.2   Downloaded data-encoding v2.9.0
+#14 230.3   Downloaded dashmap v6.1.0
+#14 230.3   Downloaded darling v0.20.11
+#14 230.3   Downloaded crossbeam-utils v0.8.21
+#14 230.3   Downloaded cpufeatures v0.2.17
+#14 230.4   Downloaded core2 v0.4.0
+#14 230.4   Downloaded const_format v0.2.34
+#14 230.4   Downloaded const-oid v0.9.6
+#14 230.4   Downloaded const-hex v1.14.0
+#14 230.4   Downloaded clap v4.5.37
+#14 230.5   Downloaded chacha20poly1305 v0.10.1
+#14 230.5   Downloaded cc v1.2.19
+#14 230.6   Downloaded bitvec v1.0.1
+#14 230.7   Downloaded axum v0.8.3
+#14 230.7   Downloaded asn1-rs v0.6.2
+#14 230.8   Downloaded alloy-rpc-types-eth v0.15.10
+#14 230.8   Downloaded alloy-eips v0.15.9
+#14 230.9   Downloaded hashlink v0.9.1
+#14 230.9   Downloaded ghash v0.5.1
+#14 230.9   Downloaded futures-bounded v0.2.4
+#14 230.9   Downloaded funty v2.0.0
+#14 230.9   Downloaded foreign-types-shared v0.1.1
+#14 230.9   Downloaded foldhash v0.1.5
+#14 230.9   Downloaded fnv v1.0.7
+#14 230.9   Downloaded ff v0.13.1
+#14 230.9   Downloaded fastrlp v0.3.1
+#14 230.9   Downloaded ethereum_ssz_derive v0.9.0
+#14 231.0   Downloaded ethereum_ssz v0.9.0
+#14 231.0   Downloaded ethereum_serde_utils v0.8.0
+#14 231.0   Downloaded errno v0.3.11
+#14 231.0   Downloaded enum-as-inner v0.6.1
+#14 231.0   Downloaded enr v0.13.0
+#14 231.0   Downloaded dunce v1.0.5
+#14 231.0   Downloaded dtoa v1.0.10
+#14 231.0   Downloaded displaydoc v0.2.5
+#14 231.1   Downloaded dirs-sys v0.5.0
+#14 231.1   Downloaded dirs v6.0.0
+#14 231.1   Downloaded digest v0.10.7
+#14 231.1   Downloaded digest v0.9.0
+#14 231.1   Downloaded deranged v0.4.0
+#14 231.1   Downloaded delay_map v0.4.1
+#14 231.1   Downloaded data-encoding-macro-internal v0.1.16
+#14 231.1   Downloaded darling_macro v0.20.11
+#14 231.1   Downloaded crypto-mac v0.8.0
+#14 231.1   Downloaded crunchy v0.2.3
+#14 231.1   Downloaded crossbeam-epoch v0.9.18
+#14 231.1   Downloaded crc-catalog v2.4.0
+#14 231.1   Downloaded concurrent-queue v2.5.0
+#14 231.2   Downloaded colorchoice v1.0.3
+#14 231.2   Downloaded clap_lex v0.7.4
+#14 231.2   Downloaded clap_derive v4.5.32
+#14 231.2   Downloaded chacha20 v0.9.1
+#14 231.2   Downloaded cfg-if v1.0.0
+#14 231.2   Downloaded bytes v1.10.1
+#14 231.3   Downloaded block-buffer v0.10.4
+#14 231.3   Downloaded blake2 v0.10.6
+#14 231.3   Downloaded bitflags v2.9.0
+#14 231.3   Downloaded bitcoin-io v0.1.3
+#14 231.4   Downloaded bit-vec v0.8.0
+#14 231.4   Downloaded base64ct v1.7.3
+#14 231.4   Downloaded base64 v0.22.1
+#14 231.4   Downloaded base64 v0.21.7
+#14 231.5   Downloaded attohttpc v0.24.1
+#14 231.5   Downloaded atomic-waker v1.1.2
+#14 231.5   Downloaded async-trait v0.1.88
+#14 231.6   Downloaded async-stream v0.3.6
+#14 231.6   Downloaded async-recursion v1.1.1
+#14 231.6   Downloaded arrayref v0.3.9
+#14 231.7   Downloaded ark-serialize v0.4.2
+#14 231.7   Downloaded ark-serialize v0.3.0
+#14 231.7   Downloaded ark-ff v0.4.2
+#14 231.7   Downloaded ark-ff v0.3.0
+#14 231.7   Downloaded anyhow v1.0.98
+#14 231.8   Downloaded anstream v0.6.18
+#14 231.8   Downloaded alloy-trie v0.8.1
+#14 231.8   Downloaded alloy-transport-http v0.15.10
+#14 231.8   Downloaded alloy-transport v0.15.10
+#14 231.8   Downloaded alloy-sol-macro-expander v1.1.0
+#14 231.9   Downloaded alloy-signer-local v0.15.10
+#14 231.9   Downloaded alloy-signer v0.15.10
+#14 231.9   Downloaded alloy-rpc-types-engine v0.15.10
+#14 231.9   Downloaded alloy-json-abi v1.1.0
+#14 231.9   Downloaded alloy-eip7702 v0.6.0
+#14 231.9   Downloaded alloy-dyn-abi v1.0.0
+#14 232.0   Downloaded hex-conservative v0.2.1
+#14 232.0   Downloaded group v0.13.0
+#14 232.1   Downloaded futures-utils-wasm v0.1.0
+#14 232.1   Downloaded futures-task v0.3.31
+#14 232.1   Downloaded futures-macro v0.3.31
+#14 232.1   Downloaded futures-io v0.3.31
+#14 232.1   Downloaded foreign-types v0.3.2
+#14 232.1   Downloaded fixed-hash v0.8.0
+#14 232.1   Downloaded fastrlp v0.4.0
+#14 232.1   Downloaded event-listener-strategy v0.5.4
+#14 232.1   Downloaded equivalent v1.0.2
+#14 232.1   Downloaded either v1.15.0
+#14 232.1   Downloaded dyn-clone v1.0.19
+#14 232.2   Downloaded derive_arbitrary v1.4.1
+#14 232.2   Downloaded curve25519-dalek-derive v0.1.1
+#14 232.2   Downloaded ctr v0.9.2
+#14 232.2   Downloaded crypto-common v0.1.6
+#14 232.2   Downloaded crc v3.2.1
+#14 232.2   Downloaded const_format_proc_macros v0.2.34
+#14 232.2   Downloaded cipher v0.4.4
+#14 232.2   Downloaded cfg_aliases v0.2.1
+#14 232.3   Downloaded byteorder v1.5.0
+#14 232.3   Downloaded byte-slice-cast v1.2.3
+#14 232.3   Downloaded bitcoin_hashes v0.14.0
+#14 232.3   Downloaded base16ct v0.2.0
+#14 232.3   Downloaded base-x v0.2.11
+#14 232.3   Downloaded axum-core v0.5.2
+#14 232.3   Downloaded auto_impl v1.3.0
+#14 232.4   Downloaded asynchronous-codec v0.7.0
+#14 232.4   Downloaded async-stream-impl v0.3.6
+#14 232.4   Downloaded async-channel v2.3.1
+#14 232.5   Downloaded asn1-rs-impl v0.2.0
+#14 232.5   Downloaded arrayvec v0.7.6
+#14 232.5   Downloaded ark-std v0.4.0
+#14 232.5   Downloaded ark-std v0.3.0
+#14 232.5   Downloaded ark-ff-macros v0.3.0
+#14 232.6   Downloaded ark-ff-asm v0.4.2
+#14 232.6   Downloaded ark-ff-asm v0.3.0
+#14 232.6   Downloaded anstyle-query v1.1.2
+#14 232.6   Downloaded anstyle v1.0.10
+#14 232.6   Downloaded alloy-sol-type-parser v1.1.0
+#14 232.6   Downloaded alloy-sol-macro v1.1.0
+#14 232.6   Downloaded alloy-serde v0.15.10
+#14 232.6   Downloaded alloy-rpc-types-any v0.15.10
+#14 232.7   Downloaded alloy-provider v0.15.10
+#14 232.7   Downloaded alloy-primitives v1.1.0
+#14 232.8   Downloaded alloy-op-hardforks v0.2.0
+#14 232.8   Downloaded alloy-network-primitives v0.15.10
+#14 232.8   Downloaded alloy-json-rpc v0.15.10
+#14 232.8   Downloaded alloy-eip2930 v0.2.0
+#14 232.8   Downloaded alloy-chains v0.2.0
+#14 232.9   Downloaded bitflags v1.3.2
+#14 232.9   Downloaded autocfg v1.4.0
+#14 232.9   Downloaded asn1_der v0.7.6
+#14 232.9   Downloaded ark-ff-macros v0.4.2
+#14 233.0   Downloaded alloy-sol-types v1.1.0
+#14 233.0   Downloaded alloy-rpc-types v0.15.10
+#14 233.0   Downloaded alloy-rpc-client v0.15.10
+#14 233.0   Downloaded alloy-rlp-derive v0.3.11
+#14 233.0   Downloaded alloy-rlp v0.3.11
+#14 233.1   Downloaded alloy-network v0.15.10
+#14 233.1   Downloaded alloy-hardforks v0.2.0
+#14 233.1   Downloaded alloy-eip2124 v0.2.0
+#14 233.1   Downloaded alloy-core v1.0.0
+#14 233.1   Downloaded alloy-contract v0.15.10
+#14 233.2   Downloaded alloy-consensus-any v0.15.10
+#14 233.2   Downloaded alloy v0.15.10
+#14 233.2   Downloaded allocator-api2 v0.2.21
+#14 233.2   Downloaded aho-corasick v1.1.3
+#14 233.3   Downloaded aes-gcm v0.10.3
+#14 233.4   Downloaded aes v0.8.4
+#14 233.4   Downloaded aead v0.5.2
+#14 233.4   Downloaded bit-set v0.8.0
+#14 233.4   Downloaded asn1-rs-derive v0.5.1
+#14 233.4   Downloaded arbitrary v1.4.1
+#14 233.5   Downloaded anstyle-parse v0.2.6
+#14 233.5   Downloaded ahash v0.8.11
+#14 233.5   Downloaded openssl-src v300.5.0+3.5.0
+#14 237.1    Compiling proc-macro2 v1.0.95
+#14 237.1    Compiling unicode-ident v1.0.18
+#14 237.1    Compiling serde v1.0.219
+#14 237.1    Compiling libc v0.2.172
+#14 237.2    Compiling cfg-if v1.0.0
+#14 237.2    Compiling version_check v0.9.5
+#14 237.2    Compiling typenum v1.18.0
+#14 237.2    Compiling crunchy v0.2.3
+#14 237.2    Compiling subtle v2.6.1
+#14 237.2    Compiling once_cell v1.21.3
+#14 237.2    Compiling pin-project-lite v0.2.16
+#14 237.2    Compiling memchr v2.7.4
+#14 239.3    Compiling const-oid v0.9.6
+#14 239.3    Compiling paste v1.0.15
+#14 239.5    Compiling cpufeatures v0.2.17
+#14 239.6    Compiling tiny-keccak v2.0.2
+#14 239.7    Compiling unicode-xid v0.2.6
+#14 239.9    Compiling ruint-macro v1.2.1
+#14 240.0    Compiling itoa v1.0.15
+#14 240.0    Compiling generic-array v0.14.7
+#14 240.2    Compiling log v0.4.27
+#14 240.3    Compiling autocfg v1.4.0
+#14 241.2    Compiling allocator-api2 v0.2.21
+#14 241.3    Compiling equivalent v1.0.2
+#14 241.3    Compiling foldhash v0.1.5
+#14 241.5    Compiling futures-core v0.3.31
+#14 241.5    Compiling tracing-core v0.1.33
+#14 241.5    Compiling futures-sink v0.3.31
+#14 241.6    Compiling heck v0.5.0
+#14 241.6    Compiling slab v0.4.9
+#14 241.8    Compiling base16ct v0.2.0
+#14 241.8    Compiling futures-channel v0.3.31
+#14 242.0    Compiling lock_api v0.4.12
+#14 242.2    Compiling futures-io v0.3.31
+#14 242.5    Compiling pin-utils v0.1.0
+#14 242.5    Compiling parking_lot_core v0.9.10
+#14 242.6    Compiling futures-task v0.3.31
+#14 242.7    Compiling getrandom v0.3.2
+#14 242.7    Compiling scopeguard v1.2.0
+#14 242.9    Compiling quote v1.0.40
+#14 243.0    Compiling thiserror v2.0.12
+#14 243.7    Compiling syn v2.0.100
+#14 244.0    Compiling shlex v1.3.0
+#14 244.1    Compiling stable_deref_trait v1.2.0
+#14 244.1    Compiling fnv v1.0.7
+#14 244.3    Compiling serde_json v1.0.140
+#14 244.4    Compiling ryu v1.0.20
+#14 244.7    Compiling litemap v0.7.5
+#14 244.8    Compiling writeable v0.5.5
+#14 244.8    Compiling icu_locid_transform_data v1.5.1
+#14 245.0    Compiling icu_properties_data v1.5.1
+#14 245.1    Compiling winnow v0.7.6
+#14 245.5    Compiling zerocopy v0.8.24
+#14 245.6    Compiling icu_normalizer_data v1.5.1
+#14 246.0    Compiling semver v1.0.26
+#14 246.3    Compiling utf16_iter v1.0.5
+#14 246.4    Compiling percent-encoding v2.3.1
+#14 246.7    Compiling write16 v1.0.0
+#14 246.8    Compiling utf8_iter v1.0.4
+#14 247.1    Compiling form_urlencoded v1.2.1
+#14 247.2    Compiling proc-macro-error-attr2 v2.0.0
+#14 247.2    Compiling dunce v1.0.5
+#14 247.3    Compiling pkg-config v0.3.32
+#14 247.3    Compiling rustversion v1.0.20
+#14 247.5    Compiling base64 v0.22.1
+#14 247.9    Compiling jobserver v0.1.34
+#14 248.1    Compiling getrandom v0.2.15
+#14 248.6    Compiling socket2 v0.5.9
+#14 248.7    Compiling rand_core v0.6.4
+#14 249.1    Compiling cc v1.2.19
+#14 249.1    Compiling signal-hook-registry v1.4.5
+#14 249.3    Compiling mio v1.0.3
+#14 249.3    Compiling ff v0.13.1
+#14 249.4    Compiling num_cpus v1.16.0
+#14 249.6    Compiling rustc_version v0.4.1
+#14 249.8    Compiling group v0.13.0
+#14 249.8    Compiling thiserror v1.0.69
+#14 249.8    Compiling byteorder v1.5.0
+#14 250.4    Compiling hex v0.4.3
+#14 250.6    Compiling strsim v0.11.1
+#14 251.0    Compiling ident_case v1.0.1
+#14 251.3    Compiling crc-catalog v2.4.0
+#14 251.4    Compiling digest v0.9.0
+#14 251.7    Compiling crc v3.2.1
+#14 251.9    Compiling curve25519-dalek v4.1.3
+#14 251.9    Compiling opaque-debug v0.3.1
+#14 252.1    Compiling openssl-src v300.5.0+3.5.0
+#14 252.3    Compiling libsecp256k1-core v0.3.0
+#14 252.4    Compiling vcpkg v0.2.15
+#14 252.4    Compiling static_assertions v1.1.0
+#14 252.5    Compiling data-encoding v2.9.0
+#14 252.6    Compiling ppv-lite86 v0.2.21
+#14 252.7    Compiling unsigned-varint v0.8.0
+#14 252.8    Compiling quick-protobuf v0.8.1
+#14 253.0    Compiling core2 v0.4.0
+#14 253.2    Compiling arrayref v0.3.9
+#14 253.4    Compiling base-x v0.2.11
+#14 253.8    Compiling multihash v0.19.3
+#14 254.0    Compiling bitflags v2.9.0
+#14 254.1    Compiling httparse v1.10.1
+#14 254.6    Compiling rand_chacha v0.3.1
+#14 254.7    Compiling libsecp256k1-gen-genmult v0.3.0
+#14 254.8    Compiling libsecp256k1-gen-ecmult v0.3.0
+#14 254.9    Compiling tower-service v0.3.3
+#14 255.0    Compiling bs58 v0.5.1
+#14 255.1    Compiling asn1_der v0.7.6
+#14 255.1    Compiling openssl-sys v0.9.107
+#14 255.1    Compiling libsecp256k1 v0.7.2
+#14 255.2    Compiling openssl v0.10.72
+#14 255.3    Compiling rand v0.8.5
+#14 255.5    Compiling foreign-types-shared v0.1.1
+#14 255.6    Compiling try-lock v0.2.5
+#14 255.8    Compiling want v0.3.1
+#14 255.8    Compiling foreign-types v0.3.2
+#14 255.8    Compiling httpdate v1.0.3
+#14 255.9    Compiling crossbeam-utils v0.8.21
+#14 256.2    Compiling futures-timer v3.0.3
+#14 256.7    Compiling unsigned-varint v0.7.2
+#14 256.8    Compiling web-time v1.1.0
+#14 256.8    Compiling ahash v0.8.11
+#14 256.9    Compiling native-tls v0.2.14
+#14 257.2    Compiling ipnet v2.11.0
+#14 257.2    Compiling anyhow v1.0.98
+#14 257.3    Compiling openssl-probe v0.1.6
+#14 257.7    Compiling synstructure v0.13.1
+#14 257.7    Compiling macro-string v0.1.4
+#14 257.8    Compiling syn-solidity v1.1.0
+#14 258.0    Compiling proc-macro-error2 v2.0.1
+#14 258.1    Compiling darling_core v0.20.11
+#14 258.6    Compiling zerocopy v0.7.35
+#14 258.6    Compiling sync_wrapper v1.0.2
+#14 258.7    Compiling tower-layer v0.3.3
+#14 259.1    Compiling mime v0.3.17
+#14 259.7    Compiling block-buffer v0.10.4
+#14 259.9    Compiling crypto-common v0.1.6
+#14 260.1    Compiling futures-utils-wasm v0.1.0
+#14 260.2    Compiling digest v0.10.7
+#14 260.3    Compiling ring v0.17.14
+#14 260.3    Compiling hashbrown v0.14.5
+#14 260.4    Compiling aho-corasick v1.1.3
+#14 260.6    Compiling rustls-pki-types v1.11.0
+#14 261.4    Compiling regex-syntax v0.8.5
+#14 261.4    Compiling bitflags v1.3.2
+#14 261.6    Compiling sha2 v0.10.8
+#14 262.1    Compiling serde_derive v1.0.219
+#14 262.2    Compiling zeroize_derive v1.4.2
+#14 262.3    Compiling alloy-rlp-derive v0.3.11
+#14 262.5    Compiling derive_more-impl v2.0.1
+#14 262.7    Compiling thiserror-impl v2.0.12
+#14 263.4    Compiling tracing-attributes v0.1.28
+#14 263.6    Compiling futures-macro v0.3.31
+#14 263.6    Compiling zeroize v1.8.1
+#14 265.5    Compiling der v0.7.9
+#14 266.0    Compiling futures-util v0.3.31
+#14 266.1    Compiling crypto-bigint v0.5.5
+#14 266.8    Compiling tracing v0.1.41
+#14 266.9    Compiling hmac v0.12.1
+#14 267.3    Compiling signature v2.2.0
+#14 268.1    Compiling rfc6979 v0.4.0
+#14 268.4    Compiling tokio-macros v2.5.0
+#14 268.6    Compiling spki v0.7.3
+#14 269.4    Compiling pkcs8 v0.10.2
+#14 270.2    Compiling zerofrom-derive v0.1.6
+#14 271.6    Compiling yoke-derive v0.7.5
+#14 272.4    Compiling derive_more v2.0.1
+#14 273.1    Compiling zerovec-derive v0.10.3
+#14 273.4    Compiling displaydoc v0.2.5
+#14 273.7    Compiling zerofrom v0.1.6
+#14 273.8    Compiling icu_provider_macros v1.5.0
+#14 274.0    Compiling auto_impl v1.3.0
+#14 274.1    Compiling yoke v0.7.5
+#14 274.9    Compiling futures-executor v0.3.31
+#14 275.4    Compiling thiserror-impl v1.0.69
+#14 275.4    Compiling pin-project-internal v1.1.10
+#14 275.7    Compiling futures v0.3.31
+#14 276.1    Compiling darling_macro v0.20.11
+#14 276.9    Compiling zerovec v0.10.4
+#14 277.0    Compiling curve25519-dalek-derive v0.1.1
+#14 277.0    Compiling darling v0.20.11
+#14 277.1    Compiling strum_macros v0.27.1
+#14 278.5    Compiling pin-project v1.1.10
+#14 278.8    Compiling ethereum_ssz_derive v0.9.0
+#14 279.9    Compiling bytes v1.10.1
+#14 279.9    Compiling smallvec v1.15.0
+#14 280.2    Compiling hashbrown v0.15.2
+#14 280.4    Compiling serdect v0.2.0
+#14 280.8    Compiling sec1 v0.7.3
+#14 280.8    Compiling arrayvec v0.7.6
+#14 281.3    Compiling elliptic-curve v0.13.8
+#14 281.7    Compiling parking_lot v0.12.3
+#14 282.2    Compiling alloy-rlp v0.3.11
+#14 282.4    Compiling ecdsa v0.16.9
+#14 282.8    Compiling const-hex v1.14.0
+#14 282.9    Compiling ruint v1.14.0
+#14 283.2    Compiling tokio v1.44.2
+#14 283.8    Compiling either v1.15.0
+#14 283.9    Compiling tinystr v0.7.6
+#14 284.6    Compiling k256 v0.13.4
+#14 284.7    Compiling icu_locid v1.5.0
+#14 285.3    Compiling icu_collections v1.5.0
+#14 285.6    Compiling indexmap v2.9.0
+#14 286.1    Compiling alloy-primitives v1.1.0
+#14 287.3    Compiling icu_provider v1.5.0
+#14 287.4    Compiling alloy-sol-type-parser v1.1.0
+#14 287.7    Compiling itertools v0.13.0
+#14 288.7    Compiling icu_locid_transform v1.5.0
+#14 289.0    Compiling nybbles v0.3.4
+#14 289.6    Compiling alloy-eip2124 v0.2.0
+#14 290.2    Compiling alloy-json-abi v1.1.0
+#14 290.7    Compiling icu_properties v1.5.1
+#14 291.7    Compiling ethereum_serde_utils v0.8.0
+#14 292.6    Compiling alloy-sol-macro-input v1.1.0
+#14 293.0    Compiling ethereum_ssz v0.9.0
+#14 294.1    Compiling alloy-sol-macro-expander v1.1.0
+#14 294.6    Compiling alloy-eip7702 v0.6.0
+#14 295.2    Compiling alloy-serde v0.15.10
+#14 295.9    Compiling alloy-eip2930 v0.2.0
+#14 296.1    Compiling crypto-mac v0.8.0
+#14 296.5    Compiling hmac v0.8.1
+#14 296.5    Compiling alloy-trie v0.8.1
+#14 296.7    Compiling alloy-eips v0.15.9
+#14 296.7    Compiling ed25519 v2.2.3
+#14 297.2    Compiling block-buffer v0.9.0
+#14 297.3    Compiling num_enum_derive v0.7.3
+#14 297.5    Compiling sha2 v0.9.9
+#14 297.7    Compiling ed25519-dalek v2.1.1
+#14 298.5    Compiling icu_normalizer v1.5.0
+#14 298.9    Compiling hmac-drbg v0.3.0
+#14 299.6    Compiling data-encoding-macro-internal v0.1.16
+#14 300.5    Compiling idna_adapter v1.2.0
+#14 300.8    Compiling idna v1.0.3
+#14 300.8    Compiling alloy-consensus v0.15.9
+#14 301.3    Compiling data-encoding-macro v0.1.18
+#14 301.5    Compiling hkdf v0.12.4
+#14 301.8    Compiling url v2.5.4
+#14 303.0    Compiling alloy-sol-macro v1.1.0
+#14 304.1    Compiling alloy-sol-types v1.1.0
+#14 304.4    Compiling multibase v0.9.1
+#14 305.7    Compiling http v1.3.1
+#14 306.1    Compiling openssl-macros v0.1.1
+#14 306.3    Compiling tokio-util v0.7.14
+#14 306.8    Compiling multistream-select v0.13.0
+#14 307.0    Compiling rw-stream-sink v0.4.0
+#14 307.3    Compiling strum v0.27.1
+#14 307.9    Compiling num_enum v0.7.3
+#14 308.1    Compiling lru v0.12.5
+#14 308.1    Compiling alloy-chains v0.2.0
+#14 308.8    Compiling http-body v1.0.1
+#14 308.8    Compiling alloy-network-primitives v0.15.10
+#14 309.1    Compiling hyper v1.6.0
+#14 309.5    Compiling http-body-util v0.1.3
+#14 310.2    Compiling alloy-consensus-any v0.15.10
+#14 310.6    Compiling tower v0.5.2
+#14 310.7    Compiling netlink-packet-utils v0.5.2
+#14 311.4    Compiling itertools v0.14.0
+#14 311.9    Compiling serde_urlencoded v0.7.1
+#14 312.7    Compiling libp2p-swarm-derive v0.35.0
+#14 312.7    Compiling hyper-util v0.1.11
+#14 312.7    Compiling netlink-packet-core v0.7.0
+#14 312.8    Compiling libp2p-identity v0.2.10
+#14 314.0    Compiling multiaddr v0.18.2
+#14 314.9    Compiling netlink-sys v0.8.7
+#14 316.2    Compiling libp2p-core v0.43.0
+#14 317.2    Compiling asynchronous-codec v0.7.0
+#14 317.7    Compiling regex-automata v0.4.9
+#14 317.9    Compiling inout v0.1.4
+#14 318.0    Compiling serde_repr v0.1.20
+#14 318.1    Compiling async-trait v0.1.88
+#14 318.8    Compiling rustls-pemfile v2.2.0
+#14 319.4    Compiling concurrent-queue v2.5.0
+#14 319.5    Compiling dyn-clone v1.0.19
+#14 319.9    Compiling libp2p-swarm v0.46.0
+#14 320.0    Compiling parking v2.2.1
+#14 320.1    Compiling spin v0.9.8
+#14 320.5    Compiling lazy_static v1.5.0
+#14 320.6    Compiling event-listener v5.4.0
+#14 320.7    Compiling alloy-hardforks v0.2.0
+#14 321.3    Compiling alloy-signer v0.15.10
+#14 321.7    Compiling cipher v0.4.4
+#14 322.2    Compiling netlink-proto v0.11.5
+#14 322.5    Compiling netlink-packet-route v0.17.1
+#14 323.0    Compiling http v0.2.12
+#14 323.0    Compiling toml_datetime v0.6.8
+#14 323.6    Compiling serde_spanned v0.6.8
+#14 324.1    Compiling universal-hash v0.5.1
+#14 324.3    Compiling async-stream-impl v0.3.6
+#14 324.5    Compiling nix v0.26.4
+#14 325.2    Compiling zstd-sys v2.0.16+zstd.1.5.7
+#14 325.3    Compiling snow v0.9.6
+#14 326.2    Compiling prometheus-client v0.22.3
+#14 326.7    Compiling nohash-hasher v0.2.0
+#14 326.8    Compiling untrusted v0.9.0
+#14 329.7    Compiling async-stream v0.3.6
+#14 330.0    Compiling polyval v0.6.2
+#14 330.1    Compiling toml_edit v0.22.24
+#14 330.4    Compiling event-listener-strategy v0.5.4
+#14 330.9    Compiling rtnetlink v0.13.1
+#14 331.0    Compiling alloy-op-hardforks v0.2.0
+#14 331.1    Compiling quick-protobuf-codec v0.3.1
+#14 331.7    Compiling tokio-stream v0.1.17
+#14 333.5    Compiling kona-serde v0.2.0 (https://github.com/op-rs/kona?rev=b079a57fcfbb444d051e859f1e80f445daf5a2c7#b079a57f)
+#14 333.8    Compiling tracing-futures v0.2.5
+#14 333.8    Compiling hashlink v0.9.1
+#14 334.3    Compiling prometheus-client-derive-encode v0.4.2
+#14 335.4    Compiling secp256k1-sys v0.11.0
+#14 335.9    Compiling alloy-json-rpc v0.15.10
+#14 336.8    Compiling alloy-rpc-types-eth v0.15.10
+#14 337.6    Compiling dtoa v1.0.10
+#14 338.0    Compiling snap v1.1.1
+#14 338.9    Compiling alloy-transport v0.15.10
+#14 339.3    Compiling utf8parse v0.2.2
+#14 339.6    Compiling keccak v0.1.5
+#14 340.6    Compiling sha3 v0.10.8
+#14 341.9    Compiling anstyle-parse v0.2.6
+#14 342.3    Compiling toml v0.8.20
+#14 342.6    Compiling h2 v0.3.27
+#14 345.2    Compiling alloy-dyn-abi v1.0.0
+#14 346.4    Compiling alloy-rpc-types-any v0.15.10
+#14 346.4    Compiling async-channel v2.3.1
+#14 346.9    Compiling alloy-network v0.15.10
+#14 347.0    Compiling ghash v0.5.1
+#14 347.7    Compiling regex v1.11.1
+#14 350.8    Compiling if-watch v3.2.1
+#14 351.3    Compiling yamux v0.12.1
+#14 352.7    Compiling yamux v0.13.4
+#14 352.8    Compiling http-body v0.4.6
+#14 354.4    Compiling ctr v0.9.2
+#14 354.6    Compiling aes v0.8.4
+#14 355.7    Compiling lru v0.13.0
+#14 356.0    Compiling x25519-dalek v2.0.1
+#14 356.3    Compiling dashmap v6.1.0
+#14 356.5    Compiling futures-bounded v0.2.4
+#14 357.0    Compiling aead v0.5.2
+#14 357.7    Compiling rand_core v0.9.3
+#14 357.9    Compiling colorchoice v1.0.3
+#14 358.2    Compiling hex_fmt v0.3.0
+#14 358.2    Compiling anstyle-query v1.1.2
+#14 358.4    Compiling anstyle v1.0.10
+#14 358.4    Compiling rustix v1.0.5
+#14 358.6    Compiling is_terminal_polyfill v1.70.1
+#14 358.9    Compiling zstd-safe v7.2.4
+#14 359.0    Compiling option-ext v0.2.0
+#14 359.3    Compiling dirs-sys v0.5.0
+#14 359.5    Compiling anstream v0.6.18
+#14 359.7    Compiling rand_chacha v0.9.0
+#14 360.2    Compiling libp2p-gossipsub v0.48.0
+#14 360.8    Compiling hyper v0.14.32
+#14 361.2    Compiling aes-gcm v0.10.3
+#14 361.3    Compiling libp2p-identify v0.46.0
+#14 361.5    Compiling libp2p-noise v0.46.0
+#14 361.6    Compiling kona-genesis v0.3.0 (https://github.com/op-rs/kona?rev=b079a57fcfbb444d051e859f1e80f445daf5a2c7#b079a57f)
+#14 361.7    Compiling libp2p-yamux v0.47.0
+#14 362.9    Compiling libp2p-tcp v0.43.0
+#14 370.4    Compiling kona-registry v0.3.0 (https://github.com/op-rs/kona?rev=b079a57fcfbb444d051e859f1e80f445daf5a2c7#b079a57f)
+#14 370.4    Compiling enr v0.13.0
+#14 370.6    Compiling libp2p-ping v0.46.0
+#14 373.4    Compiling libp2p-allow-block-list v0.5.0
+#14 373.9    Compiling libp2p-connection-limits v0.5.0
+#14 375.1    Compiling op-alloy-consensus v0.15.5
+#14 375.8    Compiling alloy-rpc-types-engine v0.15.10
+#14 376.8    Compiling delay_map v0.4.1
+#14 377.4    Compiling uint v0.10.0
+#14 377.5    Compiling more-asserts v0.3.1
+#14 377.7    Compiling base64 v0.21.7
+#14 378.9    Compiling linux-raw-sys v0.9.4
+#14 378.9    Compiling clap_lex v0.7.4
+#14 379.5    Compiling rustls-pemfile v1.0.4
+#14 380.4    Compiling op-alloy-rpc-types-engine v0.15.5
+#14 380.4    Compiling clap_builder v4.5.37
+#14 381.1    Compiling discv5 v0.9.1
+#14 381.6    Compiling libp2p v0.55.0
+#14 382.4    Compiling rand v0.9.1
+#14 383.2    Compiling secp256k1 v0.31.0
+#14 384.0    Compiling dirs v6.0.0
+#14 384.8    Compiling alloy-signer-local v0.15.10
+#14 385.7    Compiling alloy-core v1.0.0
+#14 386.1    Compiling alloy-rpc-types v0.15.10
+#14 386.1    Compiling matchers v0.2.0
+#14 386.2    Compiling sharded-slab v0.1.7
+#14 386.4    Compiling axum-core v0.5.2
+#14 386.4    Compiling serde_path_to_error v0.1.17
+#14 386.4    Compiling clap_derive v4.5.32
+#14 386.5    Compiling tracing-log v0.2.0
+#14 387.5    Compiling thread_local v1.1.8
+#14 387.7    Compiling encoding_rs v0.8.35
+#14 388.4    Compiling sync_wrapper v0.1.2
+#14 388.6    Compiling nu-ansi-term v0.50.3
+#14 388.7    Compiling fastrand v2.3.0
+#14 389.0    Compiling matchit v0.8.4
+#14 389.4    Compiling kona-macros v0.1.0 (https://github.com/op-rs/kona?rev=b079a57fcfbb444d051e859f1e80f445daf5a2c7#b079a57f)
+#14 389.7    Compiling tracing-subscriber v0.3.20
+#14 390.4    Compiling tempfile v3.19.1
+#14 391.2    Compiling axum v0.8.3
+#14 392.3    Compiling clap v4.5.37
+#14 392.5    Compiling md5 v0.7.0
+#14 427.1    Compiling zstd v0.13.3
+#14 496.3    Compiling kona-p2p v0.1.0 (https://github.com/op-rs/kona?rev=b079a57fcfbb444d051e859f1e80f445daf5a2c7#b079a57f)
+#14 496.8    Compiling tokio-native-tls v0.3.1
+#14 497.2    Compiling hyper-tls v0.6.0
+#14 497.5    Compiling hyper-tls v0.5.0
+#14 497.6    Compiling reqwest v0.12.15
+#14 497.9    Compiling reqwest v0.11.27
+#14 500.6    Compiling alloy-transport-http v0.15.10
+#14 501.2    Compiling alloy-rpc-client v0.15.10
+#14 503.0    Compiling alloy-provider v0.15.10
+#14 516.3    Compiling alloy-contract v0.15.10
+#14 518.5    Compiling alloy v0.15.10
+#14 530.3    Compiling kona_bridge v0.1.0 (/build/src/chains/op/kona_bridge)
+#14 553.9     Finished `release` profile [optimized] target(s) in 5m 52s
+#14 555.3 [ 88%] Built target kona_bridge_rust
+#14 555.4 [ 88%] Building C object src/chains/op/kona_bridge/CMakeFiles/kona_preconf_capture.dir/__/server/kona_preconf_capture.c.o
+#14 556.0 [ 89%] Linking C static library libkona_preconf_capture.a
+#14 556.3 [ 89%] Built target kona_preconf_capture
+#14 556.4 [ 89%] Building C object src/chains/op/CMakeFiles/op_server_handler.dir/server/handler.c.o
+#14 556.8 [ 89%] Linking C static library libop_server_handler.a
+#14 557.0 [ 89%] Built target op_server_handler
+#14 557.1 [ 90%] Embedding config.html into C header
+#14 557.1 [ 90%] Built target generate_config_html
+#14 557.2 [ 90%] Building C object src/server/CMakeFiles/serverlib.dir/server_control.c.o
+#14 557.4 /build/src/server/server_control.c:60:13: warning: format specifies type 'unsigned long long' but the argument has type 'uint64_t' (aka 'unsigned long') [-Wformat]
+#14 557.4             http_server.stats.open_requests);
+#14 557.4             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#14 557.4 /build/src/server/server_control.c:85:13: warning: format specifies type 'unsigned long long' but the argument has type 'uint64_t' (aka 'unsigned long') [-Wformat]
+#14 557.4             http_server.stats.open_requests);
+#14 557.4             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#14 557.6 2 warnings generated.
+#14 557.6 [ 90%] Building C object src/server/CMakeFiles/serverlib.dir/http_client.c.o
+#14 558.4 [ 92%] Building C object src/server/CMakeFiles/serverlib.dir/http_client_errors.c.o
+#14 558.6 /build/src/server/http_client_errors.c:23:10: warning: implicit declaration of function 'memmem' is invalid in C99 [-Wimplicit-function-declaration]
+#14 558.6   return memmem(data.data, data.len, needle, needle_len) != NULL;
+#14 558.6          ^
+#14 558.6 /build/src/server/http_client_errors.c:23:58: warning: comparison between pointer and integer ('int' and 'void *') [-Wpointer-integer-compare]
+#14 558.6   return memmem(data.data, data.len, needle, needle_len) != NULL;
+#14 558.6          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ^  ~~~~
+#14 558.8 2 warnings generated.
+#14 558.8 [ 92%] Building C object src/server/CMakeFiles/serverlib.dir/http_servers_select.c.o
+#14 560.4 [ 92%] Building C object src/server/CMakeFiles/serverlib.dir/http_head_poller.c.o
+#14 560.8 [ 93%] Building C object src/server/CMakeFiles/serverlib.dir/http_server.c.o
+#14 561.4 [ 93%] Building C object src/server/CMakeFiles/serverlib.dir/handle_proof.c.o
+#14 561.8 [ 94%] Building C object src/server/CMakeFiles/serverlib.dir/handle_verify.c.o
+#14 562.2 [ 94%] Building C object src/server/CMakeFiles/serverlib.dir/handle_unverified_rpc.c.o
+#14 562.5 [ 94%] Building C object src/server/CMakeFiles/serverlib.dir/handle_verify_storage.c.o
+#14 563.0 [ 96%] Building C object src/server/CMakeFiles/serverlib.dir/handle_health.c.o
+#14 563.3 [ 96%] Building C object src/server/CMakeFiles/serverlib.dir/handle_metrics.c.o
+#14 563.8 [ 96%] Building C object src/server/CMakeFiles/serverlib.dir/handle_config.c.o
+#14 564.2 [ 97%] Building C object src/server/CMakeFiles/serverlib.dir/handle_openapi.c.o
+#14 564.6 [ 97%] Building C object src/server/CMakeFiles/serverlib.dir/cache.c.o
+#14 565.3 [ 98%] Building C object src/server/CMakeFiles/serverlib.dir/configure.c.o
+#14 566.2 [ 98%] Building C object src/server/CMakeFiles/serverlib.dir/store.c.o
+#14 566.6 [ 98%] Building C object src/server/CMakeFiles/serverlib.dir/internal_calls.c.o
+#14 567.0 [100%] Linking C static library libserverlib.a
+#14 567.3 [100%] Built target serverlib
+#14 567.4 [100%] Building C object src/server/CMakeFiles/colibri-server.dir/main.c.o
+#14 567.8 [100%] Linking C executable ../../bin/colibri-server
+#14 574.7 [100%] Built target colibri-server
+#14 DONE 575.8s
+
+#15 [c4_chiado final 2/4] RUN apt-get update && apt-get install -y --no-install-recommends     curl     ca-certificates     && rm -rf /var/lib/apt/lists/*
+#15 CACHED
+
+#16 [c4_chiado final 3/4] WORKDIR /app
+#16 CACHED
+
+#17 [c4_chiado final 4/4] COPY --from=builder /build/bin/colibri-server /app/colibri-server
+#17 DONE 0.2s
+
+#18 [c4_chiado] exporting to image
+#18 exporting layers
+#18 exporting layers 0.5s done
+#18 writing image sha256:41eb14809eaab83dee97cd74ff9b63f55db40f97d02b4247717976fc062fc2be done
+#18 naming to docker.io/library/ccgnosis1-c4_chiado 0.0s done
+#18 DONE 0.6s
+
+#19 [c4_chiado] resolving provenance for metadata file
+#19 DONE 0.1s
+ c4_chiado  Built
+[INFO] Successfully built c4_chiado.
+:: [ 2 of 4 ] c4_gnosis
+[INFO] Building c4_gnosis...
+Compose can now delegate builds to bake for better performance.
+ To do so, set COMPOSE_BAKE=true.
+#0 building with "default" instance using docker driver
+
+#1 [c4_gnosis internal] load build definition from Dockerfile
+#1 transferring dockerfile: 2.57kB 0.0s done
+#1 DONE 0.0s
+
+#2 [c4_gnosis internal] load metadata for docker.io/library/debian:bookworm-slim
+#2 DONE 0.8s
+
+#3 [c4_gnosis internal] load .dockerignore
+#3 transferring context: 564B 0.0s done
+#3 DONE 0.0s
+
+#4 [c4_gnosis builder  1/10] FROM docker.io/library/debian:bookworm-slim@sha256:936abff852736f951dab72d91a1b6337cf04217b2a77a5eaadc7c0f2f1ec1758
+#4 DONE 0.0s
+
+#5 [c4_gnosis internal] load build context
+#5 transferring context: 11.90MB 1.1s done
+#5 DONE 1.1s
+
+#6 [c4_gnosis final 3/4] WORKDIR /app
+#6 CACHED
+
+#7 [c4_gnosis final 2/4] RUN apt-get update && apt-get install -y --no-install-recommends     curl     ca-certificates     && rm -rf /var/lib/apt/lists/*
+#7 CACHED
+
+#8 [c4_gnosis builder 10/10] RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true . && make colibri-server
+#8 CACHED
+
+#9 [c4_gnosis builder  7/10] COPY src ./src
+#9 CACHED
+
+#10 [c4_gnosis builder  4/10] WORKDIR /build
+#10 CACHED
+
+#11 [c4_gnosis builder  5/10] COPY CMakeLists.txt ./
+#11 CACHED
+
+#12 [c4_gnosis builder  9/10] COPY bindings ./bindings
+#12 CACHED
+
+#13 [c4_gnosis builder  3/10] RUN wget -O rustup-init.sh https://sh.rustup.rs     && chmod +x rustup-init.sh     && ./rustup-init.sh -y --default-toolchain stable     && rm rustup-init.sh
+#13 CACHED
+
+#14 [c4_gnosis builder  8/10] COPY libs ./libs
+#14 CACHED
+
+#15 [c4_gnosis builder  2/10] RUN apt-get update && apt-get install -y --no-install-recommends     cmake     clang     git     build-essential     ca-certificates     libcurl4-openssl-dev     pkg-config     libssl-dev     wget     && update-ca-certificates     && rm -rf /var/lib/apt/lists/*
+#15 CACHED
+
+#16 [c4_gnosis builder  6/10] COPY CMakePresets.json ./
+#16 CACHED
+
+#17 [c4_gnosis final 4/4] COPY --from=builder /build/bin/colibri-server /app/colibri-server
+#17 CACHED
+
+#18 [c4_gnosis] exporting to image
+#18 exporting layers done
+#18 writing image sha256:2e179517510335249b1dc14e47c0e43d1f9fd4abed0abac0845a7e1dc9a07573 done
+#18 naming to docker.io/library/ccgnosis1-c4_gnosis done
+#18 DONE 0.0s
+
+#19 [c4_gnosis] resolving provenance for metadata file
+#19 DONE 0.0s
+ c4_gnosis  Built
+[INFO] Successfully built c4_gnosis.
+:: [ 3 of 4 ] c4_mainnet
+[INFO] Building c4_mainnet...
+Compose can now delegate builds to bake for better performance.
+ To do so, set COMPOSE_BAKE=true.
+#0 building with "default" instance using docker driver
+
+#1 [c4_mainnet internal] load build definition from Dockerfile
+#1 transferring dockerfile: 2.57kB done
+#1 DONE 0.0s
+
+#2 [c4_mainnet internal] load metadata for docker.io/library/debian:bookworm-slim
+#2 DONE 0.2s
+
+#3 [c4_mainnet internal] load .dockerignore
+#3 transferring context: 564B done
+#3 DONE 0.0s
+
+#4 [c4_mainnet builder  1/10] FROM docker.io/library/debian:bookworm-slim@sha256:936abff852736f951dab72d91a1b6337cf04217b2a77a5eaadc7c0f2f1ec1758
+#4 DONE 0.0s
+
+#5 [c4_mainnet internal] load build context
+#5 transferring context: 11.90MB 0.7s done
+#5 DONE 0.7s
+
+#6 [c4_mainnet final 3/4] WORKDIR /app
+#6 CACHED
+
+#7 [c4_mainnet builder  8/10] COPY libs ./libs
+#7 CACHED
+
+#8 [c4_mainnet builder  3/10] RUN wget -O rustup-init.sh https://sh.rustup.rs     && chmod +x rustup-init.sh     && ./rustup-init.sh -y --default-toolchain stable     && rm rustup-init.sh
+#8 CACHED
+
+#9 [c4_mainnet builder  6/10] COPY CMakePresets.json ./
+#9 CACHED
+
+#10 [c4_mainnet final 2/4] RUN apt-get update && apt-get install -y --no-install-recommends     curl     ca-certificates     && rm -rf /var/lib/apt/lists/*
+#10 CACHED
+
+#11 [c4_mainnet builder 10/10] RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true . && make colibri-server
+#11 CACHED
+
+#12 [c4_mainnet builder  5/10] COPY CMakeLists.txt ./
+#12 CACHED
+
+#13 [c4_mainnet builder  9/10] COPY bindings ./bindings
+#13 CACHED
+
+#14 [c4_mainnet builder  2/10] RUN apt-get update && apt-get install -y --no-install-recommends     cmake     clang     git     build-essential     ca-certificates     libcurl4-openssl-dev     pkg-config     libssl-dev     wget     && update-ca-certificates     && rm -rf /var/lib/apt/lists/*
+#14 CACHED
+
+#15 [c4_mainnet builder  7/10] COPY src ./src
+#15 CACHED
+
+#16 [c4_mainnet builder  4/10] WORKDIR /build
+#16 CACHED
+
+#17 [c4_mainnet final 4/4] COPY --from=builder /build/bin/colibri-server /app/colibri-server
+#17 CACHED
+
+#18 [c4_mainnet] exporting to image
+#18 exporting layers done
+#18 writing image sha256:608ac69f340a675cbf2f68c24106bcdc9a6ab8a3fbd924782f39124377877e9b done
+#18 naming to docker.io/library/ccgnosis1-c4_mainnet
+#18 naming to docker.io/library/ccgnosis1-c4_mainnet 0.0s done
+#18 DONE 0.0s
+
+#19 [c4_mainnet] resolving provenance for metadata file
+#19 DONE 0.0s
+ c4_mainnet  Built
+[INFO] Successfully built c4_mainnet.
+:: [ 4 of 4 ] c4_sepolia
+[INFO] Building c4_sepolia...
+Compose can now delegate builds to bake for better performance.
+ To do so, set COMPOSE_BAKE=true.
+#0 building with "default" instance using docker driver
+
+#1 [c4_sepolia internal] load build definition from Dockerfile
+#1 transferring dockerfile: 2.57kB 0.0s done
+#1 DONE 0.0s
+
+#2 [c4_sepolia internal] load metadata for docker.io/library/debian:bookworm-slim
+#2 DONE 0.2s
+
+#3 [c4_sepolia internal] load .dockerignore
+#3 transferring context: 564B 0.0s done
+#3 DONE 0.0s
+
+#4 [c4_sepolia builder  1/10] FROM docker.io/library/debian:bookworm-slim@sha256:936abff852736f951dab72d91a1b6337cf04217b2a77a5eaadc7c0f2f1ec1758
+#4 DONE 0.0s
+
+#5 [c4_sepolia internal] load build context
+#5 transferring context: 11.90MB 0.5s done
+#5 DONE 0.5s
+
+#6 [c4_sepolia final 3/4] WORKDIR /app
+#6 CACHED
+
+#7 [c4_sepolia builder  6/10] COPY CMakePresets.json ./
+#7 CACHED
+
+#8 [c4_sepolia builder  4/10] WORKDIR /build
+#8 CACHED
+
+#9 [c4_sepolia builder  5/10] COPY CMakeLists.txt ./
+#9 CACHED
+
+#10 [c4_sepolia final 2/4] RUN apt-get update && apt-get install -y --no-install-recommends     curl     ca-certificates     && rm -rf /var/lib/apt/lists/*
+#10 CACHED
+
+#11 [c4_sepolia builder  3/10] RUN wget -O rustup-init.sh https://sh.rustup.rs     && chmod +x rustup-init.sh     && ./rustup-init.sh -y --default-toolchain stable     && rm rustup-init.sh
+#11 CACHED
+
+#12 [c4_sepolia builder  2/10] RUN apt-get update && apt-get install -y --no-install-recommends     cmake     clang     git     build-essential     ca-certificates     libcurl4-openssl-dev     pkg-config     libssl-dev     wget     && update-ca-certificates     && rm -rf /var/lib/apt/lists/*
+#12 CACHED
+
+#13 [c4_sepolia builder  7/10] COPY src ./src
+#13 CACHED
+
+#14 [c4_sepolia builder  9/10] COPY bindings ./bindings
+#14 CACHED
+
+#15 [c4_sepolia builder 10/10] RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true . && make colibri-server
+#15 CACHED
+
+#16 [c4_sepolia builder  8/10] COPY libs ./libs
+#16 CACHED
+
+#17 [c4_sepolia final 4/4] COPY --from=builder /build/bin/colibri-server /app/colibri-server
+#17 CACHED
+
+#18 [c4_sepolia] exporting to image
+#18 exporting layers done
+#18 writing image sha256:64c266dcd347e786a93260e09eef844fb7eb1affc42181e2a347fa3de46e88fe done
+#18 naming to docker.io/library/ccgnosis1-c4_sepolia 0.0s done
+#18 DONE 0.0s
+
+#19 [c4_sepolia] resolving provenance for metadata file
+#19 DONE 0.0s
+ c4_sepolia  Built
+[INFO] Successfully built c4_sepolia.
+:: [ DOCKER ] 
+[INFO] Running docker compose with: -f docker-compose.yml -f ./c4_chiado/docker-compose.override.yml -f ./c4_gnosis/docker-compose.override.yml -f ./c4_mainnet/docker-compose.override.yml -f ./c4_sepolia/docker-compose.override.yml -f ./lb/docker-compose.override.yml -f ./memcached/docker-compose.override.yml -f ../_global/autoheal/docker-compose.override.yml -f ../_global/cadvisor/docker-compose.override.yml -f ../_global/promtail/docker-compose.override.yml
+ Container cadvisor  Running
+ Container ccgnosis1-autoheal-1  Running
+ Container gnosis_lb  Running
+ Container promtail  Running
+ Container memcached  Running
+ Container c4_chiado1  Recreate
+ Container c4_mainnet  Recreate
+ Container c4_sepolia1  Recreate
+ Container c4_gnosis  Recreate
+ Container c4_chiado1  Recreated
+ Container c4_gnosis  Recreated
+ Container c4_sepolia1  Recreated
+ Container c4_mainnet  Recreated
+ Container memcached  Waiting
+ Container memcached  Waiting
+ Container memcached  Waiting
+ Container memcached  Waiting
+ Container memcached  Healthy
+ Container c4_mainnet  Starting
+ Container memcached  Healthy
+ Container c4_sepolia1  Starting
+ Container memcached  Healthy
+ Container c4_gnosis  Starting
+ Container memcached  Healthy
+ Container c4_chiado1  Starting
+ Container c4_gnosis  Started
+ Container c4_mainnet  Started
+ Container c4_sepolia1  Started
+ Container c4_chiado1  Started
+ Container c4_gnosis  Waiting
+ Container cadvisor  Waiting
+ Container c4_chiado1  Waiting
+ Container ccgnosis1-autoheal-1  Waiting
+ Container gnosis_lb  Waiting
+ Container promtail  Waiting
+ Container c4_mainnet  Waiting
+ Container c4_sepolia1  Waiting
+ Container memcached  Waiting
+ Container memcached  Healthy
+ Container promtail  Healthy
+ Container gnosis_lb  Healthy
+ Container cadvisor  Healthy
+ Container ccgnosis1-autoheal-1  Healthy
+ Container c4_gnosis  Healthy
+ Container c4_sepolia1  Healthy
+ Container c4_mainnet  Healthy
+ Container c4_chiado1  Healthy
+[INFO] Checking services for config changes...
+:: [INFO] Update complete on ccgnosis1 !

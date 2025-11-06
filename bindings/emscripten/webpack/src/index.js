@@ -1,5 +1,5 @@
 // Import the main module entry point using the alias configured in webpack.config.js
-import Colibri from '@c4w/index.js';
+import Colibri from '@corpus-core/colibri-stateless';
 
 // Function to run the test logic
 async function runTest() {
@@ -16,7 +16,9 @@ async function runTest() {
     try {
         // Instantiate the client
         // The underlying WASM module loading should be handled by the Colibri class/index.js wrapper
-        let client = new Colibri();
+        let client = new Colibri({
+            prover: ['https://mainnet1.colibri-proof.tech']
+        });
         outputDiv.textContent = 'Colibri client instantiated. Calling verifyProof...';
 
         // Call the verifyProof method
