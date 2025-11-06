@@ -4,6 +4,7 @@
  */
 
 #include "llhttp.h"
+#include "logger.h"
 #include "server.h"
 #include <limits.h>
 #include <stdint.h>
@@ -261,22 +262,18 @@ static void log_request(client_t* client) {
   if (strcmp(client->request.path, "/health") == 0) return;      // no healthcheck logging
   if (strcmp(client->request.path, "/healthcheck") == 0) return; // no healthcheck logging
   if (strcmp(client->request.path, "/metrics") == 0) return;     // no metrics logging
-  char* pl = client->request.payload_len ? bprintf(NULL, "%J", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) client->request.payload, .len = client->request.payload_len}) : NULL;
-  fprintf(stderr,
+
 #ifdef HTTP_SERVER_GEO
-          "[%s] %s %s (%s/%s)\n",
+  log_info(MAGENTA("[%s]") "%s %s" GRAY(" (%s in %s)"),
+           method_str(client->request.method),
+           c4_req_info(C4_DATA_TYPE_INTERN, client->request.path, bytes(client->request.payload, client->request.payload_len)),
+           client->request.geo_city ? client->request.geo_city : "",
+           client->request.geo_country && client->request.geo_city ? client->request.geo_country : "");
 #else
-          "[%s] %s %s\n",
+  log_info(MAGENTA("[%s]") "%s %s",
+           method_str(client->request.method),
+           c4_req_info(0, client->request.path, bytes(client->request.payload, client->request.payload_len)));
 #endif
-          method_str(client->request.method),
-          client->request.path, pl ? pl : ""
-#ifdef HTTP_SERVER_GEO
-          ,
-          client->request.geo_city ? client->request.geo_city : "",
-          client->request.geo_country ? client->request.geo_country : ""
-#endif
-  );
-  if (pl) safe_free(pl);
 }
 
 #ifdef HTTP_SERVER_GEO

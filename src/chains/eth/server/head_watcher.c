@@ -141,10 +141,14 @@ static CURLM* beacon_multi_handle = NULL;
 static uv_timer_t beacon_curl_timer;
 
 // Structure to hold socket context for libuv polling
-typedef struct {
-  uv_poll_t     poll_handle;
-  curl_socket_t sockfd;
+typedef struct beacon_curl_context_s {
+  uv_poll_t                     poll_handle;
+  curl_socket_t                 sockfd;
+  struct beacon_curl_context_s* next;
 } beacon_curl_context_t;
+
+// Track all active poll contexts for robust shutdown
+static beacon_curl_context_t* beacon_context_head = NULL;
 
 // --- Forward Declarations for new CURL/UV integration callbacks ---
 static int  beacon_timer_callback(CURLM* multi, long timeout_ms, void* userp);
@@ -154,6 +158,8 @@ static void beacon_curl_timeout_cb(uv_timer_t* handle);
 static void check_multi_info();
 static void free_curl_context(beacon_curl_context_t* context);
 static void destroy_poll_handle(uv_handle_t* handle);
+static void add_curl_context(beacon_curl_context_t* context);
+static void remove_curl_context(beacon_curl_context_t* context);
 
 // --- Callback Implementations ---
 
@@ -287,7 +293,7 @@ static void on_reconnect_timer(uv_timer_t* handle) {
 // --- User Handler ---
 
 static void handle_beacon_event(char* event, char* data) {
-  log_info("Beacon Event Received: Type='%s'", event);
+  log_info("Beacon Event Received: Type: " YELLOW("%s"), event);
   http_server.stats.beacon_events_total++;
   if (strcmp(event, "head") == 0) {
     http_server.stats.beacon_events_head++;
@@ -323,9 +329,31 @@ static void beacon_curl_timeout_cb(uv_timer_t* handle) {
   check_multi_info(); // Check if the timeout caused the transfer to complete
 }
 
+// Add/remove context helpers
+static void add_curl_context(beacon_curl_context_t* context) {
+  if (!context) return;
+  context->next       = beacon_context_head;
+  beacon_context_head = context;
+}
+
+static void remove_curl_context(beacon_curl_context_t* context) {
+  if (!context) return;
+  beacon_curl_context_t** cur = &beacon_context_head;
+  while (*cur) {
+    if (*cur == context) {
+      *cur          = context->next;
+      context->next = NULL;
+      return;
+    }
+    cur = &((*cur)->next);
+  }
+}
+
 // Helper to safely close poll handle and free context
 static void destroy_poll_handle(uv_handle_t* handle) {
-  free_curl_context((beacon_curl_context_t*) handle->data);
+  beacon_curl_context_t* ctx = (beacon_curl_context_t*) handle->data;
+  if (ctx) remove_curl_context(ctx);
+  free_curl_context(ctx);
 }
 
 // Helper to free context
@@ -340,6 +368,9 @@ static void free_curl_context(beacon_curl_context_t* context) {
 static int beacon_socket_callback(CURL* easy, curl_socket_t s, int action, void* userp, void* socketp) {
   beacon_curl_context_t* context = (beacon_curl_context_t*) socketp;
   uv_loop_t*             loop    = uv_default_loop(); // Assuming default loop
+
+  // Ignore invalid sockets unless this is a REMOVE notification
+  if (s == CURL_SOCKET_BAD && action != CURL_POLL_REMOVE) return 0;
 
   switch (action) {
     case CURL_POLL_IN:
@@ -357,6 +388,7 @@ static int beacon_socket_callback(CURL* easy, curl_socket_t s, int action, void*
         }
         context->poll_handle.data = context;                        // Link context to handle data
         curl_multi_assign(beacon_multi_handle, s, (void*) context); // Assign the context back to libcurl via socketp
+        add_curl_context(context);
       }
 
       int events = 0;
@@ -370,6 +402,7 @@ static int beacon_socket_callback(CURL* easy, curl_socket_t s, int action, void*
     case CURL_POLL_REMOVE:
       if (context) {
         uv_poll_stop(&context->poll_handle);                                 // Stop polling and close the handle
+        remove_curl_context(context);                                        // Unlink from active list before close
         uv_close((uv_handle_t*) &context->poll_handle, destroy_poll_handle); // Use uv_close for safe handle cleanup, free context in the callback
         curl_multi_assign(beacon_multi_handle, s, NULL);                     // Remove context association in libcurl
       }
@@ -392,6 +425,7 @@ static void beacon_poll_cb(uv_poll_t* handle, int status, int events) {
     uv_poll_stop(&context->poll_handle);
     // Clear libcurl's association for this socket to avoid stale pointers
     curl_multi_assign(beacon_multi_handle, context->sockfd, NULL);
+    remove_curl_context(context); // Ensure it's unlinked from our list
     uv_close((uv_handle_t*) &context->poll_handle, destroy_poll_handle);
     stop_beacon_watch();
     schedule_reconnect();
@@ -597,6 +631,14 @@ static void stop_beacon_watch() {
   uv_timer_stop(&watcher_state.reconnect_timer); // Stop pending reconnect too
   // Stop CURL timeout timer to avoid actions after stop
   uv_timer_stop(&beacon_curl_timer);
+
+  // Proactively close any remaining poll contexts to avoid stale handles
+  while (beacon_context_head) {
+    beacon_curl_context_t* ctx = beacon_context_head;
+    beacon_context_head        = ctx->next; // unlink before closing
+    uv_poll_stop(&ctx->poll_handle);
+    uv_close((uv_handle_t*) &ctx->poll_handle, destroy_poll_handle);
+  }
 }
 
 static void schedule_reconnect() {

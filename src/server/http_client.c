@@ -457,50 +457,48 @@ static void handle_curl_events() {
     bytes_t     response    = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
     if (response_type == C4_RESPONSE_SUCCESS && response.data) {
-      fprintf(stderr, "   \x1b[32m[curl ]\x1b[0m %s %s -> OK %d bytes, %d ms from \x1b[94m%s\x1b[0m\n",
-              r->req->url ? r->req->url : "",
-              r->req->payload.data ? (char*) r->req->payload.data : "",
-              r->buffer.data.len,
-              (int) response_time,
-              server_name);
+      log_info(GREEN("   [curl ]") " %s -> OK %d bytes, %d ms from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->buffer.data.len, (int) response_time, server_name);
       r->req->response = response; // set the response
       cache_response(r);           // and write to cache
 
       r->buffer = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
     }
     else if (response_type == C4_RESPONSE_ERROR_USER && r->req->type == C4_DATA_TYPE_ETH_RPC && response.data) {
+      log_warn(YELLOW("   [curl ]") " %s -> USER ERROR %d bytes (%s) : from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->buffer.data.len,
+               response.data ? (char*) response.data : "",
+               server_name);
       // For JSON-RPC user errors, set the response so application logic can extract detailed error messages
-      fprintf(stderr, "   \x1b[33m[curl ]\x1b[0m %s %s -> USER ERROR %d bytes  (\x1b[33m%s\x1b[0m) : from \x1b[94m%s\x1b[0m\n",
-              r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "",
-              r->buffer.data.len,
-              response.data ? (char*) response.data : "",
-              server_name);
       r->req->response = response;       // set the response with JSON-RPC error details
       r->buffer        = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
 
       // Mark as non-retryable to avoid unnecessary retries
-      fprintf(stderr, "   \x1b[33m[curl ]\x1b[0m JSON-RPC user error - marking request as non-retryable\n");
+      log_warn(YELLOW("   [curl ]") " JSON-RPC user error - marking request as non-retryable");
       r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
     }
     else if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
       // Don't set response or mark as completely failed - let retry logic handle it
       if (!r->req->error) r->req->error = strdup("Method not supported");
-      fprintf(stderr, "   \x1b[33m[curl ]\x1b[0m %s %s -> \x1b[33mMethod not supported: %s\x1b[0m : from \x1b[94m%s\x1b[0m\n",
-              r->url ? r->url : r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error,
-              server_name);
+      log_warn(YELLOW("   [curl ]") " %s -> " BOLD("METHOD NOT SUPPORTED : %s") " from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->req->error ? r->req->error : "",
+               server_name);
     }
     else {
       char* effective_url = NULL;
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
       if (!r->req->error) r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, msg->data.result == CURLE_OK ? "" : curl_easy_strerror(msg->data.result), bprintf(&r->buffer, " ")); // create error message
-      fprintf(stderr, "   \x1b[33m[curl ]\x1b[0m %s -> ERROR : \x1b[33m%s\x1b[0m : from \x1b[94m%s\x1b[0m\n",
-              r->req->payload.data ? (char*) r->req->payload.data : "",
-              r->req->error,
-              server_name);
+      log_warn(YELLOW("   [curl ]") " %s -> ERROR : " BOLD("%s") " : from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->req->error,
+               server_name);
 
       // For non-JSON-RPC user errors, mark as non-retryable to avoid unnecessary retries
       if (response_type == C4_RESPONSE_ERROR_USER) {
-        fprintf(stderr, "   [user ] User error detected - marking request as non-retryable\n");
+        log_warn(YELLOW("   [user ]") " User error detected - marking request as non-retryable");
         // Set exclude mask to all servers to prevent retries
         r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
       }
@@ -794,12 +792,12 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
   if (pending) { // there is a pending request asking for the same result
     pending_add_to_same_requests(pending, r);
-    fprintf(stderr, "   [join ] %s %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "");
+    log_info(GRAY("   [join ]") " %s", c4_req_info(r->req->type, r->req->url, r->req->payload));
     // callback will be called when the pending-request is done
   }
   else if (value) { // there is a cached response
     // Cache hit - create response from cached data
-    fprintf(stderr, "   [cache] %s %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "");
+    log_info(GRAY("   [cache]") " %s", c4_req_info(r->req->type, r->req->url, r->req->payload));
     r->req->response = bytes_dup(bytes(value, value_len));
     r->curl          = NULL; // Mark as done
     r->cached        = true;
@@ -818,8 +816,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
         !(r->req->node_exclude_mask & (1 << r->req->response_node_index))) {
       // Use pre-selected index from retry logic
       selected_index = r->req->response_node_index;
-      fprintf(stderr, "   [retry] Using pre-selected server %d: %s\n",
-              selected_index, servers->urls[selected_index]);
+      log_warn("   [retry] Using pre-selected server %s", c4_extract_server_name(servers->urls[selected_index]));
     }
     else {
       // Use intelligent server selection for initial requests
@@ -1060,7 +1057,8 @@ bool c4_check_retry_request(request_t* req) {
       // Try to find another available server (c4_select_best_server handles emergency reset)
       int new_idx = c4_select_best_server(servers, pending->node_exclude_mask, pending->preferred_client_type);
       if (new_idx != -1) {
-        fprintf(stderr, "   [retry] %s with idx %d: %s\n", pending->url ? pending->url : (char*) pending->payload.data, new_idx, servers->urls[new_idx] ? servers->urls[new_idx] : "NULL");
+        log_warn("   [retry] %s -> Using pre-selected server " BRIGHT_BLUE("%s"), c4_req_info(pending->type, pending->url, pending->payload), c4_extract_server_name(servers->urls[new_idx]));
+
         safe_free(pending->error);
         pending->response_node_index = new_idx;
         pending->error               = NULL;
@@ -1069,7 +1067,7 @@ bool c4_check_retry_request(request_t* req) {
       }
       else {
         // This should be very rare due to emergency reset in c4_select_best_server
-        fprintf(stderr, ":: No more servers available for retry after emergency measures\n");
+        log_error(":: No more servers available for retry after emergency measures");
       }
     }
   }
