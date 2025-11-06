@@ -349,7 +349,12 @@ static int beacon_socket_callback(CURL* easy, curl_socket_t s, int action, void*
         // Create new context if none exists for this socket
         context         = (beacon_curl_context_t*) safe_calloc(1, sizeof(beacon_curl_context_t));
         context->sockfd = s;
-        uv_poll_init_socket(loop, &context->poll_handle, s);
+        int rc          = uv_poll_init_socket(loop, &context->poll_handle, s);
+        if (rc != 0) {
+          log_error("uv_poll_init_socket failed for socket %d: %s", (int) s, uv_strerror(rc));
+          safe_free(context);
+          return -1; // signal error back to libcurl
+        }
         context->poll_handle.data = context;                        // Link context to handle data
         curl_multi_assign(beacon_multi_handle, s, (void*) context); // Assign the context back to libcurl via socketp
       }
@@ -382,8 +387,13 @@ static void beacon_poll_cb(uv_poll_t* handle, int status, int events) {
   beacon_curl_context_t* context = (beacon_curl_context_t*) handle->data;
 
   if (status < 0) {
-    log_error("beacon_poll_cb error: %s", uv_strerror(status));
-    stop_beacon_watch(); // What to do here? Maybe trigger reconnect?
+    log_error("beacon_poll_cb error on fd %d: %s", (int) context->sockfd, uv_strerror(status));
+    // Stop and close the poll handle proactively to avoid polling an invalid fd
+    uv_poll_stop(&context->poll_handle);
+    // Clear libcurl's association for this socket to avoid stale pointers
+    curl_multi_assign(beacon_multi_handle, context->sockfd, NULL);
+    uv_close((uv_handle_t*) &context->poll_handle, destroy_poll_handle);
+    stop_beacon_watch();
     schedule_reconnect();
     return;
   }
@@ -585,6 +595,8 @@ static void stop_beacon_watch() {
   }
   uv_timer_stop(&watcher_state.inactivity_timer);
   uv_timer_stop(&watcher_state.reconnect_timer); // Stop pending reconnect too
+  // Stop CURL timeout timer to avoid actions after stop
+  uv_timer_stop(&beacon_curl_timer);
 }
 
 static void schedule_reconnect() {
