@@ -26,10 +26,25 @@
 
 // : Ethereum
 //
-// The Ethereum Mainnet uses a Execution Layer and and a Consensys Layer (Beacon Chain). This allows us to verify the execution layer data with the beacon chain data.
-// So all proofs will contain at least the BeaconBlockHeader and Signature from the BeaconChain. Depending on the requested Data additional Merkle Proofs within the BeaconChain and the ExecutionLayer are added.
-// These Proofs aim at verifying all relevant ethereum [RPC-methods](ethereum/supported-rpc-methods.md).
-// This includes the stateRoot proof, the storage proof, the receipt proof, the logs proof, the transaction proof, the account proof, the code proof and the sync proof.
+// The Ethereum Mainnet consists of two interconnected layers: the Execution Layer and the Consensus Layer (Beacon Chain).
+// This separation enables verification of execution-layer data through consensus-layer proofs.
+//
+// Every proof generated for Ethereum includes, at minimum, the BeaconBlockHeader and its BLS aggregate signature from the Beacon Chain, ensuring the consensus validity of the referenced execution block.
+// Depending on the requested data, additional Merkle proofs from both the Beacon Chain and the Execution Layer are appended.
+//
+// These proof structures are designed to enable full verification of data accessible through common Ethereum [RPC-methods](ethereum/supported-rpc-methods.md).
+// Supported proof types include:
+// * StateRoot Proof
+// * Storage Proof
+// * Receipt Proof
+// * Logs Proof
+// * Transaction Proof
+// * Account Proof
+// * Code Proof
+// * Sync Proof
+//
+// Together, these proofs establish a framework for stateless, verifiable access to all critical Ethereum state components without reliance on trusted RPC endpoints.
+
 
 // definition of an enum depending on the requested block
 static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
@@ -40,17 +55,33 @@ static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
 
 // :: Historic Block Proof
 //
-// Since Clients usually have the public keys of the last sync period and are able to verify blocks, verifying a ollder block gets complicated, because you would need the public keys of the sync committee at that period, which ar hardly available.
-// In order to allow the verification of those historic blocks, we can use the the historic summaries of the current state.
+// Since clients usually have the public keys of the last sync period and are able to verify blocks, verifying an older block gets complicated, because you would need the public keys of the sync committee of at that period, which are hardly available.
 //
-// 1. take the blockroot to verify and together with the all the 8192 blockroots of that period and cretae a merkle proof for this list.
-// 2. using the current state, we get the list of all historic summaries holding the summar block_rooots of those lists and continue the merkle proof to the tree root hash of thid list.
-// 3. we then continue the merkle proof fomr the has tree root of the historic_summaries down to the state_root.
-// 4. with the blockheader of the current block associated with this state and mathching the state_root with the root of the merkler proof, we add the BLS-Signature of the sync_committee which can be easily verified by the client.
+// To verify the block root of a historical block, the **Colibri.stateless** client uses the **HistoricalSummaries** stored in the current BeaconState.  
+// This is a chained Merkle proof that connects the target block root to the verified state root of the current BeaconBlock:
+//
+// 1. **Block Root Inclusion:**  
+//    Start with the target `block_root` to verify.  
+//    Combine it with all other 8192 block roots from the same period and generate a Merkle proof proving inclusion within that period’s block root list.
+//
+// 2. **Historical Summary Proof:**  
+//    Using the current BeaconState, locate the corresponding **HistoricalSummary**, which holds the summarized root (`summary_root`) of that 8192-block list.  
+//    Extend the Merkle proof to show inclusion of this summary in the **historical_summaries** tree.
+//
+// 3. **State Root Proof:**  
+//    Continue the Merkle proof from the `historical_summaries` tree up to the `state_root` of the BeaconState.  
+//    This step links the historical proof chain to the current verified state.
+//
+// 4. **Consensus Verification:**  
+//    Finally, use the BeaconBlockHeader associated with the current state.  
+//    Match the derived `state_root` with the one referenced in the block header.  
+//    Then verify the **BLS signature** of the Sync Committee corresponding to that block header.  
+//    This signature confirms the authenticity of the BeaconBlock and thus of the complete historical proof chain.
 //
 // **Building the historic proof**
 //
-// In order to build a historic proof, we need data, which can not be provided directly by the standard beacon api. At the time of writing, only lodestar offers an endpoint providing the merkle proof and the the full list of historical summaries at [/eth/v1/lodestar/states/{state_id}/historical_summaries](https://github.com/ChainSafe/lodestar/blob/d8bc6b137888ca1114f7db4d5af9afb04fe00d85/packages/api/src/beacon/routes/lodestar.ts#L418).
+// In order to build a historic proof, we need data, which can not be provided directly by the standard beacon api. At the time of writing, only lodestar offers an endpoint providing the merkle proof and the full list of historical summaries at [/eth/v1/lodestar/states/{state_id}/historical_summaries](https://github.com/ChainSafe/lodestar/blob/d8bc6b137888ca1114f7db4d5af9afb04fe00d85/packages/api/src/beacon/routes/lodestar.ts#L418).
+//
 // For the blockroots itself, of course you get each single blockroot for all 8192 blocks of the period so you can build the merkle proof with a lot of requests to the header-endpoint, but this would take very long,
 // so fetching them all and caching all blockroots allows to build them fast and efficient. Those blockroots are then stored in the chain_store under `data/{chain_id}/{period}/blocks.ssz`. When starting the prover with the -d option, it will use the fetched data.
 
