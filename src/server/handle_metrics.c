@@ -428,7 +428,7 @@ static void c4_write_prometheus_bucket_metrics(buffer_t*         data,
 }
 
 // Helper function to extract clean server name from URL
-static const char* extract_server_name(const char* url) {
+const char* c4_extract_server_name(const char* url) {
   if (!url) return "unknown";
 
   // Remove http:// or https:// prefix
@@ -462,7 +462,7 @@ static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t typ
 
   for (size_t i = 0; i < servers->count; i++) {
     server_health_t* health      = &servers->health_stats[i];
-    const char*      server_name = extract_server_name(servers->urls[i]);
+    const char*      server_name = c4_extract_server_name(servers->urls[i]);
 
     // Calculate derived metrics
     double success_rate      = health->total_requests > 0 ? (double) health->successful_requests / health->total_requests : 0.0;

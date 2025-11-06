@@ -311,7 +311,7 @@ bool           c4_get_from_store(const char* path, void* uptr, handle_stored_dat
 bool           c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
-
+const char*    c4_extract_server_name(const char* url);
 // Load balancing functions
 int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type);
 int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method, uint64_t requested_block, bool has_block);
