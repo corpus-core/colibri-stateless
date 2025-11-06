@@ -65,11 +65,10 @@ c4_status_t c4_op_proof_receipt(prover_ctx_t* ctx) {
   ssz_ob_t    receipt_proof  = {0};
   buffer_t    buf            = stack_buffer(block_hash);
   c4_status_t status         = C4_SUCCESS;
-  node_t*     receipt_tree   = NULL; // the (hopefully) cached receipt tree
 
   CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
 
-  TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+  TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data)); // TODO get thos from tx cache if available
 
   ssz_builder_t block_proof  = {0};
   uint32_t      tx_index     = json_get_uint32(tx_data, "transactionIndex");
@@ -77,18 +76,10 @@ c4_status_t c4_op_proof_receipt(prover_ctx_t* ctx) {
   json_get_bytes(tx_data, "blockHash", &buf);
 
   TRY_ADD_ASYNC(status, c4_op_create_block_proof(ctx, block_number, &block_proof));
-#ifdef PROVER_CACHE
-  if (status == C4_SUCCESS) {
-    bytes32_t cachekey;
-    c4_eth_receipt_cachekey(cachekey, block_hash);
-    receipt_tree = (node_t*) c4_prover_cache_get(ctx, cachekey);
-  }
-#endif
-  if (!receipt_tree)
-    TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
+  TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
   TRY_ASYNC_CATCH(status, ssz_builder_free(&block_proof));
 
-  TRY_ASYNC_CATCH(c4_eth_get_receipt_proof(ctx, receipt_tree, block_hash, block_receipts, tx_index, &receipt, &receipt_proof),
+  TRY_ASYNC_CATCH(c4_eth_get_receipt_proof(ctx, block_hash, block_receipts, tx_index, &receipt, &receipt_proof),
                   ssz_builder_free(&block_proof));
 
   TRY_ASYNC_FINAL(

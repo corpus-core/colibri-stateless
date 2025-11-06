@@ -27,14 +27,13 @@
 #include "beacon.h"
 #include "eth_prover.h"
 #include "historic_proof.h"
-#include "patricia.h"
 #include "ssz.h"
 #define NULL_SSZ_BUILDER      (ssz_builder_t){0}
 #define FROM_JSON(data, type) ssz_builder_from(ssz_from_json(data, eth_ssz_verification_type(type), &ctx->state))
 
 bytes_t       eth_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_builder_t proof, ssz_builder_t sync_data);
 ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number, beacon_block_t* block, blockroot_proof_t* historic_proof);
-c4_status_t   c4_eth_get_receipt_proof(prover_ctx_t* ctx, node_t* receipt_tree, bytes32_t block_hash, json_t block_receipts, uint32_t tx_index, json_t* receipt, ssz_ob_t* receipt_proof);
+c4_status_t   c4_eth_get_receipt_proof(prover_ctx_t* ctx, bytes32_t block_hash, json_t block_receipts, uint32_t tx_index, json_t* receipt, ssz_ob_t* receipt_proof);
 c4_status_t   c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner);
 
 #ifdef PROVER_CACHE
