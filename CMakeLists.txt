@@ -119,22 +119,6 @@ if (HTTP_SERVER)
     if (PROVER_CACHE)
         add_definitions(-DC4_PROVER_USE_UV_TIME)
     endif()
-
-    # Check libcurl version for advanced keep-alive features and warn if missing
-    if(CURL)
-        find_package(CURL REQUIRED)
-        if(CURL_FOUND)
-            if(DEFINED CURL_VERSION_STRING)
-                message(STATUS "libcurl version: ${CURL_VERSION_STRING}")
-                if(CURL_VERSION_STRING VERSION_LESS "7.62.0")
-                    message(WARNING "libcurl < 7.62.0: CURLOPT_UPKEEP_INTERVAL_MS nicht verfügbar; Keep-Alive-Upkeep wird deaktiviert.")
-                endif()
-                if(CURL_VERSION_STRING VERSION_LESS "7.80.0")
-                    message(WARNING "libcurl < 7.80.0: CURLOPT_MAXAGE_CONN nicht verfügbar; Conn-MaxAge wird deaktiviert.")
-                endif()
-            endif()
-        endif()
-    endif()
 endif()
 
 

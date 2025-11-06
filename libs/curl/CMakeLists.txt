@@ -22,6 +22,19 @@
 # Finde die libcurl-Bibliothek
 find_package(CURL REQUIRED)
 
+# Warnungen zur libcurl-Version nur, wenn der HTTP-Server gebaut wird
+if(HTTP_SERVER)
+  if(CURL_FOUND AND DEFINED CURL_VERSION_STRING)
+    message(STATUS "libcurl version: ${CURL_VERSION_STRING}")
+    if(CURL_VERSION_STRING VERSION_LESS "7.62.0")
+      message(WARNING "libcurl < 7.62.0: CURLOPT_UPKEEP_INTERVAL_MS nicht verfügbar; Keep-Alive-Upkeep wird deaktiviert.")
+    endif()
+    if(CURL_VERSION_STRING VERSION_LESS "7.80.0")
+      message(WARNING "libcurl < 7.80.0: CURLOPT_MAXAGE_CONN nicht verfügbar; Conn-MaxAge wird deaktiviert.")
+    endif()
+  endif()
+endif()
+
 add_library(curl_fetch STATIC 
   http.c
 )
