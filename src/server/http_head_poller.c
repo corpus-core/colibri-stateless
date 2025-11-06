@@ -1,3 +1,4 @@
+#include "chain_props.h"
 #include "server.h"
 #include "util/json.h"
 #include "util/logger.h"
@@ -29,13 +30,13 @@ typedef struct head_poll_ctx_t {
   struct head_poll_ctx_t* next;
 } head_poll_ctx_t;
 
-static uv_timer_t     g_head_timer;      // scheduling timer for submitting requests
-static uv_timer_t     g_head_curl_timer; // curl timeout driver
-static bool           g_head_timer_initialized      = false;
-static bool           g_head_curl_timer_initialized = false;
-static server_list_t*   g_head_servers = NULL;
-static CURLM*           g_head_multi   = NULL;
-static head_poll_ctx_t* g_head_polls   = NULL; // linked list of active poll handles
+static uv_timer_t       g_head_timer;      // scheduling timer for submitting requests
+static uv_timer_t       g_head_curl_timer; // curl timeout driver
+static bool             g_head_timer_initialized      = false;
+static bool             g_head_curl_timer_initialized = false;
+static server_list_t*   g_head_servers                = NULL;
+static CURLM*           g_head_multi                  = NULL;
+static head_poll_ctx_t* g_head_polls                  = NULL; // linked list of active poll handles
 
 static void c4_head_handle_curl_events();
 
@@ -109,7 +110,10 @@ static int c4_head_socket_callback(CURL* easy, curl_socket_t s, int what, void* 
       // Remove from list
       head_poll_ctx_t** p = &g_head_polls;
       while (*p) {
-        if (*p == ctx) { *p = ctx->next; break; }
+        if (*p == ctx) {
+          *p = ctx->next;
+          break;
+        }
         p = &(*p)->next;
       }
     }
@@ -122,7 +126,7 @@ static int c4_head_socket_callback(CURL* easy, curl_socket_t s, int what, void* 
     ctx->poll_handle.data = ctx;
     curl_multi_assign(g_head_multi, s, ctx);
     // Track handle
-    ctx->next   = g_head_polls;
+    ctx->next    = g_head_polls;
     g_head_polls = ctx;
   }
   int events = 0;
@@ -238,7 +242,19 @@ bool c4_start_rpc_head_poller(server_list_t* servers) {
     uv_timer_init(uv_default_loop(), &g_head_timer);
     g_head_timer_initialized = true;
   }
-  uint64_t interval = (uint64_t) (http_server.rpc_head_poll_interval_ms > 0 ? http_server.rpc_head_poll_interval_ms : 6000);
+  // Auto-default: if no interval configured, use chain block_time; fallback to 12000ms
+  uint64_t interval = 0;
+  if (http_server.rpc_head_poll_interval_ms > 0) {
+    interval = (uint64_t) http_server.rpc_head_poll_interval_ms;
+  }
+  else {
+    chain_properties_t props         = (chain_properties_t) {0};
+    uint64_t           block_time_ms = 0;
+    if (c4_chains_get_props(http_server.chain_id, &props)) {
+      block_time_ms = props.block_time;
+    }
+    interval = (block_time_ms > 0) ? block_time_ms : 12000;
+  }
   uv_timer_start(&g_head_timer, c4_head_poll_cb, interval, interval);
   fprintf(stderr, ":: RPC head polling started (interval %llu ms)\n", (unsigned long long) interval);
   return true;

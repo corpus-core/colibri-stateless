@@ -519,8 +519,9 @@ static void config() {
   http_server.method_stats_half_life_sec = 60;
   http_server.block_availability_window  = 512;
   http_server.block_availability_ttl_sec = 300;
-  http_server.rpc_head_poll_interval_ms  = 6000;
-  http_server.rpc_head_poll_enabled      = 1;
+  // 0 = auto (use chain block_time as default)
+  http_server.rpc_head_poll_interval_ms = 0;
+  http_server.rpc_head_poll_enabled     = 1;
 
   // cURL pool defaults
   http_server.curl.http2_enabled         = 1;
