@@ -442,7 +442,7 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
 
 // Select best server for a specific RPC method, excluding servers that don't support it
 // Estimate whether a server likely has the requested block; returns factor [0..1]
-static double c4_block_factor_for(server_list_t* servers, int idx, uint64_t requested_block, bool has_block) {
+static double c4_block_factor_for(server_list_t* servers, int idx, uint64_t requested_block, bool has_block, const char* method) {
   if (!has_block || !servers || idx < 0 || idx >= (int) servers->count) return 1.0;
   server_health_t* h = &servers->health_stats[idx];
   if (h->latest_block == 0 || h->head_last_seen_ms == 0) return 1.0;
@@ -456,6 +456,10 @@ static double c4_block_factor_for(server_list_t* servers, int idx, uint64_t requ
   uint64_t predicted_head = h->latest_block + (elapsed_ms / block_time_ms);
   if (requested_block <= predicted_head) return 1.0; // older blocks very likely available
   uint64_t delta = requested_block - predicted_head;
+  // Methods that require the exact requested block: be strict
+  if (method && (strcmp(method, "eth_getProof") == 0 || strcmp(method, "debug_traceCall") == 0 || strcmp(method, "eth_call") == 0)) {
+    return 0.0; // exclude nodes that are behind to avoid immediate failure
+  }
   if (delta == 1) return 0.5; // soft penalty when just one ahead
   if (delta == 2) return 0.2; // stronger penalty
   return 0.0;                 // treat as effectively unavailable
@@ -488,27 +492,27 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
   double total_weight = 0.0;
   for (size_t i = 0; i < servers->count; i++) {
     if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && c4_matches_client_type(servers, preferred_client_type, i))
-      total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
+      total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block, method);
   }
 
   if (total_weight <= 0.0 && preferred_client_type != 0) {
     for (size_t i = 0; i < servers->count; i++) {
       if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy)
-        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
+        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block, method);
     }
   }
 
   if (total_weight <= 0.0) {
     for (size_t i = 0; i < servers->count; i++) {
       if (!(method_exclude_mask & (1 << i)) && (preferred_client_type == 0 || c4_matches_client_type(servers, preferred_client_type, i)))
-        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
+        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block, method);
     }
   }
 
   if (total_weight <= 0.0) {
     for (size_t i = 0; i < servers->count; i++) {
       if (!(method_exclude_mask & (1 << i))) {
-        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
+        total_weight += servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block, method);
       }
     }
   }
@@ -529,7 +533,7 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
 
   for (size_t i = 0; i < servers->count; i++) {
     if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && c4_matches_client_type(servers, preferred_client_type, i)) {
-      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
+      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block, method);
       current_weight += w;
       if (current_weight >= random_value) return (int) i;
     }
@@ -538,7 +542,7 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
   if (preferred_client_type != 0) {
     for (size_t i = 0; i < servers->count; i++) {
       if (!(method_exclude_mask & (1 << i)) && servers->health_stats[i].is_healthy && !c4_matches_client_type(servers, preferred_client_type, i)) {
-        double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
+        double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block, method);
         current_weight += w;
         if (current_weight >= random_value) return (int) i;
       }
@@ -548,7 +552,7 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
   for (size_t i = 0; i < servers->count; i++) {
     if (!(method_exclude_mask & (1 << i)) && !servers->health_stats[i].is_healthy &&
         (preferred_client_type == 0 || c4_matches_client_type(servers, preferred_client_type, i))) {
-      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
+      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block, method);
       current_weight += w;
       if (current_weight >= random_value) return (int) i;
     }
@@ -556,7 +560,7 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
 
   for (size_t i = 0; i < servers->count; i++) {
     if (!(method_exclude_mask & (1 << i))) {
-      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block);
+      double w = servers->health_stats[i].weight * c4_method_factor_for(servers, (int) i, method) * c4_block_factor_for(servers, (int) i, requested_block, has_block, method);
       current_weight += w;
       if (current_weight >= random_value) {
         return (int) i;

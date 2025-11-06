@@ -20,6 +20,9 @@ bindings/kotlin/*.log
 /build_*
 /build-*
 .data
+*.log
+*.exitcode
+sync_1*
 
 # Generated config files
 bindings/emscripten/test/test_config.js
