@@ -456,7 +456,12 @@ static void handle_curl_events() {
     bytes_t response = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
     if (response_type == C4_RESPONSE_SUCCESS && response.data) {
-      fprintf(stderr, "   [curl ] %s %s -> OK %d bytes, %l ms from %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, response_time, r->url ? r->url : r->req->url);
+      fprintf(stderr, "   [curl ] %s %s -> OK %d bytes, %d ms from %s\n",
+              r->req->url ? r->req->url : "",
+              r->req->payload.data ? (char*) r->req->payload.data : "",
+              r->buffer.data.len,
+              (int) response_time,
+              r->url ? r->url : r->req->url);
       r->req->response = response; // set the response
       cache_response(r);           // and write to cache
 
