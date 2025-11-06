@@ -11,8 +11,8 @@
 
 // Use the REAL header files from the C library (correct ABI)
 #include "../../../../src/util/bytes.h"
+#include "../../../../src/util/logger.h"
 #include "../../../../src/util/plugin.h"
-#include "logger.h"
 
 // Function pointer types for Swift callbacks
 typedef void* (*swift_storage_get_fn)(const char* key, uint32_t* out_len);

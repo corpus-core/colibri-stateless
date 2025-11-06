@@ -136,7 +136,6 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   buffer_t  block_buf        = stack_buffer(block_buffer);
   uint64_t  block_number_val = 0;
   bytes32_t tx_hash          = {0};
-  node_t*   receipt_tree     = NULL; // the (hopefully) cached receipt tree
 
   hex_to_bytes(txhash.start + 1, txhash.len - 2, bytes(tx_hash, 32));
   if (c4_eth_tx_cache_get(tx_hash, &block_number_val, &tx_index))
@@ -151,7 +150,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   }
 
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
-  TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts)); // TODO skip this request if we we have it in the cache.
+  TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
   TRY_ASYNC(status);
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &block_proof, &block));
