@@ -111,7 +111,7 @@ const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key) {
 
   // if we are running in the worker-thread, we don't access the global cache anymore
   if (ctx->flags & C4_PROVER_FLAG_UV_WORKER_REQUIRED) {
-    log_warn("[CACHEMISS] trying to access the global cache with cachekey %b, but we are running in the worker-thread. Make sure you tried to access in queue thread first!", bytes(key, 32));
+    //    log_warn("[CACHEMISS] trying to access the global cache with cachekey %b, but we are running in the worker-thread. Make sure you tried to access in queue thread first!", bytes(key, 32));
     return NULL;
   }
 
