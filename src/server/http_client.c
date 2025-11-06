@@ -61,7 +61,7 @@ typedef struct pending_request {
 
 static pending_request_t* pending_requests = NULL;
 static CURLM*             multi_handle;
-static CURLSH*            g_curl_share = NULL;
+static CURLSH*            g_curl_share    = NULL;
 static mc_t*              memcache_client = NULL;
 const char*               CURL_METHODS[]  = {"GET", "POST", "PUT", "DELETE"};
 
