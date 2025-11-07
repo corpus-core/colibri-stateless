@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
+#include "logger.h"
 #include "server.h"
 #include "state.h"
 #include "util/json.h"
-#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -319,7 +319,7 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
       if (has_null_result) {
         bool null_retry =
             req_is_method(req, "eth_getBlockReceipts") ||
-            req_is_method(req, "eth_getBlockByHash")   ||
+            req_is_method(req, "eth_getBlockByHash") ||
             req_is_method(req, "eth_getBlockByNumber");
         if (null_retry) {
           if (!req->error) req->error = strdup("JSON-RPC result is null");

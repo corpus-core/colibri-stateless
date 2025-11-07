@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
-#include "server.h"
 #include "logger.h"
+#include "server.h"
 #include <fcntl.h>  // für O_RDONLY
 #include <stdlib.h> // für malloc, free, realloc
 #include <string.h> // für memcpy

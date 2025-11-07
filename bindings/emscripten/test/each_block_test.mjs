@@ -38,6 +38,23 @@ async function test_block(block, chain, c4, state) {
 
     const start = performance.now();
     state.start = start;
+
+    if (chain == 'mainnet') {
+        c4.request({
+            method: 'eth_call', params: [{
+                to: "0xdac17f958d2ee523a2206206994597c13d831ec7",
+                data: "0x70a08231000000000000000000000000Eff6cb8b614999d130E537751Ee99724D01aA167"
+            }, 'latest']
+        }).then(result => {
+            console.log(`     ## ${chain} :: eth_call:  ${Math.round(performance.now() - start)} ms`);
+        }, error => {
+            console.log(`     ## ${chain} :: eth_call error:`, error);
+        });
+
+    }
+
+
+
     let handled = 0
     for (let tx of block.transactions) {
         if (state.start != start) break
