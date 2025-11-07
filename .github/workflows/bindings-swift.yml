@@ -79,26 +79,56 @@ jobs:
             
             echo "" >> $GITHUB_STEP_SUMMARY
             
-            # Prüfe ob alle erwarteten iOS Platformen vorhanden sind
-            echo "🎯 Checking for required iOS platforms..."
+            # Prüfe iOS-Abdeckung über Info.plist (robust gegen kombinierte Slices wie ios-arm64_x86_64-simulator)
+            echo "🎯 Checking iOS platform coverage via Info.plist..."
             echo "### 🎯 iOS Platform Coverage" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            
-            required_platforms=("ios-arm64" "ios-x86_64-simulator")
-            platforms_found=0
-            for platform in "${required_platforms[@]}"; do
-              if [[ -d "$XCFRAMEWORK_PATH/$platform" ]]; then
-                echo "  ✅ $platform: Found"
-                echo "- ✅ **$platform**: Available" >> $GITHUB_STEP_SUMMARY
-                ((platforms_found++))
-              else
-                echo "  ❌ $platform: Missing"
-                echo "- ❌ **$platform**: Missing" >> $GITHUB_STEP_SUMMARY
-              fi
-            done
-            
+
+            INFO_PLIST="$XCFRAMEWORK_PATH/Info.plist"
+            device_arm64=0
+            sim_arm64=0
+            sim_x86_64=0
+            if [[ -f "$INFO_PLIST" ]]; then
+              count=$(/usr/libexec/PlistBuddy -c 'Print :AvailableLibraries' "$INFO_PLIST" 2>/dev/null | grep -c "Dict" || echo 0)
+              idx=0
+              while [[ $idx -lt ${count:-0} ]]; do
+                platform=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:$idx:SupportedPlatform" "$INFO_PLIST" 2>/dev/null || echo "")
+                variant=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:$idx:SupportedPlatformVariant" "$INFO_PLIST" 2>/dev/null || echo "")
+                archs=$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:$idx:SupportedArchitectures" "$INFO_PLIST" 2>/dev/null || echo "")
+                if [[ "$platform" == "ios" && -z "$variant" ]]; then
+                  echo "  📱 Device slice architectures: $archs"
+                  if echo "$archs" | grep -q "arm64"; then device_arm64=1; fi
+                fi
+                if [[ "$platform" == "ios" && "$variant" == "simulator" ]]; then
+                  echo "  🧪 Simulator slice architectures: $archs"
+                  if echo "$archs" | grep -q "arm64"; then sim_arm64=1; fi
+                  if echo "$archs" | grep -q "x86_64"; then sim_x86_64=1; fi
+                fi
+                idx=$((idx+1))
+              done
+            fi
+
+            # Bericht
+            if [[ $device_arm64 -eq 1 ]]; then
+              echo "- ✅ **ios-arm64 (device)**: Available" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ❌ **ios-arm64 (device)**: Missing" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ $sim_arm64 -eq 1 ]]; then
+              echo "- ✅ **ios-arm64-simulator**: Available" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ❌ **ios-arm64-simulator**: Missing" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [[ $sim_x86_64 -eq 1 ]]; then
+              echo "- ✅ **ios-x86_64-simulator**: Available" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ❌ **ios-x86_64-simulator**: Missing" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            platforms_found=$((device_arm64 + sim_arm64 + sim_x86_64))
+            total_required=3
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**iOS Platform Coverage**: $platforms_found/2 platforms built successfully" >> $GITHUB_STEP_SUMMARY
+            echo "**iOS Platform Coverage**: $platforms_found/$total_required platforms built successfully" >> $GITHUB_STEP_SUMMARY
             
             # Hinweis zu macOS
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -184,33 +214,42 @@ jobs:
           # Capture test output
           if test_output=$(swift test 2>&1); then
             echo "✅ Swift tests passed"
-            echo "- ✅ **Swift Tests**: All tests passed" >> $GITHUB_STEP_SUMMARY
             
-            # Extract test summary
-            test_count=$(echo "$test_output" | grep -o "Executed [0-9]* tests" | tail -1 || echo "Tests executed")
+            # Zeige Test-Zusammenfassung in Console
+            echo "$test_output" | tail -20
+            
+            # Extrahiere wichtige Metriken
+            test_count=$(echo "$test_output" | grep -o "Test Suite.*passed" | tail -1 || echo "")
+            passed_count=$(echo "$test_output" | grep -o "[0-9]* passed" | tail -1 || echo "")
+            
+            # Schreibe kompakte Summary
+            echo "- ✅ **Swift Tests**: All tests passed" >> $GITHUB_STEP_SUMMARY || true
             if [[ -n "$test_count" ]]; then
-              echo "- 📊 **Test Summary**: $test_count" >> $GITHUB_STEP_SUMMARY
+              echo "- 📊 **Test Summary**: $test_count" >> $GITHUB_STEP_SUMMARY || true
+            fi
+            if [[ -n "$passed_count" ]]; then
+              echo "- ✅ **Tests Passed**: $passed_count" >> $GITHUB_STEP_SUMMARY || true
             fi
             
-            # Extract performance info if available
-            if echo "$test_output" | grep -q "getMethodSupport"; then
-              echo "- 🚀 **Native C Integration**: Working (getMethodSupport tested)" >> $GITHUB_STEP_SUMMARY
-            fi
+            # Zähle durchgeführte Integration-Tests
+            integration_tests=$(echo "$test_output" | grep -c "testIntegration_" || echo "0")
+            echo "- 🧪 **Integration Tests**: $integration_tests test functions executed" >> $GITHUB_STEP_SUMMARY || true
             
-            # Extract key test results
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "#### Test Details" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "$test_output" | grep -E "(✅|📊|🧪)" | head -5 >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️  Swift tests had issues: $test_output"
-            echo "- ⚠️ **Swift Tests**: Had issues (may require server setup)" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "#### Test Output" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "$test_output" | tail -10 >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            EXIT_CODE=$?
+            echo "❌ Swift tests failed (exit code: $EXIT_CODE)"
+            
+            # Zeige Fehler in Console
+            echo "$test_output" | tail -50
+            
+            # Schreibe Fehler ins Summary (begrenzt)
+            echo "- ❌ **Swift Tests**: Tests failed (exit code $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY || true
+            echo "" >> $GITHUB_STEP_SUMMARY || true
+            echo "#### Test Output (Last 30 lines)" >> $GITHUB_STEP_SUMMARY || true
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY || true
+            echo "$test_output" | tail -30 >> $GITHUB_STEP_SUMMARY || true
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY || true
+            exit 1
           fi
           
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -273,17 +312,21 @@ jobs:
           export SIMULATOR_SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
           echo "📋 iOS Simulator SDK: $SIMULATOR_SDK"
           
+          # Verwende konsistent x86_64-Simulator (XCFramework enthält nur x86_64-Simulator)
+          IOS_TRIPLE="x86_64-apple-ios13.0-simulator"
+          echo "📋 Using iOS triple: $IOS_TRIPLE"
+          
           # Build for iOS Simulator using explicit SDK and triple (forces correct platform)
           echo "📋 Explicit iOS Simulator SDK and triple to avoid macOS host platform..."
           if swift build --verbose \
             --sdk $SIMULATOR_SDK \
-            --triple x86_64-apple-ios13.0-simulator 2>&1; then
+            --triple $IOS_TRIPLE 2>&1; then
             echo "✅ Test App builds successfully"
             
             echo "🧪 Running Integration Tests on iOS Simulator..."
             if test_output=$(swift test --verbose \
               --sdk $SIMULATOR_SDK \
-              --triple x86_64-apple-ios13.0-simulator 2>&1); then
+              --triple $IOS_TRIPLE 2>&1); then
               echo "✅ Integration Tests passed"
               echo "- ✅ **iOS Integration**: All tests passed" >> $GITHUB_STEP_SUMMARY
             else
@@ -332,7 +375,7 @@ jobs:
             echo "#### Build Error (Verbose Output)" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             # Get full verbose build error with explicit SDK and triple
-            swift build --verbose --sdk $SIMULATOR_SDK --triple x86_64-apple-ios13.0-simulator 2>&1 | tail -50 >> $GITHUB_STEP_SUMMARY
+            swift build --verbose --sdk $SIMULATOR_SDK --triple $IOS_TRIPLE 2>&1 | tail -50 >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             
             echo "" >> $GITHUB_STEP_SUMMARY

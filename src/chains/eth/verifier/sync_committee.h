@@ -41,7 +41,7 @@ extern "C" {
 // Light client update format constants
 #define SSZ_OFFSET_SIZE        4
 #define SSZ_LENGTH_SIZE        8
-#define MIN_UPDATE_SIZE        12
+#define UPDATE_PREFIX_SIZE     (SSZ_OFFSET_SIZE + SSZ_LENGTH_SIZE)
 #define LIGHTHOUSE_HEADER_SIZE 4
 #define LIGHTHOUSE_OFFSET_SIZE 16
 
@@ -127,6 +127,17 @@ bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates);
 bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_client_updates, bool (*process_update)(verify_ctx_t*, ssz_ob_t*));
 
 /**
+ * Handle and process raw light client bootstrap data from Beacon API.
+ * Validates and stores sync committees for the bootstrap data.
+ *
+ * @param ctx Verification context
+ * @param bootstrap_data Raw SSZ-encoded light client bootstrap data
+ * @param trusted_checkpoint Trusted block root (32 bytes)
+ * @return C4_SUCCESS on success, C4_ERROR on failure, C4_PENDING if waiting for network requests
+ */
+
+c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes32_t trusted_checkpoint);
+/**
  * Store a sync committee period in persistent storage.
  * Also stores SHA256(previous period's keys) as previous_pubkeys_hash for edge-case handling.
  * Automatically manages storage limits by removing old periods when necessary.
@@ -159,14 +170,6 @@ c4_chain_state_t c4_get_chain_state(chain_id_t chain_id);
 void c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint);
 
 /**
- * Get the oldest sync committee period stored for a chain.
- *
- * @param state Serialized chain state data
- * @return Oldest period number, or 0 if no periods stored
- */
-uint32_t c4_eth_get_oldest_period(bytes_t state);
-
-/**
  * Detect the fork (Deneb/Electra) for a light client update based on slot.
  * Reads the slot from the SSZ-encoded data and determines the fork.
  *
@@ -185,6 +188,10 @@ fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data);
  * @return Generalized index for current sync committee merkle proof
  */
 uint64_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
+
+c4_chain_state_t c4_state_deserialize(bytes_t data);
+
+bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root);
 
 #ifdef __cplusplus
 }

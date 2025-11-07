@@ -1,23 +1,17 @@
 name: Build Installers
 
 on:
-  push:
-    branches:
-      - 'main'
-      - 'dev'
-      - 'installer'
-    tags:
-      - 'v*.*.*'
-  pull_request:
-    branches:
-      - 'main'
-      - 'dev'
   workflow_dispatch:
     inputs:
       version:
         description: 'Version to build'
         required: true
         default: '1.0.0'
+  workflow_call:  # Called by main-ci.yml workflow
+    secrets:
+      PAT_TOKEN:
+        required: false
+        description: 'Personal Access Token for Homebrew repository updates'
 
 jobs:
   determine-version:
@@ -117,7 +111,7 @@ jobs:
 
   build-macos:
     name: Build macOS Package
-    runs-on: macos-13
+    runs-on: macos-latest
     needs: determine-version
     
     steps:
@@ -216,111 +210,9 @@ jobs:
         name: windows-installer
         path: installer\windows\colibri-server-*.msi
 
-  create-release:
-    name: Create Release
-    needs: [build-linux-deb, build-linux-rpm, build-macos, build-windows]
-    runs-on: ubuntu-22.04
-    if: startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: write
-    
-    steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-    
-    - name: List downloaded artifacts
-      run: |
-        echo "Downloaded artifacts:"
-        ls -la
-        find . -type f -name "*.deb" -o -name "*.rpm" -o -name "*.pkg" -o -name "*.msi"
-    
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          debian-package/*
-          rpm-package/*
-          macos-package/*
-          windows-installer/*
-        draft: false
-        prerelease: false
-        body: |
-          ## Colibri Server Release ${{ github.ref_name }}
-          
-          ### Installation
-          
-          **Linux (Debian/Ubuntu):**
-          ```bash
-          sudo dpkg -i colibri-server_*.deb
-          sudo apt-get install -f
-          ```
-          
-          **Linux (RPM):**
-          ```bash
-          sudo rpm -ivh colibri-server-*.rpm
-          ```
-          
-          **macOS (PKG):**
-          ```bash
-          sudo installer -pkg colibri-server-*.pkg -target /
-          ```
-          
-          **macOS (Homebrew):**
-          ```bash
-          brew tap corpus-core/colibri
-          brew install colibri-server
-          brew services start colibri-server
-          ```
-          
-          **Windows:**
-          Double-click the MSI file or run:
-          ```powershell
-          msiexec /i colibri-server-*.msi
-          ```
-          
-          ### Uninstallation
-          
-          **macOS (PKG):**
-          ```bash
-          # Download uninstall script
-          curl -O https://raw.githubusercontent.com/corpus-core/colibri-stateless/main/installer/macos/uninstall.sh
-          chmod +x uninstall.sh
-          sudo ./uninstall.sh
-          ```
-          
-          Or see [UNINSTALL.md](https://github.com/corpus-core/colibri-stateless/blob/main/installer/macos/UNINSTALL.md) for manual uninstallation.
-          
-          **macOS (Homebrew):**
-          ```bash
-          brew services stop colibri-server
-          brew uninstall colibri-server
-          brew untap corpus-core/colibri
-          ```
-          
-          **Linux:**
-          ```bash
-          # Debian/Ubuntu
-          sudo apt-get remove colibri-server
-          
-          # RPM
-          sudo rpm -e colibri-server
-          ```
-          
-          **Windows:**
-          Use "Add/Remove Programs" or:
-          ```powershell
-          msiexec /x colibri-server-*.msi
-          ```
-          
-          ### Documentation
-          
-          See [installer/README.md](https://github.com/corpus-core/colibri-stateless/blob/main/installer/README.md) for detailed installation and configuration instructions.
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   update-homebrew:
     name: Update Homebrew Formula
-    needs: create-release
+    needs: [build-linux-deb, build-linux-rpm, build-macos, build-windows]
     runs-on: ubuntu-22.04
     if: startsWith(github.ref, 'refs/tags/v')
     

@@ -23,8 +23,34 @@
 
 #include "logger.h"
 #include "bytes.h"
+#include "state.h"
 
 static log_level_t log_level = LOG_WARN;
+
+char* c4_req_info(data_request_type_t type, char* path, bytes_t payload) {
+  static uint8_t req_info_buf[1024];
+  buffer_t       buf = stack_buffer(req_info_buf);
+  if (type == C4_DATA_TYPE_INTERN)
+    bprintf(&buf, BRIGHT_GREEN(" %s "), path ? path : "");
+  else
+    bprintf(&buf, CYAN("(%s)" BRIGHT_GREEN(" %s")), type == C4_DATA_TYPE_BEACON_API ? "beacon" : "rpc", path ? path : "");
+  if (payload.len) {
+    json_t json   = json_parse((char*) payload.data);
+    json_t method = json_get(json, "method");
+    json_t params = json_get(json, "params");
+    json_t c4     = json_get(json, "c4");
+    if (method.type == JSON_TYPE_STRING && params.type == JSON_TYPE_ARRAY) {
+      params.start++;
+      params.len -= 2;
+      bprintf(&buf, BOLD("%j") GRAY(" (%j)"), method, params);
+      if (c4.type == JSON_TYPE_STRING && c4.len > 2)
+        bprintf(&buf, " c4: " YELLOW("%j"), c4);
+    }
+    else
+      bprintf(&buf, GRAY("%r"), payload);
+  }
+  return (char*) req_info_buf;
+}
 
 void c4_set_log_level(log_level_t level) {
   log_level = level;

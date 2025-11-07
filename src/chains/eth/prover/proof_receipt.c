@@ -32,6 +32,7 @@
 #include "prover.h"
 #include "rlp.h"
 #include "ssz.h"
+#include "tx_cache.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -42,6 +43,10 @@ static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, beacon_block_t* b
   buffer_t      tmp          = {0};
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_RECEIPT_PROOF);
   uint32_t      tx_index     = json_get_uint32(receipt, "transactionIndex");
+  ssz_builder_t sync_proof   = NULL_SSZ_BUILDER;
+
+  // get the sync_proof if needed
+  TRY_ASYNC(c4_get_syncdata_proof(ctx, &block_proof.sync, &sync_proof));
 
   // build the proof
   ssz_add_bytes(&eth_tx_proof, "transaction", ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index).bytes);
@@ -51,7 +56,7 @@ static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, beacon_block_t* b
   ssz_add_bytes(&eth_tx_proof, "receipt_proof", receipt_proof.bytes);
   ssz_add_bytes(&eth_tx_proof, "block_proof", tx_proof);
   ssz_add_builders(&eth_tx_proof, "header", c4_proof_add_header(block_data->header, body_root));
-  ssz_add_blockroot_proof(&eth_tx_proof, block_data, block_proof);
+  ssz_add_header_proof(&eth_tx_proof, block_data, block_proof);
 
   buffer_free(&tmp);
 
@@ -59,7 +64,7 @@ static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, beacon_block_t* b
       ctx->chain_id,
       FROM_JSON(receipt, ETH_SSZ_DATA_RECEIPT),
       eth_tx_proof,
-      NULL_SSZ_BUILDER);
+      sync_proof);
 
   return C4_SUCCESS;
 }
@@ -94,12 +99,13 @@ static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, 
 
 c4_status_t c4_eth_get_receipt_proof(prover_ctx_t* ctx, bytes32_t block_hash, json_t block_receipts, uint32_t tx_index, json_t* receipt, ssz_ob_t* receipt_proof) {
 
-// now we should have all data required to create the proof
+  // now we should have all data required to create the proof
 #ifdef PROVER_CACHE
   bytes32_t cachekey;
   c4_eth_receipt_cachekey(cachekey, block_hash);
   node_t* receipt_tree = (node_t*) c4_prover_cache_get(ctx, cachekey);
   bool    cache_hit    = receipt_tree != NULL;
+  if (!cache_hit) REQUEST_WORKER_THREAD(ctx);
   if (!cache_hit) REQUEST_WORKER_THREAD_CATCH(ctx, );
   *receipt_proof = create_receipts_proof(block_receipts, tx_index, receipt, &receipt_tree);
   if (!cache_hit) c4_prover_cache_set(ctx, cachekey, receipt_tree, 100000, 200000, (cache_free_cb) patricia_node_free);
@@ -119,20 +125,35 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   blockroot_proof_t block_proof    = {0};
   ssz_ob_t          receipt_proof  = {0};
   c4_status_t       status         = C4_SUCCESS;
+  uint32_t          tx_index       = 0;
+  json_t            block_number   = {0};
 
   CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
 
-  TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+#ifdef PROVER_CACHE
+  // check tx cache for the block number and tx index if we have it
+  uint8_t   block_buffer[32] = {0};
+  buffer_t  block_buf        = stack_buffer(block_buffer);
+  uint64_t  block_number_val = 0;
+  bytes32_t tx_hash          = {0};
 
-  uint32_t tx_index     = json_get_uint32(tx_data, "transactionIndex");
-  json_t   block_number = json_get(tx_data, "blockNumber");
+  hex_to_bytes(txhash.start + 1, txhash.len - 2, bytes(tx_hash, 32));
+  if (c4_eth_tx_cache_get(tx_hash, &block_number_val, &tx_index))
+    block_number = json_parse(bprintf(&block_buf, "\"0x%lx\"", block_number_val));
+#endif
+
+  // not found in cache, so we need to get it from the RPC
+  if (block_number.type == JSON_TYPE_INVALID) {
+    TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+    tx_index     = json_get_uint32(tx_data, "transactionIndex");
+    block_number = json_get(tx_data, "blockNumber");
+  }
 
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
   TRY_ASYNC(status);
 
-  TRY_ASYNC(c4_check_historic_proof(ctx, &block_proof, &block));
-
+  TRY_ASYNC(c4_check_blockroot_proof(ctx, &block_proof, &block));
   TRY_ASYNC_CATCH(c4_eth_get_receipt_proof(ctx, ssz_get(&(block.execution), "blockHash").bytes.data, block_receipts, tx_index, &receipt, &receipt_proof),
                   c4_free_block_proof(&block_proof));
 

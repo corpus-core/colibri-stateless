@@ -26,7 +26,18 @@ option(ETH_RECEIPT  "support eth receipt verification. eth_getTransactionReceipt
 option(ETH_LOGS  "support eth logs verification. eth_getLogs" ON)
 option(ETH_CALL  "support eth call verification. eth_call, eth_estimateGas" ON)
 option(ETH_UTIL  "support eth utils like eth_chainId or web3_sha3" ON)
+option(USE_CHECKPOINTZ "enable checkpoint fetching from checkpointz (beacon node) for bootstrap and weak subjectivity validation (requires HTTP access, saves ~2-3 KB if disabled). SECURITY WARNING: Disabling this removes (1) automatic bootstrap checkpoint fetching and (2) weak subjectivity period validation, requiring manual checkpoint configuration and increasing long-range attack risk. Only disable for embedded devices without HTTP access. See: https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf" ON)
 
+if(USE_CHECKPOINTZ)
+    add_definitions(-DUSE_CHECKPOINTZ)
+else()
+    message(WARNING "⚠️  Checkpointz disabled - requires manual checkpoint configuration!")
+    message(STATUS "    Bootstrap: Initial checkpoint must be provided in config")
+    message(STATUS "    WSP: No weak subjectivity validation (increases long-range attack risk)")
+    message(STATUS "    Saves ~2-3 KB by removing checkpoint fetching code")
+    message(STATUS "    Only recommended for embedded devices without HTTP access")
+    message(STATUS "    See: https://github.com/runtimeverification/beacon-chain-verification")
+endif()
 
 option(EVMONE "uses evmone to verify eth_calls" ON)
 option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas." OFF)
@@ -125,12 +136,16 @@ add_verifier(
   METHOD_TYPE c4_eth_get_method_type
 )
 
+# Register ETH chain properties provider
+add_chain_props(FUNC c4_eth_chain_props)
+
 add_prover(
   NAME eth_prover
   SOURCES 
     prover/eth_prover.c
     prover/proof_account.c
     prover/proof_transaction.c
+    prover/tx_cache.c
     prover/proof_logs.c
     prover/proof_call.c
     prover/beacon.c
@@ -149,8 +164,9 @@ add_server_handler(
   NAME eth_server_handler
   SOURCES 
     server/handler.c
-    server/beacon_watcher.c
+    server/head_watcher.c
     server/head_update.c
+    server/chain_props.c
     server/handle_lcu.c
     server/handle_headers.c
     server/client_detection.c

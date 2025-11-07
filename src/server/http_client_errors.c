@@ -6,7 +6,7 @@
 #include "server.h"
 #include "state.h"
 #include "util/json.h"
-#include "util/logger.h"
+#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +30,16 @@ static bool bytes_contains_string(bytes_t data, const char* needle) {
   }
   return false;
 #endif
+}
+
+// Quick helper: check if a JSON-RPC request is for a specific method without full parse
+static bool req_is_method(data_request_t* req, const char* method_name) {
+  if (!req || req->type != C4_DATA_TYPE_ETH_RPC || !req->payload.data || req->payload.len == 0 || !method_name) return false;
+  // Look for a compact pattern to avoid allocating: "method":"<name>"
+  char pattern[128];
+  int  n = snprintf(pattern, sizeof(pattern), "\"method\":\"%s\"", method_name);
+  if (n <= 0 || (size_t) n >= sizeof(pattern)) return false;
+  return bytes_contains_string(req->payload, pattern);
 }
 
 // Helper function to set JSON-RPC error message from error object
@@ -95,8 +105,8 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
       return C4_RESPONSE_ERROR_USER;
     }
 
-    case -32601: // Method not found -  we'll retry, because it measn it may not be supported in one node, but in the other
-      return C4_RESPONSE_ERROR_RETRY;
+    case -32601: // Method not found -> treat as method not supported for this server
+      return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
 
     case -32602: { // Invalid params - needs message analysis
       json_t message = json_get(error, "message");
@@ -109,6 +119,16 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
             bytes_contains_string(msg_bytes, "missing") ||
             bytes_contains_string(msg_bytes, "wrong")) {
           return C4_RESPONSE_ERROR_USER;
+        }
+        // eth_getProof specific: providers that don't serve historical proofs
+        if (req_is_method(req, "eth_getProof") && (bytes_contains_string(msg_bytes, "distance to target block exceeds maximum proof window") ||
+                                                   bytes_contains_string(msg_bytes, "proof window") ||
+                                                   bytes_contains_string(msg_bytes, "only latest state") ||
+                                                   bytes_contains_string(msg_bytes, "state not available") ||
+                                                   bytes_contains_string(msg_bytes, "state unavailable") ||
+                                                   bytes_contains_string(msg_bytes, "proofs are only available for latest"))) {
+          set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available for requested state");
+          return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
         }
       }
       // Other -32602 errors might be server incompatibility - retry
@@ -133,14 +153,28 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
             bytes_contains_string(msg_bytes, "tier limitation") ||
             bytes_contains_string(msg_bytes, "plan does not support") ||
             bytes_contains_string(msg_bytes, "method not supported") ||
-            bytes_contains_string(msg_bytes, "feature not enabled")) {
+            bytes_contains_string(msg_bytes, "feature not enabled") ||
+            bytes_contains_string(msg_bytes, "API key is not allowed to access method")) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available on current tier");
+          return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
+        }
+        // eth_getProof: historical state not served → treat as method-not-supported for this provider
+        if (req_is_method(req, "eth_getProof") && (bytes_contains_string(msg_bytes, "distance to target block exceeds maximum proof window") ||
+                                                   bytes_contains_string(msg_bytes, "proof window") ||
+                                                   bytes_contains_string(msg_bytes, "only latest state") ||
+                                                   bytes_contains_string(msg_bytes, "state not available") ||
+                                                   bytes_contains_string(msg_bytes, "state unavailable") ||
+                                                   bytes_contains_string(msg_bytes, "root hash mismatch") ||
+                                                   bytes_contains_string(msg_bytes, "witnessTrieRootHash") ||
+                                                   bytes_contains_string(msg_bytes, "expectedRootHash"))) {
+          set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available for requested state");
           return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
         }
         // Sync-related errors - retryable
         else if (bytes_contains_string(msg_bytes, "Header not found") ||
                  bytes_contains_string(msg_bytes, "Block not found") ||
-                 bytes_contains_string(msg_bytes, "not in sync")) {
+                 bytes_contains_string(msg_bytes, "not in sync") ||
+                 bytes_contains_string(msg_bytes, "block number is in the future")) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC sync error");
           return C4_RESPONSE_ERROR_RETRY;
         }
@@ -175,6 +209,10 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
       return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
 
     case -32005: // Limit exceeded
+      return C4_RESPONSE_ERROR_RETRY;
+
+    case -32029: // Too Many Requests (provider-specific JSON-RPC code)
+      set_jsonrpc_error_message(req, error, error_code, "JSON-RPC rate limited");
       return C4_RESPONSE_ERROR_RETRY;
 
     case -32009: // Trace requests limited
@@ -219,7 +257,7 @@ static c4_response_type_t classify_jsonrpc_error(json_t error, data_request_t* r
     }
     // Error object without code - treat as server error
     set_jsonrpc_simple_error_message(req, error, "JSON-RPC error without code");
-    fprintf(stderr, "   [jsonrpc] JSON-RPC error without code - retryable\n");
+    log_warn("   [jsonrpc] JSON-RPC error without code - retryable");
     return C4_RESPONSE_ERROR_RETRY;
   }
   else if (error.type == JSON_TYPE_STRING) {
@@ -233,7 +271,7 @@ static c4_response_type_t classify_jsonrpc_error(json_t error, data_request_t* r
       else
         req->error = strdup("JSON-RPC string error");
     }
-    fprintf(stderr, "   [jsonrpc] JSON-RPC string error - retryable\n");
+    log_warn("   [jsonrpc] JSON-RPC string error - retryable");
     return C4_RESPONSE_ERROR_RETRY;
   }
 
@@ -245,22 +283,27 @@ static c4_response_type_t classify_jsonrpc_error(json_t error, data_request_t* r
 static bool c4_is_beacon_api_sync_lag(long http_code, const char* url, bytes_t response_body) {
   if (http_code != 404 || !url) return false;
 
-  // Check if this is a beacon API endpoint
-  if (!(strstr(url, "/beacon/blocks/") || strstr(url, "/beacon/headers/") ||
-        strstr(url, "/historical_summaries/") || strstr(url, "/nimbus/") || strstr(url, "/lodestar/"))) {
-    return false;
-  }
+  // Check if this is a beacon API endpoint (blocks/headers/historical/clients) or light-client endpoints
+  bool is_beacon_path = (strstr(url, "/beacon/blocks/") || strstr(url, "/beacon/headers/") ||
+                         strstr(url, "/historical_summaries/") || strstr(url, "/nimbus/") || strstr(url, "/lodestar/") ||
+                         strstr(url, "/eth/v1/beacon/light_client/bootstrap/") ||
+                         strstr(url, "/eth/v1/beacon/light_client/updates/"));
+  if (!is_beacon_path) return false;
 
-  // Check if response indicates the block/header simply isn't available yet (sync lag)
   if (!response_body.data || response_body.len == 0) return false;
 
-  return (bytes_contains_string(response_body, "Block header/data has not been found") ||
-          bytes_contains_string(response_body, "Block not found") ||
-          bytes_contains_string(response_body, "Header not found") ||
-          bytes_contains_string(response_body, "block not found") ||
-          bytes_contains_string(response_body, "header not found") ||
-          bytes_contains_string(response_body, "unknown block") ||
-          bytes_contains_string(response_body, "unknown header"));
+  // Treat common not-available signals as sync/availability lag → retryable
+  return (
+      bytes_contains_string(response_body, "Block header/data has not been found") ||
+      bytes_contains_string(response_body, "Block not found") ||
+      bytes_contains_string(response_body, "Header not found") ||
+      bytes_contains_string(response_body, "block not found") ||
+      bytes_contains_string(response_body, "header not found") ||
+      bytes_contains_string(response_body, "unknown block") ||
+      bytes_contains_string(response_body, "unknown header") ||
+      // Light client bootstrap specific
+      bytes_contains_string(response_body, "bootstrap unavailable") ||
+      bytes_contains_string(response_body, "LC bootstrap unavailable"));
 }
 
 // Main function to classify response based on HTTP code and content
@@ -270,6 +313,20 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
   if (http_code >= 200 && http_code < 300) {
     // For JSON-RPC, we need to check for error field even with 200 status
     if (req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
+      // Treat result:null as retryable for certain methods where null indicates unavailability
+      // rather than a valid absence. This avoids false positives when a lagging node returns null.
+      bool has_null_result = bytes_contains_string(response_body, "\"result\":null");
+      if (has_null_result) {
+        bool null_retry =
+            req_is_method(req, "eth_getBlockReceipts") ||
+            req_is_method(req, "eth_getBlockByHash")   ||
+            req_is_method(req, "eth_getBlockByNumber");
+        if (null_retry) {
+          if (!req->error) req->error = strdup("JSON-RPC result is null");
+          log_warn("   [json ] Treating result=null as retryable for this method");
+          return C4_RESPONSE_ERROR_RETRY;
+        }
+      }
       // Quick check: only parse JSON if "error" appears in first 100 bytes
       // This avoids expensive JSON parsing for successful responses
       if (bytes_contains_string(bytes_slice(response_body, 0, response_body.len < 100 ? response_body.len : 100), "\"error\"")) {
@@ -285,11 +342,21 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
     return C4_RESPONSE_SUCCESS;
   }
   // Handle HTTP error codes
-  // All 5xx codes are server errors (retryable) and 4xx codes can be user errors
+  // All 5xx codes are server errors (retryable) and <400 are curl/transport considered retryable
   if (http_code >= 500 || http_code < 400) return C4_RESPONSE_ERROR_RETRY;
 
-  // Server configuration/infrastructure errors (retryable, not user errors)
-  if (http_code == 401 || http_code == 403 || http_code == 429) return C4_RESPONSE_ERROR_RETRY;
+  // Server configuration/infrastructure errors
+  // 401/429 remain retryable, but 403 may encode tier/method limitations — try to parse JSON if present
+  if (http_code == 401 || http_code == 429) return C4_RESPONSE_ERROR_RETRY;
+  if (http_code == 403 && req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0 && bytes_contains_string(response_body, "\"error\"")) {
+    json_t response = json_parse((char*) response_body.data);
+    if (response.type == JSON_TYPE_OBJECT) {
+      json_t error = json_get(response, "error");
+      if (error.type != JSON_TYPE_NOT_FOUND)
+        return classify_jsonrpc_error(error, req);
+    }
+    return C4_RESPONSE_ERROR_RETRY; // Fallback if parsing failed
+  }
 
   // Special handling for HTTP 400 with JSON-RPC errors - check if it's a method not supported error
   if (http_code == 400 && req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
@@ -306,10 +373,47 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
 
   // Special handling for Beacon API sync lag
   if (req && req->type == C4_DATA_TYPE_BEACON_API && c4_is_beacon_api_sync_lag(http_code, url, response_body)) {
-    fprintf(stderr, "   [sync ] Detected potential sync lag for beacon API - treating as server error, not user error\n");
+    log_warn("   [sync ] Detected potential sync lag for beacon API - treating as server error, not user error");
     return C4_RESPONSE_ERROR_RETRY;
   }
 
   // All other 4xx codes are user errors
   return C4_RESPONSE_ERROR_USER;
+}
+
+// Public helper: conservative detection whether the error indicates "not found"
+// across JSON-RPC and Beacon responses.
+bool c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body) {
+  if (http_code == 404) return true;
+  if (!req) return false;
+  if (req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
+    if (bytes_contains_string(response_body, "\"error\"")) {
+      json_t response = json_parse((char*) response_body.data);
+      if (response.type == JSON_TYPE_OBJECT) {
+        json_t error = json_get(response, "error");
+        json_t code  = json_get(error, "code");
+        json_t msg   = json_get(error, "message");
+        int    ec    = 0;
+        if (code.type == JSON_TYPE_NUMBER) {
+          char* cs = json_as_string(code, NULL);
+          if (cs) {
+            ec = atoi(cs);
+            safe_free(cs);
+          }
+        }
+        // Known not-found patterns in message
+        bool msg_nf = false;
+        if (msg.type == JSON_TYPE_STRING) {
+          bytes_t m = bytes(msg.start, msg.len);
+          msg_nf    = bytes_contains_string(m, "not found") || bytes_contains_string(m, "Header not found") || bytes_contains_string(m, "Block not found");
+        }
+        if (ec == -32601 || msg_nf) return true; // method not found or explicit not found
+      }
+    }
+  }
+  // Beacon API: reuse sync-lag detection as a proxy for not found
+  if (req->type == C4_DATA_TYPE_BEACON_API) {
+    return c4_is_beacon_api_sync_lag(http_code, req->url, response_body);
+  }
+  return false;
 }

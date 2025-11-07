@@ -1,4 +1,4 @@
-name: Bindings Pipeline
+name: Main CI Pipeline
 
 on:
   push:
@@ -15,9 +15,23 @@ permissions:
   pull-requests: write
   actions: read
   packages: write # Required for pushing Docker images to GHCR
+  security-events: write # Required for CodeQL
+  pages: write # Required for GitHub Pages deployment
+  id-token: write # Required for GitHub Pages deployment
 
 
 jobs:
+  # Core build and test pipeline
+  cmake:
+    uses: ./.github/workflows/cmake.yml
+
+  # System installers (DEB, RPM, PKG, MSI)
+  build-installers:
+    uses: ./.github/workflows/build-installers.yml
+    secrets:
+      PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+
+  # Language bindings
   swift:
     uses: ./.github/workflows/bindings-swift.yml
     secrets:
@@ -42,4 +56,11 @@ jobs:
       push_image: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v')) }}
       ref_name: ${{ github.ref_name }}
       ref_type: ${{ github.ref_type }}
+
+  # GitHub Pages Deployment - startet nach cmake Job
+  deploy-pages:
+    needs: cmake
+    # Nur bei Push zu main/dev (nicht bei PRs)
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    uses: ./.github/workflows/github-pages.yml
 

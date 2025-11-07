@@ -4,7 +4,7 @@
  */
 
 #include "handler.h"
-#include "util/logger.h"
+#include "logger.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,7 +12,7 @@
 static void c4_proxy_callback(client_t* client, void* data, data_request_t* req) {
   // Check if client is still valid before responding
   if (!client || client->being_closed) {
-    fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding proxy response\n");
+    log_warn("Client is no longer valid or is being closed - discarding proxy response\n");
     // Clean up resources
     if (req) {
       safe_free(req->url);
@@ -34,10 +34,11 @@ static void c4_proxy_callback(client_t* client, void* data, data_request_t* req)
 }
 
 bool c4_proxy(client_t* client) {
-  const char* path_headers     = "/eth/v1/beacon/headers/";
-  const char* path_lightclient = "/eth/v1/beacon/light_client";
+  const char* path_headers              = "/eth/v1/beacon/headers/";
+  const char* path_lightclient          = "/eth/v1/beacon/light_client";
+  const char* path_finality_checkpoints = "/eth/v1/beacon/states/head/finality_checkpoints";
 
-  if (strncmp(client->request.path, path_headers, strlen(path_headers)) != 0 && strncmp(client->request.path, path_lightclient, strlen(path_lightclient)) != 0) return false;
+  if (strncmp(client->request.path, path_headers, strlen(path_headers)) != 0 && strncmp(client->request.path, path_lightclient, strlen(path_lightclient)) != 0 && strncmp(client->request.path, path_finality_checkpoints, strlen(path_finality_checkpoints)) != 0) return false;
   data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
   req->url            = strdup(client->request.path + 1);
   req->method         = C4_DATA_METHOD_GET;

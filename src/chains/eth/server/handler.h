@@ -29,8 +29,12 @@ void c4_watch_beacon_events();
 void c4_stop_beacon_watcher();
 
 #ifdef TEST
-// Test helper to override beacon watcher URL for testing
+// Test helpers for beacon watcher
 void c4_test_set_beacon_watcher_url(const char* url);
+void c4_test_set_beacon_watcher_no_reconnect(bool disable);
+void c4_watch_beacon_events(void);
+void c4_stop_beacon_watcher(void);
+bool c4_beacon_watcher_is_running(void);
 #endif
 
 #endif // ETH_SERVER_HANDLER_H

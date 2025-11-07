@@ -79,15 +79,15 @@ static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t data, period_dat
   if (data.len < 12) THROW_ERROR("invalid client_update");
   ssz_ob_t old_update = {.bytes = bytes(data.data + 12, uint64_from_le(data.data) - 4), .def = NULL};
   if (old_update.bytes.len + 24 > data.len) THROW_ERROR("invalid client_update");
-  fork_id_t        fork            = c4_eth_get_fork_for_lcu(ctx->chain_id, old_update.bytes);
-  const ssz_def_t* update_list_def = eth_get_light_client_update_list(fork);
-  old_update.def                   = update_list_def ? update_list_def->def.vector.type : NULL;
+  fork_id_t        fork       = c4_eth_get_fork_for_lcu(ctx->chain_id, old_update.bytes);
+  const ssz_def_t* update_def = eth_get_light_client_update(fork);
+  old_update.def              = update_def;
   if (!old_update.def) THROW_ERROR("invalid client_update");
   ssz_ob_t new_update = {.bytes = bytes(data.data + 24 + old_update.bytes.len, uint64_from_le(data.data + 12 + old_update.bytes.len) - 4), .def = NULL};
   if (new_update.bytes.len + 24 + old_update.bytes.len > data.len) THROW_ERROR("invalid client_update");
-  fork            = c4_eth_get_fork_for_lcu(ctx->chain_id, new_update.bytes);
-  update_list_def = eth_get_light_client_update_list(fork);
-  new_update.def  = update_list_def ? update_list_def->def.vector.type : NULL;
+  fork           = c4_eth_get_fork_for_lcu(ctx->chain_id, new_update.bytes);
+  update_def     = eth_get_light_client_update(fork);
+  new_update.def = update_def;
   if (!new_update.def) THROW_ERROR("invalid client_update");
 
   ssz_ob_t old_sync_keys  = ssz_get(&old_update, "nextSyncCommittee");

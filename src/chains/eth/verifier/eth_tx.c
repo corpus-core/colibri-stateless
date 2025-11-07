@@ -381,12 +381,13 @@ static bytes_t get_rlp_field(verify_ctx_t* ctx, bytes_t rlp_list, const rlp_type
 
     // Check if decoded type matches expected type
     if (decoded_type != expected_type) {
-      char err_buf[120];
+      char     err_buf[120];
+      buffer_t tmp_buf = stack_buffer(err_buf);
       if (decoded_type <= RLP_SUCCESS) { // Includes RLP_SUCCESS, RLP_OUT_OF_RANGE, RLP_NOT_FOUND
-        snprintf(err_buf, sizeof(err_buf), "RLP decode failed or type mismatch for field '%s': expected type %d, decode result %d", field_name, expected_type, decoded_type);
+        bprintf(&tmp_buf, "RLP decode failed or type mismatch for field '%s': expected type %d, decode result %d", field_name, expected_type, decoded_type);
       }
       else { // Decoded type is RLP_ITEM or RLP_LIST but not the expected one
-        snprintf(err_buf, sizeof(err_buf), "RLP type mismatch for field '%s': expected %d, got %d", field_name, expected_type, decoded_type);
+        bprintf(&tmp_buf, "RLP type mismatch for field '%s': expected %d, got %d", field_name, expected_type, decoded_type);
       }
       c4_state_add_error(&ctx->state, err_buf);
       return NULL_BYTES; // Return NULL_BYTES on error
@@ -425,8 +426,9 @@ static bytes_t build_blob_hashes_from_rlp(verify_ctx_t* ctx, bytes_t rlp_list, c
     return NULL_BYTES;
   }
   if (num_hashes > 16) { // Max 16 hashes as per EIP-4844 spec (usually 1 to 6, but spec says up to MAX_BLOBS_PER_BLOCK)
-    char err_buf[100];
-    snprintf(err_buf, sizeof(err_buf), "build_blob_hashes_from_rlp: Too many blob hashes %d (max 16)", num_hashes);
+    char     err_buf[100];
+    buffer_t tmp_buf = stack_buffer(err_buf);
+    bprintf(&tmp_buf, "build_blob_hashes_from_rlp: Too many blob hashes %d (max 16)", num_hashes);
     c4_state_add_error(&ctx->state, err_buf);
     return NULL_BYTES;
   }

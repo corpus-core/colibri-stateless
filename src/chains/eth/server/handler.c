@@ -1,5 +1,5 @@
 #include "handler.h"
-#include "util/logger.h"
+#include "logger.h"
 
 // Forward declarations for handlers from the moved files
 // These will be registered with the main server.

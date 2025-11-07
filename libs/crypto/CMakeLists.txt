@@ -15,6 +15,15 @@ endif()
 
 add_definitions(-DAES_128)
 # add_definitions(-DUSE_HASHER)
+
+# Option to disable precomputed curve points for embedded builds (saves 37 KB)
+if(EMBEDDED)
+  add_definitions(-DUSE_PRECOMPUTED_CP=0)
+  message(STATUS "Embedded build: Disabling precomputed curve points to save memory")
+else()
+  add_definitions(-DUSE_PRECOMPUTED_CP=1)
+endif()
+
 set(SRC 
   ecdsa.c
 #  address.c

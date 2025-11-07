@@ -31,6 +31,6 @@
 extern const ssz_def_t C4_BLOCK_HASH_WITNESS[6];
 extern const ssz_def_t C4_WITNESS_SIGNED[2];
 extern const ssz_def_t C4_WITNESS_SIGNED_CONTAINER;
-ssz_def_t*             c4_witness_get_def(const char* name);
+const ssz_def_t*       c4_witness_get_def(const char* name);
 ssz_builder_t          c4_witness_sign(ssz_builder_t data, bytes32_t private_key);
 #endif

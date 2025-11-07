@@ -109,6 +109,7 @@ build_macos_arch() {
         echo "🔧 Konfiguriere CMake ($build_type Build)..."
         cmake \
             -DSWIFT=true \
+            -DCHAIN_OP=ON \
             -DCMAKE_SYSTEM_NAME="Darwin" \
             -DCMAKE_OSX_SYSROOT="$MACOS_SDK" \
             -DCMAKE_OSX_ARCHITECTURES="$arch" \
@@ -564,7 +565,7 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         StorageBridge.registerStorage(mockStorage)
         
         if let trustedBlockhash = trustedBlockhash {
-            colibri.trustedBlockHashes = [trustedBlockhash]
+            colibri.trustedCheckpoint = trustedBlockhash
         }
         
         // Execute the test using rpc() which handles createProof/verifyProof internally

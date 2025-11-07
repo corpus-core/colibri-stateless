@@ -2,6 +2,8 @@
 Testing utilities and mock implementations for Colibri Python bindings
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -9,6 +11,115 @@ from unittest.mock import Mock
 
 from .storage import ColibriStorage
 from .types import DataRequest, ColibriError
+
+
+class MockProofData:
+    """Utility class for creating mock proof data for testing"""
+    
+    @staticmethod
+    def create_proof(method: str, params: List[Any], result: Any) -> bytes:
+        """
+        Create mock proof data for a given method, params, and result.
+        
+        @param method The RPC method name
+        @param params The RPC method parameters
+        @param result The expected result
+        @return Mock proof data as bytes
+        """
+        proof_dict = {
+            "method": method,
+            "params": params,
+            "result": result,
+            "mock": True
+        }
+        return json.dumps(proof_dict).encode('utf-8')
+    
+    @staticmethod
+    def create_empty_proof() -> bytes:
+        """
+        Create an empty proof (used for LOCAL methods).
+        
+        @return Empty bytes
+        """
+        return b""
+
+
+class TestHelper:
+    """Helper utilities for setting up test scenarios"""
+    
+    @staticmethod
+    def setup_eth_get_balance_mock(
+        handler: 'MockRequestHandler',
+        address: str,
+        block: str,
+        balance: str
+    ) -> None:
+        """
+        Setup a mock response for eth_getBalance.
+        
+        @param handler The mock request handler
+        @param address The Ethereum address
+        @param block The block number or tag
+        @param balance The balance to return (hex string)
+        """
+        response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": balance
+        }
+        handler.add_response("eth_getBalance", [address, block], response)
+    
+    @staticmethod
+    def setup_eth_get_block_mock(
+        handler: 'MockRequestHandler',
+        block_hash: str,
+        block_data: Dict[str, Any]
+    ) -> None:
+        """
+        Setup a mock response for eth_getBlockByHash.
+        
+        @param handler The mock request handler
+        @param block_hash The block hash
+        @param block_data The block data to return
+        """
+        response = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": block_data
+        }
+        handler.add_response("eth_getBlockByHash", [block_hash, False], response)
+    
+    @staticmethod
+    def setup_proof_mock(
+        handler: 'MockRequestHandler',
+        method: str,
+        params: List[Any],
+        proof_data: Optional[bytes] = None
+    ) -> None:
+        """
+        Setup a mock proof response for a method.
+        
+        @param handler The mock request handler
+        @param method The RPC method name
+        @param params The RPC method parameters
+        @param proof_data Optional custom proof data (generates default if None)
+        """
+        if proof_data is None:
+            proof_data = MockProofData.create_proof(method, params, "mock_result")
+        handler.add_response(method, params, proof_data)
+    
+    @staticmethod
+    def create_mock_storage_with_data(preset_data: Dict[str, bytes]) -> MockStorage:
+        """
+        Create a MockStorage instance with preset data.
+        
+        @param preset_data Dictionary of key-value pairs to preset in storage
+        @return MockStorage instance with preset data
+        """
+        storage = MockStorage()
+        for key, value in preset_data.items():
+            storage.set(key, value)
+        return storage
 
 
 class MockStorage(ColibriStorage):
@@ -32,18 +143,139 @@ class MockStorage(ColibriStorage):
         self.delete_calls.append(key)
         self._data.pop(key, None)
 
+    def size(self) -> int:
+        """Return the number of items in storage"""
+        return len(self._data)
+
+    def preset_data(self, data: Dict[str, bytes]) -> None:
+        """
+        Preset storage with initial data without tracking calls.
+        
+        @param data Dictionary of key-value pairs to preset
+        """
+        self._data.update(data)
+
+    def clear_data(self) -> None:
+        """Clear all data from storage without tracking calls"""
+        self._data.clear()
+
+    def clear_calls(self) -> None:
+        """Clear the history of tracked calls"""
+        self.get_calls.clear()
+        self.set_calls.clear()
+        self.delete_calls.clear()
+
 
 class MockRequestHandler:
     """Mock HTTP request handler for testing"""
 
     def __init__(self):
         self._responses: Dict[str, Union[bytes, Dict[str, Any]]] = {}
+        self._method_responses: Dict[str, Union[bytes, Dict[str, Any]]] = {}
+        self._default_response: Optional[bytes] = None
         self.request_calls: List[DataRequest] = []
 
+    def _make_key(self, method: str, params: List[Any]) -> str:
+        """Create a unique key for method + params combination"""
+        return f"{method}:{json.dumps(params, sort_keys=True)}"
+
+    def add_response(
+        self, 
+        method: str, 
+        params: List[Any], 
+        response: Union[bytes, Dict[str, Any], str]
+    ) -> None:
+        """
+        Add a mock response for a specific method and params combination.
+        
+        @param method The RPC method name
+        @param params The RPC method parameters
+        @param response The response to return (can be bytes, dict, or string)
+        """
+        key = self._make_key(method, params)
+        self._responses[key] = response
+
+    def add_method_response(
+        self,
+        method: str,
+        response: Union[bytes, Dict[str, Any], str]
+    ) -> None:
+        """
+        Add a mock response for any call to a method (ignoring params).
+        
+        @param method The RPC method name
+        @param response The response to return
+        """
+        self._method_responses[method] = response
+
+    def set_default_response(self, response: bytes) -> None:
+        """
+        Set a default response for any unmatched requests.
+        
+        @param response The default response to return
+        """
+        self._default_response = response
+
+    def clear_responses(self) -> None:
+        """Clear all configured responses"""
+        self._responses.clear()
+        self._method_responses.clear()
+        self._default_response = None
+
+    def clear_calls(self) -> None:
+        """Clear the history of request calls"""
+        self.request_calls.clear()
+
+    def get_calls_for_method(self, method: str) -> List[DataRequest]:
+        """
+        Get all request calls for a specific method.
+        
+        @param method The RPC method name
+        @return List of matching requests
+        """
+        return [
+            req for req in self.request_calls
+            if req.payload and req.payload.get("method") == method
+        ]
+
     async def handle_request(self, request: DataRequest) -> bytes:
-        """Handle a mock HTTP request"""
+        """
+        Handle a mock HTTP request.
+        
+        @param request The data request to handle
+        @return Mock response data
+        """
         self.request_calls.append(request)
-        return b'{"result": "mock_response"}'
+        
+        # Try to find a matching response
+        if request.payload and "method" in request.payload:
+            method = request.payload["method"]
+            params = request.payload.get("params", [])
+            
+            # First try exact match (method + params)
+            key = self._make_key(method, params)
+            if key in self._responses:
+                response = self._responses[key]
+                if isinstance(response, bytes):
+                    return response
+                return json.dumps(response).encode('utf-8')
+            
+            # Then try method-only match
+            if method in self._method_responses:
+                response = self._method_responses[method]
+                if isinstance(response, bytes):
+                    return response
+                return json.dumps(response).encode('utf-8')
+        
+        # Use default response if available
+        if self._default_response is not None:
+            return self._default_response
+        
+        # No response configured
+        raise ColibriError(
+            f"No mock response configured for request: "
+            f"method={request.payload.get('method') if request.payload else 'unknown'}"
+        )
 
 
 class FileBasedMockStorage(ColibriStorage):
@@ -54,6 +286,46 @@ class FileBasedMockStorage(ColibriStorage):
         self._cache: Dict[str, Optional[bytes]] = {}
         self._access_count: Dict[str, int] = {}
         self._max_access_per_key = 5  # Prevent infinite loops
+    
+    def _find_file_with_truncation(self, filename: str) -> Optional[Path]:
+        """
+        Find a file, handling filesystem truncation (macOS has 255 char limit).
+        
+        @param filename The full filename to search for
+        @return The path to the file if found, None otherwise
+        """
+        file_path = self.test_data_dir / filename
+        
+        # Try exact match first
+        if file_path.exists():
+            return file_path
+        
+        # If not found and filename is long, try to find truncated versions
+        if len(filename) > 200:
+            # Get the extension
+            parts = filename.rsplit('.', 1)
+            if len(parts) == 2:
+                base_name, extension = parts
+                
+                # Search for files that start with the same prefix and have same extension
+                for prefix_len in [250, 240, 230, 220, 200, 150, 100]:
+                    if len(base_name) > prefix_len:
+                        prefix = base_name[:prefix_len]
+                        pattern = f"{prefix}*.{extension}"
+                        matching_files = list(self.test_data_dir.glob(pattern))
+                        if matching_files:
+                            return matching_files[0]
+            else:
+                # No extension, just search by prefix
+                for prefix_len in [250, 240, 230, 220, 200, 150, 100]:
+                    if len(filename) > prefix_len:
+                        prefix = filename[:prefix_len]
+                        pattern = f"{prefix}*"
+                        matching_files = list(self.test_data_dir.glob(pattern))
+                        if matching_files:
+                            return matching_files[0]
+        
+        return None
         
     def get(self, key: str) -> Optional[bytes]:
         # CRITICAL: Return None immediately to break infinite loops
@@ -70,9 +342,9 @@ class FileBasedMockStorage(ColibriStorage):
             # Return cached value
             return self._cache[key]
         
-        # Load from file
-        file_path = self.test_data_dir / key
-        if file_path.exists():
+        # Load from file (with truncation handling)
+        file_path = self._find_file_with_truncation(key)
+        if file_path:
             data = file_path.read_bytes()
             # Load file from storage
             self._cache[key] = data
@@ -99,6 +371,40 @@ class FileBasedMockRequestHandler:
         self._request_count = 0
         self._max_requests = 50  # Prevent infinite request loops
     
+    def _find_file_with_truncation(self, filename: str) -> Optional[Path]:
+        """
+        Find a file, handling filesystem truncation (macOS has 255 char limit).
+        
+        @param filename The full filename to search for
+        @return The path to the file if found, None otherwise
+        """
+        file_path = self.test_data_dir / filename
+        
+        # Try exact match first
+        if file_path.exists():
+            return file_path
+        
+        # If not found and filename is long, try to find truncated versions
+        # macOS typically truncates at 255 characters
+        if len(filename) > 200:  # If it's potentially truncated
+            # Get the extension
+            parts = filename.rsplit('.', 1)
+            if len(parts) == 2:
+                base_name, extension = parts
+                
+                # Search for files that start with the same prefix and have same extension
+                # Use progressively shorter prefixes to find the truncated file
+                for prefix_len in [250, 240, 230, 220, 200, 150, 100]:
+                    if len(base_name) > prefix_len:
+                        prefix = base_name[:prefix_len]
+                        pattern = f"{prefix}*.{extension}"
+                        matching_files = list(self.test_data_dir.glob(pattern))
+                        if matching_files:
+                            # Return the first match
+                            return matching_files[0]
+        
+        return None
+    
     async def handle_request(self, request: DataRequest) -> bytes:
         """Handle mock HTTP request by loading from file"""
         
@@ -106,20 +412,39 @@ class FileBasedMockRequestHandler:
         if self._request_count > self._max_requests:
             raise Exception(f"Too many requests ({self._request_count}) - possible infinite loop")
         
-        # Convert request to filename (simplified)
+        # Convert request to filename base (without extension) - matching C implementation
         if request.url:
-            filename = request.url.replace('/', '_').replace('?', '_').replace('=', '_').replace('&', '_')
-            filename = filename + '.' + request.encoding
+            # Sanitize URL to create filename base
+            base_name = request.url
+            # Replace problematic characters with underscore (matching C implementation)
+            for char in ['/', '.', ',', ' ', ':', '=', '?', '"', '&', '[', ']', '{', '}']:
+                base_name = base_name.replace(char, '_')
         elif request.payload and 'method' in request.payload:
-            method = request.payload['method']
-            filename = method + '.' + request.encoding
+            # For RPC requests, use method name and parameters
+            import json
+            method = request.payload.get('method', '')
+            params = request.payload.get('params', [])
+            base_name = method
+            for param in params:
+                param_str = param if isinstance(param, str) else json.dumps(param)
+                base_name += '_' + param_str
+            # Sanitize the base name
+            for char in ['/', '.', ',', ' ', ':', '=', '?', '"', '&', '[', ']', '{', '}']:
+                base_name = base_name.replace(char, '_')
         else:
-            filename = 'unknown.' + request.encoding
+            base_name = 'unknown'
         
-        # Look for mock response file
+        # CRITICAL: Truncate to maximum length BEFORE adding extension (matching C: C4_MAX_MOCKNAME_LEN = 100)
+        MAX_MOCKNAME_LEN = 100
+        if len(base_name) > MAX_MOCKNAME_LEN:
+            base_name = base_name[:MAX_MOCKNAME_LEN]
         
-        file_path = self.test_data_dir / filename
-        if file_path.exists():
+        # Add file extension based on encoding type
+        filename = base_name + '.' + request.encoding
+        
+        # Look for mock response file (with truncation handling)
+        file_path = self._find_file_with_truncation(filename)
+        if file_path:
             data = file_path.read_bytes()
             # Found mock response file
             return data

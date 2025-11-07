@@ -428,7 +428,7 @@ static void c4_write_prometheus_bucket_metrics(buffer_t*         data,
 }
 
 // Helper function to extract clean server name from URL
-static const char* extract_server_name(const char* url) {
+const char* c4_extract_server_name(const char* url) {
   if (!url) return "unknown";
 
   // Remove http:// or https:// prefix
@@ -462,7 +462,7 @@ static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t typ
 
   for (size_t i = 0; i < servers->count; i++) {
     server_health_t* health      = &servers->health_stats[i];
-    const char*      server_name = extract_server_name(servers->urls[i]);
+    const char*      server_name = c4_extract_server_name(servers->urls[i]);
 
     // Calculate derived metrics
     double success_rate      = health->total_requests > 0 ? (double) health->successful_requests / health->total_requests : 0.0;
@@ -475,6 +475,27 @@ static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t typ
     // Server weight for load balancing
     bprintf(data, "colibri_server_weight{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
             type_name, server_name, i, health->weight);
+
+    // Inflight and max concurrency
+    bprintf(data, "colibri_server_inflight{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+            type_name, server_name, i, (uint64_t) health->inflight);
+    bprintf(data, "colibri_server_max_concurrency{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+            type_name, server_name, i, (uint64_t) health->max_concurrency);
+
+    // EWMA latency
+    bprintf(data, "colibri_server_ewma_latency_ms{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
+            type_name, server_name, i, health->ewma_latency_ms);
+
+    // Capacity factor (derived)
+    uint32_t max_c      = health->max_concurrency > 0 ? health->max_concurrency : 1;
+    uint32_t infl       = health->inflight;
+    double   cap_factor = ((double) ((max_c > infl ? (max_c - infl) : 0) + 1)) / ((double) (max_c + 1));
+    bprintf(data, "colibri_server_capacity_factor{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
+            type_name, server_name, i, cap_factor);
+
+    // Recent rate-limit flag
+    bprintf(data, "colibri_server_rate_limited_recent{type=\"%s\",server=\"%s\",index=\"%l\"} %d\n",
+            type_name, server_name, i, health->rate_limited_recent ? 1 : 0);
 
     // Success rate (0.0 to 1.0)
     bprintf(data, "colibri_server_success_rate{type=\"%s\",server=\"%s\",index=\"%l\"} %f\n",
@@ -521,6 +542,12 @@ static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t typ
     // Human-readable client type (1=detected, 0=unknown/not detected)
     bprintf(data, "colibri_server_client_info{type=\"%s\",server=\"%s\",index=\"%l\",client=\"%s\"} %d\n",
             type_name, server_name, i, client_name, client_type != 0 ? 1 : 0);
+
+    // Estimated head (only meaningful for ETH RPC)
+    if (strcmp(type_name, "eth") == 0) {
+      bprintf(data, "colibri_server_estimated_head{type=\"%s\",server=\"%s\",index=\"%l\"} %l\n",
+              type_name, server_name, i, health->latest_block);
+    }
   }
 }
 
@@ -556,6 +583,73 @@ static void c4_write_server_health_metrics(buffer_t* data) {
   c4_write_server_type_metrics(data, C4_DATA_TYPE_BEACON_API, "beacon");
 
   bprintf(data, "\n");
+}
+
+// Prints global cURL pool configuration and runtime metrics
+static void c4_write_curl_metrics(buffer_t* data) {
+  bprintf(data, "# HELP colibri_curl_pool_max_host Max connections per host.\n");
+  bprintf(data, "# TYPE colibri_curl_pool_max_host gauge\n");
+  bprintf(data, "colibri_curl_pool_max_host %d\n", http_server.curl.pool_max_host);
+
+  bprintf(data, "# HELP colibri_curl_pool_max_total Max total connections.\n");
+  bprintf(data, "# TYPE colibri_curl_pool_max_total gauge\n");
+  bprintf(data, "colibri_curl_pool_max_total %d\n", http_server.curl.pool_max_total);
+
+  bprintf(data, "# HELP colibri_curl_pool_maxconnects Connection cache size (hint).\n");
+  bprintf(data, "# TYPE colibri_curl_pool_maxconnects gauge\n");
+  bprintf(data, "colibri_curl_pool_maxconnects %d\n", http_server.curl.pool_maxconnects);
+
+  bprintf(data, "# HELP colibri_curl_http2_enabled HTTP/2 enabled (1/0).\n");
+  bprintf(data, "# TYPE colibri_curl_http2_enabled gauge\n");
+  bprintf(data, "colibri_curl_http2_enabled %d\n", http_server.curl.http2_enabled);
+
+  bprintf(data, "# HELP colibri_curl_upkeep_interval_ms Upkeep interval in ms.\n");
+  bprintf(data, "# TYPE colibri_curl_upkeep_interval_ms gauge\n");
+  bprintf(data, "colibri_curl_upkeep_interval_ms %d\n", http_server.curl.upkeep_interval_ms);
+
+  bprintf(data, "# HELP colibri_curl_tcp_keepalive_enabled TCP keepalive enabled (1/0).\n");
+  bprintf(data, "# TYPE colibri_curl_tcp_keepalive_enabled gauge\n");
+  bprintf(data, "colibri_curl_tcp_keepalive_enabled %d\n", http_server.curl.tcp_keepalive_enabled);
+
+  bprintf(data, "# HELP colibri_curl_tcp_keepidle_seconds TCP keepidle seconds.\n");
+  bprintf(data, "# TYPE colibri_curl_tcp_keepidle_seconds gauge\n");
+  bprintf(data, "colibri_curl_tcp_keepidle_seconds %d\n", http_server.curl.tcp_keepidle_s);
+
+  bprintf(data, "# HELP colibri_curl_tcp_keepintvl_seconds TCP keepintvl seconds.\n");
+  bprintf(data, "# TYPE colibri_curl_tcp_keepintvl_seconds gauge\n");
+  bprintf(data, "colibri_curl_tcp_keepintvl_seconds %d\n", http_server.curl.tcp_keepintvl_s);
+
+  bprintf(data, "# HELP colibri_curl_total_requests Total libcurl transfers.\n");
+  bprintf(data, "# TYPE colibri_curl_total_requests counter\n");
+  bprintf(data, "colibri_curl_total_requests %l\n", http_server.curl.total_requests);
+
+  bprintf(data, "# HELP colibri_curl_total_connects New TCP connects observed.\n");
+  bprintf(data, "# TYPE colibri_curl_total_connects counter\n");
+  bprintf(data, "colibri_curl_total_connects %l\n", http_server.curl.total_connects);
+
+  bprintf(data, "# HELP colibri_curl_reused_connections_total Reused connections.\n");
+  bprintf(data, "# TYPE colibri_curl_reused_connections_total counter\n");
+  bprintf(data, "colibri_curl_reused_connections_total %l\n", http_server.curl.reused_connections_total);
+
+  bprintf(data, "# HELP colibri_curl_http2_requests_total HTTP/2 requests.\n");
+  bprintf(data, "# TYPE colibri_curl_http2_requests_total counter\n");
+  bprintf(data, "colibri_curl_http2_requests_total %l\n", http_server.curl.http2_requests_total);
+
+  bprintf(data, "# HELP colibri_curl_http1_requests_total HTTP/1.x requests.\n");
+  bprintf(data, "# TYPE colibri_curl_http1_requests_total counter\n");
+  bprintf(data, "colibri_curl_http1_requests_total %l\n", http_server.curl.http1_requests_total);
+
+  bprintf(data, "# HELP colibri_curl_tls_handshakes_total TLS handshakes (heuristic).\n");
+  bprintf(data, "# TYPE colibri_curl_tls_handshakes_total counter\n");
+  bprintf(data, "colibri_curl_tls_handshakes_total %l\n", http_server.curl.tls_handshakes_total);
+
+  bprintf(data, "# HELP colibri_curl_avg_connect_time_ms Avg TCP connect time (ms).\n");
+  bprintf(data, "# TYPE colibri_curl_avg_connect_time_ms gauge\n");
+  bprintf(data, "colibri_curl_avg_connect_time_ms %f\n", http_server.curl.avg_connect_time_ms);
+
+  bprintf(data, "# HELP colibri_curl_avg_appconnect_time_ms Avg TLS handshake time (ms).\n");
+  bprintf(data, "# TYPE colibri_curl_avg_appconnect_time_ms gauge\n");
+  bprintf(data, "colibri_curl_avg_appconnect_time_ms %f\n", http_server.curl.avg_appconnect_time_ms);
 }
 
 #ifdef HTTP_SERVER_GEO
@@ -621,6 +715,19 @@ bool c4_handle_metrics(client_t* client) {
 
   // CPU Time Metriken
   c4_write_process_cpu_metrics(&data);
+
+  // Beacon Watcher Event-Metriken
+  bprintf(&data, "# HELP colibri_beacon_events_total Total number of beacon events processed.\n");
+  bprintf(&data, "# TYPE colibri_beacon_events_total counter\n");
+  bprintf(&data, "colibri_beacon_events_total %l\n", http_server.stats.beacon_events_total);
+
+  bprintf(&data, "# HELP colibri_beacon_events_head_total Total number of 'head' beacon events processed.\n");
+  bprintf(&data, "# TYPE colibri_beacon_events_head_total counter\n");
+  bprintf(&data, "colibri_beacon_events_head_total %l\n", http_server.stats.beacon_events_head);
+
+  bprintf(&data, "# HELP colibri_beacon_events_finalized_total Total number of 'finalized_checkpoint' beacon events processed.\n");
+  bprintf(&data, "# TYPE colibri_beacon_events_finalized_total counter\n");
+  bprintf(&data, "colibri_beacon_events_finalized_total %l\n\n", http_server.stats.beacon_events_finalized);
 
   // Erweiterte Prozess-Statistiken
   process_platform_stats_t platform_stats = {0}; // Initialisieren mit Nullen
@@ -693,6 +800,8 @@ bool c4_handle_metrics(client_t* client) {
   c4_write_prometheus_bucket_metrics(&data, &beacon_requests, "beacon", "Beacon API (e.g. /eth/v1/beacon/genesis)", &method_metrics_described);
 
   // Server Health Statistics
+  c4_write_curl_metrics(&data);
+
   c4_write_server_health_metrics(&data);
 
 #ifdef HTTP_SERVER_GEO

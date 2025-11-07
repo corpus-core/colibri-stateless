@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
-
+static const ssz_def_t C4_ETH_LC_SYNCDATA[2];
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
@@ -71,6 +71,7 @@ const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10] = {
     SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),  // the result of an colibri_simulateTransaction
 
 };
+
 // A List of possible types of proofs matching the Data
 static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,
@@ -86,10 +87,23 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
 }; // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
+static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
+    SSZ_NONE,
+    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP),    // Denep Fork Structureed LightClient Bootstrap
+    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP) // Electra Fork Structureed LightClient Bootstrap
+};
+
+// a List of LightClient Updates as returned fomr light_client/updates endpoint.
+static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
+    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),    // Denep Fork Structureed LightClient Update
+    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE) // Electra Fork Structureed LightClient Update
+};
+
+// A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_LIST("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE_CONTAINER, 512),      // this light client update can be fetched directly from the beacon chain API
-    SSZ_LIST("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER, 512)}; // this light client update can be fetched directly from the beacon chain API
+    SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA), // Light Client Sync Data
+};
 
 // the main container defining the incoming data processed by the verifier
 static const ssz_def_t C4_REQUEST[] = {
@@ -100,6 +114,23 @@ static const ssz_def_t C4_REQUEST[] = {
 
 static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQUEST);
 
+static const ssz_def_t C4_ETH_SYNCDATA_UPDATE = SSZ_UNION("updates", C4_ETH_SYNCDATA_UPDATE_UNION);
+
+// :: SyncCommittee Proof
+//
+// The Verifier always needs the pubkeys of the sync committee for a given period in order to verify the BLS signature of a Beacon BlockHeader.
+//
+// if a verifier requests a proof from a remote prover, the verifier may use the c4-property of the RPC-Request to describe it's state of the knpown periods or checkpoint.
+// if the verifier only reports a checkpoint, a bootstrap is added profing the current_sync_committee for the given checkpoint.
+// if the header requested has a higher period that the bootstrap or the latest period, all required lightClientUpdates will be proveded.
+//
+
+// LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
+static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
+    SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
+    SSZ_LIST("update", C4_ETH_SYNCDATA_UPDATE, 1024)         // optional update data for the sync committee
+};
+
 static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
   for (size_t i = 0; i < len; i++) {
     if (array[i].type >= SSZ_TYPE_CONTAINER && array[i].def.container.elements == target) return i;
@@ -109,12 +140,13 @@ static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def
 #define ARRAY_IDX(a, target)  array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 #define ARRAY_TYPE(a, target) a + array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 
-const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork) {
+const ssz_def_t* eth_get_light_client_update(fork_id_t fork) {
   switch (fork) {
     case C4_FORK_DENEB:
-      return ARRAY_TYPE(C4_ETH_REQUEST_SYNCDATA_UNION, &DENEP_LIGHT_CLIENT_UPDATE_CONTAINER);
+      return C4_ETH_SYNCDATA_UPDATE_UNION;
     case C4_FORK_ELECTRA:
-      return ARRAY_TYPE(C4_ETH_REQUEST_SYNCDATA_UNION, &ELECTRA_LIGHT_CLIENT_UPDATE_CONTAINER);
+    case C4_FORK_FULU:
+      return C4_ETH_SYNCDATA_UPDATE_UNION + 1;
     default:
       return NULL;
   }

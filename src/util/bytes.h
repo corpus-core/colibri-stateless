@@ -171,14 +171,6 @@ uint32_t buffer_append(buffer_t* buffer, bytes_t data);
 void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data);
 
 /**
- * append chars to a buffer while escaping special characters.
- * an additional NULL-Terminator will be added to the end of the buffer.
- * @param buffer the buffer to append to
- * @param data the data to append
- */
-void buffer_add_chars_escaped(buffer_t* buffer, const char* data);
-
-/**
  * append chars to a buffer.
  * An additional NULL-Terminator will be added to the end of the buffer.
  * @param buffer the buffer to append to
@@ -201,14 +193,6 @@ void buffer_add_be(buffer_t* buffer, uint64_t value, uint32_t len);
  * @param len the length of the value to append
  */
 void buffer_add_le(buffer_t* buffer, uint64_t value, uint32_t len);
-/**
- * append bytes as hex chars to a buffer.
- * @param buffer the buffer to append to
- * @param data the data to append
- * @param prefix the prefix to add or NULL
- * @param suffix the suffix to add or NULL
- */
-void buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix);
 
 /**
  * frees a buffer.
@@ -221,8 +205,9 @@ void buffer_free(buffer_t* buffer);
  * If the allocated is <0 and this is a fixed buffer, it will do nothing.
  * @param buffer the buffer to grow
  * @param min_len the minimum length of the buffer
+ * @return the available length of the buffer. Never write more than this value to the buffer.
  */
-void buffer_grow(buffer_t* buffer, size_t min_len);
+size_t buffer_grow(buffer_t* buffer, size_t min_len);
 
 /**
  * calls malloc and check if the returned pointer is not NULL.
@@ -265,14 +250,15 @@ void* safe_realloc(void* ptr, size_t new_size);
  * - `%x`: bytes_t as hex
  * - `%u`: bytes_t as hex without leading zeros
  * - `%c`: char as char
- * - `%j`: json_t adds as json string
- * - `%J`: json_t adds as json string , but on case of a string, the quotes are removed
+ * - `%J`: json_t adds as json string
+ * - `%j`: json_t adds as json string, but in case of a string, the quotes are removed
  * - `%l`: uint64_t as number
  * - `%lx`: uint64_t as hex
  * - `%d`: uint32_t as number
  * - `%dx`: uint32_t as hex
- * - `%z`: ssz_ob_t as json using numbers for uint
- * - `%Z`: ssz_ob_t as json using hex without leading zeros for uint
+ * - `%z`: ssz_ob_t as value using numbers for uint (quotes are removed)
+ * - `%Z`: ssz_ob_t as value using hex without leading zeros for uint (quotes are removed)
+ * - `%r`: raw bytes as string
  *
  * @param buf the buffer to write to
  * @param fmt the format string
@@ -360,6 +346,53 @@ void buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
 #define bytes_slice(parent, offet, length) \
   (bytes_t) { .data = parent.data + offet, .len = length }
 #define bytes_all_zero(a) bytes_all_equal(a, 0)
+
+/**
+ * Stack-based bprintf - writes formatted output into an existing stack variable.
+ * This macro creates a fixed-size buffer from a stack-allocated array and uses
+ * bprintf to format data directly into it. The result stays valid after the macro
+ * completes, as it writes into the provided variable.
+ *
+ * Example usage:
+ * ```c
+ * char name[100];
+ * sbprintf(name, "%s/%s", parent_dir, file_name);
+ * // name can now be used as a normal string
+ * ```
+ *
+ * @param var Stack-allocated array to write into (e.g., char[100])
+ * @param format Format string (bprintf syntax: %s, %d, %l, %lx, %x, %S, etc.)
+ * @param ... Format arguments
+ */
+#define sbprintf(var, format, ...)         \
+  do {                                     \
+    buffer_t _buf = stack_buffer(var);     \
+    bprintf(&_buf, format, ##__VA_ARGS__); \
+  } while (0)
+
+/**
+ * File-based bprintf - formats and writes output directly to a FILE stream.
+ * This macro creates a temporary buffer, formats the data using bprintf,
+ * writes it to the specified file using fwrite, and cleans up automatically.
+ * Useful for replacing fprintf without linking printf family functions.
+ *
+ * Example usage:
+ * ```c
+ * fbprintf(stderr, "Error code: %d\n", error_code);
+ * fbprintf(log_file, "Processing item %l of %l\n", current, total);
+ * ```
+ *
+ * @param file FILE* pointer to write to (e.g., stdout, stderr, or fopen result)
+ * @param format Format string (bprintf syntax: %s, %d, %l, %lx, %x, %S, etc.)
+ * @param ... Format arguments
+ */
+#define fbprintf(file, format, ...)                          \
+  do {                                                       \
+    buffer_t __buf = {0};                                    \
+    char*    __str = bprintf(&__buf, format, ##__VA_ARGS__); \
+    fwrite(__str, 1, __buf.data.len, file);                  \
+    buffer_free(&__buf);                                     \
+  } while (0)
 
 #ifdef __cplusplus
 }

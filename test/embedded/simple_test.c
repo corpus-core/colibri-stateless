@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "util/bytes.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -31,7 +32,7 @@
 // Direct semihosting function using SYS_WRITE0 (simpler than write syscall)
 void semi_write(const char* str) {
   // Use the ARM semihosting interface SYS_WRITE0
-  asm volatile(
+  __asm__ volatile(
       "mov r0, #0x04\n" // SYS_WRITE0
       "mov r1, %0\n"    // string pointer
       "bkpt #0xAB\n"    // semihosting breakpoint
@@ -50,8 +51,11 @@ void uart_write(const char* str) {
 }
 
 int main(void) {
-  // 1. Write using standard printf
-  printf("Hello from printf!\n");
+  // 1. Write using bprintf
+  buffer_t msg = {0};
+  bprintf(&msg, "Hello from bprintf!\n");
+  fwrite(msg.data.data, 1, msg.data.len, stdout);
+  buffer_free(&msg);
   fflush(stdout);
 
   // 2. Write using semihosting SYS_WRITE0
@@ -65,7 +69,10 @@ int main(void) {
   uart_write("Hello from UART!");
 
   // 5. Print a clear successful test message
-  printf("TEST COMPLETED SUCCESSFULLY\n");
+  msg = (buffer_t) {0};
+  bprintf(&msg, "TEST COMPLETED SUCCESSFULLY\n");
+  fwrite(msg.data.data, 1, msg.data.len, stdout);
+  buffer_free(&msg);
   fflush(stdout);
 
   // 6. Also use semihosting for the success message

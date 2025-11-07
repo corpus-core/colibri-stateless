@@ -4,6 +4,7 @@
  */
 
 #include "llhttp.h"
+#include "logger.h"
 #include "server.h"
 #include <limits.h>
 #include <stdint.h>
@@ -61,7 +62,8 @@ static void close_client_connection(client_t* client) {
   //   fprintf(stderr, "Debug: Closing an inactive client handle %p via close_client_connection\n", (void*)client);
   // }
 
-  uv_close((uv_handle_t*) &client->handle, on_close);
+  if (client->handle.data)
+    uv_close((uv_handle_t*) &client->handle, on_close);
 }
 
 static void reset_client_request_data(client_t* client) {
@@ -95,8 +97,8 @@ static void on_close(uv_handle_t* handle) {
   // Verify this is actually a client_t struct using magic number
   // This prevents accidentally freeing memcache or other handles
   if (client->magic != C4_CLIENT_MAGIC) {
-    fprintf(stderr, "ERROR: on_close called with invalid client (magic: 0x%x, expected: 0x%x) - skipping cleanup\n",
-            client->magic, C4_CLIENT_MAGIC);
+    log_error("on_close called with invalid client (magic: 0x%dx, expected: 0x%dx) - skipping cleanup",
+              (uint32_t) client->magic, (uint32_t) C4_CLIENT_MAGIC);
     return;
   }
 
@@ -150,8 +152,8 @@ static int on_header_field(llhttp_t* parser, const char* at, size_t length) {
   // Track total header size for DoS protection
   client->headers_size_received += length;
   if (client->headers_size_received > MAX_HEADERS_SIZE) {
-    fprintf(stderr, "SECURITY: Rejected request with oversized headers (%zu bytes, max: %d) from client %p\n",
-            client->headers_size_received, MAX_HEADERS_SIZE, (void*) client);
+    log_warn(YELLOW("SECURITY:") " Rejected request with oversized headers (%l bytes, max: %d) from client 0x%lx",
+             (uint64_t) client->headers_size_received, MAX_HEADERS_SIZE, (uint64_t) (uintptr_t) client);
     return HPE_USER;
   }
 
@@ -167,15 +169,15 @@ static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
   // Track total header size and validate individual header value size
   client->headers_size_received += length;
   if (client->headers_size_received > MAX_HEADERS_SIZE) {
-    fprintf(stderr, "SECURITY: Rejected request with oversized headers (%zu bytes, max: %d) from client %p\n",
-            client->headers_size_received, MAX_HEADERS_SIZE, (void*) client);
+    log_warn(YELLOW("SECURITY:") " Rejected request with oversized headers (%l bytes, max: %d) from client 0x%lx",
+             (uint64_t) client->headers_size_received, MAX_HEADERS_SIZE, (uint64_t) (uintptr_t) client);
     return HPE_USER;
   }
 
   // Also reject individual header values that are too large
   if (length > MAX_SINGLE_HEADER_SIZE) {
-    fprintf(stderr, "SECURITY: Rejected request with oversized header value (%zu bytes, max: %d) from client %p\n",
-            length, MAX_SINGLE_HEADER_SIZE, (void*) client);
+    log_warn(YELLOW("SECURITY:") " Rejected request with oversized header value (%l bytes, max: %d) from client 0x%lx",
+             (uint64_t) length, MAX_SINGLE_HEADER_SIZE, (uint64_t) (uintptr_t) client);
     return HPE_USER;
   }
 
@@ -202,8 +204,8 @@ static int on_headers_complete(llhttp_t* parser) {
   // Validate Content-Length before receiving body
   // parser->content_length is set by llhttp from the Content-Length header
   if (parser->content_length != ULLONG_MAX && parser->content_length > MAX_BODY_SIZE) {
-    fprintf(stderr, "SECURITY: Rejected request with Content-Length %llu (max: %d) from client %p\n",
-            (unsigned long long) parser->content_length, MAX_BODY_SIZE, (void*) client);
+    log_warn(YELLOW("SECURITY:") " Rejected request with Content-Length %l (max: %d) from client 0x%lx",
+             (uint64_t) parser->content_length, MAX_BODY_SIZE, (uint64_t) (uintptr_t) client);
     return HPE_USER; // Custom error to trigger rejection
   }
 
@@ -221,16 +223,16 @@ static int on_body(llhttp_t* parser, const char* at, size_t length) {
   // Note: parser->content_length is 0 when no Content-Length header is present
   if (parser->content_length != ULLONG_MAX && parser->content_length > 0) {
     if (new_total > parser->content_length) {
-      fprintf(stderr, "SECURITY: Request smuggling attempt detected - body size %zu exceeds Content-Length %llu from client %p\n",
-              new_total, (unsigned long long) parser->content_length, (void*) client);
+      log_warn(YELLOW("SECURITY:") " Request smuggling attempt detected - body size %l exceeds Content-Length %l from client 0x%lx",
+               (uint64_t) new_total, (uint64_t) parser->content_length, (uint64_t) (uintptr_t) client);
       return HPE_USER;
     }
   }
 
   // Additional safety check: body should not exceed our maximum
   if (new_total > MAX_BODY_SIZE) {
-    fprintf(stderr, "SECURITY: Body size %zu exceeds maximum %d from client %p\n",
-            new_total, MAX_BODY_SIZE, (void*) client);
+    log_warn(YELLOW("SECURITY:") " Body size %l exceeds maximum %d from client 0x%lx",
+             (uint64_t) new_total, MAX_BODY_SIZE, (uint64_t) (uintptr_t) client);
     return HPE_USER;
   }
 
@@ -260,22 +262,18 @@ static void log_request(client_t* client) {
   if (strcmp(client->request.path, "/health") == 0) return;      // no healthcheck logging
   if (strcmp(client->request.path, "/healthcheck") == 0) return; // no healthcheck logging
   if (strcmp(client->request.path, "/metrics") == 0) return;     // no metrics logging
-  char* pl = client->request.payload_len ? bprintf(NULL, "%J", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) client->request.payload, .len = client->request.payload_len}) : NULL;
-  fprintf(stderr,
+
 #ifdef HTTP_SERVER_GEO
-          "[%s] %s %s (%s/%s)\n",
+  log_info(MAGENTA("[%s]") "%s" GRAY(" (%s in %s)"),
+           method_str(client->request.method),
+           c4_req_info(C4_DATA_TYPE_INTERN, client->request.path, bytes(client->request.payload, client->request.payload_len)),
+           client->request.geo_city ? client->request.geo_city : "",
+           (client->request.geo_country && client->request.geo_city) ? client->request.geo_country : "");
 #else
-          "[%s] %s %s\n",
+  log_info(MAGENTA("[%s]") "%s",
+           method_str(client->request.method),
+           c4_req_info(0, client->request.path, bytes(client->request.payload, client->request.payload_len)));
 #endif
-          method_str(client->request.method),
-          client->request.path, pl ? pl : ""
-#ifdef HTTP_SERVER_GEO
-          ,
-          client->request.geo_city ? client->request.geo_city : "",
-          client->request.geo_country ? client->request.geo_country : ""
-#endif
-  );
-  if (pl) safe_free(pl);
 }
 
 #ifdef HTTP_SERVER_GEO
@@ -328,7 +326,7 @@ static void c4_metrics_update_geo(client_t* client) {
     if (new_capacity > MAX_GEO_LOCATIONS) new_capacity = MAX_GEO_LOCATIONS;
 
     if (http_server.stats.geo_locations_count >= new_capacity) {
-      fprintf(stderr, "WARN: Geo location list is full. Dropping new location: %s, %s\n", client->request.geo_city, client->request.geo_country);
+      log_warn("Geo location list is full. Dropping new location: %s, %s", client->request.geo_city, client->request.geo_country);
       return;
     }
 
@@ -426,7 +424,7 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
         }
       }
 
-      fprintf(stderr, "llhttp error: %s (code: %d) on client %p\n", error_reason, err, (void*) client);
+      log_error("llhttp error: %s (code: %d) on client 0x%lx", error_reason, (uint32_t) err, (uint64_t) (uintptr_t) client);
 
       should_call_responder  = true;
       immediate_close_needed = true;
@@ -445,7 +443,7 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
       if (!client->message_complete_reached) { // Check if a message was even completed in this cycle
         // Client disconnected before completing the request - just log it
         // Don't try to send a 400 response, as the client is already gone (EOF received)
-        fprintf(stderr, "INFO: Client %p disconnected before completing request (code: %zd)\n", (void*) client, nread);
+        log_info("Client 0x%lx disconnected before completing request", (uint64_t) (uintptr_t) client);
         // should_call_responder remains false - no point responding to a disconnected client
       }
       else {
@@ -460,7 +458,7 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
   }
   else { // nread < 0 and not UV_EOF (other libuv errors)
     error_reason = uv_strerror(nread);
-    fprintf(stderr, "uv_read error: %s (code: %zd) on client %p\n", error_reason, nread, (void*) client);
+    log_error("uv_read error: %s on client 0x%lx", error_reason, (uint64_t) (uintptr_t) client);
     error_status_code      = 500; // Internal Server Error (could be 400 for some client-side disconnects)
     should_call_responder  = true;
     immediate_close_needed = true;
@@ -529,17 +527,18 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
   }
 
   if (!client) {
-    fprintf(stderr, "ERROR: Attempted to respond to NULL client\n");
+    log_error("Attempted to respond to NULL client");
     return;
   }
 
   if (client->being_closed) {
-    fprintf(stderr, "ERROR: Attempted to respond to a client that is already being closed\n");
+    log_error("Attempted to respond to a client that is already being closed");
     return;
   }
 
   if (!uv_is_active((uv_handle_t*) &client->handle)) {
-    fprintf(stderr, "ERROR: Attempted to write to inactive client handle for client %p. Closing connection.\n", (void*) client);
+    log_error("Attempted to write to inactive client handle for client 0x%lx. Closing connection.",
+              (uint64_t) (uintptr_t) client);
     close_client_connection(client);
     return;
   }
@@ -571,7 +570,8 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
   int result = uv_write(write_req, (uv_stream_t*) &client->handle, uvbuf, 2, on_write_complete);
 
   if (result < 0) {
-    fprintf(stderr, "ERROR: Failed to write HTTP response for client %p: %s\n", (void*) client, uv_strerror(result));
+    log_error("Failed to write HTTP response for client 0x%lx: %s",
+              (uint64_t) (uintptr_t) client, uv_strerror(result));
     close_client_connection(client);
     // on_write_complete will not be called, so we must close here.
   }
@@ -583,7 +583,7 @@ static void on_write_complete(uv_write_t* req, int status) {
   client_t* client = (client_t*) req->data;
 
   if (!client) {
-    fprintf(stderr, "ERROR: client_t is NULL in on_write_complete\n");
+    log_error("client_t is NULL in on_write_complete");
     // Cannot do much here other than try to close the handle if req->handle is valid
     if (req->handle) {
       uv_close((uv_handle_t*) req->handle, NULL); // No specific on_close context
@@ -592,8 +592,9 @@ static void on_write_complete(uv_write_t* req, int status) {
   }
 
   if (status < 0) {
-    fprintf(stderr, "ERROR: Write completed with error for client %p: %s\n", (void*) client, uv_strerror(status));
-    // Ensure `being_closed` is true if a write error occurs, so it's closed below.
+    log_error("Write completed with error for client 0x%lx: %s",
+              (uint64_t) (uintptr_t) client, uv_strerror(status));
+    // Ensure `being_closed" is true if a write error occurs, so it's closed below.
     client->being_closed = true;
   }
 
@@ -613,7 +614,7 @@ static void on_write_complete(uv_write_t* req, int status) {
 
 void c4_on_new_connection(uv_stream_t* server, int status) {
   if (status < 0) {
-    fprintf(stderr, "New connection error %s\n", uv_strerror(status));
+    log_error("New connection error %s", uv_strerror(status));
     // No client object created yet to close.
     return;
   }
@@ -644,7 +645,7 @@ void c4_on_new_connection(uv_stream_t* server, int status) {
 
   if (err < 0) {
     const char* reason = uv_strerror(err);
-    fprintf(stderr, "uv_accept/uv_read_start error for new client %p: %s\n", (void*) client, reason);
+    log_error("uv_accept/uv_read_start error for new client 0x%lx: %s", (uint64_t) (uintptr_t) client, reason);
     c4_write_error_response(client, 500, reason);
     // Attempt to send an error response. c4_http_respond will handle inactive/problematic handles.
     // Ensure closure, as c4_http_respond might return if handle is inactive without calling on_write_complete.

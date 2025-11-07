@@ -58,6 +58,7 @@ option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
+option(BLOCK_HASH_CACHE "Cache block hashes for faster verification within the same block" ON)
 option(WASM "Build WebAssembly target" OFF)
 option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)
@@ -67,9 +68,20 @@ option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
 option(STATIC_MEMORY "if true, the memory will be statically allocated, which only makes sense for embedded systems" OFF)
 option(MESSAGES "if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory" ON)
+option(FILE_STORAGE "if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR" ON)
+
 if(MESSAGES)
     add_definitions(-DMESSAGES)
 endif()
+
+if(FILE_STORAGE AND NOT WASM)
+    add_definitions(-DFILE_STORAGE)
+endif()
+
+if(BLOCK_HASH_CACHE)
+    add_definitions(-DBLOCK_HASH_CACHE)
+endif()
+
 if(WITNESS_SIGNER)
     add_definitions(-DWITNESS_SIGNER)
 endif()
@@ -117,6 +129,12 @@ if(EMBEDDED)
     set(CLI OFF)
     set(STATIC_MEMORY ON)
     set(BLS_DESERIALIZE OFF)
+    
+    message(STATUS "Embedded build mode enabled")
+    message(STATUS "  Consider disabling optional features to save memory:")
+    message(STATUS "    -DPRECOMPILE_ZERO_HASHES=OFF  (saves ~1 KB, safe if ETH_BLOCK=OFF)")
+    message(STATUS "    -DUSE_CHECKPOINTZ=OFF         (saves ~2-3 KB, requires manual checkpoint config)")
+    message(STATUS "  See test/embedded/README.md for optimization guide")
         
     # Force portable implementations
     add_definitions(-DBLST_PORTABLE -DEMBEDDED)
@@ -280,6 +298,7 @@ include(src/chains/chains.cmake)
 # Define the path for the generated headers
 add_definitions(-DVERIFIERS_PATH="${CMAKE_BINARY_DIR}/verifiers.h")
 add_definitions(-DPROVERS_PATH="${CMAKE_BINARY_DIR}/provers.h")
+add_definitions(-DCHAIN_PROPS_PATH="${CMAKE_BINARY_DIR}/chain_props.h")
 
 # Add the binary directory to the include path for generated headers
 include_directories(${CMAKE_BINARY_DIR})
@@ -335,6 +354,7 @@ add_custom_target(valgrind
 generate_verifiers_header()
 generate_provers_header()
 generate_server_handlers_header()
+generate_chain_props_header()
 
 # Combined static library target
 if(NOT EMBEDDED)

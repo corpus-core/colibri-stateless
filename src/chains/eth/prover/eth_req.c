@@ -204,7 +204,10 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
         THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s) : %j", method, params, error);
 
       json_t res = json_get(response, "result");
-      if (res.type == JSON_TYPE_NOT_FOUND || res.type == JSON_TYPE_INVALID) THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s): Invalid JSON response (no result)", method, params);
+      if (res.type == JSON_TYPE_NOT_FOUND || res.type == JSON_TYPE_INVALID ||
+          (res.type == JSON_TYPE_NULL && (strcmp(method, "eth_getBlockReceipts") == 0)))
+        RETRY_REQUEST(data_request);
+      //      THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s): Invalid JSON response (no result)", method, params);
 
       *result = res;
       return C4_SUCCESS;

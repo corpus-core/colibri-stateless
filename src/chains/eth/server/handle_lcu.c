@@ -7,7 +7,6 @@
 #include "handler.h"
 #include "logger.h"
 #include "prover/prover.h"
-#include "util/logger.h"
 
 typedef struct {
   bytes_t*  found;

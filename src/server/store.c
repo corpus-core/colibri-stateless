@@ -4,6 +4,7 @@
  */
 
 #include "server.h"
+#include "logger.h"
 #include <fcntl.h>  // für O_RDONLY
 #include <stdlib.h> // für malloc, free, realloc
 #include <string.h> // für memcpy
@@ -40,7 +41,7 @@ static void free_store_read_context(store_read_context_t* ctx) {
 static void on_store_close(uv_fs_t* req) {
   store_read_context_t* ctx = req->data;
   if (req->result < 0)
-    fprintf(stderr, "Fehler beim Schließen der Datei '%s': %s\n", ctx->file_path, uv_strerror((int) req->result));
+    log_error("Fehler beim Schließen der Datei '%s': %s", ctx->file_path, uv_strerror((int) req->result));
   uv_fs_req_cleanup(req);
   free_store_read_context(ctx);
 }
@@ -179,7 +180,7 @@ static void free_preconf_read_context(preconf_read_context_t* ctx) {
 static void on_preconf_close(uv_fs_t* req) {
   preconf_read_context_t* ctx = req->data;
   if (req->result < 0)
-    fprintf(stderr, "Error closing preconf file '%s': %s\n", ctx->file_path, uv_strerror((int) req->result));
+    log_error("Error closing preconf file '%s': %s", ctx->file_path, uv_strerror((int) req->result));
   uv_fs_req_cleanup(req);
   free_preconf_read_context(ctx);
 }

@@ -1,0 +1,23 @@
+# Coverage Ignore List
+# Files that are excluded from coverage reports because they are still in development
+# or not ready for testing.
+#
+# This file is used by both local coverage script (run_coverage.sh) and CI workflow.
+# Format: One pattern per line, supports glob patterns for gcovr
+
+# Prover components in development (sync & witness proofs for snarks)
+src/chains/eth/prover/proof_sync.c
+src/chains/eth/prover/proof_witness.c
+
+# EC precompiles (not fully implemented, has bugs)
+src/chains/eth/precompiles/precompiles_ec.c
+
+# Witness utilities (in development)
+src/util/witness.c
+
+# Just the entry-point - not testable
+src/server/main.c
+
+# the connector the memcached - not testable in a unittest, only integrationtest
+src/server/cache.c
+

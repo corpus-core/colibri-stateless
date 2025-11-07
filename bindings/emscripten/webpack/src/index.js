@@ -16,7 +16,9 @@ async function runTest() {
     try {
         // Instantiate the client
         // The underlying WASM module loading should be handled by the Colibri class/index.js wrapper
-        let client = new Colibri();
+        let client = new Colibri({
+            prover: ['https://mainnet1.colibri-proof.tech']
+        });
         outputDiv.textContent = 'Colibri client instantiated. Calling verifyProof...';
 
         // Call the verifyProof method

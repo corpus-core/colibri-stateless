@@ -30,9 +30,9 @@
 #include <ws2tcpip.h>
 #endif
 
-#include "prover.h"
 #include "../util/json.h"
 #include "../util/state.h"
+#include "prover.h"
 #include PROVERS_PATH
 #include "logger.h"
 #include <stdbool.h>
@@ -111,7 +111,7 @@ const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key) {
 
   // if we are running in the worker-thread, we don't access the global cache anymore
   if (ctx->flags & C4_PROVER_FLAG_UV_WORKER_REQUIRED) {
-    log_warn("[CACHEMISS] trying to access the global cache with cachekey %b, but we are running in the worker-thread. Make sure you tried to access in queue thread first!", bytes(key, 32));
+    //    log_warn("[CACHEMISS] trying to access the global cache with cachekey %b, but we are running in the worker-thread. Make sure you tried to access in queue thread first!", bytes(key, 32));
     return NULL;
   }
 
@@ -267,7 +267,7 @@ static cache_entry_t* find_global_cache_entry(bytes32_t key) {
   uint64_t key_start = *((uint64_t*) key); // optimize cache-loop by first checking the first word before doing a memcmp
   for (size_t i = 0; i < global_cache_array.count; ++i) {
     cache_entry_t* entry = &global_cache_array.entries[i];
-    if (CACHE_KEY_MATCH(entry, key, key_start)) return entry; // Return pointer to the entry in the array
+    if (CACHE_KEY_MATCH(entry, key, key_start) && entry->timestamp > 0) return entry; // Return pointer to the entry in the array
   }
   return NULL; // Not found
 }

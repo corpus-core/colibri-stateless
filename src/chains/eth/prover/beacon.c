@@ -27,6 +27,7 @@
 #include "json.h"
 #include "logger.h"
 #include "prover.h"
+#include "tx_cache.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,9 +36,9 @@
 static inline void create_cache_block_key(bytes32_t key, json_t block) {
   buffer_t buffer = {.allocated = -32, .data = {.data = key, .len = 0}};
   if (strncmp(block.start, "\"latest\"", 8) == 0)
-    sprintf((char*) key + 1, "%s", "latest");
+    sbprintf(((char*) key) + 1, "%s", "latest");
   else if (strncmp(block.start, "\"safe\"", 6) == 0 || strncmp(block.start, "\"finalized\"", 12) == 0) {
-    sprintf((char*) key, FINALITY_KEY);
+    sbprintf((char*) key, "%s", FINALITY_KEY);
     return;
   }
   else if (block.start[1] == '0' && block.start[2] == 'x') {
@@ -52,6 +53,9 @@ static beacon_head_t* c4_beacon_cache_get_slot(prover_ctx_t* ctx, json_t block) 
   bytes32_t key = {0};
   create_cache_block_key(key, block);
   beacon_head_t* cached = (beacon_head_t*) c4_prover_cache_get(ctx, key);
+  if (strncmp(block.start, "\"latest\"", 8) == 0 && !cached) {
+    log_warn("Slatest block not found in cache, but it is requested! This should not happen!");
+  }
   if (cached && strncmp(block.start, "\"finalized\"", 12) == 0) return cached + 1;
   return cached;
 }
@@ -67,6 +71,25 @@ static bool c4_beacon_cache_get_blockdata(prover_ctx_t* ctx, bytes32_t block_roo
   return false;
 }
 
+c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number) {
+  beacon_block_t block    = {0};
+  uint8_t        tmp[100] = {0};
+  buffer_t       buf      = stack_buffer(tmp);
+  bytes32_t      key      = {0};
+
+  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse(bprintf(&buf, "\"0x%lx\"", latest_block_number)), &block));
+
+  beacon_head_t head = {.slot = block.slot};
+  memcpy(head.root, block.data_block_root, 32);
+  bytes_t slot_data = bytes(&head, sizeof(beacon_head_t));
+  log_info("Setting latest block %l (0x%lx) in cache", latest_block_number, latest_block_number);
+
+  memcpy(key, "Slatest", 7);
+  c4_prover_cache_invalidate(key);                                                      // invalidate oldkey
+  c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, 20000, free); // set the new key
+  return C4_SUCCESS;
+}
+
 void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root) {
   bytes32_t key = {0};
   *key          = 'B';
@@ -74,8 +97,8 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   memcpy(key + 1, block_root + 1, 31);
 
   // cache the block
-  size_t full_size = sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
-  uint8_t* cached  = safe_malloc(full_size);
+  size_t   full_size = sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
+  uint8_t* cached    = safe_malloc(full_size);
   memcpy(cached, beacon_block, sizeof(beacon_block_t));
   memcpy(cached + sizeof(beacon_block_t), beacon_block->header.bytes.data, beacon_block->header.bytes.len);
   memcpy(cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len, beacon_block->sync_aggregate.bytes.data, beacon_block->sync_aggregate.bytes.len);
@@ -94,32 +117,47 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   memset(key, 0, 32);
   *key = 'S';
   if (latest_timestamp) {
-    sprintf((char*) key, "%s", "Slatest");
+    sbprintf((char*) key, "%s", "Slatest");
+    /*:: [ $COUNT of $ALL ] $service_to_build
     uint64_t now_unix_ms                  = current_unix_ms(); // Use Unix epoch time
     uint64_t block_interval_ms            = 12000;
     uint64_t buffer_ms                    = 2000; // buffer to make sure the block is actually available.
     uint64_t predicted_next_block_unix_ms = (latest_timestamp * 1000) + block_interval_ms + buffer_ms;
-
-    uint64_t duration_ms = 1; // Default to minimum TTL
-    if (predicted_next_block_unix_ms > now_unix_ms)
-      duration_ms = predicted_next_block_unix_ms - now_unix_ms;
-    else
-      // Block prediction is already in the past or now, maybe the buffer wasn't enough
-      // or clocks are skewed. Set a very short duration.
-      log_warn("Predictive TTL calculation resulted in past time for Slatest (Block Ts: %l, Now: %l). Setting minimal TTL.", latest_timestamp, now_unix_ms / 1000);
+*/
+    uint64_t duration_ms = 20000; // Default to minimum TTL
+                                  //    if (predicted_next_block_unix_ms > now_unix_ms)
+                                  //      duration_ms = predicted_next_block_unix_ms - now_unix_ms;
+    //    else
+    // Block prediction is already in the past or now, maybe the buffer wasn't enough
+    // or clocks are skewed. Set a very short duration.
+    //      log_warn("Predictive TTL calculation resulted in past time for Slatest (Block Ts: %l, Now: %l). Setting minimal TTL.", latest_timestamp, now_unix_ms / 1000);
+    c4_prover_cache_invalidate(key); // invalidate oldkey
     c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, duration_ms, free);
   }
   *key = 'S';
   memcpy(key + 1, ssz_get(&beacon_block->execution, "blockHash").bytes.data + 1, 31);
   c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, ttl, free); // keep it for 1 day
   memset(key + 1, 0, 31);
-  uint8_t* block_number_src     = ssz_get(&beacon_block->execution, "blockNumber").bytes.data;
+  ssz_ob_t block_number_ob      = ssz_get(&beacon_block->execution, "blockNumber");
+  uint8_t* block_number_src     = block_number_ob.bytes.data;
   uint8_t  block_number_data[8] = {0};
   for (int i = 0; i < 8; i++)
     block_number_data[7 - i] = block_number_src[i];
   bytes_t block_number = bytes_remove_leading_zeros(bytes(block_number_data, 8));
   memcpy(key + 1, block_number.data, block_number.len);
   c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, ttl, free); // keep it for 1 day
+
+  // cache the transactions in the tx cache.
+  ssz_ob_t  txs              = ssz_get(&beacon_block->execution, "transactions");
+  uint32_t  len              = ssz_len(txs);
+  bytes32_t tx_hash          = {0};
+  uint64_t  block_number_val = ssz_uint64(block_number_ob);
+  // Reserve once for batch insertion to avoid per-insert cleanup
+  c4_eth_tx_cache_reserve(len);
+  for (uint32_t i = 0; i < len; i++) {
+    keccak(ssz_at(txs, i).bytes, tx_hash);
+    c4_eth_tx_cache_set(tx_hash, block_number_val, i);
+  }
 }
 
 #endif
@@ -271,8 +309,11 @@ static inline c4_status_t eth_get_by_number(prover_ctx_t* ctx, uint64_t block_nu
   json_t header    = {0};
 
   // if we have the blocknumber, we fetch the next block, since we know this is the signing block
-  sprintf(tmp, "\"0x%" PRIx64 "\"", block_number + 1);
+  sbprintf(tmp, "\"0x%lx\"", block_number + 1);
   TRY_ASYNC(eth_get_block(ctx, (json_t) {.start = tmp, .len = strlen(tmp), .type = JSON_TYPE_STRING}, false, &eth_block));
+
+  if (eth_block.type == JSON_TYPE_NOT_FOUND || eth_block.type == JSON_TYPE_NULL)
+    THROW_ERROR_WITH("The Block after %l, which should contain the parentBeaconBlockRoot for the data block can not be found in the execution layer!", block_number);
 
   // get the beacon block matching the parent hash
   return get_beacon_header_from_eth_block(ctx, eth_block, &header, sig_root, data_root);
@@ -304,7 +345,7 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
 
 #ifdef PROVER_CACHE
   bytes32_t key = {0};
-  sprintf((char*) key, FINALITY_KEY);
+  sbprintf((char*) key, "%s", FINALITY_KEY);
   c4_prover_cache_set(ctx, key, bytes_dup(bytes(hashes, sizeof(hashes))).data, sizeof(hashes), 1000 * 60 * 7, free); // 6 min
 #endif
   memcpy(hash, hashes[safe ? 0 : 1].root, 32);
@@ -315,7 +356,7 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx) {
   bytes32_t     key  = {0};
   beacon_head_t hash = {0};
-  sprintf((char*) key, FINALITY_KEY);
+  sbprintf((char*) key, "%s", FINALITY_KEY);
   c4_prover_cache_invalidate(key);
   return eth_get_final_hash(ctx, false, &hash);
 }
@@ -341,7 +382,7 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
   else if (block.type == JSON_TYPE_STRING && block.len > 4 && block.start[1] == '0' && block.start[2] == 'x') // blocknumber
     TRY_ASYNC(eth_get_by_number(ctx, json_as_uint64(block), sig_root, data_root));
   else
-    THROW_ERROR("Invalid block!");
+    THROW_ERROR_WITH("Invalid block: %J", block);
 
   return C4_SUCCESS;
 }

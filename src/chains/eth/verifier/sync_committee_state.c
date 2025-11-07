@@ -91,7 +91,7 @@ static inline uint32_t period_count(c4_chain_state_t* state) {
  * @param data Serialized state data
  * @return Deserialized chain state, or empty state if invalid
  */
-static c4_chain_state_t state_deserialize(bytes_t data) {
+c4_chain_state_t c4_state_deserialize(bytes_t data) {
   c4_chain_state_t state = {0};
   if (data.len == 0) return state;
   c4_state_sync_type_t status = (c4_state_sync_type_t) data.data[0];
@@ -115,17 +115,6 @@ static c4_chain_state_t state_deserialize(bytes_t data) {
   return state;
 }
 
-uint32_t c4_eth_get_oldest_period(bytes_t state) {
-  c4_chain_state_t chain_state = state_deserialize(state);
-  if (chain_state.status != C4_STATE_SYNC_PERIODS) return 0;
-  uint32_t oldest_period = 0;
-  for (int i = 0; i < MAX_SYNC_PERIODS; i++) {
-    if (chain_state.data.periods[i] == 0) break;
-    if (!oldest_period || chain_state.data.periods[i] < oldest_period) oldest_period = chain_state.data.periods[i];
-  }
-  return oldest_period;
-}
-
 INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
   c4_chain_state_t state = {0};
   char             name[100];
@@ -140,13 +129,13 @@ INTERNAL c4_chain_state_t c4_get_chain_state(chain_id_t chain_id) {
 
   c4_get_storage_config(&storage_conf);
 
-  sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
 #ifndef C4_STATIC_MEMORY
   tmp.allocated = MAX_STATES_SIZE;
 #endif
 
   if (storage_conf.get(name, &tmp) && tmp.data.data)
-    state = state_deserialize(tmp.data);
+    state = c4_state_deserialize(tmp.data);
 
 #ifndef C4_STATIC_MEMORY
   buffer_free(&tmp);
@@ -176,7 +165,7 @@ INTERNAL void c4_set_chain_state(chain_id_t chain_id, c4_chain_state_t* state) {
     default:
       break;
   }
-  sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
   storage_conf.set(name, bytes);
 }
 
@@ -215,7 +204,15 @@ static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count
   return false;
 }
 
-static bool req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
+#ifdef USE_CHECKPOINTZ
+/**
+ * Request checkpoint status from checkpointz (beacon node).
+ * Used during bootstrap to fetch the current finalized checkpoint when no initial checkpoint is provided.
+ *
+ * ⚠️ This function requires HTTP access to a beacon node and is disabled when USE_CHECKPOINTZ=OFF.
+ * For embedded devices without HTTP, an initial checkpoint must be provided in the configuration.
+ */
+bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
   buffer_t tmp = {0};
   bprintf(&tmp, "eth/v1/beacon/states/head/finality_checkpoints");
 
@@ -255,6 +252,19 @@ static bool req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint6
   c4_state_add_request(state, new_req);
   return false;
 }
+#else
+/**
+ * Stub for req_checkpointz_status when USE_CHECKPOINTZ is disabled.
+ * Returns an error indicating that an initial checkpoint must be provided in the configuration.
+ */
+bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root) {
+  (void) chain_id;
+  (void) checkpoint_epoch;
+  (void) checkpoint_root;
+  c4_state_add_error(state, "Checkpointz disabled (USE_CHECKPOINTZ=OFF). Initial checkpoint must be provided in configuration for bootstrap.");
+  return false;
+}
+#endif // USE_CHECKPOINTZ
 
 static bool req_bootstrap(c4_state_t* state, bytes32_t block_root, chain_id_t chain_id, bytes_t* data) {
   buffer_t tmp = {0};
@@ -281,7 +291,7 @@ static bool req_bootstrap(c4_state_t* state, bytes32_t block_root, chain_id_t ch
   return false;
 }
 
-static c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes32_t trusted_checkpoint) {
+c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes32_t trusted_checkpoint) {
   // Parse bootstrap data as SSZ
   fork_id_t        fork                  = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
   const ssz_def_t* bootstrap_def_list    = (fork <= C4_FORK_DENEB) ? DENEP_LIGHT_CLIENT_BOOTSTRAP : ELECTRA_LIGHT_CLIENT_BOOTSTRAP;
@@ -377,7 +387,7 @@ static uint32_t cleanup_old_periods(c4_chain_state_t* state, chain_id_t chain_id
     }
 
     // Delete from storage and remove from periods array
-    sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, oldest);
+    sbprintf(name, "sync_%l_%d", (uint64_t) chain_id, oldest);
     storage_conf.del(name);
     if (oldest_index < periods - 1)
       memmove(state->data.periods + oldest_index, state->data.periods + oldest_index + 1, (periods - oldest_index - 1) * sizeof(uint32_t));
@@ -402,7 +412,7 @@ static bool store_sync_period(uint32_t period, bytes_t validators, bytes32_t pre
   c4_get_storage_config(&storage_conf);
   char name[100];
 
-  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, period);
+  sbprintf(name, "sync_%l_%d", (uint64_t) chain_id, period);
 
 #ifdef C4_STATIC_MEMORY
   // Use static buffer on embedded devices
@@ -471,7 +481,7 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
     case C4_STATE_SYNC_EMPTY:
 
       // No state exists - fetch checkpoint from checkpointz server
-      if (req_checkpointz_status(state, ctx->chain_id, &checkpoint_epoch, checkpoint_root)) {
+      if (c4_req_checkpointz_status(state, ctx->chain_id, &checkpoint_epoch, checkpoint_root)) {
         // Set the checkpoint as trusted blockhash
         c4_eth_set_trusted_checkpoint(ctx->chain_id, checkpoint_root);
         // Recursively call init_sync_state to process the bootstrap with the new trusted checkpoint
@@ -527,7 +537,7 @@ static c4_sync_validators_t get_validators_from_cache(verify_ctx_t* ctx, uint32_
   char name[100];
   bool found = false;
   c4_get_storage_config(&storage_conf);
-  sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) ctx->chain_id, period);
+  sbprintf(name, "sync_%l_%d", (uint64_t) ctx->chain_id, period);
 
   for (uint32_t i = 0; chain_state.status == C4_STATE_SYNC_PERIODS && i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++) {
     uint32_t p = chain_state.data.periods[i];
@@ -593,16 +603,17 @@ static void clear_sync_state(chain_id_t chain_id) {
   for (uint32_t i = 0; chain_state.status == C4_STATE_SYNC_PERIODS && i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++) {
     uint32_t p = chain_state.data.periods[i];
     char     name[100];
-    sprintf(name, "sync_%" PRIu64 "_%d", (uint64_t) chain_id, p);
+    sbprintf(name, "sync_%l_%d", (uint64_t) chain_id, p);
     storage_conf.del(name);
   }
 
   // Delete chain state
   char name[100];
-  sprintf(name, "states_%" PRIu64, (uint64_t) chain_id);
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
   storage_conf.del(name);
 }
 
+#ifdef USE_CHECKPOINTZ
 /**
  * Find the most recent finalized checkpoint from verified light client updates.
  * Iterates through all cached light_client/updates requests to find the highest finalized slot.
@@ -619,19 +630,19 @@ static uint64_t find_last_verified_finality_checkpoint(verify_ctx_t* ctx, bytes3
     if (req->type == C4_DATA_TYPE_BEACON_API && strncmp(req->url, "eth/v1/beacon/light_client/updates", 34) == 0 && req->response.data && req->response.len > 0 && req->encoding == C4_DATA_ENCODING_SSZ) {
       bytes_t  client_updates = req->response;
       uint64_t length         = 0;
-      for (uint32_t pos = 0; pos + MIN_UPDATE_SIZE < client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
+      for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
         uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
         uint32_t data_length_offset = SSZ_OFFSET_SIZE;
         length                      = uint64_from_le(client_updates.data + pos);
 
-        if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > MIN_UPDATE_SIZE) break;
+        if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > UPDATE_PREFIX_SIZE) break;
 
         bytes_t          client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
         fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
-        const ssz_def_t* client_update_list  = eth_get_light_client_update_list(fork);
-        if (!client_update_list) break;
+        const ssz_def_t* client_update_def   = eth_get_light_client_update(fork);
+        if (!client_update_def) break;
 
-        ssz_ob_t update    = {.bytes = client_update_bytes, .def = client_update_list->def.vector.type};
+        ssz_ob_t update    = {.bytes = client_update_bytes, .def = client_update_def};
         ssz_ob_t finalized = ssz_get(&update, "finalizedHeader");
         ssz_ob_t header    = ssz_get(&finalized, "beacon");
         uint64_t slot      = ssz_get_uint64(&header, "slot");
@@ -647,6 +658,45 @@ static uint64_t find_last_verified_finality_checkpoint(verify_ctx_t* ctx, bytes3
   return finalized_slot;
 }
 
+/**
+ * Weak Subjectivity Period (WSP) Validation
+ *
+ * This function protects against long-range attacks when a client syncs after being offline
+ * for longer than the weak subjectivity period (typically ~2 weeks / 256 epochs).
+ *
+ * ## Security Model
+ *
+ * Without this check, an attacker with majority stake could create an alternative chain history
+ * and convince the client to follow it. This is possible because:
+ * 1. After the WSP, the attacker's validators have exited and can no longer be slashed
+ * 2. The attacker can create a fake chain with fabricated signatures
+ * 3. A light client cannot detect this without an external checkpoint
+ *
+ * ## Implementation
+ *
+ * When a sync gap exceeds the WSP, this function:
+ * 1. Finds the last verified finalized checkpoint from cached light client updates
+ * 2. Queries checkpointz (external beacon node) for the block root at that slot
+ * 3. Verifies that both roots match, confirming we're on the canonical chain
+ *
+ * ## When to Disable (USE_CHECKPOINTZ=OFF)
+ *
+ * Disabling checkpointz (which disables this function AND bootstrap checkpoint fetching) is acceptable when:
+ * - Device has no HTTP access (e.g., Bluetooth-only embedded devices)
+ * - Protected value is small relative to attack cost
+ * - Application can tolerate the increased risk
+ * - Initial checkpoint is provided manually in configuration
+ *
+ * ⚠️ WARNING: Disabling increases long-range attack risk during extended offline periods!
+ *
+ * For detailed security analysis, see:
+ * https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf
+ *
+ * @param ctx Verification context
+ * @param sync_state Current sync committee state
+ * @param target_period Target period to sync to
+ * @return C4_SUCCESS if validation passes, C4_ERROR if checkpoint mismatch, C4_PENDING if waiting for checkpointz response
+ */
 static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validators_t* sync_state, uint32_t target_period) {
   const chain_spec_t* spec                                   = c4_eth_get_chain_spec(ctx->chain_id);
   bytes32_t           last_verified_finality_checkpoint_root = {0};
@@ -692,12 +742,24 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
     // Parse JSON response: {"data":{"root":"0x..."}}
     json_t res = json_parse((char*) req->response.data);
 
-    // Validate JSON structure
-    const char* err = json_validate(res, "{data:{root:bytes32}}", "checkpointz block root");
-    if (err) return c4_state_add_error(&ctx->state, err);
-
     json_t data = json_get(res, "data");
     json_t root = json_get(data, "root");
+
+    // Lightweight validation: just check the root token directly
+    // This saves ~2 KB by avoiding json_validate
+    if (!data.start || data.type != JSON_TYPE_OBJECT)
+      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'data' object");
+
+    if (!root.start || root.type != JSON_TYPE_STRING)
+      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'root' field");
+
+    // Check if root starts with "0x prefix (including opening quote)
+    if (root.len < 4 || strncmp(root.start, "\"0x", 3) != 0)
+      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: root must start with 0x prefix");
+
+    // Check if root has correct length for a hex string: "0x" + 64 hex chars = 66 chars (without quotes)
+    if (root.len != 68) // includes opening and closing quotes
+      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: root must be 66 hex characters (with 0x prefix)");
 
     bytes32_t checkpointz_root = {0};
     buffer_t  root_buf         = {.data = bytes(checkpointz_root, 32), .allocated = -32};
@@ -713,6 +775,7 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
 
   return C4_PENDING;
 }
+#endif // USE_CHECKPOINTZ
 
 /**
  * Pragmatic fallback to sync a period using the next period's previous_pubkeys_hash.
@@ -785,20 +848,20 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
   bytes32_t computed_root       = {0};
   if (req_client_update(&ctx->state, period, 1, ctx->chain_id, &light_client_update)) {
     // Parse the SSZ-encoded update
-    fork_id_t        fork               = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update);
-    const ssz_def_t* client_update_list = eth_get_light_client_update_list(fork);
+    fork_id_t        fork              = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update);
+    const ssz_def_t* client_update_def = eth_get_light_client_update(fork);
 
-    if (!client_update_list || light_client_update.len < MIN_UPDATE_SIZE)
+    if (!client_update_def || light_client_update.len < UPDATE_PREFIX_SIZE)
       THROW_ERROR("Invalid light client update format in edge case sync");
 
     // Navigate to the first update in the list
     uint32_t offset = uint32_from_le(light_client_update.data);
-    if (offset + MIN_UPDATE_SIZE > light_client_update.len)
+    if (offset + UPDATE_PREFIX_SIZE > light_client_update.len)
       THROW_ERROR("Invalid offset in light client update list");
 
     uint64_t length                    = uint64_from_le(light_client_update.data + offset);
-    bytes_t  light_client_update_bytes = bytes(light_client_update.data + offset + MIN_UPDATE_SIZE, length - SSZ_OFFSET_SIZE);
-    ssz_ob_t update_ob                 = {.bytes = light_client_update_bytes, .def = client_update_list->def.vector.type};
+    bytes_t  light_client_update_bytes = bytes(light_client_update.data + offset + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE);
+    ssz_ob_t update_ob                 = {.bytes = light_client_update_bytes, .def = client_update_def};
 
     // Step 4: Extract nextSyncCommittee from the update (this is period N+1's committee in period N's update)
     ssz_ob_t next_sync_committee = ssz_get(&update_ob, "nextSyncCommittee");
@@ -882,7 +945,9 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
 
     // Check weak subjectivity period BEFORE loading new sync state
     // If this fails, clear_sync_state() is called inside to force re-initialization
+#ifdef USE_CHECKPOINTZ
     TRY_ASYNC(c4_check_weak_subjectivity(ctx, &sync_state, period));
+#endif
 
     // Load new sync state after successful WSP check
     sync_state = get_validators_from_cache(ctx, period);

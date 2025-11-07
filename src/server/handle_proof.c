@@ -66,6 +66,7 @@ static void prover_request_free(request_t* req) {
   if (req->start_time)
     c4_metrics_add_request(C4_DATA_TYPE_INTERN, ctx->method, ctx->state.error ? strlen(ctx->state.error) : ctx->proof.len, current_ms() - req->start_time, ctx->state.error == NULL, false);
   c4_prover_free((prover_ctx_t*) req->ctx);
+  // NOTE: We do NOT free req->requests here - that's handled elsewhere
   safe_free(req);
 }
 static bool c4_check_worker_request(request_t* req) {
@@ -149,17 +150,19 @@ bool c4_handle_proof_request(client_t* client) {
     c4_write_error_response(client, 400, "Invalid request");
     return true;
   }
-  buffer_t      client_state_buf = {0};
-  char*         method_str       = bprintf(NULL, "%j", method);
-  char*         params_str       = bprintf(NULL, "%J", params);
-  request_t*    req              = (request_t*) safe_calloc(1, sizeof(request_t));
-  prover_ctx_t* ctx              = c4_prover_create(method_str, params_str, (chain_id_t) http_server.chain_id, C4_PROVER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0));
-  req->start_time                = current_ms();
-  req->client                    = client;
-  req->cb                        = c4_prover_handle_request;
-  req->ctx                       = ctx;
+  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0);
+  buffer_t       client_state_buf = {0};
+  char*          method_str       = bprintf(NULL, "%j", method);
+  char*          params_str       = bprintf(NULL, "%J", params);
+  request_t*     req              = (request_t*) safe_calloc(1, sizeof(request_t));
+  prover_ctx_t*  ctx              = c4_prover_create(method_str, params_str, (chain_id_t) http_server.chain_id, flags);
+  req->start_time                 = current_ms();
+  req->client                     = client;
+  req->cb                         = c4_prover_handle_request;
+  req->ctx                        = ctx;
   if (include_code.type == JSON_TYPE_BOOLEAN && include_code.start[0] == 't') ctx->flags |= C4_PROVER_FLAG_INCLUDE_CODE;
-  if (client_state.type == JSON_TYPE_STRING) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
+  if (client_state.type == JSON_TYPE_STRING && client_state.len > 4) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
+  if (ctx->client_state.len > 4) ctx->flags |= C4_PROVER_FLAG_INCLUDE_SYNC;
   if (!bytes_all_zero(bytes(http_server.witness_key, 32))) ctx->witness_key = bytes(http_server.witness_key, 32);
 
   safe_free(method_str);

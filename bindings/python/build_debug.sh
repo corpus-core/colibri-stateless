@@ -13,6 +13,45 @@ echo "   Project root: $PROJECT_ROOT"
 echo "   Build dir: $BUILD_DIR"
 echo "   Bindings dir: $BINDINGS_DIR"
 
+# Check for pybind11 before building
+PYTHON=${PYTHON:-python3}
+echo "🐍 Checking Python and pybind11..."
+
+if ! command -v "$PYTHON" &> /dev/null; then
+    echo "❌ Python executable '$PYTHON' not found"
+    exit 1
+fi
+
+if ! $PYTHON -c "import pybind11" &> /dev/null; then
+    echo "⚠️ pybind11 not found, attempting to install..."
+    
+    # Try different installation methods
+    if $PYTHON -m pip install pybind11 &> /dev/null; then
+        echo "✅ Installed pybind11 via pip"
+    elif $PYTHON -m pip install --user pybind11 &> /dev/null; then
+        echo "✅ Installed pybind11 via pip --user"
+    elif [[ "$(uname)" == "Darwin" ]] && command -v brew &> /dev/null; then
+        echo "🍺 Attempting to install pybind11 via Homebrew..."
+        if brew install pybind11 &> /dev/null; then
+            echo "✅ Installed pybind11 via Homebrew"
+        fi
+    fi
+    
+    # Verify installation
+    if ! $PYTHON -c "import pybind11" &> /dev/null; then
+        echo "❌ Failed to install pybind11"
+        echo ""
+        echo "Please install pybind11 manually using one of these methods:"
+        echo "  1. Using Homebrew (macOS):     brew install pybind11"
+        echo "  2. Using pip with --user:      $PYTHON -m pip install --user pybind11"
+        echo "  3. Using virtual environment:  python3 -m venv venv && source venv/bin/activate && pip install pybind11"
+        exit 1
+    fi
+fi
+
+PYBIND11_VERSION=$($PYTHON -c "import pybind11; print(pybind11.__version__)")
+echo "✅ Using pybind11 $PYBIND11_VERSION"
+
 # Clean previous build
 echo "🧹 Cleaning previous build..."
 rm -rf "$BUILD_DIR"

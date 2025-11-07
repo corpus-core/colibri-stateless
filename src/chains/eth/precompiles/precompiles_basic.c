@@ -55,32 +55,31 @@ static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas
 
   keccak(bytes(pubkey, 64), sig);
   memset(sig, 0, 12);
-  output->data.len = 0;
+  buffer_reset(output);
   buffer_append(output, bytes(sig, 32));
   *gas_used = 3000;
   return PRE_SUCCESS;
 }
 
 static pre_result_t pre_sha256(bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  output->data.len = 0;
-  buffer_grow(output, 32);
+  buffer_reset(output);
+  buffer_append(output, bytes(NULL, 32));
   sha256(input, output->data.data);
   *gas_used = 60 + 12 * data_word_size(input.len);
   return PRE_SUCCESS;
 }
 #ifdef PRECOMPILED_RIPEMD160
 static pre_result_t pre_ripemd160(bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  output->data.len = 0;
-  buffer_grow(output, 20);
+  buffer_reset(output);
+  buffer_append(output, bytes(NULL, 20));
   ripemd160(input.data, input.len, output->data.data);
   *gas_used = 600 + 120 * data_word_size(input.len);
   return PRE_SUCCESS;
 }
 #endif
 static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  output->data.len = 0;
-  buffer_grow(output, input.len);
-  memcpy(output->data.data, input.data, input.len);
+  buffer_reset(output);
+  buffer_append(output, input);
   *gas_used = 15 + 3 * data_word_size(input.len);
   return PRE_SUCCESS;
 }

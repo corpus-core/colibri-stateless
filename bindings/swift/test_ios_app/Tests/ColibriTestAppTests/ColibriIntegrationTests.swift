@@ -7,7 +7,6 @@
  */
 
 import XCTest
-@testable import ColibriTestApp
 import Colibri
 
 final class ColibriIntegrationTests: XCTestCase {

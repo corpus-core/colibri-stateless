@@ -24,6 +24,24 @@
 #ifndef C4_LOGGER_H
 #define C4_LOGGER_H
 
+#include "state.h"
+
+#define RED(txt)            "\x1b[31m" txt "\x1b[0m"
+#define GREEN(txt)          "\x1b[32m" txt "\x1b[0m"
+#define YELLOW(txt)         "\x1b[33m" txt "\x1b[0m"
+#define BLUE(txt)           "\x1b[34m" txt "\x1b[0m"
+#define MAGENTA(txt)        "\x1b[35m" txt "\x1b[0m"
+#define CYAN(txt)           "\x1b[36m" txt "\x1b[0m"
+#define GRAY(txt)           "\x1b[90m" txt "\x1b[0m"
+#define BOLD(txt)           "\x1b[1m" txt "\x1b[0m"
+#define UNDERLINE(txt)      "\x1b[4m" txt "\x1b[0m"
+#define BRIGHT_RED(txt)     "\x1b[91m" txt "\x1b[0m"
+#define BRIGHT_GREEN(txt)   "\x1b[92m" txt "\x1b[0m"
+#define BRIGHT_YELLOW(txt)  "\x1b[93m" txt "\x1b[0m"
+#define BRIGHT_BLUE(txt)    "\x1b[94m" txt "\x1b[0m"
+#define BRIGHT_MAGENTA(txt) "\x1b[95m" txt "\x1b[0m"
+#define BRIGHT_CYAN(txt)    "\x1b[96m" txt "\x1b[0m"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -41,35 +59,46 @@ typedef enum {
 void        c4_set_log_level(log_level_t level);
 log_level_t c4_get_log_level();
 
-#define _log(prefix, fmt, ...)                                  \
-  {                                                             \
-    buffer_t buf = {0};                                         \
-    bprintf(&buf, fmt, ##__VA_ARGS__);                          \
-    fprintf(stderr, "%s\033[0m\033[32m %s:%d\033[0m %s\n",      \
-            prefix, __func__, __LINE__, (char*) buf.data.data); \
-    buffer_free(&buf);                                          \
+#define _log_with_line(prefix, fmt, ...)                    \
+  {                                                         \
+    buffer_t log_buf = {0};                                 \
+    bprintf(&log_buf, "%s\033[0m" GRAY(" %s:%d "),          \
+            prefix, __func__, __LINE__);                    \
+    bprintf(&log_buf, fmt, ##__VA_ARGS__);                  \
+    buffer_add_chars(&log_buf, "\n");                       \
+    fwrite(log_buf.data.data, 1, log_buf.data.len, stderr); \
+    buffer_free(&log_buf);                                  \
   }
-#define log_error(fmt, ...)                                                \
+#define _log(prefix, fmt, ...)                              \
+  {                                                         \
+    buffer_t log_buf = {0};                                 \
+    bprintf(&log_buf, "%s\033[0m ", prefix);                \
+    bprintf(&log_buf, fmt, ##__VA_ARGS__);                  \
+    buffer_add_chars(&log_buf, "\n");                       \
+    fwrite(log_buf.data.data, 1, log_buf.data.len, stderr); \
+    buffer_free(&log_buf);                                  \
+  }
+#define log_error(fmt, ...)                                                          \
+  do {                                                                               \
+    if (c4_get_log_level() >= 1) _log_with_line("\033[31mERROR", fmt, ##__VA_ARGS__) \
+  } while (0)
+#define log_info(fmt, ...)                                                 \
   do {                                                                     \
-    if (c4_get_log_level() >= 1) _log("\033[31mERROR", fmt, ##__VA_ARGS__) \
+    if (c4_get_log_level() >= 2) _log("\033[90mINFO ", fmt, ##__VA_ARGS__) \
   } while (0)
-#define log_info(fmt, ...)                                        \
-  do {                                                            \
-    if (c4_get_log_level() >= 2) _log("INFO", fmt, ##__VA_ARGS__) \
-  } while (0)
-#define log_warn(fmt, ...)                                                \
-  do {                                                                    \
-    if (c4_get_log_level() >= 3) _log("\033[33mWARN", fmt, ##__VA_ARGS__) \
-  } while (0)
-#define log_debug(fmt, ...)                                                \
+#define log_warn(fmt, ...)                                                 \
   do {                                                                     \
-    if (c4_get_log_level() >= 4) _log("\033[33mDEBUG", fmt, ##__VA_ARGS__) \
+    if (c4_get_log_level() >= 3) _log("\033[33mWARN ", fmt, ##__VA_ARGS__) \
   } while (0)
-#define log_debug_full(fmt, ...)                                           \
-  do {                                                                     \
-    if (c4_get_log_level() >= 5) _log("\033[33mDEBUG", fmt, ##__VA_ARGS__) \
+#define log_debug(fmt, ...)                                                          \
+  do {                                                                               \
+    if (c4_get_log_level() >= 4) _log_with_line("\033[33mDEBUG", fmt, ##__VA_ARGS__) \
   } while (0)
-
+#define log_debug_full(fmt, ...)                                                     \
+  do {                                                                               \
+    if (c4_get_log_level() >= 5) _log_with_line("\033[33mDEBUG", fmt, ##__VA_ARGS__) \
+  } while (0)
+char* c4_req_info(data_request_type_t type, char* path, bytes_t payload);
 #ifdef __cplusplus
 }
 #endif

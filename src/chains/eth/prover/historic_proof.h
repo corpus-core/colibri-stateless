@@ -31,6 +31,7 @@ extern "C" {
 #include "beacon.h"
 #include "prover.h"
 #include "ssz.h"
+#include "sync_committee.h"
 
 typedef enum {
   HISTORIC_PROOF_NONE   = 0,
@@ -39,15 +40,46 @@ typedef enum {
 } historic_proof_type_t;
 
 typedef struct {
+  uint8_t*             checkpoint;        // if no ZERO, the checkpoint used by the verifier
+  uint64_t             checkpoint_period; // the period extracted from the bootstrap
+  uint64_t             required_period;   // latest_period  required
+  uint64_t             oldest_period;     // current period used by the the verifier
+  uint64_t             newest_period;     // current period used by the the verifier
+  c4_state_sync_type_t status;            // the status of the
+
+} syncdata_state_t;
+
+typedef struct {
   historic_proof_type_t type;
   ssz_ob_t              sync_aggregate;
   bytes_t               historic_proof;
   gindex_t              gindex;
   bytes_t               proof_header;
+  syncdata_state_t      sync;
 } blockroot_proof_t;
 
-c4_status_t c4_check_historic_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* block);
-void        ssz_add_blockroot_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof);
+/**
+ * checks whether additional data is needed in order to proof the blockroot.asm
+ *
+ * Additional data would be:
+ *
+ * - light_client_bootstrap, because the client is only having the checkpoint.asm
+ * - light_client_updates, because the client's last period is older than the required period
+ * - historic_proof, because the client's oldest period is still newer than the required period
+ * - header_proof, because the sync_committee did not reach the 2/3 majority and we need to add headers in between.
+ *
+ * This function only fetches the data and sets it in the blockroot_proof_t if needed.
+ *
+ * @brief Check the blockroot proof for the given block
+ * @param ctx The context of the prover
+ * @param block_proof The blockroot proof holding the state
+ * @param block The block to check the proof for
+ * @return The status of the check
+ */
+c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* block);
+
+c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder);
+void        ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof);
 void        c4_free_block_proof(blockroot_proof_t* block_proof);
 #ifdef __cplusplus
 }

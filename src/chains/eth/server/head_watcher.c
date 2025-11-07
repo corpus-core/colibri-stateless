@@ -12,6 +12,7 @@
 #include "server.h"
 #include "state.h"
 #include <curl/curl.h>
+#include <errno.h>
 #include <stddef.h> // For size_t needed by strnstr impl
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,6 +69,48 @@ void c4_test_set_beacon_watcher_url(const char* url) {
   }
   BEACON_WATCHER_URL = url ? strdup(url) : NULL;
 }
+
+// Test flag to disable reconnect (for file:// playback)
+static bool test_disable_reconnect = false;
+
+void c4_test_set_beacon_watcher_no_reconnect(bool disable) {
+  test_disable_reconnect = disable;
+}
+
+// Record SSE data to file when test_dir is set
+static FILE* test_sse_recording_file = NULL;
+
+static void c4_record_sse_data(const char* data, size_t len) {
+  if (!http_server.test_dir || !data || len == 0) return;
+
+  if (!test_sse_recording_file) {
+    // Create filename: TESTDATA_DIR/server/<test_dir>/beacon_events.sse
+    // Use absolute path from TESTDATA_DIR
+    char filename[512];
+    snprintf(filename, sizeof(filename), "%s/server/%s/beacon_events.sse",
+             TESTDATA_DIR, http_server.test_dir);
+
+    // Ensure directory exists
+    char mkdir_cmd[600];
+    snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s/server/%s",
+             TESTDATA_DIR, http_server.test_dir);
+    system(mkdir_cmd);
+
+    test_sse_recording_file = fopen(filename, "a");
+    if (test_sse_recording_file) {
+      log_info("[RECORD] SSE events -> %s", filename);
+    }
+    else {
+      log_error("[RECORD] Failed to open %s for writing (errno=%d)", filename, (uint32_t) errno);
+      perror("[RECORD] Error details");
+    }
+  }
+
+  if (test_sse_recording_file) {
+    fwrite(data, 1, len, test_sse_recording_file);
+    fflush(test_sse_recording_file);
+  }
+}
 #endif
 
 // Forward declarations
@@ -98,10 +141,14 @@ static CURLM* beacon_multi_handle = NULL;
 static uv_timer_t beacon_curl_timer;
 
 // Structure to hold socket context for libuv polling
-typedef struct {
-  uv_poll_t     poll_handle;
-  curl_socket_t sockfd;
+typedef struct beacon_curl_context_s {
+  uv_poll_t                     poll_handle;
+  curl_socket_t                 sockfd;
+  struct beacon_curl_context_s* next;
 } beacon_curl_context_t;
+
+// Track all active poll contexts for robust shutdown
+static beacon_curl_context_t* beacon_context_head = NULL;
 
 // --- Forward Declarations for new CURL/UV integration callbacks ---
 static int  beacon_timer_callback(CURLM* multi, long timeout_ms, void* userp);
@@ -111,6 +158,8 @@ static void beacon_curl_timeout_cb(uv_timer_t* handle);
 static void check_multi_info();
 static void free_curl_context(beacon_curl_context_t* context);
 static void destroy_poll_handle(uv_handle_t* handle);
+static void add_curl_context(beacon_curl_context_t* context);
+static void remove_curl_context(beacon_curl_context_t* context);
 
 // --- Callback Implementations ---
 
@@ -125,17 +174,14 @@ static void parse_sse_buffer() {
     char* event_end = strnstr(buf_data + processed_len, "\n\n", buf_len - processed_len);
     if (!event_end) event_end = strnstr(buf_data + processed_len, "\r\n\r\n", buf_len - processed_len);
     //    bytes_write(bytes(buf_data + processed_len, buf_len - processed_len), fopen("buf_data.txt", "w"), true);
-    if (!event_end) {
-      break; // No complete event found in the remaining buffer
-    }
-
-    size_t event_block_len   = (event_end - (buf_data + processed_len));
-    char*  event_block_start = buf_data + processed_len;
+    if (!event_end) break; // No complete event found in the remaining buffer
 
     // Process the event block line by line
-    char* current_line = event_block_start;
-    char* event_type   = NULL;
-    char* event_data   = NULL;
+    size_t event_block_len   = (event_end - (buf_data + processed_len));
+    char*  event_block_start = buf_data + processed_len;
+    char*  current_line      = event_block_start;
+    char*  event_type        = NULL;
+    char*  event_data        = NULL;
 
     while (current_line < event_end) {
       char* next_newline = strchr(current_line, '\n');
@@ -191,7 +237,20 @@ static size_t sse_write_callback(char* ptr, size_t size, size_t nmemb, void* use
   beacon_watcher_state_t* state      = (beacon_watcher_state_t*) userdata;
   size_t                  total_size = size * nmemb;
 
-  log_debug("Beacon watcher received %zu bytes", total_size);
+  log_debug("Beacon watcher received %d bytes", (int) total_size);
+
+  // Guard against writes after stop
+  if (!state || !state->is_running) {
+    log_warn("Beacon watcher write after stop (dropping %d bytes)", (int) total_size);
+    return total_size; // swallow bytes to avoid curl error
+  }
+
+#ifdef TEST
+  // Record SSE data when test_dir is set
+  if (http_server.test_dir) {
+    c4_record_sse_data(ptr, total_size);
+  }
+#endif
 
   // Append data to buffer
   if (!buffer_append(&state->buffer, bytes((uint8_t*) ptr, total_size))) {
@@ -212,6 +271,15 @@ static size_t sse_write_callback(char* ptr, size_t size, size_t nmemb, void* use
 // --- Timer Callbacks ---
 
 static void on_inactivity_timeout(uv_timer_t* handle) {
+#ifdef TEST
+  if (test_disable_reconnect) {
+    log_info("Inactivity timeout in test mode - stopping watcher (no reconnect)");
+    stop_beacon_watch();
+    watcher_state.is_running = false;
+    return;
+  }
+#endif
+
   log_warn("Beacon watcher inactivity timeout (%d ms)! Assuming connection lost.", INACTIVITY_TIMEOUT_MS);
   stop_beacon_watch();
   schedule_reconnect();
@@ -225,43 +293,31 @@ static void on_reconnect_timer(uv_timer_t* handle) {
 // --- User Handler ---
 
 static void handle_beacon_event(char* event, char* data) {
-  log_info("Beacon Event Received: Type='%s'", event);
-  if (strcmp(event, "head") == 0)
+  log_info("Beacon Event Received: Type: " YELLOW("%s"), event);
+  http_server.stats.beacon_events_total++;
+  if (strcmp(event, "head") == 0) {
+    http_server.stats.beacon_events_head++;
     c4_handle_new_head(json_parse(data));
-  else if (strcmp(event, "finalized_checkpoint") == 0)
+  }
+  else if (strcmp(event, "finalized_checkpoint") == 0) {
+    http_server.stats.beacon_events_finalized++;
     c4_handle_finalized_checkpoint(json_parse(data));
+  }
   else {
     log_warn("Unsupported Beacon Event Received: Type='%s'", event);
   }
-  // log_debug("Data: %s", data); // Can be very verbose
-
-  // --- !!! ---
-  // --- PLACEHOLDER: Add logic here ---
-  // Example: If event is "head", parse data JSON, get key, call invalidate
-  // if (strcmp(event, "head") == 0) {
-  //    // Parse JSON in 'data'
-  //    // Construct the 'Slatest' key
-  //    // bytes32_t slatest_key; ...
-  //    // c4_prover_cache_invalidate(slatest_key);
-  // }
-  // --- !!! ---
 }
-
-// --- New CURL/UV Integration Callbacks ---
 
 // Called by libcurl when it wants to change the timeout interval
 static int beacon_timer_callback(CURLM* multi, long timeout_ms, void* userp) {
-  if (timeout_ms < 0) {
-    // Stop the timer if timeout_ms is -1
+  if (timeout_ms < 0) // Stop the timer if timeout_ms is -1
     uv_timer_stop(&beacon_curl_timer);
-  }
-  else {
+  else
     // Start or restart the timer
     // If timeout_ms is 0, libcurl wants to act immediately. Use a minimal timer value (1ms)
     // to yield to the event loop and then call curl_multi_socket_action.
-    uint64_t delay = (timeout_ms == 0) ? 1 : (uint64_t) timeout_ms;
-    uv_timer_start(&beacon_curl_timer, beacon_curl_timeout_cb, delay, 0); // 0 repeat = one-shot
-  }
+    uv_timer_start(&beacon_curl_timer, beacon_curl_timeout_cb, (timeout_ms == 0) ? 1 : (uint64_t) timeout_ms, 0); // 0 repeat = one-shot
+
   return 0;
 }
 
@@ -269,23 +325,41 @@ static int beacon_timer_callback(CURLM* multi, long timeout_ms, void* userp) {
 static void beacon_curl_timeout_cb(uv_timer_t* handle) {
   int       running_handles;
   CURLMcode mc = curl_multi_socket_action(beacon_multi_handle, CURL_SOCKET_TIMEOUT, 0, &running_handles);
-  if (mc != CURLM_OK) {
-    log_error("beacon_curl_timeout_cb: curl_multi_socket_action error: %s", curl_multi_strerror(mc));
-  }
+  if (mc != CURLM_OK) log_error("beacon_curl_timeout_cb: curl_multi_socket_action error: %s", curl_multi_strerror(mc));
   check_multi_info(); // Check if the timeout caused the transfer to complete
+}
+
+// Add/remove context helpers
+static void add_curl_context(beacon_curl_context_t* context) {
+  if (!context) return;
+  context->next       = beacon_context_head;
+  beacon_context_head = context;
+}
+
+static void remove_curl_context(beacon_curl_context_t* context) {
+  if (!context) return;
+  beacon_curl_context_t** cur = &beacon_context_head;
+  while (*cur) {
+    if (*cur == context) {
+      *cur          = context->next;
+      context->next = NULL;
+      return;
+    }
+    cur = &((*cur)->next);
+  }
 }
 
 // Helper to safely close poll handle and free context
 static void destroy_poll_handle(uv_handle_t* handle) {
-  beacon_curl_context_t* context = (beacon_curl_context_t*) handle->data;
-  free_curl_context(context);
+  beacon_curl_context_t* ctx = (beacon_curl_context_t*) handle->data;
+  if (ctx) remove_curl_context(ctx);
+  free_curl_context(ctx);
 }
 
 // Helper to free context
 static void free_curl_context(beacon_curl_context_t* context) {
   if (context) {
-    // Ensure handle->data is NULL before free to prevent use-after-free in poll_cb
-    context->poll_handle.data = NULL;
+    context->poll_handle.data = NULL; // Ensure handle->data is NULL before free to prevent use-after-free in poll_cb
     safe_free(context);
   }
 }
@@ -295,6 +369,9 @@ static int beacon_socket_callback(CURL* easy, curl_socket_t s, int action, void*
   beacon_curl_context_t* context = (beacon_curl_context_t*) socketp;
   uv_loop_t*             loop    = uv_default_loop(); // Assuming default loop
 
+  // Ignore invalid sockets unless this is a REMOVE notification
+  if (s == CURL_SOCKET_BAD && action != CURL_POLL_REMOVE) return 0;
+
   switch (action) {
     case CURL_POLL_IN:
     case CURL_POLL_OUT:
@@ -303,10 +380,15 @@ static int beacon_socket_callback(CURL* easy, curl_socket_t s, int action, void*
         // Create new context if none exists for this socket
         context         = (beacon_curl_context_t*) safe_calloc(1, sizeof(beacon_curl_context_t));
         context->sockfd = s;
-        uv_poll_init_socket(loop, &context->poll_handle, s);
-        context->poll_handle.data = context; // Link context to handle data
-        // Assign the context back to libcurl via socketp
-        curl_multi_assign(beacon_multi_handle, s, (void*) context);
+        int rc          = uv_poll_init_socket(loop, &context->poll_handle, s);
+        if (rc != 0) {
+          log_error("uv_poll_init_socket failed for socket %d: %s", (int) s, uv_strerror(rc));
+          safe_free(context);
+          return -1; // signal error back to libcurl
+        }
+        context->poll_handle.data = context;                        // Link context to handle data
+        curl_multi_assign(beacon_multi_handle, s, (void*) context); // Assign the context back to libcurl via socketp
+        add_curl_context(context);
       }
 
       int events = 0;
@@ -319,17 +401,14 @@ static int beacon_socket_callback(CURL* easy, curl_socket_t s, int action, void*
 
     case CURL_POLL_REMOVE:
       if (context) {
-        // Stop polling and close the handle
-        uv_poll_stop(&context->poll_handle);
-        // Use uv_close for safe handle cleanup, free context in the callback
-        uv_close((uv_handle_t*) &context->poll_handle, destroy_poll_handle);
-        // Remove context association in libcurl
-        curl_multi_assign(beacon_multi_handle, s, NULL);
+        uv_poll_stop(&context->poll_handle);                                 // Stop polling and close the handle
+        remove_curl_context(context);                                        // Unlink from active list before close
+        uv_close((uv_handle_t*) &context->poll_handle, destroy_poll_handle); // Use uv_close for safe handle cleanup, free context in the callback
+        curl_multi_assign(beacon_multi_handle, s, NULL);                     // Remove context association in libcurl
       }
       break;
     default:
-      // Should not happen
-      break;
+      break; // Should not happen
   }
   return 0;
 }
@@ -337,14 +416,17 @@ static int beacon_socket_callback(CURL* easy, curl_socket_t s, int action, void*
 // Callback triggered by libuv when polled socket has events
 static void beacon_poll_cb(uv_poll_t* handle, int status, int events) {
   // Check if handle is still valid (might have been closed)
-  if (!handle || !handle->data) {
-    return;
-  }
+  if (!handle || !handle->data) return;
   beacon_curl_context_t* context = (beacon_curl_context_t*) handle->data;
 
   if (status < 0) {
-    log_error("beacon_poll_cb error: %s", uv_strerror(status));
-    // What to do here? Maybe trigger reconnect?
+    log_error("beacon_poll_cb error on fd %d: %s", (int) context->sockfd, uv_strerror(status));
+    // Stop and close the poll handle proactively to avoid polling an invalid fd
+    uv_poll_stop(&context->poll_handle);
+    // Clear libcurl's association for this socket to avoid stale pointers
+    curl_multi_assign(beacon_multi_handle, context->sockfd, NULL);
+    remove_curl_context(context); // Ensure it's unlinked from our list
+    uv_close((uv_handle_t*) &context->poll_handle, destroy_poll_handle);
     stop_beacon_watch();
     schedule_reconnect();
     return;
@@ -372,26 +454,22 @@ static void check_multi_info() {
   CURLMsg* msg;
   int      msgs_left;
   while ((msg = curl_multi_info_read(beacon_multi_handle, &msgs_left))) {
-    if (msg->msg == CURLMSG_DONE) {
-      CURL* easy = msg->easy_handle;
-      // Check if it's *our* watcher handle that finished
-      if (easy == watcher_state.easy_handle) {
-        CURLcode result = msg->data.result;
-        char*    error  = curl_easy_strerror(result);
-        if (watcher_state.error_buffer[0] != '\0')
-          log_warn("Beacon watcher  failed with %s", watcher_state.error_buffer);
+    if (msg->msg != CURLMSG_DONE || msg->easy_handle != watcher_state.easy_handle) continue;
+    // Check if it's *our* watcher handle that finished
+    if (watcher_state.error_buffer[0] != '\0')
+      log_warn("Beacon watcher  failed with %s", watcher_state.error_buffer);
 
-        log_warn("Beacon watcher connection finished/failed with result: %d (%s)",
-                 result, error);
+    log_warn("Beacon watcher connection finished/failed with result: %d (%s)",
+             msg->data.result, curl_easy_strerror(msg->data.result));
 
-        // Ensure handle is properly cleaned up (stop_beacon_watch does this)
-        stop_beacon_watch();
-        // Schedule a reconnect attempt
-        schedule_reconnect();
-      }
-      // Ignore completions of other handles if any were somehow added
-    }
+    stop_beacon_watch();  // Ensure handle is properly cleaned up (stop_beacon_watch does this)
+    schedule_reconnect(); // Schedule a reconnect attempt
   }
+}
+
+static char* join_paths(const char* path1, const char* path2) {
+  if (!path1 || !path2) return NULL;
+  return bprintf(NULL, "%s%s%s", path1, path1[strlen(path1) - 1] == '/' ? "" : "/", path2);
 }
 
 // --- Public Function ---
@@ -405,8 +483,8 @@ void c4_watch_beacon_events() {
       return;
     }
 
-    BEACON_WATCHER_URL = bprintf(NULL, "%seth/v1/events?topics=head,finalized_checkpoint", list->urls[0]);
-    list->client_types[0] |= BEACON_CLIENT_EVENT_SERVER;
+    BEACON_WATCHER_URL = join_paths(list->urls[0], "eth/v1/events?topics=head,finalized_checkpoint");
+    list->client_types[0] |= BEACON_CLIENT_EVENT_SERVER; // mark the first as Beacon Event Server
   }
   if (watcher_state.is_running) {
     log_warn("Beacon watcher already running.");
@@ -501,19 +579,11 @@ static void start_beacon_watch() {
   }
   watcher_state.headers_list = curl_slist_append(watcher_state.headers_list, ACCEPT_HEADER);
   watcher_state.headers_list = curl_slist_append(watcher_state.headers_list, CACHE_CONTROL_HEADER);
-  // Add Keep-Alive? Often default for HTTP/1.1, but can be explicit
-  watcher_state.headers_list = curl_slist_append(watcher_state.headers_list, "Connection: keep-alive");
+  watcher_state.headers_list = curl_slist_append(watcher_state.headers_list, "Connection: keep-alive"); // Add Keep-Alive? Often default for HTTP/1.1, but can be explicit
 
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_HTTPHEADER, watcher_state.headers_list);
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_TCP_KEEPALIVE, 1L);
-
-  // Follow redirects if necessary
-  curl_easy_setopt(watcher_state.easy_handle, CURLOPT_FOLLOWLOCATION, 1L);
-
-  // Consider adding verbose logging for debugging connection issues initially
-  // curl_easy_setopt(watcher_state.easy_handle, CURLOPT_VERBOSE, 1L);
-
-  // No specific CURL timeout, rely on the libuv inactivity timer
+  curl_easy_setopt(watcher_state.easy_handle, CURLOPT_FOLLOWLOCATION, 1L); // Follow redirects if necessary
 
   // Add the handle to the beacon multi stack
   CURLMcode mc = curl_multi_add_handle(beacon_multi_handle, watcher_state.easy_handle);
@@ -536,6 +606,13 @@ static void start_beacon_watch() {
   log_debug("Beacon watcher connection initiated and added to multi handle.");
 }
 
+// --- Test helpers ---
+#ifdef TEST
+bool c4_beacon_watcher_is_running(void) {
+  return watcher_state.is_running;
+}
+#endif
+
 static void stop_beacon_watch() {
   log_info("Stopping current beacon watch connection...");
   if (watcher_state.easy_handle) {
@@ -552,14 +629,31 @@ static void stop_beacon_watch() {
   }
   uv_timer_stop(&watcher_state.inactivity_timer);
   uv_timer_stop(&watcher_state.reconnect_timer); // Stop pending reconnect too
+  // Stop CURL timeout timer to avoid actions after stop
+  uv_timer_stop(&beacon_curl_timer);
+
+  // Proactively close any remaining poll contexts to avoid stale handles
+  while (beacon_context_head) {
+    beacon_curl_context_t* ctx = beacon_context_head;
+    beacon_context_head        = ctx->next; // unlink before closing
+    uv_poll_stop(&ctx->poll_handle);
+    uv_close((uv_handle_t*) &ctx->poll_handle, destroy_poll_handle);
+  }
 }
 
 static void schedule_reconnect() {
+#ifdef TEST
+  if (test_disable_reconnect) {
+    log_info("Reconnect disabled in test mode - stopping watcher");
+    watcher_state.is_running = false;
+    return;
+  }
+#endif
+
   log_info("Scheduling beacon watcher reconnect in %d ms", RECONNECT_DELAY_MS);
   uv_timer_start(&watcher_state.reconnect_timer, on_reconnect_timer, RECONNECT_DELAY_MS, 0);
 }
 
-// Optional: Add a function to call on server shutdown
 void c4_stop_beacon_watcher() {
   log_info("Shutting down beacon watcher.");
   stop_beacon_watch();

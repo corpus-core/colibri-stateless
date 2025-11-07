@@ -91,7 +91,7 @@ size_t ssz_fixed_length(const ssz_def_t* def) {
  * Prints error message and returns false.
  */
 static bool failure(const char* fnt) {
-  printf("Invalid %s\n", fnt);
+  fbprintf(stderr, "Invalid %s\n", fnt);
   return false;
 }
 
@@ -427,7 +427,10 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
         ctx->no_quotes = false;
         buffer_add_chars(buf, "[\n");
         for (int i = 0; i < ssz_len(ob); i++) {
-          dump(ctx, ssz_at(ob, i), false, intend + 2);
+          ssz_ob_t val = ssz_at(ob, i);
+          if (val.def && val.def->type == SSZ_TYPE_UNION) val = ssz_union(val);
+          if (!val.def || val.def->type == SSZ_TYPE_NONE) continue;
+          dump(ctx, val, false, intend + 2);
           if (i < ssz_len(ob) - 1) buffer_add_chars(buf, ",\n");
         }
         close_char = ']';

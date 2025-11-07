@@ -2,7 +2,7 @@ name: Release Creation
 
 on:
   workflow_run:
-    workflows: ["CMake on multiple platforms", "Bindings Pipeline"]
+    workflows: ["Main CI Pipeline"]
     types:
       - completed
     branches: [main, dev]
@@ -42,20 +42,13 @@ jobs:
           HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
           echo "Commit SHA: $HEAD_SHA"
 
-          # Check if both workflows have completed successfully for this SHA
-          echo "Checking CMake workflow..."
-          CMAKE_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/cmake.yml/runs?status=completed&head_sha=$HEAD_SHA")
+          # Check if Main CI Pipeline workflow has completed successfully for this SHA
+          echo "Checking Main CI Pipeline workflow..."
+          MAIN_CI_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/main-ci.yml/runs?status=completed&head_sha=$HEAD_SHA")
 
-          CMAKE_SUCCESS=$(echo "$CMAKE_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
-          echo "CMake successful runs: $CMAKE_SUCCESS"
-
-          echo "Checking Bindings workflow..."
-          BINDINGS_RUNS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/bindings.yml/runs?status=completed&head_sha=$HEAD_SHA")
-
-          BINDINGS_SUCCESS=$(echo "$BINDINGS_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
-          echo "Bindings successful runs: $BINDINGS_SUCCESS"
+          MAIN_CI_SUCCESS=$(echo "$MAIN_CI_RUNS" | jq '.workflow_runs | map(select(.conclusion == "success")) | length')
+          echo "Main CI Pipeline successful runs: $MAIN_CI_SUCCESS"
 
           # Check if this commit has any tags
           echo "Checking for tags..."
@@ -67,15 +60,14 @@ jobs:
           echo "Matching tags: $MATCHING_TAGS"
 
           # Make decision
-          if [[ "$CMAKE_SUCCESS" -gt 0 && "$BINDINGS_SUCCESS" -gt 0 && -n "$MATCHING_TAGS" ]]; then
-            # Both workflows succeeded and there's at least one tag - proceed with release
-            echo "Both workflows succeeded and tag found - should create release"
+          if [[ "$MAIN_CI_SUCCESS" -gt 0 && -n "$MATCHING_TAGS" ]]; then
+            # Main CI Pipeline succeeded and there's at least one tag - proceed with release
+            echo "Main CI Pipeline succeeded and tag found - should create release"
             echo "should_release=true" >> $GITHUB_OUTPUT
           else
             # Conditions not met - don't proceed
             echo "Not all conditions met for release:"
-            echo "- CMake success: $CMAKE_SUCCESS (need > 0)"
-            echo "- Bindings success: $BINDINGS_SUCCESS (need > 0)"
+            echo "- Main CI Pipeline success: $MAIN_CI_SUCCESS (need > 0)"
             echo "- Tags found: $MATCHING_TAGS"
             echo "should_release=false" >> $GITHUB_OUTPUT
           fi
@@ -147,245 +139,109 @@ jobs:
             echo "Found $ARTIFACT_COUNT artifacts: $ARTIFACT_NAMES"
           done
 
-      # Download CMake workflow artifacts - with correct commit SHA
-      - name: Download CMake Workflow Artifacts
-        id: download_cmake
+      # Download all artifacts from the Main CI Pipeline workflow
+      - name: Download All Artifacts from Main CI
         uses: dawidd6/action-download-artifact@v6
         with:
           github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: cmake.yml
+          workflow: main-ci.yml
           workflow_conclusion: success
           commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/cmake
-
-      # Check if we managed to download artifacts
-      - name: Verify Downloaded CMake Artifacts
-        run: |
-          echo "Checking for CMake artifacts..."
-          if [ -d "artifacts/cmake" ] && [ "$(find artifacts/cmake -type f | wc -l)" -gt 0 ]; then
-            echo "Listing downloaded CMake artifacts:"
-            find artifacts/cmake -type f | sort
-          else
-            echo "WARNING: No CMake artifacts were downloaded. Creating empty directory."
-            mkdir -p artifacts/cmake
-          fi
-
-      # Download bindings artifacts - start with Swift package
-      - name: Download Swift Package
-        id: download_swift
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: swift_package
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/swift_package
-
-      - name: Verify Swift Package
-        run: |
-          if [ -d "artifacts/swift_package" ] && [ "$(find artifacts/swift_package -type f | wc -l)" -gt 0 ]; then
-            echo "Swift package artifacts found:"
-            find artifacts/swift_package -type f | head -5 # Show just the first few for brevity
-          else
-            echo "WARNING: No Swift package artifacts were downloaded."
-            mkdir -p artifacts/swift_package
-          fi
-
-      - name: Download WASM Package
-        id: download_wasm
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: c4-wasm
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/wasm
-
-      - name: Verify WASM Package
-        run: |
-          if [ -d "artifacts/wasm" ] && [ "$(find artifacts/wasm -type f | wc -l)" -gt 0 ]; then
-            echo "WASM artifacts found:"
-            find artifacts/wasm -type f
-          else
-            echo "WARNING: No WASM artifacts were downloaded."
-            mkdir -p artifacts/wasm
-          fi
-
-      - name: Download AAR Package
-        id: download_aar
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: colibri-aar
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/aar
-
-      - name: Verify AAR Package
-        run: |
-          if [ -d "artifacts/aar" ] && [ "$(find artifacts/aar -type f | wc -l)" -gt 0 ]; then
-            echo "AAR artifacts found:"
-            find artifacts/aar -type f
-          else
-            echo "WARNING: No AAR artifacts were downloaded."
-            mkdir -p artifacts/aar
-          fi
-
-      - name: Download JAR Package
-        id: download_jar
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: colibri-jar
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/jar
-
-      - name: Verify JAR Package
-        run: |
-          if [ -d "artifacts/jar" ] && [ "$(find artifacts/jar -type f | wc -l)" -gt 0 ]; then
-            echo "JAR artifacts found:"
-            find artifacts/jar -type f
-          else
-            echo "WARNING: No JAR artifacts were downloaded."
-            mkdir -p artifacts/jar
-          fi
-
-      - name: Download Python Wheels
-        id: download_python
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
-          workflow: bindings.yml
-          name: python-universal-distribution
-          workflow_conclusion: success
-          commit: ${{github.event.workflow_run.head_sha}}
-          path: artifacts/python
-
-      - name: Verify Python Wheels
-        run: |
-          if [ -d "artifacts/python" ] && [ "$(find artifacts/python -name "*.whl" | wc -l)" -gt 0 ]; then
-            echo "Python wheel artifacts found:"
-            find artifacts/python -name "*.whl" -exec ls -la {} \;
-          else
-            echo "WARNING: No Python wheel artifacts were downloaded."
-            mkdir -p artifacts/python
-          fi
+          path: artifacts
 
       - name: Prepare Release Files
         run: |
-          cd artifacts
-
+          echo "📦 Preparing release files from downloaded artifacts..."
+          
           # Create release files directory
           mkdir -p release_files
-
-          # Check if we have any files to include in the release
+          
+          # List all downloaded artifacts for debugging
+          echo "Downloaded artifacts structure:"
+          find artifacts -type d | head -20
+          
+          # Count total files
           TOTAL_FILES=0
-
-          # Zip Swift package if not already zipped
-          if [ -d "swift_package" ] && [ "$(ls -A swift_package)" ]; then
-            cd swift_package
-            zip -r ../colibri-swift-package.zip ./*
-            cd ..
-            if [ -f "colibri-swift-package.zip" ]; then
-              mv colibri-swift-package.zip release_files/
-              echo "Added Swift package to release"
-              TOTAL_FILES=$((TOTAL_FILES+1))
+          
+          # Process all artifact directories
+          # Each artifact from main-ci.yml is in its own subdirectory
+          for artifact_dir in artifacts/*; do
+            if [ -d "$artifact_dir" ]; then
+              artifact_name=$(basename "$artifact_dir")
+              echo "Processing artifact: $artifact_name"
+              
+              # Handle different artifact types
+              case "$artifact_name" in
+                swift_package)
+                  # Zip Swift package
+                  cd "$artifact_dir"
+                  zip -r ../../release_files/colibri-swift-package.zip ./*
+                  cd ../..
+                  if [ -f "release_files/colibri-swift-package.zip" ]; then
+                    echo "  ✅ Added Swift package"
+                    TOTAL_FILES=$((TOTAL_FILES+1))
+                  fi
+                  ;;
+                  
+                python-universal-distribution)
+                  # Copy Python wheels
+                  find "$artifact_dir" -name "*.whl" -exec cp {} release_files/ \;
+                  WHEEL_COUNT=$(find release_files -name "*.whl" | wc -l)
+                  if [ "$WHEEL_COUNT" -gt 0 ]; then
+                    # Also create a zip of all wheels
+                    WHEELS=$(find "$artifact_dir" -name "*.whl")
+                    if [ -n "$WHEELS" ]; then
+                      cd "$artifact_dir"
+                      find . -name "*.whl" -exec zip ../../release_files/colibri-python-wheels.zip {} +
+                      cd ../..
+                    fi
+                    echo "  ✅ Added $WHEEL_COUNT Python wheels"
+                    TOTAL_FILES=$((TOTAL_FILES+WHEEL_COUNT+1))
+                  fi
+                  ;;
+                  
+                *-Release-*|cmake-release-*)
+                  # Copy CMake release archives (pattern: os-latest-Release-compiler)
+                  find "$artifact_dir" -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release_files/ \;
+                  CMAKE_FILES=$(find "$artifact_dir" -type f \( -name "*.zip" -o -name "*.tar.gz" \) | wc -l)
+                  if [ "$CMAKE_FILES" -gt 0 ]; then
+                    echo "  ✅ Added CMake build: $artifact_name ($CMAKE_FILES files)"
+                    TOTAL_FILES=$((TOTAL_FILES+CMAKE_FILES))
+                  fi
+                  ;;
+                  
+                c4-wasm|colibri-aar|colibri-jar)
+                  # Copy binding artifacts
+                  find "$artifact_dir" -type f \( -name "*.zip" -o -name "*.aar" -o -name "*.jar" \) -exec cp {} release_files/ \;
+                  echo "  ✅ Added: $artifact_name"
+                  TOTAL_FILES=$((TOTAL_FILES+1))
+                  ;;
+                  
+                debian-package|rpm-package|macos-package|windows-installer)
+                  # Copy installer packages
+                  find "$artifact_dir" -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.pkg" -o -name "*.msi" \) -exec cp {} release_files/ \;
+                  INSTALLER_FILES=$(find release_files -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.pkg" -o -name "*.msi" \) | wc -l)
+                  if [ "$INSTALLER_FILES" -gt 0 ]; then
+                    echo "  ✅ Added installer: $artifact_name"
+                    TOTAL_FILES=$((TOTAL_FILES+1))
+                  fi
+                  ;;
+                  
+                *)
+                  echo "  ⚠️  Skipping unknown artifact: $artifact_name"
+                  ;;
+              esac
             fi
-          else
-            echo "Warning: Swift package directory is empty or does not exist"
-          fi
-
-          # Move WASM files
-          if [ -d "wasm" ] && [ "$(ls -A wasm)" ]; then
-            find wasm -name "*.zip" -exec cp {} release_files/ \;
-            NUM_FILES=$(find release_files -name "*wasm*.zip" | wc -l)
-            if [ "$NUM_FILES" -gt 0 ]; then
-              echo "Added $NUM_FILES WASM files to release"
-              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
-            else
-              echo "No WASM zip files found to add to release"
-            fi
-          else
-            echo "Warning: WASM directory is empty or does not exist"
-          fi
-
-          # Move AAR files
-          if [ -d "aar" ] && [ "$(ls -A aar)" ]; then
-            find aar -name "*.aar" -exec cp {} release_files/ \;
-            NUM_FILES=$(find release_files -name "*.aar" | wc -l)
-            if [ "$NUM_FILES" -gt 0 ]; then
-              echo "Added $NUM_FILES AAR files to release"
-              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
-            else
-              echo "No AAR files found to add to release"
-            fi
-          else
-            echo "Warning: AAR directory is empty or does not exist"
-          fi
-
-          # Move JAR files
-          if [ -d "jar" ] && [ "$(ls -A jar)" ]; then
-            find jar -name "*.jar" -exec cp {} release_files/ \;
-            NUM_FILES=$(find release_files -name "*.jar" | wc -l)
-            if [ "$NUM_FILES" -gt 0 ]; then
-              echo "Added $NUM_FILES JAR files to release"
-              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
-            else
-              echo "No JAR files found to add to release"
-            fi
-          else
-            echo "Warning: JAR directory is empty or does not exist"
-          fi
-
-          # Move Python wheel files
-          if [ -d "python" ] && [ "$(find python -name "*.whl" | wc -l)" -gt 0 ]; then
-            # Create a Python distribution zip
-            cd python
-            zip -r ../colibri-python-wheels.zip ./*
-            cd ..
-            if [ -f "colibri-python-wheels.zip" ]; then
-              mv colibri-python-wheels.zip release_files/
-              echo "Added Python wheels package to release"
-              TOTAL_FILES=$((TOTAL_FILES+1))
-            fi
-            
-            # Also copy individual wheel files
-            find python -name "*.whl" -exec cp {} release_files/ \;
-            NUM_FILES=$(find release_files -name "*.whl" | wc -l)
-            if [ "$NUM_FILES" -gt 0 ]; then
-              echo "Added $NUM_FILES individual Python wheel files to release"
-              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
-            fi
-          else
-            echo "Warning: Python directory is empty or contains no .whl files"
-          fi
-
-          # Move CMake artifacts
-          if [ -d "cmake" ] && [ "$(find cmake -type f \( -name "*.zip" -o -name "*.tar.gz" \) | wc -l)" -gt 0 ]; then
-            find cmake -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release_files/ \;
-            NUM_FILES=$(find release_files -name "*.zip" -o -name "*.tar.gz" | wc -l)
-            if [ "$NUM_FILES" -gt 0 ]; then
-              echo "Added CMake artifacts to release"
-              TOTAL_FILES=$((TOTAL_FILES+NUM_FILES))
-            else
-              echo "No CMake artifacts found to add to release"
-            fi
-          else
-            echo "Warning: No CMake artifacts found"
-          fi
-
+          done
+          
           # List all collected release files
-          echo "Collected $TOTAL_FILES release files:"
-          ls -la release_files/
-
-          # Create a dummy file if no artifacts were found (to prevent release creation failure)
+          echo ""
+          echo "📋 Collected release files ($TOTAL_FILES types):"
+          ls -lh release_files/ | grep -v "^total" | awk '{print $9, "(" $5 ")"}'
+          
+          # Create a dummy file if no artifacts were found
           if [ "$TOTAL_FILES" -eq 0 ]; then
-            echo "WARNING: No artifacts were found for release. Creating a placeholder file."
+            echo "⚠️  WARNING: No artifacts were found for release. Creating a placeholder file."
             echo "This is a placeholder file. No artifacts were found for this release." > release_files/README.txt
           fi
 
@@ -395,29 +251,68 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.check-workflows-and-tag.outputs.tag_name }}
-          files: artifacts/release_files/*
+          files: release_files/*
           generate_release_notes: true
           draft: false
+          append_body: true
           body: |
-            # Colibri Release ${{ needs.check-workflows-and-tag.outputs.tag_name }}
-
-            This release includes binaries and libraries for multiple platforms.
-
-            ## Included Artifacts
-
-            - **CMake builds** (various platforms)
-            - **Swift package** (iOS/macOS)
-            - **JavaScript/WASM package** (Web/Node.js)
-            - **Android AAR** (Android/Kotlin)
-            - **JVM JAR** (Java/Kotlin)
-            - **Python wheels** (Linux/macOS/Windows)
-
-            ### Python Installation
             
+            ---
+            
+            ## Installation
+            
+            ### System Packages
+            
+            **Linux (Debian/Ubuntu):**
+            ```bash
+            sudo dpkg -i colibri-server_*.deb
+            sudo apt-get install -f
+            ```
+            
+            **Linux (RPM):**
+            ```bash
+            sudo rpm -ivh colibri-server-*.rpm
+            ```
+            
+            **macOS (PKG):**
+            ```bash
+            sudo installer -pkg colibri-server-*.pkg -target /
+            ```
+            
+            **macOS (Homebrew):**
+            ```bash
+            brew tap corpus-core/colibri
+            brew install colibri-server
+            brew services start colibri-server
+            ```
+            
+            **Windows (MSI):**
+            ```powershell
+            msiexec /i colibri-server-*.msi
+            ```
+            
+            ### Development Libraries
+            
+            **Python:**
             ```bash
             pip install colibri-stateless
             ```
-
+            
+            **Swift/iOS:** Download the Swift package artifact
+            
+            **JavaScript/WASM:** Download the c4-wasm artifact
+            
+            **Android/Kotlin:** Download the AAR or JAR artifact
+            
+            ## Included Artifacts
+            
+            - System installers (DEB, RPM, PKG, MSI)
+            - CMake builds (Linux, macOS, Windows)
+            - Swift package (iOS/macOS)
+            - JavaScript/WASM package
+            - Android AAR & JVM JAR
+            - Python wheels
+            
             If some artifacts are missing, they may not have been successfully built in the pipeline.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -435,38 +330,73 @@ jobs:
 
           echo "### Artifact Summary" >> $GITHUB_STEP_SUMMARY
 
-          if [ -d "artifacts/cmake" ] && [ "$(find artifacts/cmake -type f | wc -l)" -gt 0 ]; then
-            echo "- ✅ CMake artifacts: $(find artifacts/cmake -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          # Check all artifact types from main-ci.yml
+          CMAKE_COUNT=$(find artifacts -type d -name "*-Release-*" -o -name "cmake-release-*" | wc -l)
+          if [ "$CMAKE_COUNT" -gt 0 ]; then
+            echo "- ✅ CMake artifacts: $CMAKE_COUNT builds" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ❌ No CMake artifacts found" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ -d "artifacts/swift_package" ] && [ "$(find artifacts/swift_package -type f | wc -l)" -gt 0 ]; then
-            echo "- ✅ Swift package: $(find artifacts/swift_package -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          SWIFT_COUNT=$(find artifacts/swift_package -type f 2>/dev/null | wc -l)
+          if [ "$SWIFT_COUNT" -gt 0 ]; then
+            echo "- ✅ Swift package: $SWIFT_COUNT files" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ❌ No Swift package found" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ -d "artifacts/wasm" ] && [ "$(find artifacts/wasm -type f | wc -l)" -gt 0 ]; then
-            echo "- ✅ WASM package: $(find artifacts/wasm -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          WASM_COUNT=$(find artifacts/c4-wasm -name "*.zip" 2>/dev/null | wc -l)
+          if [ "$WASM_COUNT" -gt 0 ]; then
+            echo "- ✅ WASM package: $WASM_COUNT files" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ❌ No WASM package found" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ -d "artifacts/aar" ] && [ "$(find artifacts/aar -type f | wc -l)" -gt 0 ]; then
-            echo "- ✅ AAR package: $(find artifacts/aar -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          AAR_COUNT=$(find artifacts/colibri-aar -name "*.aar" 2>/dev/null | wc -l)
+          if [ "$AAR_COUNT" -gt 0 ]; then
+            echo "- ✅ AAR package: $AAR_COUNT files" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ❌ No AAR package found" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ -d "artifacts/jar" ] && [ "$(find artifacts/jar -type f | wc -l)" -gt 0 ]; then
-            echo "- ✅ JAR package: $(find artifacts/jar -type f | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          JAR_COUNT=$(find artifacts/colibri-jar -name "*.jar" 2>/dev/null | wc -l)
+          if [ "$JAR_COUNT" -gt 0 ]; then
+            echo "- ✅ JAR package: $JAR_COUNT files" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ❌ No JAR package found" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ -d "artifacts/python" ] && [ "$(find artifacts/python -name "*.whl" | wc -l)" -gt 0 ]; then
-            echo "- ✅ Python wheels: $(find artifacts/python -name "*.whl" | wc -l) files" >> $GITHUB_STEP_SUMMARY
+          PYTHON_COUNT=$(find artifacts/python-universal-distribution -name "*.whl" 2>/dev/null | wc -l)
+          if [ "$PYTHON_COUNT" -gt 0 ]; then
+            echo "- ✅ Python wheels: $PYTHON_COUNT files" >> $GITHUB_STEP_SUMMARY
           else
             echo "- ❌ No Python wheels found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          DEB_COUNT=$(find artifacts/debian-package -name "*.deb" 2>/dev/null | wc -l)
+          if [ "$DEB_COUNT" -gt 0 ]; then
+            echo "- ✅ Debian packages: $DEB_COUNT files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No Debian packages found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          RPM_COUNT=$(find artifacts/rpm-package -name "*.rpm" 2>/dev/null | wc -l)
+          if [ "$RPM_COUNT" -gt 0 ]; then
+            echo "- ✅ RPM packages: $RPM_COUNT files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No RPM packages found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          PKG_COUNT=$(find artifacts/macos-package -name "*.pkg" 2>/dev/null | wc -l)
+          if [ "$PKG_COUNT" -gt 0 ]; then
+            echo "- ✅ macOS packages: $PKG_COUNT files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No macOS packages found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          MSI_COUNT=$(find artifacts/windows-installer -name "*.msi" 2>/dev/null | wc -l)
+          if [ "$MSI_COUNT" -gt 0 ]; then
+            echo "- ✅ Windows installers: $MSI_COUNT files" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ No Windows installers found" >> $GITHUB_STEP_SUMMARY
           fi

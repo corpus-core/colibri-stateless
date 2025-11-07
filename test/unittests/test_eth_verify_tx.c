@@ -25,9 +25,13 @@
 #include "bytes.h"
 #include "c4_assert.h"
 #include "ssz.h"
+#include "tx_cache.h"
 #include "unity.h"
 void setUp(void) {
   reset_local_filecache();
+#ifdef PROVER_CACHE
+  c4_eth_tx_cache_reset();
+#endif
 }
 
 void tearDown(void) {

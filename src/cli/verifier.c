@@ -23,6 +23,7 @@
 
 #include "beacon_types.h"
 #include "bytes.h"
+#include "config.h"
 #include "crypto.h"
 #include "logger.h"
 #include "plugin.h"
@@ -38,45 +39,35 @@
 
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
-#include <curl/curl.h>
 
-static size_t write_data(void* ptr, size_t size, size_t nmemb, void* userdata) {
-  buffer_t* response_buffer = (buffer_t*) userdata;
-  buffer_append(response_buffer, bytes(ptr, size * nmemb));
-  return size * nmemb;
-}
-
-static bytes_t read_from_prover(char* url, char* method, char* args, bytes_t state, chain_id_t chain_id) {
+static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_id_t chain_id) {
   // fprintf(stderr, "reading from prover: %s(%s) from %s\n", method, args, url);
   if (strcmp(method, "colibri_simulateTransaction") == 0) method = "eth_call";
-  struct curl_slist* headers         = NULL;
-  buffer_t           payload         = {0};
-  buffer_t           response_buffer = {0};
-  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\"}", method, args, state);
-  CURL* curl = curl_easy_init();
-  curl_easy_setopt(curl, CURLOPT_URL, url);
-  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data.data);
-  curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, payload.data.len);
-  headers = curl_slist_append(headers, "Content-Type: application/json");
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
-  curl_easy_perform(curl);
-  curl_easy_cleanup(curl);
+  buffer_t   payload = {0};
+  c4_state_t ctx     = {0};
 
-  if (response_buffer.data.len == 0) {
+  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\"}", method, args, state);
+  data_request_t req = {.chain_id = chain_id, .type = C4_DATA_TYPE_PROVER, .payload = payload.data, .encoding = C4_DATA_ENCODING_SSZ, .method = C4_DATA_METHOD_POST};
+  ctx.requests       = &req;
+  curl_fetch_all(&ctx);
+  if (req.error) {
+    fprintf(stderr, "Prover returned error: %s\n", req.error);
+    exit(EXIT_FAILURE);
+  }
+  else if (req.response.data == NULL) {
     fprintf(stderr, "prover returned empty response\n");
     exit(EXIT_FAILURE);
   }
-  if (response_buffer.data.data[0] == '{') {
-    json_t json  = json_parse((char*) response_buffer.data.data);
+  else if (req.response.data[0] == '{') {
+    json_t json  = json_parse((char*) req.response.data);
     json_t error = json_get(json, "error");
-    if (error.type == JSON_TYPE_STRING) {
+    if (error.type == JSON_TYPE_STRING)
       fprintf(stderr, "prover returned error: %s\n", json_new_string(error));
-    }
+    else
+      fprintf(stderr, "prover returned unknown error: %s\n", json_new_string(error));
     exit(EXIT_FAILURE);
   }
-  return response_buffer.data;
+  return req.response;
 }
 #endif
 
@@ -97,16 +88,21 @@ static bytes_t read_from_prover(char* url, char* method, char* args, bytes_t sta
 //
 // | Option         | Argument        | Description                | Default |
 // |----------------|-----------------|----------------------------|---------|
-// | `-c`           | `<chain_id>`    | Chain ID                   |         |
-// | `-b`           | `<block_hash>`  | Trusted blockhash          |         |
-// | `-t`           | `<test_dir>`    | Test directory             |         |
-// | `-i`           | `<proof_file>`  | Proof file to verify       |         |
+// | `-c`           | `<chain_id>`    | Chain name or ID           |         |
+// | `-l`           | `<log_level>`   | Log level (0=silent, 1=error, 2=info, 3=debug, 4=debug_full)                 |         |
+// | `-b`           | `<block_hash>`  | Trusted checkpoint         |         |
+// | `-s`           | `<cache_dir>`  | cache-directory   |         |
+// | `-t`           | `<test_dir>`    | Test directory (if -DTEST=1)|         |
+// | `-i`           | `<proof_file>`  | Proof file to verify       |
 // | `-o`           | `<proof_file>`  | Proof file to write        |         |
-// | `-p`           | `<prover_url>` | URL of the prover         |         |
+// | `-p`           | `<prover_url>` | URL of the prover           |         |
+// | `-r`           | `<rpc_url>` | URL of the rpc-prover          |         |
+// | `-x`           | `<checkpointz_url>` | URL of a checkpointz or beacon-api|         |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
 int main(int argc, char* argv[]) {
+
   // Check for --version
   if (argc >= 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
     c4_print_version(stdout, "colibri-verifier");
@@ -117,27 +113,38 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Usage: %s <OPTIONS> <method> <args> \n", argv[0]);
     fprintf(stderr, "OPTIONS: \n");
     fprintf(stderr, "  -c <chain_id> \n");
-    fprintf(stderr, "  -b <block_hash> trusted blockhash\n");
+    fprintf(stderr, "  -l <log_level> log level (0=silent, 1=error, 2=info, 3=debug, 4=debug_full)\n");
+#ifdef FILE_STORAGE
+    fprintf(stderr, "  -s <states_dir> directory to store states\n");
+#endif
+    fprintf(stderr, "  -b <block_hash> trusted checkpoint\n");
+#ifdef TEST
     fprintf(stderr, "  -t <test_dir>  test directory\n");
+#endif
     fprintf(stderr, "  -i <proof_file> proof file to read\n");
+    fprintf(stderr, "  -s <cache_dir> cache directory\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
     fprintf(stderr, "  -p url of the prover\n");
     fprintf(stderr, "  -r rpc url\n");
+    fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
   }
-#ifdef USE_CURL
-  char* rpc = "";
-#endif
   char*      method             = NULL;
   chain_id_t chain_id           = C4_CHAIN_MAINNET;
   buffer_t   args               = {0};
   char*      input              = NULL;
   char*      test_dir           = NULL;
+  char*      chain_name         = NULL;
   char*      output             = NULL;
   bytes32_t  trusted_checkpoint = {0};
   bool       has_checkpoint     = false;
+  char*      rpc_url            = NULL;
+  char*      beacon_url         = NULL;
+  char*      checkpointz_url    = NULL;
+  char*      prover_url         = NULL;
+  c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
 
   for (int i = 1; i < argc; i++) {
@@ -147,16 +154,28 @@ int main(int argc, char* argv[]) {
           case 'l':
             c4_set_log_level(atoi(argv[++i]));
             break;
+#ifdef FILE_STORAGE
+          case 's':
+            state_data_dir = argv[++i];
+            break;
+#endif
           case 'c':
-            chain_id = atoi(argv[++i]);
+            chain_name = argv[++i];
             break;
           case 'i':
           case 'p':
             input = argv[++i];
+            if (input && (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0)) {
+              prover_url = input;
+              input      = NULL;
+            }
             break;
 #ifdef USE_CURL
+          case 'x':
+            checkpointz_url = argv[++i];
+            break;
           case 'r':
-            rpc = argv[++i];
+            rpc_url = argv[++i];
             break;
 #endif
           case 'b':
@@ -194,13 +213,32 @@ int main(int argc, char* argv[]) {
     }
   }
   buffer_add_chars(&args, "]");
-  if (input == NULL) {
-    input = getenv("C4_PROVER");
-    if (input == NULL)
-      input = "https://mainnet1.colibri-proof.tech";
-  }
+
+  get_default_config(chain_name, &chain_id, NULL);
+  if (prover_url) set_config("prover", prover_url);
+  if (rpc_url) set_config("eth_rpc", rpc_url);
+  if (beacon_url) set_config("beacon_api", beacon_url);
+  if (checkpointz_url) set_config("checkpointz", checkpointz_url);
+
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);
+  else if (c4_get_chain_state(chain_id).status == C4_STATE_SYNC_EMPTY) {
+    bytes32_t  checkpoint = {0};
+    uint64_t   epoch      = 0;
+    c4_state_t state      = {0};
+#ifdef USE_CURL
+    if (!c4_req_checkpointz_status(&state, chain_id, &epoch, checkpoint) && !state.error) {
+      curl_fetch_all(&state);
+      if (c4_req_checkpointz_status(&state, chain_id, &epoch, checkpoint))
+        c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
+    }
+    c4_state_free(&state);
+#endif
+    if (!epoch) {
+      fprintf(stderr, "failed to get checkpoint from checkpointz : %s\n", state.error);
+      exit(EXIT_FAILURE);
+    }
+  }
   if (!method) {
     fprintf(stderr, "method is required\n");
     exit(EXIT_FAILURE);
@@ -215,7 +253,7 @@ int main(int argc, char* argv[]) {
       fprintf(stderr, "method not supported: %s\n", method);
       exit(EXIT_FAILURE);
     case METHOD_PROOFABLE:
-      if (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0) {
+      if (!input) {
 #ifdef USE_CURL
         char name[100];
         sprintf(name, "states_%d", (uint32_t) chain_id);
@@ -223,8 +261,7 @@ int main(int argc, char* argv[]) {
         storage_plugin_t storage;
         c4_get_storage_config(&storage);
         storage.get(name, &state);
-        request = read_from_prover(input, method, (char*) args.data.data, state.data, chain_id);
-        curl_set_config(json_parse(bprintf(NULL, "{\"beacon_api\":[\"%s\"],\"eth_rpc\":[\"%s\"]}", input, rpc)));
+        request = read_from_prover(method, (char*) args.data.data, state.data, chain_id);
         buffer_free(&state);
         if (output) bytes_write(request, fopen(output, "w"), true);
 #else

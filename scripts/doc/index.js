@@ -1,5 +1,5 @@
 const { parse_ssz_files } = require('./parse_defs')
-const { read_summary } = require('./utils')
+const { read_summary, get_doc_path, get_full_src_path } = require('./utils')
 const { get_cmake_options } = require('./cmake')
 const { find_links_in_dir, replace_links_in_dir } = require('./links')
 
@@ -20,6 +20,7 @@ const doc_files = [
     "util/witness.c",
     "chains/eth/threat_model.md",
     "chains/eth/benchmark.md",
+
     // cli
     "cli/prover.c",
     "cli/ssz.c",
@@ -46,7 +47,9 @@ const doc_files = [
     "util/ssz.h",
     "util/crypto.h",
     "util/state.h",
-    "../bindings/colibri.h"
+    "../bindings/colibri.h",
+    "server/API.md",
+
 ]
 
 // the folders where to replace the links
@@ -61,7 +64,10 @@ const extern_types = {
     BeaconBlockHeader: 'https://ethereum.github.io/consensus-specs/specs/phase0/beacon-chain/#beaconblockheader',
     DenepExecutionPayload: 'https://ethereum.github.io/consensus-specs/specs/deneb/beacon-chain/#executionpayload',
     LightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
-    DenepLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate'
+    DenepLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
+    ElectraLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
+    ElectraLightClientBootstrap: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientbootstrap',
+    DenepLightClientBootstrap: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientbootstrap',
 }
 
 const rpc_docs = {

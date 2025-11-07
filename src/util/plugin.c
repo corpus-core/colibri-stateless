@@ -32,16 +32,15 @@
 
 storage_plugin_t storage_conf = {0};
 #ifdef FILE_STORAGE
+char* state_data_dir = NULL;
 
 static char* combine_filename(char* name) {
-  const char* base_path = getenv("C4_STATES_DIR");
-  if (base_path != NULL) {
-    size_t length    = strlen(base_path) + strlen(name) + 2;
-    char*  full_path = safe_malloc(length);
-    if (full_path == NULL) return NULL;
-    snprintf(full_path, length, "%s/%s", base_path, name);
-    return full_path;
-  }
+  if (state_data_dir == NULL)
+    state_data_dir = getenv("C4_STATES_DIR");
+  if (state_data_dir == NULL)
+    state_data_dir = ".";
+  if (strcmp(state_data_dir, "."))
+    return bprintf(NULL, "%s/%s", state_data_dir, name);
   else
     return strdup(name);
 }

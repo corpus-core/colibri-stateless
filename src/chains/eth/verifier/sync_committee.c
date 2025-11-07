@@ -110,14 +110,26 @@ INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return true;
 
-  if (ctx->sync_data.def == eth_get_light_client_update_list(C4_FORK_DENEB) ||
-      ctx->sync_data.def == eth_get_light_client_update_list(C4_FORK_ELECTRA)) {
-    uint32_t updates_len = ssz_len(ctx->sync_data);
+  if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0) {
+    ssz_ob_t bootstrap = ssz_get(&ctx->sync_data, "bootstrap");
+    ssz_ob_t updates   = ssz_get(&ctx->sync_data, "update");
+
+    // do we have bootstrap data?
+    if (bootstrap.def->type == SSZ_TYPE_CONTAINER) {
+      c4_chain_state_t chain_state = c4_get_chain_state(ctx->chain_id);
+      if (chain_state.status == C4_STATE_SYNC_EMPTY) RETURN_VERIFY_ERROR(ctx, "bootstrap data found, but no checkpoint set!");
+      if (chain_state.status == C4_STATE_SYNC_CHECKPOINT && c4_handle_bootstrap(ctx, bootstrap.bytes, chain_state.data.checkpoint) != C4_SUCCESS) return false;
+    }
+
+    // run all light client updates
+    uint32_t updates_len = ssz_len(updates);
     for (uint32_t i = 0; i < updates_len; i++) {
-      ssz_ob_t update = ssz_at(ctx->sync_data, i);
-      if (ssz_is_error(update)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
+      ssz_ob_t update = ssz_union(ssz_at(updates, i));
       if (!update_light_client_update(ctx, &update)) return false;
     }
+
+    // we may want to clean up the sync data, so we don't sync again.
+    ctx->sync_data.def = &ssz_none;
     return true;
   }
   else
@@ -142,7 +154,7 @@ fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
  */
 static bool detect_update_format(bytes_t data) {
   // Lighthouse detection: check if length is sufficient, second offset is non-zero, and first value is reasonable
-  return data.len > MIN_UPDATE_SIZE &&
+  return data.len > UPDATE_PREFIX_SIZE &&
          !bytes_all_zero(bytes_slice(data, SSZ_OFFSET_SIZE, SSZ_OFFSET_SIZE)) &&
          uint32_from_le(data.data) < 1000;
 }
@@ -162,7 +174,7 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
   bool     lighthouse = detect_update_format(light_client_updates);
   int      idx        = 0;
 
-  for (uint32_t pos = 0; pos + MIN_UPDATE_SIZE < light_client_updates.len; pos += length + SSZ_LENGTH_SIZE, idx++) {
+  for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < light_client_updates.len; pos += length + SSZ_LENGTH_SIZE, idx++) {
     uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
     uint32_t data_length_offset = SSZ_OFFSET_SIZE;
 
@@ -174,7 +186,7 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
         break;
       }
       pos = uint32_from_le(light_client_updates.data + (idx * SSZ_OFFSET_SIZE));
-      if (pos + MIN_UPDATE_SIZE > light_client_updates.len) {
+      if (pos + UPDATE_PREFIX_SIZE > light_client_updates.len) {
         success = false;
         c4_state_add_error(&ctx->state, "invalid offset in lighthouse client update!");
         break;
@@ -185,7 +197,7 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
     length = uint64_from_le(light_client_updates.data + pos);
 
     // Check for integer overflow and bounds
-    if (length > MIN_UPDATE_SIZE && (pos + SSZ_LENGTH_SIZE + length > light_client_updates.len || pos + SSZ_LENGTH_SIZE + length < pos)) {
+    if (length > UPDATE_PREFIX_SIZE && (pos + SSZ_LENGTH_SIZE + length > light_client_updates.len || pos + SSZ_LENGTH_SIZE + length < pos)) {
       success = false;
       c4_state_add_error(&ctx->state, "invalid length causes overflow or exceeds bounds!");
       break;
@@ -193,16 +205,14 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
 
     bytes_t          light_client_update_bytes = bytes(light_client_updates.data + data_offset, length - data_length_offset);
     fork_id_t        fork                      = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update_bytes);
-    const ssz_def_t* light_client_update_list  = eth_get_light_client_update_list(fork);
+    const ssz_def_t* light_client_update_def   = eth_get_light_client_update(fork);
 
-    if (!light_client_update_list) {
+    if (!light_client_update_def) {
       success = false;
       break;
     }
 
-    ssz_ob_t light_client_update_ob = {
-        .bytes = light_client_update_bytes,
-        .def   = light_client_update_list->def.vector.type};
+    ssz_ob_t light_client_update_ob = {.bytes = light_client_update_bytes, .def = light_client_update_def};
 
     // Validate SSZ structure (checks offsets and ensures all properties exist)
     if (!ssz_is_valid(light_client_update_ob, true, &ctx->state)) {

@@ -53,8 +53,10 @@ c4_status_t c4_op_create_block_proof(prover_ctx_t* ctx, json_t block_number, ssz
   bytes_t signature = bytes_slice(preconf_data, preconf_data.len - 65, 65);
 
   // build the proof
-  ssz_builder_t preconf_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_PRECONF_PROOF);
-  ssz_add_bytes(&preconf_proof, "payload", payload);
+  ssz_builder_t preconf_proof              = ssz_builder_for_op_type(OP_SSZ_VERIFY_PRECONF_PROOF);
+  ssz_builder_t payload_builder_compressed = ssz_builder_for_def(ssz_get_def(preconf_proof.def, "payload")->def.container.elements + 0);
+  buffer_append(&payload_builder_compressed.fixed, payload);
+  ssz_add_builders(&preconf_proof, "payload", payload_builder_compressed);
   ssz_add_bytes(&preconf_proof, "signature", signature);
   *block_proof = preconf_proof;
 

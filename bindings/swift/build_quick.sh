@@ -47,6 +47,7 @@ echo "🛠️  Baue für $TARGET_ARCH (macOS)..."
 cd "$ROOT_DIR"
 cmake \
     -DSWIFT=true \
+    -DCHAIN_OP=ON \
     -DCMAKE_OSX_ARCHITECTURES="$TARGET_ARCH" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
     -B "$BUILD_DIR" \

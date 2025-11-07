@@ -94,7 +94,7 @@ const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, c
 // forks
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id);
 const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_id);
-const ssz_def_t* eth_get_light_client_update_list(fork_id_t fork);
+const ssz_def_t* eth_get_light_client_update(fork_id_t fork);
 //  c4 specific
 const ssz_def_t*       eth_ssz_verification_type(eth_ssz_type_t type);
 extern const ssz_def_t ssz_transactions_bytes;
@@ -112,7 +112,7 @@ extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10];
-extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
+extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[2];
 
 #define epoch_for_slot(slot, chain_spec)  ((slot) >> (chain_spec ? chain_spec->slots_per_epoch_bits : 5))
 #define period_for_slot(slot, chain_spec) ((slot) >> (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))

@@ -54,6 +54,7 @@ build_ios_arch() {
     
     cmake \
         -DSWIFT=true \
+        -DCHAIN_OP=ON \
         -DCMAKE_SYSTEM_NAME="iOS" \
         -DCMAKE_OSX_SYSROOT="$sysroot" \
         -DCMAKE_OSX_ARCHITECTURES="$arch" \
@@ -74,7 +75,7 @@ build_ios_arch "iOS Simulator x86_64" "$BUILD_iOS_X86_DIR" "x86_64" "$SIMULATOR_
 build_ios_arch "iOS Device arm64" "$BUILD_iOS_ARM_DIR" "arm64" "$DEVICE_SDK"
 
 # Erstelle iOS XCFramework
-echo "🔨 Erstelle iOS XCFramework (Device + Simulator)..."
+echo "🔨 Erstelle iOS XCFramework (Device + Simulator x86_64)..."
 "$SWIFT_DIR/create_ios_xcframework.sh" \
     "$BUILD_iOS_ARM_DIR" \
     "$BUILD_iOS_X86_DIR" \

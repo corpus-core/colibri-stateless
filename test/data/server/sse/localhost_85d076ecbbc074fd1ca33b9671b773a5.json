@@ -1,0 +1,5 @@
+# HTTP 200
+# URL: http://localhost:5052/eth/v1/beacon/states/head/finality_checkpoints
+# Host: localhost
+# Payload: 
+{"data":{"previous_justified":{"epoch":"403197","root":"0x629fb64eac2b9c3e427c41240a829fa209f8176f07314252a3cb1eefb147a081"},"current_justified":{"epoch":"403198","root":"0x5d4662a6e1399623a9efe673cbd4db2dcfb0cb9131ddb7b7fb577cba18c66d7a"},"finalized":{"epoch":"403197","root":"0x629fb64eac2b9c3e427c41240a829fa209f8176f07314252a3cb1eefb147a081"}},"execution_optimistic":false,"finalized":false}

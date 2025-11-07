@@ -28,6 +28,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h> // For errno
+#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -44,8 +45,8 @@
 // Macro for consistent memory allocation error messages
 #define SAFE_ALLOC_ERROR_EXIT(func_name, size_info, error_msg)                      \
   do {                                                                              \
-    fprintf(stderr, "Error: Memory allocation failed (%s) for %s: %s. Exiting.\\n", \
-            func_name, size_info, error_msg);                                       \
+    fbprintf(stderr, "Error: Memory allocation failed (%s) for %s: %s. Exiting.\n", \
+             func_name, size_info, error_msg);                                      \
     exit(EXIT_FAILURE);                                                             \
   } while (0)
 
@@ -56,13 +57,15 @@
 #define HEX_CHAR_BUFFER_SIZE     4
 #define SIZE_INFO_BUFFER_SIZE    64
 
+static const char hex_digits[] = "0123456789abcdef";
+
 // --- Safe Memory Allocation Wrappers ---
 
 void* safe_malloc(size_t size) {
   void* ptr = malloc(size);
   if (size > 0 && ptr == NULL) {
     char size_info[SIZE_INFO_BUFFER_SIZE];
-    sprintf(size_info, "size %zu bytes", size);
+    sbprintf(size_info, "size %l bytes", (uint64_t) size);
     SAFE_ALLOC_ERROR_EXIT("malloc", size_info, strerror(errno));
   }
   return ptr;
@@ -72,7 +75,7 @@ void* safe_calloc(size_t num, size_t size) {
   void* ptr = calloc(num, size);
   if (num > 0 && size > 0 && ptr == NULL) {
     char size_info[SIZE_INFO_BUFFER_SIZE];
-    sprintf(size_info, "%zu items of size %zu bytes", num, size);
+    sbprintf(size_info, "%l items of size %l bytes", (uint64_t) num, (uint64_t) size);
     SAFE_ALLOC_ERROR_EXIT("calloc", size_info, strerror(errno));
   }
   return ptr;
@@ -84,7 +87,7 @@ void* safe_realloc(void* ptr, size_t new_size) {
   // safe_realloc(ptr, 0) is equivalent to safe_free(ptr) and may return NULL
   if (new_size > 0 && new_ptr == NULL) {
     char size_info[SIZE_INFO_BUFFER_SIZE];
-    sprintf(size_info, "new size %zu bytes", new_size);
+    sbprintf(size_info, "new size %l bytes", (uint64_t) new_size);
     // Important: The original block ptr is NOT freed by realloc if it fails
     SAFE_ALLOC_ERROR_EXIT("realloc", size_info, strerror(errno));
   }
@@ -192,7 +195,7 @@ void uint32_to_le(uint8_t* data, uint32_t value) {
   data[3] = (value >> 24) & 0xFF;
 }
 
-void buffer_grow(buffer_t* buffer, size_t min_len) {
+size_t buffer_grow(buffer_t* buffer, size_t min_len) {
   // Initial allocation: use either min_len or pre-allocated size, whichever is larger
   if (buffer->data.data == NULL) {
     if (buffer->allocated > 0 && (size_t) buffer->allocated > min_len) min_len = (size_t) buffer->allocated;
@@ -207,6 +210,7 @@ void buffer_grow(buffer_t* buffer, size_t min_len) {
     buffer->allocated = (int32_t) new_len;
   }
   // Note: negative allocated means fixed-size buffer (no growth allowed)
+  return buffer->allocated > 0 ? (size_t) buffer->allocated : (size_t) (0 - buffer->allocated);
 }
 
 uint32_t buffer_append(buffer_t* buffer, bytes_t data) {
@@ -223,9 +227,13 @@ uint32_t buffer_append(buffer_t* buffer, bytes_t data) {
 }
 
 void buffer_splice(buffer_t* buffer, size_t offset, uint32_t len, bytes_t data) {
-  buffer_grow(buffer, buffer->data.len + data.len - len);
+  if (data.len > len) { // if the buffer grows, check the limits
+    size_t max_len = buffer_grow(buffer, buffer->data.len + data.len - len);
+    if (buffer->data.len + data.len - len > max_len) return;
+  }
   uint32_t old_end_offset = offset + len;
   uint32_t new_end_offset = offset + data.len;
+
   // Move existing data if splice position changes
   if (new_end_offset != old_end_offset && ((uint32_t) buffer->data.len) - old_end_offset > 0)
     memmove(buffer->data.data + new_end_offset, buffer->data.data + old_end_offset, ((uint32_t) buffer->data.len) - old_end_offset);
@@ -249,11 +257,18 @@ void buffer_free(buffer_t* buffer) {
 }
 
 void print_hex(FILE* f, bytes_t data, char* prefix, char* suffix) {
-  if (prefix) fprintf(f, "%s", prefix);
+  buffer_t buf = {0};
+  if (prefix) buffer_add_chars(&buf, prefix);
   FOREACH_BYTE(data, i) {
-    fprintf(f, "%02x", data.data[i]);
+    char hex_char[3];
+    hex_char[0] = hex_digits[(data.data[i] >> 4) & 0x0F];
+    hex_char[1] = hex_digits[data.data[i] & 0x0F];
+    hex_char[2] = '\0';
+    buffer_add_chars(&buf, hex_char);
   }
-  if (suffix) fprintf(f, "%s", suffix);
+  if (suffix) buffer_add_chars(&buf, suffix);
+  fwrite(buf.data.data, 1, buf.data.len, f);
+  buffer_free(&buf);
 }
 
 bool bytes_all_equal(bytes_t a, uint8_t value) {
@@ -298,12 +313,17 @@ int hex_to_bytes(const char* hexstring, int len, bytes_t buffer) {
 
 void buffer_add_chars(buffer_t* buffer, const char* data) {
   if (!data) return;
-  size_t len = strlen(data);
-  buffer_append(buffer, bytes((uint8_t*) data, len + 1));
-  buffer->data.len -= 1;
+  size_t   len          = strlen(data);
+  uint32_t appended_len = buffer_append(buffer, bytes((uint8_t*) data, len + 1));
+  if (appended_len > 0) {
+    buffer->data.len -= 1; // Don't count NULL-terminator in length
+    // Ensure NULL-terminator is always set, even if buffer was truncated
+    if (buffer->data.len < (uint32_t) abs(buffer->allocated))
+      buffer->data.data[buffer->data.len] = '\0';
+  }
 }
 
-void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
+static inline void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
   if (!data) return;
   const uint8_t* str = (const uint8_t*) data;
   int            len = strlen(data);
@@ -381,7 +401,6 @@ void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
       default:
         if (c < 0x20) {
           // Other control characters: escape as \uXXXX
-          static const char hex_digits[]        = "0123456789abcdef";
           buffer->data.data[buffer->data.len++] = '\\';
           buffer->data.data[buffer->data.len++] = 'u';
           buffer->data.data[buffer->data.len++] = '0';
@@ -400,17 +419,18 @@ void buffer_add_chars_escaped(buffer_t* buffer, const char* data) {
   buffer->data.data[buffer->data.len] = 0;
 }
 
-void buffer_add_hex_chars(buffer_t* buffer, bytes_t data, char* prefix, char* suffix) {
-  uint32_t total_len = data.len * 2 + (prefix ? strlen(prefix) : 0) + (suffix ? strlen(suffix) : 0);
-  buffer_grow(buffer, buffer->data.len + total_len + 1);
-  buffer_add_chars(buffer, prefix);
-  char hex_char_buffer[HEX_CHAR_BUFFER_SIZE];
+static inline void buffer_add_hex_chars(buffer_t* buffer, bytes_t data) {
+  uint32_t total_len = data.len;
+  size_t   max_len   = buffer_grow(buffer, buffer->data.len + total_len * 2 + 1) - buffer->data.len;
+  if (total_len * 2 > max_len) total_len = max_len / 2;
+  if (!total_len) return;
+  char* dst = (char*) (buffer->data.data + buffer->data.len);
 
-  FOREACH_BYTE(data, i) {
-    sprintf(hex_char_buffer, "%02x", data.data[i]);
-    buffer_add_chars(buffer, hex_char_buffer);
+  for (size_t i = 0, j = 0; i < total_len; i++) {
+    dst[j++] = hex_digits[(data.data[i] >> 4) & 0x0F];
+    dst[j++] = hex_digits[data.data[i] & 0x0F];
   }
-  buffer_add_chars(buffer, suffix);
+  buffer->data.len += total_len * 2;
 }
 
 bytes_t bytes_dup(bytes_t data) {
@@ -445,7 +465,7 @@ bytes_t bytes_read(char* filename) {
   data.data.len--;
 
   if (ferror(file)) {
-    fprintf(stderr, "Error reading file: %s\n", filename);
+    fbprintf(stderr, "Error reading file: %s\n", filename);
     buffer_free(&data);
     data.data = NULL_BYTES;
   }
@@ -483,42 +503,158 @@ void buffer_add_le(buffer_t* buffer, uint64_t value, uint32_t len) {
   buffer->data.len += len;
 }
 
+static inline void append_u64_to_dec(buffer_t* out, uint64_t v) {
+  if (!out) return;
+  if (v == 0) {
+    buffer_add_chars(out, "0");
+    return;
+  }
+  char   tmp[20];
+  size_t i = 0;
+  while (v) {
+    tmp[i++] = (char) ('0' + (v % 10));
+    v /= 10;
+  }
+
+  size_t max_len = buffer_grow(out, out->data.len + i + 1) - out->data.len;
+  if (i > max_len) i = max_len;
+  if (!i) return;
+  char* dst = (char*) (out->data.data + out->data.len);
+  /* reverse */
+  for (size_t j = 0; j < i; ++j) dst[j] = tmp[i - 1 - j];
+  out->data.len += i;
+}
+
+static inline void append_u64_to_hex(buffer_t* out, uint64_t v) {
+  if (!out) return;
+  if (v == 0) {
+    buffer_add_chars(out, "0");
+    return;
+  }
+  char   tmp[16];
+  size_t i = 0;
+  while (v) {
+    uint8_t digit = v & 0xF;
+    tmp[i++]      = (char) (digit < 10 ? ('0' + digit) : ('a' + digit - 10));
+    v >>= 4;
+  }
+
+  size_t max_len = buffer_grow(out, out->data.len + i + 1) - out->data.len;
+  if (i > max_len) i = max_len;
+  if (!i) return;
+  char* dst = (char*) (out->data.data + out->data.len);
+  /* reverse */
+  for (size_t j = 0; j < i; ++j) dst[j] = tmp[i - 1 - j];
+  out->data.len += i;
+}
+
+/**
+ * Appends a double value as decimal string to a buffer.
+ *
+ * @param out The output buffer
+ * @param val The double value to append
+ * @param precision Maximum number of decimal places (0-18 recommended)
+ * @param fixed_precision If true, always show exactly 'precision' decimal places (like printf "%.Nf")
+ *                        If false, show up to 'precision' decimal places, removing trailing zeros
+ */
+static inline void append_double_to_dec(buffer_t* out, double val, size_t precision, bool fixed_precision) {
+  if (!out) return;
+
+  /* handle special cases */
+  if (isnan(val)) {
+    buffer_add_chars(out, "NaN");
+    return;
+  }
+  if (isinf(val)) {
+    buffer_add_chars(out, val < 0 ? "-Infinity" : "Infinity");
+    return;
+  }
+
+  /* handle negative values */
+  if (val < 0) {
+    buffer_add_chars(out, "-");
+    val = -val;
+  }
+
+  /* round to precision */
+  double rounding = 0.5;
+  for (size_t i = 0; i < precision; i++) rounding /= 10.0;
+  val += rounding;
+
+  /* extract integer and fractional parts */
+  uint64_t int_part  = (uint64_t) val;
+  double   frac_part = val - (double) int_part;
+
+  /* append integer part */
+  append_u64_to_dec(out, int_part);
+
+  /* append fractional part if precision > 0 */
+  if (precision > 0) {
+    /* reserve space for all fractional digits and check available space */
+    size_t max_len      = buffer_grow(out, out->data.len + precision + 2) - out->data.len;
+    size_t digits_write = precision;
+    if (digits_write + 1 > max_len) digits_write = max_len > 0 ? max_len - 1 : 0;
+    if (digits_write == 0) return;
+
+    /* store starting position for potential trimming */
+    size_t decimal_pos = out->data.len;
+
+    /* add decimal point */
+    out->data.data[out->data.len++] = '.';
+
+    /* convert fractional part to digits */
+    for (size_t i = 0; i < digits_write; i++) {
+      frac_part *= 10.0;
+      uint8_t digit                   = (uint8_t) frac_part;
+      out->data.data[out->data.len++] = (uint8_t) ('0' + digit);
+      frac_part -= (double) digit;
+    }
+
+    /* trim trailing zeros if not fixed precision */
+    if (!fixed_precision) {
+      while (out->data.len > decimal_pos + 1 && out->data.data[out->data.len - 1] == '0')
+        out->data.len--;
+      /* remove decimal point if no fractional part remains */
+      if (out->data.len == decimal_pos + 1)
+        out->data.len = decimal_pos;
+    }
+  }
+}
+
 char* bprintf(buffer_t* buf, const char* fmt, ...) {
   buffer_t tmp_buf = {0};
   if (buf == NULL) buf = &tmp_buf;
   va_list args;
   va_start(args, fmt);
   const char* last_pos = fmt;
-  const char* p;
-  for (p = fmt; *p; p++) {
-    if (*p == '%') {
+  const char* p        = fmt;
+  for (; *p; p++) {
+    if (*p == '%' && *(p + 1)) {
       if (p != last_pos) buffer_append(buf, bytes((uint8_t*) last_pos, p - last_pos));
       switch (*(p + 1)) {
-        case 's':
+        case 's': // normal string
           buffer_add_chars(buf, va_arg(args, const char*));
           break;
-        case 'S':
+        case 'S': // escaped string
           buffer_add_chars_escaped(buf, va_arg(args, const char*));
           break;
-        case 'x':
+        case 'x': // bytes as hex
         case 'b':
-          buffer_add_hex_chars(buf, va_arg(args, bytes_t), NULL, NULL);
+          buffer_add_hex_chars(buf, va_arg(args, bytes_t));
           break;
-        case 'u': {
+        case 'u': { // write bytes as hex without leading zeros
           uint32_t len = buf->data.len;
-          buffer_add_hex_chars(buf, bytes_remove_leading_zeros(va_arg(args, bytes_t)), NULL, NULL);
-          if (buf->data.data[len] == '0') {
+          buffer_add_hex_chars(buf, bytes_remove_leading_zeros(va_arg(args, bytes_t)));
+          if (buf->data.data[len] == '0')
             buffer_splice(buf, len, 1, bytes(NULL, 0));
-            buf->data.data[buf->data.len] = 0;
-          }
           break;
         }
-        case 'J': {
+        case 'J': { // write json string
           json_t val = va_arg(args, json_t);
           buffer_append(buf, bytes((uint8_t*) val.start, val.len));
           break;
         }
-        case 'j': {
+        case 'j': { // write json string, but on case of a string, the quotes are removed
           json_t val = va_arg(args, json_t);
           if (val.type == JSON_TYPE_STRING)
             buffer_append(buf, bytes((uint8_t*) val.start + 1, val.len - 2));
@@ -527,38 +663,29 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           break;
         }
         case 'l': {
-          uint64_t value   = va_arg(args, uint64_t);
-          char     tmp[22] = {0};
+          uint64_t value = va_arg(args, uint64_t);
           if (*(p + 2) == 'x') {
             p++;
             if (!*(p + 1)) break;
-            sprintf(tmp, "%llx", (unsigned long long) value);
+            append_u64_to_hex(buf, value);
           }
-          else {
-            // Use platform-independent formatting to avoid "lu" suffix in JSON output
-            sprintf(tmp, "%llu", (unsigned long long) value);
-          }
-          buffer_add_chars(buf, tmp);
+          else
+            append_u64_to_dec(buf, value);
           break;
         }
         case 'd': {
-          uint32_t value   = va_arg(args, uint32_t);
-          char     tmp[20] = {0};
+          uint32_t value = va_arg(args, uint32_t);
           if (*(p + 2) == 'x') {
             p++;
             if (!*(p + 1)) break;
-            sprintf(tmp, "%" PRIx32, value);
+            append_u64_to_hex(buf, (uint64_t) value);
           }
           else
-            sprintf(tmp, "%" PRIu32, value);
-          buffer_add_chars(buf, tmp);
+            append_u64_to_dec(buf, (uint64_t) value);
           break;
         }
         case 'f': {
-          double value   = va_arg(args, double);
-          char   tmp[40] = {0};
-          sprintf(tmp, "%.6f", value);
-          buffer_add_chars(buf, tmp);
+          append_double_to_dec(buf, va_arg(args, double), 6, false);
           break;
         }
         case 'c': {
@@ -566,16 +693,19 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
           buffer_append(buf, bytes((uint8_t*) &c, 1));
           break;
         }
+        case 'Z':
         case 'z': {
-          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, false);
-          buffer_add_chars(buf, s);
+          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, *(p + 1) == 'Z');
+          buffer_append(buf, bytes((uint8_t*) s, strlen(s)));
           safe_free(s);
           break;
         }
-        case 'Z': {
-          char* s = ssz_dump_to_str(va_arg(args, ssz_ob_t), false, true);
-          buffer_add_chars(buf, s);
-          safe_free(s);
+        case 'r': { // raw bytes as string
+          buffer_append(buf, va_arg(args, bytes_t));
+          break;
+        }
+        case '%': { // append the next character
+          buffer_append(buf, bytes((uint8_t*) p + 1, 1));
           break;
         }
       }
@@ -586,9 +716,13 @@ char* bprintf(buffer_t* buf, const char* fmt, ...) {
   }
   va_end(args);
   if (last_pos != p)
-    buffer_add_chars(buf, last_pos);
-  else if (buffer_append(buf, bytes(NULL, 1)))
-    buf->data.len--;
+    buffer_add_chars(buf, last_pos);                            // automaticly appen NULL-Terminator
+  else if (buffer_grow(buf, buf->data.len + 1) > buf->data.len) // can we add the NULL-Terminator?
+    buf->data.data[buf->data.len] = 0;                          // then add it
+  else {                                                        // so we reached a limit without space for the NULL-Terminator
+    buf->data.len--;                                            // remove the last character
+    buf->data.data[buf->data.len] = 0;                          // then add it
+  }
   return (char*) buf->data.data;
 }
 

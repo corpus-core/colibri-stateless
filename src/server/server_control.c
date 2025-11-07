@@ -6,6 +6,7 @@
 #include "../prover/prover.h"
 #include "../util/version.h"
 #include "server.h"
+#include "logger.h"
 #include "server_handlers.h"
 #include <curl/curl.h>
 #include <errno.h>
@@ -16,20 +17,16 @@
 #include <uv.h>
 
 // Macro for simplified libuv error handling
-#define UV_CHECK(op, expr, instance)                              \
-  do {                                                            \
-    int r = (expr);                                               \
-    if (r != 0) {                                                 \
-      if (r == UV_EADDRINUSE && strcmp(op, "TCP listening") == 0) \
-        fprintf(stderr, "Error: Port %d is already in use\n",     \
-                instance ? instance->port : 0);                   \
-      else                                                        \
-        fprintf(stderr, "Error: %s failed: %s (%s)\n",            \
-                (op),                                             \
-                uv_strerror(r),                                   \
-                uv_err_name(r));                                  \
-      return 1;                                                   \
-    }                                                             \
+#define UV_CHECK(op, expr, instance)                                                       \
+  do {                                                                                    \
+    int r = (expr);                                                                       \
+    if (r != 0) {                                                                         \
+      if (r == UV_EADDRINUSE && strcmp(op, "TCP listening") == 0)                        \
+        log_error("Error: Port %d is already in use", (uint32_t) (instance ? instance->port : 0)); \
+      else                                                                                \
+        log_error("Error: %s failed: %s (%s)", (op), uv_strerror(r), uv_err_name(r));    \
+      return 1;                                                                           \
+    }                                                                                     \
   } while (0)
 
 static volatile sig_atomic_t shutdown_requested            = 0;
@@ -50,24 +47,24 @@ static void on_init_idle(uv_idle_t* handle) {
 static void on_graceful_shutdown_timer(uv_timer_t* handle) {
   server_instance_t* instance = (server_instance_t*) handle->data;
   if (http_server.stats.open_requests == 0) {
-    fprintf(stderr, "C4 Server: All requests completed, proceeding with shutdown...\n");
+    log_info("C4 Server: All requests completed, proceeding with shutdown...");
     shutdown_requested = 1;
     uv_timer_stop(handle);
     if (instance && instance->loop) uv_stop(instance->loop);
   }
   else {
-    fprintf(stderr, "C4 Server: Waiting for %llu open requests to complete...\n",
-            http_server.stats.open_requests);
+    log_info("C4 Server: Waiting for %l open requests to complete...",
+             (uint64_t) http_server.stats.open_requests);
   }
 }
 
 // Signal callback to initiate graceful shutdown
 static void on_signal(uv_signal_t* handle, int signum) {
   server_instance_t* instance = (server_instance_t*) handle->data;
-  fprintf(stderr, "C4 Server: received signal %d — initiating graceful shutdown...\n", signum);
+  log_info("C4 Server: received signal %d — initiating graceful shutdown...", (uint32_t) signum);
 
   if (graceful_shutdown_in_progress) {
-    fprintf(stderr, "C4 Server: Graceful shutdown already in progress, forcing immediate shutdown...\n");
+    log_warn("C4 Server: Graceful shutdown already in progress, forcing immediate shutdown...");
     shutdown_requested = 1;
     if (instance && instance->loop) uv_stop(instance->loop);
     return;
@@ -76,13 +73,13 @@ static void on_signal(uv_signal_t* handle, int signum) {
   graceful_shutdown_in_progress = 1;
 
   if (http_server.stats.open_requests == 0) {
-    fprintf(stderr, "C4 Server: No open requests, shutting down immediately...\n");
+    log_info("C4 Server: No open requests, shutting down immediately...");
     shutdown_requested = 1;
     if (instance && instance->loop) uv_stop(instance->loop);
   }
   else {
-    fprintf(stderr, "C4 Server: %llu open requests detected, waiting for completion...\n",
-            http_server.stats.open_requests);
+    log_info("C4 Server: %l open requests detected, waiting for completion...",
+             (uint64_t) http_server.stats.open_requests);
     static uv_timer_t graceful_timer;
     uv_timer_init(instance->loop, &graceful_timer);
     graceful_timer.data = instance;
@@ -92,7 +89,7 @@ static void on_signal(uv_signal_t* handle, int signum) {
 
 int c4_server_start(server_instance_t* instance, int port) {
   if (!instance) {
-    fprintf(stderr, "Error: NULL server instance\n");
+    log_error("Error: NULL server instance");
     return 1;
   }
 
@@ -101,7 +98,7 @@ int c4_server_start(server_instance_t* instance, int port) {
   instance->loop = uv_default_loop();
 
   if (!instance->loop) {
-    fprintf(stderr, "Error: Failed to initialize default uv loop\n");
+    log_error("Error: Failed to initialize default uv loop");
     return 1;
   }
 
@@ -113,7 +110,9 @@ int c4_server_start(server_instance_t* instance, int port) {
   c4_register_http_handler(c4_handle_get_config);
   c4_register_http_handler(c4_handle_post_config);
   c4_register_http_handler(c4_handle_restart_server);
+  c4_register_http_handler(c4_handle_openapi);
   c4_register_http_handler(c4_handle_verify_request);
+  c4_register_http_handler(c4_handle_unverified_rpc_request);
   c4_register_http_handler(c4_handle_proof_request);
   c4_register_http_handler(c4_handle_metrics);
   c4_register_http_handler(c4_handle_status);
@@ -134,7 +133,7 @@ int c4_server_start(server_instance_t* instance, int port) {
                           cleanup_interval_ms, cleanup_interval_ms),
            instance);
 
-  fprintf(stderr, "C4 Server %s starting on %s:%d\n", c4_client_version, http_server.host, instance->port);
+  log_info("C4 Server %s starting on %s:%d", c4_client_version, http_server.host, (uint32_t) instance->port);
 
   // Initialize curl
   c4_init_curl(&instance->curl_timer);
@@ -153,7 +152,7 @@ int c4_server_start(server_instance_t* instance, int port) {
   UV_CHECK("Init idle handle start", uv_idle_start(&instance->init_idle_handle, on_init_idle), instance);
 
   instance->is_running = true;
-  fprintf(stderr, "C4 Server %s running on %s:%d\n", c4_client_version, http_server.host, instance->port);
+  log_info("C4 Server %s running on %s:%d", c4_client_version, http_server.host, (uint32_t) instance->port);
 
   return 0;
 }
@@ -181,7 +180,7 @@ static void close_active_clients(uv_handle_t* handle, void* arg) {
     // This prevents us from closing memcache or other TCP handles with the wrong callback
     client_t* client = (client_t*) handle->data;
     if (client && client->magic == C4_CLIENT_MAGIC) {
-      fprintf(stderr, "C4 Server: Closing active client connection %p\n", (void*) handle);
+      log_info("C4 Server: Closing active client connection 0x%lx", (uint64_t) (uintptr_t) handle);
       uv_close(handle, c4_http_server_on_close_callback); // Properly free client_t in callback
     }
     // Memcache and other handles will be closed by their respective cleanup functions
@@ -193,10 +192,13 @@ void c4_server_stop(server_instance_t* instance) {
     return;
   }
 
-  fprintf(stderr, "C4 Server: Stopping server...\n");
+  log_info("C4 Server: Stopping server...");
   instance->is_running = false;
 
   c4_server_handlers_shutdown(&http_server);
+
+  // Stop head poller to avoid lingering libuv handles
+  c4_stop_rpc_head_poller();
 
   // Stop and close timers
   uv_timer_stop(&instance->prover_cleanup_timer);
@@ -237,5 +239,5 @@ void c4_server_stop(server_instance_t* instance) {
   // (curl cleanup frees memcache which contains libuv handles)
   c4_cleanup_curl();
 
-  fprintf(stderr, "C4 Server stopped.\n");
+  log_info("C4 Server stopped.");
 }

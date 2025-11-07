@@ -31,6 +31,7 @@
 #include "prover.h"
 #include "ssz.h"
 #include "sync_committee.h"
+#include "tx_cache.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -39,6 +40,10 @@
 static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof, blockroot_proof_t block_proof) {
 
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF);
+  ssz_builder_t sync_proof   = NULL_SSZ_BUILDER;
+
+  // get the sync_proof if needed
+  TRY_ASYNC(c4_get_syncdata_proof(ctx, &block_proof.sync, &sync_proof));
 
   // build the proof
   ssz_add_bytes(&eth_tx_proof, "transaction", ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index).bytes);
@@ -48,13 +53,13 @@ static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, bea
   ssz_add_uint64(&eth_tx_proof, ssz_get_uint64(&block_data->execution, "baseFeePerGas"));
   ssz_add_bytes(&eth_tx_proof, "proof", tx_proof);
   ssz_add_builders(&eth_tx_proof, "header", c4_proof_add_header(block_data->header, body_root));
-  ssz_add_blockroot_proof(&eth_tx_proof, block_data, block_proof);
+  ssz_add_header_proof(&eth_tx_proof, block_data, block_proof);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
       NULL_SSZ_BUILDER,
       eth_tx_proof,
-      NULL_SSZ_BUILDER);
+      sync_proof);
 
   return C4_SUCCESS;
 }
@@ -68,24 +73,37 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   json_t            block_number = {0};
   blockroot_proof_t block_proof  = {0};
   c4_status_t       status       = C4_SUCCESS;
-
+#ifdef PROVER_CACHE
+  uint8_t  block_buffer[32] = {0};
+  buffer_t block_buf        = stack_buffer(block_buffer);
+#endif
   if (strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0) {
     tx_index     = json_as_uint32(json_at(ctx->params, 1));
     block_number = json_at(ctx->params, 0);
   }
   else { // eth_getTransactionByHash
     if (txhash.type != JSON_TYPE_STRING || txhash.len != 68 || txhash.start[1] != '0' || txhash.start[2] != 'x') THROW_ERROR("Invalid hash");
-    TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
-    tx_index     = json_get_uint32(tx_data, "transactionIndex");
-    block_number = json_get(tx_data, "blockNumber");
-    if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') THROW_ERROR("Invalid block number");
+#ifdef PROVER_CACHE
+    // check tx cache for the block number and tx index if we have it
+    uint64_t  block_number_val = 0;
+    bytes32_t tx_hash          = {0};
+    hex_to_bytes(txhash.start + 1, txhash.len - 2, bytes(tx_hash, 32));
+    if (c4_eth_tx_cache_get(tx_hash, &block_number_val, &tx_index))
+      block_number = json_parse(bprintf(&block_buf, "\"0x%lx\"", block_number_val));
+#endif
+    if (block_number.type == JSON_TYPE_INVALID) {
+      TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+      tx_index     = json_get_uint32(tx_data, "transactionIndex");
+      block_number = json_get(tx_data, "blockNumber");
+      if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') THROW_ERROR("Invalid block number");
+    }
   }
 
   // geth the beacon-block with signature
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
 
   // check if we need historical proofs
-  if (block.slot) TRY_ADD_ASYNC(status, c4_check_historic_proof(ctx, &block_proof, &block));
+  if (block.slot) TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &block_proof, &block));
 
   if (status != C4_SUCCESS) {
     if (block_proof.historic_proof.data) safe_free(block_proof.historic_proof.data);

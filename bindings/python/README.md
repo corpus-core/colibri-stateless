@@ -11,7 +11,7 @@ The colibri client is a stateless and trustless ethereum client, which is optimi
 ### Installation
 
 ```bash
-pip install colibri-stateless
+python3 -m pip install colibri-stateless
 ```
 
 ### Basic Usage
@@ -70,11 +70,39 @@ cd colibri-stateless/bindings/python
 # Build native extension
 ./build.sh
 
-# Install in development mode
+# Option 1: Use virtual environment (recommended)
+python3 -m venv venv
+source venv/bin/activate
 pip install -e .
+pip install -r requirements-dev.txt
 
 # Run tests
-python -m pytest tests/
+pytest tests/ -v
+
+# Deactivate when done
+deactivate
+```
+
+**Alternative without virtual environment:**
+
+```bash
+# Install test dependencies with --user flag
+python3 -m pip install --user pytest pytest-asyncio aiohttp
+
+# Run tests directly with PYTHONPATH
+PYTHONPATH=src python3 -m pytest tests/ -v
+```
+
+### Quick Debug Build
+
+For faster iteration during development:
+
+```bash
+# Build in debug mode
+./build_debug.sh
+
+# Run tests without installation
+PYTHONPATH=src python3 -m pytest tests/ -v
 ```
 
 ### Integration Tests

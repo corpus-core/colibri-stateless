@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "util/bytes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,7 +64,10 @@ static void semihosting_write(const char* message) {
 
 // Simple function to print status messages
 static void print_status(const char* message) {
-  printf("Status: %s\n", message);
+  buffer_t buf = {0};
+  bprintf(&buf, "Status: %s\n", message);
+  fwrite(buf.data.data, 1, buf.data.len, stdout);
+  buffer_free(&buf);
   fflush(stdout);
 }
 
@@ -87,8 +91,9 @@ int main(void) {
 
   // Print some numbers
   for (int i = 0; i < 5; i++) {
-    char buf[100];
-    snprintf(buf, sizeof(buf), "Counter: %d", i);
+    char     buf[100];
+    buffer_t tmp_buf = stack_buffer(buf);
+    bprintf(&tmp_buf, "Counter: %d", (uint32_t) i);
     semihosting_write(buf);
   }
 

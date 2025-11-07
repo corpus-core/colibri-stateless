@@ -7,9 +7,47 @@
 #include "logger.h"
 #include "server.h"
 #include <stddef.h> // Added for offsetof
+#include <string.h>
+#ifdef _WIN32
+#include "util/win_compat.h"
+#endif
 #ifdef TEST
 #include "util/bytes.h"
 #include "util/crypto.h"
+#endif
+
+// Provide strnstr implementation if it's not available (e.g., on non-BSD/non-GNU systems)
+#ifndef HAVE_STRNSTR
+static char* c4_strnstr(const char* haystack, const char* needle, size_t len) {
+  size_t needle_len;
+
+  if (!needle || *needle == '\0') {
+    return (char*) haystack; // Empty needle matches immediately
+  }
+  needle_len = strlen(needle);
+  if (needle_len == 0) {
+    return (char*) haystack; // Also empty
+  }
+  if (needle_len > len) {
+    return NULL; // Needle is longer than the search length
+  }
+
+  // Iterate up to the last possible starting position within len
+  for (size_t i = 0; i <= len - needle_len; ++i) {
+    // Stop if we hit the end of the haystack string itself
+    if (haystack[i] == '\0') {
+      break;
+    }
+    // Compare the needle at the current position
+    if (strncmp(&haystack[i], needle, needle_len) == 0) {
+      return (char*) &haystack[i]; // Found match
+    }
+  }
+
+  return NULL; // Not found
+}
+// Map to our local implementation when the platform libc doesn't provide strnstr
+#define strnstr c4_strnstr
 #endif
 
 // container_of macro to get the pointer to the containing struct
@@ -23,6 +61,7 @@ typedef struct pending_request {
 
 static pending_request_t* pending_requests = NULL;
 static CURLM*             multi_handle;
+static CURLSH*            g_curl_share    = NULL;
 static mc_t*              memcache_client = NULL;
 const char*               CURL_METHODS[]  = {"GET", "POST", "PUT", "DELETE"};
 
@@ -114,10 +153,10 @@ static void c4_record_test_response(const char* url, const char* payload,
       fwrite(response.data, 1, response.len, f);
     }
     fclose(f);
-    fprintf(stderr, "[RECORD] %s -> %s\n", host ? host : "unknown", filename);
+    log_info("[RECORD] %s -> %s", host ? host : "unknown", filename);
   }
   else {
-    fprintf(stderr, "[RECORD] Failed to write %s\n", filename);
+    log_error("[RECORD] Failed to write %s", filename);
   }
 
   free(filename);
@@ -189,6 +228,48 @@ static char* extract_rpc_method(data_request_t* req) {
   return NULL;
 }
 
+// Helper: Extract requested block number for known methods; sets out_has_block when parsed
+static void extract_requested_block_for_method(data_request_t* req, const char* rpc_method, uint64_t* out_block, bool* out_has_block) {
+  if (!req || !rpc_method || !out_block || !out_has_block) return;
+  *out_block     = 0;
+  *out_has_block = false;
+  if (!req->payload.data || req->payload.len == 0) return;
+
+  json_t root   = json_parse((char*) req->payload.data);
+  json_t params = json_get(root, "params");
+  if (params.type != JSON_TYPE_ARRAY) return;
+
+  // debug_traceCall / eth_call: block tag at index 1
+  if (strcmp(rpc_method, "debug_traceCall") == 0 || strcmp(rpc_method, "eth_call") == 0) {
+    json_t tag = json_at(params, 1);
+    if (tag.type != JSON_TYPE_NOT_FOUND) {
+      *out_block     = json_as_uint64(tag);
+      *out_has_block = *out_block > 0;
+    }
+    return;
+  }
+
+  // eth_getProof: block tag at index 2
+  if (strcmp(rpc_method, "eth_getProof") == 0) {
+    json_t tag = json_at(params, 2);
+    if (tag.type != JSON_TYPE_NOT_FOUND) {
+      *out_block     = json_as_uint64(tag);
+      *out_has_block = *out_block > 0;
+    }
+    return;
+  }
+
+  // eth_getBlockReceipts: block tag at index 0
+  if (strcmp(rpc_method, "eth_getBlockReceipts") == 0) {
+    json_t tag = json_at(params, 0);
+    if (tag.type != JSON_TYPE_NOT_FOUND) {
+      *out_block     = json_as_uint64(tag);
+      *out_has_block = *out_block > 0;
+    }
+    return;
+  }
+}
+
 // Context structure to associate uv_poll_t with CURL easy handle
 typedef struct {
   uv_poll_t     poll_handle;
@@ -227,7 +308,7 @@ static void cleanup_easy_handle_and_context(uv_handle_t* handle) {
     safe_free(context);
   }
   else {
-    fprintf(stderr, "WARNING: cleanup_easy_handle_and_context called with handle not part of a context?\n");
+    log_warn("cleanup_easy_handle_and_context called with handle not part of a context?");
   }
 }
 
@@ -343,8 +424,8 @@ static void handle_curl_events() {
       const char* url = r->url ? r->url : r->req->url;
       if (url && strncmp(url, "file://", 7) == 0) {
         http_code = parse_mock_response(&r->buffer);
-        fprintf(stderr, "   [mock ] Parsed mock response from %s: HTTP %ld, %u bytes\n",
-                url, http_code, (unsigned int) r->buffer.data.len);
+        log_info("   [mock ] Parsed mock response from %s: HTTP %l, %d bytes",
+                 url, (uint64_t) http_code, (uint32_t) r->buffer.data.len);
       }
     }
 #endif
@@ -357,12 +438,45 @@ static void handle_curl_events() {
                                                             r->buffer.data,
                                                             r->req); // Classify the response type
 
+    // Collect libcurl-level metrics
+    {
+      long   http_version = 0;
+      long   num_connects = 0;
+      double connect_time = 0.0;
+      double app_time     = 0.0;
+      curl_easy_getinfo(easy, CURLINFO_HTTP_VERSION, &http_version);
+      curl_easy_getinfo(easy, CURLINFO_NUM_CONNECTS, &num_connects);
+      curl_easy_getinfo(easy, CURLINFO_CONNECT_TIME, &connect_time);
+      curl_easy_getinfo(easy, CURLINFO_APPCONNECT_TIME, &app_time);
+      http_server.curl.total_requests++;
+      http_server.curl.total_connects += (uint64_t) num_connects;
+      // Portable Reuse-Heuristik: wenn keine neuen Connects in diesem Transfer, wurde die Verbindung wiederverwendet
+      if (num_connects == 0) http_server.curl.reused_connections_total++;
+      if (http_version >= CURL_HTTP_VERSION_2_0)
+        http_server.curl.http2_requests_total++;
+      else
+        http_server.curl.http1_requests_total++;
+      if (num_connects > 0 && app_time > 0.0) http_server.curl.tls_handshakes_total++;
+      const double w = 0.1;
+      if (connect_time > 0.0)
+        http_server.curl.avg_connect_time_ms = (1.0 - w) * http_server.curl.avg_connect_time_ms + w * (connect_time * 1000.0);
+      if (app_time > 0.0)
+        http_server.curl.avg_appconnect_time_ms = (1.0 - w) * http_server.curl.avg_appconnect_time_ms + w * (app_time * 1000.0);
+    }
+
     // Update server health based on response type
     // Method not supported is not a server health issue, so we treat it as successful for health tracking
     bool health_success = (response_type == C4_RESPONSE_SUCCESS ||
                            response_type == C4_RESPONSE_ERROR_USER ||
                            response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED);
-    c4_update_server_health(servers, r->req->response_node_index, response_time, health_success);
+    // Update via unified end hook (also adjusts AIMD and method stats)
+    {
+      char* rpc_method = extract_rpc_method(r->req);
+      c4_on_request_end(servers, r->req->response_node_index, response_time,
+                        health_success, response_type, http_code,
+                        rpc_method, NULL);
+      if (rpc_method) safe_free(rpc_method);
+    }
 
     // Handle method not supported errors
     if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
@@ -381,40 +495,52 @@ static void handle_curl_events() {
                             http_code);
 #endif
 
-    bytes_t response = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
+    const char* server_name = c4_extract_server_name(servers->urls[r->req->response_node_index]);
+    bytes_t     response    = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
     if (response_type == C4_RESPONSE_SUCCESS && response.data) {
-      fprintf(stderr, "   [curl ] %s %s -> OK %d bytes (%s)\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, r->url ? r->url : r->req->url);
+      log_info(GREEN("   [curl ]") " %s -> OK %d bytes, %d ms from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->buffer.data.len, (int) response_time, server_name);
       r->req->response = response; // set the response
       cache_response(r);           // and write to cache
 
       r->buffer = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
     }
     else if (response_type == C4_RESPONSE_ERROR_USER && r->req->type == C4_DATA_TYPE_ETH_RPC && response.data) {
+      log_warn(YELLOW("   [curl ]") " %s -> USER ERROR %d bytes (%s) : from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->buffer.data.len,
+               response.data ? (char*) response.data : "",
+               server_name);
       // For JSON-RPC user errors, set the response so application logic can extract detailed error messages
-      fprintf(stderr, "   [curl ] %s %s -> USER ERROR %d bytes  (%s) : %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "", r->buffer.data.len, r->url ? r->url : r->req->url, response.data ? (char*) response.data : "");
       r->req->response = response;       // set the response with JSON-RPC error details
       r->buffer        = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
 
       // Mark as non-retryable to avoid unnecessary retries
-      fprintf(stderr, "   [user ] JSON-RPC user error - marking request as non-retryable\n");
+      log_warn(YELLOW("   [curl ]") " JSON-RPC user error - marking request as non-retryable");
       r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
     }
     else if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
       // Don't set response or mark as completely failed - let retry logic handle it
       if (!r->req->error) r->req->error = strdup("Method not supported");
-      fprintf(stderr, "   [curl ] %s %s -> Method not supported : %s\n",
-              r->url ? r->url : r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
+      log_warn(YELLOW("   [curl ]") " %s -> " BOLD("METHOD NOT SUPPORTED : %s") " from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->req->error ? r->req->error : "",
+               server_name);
     }
     else {
       char* effective_url = NULL;
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
       if (!r->req->error) r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, msg->data.result == CURLE_OK ? "" : curl_easy_strerror(msg->data.result), bprintf(&r->buffer, " ")); // create error message
-      fprintf(stderr, "   [curl ] %s %s -> ERROR : %s\n", effective_url ? effective_url : (r->url ? r->url : r->req->url), r->req->payload.data ? (char*) r->req->payload.data : "", r->req->error);
+      log_warn(YELLOW("   [curl ]") " %s -> ERROR : " BOLD("%s") " : from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->req->error,
+               server_name);
 
       // For non-JSON-RPC user errors, mark as non-retryable to avoid unnecessary retries
       if (response_type == C4_RESPONSE_ERROR_USER) {
-        fprintf(stderr, "   [user ] User error detected - marking request as non-retryable\n");
+        log_warn(YELLOW("   [user ]") " User error detected - marking request as non-retryable");
         // Set exclude mask to all servers to prevent retries
         r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
       }
@@ -457,7 +583,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
 
   // Check if there was an error
   if (status < 0) {
-    fprintf(stderr, "Socket poll error: %s\n", uv_strerror(status));
+    log_error("Socket poll error: %s", uv_strerror(status));
     return;
   }
 
@@ -475,7 +601,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
 
   CURLMcode rc = curl_multi_socket_action(multi_handle, socket, flags, &running_handles);
   if (rc != CURLM_OK) {
-    fprintf(stderr, "curl_multi_socket_action error: %s\n", curl_multi_strerror(rc));
+    log_error("curl_multi_socket_action error: %s", curl_multi_strerror(rc));
   }
 
   handle_curl_events();
@@ -490,7 +616,7 @@ static void timer_cb(uv_timer_t* handle) {
   int       running_handles;
   CURLMcode rc = curl_multi_socket_action(multi_handle, CURL_SOCKET_TIMEOUT, 0, &running_handles);
   if (rc != CURLM_OK) {
-    fprintf(stderr, "curl_multi_socket_action error in timer: %s\n", curl_multi_strerror(rc));
+    log_error("curl_multi_socket_action error in timer: %s", curl_multi_strerror(rc));
   }
 
   handle_curl_events();
@@ -540,14 +666,14 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   if (!context) {
     context = (curl_poll_context_t*) safe_calloc(1, sizeof(curl_poll_context_t));
     if (!context) {
-      fprintf(stderr, "Failed to allocate poll context\n");
+      log_error("Failed to allocate poll context");
       return -1;
     }
     context->easy_handle = easy;
     context->socket      = s; // Store socket descriptor for cross-platform access
     int err              = uv_poll_init_socket(uv_default_loop(), &context->poll_handle, s);
     if (err != 0) {
-      fprintf(stderr, "Failed to initialize poll handle: %s\n", uv_strerror(err));
+      log_error("Failed to initialize poll handle: %s", uv_strerror(err));
       safe_free(context);
       return -1;
     }
@@ -564,7 +690,7 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   // Start or update polling for events
   int err = uv_poll_start(&context->poll_handle, events, poll_cb);
   if (err != 0) {
-    fprintf(stderr, "Failed to start polling: %s\n", uv_strerror(err));
+    log_error("Failed to start polling: %s", uv_strerror(err));
     // If starting polling failed, we should clean up the context/handle
     // Only do this if we *just* created the context in this call (!socketp check equivalent)
     if (!socketp) {                     // Check if context was created in this call
@@ -611,7 +737,7 @@ typedef struct {
 
 static void c4_add_request_response(request_t* req) {
   if (!req || !req->ctx) {
-    fprintf(stderr, "ERROR: Invalid request or context in c4_add_request_response\n");
+    log_error("Invalid request or context in c4_add_request_response");
     return;
   }
 
@@ -621,7 +747,7 @@ static void c4_add_request_response(request_t* req) {
 
   // Check that client is still valid and not being closed
   if (!res->client || res->client->being_closed)
-    fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding response\n");
+    log_warn("Client is no longer valid or is being closed - discarding response");
   else
     // Client is still valid, deliver the response
     res->cb(req->client, res->data, dr);
@@ -672,7 +798,7 @@ static void cache_response(single_request_t* r) {
 // Helper function to configure SSL settings for an easy handle
 static void configure_ssl_settings(CURL* easy) {
   if (!easy) {
-    fprintf(stderr, "configure_ssl_settings: NULL easy handle passed\n");
+    log_error("configure_ssl_settings: NULL easy handle passed");
     return;
   }
 
@@ -708,12 +834,12 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
   if (pending) { // there is a pending request asking for the same result
     pending_add_to_same_requests(pending, r);
-    fprintf(stderr, "   [join ] %s %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "");
+    log_info(GRAY("   [join ]") " %s", c4_req_info(r->req->type, r->req->url, r->req->payload));
     // callback will be called when the pending-request is done
   }
   else if (value) { // there is a cached response
     // Cache hit - create response from cached data
-    fprintf(stderr, "   [cache] %s %s\n", r->req->url ? r->req->url : "", r->req->payload.data ? (char*) r->req->payload.data : "");
+    log_info(GRAY("   [cache]") " %s", c4_req_info(r->req->type, r->req->url, r->req->payload));
     r->req->response = bytes_dup(bytes(value, value_len));
     r->curl          = NULL; // Mark as done
     r->cached        = true;
@@ -732,15 +858,18 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
         !(r->req->node_exclude_mask & (1 << r->req->response_node_index))) {
       // Use pre-selected index from retry logic
       selected_index = r->req->response_node_index;
-      fprintf(stderr, "   [retry] Using pre-selected server %d: %s\n",
-              selected_index, servers->urls[selected_index]);
+      log_warn("   [retry] Using pre-selected server %s", c4_extract_server_name(servers->urls[selected_index]));
     }
     else {
       // Use intelligent server selection for initial requests
       // For RPC requests, use method-aware selection
       char* rpc_method = extract_rpc_method(r->req);
       if (rpc_method) {
-        selected_index = c4_select_best_server_for_method(servers, r->req->node_exclude_mask, r->req->preferred_client_type, rpc_method);
+        // Extract requested block number for known methods (if present)
+        uint64_t requested_block = 0;
+        bool     has_block       = false;
+        extract_requested_block_for_method(r->req, rpc_method, &requested_block, &has_block);
+        selected_index = c4_select_best_server_for_method(servers, r->req->node_exclude_mask, r->req->preferred_client_type, rpc_method, requested_block, has_block);
         safe_free(rpc_method);
       }
       else {
@@ -749,7 +878,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
       if (selected_index == -1) {
         // This should be very rare after emergency reset logic in c4_select_best_server
-        fprintf(stderr, ":: CRITICAL ERROR: No available servers even after emergency reset attempts\n");
+        log_error(":: CRITICAL ERROR: No available servers even after emergency reset attempts");
         r->req->error = bprintf(NULL, "All servers exhausted - check network connectivity");
         r->end_time   = current_ms();
         call_callback_if_done(r->parent);
@@ -772,7 +901,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     else if (strlen(req_url) > 0 && strlen(base_url) > 0)
       r->url = bprintf(NULL, "%s%s%s", base_url, base_url[strlen(base_url) - 1] == '/' ? "" : "/", req_url);
     else {
-      fprintf(stderr, ":: ERROR: Empty URL\n");
+      log_error(":: ERROR: Empty URL");
       r->req->error = bprintf(NULL, "Empty URL");
       r->end_time   = current_ms();
       call_callback_if_done(r->parent);
@@ -816,9 +945,29 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[r->req->method]);
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r);
 
+    // Preferred HTTP version and connection reuse settings
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, http_server.curl.http2_enabled ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
+    curl_easy_setopt(easy, CURLOPT_PIPEWAIT, 1L);
+    curl_easy_setopt(easy, CURLOPT_DNS_CACHE_TIMEOUT, 600L);
+    if (http_server.curl.tcp_keepalive_enabled) {
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPALIVE, 1L);
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPIDLE, (long) http_server.curl.tcp_keepidle_s);
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPINTVL, (long) http_server.curl.tcp_keepintvl_s);
+    }
+#ifdef CURLOPT_UPKEEP_INTERVAL_MS
+    if (http_server.curl.upkeep_interval_ms > 0)
+      curl_easy_setopt(easy, CURLOPT_UPKEEP_INTERVAL_MS, (long) http_server.curl.upkeep_interval_ms);
+#endif
+#ifdef CURLOPT_MAXAGE_CONN
+    curl_easy_setopt(easy, CURLOPT_MAXAGE_CONN, 300L);
+#endif
+    if (g_curl_share) curl_easy_setopt(easy, CURLOPT_SHARE, g_curl_share);
+
     // Configure SSL settings for this easy handle
     configure_ssl_settings(easy);
 
+    // Mark request start for concurrency tracking (best-effort)
+    c4_on_request_start(servers, selected_index, /*allow_overflow=*/true);
     curl_multi_add_handle(multi_handle, easy);
     //    fprintf(stderr, "send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     // callback will be called when the request by handle_curl_events when all are done.
@@ -841,7 +990,7 @@ static void trigger_cached_curl_requests(request_t* req) {
     int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
     safe_free(key);
     if (ret) {
-      fprintf(stderr, "CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+      log_error("CACHE-Error : %d %s %s", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
       trigger_uncached_curl_request(r, NULL, 0);
     }
   }
@@ -850,7 +999,7 @@ static void trigger_cached_curl_requests(request_t* req) {
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb) {
   // Check if client is valid and not being closed
   if (!client || client->being_closed) {
-    fprintf(stderr, "ERROR: Attempted to add request to invalid or closing client\n");
+    log_error("Attempted to add request to invalid or closing client");
     // Clean up resources since we won't be processing this request
     if (req) {
       safe_free(req->url);
@@ -929,7 +1078,8 @@ bool c4_check_retry_request(request_t* req) {
       // Try to find another available server (c4_select_best_server handles emergency reset)
       int new_idx = c4_select_best_server(servers, pending->node_exclude_mask, pending->preferred_client_type);
       if (new_idx != -1) {
-        fprintf(stderr, "   [retry] %s with idx %d: %s\n", pending->url ? pending->url : (char*) pending->payload.data, new_idx, servers->urls[new_idx] ? servers->urls[new_idx] : "NULL");
+        log_warn("   [retry] %s -> Using pre-selected server " BRIGHT_BLUE("%s"), c4_req_info(pending->type, pending->url, pending->payload), c4_extract_server_name(servers->urls[new_idx]));
+
         safe_free(pending->error);
         pending->response_node_index = new_idx;
         pending->error               = NULL;
@@ -938,7 +1088,7 @@ bool c4_check_retry_request(request_t* req) {
       }
       else {
         // This should be very rare due to emergency reset in c4_select_best_server
-        fprintf(stderr, ":: No more servers available for retry after emergency measures\n");
+        log_error(":: No more servers available for retry after emergency measures");
       }
     }
   }
@@ -981,17 +1131,32 @@ void c4_init_curl(uv_timer_t* timer) {
   // Initialize global curl state with SSL support
   curl_global_init(CURL_GLOBAL_SSL | CURL_GLOBAL_DEFAULT);
 
+  // Initialize shared object for DNS and SSL session sharing
+  g_curl_share = curl_share_init();
+  if (g_curl_share) {
+    curl_share_setopt(g_curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+    curl_share_setopt(g_curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+  }
+
   // Initialize multi handle
   multi_handle = curl_multi_init();
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, socket_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
 
+  // Configure connection pool limits and HTTP/2 multiplexing
+  curl_multi_setopt(multi_handle, CURLMOPT_MAX_HOST_CONNECTIONS, (long) http_server.curl.pool_max_host);
+  curl_multi_setopt(multi_handle, CURLMOPT_MAX_TOTAL_CONNECTIONS, (long) http_server.curl.pool_max_total);
+#ifdef CURLPIPE_MULTIPLEX
+  curl_multi_setopt(multi_handle, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
+#endif
+  curl_multi_setopt(multi_handle, CURLMOPT_MAXCONNECTS, (long) http_server.curl.pool_maxconnects);
+
   if (http_server.memcached_host && *http_server.memcached_host) {
     // Initialize memcached client
     memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
     if (!memcache_client) {
-      fprintf(stderr, "Failed to create memcached client\n");
+      log_error("Failed to create memcached client");
       return;
     }
   }
@@ -1003,6 +1168,30 @@ void c4_init_curl(uv_timer_t* timer) {
   // Auto-detect client types for servers without explicit configuration
   c4_detect_server_client_types(&eth_rpc_servers, C4_DATA_TYPE_ETH_RPC);
   c4_detect_server_client_types(&beacon_api_servers, C4_DATA_TYPE_BEACON_API);
+  // Start RPC head polling (optional, based on ENV)
+  c4_start_rpc_head_poller(&eth_rpc_servers);
+}
+
+static void free_server_list(server_list_t* list) {
+  if (!list) return;
+  if (list->health_stats) {
+    for (size_t i = 0; i < list->count; i++)
+      c4_cleanup_method_support(&list->health_stats[i]);
+    safe_free(list->health_stats);
+    list->health_stats = NULL;
+  }
+  if (list->client_types) {
+    safe_free(list->client_types);
+    list->client_types = NULL;
+  }
+  if (list->urls) {
+    for (size_t i = 0; i < list->count; i++)
+      safe_free(list->urls[i]);
+    safe_free(list->urls);
+    list->urls = NULL;
+  }
+  list->count      = 0;
+  list->next_index = 0;
 }
 
 void c4_cleanup_curl() {
@@ -1010,31 +1199,16 @@ void c4_cleanup_curl() {
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, NULL);
   curl_multi_cleanup(multi_handle);
   curl_global_cleanup();
+  if (g_curl_share) {
+    curl_share_cleanup(g_curl_share);
+    g_curl_share = NULL;
+  }
   if (memcache_client) {
     memcache_free(&memcache_client);
   }
 
-  // Clean up server health stats and client types
-  if (eth_rpc_servers.health_stats) {
-    for (size_t i = 0; i < eth_rpc_servers.count; i++) {
-      c4_cleanup_method_support(&eth_rpc_servers.health_stats[i]);
-    }
-    safe_free(eth_rpc_servers.health_stats);
-    eth_rpc_servers.health_stats = NULL;
-  }
-  if (eth_rpc_servers.client_types) {
-    safe_free(eth_rpc_servers.client_types);
-    eth_rpc_servers.client_types = NULL;
-  }
-  if (beacon_api_servers.health_stats) {
-    for (size_t i = 0; i < beacon_api_servers.count; i++) {
-      c4_cleanup_method_support(&beacon_api_servers.health_stats[i]);
-    }
-    safe_free(beacon_api_servers.health_stats);
-    beacon_api_servers.health_stats = NULL;
-  }
-  if (beacon_api_servers.client_types) {
-    safe_free(beacon_api_servers.client_types);
-    beacon_api_servers.client_types = NULL;
-  }
+  free_server_list(&eth_rpc_servers);
+  free_server_list(&beacon_api_servers);
+  free_server_list(&prover_servers);
+  free_server_list(&checkpointz_servers);
 }
