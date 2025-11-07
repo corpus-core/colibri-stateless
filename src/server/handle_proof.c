@@ -111,6 +111,12 @@ void c4_prover_handle_request(request_t* req) {
                c4_req_info(C4_DATA_TYPE_INTERN, req->client->request.path, bytes(req->client->request.payload, req->client->request.payload_len)),
                ctx->proof.len, (uint64_t) (current_ms() - req->start_time), (uint64_t) (uintptr_t) req->client);
       respond(req, ctx->proof, 200, "application/octet-stream");
+      if (req->trace_root) {
+        tracing_span_tag_str(req->trace_root, "status", "ok");
+        tracing_span_tag_i64(req->trace_root, "proof.size", (int64_t) ctx->proof.len);
+        tracing_finish(req->trace_root);
+        req->trace_root = NULL;
+      }
       prover_request_free(req);
       return;
 
@@ -124,6 +130,12 @@ void c4_prover_handle_request(request_t* req) {
       bprintf(&buf, "{\"error\":\"%s\"}", ctx->state.error);
       respond(req, buf.data, 500, "application/json");
       buffer_free(&buf);
+      if (req->trace_root) {
+        tracing_span_tag_str(req->trace_root, "status", "error");
+        if (ctx->state.error) tracing_span_tag_str(req->trace_root, "error", ctx->state.error);
+        tracing_finish(req->trace_root);
+        req->trace_root = NULL;
+      }
       prover_request_free(req);
       return;
     }
@@ -137,6 +149,12 @@ void c4_prover_handle_request(request_t* req) {
         // stop here, we don't have anything to do
         char* error = "{\"error\":\"Internal prover error: no prover available\"}";
         respond(req, bytes((uint8_t*) error, strlen(error)), 500, "application/json");
+        if (req->trace_root) {
+          tracing_span_tag_str(req->trace_root, "status", "error");
+          tracing_span_tag_str(req->trace_root, "error", "Internal prover error: no prover available");
+          tracing_finish(req->trace_root);
+          req->trace_root = NULL;
+        }
         prover_request_free(req);
       }
   }
@@ -172,6 +190,26 @@ bool c4_handle_proof_request(client_t* client) {
   if (client_state.type == JSON_TYPE_STRING && client_state.len > 4) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
   if (ctx->client_state.len > 4) ctx->flags |= C4_PROVER_FLAG_INCLUDE_SYNC;
   if (!bytes_all_zero(bytes(http_server.witness_key, 32))) ctx->witness_key = bytes(http_server.witness_key, 32);
+
+  // Tracing: start root span
+  if (tracing_is_enabled()) {
+    buffer_t name_buf = {0};
+    bprintf(&name_buf, "proof/%s", method_str ? method_str : "unknown");
+    req->trace_root = tracing_start_root((char*) name_buf.data.data);
+    name_buf.data.data = NULL;
+    buffer_free(&name_buf);
+    if (req->trace_root) {
+      tracing_span_tag_str(req->trace_root, "method", method_str ? method_str : "");
+      tracing_span_tag_i64(req->trace_root, "chain_id", (int64_t) http_server.chain_id);
+      tracing_span_tag_i64(req->trace_root, "request.size", (int64_t) client->request.payload_len);
+      if (include_code.type == JSON_TYPE_BOOLEAN) {
+        tracing_span_tag_str(req->trace_root, "include_code", include_code.start[0] == 't' ? "true" : "false");
+      }
+      if (ctx->client_state.len > 0) {
+        tracing_span_tag_i64(req->trace_root, "client_state_len", (int64_t) ctx->client_state.len);
+      }
+    }
+  }
 
   safe_free(method_str);
   safe_free(params_str);

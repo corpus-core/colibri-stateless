@@ -6,6 +6,7 @@
 #include "../util/chains.h"
 #include "logger.h"
 #include "server.h"
+#include "tracing.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -536,6 +537,11 @@ static void config() {
 #ifdef TEST
   http_server.test_dir = NULL;
 #endif
+  // Tracing defaults
+  http_server.tracing_enabled        = 0;
+  http_server.tracing_url            = "";
+  http_server.tracing_service_name   = "colibri-stateless";
+  http_server.tracing_sample_percent = 10; // 10%
 
   // Load config file (if exists)
   // Priority: defaults < config file < env vars < command line
@@ -589,4 +595,16 @@ static void config() {
 #ifdef TEST
   get_string(&http_server.test_dir, "TEST_DIR", "test_dir", 'x', "TEST MODE: record all responses to TESTDATA_DIR/server/<test_dir>/");
 #endif
+
+  // Tracing (ENV/args)
+  get_int(&http_server.tracing_enabled, "C4_TRACING_ENABLED", "tracing_enabled", 0, "enable tracing (0/1)", 0, 1);
+  get_string(&http_server.tracing_url, "C4_TRACING_URL", "tracing_url", 0, "Zipkin v2 endpoint (e.g. http://localhost:9411/api/v2/spans)");
+  get_string(&http_server.tracing_service_name, "C4_TRACING_SERVICE", "tracing_service", 0, "Tracing service name");
+  get_int(&http_server.tracing_sample_percent, "C4_TRACING_SAMPLE_PERCENT", "tracing_sample_percent", 0, "Tracing sample rate percent (0..100)", 0, 100);
+
+  // Apply tracing configuration
+  tracing_configure(http_server.tracing_enabled != 0,
+                    http_server.tracing_url,
+                    http_server.tracing_service_name,
+                    (double) http_server.tracing_sample_percent / 100.0);
 }
