@@ -264,15 +264,17 @@ static void log_request(client_t* client) {
   if (strcmp(client->request.path, "/metrics") == 0) return;     // no metrics logging
 
 #ifdef HTTP_SERVER_GEO
-  log_info(MAGENTA("[%s]") "%s" GRAY(" (%s in %s)"),
+  log_info(MAGENTA("::[%s]") "%s" GRAY(" (%s in %s) :: #%lx"),
            method_str(client->request.method),
            c4_req_info(C4_DATA_TYPE_INTERN, client->request.path, bytes(client->request.payload, client->request.payload_len)),
            client->request.geo_city ? client->request.geo_city : "",
-           (client->request.geo_country && client->request.geo_city) ? client->request.geo_country : "");
+           (client->request.geo_country && client->request.geo_city) ? client->request.geo_country : "",
+           (uint64_t) (uintptr_t) client);
 #else
-  log_info(MAGENTA("[%s]") "%s",
+  log_info(MAGENTA("::[%s]") "%s :: #%lx",
            method_str(client->request.method),
-           c4_req_info(0, client->request.path, bytes(client->request.payload, client->request.payload_len)));
+           c4_req_info(0, client->request.path, bytes(client->request.payload, client->request.payload_len)),
+           (uint64_t) (uintptr_t) client);
 #endif
 }
 
