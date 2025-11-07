@@ -112,6 +112,10 @@ static void on_close(uv_handle_t* handle) {
   safe_free(client->request.geo_latitude);
   safe_free(client->request.geo_longitude);
 #endif
+  // Free tracing header strings
+  safe_free(client->b3_trace_id);
+  safe_free(client->b3_span_id);
+  safe_free(client->b3_parent_span_id);
   // Clear handle->data BEFORE freeing client to avoid use-after-free
   // (handle is part of the client structure, so accessing it after free is invalid)
   handle->data  = NULL;
@@ -195,6 +199,24 @@ static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
   else if (strcasecmp(client->current_header, "Longitude") == 0)
     client->request.geo_longitude = strndup(at, length);
 #endif
+  else if (strcasecmp(client->current_header, "X-B3-TraceId") == 0) {
+    safe_free(client->b3_trace_id);
+    client->b3_trace_id = strndup(at, length);
+  }
+  else if (strcasecmp(client->current_header, "X-B3-SpanId") == 0) {
+    safe_free(client->b3_span_id);
+    client->b3_span_id = strndup(at, length);
+  }
+  else if (strcasecmp(client->current_header, "X-B3-ParentSpanId") == 0) {
+    safe_free(client->b3_parent_span_id);
+    client->b3_parent_span_id = strndup(at, length);
+  }
+  else if (strcasecmp(client->current_header, "X-B3-Sampled") == 0) {
+    if (length > 0 && (at[0] == '1' || at[0] == 't' || at[0] == 'T' || at[0] == 'y' || at[0] == 'Y'))
+      client->b3_sampled = 1;
+    else if (length > 0 && (at[0] == '0' || at[0] == 'f' || at[0] == 'F' || at[0] == 'n' || at[0] == 'N'))
+      client->b3_sampled = 0;
+  }
   return 0;
 }
 

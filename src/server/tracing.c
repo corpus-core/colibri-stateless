@@ -5,6 +5,7 @@
 
 #include "tracing.h"
 
+#include "../util/bytes.h"
 #include "logger.h"
 #include "server.h"
 
@@ -26,17 +27,17 @@ typedef struct {
 } span_id_t;
 
 typedef struct tag_entry {
-  char*              key;
-  char*              value_json; // valid JSON value (quoted already if string)
-  struct tag_entry*  next;
+  char*             key;
+  char*             value_json; // valid JSON value (quoted already if string)
+  struct tag_entry* next;
 } tag_entry_t;
 
 struct trace_span {
   trace_id_t   trace_id;
   span_id_t    span_id;
   span_id_t    parent_id;
-  uint64_t     start_ns;
-  uint64_t     end_ns;
+  uint64_t     start_ms;
+  uint64_t     end_ms;
   int          sampled; // 0/1
   char*        name;
   tag_entry_t* tags;
@@ -44,21 +45,177 @@ struct trace_span {
 };
 
 typedef struct {
-  int         enabled;
-  double      sample_rate;
-  char*       url;
-  char*       service_name;
+  int    enabled;
+  double sample_rate;
+  char*  url;
+  char*  service_name;
 } tracer_t;
 
-static tracer_t g_tracer = {0};
+static tracer_t g_tracer      = {0};
+static buffer_t g_batch       = {0};
+static int      g_batch_count = 0;
+
+// ---- libcurl multi transport (non-blocking) ----------------------------------------------------
+typedef struct trace_poll_ctx_t {
+  uv_poll_t                poll_handle;
+  curl_socket_t            socket;
+  struct trace_poll_ctx_t* next;
+} trace_poll_ctx_t;
+
+typedef struct {
+  buffer_t           body;
+  struct curl_slist* headers;
+} trace_easy_ctx_t;
+
+static CURLM*            g_trace_multi = NULL;
+static trace_poll_ctx_t* g_trace_polls = NULL;
+static uv_timer_t        g_trace_curl_timer;
+static bool              g_trace_curl_timer_initialized = false;
+
+static void c4_trace_handle_curl_events();
+
+static void c4_trace_poll_close_cb(uv_handle_t* h) {
+  if (!h) return;
+  trace_poll_ctx_t* ctx = (trace_poll_ctx_t*) h->data;
+  if (ctx) safe_free(ctx);
+}
+
+static void c4_trace_uv_poll_cb(uv_poll_t* handle, int status, int events) {
+  (void) status;
+  if (!handle || !handle->data) return;
+  trace_poll_ctx_t* c     = (trace_poll_ctx_t*) handle->data;
+  int               flags = 0;
+  if (events & UV_READABLE) flags |= CURL_CSELECT_IN;
+  if (events & UV_WRITABLE) flags |= CURL_CSELECT_OUT;
+  int running = 0;
+  curl_multi_socket_action(g_trace_multi, c->socket, flags, &running);
+  c4_trace_handle_curl_events();
+}
+
+static void c4_trace_timer_cb(uv_timer_t* handle) {
+  (void) handle;
+  int running = 0;
+  if (!g_trace_multi) return;
+  curl_multi_socket_action(g_trace_multi, CURL_SOCKET_TIMEOUT, 0, &running);
+  c4_trace_handle_curl_events();
+}
+
+static int c4_trace_timer_callback(CURLM* multi, long timeout_ms, void* userp) {
+  (void) multi;
+  (void) userp;
+  if (!g_trace_curl_timer_initialized) {
+    uv_timer_init(uv_default_loop(), &g_trace_curl_timer);
+    g_trace_curl_timer_initialized = true;
+  }
+  if (timeout_ms >= 0) {
+    uv_timer_start(&g_trace_curl_timer, c4_trace_timer_cb, timeout_ms, 0);
+  }
+  return 0;
+}
+
+static int c4_trace_socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, void* socketp) {
+  (void) easy;
+  (void) userp;
+  trace_poll_ctx_t* ctx = (trace_poll_ctx_t*) socketp;
+  if (what == CURL_POLL_REMOVE) {
+    if (ctx) {
+      uv_poll_stop(&ctx->poll_handle);
+      uv_close((uv_handle_t*) &ctx->poll_handle, c4_trace_poll_close_cb);
+      curl_multi_assign(g_trace_multi, s, NULL);
+      // Remove from list
+      trace_poll_ctx_t** p = &g_trace_polls;
+      while (*p) {
+        if (*p == ctx) {
+          *p = ctx->next;
+          break;
+        }
+        p = &(*p)->next;
+      }
+    }
+    return 0;
+  }
+  if (!ctx) {
+    ctx         = (trace_poll_ctx_t*) safe_calloc(1, sizeof(trace_poll_ctx_t));
+    ctx->socket = s;
+    uv_poll_init_socket(uv_default_loop(), &ctx->poll_handle, s);
+    ctx->poll_handle.data = ctx;
+    curl_multi_assign(g_trace_multi, s, ctx);
+    // Track handle
+    ctx->next     = g_trace_polls;
+    g_trace_polls = ctx;
+  }
+  int events = 0;
+  if (what & CURL_POLL_IN) events |= UV_READABLE;
+  if (what & CURL_POLL_OUT) events |= UV_WRITABLE;
+  uv_poll_start(&ctx->poll_handle, events, c4_trace_uv_poll_cb);
+  return 0;
+}
+
+static void tracing_transport_init(void) {
+  if (!g_trace_multi) {
+    g_trace_multi = curl_multi_init();
+    curl_multi_setopt(g_trace_multi, CURLMOPT_SOCKETFUNCTION, c4_trace_socket_callback);
+    curl_multi_setopt(g_trace_multi, CURLMOPT_TIMERFUNCTION, c4_trace_timer_callback);
+    // Use conservative connection reuse; no extra limits needed here
+  }
+  if (!g_trace_curl_timer_initialized) {
+    uv_timer_init(uv_default_loop(), &g_trace_curl_timer);
+    g_trace_curl_timer_initialized = true;
+  }
+}
+
+static void c4_trace_handle_curl_events() {
+  if (!g_trace_multi) return;
+  CURLMsg* msg;
+  int      left;
+  while ((msg = curl_multi_info_read(g_trace_multi, &left))) {
+    if (msg->msg != CURLMSG_DONE) continue;
+    CURL*             easy = msg->easy_handle;
+    trace_easy_ctx_t* ctx  = NULL;
+    curl_easy_getinfo(easy, CURLINFO_PRIVATE, &ctx);
+    curl_multi_remove_handle(g_trace_multi, easy);
+    curl_easy_cleanup(easy);
+    if (ctx) {
+      if (ctx->headers) curl_slist_free_all(ctx->headers);
+      buffer_free(&ctx->body);
+      safe_free(ctx);
+    }
+  }
+}
+
+static void tracing_enqueue_body(buffer_t* body) {
+  if (!g_tracer.url || !*g_tracer.url) {
+    buffer_free(body);
+    return;
+  }
+  tracing_transport_init();
+  trace_easy_ctx_t* ctx = (trace_easy_ctx_t*) safe_calloc(1, sizeof(trace_easy_ctx_t));
+  // Transfer ownership of body to ctx
+  ctx->body       = *body;
+  body->data.data = NULL;
+  body->data.len  = 0;
+  ctx->headers    = curl_slist_append(NULL, "Content-Type: application/json");
+
+  CURL* easy = curl_easy_init();
+  if (!easy) {
+    if (ctx->headers) curl_slist_free_all(ctx->headers);
+    buffer_free(&ctx->body);
+    safe_free(ctx);
+    return;
+  }
+  curl_easy_setopt(easy, CURLOPT_URL, g_tracer.url);
+  curl_easy_setopt(easy, CURLOPT_HTTPHEADER, ctx->headers);
+  curl_easy_setopt(easy, CURLOPT_POSTFIELDS, ctx->body.data.data ? (char*) ctx->body.data.data : "");
+  curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) ctx->body.data.len);
+  // Short timeouts to avoid long-hung exports; still non-blocking via multi
+  curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS, 500L);
+  curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS, 250L);
+  curl_easy_setopt(easy, CURLOPT_PRIVATE, ctx);
+
+  curl_multi_add_handle(g_trace_multi, easy);
+}
 
 // ---- Utilities ---------------------------------------------------------------------------------
-
-static uint64_t now_ns(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_REALTIME, &ts);
-  return (uint64_t) ts.tv_sec * 1000000000ull + (uint64_t) ts.tv_nsec;
-}
 
 static void bytes_to_hex(const uint8_t* in, size_t len, char* out) {
   static const char* hex = "0123456789abcdef";
@@ -70,8 +227,8 @@ static void bytes_to_hex(const uint8_t* in, size_t len, char* out) {
 }
 
 static void gen_random_bytes(uint8_t* out, size_t len) {
-  // Use libuv's secure random. Fallback: memset zero on error.
-  if (uv_random(NULL, NULL, out, (int) len, 0) != 0) {
+  // Use libuv's secure random (synchronous when cb == NULL). Fallback: memset zero on error.
+  if (uv_random(uv_default_loop(), NULL, out, len, 0, NULL) != 0) {
     memset(out, 0, len);
   }
 }
@@ -82,7 +239,10 @@ static span_id_t gen_span_id(void) {
   // Ensure non-zero
   int all_zero = 1;
   for (size_t i = 0; i < sizeof(id.bytes); i++)
-    if (id.bytes[i] != 0) { all_zero = 0; break; }
+    if (id.bytes[i] != 0) {
+      all_zero = 0;
+      break;
+    }
   if (all_zero) id.bytes[sizeof(id.bytes) - 1] = 1;
   return id;
 }
@@ -93,7 +253,10 @@ static trace_id_t gen_trace_id(void) {
   // Ensure non-zero
   int all_zero = 1;
   for (size_t i = 0; i < sizeof(id.bytes); i++)
-    if (id.bytes[i] != 0) { all_zero = 0; break; }
+    if (id.bytes[i] != 0) {
+      all_zero = 0;
+      break;
+    }
   if (all_zero) id.bytes[sizeof(id.bytes) - 1] = 1;
   return id;
 }
@@ -109,18 +272,18 @@ static int should_sample(double p) {
 
 static void add_tag(trace_span_t* span, const char* key, const char* value_json) {
   if (!span || !key || !value_json) return;
-  tag_entry_t* e   = (tag_entry_t*) safe_calloc(1, sizeof(tag_entry_t));
-  e->key           = strdup(key);
-  e->value_json    = strdup(value_json);
-  e->next          = span->tags;
-  span->tags       = e;
+  tag_entry_t* e = (tag_entry_t*) safe_calloc(1, sizeof(tag_entry_t));
+  e->key         = strdup(key);
+  e->value_json  = strdup(value_json);
+  e->next        = span->tags;
+  span->tags     = e;
 }
 
 // ---- Public API --------------------------------------------------------------------------------
 
 void tracing_configure(bool enabled, const char* url, const char* service_name, double sample_rate) {
-  g_tracer.enabled      = enabled ? 1 : 0;
-  g_tracer.sample_rate  = sample_rate < 0 ? 0 : (sample_rate > 1 ? 1 : sample_rate);
+  g_tracer.enabled     = enabled ? 1 : 0;
+  g_tracer.sample_rate = sample_rate < 0 ? 0 : (sample_rate > 1 ? 1 : sample_rate);
   safe_free(g_tracer.url);
   safe_free(g_tracer.service_name);
   g_tracer.url          = url ? strdup(url) : NULL;
@@ -138,7 +301,38 @@ trace_span_t* tracing_start_root(const char* name) {
   s->trace_id     = gen_trace_id();
   s->span_id      = gen_span_id();
   memset(&s->parent_id, 0, sizeof(s->parent_id));
-  s->start_ns = now_ns();
+  s->start_ms = current_ms();
+  s->sampled  = 1;
+  s->name     = name ? strdup(name) : strdup("span");
+  return s;
+}
+
+trace_span_t* tracing_start_root_with_b3(const char* name, const char* trace_id_hex, const char* parent_span_id_hex, int sampled) {
+  if (!tracing_is_enabled()) return NULL;
+  // If sampling requested false, drop
+  if (!sampled) return NULL;
+  trace_span_t* s = (trace_span_t*) safe_calloc(1, sizeof(trace_span_t));
+  // Accept 16- or 32-hex trace id (Zipkin allows 64 or 128 bit)
+  size_t th = trace_id_hex ? strlen(trace_id_hex) : 0;
+  if (trace_id_hex && (th == 32 || th == 16)) {
+    if (th == 32) {
+      hex_to_bytes(trace_id_hex, (int) th, bytes(s->trace_id.bytes, sizeof(s->trace_id.bytes)));
+    }
+    else {
+      // 64-bit provided -> left-pad to 128
+      memset(s->trace_id.bytes, 0, sizeof(s->trace_id.bytes));
+      hex_to_bytes(trace_id_hex, (int) th, bytes(s->trace_id.bytes + 8, 8));
+    }
+  }
+  else {
+    s->trace_id = gen_trace_id();
+  }
+  s->span_id = gen_span_id();
+  memset(&s->parent_id, 0, sizeof(s->parent_id));
+  if (parent_span_id_hex && strlen(parent_span_id_hex) == 16) {
+    hex_to_bytes(parent_span_id_hex, 16, bytes(s->parent_id.bytes, sizeof(s->parent_id.bytes)));
+  }
+  s->start_ms = current_ms();
   s->sampled  = 1;
   s->name     = name ? strdup(name) : strdup("span");
   return s;
@@ -151,7 +345,7 @@ trace_span_t* tracing_start_child(trace_span_t* parent, const char* name) {
   s->trace_id     = parent->trace_id;
   s->span_id      = gen_span_id();
   s->parent_id    = parent->span_id;
-  s->start_ns     = now_ns();
+  s->start_ms     = current_ms();
   s->sampled      = parent->sampled;
   s->name         = name ? strdup(name) : strdup("span");
   if (!s->sampled) return NULL; // keep behavior consistent (no-op)
@@ -164,10 +358,14 @@ void tracing_span_tag_str(trace_span_t* span, const char* key, const char* value
   buffer_t buf = {0};
   bprintf(&buf, "\"");
   for (const char* p = value; *p; ++p) {
-    if (*p == '\"') bprintf(&buf, "\\\"");
-    else if (*p == '\\') bprintf(&buf, "\\\\");
-    else if ((unsigned char) *p < 0x20) bprintf(&buf, "\\u%04x", (unsigned) (unsigned char) *p);
-    else bprintf(&buf, "%c", *p);
+    if (*p == '\"')
+      bprintf(&buf, "\\\"");
+    else if (*p == '\\')
+      bprintf(&buf, "\\\\");
+    else if ((unsigned char) *p < 0x20)
+      bprintf(&buf, "\\u%04x", (unsigned) (unsigned char) *p);
+    else
+      bprintf(&buf, "%c", *p);
   }
   bprintf(&buf, "\"");
   add_tag(span, key, (const char*) buf.data.data);
@@ -213,7 +411,10 @@ const char* tracing_span_parent_id_hex(trace_span_t* span) {
   // If parent all zero, return empty string for Zipkin optional field
   int all_zero = 1;
   for (size_t i = 0; i < sizeof(span->parent_id.bytes); i++)
-    if (span->parent_id.bytes[i] != 0) { all_zero = 0; break; }
+    if (span->parent_id.bytes[i] != 0) {
+      all_zero = 0;
+      break;
+    }
   if (all_zero) return NULL;
   bytes_to_hex(span->parent_id.bytes, sizeof(span->parent_id.bytes), buf);
   return buf;
@@ -221,7 +422,7 @@ const char* tracing_span_parent_id_hex(trace_span_t* span) {
 
 void tracing_inject_b3_headers(trace_span_t* span, struct curl_slist** headers) {
   if (!span || !headers) return;
-  char tbuf[64], sbuf[32], pbuf[32];
+  char        tbuf[64], sbuf[32], pbuf[32];
   const char* trace_hex  = tracing_span_trace_id_hex(span);
   const char* span_hex   = tracing_span_id_hex(span);
   const char* parent_hex = tracing_span_parent_id_hex(span);
@@ -256,45 +457,26 @@ static void zipkin_serialize_span(buffer_t* out, trace_span_t* s) {
   bytes_to_hex(s->span_id.bytes, sizeof(s->span_id.bytes), id_hex);
   int has_parent = 0;
   for (size_t i = 0; i < sizeof(s->parent_id.bytes); i++)
-    if (s->parent_id.bytes[i] != 0) { has_parent = 1; break; }
+    if (s->parent_id.bytes[i] != 0) {
+      has_parent = 1;
+      break;
+    }
   if (has_parent) bytes_to_hex(s->parent_id.bytes, sizeof(s->parent_id.bytes), parent_hex);
 
-  uint64_t ts_us  = s->start_ns / 1000ull;
-  uint64_t dur_us = (s->end_ns > s->start_ns) ? ((s->end_ns - s->start_ns) / 1000ull) : 0ull;
+  uint64_t ts_us  = s->start_ms * 1000ull;
+  uint64_t dur_us = (s->end_ms > s->start_ms) ? ((s->end_ms - s->start_ms) * 1000ull) : 0ull;
 
   bprintf(out, "{");
   bprintf(out, "\"traceId\":\"%s\",\"id\":\"%s\"", trace_hex, id_hex);
   if (has_parent) bprintf(out, ",\"parentId\":\"%s\"", parent_hex);
   // name
   if (s->name) {
-    buffer_t esc = {0};
-    bprintf(&esc, "\"");
-    for (const char* p = s->name; *p; ++p) {
-      if (*p == '\"') bprintf(&esc, "\\\"");
-      else if (*p == '\\') bprintf(&esc, "\\\\");
-      else if ((unsigned char) *p < 0x20) bprintf(&esc, "\\u%04x", (unsigned) (unsigned char) *p);
-      else bprintf(&esc, "%c", *p);
-    }
-    bprintf(&esc, "\"");
-    bprintf(out, ",\"name\":%s", (char*) esc.data.data);
-    esc.data.data = NULL;
-    buffer_free(&esc);
+    bprintf(out, ",\"name\":\"%S\"", s->name);
   }
   bprintf(out, ",\"timestamp\":%llu,\"duration\":%llu", (unsigned long long) ts_us, (unsigned long long) dur_us);
   // localEndpoint
   if (g_tracer.service_name && *g_tracer.service_name) {
-    buffer_t esc = {0};
-    bprintf(&esc, "\"");
-    for (const char* p = g_tracer.service_name; *p; ++p) {
-      if (*p == '\"') bprintf(&esc, "\\\"");
-      else if (*p == '\\') bprintf(&esc, "\\\\");
-      else if ((unsigned char) *p < 0x20) bprintf(&esc, "\\u%04x", (unsigned) (unsigned char) *p);
-      else bprintf(&esc, "%c", *p);
-    }
-    bprintf(&esc, "\"");
-    bprintf(out, ",\"localEndpoint\":{\"serviceName\":%s}", (char*) esc.data.data);
-    esc.data.data = NULL;
-    buffer_free(&esc);
+    bprintf(out, ",\"localEndpoint\":{\"serviceName\":\"%S\"}", g_tracer.service_name);
   }
   // tags
   if (s->tags) {
@@ -303,19 +485,7 @@ static void zipkin_serialize_span(buffer_t* out, trace_span_t* s) {
     for (tag_entry_t* t = s->tags; t; t = t->next) {
       if (!first) bprintf(out, ",");
       first = 0;
-      // keys are strings
-      buffer_t esc = {0};
-      bprintf(&esc, "\"");
-      for (const char* p = t->key; *p; ++p) {
-        if (*p == '\"') bprintf(&esc, "\\\"");
-        else if (*p == '\\') bprintf(&esc, "\\\\");
-        else if ((unsigned char) *p < 0x20) bprintf(&esc, "\\u%04x", (unsigned) (unsigned char) *p);
-        else bprintf(&esc, "%c", *p);
-      }
-      bprintf(&esc, "\"");
-      bprintf(out, "%s:%s", (char*) esc.data.data, t->value_json);
-      esc.data.data = NULL;
-      buffer_free(&esc);
+      bprintf(out, "\"%S\":%s", t->key ? t->key : "", t->value_json ? t->value_json : "null");
     }
     bprintf(out, "}");
   }
@@ -324,44 +494,46 @@ static void zipkin_serialize_span(buffer_t* out, trace_span_t* s) {
 
 static void export_single_span(trace_span_t* s) {
   if (!g_tracer.url || !*g_tracer.url) return;
-
   buffer_t body = {0};
   bprintf(&body, "[");
   zipkin_serialize_span(&body, s);
   bprintf(&body, "]");
+  // Enqueue non-blocking send (ownership of body is transferred)
+  tracing_enqueue_body(&body);
+}
 
-  CURL* curl = curl_easy_init();
-  if (!curl) {
-    buffer_free(&body);
-    return;
-  }
-  struct curl_slist* headers = NULL;
-  headers                    = curl_slist_append(headers, "Content-Type: application/json");
-  curl_easy_setopt(curl, CURLOPT_URL, g_tracer.url);
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data.data ? (char*) body.data.data : "");
-  curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long) body.data.len);
-  // Keep timeouts short to avoid blocking
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 150L);
-  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 100L);
-  // Best-effort: ignore result
-  CURLcode rc = curl_easy_perform(curl);
-  if (rc != CURLE_OK) {
-    // Silent failure to avoid noisy logs; enable if needed:
-    // log_warn("Tracing export failed: %s", curl_easy_strerror(rc));
-  }
-  curl_slist_free_all(headers);
-  curl_easy_cleanup(curl);
-  buffer_free(&body);
+static void export_batch_if_needed(int force) {
+  if (!g_tracer.url || !*g_tracer.url) return;
+  if (g_batch_count == 0) return;
+  if (!force && g_batch_count < 8 && g_batch.data.len < 64 * 1024) return;
+
+  // Close JSON array
+  bprintf(&g_batch, "]");
+  // Enqueue non-blocking send (transfer ownership)
+  tracing_enqueue_body(&g_batch);
+  g_batch.data.data = NULL;
+  g_batch.data.len  = 0;
+  g_batch_count     = 0;
 }
 
 void tracing_finish(trace_span_t* span) {
   if (!span) return;
   if (span->finished) return;
   span->finished = 1;
-  span->end_ns   = now_ns();
+  span->end_ms   = current_ms();
   if (span->sampled) {
-    export_single_span(span);
+    // Append to batch
+    buffer_t tmp = {0};
+    zipkin_serialize_span(&tmp, span);
+    if (g_batch_count == 0) {
+      bprintf(&g_batch, "[%s", (char*) tmp.data.data);
+    }
+    else {
+      bprintf(&g_batch, ",%s", (char*) tmp.data.data);
+    }
+    g_batch_count++;
+    buffer_free(&tmp);
+    export_batch_if_needed(/*force=*/0);
   }
   free_tags(span->tags);
   safe_free(span->name);
@@ -369,7 +541,5 @@ void tracing_finish(trace_span_t* span) {
 }
 
 void tracing_flush_now(void) {
-  // No-op in the simple immediate-export implementation.
+  export_batch_if_needed(/*force=*/1);
 }
-
-

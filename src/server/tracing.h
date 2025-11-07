@@ -42,6 +42,7 @@ bool tracing_is_enabled(void);
  * @return span or NULL when disabled/not sampled
  */
 trace_span_t* tracing_start_root(const char* name);
+trace_span_t* tracing_start_root_with_b3(const char* name, const char* trace_id_hex, const char* parent_span_id_hex, int sampled);
 
 /**
  * Start a child span below parent.
@@ -94,5 +95,3 @@ void tracing_flush_now(void);
 #ifdef __cplusplus
 }
 #endif
-
-

@@ -193,11 +193,18 @@ bool c4_handle_proof_request(client_t* client) {
 
   // Tracing: start root span
   if (tracing_is_enabled()) {
-    buffer_t name_buf = {0};
-    bprintf(&name_buf, "proof/%s", method_str ? method_str : "unknown");
-    req->trace_root = tracing_start_root((char*) name_buf.data.data);
-    name_buf.data.data = NULL;
-    buffer_free(&name_buf);
+    char name_tmp[256];
+    sbprintf(name_tmp, "proof/%s", method_str ? method_str : "unknown");
+    if (client->b3_trace_id) {
+      int sampled     = client->b3_sampled == 0 ? 0 : 1;
+      req->trace_root = tracing_start_root_with_b3(name_tmp,
+                                                   client->b3_trace_id,
+                                                   client->b3_span_id ? client->b3_span_id : client->b3_parent_span_id,
+                                                   sampled);
+    }
+    else {
+      req->trace_root = tracing_start_root(name_tmp);
+    }
     if (req->trace_root) {
       tracing_span_tag_str(req->trace_root, "method", method_str ? method_str : "");
       tracing_span_tag_i64(req->trace_root, "chain_id", (int64_t) http_server.chain_id);
@@ -206,7 +213,20 @@ bool c4_handle_proof_request(client_t* client) {
         tracing_span_tag_str(req->trace_root, "include_code", include_code.start[0] == 't' ? "true" : "false");
       }
       if (ctx->client_state.len > 0) {
-        tracing_span_tag_i64(req->trace_root, "client_state_len", (int64_t) ctx->client_state.len);
+        // include up to 33 bytes as hex
+        size_t   cs_len = ctx->client_state.len > 33 ? 33 : ctx->client_state.len;
+        char     cs_hex[70]; // 33 bytes => 66 hex chars + safety
+        buffer_t cs_buf = stack_buffer(cs_hex);
+        bprintf(&cs_buf, "%x", bytes(ctx->client_state.data, cs_len));
+        tracing_span_tag_str(req->trace_root, "client_state", cs_hex);
+      }
+      // attach params as JSON (value, not string)
+      if (params.type != JSON_TYPE_INVALID) {
+        buffer_t pbuf = {0};
+        bprintf(&pbuf, "%J", params);
+        tracing_span_tag_json(req->trace_root, "params", (char*) pbuf.data.data);
+        pbuf.data.data = NULL;
+        buffer_free(&pbuf);
       }
     }
   }
