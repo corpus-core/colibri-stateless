@@ -142,6 +142,7 @@ For latest queries, Colibri obtains the head block, extracts its `SyncAggregate`
 
 * Let p1 be the probability of a 1-slot reorg and p≥2 the probability of a reorg with depth ≥2. The verifier’s exposure is approximately p≥2.
 * Empirically, documented deep reorgs on the Beacon chain are very rare; notable incidents (e.g., a 7-block reorg in May 2022 during stabilization) are outliers. Public analyses indicate that under normal network conditions, depth ≥2 reorgs are extremely uncommon on mainnet.
+* Empirically, 1-slot reorgs are observed on mainnet with a cadence of roughly every 1–2 hours; see [Etherscan Forked Blocks (Reorgs)](https://etherscan.io/blocks_forked). Due to the protocol placement of `SyncAggregate` in the next block’s body, an orphaned block from a 1-slot reorg will not have its `SyncAggregate` included in any canonical block. Therefore, a prover sourcing aggregates from the canonical head does not accept orphaned 1-slot blocks. The only exception would be an adversary who collects ≥2/3 sync-committee signatures off-chain (never on-chain) and assembles an aggregate that the prover did not extract from a canonical block.
 * Adversarially forcing a canonical block to carry a valid sync aggregate for a block that will later be orphaned requires either:
   * controlling two or more consecutive slots on a minority fork and eclipsing ≥2/3 of the 512 sync-committee participants during that window; or
   * causing a large-scale network partition that isolates ≥2/3 of the sync committee. Both are operationally daunting; the latter resembles the capability to control or isolate the majority of committee participants for a slot.
@@ -169,6 +170,35 @@ References: [EIP-7657 (Slash sync committee equivocations)](https://eips.ethereu
 
 * Provide a “strict mode” that only accepts finalized blocks.
 * Default “fast mode” can accept latest with a small slot delay and surface an “optimistic” status until finality.
+
+#### Aggregate sourcing policy (Prover)
+
+* Extract `SyncAggregate` exclusively from the canonical head block body as returned by Beacon APIs; never accept off-chain collected signature sets.
+* Use multiple Beacon API providers and require a quorum (e.g., 2-of-3) agreement on the head before extracting aggregates; otherwise, retry or degrade to `justified`/`finalized`.
+* Enforce slot-consistency checks: aggregate slot = head slot, aggregate target = parent of the proved block.
+* Optionally require a small k-slot delay before using aggregates to further reduce exposure to ≥2-slot reorgs.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Prover
+    participant BeaconA as Beacon API A
+    participant BeaconB as Beacon API B
+    participant Verifier
+
+    Client->>Prover: eth_getBlockByNumber (latest)
+    Prover->>BeaconA: GET /beacon/blocks/head
+    Prover->>BeaconB: GET /beacon/blocks/head
+    BeaconA-->>Prover: head_a (block + body + SyncAggregate)
+    BeaconB-->>Prover: head_b (block + body + SyncAggregate)
+    Prover->>Prover: Quorum(head_a == head_b)? else degrade/retry
+    Prover->>Prover: Extract SyncAggregate from canonical head body
+    Prover->>Prover: Build proof for parent block (execution_payload + Merkle branch)
+    Prover-->>Verifier: {execution_payload, merkle_proof, SyncAggregate}
+    Verifier->>Verifier: Check HTR(payload) -> header -> SigningRoot
+    Verifier->>Verifier: Verify BLS aggregate (≥2/3 committee)
+    Note over Verifier,Prover: Off-chain signature sets are ignored (must be embedded in canonical block body)
+```
 
 ---
 

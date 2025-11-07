@@ -585,6 +585,68 @@ static void c4_write_server_health_metrics(buffer_t* data) {
   bprintf(data, "\n");
 }
 
+// Aggregates and prints metrics about RPC methods marked as unsupported per server
+static void c4_write_unsupported_method_metrics(buffer_t* data) {
+  server_list_t* servers = c4_get_server_list(C4_DATA_TYPE_ETH_RPC);
+  if (!servers || !servers->health_stats || servers->count == 0) return;
+
+  // Describe metrics once
+  bprintf(data, "# HELP colibri_method_unsupported_servers Number of servers that marked the RPC method as unsupported.\n");
+  bprintf(data, "# TYPE colibri_method_unsupported_servers gauge\n");
+  bprintf(data, "# HELP colibri_server_method_unsupported Whether a specific server marked the RPC method as unsupported (1=yes, 0=no).\n");
+  bprintf(data, "# TYPE colibri_server_method_unsupported gauge\n");
+
+  // Simple dynamic array for aggregating counts
+  typedef struct { char* name; uint64_t count; } unsupported_count_t;
+  unsupported_count_t* agg   = NULL;
+  size_t               agg_n = 0;
+
+  // First pass: aggregate counts per method
+  for (size_t i = 0; i < servers->count; i++) {
+    method_support_t* cur = servers->health_stats[i].unsupported_methods;
+    while (cur) {
+      if (!cur->is_supported && cur->method_name) {
+        // Find existing entry
+        size_t idx = (size_t) -1;
+        for (size_t k = 0; k < agg_n; k++) {
+          if (strcmp(agg[k].name, cur->method_name) == 0) { idx = k; break; }
+        }
+        if (idx == (size_t) -1) {
+          agg = (unsupported_count_t*) realloc(agg, (agg_n + 1) * sizeof(unsupported_count_t));
+          agg[agg_n].name  = cur->method_name; // only reference, not owning
+          agg[agg_n].count = 1;
+          agg_n++;
+        }
+        else {
+          agg[idx].count++;
+        }
+      }
+      cur = cur->next;
+    }
+  }
+
+  // Output aggregate metrics
+  for (size_t k = 0; k < agg_n; k++) {
+    bprintf(data, "colibri_method_unsupported_servers{method=\"%s\"} %l\n", agg[k].name, agg[k].count);
+  }
+
+  // Per-server listing (1 when method is marked unsupported)
+  for (size_t i = 0; i < servers->count; i++) {
+    const char*      server_name = c4_extract_server_name(servers->urls[i]);
+    method_support_t* cur        = servers->health_stats[i].unsupported_methods;
+    while (cur) {
+      if (!cur->is_supported && cur->method_name) {
+        bprintf(data, "colibri_server_method_unsupported{server=\"%s\",method=\"%s\"} 1\n", server_name, cur->method_name);
+      }
+      cur = cur->next;
+    }
+  }
+
+  if (agg) free(agg);
+
+  bprintf(data, "\n");
+}
+
 // Prints global cURL pool configuration and runtime metrics
 static void c4_write_curl_metrics(buffer_t* data) {
   bprintf(data, "# HELP colibri_curl_pool_max_host Max connections per host.\n");
@@ -803,6 +865,9 @@ bool c4_handle_metrics(client_t* client) {
   c4_write_curl_metrics(&data);
 
   c4_write_server_health_metrics(&data);
+
+  // Unsupported RPC methods (ETH RPC only)
+  c4_write_unsupported_method_metrics(&data);
 
 #ifdef HTTP_SERVER_GEO
 
