@@ -123,7 +123,56 @@ This means that the **`is_better_update` logic has already been applied by conse
 
 ---
 
-## 5. Conclusion
+## 5. Reorgs and SyncAggregate Risk
+
+### Description
+
+Reorganizations (reorgs) occur when the canonical chain switches to an alternative fork, causing previously seen blocks to be orphaned. Under Ethereum PoS (Gasper), short 1-slot reorgs can happen due to timing and network variance; deeper reorgs (≥2 slots) are rare and usually indicate unusual network conditions or misconfigurations.
+
+### How Colibri uses SyncAggregate
+
+For latest queries, Colibri obtains the head block, extracts its `SyncAggregate`, then proves the parent block by computing the parent’s `execution_payload` `hash_tree_root` and verifying via the Merkle branch up to the parent header. The verifier checks the BLS aggregate against the `SigningRoot` and confirms a ≥2/3 sync committee majority.
+
+### When can a valid aggregate point to a non-canonical block?
+
+* A `SyncAggregate` included in a canonical head for slot n attesting to the parent block (slot n-1) will only exist on-chain if the chain actually extended that parent. Therefore, ordinary 1-slot reorgs typically do not embed aggregates for the orphaned block.
+* For the verifier to accept a block that later becomes non-canonical despite a valid aggregate, the reorg depth must be ≥2 (the chain first extended the parent, then later reorged deeper).
+
+### Risk quantification (order-of-magnitude)
+
+* Let p1 be the probability of a 1-slot reorg and p≥2 the probability of a reorg with depth ≥2. The verifier’s exposure is approximately p≥2.
+* Empirically, documented deep reorgs on the Beacon chain are very rare; notable incidents (e.g., a 7-block reorg in May 2022 during stabilization) are outliers. Public analyses indicate that under normal network conditions, depth ≥2 reorgs are extremely uncommon on mainnet.
+* Adversarially forcing a canonical block to carry a valid sync aggregate for a block that will later be orphaned requires either:
+  * controlling two or more consecutive slots on a minority fork and eclipsing ≥2/3 of the 512 sync-committee participants during that window; or
+  * causing a large-scale network partition that isolates ≥2/3 of the sync committee. Both are operationally daunting; the latter resembles the capability to control or isolate the majority of committee participants for a slot.
+
+References: [EIP-7657 (Slash sync committee equivocations)](https://eips.ethereum.org/EIPS/eip-7657), example incident: [Beacon chain 7-block reorg (May 2022)](https://de.cointelegraph.com/news/ethereum-beacon-chain-experiences-7-block-reorg-what-s-going-on).
+
+### Mitigations
+
+* For high-assurance use cases: verify against finalized checkpoints (FFG finality) instead of latest.
+* BlockTag selection expresses acceptable reorg risk: `latest` (highest liveness, non-zero reorg risk), `justified` (reduced risk), `finalized` (zero reorg risk), or an explicit block number/hash.
+* For near-real-time queries: add a safety delay of k slots (e.g., 2–4) before accepting a block as stable; this reduces exposure to ≥2-slot reorgs.
+* Multiple Beacon APIs help detect divergent heads on the prover side. The verifier itself does not query Beacon APIs; it relies on checkpoints and proofs provided by the prover. Under optimistic heads, Colibri’s exposure is comparable to that of full Beacon clients and other light clients given the same head.
+* Persist conflicting aggregates as evidence for future reporting; once EIP-7657 activates, equivocations become slashable.
+
+#### BlockTag trade-offs
+
+| BlockTag   | Reorg risk                                     | Latency                 | Notes                                                     |
+| ---------- | ----------------------------------------------- | ----------------------- | --------------------------------------------------------- |
+| `latest`   | Non-zero (exposure ≈ p≥2; reduce with k-slot)   | Lowest                  | Optimistic head; subject to non-final reorgs              |
+| `justified`| Very low                                        | Low                     | Anchored at justified checkpoint                          |
+| `finalized`| Zero                                            | Highest (≥2 epochs)     | Requires FFG finality                                     |
+| number/hash| Depends on the referenced block’s finality      | N/A                     | If finalized: zero; if recent non-final: as above         |
+
+### Operational guidance
+
+* Provide a “strict mode” that only accepts finalized blocks.
+* Default “fast mode” can accept latest with a small slot delay and surface an “optimistic” status until finality.
+
+---
+
+## 6. Conclusion
 
 * **Colibri vs. Light Clients**: Both rely on the same sync committee assumption (<1/3 byzantine). Colibri’s difference is the use of `SyncAggregate` from the block body rather than `LightClientUpdate`. This means Colibri is slightly simpler (no `is_better_update` handling), but equally exposed to the fundamental security assumption.
 * **Main Gap (today)**: Lack of slashing for sync committee equivocations.
