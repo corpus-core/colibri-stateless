@@ -65,6 +65,64 @@ static CURLSH*            g_curl_share    = NULL;
 static mc_t*              memcache_client = NULL;
 const char*               CURL_METHODS[]  = {"GET", "POST", "PUT", "DELETE"};
 
+// Tracing helper: annotate selection, weights and unsupported methods for a request attempt
+static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* servers, int selected_index, const char* base_url) {
+  if (!tracing_is_enabled() || !r || !r->parent || !r->parent->trace_root) return;
+  const char* method_name = CURL_METHODS[r->req->method];
+  const char* host_name   = c4_extract_server_name(base_url);
+  char        span_name[256];
+  sbprintf(span_name, "HTTP %s %s", method_name ? method_name : "REQ", host_name ? host_name : "");
+  r->attempt_span = tracing_start_child(r->parent->trace_root, span_name);
+  if (!r->attempt_span) return;
+  // Selected server and client type
+  tracing_span_tag_str(r->attempt_span, "server.selected", host_name ? host_name : "");
+  tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) servers->client_types[selected_index]);
+  tracing_span_tag_i64(r->attempt_span, "exclude.mask", (int64_t) r->req->node_exclude_mask);
+  // Weights of all servers
+  if (servers && servers->health_stats && servers->urls) {
+    buffer_t w = {0};
+    bprintf(&w, "[");
+    for (size_t wi = 0; wi < servers->count; wi++) {
+      const char* n = c4_extract_server_name(servers->urls[wi]);
+      if (wi > 0) bprintf(&w, ",");
+      // {"name":"...", "weight":X.XXXXXX}
+      bprintf(&w, "{\"name\":\"%S\",\"weight\":%f}", n ? n : "", servers->health_stats[wi].weight);
+    }
+    bprintf(&w, "]");
+    tracing_span_tag_json(r->attempt_span, "servers.weights", (char*) w.data.data);
+    w.data.data = NULL;
+    buffer_free(&w);
+    // Unsupported methods per server
+    buffer_t um = {0};
+    bprintf(&um, "{");
+    int first_server = 1;
+    for (size_t si = 0; si < servers->count; si++) {
+      method_support_t* m = servers->health_stats[si].unsupported_methods;
+      if (!m) continue;
+      if (!first_server) bprintf(&um, ",");
+      first_server  = 0;
+      const char* n = c4_extract_server_name(servers->urls[si]);
+      bprintf(&um, "\"%S\":[", n ? n : "");
+      int first_m = 1;
+      while (m) {
+        if (!m->is_supported) {
+          if (!first_m) bprintf(&um, ",");
+          first_m = 0;
+          bprintf(&um, "\"%S\"", m->method_name ? m->method_name : "");
+        }
+        m = m->next;
+      }
+      bprintf(&um, "]");
+    }
+    bprintf(&um, "}");
+    tracing_span_tag_json(r->attempt_span, "servers.unsupported_methods", (char*) um.data.data);
+    um.data.data = NULL;
+    buffer_free(&um);
+  }
+  // Cache state best-effort (will be updated on completion too)
+  tracing_span_tag_str(r->attempt_span, "cache", r->cached ? "hit" : "miss");
+}
+
 #ifdef TEST
 // Test hook for URL rewriting (file:// mocking)
 // ONLY compiled in test builds (-DTEST=1)
@@ -499,6 +557,16 @@ static void handle_curl_events() {
     bytes_t     response    = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
 
     if (response_type == C4_RESPONSE_SUCCESS && response.data) {
+      if (r->attempt_span) {
+        tracing_span_tag_str(r->attempt_span, "result", "success");
+        tracing_span_tag_i64(r->attempt_span, "http.status", (int64_t) http_code);
+        tracing_span_tag_i64(r->attempt_span, "bytes", (int64_t) r->buffer.data.len);
+        tracing_span_tag_i64(r->attempt_span, "duration_ms", (int64_t) response_time);
+        tracing_span_tag_str(r->attempt_span, "server.name", server_name ? server_name : "");
+        tracing_span_tag_str(r->attempt_span, "cache", r->cached ? "hit" : "miss");
+        tracing_finish(r->attempt_span);
+        r->attempt_span = NULL;
+      }
       log_info(GREEN("   [curl ]") " %s -> OK %d bytes, %d ms from " BLUE("%s"),
                c4_req_info(r->req->type, r->req->url, r->req->payload),
                r->buffer.data.len, (int) response_time, server_name);
@@ -508,6 +576,16 @@ static void handle_curl_events() {
       r->buffer = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
     }
     else if (response_type == C4_RESPONSE_ERROR_USER && r->req->type == C4_DATA_TYPE_ETH_RPC && response.data) {
+      if (r->attempt_span) {
+        tracing_span_tag_str(r->attempt_span, "result", "user_error");
+        tracing_span_tag_i64(r->attempt_span, "http.status", (int64_t) http_code);
+        tracing_span_tag_i64(r->attempt_span, "bytes", (int64_t) r->buffer.data.len);
+        tracing_span_tag_i64(r->attempt_span, "duration_ms", (int64_t) response_time);
+        tracing_span_tag_str(r->attempt_span, "server.name", server_name ? server_name : "");
+        if (response.data) tracing_span_tag_str(r->attempt_span, "error.body", (char*) response.data);
+        tracing_finish(r->attempt_span);
+        r->attempt_span = NULL;
+      }
       log_warn(YELLOW("   [curl ]") " %s -> USER ERROR %d bytes (%s) : from " BLUE("%s"),
                c4_req_info(r->req->type, r->req->url, r->req->payload),
                r->buffer.data.len,
@@ -522,6 +600,15 @@ static void handle_curl_events() {
       r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
     }
     else if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
+      if (r->attempt_span) {
+        tracing_span_tag_str(r->attempt_span, "result", "method_not_supported");
+        tracing_span_tag_i64(r->attempt_span, "http.status", (int64_t) http_code);
+        tracing_span_tag_i64(r->attempt_span, "bytes", (int64_t) r->buffer.data.len);
+        tracing_span_tag_i64(r->attempt_span, "duration_ms", (int64_t) response_time);
+        tracing_span_tag_str(r->attempt_span, "server.name", server_name ? server_name : "");
+        tracing_finish(r->attempt_span);
+        r->attempt_span = NULL;
+      }
       // Don't set response or mark as completely failed - let retry logic handle it
       if (!r->req->error) r->req->error = strdup("Method not supported");
       log_warn(YELLOW("   [curl ]") " %s -> " BOLD("METHOD NOT SUPPORTED : %s") " from " BLUE("%s"),
@@ -533,6 +620,16 @@ static void handle_curl_events() {
       char* effective_url = NULL;
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
       if (!r->req->error) r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, msg->data.result == CURLE_OK ? "" : curl_easy_strerror(msg->data.result), bprintf(&r->buffer, " ")); // create error message
+      if (r->attempt_span) {
+        tracing_span_tag_str(r->attempt_span, "result", "error");
+        tracing_span_tag_i64(r->attempt_span, "http.status", (int64_t) http_code);
+        tracing_span_tag_i64(r->attempt_span, "bytes", (int64_t) r->buffer.data.len);
+        tracing_span_tag_i64(r->attempt_span, "duration_ms", (int64_t) response_time);
+        tracing_span_tag_str(r->attempt_span, "server.name", server_name ? server_name : "");
+        tracing_span_tag_str(r->attempt_span, "error", r->req->error ? r->req->error : "");
+        tracing_finish(r->attempt_span);
+        r->attempt_span = NULL;
+      }
       log_warn(YELLOW("   [curl ]") " %s -> ERROR : " BOLD("%s") " : from " BLUE("%s"),
                c4_req_info(r->req->type, r->req->url, r->req->payload),
                r->req->error,
@@ -908,6 +1005,9 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
       return;
     }
 
+    // Tracing: create an attempt span and annotate server selection and weights/unsupported
+    c4_tracing_annotate_attempt(r, servers, selected_index, base_url);
+
     pending_add(r);
     CURL* easy = curl_easy_init();
     r->curl    = easy;
@@ -938,6 +1038,10 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     r->headers = curl_slist_append(r->headers, c4_request_fix_encoding(r->req->encoding, r, servers->client_types[selected_index]) == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
     r->headers = curl_slist_append(r->headers, "charsets: utf-8");
     r->headers = curl_slist_append(r->headers, "User-Agent: c4 curl ");
+    // Inject b3 tracing headers
+    if (r->attempt_span) {
+      tracing_inject_b3_headers(r->attempt_span, &r->headers);
+    }
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, r->headers);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, curl_append);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &r->buffer);
@@ -1077,6 +1181,18 @@ bool c4_check_retry_request(request_t* req) {
 
       // Try to find another available server (c4_select_best_server handles emergency reset)
       int new_idx = c4_select_best_server(servers, pending->node_exclude_mask, pending->preferred_client_type);
+      // Tracing: emit retry scheduling event (one-off child span)
+      if (tracing_is_enabled() && req->trace_root) {
+        trace_span_t* ev = tracing_start_child(req->trace_root, "retry");
+        if (ev) {
+          tracing_span_tag_str(ev, "retry.scheduled", "true");
+          tracing_span_tag_i64(ev, "previous_server_index", (int64_t) pending->response_node_index);
+          tracing_span_tag_i64(ev, "new_server_index", (int64_t) new_idx);
+          tracing_span_tag_i64(ev, "exclude.mask", (int64_t) pending->node_exclude_mask);
+          if (pending->error) tracing_span_tag_str(ev, "reason", pending->error);
+          tracing_finish(ev);
+        }
+      }
       if (new_idx != -1) {
         log_warn("   [retry] %s -> Using pre-selected server " BRIGHT_BLUE("%s"), c4_req_info(pending->type, pending->url, pending->payload), c4_extract_server_name(servers->urls[new_idx]));
 

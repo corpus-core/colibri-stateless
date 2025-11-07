@@ -219,6 +219,11 @@ typedef struct {
   bool              keep_alive_idle;          // True if the connection is idle in keep-alive mode, awaiting next request
   size_t            headers_size_received;    // Total size of headers received (for DoS protection)
   size_t            body_size_received;       // Actual body bytes received (for request smuggling protection)
+  // Incoming b3 context (optional)
+  char*             b3_trace_id;
+  char*             b3_span_id;
+  char*             b3_parent_span_id;
+  int               b3_sampled; // -1 unknown, 0 false, 1 true
 } client_t;
 typedef bool (*http_handler)(client_t*);
 
