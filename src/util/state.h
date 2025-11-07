@@ -568,14 +568,14 @@ c4_status_t c4_state_add_error(c4_state_t* state, const char* error);
  * }
  * ```
  */
-#define RETRY_REQUEST(req)                                       \
-  do {                                                           \
-    if (req->response_node_index < C4_MAX_NODES) {               \
-      req->node_exclude_mask |= (1 << req->response_node_index); \
-    }                                                            \
-    safe_free(req->response.data);                               \
-    req->response = NULL_BYTES;                                  \
-    return C4_PENDING;                                           \
+#define RETRY_REQUEST(req)                                                                                                                                                                    \
+  do {                                                                                                                                                                                        \
+    if (req->response_node_index < C4_MAX_NODES)                                                                                                                                              \
+      req->node_exclude_mask |= (1 << req->response_node_index);                                                                                                                              \
+    log_warn("   [retry] request (%s) returned invalid response (%r) from node index=%d, retrying", c4_req_info(req->type, req->url, req->payload), req->response, req->response_node_index); \
+    safe_free(req->response.data);                                                                                                                                                            \
+    req->response = NULL_BYTES;                                                                                                                                                               \
+    return C4_PENDING;                                                                                                                                                                        \
   } while (0)
 
 #ifdef TEST
