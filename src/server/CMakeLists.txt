@@ -40,6 +40,7 @@ add_custom_target(generate_openapi_yaml DEPENDS ${OPENAPI_YAML_HEADER})
 # Create a static library with all server logic (for testing)
 add_library(serverlib STATIC
   server_control.c
+  tracing.c
   http_client.c
   http_client_errors.c
   http_servers_select.c

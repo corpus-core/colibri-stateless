@@ -11,6 +11,7 @@
 #include <llhttp.h>
 #include <stdlib.h>
 #include <uv.h>
+#include "tracing.h"
 // Preconf-specific callback type (uses block_number instead of period)
 typedef void (*handle_preconf_data_cb)(void* user_ptr, uint64_t block_number, bytes_t data, const char* error);
 typedef struct {
@@ -122,6 +123,11 @@ typedef struct {
 #endif
   // Global cURL pool configuration and metrics
   curl_stats_t curl;
+  // Tracing configuration
+  int   tracing_enabled;        // 0/1
+  char* tracing_url;            // Zipkin v2 endpoint
+  char* tracing_service_name;   // service name
+  int   tracing_sample_percent; // 0..100
 } http_server_t;
 
 // Method support tracking for RPC methods
@@ -232,6 +238,7 @@ typedef struct {
   uint64_t           end_time;
   bool               success;
   bool               cached;
+  trace_span_t*      attempt_span; // tracing span for this single HTTP attempt
 } single_request_t;
 
 typedef struct request_t {
@@ -243,6 +250,7 @@ typedef struct request_t {
   http_client_cb    cb;         // callback function to call when all requests are done
   void*             parent_ctx; // pointer to parent context or parent caller
   http_request_cb   parent_cb;  // callback function to call when the ctx (mostly prover) has a result
+  trace_span_t*     trace_root; // root tracing span for the overall proof request
 } request_t;
 
 typedef enum {
