@@ -619,16 +619,26 @@ static void handle_curl_events() {
     }
     else if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
       if (r->attempt_span) {
-        tracing_span_tag_str(r->attempt_span, "result", "method_not_supported");
+        // Treat "method not supported" as an error for tracing purposes
+        tracing_span_tag_str(r->attempt_span, "result", "error");
         tracing_span_tag_i64(r->attempt_span, "http.status", (int64_t) http_code);
         tracing_span_tag_i64(r->attempt_span, "bytes", (int64_t) r->buffer.data.len);
         tracing_span_tag_i64(r->attempt_span, "duration_ms", (int64_t) response_time);
         tracing_span_tag_str(r->attempt_span, "server.name", server_name ? server_name : "");
+        // Prefer server response text if present (NULL-terminated), else fallback
+        const char* errtxt = (r->buffer.data.data && r->buffer.data.len > 0)
+                                 ? (char*) r->buffer.data.data
+                                 : "method_not_supported";
+        tracing_span_tag_str(r->attempt_span, "error", errtxt);
         tracing_finish(r->attempt_span);
         r->attempt_span = NULL;
       }
       // Don't set response or mark as completely failed - let retry logic handle it
-      if (!r->req->error) r->req->error = strdup("Method not supported");
+      if (!r->req->error) {
+        r->req->error = strdup((r->buffer.data.data && r->buffer.data.len > 0)
+                                   ? (char*) r->buffer.data.data
+                                   : "Method not supported");
+      }
       log_warn(YELLOW("   [curl ]") " %s -> " BOLD("METHOD NOT SUPPORTED : %s") " from " BLUE("%s"),
                c4_req_info(r->req->type, r->req->url, r->req->payload),
                r->req->error ? r->req->error : "",
