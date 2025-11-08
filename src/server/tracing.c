@@ -394,19 +394,19 @@ void tracing_span_tag_json(trace_span_t* span, const char* key, const char* valu
 }
 
 const char* tracing_span_trace_id_hex(trace_span_t* span) {
-  static __thread char buf[33];
+  static char buf[33];
   if (!span) return NULL;
   bytes_to_hex(span->trace_id.bytes, sizeof(span->trace_id.bytes), buf);
   return buf;
 }
 const char* tracing_span_id_hex(trace_span_t* span) {
-  static __thread char buf[17];
+  static char buf[17];
   if (!span) return NULL;
   bytes_to_hex(span->span_id.bytes, sizeof(span->span_id.bytes), buf);
   return buf;
 }
 const char* tracing_span_parent_id_hex(trace_span_t* span) {
-  static __thread char buf[17];
+  static char buf[17];
   if (!span) return NULL;
   // If parent all zero, return empty string for Zipkin optional field
   int all_zero = 1;
@@ -490,16 +490,6 @@ static void zipkin_serialize_span(buffer_t* out, trace_span_t* s) {
     bprintf(out, "}");
   }
   bprintf(out, "}");
-}
-
-static void export_single_span(trace_span_t* s) {
-  if (!g_tracer.url || !*g_tracer.url) return;
-  buffer_t body = {0};
-  bprintf(&body, "[");
-  zipkin_serialize_span(&body, s);
-  bprintf(&body, "]");
-  // Enqueue non-blocking send (ownership of body is transferred)
-  tracing_enqueue_body(&body);
 }
 
 static void export_batch_if_needed(int force) {
