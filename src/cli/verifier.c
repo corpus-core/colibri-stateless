@@ -131,8 +131,10 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
   }
-  char       tmp[1000]          = {0};
-  buffer_t   buf                = stack_buffer(tmp);
+#ifdef USE_CURL
+  char     tmp[1000] = {0};
+  buffer_t buf       = stack_buffer(tmp);
+#endif
   char*      method             = NULL;
   chain_id_t chain_id           = C4_CHAIN_MAINNET;
   buffer_t   args               = {0};
