@@ -136,6 +136,8 @@ static int on_url(llhttp_t* parser, const char* at, size_t length) {
 
 static int on_method(llhttp_t* parser, const char* at, size_t length) {
   client_t* client = (client_t*) parser->data;
+  // Default minimal trace level per request unless overridden by header
+  client->trace_level = TRACE_LEVEL_MIN;
   if (strncasecmp(at, "GET", length) == 0)
     client->request.method = C4_DATA_METHOD_GET;
   else if (strncasecmp(at, "POST", length) == 0)
@@ -216,6 +218,15 @@ static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
       client->b3_sampled = 1;
     else if (length > 0 && (at[0] == '0' || at[0] == 'f' || at[0] == 'F' || at[0] == 'n' || at[0] == 'N'))
       client->b3_sampled = 0;
+  }
+  else if (strcasecmp(client->current_header, "X-C4-Trace-Level") == 0) {
+    // Accept: none|min|debug (case-insensitive)
+    if (length >= 4 && strncasecmp(at, "none", 4) == 0)
+      client->trace_level = TRACE_LEVEL_NONE;
+    else if (length >= 3 && strncasecmp(at, "min", 3) == 0)
+      client->trace_level = TRACE_LEVEL_MIN;
+    else if (length >= 5 && strncasecmp(at, "debug", 5) == 0)
+      client->trace_level = TRACE_LEVEL_DEBUG;
   }
   return 0;
 }
