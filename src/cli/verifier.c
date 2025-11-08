@@ -131,6 +131,8 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
   }
+  char       tmp[1000]          = {0};
+  buffer_t   buf                = stack_buffer(tmp);
   char*      method             = NULL;
   chain_id_t chain_id           = C4_CHAIN_MAINNET;
   buffer_t   args               = {0};
@@ -144,6 +146,7 @@ int main(int argc, char* argv[]) {
   char*      beacon_url         = NULL;
   char*      checkpointz_url    = NULL;
   char*      prover_url         = NULL;
+  char*      trace_id           = NULL;
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
 
@@ -176,6 +179,9 @@ int main(int argc, char* argv[]) {
             break;
           case 'r':
             rpc_url = argv[++i];
+            break;
+          case 'T':
+            curl_set_config(json_parse(bprintf(&buf, "{\"trace_config\":{\"trace_id\":\"%s\"}}", argv[++i])));
             break;
 #endif
           case 'b':

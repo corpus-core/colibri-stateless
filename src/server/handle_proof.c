@@ -11,6 +11,9 @@ typedef struct {
   uv_work_t     req;
   request_t*    req_obj;
   prover_ctx_t* ctx;
+  // tracing for worker execution
+  trace_span_t* span;
+  uint64_t      start_ms;
 } proof_work_t;
 
 /**
@@ -57,6 +60,14 @@ static void c4_prover_execute_worker(uv_work_t* req) {
 
 static void c4_prover_execute_after(uv_work_t* req, int status) {
   proof_work_t* work = (proof_work_t*) req->data;
+  // finish worker tracing span
+  if (work->span) {
+    uint64_t dur_ms = current_unix_ms() - work->start_ms;
+    tracing_span_tag_i64(work->span, "duration_ms", (int64_t) dur_ms);
+    tracing_span_tag_str(work->span, "thread", "worker");
+    tracing_finish(work->span);
+    work->span = NULL;
+  }
   c4_prover_handle_request(work->req_obj);
   safe_free(req);
 }
@@ -77,6 +88,11 @@ static bool c4_check_worker_request(request_t* req) {
     work->req_obj      = req;
     work->ctx          = ctx;
     work->req.data     = work;
+    // tracing: worker span for encoding/proof building
+    if (tracing_is_enabled() && req->trace_root) {
+      work->start_ms = current_unix_ms();
+      work->span     = tracing_start_child(req->trace_root, "worker: build/encode proof");
+    }
 
     uv_queue_work(uv_default_loop(), &work->req,
                   c4_prover_execute_worker,
@@ -192,8 +208,9 @@ bool c4_handle_proof_request(client_t* client) {
   if (!bytes_all_zero(bytes(http_server.witness_key, 32))) ctx->witness_key = bytes(http_server.witness_key, 32);
 
   // Tracing: start root span
-  if (tracing_is_enabled()) {
-    char name_tmp[256];
+  if (tracing_is_enabled() && client->trace_level != TRACE_LEVEL_NONE) {
+    char  name_tmp[256];
+    char* desc = c4_req_info(C4_DATA_TYPE_INTERN, "", bytes(client->request.payload, client->request.payload_len));
     sbprintf(name_tmp, "proof/%s", method_str ? method_str : "unknown");
     if (client->b3_trace_id) {
       int sampled     = client->b3_sampled == 0 ? 0 : 1;
@@ -212,7 +229,7 @@ bool c4_handle_proof_request(client_t* client) {
       if (include_code.type == JSON_TYPE_BOOLEAN) {
         tracing_span_tag_str(req->trace_root, "include_code", include_code.start[0] == 't' ? "true" : "false");
       }
-      if (ctx->client_state.len > 0) {
+      if (ctx->client_state.len > 0 && client->trace_level == TRACE_LEVEL_DEBUG) {
         // include up to 33 bytes as hex
         size_t   cs_len = ctx->client_state.len > 33 ? 33 : ctx->client_state.len;
         char     cs_hex[70]; // 33 bytes => 66 hex chars + safety
@@ -221,7 +238,7 @@ bool c4_handle_proof_request(client_t* client) {
         tracing_span_tag_str(req->trace_root, "client_state", cs_hex);
       }
       // attach params as JSON (value, not string)
-      if (params.type != JSON_TYPE_INVALID) {
+      if (params.type != JSON_TYPE_INVALID && client->trace_level == TRACE_LEVEL_DEBUG) {
         buffer_t pbuf = {0};
         bprintf(&pbuf, "%J", params);
         tracing_span_tag_json(req->trace_root, "params", (char*) pbuf.data.data);

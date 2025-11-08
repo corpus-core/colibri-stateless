@@ -28,6 +28,13 @@
 extern "C" {
 #endif
 
+typedef struct trace_config_t {
+  char* trace_id;
+  char* span_id;
+  char* parent_span_id;
+  int   sampled;
+} trace_config_t;
+
 #include "../../src/prover/prover.h"
 
 typedef struct {
@@ -36,6 +43,7 @@ typedef struct {
   json_t eth_rpc;
   json_t prover;
   json_t chain_store;
+  json_t trace_config;
 } curl_nodes_t;
 
 void curl_fetch(data_request_t* req);

@@ -68,10 +68,28 @@ const char*               CURL_METHODS[]  = {"GET", "POST", "PUT", "DELETE"};
 // Tracing helper: annotate selection, weights and unsupported methods for a request attempt
 static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* servers, int selected_index, const char* base_url) {
   if (!tracing_is_enabled() || !r || !r->parent || !r->parent->trace_root) return;
+  int         level       = r->parent->client ? r->parent->client->trace_level : TRACE_LEVEL_MIN;
   const char* method_name = CURL_METHODS[r->req->method];
   const char* host_name   = c4_extract_server_name(base_url);
-  char        span_name[256];
-  sbprintf(span_name, "HTTP %s %s", method_name ? method_name : "REQ", host_name ? host_name : "");
+  // Build compact request description similar to c4_req_info(), but without ANSI colors
+  const char* desc_colored = c4_req_info(r->req->type, r->req->url, r->req->payload);
+  char        desc[512];
+  // strip ANSI escape codes
+  {
+    size_t di = 0;
+    for (const char* p = desc_colored; *p && di + 1 < sizeof(desc);) {
+      if (*p == '\x1b') {
+        // skip until 'm' or end
+        while (*p && *p != 'm') p++;
+        if (*p == 'm') p++;
+        continue;
+      }
+      desc[di++] = *p++;
+    }
+    desc[di] = '\0';
+  }
+  char span_name[512];
+  sbprintf(span_name, "HTTP %s %s | %s", method_name ? method_name : "REQ", host_name ? host_name : "", desc);
   r->attempt_span = tracing_start_child(r->parent->trace_root, span_name);
   if (!r->attempt_span) return;
   // Selected server and client type
@@ -79,7 +97,7 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
   tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) servers->client_types[selected_index]);
   tracing_span_tag_i64(r->attempt_span, "exclude.mask", (int64_t) r->req->node_exclude_mask);
   // Weights of all servers
-  if (servers && servers->health_stats && servers->urls) {
+  if (level == TRACE_LEVEL_DEBUG && servers && servers->health_stats && servers->urls) {
     buffer_t w = {0};
     bprintf(&w, "[");
     for (size_t wi = 0; wi < servers->count; wi++) {
@@ -924,6 +942,25 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   single_request_t*  r       = (single_request_t*) data;
   pending_request_t* pending = value == NULL ? pending_find_matching(r) : NULL; // is there a pending request asking for the same result
 
+  // If we were waiting on memcache, close that span here (hit or miss)
+  if (r->cache_span) {
+    uint64_t dur_ms = current_unix_ms() - r->cache_start_ms;
+    tracing_span_tag_i64(r->cache_span, "duration_ms", (int64_t) dur_ms);
+    tracing_span_tag_str(r->cache_span, "cache", value ? "hit" : "miss");
+    if (value) tracing_span_tag_i64(r->cache_span, "bytes", (int64_t) value_len);
+    tracing_finish(r->cache_span);
+    r->cache_span = NULL;
+  }
+  // If this request was waiting as a pending follower and now receives a value, finish the wait span
+  if (r->wait_span) {
+    uint64_t dur_ms = current_unix_ms() - r->wait_start_ms;
+    tracing_span_tag_i64(r->wait_span, "duration_ms", (int64_t) dur_ms);
+    tracing_span_tag_str(r->wait_span, "result", value ? "joined" : "joined_empty");
+    if (value) tracing_span_tag_i64(r->wait_span, "bytes", (int64_t) value_len);
+    tracing_finish(r->wait_span);
+    r->wait_span = NULL;
+  }
+
   if (r->req->type == C4_DATA_TYPE_INTERN && !value) { // this is an internal request, so we need to handle it differently
     c4_handle_internal_request(r);
     return;
@@ -932,6 +969,11 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   if (pending) { // there is a pending request asking for the same result
     pending_add_to_same_requests(pending, r);
     log_info(GRAY("   [join ]") " %s", c4_req_info(r->req->type, r->req->url, r->req->payload));
+    // Start a wait span representing the pending-follow duration
+    if (tracing_is_enabled() && r->parent && r->parent->trace_root) {
+      r->wait_start_ms = current_unix_ms();
+      r->wait_span     = tracing_start_child(r->parent->trace_root, "pending join");
+    }
     // callback will be called when the pending-request is done
   }
   else if (value) { // there is a cached response
@@ -1091,7 +1133,16 @@ static void trigger_cached_curl_requests(request_t* req) {
     }
     // Check cache first
     char* key = generate_cache_key(pending);
-    int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
+    // Start memcache "get" span
+    if (tracing_is_enabled() && req->trace_root) {
+      r->cache_start_ms = current_unix_ms();
+      r->cache_span     = tracing_start_child(req->trace_root, "memcache get");
+      if (r->cache_span) {
+        tracing_span_tag_str(r->cache_span, "cache.layer", "memcached");
+        tracing_span_tag_i64(r->cache_span, "ttl", (int64_t) pending->ttl);
+      }
+    }
+    int ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
     safe_free(key);
     if (ret) {
       log_error("CACHE-Error : %d %s %s", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");

@@ -55,6 +55,13 @@ typedef struct {
 #endif
 } server_stats_t;
 
+// Trace levels for request-scoped tracing
+typedef enum {
+  TRACE_LEVEL_MIN   = 0, // default minimal
+  TRACE_LEVEL_DEBUG = 1, // verbose
+  TRACE_LEVEL_NONE  = 2  // disabled
+} trace_level_t;
+
 #define STR_BYTES(msg) bytes(msg, strlen(msg) - 1)
 // Global cURL connection pool configuration and runtime statistics
 typedef struct {
@@ -224,6 +231,8 @@ typedef struct {
   char*             b3_span_id;
   char*             b3_parent_span_id;
   int               b3_sampled; // -1 unknown, 0 false, 1 true
+  // Tracing level (default: minimal)
+  int               trace_level; // trace_level_t
 } client_t;
 typedef bool (*http_handler)(client_t*);
 
@@ -244,6 +253,11 @@ typedef struct {
   bool               success;
   bool               cached;
   trace_span_t*      attempt_span; // tracing span for this single HTTP attempt
+  // Tracing for cache/pending waits
+  trace_span_t*      cache_span;
+  uint64_t           cache_start_ms;
+  trace_span_t*      wait_span;
+  uint64_t           wait_start_ms;
 } single_request_t;
 
 typedef struct request_t {

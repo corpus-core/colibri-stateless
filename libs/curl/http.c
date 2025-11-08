@@ -50,8 +50,9 @@ typedef struct {
   char*           url;
 } curl_request_t;
 
-static curl_nodes_t curl_nodes     = {0};
-const char*         CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
+static trace_config_t trace_config   = {0};
+static curl_nodes_t   curl_nodes     = {0};
+const char*           CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 #define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584\",\"https://ethereum-mainnet.core.chainstack.com/364e0a05996fe175eb1975ddc6e9147d\",\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\",\"https://rpc.ankr.com/eth/c14449317accec005863d22c7515f6b69667abb29ba2b5e099abf490bcb875b1\",\"https://eth.llamarpc.com\",\"https://rpc.payload.de\",\"https://ethereum-rpc.publicnode.com\"]," \
                        "\"beacon_api\":[\"https://ethereum-mainnet.core.chainstack.com/beacon/364e0a05996fe175eb1975ddc6e9147d/\",\"http://unstable.mainnet.beacon-api.nimbus.team/\",\"https://lodestar-mainnet.chainsafe.io/\"],"                                                                                                                                                                                                                                                                                                                                         \
@@ -89,6 +90,7 @@ void curl_set_config(json_t config) {
   if ((nodes = json_get(config, "checkpointz")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.checkpointz, nodes);
   if ((nodes = json_get(config, "prover")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.prover, nodes);
   if ((nodes = json_get(config, "chain_store")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.chain_store, nodes);
+  if ((nodes = json_get(config, "trace_config")).type == JSON_TYPE_OBJECT) replace_config(&curl_nodes.trace_config, nodes);
 }
 
 static void add_nodes(buffer_t* buffer, json_t nodes) {
@@ -269,6 +271,24 @@ static bool configure_curl(curl_request_t* creq) {
     headers = curl_slist_append(headers, req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
   headers = curl_slist_append(headers, "charsets: utf-8");
   headers = curl_slist_append(headers, "User-Agent: c4 curl ");
+
+  if (req->type == C4_DATA_TYPE_PROVER && curl_nodes.trace_config.type == JSON_TYPE_OBJECT) {
+    char     tmp[256];
+    buffer_t buf      = stack_buffer(tmp);
+    json_t   trace_id = json_get(curl_nodes.trace_config, "trace_id");
+    if (trace_id.type == JSON_TYPE_STRING)
+      headers = curl_slist_append(headers, bprintf(&buf, "X-B3-TraceId: %j", trace_id));
+    json_t span_id = json_get(curl_nodes.trace_config, "span_id");
+    if (span_id.type == JSON_TYPE_STRING)
+      headers = curl_slist_append(headers, bprintf(&buf, "X-B3-SpanId: %j", span_id));
+    json_t sampled = json_get(curl_nodes.trace_config, "sampled");
+    if (sampled.type == JSON_TYPE_BOOLEAN)
+      headers = curl_slist_append(headers, bprintf(&buf, "X-B3-Sampled: %s", sampled.start[0] == 't' ? "1" : "0"));
+    json_t level = json_get(curl_nodes.trace_config, "level");
+    if (level.type == JSON_TYPE_STRING)
+      headers = curl_slist_append(headers, bprintf(&buf, "X-C4-Trace-Level: %j", level));
+  }
+
   curl_easy_setopt(creq->curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(creq->curl, CURLOPT_WRITEFUNCTION, curl_append);
   curl_easy_setopt(creq->curl, CURLOPT_WRITEDATA, &creq->buffer);

@@ -55,6 +55,9 @@ static tracer_t g_tracer      = {0};
 static buffer_t g_batch       = {0};
 static int      g_batch_count = 0;
 
+// External time function providing Unix epoch milliseconds
+extern uint64_t current_unix_ms();
+
 // ---- libcurl multi transport (non-blocking) ----------------------------------------------------
 typedef struct trace_poll_ctx_t {
   uv_poll_t                poll_handle;
@@ -65,6 +68,7 @@ typedef struct trace_poll_ctx_t {
 typedef struct {
   buffer_t           body;
   struct curl_slist* headers;
+  buffer_t           resp; // response buffer for diagnostics
 } trace_easy_ctx_t;
 
 static CURLM*            g_trace_multi = NULL;
@@ -164,6 +168,18 @@ static void tracing_transport_init(void) {
   }
 }
 
+// Small write callback to capture Tempo response for diagnostics
+static size_t trace_write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
+  buffer_t* buffer   = (buffer_t*) userp;
+  size_t    realsize = size * nmemb;
+  if (!buffer) return realsize;
+  buffer_grow(buffer, buffer->data.len + realsize + 1);
+  memcpy(buffer->data.data + buffer->data.len, contents, realsize);
+  buffer->data.len += realsize;
+  buffer->data.data[buffer->data.len] = '\0';
+  return realsize;
+}
+
 static void c4_trace_handle_curl_events() {
   if (!g_trace_multi) return;
   CURLMsg* msg;
@@ -173,11 +189,27 @@ static void c4_trace_handle_curl_events() {
     CURL*             easy = msg->easy_handle;
     trace_easy_ctx_t* ctx  = NULL;
     curl_easy_getinfo(easy, CURLINFO_PRIVATE, &ctx);
+    // Inspect result and HTTP status for diagnostics
+    long http_code = 0;
+    curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+    if (msg->data.result != CURLE_OK || http_code < 200 || http_code >= 300) {
+      const char* err              = curl_easy_strerror(msg->data.result);
+      char        snippet_raw[201] = {0};
+      if (ctx && ctx->resp.data.data && ctx->resp.data.len > 0) {
+        size_t n = ctx->resp.data.len > 200 ? 200 : ctx->resp.data.len;
+        memcpy(snippet_raw, ctx->resp.data.data, n);
+        snippet_raw[n] = '\0';
+      }
+      log_warn("Tracing export: HTTP %ld, CURL %d (%s) resp=\"%S\"",
+               http_code, (int) msg->data.result, err ? err : "",
+               snippet_raw);
+    }
     curl_multi_remove_handle(g_trace_multi, easy);
     curl_easy_cleanup(easy);
     if (ctx) {
       if (ctx->headers) curl_slist_free_all(ctx->headers);
       buffer_free(&ctx->body);
+      buffer_free(&ctx->resp);
       safe_free(ctx);
     }
   }
@@ -191,6 +223,8 @@ static void tracing_enqueue_body(buffer_t* body) {
   tracing_transport_init();
   trace_easy_ctx_t* ctx = (trace_easy_ctx_t*) safe_calloc(1, sizeof(trace_easy_ctx_t));
   // Transfer ownership of body to ctx
+
+  //  bytes_write(body->data, fopen("trace_body.json", "wb"), true);
   ctx->body       = *body;
   body->data.data = NULL;
   body->data.len  = 0;
@@ -210,6 +244,9 @@ static void tracing_enqueue_body(buffer_t* body) {
   // Short timeouts to avoid long-hung exports; still non-blocking via multi
   curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS, 500L);
   curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS, 250L);
+  // Capture a small response body for diagnostics
+  curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, trace_write_callback);
+  curl_easy_setopt(easy, CURLOPT_WRITEDATA, &ctx->resp);
   curl_easy_setopt(easy, CURLOPT_PRIVATE, ctx);
 
   curl_multi_add_handle(g_trace_multi, easy);
@@ -301,7 +338,7 @@ trace_span_t* tracing_start_root(const char* name) {
   s->trace_id     = gen_trace_id();
   s->span_id      = gen_span_id();
   memset(&s->parent_id, 0, sizeof(s->parent_id));
-  s->start_ms = current_ms();
+  s->start_ms = current_unix_ms();
   s->sampled  = 1;
   s->name     = name ? strdup(name) : strdup("span");
   return s;
@@ -332,7 +369,7 @@ trace_span_t* tracing_start_root_with_b3(const char* name, const char* trace_id_
   if (parent_span_id_hex && strlen(parent_span_id_hex) == 16) {
     hex_to_bytes(parent_span_id_hex, 16, bytes(s->parent_id.bytes, sizeof(s->parent_id.bytes)));
   }
-  s->start_ms = current_ms();
+  s->start_ms = current_unix_ms();
   s->sampled  = 1;
   s->name     = name ? strdup(name) : strdup("span");
   return s;
@@ -345,7 +382,7 @@ trace_span_t* tracing_start_child(trace_span_t* parent, const char* name) {
   s->trace_id     = parent->trace_id;
   s->span_id      = gen_span_id();
   s->parent_id    = parent->span_id;
-  s->start_ms     = current_ms();
+  s->start_ms     = current_unix_ms();
   s->sampled      = parent->sampled;
   s->name         = name ? strdup(name) : strdup("span");
   if (!s->sampled) return NULL; // keep behavior consistent (no-op)
@@ -375,22 +412,33 @@ void tracing_span_tag_str(trace_span_t* span, const char* key, const char* value
 
 void tracing_span_tag_i64(trace_span_t* span, const char* key, int64_t value) {
   if (!span) return;
-  char tmp[64];
-  snprintf(tmp, sizeof(tmp), "%lld", (long long) value);
-  add_tag(span, key, tmp);
+  // Zipkin v2 requires tag values to be strings
+  buffer_t buf = {0};
+  bprintf(&buf, "\"%l\"", (uint64_t) value);
+  add_tag(span, key, (const char*) buf.data.data);
+  buf.data.data = NULL;
+  buffer_free(&buf);
 }
 
 void tracing_span_tag_f64(trace_span_t* span, const char* key, double value) {
   if (!span) return;
-  char tmp[64];
-  // Avoid locale issues
-  snprintf(tmp, sizeof(tmp), "%.6f", value);
-  add_tag(span, key, tmp);
+  // Zipkin v2 requires tag values to be strings
+  buffer_t buf = {0};
+  // Avoid locale issues, fixed precision
+  bprintf(&buf, "\"%f\"", value);
+  add_tag(span, key, (const char*) buf.data.data);
+  buf.data.data = NULL;
+  buffer_free(&buf);
 }
 
 void tracing_span_tag_json(trace_span_t* span, const char* key, const char* value_json) {
   if (!span || !value_json) return;
-  add_tag(span, key, value_json);
+  // Zipkin v2 tags must be strings; store JSON as escaped string
+  buffer_t buf = {0};
+  bprintf(&buf, "\"%S\"", value_json);
+  add_tag(span, key, (const char*) buf.data.data);
+  buf.data.data = NULL;
+  buffer_free(&buf);
 }
 
 const char* tracing_span_trace_id_hex(trace_span_t* span) {
@@ -473,7 +521,8 @@ static void zipkin_serialize_span(buffer_t* out, trace_span_t* s) {
   if (s->name) {
     bprintf(out, ",\"name\":\"%S\"", s->name);
   }
-  bprintf(out, ",\"timestamp\":%llu,\"duration\":%llu", (unsigned long long) ts_us, (unsigned long long) dur_us);
+  // Use bprintf's %l (uint64) specifier; standard %llu would leak 'lu' into JSON
+  bprintf(out, ",\"timestamp\":%l,\"duration\":%l", (uint64_t) ts_us, (uint64_t) dur_us);
   // localEndpoint
   if (g_tracer.service_name && *g_tracer.service_name) {
     bprintf(out, ",\"localEndpoint\":{\"serviceName\":\"%S\"}", g_tracer.service_name);
@@ -510,7 +559,7 @@ void tracing_finish(trace_span_t* span) {
   if (!span) return;
   if (span->finished) return;
   span->finished = 1;
-  span->end_ms   = current_ms();
+  span->end_ms   = current_unix_ms();
   if (span->sampled) {
     // Append to batch
     buffer_t tmp = {0};
@@ -522,6 +571,18 @@ void tracing_finish(trace_span_t* span) {
       bprintf(&g_batch, ",%s", (char*) tmp.data.data);
     }
     g_batch_count++;
+    // Log root span traceId for discoverability in Tempo
+    int is_root = 1;
+    for (size_t i = 0; i < sizeof(span->parent_id.bytes); i++) {
+      if (span->parent_id.bytes[i] != 0) {
+        is_root = 0;
+        break;
+      }
+    }
+    if (is_root) {
+      const char* trace_hex = tracing_span_trace_id_hex(span);
+      log_info("Tempo trace queued: traceId=%s name=\"%s\"", trace_hex ? trace_hex : "", span->name ? span->name : "");
+    }
     buffer_free(&tmp);
     export_batch_if_needed(/*force=*/0);
   }
