@@ -96,6 +96,16 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
   tracing_span_tag_str(r->attempt_span, "server.selected", host_name ? host_name : "");
   tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) servers->client_types[selected_index]);
   tracing_span_tag_i64(r->attempt_span, "exclude.mask", (int64_t) r->req->node_exclude_mask);
+
+  buffer_t excluded_methods = {0};
+  if (servers[selected_index].health_stats) {
+    for (method_support_t* m = servers[selected_index].health_stats->unsupported_methods; m; m = m->next) {
+      if (!m->is_supported) bprintf(&excluded_methods, "%s%s", m->method_name, m->next ? "," : "");
+    }
+  }
+  tracing_span_tag_str(r->attempt_span, "exclude.methods", excluded_methods.data.len > 0 ? buffer_as_string(&excluded_methods) : "-");
+  buffer_free(&excluded_methods);
+
   // Weights of all servers
   if (level == TRACE_LEVEL_DEBUG && servers && servers->health_stats && servers->urls) {
     buffer_t w = {0};
@@ -554,15 +564,6 @@ static void handle_curl_events() {
       if (rpc_method) safe_free(rpc_method);
     }
 
-    // Handle method not supported errors
-    if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
-      char* rpc_method = extract_rpc_method(r->req);
-      if (rpc_method) {
-        c4_mark_method_unsupported(servers, r->req->response_node_index, rpc_method);
-        safe_free(rpc_method);
-      }
-    }
-
 #ifdef TEST
     // Record response if test_dir is set
     c4_record_test_response(r->url ? r->url : r->req->url,
@@ -630,6 +631,8 @@ static void handle_curl_events() {
                                  ? (char*) r->buffer.data.data
                                  : "method_not_supported";
         tracing_span_tag_str(r->attempt_span, "error", errtxt);
+        // we add the list of
+
         tracing_finish(r->attempt_span);
         r->attempt_span = NULL;
       }
@@ -1021,9 +1024,8 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
         selected_index = c4_select_best_server_for_method(servers, r->req->node_exclude_mask, r->req->preferred_client_type, rpc_method, requested_block, has_block);
         safe_free(rpc_method);
       }
-      else {
+      else
         selected_index = c4_select_best_server(servers, r->req->node_exclude_mask, r->req->preferred_client_type);
-      }
 
       if (selected_index == -1) {
         // This should be very rare after emergency reset logic in c4_select_best_server
@@ -1243,6 +1245,7 @@ bool c4_check_retry_request(request_t* req) {
       // Try to find another available server (c4_select_best_server handles emergency reset)
       int new_idx = c4_select_best_server(servers, pending->node_exclude_mask, pending->preferred_client_type);
       // Tracing: emit retry scheduling event (one-off child span)
+      /*
       if (tracing_is_enabled() && req->trace_root) {
         trace_span_t* ev = tracing_start_child(req->trace_root, "retry");
         if (ev) {
@@ -1254,6 +1257,7 @@ bool c4_check_retry_request(request_t* req) {
           tracing_finish(ev);
         }
       }
+      */
       if (new_idx != -1) {
         log_warn("   [retry] %s -> Using pre-selected server " BRIGHT_BLUE("%s"), c4_req_info(pending->type, pending->url, pending->payload), c4_extract_server_name(servers->urls[new_idx]));
 

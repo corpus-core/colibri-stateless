@@ -391,53 +391,33 @@ trace_span_t* tracing_start_child(trace_span_t* parent, const char* name) {
 
 void tracing_span_tag_str(trace_span_t* span, const char* key, const char* value) {
   if (!span || !value) return;
-  // JSON-escape minimal set: replace " with \"
   buffer_t buf = {0};
-  bprintf(&buf, "\"");
-  for (const char* p = value; *p; ++p) {
-    if (*p == '\"')
-      bprintf(&buf, "\\\"");
-    else if (*p == '\\')
-      bprintf(&buf, "\\\\");
-    else if ((unsigned char) *p < 0x20)
-      bprintf(&buf, "\\u%04x", (unsigned) (unsigned char) *p);
-    else
-      bprintf(&buf, "%c", *p);
-  }
-  bprintf(&buf, "\"");
-  add_tag(span, key, (const char*) buf.data.data);
-  buf.data.data = NULL;
+  add_tag(span, key, bprintf(&buf, "\"%S\"", value));
   buffer_free(&buf);
 }
 
 void tracing_span_tag_i64(trace_span_t* span, const char* key, int64_t value) {
   if (!span) return;
+  char     tmp[80];
+  buffer_t buf = stack_buffer(tmp);
   // Zipkin v2 requires tag values to be strings
-  buffer_t buf = {0};
-  bprintf(&buf, "\"%l\"", (uint64_t) value);
-  add_tag(span, key, (const char*) buf.data.data);
-  buf.data.data = NULL;
-  buffer_free(&buf);
+  add_tag(span, key, bprintf(&buf, "\"%l\"", (uint64_t) value));
 }
 
 void tracing_span_tag_f64(trace_span_t* span, const char* key, double value) {
   if (!span) return;
   // Zipkin v2 requires tag values to be strings
-  buffer_t buf = {0};
+  char     tmp[80];
+  buffer_t buf = stack_buffer(tmp);
   // Avoid locale issues, fixed precision
-  bprintf(&buf, "\"%f\"", value);
-  add_tag(span, key, (const char*) buf.data.data);
-  buf.data.data = NULL;
-  buffer_free(&buf);
+  add_tag(span, key, bprintf(&buf, "\"%f\"", value));
 }
 
 void tracing_span_tag_json(trace_span_t* span, const char* key, const char* value_json) {
   if (!span || !value_json) return;
   // Zipkin v2 tags must be strings; store JSON as escaped string
   buffer_t buf = {0};
-  bprintf(&buf, "\"%S\"", value_json);
-  add_tag(span, key, (const char*) buf.data.data);
-  buf.data.data = NULL;
+  add_tag(span, key, bprintf(&buf, "\"%S\"", value_json));
   buffer_free(&buf);
 }
 
@@ -514,19 +494,16 @@ static void zipkin_serialize_span(buffer_t* out, trace_span_t* s) {
   uint64_t ts_us  = s->start_ms * 1000ull;
   uint64_t dur_us = (s->end_ms > s->start_ms) ? ((s->end_ms - s->start_ms) * 1000ull) : 0ull;
 
-  bprintf(out, "{");
-  bprintf(out, "\"traceId\":\"%s\",\"id\":\"%s\"", trace_hex, id_hex);
+  bprintf(out, "{\"traceId\":\"%s\",\"id\":\"%s\"", trace_hex, id_hex);
   if (has_parent) bprintf(out, ",\"parentId\":\"%s\"", parent_hex);
   // name
-  if (s->name) {
-    bprintf(out, ",\"name\":\"%S\"", s->name);
-  }
+  if (s->name) bprintf(out, ",\"name\":\"%S\"", s->name);
   // Use bprintf's %l (uint64) specifier; standard %llu would leak 'lu' into JSON
-  bprintf(out, ",\"timestamp\":%l,\"duration\":%l", (uint64_t) ts_us, (uint64_t) dur_us);
+  bprintf(out, ",\"timestamp\":%l,\"duration\":%l", ts_us, dur_us);
   // localEndpoint
-  if (g_tracer.service_name && *g_tracer.service_name) {
+  if (g_tracer.service_name && *g_tracer.service_name)
     bprintf(out, ",\"localEndpoint\":{\"serviceName\":\"%S\"}", g_tracer.service_name);
-  }
+
   // tags
   if (s->tags) {
     bprintf(out, ",\"tags\":{");
@@ -556,20 +533,17 @@ static void export_batch_if_needed(int force) {
 }
 
 void tracing_finish(trace_span_t* span) {
-  if (!span) return;
-  if (span->finished) return;
+  if (!span || span->finished) return;
   span->finished = 1;
   span->end_ms   = current_unix_ms();
   if (span->sampled) {
     // Append to batch
     buffer_t tmp = {0};
     zipkin_serialize_span(&tmp, span);
-    if (g_batch_count == 0) {
+    if (g_batch_count == 0)
       bprintf(&g_batch, "[%s", (char*) tmp.data.data);
-    }
-    else {
+    else
       bprintf(&g_batch, ",%s", (char*) tmp.data.data);
-    }
     g_batch_count++;
     // Log root span traceId for discoverability in Tempo
     int is_root = 1;
