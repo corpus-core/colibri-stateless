@@ -6,6 +6,7 @@
 #include "beacon.h"
 #include "logger.h"
 #include "server.h"
+#include "verify.h"
 
 typedef struct {
   uv_work_t     req;
@@ -130,6 +131,12 @@ void c4_prover_handle_request(request_t* req) {
       if (req->trace_root) {
         tracing_span_tag_str(req->trace_root, "status", "ok");
         tracing_span_tag_i64(req->trace_root, "proof.size", (int64_t) ctx->proof.len);
+        ssz_ob_t proof       = (ssz_ob_t) {.def = c4_get_request_type(c4_get_chain_type_from_req(ctx->proof)), .bytes = ctx->proof};
+        ssz_ob_t proof_proof = ssz_get(&proof, "proof");
+        ssz_ob_t proof_sync  = ssz_get(&proof, "sync");
+        tracing_span_tag_str(req->trace_root, "proof_type", proof_proof.def ? proof_proof.def->name : "none");
+        tracing_span_tag_i64(req->trace_root, "proof.proof_size", (int64_t) proof_proof.bytes.len);
+        tracing_span_tag_i64(req->trace_root, "proof.sync_size", (int64_t) (proof_sync.bytes.len > 0 ? proof_sync.bytes.len : 0));
         tracing_finish(req->trace_root);
         req->trace_root = NULL;
       }
@@ -224,26 +231,16 @@ bool c4_handle_proof_request(client_t* client) {
     }
     if (req->trace_root) {
       tracing_span_tag_str(req->trace_root, "method", method_str ? method_str : "");
+      tracing_span_tag_json(req->trace_root, "params", params_str);
       tracing_span_tag_i64(req->trace_root, "chain_id", (int64_t) http_server.chain_id);
+      tracing_span_tag_i64(req->trace_root, "flags", (int64_t) ctx->flags);
       tracing_span_tag_i64(req->trace_root, "request.size", (int64_t) client->request.payload_len);
-      if (include_code.type == JSON_TYPE_BOOLEAN) {
+      if (include_code.type == JSON_TYPE_BOOLEAN)
         tracing_span_tag_str(req->trace_root, "include_code", include_code.start[0] == 't' ? "true" : "false");
-      }
-      if (ctx->client_state.len > 0 && client->trace_level == TRACE_LEVEL_DEBUG) {
-        // include up to 33 bytes as hex
-        size_t   cs_len = ctx->client_state.len > 33 ? 33 : ctx->client_state.len;
-        char     cs_hex[70]; // 33 bytes => 66 hex chars + safety
-        buffer_t cs_buf = stack_buffer(cs_hex);
-        bprintf(&cs_buf, "%x", bytes(ctx->client_state.data, cs_len));
-        tracing_span_tag_str(req->trace_root, "client_state", cs_hex);
-      }
-      // attach params as JSON (value, not string)
-      if (params.type != JSON_TYPE_INVALID && client->trace_level == TRACE_LEVEL_DEBUG) {
-        buffer_t pbuf = {0};
-        bprintf(&pbuf, "%J", params);
-        tracing_span_tag_json(req->trace_root, "params", (char*) pbuf.data.data);
-        pbuf.data.data = NULL;
-        buffer_free(&pbuf);
+      if (ctx->client_state.len) {
+        char cs_str[70];
+        sbprintf(cs_str, "%x", ctx->client_state.data);
+        tracing_span_tag_str(req->trace_root, "client_state", cs_str);
       }
     }
   }

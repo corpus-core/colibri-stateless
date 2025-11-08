@@ -474,9 +474,8 @@ int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_ma
   // Create extended exclude mask that includes servers not supporting the method
   uint32_t method_exclude_mask = exclude_mask;
   for (size_t i = 0; i < servers->count && i < 32; i++) {
-    if (!c4_is_method_supported(servers, i, method)) {
+    if (!c4_is_method_supported(servers, i, method))
       method_exclude_mask |= (1 << i);
-    }
   }
 
   // If all servers are excluded due to method support, fall back to regular selection
@@ -1007,7 +1006,8 @@ void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
   if (h->inflight > 0) h->inflight--;
 
   // Update global per-server health
-  c4_update_server_health(servers, idx, resp_time_ms, success);
+  if (cls != C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED)
+    c4_update_server_health(servers, idx, resp_time_ms, success);
 
   // Update EWMA latency
   double alpha = 0.1;
@@ -1020,19 +1020,25 @@ void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
 
   // Update per-method stats if available
   if (method) {
-    method_stats_t* ms = c4_get_or_create_method_stats(h, method);
-    if (ms) {
-      if (resp_time_ms > 0) {
-        if (ms->ewma_latency_ms <= 0.0)
-          ms->ewma_latency_ms = (double) resp_time_ms;
-        else
-          ms->ewma_latency_ms = alpha * (double) resp_time_ms + (1.0 - alpha) * ms->ewma_latency_ms;
+
+    // Handle method not supported errors
+    if (cls == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED)
+      c4_mark_method_unsupported(servers, idx, method);
+    else {
+      method_stats_t* ms = c4_get_or_create_method_stats(h, method);
+      if (ms) {
+        if (resp_time_ms > 0) {
+          if (ms->ewma_latency_ms <= 0.0)
+            ms->ewma_latency_ms = (double) resp_time_ms;
+          else
+            ms->ewma_latency_ms = alpha * (double) resp_time_ms + (1.0 - alpha) * ms->ewma_latency_ms;
+        }
+        double success_val   = success ? 1.0 : 0.0;
+        ms->success_ewma     = (ms->success_ewma == 0.0 ? success_val : (alpha * success_val + (1.0 - alpha) * ms->success_ewma));
+        double not_found_val = (cls == C4_RESPONSE_ERROR_RETRY || cls == C4_RESPONSE_ERROR_USER) && http_code == 404 ? 1.0 : 0.0;
+        ms->not_found_ewma   = (ms->not_found_ewma == 0.0 ? not_found_val : (alpha * not_found_val + (1.0 - alpha) * ms->not_found_ewma));
+        ms->last_update_ms   = current_ms();
       }
-      double success_val   = success ? 1.0 : 0.0;
-      ms->success_ewma     = (ms->success_ewma == 0.0 ? success_val : (alpha * success_val + (1.0 - alpha) * ms->success_ewma));
-      double not_found_val = (cls == C4_RESPONSE_ERROR_RETRY || cls == C4_RESPONSE_ERROR_USER) && http_code == 404 ? 1.0 : 0.0;
-      ms->not_found_ewma   = (ms->not_found_ewma == 0.0 ? not_found_val : (alpha * not_found_val + (1.0 - alpha) * ms->not_found_ewma));
-      ms->last_update_ms   = current_ms();
     }
   }
 
