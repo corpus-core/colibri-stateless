@@ -239,7 +239,7 @@ bool c4_handle_proof_request(client_t* client) {
         tracing_span_tag_str(req->trace_root, "include_code", include_code.start[0] == 't' ? "true" : "false");
       if (ctx->client_state.len) {
         char cs_str[70];
-        sbprintf(cs_str, "%x", ctx->client_state.data);
+        sbprintf(cs_str, "%x", ctx->client_state);
         tracing_span_tag_str(req->trace_root, "client_state", cs_str);
       }
     }
