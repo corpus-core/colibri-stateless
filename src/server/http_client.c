@@ -108,7 +108,7 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
       int idx = json_len(params) - 1;
       if (method.type == JSON_TYPE_STRING && strncmp(method.start + 1, "debug_traceCall", 16) == 0) idx--;
       json_t block = json_at(params, idx);
-      if (block.type == JSON_TYPE_STRING && strncmp(block.start, "0x", 2) == 0 && block.len < 66)
+      if (block.type == JSON_TYPE_STRING && strncmp(block.start + 1, "0x", 2) == 0 && block.len < 66)
         tracing_span_tag_i64(r->attempt_span, "requested_block", (int64_t) json_as_uint64(block));
     }
   }
