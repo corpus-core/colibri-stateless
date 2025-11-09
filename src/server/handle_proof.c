@@ -133,7 +133,7 @@ void c4_prover_handle_request(request_t* req) {
         tracing_span_tag_i64(req->trace_root, "proof.size", (int64_t) ctx->proof.len);
         ssz_ob_t proof       = (ssz_ob_t) {.def = c4_get_request_type(c4_get_chain_type_from_req(ctx->proof)), .bytes = ctx->proof};
         ssz_ob_t proof_proof = ssz_get(&proof, "proof");
-        ssz_ob_t proof_sync  = ssz_get(&proof, "sync");
+        ssz_ob_t proof_sync  = ssz_get(&proof, "sync_data");
         tracing_span_tag_str(req->trace_root, "proof_type", proof_proof.def ? proof_proof.def->name : "none");
         tracing_span_tag_i64(req->trace_root, "proof.proof_size", (int64_t) proof_proof.bytes.len);
         tracing_span_tag_i64(req->trace_root, "proof.sync_size", (int64_t) (proof_sync.bytes.len > 0 ? proof_sync.bytes.len : 0));
