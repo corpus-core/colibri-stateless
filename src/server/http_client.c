@@ -96,9 +96,22 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
   tracing_span_tag_str(r->attempt_span, "server.selected", host_name ? host_name : "");
   tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) servers->client_types[selected_index]);
   tracing_span_tag_i64(r->attempt_span, "exclude.mask", (int64_t) r->req->node_exclude_mask);
-  if (servers->health_stats)
-    tracing_span_tag_i64(r->attempt_span, "last_block", (int64_t) servers->health_stats[selected_index].latest_block);
-
+  if (servers->health_stats) {
+    tracing_span_tag_i64(r->attempt_span, "last_client_block", (int64_t) servers->health_stats[selected_index].latest_block);
+    tracing_span_tag_i64(r->attempt_span, "head_last_seen_ms", (int64_t) (current_ms() - servers->health_stats[selected_index].head_last_seen_ms));
+  }
+  if (r->req->payload.len > 0) {
+    json_t json   = json_parse((char*) r->req->payload.data);
+    json_t params = json_get(json, "params");
+    json_t method = json_get(json, "method");
+    if (params.type == JSON_TYPE_ARRAY) {
+      int idx = json_len(params) - 1;
+      if (method.type == JSON_TYPE_STRING && strncmp(method.start + 1, "debug_traceCall", 16) == 0) idx--;
+      json_t block = json_at(params, idx);
+      if (block.type == JSON_TYPE_STRING && strncmp(block.start, "0x", 2) == 0 && block.len < 66)
+        tracing_span_tag_i64(r->attempt_span, "requested_block", (int64_t) json_as_uint64(block));
+    }
+  }
   buffer_t excluded_methods = {0};
   if (servers[selected_index].health_stats) {
     for (method_support_t* m = servers[selected_index].health_stats->unsupported_methods; m; m = m->next) {
