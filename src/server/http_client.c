@@ -96,6 +96,8 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
   tracing_span_tag_str(r->attempt_span, "server.selected", host_name ? host_name : "");
   tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) servers->client_types[selected_index]);
   tracing_span_tag_i64(r->attempt_span, "exclude.mask", (int64_t) r->req->node_exclude_mask);
+  if (servers->health_stats)
+    tracing_span_tag_i64(r->attempt_span, "last_block", (int64_t) servers->health_stats[selected_index].latest_block);
 
   buffer_t excluded_methods = {0};
   if (servers[selected_index].health_stats) {

@@ -5,12 +5,17 @@ import { modulePath } from './test_config.js';
 
 const ColibriModule = await import(modulePath);
 const Colibri = ColibriModule.default; // Assuming Colibri is the default export
+const supported_chains = ['mainnet', 'gnosis', 'chiado', 'sepolia'];
 
 let chains = process.argv.slice(2);
+let options = chains.filter(chain => !supported_chains.includes(chain));
+chains = chains.filter(chain => supported_chains.includes(chain));
 if (chains.length == 0) chains = ['mainnet', 'gnosis'];
 
 for (const chain of chains) {
-    const c4 = new Colibri({ chainId: chain, debug: true/*, prover: ['http://localhost:8090'] */ });
+    let conf = { chainId: chain, debug: true }
+    if (options.includes('-l')) conf.prover = ['http://localhost:8090'];
+    const c4 = new Colibri(conf);
     const state = {}
     let r = await c4.request({ method: 'eth_subscribe', params: ['newHeads'] });
     c4.on('message', (msg) => {
