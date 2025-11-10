@@ -147,6 +147,13 @@ void c4_prover_handle_request(request_t* req) {
 #endif
 #ifdef PROVER_TRACE
     // Flush prover-internal finished spans as children of exec_span
+    // Ensure any open span is closed at this boundary to avoid cross-iteration overlap
+    if (ctx->trace_open) {
+      ctx->trace_open->duration_ms = current_unix_ms() - ctx->trace_open->start_ms;
+      ctx->trace_open->next        = ctx->trace_spans;
+      ctx->trace_spans             = ctx->trace_open;
+      ctx->trace_open              = NULL;
+    }
     for (prover_trace_span_t* s = ctx->trace_spans; s;) {
       trace_span_t* child = tracing_start_child_at(exec_span, s->name ? s->name : "prover", s->start_ms);
       if (child) {
