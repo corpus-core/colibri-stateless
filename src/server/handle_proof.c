@@ -17,6 +17,42 @@ typedef struct {
   uint64_t      start_ms;
 } proof_work_t;
 
+#ifdef PROVER_TRACE
+// Flush and free collected prover spans, attaching them under 'parent'
+static void c4_tracing_flush_prover_spans(trace_span_t* parent, prover_ctx_t* ctx) {
+  if (!parent || !ctx) return;
+  // Close open span at boundary
+  if (ctx->trace_open) {
+    ctx->trace_open->duration_ms = current_unix_ms() - ctx->trace_open->start_ms;
+    ctx->trace_open->next        = ctx->trace_spans;
+    ctx->trace_spans             = ctx->trace_open;
+    ctx->trace_open              = NULL;
+  }
+  for (prover_trace_span_t* s = ctx->trace_spans; s;) {
+    trace_span_t* child = tracing_start_child_at(parent, s->name ? s->name : "prover", s->start_ms);
+    if (child) {
+      for (prover_trace_kv_t* kv = s->tags; kv; kv = kv->next) {
+        if (kv->key && kv->value) tracing_span_tag_str(child, kv->key, kv->value);
+      }
+      tracing_finish_at(child, s->start_ms + s->duration_ms);
+    }
+    // free collected span
+    prover_trace_span_t* next = s->next;
+    while (s->tags) {
+      prover_trace_kv_t* tnext = s->tags->next;
+      if (s->tags->key) free(s->tags->key);
+      if (s->tags->value) free(s->tags->value);
+      free(s->tags);
+      s->tags = tnext;
+    }
+    if (s->name) free(s->name);
+    free(s);
+    s = next;
+  }
+  ctx->trace_spans = NULL;
+}
+#endif
+
 /**
  * Sends the prover response to the client or to a parent callback.
  *
@@ -63,6 +99,10 @@ static void c4_prover_execute_after(uv_work_t* req, int status) {
   proof_work_t* work = (proof_work_t*) req->data;
   // finish worker tracing span
   if (work->span) {
+    // attach any prover-internal spans to the worker span before finishing it
+#ifdef PROVER_TRACE
+    c4_tracing_flush_prover_spans(work->span, work->ctx);
+#endif
     uint64_t dur_ms = current_unix_ms() - work->start_ms;
     tracing_span_tag_i64(work->span, "duration_ms", (int64_t) dur_ms);
     tracing_span_tag_str(work->span, "thread", "worker");
@@ -147,37 +187,7 @@ void c4_prover_handle_request(request_t* req) {
 #endif
 #ifdef PROVER_TRACE
     // Flush prover-internal finished spans as children of exec_span
-    // Ensure any open span is closed at this boundary to avoid cross-iteration overlap
-    if (ctx->trace_open) {
-      ctx->trace_open->duration_ms = current_unix_ms() - ctx->trace_open->start_ms;
-      ctx->trace_open->next        = ctx->trace_spans;
-      ctx->trace_spans             = ctx->trace_open;
-      ctx->trace_open              = NULL;
-    }
-    for (prover_trace_span_t* s = ctx->trace_spans; s;) {
-      trace_span_t* child = tracing_start_child_at(exec_span, s->name ? s->name : "prover", s->start_ms);
-      if (child) {
-        // attach tags
-        for (prover_trace_kv_t* kv = s->tags; kv; kv = kv->next) {
-          if (kv->key && kv->value) tracing_span_tag_str(child, kv->key, kv->value);
-        }
-        tracing_finish_at(child, s->start_ms + s->duration_ms);
-      }
-      // free collected span
-      prover_trace_span_t* next = s->next;
-      // free tags
-      while (s->tags) {
-        prover_trace_kv_t* tnext = s->tags->next;
-        if (s->tags->key) free(s->tags->key);
-        if (s->tags->value) free(s->tags->value);
-        free(s->tags);
-        s->tags = tnext;
-      }
-      if (s->name) free(s->name);
-      free(s);
-      s = next;
-    }
-    ctx->trace_spans = NULL;
+    c4_tracing_flush_prover_spans(exec_span, ctx);
 #endif
   }
   req->prover_step++;
