@@ -32,6 +32,9 @@
 static volatile sig_atomic_t shutdown_requested            = 0;
 volatile sig_atomic_t        graceful_shutdown_in_progress = 0;
 
+// Forward declaration to allow use before definition
+static void stop_close_timer_safe(uv_timer_t* timer);
+
 // Timer callback for prover cache cleanup
 static void on_prover_cleanup_timer(uv_timer_t* handle) {
   c4_prover_cache_cleanup(current_ms(), 0);
@@ -66,8 +69,7 @@ static void on_signal(uv_signal_t* handle, int signum) {
   if (graceful_shutdown_in_progress) {
     log_warn("C4 Server: Graceful shutdown already in progress, forcing immediate shutdown...");
     // ensure timers are stopped to avoid further wakeups
-    uv_timer_stop(&instance->graceful_timer);
-    uv_close((uv_handle_t*) &instance->graceful_timer, NULL);
+    stop_close_timer_safe(&instance->graceful_timer);
     shutdown_requested = 1;
     if (instance && instance->loop) uv_stop(instance->loop);
     return;
@@ -79,8 +81,7 @@ static void on_signal(uv_signal_t* handle, int signum) {
     log_info("C4 Server: No open requests, shutting down immediately...");
     shutdown_requested = 1;
     // stop graceful timer if previously created
-    uv_timer_stop(&instance->graceful_timer);
-    uv_close((uv_handle_t*) &instance->graceful_timer, NULL);
+    stop_close_timer_safe(&instance->graceful_timer);
     if (instance && instance->loop) uv_stop(instance->loop);
   }
   else {
@@ -225,6 +226,15 @@ static void close_active_clients(uv_handle_t* handle, void* arg) {
   }
 }
 
+// Safely stop and close a uv_timer_t if it was initialized
+static void stop_close_timer_safe(uv_timer_t* timer) {
+  if (!timer) return;
+  if (timer->type == UV_TIMER && timer->loop != NULL) {
+    uv_timer_stop(timer);
+    uv_close((uv_handle_t*) timer, NULL);
+  }
+}
+
 void c4_server_stop(server_instance_t* instance) {
   if (!instance || !instance->is_running) {
     return;
@@ -239,17 +249,10 @@ void c4_server_stop(server_instance_t* instance) {
   c4_stop_rpc_head_poller();
 
   // Stop and close timers
-  uv_timer_stop(&instance->prover_cleanup_timer);
-  uv_close((uv_handle_t*) &instance->prover_cleanup_timer, NULL);
-
-  uv_timer_stop(&instance->loop_metrics_timer);
-  uv_close((uv_handle_t*) &instance->loop_metrics_timer, NULL);
-
-  uv_timer_stop(&instance->graceful_timer);
-  uv_close((uv_handle_t*) &instance->graceful_timer, NULL);
-
-  uv_timer_stop(&instance->curl_timer);
-  uv_close((uv_handle_t*) &instance->curl_timer, NULL);
+  stop_close_timer_safe(&instance->prover_cleanup_timer);
+  stop_close_timer_safe(&instance->loop_metrics_timer);
+  stop_close_timer_safe(&instance->graceful_timer);
+  stop_close_timer_safe(&instance->curl_timer);
 
   // Stop accepting new connections
   uv_close((uv_handle_t*) &instance->server, NULL);
