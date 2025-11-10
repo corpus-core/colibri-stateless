@@ -106,6 +106,10 @@ typedef struct cache_entry {
 /**
  * a struct holding the prover context.
  */
+#ifdef PROVER_TRACE
+// Forward declaration for pointer fields
+typedef struct prover_trace_span prover_trace_span_t;
+#endif
 typedef struct {
   char*          method;       // rpc-method
   json_t         params;       // rpc- params
@@ -120,6 +124,11 @@ typedef struct {
 #endif
 #ifdef HTTP_SERVER
   uint32_t client_type; // client type for the prover (for beacon API only)
+#endif
+#ifdef PROVER_TRACE
+  // Collected finished spans (consumed by server); and currently open span
+  prover_trace_span_t* trace_spans;
+  prover_trace_span_t* trace_open;
 #endif
 } prover_ctx_t;
 
@@ -156,18 +165,6 @@ c4_status_t c4_prover_execute(prover_ctx_t* ctx);
 c4_status_t c4_prover_status(prover_ctx_t* ctx);
 
 #ifdef PROVER_CACHE
-/**
- * Get current time in milliseconds (monotonic or system time depending on build config)
- * @return current time in milliseconds
- */
-uint64_t current_ms();
-
-/**
- * Get current Unix epoch time in milliseconds (always system time)
- * @return current Unix timestamp in milliseconds
- */
-uint64_t current_unix_ms();
-
 /**
  * Retrieve a cached value by key. First checks local cache, then global cache.
  * If found in global cache, copies entry to local cache for thread-safety.
@@ -213,6 +210,89 @@ void c4_prover_cache_invalidate(bytes32_t key);
  * @param capacity current allocated capacity of the cache array
  */
 void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
+#endif
+
+// Time helpers made available to headers that need them
+uint64_t current_ms();
+uint64_t current_unix_ms();
+
+#ifdef PROVER_TRACE
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct prover_trace_kv {
+  char*                   key;
+  char*                   value; // stringified
+  struct prover_trace_kv* next;
+} prover_trace_kv_t;
+
+struct prover_trace_span {
+  char*                     name;
+  uint64_t                  start_ms;
+  uint64_t                  duration_ms;
+  prover_trace_kv_t*        tags;
+  struct prover_trace_span* next;
+};
+
+static inline void prover_trace_start(prover_ctx_t* ctx, const char* name) {
+  if (!ctx || !name) return;
+  uint64_t start_ms = current_unix_ms();
+  if (ctx->trace_open) {
+    ctx->trace_open->duration_ms = start_ms - ctx->trace_open->start_ms;
+    ctx->trace_open->next        = ctx->trace_spans;
+    ctx->trace_spans             = ctx->trace_open;
+    ctx->trace_open              = NULL;
+  }
+  struct prover_trace_span* s = (struct prover_trace_span*) safe_calloc(sizeof(struct prover_trace_span), 1);
+  s->name                     = strdup(name);
+  s->start_ms                 = start_ms;
+  ctx->trace_open             = s;
+}
+
+static inline void prover_trace_add_str(prover_ctx_t* ctx, const char* key, const char* value) {
+  if (!ctx || !ctx->trace_open || !key || !value) return;
+  prover_trace_kv_t* kv = (prover_trace_kv_t*) safe_malloc(sizeof(prover_trace_kv_t));
+  kv->key               = strdup(key);
+  kv->value             = strdup(value);
+  kv->next              = ctx->trace_open->tags;
+  ctx->trace_open->tags = kv;
+}
+
+static inline void prover_trace_add_u64(prover_ctx_t* ctx, const char* key, uint64_t value) {
+  if (!ctx || !ctx->trace_open || !key) return;
+  char buf[32];
+  // Print as unsigned long long to be portable, but stored as string
+  snprintf(buf, sizeof(buf), "%llu", (unsigned long long) value);
+  prover_trace_add_str(ctx, key, buf);
+}
+
+static inline void prover_trace_end(prover_ctx_t* ctx) {
+  if (!ctx || !ctx->trace_open) return;
+  ctx->trace_open->duration_ms = current_unix_ms() - ctx->trace_open->start_ms;
+  ctx->trace_open->next        = ctx->trace_spans;
+  ctx->trace_spans             = ctx->trace_open;
+  ctx->trace_open              = NULL;
+}
+
+#define TRACE_START(ctx, name)      prover_trace_start((ctx), (name))
+#define TRACE_ADD_UINT64(ctx, k, v) prover_trace_add_u64((ctx), (k), (v))
+#define TRACE_ADD_STR(ctx, k, v)    prover_trace_add_str((ctx), (k), (v))
+#define TRACE_END(ctx)              prover_trace_end((ctx))
+#else
+#define TRACE_START(ctx, name) \
+  do {                         \
+  } while (0)
+#define TRACE_ADD_UINT64(ctx, k, v) \
+  do {                              \
+  } while (0)
+#define TRACE_ADD_STR(ctx, k, v) \
+  do {                           \
+  } while (0)
+#define TRACE_END(ctx) \
+  do {                 \
+  } while (0)
 #endif
 
 /**

@@ -145,6 +145,34 @@ void c4_prover_handle_request(request_t* req) {
     for (cache_entry_t* ce = ctx->cache; ce; ce = ce->next) cache_count++;
     tracing_span_tag_i64(exec_span, "cache.entries", (int64_t) cache_count);
 #endif
+#ifdef PROVER_TRACE
+    // Flush prover-internal finished spans as children of exec_span
+    for (prover_trace_span_t* s = ctx->trace_spans; s;) {
+      trace_span_t* child = tracing_start_child(exec_span, s->name ? s->name : "prover");
+      if (child) {
+        tracing_span_tag_i64(child, "duration_ms", (int64_t) s->duration_ms);
+        // attach tags
+        for (prover_trace_kv_t* kv = s->tags; kv; kv = kv->next) {
+          if (kv->key && kv->value) tracing_span_tag_str(child, kv->key, kv->value);
+        }
+        tracing_finish(child);
+      }
+      // free collected span
+      prover_trace_span_t* next = s->next;
+      // free tags
+      while (s->tags) {
+        prover_trace_kv_t* tnext = s->tags->next;
+        if (s->tags->key) free(s->tags->key);
+        if (s->tags->value) free(s->tags->value);
+        free(s->tags);
+        s->tags = tnext;
+      }
+      if (s->name) free(s->name);
+      free(s);
+      s = next;
+    }
+    ctx->trace_spans = NULL;
+#endif
   }
   req->prover_step++;
   switch (exec_res) {
