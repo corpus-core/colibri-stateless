@@ -199,7 +199,7 @@ bool c4_handle_proof_request(client_t* client) {
     c4_write_error_response(client, 400, "Invalid request");
     return true;
   }
-  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0);
+  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | C4_PROVER_FLAG_USE_ACCESSLIST | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0);
   buffer_t       client_state_buf = {0};
   char*          method_str       = bprintf(NULL, "%j", method);
   char*          params_str       = bprintf(NULL, "%J", params);
@@ -219,15 +219,16 @@ bool c4_handle_proof_request(client_t* client) {
     char  name_tmp[256];
     char* desc = c4_req_info(C4_DATA_TYPE_INTERN, "", bytes(client->request.payload, client->request.payload_len));
     sbprintf(name_tmp, "proof/%s", method_str ? method_str : "unknown");
+    bool force_debug = (client->trace_level == TRACE_LEVEL_DEBUG && tracing_debug_quota_try_consume());
     if (client->b3_trace_id) {
-      int sampled     = client->b3_sampled == 0 ? 0 : 1;
-      req->trace_root = tracing_start_root_with_b3(name_tmp,
-                                                   client->b3_trace_id,
+      int sampled =
+          force_debug ? 1 : (client->b3_sampled == 0 ? 0 : 1);
+      req->trace_root = tracing_start_root_with_b3(name_tmp, client->b3_trace_id,
                                                    client->b3_span_id ? client->b3_span_id : client->b3_parent_span_id,
                                                    sampled);
     }
     else {
-      req->trace_root = tracing_start_root(name_tmp);
+      req->trace_root = force_debug ? tracing_start_root_forced(name_tmp) : tracing_start_root(name_tmp);
     }
     if (req->trace_root) {
       tracing_span_tag_str(req->trace_root, "method", method_str ? method_str : "");
@@ -235,6 +236,7 @@ bool c4_handle_proof_request(client_t* client) {
       tracing_span_tag_i64(req->trace_root, "chain_id", (int64_t) http_server.chain_id);
       tracing_span_tag_i64(req->trace_root, "flags", (int64_t) ctx->flags);
       tracing_span_tag_i64(req->trace_root, "request.size", (int64_t) client->request.payload_len);
+      tracing_span_tag_str(req->trace_root, "trace.level", client->trace_level == TRACE_LEVEL_DEBUG ? "debug" : "min");
       if (include_code.type == JSON_TYPE_BOOLEAN)
         tracing_span_tag_str(req->trace_root, "include_code", include_code.start[0] == 't' ? "true" : "false");
       if (ctx->client_state.len) {

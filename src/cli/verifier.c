@@ -183,7 +183,7 @@ int main(int argc, char* argv[]) {
             rpc_url = argv[++i];
             break;
           case 'T':
-            curl_set_config(json_parse(bprintf(&buf, "{\"trace_config\":{\"trace_id\":\"%s\"}}", argv[++i])));
+            curl_set_config(json_parse(bprintf(&buf, "{\"trace_config\":{\"level\":\"%s\"}}", argv[++i])));
             break;
 #endif
           case 'b':

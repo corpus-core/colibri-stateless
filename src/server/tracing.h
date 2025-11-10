@@ -43,6 +43,10 @@ bool tracing_is_enabled(void);
  */
 trace_span_t* tracing_start_root(const char* name);
 trace_span_t* tracing_start_root_with_b3(const char* name, const char* trace_id_hex, const char* parent_span_id_hex, int sampled);
+// Start a root span unconditionally (ignores sampling rate)
+trace_span_t* tracing_start_root_forced(const char* name);
+// Try to consume one debug trace token for the current minute window (rate limiting forced debug traces)
+bool tracing_debug_quota_try_consume(void);
 
 /**
  * Start a child span below parent.

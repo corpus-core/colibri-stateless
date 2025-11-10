@@ -37,7 +37,7 @@
 #define JSON_RECEIPTS_FIELDS    "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
 #define JSON_ETH_PROOF_FIELDS   "{accountProof:[bytes],storageProof:[{key:hex32,value:hex32,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
 #define JSON_TRACE_FIELDS       "{*:{balance?:hexuint,code?:bytes,nonce?:uint,storage?:{*:bytes32}}}"
-#define JSON_ACCESS_LIST_FIELDS "{accessList:{address:address,storageKeys:[hex32]},error?:string,gasUsed:uint}"
+#define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys:[hex32]}],error?:string,gasUsed:hexuint}"
 
 c4_status_t get_eth_tx(prover_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   uint8_t  tmp[200];
@@ -107,6 +107,7 @@ c4_status_t eth_create_access_list(prover_ctx_t* ctx, json_t tx, json_t* trace, 
   buffer_t buf = {0};
   tx.len--; // removing the closing '}', so we can add arguments
   TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J,\"maxFeePerGas\":\"0x0\",\"maxPriorityFeePerGas\":\"0x0\"},\"0x%lx\"]", tx, block_number), 12, trace), buffer_free(&buf));
+  log_info("access list: %j", trace);
   CHECK_JSON(*trace, JSON_ACCESS_LIST_FIELDS, "Invalid results for access list: ");
   return C4_SUCCESS;
 }

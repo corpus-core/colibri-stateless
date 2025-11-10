@@ -73,6 +73,8 @@ typedef enum {
   C4_PROVER_FLAG_CHAIN_STORE        = 1 << 3, // allows the prover to use internal request with data from the chain stroe
   C4_PROVER_FLAG_UNSTABLE_LATEST    = 1 << 4, // usually we use latest-1, but if this is set we return the real "latest"
   C4_PROVER_FLAG_INCLUDE_SYNC       = 1 << 5, // if true, the sync data will be included in the proof (requires the client_state to be set)
+  C4_PROVER_FLAG_USE_ACCESSLIST     = 1 << 6, // if true, eth_call will use eth_createAccessList instead of eth_debug_traceCall
+
 } prover_flag_types_t;
 
 /**

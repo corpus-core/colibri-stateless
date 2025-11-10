@@ -307,6 +307,22 @@ static int should_sample(double p) {
   return u < p ? 1 : 0;
 }
 
+// Forced-debug sampling quota (per minute)
+static uint32_t g_debug_quota_per_minute = 120;
+static uint64_t g_debug_window_start_ms  = 0;
+static uint32_t g_debug_window_count     = 0;
+
+bool tracing_debug_quota_try_consume(void) {
+  uint64_t now = current_unix_ms();
+  if (g_debug_window_start_ms == 0 || now - g_debug_window_start_ms >= 60000) {
+    g_debug_window_start_ms = now;
+    g_debug_window_count    = 0;
+  }
+  if (g_debug_window_count >= g_debug_quota_per_minute) return false;
+  g_debug_window_count++;
+  return true;
+}
+
 static void add_tag(trace_span_t* span, const char* key, const char* value_json) {
   if (!span || !key || !value_json) return;
   tag_entry_t* e = (tag_entry_t*) safe_calloc(1, sizeof(tag_entry_t));
@@ -334,6 +350,18 @@ bool tracing_is_enabled(void) {
 trace_span_t* tracing_start_root(const char* name) {
   if (!tracing_is_enabled()) return NULL;
   if (!should_sample(g_tracer.sample_rate)) return NULL;
+  trace_span_t* s = (trace_span_t*) safe_calloc(1, sizeof(trace_span_t));
+  s->trace_id     = gen_trace_id();
+  s->span_id      = gen_span_id();
+  memset(&s->parent_id, 0, sizeof(s->parent_id));
+  s->start_ms = current_unix_ms();
+  s->sampled  = 1;
+  s->name     = name ? strdup(name) : strdup("span");
+  return s;
+}
+
+trace_span_t* tracing_start_root_forced(const char* name) {
+  if (!tracing_is_enabled()) return NULL;
   trace_span_t* s = (trace_span_t*) safe_calloc(1, sizeof(trace_span_t));
   s->trace_id     = gen_trace_id();
   s->span_id      = gen_span_id();
