@@ -417,6 +417,20 @@ trace_span_t* tracing_start_child(trace_span_t* parent, const char* name) {
   return s;
 }
 
+trace_span_t* tracing_start_child_at(trace_span_t* parent, const char* name, uint64_t start_unix_ms) {
+  if (!parent) return NULL;
+  if (!tracing_is_enabled()) return NULL;
+  trace_span_t* s = (trace_span_t*) safe_calloc(1, sizeof(trace_span_t));
+  s->trace_id     = parent->trace_id;
+  s->span_id      = gen_span_id();
+  s->parent_id    = parent->span_id;
+  s->start_ms     = start_unix_ms ? start_unix_ms : current_unix_ms();
+  s->sampled      = parent->sampled;
+  s->name         = name ? strdup(name) : strdup("span");
+  if (!s->sampled) return NULL;
+  return s;
+}
+
 void tracing_span_tag_str(trace_span_t* span, const char* key, const char* value) {
   if (!span || !value) return;
   buffer_t buf = {0};
@@ -574,6 +588,37 @@ void tracing_finish(trace_span_t* span) {
       bprintf(&g_batch, ",%s", (char*) tmp.data.data);
     g_batch_count++;
     // Log root span traceId for discoverability in Tempo
+    int is_root = 1;
+    for (size_t i = 0; i < sizeof(span->parent_id.bytes); i++) {
+      if (span->parent_id.bytes[i] != 0) {
+        is_root = 0;
+        break;
+      }
+    }
+    if (is_root) {
+      const char* trace_hex = tracing_span_trace_id_hex(span);
+      log_info("Tempo trace queued: traceId=%s name=\"%s\"", trace_hex ? trace_hex : "", span->name ? span->name : "");
+    }
+    buffer_free(&tmp);
+    export_batch_if_needed(/*force=*/0);
+  }
+  free_tags(span->tags);
+  safe_free(span->name);
+  safe_free(span);
+}
+
+void tracing_finish_at(trace_span_t* span, uint64_t end_unix_ms) {
+  if (!span || span->finished) return;
+  span->finished = 1;
+  span->end_ms   = end_unix_ms ? end_unix_ms : current_unix_ms();
+  if (span->sampled) {
+    buffer_t tmp = {0};
+    zipkin_serialize_span(&tmp, span);
+    if (g_batch_count == 0)
+      bprintf(&g_batch, "[%s", (char*) tmp.data.data);
+    else
+      bprintf(&g_batch, ",%s", (char*) tmp.data.data);
+    g_batch_count++;
     int is_root = 1;
     for (size_t i = 0; i < sizeof(span->parent_id.bytes); i++) {
       if (span->parent_id.bytes[i] != 0) {

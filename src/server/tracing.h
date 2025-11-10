@@ -55,6 +55,8 @@ bool tracing_debug_quota_try_consume(void);
  * @return span or NULL when disabled/not sampled (propagates parent's sampled decision)
  */
 trace_span_t* tracing_start_child(trace_span_t* parent, const char* name);
+// Start a child span with explicit start timestamp (Unix epoch ms)
+trace_span_t* tracing_start_child_at(trace_span_t* parent, const char* name, uint64_t start_unix_ms);
 
 /**
  * Add string/integer tag to a span. Safe to call with NULL span (no-op).
@@ -75,6 +77,8 @@ void tracing_span_tag_json(trace_span_t* span, const char* key, const char* valu
  * Safe to call with NULL span (no-op). Spans must be finished exactly once.
  */
 void tracing_finish(trace_span_t* span);
+// Finish span with explicit end timestamp (Unix epoch ms)
+void tracing_finish_at(trace_span_t* span, uint64_t end_unix_ms);
 
 /**
  * Inject b3 headers for an outgoing HTTP request. Uses span as current span.
