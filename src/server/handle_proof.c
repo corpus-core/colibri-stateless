@@ -122,11 +122,41 @@ void c4_prover_handle_request(request_t* req) {
   if (c4_check_retry_request(req) || c4_check_worker_request(req)) return;
 
   prover_ctx_t* ctx = (prover_ctx_t*) req->ctx;
-  switch (c4_prover_execute(ctx)) {
+  // measure and trace c4_prover_execute invocation on main thread
+  trace_span_t* exec_span = NULL;
+  uint64_t      exec_ms   = 0;
+  if (tracing_is_enabled() && req->trace_root) {
+    exec_span = tracing_start_child(req->trace_root, "prover_execute");
+    if (exec_span) {
+      tracing_span_tag_str(exec_span, "thread", "main");
+      tracing_span_tag_i64(exec_span, "step", (int64_t) req->prover_step);
+    }
+    exec_ms = current_unix_ms();
+  }
+  int exec_res = c4_prover_execute(ctx);
+  if (exec_span) {
+    tracing_span_tag_i64(exec_span, "duration_ms", (int64_t) (current_unix_ms() - exec_ms));
+    // add diagnostics: number of data requests in ctx and cache entries (if enabled)
+    int req_count = 0;
+    for (data_request_t* d = ctx->state.requests; d; d = d->next) req_count++;
+    tracing_span_tag_i64(exec_span, "state.requests", (int64_t) req_count);
+#ifdef PROVER_CACHE
+    int cache_count = 0;
+    for (cache_entry_t* ce = ctx->cache; ce; ce = ce->next) cache_count++;
+    tracing_span_tag_i64(exec_span, "cache.entries", (int64_t) cache_count);
+#endif
+  }
+  req->prover_step++;
+  switch (exec_res) {
     case C4_SUCCESS:
       log_info(MAGENTA("::[ OK ]") "%s " GRAY(" (%d bytes in %l ms) :: #%lx"),
                c4_req_info(C4_DATA_TYPE_INTERN, req->client->request.path, bytes(req->client->request.payload, req->client->request.payload_len)),
                ctx->proof.len, (uint64_t) (current_ms() - req->start_time), (uint64_t) (uintptr_t) req->client);
+      if (exec_span) {
+        tracing_span_tag_str(exec_span, "result", "success");
+        tracing_finish(exec_span);
+        exec_span = NULL;
+      }
       respond(req, ctx->proof, 200, "application/octet-stream");
       if (req->trace_root) {
         tracing_span_tag_str(req->trace_root, "status", "ok");
@@ -151,6 +181,12 @@ void c4_prover_handle_request(request_t* req) {
 
       buffer_t buf = {0};
       bprintf(&buf, "{\"error\":\"%s\"}", ctx->state.error);
+      if (exec_span) {
+        tracing_span_tag_str(exec_span, "result", "error");
+        if (ctx->state.error) tracing_span_tag_str(exec_span, "error", ctx->state.error);
+        tracing_finish(exec_span);
+        exec_span = NULL;
+      }
       respond(req, buf.data, 500, "application/json");
       buffer_free(&buf);
       if (req->trace_root) {
@@ -164,6 +200,11 @@ void c4_prover_handle_request(request_t* req) {
     }
 
     case C4_PENDING:
+      if (exec_span) {
+        tracing_span_tag_str(exec_span, "result", "pending");
+        tracing_finish(exec_span);
+        exec_span = NULL;
+      }
       if (c4_state_get_pending_request(&ctx->state)) // there are pending requests, let's take care of them first
         c4_start_curl_requests(req, &ctx->state);
       else if (ctx->flags & C4_PROVER_FLAG_UV_WORKER_REQUIRED) // worker is required, retry and handle it in the beginning of the next loop

@@ -270,6 +270,7 @@ typedef struct request_t {
   void*             parent_ctx; // pointer to parent context or parent caller
   http_request_cb   parent_cb;  // callback function to call when the ctx (mostly prover) has a result
   trace_span_t*     trace_root; // root tracing span for the overall proof request
+  uint32_t          prover_step; // counts c4_prover_execute invocations for this request
 } request_t;
 
 typedef enum {
