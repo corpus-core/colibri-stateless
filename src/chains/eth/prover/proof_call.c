@@ -171,7 +171,18 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64
   uint8_t     address[20]  = {0};
   int         accounts_len = 0;
 
-  if (trace.type == JSON_TYPE_OBJECT) {
+  if (ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST) {
+    json_t access_list = json_get(trace, "accessList");
+    accounts_len       = json_len(access_list);
+    json_for_each_value(access_list, values) {
+      buffer_t buf  = stack_buffer(address);
+      json_t   addr = json_get(values, "address");
+      account       = bytes(addr.start + 1, addr.len - 2);
+      json_as_bytes(addr, &buf);
+      TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storageKeys"), account, (json_t) {0}, accounts_len, block_number, address, builder));
+    }
+  }
+  else {
     json_for_each_property(trace, values, account) {
       hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
       if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
@@ -181,16 +192,6 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64
       hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
       if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
       TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storage"), account, json_get(values, "code"), accounts_len, block_number, address, builder));
-    }
-  }
-  else {
-    accounts_len = json_len(trace);
-    json_for_each_value(trace, values) {
-      buffer_t buf  = stack_buffer(address);
-      json_t   addr = json_get(values, "address");
-      account       = bytes(addr.start + 1, addr.len - 2);
-      json_as_bytes(addr, &buf);
-      TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storageKeys"), account, (json_t) {0}, accounts_len, block_number, address, builder));
     }
   }
 
@@ -210,11 +211,11 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   CHECK_JSON(ctx->params, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
   uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
-  bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;
+  bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes; // we exclude accounts from the miner address, since mining is not part of an eth_call proof
   TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? eth_create_access_list(ctx, tx, &trace, target_block) : eth_debug_trace_call(ctx, tx, &trace, target_block));
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof));
-  TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, tx, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? json_get(trace, "accessList") : trace, target_block, &accounts, miner.data), ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
+  TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data), ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
 
   status = create_eth_call_proof(ctx, accounts, &block, block_number, &historic_proof);
   c4_free_block_proof(&historic_proof);

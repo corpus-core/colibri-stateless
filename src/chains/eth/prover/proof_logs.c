@@ -258,12 +258,12 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   ssz_builder_t       sync_proof    = NULL_SSZ_BUILDER;
   proof_logs_block_t* highest_block = NULL;
 
-  if (proof_logs_block_proof_type(ctx) == ETH_GET_LOGS)
-    TRY_ASYNC(eth_get_logs(ctx, ctx->params, &logs));
-  else
-    logs = ctx->params;
+  if (proof_logs_block_proof_type(ctx) == ETH_GET_LOGS) // for eth_getLogs
+    TRY_ASYNC(eth_get_logs(ctx, ctx->params, &logs));   // => we fetch it from rpc
+  else                                                  // for eth_proofLogs
+    logs = ctx->params;                                 // => we use the logs from the proof request
 
-  add_blocks(&blocks, logs);
+  add_blocks(&blocks, logs); // find which blocks do we need
   TRY_ASYNC_CATCH(get_receipts(ctx, blocks), free_blocks(blocks));
 
   // now we have all the blockreceipts and the beaconblock.
