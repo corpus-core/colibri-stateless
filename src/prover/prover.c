@@ -55,18 +55,7 @@
 #define CACHE_KEY_MATCH(entry, key, key_start) \
   (*((uint64_t*) (entry)->key) == (key_start) && memcmp((entry)->key, (key), 32) == 0)
 
-#ifdef PROVER_CACHE
-// Structure for the global cache dynamic array
-typedef struct {
-  cache_entry_t* entries;      // Pointer to the array of cache entries
-  size_t         count;        // Current number of entries in the array
-  size_t         capacity;     // Allocated capacity of the array
-  uint64_t       current_size; // Current total size of data in cache entries
-} global_cache_t;
-
-// Initial capacity for the global cache array
-#define GLOBAL_CACHE_INITIAL_CAPACITY 32
-
+// ---- Time helpers (always available) ---------------------------------------
 // Function to get current time as Unix epoch milliseconds using system calls
 uint64_t current_unix_ms() {
   struct timeval time_val;
@@ -95,6 +84,18 @@ uint64_t current_ms() {
   return current_unix_ms();
 #endif // C4_PROVER_USE_UV_TIME
 }
+
+#ifdef PROVER_CACHE
+// Structure for the global cache dynamic array
+typedef struct {
+  cache_entry_t* entries;      // Pointer to the array of cache entries
+  size_t         count;        // Current number of entries in the array
+  size_t         capacity;     // Allocated capacity of the array
+  uint64_t       current_size; // Current total size of data in cache entries
+} global_cache_t;
+
+// Initial capacity for the global cache array
+#define GLOBAL_CACHE_INITIAL_CAPACITY 32
 
 // Global cache implementation using dynamic array for better performance
 static global_cache_t global_cache_array    = {NULL, 0, 0, 0};
@@ -322,6 +323,36 @@ void c4_prover_free(prover_ctx_t* ctx) {
   if (ctx->params.start) safe_free((void*) ctx->params.start);
   if (ctx->proof.data) safe_free(ctx->proof.data);
   if (ctx->client_state.data) safe_free(ctx->client_state.data);
+#ifdef PROVER_TRACE
+  // Free open span (if any)
+  if (ctx->trace_open) {
+    // free tags
+    while (ctx->trace_open->tags) {
+      prover_trace_kv_t* tnext = ctx->trace_open->tags->next;
+      if (ctx->trace_open->tags->key) safe_free(ctx->trace_open->tags->key);
+      if (ctx->trace_open->tags->value) safe_free(ctx->trace_open->tags->value);
+      safe_free(ctx->trace_open->tags);
+      ctx->trace_open->tags = tnext;
+    }
+    if (ctx->trace_open->name) safe_free(ctx->trace_open->name);
+    safe_free(ctx->trace_open);
+    ctx->trace_open = NULL;
+  }
+  // Free finished spans list
+  while (ctx->trace_spans) {
+    prover_trace_span_t* s = ctx->trace_spans;
+    ctx->trace_spans       = s->next;
+    while (s->tags) {
+      prover_trace_kv_t* tnext = s->tags->next;
+      if (s->tags->key) safe_free(s->tags->key);
+      if (s->tags->value) safe_free(s->tags->value);
+      safe_free(s->tags);
+      s->tags = tnext;
+    }
+    if (s->name) safe_free(s->name);
+    safe_free(s);
+  }
+#endif
 #ifdef PROVER_CACHE
   while (ctx->cache) {
     cache_entry_t* next                = ctx->cache->next;
