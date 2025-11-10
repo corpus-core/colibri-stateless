@@ -44,6 +44,11 @@ typedef struct {
   uint64_t last_sync_event;
   uint64_t last_request_time;
   uint64_t open_requests;
+  // Event-loop health metrics
+  uint64_t loop_idle_ns_total; // cumulative idle time (requires UV_METRICS_IDLE_TIME)
+  double   loop_idle_ratio;    // idle ratio over last sampling window (0..1)
+  uint64_t loop_lag_ns_last;   // last measured loop lag (ns)
+  uint64_t loop_lag_ns_max;    // max observed loop lag since start (ns)
   // Beacon watcher event counters (TEST and runtime diagnostics)
   uint64_t beacon_events_total;
   uint64_t beacon_events_head;
@@ -387,6 +392,8 @@ typedef struct {
   uv_tcp_t    server;
   uv_timer_t  curl_timer;
   uv_timer_t  prover_cleanup_timer;
+  uv_timer_t  graceful_timer;
+  uv_timer_t  loop_metrics_timer;
   uv_signal_t sigterm_handle;
   uv_signal_t sigint_handle;
   uv_idle_t   init_idle_handle;

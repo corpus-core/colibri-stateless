@@ -597,7 +597,10 @@ static void c4_write_unsupported_method_metrics(buffer_t* data) {
   bprintf(data, "# TYPE colibri_server_method_unsupported gauge\n");
 
   // Simple dynamic array for aggregating counts
-  typedef struct { char* name; uint64_t count; } unsupported_count_t;
+  typedef struct {
+    char*    name;
+    uint64_t count;
+  } unsupported_count_t;
   unsupported_count_t* agg   = NULL;
   size_t               agg_n = 0;
 
@@ -609,10 +612,13 @@ static void c4_write_unsupported_method_metrics(buffer_t* data) {
         // Find existing entry
         size_t idx = (size_t) -1;
         for (size_t k = 0; k < agg_n; k++) {
-          if (strcmp(agg[k].name, cur->method_name) == 0) { idx = k; break; }
+          if (strcmp(agg[k].name, cur->method_name) == 0) {
+            idx = k;
+            break;
+          }
         }
         if (idx == (size_t) -1) {
-          agg = (unsupported_count_t*) realloc(agg, (agg_n + 1) * sizeof(unsupported_count_t));
+          agg              = (unsupported_count_t*) realloc(agg, (agg_n + 1) * sizeof(unsupported_count_t));
           agg[agg_n].name  = cur->method_name; // only reference, not owning
           agg[agg_n].count = 1;
           agg_n++;
@@ -632,8 +638,8 @@ static void c4_write_unsupported_method_metrics(buffer_t* data) {
 
   // Per-server listing (1 when method is marked unsupported)
   for (size_t i = 0; i < servers->count; i++) {
-    const char*      server_name = c4_extract_server_name(servers->urls[i]);
-    method_support_t* cur        = servers->health_stats[i].unsupported_methods;
+    const char*       server_name = c4_extract_server_name(servers->urls[i]);
+    method_support_t* cur         = servers->health_stats[i].unsupported_methods;
     while (cur) {
       if (!cur->is_supported && cur->method_name) {
         bprintf(data, "colibri_server_method_unsupported{server=\"%s\",method=\"%s\"} 1\n", server_name, cur->method_name);
@@ -778,6 +784,24 @@ bool c4_handle_metrics(client_t* client) {
   // CPU Time Metriken
   c4_write_process_cpu_metrics(&data);
 
+  // Event-Loop Health (libuv)
+  double idle_seconds_total   = (double) http_server.stats.loop_idle_ns_total / 1e9;
+  double idle_ratio           = http_server.stats.loop_idle_ratio;
+  double loop_lag_seconds     = (double) http_server.stats.loop_lag_ns_last / 1e9;
+  double loop_lag_seconds_max = (double) http_server.stats.loop_lag_ns_max / 1e9;
+  bprintf(&data, "# HELP colibri_event_loop_idle_seconds_total Cumulative idle time of the libuv loop in seconds.\n");
+  bprintf(&data, "# TYPE colibri_event_loop_idle_seconds_total counter\n");
+  bprintf(&data, "colibri_event_loop_idle_seconds_total %f\n", idle_seconds_total);
+  bprintf(&data, "# HELP colibri_event_loop_idle_ratio Idle ratio over the last sampling window (0..1).\n");
+  bprintf(&data, "# TYPE colibri_event_loop_idle_ratio gauge\n");
+  bprintf(&data, "colibri_event_loop_idle_ratio %f\n", idle_ratio);
+  bprintf(&data, "# HELP colibri_event_loop_lag_seconds Event-loop scheduling lag in seconds (last observed).\n");
+  bprintf(&data, "# TYPE colibri_event_loop_lag_seconds gauge\n");
+  bprintf(&data, "colibri_event_loop_lag_seconds %f\n", loop_lag_seconds);
+  bprintf(&data, "# HELP colibri_event_loop_lag_seconds_max Max observed event-loop lag in seconds since start.\n");
+  bprintf(&data, "# TYPE colibri_event_loop_lag_seconds_max gauge\n");
+  bprintf(&data, "colibri_event_loop_lag_seconds_max %f\n\n", loop_lag_seconds_max);
+
   // Beacon Watcher Event-Metriken
   bprintf(&data, "# HELP colibri_beacon_events_total Total number of beacon events processed.\n");
   bprintf(&data, "# TYPE colibri_beacon_events_total counter\n");
@@ -827,30 +851,7 @@ bool c4_handle_metrics(client_t* client) {
     bprintf(&data, "colibri_process_io_write_operations_total %l\n\n", platform_stats.io_write_ops);
   }
 
-  // Libuv Metriken
-  // Hinweis: Damit metrics_idle_time einen Wert liefert, muss der Loop mit
-  // uv_loop_configure(loop, UV_METRICS_IDLE_TIME, 1); konfiguriert worden sein.
-  uv_loop_t* loop = uv_default_loop(); // Annahme: Verwendung des Default-Loops
-  if (loop) {
-    uint64_t idle_time_ns = uv_metrics_idle_time(loop);
-    bprintf(&data, "# HELP colibri_libuv_idle_time_nanoseconds Time the event loop spent idle in the last report interval (nanoseconds).\n");
-    bprintf(&data, "# TYPE colibri_libuv_idle_time_nanoseconds gauge\n");
-    bprintf(&data, "colibri_libuv_idle_time_nanoseconds %l\n\n", idle_time_ns);
-
-    // Weitere mögliche libuv Metriken (als Info für Sie):
-    // int timeout = uv_backend_timeout(loop);
-    // bprintf(&data, "# INFO colibri_libuv_backend_timeout_milliseconds %d\n", timeout);
-
-    // uv_metrics_info_t metrics_info;
-    // if (uv_metrics_info(loop, &metrics_info) == 0) {
-    //   bprintf(&data, "# INFO colibri_libuv_loop_count %l\n", metrics_info.loop_count);
-    //   bprintf(&data, "# INFO colibri_libuv_events_waiting %l\n", metrics_info.events_waiting);
-    // }
-  }
-  else {
-    // Fallback oder Warnung, falls der Default-Loop nicht verfügbar ist (sollte nicht passieren, wenn libuv genutzt wird)
-    bprintf(&data, "# WARN libuv default_loop not available\n");
-  }
+  // Hinweis: Für exakte Idle-Werte muss der Loop mit UV_METRICS_IDLE_TIME konfiguriert sein (aktiviert).
 
   // Public Requests
   c4_write_prometheus_bucket_metrics(&data, &public_requests, "public", "public (e.g. eth_getTransactionByHash)", &method_metrics_described);

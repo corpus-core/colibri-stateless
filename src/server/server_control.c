@@ -5,8 +5,8 @@
 
 #include "../prover/prover.h"
 #include "../util/version.h"
-#include "server.h"
 #include "logger.h"
+#include "server.h"
 #include "server_handlers.h"
 #include <curl/curl.h>
 #include <errno.h>
@@ -17,16 +17,16 @@
 #include <uv.h>
 
 // Macro for simplified libuv error handling
-#define UV_CHECK(op, expr, instance)                                                       \
-  do {                                                                                    \
-    int r = (expr);                                                                       \
-    if (r != 0) {                                                                         \
-      if (r == UV_EADDRINUSE && strcmp(op, "TCP listening") == 0)                        \
+#define UV_CHECK(op, expr, instance)                                                               \
+  do {                                                                                             \
+    int r = (expr);                                                                                \
+    if (r != 0) {                                                                                  \
+      if (r == UV_EADDRINUSE && strcmp(op, "TCP listening") == 0)                                  \
         log_error("Error: Port %d is already in use", (uint32_t) (instance ? instance->port : 0)); \
-      else                                                                                \
-        log_error("Error: %s failed: %s (%s)", (op), uv_strerror(r), uv_err_name(r));    \
-      return 1;                                                                           \
-    }                                                                                     \
+      else                                                                                         \
+        log_error("Error: %s failed: %s (%s)", (op), uv_strerror(r), uv_err_name(r));              \
+      return 1;                                                                                    \
+    }                                                                                              \
   } while (0)
 
 static volatile sig_atomic_t shutdown_requested            = 0;
@@ -65,6 +65,9 @@ static void on_signal(uv_signal_t* handle, int signum) {
 
   if (graceful_shutdown_in_progress) {
     log_warn("C4 Server: Graceful shutdown already in progress, forcing immediate shutdown...");
+    // ensure timers are stopped to avoid further wakeups
+    uv_timer_stop(&instance->graceful_timer);
+    uv_close((uv_handle_t*) &instance->graceful_timer, NULL);
     shutdown_requested = 1;
     if (instance && instance->loop) uv_stop(instance->loop);
     return;
@@ -75,16 +78,44 @@ static void on_signal(uv_signal_t* handle, int signum) {
   if (http_server.stats.open_requests == 0) {
     log_info("C4 Server: No open requests, shutting down immediately...");
     shutdown_requested = 1;
+    // stop graceful timer if previously created
+    uv_timer_stop(&instance->graceful_timer);
+    uv_close((uv_handle_t*) &instance->graceful_timer, NULL);
     if (instance && instance->loop) uv_stop(instance->loop);
   }
   else {
     log_info("C4 Server: %l open requests detected, waiting for completion...",
              (uint64_t) http_server.stats.open_requests);
-    static uv_timer_t graceful_timer;
-    uv_timer_init(instance->loop, &graceful_timer);
-    graceful_timer.data = instance;
-    uv_timer_start(&graceful_timer, on_graceful_shutdown_timer, 1000, 1000);
+    uv_timer_init(instance->loop, &instance->graceful_timer);
+    instance->graceful_timer.data = instance;
+    uv_timer_start(&instance->graceful_timer, on_graceful_shutdown_timer, 1000, 1000);
   }
+}
+
+// ---- Loop health metrics ----------------------------------------------------
+static uint64_t       last_tick_ns       = 0;
+static uint64_t       last_idle_ns_total = 0;
+static const uint64_t interval_ms        = 10;
+static const uint64_t interval_ns_target = 10ull * 1000000ull;
+static void           on_loop_metrics_timer(uv_timer_t* h) {
+  uint64_t now_ns = uv_hrtime();
+  if (last_tick_ns == 0) {
+    last_tick_ns       = now_ns;
+    last_idle_ns_total = uv_metrics_idle_time(uv_default_loop());
+    return;
+  }
+  uint64_t expected_ns               = last_tick_ns + interval_ns_target;
+  uint64_t lag_ns                    = now_ns > expected_ns ? (now_ns - expected_ns) : 0;
+  http_server.stats.loop_lag_ns_last = lag_ns;
+  if (lag_ns > http_server.stats.loop_lag_ns_max) http_server.stats.loop_lag_ns_max = lag_ns;
+  // Idle time metrics
+  uint64_t idle_total                  = uv_metrics_idle_time(uv_default_loop());
+  uint64_t idle_delta                  = (idle_total >= last_idle_ns_total) ? (idle_total - last_idle_ns_total) : 0;
+  uint64_t dur_ns                      = (now_ns > last_tick_ns) ? (now_ns - last_tick_ns) : interval_ns_target;
+  http_server.stats.loop_idle_ratio    = dur_ns ? ((double) idle_delta / (double) dur_ns) : 0.0;
+  http_server.stats.loop_idle_ns_total = idle_total;
+  last_idle_ns_total                   = idle_total;
+  last_tick_ns                         = now_ns;
 }
 
 int c4_server_start(server_instance_t* instance, int port) {
@@ -101,6 +132,9 @@ int c4_server_start(server_instance_t* instance, int port) {
     log_error("Error: Failed to initialize default uv loop");
     return 1;
   }
+
+  // Enable libuv idle time metrics (very low overhead)
+  uv_loop_configure(instance->loop, UV_METRICS_IDLE_TIME);
 
   struct sockaddr_in addr;
   uint64_t           cleanup_interval_ms = 3000; // 3 seconds
@@ -150,6 +184,10 @@ int c4_server_start(server_instance_t* instance, int port) {
   // Setup idle handle to initialize server handlers
   UV_CHECK("Init idle handle init", uv_idle_init(instance->loop, &instance->init_idle_handle), instance);
   UV_CHECK("Init idle handle start", uv_idle_start(&instance->init_idle_handle, on_init_idle), instance);
+
+  // Loop health metrics: event-loop lag und idle ratio (lightweight sampler)
+  UV_CHECK("Loop metrics timer init", uv_timer_init(instance->loop, &instance->loop_metrics_timer), instance);
+  UV_CHECK("Loop metrics timer start", uv_timer_start(&instance->loop_metrics_timer, on_loop_metrics_timer, interval_ms, interval_ms), instance);
 
   instance->is_running = true;
   log_info("C4 Server %s running on %s:%d", c4_client_version, http_server.host, (uint32_t) instance->port);
@@ -203,6 +241,12 @@ void c4_server_stop(server_instance_t* instance) {
   // Stop and close timers
   uv_timer_stop(&instance->prover_cleanup_timer);
   uv_close((uv_handle_t*) &instance->prover_cleanup_timer, NULL);
+
+  uv_timer_stop(&instance->loop_metrics_timer);
+  uv_close((uv_handle_t*) &instance->loop_metrics_timer, NULL);
+
+  uv_timer_stop(&instance->graceful_timer);
+  uv_close((uv_handle_t*) &instance->graceful_timer, NULL);
 
   uv_timer_stop(&instance->curl_timer);
   uv_close((uv_handle_t*) &instance->curl_timer, NULL);
