@@ -130,7 +130,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
 
   CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
 
-  TRACE_START(ctx, "get_data");
+  TRACE_START(ctx, "get_beacon_block");
 
 #ifdef PROVER_CACHE
   // check tx cache for the block number and tx index if we have it
@@ -142,6 +142,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   hex_to_bytes(txhash.start + 1, txhash.len - 2, bytes(tx_hash, 32));
   if (c4_eth_tx_cache_get(tx_hash, &block_number_val, &tx_index))
     block_number = json_parse(bprintf(&block_buf, "\"0x%lx\"", block_number_val));
+  TRACE_ADD_STR(ctx, "tx_cache_hit", block_number_val ? "hit" : "miss");
 #endif
 
   // not found in cache, so we need to get it from the RPC
@@ -152,15 +153,19 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   }
 
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
+  TRACE_START(ctx, "get_beacon_block");
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
   TRY_ASYNC(status);
 
+  TRACE_START(ctx, "check_blockroot_proof");
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &block_proof, &block));
 
-  TRACE_START(ctx, "proof_data");
+  TRACE_START(ctx, "receipt_proof");
   TRY_ASYNC_CATCH(c4_eth_get_receipt_proof(ctx, ssz_get(&(block.execution), "blockHash").bytes.data, block_receipts, tx_index, &receipt, &receipt_proof),
                   c4_free_block_proof(&block_proof));
 
+  REQUEST_WORKER_THREAD_CATCH(ctx, c4_free_block_proof(&block_proof));
+  TRACE_START(ctx, "multiproof");
   bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 4,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
@@ -168,6 +173,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
                                                ssz_gindex(block.body.def, 3, "executionPayload", "transactions", tx_index)
 
   );
+  TRACE_START(ctx, "finalize_proof");
 
   TRY_ASYNC_FINAL(
       create_eth_receipt_proof(ctx, &block, body_root, receipt_proof, receipt, state_proof, block_proof),

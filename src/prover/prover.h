@@ -321,11 +321,13 @@ static inline void prover_trace_end(prover_ctx_t* ctx) {
  *
  *   // Now safe to do CPU-intensive work...
  */
-#define REQUEST_WORKER_THREAD_CATCH(ctx, cleanup)                                                       \
-  if (ctx->flags & C4_PROVER_FLAG_UV_SERVER_CTX && !(ctx->flags & C4_PROVER_FLAG_UV_WORKER_REQUIRED)) { \
-    ctx->flags |= C4_PROVER_FLAG_UV_WORKER_REQUIRED;                                                    \
-    cleanup;                                                                                            \
-    return C4_PENDING;                                                                                  \
+#define REQUEST_WORKER_THREAD_CATCH(ctx, cleanup)                                                         \
+  {                                                                                                       \
+    if (ctx->flags & C4_PROVER_FLAG_UV_SERVER_CTX && !(ctx->flags & C4_PROVER_FLAG_UV_WORKER_REQUIRED)) { \
+      ctx->flags |= C4_PROVER_FLAG_UV_WORKER_REQUIRED;                                                    \
+      cleanup;                                                                                            \
+      return C4_PENDING;                                                                                  \
+    }                                                                                                     \
   }
 
 /**
