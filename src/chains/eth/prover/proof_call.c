@@ -195,6 +195,12 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64
     }
   }
 
+  // if we know, that we just started the eth_getProof requests,
+  // and there are no other requests to start, we can already set the worker thread flag
+  // so next execution will be in a worker thread so we don't have to go through all to reach this point.
+  if (status == C4_PENDING && ((ctx->flags & C4_PROVER_FLAG_INCLUDE_CODE) ? (ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST) == 0 : true))
+    REQUEST_WORKER_THREAD(ctx);
+
   return status;
 }
 
@@ -208,22 +214,26 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   c4_status_t       status         = C4_SUCCESS;
 
   // Validate arguments before processing
-  TRACE_START(ctx, "c4_beacon_get_block_for_eth");
+  TRACE_START(ctx, "get_block_for_eth");
   CHECK_JSON(ctx->params, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
-  uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
+
+  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));       // get the beacon-block matching thre block-tag (usually cached)
+  uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber"); // this is our blocknumber now
   bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes; // we exclude accounts from the miner address, since mining is not part of an eth_call proof
   TRACE_ADD_UINT64(ctx, "target_block", target_block);
-  TRACE_START(ctx, "send access list and eth_getProof requests");
+
+  TRACE_START(ctx, "fetch access list and eth_getProof");
   TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? eth_create_access_list(ctx, tx, &trace, target_block) : eth_debug_trace_call(ctx, tx, &trace, target_block));
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof));
   TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data), ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
-  TRACE_END(ctx);
-  REQUEST_WORKER_THREAD(ctx);
+
+  // creating the proof is too heavy to do in the eventloop
+  REQUEST_WORKER_THREAD_CATCH(ctx, ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
+
   TRACE_START(ctx, "create proof");
   status = create_eth_call_proof(ctx, accounts, &block, block_number, &historic_proof);
   c4_free_block_proof(&historic_proof);
-  TRACE_END(ctx);
+
   return status;
 }

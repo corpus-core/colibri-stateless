@@ -27,6 +27,21 @@
 
 static log_level_t log_level = LOG_WARN;
 
+char* c4_req_info_short(data_request_type_t type, char* path, bytes_t payload) {
+  static uint8_t req_info_buf[1024];
+  buffer_t       buf = stack_buffer(req_info_buf);
+  if (type == C4_DATA_TYPE_INTERN)
+    bprintf(&buf, " %s ", path ? path : "");
+  else
+    bprintf(&buf, "(%s)  %s", type == C4_DATA_TYPE_BEACON_API ? "beacon" : "rpc", path ? path : "");
+  if (payload.len) {
+    json_t method = json_get(json_parse((char*) payload.data), "method");
+    if (method.type == JSON_TYPE_STRING)
+      bprintf(&buf, " %j", method);
+  }
+  return (char*) req_info_buf;
+}
+
 char* c4_req_info(data_request_type_t type, char* path, bytes_t payload) {
   static uint8_t req_info_buf[1024];
   buffer_t       buf = stack_buffer(req_info_buf);

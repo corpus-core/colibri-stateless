@@ -7,11 +7,11 @@
 #define C4_SERVER_H
 
 #include "prover.h"
+#include "tracing.h"
 #include <curl/curl.h>
 #include <llhttp.h>
 #include <stdlib.h>
 #include <uv.h>
-#include "tracing.h"
 // Preconf-specific callback type (uses block_number instead of period)
 typedef void (*handle_preconf_data_cb)(void* user_ptr, uint64_t block_number, bytes_t data, const char* error);
 typedef struct {
@@ -232,12 +232,12 @@ typedef struct {
   size_t            headers_size_received;    // Total size of headers received (for DoS protection)
   size_t            body_size_received;       // Actual body bytes received (for request smuggling protection)
   // Incoming b3 context (optional)
-  char*             b3_trace_id;
-  char*             b3_span_id;
-  char*             b3_parent_span_id;
-  int               b3_sampled; // -1 unknown, 0 false, 1 true
+  char* b3_trace_id;
+  char* b3_span_id;
+  char* b3_parent_span_id;
+  int   b3_sampled; // -1 unknown, 0 false, 1 true
   // Tracing level (default: minimal)
-  int               trace_level; // trace_level_t
+  int trace_level; // trace_level_t
 } client_t;
 typedef bool (*http_handler)(client_t*);
 
@@ -259,10 +259,10 @@ typedef struct {
   bool               cached;
   trace_span_t*      attempt_span; // tracing span for this single HTTP attempt
   // Tracing for cache/pending waits
-  trace_span_t*      cache_span;
-  uint64_t           cache_start_ms;
-  trace_span_t*      wait_span;
-  uint64_t           wait_start_ms;
+  trace_span_t* cache_span;
+  uint64_t      cache_start_ms;
+  trace_span_t* wait_span;
+  uint64_t      wait_start_ms;
 } single_request_t;
 
 typedef struct request_t {
@@ -271,10 +271,10 @@ typedef struct request_t {
   single_request_t* requests;
   size_t            request_count; // count of handles
   uint64_t          start_time;
-  http_client_cb    cb;         // callback function to call when all requests are done
-  void*             parent_ctx; // pointer to parent context or parent caller
-  http_request_cb   parent_cb;  // callback function to call when the ctx (mostly prover) has a result
-  trace_span_t*     trace_root; // root tracing span for the overall proof request
+  http_client_cb    cb;          // callback function to call when all requests are done
+  void*             parent_ctx;  // pointer to parent context or parent caller
+  http_request_cb   parent_cb;   // callback function to call when the ctx (mostly prover) has a result
+  trace_span_t*     trace_root;  // root tracing span for the overall proof request
   uint32_t          prover_step; // counts c4_prover_execute invocations for this request
 } request_t;
 

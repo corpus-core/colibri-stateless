@@ -263,8 +263,7 @@ static inline void prover_trace_add_str(prover_ctx_t* ctx, const char* key, cons
 static inline void prover_trace_add_u64(prover_ctx_t* ctx, const char* key, uint64_t value) {
   if (!ctx || !ctx->trace_open || !key) return;
   char buf[32];
-  // Print as unsigned long long to be portable, but stored as string
-  snprintf(buf, sizeof(buf), "%llu", (unsigned long long) value);
+  sbprintf(buf, "%l", value);
   prover_trace_add_str(ctx, key, buf);
 }
 

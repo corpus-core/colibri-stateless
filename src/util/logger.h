@@ -99,6 +99,8 @@ log_level_t c4_get_log_level();
     if (c4_get_log_level() >= 5) _log_with_line("\033[33mDEBUG", fmt, ##__VA_ARGS__) \
   } while (0)
 char* c4_req_info(data_request_type_t type, char* path, bytes_t payload);
+char* c4_req_info_short(data_request_type_t type, char* path, bytes_t payload);
+
 #ifdef __cplusplus
 }
 #endif

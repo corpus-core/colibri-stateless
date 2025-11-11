@@ -1162,8 +1162,10 @@ static void trigger_cached_curl_requests(request_t* req) {
     char* key = generate_cache_key(pending);
     // Start memcache "get" span
     if (tracing_is_enabled() && req->trace_root) {
+      char span_name[500];
+      sbprintf(span_name, "memcache get | %s", c4_req_info_short(pending->type, pending->url, pending->payload));
       r->cache_start_ms = current_unix_ms();
-      r->cache_span     = tracing_start_child(req->trace_root, "memcache get");
+      r->cache_span     = tracing_start_child(req->trace_root, span_name);
       if (r->cache_span) {
         tracing_span_tag_str(r->cache_span, "cache.layer", "memcached");
         tracing_span_tag_i64(r->cache_span, "ttl", (int64_t) pending->ttl);
