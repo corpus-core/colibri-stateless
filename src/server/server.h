@@ -128,6 +128,10 @@ typedef struct {
   int block_availability_ttl_sec; // TTL for block availability learning
   int rpc_head_poll_interval_ms;  // interval for eth_blockNumber polling
   int rpc_head_poll_enabled;      // enable/disable head polling
+  // Latency bias configuration
+  int latency_bias_power_x100;         // exponent*100 for latency bias (e.g. 200 => 2.0)
+  int latency_backpressure_power_x100; // exponent*100 for backpressure penalty (e.g. 200 => 2.0)
+  int latency_bias_offset_ms;          // offset added to latency for stability
 
 #ifdef TEST
   // Test recording mode: if set, all responses are written to TESTDATA_DIR/server/<test_dir>/

@@ -145,10 +145,24 @@ void c4_calculate_server_weights(server_list_t* servers) {
     // Weight based on success rate (higher success = higher weight)
     health->weight *= success_rate;
 
-    // Weight based on response time (lower time = higher weight)
-    // Invert response time: weight decreases as response time increases
+    // Weight based on response time (lower time = higher weight) with configurable aggressiveness
     if (avg_response_time > 0) {
-      health->weight *= (1000.0 / (avg_response_time + 100.0)); // Normalize to reasonable range
+      double offset_ms   = (double) (http_server.latency_bias_offset_ms > 0 ? http_server.latency_bias_offset_ms : 1);
+      double base_norm   = 1000.0; // normalization baseline
+      double bias_power  = (double) (http_server.latency_bias_power_x100 > 0 ? http_server.latency_bias_power_x100 : 200) / 100.0;
+      double latency_fac = base_norm / (avg_response_time + offset_ms);
+      if (latency_fac < 0.01) latency_fac = 0.01;
+      health->weight *= pow(latency_fac, bias_power);
+    }
+
+    // Backpressure when smoothed latency exceeds target (react fast to overload)
+    if (http_server.latency_target_ms > 0 && health->ewma_latency_ms > 0.0) {
+      double ratio = health->ewma_latency_ms / (double) http_server.latency_target_ms;
+      if (ratio > 1.0) {
+        double bp_power = (double) (http_server.latency_backpressure_power_x100 > 0 ? http_server.latency_backpressure_power_x100 : 200) / 100.0;
+        double penalty  = pow(1.0 / ratio, bp_power); // stronger penalty as we exceed target
+        health->weight *= penalty;
+      }
     }
 
     // Penalty for consecutive failures

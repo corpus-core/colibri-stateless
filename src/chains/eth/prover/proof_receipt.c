@@ -130,7 +130,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
 
   CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
 
-  TRACE_START(ctx, "get_beacon_block");
+  TRACE_START(ctx, "get_tx_data");
 
 #ifdef PROVER_CACHE
   // check tx cache for the block number and tx index if we have it
@@ -152,8 +152,9 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
     block_number = json_get(tx_data, "blockNumber");
   }
 
-  TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
   TRACE_START(ctx, "get_beacon_block");
+  TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
+  TRACE_START(ctx, "get_block_receipts");
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
   TRY_ASYNC(status);
 

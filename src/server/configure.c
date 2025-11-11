@@ -523,6 +523,10 @@ static void config() {
   // 0 = auto (use chain block_time as default)
   http_server.rpc_head_poll_interval_ms = 0;
   http_server.rpc_head_poll_enabled     = 1;
+  // Latency bias defaults
+  http_server.latency_bias_power_x100         = 200; // 2.0
+  http_server.latency_backpressure_power_x100 = 200; // 2.0
+  http_server.latency_bias_offset_ms          = 50;  // ms
 
   // cURL pool defaults
   http_server.curl.http2_enabled         = 1;
@@ -581,6 +585,10 @@ static void config() {
   get_int(&http_server.block_availability_ttl_sec, "C4_BLOCK_AVAIL_TTL_SEC", "block_availability_ttl_sec", 'J', "block availability TTL (sec)", 10, 86400);
   get_int(&http_server.rpc_head_poll_interval_ms, "C4_RPC_HEAD_POLL_INTERVAL_MS", "rpc_head_poll_interval_ms", 'q', "interval for eth_blockNumber polling (ms)", 500, 60000);
   get_int(&http_server.rpc_head_poll_enabled, "C4_RPC_HEAD_POLL_ENABLED", "rpc_head_poll_enabled", 'Q', "enable head polling (0/1)", 0, 1);
+  // Latency bias/backpressure tuning
+  get_int(&http_server.latency_bias_power_x100, "C4_LATENCY_BIAS_POWER_X100", "latency_bias_power_x100", 0, "exponent*100 for latency bias (e.g. 200=2.0)", 50, 1000);
+  get_int(&http_server.latency_backpressure_power_x100, "C4_LATENCY_BACKPRESSURE_POWER_X100", "latency_backpressure_power_x100", 0, "exponent*100 for backpressure penalty (e.g. 200=2.0)", 50, 1000);
+  get_int(&http_server.latency_bias_offset_ms, "C4_LATENCY_BIAS_OFFSET_MS", "latency_bias_offset_ms", 0, "offset added to latency for stability (ms)", 0, 1000);
 
   // cURL pool configuration (ENV/args)
   get_int(&http_server.curl.http2_enabled, "C4_HTTP2", "http2", 0, "enable HTTP/2 (0/1)", 0, 1);
