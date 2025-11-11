@@ -246,7 +246,7 @@ void c4_eth_tx_cache_set(bytes32_t tx_hash, uint64_t block_number, uint32_t tx_i
 }
 
 bool c4_eth_tx_cache_get(bytes32_t tx_hash, uint64_t* block_number, uint32_t* tx_index) {
-  return table_get(tx_hash, block_number, tx_index);
+  bool table_get(tx_hash, block_number, tx_index);
 }
 
 void c4_eth_tx_cache_reset(void) {

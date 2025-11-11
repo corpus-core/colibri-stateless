@@ -77,6 +77,7 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   uint8_t  block_buffer[32] = {0};
   buffer_t block_buf        = stack_buffer(block_buffer);
 #endif
+  TRACE_START(ctx, "get_data");
   if (strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0) {
     tx_index     = json_as_uint32(json_at(ctx->params, 1));
     block_number = json_at(ctx->params, 0);
@@ -90,6 +91,7 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
     hex_to_bytes(txhash.start + 1, txhash.len - 2, bytes(tx_hash, 32));
     if (c4_eth_tx_cache_get(tx_hash, &block_number_val, &tx_index))
       block_number = json_parse(bprintf(&block_buf, "\"0x%lx\"", block_number_val));
+    TRACE_ADD_STR(ctx, "tx_cache_hit", block_number_val ? "hit" : "miss");
 #endif
     if (block_number.type == JSON_TYPE_INVALID) {
       TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
@@ -106,9 +108,12 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   if (block.slot) TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &block_proof, &block));
 
   if (status != C4_SUCCESS) {
-    if (block_proof.historic_proof.data) safe_free(block_proof.historic_proof.data);
+    safe_free(block_proof.historic_proof.data);
     return status;
   }
+  REQUEST_WORKER_THREAD_CATCH(ctx, safe_free(block_proof.historic_proof.data));
+
+  TRACE_START(ctx, "proof_data");
 
   bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 4,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),

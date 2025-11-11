@@ -130,6 +130,8 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
 
   CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
 
+  TRACE_START(ctx, "get_data");
+
 #ifdef PROVER_CACHE
   // check tx cache for the block number and tx index if we have it
   uint8_t   block_buffer[32] = {0};
@@ -154,6 +156,8 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   TRY_ASYNC(status);
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &block_proof, &block));
+
+  TRACE_START(ctx, "proof_data");
   TRY_ASYNC_CATCH(c4_eth_get_receipt_proof(ctx, ssz_get(&(block.execution), "blockHash").bytes.data, block_receipts, tx_index, &receipt, &receipt_proof),
                   c4_free_block_proof(&block_proof));
 
