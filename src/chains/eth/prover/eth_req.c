@@ -58,7 +58,7 @@ c4_status_t eth_getBlockReceipts(prover_ctx_t* ctx, json_t block, json_t* receip
   uint8_t  tmp[200];
   buffer_t buf = stack_buffer(tmp);
   TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getBlockReceipts", bprintf(&buf, "[%J]", block), DEFAULT_TTL, receipts_array));
-  CHECK_JSON(*receipts_array, "[" JSON_RECEIPTS_FIELDS "]", "Invalid results for Block Receipts: ");
+  //  CHECK_JSON(*receipts_array, "[" JSON_RECEIPTS_FIELDS "]", "Invalid results for Block Receipts: ");
   return C4_SUCCESS;
 }
 

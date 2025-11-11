@@ -106,7 +106,6 @@ c4_status_t c4_eth_get_receipt_proof(prover_ctx_t* ctx, bytes32_t block_hash, js
   node_t* receipt_tree = (node_t*) c4_prover_cache_get(ctx, cachekey);
   bool    cache_hit    = receipt_tree != NULL;
   if (!cache_hit) REQUEST_WORKER_THREAD(ctx);
-  if (!cache_hit) REQUEST_WORKER_THREAD_CATCH(ctx, );
   *receipt_proof = create_receipts_proof(block_receipts, tx_index, receipt, &receipt_tree);
   if (!cache_hit) c4_prover_cache_set(ctx, cachekey, receipt_tree, 100000, 200000, (cache_free_cb) patricia_node_free);
 #else
