@@ -15,6 +15,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_MSC_VER)
+#define C4_ALIGN8 __declspec(align(8))
+#else
+#define C4_ALIGN8 _Alignas(8)
+#endif
+
 typedef struct {
   address_t address;
   uint32_t  tx_index;
@@ -25,8 +31,8 @@ typedef struct {
 } cached_event_t;
 
 typedef struct block_entry_s {
-  uint64_t block_number;
-  _Alignas(8) uint64_t logs_bloom64[32]; // aligned storage for bloom
+  uint64_t              block_number;
+  C4_ALIGN8 uint64_t    logs_bloom64[32]; // aligned storage for bloom
   cached_event_t*       events;
   uint32_t              events_count;
   uint32_t              events_cap;

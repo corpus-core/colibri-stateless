@@ -64,7 +64,7 @@ void test_json() {
   json = json_parse("{\"h\":\"0xzz\"}");
   err  = json_validate_cached(json, "{h:bytes}", "json");
   TEST_ASSERT_NOT_NULL(err);
-  safe_free((void*) err);
+  safe_free((char*) err);
 
   // cleanup
   buffer_free(&buffer);
