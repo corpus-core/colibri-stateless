@@ -177,6 +177,15 @@ c4_status_t c4_prover_status(prover_ctx_t* ctx);
 const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key);
 
 /**
+ * Retrieve a cached value by key, but only from the local cahe.
+ * @param ctx the prover context
+ * @param key 32-byte cache key
+ * @return read-only pointer to cached value, or NULL if not found.
+ *         Caller MUST NOT modify the returned data.
+ *         Pointer is valid until cache cleanup or context destruction.
+ */
+const void* c4_prover_cache_get_local(prover_ctx_t* ctx, bytes32_t key);
+/**
  * Store a value in the local cache. Will be moved to global cache on context destruction
  * if duration_ms > 0.
  * @param ctx the prover context

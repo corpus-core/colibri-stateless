@@ -151,6 +151,7 @@ add_prover(
     prover/beacon.c
     prover/proof_receipt.c
     prover/eth_req.c
+    prover/logs_cache.c
     prover/eth_tools.c
     prover/proof_sync.c
     prover/proof_block.c
@@ -160,10 +161,14 @@ add_prover(
   PROOF eth_prover_execute
 )
 
+# Let other modules know ETH logs cache is available
+add_definitions(-DETH_LOGS_CACHE_AVAILABLE)
+
 add_server_handler(
   NAME eth_server_handler
   SOURCES 
     server/handler.c
+    server/metrics.c
     server/head_watcher.c
     server/head_update.c
     server/chain_props.c
@@ -177,5 +182,6 @@ add_server_handler(
   GET_DETECTION_REQUEST_FUNC eth_get_detection_request
   PARSE_VERSION_RESPONSE_FUNC eth_parse_version_response
   GET_CLIENT_MAPPINGS_FUNC eth_get_client_mappings
+  METRICS_FUNC eth_server_metrics
 )
 

@@ -101,6 +101,17 @@ typedef struct {
 static global_cache_t global_cache_array    = {NULL, 0, 0, 0};
 static uint64_t       global_cache_max_size = 1024 * 1024 * 100; // 100MB max cache size
 
+const void* c4_prover_cache_get_local(prover_ctx_t* ctx, bytes32_t key) {
+  uint64_t key_start = *((uint64_t*) key); // optimize cache-loop by first checking the first word before doing a memcmp
+
+  // 1. Check local cache (remains linked list)
+  for (cache_entry_t* entry = ctx->cache; entry; entry = entry->next) {
+    if (CACHE_KEY_MATCH(entry, key, key_start))
+      return entry->value;
+  }
+  return NULL;
+}
+
 const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key) {
   uint64_t key_start = *((uint64_t*) key); // optimize cache-loop by first checking the first word before doing a memcmp
 
