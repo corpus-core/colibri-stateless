@@ -115,7 +115,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
   if (c4_eth_logs_cache_is_enabled()) {
     // Prefer prefetching the signed block's execution payload (latest head), not the parent data_block.
     // If not available, fall back to data_block execution payload.
-    ssz_ob_t sig_exec              = ssz_get(&ssz_get(&sig_block, "body"), "executionPayload");
+    ssz_ob_t sig_exec              = ssz_get(&sig_body, "executionPayload");
     bytes_t  bloom                 = ssz_get(&sig_exec, "logsBloom").bytes;
     uint64_t prefetch_block_number = ssz_get_uint64(&sig_exec, "blockNumber");
     if (bloom.len != 256 || prefetch_block_number == 0) {
