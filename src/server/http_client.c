@@ -726,6 +726,15 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
 
   // Check if there was an error
   if (status < 0) {
+    // Handle EBADF gracefully: close this poll handle to avoid dangling polls on invalid FDs
+    if (status == UV_EBADF) {
+      // Disassociate from curl and close the handle
+      curl_multi_assign(multi_handle, context->socket, NULL);
+      // Mark as closing/invalid to make subsequent callbacks no-ops
+      handle->data = NULL;
+      uv_close((uv_handle_t*) &context->poll_handle, cleanup_easy_handle_and_context);
+      return;
+    }
     log_error("Socket poll error: %s", uv_strerror(status));
     return;
   }
@@ -1117,6 +1126,8 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, (uint64_t) 120);
     curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[r->req->method]);
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r);
+    // Prefer IPv4 to avoid dual-stack races on stacks where IPv6 is not available
+    curl_easy_setopt(easy, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
     // Preferred HTTP version and connection reuse settings
     curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, http_server.curl.http2_enabled ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
