@@ -48,6 +48,24 @@ void test_json() {
   buffer_reset(&buffer);
   TEST_ASSERT_EQUAL_STRING("{\"name\": \"John\\\"\"}", bprintf(&buffer, "{\"name\": \"%S\"}", "John\""));
 
+  // validation (cached): valid case should pass and be cached
+  json            = json_parse("{\"n\":5,\"b\":true,\"h\":\"0x12\"}");
+  const char* err = json_validate_cached(json, "{n:uint,b:bool,h:bytes}", "json");
+  TEST_ASSERT_NULL(err);
+  // second call with same value+schema should hit the cache and also succeed
+  err = json_validate_cached(json, "{n:uint,b:bool,h:bytes}", "json");
+  TEST_ASSERT_NULL(err);
+
+  // same value with different schema order: still valid (cache miss acceptable)
+  err = json_validate_cached(json, "{b:bool,n:uint,h:bytes}", "json");
+  TEST_ASSERT_NULL(err);
+
+  // invalid hex should fail and not be cached as success
+  json = json_parse("{\"h\":\"0xzz\"}");
+  err  = json_validate_cached(json, "{h:bytes}", "json");
+  TEST_ASSERT_NOT_NULL(err);
+  safe_free((void*) err);
+
   // cleanup
   buffer_free(&buffer);
 }
