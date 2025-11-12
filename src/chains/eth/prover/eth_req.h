@@ -49,7 +49,7 @@ c4_status_t eth_getBlockReceipts(prover_ctx_t* ctx, json_t block, json_t* receip
 // serialize the receipt for the given json using the buffer to allocate memory
 bytes_t c4_serialize_receipt(json_t r, buffer_t* buf);
 
-c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint32_t ttl, json_t* result);
+c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint32_t ttl, json_t* result, data_request_t** req);
 
 c4_status_t eth_call(prover_ctx_t* ctx, json_t tx, json_t* result, uint64_t block_number);
 

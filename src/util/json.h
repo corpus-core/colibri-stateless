@@ -249,6 +249,21 @@ json_t json_dup(json_t json);
 const char* json_validate(json_t value, const char* def, const char* error_prefix);
 
 /**
+ * Validate JSON with a small global cache to skip repeated validations.
+ *
+ * Uses a lightweight 64-bit FNV-1a hash over (def || 0x00 || raw JSON bytes)
+ * and caches a few successful validations to avoid re-validating identical,
+ * large payloads (e.g., eth_getBlockReceipts). Collisions are acceptable for
+ * this performance use-case.
+ *
+ * @param value JSON value to validate
+ * @param def schema definition string
+ * @param error_prefix prefix for error messages
+ * @return NULL on success, dynamically allocated error message on failure
+ */
+const char* json_validate_cached(json_t value, const char* def, const char* error_prefix);
+
+/**
  * Iterate over properties in a JSON object.
  * @param parent JSON object to iterate
  * @param value variable name for current property value
