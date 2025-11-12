@@ -570,6 +570,8 @@ static void start_beacon_watch() {
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_WRITEDATA, &watcher_state);
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_ERRORBUFFER, watcher_state.error_buffer);
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_PRIVATE, &watcher_state); // Link state via private pointer
+  // Force IPv4 to avoid dual-stack connect races causing spurious EBADF on IPv6-only failures
+  curl_easy_setopt(watcher_state.easy_handle, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
   // Set headers for SSE
   // Free previous list if somehow stop wasn't called properly
