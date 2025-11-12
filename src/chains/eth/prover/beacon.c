@@ -294,7 +294,7 @@ c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sign_ha
 static c4_status_t eth_get_block(prover_ctx_t* ctx, json_t block, bool full_tx, json_t* result) {
   uint8_t  tmp[200] = {0};
   buffer_t buffer   = stack_buffer(tmp);
-  return c4_send_eth_rpc(ctx, (char*) (block.len == 68 ? "eth_getBlockByHash" : "eth_getBlockByNumber"), bprintf(&buffer, "[%J,%s]", block, full_tx ? "true" : "false"), block.len == 68 ? DEFAULT_TTL : 12, result);
+  return c4_send_eth_rpc(ctx, (char*) (block.len == 68 ? "eth_getBlockByHash" : "eth_getBlockByNumber"), bprintf(&buffer, "[%J,%s]", block, full_tx ? "true" : "false"), block.len == 68 ? DEFAULT_TTL : 12, result, NULL);
 }
 static c4_status_t get_beacon_header_from_eth_block(prover_ctx_t* ctx, json_t eth_block, json_t* header, bytes32_t root, bytes32_t parent_root) {
   buffer_t buffer = {.allocated = -32, .data = {.data = parent_root, .len = 0}};

@@ -40,38 +40,55 @@
 #define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys:[hex32]}],error?:string,gasUsed:hexuint}"
 
 c4_status_t get_eth_tx(prover_ctx_t* ctx, json_t txhash, json_t* tx_data) {
-  uint8_t  tmp[200];
-  buffer_t buf = stack_buffer(tmp);
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), DEFAULT_TTL, tx_data));
-  CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
+  uint8_t         tmp[200];
+  buffer_t        buf = stack_buffer(tmp);
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), DEFAULT_TTL, tx_data, &req));
+  if (req && !req->validated) {
+    CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
+    req->validated = true;
+  }
   return C4_SUCCESS;
 }
 c4_status_t get_eth_tx_by_hash_and_index(prover_ctx_t* ctx, json_t block_hash, uint32_t index, json_t* tx_data) {
-  uint8_t  tmp[200];
-  buffer_t buf = stack_buffer(tmp);
-  TRY_ASYNC(c4_send_eth_rpc(ctx, block_hash.len == 68 ? "eth_getTransactionByBlockHashAndIndex" : "eth_getTransactionByBlockNumberAndIndex", bprintf(&buf, "[%J,%d]", block_hash, index), DEFAULT_TTL, tx_data));
-  CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
+  uint8_t         tmp[200];
+  buffer_t        buf = stack_buffer(tmp);
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_eth_rpc(ctx, block_hash.len == 68 ? "eth_getTransactionByBlockHashAndIndex" : "eth_getTransactionByBlockNumberAndIndex", bprintf(&buf, "[%J,%d]", block_hash, index), DEFAULT_TTL, tx_data, &req));
+  if (req && !req->validated) {
+    CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
+    req->validated = true;
+  }
   return C4_SUCCESS;
 }
 
 c4_status_t eth_getBlockReceipts(prover_ctx_t* ctx, json_t block, json_t* receipts_array) {
-  uint8_t  tmp[200];
-  buffer_t buf = stack_buffer(tmp);
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getBlockReceipts", bprintf(&buf, "[%J]", block), DEFAULT_TTL, receipts_array));
-  //  CHECK_JSON(*receipts_array, "[" JSON_RECEIPTS_FIELDS "]", "Invalid results for Block Receipts: ");
+  uint8_t         tmp[200];
+  buffer_t        buf = stack_buffer(tmp);
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getBlockReceipts", bprintf(&buf, "[%J]", block), DEFAULT_TTL, receipts_array, &req));
+  if (req && !req->validated) {
+    CHECK_JSON_CACHED(*receipts_array, "[" JSON_RECEIPTS_FIELDS "]", "Invalid results for Block Receipts: ");
+    req->validated = true;
+  }
   return C4_SUCCESS;
 }
 
 c4_status_t eth_get_logs(prover_ctx_t* ctx, json_t params, json_t* logs) {
-  uint8_t  tmp[1000];
-  buffer_t buf = stack_buffer(tmp);
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), 12, logs));
-  CHECK_JSON(*logs, "[" JSON_LOG_FIELDS "]", "Invalid results for Logs: ");
+  uint8_t         tmp[1000];
+  buffer_t        buf = stack_buffer(tmp);
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), 12, logs, &req));
+  if (req && !req->validated) {
+    CHECK_JSON(*logs, "[" JSON_LOG_FIELDS "]", "Invalid results for Logs: ");
+    req->validated = true;
+  }
   return C4_SUCCESS;
 }
 
 c4_status_t eth_get_proof(prover_ctx_t* ctx, json_t address, json_t storage_key, json_t* proof, uint64_t block_number) {
-  buffer_t buffer = {0};
+  buffer_t        buffer = {0};
+  data_request_t* req    = NULL;
   bprintf(&buffer, "[%J,", address);
   if (storage_key.type == JSON_TYPE_STRING)
     bprintf(&buffer, "[%J]", storage_key);
@@ -82,41 +99,60 @@ c4_status_t eth_get_proof(prover_ctx_t* ctx, json_t address, json_t storage_key,
   bprintf(&buffer, ",\"0x%lx\"]", block_number);
 
   TRY_ASYNC_FINAL(
-      c4_send_eth_rpc(ctx, "eth_getProof", (char*) buffer.data.data, 12, proof),
+      c4_send_eth_rpc(ctx, "eth_getProof", (char*) buffer.data.data, 12, proof, &req),
       buffer_free(&buffer));
-  CHECK_JSON(*proof, JSON_ETH_PROOF_FIELDS, "Invalid results for eth_getProof: ");
+  if (req && !req->validated) {
+    CHECK_JSON(*proof, JSON_ETH_PROOF_FIELDS, "Invalid results for eth_getProof: ");
+    req->validated = true;
+  }
   return C4_SUCCESS;
 }
 
 c4_status_t eth_get_code(prover_ctx_t* ctx, json_t address, json_t* code, uint64_t block_number) {
-  char     tmp[120];
-  buffer_t buf = stack_buffer(tmp);
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getCode", bprintf(&buf, "[%J,\"lastest\"]", address), DEFAULT_TTL, code));
-  CHECK_JSON(*code, "bytes", "Invalid results for Code: ");
+  char            tmp[120];
+  buffer_t        buf = stack_buffer(tmp);
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getCode", bprintf(&buf, "[%J,\"lastest\"]", address), DEFAULT_TTL, code, &req));
+  if (req && !req->validated) {
+    CHECK_JSON(*code, "bytes", "Invalid results for Code: ");
+    req->validated = true;
+  }
   return C4_SUCCESS;
 }
 
 c4_status_t eth_debug_trace_call(prover_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number) {
-  buffer_t buf = {0};
-  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "debug_traceCall", bprintf(&buf, "[%J,\"0x%lx\",{\"tracer\":\"prestateTracer\"}]", tx, block_number), 12, trace), buffer_free(&buf));
-  CHECK_JSON(*trace, JSON_TRACE_FIELDS, "Invalid results for trace: ");
+  buffer_t        buf = {0};
+  data_request_t* req = NULL;
+  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "debug_traceCall", bprintf(&buf, "[%J,\"0x%lx\",{\"tracer\":\"prestateTracer\"}]", tx, block_number), 12, trace, &req), buffer_free(&buf));
+  if (req && !req->validated) {
+    CHECK_JSON(*trace, JSON_TRACE_FIELDS, "Invalid results for trace: ");
+    req->validated = true;
+  }
   return C4_SUCCESS;
 }
 
 c4_status_t eth_create_access_list(prover_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number) {
-  buffer_t buf = {0};
+  buffer_t        buf = {0};
+  data_request_t* req = NULL;
   tx.len--; // removing the closing '}', so we can add arguments
             //  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J,\"maxFeePerGas\":\"0x1\",\"maxPriorityFeePerGas\":\"0x1\"},\"0x%lx\"]", tx, block_number), 12, trace), buffer_free(&buf));
-  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\"]", tx, block_number), 12, trace), buffer_free(&buf));
+  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\"]", tx, block_number), 12, trace, &req), buffer_free(&buf));
   log_info("access list: %j", trace);
-  CHECK_JSON(*trace, JSON_ACCESS_LIST_FIELDS, "Invalid results for access list: ");
+  if (req && !req->validated) {
+    CHECK_JSON(*trace, JSON_ACCESS_LIST_FIELDS, "Invalid results for access list: ");
+    req->validated = true;
+  }
   return C4_SUCCESS;
 }
 
 c4_status_t eth_call(prover_ctx_t* ctx, json_t tx, json_t* result, uint64_t block_number) {
-  buffer_t buf = {0};
-  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_call", bprintf(&buf, "[%J,\"0x%lx\"]", tx, block_number), 12, result), buffer_free(&buf));
-  CHECK_JSON(*result, "bytes", "Invalid results for call: ");
+  buffer_t        buf = {0};
+  data_request_t* req = NULL;
+  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_call", bprintf(&buf, "[%J,\"0x%lx\"]", tx, block_number), 12, result, &req), buffer_free(&buf));
+  if (req && !req->validated) {
+    CHECK_JSON(*result, "bytes", "Invalid results for call: ");
+    req->validated = true;
+  }
   return C4_SUCCESS;
 }
 
@@ -178,13 +214,14 @@ bytes_t c4_serialize_receipt(json_t r, buffer_t* buf) {
 }
 
 // sends a request to the eth rpc and returns the result or returns with status C4_PENDING
-c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint32_t ttl, json_t* result) {
+c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint32_t ttl, json_t* result, data_request_t** req) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   bprintf(&buffer, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s,\"id\":1}", method, params);
   sha256(buffer.data, id);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
+    if (req) *req = data_request;
     buffer_free(&buffer);
     if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (!data_request->error && data_request->response.data) {
@@ -226,6 +263,7 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
     data_request->type     = C4_DATA_TYPE_ETH_RPC;
     data_request->ttl      = ttl;
     c4_state_add_request(&ctx->state, data_request);
+    if (req) *req = data_request;
     return C4_PENDING;
   }
 

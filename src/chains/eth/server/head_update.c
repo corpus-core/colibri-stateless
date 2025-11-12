@@ -45,7 +45,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
 
   if (c4_watcher_check_block_number) {
     // run request to fetch the blocknumber from the execution node to make sure the execution node is cabable of handling the latest block.
-    c4_status_t latest_status = c4_send_eth_rpc(ctx, "eth_blockNumber", "[]", 0, &latest_block);
+    c4_status_t latest_status = c4_send_eth_rpc(ctx, "eth_blockNumber", "[]", 0, &latest_block, NULL);
     if (latest_status == C4_PENDING && ctx->state.requests->type == C4_DATA_TYPE_ETH_RPC) ctx->state.requests->node_exclude_mask = (uint16_t) (0xFFFF - 1); // exclude all, but the first node, because we always wnat to get the latest from the first.
     TRY_ADD_ASYNC(status, latest_status);
   }

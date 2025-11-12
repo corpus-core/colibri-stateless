@@ -24,6 +24,7 @@
 #include "bytes.h"
 #include "json.h"
 #include <ctype.h>
+#include <stdint.h>
 #include <string.h>
 
 #define ERROR(fmt, ...) return bprintf(NULL, fmt, ##__VA_ARGS__)
@@ -180,4 +181,38 @@ const char* json_validate(json_t val, const char* def, const char* error_prefix)
   if (strncmp(def, "bool", 4) == 0) return val.type == JSON_TYPE_BOOLEAN ? NULL : strdup("Expected boolean");
   if (strncmp(def, "block", 5) == 0) return check_block(val, error_prefix);
   ERROR("%sUnknown type %s", error_prefix ? error_prefix : "", def);
+}
+
+// Lightweight cache for json validation results (non-security critical).
+// We use a small ring buffer of the last N hashes, computed over (def || 0x00 || val.bytes).
+#define JSON_VALIDATE_CACHE_COUNT 10
+static uint64_t json_validate_cache[JSON_VALIDATE_CACHE_COUNT] = {0};
+static uint32_t json_validate_cache_idx                        = 0;
+
+static inline uint64_t fnv1a64_update(uint64_t h, const uint8_t* d, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    h ^= d[i];
+    h *= 1099511628211ull; // FNV prime
+  }
+  return h;
+}
+
+const char* json_validate_cached(json_t val, const char* def, const char* error_prefix) {
+  // Compute fast non-crypto hash of schema + separator + raw json bytes
+  uint64_t h = 1469598103934665603ull; // FNV offset basis
+  if (def && *def) h = fnv1a64_update(h, (const uint8_t*) def, strlen(def));
+  uint8_t sep = 0;
+  h           = fnv1a64_update(h, &sep, 1);
+  if (val.start && val.len) h = fnv1a64_update(h, (const uint8_t*) val.start, val.len);
+
+  for (uint32_t i = 0; i < JSON_VALIDATE_CACHE_COUNT; i++) {
+    if (json_validate_cache[i] == h) return NULL; // cache hit → already validated
+  }
+
+  const char* err = json_validate(val, def, error_prefix);
+  if (!err) {
+    json_validate_cache[json_validate_cache_idx] = h;
+    json_validate_cache_idx                      = (json_validate_cache_idx + 1) % JSON_VALIDATE_CACHE_COUNT;
+  }
+  return err;
 }
