@@ -32,7 +32,7 @@ typedef struct {
 
 typedef struct block_entry_s {
   uint64_t              block_number;
-  C4_ALIGN8 uint64_t    logs_bloom64[32]; // aligned storage for bloom
+  uint64_t              logs_bloom64[32]; // aligned storage for bloom
   cached_event_t*       events;
   uint32_t              events_count;
   uint32_t              events_cap;
@@ -447,7 +447,7 @@ static inline bool bloom_subset_of64(const uint64_t* small, const uint64_t* big)
 
 // Phase 1: Build block/tx/event matches using cached per-block events (no RPC)
 static void build_match_index(json_t filter, uint64_t from_block, uint64_t to_block, block_result_t** out_blocks) {
-  _Alignas(8) uint64_t filter_bloom64[32] = {0};
+  uint64_t filter_bloom64[32] = {0};
   build_filter_bloom(filter, (uint8_t*) filter_bloom64);
   for (block_entry_t* e = g_head; e; e = e->next) {
     if (e->block_number < from_block || e->block_number > to_block) continue;
