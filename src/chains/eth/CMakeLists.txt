@@ -161,8 +161,7 @@ add_prover(
   PROOF eth_prover_execute
 )
 
-# Let other modules know ETH logs cache is available
-add_definitions(-DETH_LOGS_CACHE_AVAILABLE)
+
 
 add_server_handler(
   NAME eth_server_handler

@@ -7,13 +7,13 @@
 #include "server.h"
 #include "util/bytes.h"
 
-#if defined(PROVER_CACHE) && defined(ETH_LOGS_CACHE_AVAILABLE)
+#if defined(PROVER_CACHE) && defined(CHAIN_ETH)
 #include "chains/eth/prover/logs_cache.h"
 #endif
 
 void eth_server_metrics(http_server_t* server, buffer_t* data) {
   ETH_HANDLER_CHECK(server);
-#if defined(PROVER_CACHE) && defined(ETH_LOGS_CACHE_AVAILABLE)
+#if defined(PROVER_CACHE) && defined(CHAIN_ETH)
   if (c4_eth_logs_cache_is_enabled()) {
     uint64_t hits = 0, misses = 0, bloom_skips = 0;
     uint64_t blocks = 0, txs = 0, events = 0;

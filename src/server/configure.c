@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined(PROVER_CACHE) && defined(ETH_LOGS_CACHE_AVAILABLE)
+#if defined(PROVER_CACHE) && defined(CHAIN_ETH)
 #include "chains/eth/prover/logs_cache.h"
 #endif
 #ifdef _WIN32
@@ -571,7 +571,7 @@ static void config() {
   // Optional logs cache size in blocks (default 0 = disabled). Only enabled when beacon events are active.
   int eth_logs_cache_blocks = 0;
   get_int(&eth_logs_cache_blocks, "ETH_LOGS_CACHE_BLOCKS", "eth_logs_cache_blocks", 0, "max number of contiguous blocks to cache logs for eth_getLogs", 0, 131072);
-#if defined(PROVER_CACHE) && defined(ETH_LOGS_CACHE_AVAILABLE)
+#if defined(PROVER_CACHE) && defined(CHAIN_ETH)
   if (http_server.stream_beacon_events && eth_logs_cache_blocks > 0) {
     c4_eth_logs_cache_enable((uint32_t) eth_logs_cache_blocks);
     log_info("eth_logs_cache enabled with capacity: %d blocks", (uint32_t) eth_logs_cache_blocks);

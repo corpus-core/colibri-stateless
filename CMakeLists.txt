@@ -57,6 +57,11 @@ option(PROVER_TRACE "Collect lightweight prover-internal spans for server export
 option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 
+# Make ETH availability visible to all targets (server + chains)
+if(CHAIN_ETH)
+  add_definitions(-DCHAIN_ETH)
+endif()
+
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(BLOCK_HASH_CACHE "Cache block hashes for faster verification within the same block" ON)
