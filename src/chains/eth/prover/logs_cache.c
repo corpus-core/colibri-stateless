@@ -400,16 +400,15 @@ static inline block_result_t* add_block_result(block_result_t** head, uint64_t b
   return b;
 }
 
+#define BLOOM_IDX(a, b) ((((uint64_t) (b) << 8) | (a)) & 2047u)
+
 // Build bloom from filter's address/topics and check subset of block bloom
 static void bloom_add_element_buf(uint8_t bloom[256], bytes_t element) {
   bytes32_t h = {0};
   keccak(element, h);
-  uint64_t idx1 = (((uint64_t) h[0] << 8) | h[1]) & 2047u;
-  uint64_t idx2 = (((uint64_t) h[2] << 8) | h[3]) & 2047u;
-  uint64_t idx3 = (((uint64_t) h[4] << 8) | h[5]) & 2047u;
-  bloom_set(bloom, idx1);
-  bloom_set(bloom, idx2);
-  bloom_set(bloom, idx3);
+  bloom_set(bloom, BLOOM_IDX(h[0], h[1]));
+  bloom_set(bloom, BLOOM_IDX(h[2], h[3]));
+  bloom_set(bloom, BLOOM_IDX(h[4], h[5]));
 }
 
 static void build_filter_bloom(json_t filter, uint8_t bloom[256]) {
@@ -612,7 +611,8 @@ static void build_match_index(log_cache_state_t* st) {
   int       variant_count = (int) st->filter_blooms.len / 256;
   uint64_t* variants      = (uint64_t*) st->filter_blooms.data;
   for (block_entry_t* e = g_head; e; e = e->next) {
-    if (e->block_number < from_block || e->block_number > to_block || !bloom_matches(variant_count, variants, e->logs_bloom64)) continue;
+    if (e->block_number < from_block || e->block_number > to_block) continue;
+    if (!bloom_matches(variant_count, variants, e->logs_bloom64)) continue;
     // Confirm by scanning cached events
     block_result_t* block_res = NULL;
     for (uint32_t i = 0; i < e->events_count; i++) {
