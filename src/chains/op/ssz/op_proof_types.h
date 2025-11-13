@@ -32,8 +32,8 @@ static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 // Used to select between proving the latest block, a specific block hash, or a specific block number.
 static const ssz_def_t OP_STATE_BLOCK_UNION[] = {
     SSZ_NONE,                 // no block-proof for latest
-    SSZ_BYTES32("blockHash"), // proof for the right blockhash
-    SSZ_UINT64("blockNumber") // proof for the right blocknumber
+    SSZ_BYTES32("blockHash"), // proof for the right block hash
+    SSZ_UINT64("blockNumber") // proof for the right block number
 };
 
 // Union type for preconfirmation payload format.
@@ -66,8 +66,8 @@ static const ssz_def_t OP_RECEIPT_PROOF[] = {
     SSZ_BYTES("transaction", 1073741824),          // the raw transaction payload
     SSZ_UINT32("transactionIndex"),                // the index of the transaction in the block
     SSZ_LIST("receipt_proof", ssz_bytes_1024, 64), // the Merkle Patricia Proof of the transaction receipt ending in the receipt root
-    SSZ_LIST("tx_proof", ssz_bytes_1024, 64),      // the Merkle Patricia Proof of the transaction empty, in case of a preconf since we have the full execution payload
-    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION), // proof for the right blockhash
+    SSZ_LIST("tx_proof", ssz_bytes_1024, 64),      // the Merkle Patricia Proof of the transaction (may be empty for preconf blocks since the full execution payload is available)
+    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION), // proof for the right block hash
 };
 
 // :: Logs Proof
@@ -76,8 +76,9 @@ static const ssz_def_t OP_RECEIPT_PROOF[] = {
 //
 // 1. The **transaction** is used to create its SSZ Hash Tree Root.
 // 2. The **SSZ Merkle Proof** from the Transactions of the ExecutionPayload to the BlockBodyRoot. (Total Depth: 29)
-// 3. The **BeaconBlockHeader** is passed because also need the slot in order to find out which period and which sync committee is used.
+// 3. The **BeaconBlockHeader** is passed because we also need the slot in order to find out which period and which sync committee is used.
 // 4. The **Signature of the SyncCommittee** (taken from the following block) is used to verify the SignData where the blockhash is part of the message and the Domain is calculated from the fork and the Genesis Validator Root.
+// Note: OP-Stack uses the same consensus layer as Ethereum, so these verification steps apply here as well.
 
 // Represents one single transaction receipt with the required transaction and receipt-proof.
 // The proof contains the raw receipt as part of its last leaf.
@@ -89,7 +90,7 @@ static const ssz_def_t OP_LOGS_TX[] = {
 // Container type for a single transaction with its receipt and transaction proofs
 static const ssz_def_t OP_LOGS_TX_CONTAINER = SSZ_CONTAINER("LogsTx", OP_LOGS_TX);
 
-// A single block with its proof containing all the receipts or txs required to proof for the logs.
+// A single block with its proof containing all the receipts or txs required to prove the logs.
 static const ssz_def_t OP_LOGS_BLOCK[] = {
     SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION), // proof for the block (preconfirmation)
     SSZ_LIST("txs", OP_LOGS_TX_CONTAINER, 256)   // the transactions of the block with their proofs
@@ -108,7 +109,7 @@ static const ssz_def_t OP_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", OP_L
 static const ssz_def_t OP_TRANSACTION_PROOF[] = {
     SSZ_LIST("tx_proof", ssz_bytes_1024, 64),     // the Merkle Patricia Proof of the transaction (empty for preconf blocks since full execution payload is available)
     SSZ_UINT32("transactionIndex"),               // the index of the transaction in the block
-    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION) // proof for the right blockhash
+    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION) // proof for the right block hash
 };
 
 // :: Account Proof
@@ -128,8 +129,8 @@ static const ssz_def_t OP_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof"
 static const ssz_def_t OP_ACCOUNT_PROOF[] = {
     SSZ_LIST("accountProof", ssz_bytes_1024, 256),             // Patricia Merkle proof
     SSZ_ADDRESS("address"),                                    // the address of the account
-    SSZ_LIST("storageProof", OP_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected
-    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION)              // proof for the blockheader
+    SSZ_LIST("storageProof", OP_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected storage keys
+    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION)              // proof for the block header
 };
 
 // Union type for contract code.
@@ -141,8 +142,8 @@ static const ssz_def_t OP_CODE_UNION[] = {
 
 // :: Call Proof
 //
-// `eth_call` returns the result of the call. In order to proof that the result is correct, we need
-// to proof every single storage value and account.
+// `eth_call` returns the result of the call. In order to prove that the result is correct, we need
+// to prove every single storage value and account.
 //
 
 // A proof for a single account.
@@ -158,7 +159,7 @@ static const ssz_def_t OP_CALL_ACCOUNT_CONTAINER = SSZ_CONTAINER("EthCallAccount
 // The main proof data for a call.
 static const ssz_def_t OP_CALL_PROOF[] = {
     SSZ_LIST("accounts", OP_CALL_ACCOUNT_CONTAINER, 256), // used accounts
-    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION)         // proof for the blockheader
+    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION)         // proof for the block header
 };
 
 // :: Block Proof
@@ -168,8 +169,9 @@ static const ssz_def_t OP_CALL_PROOF[] = {
 // rather than consensus layer signatures like in Ethereum mainnet.
 //
 
-// The stateRoot proof is used as part of different other types since it contains all relevant
-// proofs to validate the stateRoot of the execution layer
+// The block proof structure used by other proof types (receipt, transaction, account, etc.)
+// to validate that the block is part of the OP-Stack chain. Contains the preconfirmation proof
+// which verifies the block's validity through the sequencer signature.
 static const ssz_def_t OP_BLOCK_PROOF[] = {
-    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION) // proof for the blockheader
+    SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION) // proof for the block (preconfirmation-based)
 };
