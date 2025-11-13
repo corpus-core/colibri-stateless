@@ -83,6 +83,10 @@ typedef enum {
 typedef uint32_t prover_flags_t;
 
 #ifdef PROVER_CACHE
+typedef union {
+  uint8_t  bytes32[32];
+  uint64_t uint64[4];
+} prover_cache_key_t;
 
 // Warning: Cache implementation assumes single-threaded access via libuv event loop.
 // Multi-threaded usage requires external synchronization.
@@ -92,7 +96,7 @@ typedef uint32_t prover_flags_t;
 
 typedef void (*cache_free_cb)(void*);
 typedef struct cache_entry {
-  bytes32_t           key;       // cache key
+  prover_cache_key_t  key;       // cache key
   void*               value;     // cache value
   uint32_t            size;      // cache value size in order to
   uint64_t            timestamp; // cache timestamp to be removed after ttl. if this timestamp is 0. the entry will live only in the prover_ctx, otherwise it will be stored in the global cache when prover_free is called.
