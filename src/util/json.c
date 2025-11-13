@@ -333,6 +333,10 @@ uint64_t json_as_uint64(json_t value) {
   }
   return (uint64_t) strtoull(json_as_string(value, &buffer), NULL, 10);
 }
+uint32_t json_to_bytes(json_t value, bytes_t target) {
+  buffer_t buffer = (buffer_t) {.data = bytes(target.data, 0), .allocated = -((int32_t) target.len)};
+  return json_as_bytes(value, &buffer).len;
+}
 
 bytes_t json_as_bytes(json_t value, buffer_t* buffer) {
   if (value.type == JSON_TYPE_NUMBER) {

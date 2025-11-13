@@ -264,8 +264,7 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   if (proof_logs_block_proof_type(ctx) == ETH_GET_LOGS) { // for eth_getLogs
 #ifdef PROVER_CACHE
     bool served = false;
-    if (c4_eth_logs_cache_is_enabled())
-      TRY_ASYNC(c4_eth_logs_cache_scan(ctx, ctx->params, &logs, &served));
+    TRY_ASYNC(c4_eth_logs_cache_scan(ctx, json_at(ctx->params, 0), &logs, &served));
 
     if (!served)
       TRY_ASYNC(eth_get_logs(ctx, ctx->params, &logs)); // fallback to RPC

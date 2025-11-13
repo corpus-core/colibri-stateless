@@ -15,6 +15,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define MAX_TOPICS         4
+#define MAX_BLOOM_VARIANTS 16
+
 #if defined(_MSC_VER)
 #define C4_ALIGN8 __declspec(align(8))
 #else
@@ -166,7 +169,8 @@ void c4_eth_logs_cache_add_block(uint64_t block_number, const uint8_t* logs_bloo
   }
 
   ensure_capacity_for_new_block();
-  block_entry_t* e = push_block(block_number);
+  uint8_t        tmp[32] = {0};
+  block_entry_t* e       = push_block(block_number);
   if (!e) return;
   memcpy(e->logs_bloom64, logs_bloom, 256);
 
@@ -178,24 +182,14 @@ void c4_eth_logs_cache_add_block(uint64_t block_number, const uint8_t* logs_bloo
     uint32_t li = 0;
     json_for_each_value(json_get(r, "logs"), log) {
       address_t addr = {0};
-      {
-        uint8_t  tmp[32]  = {0};
-        buffer_t b        = stack_buffer(tmp);
-        bytes_t  addr_raw = json_as_bytes(json_get(log, "address"), &b);
-        if (addr_raw.len == ADDRESS_SIZE) memcpy(addr, addr_raw.data, ADDRESS_SIZE);
-      }
+      json_to_var(json_get(log, "address"), addr);
+
       // topics
       bytes32_t topics_arr[4] = {0};
       uint8_t   tc            = 0;
       json_for_each_value(json_get(log, "topics"), t) {
         if (tc >= 4) break;
-        uint8_t  tmp[32] = {0};
-        buffer_t b       = stack_buffer(tmp);
-        bytes_t  tv      = json_as_bytes(t, &b);
-        if (tv.len == 32) {
-          memcpy(topics_arr[tc], tv.data, 32);
-          tc++;
-        }
+        if (json_to_var(t, tmp) == 32) memcpy(topics_arr[tc++], tmp, 32);
       }
       add_event(e, addr, tx_index, li, tc, topics_arr);
       li++;
@@ -305,15 +299,20 @@ typedef struct block_result_s {
 
 // Extend request-local state to carry intermediate results and final JSON result
 typedef struct {
-  uint64_t        from_block;
-  uint64_t        to_block;
-  uint8_t         resolved;
-  uint8_t         hit_counted;
-  uint8_t         miss_counted;
+  uint64_t from_block;
+  uint64_t to_block;
+  bool     resolved;
+  uint8_t  hit_counted;
+  uint8_t  miss_counted;
+  // Prepared filter
+  bytes_t filter_blooms;             // n*256 bytes (n variants) or len=0 => bloom disabled
+  bytes_t filter_addresses;          // m*20 bytes or len=0 => wildcard
+  bytes_t filter_topics[MAX_TOPICS]; // per position: k*32 bytes or len=0 => wildcard
+  // Results
   json_t          result;       // final logs array
   char*           result_owner; // owning pointer to result JSON string
   block_result_t* blocks;       // per-block matches (tx_idx + log_idx)
-} log_cache_state_t_ext;
+} log_cache_state_t;
 
 static void free_tx_results(tx_result_t* txs) {
   while (txs) {
@@ -340,19 +339,23 @@ static void free_block_results(block_result_t* blocks) {
 
 static void free_log_state_ext(void* ptr) {
   if (!ptr) return;
-  log_cache_state_t_ext* st = (log_cache_state_t_ext*) ptr;
+  log_cache_state_t* st = (log_cache_state_t*) ptr;
   if (st->result_owner) free(st->result_owner);
+  if (st->filter_blooms.data) free(st->filter_blooms.data);
+  if (st->filter_addresses.data) free(st->filter_addresses.data);
+  for (int i = 0; i < MAX_TOPICS; i++)
+    if (st->filter_topics[i].data) free(st->filter_topics[i].data);
   free_block_results(st->blocks);
   free(st);
 }
 
-static log_cache_state_t_ext* get_log_state_ext(prover_ctx_t* ctx) {
+static log_cache_state_t* get_log_state(prover_ctx_t* ctx) {
   bytes32_t key = {0};
   memcpy(key, "log_state", 9);
-  log_cache_state_t_ext* state = (log_cache_state_t_ext*) c4_prover_cache_get_local(ctx, key);
+  log_cache_state_t* state = (log_cache_state_t*) c4_prover_cache_get_local(ctx, key);
   if (!state) {
-    state = (log_cache_state_t_ext*) safe_calloc(1, sizeof(log_cache_state_t_ext));
-    c4_prover_cache_set(ctx, key, state, (uint32_t) sizeof(log_cache_state_t_ext), 0, free_log_state_ext);
+    state = (log_cache_state_t*) safe_calloc(1, sizeof(log_cache_state_t));
+    c4_prover_cache_set(ctx, key, state, (uint32_t) sizeof(log_cache_state_t), 0, free_log_state_ext);
   }
   return state;
 }
@@ -388,20 +391,19 @@ static void bloom_add_element_buf(uint8_t bloom[256], bytes_t element) {
 }
 
 static void build_filter_bloom(json_t filter, uint8_t bloom[256]) {
+  uint8_t  tmp[32] = {0};
+  buffer_t b       = stack_buffer(tmp);
   memset(bloom, 0, 256);
+
   // address
   json_t a = json_get(filter, "address");
   if (a.type == JSON_TYPE_STRING) {
-    uint8_t  tmp[32] = {0};
-    buffer_t b       = stack_buffer(tmp);
-    bytes_t  v       = json_as_bytes(a, &b);
+    bytes_t v = json_as_bytes(a, &b);
     if (v.len == ADDRESS_SIZE) bloom_add_element_buf(bloom, v);
   }
   else if (a.type == JSON_TYPE_ARRAY) {
     json_for_each_value(a, av) {
-      uint8_t  tmp[32] = {0};
-      buffer_t b       = stack_buffer(tmp);
-      bytes_t  v       = json_as_bytes(av, &b);
+      bytes_t v = json_as_bytes(av, &b);
       if (v.len == ADDRESS_SIZE) bloom_add_element_buf(bloom, v);
     }
   }
@@ -410,16 +412,12 @@ static void build_filter_bloom(json_t filter, uint8_t bloom[256]) {
   if (topics.type == JSON_TYPE_ARRAY) {
     json_for_each_value(topics, tpos) {
       if (tpos.type == JSON_TYPE_STRING) {
-        uint8_t  tmp[32] = {0};
-        buffer_t b       = stack_buffer(tmp);
-        bytes_t  v       = json_as_bytes(tpos, &b);
+        bytes_t v = json_as_bytes(tpos, &b);
         if (v.len == 32) bloom_add_element_buf(bloom, v);
       }
-      else if (tpos.type == JSON_TYPE_ARRAY) {
+      else if (tpos.type == JSON_TYPE_ARRAY) { // OR topic
         json_for_each_value(tpos, cand) {
-          uint8_t  tmp[32] = {0};
-          buffer_t b       = stack_buffer(tmp);
-          bytes_t  v       = json_as_bytes(cand, &b);
+          bytes_t v = json_as_bytes(cand, &b);
           if (v.len == 32) bloom_add_element_buf(bloom, v);
         }
       }
@@ -440,28 +438,168 @@ static inline bool bloom_subset_of(const uint8_t small[256], const uint8_t big[2
 
 static inline bool bloom_subset_of64(const uint64_t* small, const uint64_t* big) {
   for (int i = 0; i < 32; i++) {
-    if ((small[i] & ~big[i]) != 0) return false;
+    if ((small[i] & big[i]) != small[i]) return false;
+  }
+  return true;
+}
+
+// -------- Filter preparation (addresses/topics as bytes and bloom variants) --------
+
+static void build_filter_addresses(json_t address_json, bytes_t* out_addresses) {
+  uint8_t  tmp[ADDRESS_SIZE] = {0};
+  buffer_t b                 = stack_buffer(tmp);
+  switch (address_json.type) {
+    case JSON_TYPE_STRING: {
+      bytes_t a = json_as_bytes(address_json, &b);
+      if (a.len == ADDRESS_SIZE) {
+        *out_addresses = bytes_dup(a);
+      }
+      return;
+    }
+    case JSON_TYPE_ARRAY: {
+      int count = 0;
+      json_for_each_value(address_json, _) count++;
+      if (count <= 0) return;
+      uint8_t* buf = (uint8_t*) safe_malloc((size_t) count * ADDRESS_SIZE);
+      int      i   = 0;
+      json_for_each_value(address_json, a) {
+        bytes_t ab = json_as_bytes(a, &b);
+        if (ab.len == ADDRESS_SIZE) memcpy(buf + (i++ * ADDRESS_SIZE), ab.data, ADDRESS_SIZE);
+      }
+      *out_addresses = bytes(buf, (uint32_t) (i * ADDRESS_SIZE));
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+static void build_filter_topics(json_t topics_json, bytes_t out_topics[MAX_TOPICS]) {
+  memset(out_topics, 0, sizeof(bytes_t) * MAX_TOPICS);
+  if (topics_json.type != JSON_TYPE_ARRAY) return;
+  uint8_t  tmp[32] = {0};
+  buffer_t b       = stack_buffer(tmp);
+  int      pos     = 0;
+  json_for_each_value(topics_json, tpos) {
+    if (pos >= MAX_TOPICS) break;
+    if (tpos.type == JSON_TYPE_STRING) {
+      bytes_t v = json_as_bytes(tpos, &b);
+      if (v.len == 32) {
+        uint8_t* buf = (uint8_t*) safe_malloc(32);
+        memcpy(buf, v.data, 32);
+        out_topics[pos] = bytes(buf, 32);
+      }
+    }
+    else if (tpos.type == JSON_TYPE_ARRAY) {
+      // Collect OR list
+      int count = json_len(tpos);
+      if (count > 0) {
+        uint8_t* buf = (uint8_t*) safe_malloc((size_t) count * 32);
+        int      i   = 0;
+        json_for_each_value(tpos, cand) {
+          bytes_t v = json_as_bytes(cand, &b);
+          if (v.len == 32) memcpy(buf + (i++ * 32), v.data, 32);
+        }
+        out_topics[pos] = bytes(buf, (uint32_t) (32 * i));
+      }
+    }
+    // else: null => wildcard (len=0)
+    pos++;
+  }
+}
+
+static int build_bloom_variants(bytes_t addresses, bytes_t topics[MAX_TOPICS], uint64_t out_variants[MAX_BLOOM_VARIANTS][32]) {
+  int addr_count         = (int) (addresses.len / ADDRESS_SIZE);
+  int counts[MAX_TOPICS] = {0};
+  int positions          = MAX_TOPICS;
+  for (int p = 0; p < MAX_TOPICS; p++) counts[p] = (int) topics[p].len / 32;
+  // Calculate total combinations, cap
+  int total = (addr_count ? addr_count : 1);
+  for (int p = 0; p < MAX_TOPICS; p++) {
+    int c = counts[p] ? counts[p] : 1;
+    if (total > (MAX_BLOOM_VARIANTS / c)) return 0; // disable bloom prefilter
+    total *= c;
+  }
+  // Mixed-radix indices: addr + topics
+  int idx_addr        = 0;
+  int idx[MAX_TOPICS] = {0, 0, 0, 0};
+  for (int v = 0; v < total && v < MAX_BLOOM_VARIANTS; v++) {
+    uint8_t* bloom = (uint8_t*) out_variants[v];
+    memset(bloom, 0, 256);
+    if (addr_count) bloom_add_element_buf(bloom, bytes(addresses.data + (idx_addr * ADDRESS_SIZE), ADDRESS_SIZE));
+    for (int p = 0; p < MAX_TOPICS; p++) {
+      if (!counts[p]) continue; // wildcard
+      bloom_add_element_buf(bloom, bytes(topics[p].data + (idx[p] * 32), 32));
+    }
+    // increment
+    if (addr_count) {
+      idx_addr++;
+      if (idx_addr < addr_count) continue;
+      idx_addr = 0;
+    }
+    for (int p = MAX_TOPICS - 1; p >= 0; p--) {
+      if (counts[p] < 2) continue; // skip wildcard (0) and single-option (1) positions
+      idx[p]++;
+      if (idx[p] < counts[p]) break;
+      idx[p] = 0;
+    }
+  }
+  return total;
+}
+
+static inline bool bloom_matches(int variant_count, uint64_t* variants, uint64_t* logs_bloom64) {
+  for (int vi = 0; vi < variant_count; vi++) {
+    if (bloom_subset_of64(variants + (vi * 32), logs_bloom64)) return true;
+  }
+  return false;
+}
+
+static inline bool address_matches(bytes_t addresses, address_t address) {
+  if (addresses.len) {
+    for (uint32_t i = 0; i < addresses.len; i += ADDRESS_SIZE) {
+      if (memcmp(address, addresses.data + i, ADDRESS_SIZE) == 0) return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+static inline bool topics_matches(bytes_t filter_topics[MAX_TOPICS], bytes32_t* topics, uint8_t topics_count) {
+  // Topics positional check (bytes)
+  for (int p = 0; p < MAX_TOPICS; p++) {
+    bytes_t tp = filter_topics[p];
+    if (tp.len == 0) continue; // wildcard
+    if (topics_count <= p) return false;
+
+    bool any = false;
+    for (uint32_t i = 0; i <= tp.len; i += 32) {
+      if (memcmp(topics[p], tp.data + i, 32) == 0) {
+        any = true;
+        break;
+      }
+    }
+    if (!any) return false;
   }
   return true;
 }
 
 // Phase 1: Build block/tx/event matches using cached per-block events (no RPC)
-static void build_match_index(json_t filter, uint64_t from_block, uint64_t to_block, block_result_t** out_blocks) {
-  uint64_t filter_bloom64[32] = {0};
-  build_filter_bloom(filter, (uint8_t*) filter_bloom64);
+static void build_match_index(log_cache_state_t* st) {
+  uint64_t  from_block    = st->from_block;
+  uint64_t  to_block      = st->to_block;
+  int       variant_count = (int) st->filter_blooms.len / 256;
+  uint64_t* variants      = (uint64_t*) st->filter_blooms.data;
   for (block_entry_t* e = g_head; e; e = e->next) {
-    if (e->block_number < from_block || e->block_number > to_block) continue;
-    if (!bloom_subset_of64(filter_bloom64, e->logs_bloom64)) {
-      g_bloom_skips_total++;
-      continue;
-    }
+    if (e->block_number < from_block || e->block_number > to_block || !bloom_matches(variant_count, variants, e->logs_bloom64)) continue;
     // Confirm by scanning cached events
     block_result_t* block_res = NULL;
     for (uint32_t i = 0; i < e->events_count; i++) {
       cached_event_t* ev = &e->events[i];
-      if (!address_matches_filter(filter, ev->address)) continue;
-      if (!event_matches_topics(json_get(filter, "topics"), ev)) continue;
-      if (!block_res) block_res = add_block_result(out_blocks, e->block_number);
+      if (!address_matches(st->filter_addresses, ev->address)) continue;
+      if (!topics_matches(st->filter_topics, ev->topics, ev->topics_count)) continue;
+
+      // we have a match, add it to the index
+      if (!block_res) block_res = add_block_result(&st->blocks, e->block_number);
       tx_result_t* txr = ensure_tx_result(block_res, ev->tx_index);
       // append event
       event_result_t* er = (event_result_t*) safe_calloc(1, sizeof(event_result_t));
@@ -478,30 +616,29 @@ static c4_status_t ensure_receipts_for_matches(prover_ctx_t* ctx, block_result_t
   uint8_t     tmp[64] = {0};
   buffer_t    b       = stack_buffer(tmp);
   for (block_result_t* br = blocks; br; br = br->next) {
-    if (br->block_receipts.type == JSON_TYPE_INVALID || br->block_receipts.type == JSON_TYPE_NOT_FOUND || br->block_receipts.start == NULL) {
+    if (br->block_receipts.type == JSON_TYPE_INVALID || br->block_receipts.start == NULL) {
       buffer_reset(&b);
-      json_t block_param = json_parse(bprintf(&b, "\"0x%lx\"", br->block_number));
-      TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_param, &br->block_receipts));
+      TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, json_parse(bprintf(&b, "\"0x%lx\"", br->block_number)), &br->block_receipts));
     }
   }
   return status;
 }
 
 // Phase 3: Build final JSON using fetched receipts and match index
-static c4_status_t build_result_json_from_matches(prover_ctx_t* ctx, log_cache_state_t_ext* st, json_t filter, json_t* out_logs) {
+static c4_status_t build_result_json_from_matches(prover_ctx_t* ctx, log_cache_state_t* st, json_t filter, json_t* out_logs) {
   buffer_t out_buf = {0};
-  bprintf(&out_buf, "[");
+  buffer_add_chars(&out_buf, "[");
   bool first = true;
   for (block_result_t* br = st->blocks; br; br = br->next) {
     json_t receipts = br->block_receipts;
-    if (receipts.type == JSON_TYPE_INVALID || receipts.type == JSON_TYPE_NOT_FOUND || receipts.start == NULL) continue;
+    if (receipts.type == JSON_TYPE_INVALID || receipts.start == NULL) continue;
     for (tx_result_t* tx = br->txs; tx; tx = tx->next) {
       json_t rxs = json_at(receipts, tx->tx_idx);
       if (rxs.type == JSON_TYPE_INVALID || rxs.type == JSON_TYPE_NOT_FOUND) continue;
       json_t logs = json_get(rxs, "logs");
       for (event_result_t* ev = tx->events; ev; ev = ev->next) {
         json_t logj = json_at(logs, ev->log_idx);
-        if (logj.type == JSON_TYPE_INVALID || logj.type == JSON_TYPE_NOT_FOUND) continue;
+        if (logj.type != JSON_TYPE_OBJECT) continue;
         if (!first) buffer_add_chars(&out_buf, ",");
         buffer_add_json(&out_buf, logj);
         first = false;
@@ -510,8 +647,8 @@ static c4_status_t build_result_json_from_matches(prover_ctx_t* ctx, log_cache_s
   }
   buffer_add_chars(&out_buf, "]");
   // Persist result string until context end
-  st->result_owner = (char*) out_buf.data.data;
-  st->result       = json_parse(st->result_owner);
+  st->result_owner = buffer_as_string(out_buf);
+  st->result       = (json_t) {.start = st->result_owner, .len = out_buf.data.len, .type = JSON_TYPE_ARRAY}; //  json_parse(st->result_owner);
   *out_logs        = st->result;
   // DO NOT buffer_free(out_buf); ownership moved to st->result_owner
   return C4_SUCCESS;
@@ -531,16 +668,14 @@ static c4_status_t get_exec_blocknumber(prover_ctx_t* ctx, json_t block, uint64_
   return C4_SUCCESS;
 }
 
-// (removed old minimal state struct; consolidated into log_cache_state_t_ext)
+// (removed old minimal state struct; consolidated into log_cache_state_t)
 
 c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out_logs, bool* served_from_cache) {
   if (served_from_cache) *served_from_cache = false;
-  if (!c4_eth_logs_cache_is_enabled()) {
-    // do not count repeatedly; only count when enabled and range covered check fails
-    return C4_SUCCESS;
-  }
+  if (!c4_eth_logs_cache_is_enabled()) return C4_SUCCESS;
+
   // Resolve and persist the numeric range across async invocations
-  log_cache_state_t_ext* st = get_log_state_ext(ctx);
+  log_cache_state_t* st = get_log_state(ctx);
 
   // If result already built, return it
   if (st->result.start) {
@@ -549,15 +684,17 @@ c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out
     return C4_SUCCESS;
   }
 
+  // check blockrange
   if (!st->resolved) {
     TRY_ASYNC(get_exec_blocknumber(ctx, json_get(filter, "fromBlock"), &st->from_block));
     TRY_ASYNC(get_exec_blocknumber(ctx, json_get(filter, "toBlock"), &st->to_block));
-    st->resolved = 1;
+    if (st->from_block > st->to_block)
+      THROW_ERROR_WITH("Invalid block range: fromBlock %l > toBlock %l", st->from_block, st->to_block);
+    st->resolved = true;
   }
 
-  if (st->from_block > st->to_block)
-    THROW_ERROR_WITH("Invalid block range: fromBlock %l > toBlock %l", st->from_block, st->to_block);
-
+  // we always need to check the blockrange,
+  // since the range may have changed since last call
   if (!c4_eth_logs_cache_has_range(st->from_block, st->to_block)) {
     if (!st->miss_counted) {
       g_misses_total++;
@@ -566,14 +703,22 @@ c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out
     return C4_SUCCESS;
   }
 
-  // Build match index on first pass
+  // Build filter (addresses/topics/bloom variants) and match index on first pass
   if (!st->blocks) {
-    build_match_index(filter, st->from_block, st->to_block, &st->blocks);
+    if (st->filter_blooms.len == 0 && !st->filter_addresses.len) {
+      build_filter_addresses(json_get(filter, "address"), &st->filter_addresses);
+      build_filter_topics(json_get(filter, "topics"), st->filter_topics);
+      uint64_t tmp_variants[MAX_BLOOM_VARIANTS][32];
+      int      vcount = build_bloom_variants(st->filter_addresses, st->filter_topics, tmp_variants);
+      if (vcount > 0) {
+        st->filter_blooms = bytes(safe_malloc((size_t) vcount * 256), (uint32_t) (vcount * 256));
+        memcpy(st->filter_blooms.data, tmp_variants, (size_t) vcount * 256);
+      }
+    }
+    build_match_index(st);
     // No matches -> empty result immediately
     if (!st->blocks) {
-      buffer_t out_buf = {0};
-      bprintf(&out_buf, "[]");
-      st->result_owner = (char*) out_buf.data.data;
+      st->result_owner = strdup("[]");
       st->result       = json_parse(st->result_owner);
       *out_logs        = st->result;
       if (served_from_cache) *served_from_cache = true;

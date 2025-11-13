@@ -38,34 +38,31 @@ typedef struct {
   uint8_t  logs_bloom[256];
 } prefetch_state_t;
 
-static void logs_prefetch_cb(request_t* req_inner) {
-  if (c4_check_retry_request(req_inner)) return;
-  prover_ctx_t*     lctx    = (prover_ctx_t*) req_inner->ctx;
-  prefetch_state_t* s       = (prefetch_state_t*) lctx->proof.data;
-  c4_status_t       st2     = C4_SUCCESS;
+static void logs_prefetch_cb(request_t* req) {
+  if (c4_check_retry_request(req)) return;
+  prover_ctx_t*     ctx     = (prover_ctx_t*) req->ctx;
+  prefetch_state_t* s       = (prefetch_state_t*) ctx->proof.data;
   uint8_t           tmp[64] = {0};
   buffer_t          b       = stack_buffer(tmp);
-  json_t            blockp  = json_parse(bprintf(&b, "\"0x%lx\"", s->block_number));
   json_t            recs    = {0};
-  st2                       = eth_getBlockReceipts(lctx, blockp, &recs);
-  if (st2 == C4_SUCCESS) {
-    c4_eth_logs_cache_add_block(s->block_number, s->logs_bloom, recs);
-    c4_prover_free(lctx);
-    safe_free(req_inner);
-    return;
-  }
-  if (st2 == C4_PENDING) {
-    if (c4_state_get_pending_request(&lctx->state)) {
-      c4_start_curl_requests(req_inner, &lctx->state);
+  switch (eth_getBlockReceipts(ctx, json_parse(bprintf(&b, "\"0x%lx\"", s->block_number)), &recs)) {
+    case C4_SUCCESS:
+      c4_eth_logs_cache_add_block(s->block_number, s->logs_bloom, recs);
+      prover_request_free(req);
       return;
-    }
+    case C4_PENDING:
+      if (c4_state_get_pending_request(&ctx->state)) {
+        c4_start_curl_requests(req, &ctx->state);
+        return;
+      }
     // fallthrough to error if no pending request found
+    case C4_ERROR:
+      log_error("logs_cache prefetch failed for block %l: %s", s->block_number, ctx->state.error ? ctx->state.error : "(unknown)");
+      prover_request_free(req);
+      return;
   }
-  log_warn("logs_cache prefetch failed for block %lu: %s", s->block_number, lctx->state.error ? lctx->state.error : "(unknown)");
-  c4_prover_free(lctx);
-  safe_free(req_inner);
-  return;
 }
+
 #endif
 
 static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
@@ -118,10 +115,6 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
     ssz_ob_t sig_exec              = ssz_get(&sig_body, "executionPayload");
     bytes_t  bloom                 = ssz_get(&sig_exec, "logsBloom").bytes;
     uint64_t prefetch_block_number = ssz_get_uint64(&sig_exec, "blockNumber");
-    if (bloom.len != 256 || prefetch_block_number == 0) {
-      bloom                 = ssz_get(&beacon_block.execution, "logsBloom").bytes;
-      prefetch_block_number = beacon_block_number;
-    }
     if (bloom.len == 256 && prefetch_block_number) {
       prefetch_state_t* st = (prefetch_state_t*) safe_calloc(1, sizeof(prefetch_state_t));
       st->block_number     = prefetch_block_number;
@@ -136,6 +129,8 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
       preq->cb           = logs_prefetch_cb;
       preq->cb(preq);
     }
+    else
+      log_warn("No logs bloom or block number for prefetching: %l (%l)", prefetch_block_number, beacon_block_number);
   }
 #endif
   return C4_SUCCESS;

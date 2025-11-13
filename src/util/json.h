@@ -128,6 +128,14 @@ char* json_new_string(json_t parent) RETURNS_NONNULL;
 bytes_t json_as_bytes(json_t value, buffer_t* buffer) NONNULL_FOR((2));
 
 /**
+ * Convert JSON value to byte array. Handles hex strings and numbers.
+ * @param value JSON value to convert
+ * @param target bytes_t to store the result
+ * @return the length of the bytes written into the target
+ */
+uint32_t json_to_bytes(json_t value, bytes_t target);
+
+/**
  * Convert JSON value to uint64. Handles hex strings and decimal numbers.
  * @param value JSON value to convert
  * @return converted number, 0 on error
@@ -162,6 +170,14 @@ bool json_equal_string(json_t value, const char* str) NONNULL_FOR((2));
  * @param data JSON value to append
  */
 void buffer_add_json(buffer_t* buffer, json_t data) NONNULL_FOR((1));
+
+/**
+ * Convert JSON value to byte array. Handles hex strings and numbers.
+ * @param value JSON value to convert
+ * @param target bytes_t to store the result
+ * @return the length of the bytes written into the target
+ */
+#define json_to_var(val, var) json_to_bytes(val, bytes(var, sizeof(var)))
 
 /**
  * Duplicate a JSON value. this will allocate new memory for json.start. Make sure to free this.
