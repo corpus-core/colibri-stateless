@@ -45,7 +45,6 @@
 //
 // Together, these proofs establish a framework for stateless, verifiable access to all critical Ethereum state components without reliance on trusted RPC endpoints.
 
-
 // definition of an enum depending on the requested block
 static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
     SSZ_NONE,                 // no block-proof for latest
@@ -69,22 +68,22 @@ static const ssz_def_t ETH_SIGNATURE_BLOCK_PROOF[] = {
 // Since Clients usually have the public keys of the last sync period and are able to verify blocks, verifying a ollder block gets complicated, because you would need the public keys of the sync committee at that period, which ar hardly available.
 // In order to allow the verification of those historic blocks, we can use the the historic summaries of the current state.
 //
-// 1. **Block Root Inclusion:**  
-//    Start with the target `block_root` to verify.  
+// 1. **Block Root Inclusion:**
+//    Start with the target `block_root` to verify.
 //    Combine it with all other 8192 block roots from the same period and generate a Merkle proof proving inclusion within that period’s block root list.
 //
-// 2. **Historical Summary Proof:**  
-//    Using the current BeaconState, locate the corresponding **HistoricalSummary**, which holds the summarized root (`summary_root`) of that 8192-block list.  
+// 2. **Historical Summary Proof:**
+//    Using the current BeaconState, locate the corresponding **HistoricalSummary**, which holds the summarized root (`summary_root`) of that 8192-block list.
 //    Extend the Merkle proof to show inclusion of this summary in the **historical_summaries** tree.
 //
-// 3. **State Root Proof:**  
-//    Continue the Merkle proof from the `historical_summaries` tree up to the `state_root` of the BeaconState.  
+// 3. **State Root Proof:**
+//    Continue the Merkle proof from the `historical_summaries` tree up to the `state_root` of the BeaconState.
 //    This step links the historical proof chain to the current verified state.
 //
-// 4. **Consensus Verification:**  
-//    Finally, use the BeaconBlockHeader associated with the current state.  
-//    Match the derived `state_root` with the one referenced in the block header.  
-//    Then verify the **BLS signature** of the Sync Committee corresponding to that block header.  
+// 4. **Consensus Verification:**
+//    Finally, use the BeaconBlockHeader associated with the current state.
+//    Match the derived `state_root` with the one referenced in the block header.
+//    Then verify the **BLS signature** of the Sync Committee corresponding to that block header.
 //    This signature confirms the authenticity of the BeaconBlock and thus of the complete historical proof chain.
 //
 // **Building the historic proof**
@@ -281,20 +280,20 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
 //
 // An Acccount Proof represents the account and storage values, including the Merkle proof, of the specified account.
 //
-// 1. **Execution-Layer Proof**  
-//    A **Patricia Merkle Proof** is constructed for the account object in the execution layer.  
-//    This proof includes the account’s `balance`, `nonce`, `codeHash`, and `storageRoot`, as well as separate proofs for all accessed storage keys.  
-//    The resulting root of this proof corresponds to the block’s **stateRoot**.  
+// 1. **Execution-Layer Proof**
+//    A **Patricia Merkle Proof** is constructed for the account object in the execution layer.
+//    This proof includes the account’s `balance`, `nonce`, `codeHash`, and `storageRoot`, as well as separate proofs for all accessed storage keys.
+//    The resulting root of this proof corresponds to the block’s **stateRoot**.
 //    (Equivalent to the data returned by `eth_getProof`.)
-// 
-// 2. **State Proof**  
+//
+// 2. **State Proof**
 //    An **SSZ Merkle Proof** links the `stateRoot` from the execution layer to the **ExecutionPayload**, and further through the **BeaconBlockBody** to its root hash, which is included in the **BeaconBlockHeader**.
 //
-// 3. **Consensus Reference**  
+// 3. **Consensus Reference**
 //    The **BeaconBlockHeader** is included in the proof to provide the `slot` information, which identifies the sync committee period responsible for signing the corresponding block root.
 //
-// 4. **Sync Committee Signature**  
-//    The **BLS aggregate signature** from the sync committee of the **following block** is verified against the `SignData` containing the block hash.  
+// 4. **Sync Committee Signature**
+//    The **BLS aggregate signature** from the sync committee of the **following block** is verified against the `SignData` containing the block hash.
 //    The signing domain is derived from the fork version and the **Genesis Validator Root**, confirming that the account data originates from a block included in the canonical chain.
 //
 // ```mermaid
@@ -370,28 +369,28 @@ static const ssz_def_t ETH_CODE_UNION[] = {
 
 // :: Call Proof
 //
-// `eth_call` returns the result of a smart contract call.  
+// `eth_call` returns the result of a smart contract call.
 // To verify that this result is correct, every referenced account, contract code, and storage value must be validated
 // against the canonical chain state.
 //
-// 1. **Execution-Layer Proof**  
-//    A **Patricia Merkle Proof** is constructed for each involved account and all accessed storage values in the execution layer.  
-//    For every account, this includes the `balance`, `nonce`, `codeHash`, and `storageRoot`, as well as the specific storage slots read or modified during the call.  
-//    Each of these elements is verified through its corresponding Merkle proof, resulting in a verified **stateRoot** for the execution block.  
+// 1. **Execution-Layer Proof**
+//    A **Patricia Merkle Proof** is constructed for each involved account and all accessed storage values in the execution layer.
+//    For every account, this includes the `balance`, `nonce`, `codeHash`, and `storageRoot`, as well as the specific storage slots read or modified during the call.
+//    Each of these elements is verified through its corresponding Merkle proof, resulting in a verified **stateRoot** for the execution block.
 //    (Equivalent to the combined data returned by `eth_getProof` for all accounts and storage keys involved.)
-// 
-// 2. **State Proof**  
-//    An **SSZ Merkle Proof** connects the `stateRoot` of the execution layer to the **ExecutionPayload**,  
+//
+// 2. **State Proof**
+//    An **SSZ Merkle Proof** connects the `stateRoot` of the execution layer to the **ExecutionPayload**,
 //    and continues through the **BeaconBlockBody** to its root hash, which is referenced in the **BeaconBlockHeader**.
 //
-// 3. **Consensus Reference**  
-//    The **BeaconBlockHeader** is included in the proof to provide the `slot` information.  
+// 3. **Consensus Reference**
+//    The **BeaconBlockHeader** is included in the proof to provide the `slot` information.
 //    This determines which sync committee is responsible for signing the corresponding block root.
 //
-// 4. **Sync Committee Signature**  
-//    The **BLS aggregate signature** from the sync committee of the **following block** is verified  
-//    against the `SignData` that includes the block hash.  
-//    The signing domain is derived from the fork version and the **Genesis Validator Root**,  
+// 4. **Sync Committee Signature**
+//    The **BLS aggregate signature** from the sync committee of the **following block** is verified
+//    against the `SignData` that includes the block hash.
+//    The signing domain is derived from the fork version and the **Genesis Validator Root**,
 //    confirming that the block and its execution state belong to the canonical chain.
 //
 // The **Call Proof** provides full verifiability of `eth_call` results by cryptographically proving all involved account and storage states without reliance on any RPC provider.
@@ -456,12 +455,12 @@ static const ssz_def_t ETH_CALL_PROOF[] = {
 
 // :: Sync Proof
 //
-// The **Sync Proof** serves as input data for verifying a sync committee transition,  
-// typically used within zero-knowledge proof systems (zk).  
+// The **Sync Proof** serves as input data for verifying a sync committee transition,
+// typically used within zero-knowledge proof systems (zk).
 // It is a compact representation derived from the **Light Client Update** structure.
 //
-// The proof is constructed as a **Merkle proof** using a given `gindex` (generalized index).  
-// It verifies inclusion starting from the hash of a validator’s public key all the way up to the **signing root**.  
+// The proof is constructed as a **Merkle proof** using a given `gindex` (generalized index).
+// It verifies inclusion starting from the hash of a validator’s public key all the way up to the **signing root**.
 // This ensures that the participating validator’s public key is part of the sync committee that signed a specific block.
 //
 // The following diagram illustrates the structure of the Merkle tree leading to the **SigningRoot**:
@@ -595,7 +594,7 @@ static const ssz_def_t ETH_CALL_PROOF[] = {
 //
 // So in total, we need to verify 1035 hashes and 1 bls signature.
 //
-// The **Sync Proof** allows cryptographic verification of validator membership in the active sync committee  
+// The **Sync Proof** allows cryptographic verification of validator membership in the active sync committee
 // without requiring the entire committee set, reducing proof size and improving zk-efficiency.
 
 // The **Sync Proof** is a compact representation of the **Light Client Update** structure.
@@ -618,27 +617,27 @@ static const ssz_def_t ETH_EXECUTION_PAYLOAD_UNION[] = {
 
 // :: Block Proof
 //
-// The **Block Proof** verifies that a specific block in the execution layer is valid  
+// The **Block Proof** verifies that a specific block in the execution layer is valid
 // and correctly referenced by the consensus layer (Beacon Chain).
 //
-// 1. **Execution Block Proof**  
-//    A Merkle proof is generated for the block’s core fields (`blockNumber`, `blockHash`, `transactionsRoot`, `stateRoot`, `receiptsRoot`)  
+// 1. **Execution Block Proof**
+//    A Merkle proof is generated for the block’s core fields (`blockNumber`, `blockHash`, `transactionsRoot`, `stateRoot`, `receiptsRoot`)
 //    within the **ExecutionPayload**. This ensures that all block data is included and consistent with the execution layer’s state.
 //
-// 2. **Payload–Header Link**  
-//    An **SSZ Merkle Proof** connects the **ExecutionPayload** to the `blockBodyRoot`,  
+// 2. **Payload–Header Link**
+//    An **SSZ Merkle Proof** connects the **ExecutionPayload** to the `blockBodyRoot`,
 //    and continues through the **BeaconBlockHeader**, proving that the execution block is part of the verified beacon block.
 //
-// 3. **Consensus Reference**  
+// 3. **Consensus Reference**
 //    The **BeaconBlockHeader** provides the `slot` context used to identify the correct sync committee for signature verification.
 //
-// 4. **Sync Committee Signature**  
-//    The **BLS aggregate signature** from the sync committee of the **following block** is verified  
-//    against the `SignData` that includes the beacon block root.  
-//    The signing domain is derived from the fork version and the **Genesis Validator Root**,  
+// 4. **Sync Committee Signature**
+//    The **BLS aggregate signature** from the sync committee of the **following block** is verified
+//    against the `SignData` that includes the beacon block root.
+//    The signing domain is derived from the fork version and the **Genesis Validator Root**,
 //    confirming that the block and its associated execution payload belong to the canonical chain.
 //
-// The **Block Proof** thus establishes full trustless verification of an execution-layer block  
+// The **Block Proof** thus establishes full trustless verification of an execution-layer block
 // by cryptographically linking it to the verified consensus layer.
 
 // The stateRoot proof is used as part of different other types since it contains all relevant
@@ -649,7 +648,7 @@ static const ssz_def_t ETH_BLOCK_PROOF[] = {
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),               // the header of the beacon block
     SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION)};        // the proof for the correctness of the header
 
-// Tor `eth_blockNumber` we need to proof the blocknumber and the timestamp of the latest block.
+// for `eth_blockNumber` we need to proof the blocknumber and the timestamp of the latest block.
 static const ssz_def_t ETH_BLOCK_NUMBER_PROOF[] = {
     SSZ_UINT64("blockNumber"),                           // the block number of the latest block
     SSZ_UINT64("timestamp"),                             // the timestamp of the latest block
