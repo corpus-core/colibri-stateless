@@ -129,6 +129,22 @@ static void pop_head_block(void) {
   if (!g_head) g_last_block_number = 0;
 }
 
+static void pop_tail_block(void) {
+  if (!g_tail) return;
+  block_entry_t* v = g_tail;
+  g_total_events -= v->events_count;
+  if (v->events) free(v->events);
+  g_tail = v->prev;
+  if (g_tail)
+    g_tail->next = NULL;
+  else
+    g_head = NULL;
+  free(v);
+  if (g_blocks_cached > 0) g_blocks_cached--;
+  g_last_block_number = g_tail ? g_tail->block_number : 0;
+  if (!g_tail) g_first_block_number = 0;
+}
+
 static void ensure_capacity_for_new_block(void) {
   while (g_blocks_cached >= g_max_blocks && g_head) pop_head_block();
 }
@@ -162,7 +178,13 @@ static void add_event(block_entry_t* e, address_t addr, uint32_t tx_index, uint3
 void c4_eth_logs_cache_add_block(uint64_t block_number, const uint8_t* logs_bloom, json_t receipts_array) {
   if (!c4_eth_logs_cache_is_enabled()) return;
 
-  // Enforce contiguity
+  // Reorg handling: if we receive a block number that is already present or older,
+  // rollback the cache to the previous height and replace tail blocks.
+  if (g_blocks_cached > 0 && block_number <= g_last_block_number) {
+    while (g_tail && g_tail->block_number >= block_number) pop_tail_block();
+  }
+
+  // Enforce contiguity (after potential rollback)
   if (g_blocks_cached > 0 && block_number != g_last_block_number + 1) {
     log_warn("logs_cache: non-contiguous block detected (got %lu, expected %lu). Resetting cache.", block_number, g_last_block_number + 1);
     reset_cache();
