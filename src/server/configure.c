@@ -11,6 +11,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(PROVER_CACHE) && defined(CHAIN_ETH)
+#include "chains/eth/prover/logs_cache.h"
+#endif
 #ifdef _WIN32
 #include "../util/win_compat.h"
 #endif
@@ -565,6 +568,19 @@ static void config() {
   get_string(&http_server.prover_nodes, "PROVER", "prover", 'R', "list of remote prover endpoints");
   get_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
   get_int(&http_server.stream_beacon_events, "BEACON_EVENTS", "beacon_events", 'e', "activates beacon event streaming", 0, 1);
+  // Optional logs cache size in blocks (default 0 = disabled). Only enabled when beacon events are active.
+  int eth_logs_cache_blocks = 0;
+  get_int(&eth_logs_cache_blocks, "ETH_LOGS_CACHE_BLOCKS", "eth_logs_cache_blocks", 0, "max number of contiguous blocks to cache logs for eth_getLogs", 0, 131072);
+#if defined(PROVER_CACHE) && defined(CHAIN_ETH)
+  if (http_server.stream_beacon_events && eth_logs_cache_blocks > 0) {
+    c4_eth_logs_cache_enable((uint32_t) eth_logs_cache_blocks);
+    log_info("eth_logs_cache enabled with capacity: %d blocks", (uint32_t) eth_logs_cache_blocks);
+  }
+  else {
+    c4_eth_logs_cache_disable();
+    log_info("eth_logs_cache disabled (beacon_events=%d, capacity=%d)", (uint32_t) http_server.stream_beacon_events, (uint32_t) eth_logs_cache_blocks);
+  }
+#endif
   get_string(&http_server.period_store, "DATA", "data", 'd', "path to the data-directory holding blockroots and light client updates");
   get_string(&http_server.preconf_storage_dir, "PRECONF_DIR", "preconf_dir", 'P', "directory for storing preconfirmations");
   get_int(&http_server.preconf_ttl_minutes, "PRECONF_TTL", "preconf_ttl", 'T', "TTL for preconfirmations in minutes", 1, 1440);
