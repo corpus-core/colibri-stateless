@@ -25,6 +25,8 @@ file(GLOB TEST_SOURCES test_*.c)
 set(TEST_INCLUDES
   ${unity_SOURCE_DIR}/src 
   ${CMAKE_SOURCE_DIR}/src 
+  ${CMAKE_SOURCE_DIR}/libs/crypto
+  ${CMAKE_BINARY_DIR}/_deps/blst-src/bindings
 )
 
 # Add server-specific includes if HTTP_SERVER is enabled
@@ -50,7 +52,7 @@ foreach(test_source ${TEST_SOURCES})
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
-    target_link_libraries(${test_name} unity verifier prover)
+    target_link_libraries(${test_name} unity verifier prover crypto)
     
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
