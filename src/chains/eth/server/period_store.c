@@ -435,40 +435,237 @@ static void fetch_header(uint8_t* root, block_t* target) {
   c4_add_request(&bf_client, req, target, fetch_header_cb);
 }
 
+typedef struct {
+  uint64_t       period;
+  period_data_t* out;
+  // paths
+  char* blocks_path;
+  char* headers_path;
+  // fds
+  uv_file blocks_fd;
+  uv_file headers_fd;
+  // buffers
+  uint8_t* blocks_buf;
+  size_t   blocks_len;
+  size_t   blocks_read;
+  uint8_t* headers_buf;
+  size_t   headers_len;
+  size_t   headers_read;
+} period_read_ctx_t;
+
+static void pr_on_headers_read(uv_fs_t* req);
+static void pr_on_headers_open(uv_fs_t* req);
+static void pr_on_blocks_read(uv_fs_t* req);
+static void pr_on_blocks_open(uv_fs_t* req);
+
+static void pr_finish(period_read_ctx_t* pr) {
+  // close any open fd
+  if (pr->blocks_fd >= 0) {
+    uv_fs_t c = {0};
+    uv_fs_close(uv_default_loop(), &c, pr->blocks_fd, NULL);
+    uv_fs_req_cleanup(&c);
+    pr->blocks_fd = -1;
+  }
+  if (pr->headers_fd >= 0) {
+    uv_fs_t c = {0};
+    uv_fs_close(uv_default_loop(), &c, pr->headers_fd, NULL);
+    uv_fs_req_cleanup(&c);
+    pr->headers_fd = -1;
+  }
+  // assign out
+  pr->out->period  = pr->period;
+  pr->out->blocks  = pr->blocks_buf;
+  pr->out->headers = pr->headers_buf;
+  // free paths
+  safe_free(pr->blocks_path);
+  safe_free(pr->headers_path);
+  // continue backfill now that period data is available
+  backfill();
+  // free ctx
+  safe_free(pr);
+}
+
+static void pr_on_headers_read(uv_fs_t* req) {
+  period_read_ctx_t* pr = (period_read_ctx_t*) req->data;
+  if (req->result < 0) {
+    log_warn("period_store: headers read error: %s", uv_strerror((int) req->result));
+    uv_fs_req_cleanup(req);
+    safe_free(req);
+    pr_finish(pr);
+    return;
+  }
+  if (req->result == 0) {
+    uv_fs_req_cleanup(req);
+    safe_free(req);
+    pr_finish(pr);
+    return;
+  }
+  pr->headers_read += (size_t) req->result;
+  uv_fs_req_cleanup(req);
+  safe_free(req);
+  if (pr->headers_read >= pr->headers_len) {
+    pr_finish(pr);
+    return;
+  }
+  // continue reading
+  uv_fs_t* rr     = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
+  rr->data        = pr;
+  size_t   remain = pr->headers_len - pr->headers_read;
+  uv_buf_t buf    = uv_buf_init((char*) (pr->headers_buf + pr->headers_read), (unsigned int) remain);
+  UVX_CHECK("uv_fs_read(headers)",
+            uv_fs_read(uv_default_loop(), rr, pr->headers_fd, &buf, 1, (int64_t) pr->headers_read, pr_on_headers_read),
+            uv_fs_req_cleanup(rr);
+            safe_free(rr),
+            pr_finish(pr);
+            return);
+}
+
+static void pr_on_headers_open(uv_fs_t* req) {
+  period_read_ctx_t* pr = (period_read_ctx_t*) req->data;
+  if (req->result < 0) {
+    // headers file missing -> keep zeros
+    uv_fs_req_cleanup(req);
+    safe_free(req);
+    pr_finish(pr);
+    return;
+  }
+  pr->headers_fd = (uv_file) req->result;
+  uv_fs_req_cleanup(req);
+  safe_free(req);
+  // start reading
+  uv_fs_t* rr  = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
+  rr->data     = pr;
+  uv_buf_t buf = uv_buf_init((char*) pr->headers_buf, (unsigned int) pr->headers_len);
+  UVX_CHECK("uv_fs_read(headers)",
+            uv_fs_read(uv_default_loop(), rr, pr->headers_fd, &buf, 1, 0, pr_on_headers_read),
+            uv_fs_req_cleanup(rr);
+            safe_free(rr),
+            pr_finish(pr);
+            return);
+}
+
+static void pr_on_blocks_read(uv_fs_t* req) {
+  period_read_ctx_t* pr = (period_read_ctx_t*) req->data;
+  if (req->result < 0) {
+    log_warn("period_store: blocks read error: %s", uv_strerror((int) req->result));
+    uv_fs_req_cleanup(req);
+    safe_free(req);
+    // proceed to headers anyway
+    uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
+    o->data    = pr;
+    UVX_CHECK("uv_fs_open(headers)",
+              uv_fs_open(uv_default_loop(), o, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
+              uv_fs_req_cleanup(o);
+              safe_free(o),
+              pr_finish(pr);
+              return);
+    return;
+  }
+  if (req->result == 0) {
+    uv_fs_req_cleanup(req);
+    safe_free(req);
+    // done reading blocks, proceed to headers
+    uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
+    o->data    = pr;
+    UVX_CHECK("uv_fs_open(headers)",
+              uv_fs_open(uv_default_loop(), o, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
+              uv_fs_req_cleanup(o);
+              safe_free(o),
+              pr_finish(pr);
+              return);
+    return;
+  }
+  pr->blocks_read += (size_t) req->result;
+  uv_fs_req_cleanup(req);
+  safe_free(req);
+  if (pr->blocks_read >= pr->blocks_len) {
+    // next open headers
+    uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
+    o->data    = pr;
+    UVX_CHECK("uv_fs_open(headers)",
+              uv_fs_open(uv_default_loop(), o, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
+              uv_fs_req_cleanup(o);
+              safe_free(o),
+              pr_finish(pr);
+              return);
+    return;
+  }
+  // continue reading
+  uv_fs_t* rr     = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
+  rr->data        = pr;
+  size_t   remain = pr->blocks_len - pr->blocks_read;
+  uv_buf_t buf    = uv_buf_init((char*) (pr->blocks_buf + pr->blocks_read), (unsigned int) remain);
+  UVX_CHECK("uv_fs_read(blocks)",
+            uv_fs_read(uv_default_loop(), rr, pr->blocks_fd, &buf, 1, (int64_t) pr->blocks_read, pr_on_blocks_read),
+            uv_fs_req_cleanup(rr);
+            safe_free(rr),
+            // go to headers anyway
+            ({ uv_fs_t* o2 = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t)); o2->data = pr;
+               UVX_CHECK("uv_fs_open(headers)", uv_fs_open(uv_default_loop(), o2, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
+                         uv_fs_req_cleanup(o2); safe_free(o2), pr_finish(pr); return); }));
+}
+
+static void pr_on_blocks_open(uv_fs_t* req) {
+  period_read_ctx_t* pr = (period_read_ctx_t*) req->data;
+  if (req->result < 0) {
+    // missing blocks file -> keep zeros; proceed to headers
+    uv_fs_req_cleanup(req);
+    safe_free(req);
+    uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
+    o->data    = pr;
+    UVX_CHECK("uv_fs_open(headers)",
+              uv_fs_open(uv_default_loop(), o, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
+              uv_fs_req_cleanup(o);
+              safe_free(o),
+              pr_finish(pr);
+              return);
+    return;
+  }
+  pr->blocks_fd = (uv_file) req->result;
+  uv_fs_req_cleanup(req);
+  safe_free(req);
+  // start reading blocks
+  uv_fs_t* rr  = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
+  rr->data     = pr;
+  uv_buf_t buf = uv_buf_init((char*) pr->blocks_buf, (unsigned int) pr->blocks_len);
+  UVX_CHECK("uv_fs_read(blocks)",
+            uv_fs_read(uv_default_loop(), rr, pr->blocks_fd, &buf, 1, 0, pr_on_blocks_read),
+            uv_fs_req_cleanup(rr);
+            safe_free(rr),
+            // proceed to headers
+            ({ uv_fs_t* o2 = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t)); o2->data = pr;
+               UVX_CHECK("uv_fs_open(headers)", uv_fs_open(uv_default_loop(), o2, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
+                         uv_fs_req_cleanup(o2); safe_free(o2), pr_finish(pr); return); }));
+}
+
 static void read_period(uint64_t period, period_data_t* period_data) {
-  char* period_path  = ensure_period_dir(period);
-  char* headers_path = bprintf(NULL, "%s/headers.ssz", period_path);
-  char* blocks_path  = bprintf(NULL, "%s/blocks.ssz", period_path);
-
-  bytes_t blocks = bytes_read(blocks_path);
-  if (blocks.data == NULL || blocks.len != 32 * SLOTS_PER_PERIOD) { // doesn't exist
-    period_data->blocks = safe_calloc(32, SLOTS_PER_PERIOD);
-    if (blocks.data) {
-      memcpy(period_data->blocks, blocks.data, blocks.len);
-      safe_free(blocks.data);
-    }
-  }
-  else
-    period_data->blocks = blocks.data;
-
-  bytes_t headers = bytes_read(headers_path);
-  if (headers.data == NULL || headers.len != HEADER_SIZE * SLOTS_PER_PERIOD) { // doesn't exist
-    period_data->headers = safe_calloc(HEADER_SIZE, SLOTS_PER_PERIOD);
-    if (headers.data) {
-      memcpy(period_data->headers, headers.data, headers.len);
-      safe_free(headers.data);
-    }
-  }
-  else
-    period_data->headers = headers.data;
-  safe_free(headers_path);
-  safe_free(blocks_path);
+  // prepare ctx
+  char*              period_path = ensure_period_dir(period);
+  period_read_ctx_t* pr          = (period_read_ctx_t*) safe_calloc(1, sizeof(period_read_ctx_t));
+  pr->period                     = period;
+  pr->out                        = period_data;
+  pr->blocks_fd                  = -1;
+  pr->headers_fd                 = -1;
+  pr->blocks_len                 = 32 * SLOTS_PER_PERIOD;
+  pr->headers_len                = HEADER_SIZE * SLOTS_PER_PERIOD;
+  pr->blocks_buf                 = (uint8_t*) safe_calloc(1, pr->blocks_len);
+  pr->headers_buf                = (uint8_t*) safe_calloc(1, pr->headers_len);
+  pr->blocks_path                = bprintf(NULL, "%s/blocks.ssz", period_path);
+  pr->headers_path               = bprintf(NULL, "%s/headers.ssz", period_path);
   safe_free(period_path);
-  period_data->period = period;
-  // TODO instead of reading the file with fopen, we should use libuv
-  // and once we have read it we go back and call backfill() again.
-
-  enqueue_backfill();
+  // open blocks first
+  uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
+  o->data    = pr;
+  {
+    int rc = uv_fs_open(uv_default_loop(), o, pr->blocks_path, O_RDONLY, 0, pr_on_blocks_open);
+    if (rc < 0) {
+      log_error("period_store: uv_fs_open(blocks) failed: %s (%s)", uv_strerror(rc), uv_err_name(rc));
+      uv_fs_req_cleanup(o);
+      safe_free(o);
+      pr_finish(pr);
+      return;
+    }
+  }
 }
 
 static inline bool read_block(uint64_t slot, block_t* result) {
