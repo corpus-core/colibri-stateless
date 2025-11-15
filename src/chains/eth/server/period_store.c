@@ -547,9 +547,10 @@ static void backfill() {
 }
 
 void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const uint8_t header112[112]) {
+  if (!http_server.period_store) return;
   block_t block = {.slot = slot};
   memcpy(block.root, block_root, 32);
   memcpy(block.header, header112, 112);
   memcpy(block.parent_root, header112 + 16, 32);
-  set_block(&bf_ctx.current, false);
+  set_block(&block, false);
 }
