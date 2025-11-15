@@ -88,9 +88,10 @@ typedef struct {
 static backfill_ctx_t    bf_ctx = {0};
 static write_queue_ctx_t queue  = {0};
 
-static void backfill();
-static void run_write_block_queue();
-static void enqueue_backfill(void);
+static void     backfill();
+static void     run_write_block_queue();
+static void     enqueue_backfill(void);
+static uint64_t latest_head_slot = 0;
 
 static uv_timer_t backfill_timer;
 static bool       backfill_timer_initialized = false;
@@ -132,11 +133,13 @@ static void backfill_check(block_t* head) {
     // should we rerun the backfill?
     // after 100 slots
     if (head->slot > bf_ctx.start_slot && head->slot - bf_ctx.start_slot > 100) {
+      log_info("period_store: backfill restart from %l to %l", head->slot, bf_ctx.start_slot);
       bf_ctx.end_slot   = bf_ctx.start_slot;
       bf_ctx.start_slot = head->slot;
       bf_ctx.done       = false;
       bf_ctx.current    = *head;
       memcpy(bf_ctx.current.parent_root, head->header + 16, 32);
+      http_server.stats.period_sync_retries_total++;
       backfill();
     }
   }
@@ -149,6 +152,8 @@ static void backfill_check(block_t* head) {
     bf_ctx.done          = false;
     bf_ctx.current       = *head;
     memcpy(bf_ctx.current.parent_root, head->header + 16, 32);
+    http_server.stats.period_sync_retries_total++;
+    log_info("period_store: backfill start [%l -> %l)", bf_ctx.start_slot, bf_ctx.end_slot);
     backfill();
   }
 }
@@ -240,6 +245,7 @@ static void ps_finish_write(fs_ctx_t* ctx, bool ok) {
     queue.head = task->next;
     if (!queue.head) queue.tail = NULL;
   }
+  if (http_server.stats.period_sync_queue_depth > 0) http_server.stats.period_sync_queue_depth--;
 
   // !call_back means this came from the beacon_events
   // and means we need to check, if we should start backfilling.
@@ -264,7 +270,29 @@ static void ps_finish_write(fs_ctx_t* ctx, bool ok) {
   buffer_free(&ctx->tmp);
   safe_free(ctx);
 
-  if (call_backfill) backfill();
+  // metrics and logging
+  if (ok) {
+    http_server.stats.period_sync_last_slot    = task->block.slot;
+    http_server.stats.period_sync_last_slot_ts = current_unix_ms();
+    if (task->run_backfill)
+      http_server.stats.period_sync_backfilled_slots_total++;
+    else
+      http_server.stats.period_sync_written_slots_total++;
+    if (latest_head_slot >= http_server.stats.period_sync_last_slot)
+      http_server.stats.period_sync_lag_slots = latest_head_slot - http_server.stats.period_sync_last_slot;
+    else
+      http_server.stats.period_sync_lag_slots = 0;
+    log_debug("period_store: wrote slot %l (%s)", task->block.slot, task->run_backfill ? "backfill" : "head");
+  }
+  else {
+    http_server.stats.period_sync_errors_total++;
+    log_warn("period_store: write failed");
+  }
+
+  if (call_backfill) {
+    log_debug("period_store: continue backfill after write");
+    backfill();
+  }
   if (call_next) run_write_block_queue();
 }
 
@@ -423,16 +451,69 @@ static void fetch_header_cb(client_t* client, void* data, data_request_t* r) {
 }
 
 static void fetch_header(uint8_t* root, block_t* target) {
-  static client_t bf_client = {0};
-  bf_client.being_closed    = false;
-
-  data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-  req->url            = root ? bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(root, 32)) : strdup("eth/v1/beacon/headers/head");
-  req->method         = C4_DATA_METHOD_GET;
-  req->chain_id       = http_server.chain_id;
-  req->type           = C4_DATA_TYPE_BEACON_API;
-  req->encoding       = C4_DATA_ENCODING_JSON;
-  c4_add_request(&bf_client, req, target, fetch_header_cb);
+  // Optional pacing to avoid rate-limits
+  int delay_ms = http_server.period_backfill_delay_ms;
+  if (delay_ms > 0) {
+    typedef struct {
+      uint8_t  root[32];
+      block_t* target;
+      bool     use_head;
+    } fetch_ctx_t;
+    static uv_timer_t fetch_timer;
+    static bool       fetch_timer_initialized = false;
+    if (!fetch_timer_initialized) {
+      if (uv_timer_init(uv_default_loop(), &fetch_timer) != 0) {
+        log_warn("period_store: uv_timer_init(fetch) failed; sending immediately");
+        delay_ms = 0;
+      }
+      else {
+        fetch_timer_initialized = true;
+      }
+    }
+    if (delay_ms > 0) {
+      fetch_ctx_t* fc = (fetch_ctx_t*) safe_calloc(1, sizeof(fetch_ctx_t));
+      fc->target      = target;
+      fc->use_head    = (root == NULL);
+      if (root) memcpy(fc->root, root, 32);
+      fetch_timer.data = fc;
+      int rc           = uv_timer_start(&fetch_timer, [](uv_timer_t* h) {
+        typedef struct {
+          uint8_t   root[32];
+          block_t*  target;
+          bool      use_head;
+        } fetch_ctx_t;
+        fetch_ctx_t* fc = (fetch_ctx_t*) h->data;
+        static client_t bf_client = {0};
+        bf_client.being_closed    = false;
+        data_request_t* req       = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+        req->url                  = fc->use_head ? strdup("eth/v1/beacon/headers/head")
+                                                 : bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(fc->root, 32));
+        req->method   = C4_DATA_METHOD_GET;
+        req->chain_id = http_server.chain_id;
+        req->type     = C4_DATA_TYPE_BEACON_API;
+        req->encoding = C4_DATA_ENCODING_JSON;
+        c4_add_request(&bf_client, req, fc->target, fetch_header_cb);
+        uv_timer_stop(h);
+        safe_free(fc); }, (uint64_t) delay_ms, 0);
+      if (rc < 0) {
+        log_warn("period_store: uv_timer_start(fetch) failed; sending immediately: %s", uv_strerror(rc));
+        delay_ms = 0;
+      }
+      if (delay_ms > 0) return;
+    }
+  }
+  // Immediate send if no delay configured or timer failed
+  {
+    static client_t bf_client = {0};
+    bf_client.being_closed    = false;
+    data_request_t* req       = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+    req->url                  = root ? bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(root, 32)) : strdup("eth/v1/beacon/headers/head");
+    req->method               = C4_DATA_METHOD_GET;
+    req->chain_id             = http_server.chain_id;
+    req->type                 = C4_DATA_TYPE_BEACON_API;
+    req->encoding             = C4_DATA_ENCODING_JSON;
+    c4_add_request(&bf_client, req, target, fetch_header_cb);
+  }
 }
 
 typedef struct {
@@ -778,6 +859,7 @@ static void backfill() {
 
 void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const uint8_t header112[112]) {
   if (!http_server.period_store) return;
+  if (slot > latest_head_slot) latest_head_slot = slot;
   block_t block = {.slot = slot};
   memcpy(block.root, block_root, 32);
   memcpy(block.header, header112, 112);
