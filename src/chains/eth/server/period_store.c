@@ -6,7 +6,6 @@
 #include "server.h"
 #include "ssz.h"
 #include "state.h"
-#include <dirent.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <stdbool.h>
