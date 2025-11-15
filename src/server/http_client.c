@@ -1064,7 +1064,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     }
     char* base_url = servers && servers->count > selected_index ? servers->urls[selected_index] : NULL;
     char* req_url  = c4_request_fix_url(r->req->url, r, servers->client_types[selected_index]);
-
+    if (req_url && req_url[0] == '/') req_url = req_url + 1;
     // Safeguard against NULL URLs
     if (!req_url) req_url = "";
     if (!base_url) base_url = "";

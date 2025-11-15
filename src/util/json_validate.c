@@ -180,6 +180,7 @@ static const char* check_suint(json_t val, const char* error_prefix) {
 }
 
 const char* json_validate(json_t val, const char* def, const char* error_prefix) {
+  if (val.type == JSON_TYPE_INVALID) return strdup("Invalid JSON");
   if (*def == '[') return check_array(val, def, error_prefix ? error_prefix : "");
   if (*def == '{') return check_object(val, def, error_prefix ? error_prefix : "");
   if (strncmp(def, "bytes32", 7) == 0) return check_hex(val, 32, false, error_prefix ? error_prefix : "");

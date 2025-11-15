@@ -53,6 +53,15 @@ typedef struct {
   uint64_t beacon_events_total;
   uint64_t beacon_events_head;
   uint64_t beacon_events_finalized;
+  // Period store sync metrics/state (for Prometheus export)
+  uint64_t period_sync_last_slot;              // last slot persisted
+  uint64_t period_sync_last_slot_ts;           // timestamp (ms) of last persisted slot (unix ms)
+  uint64_t period_sync_lag_slots;              // latest_known_slot - last_persisted_slot
+  uint64_t period_sync_queue_depth;            // queued write tasks
+  uint64_t period_sync_written_slots_total;    // direct writes from new_head
+  uint64_t period_sync_backfilled_slots_total; // writes from backfill
+  uint64_t period_sync_errors_total;           // fs or processing errors
+  uint64_t period_sync_retries_total;          // backfill retry-ish scheduling counter
 #ifdef HTTP_SERVER_GEO
   geo_location_t* geo_locations;
   size_t          geo_locations_count;
@@ -105,6 +114,8 @@ typedef struct {
   char*          checkpointz_nodes;
   int            stream_beacon_events;
   char*          period_store;
+  int            period_backfill_delay_ms; // delay between backfill requests (ms) to avoid public API rate limits
+  int            period_backfill_max_periods; // how many periods to backfill at startup (default 2)
   bytes32_t      witness_key;
   server_stats_t stats;
   // Preconf storage configuration
