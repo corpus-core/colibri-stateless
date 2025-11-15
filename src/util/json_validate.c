@@ -44,7 +44,7 @@ static const char* find_end(const char* pos, char start, char end) {
 static const char* next_name(const char* pos, const char** next, int* len) {
   while (*pos && isspace(*pos)) pos++;
   const char* start = pos;
-  while (*pos && isalnum(*pos)) pos++;
+  while (*pos && (isalnum(*pos) || *pos == '_')) pos++;
   *next = pos;
   *len  = pos - start;
   return start;

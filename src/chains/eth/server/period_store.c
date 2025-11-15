@@ -25,7 +25,10 @@
       retstmt;                                                                                 \
     }                                                                                          \
   } while (0)
+/*
+0x000000010286a9b0 "{\"data\":{\"root\":\"0xc69d3960c4673214015a4175f30179451ab5bd78366ec627e503c7a4277905a9\",\"canonical\":true,\"header\":{\"message\":{\"slot\":\"13032460\",\"proposer_index\":\"94637\",\"parent_root\":\"0x9c99ca9e68dc6de782245979a95526d4f64bf9b5cafe8a339b4604d78d3adb58\",\"state_root\":\"0x413af3133136dde7532cd6a5ac294ac0000d54a7d0c0a95c8f435bc6c6937b57\",\"body_root\":\"0x0864a3b5ecbd395f3410225b0b242bac11f36f34aa1611effd43472f96ccc154\"},\"signature\":\"0xb045a11b0baa1416a1367ac34024b1c971ffe2a4b9b6ea0b0f5a133ce085d12c00aa01860a1a29861479097dfcc8e4c303f6e742511bcc0fd855acc0601cae99fbf1a7cf7131f7ae6884129b955db9f9fd13bccd3a1845d6291356585f9804ec\"}},\"execution_optimistic\":false,\"finalized\":false}"
 
+*/
 #define HEADER_SCHEMA    "{data:{root:bytes32,header:{message:{slot:suint,proposer_index:suint,parent_root:bytes32,state_root:bytes32,body_root:bytes32}}}}"
 #define SLOTS_PER_PERIOD 8192u
 #define HEADER_SIZE      112
@@ -87,6 +90,30 @@ static write_queue_ctx_t queue  = {0};
 
 static void backfill();
 static void run_write_block_queue();
+static void enqueue_backfill(void);
+
+static uv_timer_t backfill_timer;
+static bool       backfill_timer_initialized = false;
+
+static void backfill_timer_cb(uv_timer_t* handle) {
+  backfill();
+}
+
+static void enqueue_backfill(void) {
+  if (!backfill_timer_initialized) {
+    int rc = uv_timer_init(uv_default_loop(), &backfill_timer);
+    if (rc < 0) {
+      log_error("period_store: uv_timer_init failed: %s (%s)", uv_strerror(rc), uv_err_name(rc));
+      return;
+    }
+    backfill_timer_initialized = true;
+  }
+  if (uv_is_active((uv_handle_t*) &backfill_timer)) return;
+  int rc = uv_timer_start(&backfill_timer, backfill_timer_cb, 0, 0);
+  if (rc < 0) {
+    log_error("period_store: uv_timer_start failed: %s (%s)", uv_strerror(rc), uv_err_name(rc));
+  }
+}
 
 static void backfill_done() {
   bf_ctx.done = true;
@@ -400,7 +427,7 @@ static void fetch_header(uint8_t* root, block_t* target) {
   bf_client.being_closed    = false;
 
   data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-  req->url            = root ? bprintf(NULL, "eth/v1/beacon/headers/%s", root) : strdup("eth/v1/beacon/headers/head");
+  req->url            = root ? bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(root, 32)) : strdup("eth/v1/beacon/headers/head");
   req->method         = C4_DATA_METHOD_GET;
   req->chain_id       = http_server.chain_id;
   req->type           = C4_DATA_TYPE_BEACON_API;
@@ -415,7 +442,7 @@ static void read_period(uint64_t period, period_data_t* period_data) {
 
   bytes_t blocks = bytes_read(blocks_path);
   if (blocks.data == NULL || blocks.len != 32 * SLOTS_PER_PERIOD) { // doesn't exist
-    period_data->blocks = safe_calloc(1, 32 * SLOTS_PER_PERIOD);
+    period_data->blocks = safe_calloc(32, SLOTS_PER_PERIOD);
     if (blocks.data) {
       memcpy(period_data->blocks, blocks.data, blocks.len);
       safe_free(blocks.data);
@@ -434,10 +461,14 @@ static void read_period(uint64_t period, period_data_t* period_data) {
   }
   else
     period_data->headers = headers.data;
-
+  safe_free(headers_path);
+  safe_free(blocks_path);
+  safe_free(period_path);
+  period_data->period = period;
   // TODO instead of reading the file with fopen, we should use libuv
   // and once we have read it we go back and call backfill() again.
-  backfill();
+
+  enqueue_backfill();
 }
 
 static inline bool read_block(uint64_t slot, block_t* result) {
@@ -481,7 +512,7 @@ static inline bool read_parent_block(block_t* current, block_t* result) {
       //  we are not running into rate-limit issues
 
       // let's fetch the header for the parent block
-      fetch_header(current->parent_root, result);
+      fetch_header(current->parent_root, &bf_ctx.parent);
       return false;
     }
     else if (bytes_all_zero(bytes(block.header, HEADER_SIZE))) {
@@ -527,6 +558,8 @@ static void backfill() {
       wait_for_set_block = true;
     }
     // remove the parent block, because we already checked it.
+
+    bf_ctx.current = bf_ctx.parent;
     memset(&bf_ctx.parent, 0, sizeof(block_t));
     if (wait_for_set_block) return; // now we wait until those blocks have been written.
   }
