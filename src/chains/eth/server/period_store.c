@@ -632,15 +632,23 @@ static inline bool read_block(uint64_t slot, block_t* result) {
   return true;
 }
 static inline bool read_parent_block(block_t* current, block_t* result) {
-  block_t block = {0};
+  block_t         block               = {0};
+  static uint32_t scanned_since_yield = 0;
   // count down safely to avoid uint64 underflow and respect end_slot boundary
   for (uint64_t i = current->slot; i >= bf_ctx.end_slot; i--) {
     uint64_t s = i - 1;
     if (!read_block(s, &block)) return false;           // if false, this means, we need to read the period first.
     if (memcmp(block.root, current->parent_root, 32)) { // the root must always match the parent root
 
+      // this means we skipped at least one slot,
+      // because the header was empty.
+      // if this does no match, it means that the header is missing even though
+      // there was a block, so we need to fetch the header for the parent block.
+      if (current->slot - s > 1)
+        log_warn("period_store: block header missing at slot %l: will be fetched", i);
+
       // this is not the block root we expected!
-      if (!bytes_all_zero(bytes(block.root, 32)))
+      else if (!bytes_all_zero(bytes(block.root, 32)))
         log_warn("period_store: block root mismatch at slot %l: expected %x, got %x. Will fix it!", s, bytes(current->parent_root, 32), bytes(block.root, 32));
 
       // let's fetch the header for the parent block
@@ -654,6 +662,11 @@ static inline bool read_parent_block(block_t* current, block_t* result) {
     else {
       *result = block;
       return true;
+    }
+    // Yield every 100 scanned slots to avoid blocking the event loop
+    if ((++scanned_since_yield % 100) == 0) {
+      enqueue_backfill(); // schedule continuation on the event loop
+      return false;
     }
   }
   log_error("period_store: no parent block found for slot %l", current->slot);

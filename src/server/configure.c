@@ -572,7 +572,7 @@ static void config() {
   get_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
   get_int(&http_server.stream_beacon_events, "BEACON_EVENTS", "beacon_events", 'e', "activates beacon event streaming", 0, 1);
   get_int(&http_server.period_backfill_delay_ms, "C4_PERIOD_BACKFILL_DELAY_MS", "period_backfill_delay_ms", 0, "delay between backfill requests (ms)", 0, 60000);
-  get_int(&http_server.period_backfill_max_periods, "C4_PERIOD_BACKFILL_MAX_PERIODS", "period_backfill_max_periods", 0, "max number of periods to backfill at startup", 0, 64);
+  get_int(&http_server.period_backfill_max_periods, "C4_PERIOD_BACKFILL_MAX_PERIODS", "period_backfill_max_periods", 0, "max number of periods to backfill at startup", 0, 10000);
   // Optional logs cache size in blocks (default 0 = disabled). Only enabled when beacon events are active.
   int eth_logs_cache_blocks = 0;
   get_int(&eth_logs_cache_blocks, "ETH_LOGS_CACHE_BLOCKS", "eth_logs_cache_blocks", 0, "max number of contiguous blocks to cache logs for eth_getLogs", 0, 131072);
