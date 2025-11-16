@@ -6,6 +6,7 @@
 #include "server.h"
 #include "ssz.h"
 #include "state.h"
+#include "uv_util.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -25,15 +26,10 @@
       retstmt;                                                                                 \
     }                                                                                          \
   } while (0)
-/*
-0x000000010286a9b0 "{\"data\":{\"root\":\"0xc69d3960c4673214015a4175f30179451ab5bd78366ec627e503c7a4277905a9\",\"canonical\":true,\"header\":{\"message\":{\"slot\":\"13032460\",\"proposer_index\":\"94637\",\"parent_root\":\"0x9c99ca9e68dc6de782245979a95526d4f64bf9b5cafe8a339b4604d78d3adb58\",\"state_root\":\"0x413af3133136dde7532cd6a5ac294ac0000d54a7d0c0a95c8f435bc6c6937b57\",\"body_root\":\"0x0864a3b5ecbd395f3410225b0b242bac11f36f34aa1611effd43472f96ccc154\"},\"signature\":\"0xb045a11b0baa1416a1367ac34024b1c971ffe2a4b9b6ea0b0f5a133ce085d12c00aa01860a1a29861479097dfcc8e4c303f6e742511bcc0fd855acc0601cae99fbf1a7cf7131f7ae6884129b955db9f9fd13bccd3a1845d6291356585f9804ec\"}},\"execution_optimistic\":false,\"finalized\":false}"
 
-*/
 #define HEADER_SCHEMA    "{data:{root:bytes32,header:{message:{slot:suint,proposer_index:suint,parent_root:bytes32,state_root:bytes32,body_root:bytes32}}}}"
 #define SLOTS_PER_PERIOD 8192u
 #define HEADER_SIZE      112
-
-typedef void (*header_cb)(client_t*, void* data, data_request_t*);
 
 typedef struct {
   uint64_t  slot;
@@ -85,13 +81,54 @@ typedef struct {
   buffer_t      tmp;
 } fs_ctx_t;
 
-static backfill_ctx_t    bf_ctx = {0};
-static write_queue_ctx_t queue  = {0};
-
+// forward declaration
+static void     ps_finish_write(fs_ctx_t* ctx, bool ok);
 static void     backfill();
 static void     run_write_block_queue();
 static void     enqueue_backfill(void);
 static uint64_t latest_head_slot = 0;
+static void     fetch_header_cb(client_t* client, void* data, data_request_t* r);
+
+// write completion callback for c4_write_files_uv
+static void ps_write_done_cb(void* user_data, file_data_t* files, int num_files) {
+  fs_ctx_t* ctx = (fs_ctx_t*) user_data;
+  bool      ok  = true;
+  for (int i = 0; i < num_files; i++) {
+    if (files[i].error) {
+      log_error("period_store: write %s failed: %s", files[i].path ? files[i].path : "(null)", files[i].error);
+      ok = false;
+    }
+  }
+  // free only meta (paths/errors) - don't free files[i].data.data (points into task memory)
+  c4_file_data_array_free(files, num_files, 0);
+  ps_finish_write(ctx, ok);
+}
+static backfill_ctx_t    bf_ctx = {0};
+static write_queue_ctx_t queue  = {0};
+
+// Delayed header fetch (rate-limit friendly)
+typedef struct {
+  uint8_t  root[32];
+  block_t* target;
+  bool     use_head;
+} fetch_ctx_t;
+static uv_timer_t fetch_timer;
+static bool       fetch_timer_initialized = false;
+static void       fetch_timer_cb(uv_timer_t* h) {
+  fetch_ctx_t*    fc        = (fetch_ctx_t*) h->data;
+  static client_t bf_client = {0};
+  bf_client.being_closed    = false;
+  data_request_t* req       = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->url                  = fc->use_head ? strdup("eth/v1/beacon/headers/head")
+                                                 : bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(fc->root, 32));
+  req->method               = C4_DATA_METHOD_GET;
+  req->chain_id             = http_server.chain_id;
+  req->type                 = C4_DATA_TYPE_BEACON_API;
+  req->encoding             = C4_DATA_ENCODING_JSON;
+  c4_add_request(&bf_client, req, fc->target, fetch_header_cb);
+  uv_timer_stop(h);
+  safe_free(fc);
+}
 
 static uv_timer_t backfill_timer;
 static bool       backfill_timer_initialized = false;
@@ -117,6 +154,7 @@ static void enqueue_backfill(void) {
 }
 
 static void backfill_done() {
+  log_info("period_store: backfill done at slot %l", bf_ctx.current.slot);
   bf_ctx.done = true;
   safe_free(bf_ctx.current_period.blocks);
   safe_free(bf_ctx.current_period.headers);
@@ -193,7 +231,7 @@ static char* response_to_header(data_request_t* r, block_t* header) {
   safe_free(r->url);
   safe_free(r->response.data);
   safe_free(r);
-  return NULL;
+  return NULL; // no error
 }
 
 static char* ensure_period_dir(uint64_t period) {
@@ -394,15 +432,25 @@ static void run_write_block_queue() {
   ctx->headers_path   = bprintf(NULL, "%s/headers.ssz", dir_path);
   safe_free(dir_path);
 
-  // Open/create blocks first
-  uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-  o->data    = ctx;
-  UVX_CHECK("uv_fs_open(blocks)",
-            uv_fs_open(uv_default_loop(), o, ctx->blocks_path, O_RDWR | O_CREAT, 0666, on_open_blocks),
-            uv_fs_req_cleanup(o);
-            safe_free(o),
-            ps_finish_write(ctx, false);
-            return);
+  // Use uv_util to write both files asynchronously at specific offsets
+  file_data_t* files = (file_data_t*) safe_calloc(2, sizeof(file_data_t));
+  files[0].path      = strdup(ctx->blocks_path);
+  files[0].offset    = ctx->blocks_offset;
+  files[0].limit     = 32;
+  files[0].data      = bytes(ctx->task->block.root, 32);
+  files[1].path      = strdup(ctx->headers_path);
+  files[1].offset    = ctx->headers_offset;
+  files[1].limit     = HEADER_SIZE;
+  files[1].data      = bytes(ctx->task->block.header, HEADER_SIZE);
+
+  // Schedule write; ps_finish_write will free ctx and proceed
+  int rc = c4_write_files_uv(ctx, ps_write_done_cb, files, 2, O_RDWR | O_CREAT, 0666);
+  if (rc < 0) {
+    log_error("period_store: c4_write_files_uv scheduling failed");
+    ps_finish_write(ctx, false);
+    // free allocated paths and the files array on failure (callback won't run)
+    c4_file_data_array_free(files, 2, 0);
+  }
 }
 
 static void set_block(block_t* block, bool run_backfill) {
@@ -454,13 +502,6 @@ static void fetch_header(uint8_t* root, block_t* target) {
   // Optional pacing to avoid rate-limits
   int delay_ms = http_server.period_backfill_delay_ms;
   if (delay_ms > 0) {
-    typedef struct {
-      uint8_t  root[32];
-      block_t* target;
-      bool     use_head;
-    } fetch_ctx_t;
-    static uv_timer_t fetch_timer;
-    static bool       fetch_timer_initialized = false;
     if (!fetch_timer_initialized) {
       if (uv_timer_init(uv_default_loop(), &fetch_timer) != 0) {
         log_warn("period_store: uv_timer_init(fetch) failed; sending immediately");
@@ -476,25 +517,7 @@ static void fetch_header(uint8_t* root, block_t* target) {
       fc->use_head    = (root == NULL);
       if (root) memcpy(fc->root, root, 32);
       fetch_timer.data = fc;
-      int rc           = uv_timer_start(&fetch_timer, [](uv_timer_t* h) {
-        typedef struct {
-          uint8_t   root[32];
-          block_t*  target;
-          bool      use_head;
-        } fetch_ctx_t;
-        fetch_ctx_t* fc = (fetch_ctx_t*) h->data;
-        static client_t bf_client = {0};
-        bf_client.being_closed    = false;
-        data_request_t* req       = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-        req->url                  = fc->use_head ? strdup("eth/v1/beacon/headers/head")
-                                                 : bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(fc->root, 32));
-        req->method   = C4_DATA_METHOD_GET;
-        req->chain_id = http_server.chain_id;
-        req->type     = C4_DATA_TYPE_BEACON_API;
-        req->encoding = C4_DATA_ENCODING_JSON;
-        c4_add_request(&bf_client, req, fc->target, fetch_header_cb);
-        uv_timer_stop(h);
-        safe_free(fc); }, (uint64_t) delay_ms, 0);
+      int rc           = uv_timer_start(&fetch_timer, fetch_timer_cb, (uint64_t) delay_ms, 0);
       if (rc < 0) {
         log_warn("period_store: uv_timer_start(fetch) failed; sending immediately: %s", uv_strerror(rc));
         delay_ms = 0;
@@ -503,250 +526,82 @@ static void fetch_header(uint8_t* root, block_t* target) {
     }
   }
   // Immediate send if no delay configured or timer failed
-  {
-    static client_t bf_client = {0};
-    bf_client.being_closed    = false;
-    data_request_t* req       = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-    req->url                  = root ? bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(root, 32)) : strdup("eth/v1/beacon/headers/head");
-    req->method               = C4_DATA_METHOD_GET;
-    req->chain_id             = http_server.chain_id;
-    req->type                 = C4_DATA_TYPE_BEACON_API;
-    req->encoding             = C4_DATA_ENCODING_JSON;
-    c4_add_request(&bf_client, req, target, fetch_header_cb);
-  }
+  static client_t bf_client = {0};
+  bf_client.being_closed    = false;
+  data_request_t* req       = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->url                  = root ? bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(root, 32)) : strdup("eth/v1/beacon/headers/head");
+  req->method               = C4_DATA_METHOD_GET;
+  req->chain_id             = http_server.chain_id;
+  req->type                 = C4_DATA_TYPE_BEACON_API;
+  req->encoding             = C4_DATA_ENCODING_JSON;
+  c4_add_request(&bf_client, req, target, fetch_header_cb);
 }
 
 typedef struct {
-  uint64_t       period;
   period_data_t* out;
-  // paths
-  char* blocks_path;
-  char* headers_path;
-  // fds
-  uv_file blocks_fd;
-  uv_file headers_fd;
-  // buffers
-  uint8_t* blocks_buf;
-  size_t   blocks_len;
-  size_t   blocks_read;
-  uint8_t* headers_buf;
-  size_t   headers_len;
-  size_t   headers_read;
-} period_read_ctx_t;
+  uint64_t       period;
+} period_read_done_ctx_t;
 
-static void pr_on_headers_read(uv_fs_t* req);
-static void pr_on_headers_open(uv_fs_t* req);
-static void pr_on_blocks_read(uv_fs_t* req);
-static void pr_on_blocks_open(uv_fs_t* req);
+static void read_period_done(void* user_data, file_data_t* files, int num_files) {
+  period_read_done_ctx_t* done        = (period_read_done_ctx_t*) user_data;
+  period_data_t*          pd          = done->out;
+  uint64_t                p           = done->period;
+  size_t                  blocks_len  = 32 * SLOTS_PER_PERIOD;
+  size_t                  headers_len = HEADER_SIZE * SLOTS_PER_PERIOD;
+  // blocks
+  if (num_files > 0 && files[0].error == NULL && files[0].data.data && files[0].data.len > 0) {
+    pd->blocks  = (uint8_t*) safe_calloc(1, blocks_len);
+    size_t copy = files[0].data.len < blocks_len ? files[0].data.len : blocks_len;
+    memcpy(pd->blocks, files[0].data.data, copy);
+  }
+  else {
+    pd->blocks = (uint8_t*) safe_calloc(1, blocks_len);
+    if (num_files > 0 && files[0].error)
+      log_warn("period_store: could not read blocks: %s", files[0].error);
+  }
+  // headers
+  if (num_files > 1 && files[1].error == NULL && files[1].data.data && files[1].data.len > 0) {
+    if (files[1].data.len == headers_len) {
+      // take ownership of the buffer to avoid copying ~1MB
+      pd->headers        = files[1].data.data;
+      files[1].data.data = NULL;
+      files[1].data.len  = 0;
+    }
+    else {
+      pd->headers = (uint8_t*) safe_calloc(1, headers_len);
+      size_t copy = files[1].data.len < headers_len ? files[1].data.len : headers_len;
+      memcpy(pd->headers, files[1].data.data, copy);
+    }
+  }
+  else {
+    pd->headers = (uint8_t*) safe_calloc(1, headers_len);
+    if (num_files > 1 && files[1].error)
+      log_warn("period_store: could not read headers: %s", files[1].error);
+  }
+  pd->period = p;
+  // free temp results (also frees remaining buffers if not ownership-transferred)
+  c4_file_data_array_free(files, num_files, 1);
+  safe_free(done);
+  log_info("backfilling period %l", p);
 
-static void pr_finish(period_read_ctx_t* pr) {
-  // close any open fd
-  if (pr->blocks_fd >= 0) {
-    uv_fs_t c = {0};
-    uv_fs_close(uv_default_loop(), &c, pr->blocks_fd, NULL);
-    uv_fs_req_cleanup(&c);
-    pr->blocks_fd = -1;
-  }
-  if (pr->headers_fd >= 0) {
-    uv_fs_t c = {0};
-    uv_fs_close(uv_default_loop(), &c, pr->headers_fd, NULL);
-    uv_fs_req_cleanup(&c);
-    pr->headers_fd = -1;
-  }
-  // assign out
-  pr->out->period  = pr->period;
-  pr->out->blocks  = pr->blocks_buf;
-  pr->out->headers = pr->headers_buf;
-  // free paths
-  safe_free(pr->blocks_path);
-  safe_free(pr->headers_path);
-  // continue backfill now that period data is available
+  // continue backfill
   backfill();
-  // free ctx
-  safe_free(pr);
-}
-
-static void pr_on_headers_read(uv_fs_t* req) {
-  period_read_ctx_t* pr = (period_read_ctx_t*) req->data;
-  if (req->result < 0) {
-    log_warn("period_store: headers read error: %s", uv_strerror((int) req->result));
-    uv_fs_req_cleanup(req);
-    safe_free(req);
-    pr_finish(pr);
-    return;
-  }
-  if (req->result == 0) {
-    uv_fs_req_cleanup(req);
-    safe_free(req);
-    pr_finish(pr);
-    return;
-  }
-  pr->headers_read += (size_t) req->result;
-  uv_fs_req_cleanup(req);
-  safe_free(req);
-  if (pr->headers_read >= pr->headers_len) {
-    pr_finish(pr);
-    return;
-  }
-  // continue reading
-  uv_fs_t* rr     = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-  rr->data        = pr;
-  size_t   remain = pr->headers_len - pr->headers_read;
-  uv_buf_t buf    = uv_buf_init((char*) (pr->headers_buf + pr->headers_read), (unsigned int) remain);
-  UVX_CHECK("uv_fs_read(headers)",
-            uv_fs_read(uv_default_loop(), rr, pr->headers_fd, &buf, 1, (int64_t) pr->headers_read, pr_on_headers_read),
-            uv_fs_req_cleanup(rr);
-            safe_free(rr),
-            pr_finish(pr);
-            return);
-}
-
-static void pr_on_headers_open(uv_fs_t* req) {
-  period_read_ctx_t* pr = (period_read_ctx_t*) req->data;
-  if (req->result < 0) {
-    // headers file missing -> keep zeros
-    uv_fs_req_cleanup(req);
-    safe_free(req);
-    pr_finish(pr);
-    return;
-  }
-  pr->headers_fd = (uv_file) req->result;
-  uv_fs_req_cleanup(req);
-  safe_free(req);
-  // start reading
-  uv_fs_t* rr  = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-  rr->data     = pr;
-  uv_buf_t buf = uv_buf_init((char*) pr->headers_buf, (unsigned int) pr->headers_len);
-  UVX_CHECK("uv_fs_read(headers)",
-            uv_fs_read(uv_default_loop(), rr, pr->headers_fd, &buf, 1, 0, pr_on_headers_read),
-            uv_fs_req_cleanup(rr);
-            safe_free(rr),
-            pr_finish(pr);
-            return);
-}
-
-static void pr_on_blocks_read(uv_fs_t* req) {
-  period_read_ctx_t* pr = (period_read_ctx_t*) req->data;
-  if (req->result < 0) {
-    log_warn("period_store: blocks read error: %s", uv_strerror((int) req->result));
-    uv_fs_req_cleanup(req);
-    safe_free(req);
-    // proceed to headers anyway
-    uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-    o->data    = pr;
-    UVX_CHECK("uv_fs_open(headers)",
-              uv_fs_open(uv_default_loop(), o, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
-              uv_fs_req_cleanup(o);
-              safe_free(o),
-              pr_finish(pr);
-              return);
-    return;
-  }
-  if (req->result == 0) {
-    uv_fs_req_cleanup(req);
-    safe_free(req);
-    // done reading blocks, proceed to headers
-    uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-    o->data    = pr;
-    UVX_CHECK("uv_fs_open(headers)",
-              uv_fs_open(uv_default_loop(), o, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
-              uv_fs_req_cleanup(o);
-              safe_free(o),
-              pr_finish(pr);
-              return);
-    return;
-  }
-  pr->blocks_read += (size_t) req->result;
-  uv_fs_req_cleanup(req);
-  safe_free(req);
-  if (pr->blocks_read >= pr->blocks_len) {
-    // next open headers
-    uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-    o->data    = pr;
-    UVX_CHECK("uv_fs_open(headers)",
-              uv_fs_open(uv_default_loop(), o, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
-              uv_fs_req_cleanup(o);
-              safe_free(o),
-              pr_finish(pr);
-              return);
-    return;
-  }
-  // continue reading
-  uv_fs_t* rr     = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-  rr->data        = pr;
-  size_t   remain = pr->blocks_len - pr->blocks_read;
-  uv_buf_t buf    = uv_buf_init((char*) (pr->blocks_buf + pr->blocks_read), (unsigned int) remain);
-  UVX_CHECK("uv_fs_read(blocks)",
-            uv_fs_read(uv_default_loop(), rr, pr->blocks_fd, &buf, 1, (int64_t) pr->blocks_read, pr_on_blocks_read),
-            uv_fs_req_cleanup(rr);
-            safe_free(rr),
-            // go to headers anyway
-            ({ uv_fs_t* o2 = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t)); o2->data = pr;
-               UVX_CHECK("uv_fs_open(headers)", uv_fs_open(uv_default_loop(), o2, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
-                         uv_fs_req_cleanup(o2); safe_free(o2), pr_finish(pr); return); }));
-}
-
-static void pr_on_blocks_open(uv_fs_t* req) {
-  period_read_ctx_t* pr = (period_read_ctx_t*) req->data;
-  if (req->result < 0) {
-    // missing blocks file -> keep zeros; proceed to headers
-    uv_fs_req_cleanup(req);
-    safe_free(req);
-    uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-    o->data    = pr;
-    UVX_CHECK("uv_fs_open(headers)",
-              uv_fs_open(uv_default_loop(), o, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
-              uv_fs_req_cleanup(o);
-              safe_free(o),
-              pr_finish(pr);
-              return);
-    return;
-  }
-  pr->blocks_fd = (uv_file) req->result;
-  uv_fs_req_cleanup(req);
-  safe_free(req);
-  // start reading blocks
-  uv_fs_t* rr  = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-  rr->data     = pr;
-  uv_buf_t buf = uv_buf_init((char*) pr->blocks_buf, (unsigned int) pr->blocks_len);
-  UVX_CHECK("uv_fs_read(blocks)",
-            uv_fs_read(uv_default_loop(), rr, pr->blocks_fd, &buf, 1, 0, pr_on_blocks_read),
-            uv_fs_req_cleanup(rr);
-            safe_free(rr),
-            // proceed to headers
-            ({ uv_fs_t* o2 = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t)); o2->data = pr;
-               UVX_CHECK("uv_fs_open(headers)", uv_fs_open(uv_default_loop(), o2, pr->headers_path, O_RDONLY, 0, pr_on_headers_open),
-                         uv_fs_req_cleanup(o2); safe_free(o2), pr_finish(pr); return); }));
 }
 
 static void read_period(uint64_t period, period_data_t* period_data) {
-  // prepare ctx
-  char*              period_path = ensure_period_dir(period);
-  period_read_ctx_t* pr          = (period_read_ctx_t*) safe_calloc(1, sizeof(period_read_ctx_t));
-  pr->period                     = period;
-  pr->out                        = period_data;
-  pr->blocks_fd                  = -1;
-  pr->headers_fd                 = -1;
-  pr->blocks_len                 = 32 * SLOTS_PER_PERIOD;
-  pr->headers_len                = HEADER_SIZE * SLOTS_PER_PERIOD;
-  pr->blocks_buf                 = (uint8_t*) safe_calloc(1, pr->blocks_len);
-  pr->headers_buf                = (uint8_t*) safe_calloc(1, pr->headers_len);
-  pr->blocks_path                = bprintf(NULL, "%s/blocks.ssz", period_path);
-  pr->headers_path               = bprintf(NULL, "%s/headers.ssz", period_path);
-  safe_free(period_path);
-  // open blocks first
-  uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-  o->data    = pr;
-  {
-    int rc = uv_fs_open(uv_default_loop(), o, pr->blocks_path, O_RDONLY, 0, pr_on_blocks_open);
-    if (rc < 0) {
-      log_error("period_store: uv_fs_open(blocks) failed: %s (%s)", uv_strerror(rc), uv_err_name(rc));
-      uv_fs_req_cleanup(o);
-      safe_free(o);
-      pr_finish(pr);
-      return;
-    }
-  }
+  char*       dir  = ensure_period_dir(period);
+  file_data_t f[2] = {0};
+  f[0].path        = bprintf(NULL, "%s/blocks.ssz", dir);
+  f[0].offset      = 0;
+  f[0].limit       = 32 * SLOTS_PER_PERIOD;
+  f[1].path        = bprintf(NULL, "%s/headers.ssz", dir);
+  f[1].offset      = 0;
+  f[1].limit       = HEADER_SIZE * SLOTS_PER_PERIOD;
+  safe_free(dir);
+  period_read_done_ctx_t* done = (period_read_done_ctx_t*) safe_calloc(1, sizeof(period_read_done_ctx_t));
+  done->out                    = period_data;
+  done->period                 = period;
+  c4_read_files_uv(done, read_period_done, f, 2);
 }
 
 static inline bool read_block(uint64_t slot, block_t* result) {
