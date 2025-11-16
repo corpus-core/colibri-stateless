@@ -582,7 +582,12 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
   // free temp results (also frees remaining buffers if not ownership-transferred)
   c4_file_data_array_free(files, num_files, 1);
   safe_free(done);
-  log_info("backfilling period %l", p);
+  static uint64_t last_logged = 0;
+  uint64_t        ts          = current_ms();
+  if (last_logged == 0 || ts - last_logged > 1000) {
+    log_info("backfilling period %l", p);
+    last_logged = ts;
+  }
 
   // continue backfill
   backfill();
