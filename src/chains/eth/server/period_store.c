@@ -633,24 +633,22 @@ static inline bool read_block(uint64_t slot, block_t* result) {
 }
 static inline bool read_parent_block(block_t* current, block_t* result) {
   block_t block = {0};
-  for (uint64_t i = current->slot - 1; i >= 0; i++) {
-    if (!read_block(i, &block)) return false;           // this means, we need to read the period first.
-    if (memcmp(block.root, current->parent_root, 32)) { // this means there is no block at this slot.
+  // count down safely to avoid uint64 underflow and respect end_slot boundary
+  for (uint64_t i = current->slot; i >= bf_ctx.end_slot; i--) {
+    uint64_t s = i - 1;
+    if (!read_block(s, &block)) return false;           // if false, this means, we need to read the period first.
+    if (memcmp(block.root, current->parent_root, 32)) { // the root must always match the parent root
 
       // this is not the block root we expected!
       if (!bytes_all_zero(bytes(block.root, 32)))
-        log_warn("period_store: block root mismatch at slot %l: expected %x, got %x. Will fix it!", i, bytes(current->parent_root, 32), bytes(block.root, 32));
-
-      // TODO use http_server.period_backfill_delay_ms to make sure
-      //  we are not running into rate-limit issues
+        log_warn("period_store: block root mismatch at slot %l: expected %x, got %x. Will fix it!", s, bytes(current->parent_root, 32), bytes(block.root, 32));
 
       // let's fetch the header for the parent block
       fetch_header(current->parent_root, &bf_ctx.parent);
       return false;
     }
     else if (bytes_all_zero(bytes(block.header, HEADER_SIZE))) {
-      // this is ok, it means for this slot there is no block.
-      // continue to the next slot.
+      // no header means this slot was skipped, so we continue to the next slot to find our parent.
       continue;
     }
     else {
