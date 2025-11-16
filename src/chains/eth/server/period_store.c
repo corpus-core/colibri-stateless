@@ -50,6 +50,7 @@ typedef struct {
   period_data_t current_period;
   period_data_t previous_period;
 
+  uint64_t started_ts;
   uint64_t end_slot;
   uint64_t start_slot;
   bool     done;
@@ -154,7 +155,19 @@ static void enqueue_backfill(void) {
 }
 
 static void backfill_done() {
-  log_info("period_store: backfill done at slot %l", bf_ctx.current.slot);
+  uint64_t duration_ms    = current_ms() - bf_ctx.started_ts;
+  uint64_t duration_s     = duration_ms / 1000;
+  uint64_t duration_min   = duration_s / 60;
+  uint64_t duration_hours = duration_min / 60;
+  if (duration_hours > 0)
+    log_info(YELLOW("period_store:") " backfill done at slot %l in " GREEN("%l hours and %l min"), bf_ctx.current.slot, duration_hours, duration_min % 60);
+  else if (duration_min > 0)
+    log_info(YELLOW("period_store:") " backfill done at slot %l in " GREEN("%l min and %l s"), bf_ctx.current.slot, duration_min, duration_s % 60);
+  else if (duration_s > 0)
+    log_info(YELLOW("period_store:") " backfill done at slot %l in " GREEN("%l s and %l ms"), bf_ctx.current.slot, duration_s, duration_ms % 1000);
+  else
+    log_info(YELLOW("period_store:") " backfill done at slot %l in " GREEN("%l ms"), bf_ctx.current.slot, duration_ms);
+
   bf_ctx.done = true;
   safe_free(bf_ctx.current_period.blocks);
   safe_free(bf_ctx.current_period.headers);
@@ -172,6 +185,7 @@ static void backfill_check(block_t* head) {
     // after 100 slots
     if (head->slot > bf_ctx.start_slot && head->slot - bf_ctx.start_slot > 100) {
       log_info("period_store: backfill restart from %l to %l", head->slot, bf_ctx.start_slot);
+      bf_ctx.started_ts = current_ms();
       bf_ctx.end_slot   = bf_ctx.start_slot;
       bf_ctx.start_slot = head->slot;
       bf_ctx.done       = false;
@@ -185,6 +199,7 @@ static void backfill_check(block_t* head) {
     // we have not started anything yet.
     // let's start from the head down to the configured max periods.
     uint64_t max_periods = http_server.period_backfill_max_periods > 0 ? http_server.period_backfill_max_periods : 2;
+    bf_ctx.started_ts    = current_ms();
     bf_ctx.start_slot    = head->slot;
     bf_ctx.end_slot      = head->slot - (head->slot % SLOTS_PER_PERIOD) - (SLOTS_PER_PERIOD * max_periods);
     bf_ctx.done          = false;
