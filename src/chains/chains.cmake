@@ -1,8 +1,8 @@
 # List to store all verifier properties
 set(VERIFIER_PROPERTIES "" CACHE INTERNAL "List of all verifier properties")
 
-# List to store all proofer properties
-set(PROOFER_PROPERTIES "" CACHE INTERNAL "List of all proofer properties")
+# List to store all prover properties
+set(PROVER_PROPERTIES "" CACHE INTERNAL "List of all prover properties")
 
 function(add_verifier)
     # Only process if VERIFIER is enabled
@@ -34,9 +34,47 @@ function(add_verifier)
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
 endfunction()
 
-function(add_proofer)
-    # Only process if PROOFER is enabled
-    if(NOT PROOFER)
+# Chain properties registration and header generation
+function(add_chain_props)
+    set(options "")
+    set(oneValueArgs FUNC)
+    set(multiValueArgs "")
+    cmake_parse_arguments(CHAINP "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    get_property(CURRENT CACHE CHAIN_PROPS_PROPERTIES PROPERTY VALUE)
+    list(APPEND CURRENT "${CHAINP_FUNC}")
+    set(CHAIN_PROPS_PROPERTIES "${CURRENT}" CACHE INTERNAL "List of chain props provider functions" FORCE)
+endfunction()
+
+function(generate_chain_props_header)
+    set(CHAIN_PROPS_H "${CMAKE_BINARY_DIR}/chain_props.h")
+    file(WRITE ${CHAIN_PROPS_H} "#ifndef CHAIN_PROPS_H\n")
+    file(APPEND ${CHAIN_PROPS_H} "#define CHAIN_PROPS_H\n\n")
+    file(APPEND ${CHAIN_PROPS_H} "#include \"util/chains.h\"\n\n")
+
+    # Deduplicate providers to avoid duplicate calls/prototypes
+    set(UNIQ_CHAIN_PROPS ${CHAIN_PROPS_PROPERTIES})
+    list(REMOVE_DUPLICATES UNIQ_CHAIN_PROPS)
+
+    foreach(func ${UNIQ_CHAIN_PROPS})
+        if(NOT "${func}" STREQUAL "")
+            file(APPEND ${CHAIN_PROPS_H} "bool ${func}(chain_id_t chain_id, chain_properties_t* props);\n")
+        endif()
+    endforeach()
+
+    file(APPEND ${CHAIN_PROPS_H} "\nstatic inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* out_props) {\n  if (!out_props) return false;\n#ifdef HTTP_SERVER\n")
+    foreach(func ${UNIQ_CHAIN_PROPS})
+        if(NOT "${func}" STREQUAL "")
+          file(APPEND ${CHAIN_PROPS_H} "  if (${func}(chain_id, out_props)) return true;\n")
+        endif()
+    endforeach()
+    file(APPEND ${CHAIN_PROPS_H} "#endif\n")
+    file(APPEND ${CHAIN_PROPS_H} "  return false;\n}\n\n")
+    file(APPEND ${CHAIN_PROPS_H} "#endif // CHAIN_PROPS_H\n")
+endfunction()
+
+function(add_prover)
+    # Only process if PROVER is enabled
+    if(NOT PROVER)
         return()
     endif()
 
@@ -44,25 +82,25 @@ function(add_proofer)
     set(options "")
     set(oneValueArgs NAME PROOF)
     set(multiValueArgs SOURCES DEPENDS)
-    cmake_parse_arguments(PROOFER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    cmake_parse_arguments(PROVER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     # Add the library
-    add_library(${PROOFER_NAME} STATIC ${PROOFER_SOURCES})
+    add_library(${PROVER_NAME} STATIC ${PROVER_SOURCES})
     
     # Set include directories
-    target_include_directories(${PROOFER_NAME} PUBLIC ../../proofer proofer)
+    target_include_directories(${PROVER_NAME} PUBLIC ../../prover prover)
 
     
     # Link dependencies
-    target_link_libraries(${PROOFER_NAME} PUBLIC ${PROOFER_DEPENDS})
-    target_link_libraries(proofer PUBLIC ${PROOFER_NAME})
+    target_link_libraries(${PROVER_NAME} PUBLIC ${PROVER_DEPENDS})
+    target_link_libraries(prover PUBLIC ${PROVER_NAME})
 
     # Get the current global list
-    get_property(CURRENT_PROPERTIES CACHE PROOFER_PROPERTIES PROPERTY VALUE)
+    get_property(CURRENT_PROPERTIES CACHE PROVER_PROPERTIES PROPERTY VALUE)
     
     # Append to the global list
-    list(APPEND CURRENT_PROPERTIES "${PROOFER_NAME}:${PROOFER_PROOF}")
-    set(PROOFER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all proofer properties" FORCE)
+    list(APPEND CURRENT_PROPERTIES "${PROVER_NAME}:${PROVER_PROOF}")
+    set(PROVER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all prover properties" FORCE)
 endfunction()
 
 # Function to generate verifiers.h
@@ -127,38 +165,200 @@ function(generate_verifiers_header)
     file(APPEND ${VERIFIERS_H} "#endif // VERIFIERS_H\n")
 endfunction()
 
-# Function to generate proofers.h
-function(generate_proofers_header)
-    # Only generate if PROOFER is enabled
-    if(NOT PROOFER)
+# Function to generate provers.h
+function(generate_provers_header)
+    # Only generate if PROVER is enabled
+    if(NOT PROVER)
         return()
     endif()
     
-    set(PROOFERS_H "${CMAKE_BINARY_DIR}/proofers.h")
+    set(PROVERS_H "${CMAKE_BINARY_DIR}/provers.h")
     
     # Start with header guard and includes
-    file(WRITE ${PROOFERS_H} "#ifndef PROOFERS_H\n")
-    file(APPEND ${PROOFERS_H} "#define PROOFERS_H\n\n")
+    file(WRITE ${PROVERS_H} "#ifndef PROVERS_H\n")
+    file(APPEND ${PROVERS_H} "#define PROVERS_H\n\n")
 
-    # Add function declarations for each proofer
-    foreach(prop ${PROOFER_PROPERTIES})
+    # Add function declarations for each prover
+    foreach(prop ${PROVER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 0 name)
         list(GET parts 1 proof)
         
-        file(APPEND ${PROOFERS_H} "bool ${proof}(proofer_ctx_t* ctx);\n\n")
+        file(APPEND ${PROVERS_H} "bool ${proof}(prover_ctx_t* ctx);\n\n")
     endforeach()
 
-    # Add proofer_execute function
-    file(APPEND ${PROOFERS_H} "static void proofer_execute(proofer_ctx_t* ctx) {\n")
-    foreach(prop ${PROOFER_PROPERTIES})
+    # Add prover_execute function
+    file(APPEND ${PROVERS_H} "static void prover_execute(prover_ctx_t* ctx) {\n")
+    foreach(prop ${PROVER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 1 proof)
-        file(APPEND ${PROOFERS_H} "  if (${proof}(ctx)) return;\n")
+        file(APPEND ${PROVERS_H} "  if (${proof}(ctx)) return;\n")
     endforeach()
-    file(APPEND ${PROOFERS_H} "  ctx->state.error = strdup(\"Unsupported chain\");\n")
-    file(APPEND ${PROOFERS_H} "}\n\n")
+    file(APPEND ${PROVERS_H} "  ctx->state.error = strdup(\"Unsupported chain\");\n")
+    file(APPEND ${PROVERS_H} "}\n\n")
 
     # Close header guard
-    file(APPEND ${PROOFERS_H} "#endif // PROOFERS_H\n")
+    file(APPEND ${PROVERS_H} "#endif // PROVERS_H\n")
+endfunction()
+
+# List for all server handler properties
+set(SERVER_HANDLER_PROPERTIES "" CACHE INTERNAL "List of all server handler properties")
+set(SERVER_HANDLER_LIBS "" CACHE INTERNAL "List of all server handler libraries")
+
+function(add_server_handler)
+    if(NOT HTTP_SERVER)
+        return()
+    endif()
+
+    set(options "")
+    set(oneValueArgs NAME INIT_FUNC SHUTDOWN_FUNC GET_DETECTION_REQUEST_FUNC PARSE_VERSION_RESPONSE_FUNC GET_CLIENT_MAPPINGS_FUNC METRICS_FUNC)
+    set(multiValueArgs SOURCES DEPENDS)
+    cmake_parse_arguments(HANDLER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    add_library(${HANDLER_NAME} STATIC ${HANDLER_SOURCES})
+    target_include_directories(${HANDLER_NAME} PUBLIC 
+        ../../server
+        ../../
+        ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include
+        ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
+    )
+    
+    # Link against CURL since server.h includes curl/curl.h
+    find_package(CURL REQUIRED)
+    target_link_libraries(${HANDLER_NAME} PUBLIC libuv llhttp prover util verifier CURL::libcurl ${HANDLER_DEPENDS} )
+    # target_link_libraries(server PUBLIC ${HANDLER_NAME}) # This is the problematic line
+
+    # Get current list of properties
+    get_property(CURRENT_PROPERTIES CACHE SERVER_HANDLER_PROPERTIES PROPERTY VALUE)
+    
+    # Append the new handler to the list
+    list(APPEND CURRENT_PROPERTIES 
+         "${HANDLER_NAME}:${HANDLER_INIT_FUNC}:${HANDLER_SHUTDOWN_FUNC}:${HANDLER_GET_DETECTION_REQUEST_FUNC}:${HANDLER_PARSE_VERSION_RESPONSE_FUNC}:${HANDLER_GET_CLIENT_MAPPINGS_FUNC}:${HANDLER_METRICS_FUNC}")
+    set(SERVER_HANDLER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all server handler properties" FORCE)
+
+    # Add the handler library to the global list of libraries
+    get_property(CURRENT_LIBS CACHE SERVER_HANDLER_LIBS PROPERTY VALUE)
+    list(APPEND CURRENT_LIBS ${HANDLER_NAME})
+    set(SERVER_HANDLER_LIBS "${CURRENT_LIBS}" CACHE INTERNAL "List of all server handler libraries" FORCE)
+endfunction()
+
+# Function to generate server_handlers.h
+function(generate_server_handlers_header)
+    if(NOT HTTP_SERVER)
+        return()
+    endif()
+
+    set(SERVER_HANDLERS_H "${CMAKE_BINARY_DIR}/server_handlers.h")
+    
+    file(WRITE ${SERVER_HANDLERS_H} "#ifndef SERVER_HANDLERS_H\n")
+    file(APPEND ${SERVER_HANDLERS_H} "#define SERVER_HANDLERS_H\n\n")
+    file(APPEND ${SERVER_HANDLERS_H} "#include \"server.h\"\n\n")
+
+    # Forward declarations for all handler functions
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 1 init_func)
+        list(GET parts 2 shutdown_func)
+        list(GET parts 3 get_detection_request_func)
+        list(GET parts 4 parse_version_response_func)
+        list(GET parts 5 get_client_mappings_func)
+        list(GET parts 6 metrics_func)
+        
+        # Only declare functions that have non-empty names
+        if(NOT "${init_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "void ${init_func}(http_server_t* server);\n")
+        endif()
+        if(NOT "${shutdown_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "void ${shutdown_func}(http_server_t* server);\n")
+        endif()
+        if(NOT "${get_detection_request_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "bool ${get_detection_request_func}(http_server_t* server, data_request_type_t type, const char** path, const char** rpc_payload);\n")
+        endif()
+        if(NOT "${parse_version_response_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "beacon_client_type_t ${parse_version_response_func}(http_server_t* server, const char* response, data_request_type_t type);\n")
+        endif()
+        if(NOT "${get_client_mappings_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "const client_type_mapping_t* ${get_client_mappings_func}(http_server_t* server);\n")
+        endif()
+        if(NOT "${metrics_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "void ${metrics_func}(http_server_t* server, buffer_t* data);\n")
+        endif()
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "\n")
+
+    # --- Dispatcher-Funktionen generieren ---
+
+    # Init-Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static void c4_server_handlers_init(http_server_t* server) {\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 1 init_func)
+        if(NOT "${init_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "  ${init_func}(server);\n")
+        endif()
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Shutdown-Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static void c4_server_handlers_shutdown(http_server_t* server) {\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 2 shutdown_func)
+        if(NOT "${shutdown_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "  ${shutdown_func}(server);\n")
+        endif()
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Get Detection Request Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static bool c4_server_handlers_get_detection_request(http_server_t* server, data_request_type_t type, const char** path, const char** rpc_payload) {\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 3 get_detection_request_func)
+        if(NOT "${get_detection_request_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "  if (${get_detection_request_func}(server, type, path, rpc_payload)) return true;\n")
+        endif()
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "  return false;\n")
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Parse Version Response Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static beacon_client_type_t c4_server_handlers_parse_version_response(http_server_t* server, const char* response, data_request_type_t type) {\n")
+    file(APPEND ${SERVER_HANDLERS_H} "  beacon_client_type_t client_type = BEACON_CLIENT_UNKNOWN;\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 4 parse_version_response_func)
+        if(NOT "${parse_version_response_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "  client_type = ${parse_version_response_func}(server, response, type);\n")
+            file(APPEND ${SERVER_HANDLERS_H} "  if (client_type != BEACON_CLIENT_UNKNOWN) return client_type;\n")
+        endif()
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "  return BEACON_CLIENT_UNKNOWN;\n")
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Get Client Mappings Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static const client_type_mapping_t* c4_server_handlers_get_client_mappings(http_server_t* server) {\n  client_type_mapping_t* mappings = NULL;\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 5 get_client_mappings_func)
+        if(NOT "${get_client_mappings_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "  mappings = ${get_client_mappings_func}(server);\n")
+            file(APPEND ${SERVER_HANDLERS_H} "  if (mappings) return mappings;\n")
+        endif()
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "  return NULL;\n")
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Metrics Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static void c4_server_handlers_metrics(http_server_t* server, buffer_t* data) {\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 6 metrics_func)
+        if(NOT "${metrics_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "  ${metrics_func}(server, data);\n")
+        endif()
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    file(APPEND ${SERVER_HANDLERS_H} "#endif // SERVER_HANDLERS_H\n")
 endfunction()

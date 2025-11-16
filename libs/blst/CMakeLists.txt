@@ -1,3 +1,24 @@
+# Copyright (c) 2025 corpus.core
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the "Software"), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+# the Software, and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# SPDX-License-Identifier: MIT
+
 include(FetchContent)
 
 # Define the output path for the static library
@@ -23,7 +44,8 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(blst)
 
 # Set up initial flags
-if(KOTLIN)
+# Always use -fPIC for static libraries that will be linked into shared libraries or PIE executables
+if(KOTLIN OR PYTHON OR (NOT WIN32 AND NOT EMSCRIPTEN))
     set(EXTRA_C_FLAGS "-fPIC\ ")
 endif()
 
@@ -120,8 +142,8 @@ else()
             COMMENT "Building blst using build script with Android NDK toolchain"
             VERBATIM
         )
-    elseif(SWIFT)
-        # iOS build configuration
+    elseif(SWIFT AND CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        # iOS build configuration (only when explicitly building for iOS)
         if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
             add_custom_command(
                 OUTPUT ${BLST_LIB}

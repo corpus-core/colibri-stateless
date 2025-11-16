@@ -1,0 +1,88 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "displayName": "Standardkonfiguration",
+            "description": "Standardmäßige Build-Einstellungen",
+            "binaryDir": "${sourceDir}/build/default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
+                "CHAIN_OP": "1",
+                "HTTP_SERVER": "1",
+                "PROVER_CACHE": "1",
+                "TEST": "1"
+            }
+        },
+        {
+            "name": "testing",
+            "displayName": "Testing-Build",
+            "description": "Aktiviert Tests",
+            "inherits": "default",
+            "binaryDir": "${sourceDir}/build/testing",
+            "cacheVariables": {
+                "TEST": "1",
+                "COVERAGE": "1",
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "1"
+            }
+        },
+        {
+            "name": "full-features",
+            "displayName": "Full incl. Server",
+            "description": "Aktiviert Tests, HTTP-Server und Prover-Cache",
+            "inherits": "default",
+            "binaryDir": "${sourceDir}/build/full",
+            "cacheVariables": {
+                "TEST": "1",
+                "HTTP_SERVER": "1",
+                "PROVER_CACHE": "1",
+                "CHAIN_OP": "0",
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "1"
+            }
+        },
+        {
+            "name": "wasm",
+            "displayName": "WASM",
+            "description": "WASM Build für Emscripten",
+            "inherits": "default",
+            "binaryDir": "${sourceDir}/build/wasm",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "MinSizeRel",
+                "TEST": "0",
+                "CLI": "0",
+                "CURL": "0",
+                "WASM": "1",
+                "CHAIN_OP": "0",
+                "HTTP_SERVER": "0",
+                "PROVER_CACHE": "0",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
+                "CMAKE_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "default-build",
+            "configurePreset": "default",
+            "displayName": "Build (Standard)"
+        },
+        {
+            "name": "testing-build",
+            "configurePreset": "testing",
+            "displayName": "Build (Testing)"
+        },
+        {
+            "name": "full-build",
+            "configurePreset": "full-features",
+            "displayName": "Server Build (Alle Features)"
+        },
+        {
+            "name": "wasm",
+            "configurePreset": "wasm",
+            "displayName": "WASM Build"
+        }
+    ]
+}

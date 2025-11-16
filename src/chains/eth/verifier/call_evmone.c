@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "bytes.h"
 #include "call_ctx.h"
 #include "crypto.h"
@@ -18,9 +41,9 @@
 
 // Define debug macro for EVM execution
 #define EVM_DEBUG 0 // Set to 0 to disable debugging
-#define EVM_LOG(format, ...)                                             \
-  do {                                                                   \
-    if (EVM_DEBUG) fprintf(stderr, "[EVM] " format "\n", ##__VA_ARGS__); \
+#define EVM_LOG(format, ...)                                              \
+  do {                                                                    \
+    if (EVM_DEBUG) fbprintf(stderr, "[EVM] " format "\n", ##__VA_ARGS__); \
   } while (0)
 
 /* Define the call kinds enum to match evmone_message's anonymous enum */
@@ -50,21 +73,13 @@ static void add_evm_result(evmone_context_t* ctx, struct evmone_result* result) 
 // Debug function to print address as hex
 static void debug_print_address(const char* prefix, const evmc_address* addr) {
   if (!EVM_DEBUG) return;
-  fprintf(stderr, "[EVM] %s: 0x", prefix);
-  for (int i = 0; i < 20; i++) {
-    fprintf(stderr, "%02x", addr->bytes[i]);
-  }
-  fprintf(stderr, "\n");
+  fbprintf(stderr, "[EVM] %s: 0x%x\n", prefix, bytes(addr->bytes, 20));
 }
 
 // Debug function to print bytes32 as hex
 static void debug_print_bytes32(const char* prefix, const evmc_bytes32* data) {
   if (!EVM_DEBUG) return;
-  fprintf(stderr, "[EVM] %s: 0x", prefix);
-  for (int i = 0; i < 32; i++) {
-    fprintf(stderr, "%02x", data->bytes[i]);
-  }
-  fprintf(stderr, "\n");
+  fbprintf(stderr, "[EVM] %s: 0x%x\n", prefix, bytes(data->bytes, 32));
 }
 
 // Check if an account exists
@@ -248,13 +263,12 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
 
   EVM_LOG("call code size: %zu bytes", execution_code_size);
   if (msg->input_data && msg->input_size > 0) {
-    EVM_LOG("call input data (%zu bytes): 0x", msg->input_size);
     if (EVM_DEBUG) {
-      for (size_t i = 0; i < (msg->input_size > 64 ? 64 : msg->input_size); i++) {
-        fprintf(stderr, "%02x", msg->input_data[i]);
-      }
-      if (msg->input_size > 64) fprintf(stderr, "...");
-      fprintf(stderr, "\n");
+      size_t display_size = msg->input_size > 64 ? 64 : msg->input_size;
+      fbprintf(stderr, "[EVM] call input data (%l bytes): 0x%x%s\n",
+               (uint64_t) msg->input_size,
+               bytes(msg->input_data, display_size),
+               msg->input_size > 64 ? "..." : "");
     }
   }
 
@@ -274,13 +288,12 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
 
   EVM_LOG("Child call complete. Status: %d, Gas left: %zu", exec_result.status_code, (size_t) exec_result.gas_left);
   if (exec_result.output_data && exec_result.output_size > 0) {
-    EVM_LOG("Child call output (%zu bytes): 0x", exec_result.output_size);
     if (EVM_DEBUG) {
-      for (size_t i = 0; i < (exec_result.output_size > 64 ? 64 : exec_result.output_size); i++) {
-        fprintf(stderr, "%02x", exec_result.output_data[i]);
-      }
-      if (exec_result.output_size > 64) fprintf(stderr, "...");
-      fprintf(stderr, "\n");
+      size_t display_size = exec_result.output_size > 64 ? 64 : exec_result.output_size;
+      fbprintf(stderr, "[EVM] Child call output (%l bytes): 0x%x%s\n",
+               (uint64_t) exec_result.output_size,
+               bytes(exec_result.output_data, display_size),
+               exec_result.output_size > 64 ? "..." : "");
     }
   }
   add_evm_result(ctx, &exec_result);
@@ -325,13 +338,15 @@ static void host_emit_log(void* context, const evmc_address* addr, const uint8_t
   debug_print_address("emit_log from", addr);
   EVM_LOG("emit_log: data size: %zu bytes, topics count: %zu", data_size, topics_count);
 
+  // Capture the log event if enabled
+  if (ctx->capture_events)
+    add_emitted_log(ctx, addr, data, data_size, topics, topics_count);
+
   if (data && data_size > 0 && EVM_DEBUG) {
-    fprintf(stderr, "[EVM] Log data (hex): 0x");
-    for (size_t i = 0; i < (data_size > 64 ? 64 : data_size); i++) {
-      fprintf(stderr, "%02x", data[i]);
-    }
-    if (data_size > 64) fprintf(stderr, "...");
-    fprintf(stderr, "\n");
+    size_t display_size = data_size > 64 ? 64 : data_size;
+    fbprintf(stderr, "[EVM] Log data (hex): 0x%x%s\n",
+             bytes(data, display_size),
+             data_size > 64 ? "..." : "");
   }
 
   for (size_t i = 0; i < topics_count && EVM_DEBUG; i++) {
@@ -435,24 +450,52 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
   debug_print_address("  code_address", &message->code_address);
   EVM_LOG("  input_size: %zu bytes", message->input_size);
   if (message->input_data && message->input_size > 0 && EVM_DEBUG) {
-    fprintf(stderr, "[EVM] input data: 0x");
-    for (size_t i = 0; i < (message->input_size > 64 ? 64 : message->input_size); i++) {
-      fprintf(stderr, "%02x", message->input_data[i]);
-    }
-    if (message->input_size > 64) fprintf(stderr, "...");
-    fprintf(stderr, "\n");
+    size_t display_size = message->input_size > 64 ? 64 : message->input_size;
+    fbprintf(stderr, "[EVM] input data: 0x%x%s\n",
+             bytes(message->input_data, display_size),
+             message->input_size > 64 ? "..." : "");
   }
   debug_print_bytes32("  value", &message->value);
 }
 
-// Function to verify call proof
-INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result) {
-  buffer_t  buffer = {0};
-  address_t to     = {0};
-  buffer_t  to_buf = stack_buffer(to);
+// Function to run EVM call with optional event capture
+INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events) {
+  buffer_t       buffer  = {0};
+  address_t      to      = {0};
+  buffer_t       to_buf  = stack_buffer(to);
+  evmone_message message = {0};
 
   // Check if the transaction has a "to" address
   if (json_get_bytes(tx, "to", &to_buf).len != 20) THROW_ERROR("Invalid transaction: to address is not 20 bytes");
+
+  // Initialize the EVM message
+  set_message(&message, tx, &buffer);
+
+  // is this a call to a precompile directly?
+  if (bytes_all_zero(bytes(to, 19)) && to[19]) {
+    buffer_t     output     = {0};
+    uint64_t     gas_used   = 0;
+    pre_result_t pre_result = eth_execute_precompile(to, bytes(message.input_data, message.input_size), &output, &gas_used);
+    buffer_free(&buffer);
+    *call_result = output.data;
+    switch (pre_result) {
+      case PRE_SUCCESS:
+        return C4_SUCCESS;
+      case PRE_ERROR:
+        ctx->state.error = strdup("Precompile error");
+        return C4_ERROR;
+      case PRE_OUT_OF_BOUNDS:
+        ctx->state.error = strdup("Precompile out of bounds");
+        return C4_ERROR;
+      case PRE_INVALID_INPUT:
+        ctx->state.error = strdup("Precompile Invalid Input");
+        return C4_ERROR;
+        break;
+      default:
+        ctx->state.error = strdup("Precompile unknown error");
+        return C4_ERROR;
+    }
+  }
 
   EVM_LOG("Creating EVM executor...");
   void* executor = evmone_create_executor();
@@ -472,14 +515,12 @@ INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_co
       .gas_price        = 0,
       .parent           = NULL,
       .results          = NULL,
+      .logs             = NULL,
+      .capture_events   = capture_events,
   };
 
   bytes_t code = get_code(&context, to);
   EVM_LOG("Contract code size: %u bytes", (uint32_t) code.len);
-
-  // Initialize the EVM message
-  evmone_message message;
-  set_message(&message, tx, &buffer);
 
   // Execute the code
   evmone_result result = evmone_execute(
@@ -503,6 +544,12 @@ INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_co
     *call_result = result.output_size ? bytes_dup(bytes(result.output_data, result.output_size)) : NULL_BYTES;
   else
     *call_result = NULL_BYTES;
+
+  // Return captured logs if requested
+  if (logs && capture_events) {
+    *logs        = context.logs;
+    context.logs = NULL; // Prevent cleanup from freeing the logs
+  }
 
   // Process the execution result
   if (result.status_code == 0) { // Success
@@ -553,4 +600,9 @@ INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_co
   EVM_LOG("=== EVM call verification complete ===");
 
   return ctx->state.error == NULL ? C4_SUCCESS : C4_ERROR;
+}
+
+// Original function for backward compatibility
+INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result) {
+  return eth_run_call_evmone_with_events(ctx, call_codes, accounts, tx, call_result, NULL, false);
 }

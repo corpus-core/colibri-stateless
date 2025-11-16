@@ -1,0 +1,66 @@
+name: Main CI Pipeline
+
+on:
+  push:
+    branches: ["main", "dev"]
+    tags:
+      - "v*" # Trigger on version tags
+  pull_request:
+    branches: ["main", "dev"]
+
+# Add permissions block at the top level
+permissions:
+  contents: write # Required for creating releases and uploading assets
+  checks: write
+  pull-requests: write
+  actions: read
+  packages: write # Required for pushing Docker images to GHCR
+  security-events: write # Required for CodeQL
+  pages: write # Required for GitHub Pages deployment
+  id-token: write # Required for GitHub Pages deployment
+
+
+jobs:
+  # Core build and test pipeline
+  cmake:
+    uses: ./.github/workflows/cmake.yml
+
+  # System installers (DEB, RPM, PKG, MSI)
+  build-installers:
+    uses: ./.github/workflows/build-installers.yml
+    secrets:
+      PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+
+  # Language bindings
+  swift:
+    uses: ./.github/workflows/bindings-swift.yml
+    secrets:
+      PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+
+  kotlin:
+    uses: ./.github/workflows/bindings-kotlin.yml
+
+  emscripten:
+    uses: ./.github/workflows/bindings-emscripten.yml
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  python:
+    uses: ./.github/workflows/bindings-python.yml
+    secrets:
+      PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+
+  docker-prover:
+    uses: ./.github/workflows/bindings-docker.yml
+    with:
+      push_image: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v')) }}
+      ref_name: ${{ github.ref_name }}
+      ref_type: ${{ github.ref_type }}
+
+  # GitHub Pages Deployment - startet nach cmake Job
+  deploy-pages:
+    needs: cmake
+    # Nur bei Push zu main/dev (nicht bei PRs)
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    uses: ./.github/workflows/github-pages.yml
+

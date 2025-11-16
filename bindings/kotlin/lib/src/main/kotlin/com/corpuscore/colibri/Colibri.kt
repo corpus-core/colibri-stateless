@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 package com.corpuscore.colibri
 
 // Import the SWIG-generated class explicitly
@@ -46,10 +69,11 @@ typealias RequestHandler = (requestDetails: Map<String, Any?>) -> ByteArray?
 
 class Colibri(
     var chainId: BigInteger = BigInteger.ONE, // Default value
-    var proofers: Array<String> = arrayOf("https://c4.incubed.net"), // Default value
+    var provers: Array<String> = arrayOf("https://c4.incubed.net"), // Default value
     var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
     var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
-    var trustedBlockHashes: Array<String> = arrayOf(), // Default empty array
+    var checkpointz: Array<String> = arrayOf("https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"), // Default checkpointz servers
+    var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
@@ -87,7 +111,7 @@ class Colibri(
         println("Chain ID: $chainId")
         println("ETH RPCs: ${ethRpcs.joinToString(", ")}")
         println("Beacon APIs: ${beaconApis.joinToString(", ")}")
-        println("Trusted Block Hashes: ${trustedBlockHashes.joinToString(", ")}")
+        println("Trusted Checkpoint: ${trustedCheckpoint ?: "none"}")
         println("Include Code: $includeCode")
     }
 
@@ -103,7 +127,8 @@ class Colibri(
     private suspend fun fetchRequest(servers: Array<String>, request: JSONObject) {
 
         // Define reqPtr before the loop so it's accessible in the final error case
-        val reqPtr = request.getLong("req_ptr") // Assume req_ptr always exists
+        // Get req_ptr - now clean numeric JSON value after bprintf fix
+        val reqPtr = request.getLong("req_ptr")
 //        println("fetchRequest:  for req_ptr $reqPtr)")
 
         var index = 0
@@ -132,7 +157,7 @@ class Colibri(
                 val mockResponse = requestHandler!!(requestDetails)
                 if (mockResponse != null) {
 //                    println("fetchRequest: Mock response provided for req_ptr $reqPtr (size: ${mockResponse.size})")
-                    com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, mockResponse, index) // Use mock response
+                    com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, mockResponse, index)
                     return // Skip actual network request
                 }
             }
@@ -154,8 +179,9 @@ class Colibri(
                 }
 
                 if (response.status.isSuccess()) {
-                    // Ensure req_ptr is treated as a pointer value (Long)
-                    com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, response.readBytes(), index)
+                    // Success response handling with fixed req_ptr format
+                    val responseBytes = response.readBytes()
+                    com.corpuscore.colibri.c4.c4_req_set_response(reqPtr, responseBytes, index)
                     return
                 }
                 else {
@@ -166,8 +192,14 @@ class Colibri(
             }
             index++
         }
-        // Ensure req_ptr is treated as a pointer value (Long)
-        com.corpuscore.colibri.c4.c4_req_set_error(reqPtr, lastError, 0)
+        // Error handling - now fixed for req_ptr parsing
+        try {
+            if (reqPtr != 0L && lastError.isNotEmpty()) {
+                com.corpuscore.colibri.c4.c4_req_set_error(reqPtr, lastError, 0)
+            }
+        } catch (e: Exception) {
+            println("fetchRequest: Error in c4_req_set_error: ${e.message}")
+        }
     }
 
     private fun formatArg(arg: Any?): String = when (arg) { // Make arg nullable
@@ -206,9 +238,9 @@ class Colibri(
     suspend fun getProof(method: String, args: Array<Any?>): ByteArray { // Allow nullable args
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args) // Use helper
-            // Create the proofer context with properly formatted JSON args
-            val ctx = com.corpuscore.colibri.c4.c4_create_proofer_ctx(method, jsonArgs, chainId, if (includeCode) 1 else 0)
-                ?: throw ColibriException("Failed to create proofer context for method $method")
+            // Create the prover context with properly formatted JSON args
+            val ctx = com.corpuscore.colibri.c4.c4_create_prover_ctx(method, jsonArgs, chainId, if (includeCode) 1 else 0)
+                ?: throw ColibriException("Failed to create prover context for method $method")
 
             // Add iteration limit to prevent infinite loops
             val maxIterations = 50
@@ -219,10 +251,10 @@ class Colibri(
                     iteration++
 //                    println("getProof: Iteration $iteration/$maxIterations")
 
-                    // Execute the proofer and get the JSON status
-                     val statusJsonPtr = com.corpuscore.colibri.c4.c4_proofer_execute_json_status(ctx)
+                    // Execute the prover and get the JSON status
+                     val statusJsonPtr = com.corpuscore.colibri.c4.c4_prover_execute_json_status(ctx)
                      if (statusJsonPtr == null) {
-                        throw ColibriException("Proofer execution returned null status for method $method")
+                        throw ColibriException("Prover execution returned null status for method $method")
                      }
                      val stateString = statusJsonPtr.toString() // Convert SWIG C pointer/object to string if needed
                      // TODO: Verify how SWIG handles string return. Assuming it's direct or needs .toString()
@@ -230,23 +262,23 @@ class Colibri(
                     val state = try {
                          JSONObject(stateString)
                      } catch (e: Exception) {
-                         throw ColibriException("Failed to parse proofer status JSON: ${e.message}. JSON: $stateString")
+                         throw ColibriException("Failed to parse prover status JSON: ${e.message}. JSON: $stateString")
                      }
 
                     when (state.getString("status")) {
                         "success" -> {
-                             // Assuming c4_proofer_get_proof returns ByteArray directly or a SWIG type convertible to it
-                             val proofData = com.corpuscore.colibri.c4.c4_proofer_get_proof(ctx)
+                             // Assuming c4_prover_get_proof returns ByteArray directly or a SWIG type convertible to it
+                             val proofData = com.corpuscore.colibri.c4.c4_prover_get_proof(ctx)
                              // SWIG might return SWIGTYPE_p_unsigned_char or similar, needs explicit cast/conversion if not automatic
                              if (proofData is ByteArray) {
                                  return@withContext proofData
                              } else {
                                  // Handle unexpected type if necessary, this depends heavily on SWIG config
-                                 throw ColibriException("Unexpected type returned by c4_proofer_get_proof: ${proofData?.javaClass?.name}")
+                                 throw ColibriException("Unexpected type returned by c4_prover_get_proof: ${proofData?.javaClass?.name}")
                              }
                         }
                         "error" -> {
-                            throw ColibriException("Proofer error for method $method: ${state.optString("error", "Unknown error")}")
+                            throw ColibriException("Prover error for method $method: ${state.optString("error", "Unknown error")}")
                         }
                         "pending" -> {
 //                            println("pending")
@@ -256,7 +288,11 @@ class Colibri(
                                 val request = requests.getJSONObject(i)
                                  // Ensure type field exists before accessing
                                  val type = request.optString("type", "eth_rpc") // Default or handle missing type
-                                val servers = if (type == "beacon_api") beaconApis else ethRpcs
+                                val servers = when (type) {
+                                    "checkpointz" -> checkpointz
+                                    "beacon_api" -> beaconApis
+                                    else -> ethRpcs
+                                }
                                  try {
                                      fetchRequest(servers, request)
                                  } catch (e: Exception) {
@@ -266,7 +302,7 @@ class Colibri(
                                  }
                             }
                         }
-                         else -> throw ColibriException("Unknown proofer status: ${state.getString("status")}")
+                         else -> throw ColibriException("Unknown prover status: ${state.getString("status")}")
                     }
                 }
 
@@ -274,8 +310,8 @@ class Colibri(
                 throw ColibriException("getProof exceeded max iterations ($maxIterations) for method $method without reaching success or error state.")
 
             } finally {
-//                println("getProof: Freeing proofer context")
-                com.corpuscore.colibri.c4.c4_free_proofer_ctx(ctx)
+//                println("getProof: Freeing prover context")
+                com.corpuscore.colibri.c4.c4_free_prover_ctx(ctx)
             }
         }
     }
@@ -358,10 +394,10 @@ class Colibri(
     suspend fun verifyProof(proof: ByteArray, method: String, args: Array<Any?>): Any? { // Allow nullable args, return Any?
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args) // Use helper
-             val trustedHashesJson = formatArgsArray(trustedBlockHashes.map { it as Any? }.toTypedArray()) // Format trusted hashes
+            val trustedCheckpointStr = trustedCheckpoint ?: ""
 
-            // Assuming c4_verify_create_ctx takes JSON strings for args and trusted hashes
-            val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedHashesJson)
+            // Assuming c4_verify_create_ctx takes JSON strings for args and trusted checkpoint
+            val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedCheckpointStr)
                  ?: throw ColibriException("Failed to create verifier context for method $method")
 
             // Add iteration limit to prevent infinite loops
@@ -414,7 +450,12 @@ class Colibri(
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
                                  val type = request.optString("type", "eth_rpc")
-                                val servers = if (type == "beacon_api") beaconApis else ethRpcs
+                                // Prioritize provers if not empty and type is beacon_api
+                                val servers = when (type) {
+                                    "checkpointz" -> checkpointz
+                                    "beacon_api" -> if (provers.isNotEmpty()) provers else beaconApis
+                                    else -> ethRpcs
+                                }
                                  try {
                                      fetchRequest(servers, request)
                                  } catch (e: Exception) {
@@ -447,12 +488,12 @@ class Colibri(
          when (methodType) {
              MethodType.PROOFABLE -> {
                  // TODO: Implement optional verify hook if needed
-                 if (proofers.isNotEmpty()) {
-                  //   println("rpc: Fetching proof for $method from proofer...")
+                 if (provers.isNotEmpty()) {
+                  //   println("rpc: Fetching proof for $method from prover...")
                      proof = try {
-                          fetchRpc(proofers, method, formatArgsArray(args), true)
+                          fetchRpc(provers, method, formatArgsArray(args), true)
                      } catch (e: Exception) {
-                          println("rpc: Failed to fetch proof from proofer, falling back to local creation. Error: ${e.message}")
+                          println("rpc: Failed to fetch proof from prover, falling back to local creation. Error: ${e.message}")
                           println("rpc: Creating proof locally for $method...")
                           getProof(method, args) // Create proof locally if fetch fails
                      }

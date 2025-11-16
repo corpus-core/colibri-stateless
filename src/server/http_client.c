@@ -1,15 +1,57 @@
+/*
+ * Copyright 2025 corpus.core
+ * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+ */
+
 #include "cache.h"
 #include "logger.h"
 #include "server.h"
 #include <stddef.h> // Added for offsetof
+#include <string.h>
+#ifdef _WIN32
+#include "util/win_compat.h"
+#endif
+#ifdef TEST
+#include "util/bytes.h"
+#include "util/crypto.h"
+#endif
+
+// Provide strnstr implementation if it's not available (e.g., on non-BSD/non-GNU systems)
+#ifndef HAVE_STRNSTR
+static char* c4_strnstr(const char* haystack, const char* needle, size_t len) {
+  size_t needle_len;
+
+  if (!needle || *needle == '\0') {
+    return (char*) haystack; // Empty needle matches immediately
+  }
+  needle_len = strlen(needle);
+  if (needle_len == 0) {
+    return (char*) haystack; // Also empty
+  }
+  if (needle_len > len) {
+    return NULL; // Needle is longer than the search length
+  }
+
+  // Iterate up to the last possible starting position within len
+  for (size_t i = 0; i <= len - needle_len; ++i) {
+    // Stop if we hit the end of the haystack string itself
+    if (haystack[i] == '\0') {
+      break;
+    }
+    // Compare the needle at the current position
+    if (strncmp(&haystack[i], needle, needle_len) == 0) {
+      return (char*) &haystack[i]; // Found match
+    }
+  }
+
+  return NULL; // Not found
+}
+// Map to our local implementation when the platform libc doesn't provide strnstr
+#define strnstr c4_strnstr
+#endif
 
 // container_of macro to get the pointer to the containing struct
 #define container_of(ptr, type, member) ((type*) ((char*) (ptr) - offsetof(type, member)))
-
-typedef struct {
-  char** urls;
-  size_t count;
-} server_list_t;
 
 typedef struct pending_request {
   single_request_t*       request;
@@ -19,20 +61,322 @@ typedef struct pending_request {
 
 static pending_request_t* pending_requests = NULL;
 static CURLM*             multi_handle;
-static mc_t*              memcache_client;
-const char*               CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
+static CURLSH*            g_curl_share    = NULL;
+static mc_t*              memcache_client = NULL;
+const char*               CURL_METHODS[]  = {"GET", "POST", "PUT", "DELETE"};
 
-static server_list_t eth_rpc_servers    = {0};
-static server_list_t beacon_api_servers = {0};
+// Tracing helper: annotate selection, weights and unsupported methods for a request attempt
+static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* servers, int selected_index, const char* base_url) {
+  if (!tracing_is_enabled() || !r || !r->parent || !r->parent->trace_root) return;
+  int         level       = r->parent->client ? r->parent->client->trace_level : TRACE_LEVEL_MIN;
+  const char* method_name = CURL_METHODS[r->req->method];
+  const char* host_name   = c4_extract_server_name(base_url);
+  // Build compact request description similar to c4_req_info(), but without ANSI colors
+  const char* desc_colored = c4_req_info(r->req->type, r->req->url, r->req->payload);
+  char        desc[512];
+  // strip ANSI escape codes
+  {
+    size_t di = 0;
+    for (const char* p = desc_colored; *p && di + 1 < sizeof(desc);) {
+      if (*p == '\x1b') {
+        // skip until 'm' or end
+        while (*p && *p != 'm') p++;
+        if (*p == 'm') p++;
+        continue;
+      }
+      desc[di++] = *p++;
+    }
+    desc[di] = '\0';
+  }
+  char span_name[512];
+  sbprintf(span_name, "HTTP %s %s | %s", method_name ? method_name : "REQ", host_name ? host_name : "", desc);
+  r->attempt_span = tracing_start_child(r->parent->trace_root, span_name);
+  if (!r->attempt_span) return;
+  // Selected server and client type
+  tracing_span_tag_str(r->attempt_span, "server.selected", host_name ? host_name : "");
+  tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) servers->client_types[selected_index]);
+  tracing_span_tag_i64(r->attempt_span, "exclude.mask", (int64_t) r->req->node_exclude_mask);
+  if (servers->health_stats) {
+    tracing_span_tag_i64(r->attempt_span, "last_client_block", (int64_t) servers->health_stats[selected_index].latest_block);
+    tracing_span_tag_i64(r->attempt_span, "head_last_seen_ms", (int64_t) (current_ms() - servers->health_stats[selected_index].head_last_seen_ms));
+  }
+  if (r->req->payload.len > 0) {
+    json_t json   = json_parse((char*) r->req->payload.data);
+    json_t params = json_get(json, "params");
+    json_t method = json_get(json, "method");
+    if (params.type == JSON_TYPE_ARRAY) {
+      int idx = json_len(params) - 1;
+      if (method.type == JSON_TYPE_STRING && strncmp(method.start + 1, "debug_traceCall", 16) == 0) idx--;
+      json_t block = json_at(params, idx);
+      if (block.type == JSON_TYPE_STRING && strncmp(block.start + 1, "0x", 2) == 0 && block.len < 66)
+        tracing_span_tag_i64(r->attempt_span, "requested_block", (int64_t) json_as_uint64(block));
+    }
+  }
+  buffer_t excluded_methods = {0};
+  if (servers[selected_index].health_stats) {
+    for (method_support_t* m = servers[selected_index].health_stats->unsupported_methods; m; m = m->next) {
+      if (!m->is_supported) bprintf(&excluded_methods, "%s%s", m->method_name, m->next ? "," : "");
+    }
+  }
+  tracing_span_tag_str(r->attempt_span, "exclude.methods", excluded_methods.data.len > 0 ? buffer_as_string(&excluded_methods) : "-");
+  buffer_free(&excluded_methods);
+
+  // Weights of all servers
+  if (level == TRACE_LEVEL_DEBUG && servers && servers->health_stats && servers->urls) {
+    buffer_t w = {0};
+    bprintf(&w, "[");
+    for (size_t wi = 0; wi < servers->count; wi++) {
+      const char* n = c4_extract_server_name(servers->urls[wi]);
+      if (wi > 0) bprintf(&w, ",");
+      // {"name":"...", "weight":X.XXXXXX}
+      bprintf(&w, "{\"name\":\"%S\",\"weight\":%f}", n ? n : "", servers->health_stats[wi].weight);
+    }
+    bprintf(&w, "]");
+    tracing_span_tag_json(r->attempt_span, "servers.weights", (char*) w.data.data);
+    w.data.data = NULL;
+    buffer_free(&w);
+    // Unsupported methods per server
+    buffer_t um = {0};
+    bprintf(&um, "{");
+    int first_server = 1;
+    for (size_t si = 0; si < servers->count; si++) {
+      method_support_t* m = servers->health_stats[si].unsupported_methods;
+      if (!m) continue;
+      if (!first_server) bprintf(&um, ",");
+      first_server  = 0;
+      const char* n = c4_extract_server_name(servers->urls[si]);
+      bprintf(&um, "\"%S\":[", n ? n : "");
+      int first_m = 1;
+      while (m) {
+        if (!m->is_supported) {
+          if (!first_m) bprintf(&um, ",");
+          first_m = 0;
+          bprintf(&um, "\"%S\"", m->method_name ? m->method_name : "");
+        }
+        m = m->next;
+      }
+      bprintf(&um, "]");
+    }
+    bprintf(&um, "}");
+    tracing_span_tag_json(r->attempt_span, "servers.unsupported_methods", (char*) um.data.data);
+    um.data.data = NULL;
+    buffer_free(&um);
+  }
+  // Cache state best-effort (will be updated on completion too)
+  tracing_span_tag_str(r->attempt_span, "cache", r->cached ? "hit" : "miss");
+}
+
+#ifdef TEST
+// Test hook for URL rewriting (file:// mocking)
+// ONLY compiled in test builds (-DTEST=1)
+// This is a security risk in production!
+char* (*c4_test_url_rewriter)(const char* url, const char* payload) = NULL;
+
+// Generate deterministic filename for mock/recorded responses
+// Returns: allocated string "test_data_dir/server/test_name/host_hash.json"
+// Caller must free the returned string
+char* c4_file_mock_get_filename(const char* host, const char* url,
+                                const char* payload, const char* test_name) {
+  if (!test_name) return NULL;
+
+  // Create hash of host + url + payload
+  buffer_t buf = {0};
+  bprintf(&buf, "%s:%s:%s",
+          host ? host : "",
+          url ? url : "",
+          payload ? payload : "");
+
+  bytes32_t hash;
+  sha256(buf.data, hash);
+
+  // Create filename: TESTDATA_DIR/server/test_name/host_hash.json
+  buffer_t filename = {0};
+  bprintf(&filename, "%s/server/%s/%s_%x.json",
+          TESTDATA_DIR,
+          test_name,
+          host ? host : "default",
+          bytes(hash, 16)); // First 16 bytes of hash
+
+  buffer_free(&buf);
+  char* result       = (char*) filename.data.data;
+  filename.data.data = NULL; // Prevent buffer_free from freeing it
+  return result;
+}
+
+// Helper to record responses when http_server.test_dir is set
+// Writes responses to TESTDATA_DIR/server/<test_dir>/<host>_<hash>.json
+static void c4_record_test_response(const char* url, const char* payload,
+                                    bytes_t response, long http_code) {
+  if (!http_server.test_dir || !url) return;
+
+  // Extract host from URL (e.g., "http://host:port/path" -> "host")
+  char*       host       = NULL;
+  const char* host_start = strstr(url, "://");
+  if (host_start) {
+    host_start += 3; // Skip "://"
+    const char* host_end = strchr(host_start, ':');
+    if (!host_end) host_end = strchr(host_start, '/');
+    if (host_end) {
+      size_t len = host_end - host_start;
+      host       = strndup(host_start, len);
+    }
+    else {
+      host = strdup(host_start);
+    }
+  }
+
+  // Use central filename generation function
+  char* filename = c4_file_mock_get_filename(host, url, payload, http_server.test_dir);
+  if (!filename) {
+    free(host);
+    return;
+  }
+
+  // Ensure directory exists
+  char* last_slash = strrchr(filename, '/');
+  if (last_slash) {
+    *last_slash = '\0';
+    // Simple mkdir -p equivalent
+    char tmp[512];
+    snprintf(tmp, sizeof(tmp), "mkdir -p %s", filename);
+    system(tmp);
+    *last_slash = '/';
+  }
+
+  // Write response to file
+  FILE* f = fopen(filename, "w");
+  if (f) {
+    fprintf(f, "# HTTP %ld\n", http_code);
+    fprintf(f, "# URL: %s\n", url);
+    fprintf(f, "# Host: %s\n", host ? host : "");
+    fprintf(f, "# Payload: %s\n", payload ? payload : "");
+    if (response.data && response.len > 0) {
+      fwrite(response.data, 1, response.len, f);
+    }
+    fclose(f);
+    log_info("[RECORD] %s -> %s", host ? host : "unknown", filename);
+  }
+  else {
+    log_error("[RECORD] Failed to write %s", filename);
+  }
+
+  free(filename);
+  free(host);
+}
+
+// Parse mock file response (file:// URLs)
+// Mock files have format:
+//   # HTTP 200
+//   # URL: ...
+//   # Host: ...
+//   # Payload: ...
+//   <actual response data>
+// Returns: http_code (or 0 if not found), modifies buffer to contain only response data
+static long parse_mock_response(buffer_t* buffer) {
+  if (!buffer || !buffer->data.data || buffer->data.len == 0) return 0;
+
+  long  http_code   = 200; // Default to 200 if not specified
+  char* content     = (char*) buffer->data.data;
+  char* content_end = content + buffer->data.len;
+  char* line_start  = content;
+
+  // Parse header lines (starting with #)
+  while (line_start < content_end && *line_start == '#') {
+    char* line_end = strchr(line_start, '\n');
+    if (!line_end) line_end = content_end;
+
+    // Check for HTTP status line: "# HTTP 200"
+    if (strncmp(line_start, "# HTTP ", 7) == 0) {
+      http_code = atol(line_start + 7);
+    }
+
+    // Move to next line
+    line_start = line_end;
+    if (line_start < content_end && *line_start == '\n') line_start++;
+  }
+
+  // Calculate actual response data (skip headers)
+  size_t header_size = line_start - content;
+  if (header_size > 0 && header_size < buffer->data.len) {
+    // Move response data to beginning of buffer
+    size_t response_len = buffer->data.len - header_size;
+    memmove(buffer->data.data, line_start, response_len);
+    buffer->data.len                = response_len;
+    buffer->data.data[response_len] = '\0'; // Null terminate
+  }
+
+  return http_code;
+}
+
+#endif
+
+static server_list_t eth_rpc_servers     = {0};
+static server_list_t beacon_api_servers  = {0};
+static server_list_t prover_servers      = {0};
+static server_list_t checkpointz_servers = {0};
 
 static void cache_response(single_request_t* r);
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
 
+// Helper function to extract RPC method name from request payload
+static char* extract_rpc_method(data_request_t* req) {
+  if (!req || req->type != C4_DATA_TYPE_ETH_RPC || !req->payload.data || req->payload.len == 0) return NULL;
+
+  json_t json = json_get(json_parse((char*) req->payload.data), "method");
+  if (json.type == JSON_TYPE_STRING) {
+    return json_as_string(json, NULL);
+  }
+  return NULL;
+}
+
+// Helper: Extract requested block number for known methods; sets out_has_block when parsed
+static void extract_requested_block_for_method(data_request_t* req, const char* rpc_method, uint64_t* out_block, bool* out_has_block) {
+  if (!req || !rpc_method || !out_block || !out_has_block) return;
+  *out_block     = 0;
+  *out_has_block = false;
+  if (!req->payload.data || req->payload.len == 0) return;
+
+  json_t root   = json_parse((char*) req->payload.data);
+  json_t params = json_get(root, "params");
+  if (params.type != JSON_TYPE_ARRAY) return;
+
+  // debug_traceCall / eth_call: block tag at index 1
+  if (strcmp(rpc_method, "debug_traceCall") == 0 || strcmp(rpc_method, "eth_call") == 0) {
+    json_t tag = json_at(params, 1);
+    if (tag.type != JSON_TYPE_NOT_FOUND) {
+      *out_block     = json_as_uint64(tag);
+      *out_has_block = *out_block > 0;
+    }
+    return;
+  }
+
+  // eth_getProof: block tag at index 2
+  if (strcmp(rpc_method, "eth_getProof") == 0) {
+    json_t tag = json_at(params, 2);
+    if (tag.type != JSON_TYPE_NOT_FOUND) {
+      *out_block     = json_as_uint64(tag);
+      *out_has_block = *out_block > 0;
+    }
+    return;
+  }
+
+  // eth_getBlockReceipts: block tag at index 0
+  if (strcmp(rpc_method, "eth_getBlockReceipts") == 0) {
+    json_t tag = json_at(params, 0);
+    if (tag.type != JSON_TYPE_NOT_FOUND) {
+      *out_block     = json_as_uint64(tag);
+      *out_has_block = *out_block > 0;
+    }
+    return;
+  }
+}
+
 // Context structure to associate uv_poll_t with CURL easy handle
 typedef struct {
-  uv_poll_t poll_handle;
-  CURL*     easy_handle;
-  bool      is_done_processing; // Flag set by handle_curl_events
+  uv_poll_t     poll_handle;
+  CURL*         easy_handle;
+  curl_socket_t socket;             // Store socket descriptor for cross-platform access
+  bool          is_done_processing; // Flag set by handle_curl_events
 } curl_poll_context_t;
 
 // Custom close callback for uv_poll_t handles
@@ -65,7 +409,7 @@ static void cleanup_easy_handle_and_context(uv_handle_t* handle) {
     safe_free(context);
   }
   else {
-    fprintf(stderr, "WARNING: cleanup_easy_handle_and_context called with handle not part of a context?\n");
+    log_warn("cleanup_easy_handle_and_context called with handle not part of a context?");
   }
 }
 
@@ -80,7 +424,7 @@ static pending_request_t* pending_find(single_request_t* req) {
 
 static inline bool pending_request_matches(data_request_t* in, data_request_t* pending) {
   if (in->type != pending->type || in->encoding != pending->encoding || in->method != pending->method) return false;
-  if ((in->url == NULL) != (pending->url != NULL)) return false;
+  if ((in->url == NULL) != (pending->url == NULL)) return false;
   if (in->url && strcmp(in->url, pending->url) != 0) return false;
   if (in->payload.len != pending->payload.len) return false;
   if (in->payload.len && memcmp(in->payload.data, pending->payload.data, in->payload.len) != 0) return false;
@@ -128,8 +472,31 @@ static void pending_remove(single_request_t* req) {
 }
 static void call_callback_if_done(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
-    if (c4_state_is_pending(req->requests[i].req)) return;
+    if (c4_state_is_pending(req->requests[i].req)) return;                    // we are not done yet if one is still pending
+    if (!req->requests[i].end_time) req->requests[i].end_time = current_ms(); // set the end time if it's not set yet
   }
+
+  // now handle metrics
+  uint8_t  tmp[1024];
+  buffer_t buffer = stack_buffer(tmp);
+
+  for (size_t i = 0; i < req->request_count; i++) {
+    single_request_t* r      = req->requests + i;
+    char*             method = r->req->url;
+    if (r->req->type == C4_DATA_TYPE_ETH_RPC) {
+      json_t json = json_get(json_parse((char*) r->req->payload.data), "method");
+      if (json.type == JSON_TYPE_STRING)
+        method = json_as_string(json, &buffer);
+    }
+    if (method)
+      c4_metrics_add_request(
+          r->req->type,
+          method, r->req->response.len,
+          r->end_time - r->start_time,
+          r->req->error == NULL, r->cached);
+  }
+
+  // and continue with the callback
   req->cb(req);
 }
 // Prüft abgeschlossene Übertragungen
@@ -146,26 +513,180 @@ static void handle_curl_events() {
     CURL* easy = msg->easy_handle;
     if (!easy) continue;
 
-    single_request_t*  r       = NULL;
-    CURLcode           res     = curl_easy_getinfo(easy, CURLINFO_PRIVATE, &r);
-    pending_request_t* pending = pending_find(r);
+    single_request_t*  r         = NULL;
+    CURLcode           res       = curl_easy_getinfo(easy, CURLINFO_PRIVATE, &r);
+    pending_request_t* pending   = pending_find(r);
+    long               http_code = 0;
+    if (msg->data.result == CURLE_OK) curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
 
-    if (msg->data.result == CURLE_OK) {
-      fprintf(stderr, "   -> [%p] %s : %d bytes\n", easy, r->req->url, r->buffer.data.len);
-      r->req->response = r->buffer.data; // set the response
-      cache_response(r);                 // and write to cache
-      r->buffer = (buffer_t) {0};        // reset the buffer, so we don't clean up the data
+#ifdef TEST
+    // For file:// URLs (mock responses), parse the HTTP code from the file content
+    if (msg->data.result == CURLE_OK && http_code == 0) {
+      const char* url = r->url ? r->url : r->req->url;
+      if (url && strncmp(url, "file://", 7) == 0) {
+        http_code = parse_mock_response(&r->buffer);
+        log_info("   [mock ] Parsed mock response from %s: HTTP %l, %d bytes",
+                 url, (uint64_t) http_code, (uint32_t) r->buffer.data.len);
+      }
+    }
+#endif
+
+    server_list_t* servers           = c4_get_server_list(r->req->type);
+    r->end_time                      = current_ms();
+    uint64_t           response_time = r->end_time - r->start_time;
+    c4_response_type_t response_type = c4_classify_response(http_code,
+                                                            r->url ? r->url : r->req->url,
+                                                            r->buffer.data,
+                                                            r->req); // Classify the response type
+
+    // Collect libcurl-level metrics
+    {
+      long   http_version = 0;
+      long   num_connects = 0;
+      double connect_time = 0.0;
+      double app_time     = 0.0;
+      curl_easy_getinfo(easy, CURLINFO_HTTP_VERSION, &http_version);
+      curl_easy_getinfo(easy, CURLINFO_NUM_CONNECTS, &num_connects);
+      curl_easy_getinfo(easy, CURLINFO_CONNECT_TIME, &connect_time);
+      curl_easy_getinfo(easy, CURLINFO_APPCONNECT_TIME, &app_time);
+      http_server.curl.total_requests++;
+      http_server.curl.total_connects += (uint64_t) num_connects;
+      // Portable Reuse-Heuristik: wenn keine neuen Connects in diesem Transfer, wurde die Verbindung wiederverwendet
+      if (num_connects == 0) http_server.curl.reused_connections_total++;
+      if (http_version >= CURL_HTTP_VERSION_2_0)
+        http_server.curl.http2_requests_total++;
+      else
+        http_server.curl.http1_requests_total++;
+      if (num_connects > 0 && app_time > 0.0) http_server.curl.tls_handshakes_total++;
+      const double w = 0.1;
+      if (connect_time > 0.0)
+        http_server.curl.avg_connect_time_ms = (1.0 - w) * http_server.curl.avg_connect_time_ms + w * (connect_time * 1000.0);
+      if (app_time > 0.0)
+        http_server.curl.avg_appconnect_time_ms = (1.0 - w) * http_server.curl.avg_appconnect_time_ms + w * (app_time * 1000.0);
+    }
+
+    // Update server health based on response type
+    // Method not supported is not a server health issue, so we treat it as successful for health tracking
+    bool health_success = (response_type == C4_RESPONSE_SUCCESS ||
+                           response_type == C4_RESPONSE_ERROR_USER ||
+                           response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED);
+    // Update via unified end hook (also adjusts AIMD and method stats)
+    {
+      char* rpc_method = extract_rpc_method(r->req);
+      c4_on_request_end(servers, r->req->response_node_index, response_time,
+                        health_success, response_type, http_code,
+                        rpc_method, NULL);
+      if (rpc_method) safe_free(rpc_method);
+    }
+
+#ifdef TEST
+    // Record response if test_dir is set
+    c4_record_test_response(r->url ? r->url : r->req->url,
+                            r->req->payload.data ? (char*) r->req->payload.data : NULL,
+                            r->buffer.data,
+                            http_code);
+#endif
+
+    const char* server_name = c4_extract_server_name(servers->urls[r->req->response_node_index]);
+    bytes_t     response    = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
+
+    if (response_type == C4_RESPONSE_SUCCESS && response.data) {
+      if (r->attempt_span) {
+        tracing_span_tag_str(r->attempt_span, "result", "success");
+        tracing_span_tag_i64(r->attempt_span, "http.status", (int64_t) http_code);
+        tracing_span_tag_i64(r->attempt_span, "bytes", (int64_t) r->buffer.data.len);
+        tracing_span_tag_i64(r->attempt_span, "duration_ms", (int64_t) response_time);
+        tracing_span_tag_str(r->attempt_span, "server.name", server_name ? server_name : "");
+        tracing_span_tag_str(r->attempt_span, "cache", r->cached ? "hit" : "miss");
+        tracing_finish(r->attempt_span);
+        r->attempt_span = NULL;
+      }
+      log_info(GREEN("   [curl ]") " %s -> OK %d bytes, %d ms from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->buffer.data.len, (int) response_time, server_name);
+      r->req->response = response; // set the response
+      cache_response(r);           // and write to cache
+
+      r->buffer = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
+    }
+    else if (response_type == C4_RESPONSE_ERROR_USER && r->req->type == C4_DATA_TYPE_ETH_RPC && response.data) {
+      if (r->attempt_span) {
+        tracing_span_tag_str(r->attempt_span, "result", "user_error");
+        tracing_span_tag_i64(r->attempt_span, "http.status", (int64_t) http_code);
+        tracing_span_tag_i64(r->attempt_span, "bytes", (int64_t) r->buffer.data.len);
+        tracing_span_tag_i64(r->attempt_span, "duration_ms", (int64_t) response_time);
+        tracing_span_tag_str(r->attempt_span, "server.name", server_name ? server_name : "");
+        if (response.data) tracing_span_tag_str(r->attempt_span, "error.body", (char*) response.data);
+        tracing_finish(r->attempt_span);
+        r->attempt_span = NULL;
+      }
+      log_warn(YELLOW("   [curl ]") " %s -> USER ERROR %d bytes (%s) : from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->buffer.data.len,
+               response.data ? (char*) response.data : "",
+               server_name);
+      // For JSON-RPC user errors, set the response so application logic can extract detailed error messages
+      r->req->response = response;       // set the response with JSON-RPC error details
+      r->buffer        = (buffer_t) {0}; // reset the buffer, so we don't clean up the data
+
+      // Mark as non-retryable to avoid unnecessary retries
+      log_warn(YELLOW("   [curl ]") " JSON-RPC user error - marking request as non-retryable");
+      r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
+    }
+    else if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
+      if (r->attempt_span) {
+        // Treat "method not supported" as an error for tracing purposes
+        tracing_span_tag_str(r->attempt_span, "result", "error");
+        tracing_span_tag_i64(r->attempt_span, "http.status", (int64_t) http_code);
+        tracing_span_tag_i64(r->attempt_span, "bytes", (int64_t) r->buffer.data.len);
+        tracing_span_tag_i64(r->attempt_span, "duration_ms", (int64_t) response_time);
+        tracing_span_tag_str(r->attempt_span, "server.name", server_name ? server_name : "");
+        // Prefer server response text if present (NULL-terminated), else fallback
+        const char* errtxt = (r->buffer.data.data && r->buffer.data.len > 0)
+                                 ? (char*) r->buffer.data.data
+                                 : "method_not_supported";
+        tracing_span_tag_str(r->attempt_span, "error", errtxt);
+        // we add the list of
+
+        tracing_finish(r->attempt_span);
+        r->attempt_span = NULL;
+      }
+      // Don't set response or mark as completely failed - let retry logic handle it
+      if (!r->req->error) {
+        r->req->error = strdup((r->buffer.data.data && r->buffer.data.len > 0)
+                                   ? (char*) r->buffer.data.data
+                                   : "Method not supported");
+      }
+      log_warn(YELLOW("   [curl ]") " %s -> " BOLD("METHOD NOT SUPPORTED : %s") " from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->req->error ? r->req->error : "",
+               server_name);
     }
     else {
-      long  http_code     = 0;
       char* effective_url = NULL;
-      curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
       curl_easy_getinfo(easy, CURLINFO_EFFECTIVE_URL, &effective_url);
-      r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, curl_easy_strerror(res), bprintf(&r->buffer, " ")); // create error message
-      fprintf(stderr, "   -> [%p] %s : ERROR = %s (http code: %d)\n",
-              // and log
-              easy, effective_url ? effective_url : (r->url ? r->url : r->req->url),
-              curl_easy_strerror(res), (uint32_t) http_code);
+      if (!r->req->error) r->req->error = bprintf(NULL, "(%d) %s : %s", (uint32_t) http_code, msg->data.result == CURLE_OK ? "" : curl_easy_strerror(msg->data.result), bprintf(&r->buffer, " ")); // create error message
+      if (r->attempt_span) {
+        tracing_span_tag_str(r->attempt_span, "result", "error");
+        tracing_span_tag_i64(r->attempt_span, "http.status", (int64_t) http_code);
+        tracing_span_tag_i64(r->attempt_span, "bytes", (int64_t) r->buffer.data.len);
+        tracing_span_tag_i64(r->attempt_span, "duration_ms", (int64_t) response_time);
+        tracing_span_tag_str(r->attempt_span, "server.name", server_name ? server_name : "");
+        tracing_span_tag_str(r->attempt_span, "error", r->req->error ? r->req->error : "");
+        tracing_finish(r->attempt_span);
+        r->attempt_span = NULL;
+      }
+      log_warn(YELLOW("   [curl ]") " %s -> ERROR : " BOLD("%s") " : from " BLUE("%s"),
+               c4_req_info(r->req->type, r->req->url, r->req->payload),
+               r->req->error,
+               server_name);
+
+      // For non-JSON-RPC user errors, mark as non-retryable to avoid unnecessary retries
+      if (response_type == C4_RESPONSE_ERROR_USER) {
+        log_warn(YELLOW("   [user ]") " User error detected - marking request as non-retryable");
+        // Set exclude mask to all servers to prevent retries
+        r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
+      }
     }
 
     // Process any waiting requests
@@ -174,14 +695,15 @@ static void handle_curl_events() {
       pending_remove(r);
       while (same) {
         pending_request_t* next = same->next;
-        if (same->request)
+        if (same->request) // finish the request either by returning the response or by triggering a new request in case this request failed
           trigger_uncached_curl_request(same->request, r->req->response.data ? (char*) r->req->response.data : NULL, r->req->response.len);
         safe_free(same);
         same = next;
       }
     }
 
-    r->curl = NULL; // setting it to NULL marks it as done
+    r->curl     = NULL; // setting it to NULL marks it as done
+    r->end_time = current_ms();
 
     // Clean up the easy handle
     curl_multi_remove_handle(multi_handle, easy);
@@ -199,12 +721,21 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
     // fprintf(stderr, "poll_cb: ignoring call on closing/invalid handle %p\n", handle);
     return;
   }
-  // Retrieve context if needed (though not strictly necessary for current logic)
-  // curl_poll_context_t* context = (curl_poll_context_t*) handle->data;
+  // Retrieve context to get socket descriptor
+  curl_poll_context_t* context = (curl_poll_context_t*) handle->data;
 
   // Check if there was an error
   if (status < 0) {
-    fprintf(stderr, "Socket poll error: %s\n", uv_strerror(status));
+    // Handle EBADF gracefully: close this poll handle to avoid dangling polls on invalid FDs
+    if (status == UV_EBADF) {
+      // Disassociate from curl and close the handle
+      curl_multi_assign(multi_handle, context->socket, NULL);
+      // Mark as closing/invalid to make subsequent callbacks no-ops
+      handle->data = NULL;
+      uv_close((uv_handle_t*) &context->poll_handle, cleanup_easy_handle_and_context);
+      return;
+    }
+    log_error("Socket poll error: %s", uv_strerror(status));
     return;
   }
 
@@ -213,7 +744,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
   if (events & UV_WRITABLE) flags |= CURL_CSELECT_OUT;
 
   int           running_handles;
-  curl_socket_t socket = handle->io_watcher.fd;
+  curl_socket_t socket = context->socket; // Use stored socket from context
 
   // Make sure the socket is valid
   if (socket < 0) {
@@ -222,7 +753,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events) {
 
   CURLMcode rc = curl_multi_socket_action(multi_handle, socket, flags, &running_handles);
   if (rc != CURLM_OK) {
-    fprintf(stderr, "curl_multi_socket_action error: %s\n", curl_multi_strerror(rc));
+    log_error("curl_multi_socket_action error: %s", curl_multi_strerror(rc));
   }
 
   handle_curl_events();
@@ -237,7 +768,7 @@ static void timer_cb(uv_timer_t* handle) {
   int       running_handles;
   CURLMcode rc = curl_multi_socket_action(multi_handle, CURL_SOCKET_TIMEOUT, 0, &running_handles);
   if (rc != CURLM_OK) {
-    fprintf(stderr, "curl_multi_socket_action error in timer: %s\n", curl_multi_strerror(rc));
+    log_error("curl_multi_socket_action error in timer: %s", curl_multi_strerror(rc));
   }
 
   handle_curl_events();
@@ -287,13 +818,14 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   if (!context) {
     context = (curl_poll_context_t*) safe_calloc(1, sizeof(curl_poll_context_t));
     if (!context) {
-      fprintf(stderr, "Failed to allocate poll context\n");
+      log_error("Failed to allocate poll context");
       return -1;
     }
     context->easy_handle = easy;
+    context->socket      = s; // Store socket descriptor for cross-platform access
     int err              = uv_poll_init_socket(uv_default_loop(), &context->poll_handle, s);
     if (err != 0) {
-      fprintf(stderr, "Failed to initialize poll handle: %s\n", uv_strerror(err));
+      log_error("Failed to initialize poll handle: %s", uv_strerror(err));
       safe_free(context);
       return -1;
     }
@@ -310,7 +842,7 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   // Start or update polling for events
   int err = uv_poll_start(&context->poll_handle, events, poll_cb);
   if (err != 0) {
-    fprintf(stderr, "Failed to start polling: %s\n", uv_strerror(err));
+    log_error("Failed to start polling: %s", uv_strerror(err));
     // If starting polling failed, we should clean up the context/handle
     // Only do this if we *just* created the context in this call (!socketp check equivalent)
     if (!socketp) {                     // Check if context was created in this call
@@ -325,12 +857,16 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   return 0;
 }
 
-static server_list_t* get_server_list(data_request_type_t type) {
+server_list_t* c4_get_server_list(data_request_type_t type) {
   switch (type) {
     case C4_DATA_TYPE_ETH_RPC:
       return (server_list_t*) &eth_rpc_servers;
     case C4_DATA_TYPE_BEACON_API:
       return (server_list_t*) &beacon_api_servers;
+    case C4_DATA_TYPE_PROVER:
+      return (server_list_t*) &prover_servers;
+    case C4_DATA_TYPE_CHECKPOINTZ:
+      return (server_list_t*) &checkpointz_servers;
     default:
       return NULL;
   }
@@ -353,20 +889,20 @@ typedef struct {
 
 static void c4_add_request_response(request_t* req) {
   if (!req || !req->ctx) {
-    fprintf(stderr, "ERROR: Invalid request or context in c4_add_request_response\n");
+    log_error("Invalid request or context in c4_add_request_response");
     return;
   }
 
   http_response_t* res = (http_response_t*) req->ctx;
+  data_request_t*  dr  = req->requests->req;
+  if (c4_check_retry_request(req)) return; // if there are data_request in the req, we either clean it up or retry in case of an error (if possible.)
 
   // Check that client is still valid and not being closed
-  if (!res->client || res->client->being_closed) {
-    fprintf(stderr, "WARNING: Client is no longer valid or is being closed - discarding response\n");
-  }
-  else {
+  if (!res->client || res->client->being_closed)
+    log_warn("Client is no longer valid or is being closed - discarding response");
+  else
     // Client is still valid, deliver the response
-    res->cb(req->client, res->data, req->requests->req);
-  }
+    res->cb(req->client, res->data, dr);
 
   // Clean up resources regardless of client state
   safe_free(res);
@@ -375,32 +911,21 @@ static void c4_add_request_response(request_t* req) {
 }
 
 // Function to determine TTL for different request types
-static uint32_t get_request_ttl(data_request_t* req) {
+static inline uint32_t get_request_ttl(data_request_t* req) {
+  if (req->ttl && req->response.data && req->response.len > 0 && strnstr((char*) req->response.data, "\"error\":", req->response.len))
+    return 0;
   return req->ttl;
-  /*  switch (req->type) {
-      case C4_DATA_TYPE_BEACON_API:
-        if (strcmp(req->url, "eth/v2/beacon/blocks/head") == 0) return 12;
-        return 3600 * 24; // 1day
-      case C4_DATA_TYPE_ETH_RPC:
-        // ETH RPC responses can be cached longer
-        return 3600 * 24; // 1day
-      case C4_DATA_TYPE_REST_API:
-        // REST API responses vary, use a default
-        return 60; // 1 minute
-      default:
-        return 60; // Default 1 minute
-    }
-    */
 }
 
 // Function to generate cache key from request
 static char* generate_cache_key(data_request_t* req) {
   buffer_t key = {0};
-  bprintf(&key, "%d:%s:%s:%s",
+  bprintf(&key, "%d:%s:%s:%s:%l",
           req->type,
           req->url,
           req->method == C4_DATA_METHOD_POST ? (char*) req->payload.data : "",
-          req->encoding == C4_DATA_ENCODING_JSON ? "json" : "ssz");
+          req->encoding == C4_DATA_ENCODING_JSON ? "json" : "ssz",
+          req->chain_id);
   bytes32_t hash;
   sha256(key.data, hash);
   buffer_reset(&key);
@@ -411,7 +936,7 @@ static char* generate_cache_key(data_request_t* req) {
 // Function to handle successful response and cache it
 static void cache_response(single_request_t* r) {
   uint32_t ttl = get_request_ttl(r->req);
-  if (ttl > 0 && r->req->response.data && r->req->response.len > 0) { // Added check for valid response data
+  if (ttl > 0 && r->req->response.data && r->req->response.len > 0 && memcache_client) { // Added check for valid response data
     char* key = generate_cache_key(r->req);
     if (key) { // Check if key generation succeeded
                // Use r->req->response directly instead of r->buffer
@@ -425,7 +950,7 @@ static void cache_response(single_request_t* r) {
 // Helper function to configure SSL settings for an easy handle
 static void configure_ssl_settings(CURL* easy) {
   if (!easy) {
-    fprintf(stderr, "configure_ssl_settings: NULL easy handle passed\n");
+    log_error("configure_ssl_settings: NULL easy handle passed");
     return;
   }
 
@@ -452,26 +977,93 @@ static void configure_ssl_settings(CURL* easy) {
 // Callback for memcache get operations
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len) {
   single_request_t*  r       = (single_request_t*) data;
-  pending_request_t* pending = value == NULL ? pending_find_matching(r) : NULL;
+  pending_request_t* pending = value == NULL ? pending_find_matching(r) : NULL; // is there a pending request asking for the same result
+
+  // If we were waiting on memcache, close that span here (hit or miss)
+  if (r->cache_span) {
+    uint64_t dur_ms = current_unix_ms() - r->cache_start_ms;
+    tracing_span_tag_i64(r->cache_span, "duration_ms", (int64_t) dur_ms);
+    tracing_span_tag_str(r->cache_span, "cache", value ? "hit" : "miss");
+    if (value) tracing_span_tag_i64(r->cache_span, "bytes", (int64_t) value_len);
+    tracing_finish(r->cache_span);
+    r->cache_span = NULL;
+  }
+  // If this request was waiting as a pending follower and now receives a value, finish the wait span
+  if (r->wait_span) {
+    uint64_t dur_ms = current_unix_ms() - r->wait_start_ms;
+    tracing_span_tag_i64(r->wait_span, "duration_ms", (int64_t) dur_ms);
+    tracing_span_tag_str(r->wait_span, "result", value ? "joined" : "joined_empty");
+    if (value) tracing_span_tag_i64(r->wait_span, "bytes", (int64_t) value_len);
+    tracing_finish(r->wait_span);
+    r->wait_span = NULL;
+  }
+
+  if (r->req->type == C4_DATA_TYPE_INTERN && !value) { // this is an internal request, so we need to handle it differently
+    c4_handle_internal_request(r);
+    return;
+  }
 
   if (pending) { // there is a pending request asking for the same result
     pending_add_to_same_requests(pending, r);
-    fprintf(stderr, "join : %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    log_info(GRAY("   [join ]") " %s", c4_req_info(r->req->type, r->req->url, r->req->payload));
+    // Start a wait span representing the pending-follow duration
+    if (tracing_is_enabled() && r->parent && r->parent->trace_root) {
+      r->wait_start_ms = current_unix_ms();
+      r->wait_span     = tracing_start_child(r->parent->trace_root, "pending join");
+    }
     // callback will be called when the pending-request is done
   }
   else if (value) { // there is a cached response
     // Cache hit - create response from cached data
-    fprintf(stderr, "cache: %s %s\n", r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    log_info(GRAY("   [cache]") " %s", c4_req_info(r->req->type, r->req->url, r->req->payload));
     r->req->response = bytes_dup(bytes(value, value_len));
     r->curl          = NULL; // Mark as done
-
+    r->cached        = true;
+    r->end_time      = current_ms();
     call_callback_if_done(r->parent);
   }
   else {
     // Cache miss - proceed with normal request handling
-    server_list_t* servers  = get_server_list(r->req->type);
-    char*          base_url = servers ? servers->urls[r->req->response_node_index] : NULL;
-    char*          req_url  = r->req->url;
+    server_list_t* servers = c4_get_server_list(r->req->type);
+
+    int selected_index;
+
+    // Check if this is a retry (exclude_mask > 0) with valid pre-selected server index
+    if (r->req->node_exclude_mask > 0 &&
+        r->req->response_node_index < servers->count &&
+        !(r->req->node_exclude_mask & (1 << r->req->response_node_index))) {
+      // Use pre-selected index from retry logic
+      selected_index = r->req->response_node_index;
+      log_warn("   [retry] Using pre-selected server %s", c4_extract_server_name(servers->urls[selected_index]));
+    }
+    else {
+      // Use intelligent server selection for initial requests
+      // For RPC requests, use method-aware selection
+      char* rpc_method = extract_rpc_method(r->req);
+      if (rpc_method) {
+        // Extract requested block number for known methods (if present)
+        uint64_t requested_block = 0;
+        bool     has_block       = false;
+        extract_requested_block_for_method(r->req, rpc_method, &requested_block, &has_block);
+        selected_index = c4_select_best_server_for_method(servers, r->req->node_exclude_mask, r->req->preferred_client_type, rpc_method, requested_block, has_block);
+        safe_free(rpc_method);
+      }
+      else
+        selected_index = c4_select_best_server(servers, r->req->node_exclude_mask, r->req->preferred_client_type);
+
+      if (selected_index == -1) {
+        // This should be very rare after emergency reset logic in c4_select_best_server
+        log_error(":: CRITICAL ERROR: No available servers even after emergency reset attempts");
+        r->req->error = bprintf(NULL, "All servers exhausted - check network connectivity");
+        r->end_time   = current_ms();
+        call_callback_if_done(r->parent);
+        return;
+      }
+      // Update the request with the selected server index
+      r->req->response_node_index = selected_index;
+    }
+    char* base_url = servers && servers->count > selected_index ? servers->urls[selected_index] : NULL;
+    char* req_url  = c4_request_fix_url(r->req->url, r, servers->client_types[selected_index]);
 
     // Safeguard against NULL URLs
     if (!req_url) req_url = "";
@@ -482,17 +1074,35 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     else if (strlen(req_url) == 0 && strlen(base_url) > 0)
       r->url = strdup(base_url);
     else if (strlen(req_url) > 0 && strlen(base_url) > 0)
-      r->url = bprintf(NULL, "%s%s", base_url, req_url);
+      r->url = bprintf(NULL, "%s%s%s", base_url, base_url[strlen(base_url) - 1] == '/' ? "" : "/", req_url);
     else {
-      fprintf(stderr, ":: ERROR: Empty URL\n");
+      log_error(":: ERROR: Empty URL");
       r->req->error = bprintf(NULL, "Empty URL");
+      r->end_time   = current_ms();
       call_callback_if_done(r->parent);
       return;
     }
 
+    // Tracing: create an attempt span and annotate server selection and weights/unsupported
+    c4_tracing_annotate_attempt(r, servers, selected_index, base_url);
+
     pending_add(r);
     CURL* easy = curl_easy_init();
     r->curl    = easy;
+
+#ifdef TEST
+    // Apply test URL rewriter if set (for file:// based mocking)
+    // ONLY in test builds!
+    if (c4_test_url_rewriter) {
+      char* rewritten = c4_test_url_rewriter(r->url,
+                                             r->req->payload.data ? (char*) r->req->payload.data : NULL);
+      if (rewritten && rewritten != r->url) {
+        free(r->url);
+        r->url = rewritten;
+      }
+    }
+#endif
+
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     if (r->req->payload.len && r->req->payload.data) {
       curl_easy_setopt(easy, CURLOPT_POSTFIELDS, r->req->payload.data);
@@ -503,37 +1113,79 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     r->headers = NULL; // Initialize headers
     if (r->req->payload.len && r->req->payload.data)
       r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
-    r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
+    r->headers = curl_slist_append(r->headers, c4_request_fix_encoding(r->req->encoding, r, servers->client_types[selected_index]) == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
     r->headers = curl_slist_append(r->headers, "charsets: utf-8");
     r->headers = curl_slist_append(r->headers, "User-Agent: c4 curl ");
+    // Inject b3 tracing headers
+    if (r->attempt_span) {
+      tracing_inject_b3_headers(r->attempt_span, &r->headers);
+    }
     curl_easy_setopt(easy, CURLOPT_HTTPHEADER, r->headers);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, curl_append);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &r->buffer);
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, (uint64_t) 120);
     curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[r->req->method]);
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r);
+    // Prefer IPv4 to avoid dual-stack races on stacks where IPv6 is not available
+    curl_easy_setopt(easy, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+    // Preferred HTTP version and connection reuse settings
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, http_server.curl.http2_enabled ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
+    curl_easy_setopt(easy, CURLOPT_PIPEWAIT, 1L);
+    curl_easy_setopt(easy, CURLOPT_DNS_CACHE_TIMEOUT, 600L);
+    if (http_server.curl.tcp_keepalive_enabled) {
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPALIVE, 1L);
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPIDLE, (long) http_server.curl.tcp_keepidle_s);
+      curl_easy_setopt(easy, CURLOPT_TCP_KEEPINTVL, (long) http_server.curl.tcp_keepintvl_s);
+    }
+#ifdef CURLOPT_UPKEEP_INTERVAL_MS
+    if (http_server.curl.upkeep_interval_ms > 0)
+      curl_easy_setopt(easy, CURLOPT_UPKEEP_INTERVAL_MS, (long) http_server.curl.upkeep_interval_ms);
+#endif
+#ifdef CURLOPT_MAXAGE_CONN
+    curl_easy_setopt(easy, CURLOPT_MAXAGE_CONN, 300L);
+#endif
+    if (g_curl_share) curl_easy_setopt(easy, CURLOPT_SHARE, g_curl_share);
 
     // Configure SSL settings for this easy handle
     configure_ssl_settings(easy);
 
+    // Mark request start for concurrency tracking (best-effort)
+    c4_on_request_start(servers, selected_index, /*allow_overflow=*/true);
     curl_multi_add_handle(multi_handle, easy);
-    fprintf(stderr, "send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+    //    fprintf(stderr, "send: [%p] %s  %s\n", easy, r->url, r->req->payload.data ? (char*) r->req->payload.data : "");
     // callback will be called when the request by handle_curl_events when all are done.
   }
 }
 
 static void trigger_cached_curl_requests(request_t* req) {
+  uint64_t start_time = current_ms();
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
-    r->parent                 = req; // Set the parent pointer
-
+    r->start_time             = start_time;
+    r->parent                 = req;         // Set the parent pointer
+    if (!pending->ttl || !memcache_client) { // not cached, so we trigger a uncached request
+      trigger_uncached_curl_request(r, NULL, 0);
+      continue;
+    }
     // Check cache first
     char* key = generate_cache_key(pending);
-    int   ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
+    // Start memcache "get" span
+    if (tracing_is_enabled() && req->trace_root) {
+      char span_name[500];
+      sbprintf(span_name, "memcache get | %s", c4_req_info_short(pending->type, pending->url, pending->payload));
+      r->cache_start_ms = current_unix_ms();
+      r->cache_span     = tracing_start_child(req->trace_root, span_name);
+      if (r->cache_span) {
+        tracing_span_tag_str(r->cache_span, "cache.layer", "memcached");
+        tracing_span_tag_i64(r->cache_span, "ttl", (int64_t) pending->ttl);
+      }
+    }
+    int ret = memcache_get(memcache_client, key, strlen(key), r, trigger_uncached_curl_request);
     safe_free(key);
     if (ret) {
-      fprintf(stderr, "CACHE-Error : %d %s %s\n", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
+      log_error("CACHE-Error : %d %s %s", ret, r->req->url, r->req->payload.data ? (char*) r->req->payload.data : "");
       trigger_uncached_curl_request(r, NULL, 0);
     }
   }
@@ -542,7 +1194,7 @@ static void trigger_cached_curl_requests(request_t* req) {
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb) {
   // Check if client is valid and not being closed
   if (!client || client->being_closed) {
-    fprintf(stderr, "ERROR: Attempted to add request to invalid or closing client\n");
+    log_error("Attempted to add request to invalid or closing client");
     // Clean up resources since we won't be processing this request
     if (req) {
       safe_free(req->url);
@@ -567,16 +1219,24 @@ void c4_add_request(client_t* client, data_request_t* req, void* data, http_requ
   trigger_cached_curl_requests(r);
 }
 
-void c4_start_curl_requests(request_t* req) {
-  int            len = 0, i = 0;
-  proofer_ctx_t* ctx = (proofer_ctx_t*) req->ctx;
-  for (data_request_t* r = ctx->state.requests; r; r = r->next) {
+void c4_start_curl_requests(request_t* req, c4_state_t* state) {
+  int len = 0, i = 0;
+
+  // Count pending requests (server availability will be checked in c4_select_best_server)
+  for (data_request_t* r = state->requests; r; r = r->next) {
     if (c4_state_is_pending(r)) len++;
   }
+
+  if (len == 0) {
+    // No pending requests, go back to the callback function
+    req->cb(req);
+    return;
+  }
+
   req->requests      = (single_request_t*) safe_calloc(len, sizeof(single_request_t));
   req->request_count = len;
 
-  for (data_request_t* r = ctx->state.requests; r; r = r->next) {
+  for (data_request_t* r = state->requests; r; r = r->next) {
     if (c4_state_is_pending(r)) req->requests[i++].req = r;
   }
 
@@ -600,23 +1260,44 @@ bool c4_check_retry_request(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
-    server_list_t*    servers = get_server_list(pending->type);
+    server_list_t*    servers = c4_get_server_list(pending->type);
 
-    if (pending->error && servers && pending->response_node_index + 1 < servers->count) {
-      int idx = pending->response_node_index + 1;
-      for (int i = idx; i < servers->count; i++) {
-        if (pending->node_exclude_mask & (1 << i))
-          idx++;
-        else
-          break;
+    if (pending->error && servers) {
+      // Check if too many servers are unhealthy (might indicate user error)
+      if (c4_should_reset_health_stats(servers))
+        c4_reset_server_health_stats(servers);
+
+      // Mark the current server as failed in the exclude mask
+      pending->node_exclude_mask |= (1 << pending->response_node_index);
+
+      // Try to find another available server (c4_select_best_server handles emergency reset)
+      int new_idx = c4_select_best_server(servers, pending->node_exclude_mask, pending->preferred_client_type);
+      // Tracing: emit retry scheduling event (one-off child span)
+      /*
+      if (tracing_is_enabled() && req->trace_root) {
+        trace_span_t* ev = tracing_start_child(req->trace_root, "retry");
+        if (ev) {
+          tracing_span_tag_str(ev, "retry.scheduled", "true");
+          tracing_span_tag_i64(ev, "previous_server_index", (int64_t) pending->response_node_index);
+          tracing_span_tag_i64(ev, "new_server_index", (int64_t) new_idx);
+          tracing_span_tag_i64(ev, "exclude.mask", (int64_t) pending->node_exclude_mask);
+          if (pending->error) tracing_span_tag_str(ev, "reason", pending->error);
+          tracing_finish(ev);
+        }
       }
-      if (idx < servers->count) {
-        fprintf(stderr, ":: Retrying request with server %d: %s\n", idx,
-                servers->urls[idx] ? servers->urls[idx] : "NULL");
+      */
+      if (new_idx != -1) {
+        log_warn("   [retry] %s -> Using pre-selected server " BRIGHT_BLUE("%s"), c4_req_info(pending->type, pending->url, pending->payload), c4_extract_server_name(servers->urls[new_idx]));
+
         safe_free(pending->error);
-        pending->response_node_index = idx;
+        pending->response_node_index = new_idx;
         pending->error               = NULL;
+        r->start_time                = current_ms();
         retry_requests++;
+      }
+      else {
+        // This should be very rare due to emergency reset in c4_select_best_server
+        log_error(":: No more servers available for retry after emergency measures");
       }
     }
   }
@@ -629,7 +1310,7 @@ bool c4_check_retry_request(request_t* req) {
     return false;
   }
   else {
-    fprintf(stderr, ":: Retrying %d requests with different servers\n", retry_requests);
+    //    fprintf(stderr, ":: Retrying %d requests with different servers\n", retry_requests);
     single_request_t* pendings = (single_request_t*) safe_calloc(retry_requests, sizeof(single_request_t));
     int               j        = 0;
     for (size_t i = 0; i < req->request_count && j < retry_requests; i++) {
@@ -650,28 +1331,21 @@ bool c4_check_retry_request(request_t* req) {
 
 static void init_serverlist(server_list_t* list, char* servers) {
   if (!servers) return;
-  char* servers_copy = strdup(servers);
-  int   count        = 0;
-  char* token        = strtok(servers_copy, ",");
-  while (token) {
-    count++;
-    token = strtok(NULL, ",");
-  }
-  memcpy(servers_copy, servers, strlen(servers) + 1);
-  list->urls  = (char**) safe_calloc(count, sizeof(char*));
-  list->count = count;
-  count       = 0;
-  token       = strtok(servers_copy, ",");
-  while (token) {
-    list->urls[count++] = strdup(token);
-    token               = strtok(NULL, ",");
-  }
-  safe_free(servers_copy);
+
+  // Use the new centralized configuration parser
+  c4_parse_server_config(list, servers);
 }
 
 void c4_init_curl(uv_timer_t* timer) {
   // Initialize global curl state with SSL support
   curl_global_init(CURL_GLOBAL_SSL | CURL_GLOBAL_DEFAULT);
+
+  // Initialize shared object for DNS and SSL session sharing
+  g_curl_share = curl_share_init();
+  if (g_curl_share) {
+    curl_share_setopt(g_curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+    curl_share_setopt(g_curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+  }
 
   // Initialize multi handle
   multi_handle = curl_multi_init();
@@ -679,15 +1353,54 @@ void c4_init_curl(uv_timer_t* timer) {
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
 
-  // Initialize memcached client
-  memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
-  if (!memcache_client) {
-    fprintf(stderr, "Failed to create memcached client\n");
-    return;
+  // Configure connection pool limits and HTTP/2 multiplexing
+  curl_multi_setopt(multi_handle, CURLMOPT_MAX_HOST_CONNECTIONS, (long) http_server.curl.pool_max_host);
+  curl_multi_setopt(multi_handle, CURLMOPT_MAX_TOTAL_CONNECTIONS, (long) http_server.curl.pool_max_total);
+#ifdef CURLPIPE_MULTIPLEX
+  curl_multi_setopt(multi_handle, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
+#endif
+  curl_multi_setopt(multi_handle, CURLMOPT_MAXCONNECTS, (long) http_server.curl.pool_maxconnects);
+
+  if (http_server.memcached_host && *http_server.memcached_host) {
+    // Initialize memcached client
+    memcache_client = memcache_new(http_server.memcached_pool, http_server.memcached_host, http_server.memcached_port);
+    if (!memcache_client) {
+      log_error("Failed to create memcached client");
+      return;
+    }
   }
 
   init_serverlist(&eth_rpc_servers, http_server.rpc_nodes);
   init_serverlist(&beacon_api_servers, http_server.beacon_nodes);
+  init_serverlist(&prover_servers, http_server.prover_nodes);
+  init_serverlist(&checkpointz_servers, http_server.checkpointz_nodes);
+  // Auto-detect client types for servers without explicit configuration
+  c4_detect_server_client_types(&eth_rpc_servers, C4_DATA_TYPE_ETH_RPC);
+  c4_detect_server_client_types(&beacon_api_servers, C4_DATA_TYPE_BEACON_API);
+  // Start RPC head polling (optional, based on ENV)
+  c4_start_rpc_head_poller(&eth_rpc_servers);
+}
+
+static void free_server_list(server_list_t* list) {
+  if (!list) return;
+  if (list->health_stats) {
+    for (size_t i = 0; i < list->count; i++)
+      c4_cleanup_method_support(&list->health_stats[i]);
+    safe_free(list->health_stats);
+    list->health_stats = NULL;
+  }
+  if (list->client_types) {
+    safe_free(list->client_types);
+    list->client_types = NULL;
+  }
+  if (list->urls) {
+    for (size_t i = 0; i < list->count; i++)
+      safe_free(list->urls[i]);
+    safe_free(list->urls);
+    list->urls = NULL;
+  }
+  list->count      = 0;
+  list->next_index = 0;
 }
 
 void c4_cleanup_curl() {
@@ -695,7 +1408,16 @@ void c4_cleanup_curl() {
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, NULL);
   curl_multi_cleanup(multi_handle);
   curl_global_cleanup();
+  if (g_curl_share) {
+    curl_share_cleanup(g_curl_share);
+    g_curl_share = NULL;
+  }
   if (memcache_client) {
     memcache_free(&memcache_client);
   }
+
+  free_server_list(&eth_rpc_servers);
+  free_server_list(&beacon_api_servers);
+  free_server_list(&prover_servers);
+  free_server_list(&checkpointz_servers);
 }

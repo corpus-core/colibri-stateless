@@ -28,7 +28,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri();
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for ethers (v6)
     const provider = new BrowserProvider(client);
@@ -48,7 +48,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri();
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for ethers (v6)
     const provider = new ethers.providers.Web3Provider(client);
@@ -70,7 +70,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the client with the default configuration and RPCs
-    const client = new Colibri();
+    const client = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Use Colibri client as the EIP-1193 provider for web3.js
     const web3 = new Web3(client);
@@ -93,7 +93,7 @@ import Colibri from "@corpus-core/colibri-stateless";
 async function main() {
 
     // Initialize the Colibri client
-    const colibriClient = new Colibri();
+    const colibriClient = new Colibri({prover:['https://mainnet.colibri-proof.tech']});
 
     // Create a viem Public Client using Colibri as a custom EIP-1193 transport
     const viemClient = createPublicClient({
@@ -107,6 +107,32 @@ async function main() {
 }
 
 main().catch(console.error);
+```
+
+## Secure Transaction Verification
+
+Protect your dApp from NPM supply-chain attacks and transaction manipulation:
+
+```javascript
+import { BrowserProvider } from "ethers";
+import Colibri from "@corpus-core/colibri-stateless";
+
+// 🛡️ Secure transactions with built-in verification
+const client = new Colibri({
+    fallback_provider: window.ethereum, // MetaMask as Signer
+    verifyTransactions: true            // Prevents transaction manipulation
+});
+
+const provider = new BrowserProvider(client);
+
+// Send transaction - automatically verified before broadcast
+const tx = await provider.getSigner().sendTransaction({
+    to: "0x742d35cc6633C0532925a3b8D8C9C4e2F9",
+    value: "0x16345785d8a0000", // 0.1 ETH
+    gasLimit: "0x5208"
+});
+
+console.log("✅ Verified transaction:", tx.hash);
 ```
 
 ## Building proofs in you app.
@@ -147,27 +173,36 @@ The constructor of the colibri client accepts a configuration-object, which may 
      new Colibri({ chainId: 0x7})
      ```
 - `beacon_apis` - urls for the beacon apis    
-    An array of endpoints for accessing the beacon chain using the official [Eth Beacon Node API](https://ethereum.github.io/beacon-APIs/). The Array may contain more than one url, and if one API is not responding the next URL will work as fallback. This beacon API is currently used eitehr when building proofs directly or even if you are using a remote proofer, the LightClientUpdates (every 27h) will be fetched directly from the beacon API.   
+    An array of endpoints for accessing the beacon chain using the official [Eth Beacon Node API](https://ethereum.github.io/beacon-APIs/). The Array may contain more than one url, and if one API is not responding the next URL will work as fallback. This beacon API is currently used eitehr when building proofs directly or even if you are using a remote prover, the LightClientUpdates (every 27h) will be fetched directly from the beacon API.   
      ```js
      new Colibri({ beacon_apis: [ 'https://lodestar-mainnet.chainsafe.io' ]})
      ```
+- `checkpointz` - urls for checkpoint servers (Checkpointz or Beacon API)    
+    An array of server endpoints for fetching finalized checkpoint data and weak subjectivity validation. Supports both dedicated Checkpointz servers and standard Beacon API nodes, as the verifier uses the Beacon-API-compatible endpoint `/eth/v1/beacon/states/head/finality_checkpoints`. These servers provide finalized beacon block roots used for secure initialization and periodic validation. Multiple URLs enable automatic fallback. Defaults to public Checkpointz servers for mainnet, but you can also use your own Beacon node for maximum trust.
+     ```js
+     // Using public Checkpointz servers (default)
+     new Colibri({ checkpointz: [ 'https://sync-mainnet.beaconcha.in', 'https://beaconstate.info' ]})
+     
+     // Or using your own Beacon node
+     new Colibri({ checkpointz: [ 'http://localhost:5052' ]})
+     ```
 - `rpcs` - RPCs for the executionlayer    
-    a array of rpc-endpoints for accessing the execution layer. If you are using the remote proofer, you may not need it at all. But creating your proofs locally will require to access data from the execution layer. Having more than one rpc-url allows to use fallbacks in case one is not available.
+    a array of rpc-endpoints for accessing the execution layer. If you are using the remote prover, you may not need it at all. But creating your proofs locally will require to access data from the execution layer. Having more than one rpc-url allows to use fallbacks in case one is not available.
      ```js
      new Colibri({ beacon_apis: [
         "https://nameless-sly-reel.quiknode.pro/<APIKEY>/",
         "https://eth-mainnet.g.alchemy.com/v2/<APIKEY>",
         "https://rpc.ankr.com/eth/<APIKEY>" ]})
      ```
-- `proofer` - urls for remove proofer
-    a array of endpoints for remote proofer. This allows to generate the proof in the backend, where caches can speed up the process.
+- `prover` - urls for remove prover
+    a array of endpoints for remote prover. This allows to generate the proof in the backend, where caches can speed up the process.
     ```js
-    new Colibri({ proofer: ["https://mainnet.colibri-proof.tech" ]})
+    new Colibri({ prover: ["https://mainnet.colibri-proof.tech" ]})
     ```
-- `trusted_block_hashes` - beacon block hashes used as trusted anchor    
-    Thise array of blockhashes will be used as anchor for fetching the keys for the sync committee. So instead of starting with the genesis you can define a starting block, where you know the blockhash. If not trusted blockhash is set the beacon-api will be used to fetch one, but defining it is safer.
+- `trusted_checkpoint` - optional beacon block hash used as trusted anchor    
+    This single blockhash will be used as anchor for fetching the keys for the sync committee. So instead of starting with the genesis you can define a starting block, where you know the blockhash. If no trusted checkpoint is set, the verifier will automatically fetch the latest finalized checkpoint from a Checkpointz server, making initialization secure and convenient. Providing an explicit trusted checkpoint is recommended for maximum security control but is no longer required.
     ```js
-    new Colibri({ trusted_block_hashes: [ "0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7" ]})
+    new Colibri({ trusted_checkpoint: "0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7" })
     ```
 - `cache` - cache impl for rpc-requests    
     you can provide your own implementation to cache JSON-RPC requests. those function will be used before a request is send, also allowing mock handlers to cache responses for tests.
@@ -203,36 +238,93 @@ The constructor of the colibri client accepts a configuration-object, which may 
     new Colibri({ verify:  (method, args) => method != 'eth_blockNumber' })
     ```
 
+- `proofStrategy`- a strategy function used to determine how to handle proofs. Currently there are 3 default-implementations.
+
+    -  `Strategy.VerifiedOnly` - throws an exception if verifaction fails or a non verifieable function is called.
+    -  `Strategy.VerifyIfPossible` - Verifies only verifiable rpc methods and uses the fallbackhandler or rpcs if the method is not verifiable, but throws an exception if verifaction fails.
+    -  `Strategy.WarningWithFallback` - Always use the defaultprovider or rpcs to fetch the response and in parallel verifiy the response if possible. If the Verification fails, the warningHandler is called ( which still could throw an exception ). If it fails the response from the rpc-provider is used.
+
+
+    ```js
+    new Colibri({ proofStrategy: Strategy.VerifyIfPossible })
+    ```
+
+
+
+- `warningHandler`- a function to be called in case the warning-strategy is used and a verification-error happens. If not set, the default will simply use console.warn to log the error.
+    ```js
+    new Colibri({ warningHandler:  (req, error) => console.warn(`Verification Error: ${error}`) })
+    ```
+
+
+- `fallback_provider`- a EIP 1193 Provider used as fallback for all requests which are not verifieable, like eth_sendTransaction. Also used for signing transactions when `verifyTransactions` is enabled.
+    ```js
+    new Colibri({ fallback_provider: window.ethereum  })
+    ```
+
+- `verifyTransactions`- if true, all eth_sendTransaction calls will be verified before broadcast to prevent transaction manipulation attacks. Requires `fallback_provider` to be set. (default: false)
+    ```js
+    new Colibri({ 
+        fallback_provider: window.ethereum,
+        verifyTransactions: true 
+    })
+    ```
+
 
 
 ## Building
 
-In order to build the Javascript bindings from source, you need to have [emscripten installed](https://emscripten.org/docs/getting_started/downloads.html).
+In order to build the Javascript bindings from source, you need to have [emscripten installed](https://emscripten.org/docs/getting_started/downloads.html) and the `EMSDK` environment variable pointing to its installation directory.
 
 *The Colibri JS-Binding has been tested with Version 4.0.3. Using latest or other versions may result in unexpected issues. For example Version 4.0.7 is not working. So make sure you select the right version when installing!*
 
-```sh
-git clone https://github.com/corpus-core/colibri-stateless.git && cd colibri-stateless
-mkdir build && cd build
-emcmake cmake -DWASM=true -DCURL=false ..
-make -j
-```
+**Recommended Method: Using CMake Presets**
 
-Of course, building your own version allows you to use any of the [cmake flags options](../building/cmake-colibri-lib.md). So you can choose which chains or which Proofs schouls be supported allowing a very small wasm build.
+This project includes a `CMakePresets.json` file for easier configuration.
 
-like 
-```sh
-emcmake cmake -DWASM=true -DCURL=false -DETH_ACCOUNT=1 -DETH_CALL=0 -DETH_LOGS=0 -DETH_BLOCK=0 -DETH_TX=0 -DETH_RECEIPT=0 -DETH_UTIL=0 ..
-```
+1.  **Set Environment Variable:** Ensure the `EMSDK` environment variable points to your Emscripten SDK directory.
+    ```sh
+    export EMSDK=/path/to/your/emsdk
+    ```
+2.  **Configure using Preset:** Use the `wasm` preset. 
+    *   **In VS Code/Cursor:** Select the `[wasm]` configure preset via the status bar or command palette (`CMake: Select Configure Preset`).
+    *   **On the Command Line:**
+        ```sh
+        # Configure (from the project root)
+        cmake --preset wasm -S . 
+        # The binary directory (e.g., build/wasm) is defined in the preset
+        ```
+3.  **Build:**
+    *   **In VS Code/Cursor:** Use the build button or the command palette (`CMake: Build`). Make sure the `[wasm]` build preset is selected.
+    *   **On the Command Line:**
+        ```sh
+        # Build (using the build directory from the preset)
+        cmake --build build/wasm -j
+        ```
 
-this would turn off all code which is not needed dramticly decreasing the size, if all you want to do is verify accountProofs (like eth_getBalance).
+This preset automatically sets `-DWASM=true`, `-DCURL=false`, and the correct toolchain file based on your `EMSDK` variable. You can create custom presets in `CMakeUserPresets.json` if you need different CMake flags (e.g., `-DETH_ACCOUNT=1`).
 
-After calling `make`, The js-module will be in the `build/emscripten` folder.
+**Alternative Method: Manual `emcmake`**
+
+If you prefer not to use presets or your environment doesn't support them well:
+
+1.  **Set Environment Variable:** Ensure `EMSDK` is set and the Emscripten environment is active (e.g., via `source ./emsdk_env.sh`).
+2.  **Configure and Build:**
+    ```sh
+    git clone https://github.com/corpus-core/colibri-stateless.git && cd colibri-stateless
+    mkdir build/wasm-manual && cd build/wasm-manual # Use a dedicated build dir
+    # Ensure EMSDK is set correctly before running emcmake
+    emcmake cmake -DWASM=true -DCURL=false <other_flags> ../..
+    make -j
+    ```
+    Replace `<other_flags>` with any additional CMake options you need (like `-DETH_ACCOUNT=1`).
+
+After a successful build (using either method), the JS/WASM module will be in the configured build directory's `emscripten` subfolder (e.g., `build/wasm/emscripten`).
 
 
 ## Concept
 
-The idea behind C4 is to create a ultra light client or better verifier which can be used in Websites, Mobile applications, but especially in embedded systems. The Proofer is a library which can used within you mobile app or in the backend to create Proof that the given data is valid. The Verifier is a library which can be used within the embedded system to verify this Proof.
+The idea behind C4 is to create a ultra light client or better verifier which can be used in Websites, Mobile applications, but especially in embedded systems. The Prover is a library which can used within you mobile app or in the backend to create Proof that the given data is valid. The Verifier is a library which can be used within the embedded system to verify this Proof.
 
 The verifier itself is almost stateless and only needs to store the state of the sync committee, which changes every 27h. But with the latest sync committee the verifier is able to verify any proof with the signatures matching the previously verified public keys of the sync committee.
 This allows independent Verification and security on any devices without the need to process every blockheader (as light clients usually would do).

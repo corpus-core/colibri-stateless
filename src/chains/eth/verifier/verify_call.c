@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
@@ -16,7 +39,7 @@
 
 c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result);
 
-static bool verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root) {
+bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root) {
   uint32_t  len                 = ssz_len(accounts);
   bytes32_t root                = {0};
   bytes32_t code_hash_exepected = {0};
@@ -39,16 +62,14 @@ static bool verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t stat
 }
 // Function to verify call proof
 bool verify_call_proof(verify_ctx_t* ctx) {
-  bytes32_t    body_root                = {0};
-  bytes32_t    state_root               = {0};
-  ssz_ob_t     state_proof              = ssz_get(&ctx->proof, "state_proof");
-  ssz_ob_t     accounts                 = ssz_get(&ctx->proof, "accounts");
-  ssz_ob_t     header                   = ssz_get(&state_proof, "header");
-  ssz_ob_t     sync_committee_bits      = ssz_get(&state_proof, "sync_committee_bits");
-  ssz_ob_t     sync_committee_signature = ssz_get(&state_proof, "sync_committee_signature");
-  bytes_t      call_result              = NULL_BYTES;
-  call_code_t* call_codes               = NULL;
-  bool         match                    = false;
+  bytes32_t    body_root   = {0};
+  bytes32_t    state_root  = {0};
+  ssz_ob_t     state_proof = ssz_get(&ctx->proof, "state_proof");
+  ssz_ob_t     accounts    = ssz_get(&ctx->proof, "accounts");
+  ssz_ob_t     header      = ssz_get(&state_proof, "header");
+  bytes_t      call_result = NULL_BYTES;
+  call_code_t* call_codes  = NULL;
+  bool         match       = false;
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
 
   if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) return false;
@@ -69,9 +90,9 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   eth_free_codes(call_codes);
   if (call_status != C4_SUCCESS) return false;
   if (!match) RETURN_VERIFY_ERROR(ctx, "Call result mismatch");
-  if (!verify_accounts(ctx, accounts, state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
+  if (!c4_eth_verify_accounts(ctx, accounts, state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
   if (!eth_verify_state_proof(ctx, state_proof, state_root)) false;
-  if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
+  if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
 
   ctx->success = true;
   return ctx->success;

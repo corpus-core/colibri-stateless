@@ -1,0 +1,47 @@
+# Build artifacts
+build/
+build-*/
+bin/
+*.o
+*.a
+*.so
+*.dylib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitmodules
+
+# Documentation (except valgrind docs)
+*.md
+!test/valgrind/*.md
+
+# Test data (except valgrind suppressions)
+test/data/
+test/embedded/
+!test/valgrind/
+
+# Logs
+*.log
+valgrind-logs/
+
+# Rust artifacts (will be built in container)
+target/
+Cargo.lock
+
+# macOS
+.DS_Store
+
+# Docker
+docker-compose.yml
+docker-compose.*.yml
+Dockerfile
+Dockerfile.*
+

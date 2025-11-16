@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "verify.h"
 #include "../util/json.h"
 #include "../util/ssz.h"
@@ -5,57 +28,54 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Macro to initialize an empty SSZ object
+#define INIT_EMPTY_SSZ_OBJ(obj)           \
+  do {                                    \
+    (obj).def        = &ssz_none;         \
+    (obj).bytes.data = (void*) &ssz_none; \
+  } while (0)
+
 const ssz_def_t* c4_get_request_type(chain_type_t chain_type) {
   return request_container(chain_type);
 }
 
-c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id) {
+c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id) {
   chain_type_t chain_type = c4_chain_type(chain_id);
+  // Input validation
+  if (!ctx) return C4_ERROR;
+  if (!method) THROW_ERROR("method cannot be NULL");
+
   memset(ctx, 0, sizeof(verify_ctx_t));
-  if (request.len == 0) {
+  if (request_bytes.len == 0) {
     method_type_t method_type = c4_get_method_type(chain_id, method);
-    if (method_type == METHOD_UNDEFINED) {
-      ctx->state.error = strdup("method not known");
-      return C4_ERROR;
-    }
-    else if (method_type == METHOD_NOT_SUPPORTED) {
-      ctx->state.error = strdup("method not supported");
-      return C4_ERROR;
-    }
-    else if (method_type == METHOD_PROOFABLE) {
-      ctx->state.error = strdup("missing proof!");
-      return C4_ERROR;
-    }
-    ctx->data.def             = &ssz_none;
-    ctx->data.bytes.data      = (void*) &ssz_none;
-    ctx->proof.def            = &ssz_none;
-    ctx->proof.bytes.data     = (void*) &ssz_none;
-    ctx->sync_data.def        = &ssz_none;
-    ctx->sync_data.bytes.data = (void*) &ssz_none;
+    if (method_type == METHOD_UNDEFINED)
+      THROW_ERROR("method not known");
+    else if (method_type == METHOD_NOT_SUPPORTED)
+      THROW_ERROR("method not supported");
+    else if (method_type == METHOD_PROOFABLE)
+      THROW_ERROR("missing proof!");
+    INIT_EMPTY_SSZ_OBJ(ctx->data);
+    INIT_EMPTY_SSZ_OBJ(ctx->proof);
+    INIT_EMPTY_SSZ_OBJ(ctx->sync_data);
   }
   else {
-    if (chain_type != c4_get_chain_type_from_req(request)) {
-      ctx->state.error = strdup("chain type does not match the proof");
-      return C4_ERROR;
-    }
-    ssz_ob_t req = {.bytes = request, .def = request_container(chain_type)};
-    if (!req.def) {
-      ctx->state.error = strdup("chain not supported");
-      return C4_ERROR;
-    }
-    if (!ssz_is_valid(req, true, &ctx->state)) return C4_ERROR;
-    ctx->data      = ssz_get(&req, "data");
-    ctx->proof     = ssz_get(&req, "proof");
-    ctx->sync_data = ssz_get(&req, "sync_data");
+    if (chain_type != c4_get_chain_type_from_req(request_bytes))
+      THROW_ERROR_WITH("chain type (%d) does not match the proof (%d)", chain_type, c4_get_chain_type_from_req(request_bytes));
+    ssz_ob_t request = {.bytes = request_bytes, .def = request_container(chain_type)};
+    if (!request.def) THROW_ERROR("chain not supported");
+    if (!ssz_is_valid(request, true, &ctx->state)) return C4_ERROR;
+    ctx->data      = ssz_get(&request, "data");
+    ctx->proof     = ssz_get(&request, "proof");
+    ctx->sync_data = ssz_get(&request, "sync_data");
   }
-  ctx->chain_id = chain_id; // ssz_get_uint64(&req, "chainId");
+  ctx->chain_id = chain_id;
   ctx->method   = method;
   ctx->args     = args;
   return C4_SUCCESS;
 }
 
-c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request, char* method, json_t args, chain_id_t chain_id) {
-  TRY_ASYNC(c4_verify_init(ctx, request, method, args, chain_id));
+c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id) {
+  TRY_ASYNC(c4_verify_init(ctx, request_bytes, method, args, chain_id));
   return c4_verify(ctx);
 }
 
@@ -71,13 +91,18 @@ c4_status_t c4_verify(verify_ctx_t* ctx) {
   return (ctx->state.error ? C4_ERROR : (c4_state_get_pending_request(&ctx->state) ? C4_PENDING : C4_SUCCESS));
 }
 
-chain_type_t c4_get_chain_type_from_req(bytes_t request) {
-  if (request.len < 4) return C4_CHAIN_TYPE_ETHEREUM;
-  return (chain_type_t) request.data[0];
+chain_type_t c4_get_chain_type_from_req(bytes_t request_bytes) {
+  // Chain type is encoded in the first byte of the request
+  // Default to Ethereum if request is too short or invalid
+  if (request_bytes.len < 4 || !request_bytes.data)
+    return C4_CHAIN_TYPE_ETHEREUM;
+  else
+    // First byte corresponds to the chain_type_t enum value
+    return request_bytes.data[0];
 }
 
-const ssz_def_t* c4_get_req_type_from_req(bytes_t request) {
-  return c4_get_request_type(c4_get_chain_type_from_req(request));
+const ssz_def_t* c4_get_req_type_from_req(bytes_t request_bytes) {
+  return c4_get_request_type(c4_get_chain_type_from_req(request_bytes));
 }
 
 void c4_verify_free_data(verify_ctx_t* ctx) {

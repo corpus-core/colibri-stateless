@@ -1,0 +1,15 @@
+#!/bin/bash
+# Pre-installation script for Colibri Server on macOS
+
+set -e
+
+PLIST_TARGET="/Library/LaunchDaemons/io.corpuscore.colibri-server.plist"
+
+# Stop and unload existing service if present
+if [ -f "$PLIST_TARGET" ]; then
+    echo "Stopping existing Colibri Server service..."
+    launchctl unload "$PLIST_TARGET" 2>/dev/null || true
+fi
+
+exit 0
+

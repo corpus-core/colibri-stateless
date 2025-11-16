@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 // datei: test_addiere.c
 #include "beacon_types.h"
 #include "bytes.h"
@@ -16,7 +39,7 @@ void tearDown(void) {
 void test_block_body() {
   bytes_t data = read_testdata("body.ssz");
   TEST_ASSERT_NOT_NULL_MESSAGE(data.data, "body.ssz not found");
-  ssz_ob_t signed_beacon_block = {.def = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB), .bytes = data};
+  ssz_ob_t signed_beacon_block = {.def = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_DENEB, C4_CHAIN_MAINNET), .bytes = data};
   // ssz_dump_to_file(stdout, signed_beacon_block, true, true);
 
   c4_state_t state = {0};
@@ -119,7 +142,7 @@ void test_hash_root() {
 void test_hash_body() {
   bytes_t data = read_testdata("body_11038724.ssz");
   TEST_ASSERT_NOT_NULL_MESSAGE(data.data, "body_11038724.ssz not found");
-  ssz_ob_t  block = {.def = eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_DENEB), .bytes = data};
+  ssz_ob_t  block = {.def = eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_DENEB, C4_CHAIN_MAINNET), .bytes = data};
   bytes32_t root  = {0};
   ssz_hash_tree_root(block, root);
   ASSERT_HEX_STRING_EQUAL("ef0d785cb18cb409d4ec8ae1a2f815542b66425716623b16192389e38af32ba7", root, 32, "invalid blockhash");

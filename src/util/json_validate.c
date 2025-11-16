@@ -1,10 +1,31 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "bytes.h"
 #include "json.h"
 #include <ctype.h>
+#include <stdint.h>
 #include <string.h>
-
-#define TEST_DEF "{tests:[{name?:bytes32,type?:address,len?:blocknumber}]}"
-char* test2 = "[address,[bytes32],block," TEST_DEF "]";
 
 #define ERROR(fmt, ...) return bprintf(NULL, fmt, ##__VA_ARGS__)
 static const char* find_end(const char* pos, char start, char end) {
@@ -59,8 +80,11 @@ static const char* check_array(json_t val, const char* def, const char* error_pr
   while (*next && isspace(*next)) next++;
   json_for_each_value(val, item) {
     const char* err = json_validate(item, item_def, "");
-    if (err)
-      ERROR("%s at elemtent (idx: %d ) : %s", error_prefix, idx, err);
+    if (err) {
+      char* new_err = bprintf(NULL, "%s at elemtent (idx: %d ) : %s", error_prefix, idx, err);
+      safe_free((char*) err);
+      return new_err;
+    }
     if (*next == ',') {
       item_def = next_type(next + 1, &next, &item_len);
       while (*next && isspace(*next)) next++;
@@ -83,8 +107,12 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
     while (*next && isspace(*next)) next++;
     const char* item_def = next_type(next, &next, &item_len);
     json_for_each_property(ob, val, prop_name) {
-      const char* err = json_validate(val, item_def, error_prefix ? error_prefix : "");
-      if (err) ERROR("%s.%s%s", error_prefix, *err == '.' ? "" : ":", err);
+      const char* err = json_validate(val, item_def, "");
+      if (err) {
+        const char* new_err = bprintf(NULL, "%s.%s%s", error_prefix, *err == '.' ? "" : ":", err);
+        safe_free((char*) err);
+        return (char*) new_err;
+      }
     }
     return NULL;
   }
@@ -103,8 +131,12 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
       if (prop_name.len == name_len && prop_name.data && memcmp(prop_name.data, name, name_len) == 0) {
         found = true;
         if (optional && val.type == JSON_TYPE_NULL) break;
-        const char* err = json_validate(val, item_def, error_prefix ? error_prefix : "");
-        if (err) ERROR("%s.%j%s%s", error_prefix, (json_t) {.type = JSON_TYPE_OBJECT, .start = name, .len = name_len}, *err == '.' ? "" : ":", err);
+        const char* err = json_validate(val, item_def, "");
+        if (err) {
+          const char* new_err = bprintf(NULL, "%s.%j%s%s", error_prefix, (json_t) {.type = JSON_TYPE_OBJECT, .start = name, .len = name_len}, *err == '.' ? "" : ":", err);
+          safe_free((char*) err);
+          return new_err;
+        }
         break;
       }
     }
@@ -137,6 +169,16 @@ static const char* check_block(json_t val, const char* error_prefix) {
   if (strncmp("\"latest\"", val.start, 8) == 0 || strncmp("\"safe\"", val.start, 6) == 0 || strncmp("\"finalized\"", val.start, 11) == 0) return NULL;
   return check_hex(val, 0, true, error_prefix);
 }
+
+static const char* check_suint(json_t val, const char* error_prefix) {
+  // this is a uint number in quotes as string (no hex, only 0-9+)
+  if (val.type != JSON_TYPE_STRING) ERROR("%sExpected suint", error_prefix);
+  for (int i = 1; i < val.len - 1; i++) {
+    if (!isdigit(val.start[i])) ERROR("%sExpected suint", error_prefix);
+  }
+  return NULL;
+}
+
 const char* json_validate(json_t val, const char* def, const char* error_prefix) {
   if (*def == '[') return check_array(val, def, error_prefix ? error_prefix : "");
   if (*def == '{') return check_object(val, def, error_prefix ? error_prefix : "");
@@ -146,7 +188,42 @@ const char* json_validate(json_t val, const char* def, const char* error_prefix)
   if (strncmp(def, "hex32", 5) == 0) return check_hex(val, -32, false, error_prefix);
   if (strncmp(def, "bytes", 5) == 0) return check_hex(val, 0, false, error_prefix);
   if (strncmp(def, "uint", 4) == 0) return val.type == JSON_TYPE_NUMBER ? NULL : strdup("Expected uint");
+  if (strncmp(def, "suint", 5) == 0) return val.type == JSON_TYPE_STRING ? NULL : strdup("Expected suint");
   if (strncmp(def, "bool", 4) == 0) return val.type == JSON_TYPE_BOOLEAN ? NULL : strdup("Expected boolean");
   if (strncmp(def, "block", 5) == 0) return check_block(val, error_prefix);
   ERROR("%sUnknown type %s", error_prefix ? error_prefix : "", def);
+}
+
+// Lightweight cache for json validation results (non-security critical).
+// We use a small ring buffer of the last N hashes, computed over (def || 0x00 || val.bytes).
+#define JSON_VALIDATE_CACHE_COUNT 10
+static uint64_t json_validate_cache[JSON_VALIDATE_CACHE_COUNT] = {0};
+static uint32_t json_validate_cache_idx                        = 0;
+
+static inline uint64_t fnv1a64_update(uint64_t h, const uint8_t* d, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    h ^= d[i];
+    h *= 1099511628211ull; // FNV prime
+  }
+  return h;
+}
+
+const char* json_validate_cached(json_t val, const char* def, const char* error_prefix) {
+  // Compute fast non-crypto hash of schema + separator + raw json bytes
+  uint64_t h = 1469598103934665603ull; // FNV offset basis
+  if (def && *def) h = fnv1a64_update(h, (const uint8_t*) def, strlen(def));
+  uint8_t sep = 0;
+  h           = fnv1a64_update(h, &sep, 1);
+  if (val.start && val.len) h = fnv1a64_update(h, (const uint8_t*) val.start, val.len);
+
+  for (uint32_t i = 0; i < JSON_VALIDATE_CACHE_COUNT; i++) {
+    if (json_validate_cache[i] == h) return NULL; // cache hit → already validated
+  }
+
+  const char* err = json_validate(val, def, error_prefix);
+  if (!err) {
+    json_validate_cache[json_validate_cache_idx] = h;
+    json_validate_cache_idx                      = (json_validate_cache_idx + 1) % JSON_VALIDATE_CACHE_COUNT;
+  }
+  return err;
 }

@@ -1,0 +1,88 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#ifndef C4_HISTORIC_PROOF_H
+#define C4_HISTORIC_PROOF_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "beacon.h"
+#include "prover.h"
+#include "ssz.h"
+#include "sync_committee.h"
+
+typedef enum {
+  HISTORIC_PROOF_NONE   = 0,
+  HISTORIC_PROOF_DIRECT = 1,
+  HISTORIC_PROOF_HEADER = 2,
+} historic_proof_type_t;
+
+typedef struct {
+  uint8_t*             checkpoint;        // if no ZERO, the checkpoint used by the verifier
+  uint64_t             checkpoint_period; // the period extracted from the bootstrap
+  uint64_t             required_period;   // latest_period  required
+  uint64_t             oldest_period;     // current period used by the the verifier
+  uint64_t             newest_period;     // current period used by the the verifier
+  c4_state_sync_type_t status;            // the status of the
+
+} syncdata_state_t;
+
+typedef struct {
+  historic_proof_type_t type;
+  ssz_ob_t              sync_aggregate;
+  bytes_t               historic_proof;
+  gindex_t              gindex;
+  bytes_t               proof_header;
+  syncdata_state_t      sync;
+} blockroot_proof_t;
+
+/**
+ * checks whether additional data is needed in order to proof the blockroot.asm
+ *
+ * Additional data would be:
+ *
+ * - light_client_bootstrap, because the client is only having the checkpoint.asm
+ * - light_client_updates, because the client's last period is older than the required period
+ * - historic_proof, because the client's oldest period is still newer than the required period
+ * - header_proof, because the sync_committee did not reach the 2/3 majority and we need to add headers in between.
+ *
+ * This function only fetches the data and sets it in the blockroot_proof_t if needed.
+ *
+ * @brief Check the blockroot proof for the given block
+ * @param ctx The context of the prover
+ * @param block_proof The blockroot proof holding the state
+ * @param block The block to check the proof for
+ * @return The status of the check
+ */
+c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* block);
+
+c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder);
+void        ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof);
+void        c4_free_block_proof(blockroot_proof_t* block_proof);
+#ifdef __cplusplus
+}
+#endif
+
+#endif

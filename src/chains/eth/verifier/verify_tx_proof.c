@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 
 #include "beacon_types.h"
 #include "bytes.h"
@@ -37,6 +60,7 @@ static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof, bytes_t block
 }
 
 static bool create_eth_tx_data(verify_ctx_t* ctx, bytes_t raw, bytes32_t block_hash, uint64_t block_number, uint64_t base_fee_per_gas, uint32_t tx_index) {
+  if (ctx->data.def->type != SSZ_TYPE_NONE) RETURN_VERIFY_ERROR(ctx, "data must be empty!");
   ssz_builder_t tx_data = ssz_builder_for_type(ETH_SSZ_DATA_TX);
   bytes32_t     tx_hash = {0};
   keccak(raw, tx_hash);
@@ -75,24 +99,18 @@ static bool verify_args(verify_ctx_t* ctx, bytes_t raw, uint32_t tx_index, bytes
 }
 
 bool verify_tx_proof(verify_ctx_t* ctx) {
-  ssz_ob_t raw                      = ssz_get(&ctx->proof, "transaction");
-  ssz_ob_t tx_proof                 = ssz_get(&ctx->proof, "proof");
-  ssz_ob_t tx_index                 = ssz_get(&ctx->proof, "transactionIndex");
-  ssz_ob_t header                   = ssz_get(&ctx->proof, "header");
-  ssz_ob_t sync_committee_bits      = ssz_get(&ctx->proof, "sync_committee_bits");
-  ssz_ob_t sync_committee_signature = ssz_get(&ctx->proof, "sync_committee_signature");
-  ssz_ob_t block_hash               = ssz_get(&ctx->proof, "blockHash");
-  ssz_ob_t block_number             = ssz_get(&ctx->proof, "blockNumber");
-  ssz_ob_t body_root                = ssz_get(&header, "bodyRoot");
-  ssz_ob_t base_fee_per_gas         = ssz_get(&ctx->proof, "baseFeePerGas");
-
-  if (ssz_is_error(header) || ssz_is_error(raw) || ssz_is_error(tx_index) || ssz_is_error(body_root) || body_root.bytes.len != 32 || ssz_is_error(tx_proof) || ssz_is_error(block_hash) || block_hash.bytes.len != 32 || ssz_is_error(block_number)) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing header or blockhash_proof!");
-  if (ssz_is_error(sync_committee_bits) || sync_committee_bits.bytes.len != 64 || ssz_is_error(sync_committee_signature) || sync_committee_signature.bytes.len != 96) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing sync committee bits or signature!");
+  ssz_ob_t raw              = ssz_get(&ctx->proof, "transaction");
+  ssz_ob_t tx_proof         = ssz_get(&ctx->proof, "proof");
+  ssz_ob_t tx_index         = ssz_get(&ctx->proof, "transactionIndex");
+  ssz_ob_t header           = ssz_get(&ctx->proof, "header");
+  ssz_ob_t block_hash       = ssz_get(&ctx->proof, "blockHash");
+  ssz_ob_t block_number     = ssz_get(&ctx->proof, "blockNumber");
+  ssz_ob_t body_root        = ssz_get(&header, "bodyRoot");
+  ssz_ob_t base_fee_per_gas = ssz_get(&ctx->proof, "baseFeePerGas");
 
   if (!verify_args(ctx, raw.bytes, ssz_uint32(tx_index), block_hash.bytes.data)) return false;
   if (!verify_merkle_proof(ctx, tx_proof, block_hash.bytes, block_number.bytes, base_fee_per_gas.bytes, raw.bytes, ssz_uint32(tx_index), body_root.bytes.data)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
-  if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
-  if (ctx->data.def->type != SSZ_TYPE_NONE) RETURN_VERIFY_ERROR(ctx, "data must be empty!");
+  if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
   if (!create_eth_tx_data(ctx, raw.bytes, block_hash.bytes.data, ssz_uint64(block_number), ssz_uint64(base_fee_per_gas), ssz_uint32(tx_index))) return false;
 
   ctx->success = true;

@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 
 #include "beacon_types.h"
 #include "bytes.h"
@@ -32,27 +55,22 @@ static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof, bytes_t block
 }
 
 bool verify_receipt_proof(verify_ctx_t* ctx) {
-  ssz_ob_t  raw_tx                   = ssz_get(&ctx->proof, "transaction");
-  ssz_ob_t  receipt_proof            = ssz_get(&ctx->proof, "receipt_proof");
-  ssz_ob_t  block_proof              = ssz_get(&ctx->proof, "block_proof");
-  ssz_ob_t  header                   = ssz_get(&ctx->proof, "header");
-  ssz_ob_t  sync_committee_bits      = ssz_get(&ctx->proof, "sync_committee_bits");
-  ssz_ob_t  sync_committee_signature = ssz_get(&ctx->proof, "sync_committee_signature");
-  ssz_ob_t  block_hash               = ssz_get(&ctx->proof, "blockHash");
-  ssz_ob_t  block_number             = ssz_get(&ctx->proof, "blockNumber");
-  ssz_ob_t  body_root                = ssz_get(&header, "bodyRoot");
-  uint32_t  tx_index                 = ssz_get_uint32(&ctx->proof, "transactionIndex");
-  bytes32_t receipt_root             = {0};
-  bytes_t   raw_receipt              = {0};
-
-  if (ssz_is_error(header) || ssz_is_error(receipt_proof) || ssz_is_error(raw_tx) || ssz_is_error(body_root) || body_root.bytes.len != 32 || ssz_is_error(block_proof) || ssz_is_error(block_hash) || block_hash.bytes.len != 32 || ssz_is_error(block_number)) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing header or blockhash_proof!");
-  if (ssz_is_error(sync_committee_bits) || sync_committee_bits.bytes.len != 64 || ssz_is_error(sync_committee_signature) || sync_committee_signature.bytes.len != 96) RETURN_VERIFY_ERROR(ctx, "invalid proof, missing sync committee bits or signature!");
+  ssz_ob_t  raw_tx        = ssz_get(&ctx->proof, "transaction");
+  ssz_ob_t  receipt_proof = ssz_get(&ctx->proof, "receipt_proof");
+  ssz_ob_t  block_proof   = ssz_get(&ctx->proof, "block_proof");
+  ssz_ob_t  header        = ssz_get(&ctx->proof, "header");
+  ssz_ob_t  block_hash    = ssz_get(&ctx->proof, "blockHash");
+  ssz_ob_t  block_number  = ssz_get(&ctx->proof, "blockNumber");
+  ssz_ob_t  body_root     = ssz_get(&header, "bodyRoot");
+  uint32_t  tx_index      = ssz_get_uint32(&ctx->proof, "transactionIndex");
+  bytes32_t receipt_root  = {0};
+  bytes_t   raw_receipt   = {0};
 
   if (!c4_tx_verify_tx_hash(ctx, raw_tx.bytes)) RETURN_VERIFY_ERROR(ctx, "invalid tx hash!");
   if (!c4_tx_verify_receipt_proof(ctx, receipt_proof, tx_index, receipt_root, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
   if (!c4_tx_verify_receipt_data(ctx, ctx->data, block_hash.bytes.data, ssz_uint64(block_number), tx_index, raw_tx.bytes, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
   if (!verify_merkle_proof(ctx, block_proof, block_hash.bytes, block_number.bytes, raw_tx.bytes, tx_index, receipt_root, body_root.bytes.data)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
-  if (c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0) != C4_SUCCESS) return false;
+  if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
 
   ctx->success = true;
   return true;

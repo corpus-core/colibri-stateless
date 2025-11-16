@@ -4,7 +4,7 @@
     "latest",
     false
   ],
-  "trusted_blockhash": "0x35d5bac0501af018398df807cf52dfdd2e603169af35dd7b64c214a35916f9b9",
+  "trusted_blockhash": "0xfc728271f234a95e04a101d2dc01717cd8e88edbc694f8a5377e396b08ff2591",
   "chain_id": 1,
   "expected_result": {
     "number": "0x1546ab1",

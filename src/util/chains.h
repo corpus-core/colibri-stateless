@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #ifndef C4_CHAIN_H
 #define C4_CHAIN_H
 
@@ -5,65 +28,88 @@
 extern "C" {
 #endif
 
-#include "bytes.h"
-#include "crypto.h"
 #include <stdbool.h>
+#include <stdint.h>
+
+#include "bytes.h"
+#include "chains.h"
+#include "crypto.h"
+
+#define CHAIN(id)                ((chain_id_t) ((uint64_t) id))
+#define CHAIN_ID(chain_type, id) ((chain_id_t) (((uint64_t) chain_type) << 56 | id))
 
 typedef enum {
-  C4_CHAIN_MAINNET      = 1,
-  C4_CHAIN_SEPOLIA      = 11155111,
-  C4_CHAIN_GNOSIS       = 100,
-  C4_CHAIN_BSC          = 56,
-  C4_CHAIN_POLYGON      = 137,
-  C4_CHAIN_BASE         = 8453,
-  C4_CHAIN_ARBITRUM     = 42161,
-  C4_CHAIN_OPTIMISM     = 10,
-  C4_CHAIN_CRONOS       = 25,
-  C4_CHAIN_FUSE         = 122,
-  C4_CHAIN_AVALANCHE    = 43114,
-  C4_CHAIN_MOONRIVER    = 1285,
-  C4_CHAIN_MOONBEAM     = 1284,
-  C4_CHAIN_TELOS        = 40,
-  C4_CHAIN_HAIFA        = 10200,
-  C4_CHAIN_BOLT         = 1021,
-  C4_CHAIN_BOLT_TESTNET = 1022,
-  C4_CHAIN_BOLT_DEVNET  = 1023,
-  C4_CHAIN_BOLT_STAGING = 1024,
-  C4_CHAIN_BOLT_MAINNET = 1025,
-} chain_id_t;
-
-typedef enum {
-  C4_FORK_PHASE0    = 0,
-  C4_FORK_ALTAIR    = 1,
-  C4_FORK_BELLATRIX = 2,
-  C4_FORK_CAPELLA   = 3,
-  C4_FORK_DENEB     = 4,
-  C4_FORK_ELECTRA   = 5,
-  C4_FORK_FULU      = 6
-} fork_id_t;
-
-typedef enum {
-  C4_CHAIN_TYPE_ETHEREUM  = 1,
-  C4_CHAIN_TYPE_SOLANA    = 2,
-  C4_CHAIN_TYPE_BITCOIN   = 3,
-  C4_CHAIN_TYPE_POLKADOT  = 4,
-  C4_CHAIN_TYPE_KUSAMA    = 5,
-  C4_CHAIN_TYPE_POLYGON   = 6,
-  C4_CHAIN_TYPE_BASE      = 7,
-  C4_CHAIN_TYPE_ARBITRUM  = 8,
-  C4_CHAIN_TYPE_OPTIMISM  = 9,
-  C4_CHAIN_TYPE_CRONOS    = 10,
-  C4_CHAIN_TYPE_FUSE      = 11,
-  C4_CHAIN_TYPE_AVALANCHE = 12,
-  C4_CHAIN_TYPE_MOONRIVER = 13,
-  C4_CHAIN_TYPE_MOONBEAM  = 14,
-  C4_CHAIN_TYPE_TELOS     = 15,
+  C4_CHAIN_TYPE_ETHEREUM  = 0,
+  C4_CHAIN_TYPE_SOLANA    = 1,
+  C4_CHAIN_TYPE_BITCOIN   = 2,
+  C4_CHAIN_TYPE_POLKADOT  = 3,
+  C4_CHAIN_TYPE_KUSAMA    = 4,
+  C4_CHAIN_TYPE_POLYGON   = 5,
+  C4_CHAIN_TYPE_OP        = 6,
+  C4_CHAIN_TYPE_ARBITRUM  = 7,
+  C4_CHAIN_TYPE_CRONOS    = 9,
+  C4_CHAIN_TYPE_FUSE      = 10,
+  C4_CHAIN_TYPE_AVALANCHE = 11,
+  C4_CHAIN_TYPE_MOONRIVER = 12,
+  C4_CHAIN_TYPE_MOONBEAM  = 13,
+  C4_CHAIN_TYPE_TELOS     = 14,
 } chain_type_t;
 
-bool         c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
-fork_id_t    c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
-chain_type_t c4_chain_type(chain_id_t chain_id);
+typedef uint64_t chain_id_t;
 
+extern const chain_id_t C4_CHAIN_MAINNET;
+extern const chain_id_t C4_CHAIN_SEPOLIA;
+extern const chain_id_t C4_CHAIN_GNOSIS_CHIADO;
+extern const chain_id_t C4_CHAIN_GNOSIS;
+
+#define C4_CHAIN_OP_MAINNET    CHAIN(10)
+#define C4_CHAIN_OP_BASE       CHAIN(8453)
+#define C4_CHAIN_OP_WORLDCHAIN CHAIN(480)
+#define C4_CHAIN_OP_ZORA       CHAIN(7777777)
+#define C4_CHAIN_OP_UNICHAIN   CHAIN(130)
+#define C4_CHAIN_OP_PGN        CHAIN(424)
+#define C4_CHAIN_OP_ORDERLY    CHAIN(291)
+#define C4_CHAIN_OP_MODE       CHAIN(34443)
+#define C4_CHAIN_OP_FRAXTAL    CHAIN(252)
+#define C4_CHAIN_OP_MANTLE     CHAIN(5000)
+#define C4_CHAIN_OP_KLAYTN     CHAIN(8217)
+
+extern const chain_id_t C4_CHAIN_BTC_MAINNET;
+extern const chain_id_t C4_CHAIN_BTC_TESTNET;
+extern const chain_id_t C4_CHAIN_BTC_DEVNET;
+extern const chain_id_t C4_CHAIN_SOL_MAINNET;
+extern const chain_id_t C4_CHAIN_BSC;
+extern const chain_id_t C4_CHAIN_POLYGON;
+extern const chain_id_t C4_CHAIN_BASE;
+extern const chain_id_t C4_CHAIN_ARBITRUM;
+extern const chain_id_t C4_CHAIN_OPTIMISM;
+extern const chain_id_t C4_CHAIN_CRONOS;
+extern const chain_id_t C4_CHAIN_FUSE;
+extern const chain_id_t C4_CHAIN_AVALANCHE;
+extern const chain_id_t C4_CHAIN_MOONRIVER;
+extern const chain_id_t C4_CHAIN_MOONBEAM;
+extern const chain_id_t C4_CHAIN_TELOS;
+extern const chain_id_t C4_CHAIN_HAIFA;
+extern const chain_id_t C4_CHAIN_BOLT;
+extern const chain_id_t C4_CHAIN_BOLT_TESTNET;
+extern const chain_id_t C4_CHAIN_BOLT_DEVNET;
+extern const chain_id_t C4_CHAIN_BOLT_STAGING;
+extern const chain_id_t C4_CHAIN_BOLT_MAINNET;
+
+// Generic chain properties (extensible)
+typedef struct {
+  uint64_t     block_time; // in ms
+  char*        chain_name;
+  chain_type_t chain_type;
+  chain_id_t   id;
+  uint32_t     flags; // reserved
+} chain_properties_t;
+
+// returns true if the chain_id is known and the properties have been set
+static inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* props);
+
+chain_type_t c4_chain_type(chain_id_t chain_id);
+uint64_t     c4_chain_specific_id(chain_id_t chain_id);
 #ifdef __cplusplus
 }
 #endif

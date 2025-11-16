@@ -1,3 +1,25 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include "beacon_types.h"
 #include "bytes.h"
@@ -57,12 +79,49 @@ static ssz_ob_t web3_clientVersion(verify_ctx_t* ctx) {
   return (ssz_ob_t) {.def = &ssz_string_def, .bytes = result};
 }
 
+static ssz_ob_t net_version(verify_ctx_t* ctx) {
+  const char* version = bprintf(NULL, "%l", (uint64_t) ctx->chain_id);
+  return (ssz_ob_t) {.def = &ssz_string_def, .bytes = bytes(version, strlen(version))};
+}
+
 static ssz_ob_t web3_sha3(verify_ctx_t* ctx) {
   buffer_t buf = {0};
   json_as_bytes(json_at(ctx->args, 0), &buf);
   buffer_grow(&buf, 32);
   keccak(buf.data, buf.data.data);
   return (ssz_ob_t) {.def = &ssz_bytes32, .bytes = bytes(buf.data.data, 32)};
+}
+// : Ethereum
+
+// :: Colibri RPC-Methods
+
+// ::: colibri_decodeTransaction
+//
+// Decodes a raw transaction hex string into a transaction data object.
+
+static ssz_ob_t colibri_decodeTransaction(verify_ctx_t* ctx) {
+  // Get the raw transaction hex string from parameters
+  json_t raw_tx_param = json_at(ctx->args, 0);
+  if (raw_tx_param.type != JSON_TYPE_STRING) {
+    ctx->state.error = strdup("colibri_decodeTransaction: parameter must be a hex string");
+    return (ssz_ob_t) {0};
+  }
+
+  buffer_t      raw_tx_buf = {0};
+  bytes_t       raw        = json_as_bytes(raw_tx_param, &raw_tx_buf);
+  ssz_builder_t tx_data    = ssz_builder_for_type(ETH_SSZ_DATA_TX);
+  bytes32_t     tx_hash    = {0};
+  bytes32_t     block_hash = {0};
+  keccak(raw, tx_hash);
+  bool success = c4_write_tx_data_from_raw(ctx, &tx_data, raw, tx_hash, block_hash, 0, 0, 0);
+  buffer_free(&raw_tx_buf);
+  if (!success) {
+    buffer_free(&tx_data.dynamic);
+    buffer_free(&tx_data.fixed);
+    if (ctx->state.error == NULL) c4_state_add_error(ctx, "invalid tx data!");
+    return (ssz_ob_t) {0};
+  }
+  return ssz_builder_to_bytes(&tx_data);
 }
 
 bool verify_eth_local(verify_ctx_t* ctx) {
@@ -84,10 +143,13 @@ bool verify_eth_local(verify_ctx_t* ctx) {
     ctx->data = web3_clientVersion(ctx);
   else if (strcmp(ctx->method, "web3_sha3") == 0)
     ctx->data = web3_sha3(ctx);
+  else if (strcmp(ctx->method, "net_version") == 0)
+    ctx->data = net_version(ctx);
+  else if (strcmp(ctx->method, "colibri_decodeTransaction") == 0)
+    ctx->data = colibri_decodeTransaction(ctx);
   else
     RETURN_VERIFY_ERROR(ctx, "unknown local method");
-  ctx->success = true;
-  if (ctx->data.bytes.data)
-    ctx->flags |= VERIFY_FLAG_FREE_DATA;
-  return true;
+  if (ctx->data.bytes.data) ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  ctx->success = ctx->state.error == NULL;
+  return ctx->success;
 }

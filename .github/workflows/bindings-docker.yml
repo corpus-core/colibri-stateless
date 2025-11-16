@@ -1,0 +1,71 @@
+name: Docker Prover CI
+
+on:
+  workflow_call:
+    inputs:
+      push_image:
+        description: 'Whether to push the image to GHCR'
+        required: false
+        type: boolean
+        default: false
+      ref_name:
+        description: 'Reference name (branch or tag)'
+        required: false
+        type: string
+        default: ''
+      ref_type:
+        description: 'Reference type (branch or tag)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+
+  docker-prover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ inputs.push_image }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/corpus-core/colibri-prover
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ inputs.ref_type == 'tag' && startsWith(inputs.ref_name, 'v') }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: bindings/docker/Dockerfile
+          # Multi-platform only for releases, single platform for dev/main/PRs (faster)
+          platforms: ${{ inputs.ref_type == 'tag' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: ${{ inputs.push_image }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Disable provenance/attestation to avoid GHCR upload issues
+          provenance: false
+          sbom: false

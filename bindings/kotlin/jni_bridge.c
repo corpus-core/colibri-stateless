@@ -1,4 +1,28 @@
-#include "bytes.h"  // For buffer_alloc etc.
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#include "bytes.h" // For buffer_alloc etc.
+#include "logger.h"
 #include "plugin.h" // Include the definition of storage_plugin_t and buffer_t
 #include <jni.h>
 #include <stdio.h>
@@ -39,15 +63,15 @@ static JNIEnv* getJniEnv() {
     //      return NULL;
     //  }
     //  fprintf(stderr, "JNI Bridge Info: Thread attached successfully.\n");
-    fprintf(stderr, "JNI Bridge Error: Callback attempted from detached thread.\n");
+    log_error("JNI Bridge Error: Callback attempted from detached thread.");
     return NULL; // Don't attach automatically here, might hide issues
   }
   else if (getEnvStat == JNI_EVERSION) {
-    fprintf(stderr, "JNI Bridge Error: JNI version not supported.\n");
+    log_error("JNI Bridge Error: JNI version not supported.");
     return NULL;
   }
   else if (getEnvStat != JNI_OK) {
-    fprintf(stderr, "JNI Bridge Error: GetEnv failed with unknown error %d.\n", getEnvStat);
+    log_error("JNI Bridge Error: GetEnv failed with unknown error %d.", (uint32_t) getEnvStat);
     return NULL;
   }
   // getEnvStat == JNI_OK means the thread is already attached.
@@ -60,25 +84,25 @@ static JNIEnv* getJniEnv() {
 static bool bridge_storage_get(char* key, buffer_t* buffer) {
   JNIEnv* env = getJniEnv();
   if (!env || !g_storageBridgeClass || !g_storageGetMethod) {
-    fprintf(stderr, "JNI get bridge error: JNI Env or bridge components not ready.\n");
+    log_error("JNI get bridge error: JNI Env or bridge components not ready.");
     return false; // Indicate failure
   }
 
   // Get the singleton instance *dynamically* on each call
   jfieldID implField = (*env)->GetStaticFieldID(env, g_storageBridgeClass, "implementation", "Lcom/corpuscore/colibri/ColibriStorage;");
   if (!implField) {
-    fprintf(stderr, "JNI get bridge error: Cannot find 'implementation' field.\n");
+    log_error("JNI get bridge error: Cannot find 'implementation' field.");
     return false;
   }
   jobject storageImpl = (*env)->GetStaticObjectField(env, g_storageBridgeClass, implField);
   if (!storageImpl) {
-    fprintf(stderr, "JNI get bridge info: Storage implementation not registered yet.\n");
+    log_info("JNI get bridge info: Storage implementation not registered yet.");
     return false;
   } // Not an error, just not set
 
   jstring jKey = (*env)->NewStringUTF(env, key);
   if (!jKey) {
-    fprintf(stderr, "JNI get bridge error: Failed to create Java string for key '%s'.\n", key);
+    log_error("JNI get bridge error: Failed to create Java string for key '%s'.", key);
     return false;
   }
 
@@ -89,7 +113,7 @@ static bool bridge_storage_get(char* key, buffer_t* buffer) {
   (*env)->DeleteLocalRef(env, storageImpl); // Clean up dynamic instance ref
 
   if ((*env)->ExceptionCheck(env)) {
-    fprintf(stderr, "JNI get bridge error: Exception occurred during Kotlin 'get' call for key '%s'.\n", key);
+    log_error("JNI get bridge error: Exception occurred during Kotlin 'get' call for key '%s'.", key);
     (*env)->ExceptionDescribe(env);
     (*env)->ExceptionClear(env);
     return false;
@@ -103,7 +127,7 @@ static bool bridge_storage_get(char* key, buffer_t* buffer) {
   // Copy data from Java byte[] to C buffer_t
   jbyte* elements = (*env)->GetByteArrayElements(env, jResultBytes, NULL);
   if (!elements) {
-    fprintf(stderr, "JNI get bridge error: Failed to get byte array elements for key '%s'.\n", key);
+    log_error("JNI get bridge error: Failed to get byte array elements for key '%s'.", key);
     (*env)->DeleteLocalRef(env, jResultBytes);
     return false;
   }
@@ -128,31 +152,31 @@ static bool bridge_storage_get(char* key, buffer_t* buffer) {
 static void bridge_storage_set(char* key, bytes_t value) {
   JNIEnv* env = getJniEnv();
   if (!env || !g_storageBridgeClass || !g_storageSetMethod) {
-    fprintf(stderr, "JNI set bridge error: JNI Env or bridge components not ready.\n");
+    log_error("JNI set bridge error: JNI Env or bridge components not ready.");
     return;
   }
 
   // Get the singleton instance *dynamically*
   jfieldID implField = (*env)->GetStaticFieldID(env, g_storageBridgeClass, "implementation", "Lcom/corpuscore/colibri/ColibriStorage;");
   if (!implField) {
-    fprintf(stderr, "JNI set bridge error: Cannot find 'implementation' field.\n");
+    log_error("JNI set bridge error: Cannot find 'implementation' field.");
     return;
   }
   jobject storageImpl = (*env)->GetStaticObjectField(env, g_storageBridgeClass, implField);
   if (!storageImpl) {
-    fprintf(stderr, "JNI set bridge warning: Storage implementation not registered when 'set' called.\n");
+    log_warn("JNI set bridge warning: Storage implementation not registered when 'set' called.");
     return;
   }
 
   jstring jKey = (*env)->NewStringUTF(env, key);
   if (!jKey) {
-    fprintf(stderr, "JNI set bridge error: Failed to create Java string for key '%s'.\n", key);
+    log_error("JNI set bridge error: Failed to create Java string for key '%s'.", key);
     return;
   }
 
   jbyteArray jValue = (*env)->NewByteArray(env, (jsize) value.len);
   if (!jValue) {
-    fprintf(stderr, "JNI set bridge error: Failed to create Java byte array for key '%s'.\n", key);
+    log_error("JNI set bridge error: Failed to create Java byte array for key '%s'.", key);
     (*env)->DeleteLocalRef(env, jKey);
     return;
   }
@@ -167,7 +191,7 @@ static void bridge_storage_set(char* key, bytes_t value) {
   (*env)->DeleteLocalRef(env, storageImpl); // Clean up dynamic instance ref
 
   if ((*env)->ExceptionCheck(env)) {
-    fprintf(stderr, "JNI set bridge error: Exception occurred during Kotlin 'set' call for key '%s'.\n", key);
+    log_error("JNI set bridge error: Exception occurred during Kotlin 'set' call for key '%s'.", key);
     (*env)->ExceptionDescribe(env);
     (*env)->ExceptionClear(env);
   }
@@ -177,25 +201,25 @@ static void bridge_storage_set(char* key, bytes_t value) {
 static void bridge_storage_del(char* key) {
   JNIEnv* env = getJniEnv();
   if (!env || !g_storageBridgeClass || !g_storageDeleteMethod) {
-    fprintf(stderr, "JNI delete bridge error: JNI Env or bridge components not ready.\n");
+    log_error("JNI delete bridge error: JNI Env or bridge components not ready.");
     return;
   }
 
   // Get the singleton instance *dynamically*
   jfieldID implField = (*env)->GetStaticFieldID(env, g_storageBridgeClass, "implementation", "Lcom/corpuscore/colibri/ColibriStorage;");
   if (!implField) {
-    fprintf(stderr, "JNI delete bridge error: Cannot find 'implementation' field.\n");
+    log_error("JNI delete bridge error: Cannot find 'implementation' field.");
     return;
   }
   jobject storageImpl = (*env)->GetStaticObjectField(env, g_storageBridgeClass, implField);
   if (!storageImpl) {
-    fprintf(stderr, "JNI delete bridge warning: Storage implementation not registered when 'delete' called.\n");
+    log_warn("JNI delete bridge warning: Storage implementation not registered when 'delete' called.");
     return;
   }
 
   jstring jKey = (*env)->NewStringUTF(env, key);
   if (!jKey) {
-    fprintf(stderr, "JNI delete bridge error: Failed to create Java string for key '%s'.\n", key);
+    log_error("JNI delete bridge error: Failed to create Java string for key '%s'.", key);
     return;
   }
 
@@ -206,7 +230,7 @@ static void bridge_storage_del(char* key) {
   (*env)->DeleteLocalRef(env, storageImpl); // Clean up dynamic instance ref
 
   if ((*env)->ExceptionCheck(env)) {
-    fprintf(stderr, "JNI delete bridge error: Exception occurred during Kotlin 'delete' call for key '%s'.\n", key);
+    log_error("JNI delete bridge error: Exception occurred during Kotlin 'delete' call for key '%s'.", key);
     (*env)->ExceptionDescribe(env);
     (*env)->ExceptionClear(env);
   }
@@ -222,7 +246,7 @@ JNIEXPORT void JNICALL Java_com_corpuscore_colibri_c4JNI_nativeInitializeBridge(
   // Cache StorageBridge class (use FindClass)
   jclass localBridgeClass = (*env)->FindClass(env, "com/corpuscore/colibri/StorageBridge");
   if (!localBridgeClass) {
-    fprintf(stderr, "JNI Bridge Init Error: Cannot find StorageBridge class.\n");
+    log_error("JNI Bridge Init Error: Cannot find StorageBridge class.");
     // Cannot proceed without the class
     return;
   }
@@ -230,14 +254,14 @@ JNIEXPORT void JNICALL Java_com_corpuscore_colibri_c4JNI_nativeInitializeBridge(
   g_storageBridgeClass = (jclass) (*env)->NewGlobalRef(env, localBridgeClass);
   (*env)->DeleteLocalRef(env, localBridgeClass); // Delete local ref
   if (!g_storageBridgeClass) {
-    fprintf(stderr, "JNI Bridge Init Error: Cannot create global ref for StorageBridge class.\n");
+    log_error("JNI Bridge Init Error: Cannot create global ref for StorageBridge class.");
     return;
   }
 
   // Get the static 'implementation' field ID from StorageBridge class
   jfieldID implField = (*env)->GetStaticFieldID(env, g_storageBridgeClass, "implementation", "Lcom/corpuscore/colibri/ColibriStorage;");
   if (!implField) {
-    fprintf(stderr, "JNI Bridge Init Error: Cannot find 'implementation' field in StorageBridge.\n");
+    log_error("JNI Bridge Init Error: Cannot find 'implementation' field in StorageBridge.");
     // Clean up global ref if initialization fails partially
     (*env)->DeleteGlobalRef(env, g_storageBridgeClass);
     g_storageBridgeClass = NULL;
@@ -249,7 +273,7 @@ JNIEXPORT void JNICALL Java_com_corpuscore_colibri_c4JNI_nativeInitializeBridge(
   if (!localBridgeInstance) {
     // This is okay initially if registerStorage hasn't been called yet.
     // The bridge functions (get/set/del) check if g_storageBridgeInstance is null.
-    fprintf(stderr, "JNI Bridge Init Info: StorageBridge.implementation is initially null.\n");
+    log_info("JNI Bridge Init Info: StorageBridge.implementation is initially null.");
     g_storageBridgeInstance = NULL; // Ensure it's explicitly null
   }
   else {
@@ -257,18 +281,18 @@ JNIEXPORT void JNICALL Java_com_corpuscore_colibri_c4JNI_nativeInitializeBridge(
     g_storageBridgeInstance = (*env)->NewGlobalRef(env, localBridgeInstance);
     (*env)->DeleteLocalRef(env, localBridgeInstance); // Delete local ref
     if (!g_storageBridgeInstance) {
-      fprintf(stderr, "JNI Bridge Init Error: Cannot create global ref for StorageBridge instance.\n");
+      log_error("JNI Bridge Init Error: Cannot create global ref for StorageBridge instance.");
       (*env)->DeleteGlobalRef(env, g_storageBridgeClass);
       g_storageBridgeClass = NULL;
       return;
     }
-    fprintf(stderr, "JNI Bridge Init Info: StorageBridge instance cached.\n");
+    log_info("JNI Bridge Init Info: StorageBridge instance cached.");
   }
 
   // Get Method IDs for ColibriStorage interface methods (use the interface class!)
   jclass storageInterfaceClass = (*env)->FindClass(env, "com/corpuscore/colibri/ColibriStorage");
   if (!storageInterfaceClass) {
-    fprintf(stderr, "JNI Bridge Init Error: Cannot find ColibriStorage interface.\n");
+    log_error("JNI Bridge Init Error: Cannot find ColibriStorage interface.");
     // Clean up global refs
     if (g_storageBridgeInstance) (*env)->DeleteGlobalRef(env, g_storageBridgeInstance);
     if (g_storageBridgeClass) (*env)->DeleteGlobalRef(env, g_storageBridgeClass);
@@ -285,7 +309,7 @@ JNIEXPORT void JNICALL Java_com_corpuscore_colibri_c4JNI_nativeInitializeBridge(
   (*env)->DeleteLocalRef(env, storageInterfaceClass);
 
   if (!g_storageGetMethod || !g_storageSetMethod || !g_storageDeleteMethod) {
-    fprintf(stderr, "JNI Bridge Init Error: Failed to find one or more methods in ColibriStorage interface.\n");
+    log_error("JNI Bridge Init Error: Failed to find one or more methods in ColibriStorage interface.");
     // Clean up global refs
     if (g_storageBridgeInstance) (*env)->DeleteGlobalRef(env, g_storageBridgeInstance);
     if (g_storageBridgeClass) (*env)->DeleteGlobalRef(env, g_storageBridgeClass);
@@ -308,7 +332,7 @@ JNIEXPORT void JNICALL Java_com_corpuscore_colibri_c4JNI_nativeInitializeBridge(
   // Set the configuration in the C core
   c4_set_storage_config(&plugin);
 
-  fprintf(stderr, "JNI Bridge Initialized Successfully.\n");
+  log_info("JNI Bridge Initialized Successfully.");
 }
 
 // --- JNI_OnLoad --- (Optional but recommended)
@@ -317,7 +341,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
   g_vm = vm;
   JNIEnv* env;
   if ((*vm)->GetEnv(vm, (void**) &env, JNI_VERSION_1_6) != JNI_OK) {
-    fprintf(stderr, "JNI_OnLoad Error: Failed to get JNI Env.\n");
+    log_error("JNI_OnLoad Error: Failed to get JNI Env.");
     return JNI_EVERSION; // Version error or other issue
   }
   // Perform initializations that require JNIEnv but don't depend on specific classes yet, if any.
@@ -325,7 +349,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
   // Calling explicitly from Kotlin might be safer to ensure class loading order.
   // Java_com_corpuscore_colibri_c4JNI_nativeInitializeBridge(env, NULL); // Don't call automatically?
 
-  fprintf(stderr, "JNI_OnLoad completed.\n");
+  log_info("JNI_OnLoad completed.");
   return JNI_VERSION_1_6; // Use the JNI version you're targeting
 }
 
@@ -343,7 +367,7 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* vm, void* reserved) {
     }
   }
   else {
-    fprintf(stderr, "JNI_OnUnload Warning: Could not get JNIEnv to clean up global refs.\n");
+    log_warn("JNI_OnUnload Warning: Could not get JNIEnv to clean up global refs.");
   }
   g_storageBridgeInstance = NULL;
   g_storageBridgeClass    = NULL;
@@ -351,5 +375,5 @@ JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* vm, void* reserved) {
   g_storageSetMethod      = NULL;
   g_storageDeleteMethod   = NULL;
   g_vm                    = NULL;
-  fprintf(stderr, "JNI_OnUnload completed.\n");
+  log_info("JNI_OnUnload completed.");
 }

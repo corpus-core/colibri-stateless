@@ -1,3 +1,24 @@
+# Copyright (c) 2025 corpus.core
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the "Software"), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+# the Software, and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# SPDX-License-Identifier: MIT
+
 option(ETH_ACCOUNT  "support eth account verification. eth_getBalance, eth_getStorageAt, eth_getProof, eth_getCode, eth_getTransactionCount" ON)
 option(ETH_TX  "support eth Transaction verification. eth_getTransactionByHash, eth_getTransactionByBlockHashAndIndex, eth_getTransactionByBlockNumberAndIndex" ON)
 option(ETH_BLOCK  "support eth block verification. eth_getBlockByHash, eth_getBlockByNumber, eth_getBlockTransactionCountByHash, eth_getBlockTransactionCountByNumber, eth_getUncleCountByBlockHash, eth_getUncleCountByBlockNumber" ON)
@@ -5,14 +26,28 @@ option(ETH_RECEIPT  "support eth receipt verification. eth_getTransactionReceipt
 option(ETH_LOGS  "support eth logs verification. eth_getLogs" ON)
 option(ETH_CALL  "support eth call verification. eth_call, eth_estimateGas" ON)
 option(ETH_UTIL  "support eth utils like eth_chainId or web3_sha3" ON)
+option(USE_CHECKPOINTZ "enable checkpoint fetching from checkpointz (beacon node) for bootstrap and weak subjectivity validation (requires HTTP access, saves ~2-3 KB if disabled). SECURITY WARNING: Disabling this removes (1) automatic bootstrap checkpoint fetching and (2) weak subjectivity period validation, requiring manual checkpoint configuration and increasing long-range attack risk. Only disable for embedded devices without HTTP access. See: https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf" ON)
 
+if(USE_CHECKPOINTZ)
+    add_definitions(-DUSE_CHECKPOINTZ)
+else()
+    message(WARNING "⚠️  Checkpointz disabled - requires manual checkpoint configuration!")
+    message(STATUS "    Bootstrap: Initial checkpoint must be provided in config")
+    message(STATUS "    WSP: No weak subjectivity validation (increases long-range attack risk)")
+    message(STATUS "    Saves ~2-3 KB by removing checkpoint fetching code")
+    message(STATUS "    Only recommended for embedded devices without HTTP access")
+    message(STATUS "    See: https://github.com/runtimeverification/beacon-chain-verification")
+endif()
 
 option(EVMONE "uses evmone to verify eth_calls" ON)
 option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas." OFF)
 # precompiles
 option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
 
-
+if(NOT MSVC)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-excess-initializers")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-excess-initializers")
+endif()
 
 if (EVMLIGHT OR EVMONE)
     if (EVMONE) 
@@ -37,7 +72,7 @@ endif()
 set(VERIFIER_SOURCES
   verifier/sync_committee.c
   verifier/sync_committee_state.c
-  verifier/verify_blockhash_proof.c
+  verifier/beacon_header.c
   verifier/eth_tx.c
   verifier/eth_account.c
   verifier/eth_verify.c
@@ -77,7 +112,7 @@ if(ETH_LOGS)
 endif()
 
 if(ETH_CALL)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c verifier/verify_simulate.c)
   add_definitions(-DETH_CALL)
 
   if(EVMONE)
@@ -101,21 +136,51 @@ add_verifier(
   METHOD_TYPE c4_eth_get_method_type
 )
 
-add_proofer(
-  NAME eth_proofer
+# Register ETH chain properties provider
+add_chain_props(FUNC c4_eth_chain_props)
+
+add_prover(
+  NAME eth_prover
   SOURCES 
-    proofer/eth_proofer.c
-    proofer/proof_account.c
-    proofer/proof_transaction.c
-    proofer/proof_logs.c
-    proofer/proof_call.c
-    proofer/beacon.c
-    proofer/proof_receipt.c
-    proofer/eth_req.c
-    proofer/eth_tools.c
-    proofer/proof_sync.c
-    proofer/proof_block.c
+    prover/eth_prover.c
+    prover/proof_account.c
+    prover/proof_transaction.c
+    prover/tx_cache.c
+    prover/proof_logs.c
+    prover/proof_call.c
+    prover/beacon.c
+    prover/proof_receipt.c
+    prover/eth_req.c
+    prover/logs_cache.c
+    prover/eth_tools.c
+    prover/proof_sync.c
+    prover/proof_block.c
+    prover/proof_witness.c
+    prover/historic_proof.c
   DEPENDS util eth_verifier
-  PROOF eth_proofer_execute
+  PROOF eth_prover_execute
+)
+
+
+
+add_server_handler(
+  NAME eth_server_handler
+  SOURCES 
+    server/handler.c
+    server/metrics.c
+    server/head_watcher.c
+    server/head_update.c
+    server/chain_props.c
+    server/handle_lcu.c
+    server/handle_headers.c
+    server/client_detection.c
+    server/client_mappings.c
+  DEPENDS eth_prover
+  INIT_FUNC eth_server_init
+  SHUTDOWN_FUNC eth_server_shutdown
+  GET_DETECTION_REQUEST_FUNC eth_get_detection_request
+  PARSE_VERSION_RESPONSE_FUNC eth_parse_version_response
+  GET_CLIENT_MAPPINGS_FUNC eth_get_client_mappings
+  METRICS_FUNC eth_server_metrics
 )
 

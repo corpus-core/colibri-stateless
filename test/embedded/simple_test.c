@@ -1,3 +1,27 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#include "util/bytes.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -8,7 +32,7 @@
 // Direct semihosting function using SYS_WRITE0 (simpler than write syscall)
 void semi_write(const char* str) {
   // Use the ARM semihosting interface SYS_WRITE0
-  asm volatile(
+  __asm__ volatile(
       "mov r0, #0x04\n" // SYS_WRITE0
       "mov r1, %0\n"    // string pointer
       "bkpt #0xAB\n"    // semihosting breakpoint
@@ -27,8 +51,11 @@ void uart_write(const char* str) {
 }
 
 int main(void) {
-  // 1. Write using standard printf
-  printf("Hello from printf!\n");
+  // 1. Write using bprintf
+  buffer_t msg = {0};
+  bprintf(&msg, "Hello from bprintf!\n");
+  fwrite(msg.data.data, 1, msg.data.len, stdout);
+  buffer_free(&msg);
   fflush(stdout);
 
   // 2. Write using semihosting SYS_WRITE0
@@ -42,7 +69,10 @@ int main(void) {
   uart_write("Hello from UART!");
 
   // 5. Print a clear successful test message
-  printf("TEST COMPLETED SUCCESSFULLY\n");
+  msg = (buffer_t) {0};
+  bprintf(&msg, "TEST COMPLETED SUCCESSFULLY\n");
+  fwrite(msg.data.data, 1, msg.data.len, stdout);
+  buffer_free(&msg);
   fflush(stdout);
 
   // 6. Also use semihosting for the success message

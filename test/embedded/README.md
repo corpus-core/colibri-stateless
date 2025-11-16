@@ -1,24 +1,43 @@
-# C4 Verifier Embedded Testing
+: Building
 
-This directory contains the necessary files to build and test the C4 verifier for embedded systems.
+:: Embedded
+
+This directory contains the necessary files to build and test the Colibri verifier for embedded systems.
 
 ## Memory Requirements
 
-The C4 verifier requires the following minimum resources to run:
+The Colibri verifier's memory footprint depends on build configuration:
 
-- **Flash/ROM**: ~225 KB (for code and read-only data)
+### Default Embedded Build (STATIC_MEMORY=ON)
+- **Flash/ROM**: 150.65 KB (with USE_PRECOMPUTED_CP=0, printf removal)
 - **RAM**: ~108 KB minimum, 128 KB recommended
-  - 8 KB for static data (BSS)
+  - **33 KB for static data (BSS)** - includes 25 KB BLS pubkey static allocation
   - 15 KB for proof data (heap)
   - 8 KB for BLST cryptographic operations
-  - 50 KB for BLS keys
   - ~27 KB for stack and other runtime allocations
+  - 25 KB for BLS keys (in BSS, not heap, due to STATIC_MEMORY=ON)
 
-During key updates, an additional ~25 KB of RAM might be temporarily needed.
+### Optimized Build (PRECOMPILE_ZERO_HASHES=OFF, USE_CHECKPOINTZ=OFF)
+- **Flash/ROM**: **149.04 KB** ✅ (additional 1.61 KB savings)
+- **RAM**: ~107 KB minimum
+  - Saves ~1 KB from zero hash cache
+  - BSS stays ~33 KB (static BLS keys)
+  - Heap reduced to ~15 KB (no BLS key allocation)
+
+### Ultra-Minimal Build (+ MESSAGES=OFF)
+- **Flash/ROM**: **~145-147 KB** (estimated, additional several KB from string removal)
+- **RAM**: Same as optimized build (~107 KB)
+
+**Total optimization from original build**: 208.01 KB → 149.04 KB (or ~145 KB with MESSAGES=OFF) = **28-30% reduction** 🚀
+
+**Memory Layout Notes**:
+- **STATIC_MEMORY=ON** (default for EMBEDDED): BLS keys in BSS (~25 KB), no heap allocation
+- **STATIC_MEMORY=OFF**: BLS keys on heap (~25 KB heap usage), BSS ~8 KB
+- During key updates with BLS_DESERIALIZE=ON: Additional ~25 KB RAM temporarily needed
 
 ## Supported Hardware
 
-The C4 verifier has been tested and designed to work on:
+The Colibri verifier has been tested and designed to work on:
 
 - **CPU**: ARM Cortex-A15 and compatible (current CI/testing target)
 - **Recommended MCUs**: 
@@ -68,10 +87,11 @@ This is the most reliable method as it ensures all required tools are available:
 # Build the Docker image
 docker build -t c4-embedded -f test/embedded/Dockerfile.embedded .
 
-# Build all embedded targets
+# Build all embedded targets (with optimizations)
 docker run --rm -v $(pwd):/workspace c4-embedded bash -c "cd /workspace && \
   cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=/workspace/test/embedded/toolchain.cmake \
-  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROOFER=OFF -DCLI=OFF \
+  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROVER=OFF -DCLI=OFF \
+  -DPRECOMPILE_ZERO_HASHES=OFF -DUSE_CHECKPOINTZ=OFF \
   -DINCLUDE=test/embedded && \
   cmake --build build --target verify_embedded.elf minimal_verify.elf semihosting_test.elf"
 
@@ -87,10 +107,11 @@ docker run --rm -v $(pwd):/workspace c4-embedded bash -c "cd /workspace && \
 If you have the ARM toolchain installed locally:
 
 ```bash
-# Create build directory and configure
+# Create build directory and configure (with optimizations)
 mkdir -p build
 cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=$PWD/test/embedded/toolchain.cmake \
-  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROOFER=OFF -DCLI=OFF \
+  -DEMBEDDED=ON -DCMAKE_BUILD_TYPE=MinSizeRel -DCURL=OFF -DPROVER=OFF -DCLI=OFF \
+  -DPRECOMPILE_ZERO_HASHES=OFF -DUSE_CHECKPOINTZ=OFF \
   -DINCLUDE=test/embedded
 
 # Build targets
@@ -109,12 +130,233 @@ To clean up unused files:
 rm -rf test/embedded/backup
 ```
 
-## Memory Optimization Tips
+## Memory Optimization Guide
 
-To optimize memory usage in resource-constrained environments:
+### Binary Size Optimization Flags
 
-1. Use static allocation where possible
-2. Store BLS keys in flash memory when not updating
-3. Process proofs in chunks if they are large
-4. Use compiler optimization flags for size (-Os)
-5. Enable garbage collection of unused sections (`--gc-sections`) 
+The Colibri verifier provides several CMake flags to reduce binary size for embedded devices. Configure these based on your application requirements:
+
+#### Quick Reference: Memory & Size Optimization Flags
+
+| Flag | Default | Impact | Savings | Trade-off |
+|------|---------|--------|---------|-----------|
+| `PRECOMPILE_ZERO_HASHES` | ON | RAM | ~1 KB RAM | Slower block verification (if ETH_BLOCK=ON) |
+| `USE_CHECKPOINTZ` | ON | Code Size | ~2-3 KB | Requires manual checkpoint config, no WSP |
+| `BLS_DESERIALIZE` | ON (OFF for EMBEDDED) | RAM | ~25 KB RAM/period | Slower signature verification |
+| `STATIC_MEMORY` | OFF (ON for EMBEDDED) | Heap→BSS | 0 (moves 25 KB) | Increases BSS, reduces heap |
+| `MESSAGES` | ON | Code Size | Several KB | No human-readable errors |
+
+**Recommended for embedded**: All OFF except `STATIC_MEMORY=ON`
+
+---
+
+#### 1. Feature Selection Flags
+
+| Flag | Default | Binary Impact | Description |
+|------|---------|---------------|-------------|
+| `ETH_BLOCK` | ON | ~varies | Enable block verification APIs (`eth_getBlockByHash`, etc.) |
+| `ETH_TX` | ON | ~varies | Enable transaction verification APIs |
+| `ETH_RECEIPT` | ON | ~varies | Enable receipt verification APIs |
+| `ETH_LOGS` | ON | ~varies | Enable log verification APIs |
+| `ETH_CALL` | ON | ~varies | Enable eth_call verification (requires EVM) |
+| `ETH_ACCOUNT` | ON | ~varies | Enable account verification APIs |
+| `EVMONE` / `EVMLIGHT` | ON / OFF | Large | EVM implementations (disable both if no eth_call needed) |
+
+**Recommendation**: Only enable the APIs your application actually uses.
+
+#### 2. PRECOMPILE_ZERO_HASHES (Memory Optimization)
+
+```cmake
+-DPRECOMPILE_ZERO_HASHES=OFF  # Saves ~1 KB
+```
+
+**What it does**: Disables caching of zero hashes (30×32 bytes = 960 bytes) used for SSZ Merkle tree calculations.
+
+**When to disable**:
+- ✅ When `ETH_BLOCK=OFF` (only needed for block body verification)
+- ✅ For embedded devices with limited RAM
+- ✅ Light client sync-only applications
+
+**Trade-offs**:
+- ⚠️ Block verification will compute zero hashes on-demand (slower)
+- ✅ Saves 1 KB of RAM
+- ✅ No security impact
+
+#### 3. USE_CHECKPOINTZ (Security vs Size Trade-off)
+
+```cmake
+-DUSE_CHECKPOINTZ=OFF  # Saves ~2-3 KB
+```
+
+**What it does**: Disables checkpoint fetching from checkpointz (beacon node) for:
+1. **Bootstrap**: Automatic initial checkpoint fetching when starting without a configured checkpoint
+2. **Weak Subjectivity**: Checkpoint validation when syncing after extended offline periods (>2 weeks)
+
+**⚠️ SECURITY WARNING**: This increases the risk of long-range attacks and requires manual checkpoint configuration!
+
+**When to disable**:
+- ✅ Embedded devices **without HTTP access** (e.g., Bluetooth-only)
+- ✅ Applications protecting **small values** (attack cost >> protected value)
+- ✅ Devices that sync frequently (< 2 week offline periods)
+- ✅ When you can provide initial checkpoint in configuration
+
+**When to KEEP enabled**:
+- 🛡️ Devices with internet connectivity
+- 🛡️ High-value applications
+- 🛡️ Devices that may be offline for weeks
+- 🛡️ When bootstrap convenience is important (auto-fetch checkpoint)
+
+**Security Model**:
+
+Without checkpointz, two risks emerge:
+
+1. **Bootstrap Risk**: Device cannot auto-fetch initial checkpoint
+   - **Mitigation**: Provide checkpoint in configuration at device initialization
+
+2. **Weak Subjectivity Risk**: An attacker who controlled >2/3 of validators in the past could:
+   - Wait for validators to exit (avoid slashing)
+   - Create a fake alternative chain history
+   - Convince your light client to follow the fake chain
+
+**Attack Cost**: Very high (requires past majority stake control), but increases risk.
+
+**Reference**: [Weak Subjectivity Analysis (Runtime Verification)](https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf)
+
+**Trade-offs**:
+- ⚠️ Requires manual checkpoint configuration for bootstrap
+- ⚠️ Increases long-range attack risk during extended offline periods
+- ✅ Saves ~2-3 KB of code (removes `json_validate` and checkpointz logic)
+- ✅ No HTTP dependency needed
+
+#### 4. BLS_DESERIALIZE (Memory vs Speed)
+
+```cmake
+-DBLS_DESERIALIZE=OFF  # Saves ~25 KB RAM per cached period
+```
+
+**What it does**: Stores BLS keys in compressed format instead of deserialized.
+
+**Trade-offs**:
+- ⚠️ Slower signature verification (needs deserialization on each use)
+- ✅ Saves ~25 KB RAM per sync committee period
+- ✅ Recommended for embedded (default for EMBEDDED=ON)
+
+#### 5. STATIC_MEMORY (Heap vs BSS Trade-off)
+
+```cmake
+-DSTATIC_MEMORY=ON  # Moves ~25 KB from heap to BSS
+```
+
+**What it does**: Uses static allocation for BLS public keys instead of dynamic heap allocation.
+
+**When to enable**:
+- ✅ Embedded devices with limited heap but sufficient BSS/static memory
+- ✅ Systems where deterministic memory layout is important
+- ✅ When you want to avoid heap fragmentation
+
+**Trade-offs**:
+- ⚠️ Increases BSS section by ~25 KB (static memory)
+- ✅ Reduces heap pressure (no dynamic allocation for pubkeys)
+- ✅ More predictable memory layout
+- ✅ Eliminates heap allocation failures for pubkeys
+- ✅ Default for EMBEDDED=ON
+
+**Memory Impact**:
+- **Before (STATIC_MEMORY=OFF)**: Pubkeys allocated on heap (~25 KB heap usage)
+- **After (STATIC_MEMORY=ON)**: Pubkeys in BSS section (~25 KB static memory)
+
+#### 6. MESSAGES (Code Size vs Debug Info)
+
+```cmake
+-DMESSAGES=OFF  # Saves several KB of string literals
+```
+
+**What it does**: Removes all detailed error messages from the binary. Error messages generated with `RETURN_VERIFY_ERROR` macro are replaced with a short "E" identifier.
+
+**When to disable**:
+- ✅ Production embedded devices without debugging capability
+- ✅ Devices where binary size is critical
+- ✅ Headless systems that don't display error messages to users
+
+**When to KEEP enabled**:
+- 🛡️ Development and testing phase
+- 🛡️ Systems with debugging interface
+- 🛡️ When you need detailed error diagnostics
+
+**Trade-offs**:
+- ⚠️ No human-readable error messages (only "E" codes)
+- ⚠️ Harder to debug issues in production
+- ✅ Saves several KB of code size (string literals removed)
+- ✅ Reduces binary bloat from error strings
+
+**Example**:
+```c
+// With MESSAGES=ON:
+// Error: "Invalid SSZ structure in bootstrap data"
+
+// With MESSAGES=OFF:
+// Error: "E"
+```
+
+### Example Configurations
+
+#### Minimal Light Client (Bluetooth-only, No HTTP)
+```cmake
+cmake -B build \
+  -DEMBEDDED=ON \
+  -DETH_BLOCK=OFF \
+  -DETH_TX=ON \
+  -DETH_RECEIPT=OFF \
+  -DETH_LOGS=OFF \
+  -DETH_CALL=OFF \
+  -DETH_ACCOUNT=OFF \
+  -DEVMONE=OFF \
+  -DPRECOMPILE_ZERO_HASHES=OFF \
+  -DUSE_CHECKPOINTZ=OFF \
+  -DCURL=OFF
+```
+**Savings**: 1.61 KB (150.65 KB → **149.04 KB** ✅)  
+**Note**: Initial checkpoint must be provided in device configuration
+
+#### Full Verifier with Security (HTTP-enabled)
+```cmake
+cmake -B build \
+  -DEMBEDDED=ON \
+  -DETH_BLOCK=OFF \
+  -DETH_TX=ON \
+  -DETH_CALL=OFF \
+  -DEVMONE=OFF \
+  -DPRECOMPILE_ZERO_HASHES=OFF \
+  -DUSE_CHECKPOINTZ=ON \  # Keep checkpoint fetching
+  -DCURL=ON
+```
+**Savings**: ~1 KB (keeps security, disables only zero hash cache)  
+**Benefits**: Auto-bootstrap + weak subjectivity protection
+
+#### Ultra-Minimal Production Build (No Debug, Maximum Size Savings)
+```cmake
+cmake -B build \
+  -DEMBEDDED=ON \
+  -DETH_BLOCK=OFF \
+  -DETH_TX=ON \
+  -DETH_RECEIPT=OFF \
+  -DETH_LOGS=OFF \
+  -DETH_CALL=OFF \
+  -DETH_ACCOUNT=OFF \
+  -DEVMONE=OFF \
+  -DPRECOMPILE_ZERO_HASHES=OFF \
+  -DUSE_CHECKPOINTZ=OFF \
+  -DMESSAGES=OFF \
+  -DCURL=OFF
+```
+**Savings**: Additional several KB beyond 149.04 KB (removes all error strings)  
+**Note**: Initial checkpoint required, no debug messages  
+**Use Case**: Production devices without debugging capability
+
+### Additional Optimization Tips
+
+1. **Compiler Flags**: Use `-DCMAKE_BUILD_TYPE=MinSizeRel` for size optimization
+2. **Linker Flags**: Enable `--gc-sections` to remove unused code
+3. **Static Allocation**: Use `STATIC_MEMORY=ON` (default for EMBEDDED)
+4. **BLS Keys**: Store in flash when possible, only load to RAM when needed
+5. **Proof Processing**: Process large proofs in chunks if memory constrained 

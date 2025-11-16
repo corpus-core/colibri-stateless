@@ -7,18 +7,22 @@ const { toCamelCase, get_full_src_path, align, get_doc_path } = require('./utils
 
 
 function add_section(line, sections) {
+    const regex = /\/\/ (\:+) (.*)/g;
+    const m = regex.exec(line);
     let section = sections.at(-1)
     if (section && section.open) {
-        if (line.startsWith('//')) {
-            section.content.push(line.substring(3))
-            return true
+        if (m)
+            section.open = false
+        else {
+            if (line.startsWith('//')) {
+                section.content.push(line.substring(3))
+                return true
+            }
+            section.open = false
+            return false
         }
-        section.open = false
-        return false
     }
 
-    const regex = /\/\/ (\#+) (.*)/g;
-    const m = regex.exec(line);
     if (m) {
         const section = {
             title: m[2],
@@ -48,6 +52,8 @@ function add_section(line, sections) {
 function get_typename(type, args) {
     args = args.filter(_ => _ && _ != 'undefined')
     switch (type) {
+        case "OptMask":
+            return 'Uint' + (parseInt(args[0]) * 8)
         case "Union":
             return toCamelCase(args[0])
         case "List":
@@ -67,18 +73,36 @@ function get_typename(type, args) {
     }
 }
 
-function add_rpc(line, sections, comment) {
+function extractChainFromPath(filePath) {
+    // Normalisiere den Pfad und teile ihn in Segmente auf
+    const pathSegments = filePath.replace(/\\/g, '/').split('/');
+
+    // Finde den Index von 'chains'
+    const chainsIndex = pathSegments.indexOf('chains');
+
+    // Wenn 'chains' gefunden wurde und es ein nächstes Segment gibt, verwende das als Chain
+    if (chainsIndex !== -1 && chainsIndex + 1 < pathSegments.length) {
+        return pathSegments[chainsIndex + 1];
+    }
+
+    // Fallback zu 'eth' wenn kein Chain im Pfad gefunden wird
+    return 'eth';
+}
+
+function add_rpc(file, line, sections, comment) {
     let section = sections.at(-1)
     if (!section) return false
     if (line.includes('proofable_methods[] = ')) section.rpc_state = 'proofable';
     if (line.includes('local_methods[] = ')) section.rpc_state = 'local';
     if (line.includes('not_verifieable_yet_methods[] = ')) section.rpc_state = 'not_verifieable';
     if (line.includes('RPC_METHOD')) {
+        const chain = extractChainFromPath(file);
         const args = line.split('(')[1].split(')')[0].split(',').map(arg => arg.trim());
         const method = args[0].replace(/["']/g, '');
         const data_type = args[1] == 'Void' ? '' : args[1];
         const proof_type = args[2] == 'Void' ? '' : args[2];
         section.rpcs.push({
+            chain,
             method,
             data_type,
             proof_type,
@@ -90,26 +114,104 @@ function add_rpc(line, sections, comment) {
     return false
 
 }
+
+function add_function_def(sections, line, doc_comment, file, line_number) {
+    let section = sections.at(-1)
+    if (!section) return
+    let ns = line.indexOf('NONNULL_FOR(')
+    let ne = line.indexOf(');')
+
+    if (ns > -1 && ne > ns)
+        line = line.substring(0, ns) + line.substring(ne + 2)
+
+    const last_line = line.trim().split('\n').at(-1)
+    // prover_t* c4_create_prover_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags);
+    let p = last_line.indexOf('(')
+    let fn = p >= 0 ? last_line.substring(0, p).trim().split(' ').at(-1) : last_line.trim().split(' ').at(-1).replace(';', '').trim()
+
+    section.content.push('\n## ' + fn)
+    section.content.push(`[${file.replace('../', '')}](https://github.com/corpus-core/colibri-stateless/blob/dev/src/${file}#L${line_number})`)
+    section.content.push('')
+    section.content.push(doc_comment.comment)
+    section.content.push('')
+
+    section.content.push('```c')
+    section.content.push(line)
+    section.content.push('```')
+
+    if (doc_comment.params && Object.keys(doc_comment.params).length > 0) {
+        section.content.push('**Parameters**')
+        section.content.push('')
+        for (let param of Object.keys(doc_comment.params)) {
+            section.content.push(`- **\`${param}\`** : ${doc_comment.params[param]}`)
+        }
+        section.content.push('')
+    }
+
+    if (doc_comment.returns) {
+        section.content.push('**Returns**')
+        section.content.push('')
+        section.content.push(doc_comment.returns)
+        section.content.push('')
+    }
+}
+
+function handle_doc_comment(line, doc_comment, sections, file, line_number) {
+    if (line.trim().startsWith('*/')) {
+        doc_comment.open = false
+        return true
+    }
+    else if (line.trim().startsWith('*')) {
+        line = line.trim().substring(2)
+        if (line.startsWith('@param')) doc_comment.params[line.split(' ')[1]] = line.split(' ').slice(2).join(' ')
+        else if (line.startsWith('@return')) doc_comment.returns = line.split(' ').slice(1).join(' ')
+        else doc_comment.comment += '\n' + line
+    }
+    else if (doc_comment && doc_comment.open) {
+        doc_comment.comment += '\n' + line
+    }
+    else if (line.trim().endsWith(';')) {
+        doc_comment.statement += '\n' + line
+        add_function_def(sections, doc_comment.statement.trim(), doc_comment, file, line_number)
+        return false
+    }
+    else
+        doc_comment.statement += '\n' + line
+    return true;
+}
 function parse_ssz_file(file) {
     const lines = fs.readFileSync(get_full_src_path(file), 'utf8').split('\n');
 
+    let is_markdown = file.endsWith('.md')
     let sections = []
     let def = { members: [] }
     let types = {}
     let comment = ''
+    let doc_comment = null
     let line_number = 0
 
     for (let line of lines) {
         line_number++
+        if (is_markdown) line = '// ' + line
         if (add_section(line, sections)) continue
-
+        if (line.trim().startsWith('/**')) doc_comment = {
+            open: true,
+            params: {},
+            returns: '',
+            comment: '',
+            statement: '',
+        }
+        else if (doc_comment) {
+            if (handle_doc_comment(line, doc_comment, sections, file, line_number)) continue
+            else doc_comment = null
+        }
         // handle comments
         const splits = line.split('//')
         if (splits.length > 1) {
             line = splits[0]
             comment = ((comment || '') + '\n' + splits.slice(1).join('//')).trim()
         }
-        if (add_rpc(line, sections, comment)) {
+        if (add_rpc(file, line, sections, comment)) {
             comment = ''
             continue
         }
@@ -139,6 +241,7 @@ function parse_ssz_file(file) {
             const [, type_string, name, args_string] = match
             const args = ('' + args_string).split(",").map(_ => _.trim()).filter(_ => _)
             const type = toCamelCase(type_string)
+            if (type == 'OptMask' && !comment) comment = 'bitmask defining the properties shown in json'
             def.members.push({
                 name,
                 type,
@@ -155,7 +258,7 @@ function parse_ssz_file(file) {
 }
 
 function assign_path(section, parent_dir) {
-    let name = section.title.replace(/ /g, '-').toLowerCase()
+    let name = section.title.replace(/[ \/]/g, '-').toLowerCase()
     if (section.children.length > 0)
         section.path = parent_dir + '/' + name + '/README.md'
     else
@@ -178,9 +281,17 @@ function add_sections(old_sections, new_sections) {
             old_sections.push(section)
     }
 }
+function doc_id(method) {
+    // in eth_getLogs
+    // out eth-get-logs
 
-function create_rpc_table(section, sections) {
-    section.children.forEach(child => create_rpc_table(child, sections))
+    return method
+        .replace(/_/g, '-')  // Ersetze alle _ durch -
+        .replace(/([a-z])([A-Z])/g, '$1-$2')  // Füge - zwischen lowercase und uppercase ein
+        .toLowerCase();  // Konvertiere zu lowercase
+}
+function create_rpc_table(section, sections, rpc_docs) {
+    section.children.forEach(child => create_rpc_table(child, sections, rpc_docs))
     if (!section.rpcs || section.rpcs.length == 0) return
 
     function html_link(type) {
@@ -209,7 +320,9 @@ function create_rpc_table(section, sections) {
     section.content.push('  <tbody>');
 
     for (let rpc of section.rpcs) {
-        const link = `https://docs.alchemy.com/reference/${rpc.method.replace(/_/g, '-').toLowerCase()}`
+        const doc_url = rpc_docs[rpc.chain] || 'https://www.alchemy.com/docs/node/ethereum/ethereum-api-endpoints'
+        let link = `${doc_url}/${doc_id(rpc.method)}`
+        if (rpc.method.startsWith('colibri_')) link = `colibri-rpc-methods/${rpc.method.toLowerCase()}.md`
         const methodLink = `<a href="${link}" target="_blank" rel="noopener noreferrer">${rpc.method}</a>`;
         const statusIcon = rpc.status == 'proofable' ? '✅' : (rpc.status == 'local' ? '🟢' : '❌');
 
@@ -244,7 +357,7 @@ function find_section_for_type(sections, type) {
     return null
 }
 
-function parse_ssz_files(files) {
+function parse_ssz_files(files, rpc_docs) {
     let types = {}
     let sections = []
     for (let file of files) {
@@ -255,7 +368,7 @@ function parse_ssz_files(files) {
 
     for (let section of sections) assign_path(section, '')
     for (let type of Object.values(types)) create_type(type, types)
-    sections.forEach(s => create_rpc_table(s, sections))
+    sections.forEach(s => create_rpc_table(s, sections, rpc_docs))
 
     return sections
 }

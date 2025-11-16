@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "bytes.h"
 #include "crypto.h"
 #include "json.h"
@@ -32,32 +55,31 @@ static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas
 
   keccak(bytes(pubkey, 64), sig);
   memset(sig, 0, 12);
-  output->data.len = 0;
+  buffer_reset(output);
   buffer_append(output, bytes(sig, 32));
   *gas_used = 3000;
   return PRE_SUCCESS;
 }
 
 static pre_result_t pre_sha256(bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  output->data.len = 0;
-  buffer_grow(output, 32);
+  buffer_reset(output);
+  buffer_append(output, bytes(NULL, 32));
   sha256(input, output->data.data);
   *gas_used = 60 + 12 * data_word_size(input.len);
   return PRE_SUCCESS;
 }
 #ifdef PRECOMPILED_RIPEMD160
 static pre_result_t pre_ripemd160(bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  output->data.len = 0;
-  buffer_grow(output, 20);
+  buffer_reset(output);
+  buffer_append(output, bytes(NULL, 20));
   ripemd160(input.data, input.len, output->data.data);
   *gas_used = 600 + 120 * data_word_size(input.len);
   return PRE_SUCCESS;
 }
 #endif
 static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  output->data.len = 0;
-  buffer_grow(output, input.len);
-  memcpy(output->data.data, input.data, input.len);
+  buffer_reset(output);
+  buffer_append(output, input);
   *gas_used = 15 + 3 * data_word_size(input.len);
   return PRE_SUCCESS;
 }

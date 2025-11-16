@@ -1,7 +1,30 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "colibri.h"
 #include "beacon_types.h"
 #include "plugin.h"
-#include "proofer.h"
+#include "prover.h"
 #include "ssz.h"
 #include "sync_committee.h"
 #include "verify.h"
@@ -17,9 +40,9 @@ typedef struct {
   bool         initialised;
 } c4_verify_ctx_t;
 
-proofer_t* c4_create_proofer_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
-  //  fprintf(stderr, "c4_create_proofer_ctx: %s, %s\n", method, params);
-  return (void*) c4_proofer_create(method, params, chain_id, flags);
+prover_t* c4_create_prover_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
+  //  fprintf(stderr, "c4_create_prover_ctx: %s, %s\n", method, params);
+  return (void*) c4_prover_create(method, params, chain_id, flags);
 }
 
 static const char* status_to_string(c4_status_t status) {
@@ -63,6 +86,12 @@ static const char* data_request_type_to_string(data_request_type_t type) {
       return "eth_rpc";
     case C4_DATA_TYPE_REST_API:
       return "rest_api";
+    case C4_DATA_TYPE_CHECKPOINTZ:
+      return "checkpointz";
+    case C4_DATA_TYPE_PROVER:
+      return "prover";
+    case C4_DATA_TYPE_INTERN:
+      return "internal";
   }
 }
 static void add_data_request(buffer_t* result, data_request_t* data_request) {
@@ -77,17 +106,17 @@ static void add_data_request(buffer_t* result, data_request_t* data_request) {
   bprintf(result, "\"type\": \"%s\"}", data_request_type_to_string(data_request->type));
 }
 
-char* c4_proofer_execute_json_status(proofer_t* proofer) {
-  buffer_t       result = {0};
-  proofer_ctx_t* ctx    = (proofer_ctx_t*) proofer;
-  c4_status_t    status = c4_proofer_execute(ctx);
+char* c4_prover_execute_json_status(prover_t* prover) {
+  buffer_t      result = {0};
+  prover_ctx_t* ctx    = (prover_ctx_t*) prover;
+  c4_status_t   status = c4_prover_execute(ctx);
   bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
   switch (status) {
     case C4_SUCCESS:
       bprintf(&result, "\"result\": \"0x%lx\", \"result_len\": %d", (uint64_t) ctx->proof.data, ctx->proof.len);
       break;
     case C4_ERROR:
-      bprintf(&result, "\"error\": \"%s\"", ctx->state.error);
+      bprintf(&result, "\"error\": \"%S\"", ctx->state.error);
       break;
     case C4_PENDING: {
       bprintf(&result, "\"requests\": [");
@@ -105,12 +134,12 @@ char* c4_proofer_execute_json_status(proofer_t* proofer) {
     }
   }
   bprintf(&result, "}");
-  //  fprintf(stderr, "c4_proofer_execute_json_status result: %s\n", result.data.data);
+  //  fprintf(stderr, "c4_prover_execute_json_status result: %s\n", result.data.data);
   return buffer_as_string(result);
 }
 
-void c4_free_proofer_ctx(proofer_t* ctx) {
-  c4_proofer_free((proofer_ctx_t*) ctx);
+void c4_free_prover_ctx(prover_t* ctx) {
+  c4_prover_free((prover_ctx_t*) ctx);
 }
 void c4_req_set_response(void* req_ptr, bytes_t data, uint16_t node_index) {
   //  fprintf(stderr, "c4_req_set_response: %p\n : %d\n", req_ptr, data.len);
@@ -126,28 +155,19 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index) {
   ctx->response_node_index = node_index;
 }
 
-bytes_t c4_proofer_get_proof(proofer_t* proofer) {
-  proofer_ctx_t* ctx = (proofer_ctx_t*) proofer;
+bytes_t c4_prover_get_proof(prover_t* prover) {
+  prover_ctx_t* ctx = (prover_ctx_t*) prover;
   return ctx->proof;
 }
 
-void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_block_hashes) {
+void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint) {
   c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
   ctx->proof           = bytes_dup(proof);
-  c4_status_t status   = c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t) {0}), (chain_id_t) chain_id);
-  if (trusted_block_hashes && strlen(trusted_block_hashes) > 69) {
-    json_t  trusted_blocks = json_parse(strdup(trusted_block_hashes));
-    bytes_t hash_bytes     = {.len = json_len(trusted_blocks) * 32};
-    hash_bytes.data        = calloc(hash_bytes.len, sizeof(uint8_t));
-    if (trusted_blocks.type == JSON_TYPE_ARRAY) {
-      for (int i = 0; i < json_len(trusted_blocks); i++) {
-        json_t hash = json_at(trusted_blocks, i);
-        if (hash.type == JSON_TYPE_STRING && hash.len == 68)
-          hex_to_bytes(hash.start + 1, hash.len - 2, bytes(hash_bytes.data + i * 32, 32));
-      }
-      c4_eth_set_trusted_blockhashes(chain_id, hash_bytes);
-      safe_free(hash_bytes.data);
-    }
+  c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t) {0}), (chain_id_t) chain_id);
+  if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
+    bytes32_t checkpoint;
+    hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
+    c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
   }
   return (void*) ctx;
 }
@@ -160,10 +180,10 @@ char* c4_verify_execute_json_status(void* ptr) {
   bprintf(&buf, "{\"status\": \"%s\",", status_to_string(status));
   switch (status) {
     case C4_SUCCESS:
-      bprintf(&buf, "\"result\": %Z,", ctx->ctx.data);
+      bprintf(&buf, "\"result\": %Z", ctx->ctx.data);
       break;
     case C4_ERROR:
-      bprintf(&buf, "\"error\": \"%s\"", ctx->ctx.state.error);
+      bprintf(&buf, "\"error\": \"%S\"", ctx->ctx.state.error);
       break;
     case C4_PENDING: {
       bprintf(&buf, "\"requests\": [");

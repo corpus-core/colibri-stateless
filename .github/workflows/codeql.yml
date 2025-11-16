@@ -1,0 +1,71 @@
+name: "CodeQL Analysis"
+
+on:
+  push:
+    branches: [ "dev", "main" ]
+  pull_request:
+    branches: [ "dev" ]
+  schedule:
+    - cron: '0 0 * * 1' # Jeden Montag um Mitternacht
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'c-cpp', 'javascript-typescript', 'python' ]
+        # Kotlin wird erstmal ausgeschlossen, da es komplexe Build-Schritte benötigt
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      # Fix für C/C++ TRAP cache Fehler
+      - name: Create TRAP cache directory (C/C++)
+        if: matrix.language == 'c-cpp'
+        run: |
+          mkdir -p /home/runner/work/_temp/trapCaches/cpp/tarballs
+          echo "TRAP cache directory created"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Für C/C++: Config-Datei verwenden
+          config-file: ${{ matrix.language == 'c-cpp' && './.github/codeql/codeql-config.yml' || '' }}
+
+      # Für C/C++ Build-Schritte
+      - name: Install dependencies (C/C++)
+        if: matrix.language == 'c-cpp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+
+      # Vorbereitung für autobuild: CMake generieren
+      - name: Configure CMake for autobuild (C/C++)
+        if: matrix.language == 'c-cpp'
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DKOTLIN=false -DWASM=false -DTEST=false -DCURL=false
+          echo "CMake configuration complete, autobuild will use this"
+
+      # Autobuild für C/C++ (zuverlässiger als manueller Build)
+      - name: Autobuild
+        if: matrix.language == 'c-cpp'
+        uses: github/codeql-action/autobuild@v3
+
+      # Für andere Sprachen (Python, JavaScript) wird kein Build benötigt
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
+

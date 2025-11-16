@@ -1,0 +1,18 @@
+#!/bin/bash
+# Pre-removal script for colibri-server
+
+set -e
+
+# Stop the service if it's running
+if [ -d /run/systemd/system ]; then
+    if systemctl is-active --quiet colibri-server.service; then
+        echo "Stopping colibri-server service..."
+        systemctl stop colibri-server.service || true
+    fi
+    
+    # Disable the service
+    systemctl disable colibri-server.service || true
+fi
+
+exit 0
+

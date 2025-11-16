@@ -1,33 +1,82 @@
 const { parse_ssz_files } = require('./parse_defs')
-const { read_summary } = require('./utils')
+const { read_summary, get_doc_path, get_full_src_path } = require('./utils')
 const { get_cmake_options } = require('./cmake')
 const { find_links_in_dir, replace_links_in_dir } = require('./links')
-const type_defs = [
+
+const doc_files = [
+    // typedefs
     "chains/eth/verifier/eth_verify.c",
     "chains/eth/ssz/beacon_denep.c",
     "chains/eth/ssz/verify_types.c",
     "chains/eth/ssz/verify_proof_types.h",
     "chains/eth/ssz/verify_data_types.h",
+    "chains/eth/verifier/verify_simulate.c",
+    "chains/eth/verifier/verify_local.c",
+
+    "chains/op/verifier/op_verify.c",
+    "chains/op/ssz/op_types.c",
+    "chains/op/ssz/op_proof_types.h",
+
+    "util/witness.c",
+    "chains/eth/threat_model.md",
+    "chains/eth/benchmark.md",
+
+    // cli
+    "cli/prover.c",
+    "cli/ssz.c",
+    "cli/verifier.c",
+
+    // bindings
+    "../bindings/emscripten/doc.md",
+    "../bindings/kotlin/doc.md",
+    "../bindings/swift/doc.md",
+    "../bindings/python/doc.md",
+
+    // installer
+    "../installer/README.md",
+    "../installer/macos/README.md",
+    "../installer/linux/README.md",
+    "../installer/windows/README.md",
+    "../installer/homebrew/README.md",
+
+
+    // api
+    "verifier/verify.h",
+    "prover/prover.h",
+    "util/bytes.h",
+    "util/ssz.h",
+    "util/crypto.h",
+    "util/state.h",
+    "../bindings/colibri.h",
+    "server/API.md",
+
 ]
 
+// the folders where to replace the links
 const link_dirs = [
     'developer-guide',
     'introduction',
     'specifications',
 ]
 
+// a list of types to replace with external types.
 const extern_types = {
     BeaconBlockHeader: 'https://ethereum.github.io/consensus-specs/specs/phase0/beacon-chain/#beaconblockheader',
     DenepExecutionPayload: 'https://ethereum.github.io/consensus-specs/specs/deneb/beacon-chain/#executionpayload',
-    LightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate'
+    LightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
+    DenepLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
+    ElectraLightClientUpdate: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientupdate',
+    ElectraLightClientBootstrap: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientbootstrap',
+    DenepLightClientBootstrap: 'https://ethereum.github.io/consensus-specs/specs/altair/light-client/sync-protocol/#lightclientbootstrap',
 }
 
-
-
-
+const rpc_docs = {
+    eth: 'https://www.alchemy.com/docs/node/ethereum/ethereum-api-endpoints',
+    op: 'https://www.alchemy.com/docs/node/op-mainnet/op-mainnet-api-endpoints',
+}
 
 const summary = read_summary()
-summary.set_sections(parse_ssz_files(type_defs))
+summary.set_sections(parse_ssz_files(doc_files, rpc_docs))
 summary.set_sections(get_cmake_options())
 summary.write()
 

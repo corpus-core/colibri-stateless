@@ -1,0 +1,18 @@
+# Development dependencies for Colibri Python bindings
+
+# Build tools
+build>=0.10.0
+wheel>=0.40.0
+setuptools>=65.0.0
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# Type checking and linting (optional)
+mypy>=1.0.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Development utilities
+twine>=4.0.0  # For uploading to PyPI

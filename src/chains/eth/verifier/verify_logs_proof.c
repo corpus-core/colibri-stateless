@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 
 #include "beacon_types.h"
 #include "bytes.h"
@@ -60,6 +83,11 @@ static bool verify_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, bytes32_t 
   bytes_t   block_hash   = ssz_get(&block, "blockHash").bytes;
   ssz_ob_t  block_number = ssz_get(&block, "blockNumber");
 
+  if (ctx->data.def->type == SSZ_TYPE_NONE && ctx->method && strcmp(ctx->method, "eth_verifyLogs") == 0) {
+    ctx->data = ssz_from_json(ctx->args, eth_ssz_verification_type(ETH_SSZ_DATA_LOGS), &ctx->state);
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+
   // verify receipt proof
   if (!c4_tx_verify_receipt_proof(ctx, ssz_get(&tx, "proof"), ssz_uint32(tidx), root_hash, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
   if (bytes_all_zero(bytes(receipt_root, 32)))
@@ -77,19 +105,17 @@ static bool verify_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, bytes32_t 
 }
 
 static c4_status_t verif_block(verify_ctx_t* ctx, ssz_ob_t block) {
-  ssz_ob_t  header                   = ssz_get(&block, "header");
-  ssz_ob_t  sync_committee_bits      = ssz_get(&block, "sync_committee_bits");
-  ssz_ob_t  sync_committee_signature = ssz_get(&block, "sync_committee_signature");
-  ssz_ob_t  txs                      = ssz_get(&block, "txs");
-  bytes32_t receipt_root             = {0};
-  uint32_t  tx_count                 = ssz_len(txs);
+  ssz_ob_t  header       = ssz_get(&block, "header");
+  ssz_ob_t  txs          = ssz_get(&block, "txs");
+  bytes32_t receipt_root = {0};
+  uint32_t  tx_count     = ssz_len(txs);
 
   // verify each tx and get the receipt root
   for (int i = 0; i < tx_count; i++) {
     if (!verify_tx(ctx, block, ssz_at(txs, i), receipt_root)) THROW_ERROR("invalid receipt proof!");
   }
   if (!verify_merkle_proof(ctx, block, receipt_root)) THROW_ERROR("invalid tx proof!");
-  return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0);
+  return c4_verify_header(ctx, header, block);
 }
 
 static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index, uint32_t block_count) {

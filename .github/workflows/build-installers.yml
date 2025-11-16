@@ -1,0 +1,269 @@
+name: Build Installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: true
+        default: '1.0.0'
+  workflow_call:  # Called by main-ci.yml workflow
+    secrets:
+      PAT_TOKEN:
+        required: false
+        description: 'Personal Access Token for Homebrew repository updates'
+
+jobs:
+  determine-version:
+    name: Determine Version
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            # Extract version from tag (v1.2.3 -> 1.2.3)
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+            echo "Building release version: $VERSION"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+            echo "Building manual version: $VERSION"
+          else
+            # For branches, use 0.0.0 with commit SHA suffix
+            # Format: 0.0.0+devSHORTSHA (valid for both DEB and RPM)
+            SHORT_SHA="${{ github.sha }}"
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            VERSION="0.0.0+dev${SHORT_SHA}"
+            echo "Building dev version: $VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  build-linux-deb:
+    name: Build Debian Package
+    runs-on: ubuntu-22.04
+    needs: determine-version
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y dpkg-dev debhelper cmake gcc g++ \
+          libssl-dev libcurl4-openssl-dev build-essential
+    
+    - name: Make scripts executable
+      run: chmod +x installer/linux/debian/{rules,postinst,prerm,postrm}
+    
+    - name: Build Debian package
+      env:
+        VERSION: ${{ needs.determine-version.outputs.version }}
+      run: |
+        cd installer/linux
+        ./build_deb.sh "$VERSION"
+    
+    - name: Upload Debian package
+      uses: actions/upload-artifact@v4
+      with:
+        name: debian-package
+        path: installer/linux/colibri-server_*.deb
+
+  build-linux-rpm:
+    name: Build RPM Package
+    runs-on: ubuntu-22.04
+    needs: determine-version
+    container: fedora:38
+    
+    steps:
+    - name: Install Git
+      run: |
+        dnf install -y git
+    
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        dnf install -y rpm-build rpmdevtools cmake gcc gcc-c++ \
+          openssl-devel libcurl-devel make tar gzip
+    
+    - name: Build RPM package
+      env:
+        VERSION: ${{ needs.determine-version.outputs.version }}
+      run: |
+        cd installer/linux
+        chmod +x build_rpm.sh
+        ./build_rpm.sh "$VERSION"
+    
+    - name: Upload RPM package
+      uses: actions/upload-artifact@v4
+      with:
+        name: rpm-package
+        path: installer/linux/*.rpm
+
+  build-macos:
+    name: Build macOS Package
+    runs-on: macos-latest
+    needs: determine-version
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        brew install cmake
+    
+    - name: Build macOS package
+      env:
+        VERSION: ${{ needs.determine-version.outputs.version }}
+      run: |
+        cd installer/macos
+        chmod +x build_pkg.sh
+        ./build_pkg.sh "$VERSION"
+    
+    - name: Upload macOS package
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-package
+        path: "*.pkg"
+
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-2022
+    needs: determine-version
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v1.1
+    
+    - name: Install vcpkg and CURL
+      run: |
+        # Install vcpkg (comes pre-installed on GitHub runners)
+        $vcpkgRoot = "$env:VCPKG_INSTALLATION_ROOT"
+        if (-not $vcpkgRoot) {
+          $vcpkgRoot = "C:\vcpkg"
+        }
+        echo "Using vcpkg at: $vcpkgRoot"
+        
+        # Ensure vcpkg is up to date
+        Push-Location $vcpkgRoot
+        .\vcpkg.exe integrate install
+        Pop-Location
+        
+        # Install CURL
+        & "$vcpkgRoot\vcpkg.exe" install curl:x64-windows
+        
+        # Set CMake toolchain file as environment variable
+        $toolchainFile = "$vcpkgRoot\scripts\buildsystems\vcpkg.cmake"
+        echo "CMAKE_TOOLCHAIN_FILE=$toolchainFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        
+        # Verify installation
+        if (Test-Path "$vcpkgRoot\installed\x64-windows\include\curl\curl.h") {
+          echo "CURL headers found at: $vcpkgRoot\installed\x64-windows\include\curl\curl.h"
+        } else {
+          echo "WARNING: CURL headers not found!"
+        }
+      shell: powershell
+    
+    - name: Install WiX Toolset
+      run: |
+        choco install wixtoolset -y
+        # Wait for installation to complete
+        Start-Sleep -Seconds 5
+        # Find WiX installation
+        $wixPath = Get-ChildItem "C:\Program Files (x86)\" -Filter "WiX*" -Directory | Select-Object -First 1
+        if ($wixPath) {
+          $wixBin = Join-Path $wixPath.FullName "bin"
+          echo "Found WiX at: $wixBin"
+          echo $wixBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        }
+      shell: powershell
+    
+    - name: Build Windows installer
+      env:
+        VERSION: ${{ needs.determine-version.outputs.version }}
+      run: |
+        cd installer\windows
+        .\build_installer.ps1 -Version "$env:VERSION"
+      shell: powershell
+    
+    - name: Upload Windows installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer
+        path: installer\windows\colibri-server-*.msi
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: [build-linux-deb, build-linux-rpm, build-macos, build-windows]
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout main repository
+      uses: actions/checkout@v4
+    
+    - name: Update Homebrew Formula
+      run: |
+        # Extract version from tag (refs/tags/v1.0.0 -> 1.0.0)
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "Version: $VERSION"
+        
+        # Generate SHA256 for the release tarball
+        TARBALL_URL="https://github.com/corpus-core/colibri-stateless/archive/refs/tags/v${VERSION}.tar.gz"
+        echo "Downloading tarball from: $TARBALL_URL"
+        SHA256=$(curl -sL "$TARBALL_URL" | shasum -a 256 | cut -d' ' -f1)
+        echo "SHA256: $SHA256"
+        
+        # Clone the Homebrew tap repository
+        git clone https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/corpus-core/homebrew-colibri.git
+        cd homebrew-colibri
+        
+        # Create Formula directory if it doesn't exist
+        mkdir -p Formula
+        
+        # Always copy the latest formula from the source repository
+        # This ensures any changes to dependencies or build process are included
+        cp ../installer/homebrew/colibri-server.rb Formula/
+        
+        # Update the formula with new version and SHA256
+        # Only update the main package URL/SHA256, not the resource URLs
+        sed -i "0,/archive\/refs\/tags\/v.*\.tar\.gz/s||archive/refs/tags/v${VERSION}.tar.gz|" Formula/colibri-server.rb
+        sed -i "0,/sha256 \".*\"/s||sha256 \"${SHA256}\"|" Formula/colibri-server.rb
+        
+        # Configure git
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        # Commit and push changes
+        git add Formula/colibri-server.rb
+        git commit -m "Update colibri-server to v${VERSION}
+
+        - Update download URL to v${VERSION}
+        - Update SHA256 checksum: ${SHA256}
+        
+        Automated release by GitHub Actions" || echo "No changes to commit"
+        
+        git push origin main
+        
+        echo "✅ Homebrew formula updated successfully!"
+      env:
+        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+

@@ -11,8 +11,19 @@ if(NOT MSVC)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-#pragma-messages")
 endif()
 
+
+
 add_definitions(-DAES_128)
 # add_definitions(-DUSE_HASHER)
+
+# Option to disable precomputed curve points for embedded builds (saves 37 KB)
+if(EMBEDDED)
+  add_definitions(-DUSE_PRECOMPUTED_CP=0)
+  message(STATUS "Embedded build: Disabling precomputed curve points to save memory")
+else()
+  add_definitions(-DUSE_PRECOMPUTED_CP=1)
+endif()
+
 set(SRC 
   ecdsa.c
 #  address.c
@@ -40,7 +51,12 @@ set(SRC
 #  nist256p1.c
 
 )
-
+if (WITNESS_SIGNER)
+  add_definitions(-DWITNESS_SIGNER)
+  add_definitions(-DUSE_ECDSA_SIGN)
+  add_definitions(-DUSE_RFC6979)
+  list(APPEND SRC rfc6979.c hmac_drbg.c)
+endif()
 
 add_library(crypto STATIC ${SRC} )
 target_include_directories(crypto PUBLIC .)

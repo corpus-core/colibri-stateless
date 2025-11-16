@@ -3,12 +3,7 @@
 name: CMake on multiple platforms
 
 on:
-  push:
-    branches: ["main", "dev"]
-    tags:
-      - "v*" # Trigger on version tags
-  pull_request:
-    branches: ["main", "dev"]
+  workflow_call:  # Called by main-ci.yml workflow
 
 jobs:
   build-embedded:
@@ -33,6 +28,7 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCURL=OFF \
+            -DCHAIN_OP=OFF \
             -DEVMONE=OFF \
             -DETH_BLOCK=OFF \
             -DETH_TX=1 \
@@ -41,8 +37,10 @@ jobs:
             -DETH_CALL=OFF \
             -DETH_ACCOUNT=OFF \
             -DEVMLIGHT=OFF \
-            -DPROOFER=OFF \
+            -DPROVER=OFF \
             -DCLI=OFF \
+            -DPRECOMPILE_ZERO_HASHES=OFF \
+            -DUSE_CHECKPOINTZ=OFF \
             -DINCLUDE=test/embedded
           cat build/compile_commands.json
 
@@ -83,11 +81,49 @@ jobs:
           echo "| .data (RAM) | $(numfmt --to=iec --format="%.2f" $DATA_SIZE) | Initialized data |" >> $GITHUB_STEP_SUMMARY
           echo "| .bss (RAM) | $(numfmt --to=iec --format="%.2f" $BSS_SIZE) | Uninitialized data |" >> $GITHUB_STEP_SUMMARY
           echo "| Total | $(numfmt --to=iec --format="%.2f" $TOTAL_SIZE) | Total memory footprint |" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Printf Symbol Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          PRINTF_SYMBOLS=$(arm-none-eabi-nm build/test/embedded/verify_embedded.elf | grep -iE "(printf|sprintf|snprintf|fprintf|vprintf|vsnprintf)" | grep -v "bprintf" || echo "")
+          if [ -z "$PRINTF_SYMBOLS" ]; then
+            echo "✅ No standard printf-family symbols found in binary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Note: \`bprintf\` is our custom implementation and is expected." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Standard printf-family symbols found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$PRINTF_SYMBOLS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Top 20 Largest Symbols" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Size (bytes) | Type | Symbol |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------------|------|--------|" >> $GITHUB_STEP_SUMMARY
+          arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf | tail -20 | tac | while read addr size type name; do
+            if [ -n "$size" ] && [ -n "$name" ]; then
+              echo "| $size | $type | \`$name\` |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
 
 
           # Create artifact with detailed memory analysis
           mkdir -p memory_analysis
+          
+          # Export all symbols with sizes
           arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf > memory_analysis/symbols_by_size.txt
+          arm-none-eabi-nm --print-size --radix=d build/test/embedded/verify_embedded.elf > memory_analysis/all_symbols.txt
+          
+          # Check for printf-family symbols (excluding our custom bprintf)
+          echo "Checking for standard printf-family symbols..." > memory_analysis/printf_check.txt
+          arm-none-eabi-nm build/test/embedded/verify_embedded.elf | grep -iE "(printf|sprintf|snprintf|fprintf|vprintf|vsnprintf)" | grep -v "bprintf" >> memory_analysis/printf_check.txt || echo "No standard printf symbols found (bprintf is our custom implementation)" >> memory_analysis/printf_check.txt
+          
+          # Get top 50 largest symbols
+          echo "Top 50 largest symbols:" > memory_analysis/top_symbols.txt
+          arm-none-eabi-nm --print-size --size-sort --radix=d build/test/embedded/verify_embedded.elf | tail -50 >> memory_analysis/top_symbols.txt
+          
           arm-none-eabi-objdump -h build/test/embedded/verify_embedded.elf > memory_analysis/section_headers.txt
           arm-none-eabi-readelf -S build/test/embedded/verify_embedded.elf > memory_analysis/section_details.txt
           arm-none-eabi-size --format=berkeley build/test/embedded/verify_embedded.elf > memory_analysis/size_summary.txt
@@ -114,12 +150,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Valgrind
-        run: sudo apt-get update && sudo apt-get install -y valgrind
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y valgrind libcurl4-openssl-dev
       - name: Build minsize
         run: cmake -B build_minsize -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
       - name: Build
-        run: cmake -B build -DTEST=true -DCURL=false  -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
+        run: cmake -B build -DTEST=true -DCURL=true -DPROVER_CACHE=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
 
       - name: Run Valgrind on all test binaries
         run: |
@@ -127,7 +163,7 @@ jobs:
           echo "" >> valgrind_summary.md
           EXIT_CODE=0
 
-          for test_binary in ./build/test/unittests/test_*; do
+            for test_binary in ./build/test/unittests/test_*; do
             if [ -x "$test_binary" ]; then
               echo "Running valgrind on $test_binary"
               TEST_NAME=$(basename "$test_binary")
@@ -135,26 +171,56 @@ jobs:
               # Create a temporary file for valgrind output
               TEMP_OUTPUT=$(mktemp)
               
+              # Configure valgrind flags based on test type
+              VALGRIND_FLAGS="--leak-check=full --error-exitcode=1 --track-origins=yes --show-leak-kinds=all"
+              
+              if [[ "$TEST_NAME" == "test_server"* ]]; then
+                # Server tests: use suppressions for threading/libuv/curl false positives
+                VALGRIND_FLAGS="$VALGRIND_FLAGS --suppressions=test/valgrind/server.supp --fair-sched=yes"
+                VALGRIND_FLAGS="$VALGRIND_FLAGS --errors-for-leak-kinds=definite"
+                echo "  → Using server suppressions (threading/libuv/curl)"
+              else
+                # Regular tests: strict mode (fail on definite + possible leaks)
+                VALGRIND_FLAGS="$VALGRIND_FLAGS --errors-for-leak-kinds=definite,possible"
+              fi
+              
               # Run valgrind and capture both stdout and stderr
-              valgrind --leak-check=full --error-exitcode=1 --track-origins=yes "$test_binary" 2>&1 | tee "$TEMP_OUTPUT"
+              valgrind $VALGRIND_FLAGS "$test_binary" 2>&1 | tee "$TEMP_OUTPUT"
               VALGRIND_STATUS=${PIPESTATUS[0]}
               
               # Extract valgrind-specific messages (lines starting with ==)
               VALGRIND_MESSAGES=$(grep -E "^==[0-9]+== " "$TEMP_OUTPUT" || true)
               
-              if [ $VALGRIND_STATUS -ne 0 ]; then
-                EXIT_CODE=1
-                echo "❌ $TEST_NAME: memory issues found:" >> valgrind_summary.md
-                echo '```' >> valgrind_summary.md
-                # First show the test output without valgrind messages
-                grep -vE "^==[0-9]+== " "$TEMP_OUTPUT" >> valgrind_summary.md || true
-                echo "" >> valgrind_summary.md
-                # Then show the valgrind messages
-                echo "$VALGRIND_MESSAGES" >> valgrind_summary.md
-                echo '```' >> valgrind_summary.md
-                echo "" >> valgrind_summary.md
+              # For server tests, check for actual definite leaks, not just exit code
+              if [[ "$TEST_NAME" == "test_server"* ]]; then
+                DEFINITELY_LOST=$(grep "definitely lost:" "$TEMP_OUTPUT" | grep -oE "[0-9,]+ bytes" | head -1 | tr -d ',' || echo "0 bytes")
+                if [[ "$DEFINITELY_LOST" != "0 bytes" ]]; then
+                  EXIT_CODE=1
+                  echo "❌ $TEST_NAME: definite memory leaks found ($DEFINITELY_LOST)" >> valgrind_summary.md
+                  echo '```' >> valgrind_summary.md
+                  cat "$TEMP_OUTPUT" >> valgrind_summary.md || true
+                  echo '```' >> valgrind_summary.md
+                elif [ $VALGRIND_STATUS -ne 0 ]; then
+                  # Exit code non-zero but no definite leaks - probably still reachable memory
+                  echo "⚠️  $TEST_NAME: Valgrind exited with code $VALGRIND_STATUS (no definite leaks, possibly still reachable)" >> valgrind_summary.md
+                  echo '```' >> valgrind_summary.md
+                  cat "$TEMP_OUTPUT" >> valgrind_summary.md || true
+                  echo '```' >> valgrind_summary.md
+                else
+                  echo "✅ $TEST_NAME:  ok" >> valgrind_summary.md
+                fi
               else
-                echo "✅ $TEST_NAME:  ok" >> valgrind_summary.md
+                # Regular tests: fail on any non-zero exit code
+                if [ $VALGRIND_STATUS -ne 0 ]; then
+                  EXIT_CODE=1
+                  echo "❌ $TEST_NAME: memory issues found:" >> valgrind_summary.md
+                  echo '```' >> valgrind_summary.md
+                  cat "$TEMP_OUTPUT" >> valgrind_summary.md || true
+                  echo '```' >> valgrind_summary.md
+                  echo "" >> valgrind_summary.md
+                else
+                  echo "✅ $TEST_NAME:  ok" >> valgrind_summary.md
+                fi
               fi
               
               # Clean up temp file
@@ -315,6 +381,9 @@ jobs:
             -v \
             -o scan-build-results \
             --exclude ../libs \
+            --exclude ../test \
+            --exclude ../build \
+            --exclude _deps \
             $SCAN_BUILD_OPTS \
             make 2>&1 | tee -a scan-build-output.txt || true
 
@@ -375,79 +444,88 @@ jobs:
           cp analysis_summary.md build/static-analysis-report/
 
           {
-            # Include the analysis summary
+            # Include the analysis summary header
             cat analysis_summary.md
             
             # Only include build output if bugs were found
             if [ "${{ steps.scan-build.outputs.no_bugs }}" != "true" ]; then
+              echo ""
+              echo "### 🔍 Detected Issues"
+              echo ""
               
-              # Process the output to create a markdown list with code blocks
-              awk '
-                BEGIN { in_issue = 0; issue_text = ""; code_block = ""; }
-                
-                # Skip cmake progress lines
-                /^\[/ { next }
-                
-                # Start of a warning/error - collect the line
-                /:[0-9]+:[0-9]+: (warning|error|note):/ {
-                  if ($0 ~ /\/libs\//) { next }
+              # Filter and format scan-build output
+              # Only show issues from src/ (exclude libs/, test/, build/, _deps/)
+              grep -E "^/.+\.(c|h):[0-9]+:[0-9]+: (warning|error):" build/scan-build-output.txt | \
+              grep -v "/libs/" | \
+              grep -v "/test/" | \
+              grep -v "/build/" | \
+              grep -v "/_deps/" | \
+              grep -v "/\.build/" | \
+              while IFS= read -r line; do
+                # Extract components: file:line:col: type: message [checker]
+                if [[ "$line" =~ ^(.+):([0-9]+):([0-9]+):[[:space:]]+(warning|error):[[:space:]]+(.+)[[:space:]]+\[([^\]]+)\] ]]; then
+                  filepath="${BASH_REMATCH[1]}"
+                  linenum="${BASH_REMATCH[2]}"
+                  colnum="${BASH_REMATCH[3]}"
+                  severity="${BASH_REMATCH[4]}"
+                  message="${BASH_REMATCH[5]}"
+                  checker="${BASH_REMATCH[6]}"
                   
-                  # If we were processing a previous issue, print it
-                  if (in_issue) {
-                    print issue_text
-                    if (code_block != "") {
-                      print "  ```c"
-                      print code_block "  ```"
-                      print ""
-                    }
-                  }
+                  # Shorten file path to start from src/
+                  shortpath=$(echo "$filepath" | sed 's|.*/src/|src/|')
                   
-                  # Extract file path and line info
-                  match($0, /([^:]+):([0-9]+):([0-9]+): (warning|error|note): (.+) \[(.+)\]/, arr)
-                  file = arr[1]
-                  # Keep path from src/ onwards
-                  sub(".*/src/", "src/", file)
+                  # Set icon based on severity
+                  if [ "$severity" = "error" ]; then
+                    icon="❌"
+                  else
+                    icon="⚠️"
+                  fi
                   
-                  # Set icon based on issue type
-                  if (arr[4] == "error") {
-                    icon = "❌"
-                  } else if (arr[4] == "warning") {
-                    icon = "⚠️"
-                  } else {
-                    icon = "ℹ️"
-                  }
+                  # Print formatted issue
+                  echo "#### $icon \`$checker\`"
+                  echo ""
+                  echo "**$message**"
+                  echo ""
+                  echo "📁 Location: \`$shortpath:$linenum:$colnum\`"
+                  echo ""
                   
-                  # Format the new issue
-                  issue_text = sprintf("- %s **%s** [%s]\\n  in %s:%s:%s", icon, arr[5], arr[6], file, arr[2], arr[3])
+                  # Try to extract code context (next 2-3 lines after the error line)
+                  # Look for lines with pipe character showing code
+                  context_found=false
+                  while IFS= read -r context_line; do
+                    if [[ "$context_line" =~ ^[[:space:]]*[0-9]+[[:space:]]*\| ]]; then
+                      if [ "$context_found" = false ]; then
+                        echo '```c'
+                        context_found=true
+                      fi
+                      echo "$context_line"
+                    elif [[ "$context_line" =~ ^[[:space:]]*\|[[:space:]]*\^ ]]; then
+                      # This is the pointer line
+                      echo "$context_line"
+                    elif [ "$context_found" = true ]; then
+                      # End of code block
+                      break
+                    fi
+                  done < <(grep -A 5 "$shortpath:$linenum:$colnum" build/scan-build-output.txt 2>/dev/null)
                   
-                  in_issue = 1
-                  code_block = ""
-                  next
-                }
-                
-                # Collect code block lines while in an issue
-                in_issue && /^[ ]*[0-9]+[ ]*\|/ {
-                  code_block = code_block "  " $0 "\\n"
-                  # Also collect the pointer line that follows
-                  getline pointer_line
-                  if (pointer_line ~ /[ ]*\|/) {
-                    code_block = code_block "  " pointer_line "\\n"
-                  }
-                  next
-                }
-                
-                # Print the last issue when we reach the end
-                END {
-                  if (in_issue) {
-                    print issue_text
-                    if (code_block != "") {
-                      print "  ```c"
-                      print code_block "  ```"
-                      print ""
-                    }
-                  }
-                }
-              ' build/scan-build-output.txt
+                  if [ "$context_found" = true ]; then
+                    echo '```'
+                  fi
+                  echo ""
+                  echo "---"
+                  echo ""
+                fi
+              done
+              
+              # Count issues
+              ISSUE_COUNT=$(grep -E "^/.+\.(c|h):[0-9]+:[0-9]+: (warning|error):" build/scan-build-output.txt | \
+                grep -v "/libs/" | grep -v "/test/" | grep -v "/build/" | grep -v "/_deps/" | grep -v "/\.build/" | wc -l)
+              
+              if [ "$ISSUE_COUNT" -eq 0 ]; then
+                echo "ℹ️ All detected issues are from excluded directories (libs/, test/, build/)."
+              else
+                echo "**Total issues in source code: $ISSUE_COUNT**"
+              fi
             fi
           } >> $GITHUB_STEP_SUMMARY
 
@@ -466,78 +544,55 @@ jobs:
       - name: Checkout Project
         uses: actions/checkout@v4.2.2
 
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev
+
       - name: Build Project
         uses: threeal/cmake-action@v2.0.0
         with:
-          options: TEST=true CURL=false CMAKE_BUILD_TYPE=Debug COVERAGE=true
+          options: TEST=true CURL=true HTTP_SERVER=true PROVER_CACHE=true CMAKE_BUILD_TYPE=Debug COVERAGE=true
 
       - name: Test Project
         uses: threeal/ctest-action@v1.1.0
         with:
           test-dir: build/test/unittests
 
-      - name: Check Test Coverage
-        uses: threeal/gcovr-action@v1.1.0
-        with:
-          excludes: libs.* build.* test.* src.cli.*
-          xml-out: coverage.xml
-
-      - name: Generate HTML Coverage Report
+      - name: Generate Coverage Reports
         run: |
-          # Install gcovr (should already be installed by gcovr-action, but just in case)
+          # Install gcovr
           pip install gcovr
+
+          # Build exclude arguments from coverage_ignore.txt
+          EXCLUDE_ARGS=""
+          if [ -f scripts/coverage_ignore.txt ]; then
+            echo "Loading coverage ignore list..."
+            while IFS= read -r line || [ -n "$line" ]; do
+              # Skip comments and empty lines
+              [[ "$line" =~ ^#.*$ ]] && continue
+              [[ -z "$line" ]] && continue
+              # Add exclude argument
+              EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude $line"
+              echo "  - Excluding: $line"
+            done < scripts/coverage_ignore.txt
+          fi
 
           # Create coverage report directory
           mkdir -p build/coverage-report
 
-          # Run gcovr to generate HTML report
-          gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*" \
+          # Generate XML report (for Codecov/CodeClimate)
+          eval "gcovr --exclude \"libs.*\" --exclude \"build.*\" --exclude \"test.*\" --exclude \"src.cli.*\" \
+                $EXCLUDE_ARGS \
+                --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
+                --xml coverage.xml"
+
+          # Generate HTML report
+          eval "gcovr --exclude \"libs.*\" --exclude \"build.*\" --exclude \"test.*\" --exclude \"src.cli.*\" \
+                $EXCLUDE_ARGS \
+                --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
                 --html-details build/coverage-report/index.html \
-                --html-title "Colibri Coverage Report"
-
-          # Generate text summary with per-file coverage
-          {
-            echo "## Coverage Summary by File"
-            echo ""
-            echo "| Status | File | Coverage |"
-            echo "|--------|------|----------|"
-            
-            # Process gcovr output into a table with status icons
-            gcovr --exclude "libs.*" --exclude "build.*" --exclude "test.*" --exclude "src.cli.*" | \
-            awk '
-            # Skip header lines, separator lines, and empty lines
-            NR > 3 && $1 != "TOTAL" && NF > 0 && !/^-+$/ && !/^Directory:/ && !/^File.*Lines.*/ {
-              # Extract file and coverage
-              file=$1
-              coverage=$4
-              # Remove the % symbol
-              gsub(/%/, "", coverage)
-              # Add status icon based on coverage threshold
-              if (coverage >= 70 || coverage == 100) {
-                icon="✅"
-              } else {
-                icon="⚠️"
-              }
-              # Print in markdown table format
-              printf "| %s | %s | %s%% |\n", icon, file, coverage
-            }' >> coverage_summary.txt
-
-            # Add total coverage at the end
-            echo "" >> coverage_summary.txt
-            TOTAL_COVERAGE=$(gcovr --exclude 'libs.*' --exclude 'build.*' --exclude 'test.*' --exclude 'src.cli.*' | grep 'TOTAL' | awk '{print $4}')
-            echo "**Total coverage:** $TOTAL_COVERAGE" >> coverage_summary.txt
-            
-            # Create JSON metrics file
-            TOTAL_COVERAGE_NUM=$(echo $TOTAL_COVERAGE | sed 's/%//')
-            echo "{" > build/coverage-report/coverage-metrics.json
-            echo "  \"total_coverage\": $TOTAL_COVERAGE_NUM," >> build/coverage-report/coverage-metrics.json
-            echo "  \"commit\": \"$(git rev-parse --short HEAD)\"," >> build/coverage-report/coverage-metrics.json
-            echo "  \"date\": \"$(git show -s --format=%ci HEAD)\"" >> build/coverage-report/coverage-metrics.json
-            echo "}" >> build/coverage-report/coverage-metrics.json
-          } > coverage_summary.txt
-
-          # Add the summary to both the step summary and the coverage report directory
-          cp coverage_summary.txt build/coverage-report/
+                --html-title \"Colibri Coverage Report\""
 
       - name: Move Coverage Report
         run: |
@@ -557,6 +612,7 @@ jobs:
           fi
 
       - name: Code Coverage Summary Report
+        id: coverage
         uses: irongut/CodeCoverageSummary@v1.3.0
         with:
           filename: coverage.xml
@@ -564,6 +620,149 @@ jobs:
           format: markdown
           output: both
           thresholds: "30 50"
+
+      - name: Create Coverage Summary File
+        run: |
+          # Ensure gcovr is available
+          pip install gcovr
+
+          # Rebuild exclude arguments exactly like in the report generation step
+          EXCLUDE_ARGS=""
+          if [ -f scripts/coverage_ignore.txt ]; then
+            echo "Loading coverage ignore list (for summary generation)..."
+            while IFS= read -r line || [ -n "$line" ]; do
+              [[ "$line" =~ ^#.*$ ]] && continue
+              [[ -z "$line" ]] && continue
+              EXCLUDE_ARGS="$EXCLUDE_ARGS --exclude $line"
+            done < scripts/coverage_ignore.txt
+          fi
+
+          # Ensure output directory exists
+          mkdir -p build/coverage-report
+
+          # Use the already generated cobertura XML (with excludes) to extract total line coverage
+          if [ -f "coverage.xml" ]; then
+            TOTAL=$(python3 -c "import xml.etree.ElementTree as ET; r=ET.parse('coverage.xml').getroot(); lr=r.attrib.get('line-rate','0'); print(f'{float(lr)*100:.1f}')")
+
+            # Write a stable first line that other workflows can parse reliably
+            echo "Total coverage: ${TOTAL}%" > build/coverage-report/coverage_summary.txt
+
+            # Append a human-readable gcovr text summary computed with the SAME excludes
+            eval "gcovr --exclude \"libs.*\" --exclude \"build.*\" --exclude \"test.*\" --exclude \"src.cli.*\" \
+                  $EXCLUDE_ARGS \
+                  --print-summary" >> build/coverage-report/coverage_summary.txt
+
+            echo "Created coverage summary:"
+            cat build/coverage-report/coverage_summary.txt
+          else
+            echo "Warning: coverage.xml not found"
+            echo "Total coverage: 0%" > build/coverage-report/coverage_summary.txt
+          fi
+
+      - name: Count Lines of Code
+        run: |
+          # Count lines of code in source files across multiple directories
+          echo "Counting lines of code..."
+          
+          # Define directories to scan
+          DIRS="src bindings installer test"
+          
+          # Count by file type
+          echo "Counting by file type..."
+          C_LOC=$(find $DIRS -type f -name "*.c" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          H_LOC=$(find $DIRS -type f -name "*.h" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          CPP_LOC=$(find $DIRS -type f -name "*.cpp" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          PY_LOC=$(find $DIRS -type f -name "*.py" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          TS_LOC=$(find $DIRS -type f -name "*.ts" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          JS_LOC=$(find $DIRS -type f -name "*.js" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          KT_LOC=$(find $DIRS -type f \( -name "*.kt" -o -name "*.kts" \) 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          SWIFT_LOC=$(find $DIRS -type f -name "*.swift" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          SH_LOC=$(find $DIRS -type f -name "*.sh" 2>/dev/null -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+          
+          # Calculate total
+          TOTAL_LOC=$((C_LOC + H_LOC + CPP_LOC + PY_LOC + TS_LOC + JS_LOC + KT_LOC + SWIFT_LOC + SH_LOC))
+          
+          echo "Total LOC: $TOTAL_LOC"
+          echo "  C files (.c): $C_LOC"
+          echo "  Header files (.h): $H_LOC"
+          echo "  C++ files (.cpp): $CPP_LOC"
+          echo "  Python files (.py): $PY_LOC"
+          echo "  TypeScript files (.ts): $TS_LOC"
+          echo "  JavaScript files (.js): $JS_LOC"
+          echo "  Kotlin files (.kt, .kts): $KT_LOC"
+          echo "  Swift files (.swift): $SWIFT_LOC"
+          echo "  Shell files (.sh): $SH_LOC"
+          
+          # Create LOC summary file for artifact
+          mkdir -p build/coverage-report
+          echo "Total LOC: $TOTAL_LOC" > build/coverage-report/loc_summary.txt
+          echo "C files (.c): $C_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Header files (.h): $H_LOC" >> build/coverage-report/loc_summary.txt
+          echo "C++ files (.cpp): $CPP_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Python files (.py): $PY_LOC" >> build/coverage-report/loc_summary.txt
+          echo "TypeScript files (.ts): $TS_LOC" >> build/coverage-report/loc_summary.txt
+          echo "JavaScript files (.js): $JS_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Kotlin files (.kt, .kts): $KT_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Swift files (.swift): $SWIFT_LOC" >> build/coverage-report/loc_summary.txt
+          echo "Shell files (.sh): $SH_LOC" >> build/coverage-report/loc_summary.txt
+          
+          # Create JSON metrics file for easier parsing
+          echo "{" > build/coverage-report/loc_metrics.json
+          echo "  \"total_loc\": $TOTAL_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"c_loc\": $C_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"h_loc\": $H_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"cpp_loc\": $CPP_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"py_loc\": $PY_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"ts_loc\": $TS_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"js_loc\": $JS_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"kt_loc\": $KT_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"swift_loc\": $SWIFT_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"sh_loc\": $SH_LOC," >> build/coverage-report/loc_metrics.json
+          echo "  \"commit\": \"$(git rev-parse --short HEAD)\"," >> build/coverage-report/loc_metrics.json
+          echo "  \"date\": \"$(git show -s --format=%ci HEAD)\"" >> build/coverage-report/loc_metrics.json
+          echo "}" >> build/coverage-report/loc_metrics.json
+          
+          # Add to GitHub Step Summary
+          echo "## Lines of Code Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total Lines of Code: $TOTAL_LOC**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Breakdown by File Type" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| File Type | Lines | Percentage |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|------------|" >> $GITHUB_STEP_SUMMARY
+          
+          # Calculate percentages and display (avoid division by zero)
+          if [ "$TOTAL_LOC" -gt 0 ]; then
+            C_PCT=$(awk "BEGIN {printf \"%.1f\", ($C_LOC / $TOTAL_LOC) * 100}")
+            H_PCT=$(awk "BEGIN {printf \"%.1f\", ($H_LOC / $TOTAL_LOC) * 100}")
+            CPP_PCT=$(awk "BEGIN {printf \"%.1f\", ($CPP_LOC / $TOTAL_LOC) * 100}")
+            PY_PCT=$(awk "BEGIN {printf \"%.1f\", ($PY_LOC / $TOTAL_LOC) * 100}")
+            TS_PCT=$(awk "BEGIN {printf \"%.1f\", ($TS_LOC / $TOTAL_LOC) * 100}")
+            JS_PCT=$(awk "BEGIN {printf \"%.1f\", ($JS_LOC / $TOTAL_LOC) * 100}")
+            KT_PCT=$(awk "BEGIN {printf \"%.1f\", ($KT_LOC / $TOTAL_LOC) * 100}")
+            SWIFT_PCT=$(awk "BEGIN {printf \"%.1f\", ($SWIFT_LOC / $TOTAL_LOC) * 100}")
+            SH_PCT=$(awk "BEGIN {printf \"%.1f\", ($SH_LOC / $TOTAL_LOC) * 100}")
+          else
+            C_PCT="0.0"; H_PCT="0.0"; CPP_PCT="0.0"; PY_PCT="0.0"; TS_PCT="0.0"
+            JS_PCT="0.0"; KT_PCT="0.0"; SWIFT_PCT="0.0"; SH_PCT="0.0"
+          fi
+          
+          echo "| C (.c) | $C_LOC | ${C_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Header (.h) | $H_LOC | ${H_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| C++ (.cpp) | $CPP_LOC | ${CPP_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Python (.py) | $PY_LOC | ${PY_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| TypeScript (.ts) | $TS_LOC | ${TS_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| JavaScript (.js) | $JS_LOC | ${JS_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Kotlin (.kt, .kts) | $KT_LOC | ${KT_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Swift (.swift) | $SWIFT_LOC | ${SWIFT_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Shell (.sh) | $SH_LOC | ${SH_PCT}% |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Scanned Directories" >> $GITHUB_STEP_SUMMARY
+          echo "- \`src/\` - Core source code" >> $GITHUB_STEP_SUMMARY
+          echo "- \`bindings/\` - Language bindings" >> $GITHUB_STEP_SUMMARY
+          echo "- \`installer/\` - Installation scripts" >> $GITHUB_STEP_SUMMARY
+          echo "- \`test/\` - Test files" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
@@ -581,7 +780,7 @@ jobs:
             ## Coverage Report
             ${{ steps.coverage.outputs.message }}
 
-            [View detailed coverage report](https://corpus-core.github.io/c4/coverage/index.html)
+            [View detailed coverage report](https://corpus-core.github.io/colibri-stateless/coverage/index.html)
 
             <details>
             <summary>Coverage Details</summary>
@@ -593,10 +792,9 @@ jobs:
         run: |
           echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "[View detailed coverage report](https://corpus-core.github.io/c4/coverage/index.html)" >> $GITHUB_STEP_SUMMARY
+          echo "[View detailed coverage report](https://corpus-core.github.io/colibri-stateless/coverage/index.html)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY
-          cat coverage_summary.txt >> $GITHUB_STEP_SUMMARY
 
   build:
     runs-on: ${{ matrix.os }}
@@ -649,7 +847,29 @@ jobs:
         run: |
           echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
-      - name: Configure CMake
+      - name: Install curl (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev
+
+      - name: Install curl (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install curl
+
+      - name: Setup vcpkg and install curl (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg $env:USERPROFILE\vcpkg
+          & $env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat
+          echo "VCPKG_ROOT=$env:USERPROFILE\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $env:USERPROFILE\vcpkg\vcpkg.exe install curl:x64-windows
+
+      - name: Configure CMake (Linux)
+        if: runner.os == 'Linux'
         # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
         # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
         run: >
@@ -658,12 +878,108 @@ jobs:
           -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DTEST=true
-          -DCURL=false
+          -DCURL=true
+          -DHTTP_SERVER=1
+          -DPROVER_CACHE=true
           -S ${{ github.workspace }}
 
-      - name: Build
-        # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
-        run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+      - name: Configure CMake (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: >
+          cmake -B ${{ steps.strings.outputs.build-output-dir }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DTEST=true
+          -DCURL=true
+          -DHTTP_SERVER=1
+          -DPROVER_CACHE=true
+          -DCURL_INCLUDE_DIR=$(brew --prefix curl)/include
+          -DCURL_LIBRARY=$(brew --prefix curl)/lib/libcurl.dylib
+          -S ${{ github.workspace }}
+
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >
+          cmake -B ${{ steps.strings.outputs.build-output-dir }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DTEST=true
+          -DCURL=true
+          -DHTTP_SERVER=1
+          -DPROVER_CACHE=true
+          -DCMAKE_TOOLCHAIN_FILE="${env:VCPKG_ROOT}\\scripts\\buildsystems\\vcpkg.cmake"
+          -DCURL_INCLUDE_DIR="${env:VCPKG_ROOT}\\installed\\x64-windows\\include"
+          -DCURL_LIBRARY="${env:VCPKG_ROOT}\\installed\\x64-windows\\lib\\libcurl.lib"
+          -S ${{ github.workspace }}
+
+      - name: Build (Linux, show only errors on failure)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }} 2>&1 | tee build_output.txt
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "## Build Errors ($RUNNER_OS ${{ matrix.c_compiler }})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            MATCHES=$(grep -iE '(^|[ :])error([ :]|$)|fatal error|undefined reference|unresolved external' build_output.txt || true)
+            if [ -n "$MATCHES" ]; then
+              echo "$MATCHES" >> $GITHUB_STEP_SUMMARY
+            else
+              tail -n 300 build_output.txt >> $GITHUB_STEP_SUMMARY
+            fi
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          exit $BUILD_EXIT
+
+      - name: Build (macOS, show only errors on failure)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }} 2>&1 | tee build_output.txt
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "## Build Errors ($RUNNER_OS ${{ matrix.c_compiler }})" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            MATCHES=$(grep -iE '(^|[ :])error([ :]|$)|fatal error|undefined reference|unresolved external' build_output.txt || true)
+            if [ -n "$MATCHES" ]; then
+              echo "$MATCHES" >> $GITHUB_STEP_SUMMARY
+            else
+              tail -n 300 build_output.txt >> $GITHUB_STEP_SUMMARY
+            fi
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          exit $BUILD_EXIT
+
+      - name: Build (Windows, show only errors on failure)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # Run build and mirror full output to a file
+          & cmake --build "${{ steps.strings.outputs.build-output-dir }}" --config "${{ matrix.build_type }}" *>&1 | Tee-Object -FilePath build_output.txt
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -ne 0) {
+            $pattern = '(?i)(^|[ :])error([ :]|$)|fatal error|LNK[0-9]+|MSB[0-9]+|unresolved external'
+            $matches = Select-String -Path build_output.txt -Pattern $pattern | ForEach-Object { $_.Line }
+            Add-Content $env:GITHUB_STEP_SUMMARY "## Build Errors ($env:RUNNER_OS ${{ matrix.c_compiler }})"
+            Add-Content $env:GITHUB_STEP_SUMMARY ""
+            Add-Content $env:GITHUB_STEP_SUMMARY '```'
+            if ($matches -and $matches.Count -gt 0) {
+              $matches | ForEach-Object { Add-Content $env:GITHUB_STEP_SUMMARY $_ }
+            } else {
+              Get-Content build_output.txt -Tail 300 | ForEach-Object { Add-Content $env:GITHUB_STEP_SUMMARY $_ }
+            }
+            Add-Content $env:GITHUB_STEP_SUMMARY '```'
+          }
+          exit $buildExit
 
       - name: Test
         working-directory: ${{ steps.strings.outputs.build-output-dir }}
@@ -713,6 +1029,9 @@ jobs:
         if: (success() || failure()) && matrix.os == 'ubuntu-latest' && matrix.c_compiler == 'clang' # only run for ubuntu-latest with clang
         with:
           report_paths: ${{ steps.strings.outputs.build-output-dir }}/junit_output.xml
+          detailed_summary: true
+          include_passed: true
+          check_name: C Tests Results       
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
 

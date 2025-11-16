@@ -1,0 +1,133 @@
+# Valgrind suppressions for server tests
+# These suppress known false positives from libuv, pthread, and curl
+
+# libuv event loop - still reachable memory
+{
+   libuv_loop_init
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:uv_loop_init
+}
+
+{
+   libuv_loop_configure
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:uv_loop_configure
+}
+
+# pthread thread-local storage
+{
+   pthread_create_tls
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:pthread_create*
+}
+
+{
+   pthread_getspecific
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:pthread_getspecific
+}
+
+# CURL global init - one-time initialization
+{
+   curl_global_init
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:curl_global_init*
+}
+
+{
+   curl_easy_init
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:curl_easy_init
+}
+
+# OpenSSL (used by CURL) - known false positives
+{
+   openssl_init
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   obj:*/libssl.so*
+}
+
+{
+   openssl_crypto
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   obj:*/libcrypto.so*
+}
+
+# OpenSSL uninitialised values (performance optimization, not a bug)
+# OpenSSL deliberately uses uninitialised padding for performance
+{
+   openssl_uninit_write_storage
+   Memcheck:Param
+   write(buf)
+   fun:*write*
+   ...
+   fun:uv__fs_work
+   fun:worker
+}
+
+{
+   openssl_ssl3_uninit_value
+   Memcheck:Value8
+   ...
+   obj:*/libssl.so*
+}
+
+{
+   openssl_ssl3_uninit_cond
+   Memcheck:Cond
+   ...
+   obj:*/libssl.so*
+}
+
+# dlopen/dlsym - dynamic library loading
+{
+   dlopen_leak
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:*dlopen*
+}
+
+{
+   dlsym_leak
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:*dlsym*
+}
+
+# getaddrinfo - DNS resolution (used by curl)
+{
+   getaddrinfo_leak
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:getaddrinfo
+}
+
+# Thread cancellation cleanup
+{
+   pthread_cancel_cleanup
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:pthread_cancel
+}
+
+

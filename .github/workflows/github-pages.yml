@@ -1,12 +1,8 @@
 name: Deploy GitHub Pages
 
 on:
-  # Run after the main workflow completes successfully
-  workflow_run:
-    workflows: ["CMake on multiple platforms"]
-    types:
-      - completed
-    branches: [main, dev]
+  # Called by main-ci.yml workflow
+  workflow_call:
 
   # Manual trigger option
   workflow_dispatch:
@@ -26,7 +22,6 @@ jobs:
   # Build job
   build:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,12 +31,12 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Download all artifacts
-        uses: dawidd6/action-download-artifact@v6
+      - name: Download all artifacts from current workflow run
+        uses: actions/download-artifact@v4
         with:
-          workflow: cmake.yml
-          workflow_conclusion: success
           path: artifacts
+          # Downloads all artifacts from the current workflow run (main-ci.yml)
+          # This works because github-pages.yml is called as a reusable workflow from main-ci.yml
 
       - name: List artifact contents for debugging
         run: |
@@ -456,16 +451,31 @@ jobs:
 
           # Executable size
           if [ -d "artifacts/memory-analysis" ]; then
-            # Use the pre-generated metrics.json file from build_embedded job
-            if [ -f "artifacts/memory-analysis/metrics.json" ]; then
-              echo "Using pre-generated metrics from build_embedded job"
-              cat artifacts/memory-analysis/metrics.json
+            # Debug: Show all memory-analysis directories
+            echo "DEBUG: Searching for memory-analysis directories:"
+            find artifacts -type d -name "memory-analysis" | sort
+            
+            # Debug: Show all metrics.json files with timestamps
+            echo "DEBUG: All metrics.json files found (with timestamps):"
+            find artifacts -name "metrics.json" -type f -printf '%T+ %p\n' | sort
+            
+            # Use the most recent metrics.json file from build_embedded job
+            # Find the newest metrics.json in any memory-analysis directory (sorted by modification time)
+            echo "DEBUG: Searching for newest metrics.json in memory-analysis directories:"
+            find artifacts -name "metrics.json" -path "*/memory-analysis/*" -type f -printf '%T@ %p\n' | sort -rn
+            
+            METRICS_FILE=$(find artifacts -name "metrics.json" -path "*/memory-analysis/*" -type f -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)
+            echo "DEBUG: Selected metrics file: $METRICS_FILE"
+            
+            if [ -n "$METRICS_FILE" ] && [ -f "$METRICS_FILE" ]; then
+              echo "Using pre-generated metrics from: $METRICS_FILE"
+              cat "$METRICS_FILE"
               
               # Extract embedded metrics from metrics.json
-              TEXT_SIZE=$(grep -o '"text_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
-              DATA_SIZE=$(grep -o '"data_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
-              BSS_SIZE=$(grep -o '"bss_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
-              TOTAL_SIZE=$(grep -o '"total_size": [^,]*' artifacts/memory-analysis/metrics.json | awk '{print $2}')
+              TEXT_SIZE=$(grep -o '"text_size": [^,]*' "$METRICS_FILE" | awk '{print $2}')
+              DATA_SIZE=$(grep -o '"data_size": [^,]*' "$METRICS_FILE" | awk '{print $2}')
+              BSS_SIZE=$(grep -o '"bss_size": [^,]*' "$METRICS_FILE" | awk '{print $2}')
+              TOTAL_SIZE=$(grep -o '"total_size": [^,]*' "$METRICS_FILE" | awk '{print $2}')
               
               echo "Extracted text size: $TEXT_SIZE"
               echo "Extracted data size: $DATA_SIZE"
@@ -561,6 +571,20 @@ jobs:
             TOTAL_COVERAGE="null"
           fi
 
+          # Lines of Code metrics
+          if [ -f "artifacts/coverage-report/loc_metrics.json" ]; then
+            cat artifacts/coverage-report/loc_metrics.json
+            TOTAL_LOC=$(grep -o '"total_loc": [^,]*' artifacts/coverage-report/loc_metrics.json | awk '{print $2}')
+            echo "Extracted total LOC: $TOTAL_LOC"
+            if [ -z "$TOTAL_LOC" ]; then
+              TOTAL_LOC="null"
+              echo "Empty TOTAL_LOC, setting to null"
+            fi
+          else
+            echo "Warning: loc_metrics.json not found"
+            TOTAL_LOC="null"
+          fi
+
           # Check for static analysis results
           if [ -f "artifacts/static-analysis-report/analysis_summary.md" ]; then
             cat artifacts/static-analysis-report/analysis_summary.md
@@ -585,6 +609,7 @@ jobs:
           [ -z "$TOTAL_SIZE" ] && TOTAL_SIZE="null"
           [ -z "$EXEC_SIZE" ] && EXEC_SIZE="null"
           [ -z "$TOTAL_COVERAGE" ] && TOTAL_COVERAGE="null"
+          [ -z "$TOTAL_LOC" ] && TOTAL_LOC="null"
           [ -z "$STATIC_ANALYSIS" ] && STATIC_ANALYSIS="null"
 
           # Create JSON using jq for proper escaping and formatting
@@ -600,11 +625,12 @@ jobs:
               --argjson bss_size "$([ "$BSS_SIZE" = "null" ] && echo null || echo $BSS_SIZE)" \
               --argjson total_size "$([ "$TOTAL_SIZE" = "null" ] && echo null || echo $TOTAL_SIZE)" \
               --argjson coverage "$([ "$TOTAL_COVERAGE" = "null" ] && echo null || echo $TOTAL_COVERAGE)" \
+              --argjson lines_of_code "$([ "$TOTAL_LOC" = "null" ] && echo null || echo $TOTAL_LOC)" \
               --arg static_analysis "$STATIC_ANALYSIS" \
               '{commit: $commit, date: $date, heap_size: $heap_size, stack_size: $stack_size, 
                 app_heap: $app_heap, executable_size: $executable_size, text_size: $text_size, 
                 data_size: $data_size, bss_size: $bss_size, total_size: $total_size, 
-                coverage: $coverage, static_analysis: $static_analysis}')
+                coverage: $coverage, lines_of_code: $lines_of_code, static_analysis: $static_analysis}')
 
           echo "New metrics entry:"
           echo $NEW_METRICS | jq .
@@ -642,11 +668,12 @@ jobs:
               --argjson bss_size "$([ "$BSS_SIZE" = "null" ] && echo null || echo $BSS_SIZE)" \
               --argjson total_size "$([ "$TOTAL_SIZE" = "null" ] && echo null || echo $TOTAL_SIZE)" \
               --argjson coverage "$([ "$TOTAL_COVERAGE" = "null" ] && echo null || echo $TOTAL_COVERAGE)" \
+              --argjson lines_of_code "$([ "$TOTAL_LOC" = "null" ] && echo null || echo $TOTAL_LOC)" \
               --arg static_analysis "$STATIC_ANALYSIS" \
               '{commit: $commit, date: $date, heap_size: $heap_size, stack_size: $stack_size, 
                 app_heap: $app_heap, executable_size: $executable_size, text_size: $text_size, 
                 data_size: $data_size, bss_size: $bss_size, total_size: $total_size, 
-                coverage: $coverage, static_analysis: $static_analysis}')
+                coverage: $coverage, lines_of_code: $lines_of_code, static_analysis: $static_analysis}')
             
             echo "Adding test metrics entry for development:"
             echo $TEST_METRICS | jq .
@@ -745,6 +772,17 @@ jobs:
                 <div class="col-md-6">
                   <div class="card">
                     <div class="card-header">
+                      <h5>Lines of Code</h5>
+                    </div>
+                    <div class="card-body">
+                      <canvas id="locChart"></canvas>
+                    </div>
+                  </div>
+                </div>
+              
+                <div class="col-md-6">
+                  <div class="card">
+                    <div class="card-header">
                       <h5>Embedded Metrics </h5>
                     </div>
                     <div class="card-body">
@@ -752,7 +790,9 @@ jobs:
                     </div>
                   </div>
                 </div>
-                
+              </div>
+              
+              <div class="row mb-4">
                 <div class="col-md-6">
                   <div class="card">
                     <div class="card-header">
@@ -821,6 +861,7 @@ jobs:
                               <th>Peak Heap (KB)</th>
                               <th>Peak Stack (KB)</th>
                               <th>Coverage (%)</th>
+                              <th>Lines of Code</th>
                               <th>Static Analysis</th>
                             </tr>
                           </thead>
@@ -1000,6 +1041,7 @@ jobs:
                     <td>${formatMetric(heapSize)}</td>
                     <td>${formatMetric(stackSize)}</td>
                     <td>${entry.coverage === null ? 'N/A' : entry.coverage + '%'}</td>
+                    <td>${entry.lines_of_code === null || entry.lines_of_code === undefined ? 'N/A' : entry.lines_of_code.toLocaleString()}</td>
                     <td>${entry.static_analysis === 'pass' ? '✅ Pass' : entry.static_analysis === 'fail' ? '⚠️ Fail' : 'N/A'}</td>
                   `;
                   
@@ -1054,7 +1096,7 @@ jobs:
                 .then(response => response.json())
                 .then(data => {
                   // Filter out test entries
-                  data = data.filter(entry => !entry.commit.startsWith('test-'));
+                  data = data.filter(entry => !entry.commit.startsWith('test-') && entry.date && !entry.date.startsWith('2025-03-01'));
                   
                   // Sort data by date
                   data.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -1071,6 +1113,7 @@ jobs:
                   const stackSizes = data.map(entry => entry.stack_size === null ? null : 
                     typeof entry.stack_size === 'string' ? parseFloat(entry.stack_size) / 1024 : entry.stack_size / 1024); // Convert to KB
                   const coverageValues = data.map(entry => entry.coverage);
+                  const linesOfCode = data.map(entry => entry.lines_of_code === null || entry.lines_of_code === undefined ? null : entry.lines_of_code);
                   
                   // Extract embedded metrics
                   const textSizes = data.map(entry => entry.text_size === null ? null : 
@@ -1213,6 +1256,66 @@ jobs:
                   
                   // Add click handler to coverage chart
                   addChartClickHandler(coverageChart, data);
+                  
+                  // Create Lines of Code chart
+                  const locCtx = document.getElementById('locChart').getContext('2d');
+                  const locChart = new Chart(locCtx, {
+                    type: 'line',
+                    data: {
+                      labels: dates,
+                      datasets: [{
+                        label: 'Lines of Code',
+                        data: linesOfCode,
+                        borderColor: 'rgba(54, 162, 235, 0.8)',
+                        backgroundColor: isDarkMode ? 'rgba(54, 162, 235, 0.1)' : 'rgba(54, 162, 235, 0.2)',
+                        tension: 0.1
+                      }]
+                    },
+                    options: {
+                      scales: {
+                        y: {
+                          beginAtZero: true,
+                          title: {
+                            display: true,
+                            text: 'Lines of Code',
+                            color: isDarkMode ? '#e0e0e0' : '#666'
+                          },
+                          ticks: {
+                            color: isDarkMode ? '#e0e0e0' : '#666'
+                          },
+                          grid: {
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+                          }
+                        },
+                        x: {
+                          ticks: {
+                            color: isDarkMode ? '#e0e0e0' : '#666'
+                          },
+                          grid: {
+                            color: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+                          }
+                        }
+                      },
+                      plugins: {
+                        legend: {
+                          labels: {
+                            color: isDarkMode ? '#e0e0e0' : '#666'
+                          }
+                        },
+                        tooltip: {
+                          callbacks: {
+                            afterTitle: function(tooltipItems) {
+                              const index = tooltipItems[0].dataIndex;
+                              return getCommitInfo(data[index].commit);
+                            }
+                          }
+                        }
+                      }
+                    }
+                  });
+                  
+                  // Add click handler to LOC chart
+                  addChartClickHandler(locChart, data);
                   
                   // Create embedded metrics chart (stacked)
                   const embeddedCtx = document.getElementById('embeddedMetricsChart').getContext('2d');

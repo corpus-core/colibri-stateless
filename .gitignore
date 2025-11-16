@@ -5,6 +5,8 @@ bindings/swift/.build
 bindings/kotlin/.cxx
 bindings/emscripten/node_modules
 bindings/kotlin/build
+bindings/kotlin/example/build
+bindings/kotlin/example/.gradle
 bindings/kotlin/lib/build
 bindings/kotlin/.gradle
 test/embedded/sdcard.img
@@ -12,7 +14,43 @@ test/embedded/memory_map.txt
 /.memcached
 bindings/emscripten/webpack/dist
 bindings/emscripten/webpack/node_modules
+bindings/emscripten/test/s*
 bindings/kotlin/*.log
 /build_x86
 /build_*
 /build-*
+.data
+*.log
+*.exitcode
+sync_1*
+
+# Generated config files
+bindings/emscripten/test/test_config.js
+bindings/emscripten/webpack/webpack_build_config.mjs
+bindings/swift/Sources/TestConfig/
+bindings/swift/Tests/GeneratedIntegrationTests.swift
+bindings/swift/.swiftpm
+bindings/swift/ios_package
+bindings/swift/test_ios_app/.build
+bindings/swift/Sources/CColibri/include/colibri.h
+src/chains/op/verifier/op_zstd.c
+src/chains/op/kona_bridge/target
+# Installer process documentation (internal use only)
+installer/DISTRIBUTION.md
+installer/QUICK_START.md
+installer/macos/CODE_SIGNING.md
+installer/ppa/README.md
+installer/copr/README.md
+installer/homebrew/README.md
+
+# Test artifacts and temporary files
+compile_commands.json
+/states_*
+/sync_*
+/test.json
+/scripts/*.ssz
+/scripts/states_*
+/scripts/sync_*
+/scripts/beacon-node-oapi.json
+/*.ssz
+valgrind_results

@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #ifndef CALL_CTX_H
 #define CALL_CTX_H
 
@@ -11,6 +34,10 @@ extern "C" {
 #include "verify.h"
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef EVMONE
+#include "evmone_c_wrapper.h" // For evmc_address and evmc_bytes32
+#endif
 
 typedef struct changed_storage {
   bytes32_t               key;
@@ -30,6 +57,15 @@ typedef struct changed_account {
 } changed_account_t;
 
 // Context for EVM execution
+// Structure to store emitted log events
+typedef struct emitted_log {
+  address_t           address;      // Contract address that emitted the log
+  bytes_t             data;         // Log data
+  bytes32_t*          topics;       // Array of topics
+  size_t              topics_count; // Number of topics
+  struct emitted_log* next;         // Linked list pointer
+} emitted_log_t;
+
 typedef struct evmone_context {
   void*              executor;
   verify_ctx_t*      ctx;
@@ -46,6 +82,9 @@ typedef struct evmone_context {
   // For storing results
   struct evmone_context* parent;
   void*                  results;
+  // Event logging
+  emitted_log_t* logs;           // Linked list of emitted logs
+  bool           capture_events; // Whether to capture events
 } evmone_context_t;
 
 static ssz_ob_t get_src_account(evmone_context_t* ctx, const address_t address, bool allow_missing) {
@@ -178,13 +217,56 @@ static void changed_account_free(changed_account_t* acc) {
   safe_free(acc);
 }
 
+static void free_emitted_logs(emitted_log_t* logs) {
+  while (logs) {
+    emitted_log_t* next = logs->next;
+    if (logs->data.data) safe_free(logs->data.data);
+    if (logs->topics) safe_free(logs->topics);
+    safe_free(logs);
+    logs = next;
+  }
+}
+
 static void context_free(evmone_context_t* ctx) {
   while (ctx->changed_accounts) {
     changed_account_t* next = ctx->changed_accounts->next;
     changed_account_free(ctx->changed_accounts);
     ctx->changed_accounts = next;
   }
+  free_emitted_logs(ctx->logs);
+  ctx->logs = NULL;
 }
+
+#ifdef EVMONE
+static emitted_log_t* add_emitted_log(evmone_context_t* ctx, const evmc_address* addr, const uint8_t* data, size_t data_size, const evmc_bytes32 topics[], size_t topics_count) {
+  if (!ctx->capture_events) return NULL;
+
+  emitted_log_t* log = safe_calloc(1, sizeof(emitted_log_t));
+  memcpy(log->address, addr->bytes, 20);
+
+  // Copy log data
+  if (data && data_size > 0) {
+    log->data.data = safe_malloc(data_size);
+    memcpy(log->data.data, data, data_size);
+    log->data.len = data_size;
+  }
+
+  // Copy topics
+  if (topics && topics_count > 0) {
+    log->topics       = safe_calloc(topics_count, sizeof(bytes32_t));
+    log->topics_count = topics_count;
+    for (size_t i = 0; i < topics_count; i++) {
+      memcpy(log->topics[i], topics[i].bytes, 32);
+    }
+  }
+
+  // Add to linked list
+  log->next = ctx->logs;
+  ctx->logs = log;
+
+  return log;
+}
+#endif // EVMONE
 
 static void context_apply(evmone_context_t* ctx) {
   if (!ctx->parent) return;
@@ -198,7 +280,23 @@ static void context_apply(evmone_context_t* ctx) {
     for (changed_storage_t* s = acc->storage; s; s = s->next)
       set_changed_storage(ctx->parent, acc->address, s->key, s->value, &created, &created);
   }
+
+  // Transfer logs to parent if parent is capturing events
+  if (ctx->parent->capture_events && ctx->logs) {
+    emitted_log_t* log = ctx->logs;
+    while (log) {
+      emitted_log_t* next = log->next;
+      log->next           = ctx->parent->logs;
+      ctx->parent->logs   = log;
+      log                 = next;
+    }
+    ctx->logs = NULL; // Prevent double-free
+  }
 }
+
+// Shared simulation result builder for ETH and OP Stack
+ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload);
+
 #ifdef __cplusplus
 }
 #endif

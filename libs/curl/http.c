@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "http.h"
 #include "logger.h"
 #include "state.h"
@@ -10,6 +33,7 @@
 #ifdef _WIN32
 #include <direct.h>
 #define MKDIR(path) _mkdir(path)
+#include "../../src/util/win_compat.h"
 #else
 #include <unistd.h>
 #define MKDIR(path) mkdir(path, 0755)
@@ -26,12 +50,91 @@ typedef struct {
   char*           url;
 } curl_request_t;
 
-curl_config_t curl_config = {0};
+static trace_config_t trace_config   = {0};
+static curl_nodes_t   curl_nodes     = {0};
+const char*           CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
-const char* CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
+#define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584\",\"https://ethereum-mainnet.core.chainstack.com/364e0a05996fe175eb1975ddc6e9147d\",\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\",\"https://rpc.ankr.com/eth/c14449317accec005863d22c7515f6b69667abb29ba2b5e099abf490bcb875b1\",\"https://eth.llamarpc.com\",\"https://rpc.payload.de\",\"https://ethereum-rpc.publicnode.com\"]," \
+                       "\"beacon_api\":[\"https://ethereum-mainnet.core.chainstack.com/beacon/364e0a05996fe175eb1975ddc6e9147d/\",\"http://unstable.mainnet.beacon-api.nimbus.team/\",\"https://lodestar-mainnet.chainsafe.io/\"],"                                                                                                                                                                                                                                                                                                                                         \
+                       "\"checkpointz\":[\"https://sync-mainnet.beaconcha.in\",\"https://beaconstate.info\",\"https://sync.invis.tools\",\"https://beaconstate.ethstaker.cc\"]}"
 
-#define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\",\"https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd\"]," \
-                       "\"beacon_api\":[\"https://lodestar-mainnet.chainsafe.io\"]}"
+static void init_config() {
+  if (!bytes_all_zero(bytes(&curl_nodes, sizeof(curl_nodes)))) return;
+  json_t config          = json_parse(DEFAULT_CONFIG);
+  curl_nodes.eth_rpc     = json_dup(json_get(config, "eth_rpc"));
+  curl_nodes.beacon_api  = json_dup(json_get(config, "beacon_api"));
+  curl_nodes.checkpointz = json_dup(json_get(config, "checkpointz"));
+  curl_nodes.prover      = json_dup(json_get(config, "prover"));
+
+  char*   config_file = getenv("C4_CONFIG");
+  bytes_t content     = {0};
+  if (config_file) content = bytes_read(config_file);
+  if (!content.data) content = bytes_read("c4_config.json");
+  if (content.data) {
+    curl_set_config(json_parse((char*) content.data));
+    safe_free(content.data);
+  }
+}
+
+static void replace_config(json_t* old_config, json_t new_config) {
+  if (old_config->start) safe_free((void*) old_config->start);
+  *old_config = json_dup(new_config);
+}
+
+void curl_set_config(json_t config) {
+  init_config();
+  json_t nodes = {0};
+
+  if ((nodes = json_get(config, "eth_rpc")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.eth_rpc, nodes);
+  if ((nodes = json_get(config, "beacon_api")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.beacon_api, nodes);
+  if ((nodes = json_get(config, "checkpointz")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.checkpointz, nodes);
+  if ((nodes = json_get(config, "prover")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.prover, nodes);
+  if ((nodes = json_get(config, "chain_store")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.chain_store, nodes);
+  if ((nodes = json_get(config, "trace_config")).type == JSON_TYPE_OBJECT) replace_config(&curl_nodes.trace_config, nodes);
+}
+
+static void add_nodes(buffer_t* buffer, json_t nodes) {
+  if (json_len(nodes) == 0) return;
+  if (buffer->data.len == 0)
+    buffer_append(buffer, bytes(nodes.start, nodes.len - 1));
+  else {
+    buffer_append(buffer, bytes(",", 1));
+    buffer_append(buffer, bytes(nodes.start + 1, nodes.len - 2));
+  }
+}
+
+static json_t get_nodes(data_request_type_t type) {
+  init_config();
+  buffer_t buffer = {0};
+
+  switch (type) {
+    case C4_DATA_TYPE_ETH_RPC:
+      add_nodes(&buffer, curl_nodes.eth_rpc);
+      if (buffer.data.len == 0 && curl_nodes.prover.type == JSON_TYPE_ARRAY && curl_nodes.prover.len > 2)
+        bprintf(&buffer, "[\"%junverified_rpc\"", json_at(curl_nodes.prover, 0));
+      break;
+    case C4_DATA_TYPE_BEACON_API:
+      add_nodes(&buffer, curl_nodes.beacon_api);
+      add_nodes(&buffer, curl_nodes.prover);
+      break;
+    case C4_DATA_TYPE_CHECKPOINTZ:
+      add_nodes(&buffer, curl_nodes.checkpointz);
+      add_nodes(&buffer, curl_nodes.beacon_api);
+      add_nodes(&buffer, curl_nodes.prover);
+      break;
+    case C4_DATA_TYPE_PROVER:
+      add_nodes(&buffer, curl_nodes.prover);
+      break;
+    case C4_DATA_TYPE_INTERN:
+      add_nodes(&buffer, curl_nodes.chain_store);
+    default:
+      break;
+  }
+  if (buffer.data.len == 0)
+    buffer_add_chars(&buffer, "[");
+  buffer_add_chars(&buffer, "]");
+  return (json_t) {.start = (char*) buffer.data.data, .len = buffer.data.len, .type = JSON_TYPE_ARRAY};
+}
 
 char*       cache_dir = NULL;
 static void curl_request_free(curl_request_t* creq) {
@@ -78,19 +181,6 @@ static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) 
   return size * nmemb;
 }
 
-static void configure() {
-  char*   config_file = getenv("C4_CONFIG");
-  bytes_t content     = {0};
-  if (config_file) content = bytes_read(config_file);
-  if (!content.data) content = bytes_read("c4_config.json");
-  if (content.data) {
-    curl_set_config(json_parse((char*) content.data));
-    safe_free(content.data);
-  }
-  else
-    curl_set_config(json_parse(DEFAULT_CONFIG));
-}
-
 #ifdef TEST
 static bool check_cache(data_request_t* req) {
   buffer_t buf = {0};
@@ -119,23 +209,15 @@ static bool configure_request(curl_request_t* creq) {
   if (cache_dir && check_cache(req)) return false;
 
 #endif
-  if (!curl_config.config.start) configure();
+  json_t servers = get_nodes(req->type);
 
-  json_t servers = {0};
-  switch (req->type) {
-    case C4_DATA_TYPE_ETH_RPC:
-      servers = json_get(curl_config.config, "eth_rpc");
-      break;
-    case C4_DATA_TYPE_BEACON_API:
-      servers = json_get(curl_config.config, "beacon_api");
-      break;
-    case C4_DATA_TYPE_REST_API:
-      break;
+  if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) {
+    safe_free(servers.start);
+    return_error(req, "Invalid servers in config");
   }
-
-  if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) return_error(req, "Invalid servers in config");
   int i = 0;
   if (req->type == C4_DATA_TYPE_REST_API) {
+    safe_free(servers.start);
     if (req->response_node_index) return_error(req, "Failed request");
     req->response_node_index = 1;
     creq->url                = strdup(req->url);
@@ -151,22 +233,28 @@ static bool configure_request(curl_request_t* creq) {
       buffer_t url             = {0};
       bprintf(&url, "%j", server);
       if (req->url && *req->url) {
-        buffer_add_chars(&url, "/");
-        buffer_add_chars(&url, req->url);
+        if (url.data.len > 0 && url.data.data[url.data.len - 1] != '/') buffer_add_chars(&url, "/");
+        if (req->type == C4_DATA_TYPE_INTERN && strncmp(req->url, "chain_store/", 12) == 0)
+          buffer_add_chars(&url, req->url + 12);
+        else
+          buffer_add_chars(&url, req->url);
       }
       creq->url = (char*) url.data.data;
+      safe_free(servers.start);
       return true;
     }
+  safe_free(servers.start);
+
   return_error(req, "Failed request, no more nodes to try");
 }
 
 static bool configure_curl(curl_request_t* creq) {
   data_request_t* req = creq->request;
-  if (req->error || req->response.data || !creq->url) return false;
-  if (req->payload.len && req->payload.data)
-    log_info("req: %s : %j", creq->url, (json_t) {.start = (char*) req->payload.data, .len = req->payload.len, .type = JSON_TYPE_OBJECT});
-  else
-    log_info("req: %s", creq->url);
+  if (req->response.data || !creq->url) return false;
+  if (req->error) {
+    safe_free(req->error);
+    req->error = NULL;
+  }
 
   creq->curl = curl_easy_init();
   if (!creq->curl) return_error(req, "Failed to initialize curl");
@@ -183,6 +271,24 @@ static bool configure_curl(curl_request_t* creq) {
     headers = curl_slist_append(headers, req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
   headers = curl_slist_append(headers, "charsets: utf-8");
   headers = curl_slist_append(headers, "User-Agent: c4 curl ");
+
+  if (req->type == C4_DATA_TYPE_PROVER && curl_nodes.trace_config.type == JSON_TYPE_OBJECT) {
+    char     tmp[256];
+    buffer_t buf      = stack_buffer(tmp);
+    json_t   trace_id = json_get(curl_nodes.trace_config, "trace_id");
+    if (trace_id.type == JSON_TYPE_STRING)
+      headers = curl_slist_append(headers, bprintf(&buf, "X-B3-TraceId: %j", trace_id));
+    json_t span_id = json_get(curl_nodes.trace_config, "span_id");
+    if (span_id.type == JSON_TYPE_STRING)
+      headers = curl_slist_append(headers, bprintf(&buf, "X-B3-SpanId: %j", span_id));
+    json_t sampled = json_get(curl_nodes.trace_config, "sampled");
+    if (sampled.type == JSON_TYPE_BOOLEAN)
+      headers = curl_slist_append(headers, bprintf(&buf, "X-B3-Sampled: %s", sampled.start[0] == 't' ? "1" : "0"));
+    json_t level = json_get(curl_nodes.trace_config, "level");
+    if (level.type == JSON_TYPE_STRING)
+      headers = curl_slist_append(headers, bprintf(&buf, "X-C4-Trace-Level: %j", level));
+  }
+
   curl_easy_setopt(creq->curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(creq->curl, CURLOPT_WRITEFUNCTION, curl_append);
   curl_easy_setopt(creq->curl, CURLOPT_WRITEDATA, &creq->buffer);
@@ -240,9 +346,19 @@ void curl_fetch(data_request_t* req) {
   curl_request_free(&creq);
 }
 
-void curl_set_config(json_t config) {
-  if (curl_config.config.start) safe_free((void*) curl_config.config.start);
-  curl_config.config = (json_t) {.len = config.len, .start = strdup(config.start), .type = config.type};
+static void log_request(curl_request_t* creq, bool success, bytes_t data, char* error, uint64_t duration_ms) {
+  buffer_t buf = {0};
+  if (error)
+    bprintf(&buf, "-> %s", error);
+  else if (success)
+    bprintf(&buf, "(%d bytes, %l ms)", data.len, duration_ms);
+  else
+    bprintf(&buf, "-> %r ", data);
+  if (creq->request->payload.len && creq->request->payload.data)
+    log_info("[%s]: %s : %r -> %s", success ? "SUCCESS" : "ERROR  ", creq->url, creq->request->payload, buffer_as_string(buf));
+  else
+    log_info("[%s]: %s -> %s", success ? "SUCCESS" : "ERROR  ", creq->url, buffer_as_string(buf));
+  buffer_free(&buf);
 }
 
 void curl_fetch_all(c4_state_t* state) {
@@ -260,10 +376,8 @@ void curl_fetch_all(c4_state_t* state) {
     for (data_request_t* req = state->requests; req; req = req->next) {
       if (req->response.data) continue; // Skip if already has response
 
-      curl_request_t* creq = (curl_request_t*) safe_malloc(sizeof(curl_request_t));
+      curl_request_t* creq = (curl_request_t*) safe_calloc(1, sizeof(curl_request_t));
       if (!creq) continue;
-
-      memset(creq, 0, sizeof(curl_request_t));
       creq->request = req;
 
       if (!configure_request(creq)) {
@@ -307,10 +421,25 @@ void curl_fetch_all(c4_state_t* state) {
           curl_request_t* creq        = NULL;
 
           curl_easy_getinfo(easy_handle, CURLINFO_PRIVATE, &creq);
-
+          /* Prefer microsecond API if verfügbar */
+          curl_off_t total_time_us = 0;
+          uint64_t   duration_ms   = 0;
+          if (curl_easy_getinfo(easy_handle, CURLINFO_TOTAL_TIME_T, &total_time_us) == CURLE_OK)
+            duration_ms = (uint64_t) (total_time_us / 1000);
+          else {
+            double total_time_s = 0.0;
+            if (curl_easy_getinfo(easy_handle, CURLINFO_TOTAL_TIME, &total_time_s) == CURLE_OK)
+              duration_ms = (uint64_t) (total_time_s * 1000.0);
+          }
           if (creq) {
-            if (message->data.result == CURLE_OK) {
+
+            long response_code;
+            curl_easy_getinfo(easy_handle, CURLINFO_RESPONSE_CODE, &response_code);
+
+            if (message->data.result == CURLE_OK && response_code >= 200 && response_code < 300) {
               // Success case
+              log_request(creq, true, creq->buffer.data, NULL, duration_ms);
+
               creq->request->response = creq->buffer.data;
               creq->buffer            = (buffer_t) {0};
 #ifdef TEST
@@ -324,30 +453,20 @@ void curl_fetch_all(c4_state_t* state) {
             }
             else {
               // Error case - store error but mark for retry if possible
-              char* error_msg = bprintf(NULL, "%s : %s", curl_easy_strerror(message->data.result), bprintf(&creq->buffer, " "));
+              char* error_msg = bprintf(NULL, "%s : %s", message->data.result == CURLE_OK ? "" : curl_easy_strerror(message->data.result), bprintf(&creq->buffer, " "));
+
+              log_request(creq, false, creq->buffer.data, error_msg, 0);
 
               // Check if we need to keep retrying with different nodes
               if (creq->request->type != C4_DATA_TYPE_REST_API) {
-                json_t servers = {0};
-
-                // Get the appropriate server list
-                switch (creq->request->type) {
-                  case C4_DATA_TYPE_ETH_RPC:
-                    servers = json_get(curl_config.config, "eth_rpc");
-                    break;
-                  case C4_DATA_TYPE_BEACON_API:
-                    servers = json_get(curl_config.config, "beacon_api");
-                    break;
-                  default:
-                    break;
-                }
+                json_t servers = get_nodes(creq->request->type);
 
                 // Calculate if we have more nodes to try
                 int node_count = 0;
                 json_for_each_value(servers, server) {
                   node_count++;
                 }
-
+                safe_free(servers.start);
                 // If we have more nodes to try
                 if (creq->request->response_node_index < node_count) {
                   // Store this error as the last error

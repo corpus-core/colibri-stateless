@@ -44,7 +44,7 @@ jobs:
             -DEMBEDDED_ASM_M_PROFILE=ON \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCURL=OFF \
-            -DPROOFER=OFF \
+            -DPROVER=OFF \
             -DCLI=OFF \
             -DINCLUDE=test/embedded
 

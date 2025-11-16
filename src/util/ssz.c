@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "ssz.h"
 #include "crypto.h"
 #include "json.h"
@@ -19,6 +42,11 @@ const ssz_def_t ssz_bytes_list  = SSZ_BYTES("bytes", 1024 << 8);
 const ssz_def_t ssz_string_def  = SSZ_BYTES("bytes", 1024 << 8);
 const ssz_def_t ssz_none        = SSZ_NONE;
 
+/**
+ * Checks if a type is a basic SSZ type.
+ * Basic types are: uint, boolean, and none.
+ * These types don't have nested structure and are serialized as-is.
+ */
 static bool is_basic_type(const ssz_def_t* def) {
   return def->type == SSZ_TYPE_UINT || def->type == SSZ_TYPE_BOOLEAN || def->type == SSZ_TYPE_NONE;
 }
@@ -34,10 +62,10 @@ bool ssz_is_dynamic(const ssz_def_t* def) {
 
   return def->type == SSZ_TYPE_LIST || def->type == SSZ_TYPE_BIT_LIST || def->type == SSZ_TYPE_UNION;
 }
-// gets the length of a type for the fixed part.
+
 size_t ssz_fixed_length(const ssz_def_t* def) {
   if (ssz_is_dynamic(def))
-    return 4;
+    return SSZ_OFFSET_SIZE;
   switch (def->type) {
     case SSZ_TYPE_UINT:
       return def->def.uint.len;
@@ -58,8 +86,12 @@ size_t ssz_fixed_length(const ssz_def_t* def) {
   }
 }
 
-static bool failure(char* fnt) {
-  printf("Invalid %s\n", fnt);
+/**
+ * Helper function for error handling in validation.
+ * Prints error message and returns false.
+ */
+static bool failure(const char* fnt) {
+  fbprintf(stderr, "Invalid %s\n", fnt);
   return false;
 }
 
@@ -78,13 +110,22 @@ static bool failure(char* fnt) {
     }                                                              \
     return true;                                                   \
   } while (0)
+
 bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
+  // Global size limit to prevent integer overflows in multiplications
+  if (ob.bytes.len > SSZ_MAX_BYTES)
+    THROW_INVALID("SSZ object exceeds maximum size");
+
   switch (ob.def->type) {
     case SSZ_TYPE_BOOLEAN:
+      // Boolean must be exactly 1 byte with value 0 or 1
       if (ob.bytes.len != 1 || ob.bytes.data[0] > 1) THROW_INVALID("invalid boolean value");
       return true;
-    case SSZ_TYPE_VECTOR:
-      if (ob.bytes.len != ob.def->def.vector.len * ssz_fixed_length(ob.def->def.vector.type)) THROW_INVALID("Invalid bytelength for vector");
+    case SSZ_TYPE_VECTOR: {
+      // Vector has fixed length, bytelength must be exactly len * element_size
+      size_t element_size = ssz_fixed_length(ob.def->def.vector.type);
+      size_t expected_len = ob.def->def.vector.len * element_size;
+      if (ob.bytes.len != expected_len) THROW_INVALID("Invalid bytelength for vector");
       if (recursive && ob.def->def.vector.type->type != SSZ_TYPE_UINT) {
         for (int i = 0; i < ob.def->def.vector.len; i++) {
           ssz_ob_t el = ssz_at(ob, i);
@@ -92,14 +133,19 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
         }
       }
       return true;
-    case SSZ_TYPE_LIST:
+    }
+    case SSZ_TYPE_LIST: {
+      // List with dynamic elements: offset array followed by data
+      // List with fixed elements: concatenated elements
       if (ssz_is_dynamic(ob.def->def.vector.type)) {
         if (ob.bytes.len == 0) return true;
-        if (ob.bytes.len < 4) THROW_INVALID("Invalid bytelength for list");
+        if (ob.bytes.len < SSZ_OFFSET_SIZE) THROW_INVALID("Invalid bytelength for list");
         uint32_t first_offset = uint32_from_le(ob.bytes.data);
-        if (first_offset >= ob.bytes.len || first_offset < 4) THROW_INVALID("Invalid first offset for list");
+        // First offset must be aligned and within bounds
+        if (first_offset >= ob.bytes.len || first_offset < SSZ_OFFSET_SIZE || first_offset % SSZ_OFFSET_SIZE != 0)
+          THROW_INVALID("Invalid first offset for list");
         uint32_t offset = first_offset;
-        for (int i = 4; i < first_offset; i += 4) {
+        for (int i = SSZ_OFFSET_SIZE; i < first_offset; i += SSZ_OFFSET_SIZE) {
           uint32_t next_offset = uint32_from_le(ob.bytes.data + i);
           if (next_offset >= ob.bytes.len || next_offset < offset) THROW_INVALID("Invalid  offset for list");
           if (recursive && !ssz_is_valid(ssz_ob(*ob.def->def.vector.type, bytes(ob.bytes.data + offset, next_offset - offset)), recursive, state)) return false;
@@ -108,8 +154,9 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
         if (recursive && !ssz_is_valid(ssz_ob(*ob.def->def.vector.type, bytes(ob.bytes.data + offset, ob.bytes.len - offset)), recursive, state)) return false;
         return true;
       }
-      int fixed_length = ssz_fixed_length(ob.def->def.vector.type);
-      if (ob.bytes.len % fixed_length != 0 ||
+      // Fixed-size elements: total length must be multiple of element size
+      size_t fixed_length = ssz_fixed_length(ob.def->def.vector.type);
+      if (fixed_length == 0 || ob.bytes.len % fixed_length != 0 ||
           ob.bytes.len > ob.def->def.vector.len * fixed_length) THROW_INVALID("Invalid length for list");
       if (recursive && ob.def->type != SSZ_TYPE_UINT) {
         for (int i = 0; i < ob.bytes.len; i += fixed_length) {
@@ -117,13 +164,18 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
         }
       }
       return true;
+    }
     case SSZ_TYPE_BIT_VECTOR:
+      // Bit vector length must match definition exactly
       RETURN_VALID_IF(ob.bytes.len == (ob.def->def.vector.len + 7) >> 3, "Invalid length for bit vector");
     case SSZ_TYPE_BIT_LIST:
+      // Bit list length can be up to max length
       RETURN_VALID_IF(ob.bytes.len <= (ob.def->def.vector.len + 7) >> 3, "Invalid length for bit list");
     case SSZ_TYPE_UINT:
+      // Uint length must match definition
       RETURN_VALID_IF(ob.bytes.len == ob.def->def.uint.len, "Invalid length for uint");
-    case SSZ_TYPE_CONTAINER:
+    case SSZ_TYPE_CONTAINER: {
+      // Container with mixed fixed/dynamic fields
       if (ssz_is_dynamic(ob.def) ? (ob.bytes.len < ssz_fixed_length(ob.def)) : (ob.bytes.len != ssz_fixed_length(ob.def))) THROW_INVALID("Invalid length for container");
       if (recursive) {
         ssz_ob_t last_ob     = {0};
@@ -133,14 +185,16 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
           const ssz_def_t* def = ob.def->def.container.elements + i;
           if (ssz_is_dynamic(def)) {
             uint32_t offset = uint32_from_le(ob.bytes.data + pos);
-            if (offset > ob.bytes.len || offset < pos + 4 || last_offset > offset) THROW_INVALID("Invalid offset for container");
+            // Validate offset: must be within bounds, after fixed portion, and monotonically increasing
+            if (offset > ob.bytes.len || offset < pos + SSZ_OFFSET_SIZE || (last_offset > 0 && last_offset > offset))
+              THROW_INVALID("Invalid offset for container");
             if (last_ob.def) {
               last_ob.bytes = bytes(ob.bytes.data + last_offset, offset - last_offset);
               if (!ssz_is_valid(last_ob, recursive, state)) return false;
             }
             last_ob.def = def;
             last_offset = offset;
-            pos += 4;
+            pos += SSZ_OFFSET_SIZE;
           }
           else {
             uint32_t len = ssz_fixed_length(def);
@@ -154,7 +208,9 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
         }
       }
       return true;
+    }
     case SSZ_TYPE_UNION:
+      // Union: first byte is selector, remaining bytes are the selected variant
       if (ob.bytes.len == 0 || ob.bytes.data[0] >= ob.def->def.container.len) THROW_INVALID("Invalid selector for union");
       if (recursive && ob.def->def.container.elements[ob.bytes.data[0]].type != SSZ_TYPE_NONE && !ssz_is_valid(ssz_ob(ob.def->def.container.elements[ob.bytes.data[0]], bytes(ob.bytes.data + 1, ob.bytes.len - 1)), recursive, state)) return false;
       return true;
@@ -181,10 +237,10 @@ uint32_t ssz_len(ssz_ob_t ob) {
   switch (ob.def->type) {
     case SSZ_TYPE_VECTOR: return ob.def->def.vector.len;
     case SSZ_TYPE_LIST: {
-      int fixed_length = ssz_fixed_length(ob.def->def.vector.type);
+      size_t fixed_length = ssz_fixed_length(ob.def->def.vector.type);
       if (fixed_length == 0) return 0;
-      return ob.bytes.len > 4 && ssz_is_dynamic(ob.def->def.vector.type)
-                 ? uint32_from_le(ob.bytes.data) / 4
+      return ob.bytes.len > SSZ_OFFSET_SIZE && ssz_is_dynamic(ob.def->def.vector.type)
+                 ? uint32_from_le(ob.bytes.data) / SSZ_OFFSET_SIZE
                  : ob.bytes.len / fixed_length;
     }
     case SSZ_TYPE_BIT_VECTOR:
@@ -213,8 +269,8 @@ ssz_ob_t ssz_at(ssz_ob_t ob, uint32_t index) {
     return res;
 
   if (ssz_is_dynamic(ob.def->def.vector.type)) {
-    uint32_t offset     = uint32_from_le(ob.bytes.data + index * 4);
-    uint32_t end_offset = index < len - 1 ? uint32_from_le(ob.bytes.data + (index + 1) * 4) : ob.bytes.len;
+    uint32_t offset     = uint32_from_le(ob.bytes.data + index * SSZ_OFFSET_SIZE);
+    uint32_t end_offset = index < len - 1 ? uint32_from_le(ob.bytes.data + (index + 1) * SSZ_OFFSET_SIZE) : ob.bytes.len;
     return (ssz_ob_t) {
         .def   = ob.def->def.vector.type,
         .bytes = bytes(ob.bytes.data + offset, end_offset - offset)};
@@ -270,6 +326,15 @@ typedef struct {
   bool     no_quotes;
 } ssz_dump_t;
 
+/**
+ * Main function for JSON serialization of SSZ objects.
+ * Recursively converts SSZ data to JSON format with pretty-printing.
+ *
+ * @param ctx Context with output buffer and formatting flags
+ * @param ob The SSZ object to serialize
+ * @param name Optional property name for container fields (can be NULL)
+ * @param intend Indentation depth for pretty-printing
+ */
 static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
   const ssz_def_t* def        = ob.def;
   buffer_t*        buf        = &ctx->buf;
@@ -283,6 +348,11 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
   switch (def->type) {
     case SSZ_TYPE_UINT:
       if (ctx->write_unit_as_hex) { // eth rpc requires hex representation of uints, represented as a bigendian without leading zeros
+        // Buffer overflow protection: max uint size is 32 bytes
+        if (def->def.uint.len > SSZ_MAX_UINT_SIZE || def->def.uint.len > ob.bytes.len) {
+          buffer_add_chars(buf, ctx->no_quotes ? "0x0" : "\"0x0\"");
+          break;
+        }
         bytes32_t tmp = {0};
         for (int i = 0; i < def->def.uint.len; i++) tmp[i] = ob.bytes.data[def->def.uint.len - 1 - i];
         bprintf(buf, ctx->no_quotes ? "0x%u" : "\"0x%u\"", bytes(tmp, def->def.uint.len));
@@ -303,34 +373,64 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
           default: bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
         }
       break;
-    case SSZ_TYPE_NONE: buffer_add_chars(buf, "null"); break;
-    case SSZ_TYPE_BOOLEAN: buffer_add_chars(buf, ob.bytes.data[0] ? "true" : "false"); break;
+    case SSZ_TYPE_NONE:
+      // None type renders as JSON null
+      buffer_add_chars(buf, "null");
+      break;
+    case SSZ_TYPE_BOOLEAN:
+      // Boolean renders as JSON true/false
+      buffer_add_chars(buf, ob.bytes.data[0] ? "true" : "false");
+      break;
     case SSZ_TYPE_CONTAINER: {
+      // Container: iterate through fields, respect optional field mask
+      uint64_t mask  = 0;
       ctx->no_quotes = false;
       close_char     = '}';
+      bool first     = true;
       buffer_add_chars(buf, "{\n");
       for (int i = 0; i < def->def.container.len; i++) {
-        dump(ctx, ssz_get(&ob, (char*) def->def.container.elements[i].name), def->def.container.elements[i].name, intend + 2);
-        if (i < def->def.container.len - 1) buffer_add_chars(buf, ",\n");
+        ssz_ob_t val = ssz_get(&ob, (char*) def->def.container.elements[i].name);
+        if (val.def->flags & SSZ_FLAG_OPT_MASK) {
+          mask |= bytes_as_le(val.bytes);
+          continue;
+        }
+        if (mask && (mask & (1 << i)) == 0) continue;
+        if (first)
+          first = false;
+        else
+          buffer_add_chars(buf, ",\n");
+        dump(ctx, val, def->def.container.elements[i].name, intend + 2);
       }
       break;
     }
     case SSZ_TYPE_BIT_VECTOR:
     case SSZ_TYPE_BIT_LIST: {
+      // Bit vectors/lists render as hex strings
       bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
       break;
     }
     case SSZ_TYPE_VECTOR:
     case SSZ_TYPE_LIST: {
-      if (def == &ssz_string_def)
+      // Lists/vectors: special handling for byte arrays, strings, and complex types
+      if (def == &ssz_string_def || def->flags & SSZ_FLAG_STRING)
         bprintf(buf, ctx->no_quotes ? "%J" : "\"%J\"", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) ob.bytes.data, .len = ob.bytes.len});
-      else if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
-        bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
+      else if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1) { // byte array
+        if (def->flags & SSZ_FLAG_UINT) {
+          bytes32_t tmp = {0};
+          for (int i = 0; i < ob.bytes.len; i++) tmp[i] = ob.bytes.data[ob.bytes.len - 1 - i];
+          bprintf(buf, ctx->no_quotes ? "0x%u" : "\"0x%u\"", bytes(tmp, ob.bytes.len));
+        }
+        else // Render as hex bytes
+          bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
+      }
       else {
         ctx->no_quotes = false;
         buffer_add_chars(buf, "[\n");
         for (int i = 0; i < ssz_len(ob); i++) {
-          dump(ctx, ssz_at(ob, i), false, intend + 2);
+          ssz_ob_t val = ssz_at(ob, i);
+          if (val.def && val.def->type == SSZ_TYPE_UNION) val = ssz_union(val);
+          if (!val.def || val.def->type == SSZ_TYPE_NONE) continue;
+          dump(ctx, val, false, intend + 2);
           if (i < ssz_len(ob) - 1) buffer_add_chars(buf, ",\n");
         }
         close_char = ']';
@@ -338,6 +438,7 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
       break;
     }
     case SSZ_TYPE_UNION:
+      // Union: serialize with selector and value
       if (ob.bytes.len == 0 || ob.bytes.data[0] >= def->def.container.len)
         buffer_add_chars(buf, "null");
       else if (def->def.container.elements[ob.bytes.data[0]].type == SSZ_TYPE_NONE)

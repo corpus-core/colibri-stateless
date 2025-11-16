@@ -1,5 +1,28 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "plugin.h"
-#include "proofer.h"
+#include "prover.h"
 #include "sync_committee.h"
 #include "verify.h"
 #include <emscripten.h>
@@ -12,12 +35,12 @@ typedef struct {
   verify_ctx_t verify;
 } c4w_verify_ctx_t;
 
-proofer_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id, uint32_t flags) {
-  return c4_proofer_create(method, args, chain_id, flags);
+prover_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id, uint32_t flags) {
+  return c4_prover_create(method, args, chain_id, flags);
 }
 
-void EMSCRIPTEN_KEEPALIVE c4w_free_proof_ctx(proofer_ctx_t* ctx) {
-  c4_proofer_free(ctx);
+void EMSCRIPTEN_KEEPALIVE c4w_free_proof_ctx(prover_ctx_t* ctx) {
+  c4_prover_free(ctx);
 }
 static const char* status_to_string(c4_status_t status) {
   switch (status) {
@@ -60,6 +83,10 @@ static const char* data_request_type_to_string(data_request_type_t type) {
       return "eth_rpc";
     case C4_DATA_TYPE_REST_API:
       return "rest_api";
+    case C4_DATA_TYPE_INTERN:
+      return "intern";
+    case C4_DATA_TYPE_CHECKPOINTZ:
+      return "checkpointz";
   }
 }
 static void add_data_request(buffer_t* result, data_request_t* data_request) {
@@ -74,20 +101,16 @@ static void add_data_request(buffer_t* result, data_request_t* data_request) {
   bprintf(result, "\"type\": \"%s\"}", data_request_type_to_string(data_request->type));
 }
 
-void EMSCRIPTEN_KEEPALIVE c4w_set_trusted_blockhashes(uint64_t chain_id, uint8_t* blockhashes, int len) {
-  c4_eth_set_trusted_blockhashes(chain_id, bytes(blockhashes, len));
-}
-
-char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(proofer_ctx_t* ctx) {
+char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(prover_ctx_t* ctx) {
   buffer_t    result = {0};
-  c4_status_t status = c4_proofer_execute(ctx);
+  c4_status_t status = c4_prover_execute(ctx);
   bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
   switch (status) {
     case C4_SUCCESS:
       bprintf(&result, "\"result\": %l, \"result_len\": %d", (uint64_t) ctx->proof.data, ctx->proof.len);
       break;
     case C4_ERROR:
-      bprintf(&result, "\"error\": %\"s\"", ctx->state.error);
+      bprintf(&result, "\"error\": \"%S\"", ctx->state.error);
       break;
     case C4_PENDING: {
       bprintf(&result, "\"requests\": [");
@@ -118,7 +141,15 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
   ctx->response_node_index = node_index;
 }
 
-void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id) {
+void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint) {
+  if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
+    bytes32_t checkpoint;
+    hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
+    c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
+  }
+
+  if (method == NULL || strlen(method) == 0) return NULL;
+
   c4w_verify_ctx_t* ctx = calloc(1, sizeof(c4w_verify_ctx_t));
   ctx->proof            = bytes_dup(bytes(proof, proof_len));
   c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id);
@@ -147,7 +178,7 @@ char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
       bprintf(&result, "\"result\": %Z", ctx->data);
       break;
     case C4_ERROR:
-      bprintf(&result, "\"error\": \"%s\"", ctx->state.error);
+      bprintf(&result, "\"error\": \"%S\"", ctx->state.error);
       break;
     case C4_PENDING: {
       bprintf(&result, "\"requests\": [");

@@ -79,7 +79,47 @@ repositories {
 }
 
 group = "com.corpuscore"
-version = "1.0.0" // Adjust as needed
+
+// Dynamic version based on Git tag or branch
+fun getProjectVersion(): String {
+    return try {
+        val tagVersion = providers.exec {
+            commandLine("git", "describe", "--tags", "--exact-match", "HEAD")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim()
+        
+        if (tagVersion.isNotEmpty() && !tagVersion.contains("fatal")) {
+            tagVersion.removePrefix("v")
+        } else {
+            // Not on a tag, check if on dev branch
+            val branchName = providers.exec {
+                commandLine("git", "rev-parse", "--abbrev-ref", "HEAD")
+                isIgnoreExitValue = true
+            }.standardOutput.asText.get().trim()
+            
+            val baseVersion = "1.0.0"
+            if (branchName == "dev") {
+                "$baseVersion-SNAPSHOT"
+            } else {
+                "$baseVersion-${branchName}-SNAPSHOT"
+            }
+        }
+    } catch (e: Exception) {
+        println("Warning: Could not determine version from git: ${e.message}")
+        "1.0.0-SNAPSHOT"
+    }
+}
+
+version = getProjectVersion()
+println("Building JAR with version: $version")
+
+// Read README for package description
+val readmeFile = project.projectDir.resolve("README.md")
+val packageDescription = if (readmeFile.exists()) {
+    readmeFile.readText()
+} else {
+    "Colibri Stateless - Kotlin/Java Bindings (JAR)"
+}
 
 // Configure the path to generated Java sources
 val generatedSourcesPath = project.findProperty("generatedSourcesPath")?.toString() 
@@ -95,6 +135,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
     implementation("org.json:json:20210307")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.9.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-engine:5.9.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-params:5.9.2") // For @ParameterizedTest
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.0")
     testImplementation("org.json:json:20210307") // Also needed for test compilation
 }
@@ -195,10 +238,49 @@ publishing {
         create<MavenPublication>("jar") {
             from(components["java"])
             artifactId = "colibri-jar"
+            groupId = "com.corpuscore"
+            version = project.version.toString()
+            
+            pom {
+                name.set("Colibri Stateless - Kotlin/Java Bindings (JAR)")
+                description.set(packageDescription)
+                url.set("https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java")
+                
+                licenses {
+                    license {
+                        name.set("MIT License")
+                        url.set("https://opensource.org/licenses/MIT")
+                    }
+                }
+                
+                developers {
+                    developer {
+                        id.set("corpus-core")
+                        name.set("Corpus Core Team")
+                        email.set("simon@corpus.io")
+                    }
+                }
+                
+                scm {
+                    connection.set("scm:git:git://github.com/corpus-core/colibri-stateless.git")
+                    developerConnection.set("scm:git:ssh://github.com/corpus-core/colibri-stateless.git")
+                    url.set("https://github.com/corpus-core/colibri-stateless")
+                }
+            }
         }
     }
     repositories {
         maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/corpus-core/colibri-stateless")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("githubActor") as String?
+                password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("githubToken") as String?
+            }
+        }
+        // Optional: Maven Central (for later)
+        maven {
+            name = "MavenCentral"
             url = uri("https://your.maven.repo") // Replace with your Maven repository URL
             credentials {
                 username = project.findProperty("mavenUsername") as String?
@@ -212,6 +294,9 @@ publishing {
 tasks.withType<Test> {
    // Make tests depend on the host native library build
    dependsOn(buildNativeTestLib)
+
+   // Use JUnit 5 platform for parameterized tests alongside JUnit 4
+   useJUnitPlatform()
 
    // Increase max heap size for the test JVM
    maxHeapSize = "4g" // Example: 4 gigabytes. Adjust as needed.
@@ -230,6 +315,10 @@ tasks.withType<Test> {
 
    testLogging {
        showStandardStreams = true
-       events("passed", "skipped", "failed") // Optionally show test events
+       events("passed", "skipped", "failed", "standardOut", "standardError")
+       exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
    }
+   
+   // Always run tests (even if up-to-date)
+   outputs.upToDateWhen { false }
 }

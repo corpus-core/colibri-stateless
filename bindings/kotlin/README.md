@@ -1,119 +1,146 @@
 
-<img src="../emscripten/c4_logo.png" alt="C4 Logo" width="300"/>
-
-# C4 (corpus core colibri client)
-
-![ETH2.0_Spec_Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
-[![CI on multiple platforms](https://github.com/corpus-core/c4/actions/workflows/cmake-multi-platform.yml/badge.svg)](https://github.com/corpus-core/c4/actions/workflows/cmake-multi-platform.yml)
-
+<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="C4 Logo" width="300"/>
 
 # Kotlin/Java Bindings for Colibri
 
 The Colibri bindings for Kotlin/Java are built using CMake and Gradle. It can be used as AAR (Android Archive) or JAR (Java Archive).
 
+> 💡 **Quick Start**: Check out the [Example Android App](./example) for a complete working implementation!
+
+## Installation
+
+### Adding the Repository
+
+Add the GitHub Packages repository to your `build.gradle` or `build.gradle.kts`:
+
+**Groovy (build.gradle):**
+```groovy
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/corpus-core/colibri-stateless")
+    }
+}
+```
+
+**Kotlin DSL (build.gradle.kts):**
+```kotlin
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/corpus-core/colibri-stateless")
+    }
+}
+```
+
+> **Note:** The packages are public and **no authentication is required** for downloading.
+
 ## Usage
 
-### Java
+### Java (JAR)
 
 Add the dependency to your `build.gradle` file:
 ```groovy
-implementation 'com.corpuscore.colibri:colibri-java:0.1.0'
+dependencies {
+    implementation 'com.corpuscore:colibri-jar:1.0.0'
+}
 ```
 
 use it like this:
 ```java
 import com.corpuscore.colibri.Colibri;
-import java.math.BigInteger;
+import com.corpuscore.colibri.ColibriException;
 
 public class Example {
     public static void main(String[] args) {
-        // Initialize Colibri with Ethereum Mainnet configuration
-        Colibri colibri = new Colibri(
-            BigInteger.ONE,  // chainId (1 for Ethereum Mainnet)
-            new String[]{"https://eth-mainnet.g.alchemy.com/v2/YOUR-API-KEY"},  // ETH RPC
-            new String[]{"https://beacon.quicknode.com/YOUR-API-KEY"}   // Beacon API
-        );
+        // Initialize Colibri (uses default Ethereum Mainnet configuration)
+        Colibri colibri = new Colibri();
 
         try {
-            // Create a proof for a specific block
-            byte[] proof = colibri.getProof(
-                "eth_getBalance",  // method
-                new Object[]{"0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5", "latest"}  // RPC-Arguments
-            );
+            // Call RPC method to get current block number
+            byte[] result = colibri.rpc("eth_blockNumber", new Object[]{});
+            String blockNumberHex = new String(result);
+            System.out.println("Current block number: " + blockNumberHex);
             
-            System.out.println("Proof created successfully! Length: " + proof.length);
+        } catch (ColibriException e) {
+            System.err.println("Colibri error: " + e.getMessage());
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("Unexpected error: " + e.getMessage());
         }
     }
 }
 ```
 
-### Kotlin
+### Kotlin/Android (AAR)
 
-Add the dependency to your `build.gradle` file:
+For Android projects, use the AAR artifact:
 
-```groovy
-repositories {
-    google()
-    mavenCentral()
-    // Add the repository where Colibri is published
-    maven {
-        url = uri("https://your.maven.repo")
-    }
-}
-
+```kotlin
 dependencies {
     implementation("com.corpuscore:colibri-aar:1.0.0")
 }
 ```
 
-use it like this:
+Or for server-side Kotlin, use the JAR:
 
 ```kotlin
-import android.os.Bundle
-import android.widget.Button
-import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
+dependencies {
+    implementation("com.corpuscore:colibri-jar:1.0.0")
+}
+```
+
+**Available Versions:**
+- Release versions: `1.0.0`, `1.0.1`, etc. (from Git tags like `v1.0.0`)
+- Snapshot versions: `1.0.0-SNAPSHOT` (from dev branch, updated on each push)
+
+Use it like this:
+
+```kotlin
 import com.corpuscore.colibri.Colibri
-import kotlinx.coroutines.launch
-import java.math.BigInteger
+import com.corpuscore.colibri.ColibriException
+import kotlinx.coroutines.*
 
-class MainActivity : AppCompatActivity() {
-    private lateinit var statusText: TextView
-    private lateinit var createProofButton: Button
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-
-        statusText = findViewById(R.id.statusText)
-        createProofButton = findViewById(R.id.createProofButton)
-
-        val colibri = Colibri(
-            BigInteger.ONE,  // chainId (1 for Ethereum Mainnet)
-            arrayOf("https://eth-mainnet.g.alchemy.com/v2/YOUR-API-KEY"),  // ETH RPC
-            arrayOf("https://beacon.quicknode.com/YOUR-API-KEY")   // Beacon API
-        )
-
-        createProofButton.setOnClickListener {
-            lifecycleScope.launch {
-                try {
-                    statusText.text = "Creating proof..."
-                    val proof = colibri.getProof(
-                        "eth_getBalance",  // method
-                        arrayOf("0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5","latest")  // block number as argument
-                    )
-                    statusText.text = "Proof created successfully! Length: ${proof.size}"
-                } catch (e: Exception) {
-                    statusText.text = "Error: ${e.message}"
-                }
-            }
-        }
+suspend fun main() {
+    // Initialize Colibri (uses default Ethereum Mainnet configuration)
+    val colibri = Colibri()
+    
+    try {
+        // Call RPC method to get current block number
+        val result = colibri.rpc("eth_blockNumber", arrayOf())
+        val blockNumberHex = String(result)
+        val blockNumber = blockNumberHex.removePrefix("0x").toLong(16)
+        
+        println("Current block number: #$blockNumber")
+        
+    } catch (e: ColibriException) {
+        println("Colibri error: ${e.message}")
+    } catch (e: Exception) {
+        println("Unexpected error: ${e.message}")
     }
 }
 ```
+
+For Android integration, see the [complete example app](./example).
+
+## Example Android App
+
+A minimal working Android app is available in the [`example/`](./example) directory. It demonstrates:
+
+- Fetching Ethereum block numbers using `eth_blockNumber`
+- Proper error handling and async operations  
+- Android UI integration with Kotlin coroutines
+
+Run it with:
+```bash
+cd example && ./gradlew build && ./gradlew installDebug
+```
+
+## Resources
+
+- 📦 **[GitHub Packages](https://github.com/corpus-core/colibri-stateless/packages)** - All published versions
+- 📖 **[Complete Documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)** - Detailed API reference and guides
+- 🔗 **[Supported RPC Methods](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods)** - Full list of available Ethereum RPC calls
+- 🏗️ **[Building Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/building)** - Build from source instructions
 
 ## Building
 Make sure you have the Java SDK, Cmake and Swig installed.

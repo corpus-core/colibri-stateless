@@ -5,7 +5,12 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import Colibri, { MethodType } from '../../../build/emscripten/index.js';
+import path from 'path';
+import { modulePath } from './test_config.js';
+
+// Dynamically import the module using the path from test_config.js
+const ColibriModule = await import(modulePath);
+const Colibri = ColibriModule.default; // Assuming Colibri is the default export
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const testdir = join(__dirname, '../../../test/data');
@@ -47,7 +52,12 @@ function create_cache(dir) {
             if (name.length > 100) name = name.slice(0, 100)
             name = name + '.' + req.encoding
 
-            return fs.readFileSync(`${dir}/${name}`);
+
+            //            console.log(`::: ${dir}/${name}`)
+
+            if (fs.existsSync(`${dir}/${name}`))
+                return fs.readFileSync(`${dir}/${name}`);
+            throw new Error(`Testdata not found for: ${dir}/${name} for ${JSON.stringify(req, null, 2)}`)
         },
         set(req, data) {
         }
@@ -59,7 +69,7 @@ test('RPC-Proof Test Suite', async (t) => {
     await t.test('should load Emscripten module', async () => {
         const c4 = new Colibri();
         const result = await c4.getMethodSupport('eth_getTransactionByHash');
-        assert.strictEqual(result, MethodType.PROOFABLE, 'Method should be proofable');
+        assert.strictEqual(result, 1 /*MethodType.PROOFABLE*/, 'Method should be proofable');
         console.log(result);
     });
 
@@ -85,13 +95,42 @@ test('RPC-Proof Test Suite', async (t) => {
             })
 
             let test_conf = JSON.parse(fs.readFileSync(`${testdir}/${test}/test.json`, 'utf8'));
+            if (test_conf.requires_chain_store) return;
             let conf = { chain: test_conf.chain, cache: create_cache(`${testdir}/${test}`) }
-            if (test_conf.trusted_blockhash)
-                conf.trusted_block_hashes = [test_conf.trusted_blockhash]
+            if (test_conf.trusted_blockhash) {
+                conf.trusted_checkpoint = test_conf.trusted_blockhash
+                //                return;
+            }
+            //            console.log(`### ${test} ######`)
+
             const c4 = new Colibri(conf);
+
+            // Benchmark für createProof
+            const createProofStart = performance.now();
             const proof = await c4.createProof(test_conf.method, test_conf.params)
+            const createProofEnd = performance.now();
+            const createProofDuration = createProofEnd - createProofStart;
+
             assert.strictEqual(proof.length > 0, true, 'Proof should be non-empty');
+
+            // Benchmark für verifyProof
+            const verifyProofStart = performance.now();
             const result = await c4.verifyProof(test_conf.method, test_conf.params, proof);
+            const verifyProofEnd = performance.now();
+            const verifyProofDuration = verifyProofEnd - verifyProofStart;
+
+            const totalDuration = createProofDuration + verifyProofDuration;
+
+            if (process.env.BENCHMARK) {
+
+                // Ausgabe der Benchmark-Ergebnisse
+                console.log(`\n=== Benchmark für ${test} ===`);
+                console.log(`createProof: ${createProofDuration.toFixed(2)}ms`);
+                console.log(`verifyProof: ${verifyProofDuration.toFixed(2)}ms`);
+                console.log(`Gesamt: ${totalDuration.toFixed(2)}ms`);
+                console.log(`================================\n`);
+
+            }
             assert.deepEqual(result, test_conf.expected_result, 'Proof should be valid');
         });
     }

@@ -1,27 +1,109 @@
+# Copyright (c) 2025 corpus.core
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the "Software"), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+# the Software, and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# SPDX-License-Identifier: MIT
+
 cmake_minimum_required(VERSION 3.10...3.32)
 project(c4)
 
+# Version information - try to get from git, fallback to default
+execute_process(
+    COMMAND git describe --tags --always --dirty
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+
+if(NOT GIT_VERSION)
+    set(GIT_VERSION "0.1.0-dev")
+endif()
+
+# Allow overriding version (e.g., from CI)
+if(DEFINED ENV{C4_VERSION})
+    set(C4_VERSION $ENV{C4_VERSION})
+else()
+    set(C4_VERSION ${GIT_VERSION})
+endif()
+
+message(STATUS "C4 Version: ${C4_VERSION}")
+add_definitions(-DC4_VERSION="${C4_VERSION}")
+
 # Core build options
 option(CURL "Enable CURL support" ON)
-option(PROOFER "Build the proofer library" ON)
+option(WITNESS_SIGNER "Enable witness signing" ON)
+option(PROVER "Build the prover library" ON)
 option(CLI "Build command line tools" ON)
 option(VERIFIER "Build the verifier library" ON)
 option(BLS_DESERIALIZE "Store BLS keys deserialized. It is faster but uses 25k more memory in cache per period." ON)
-option(PROOFER_CACHE "Caches blockhashes and maps, which makes a lot of sense on a server" OFF)
+option(PROVER_CACHE "Caches blockhashes and maps, which makes a lot of sense on a server" OFF)
+option(PROVER_TRACE "Collect lightweight prover-internal spans for server export" OFF)
 option(CHAIN_ETH "includes the ETH verification support" ON)
+option(CHAIN_OP "includes the OP-Stack verification support" OFF)
+
+# Make ETH availability visible to all targets (server + chains)
+if(CHAIN_ETH)
+  add_definitions(-DCHAIN_ETH)
+endif()
 
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
+option(BLOCK_HASH_CACHE "Cache block hashes for faster verification within the same block" ON)
 option(WASM "Build WebAssembly target" OFF)
 option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)
+option(PYTHON "Build Python bindings" OFF)
 option(TEST "Build the unit tests" OFF)
 option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
 option(STATIC_MEMORY "if true, the memory will be statically allocated, which only makes sense for embedded systems" OFF)
 option(MESSAGES "if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory" ON)
+option(FILE_STORAGE "if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR" ON)
+
 if(MESSAGES)
     add_definitions(-DMESSAGES)
+endif()
+
+if(FILE_STORAGE AND NOT WASM)
+    add_definitions(-DFILE_STORAGE)
+endif()
+
+if(BLOCK_HASH_CACHE)
+    add_definitions(-DBLOCK_HASH_CACHE)
+endif()
+
+if(WITNESS_SIGNER)
+    add_definitions(-DWITNESS_SIGNER)
+endif()
+# Python bindings configuration
+if(PYTHON)
+    # Python bindings disable CURL/CLI (HTTP is handled in Python)
+    set(CURL OFF CACHE BOOL "Disable CURL for Python bindings" FORCE)
+    set(CLI OFF CACHE BOOL "Disable CLI tools for Python bindings" FORCE)
+    message(STATUS "Python bindings enabled: CURL=OFF, CLI=OFF")
+endif()
+
+# Android/Kotlin bindings configuration
+if(ANDROID OR KOTLIN)
+    # Android bindings don't need HTTP server (no opg_bridge process management)
+    set(HTTP_SERVER OFF CACHE BOOL "Disable HTTP server for Android bindings" FORCE)
+    message(STATUS "Android/Kotlin bindings enabled: HTTP_SERVER=OFF (OP Stack verification still supported)")
 endif()
 
 # Additional include path (for embedded targets etc)
@@ -29,20 +111,36 @@ set(INCLUDE "" CACHE STRING "Additional directory to include in build")
 
 # Add option for the HTTP server
 option(HTTP_SERVER "Build the HTTP server using libuv and llhttp" OFF)
+option(HTTP_SERVER_GEO "support for geo-location" ON)
+
+# Add option for building installer packages
+option(INSTALLER "Build installer packages (requires HTTP_SERVER=ON)" OFF)
 
 if (HTTP_SERVER)
     add_definitions(-DHTTP_SERVER)
-    add_definitions(-DC4_PROOFER_USE_UV_TIME)
+    if (HTTP_SERVER_GEO)
+        add_definitions(-DHTTP_SERVER_GEO)
+    endif()
+    # Only add UV time definition if cache is also enabled, matching libuv link condition
+    if (PROVER_CACHE)
+        add_definitions(-DC4_PROVER_USE_UV_TIME)
+    endif()
 endif()
 
 
 if(EMBEDDED)
     # Force embedded-friendly options
     set(CURL OFF)
-    set(PROOFER OFF)
+    set(PROVER OFF)
     set(CLI OFF)
     set(STATIC_MEMORY ON)
     set(BLS_DESERIALIZE OFF)
+    
+    message(STATUS "Embedded build mode enabled")
+    message(STATUS "  Consider disabling optional features to save memory:")
+    message(STATUS "    -DPRECOMPILE_ZERO_HASHES=OFF  (saves ~1 KB, safe if ETH_BLOCK=OFF)")
+    message(STATUS "    -DUSE_CHECKPOINTZ=OFF         (saves ~2-3 KB, requires manual checkpoint config)")
+    message(STATUS "  See test/embedded/README.md for optimization guide")
         
     # Force portable implementations
     add_definitions(-DBLST_PORTABLE -DEMBEDDED)
@@ -77,39 +175,59 @@ if(SWIFT)
     endif()
 
 
-    # Set SDK paths based on target architecture
-    if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
-        execute_process(
-            COMMAND xcrun --sdk iphonesimulator --show-sdk-path
-            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
-        set(IOS_PLATFORM "SIMULATOR64")
-        set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
-    elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
-        execute_process(
-            COMMAND xcrun --sdk iphoneos --show-sdk-path
-            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
-        set(IOS_PLATFORM "OS64")
-        set(TARGET_TRIPLE "arm64-apple-ios")
-    endif()
+    # Intelligent platform detection: Only build for iOS if explicitly requested
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        message(STATUS "Building for iOS (CMAKE_SYSTEM_NAME=iOS)")
+        
+        # Set SDK paths based on target architecture
+        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+            execute_process(
+                COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+                OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            set(IOS_PLATFORM "SIMULATOR64")
+            set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+        elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+            execute_process(
+                COMMAND xcrun --sdk iphoneos --show-sdk-path
+                OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            set(IOS_PLATFORM "OS64")
+            set(TARGET_TRIPLE "arm64-apple-ios")
+        endif()
 
-    # Set common iOS build settings
-    set(CMAKE_SYSTEM_NAME "iOS")
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum iOS deployment version" FORCE)
-    set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO)
-    set(CMAKE_IOS_INSTALL_COMBINED NO)
-    
-    # Set iOS-specific compiler and linker flags
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
-    
-    # Disable CURL for iOS builds
-    set(CURL OFF)
+        # Set iOS-specific compiler and linker flags
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT}")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -target ${TARGET_TRIPLE}")
+        
+        set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH NO)
+        set(CMAKE_IOS_INSTALL_COMBINED NO)
+        
+        # Disable CURL for iOS builds
+        set(CURL OFF)
+        
+    else()
+        message(STATUS "Building for macOS (CMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME})")
+        
+        # macOS build configuration
+        execute_process(
+            COMMAND xcrun --sdk macosx --show-sdk-path
+            OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        
+        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+            set(TARGET_TRIPLE "x86_64-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+            set(TARGET_TRIPLE "arm64-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        endif()
+        
+        message(STATUS "macOS Target: ${TARGET_TRIPLE}")
+    endif()
 endif()
 if(KOTLIN)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -117,11 +235,14 @@ if(KOTLIN)
 endif()
 
 # Feature flags and compiler settings
-if (PROOFER_CACHE) 
-    add_definitions(-DPROOFER_CACHE)
+if (PROVER_CACHE) 
+    add_definitions(-DPROVER_CACHE)
 endif()
-if (PROOFER) 
-    add_definitions(-DPROOFER)
+if (PROVER_TRACE)
+    add_definitions(-DPROVER_TRACE)
+endif()
+if (PROVER) 
+    add_definitions(-DPROVER)
 endif()
 if(CURL)
     add_definitions(-DUSE_CURL)
@@ -185,7 +306,11 @@ include(src/chains/chains.cmake)
 
 # Define the path for the generated headers
 add_definitions(-DVERIFIERS_PATH="${CMAKE_BINARY_DIR}/verifiers.h")
-add_definitions(-DPROOFERS_PATH="${CMAKE_BINARY_DIR}/proofers.h")
+add_definitions(-DPROVERS_PATH="${CMAKE_BINARY_DIR}/provers.h")
+add_definitions(-DCHAIN_PROPS_PATH="${CMAKE_BINARY_DIR}/chain_props.h")
+
+# Add the binary directory to the include path for generated headers
+include_directories(${CMAKE_BINARY_DIR})
 
 # Add core libraries first
 add_subdirectory(libs)
@@ -215,16 +340,10 @@ if(SWIFT)
     add_subdirectory(bindings/swift)
 endif()
 
-# Shared library if requested and not embedded
-if(SHAREDLIB AND NOT EMBEDDED)
-    add_library(c4Lib SHARED src/util/version.c)
-    target_link_libraries(c4Lib PRIVATE crypto verifier util blst)
-    set_target_properties(c4Lib PROPERTIES
-        LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
-        VERSION 1.0
-        SOVERSION 1
-    )
+if(PYTHON)
+    add_subdirectory(bindings/python)
 endif()
+
 
 add_custom_target(doc 
     COMMAND ${CMAKE_COMMAND} -E echo "Generating documentation..."
@@ -240,9 +359,11 @@ add_custom_target(valgrind
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Generating the valgrind image"
 )
-# Generate headers at the end
+
 generate_verifiers_header()
-generate_proofers_header()
+generate_provers_header()
+generate_server_handlers_header()
+generate_chain_props_header()
 
 # Combined static library target
 if(NOT EMBEDDED)
@@ -288,10 +409,10 @@ if(NOT EMBEDDED)
             get_all_library_dependencies(verifier LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
         endif()
         
-        if(PROOFER)
-            # Include the proofer target itself
-            list(APPEND ALL_LIBS_TO_COMBINE proofer)
-            get_all_library_dependencies(proofer LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
+        if(PROVER)
+            # Include the prover target itself
+            list(APPEND ALL_LIBS_TO_COMBINE prover)
+            get_all_library_dependencies(prover LIBS_DEPENDENCY_SET LIBS_DEPENDENCY_SET)
         endif()
         
         # Combine all discovered dependencies with the main targets
@@ -383,3 +504,19 @@ echo \"Combined library created at: ${OUTPUT_DIRECTORY}/libc4.a\"
     endif()
 endif()
 
+
+# Shared library if requested and not embedded
+if(SHAREDLIB AND NOT EMBEDDED)
+    add_library(c4 SHARED src/util/version.c bindings/colibri.c)
+    target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier)
+    set_target_properties(c4 PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
+        VERSION 1.0
+        SOVERSION 1
+    )
+endif()
+
+# Installer configuration
+if(INSTALLER)
+    add_subdirectory(installer)
+endif()

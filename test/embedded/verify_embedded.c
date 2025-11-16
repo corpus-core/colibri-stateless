@@ -1,3 +1,26 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "util/bytes.h"
 #include "util/json.h"
 #include "util/plugin.h"
@@ -8,8 +31,11 @@
 
 // Debug function to print to both stdout and stderr
 static void debug_print(const char* message) {
-  printf("%s\n", message);
-  fprintf(stderr, "%s\n", message);
+  buffer_t buf = {0};
+  bprintf(&buf, "%s\n", message);
+  fwrite(buf.data.data, 1, buf.data.len, stdout);
+  fwrite(buf.data.data, 1, buf.data.len, stderr);
+  buffer_free(&buf);
 }
 
 // SD Card paths - QEMU mounts the SD card at /sd in the filesystem
@@ -21,7 +47,11 @@ static void debug_print(const char* message) {
 static bool embedded_storage_get(char* filename, buffer_t* data) {
   debug_print("----------------------------------");
   debug_print("Attempting to read file...");
-  printf("Filename: %s\n", filename);
+
+  buffer_t msg = {0};
+  bprintf(&msg, "Filename: %s\n", filename);
+  fwrite(msg.data.data, 1, msg.data.len, stdout);
+  buffer_free(&msg);
 
   // Try to open the file in the current directory
   FILE* f = fopen(filename, "rb");
@@ -29,10 +59,15 @@ static bool embedded_storage_get(char* filename, buffer_t* data) {
     debug_print("Failed to open file");
 
     // Try alternate locations - for debugging only
-    char alt_path[256];
-    sprintf(alt_path, "/tmp/%s", filename);
+    char     alt_path[256];
+    buffer_t tmp_buf = stack_buffer(alt_path);
+    bprintf(&tmp_buf, "/tmp/%s", filename);
     debug_print("Trying alternate path...");
-    printf("Alt path: %s\n", alt_path);
+
+    msg = (buffer_t) {0};
+    bprintf(&msg, "Alt path: %s\n", alt_path);
+    fwrite(msg.data.data, 1, msg.data.len, stdout);
+    buffer_free(&msg);
 
     f = fopen(alt_path, "rb");
     if (!f) {
@@ -46,7 +81,11 @@ static bool embedded_storage_get(char* filename, buffer_t* data) {
   fseek(f, 0, SEEK_END);
   long fsize = ftell(f);
   fseek(f, 0, SEEK_SET);
-  printf("File size: %ld bytes\n", fsize);
+
+  msg = (buffer_t) {0};
+  bprintf(&msg, "File size: %d bytes\n", (int32_t) fsize);
+  fwrite(msg.data.data, 1, msg.data.len, stdout);
+  buffer_free(&msg);
 
   if (fsize <= 0) {
     debug_print("Invalid file size");
@@ -73,26 +112,38 @@ static bool embedded_storage_get(char* filename, buffer_t* data) {
   size_t read = fread(data->data.data, 1, fsize, f);
   fclose(f);
   if (read != fsize) {
-    printf("Read %zu bytes, expected %ld\n", read, fsize);
+    msg = (buffer_t) {0};
+    bprintf(&msg, "Read %d bytes, expected %d\n", (uint32_t) read, (int32_t) fsize);
+    fwrite(msg.data.data, 1, msg.data.len, stdout);
+    buffer_free(&msg);
     debug_print("Failed to read entire file");
     return false;
   }
 
-  printf("Successfully read %zu bytes\n", read);
+  msg = (buffer_t) {0};
+  bprintf(&msg, "Successfully read %d bytes\n", (uint32_t) read);
+  fwrite(msg.data.data, 1, msg.data.len, stdout);
+  buffer_free(&msg);
   data->data.len = fsize;
   return true;
 }
 
 static void embedded_storage_set(char* key, bytes_t value) {
   // In a real system, implement storage to flash/EEPROM
-  printf("Storage set called for key: %s (not implemented)\n", key);
+  buffer_t msg = {0};
+  bprintf(&msg, "Storage set called for key: %s (not implemented)\n", key);
+  fwrite(msg.data.data, 1, msg.data.len, stdout);
+  buffer_free(&msg);
   (void) key;
   (void) value;
 }
 
 static void embedded_storage_delete(char* key) {
   // In a real system, implement deletion from flash/EEPROM
-  printf("Storage delete called for key: %s (not implemented)\n", key);
+  buffer_t msg = {0};
+  bprintf(&msg, "Storage delete called for key: %s (not implemented)\n", key);
+  fwrite(msg.data.data, 1, msg.data.len, stdout);
+  buffer_free(&msg);
   (void) key;
 }
 
@@ -133,7 +184,10 @@ int main(void) {
     // Create a zero-length test file for diagnostic
     f = fopen("test_write.txt", "w");
     if (f) {
-      fprintf(f, "Test write\n");
+      buffer_t test_msg = {0};
+      bprintf(&test_msg, "Test write\n");
+      fwrite(test_msg.data.data, 1, test_msg.data.len, f);
+      buffer_free(&test_msg);
       fclose(f);
       debug_print("Created test file");
     }
@@ -181,7 +235,10 @@ int main(void) {
 
   // Check verification result
   if (!verify_ctx.success || verify_ctx.state.error) {
-    printf("Verification failed: %s\n", verify_ctx.state.error ? verify_ctx.state.error : "unknown error");
+    buffer_t err_msg = {0};
+    bprintf(&err_msg, "Verification failed: %s\n", verify_ctx.state.error ? verify_ctx.state.error : "unknown error");
+    fwrite(err_msg.data.data, 1, err_msg.data.len, stdout);
+    buffer_free(&err_msg);
     debug_print("Verification failed");
     return TEST_FAILED_VERIFY;
   }

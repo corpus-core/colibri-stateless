@@ -1,0 +1,16 @@
+{
+  "data": {
+    "finalized": {
+      "epoch": "364033",
+      "root": "0xb8758d4bd976e1b33e62937ed31a709dba0a855869641581bef3d2a48b527690"
+    },
+    "current_justified": {
+      "epoch": "364033",
+      "root": "0xb8758d4bd976e1b33e62937ed31a709dba0a855869641581bef3d2a48b527690"
+    },
+    "previous_justified": {
+      "epoch": "364033",
+      "root": "0xb8758d4bd976e1b33e62937ed31a709dba0a855869641581bef3d2a48b527690"
+    }
+  }
+}

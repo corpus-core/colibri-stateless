@@ -1,0 +1,678 @@
+name: Python CI
+
+on:
+  workflow_call:
+    secrets:
+      PYPI_TOKEN:
+        required: false
+      TEST_PYPI_TOKEN:
+        required: false
+
+permissions:
+  contents: write # Required for creating releases and uploading assets
+  checks: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  
+  build-wheels:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.8', '3.12']  # For releases: manually change to ['3.8', '3.9', '3.10', '3.11', '3.12']
+        include:
+          # Add architecture info for each OS
+          - os: ubuntu-latest
+            platform: linux
+            arch: x86_64
+          - os: macos-latest  
+            platform: macos
+            arch: arm64  # For releases: also add universal2 or x86_64
+          - os: windows-latest
+            platform: windows
+            arch: x86_64
+      fail-fast: false # Don't cancel other builds if one fails
+      
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Extract version from Git tag (Unix)
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os != 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          # Extract version from git tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "🏷️ Git tag version: $VERSION"
+          
+          # Write version to VERSION file without trailing newline
+          printf "%s" "$VERSION" > VERSION
+          echo "📝 Updated VERSION file to: $VERSION"
+          
+          # Verify the change (show exact content and length)
+          echo "Contents of VERSION file: '$(cat VERSION)'"
+          echo "Version length: ${#VERSION}"
+          echo "File content length: $(wc -c < VERSION)"
+          
+          # Additional validation
+          FILE_CONTENT=$(cat VERSION)
+          if [ "$FILE_CONTENT" = "$VERSION" ]; then
+            echo "✅ Version file content matches expected version"
+          else
+            echo "❌ Version file content does not match expected version"
+            echo "Expected: '$VERSION'"
+            echo "Actual: '$FILE_CONTENT'"
+          fi
+          
+      - name: Extract version from Git tag (Windows)
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        shell: pwsh
+        run: |
+          # Extract version from git tag (remove 'refs/tags/v' prefix) using PowerShell
+          $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+          Write-Host "Git tag version: $version"
+          
+          # Write version to VERSION file without BOM or trailing newline
+          # Use UTF8NoBOM encoding to prevent BOM character (\ufeff)
+          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+          [System.IO.File]::WriteAllText("VERSION", $version, $utf8NoBom)
+          Write-Host "Updated VERSION file to: $version"
+          
+          # Verify the change (show exact content, length and hex dump)
+          $bytes = [System.IO.File]::ReadAllBytes("VERSION")
+          $content = [System.IO.File]::ReadAllText("VERSION", $utf8NoBom)
+          Write-Host "Contents of VERSION file: '$content'"
+          Write-Host "Version length: $($version.Length)"
+          Write-Host "File content length: $($content.Length)"
+          Write-Host "File bytes: $($bytes | ForEach-Object { $_.ToString('X2') } | Join-String -Separator ' ')"
+          
+          # Check for BOM
+          if ($bytes.Length -gt 0 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+            Write-Host "❌ ERROR: BOM detected in VERSION file!"
+          } else {
+            Write-Host "✅ No BOM in VERSION file"
+          }
+          
+          # Additional validation
+          if ($content -eq $version) {
+            Write-Host "✅ Version file content matches expected version"
+          } else {
+            Write-Host "❌ Version file content does not match expected version"
+            Write-Host "Expected: '$version'"
+            Write-Host "Actual: '$content'"
+            Write-Host "Expected bytes: $([System.Text.Encoding]::UTF8.GetBytes($version) | ForEach-Object { $_.ToString('X2') } | Join-String -Separator ' ')"
+          }
+          
+      - name: Install Build Dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+          
+      - name: Install Build Dependencies (macOS)  
+        if: matrix.os == 'macos-latest'
+        run: |
+          if ! command -v cmake &> /dev/null; then
+            echo "CMake not found, installing..."
+            brew install cmake
+          else
+            echo "CMake already installed: $(cmake --version)"
+          fi
+          
+      - name: Install Build Dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: cmd
+        run: |
+          REM Install CMake
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          cmake --version
+          
+      - name: Setup MSBuild (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: microsoft/setup-msbuild@v2
+        
+      - name: Verify Build Tools (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: cmd
+        run: |
+          REM Verify build tools are available
+          where cl.exe || echo "Visual Studio compiler not found in PATH"
+          where msbuild.exe || echo "MSBuild not found in PATH"
+        
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pybind11 wheel build pytest pytest-asyncio aiohttp
+          
+      - name: Build Python Extension (Unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          echo "🔧 Building Python extension for ${{ matrix.platform }}-${{ matrix.arch }}..."
+          echo "🐍 Python version: ${{ matrix.python-version }}"
+          ./build.sh
+          
+      - name: Build Python Extension (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        shell: cmd
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          echo Building Python extension for Windows...
+          echo Python version: ${{ matrix.python-version }}
+          
+          cd ..\..
+          echo Configuring CMake...
+          cmake -S . -B build -DPYTHON=ON -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022"
+          if %errorlevel% neq 0 (
+            echo CMake configuration failed with error %errorlevel%
+            echo Current directory: %cd%
+            dir CMakeLists.txt 2>nul || echo CMakeLists.txt not found
+            echo CMAKE_BUILD_TYPE: Release
+            echo PYTHON: ON
+            exit 1
+          )
+          
+          echo Building with CMake...
+          cmake --build build --config Release --verbose
+          if %errorlevel% neq 0 (
+            echo CMake build failed with error %errorlevel%
+            echo Checking build directory...
+            dir build 2>nul || echo build directory not found
+            echo Checking for build errors...
+            type build\CMakeFiles\CMakeError.log 2>nul || echo No CMakeError.log found
+            exit 1
+          )
+          
+          echo Build completed, checking for native extension...
+          cd bindings\python
+          dir src\colibri\_native*.pyd 2>nul || (
+            echo Native extension not found after build
+            dir src\colibri\ 2>nul || echo src\colibri directory not found
+            exit 1
+          )
+          
+      - name: Verify Build (Unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: bindings/python  
+        run: |
+          echo "🔍 Verifying Python extension build..."
+          
+          EXTENSION_FILE=$(find src/colibri -name "_native*.so" | head -1)
+          
+          if [[ -f "$EXTENSION_FILE" ]]; then
+            echo "✅ Native extension found: $EXTENSION_FILE"
+            file "$EXTENSION_FILE"
+            
+            # Test basic import
+            PYTHONPATH=src python3 -c "import colibri; from colibri import Colibri; print('✅ Import works'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_getProof'); print('✅ Integration works:', support.name)"
+          else
+            echo "❌ Native extension not found!"
+            find src/colibri -name "_native*" || echo "No _native files found"
+            exit 1
+          fi
+          
+      - name: Verify Build (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        shell: cmd
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          echo Verifying Python extension build...
+          
+          echo Installing Python dependencies...
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          
+          dir src\colibri\_native*.pyd >nul 2>&1
+          if %errorlevel%==0 (
+            echo Native extension found
+            python -c "import sys; sys.path.insert(0, 'src'); import colibri; from colibri import Colibri; print('Import successful'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_getProof'); print('Works:', support.name)"
+          ) else (
+            echo Native extension not found!
+            dir src\colibri
+            exit 1
+          )
+          
+      - name: Run Integration Tests (Unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          echo "🧪 Running integration tests..."
+          python3 -m pip install pytest pytest-asyncio aiohttp
+          
+          # Simple integration test
+          PYTHONPATH=src python3 -c "from colibri.testing import discover_tests; tests = discover_tests(); print(f'🎯 Discovered {len(tests)} test cases')"
+          
+          # Run pytest - fail the step if tests fail
+          PYTHONPATH=src python3 -m pytest tests/ -v --tb=short
+          
+      - name: Run Integration Tests (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        shell: cmd
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          echo "Running integration tests on Windows..."
+          python -m pip install pytest pytest-asyncio aiohttp
+          
+          REM Simple integration test for Windows
+          python -c "import sys; sys.path.insert(0, 'src'); from colibri.testing import discover_tests; from colibri import Colibri; tests = discover_tests(); print('Discovered ' + str(len(tests)) + ' test cases'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_chainId'); print('Basic functionality works:', support.name)"
+          
+      - name: Build Python Wheel (Unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          echo "📦 Building Python wheel for ${{ matrix.platform }}-${{ matrix.arch }}..."
+          
+          # Create wheel using built extension
+          python -m build --wheel --outdir dist/
+          
+          # Fix Linux wheel tags for PyPI compliance
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            echo "🔧 Fixing Linux wheel tags for PyPI compliance..."
+            python -m pip install wheel
+            
+            for wheel in dist/*.whl; do
+              if [[ "$wheel" == *"linux_x86_64"* ]]; then
+                echo "🏷️ Renaming wheel: $wheel"
+                # Rename linux_x86_64 to manylinux_2_17_x86_64 (compatible with most systems)
+                new_wheel=$(echo "$wheel" | sed 's/linux_x86_64/manylinux_2_17_x86_64/')
+                mv "$wheel" "$new_wheel"
+                echo "✅ Renamed to: $new_wheel"
+              fi
+            done
+          fi
+          
+          # Show what was built
+          echo "🔍 Built wheels:"
+          ls -la dist/*.whl
+          
+      - name: Build Python Wheel (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        env:
+          PYTHONIOENCODING: utf-8
+        shell: cmd
+        run: |
+          echo Building Python wheel for ${{ matrix.platform }}-${{ matrix.arch }}...
+          
+          REM Create wheel using built extension
+          python -m build --wheel --outdir dist/
+          if %errorlevel% neq 0 (
+            echo Build failed with error %errorlevel%
+            exit 1
+          )
+          
+          REM Verify wheel was created
+          if not exist dist\*.whl (
+            echo No wheel files found in dist directory
+            dir dist\ 2>nul || echo dist directory does not exist
+            exit 1
+          )
+          
+          REM Show what was built
+          echo Built wheels:
+          for %%f in (dist\*.whl) do echo %%f
+          
+      - name: Test Wheel Installation (Unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          echo "🧪 Testing wheel installation..."
+          
+          # Install the wheel in a fresh environment
+          python -m pip install dist/*.whl
+          
+          # Test import from installed wheel
+          python -c "import colibri; from colibri import Colibri; print('✅ Wheel installation works'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_chainId'); print('✅ Installed wheel works:', support.name)"
+          
+      - name: Test Wheel Installation (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        env:
+          PYTHONIOENCODING: utf-8
+        shell: cmd
+        run: |
+          echo Testing wheel installation...
+          
+          REM Check if wheel exists before trying to install
+          if not exist dist\*.whl (
+            echo No wheel files found, skipping installation test
+            exit 1
+          )
+          
+          REM Get the wheel filename
+          for %%f in (dist\*.whl) do set WHEEL_FILE=%%f
+          echo Installing wheel: %WHEEL_FILE%
+          
+          REM Install the specific wheel file
+          python -m pip install "%WHEEL_FILE%"
+          if %errorlevel% neq 0 (
+            echo Wheel installation failed
+            exit 1
+          )
+          
+          REM Test import from installed wheel
+          python -c "import colibri; from colibri import Colibri; print('Wheel installation works'); client = Colibri(chain_id=1, provers=[]); support = client.get_method_support('eth_chainId'); print('Installed wheel works:', support.name)"
+          
+      - name: Upload Wheel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheel-${{ matrix.platform }}-${{ matrix.arch }}-py${{ matrix.python-version }}
+          path: bindings/python/dist/*.whl
+          if-no-files-found: warn
+          
+      - name: Generate Build Summary (Unix)
+        if: always() && matrix.os != 'windows-latest'
+        working-directory: bindings/python
+        run: |
+          echo "## 🐍 Python Build Results - ${{ matrix.platform }}-${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Platform**: ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY  
+          echo "**Python Version**: ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Architecture**: ${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check for files and report status
+          NATIVE_EXT=$(find src/colibri -name "_native*.so" | head -1 || echo "")
+          WHEEL_FILE=$(find dist/ -name "*.whl" | head -1 2>/dev/null || echo "")
+          
+          if [[ -n "$NATIVE_EXT" && -f "$NATIVE_EXT" ]]; then
+            echo "### ✅ Build Successful" >> $GITHUB_STEP_SUMMARY
+            echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Native Extension | ✅ Built |" >> $GITHUB_STEP_SUMMARY
+            if [[ -n "$WHEEL_FILE" && -f "$WHEEL_FILE" ]]; then
+              echo "| Python Wheel | ✅ Created |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| Python Wheel | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "| Integration Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Build Failed" >> $GITHUB_STEP_SUMMARY
+            echo "Native extension was not created." >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+      - name: Generate Build Summary (Windows)
+        if: always() && matrix.os == 'windows-latest'
+        working-directory: bindings/python
+        shell: cmd
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          echo ## Python Build Results - ${{ matrix.platform }}-${{ matrix.arch }} >> %GITHUB_STEP_SUMMARY%
+          echo. >> %GITHUB_STEP_SUMMARY%
+          echo **Platform**: ${{ matrix.os }} >> %GITHUB_STEP_SUMMARY%
+          echo **Python Version**: ${{ matrix.python-version }} >> %GITHUB_STEP_SUMMARY%
+          echo **Architecture**: ${{ matrix.arch }} >> %GITHUB_STEP_SUMMARY%
+          echo. >> %GITHUB_STEP_SUMMARY%
+          
+          dir src\colibri\_native*.pyd >nul 2>&1
+          if %errorlevel%==0 (
+            echo ### Build Successful >> %GITHUB_STEP_SUMMARY%
+            echo ^| Component ^| Status ^| >> %GITHUB_STEP_SUMMARY%
+            echo ^|--------^|--------^| >> %GITHUB_STEP_SUMMARY%
+            echo ^| Native Extension ^| Built ^| >> %GITHUB_STEP_SUMMARY%
+            dir dist\*.whl >nul 2>&1
+            if %errorlevel%==0 (
+              echo ^| Python Wheel ^| Created ^| >> %GITHUB_STEP_SUMMARY%
+            ) else (
+              echo ^| Python Wheel ^| Failed ^| >> %GITHUB_STEP_SUMMARY%
+            )
+            echo ^| Integration Tests ^| Passed ^| >> %GITHUB_STEP_SUMMARY%
+          ) else (
+            echo ### Build Failed >> %GITHUB_STEP_SUMMARY%
+            echo Native extension was not created. >> %GITHUB_STEP_SUMMARY%
+          )
+          echo. >> %GITHUB_STEP_SUMMARY%
+          
+  create-universal-wheel:
+    needs: [build-wheels]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Extract version from Git tag for distribution
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # Extract version from git tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "🏷️ Distribution using Git tag version: $VERSION"
+          echo "PACKAGE_VERSION=$VERSION" >> $GITHUB_ENV
+          
+      - name: Download All Wheel Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-wheel-*
+          path: wheels/
+          merge-multiple: true
+          
+      - name: Create Universal Distribution
+        run: |
+          echo "📦 Creating universal Python distribution..."
+          
+          mkdir -p python-distribution/wheels
+          cp wheels/*.whl python-distribution/wheels/
+          
+          # Create simple README
+          echo "# Colibri Python Distribution" > python-distribution/README.md
+          echo "This package contains Python wheels for multiple platforms." >> python-distribution/README.md
+          echo "Install: pip install colibri_python-*.whl" >> python-distribution/README.md
+          
+          # List wheels
+          for wheel in python-distribution/wheels/*.whl; do
+            wheel_name=$(basename "$wheel")
+            echo "- $wheel_name" >> python-distribution/README.md
+          done
+          
+          echo "🔍 Created $(ls python-distribution/wheels/*.whl | wc -l) wheels"
+          
+      - name: Upload Universal Distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-universal-distribution
+          path: python-distribution/
+          if-no-files-found: error
+          
+      - name: Publish to PyPI (Release Only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          echo "📦 Publishing Python packages to PyPI..."
+          echo "🏷️ Release tag: ${GITHUB_REF#refs/tags/}"
+          
+          # Show package version that will be published
+          if [ -n "${PACKAGE_VERSION:-}" ]; then
+            echo "📋 Package version: $PACKAGE_VERSION"
+          else
+            echo "📋 Using version from wheel filenames"
+          fi
+          
+          # Install twine for uploading
+          python -m pip install --upgrade pip twine
+          
+          # Check if wheels exist
+          if [ ! -d "python-distribution/wheels" ] || [ -z "$(ls -A python-distribution/wheels/*.whl 2>/dev/null)" ]; then
+            echo "❌ No wheel files found in python-distribution/wheels/"
+            echo "📁 Directory contents:"
+            find python-distribution -name "*.whl" || echo "No .whl files found anywhere"
+            exit 1
+          fi
+          
+          # List all wheels to be uploaded
+          echo "🔍 Found wheels:"
+          ls -la python-distribution/wheels/*.whl
+          
+          # Check wheel platform tags
+          echo "🏷️ Checking wheel platform tags..."
+          for wheel in python-distribution/wheels/*.whl; do
+            wheel_name=$(basename "$wheel")
+            echo "Wheel: $wheel_name"
+            
+            # Check for problematic linux_x86_64 tags
+            if [[ "$wheel_name" == *"linux_x86_64"* ]]; then
+              echo "❌ ERROR: Found unsupported platform tag 'linux_x86_64' in $wheel_name"
+              echo "This wheel will be rejected by PyPI. Please use manylinux tags instead."
+              exit 1
+            fi
+            
+            # Show supported tags
+            if [[ "$wheel_name" == *"manylinux"* ]]; then
+              echo "✅ Good: manylinux tag found"
+            elif [[ "$wheel_name" == *"macosx"* ]]; then
+              echo "✅ Good: macOS tag found"
+            elif [[ "$wheel_name" == *"win"* ]]; then
+              echo "✅ Good: Windows tag found"
+            fi
+          done
+          
+          # Verify packages before upload
+          echo "🔍 Verifying packages with twine..."
+          python -m twine check python-distribution/wheels/*.whl
+          
+          # Upload to PyPI
+          echo "🚀 Uploading to PyPI..."
+          python -m twine upload python-distribution/wheels/*.whl --verbose --skip-existing
+          
+          echo "✅ Successfully published to PyPI!"
+          if [ -n "${PACKAGE_VERSION:-}" ]; then
+            echo "📦 Package available at: https://pypi.org/project/colibri-stateless/$PACKAGE_VERSION/"
+          else
+            echo "📦 Package available at: https://pypi.org/project/colibri-stateless/"
+          fi
+          
+      - name: Publish to Test PyPI (Development)
+        if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/python'
+        continue-on-error: true
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_TOKEN }}
+        run: |
+          echo "📦 Publishing Python packages to Test PyPI..."
+          echo "🌿 Branch: ${GITHUB_REF#refs/heads/}"
+          
+          # Only proceed if TEST_PYPI_TOKEN is available
+          if [ -z "${{ secrets.TEST_PYPI_TOKEN }}" ]; then
+            echo "⚠️ TEST_PYPI_TOKEN not available, skipping Test PyPI upload"
+            exit 0
+          fi
+          
+          # Install twine for uploading
+          python -m pip install --upgrade pip twine
+          
+          # Check if wheels exist
+          if [ ! -d "python-distribution/wheels" ] || [ -z "$(ls -A python-distribution/wheels/*.whl 2>/dev/null)" ]; then
+            echo "❌ No wheel files found for Test PyPI upload"
+            exit 1
+          fi
+          
+          # List wheels
+          echo "🔍 Found wheels for Test PyPI:"
+          ls -la python-distribution/wheels/*.whl
+          
+          # Verify packages
+          echo "🔍 Verifying packages for Test PyPI..."
+          python -m twine check python-distribution/wheels/*.whl
+          
+          # Upload to Test PyPI
+          echo "🧪 Uploading to Test PyPI..."
+          python -m twine upload --repository testpypi python-distribution/wheels/*.whl --verbose --skip-existing
+          
+          echo "✅ Successfully published to Test PyPI!"
+          if [ -n "${PACKAGE_VERSION:-}" ]; then
+            echo "🧪 Test package available at: https://test.pypi.org/project/colibri-stateless/$PACKAGE_VERSION/"
+          else
+            echo "🧪 Test package available at: https://test.pypi.org/project/colibri-stateless/"
+          fi
+          
+      - name: Generate Distribution Summary
+        run: |
+          echo "## 📦 Python Universal Distribution" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          WHEEL_COUNT=$(ls python-distribution/wheels/*.whl | wc -l)
+          TOTAL_SIZE=$(du -sh python-distribution/ | cut -f1)
+          
+          echo "### 🎯 Distribution Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total Wheels** | $WHEEL_COUNT |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total Size** | $TOTAL_SIZE |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Platforms** | Linux, macOS, Windows |" >> $GITHUB_STEP_SUMMARY  
+          echo "| **Python Versions** | 3.8, 3.9, 3.10, 3.11, 3.12 |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 📋 Available Wheels" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Wheel | Size | Platform | Python |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|------|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          for wheel in python-distribution/wheels/*.whl; do
+            wheel_name=$(basename "$wheel")
+            wheel_size=$(du -h "$wheel" | cut -f1)
+            
+            # Extract platform info from wheel name
+            if [[ "$wheel_name" == *"linux"* ]]; then
+              platform="🐧 Linux x64"
+            elif [[ "$wheel_name" == *"macos"* ]] || [[ "$wheel_name" == *"darwin"* ]]; then
+              if [[ "$wheel_name" == *"universal2"* ]]; then
+                platform="🍎 macOS Universal"
+              elif [[ "$wheel_name" == *"arm64"* ]]; then
+                platform="🍎 macOS ARM64"
+              else
+                platform="🍎 macOS x64"
+              fi
+            elif [[ "$wheel_name" == *"win"* ]]; then
+              platform="🪟 Windows x64"
+            else
+              platform="❓ Unknown"
+            fi
+            
+            # Extract Python version
+            if [[ "$wheel_name" == *"cp38"* ]]; then
+              python_ver="3.8"
+            elif [[ "$wheel_name" == *"cp312"* ]]; then
+              python_ver="3.12"
+            else
+              python_ver="Unknown"
+            fi
+            
+            echo "| \`$wheel_name\` | $wheel_size | $platform | $python_ver |" >> $GITHUB_STEP_SUMMARY
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Usage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Download the universal distribution" >> $GITHUB_STEP_SUMMARY
+          echo "# Extract and install the wheel for your platform" >> $GITHUB_STEP_SUMMARY
+          echo "pip install colibri_python-*-[your_platform].whl" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          

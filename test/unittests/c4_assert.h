@@ -1,10 +1,33 @@
+/*
+ * Copyright (c) 2025 corpus.core
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include "beacon_types.h"
 #include "bytes.h"
 #include "chains.h"
 #include "crypto.h"
 #include "json.h"
 #include "plugin.h"
-#include "proofer.h"
+#include "prover.h"
 #include "ssz.h"
 #include "state.h"
 #include "sync_committee.h"
@@ -17,10 +40,17 @@
 #include <dirent.h>
 #endif
 
+// Include platform-specific time headers OR uv.h
+#ifdef _WIN32
+#include <windows.h>
+#else // Non-Windows: Need sys/time.h for current_unix_ms()
+#include <sys/time.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define C4_PROOFER_FLAG_NO_CACHE (1 << 30)
+#define C4_PROVER_FLAG_NO_CACHE (1 << 30)
 #define ASSERT_HEX_STRING_EQUAL(expected_hex, actual_array, size, message)              \
   do {                                                                                  \
     uint8_t expected_bytes[size];                                                       \
@@ -80,8 +110,17 @@ static void reset_local_filecache() {
       .max_sync_states = 3};
   c4_set_storage_config(&plgn);
 
-#ifdef PROOFER_CACHE
-  c4_proofer_cache_cleanup(UINT64_MAX, 0);
+#ifdef PROVER_CACHE
+  c4_prover_cache_cleanup(UINT64_MAX, 0);
+#endif
+}
+static uint64_t now() {
+#ifndef _WIN32
+  struct timeval te;
+  gettimeofday(&te, NULL);
+  return te.tv_sec * 1000L + te.tv_usec / 1000;
+#else
+  return 0;
 #endif
 }
 
@@ -212,19 +251,30 @@ static void set_state(chain_id_t chain_id, char* dirname) {
   closedir(dir);
 #endif
 }
-static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, proofer_flags_t flags, char* expected_result) {
+static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, prover_flags_t flags, char* expected_result) {
   char tmp[1024];
 
-  if ((flags & C4_PROOFER_FLAG_NO_CACHE) == 0)
+#ifdef PROVER_CACHE
+  // Clear the global prover cache before each test to ensure isolation
+  // Using max timestamp (0xffffffffffffffff) removes all entries
+  c4_prover_cache_cleanup(0xffffffffffffffffULL, 0);
+#endif
+
+  if ((flags & C4_PROVER_FLAG_NO_CACHE) == 0)
     set_state(chain_id, dirname);
 
-  bytes_t proof_data = {0};
+  bytes_t  proof_data   = {0};
+  buffer_t tmp_buf      = stack_buffer(tmp);
+  buffer_t client_state = {0};
+  file_get(bprintf(&tmp_buf, "states_%l", (uint64_t) chain_id), &client_state);
 
-  // proofer
-  proofer_ctx_t*  proof_ctx = c4_proofer_create(method, args, chain_id, flags);
+  // prover
+  uint64_t      proof_start = now();
+  prover_ctx_t* proof_ctx   = c4_prover_create(method, args, chain_id, flags);
+  proof_ctx->client_state   = client_state.data;
   data_request_t* req;
   while (proof_data.data == NULL) {
-    switch (c4_proofer_execute(proof_ctx)) {
+    switch (c4_prover_execute(proof_ctx)) {
       case C4_PENDING:
         while ((req = c4_state_get_pending_request(&proof_ctx->state))) {
           char* filename = c4_req_mockname(req);
@@ -243,10 +293,14 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 
       case C4_SUCCESS:
         proof_data = proof_ctx->proof;
-        //        ssz_dump_to_file(stdout, (ssz_ob_t) {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = proof_data}, true, true);
+        FILE* f    = fopen("new_proof.ssz", "w");
+        ssz_dump_to_file(f, (ssz_ob_t) {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = proof_data}, true, true);
+        fclose(f);
         break;
     }
   }
+  uint64_t proof_end    = now();
+  uint64_t verify_start = now();
 
   //  bytes_write(proof_ctx->proof, fopen("_proof.ssz", "w"), true);
 
@@ -291,14 +345,17 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
     TEST_ASSERT_TRUE_MESSAGE(success, "not able to verify"); //    TEST_FAIL_MESSAGE("not able to verify");
     c4_verify_free_data(&verify_ctx);
   }
-  c4_proofer_free(proof_ctx);
+  c4_prover_free(proof_ctx);
+  uint64_t verify_end = now();
+
+  //  fprintf(stderr, "::Test: %s, %s,  proof: %lld ms, verify: %lld ms, total: %lld ms\n", dirname, method, proof_end - proof_start, verify_end - verify_start, verify_end - proof_start);
 }
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
-  verify_count(dirname, method, args, chain_id, 1, C4_PROOFER_FLAG_INCLUDE_CODE, NULL);
+  verify_count(dirname, method, args, chain_id, 1, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_CHAIN_STORE, NULL);
 }
 
-static void run_rpc_test(char* dirname, proofer_flags_t flags) {
+static void run_rpc_test(char* dirname, prover_flags_t flags) {
   char test_filename[1024];
   sprintf(test_filename, "%s/test.json", dirname);
   bytes_t    test_content      = read_testdata(test_filename);
@@ -309,11 +366,10 @@ static void run_rpc_test(char* dirname, proofer_flags_t flags) {
   chain_id_t chain_id          = (chain_id_t) json_get_uint64(test, "chain_id");
   char*      expected_result   = bprintf(NULL, "%J", json_get(test, "expected_result"));
 
-  if (trusted_blockhash.type == JSON_TYPE_STRING) {
-    bytes32_t trusted_blockhash_bytes;
-    buffer_t  buf = stack_buffer(trusted_blockhash_bytes);
-    json_as_bytes(trusted_blockhash, &buf);
-    c4_eth_set_trusted_blockhashes(chain_id, bytes(trusted_blockhash_bytes, 32));
+  if (trusted_blockhash.type == JSON_TYPE_STRING && trusted_blockhash.len == 68) {
+    bytes32_t checkpoint;
+    hex_to_bytes(trusted_blockhash.start + 1, 66, bytes(checkpoint, 32));
+    c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
   }
 
   verify_count(dirname, method, args, chain_id, 1, flags, expected_result);
