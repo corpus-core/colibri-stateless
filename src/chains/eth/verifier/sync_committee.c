@@ -102,7 +102,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   // calculate finalized blockhash and store it with the next sync committee
   // +1 because nextSyncCommittee is for the next period
   const chain_spec_t* spec   = c4_eth_get_chain_spec(ctx->chain_id);
-  uint32_t            period = (finalized_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
+  uint32_t            period = (attested_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
   return c4_set_sync_period(period, sync_committee, ctx->chain_id, previous_pubkeys_hash);
 }
 
