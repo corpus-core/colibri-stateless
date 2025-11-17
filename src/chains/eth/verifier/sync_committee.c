@@ -78,7 +78,6 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   ssz_ob_t sync_committee      = ssz_get(update, "nextSyncCommittee");
   ssz_ob_t attested_state_root = ssz_get(&attested_header, "stateRoot");
   uint64_t attested_slot       = ssz_get_uint64(&attested_header, "slot");
-  uint64_t finalized_slot      = ssz_get_uint64(&finalized_header, "slot");
 
   // calculate the attested blockhash
   ssz_hash_tree_root(attested_header, attested_blockhash);
