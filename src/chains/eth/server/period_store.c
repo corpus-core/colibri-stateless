@@ -804,6 +804,11 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
     buffer_free(&ctx->out);
     safe_free(ctx);
   }
+  else {
+    // c4_read_files_uv made its own heap copy of the array; free our temporary array container
+    // IMPORTANT: do NOT free files[i].path here; ownership stays with the copy and will be freed in the callback
+    safe_free(files);
+  }
 }
 
 typedef struct {
