@@ -43,6 +43,14 @@ include_directories(
 
 )
 # Create a static library with all server logic (for testing)
+# Shared async I/O utils
+add_library(serverio STATIC
+  uv_util.c
+)
+target_include_directories(serverio PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
+target_link_libraries(serverio PUBLIC util)
+
+# Create a static library with all server logic (for testing)
 add_library(serverlib STATIC
   server_control.c
   tracing.c
@@ -60,7 +68,6 @@ add_library(serverlib STATIC
   handle_config.c
   handle_openapi.c
   cache.c
-  uv_util.c
   configure.c
   internal_calls.c
 )
@@ -74,7 +81,7 @@ target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/
 # Make sure config HTML and OpenAPI YAML are generated before building serverlib
 add_dependencies(serverlib generate_config_html generate_openapi_yaml)
 
-target_link_libraries(serverlib PUBLIC libuv llhttp prover util verifier CURL::libcurl)
+target_link_libraries(serverlib PUBLIC libuv llhttp prover util verifier CURL::libcurl serverio)
 
 # Additional system libraries that might be needed
 if(UNIX AND NOT APPLE)
@@ -86,8 +93,11 @@ endif()
 # Create the executable with just main()
 add_executable(colibri-server main.c)
 
-# Link order matters for static libs: handlers (consumers) before providers (serverlib)
-target_link_libraries(colibri-server PRIVATE ${SERVER_HANDLER_LIBS} serverlib)
+# Link order for static libs:
+# 1) serverlib (needs handler symbols)
+# 2) handlers (provide eth_* symbols; need serverio symbols)
+# 3) serverio (provides uv_util symbols)
+target_link_libraries(colibri-server PRIVATE serverlib ${SERVER_HANDLER_LIBS} serverio)
 
 set_target_properties(colibri-server PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
