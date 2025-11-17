@@ -795,7 +795,15 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
     files[i].limit  = 0;
     safe_free(dir);
   }
-  c4_read_files_uv(ctx, lcu_assemble_read_cb, files, (int) count);
+  int rc = c4_read_files_uv(ctx, lcu_assemble_read_cb, files, (int) count);
+  if (rc < 0) {
+    // Scheduling failed: clean up and fail fast to avoid leaks
+    c4_file_data_array_free(files, (int) count, 0);
+    char* err = strdup("failed to schedule lcu.ssz reads");
+    cb(user_data, NULL_BYTES, err);
+    buffer_free(&ctx->out);
+    safe_free(ctx);
+  }
 }
 
 typedef struct {
