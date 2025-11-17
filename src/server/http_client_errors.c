@@ -320,6 +320,8 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
         bool null_retry =
             req_is_method(req, "eth_getBlockReceipts") ||
             req_is_method(req, "eth_getBlockByHash") ||
+            req_is_method(req, "eth_getTransactionByHash") ||
+            req_is_method(req, "eth_getTransactionReceipt") ||
             req_is_method(req, "eth_getBlockByNumber");
         if (null_retry) {
           if (!req->error) req->error = strdup("JSON-RPC result is null");
@@ -339,6 +341,11 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
       }
     }
     // No error found or not JSON-RPC - success
+
+    if (req && req->type == C4_DATA_TYPE_BEACON_API && req->url && strncmp(req->url, "eth/v1/beacon/headers?parent_root=", 34) == 0 && bytes_contains_string(response_body, "\"data\":[]")) {
+
+      return C4_RESPONSE_ERROR_RETRY;
+    }
     return C4_RESPONSE_SUCCESS;
   }
   // Handle HTTP error codes
@@ -380,7 +387,7 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
   // Special handling for HTTP 400 with JSON-RPC errors - check if it's a method not supported error
   if (http_code == 400 && req && req->type == C4_DATA_TYPE_BEACON_API && response_body.data && response_body.len > 0) {
     // Quick check: only parse JSON if "error" appears in response
-    if (bytes_contains_string(response_body, "Unsupported method"))
+    if (bytes_contains_string(response_body, "Unsupported method") || bytes_contains_string(response_body, "Invalid Accept header"))
       return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
     else
       return C4_RESPONSE_ERROR_USER;
