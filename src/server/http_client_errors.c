@@ -377,6 +377,15 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
     return C4_RESPONSE_ERROR_RETRY;
   }
 
+  // Special handling for HTTP 400 with JSON-RPC errors - check if it's a method not supported error
+  if (http_code == 400 && req && req->type == C4_DATA_TYPE_BEACON_API && response_body.data && response_body.len > 0) {
+    // Quick check: only parse JSON if "error" appears in response
+    if (bytes_contains_string(response_body, "Unsupported method"))
+      return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
+    else
+      return C4_RESPONSE_ERROR_USER;
+  }
+
   // All other 4xx codes are user errors
   return C4_RESPONSE_ERROR_USER;
 }

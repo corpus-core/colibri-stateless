@@ -89,6 +89,10 @@ static void     run_write_block_queue();
 static void     enqueue_backfill(void);
 static uint64_t latest_head_slot = 0;
 static void     fetch_header_cb(client_t* client, void* data, data_request_t* r);
+// LCU forward declarations
+static void schedule_fetch_lcu(uint64_t period);
+static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r);
+static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files);
 
 // write completion callback for c4_write_files_uv
 static void ps_write_done_cb(void* user_data, file_data_t* files, int num_files) {
@@ -494,6 +498,21 @@ static void set_block(block_t* block, bool run_backfill) {
     memcpy(period_data->headers + idx * HEADER_SIZE, task->block.header, HEADER_SIZE);
   }
 
+  // update LCU for the previous period
+  if (!run_backfill) {
+    static uint64_t last_head_period = UINT64_MAX;
+    if (last_head_period == UINT64_MAX) {
+      last_head_period = period;
+    }
+    else if (period != last_head_period) {
+      if (period > 0) {
+        log_info("period_store: period changed (%l -> %l), refresh LCU for period %l", last_head_period, period, period - 1);
+        schedule_fetch_lcu(period - 1);
+      }
+      last_head_period = period;
+    }
+  }
+
   if (queue.head == queue.tail) // this means we have only one task in the queue
     run_write_block_queue();    // if there are more it will be handled after the first is finished.
 }
@@ -552,6 +571,83 @@ static void fetch_header(uint8_t* root, block_t* target) {
   c4_add_request(&bf_client, req, target, fetch_header_cb);
 }
 
+// ---- LightClientUpdate (LCU) fetch/write ----
+typedef struct {
+  uint64_t        period;
+  data_request_t* req; // kept alive until write finishes
+} lcu_write_ctx_t;
+
+static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files) {
+  (void) num_files;
+  lcu_write_ctx_t* ctx = (lcu_write_ctx_t*) user_data;
+  if (files && files[0].error) {
+    log_warn("period_store: writing lcu.ssz for period %l failed: %s", ctx->period, files[0].error);
+  }
+  else {
+    log_info("period_store: wrote lcu.ssz for period %l", ctx->period);
+  }
+  // free file meta (we didn't transfer data ownership)
+  c4_file_data_array_free(files, 1, 0);
+  // free request and its buffer now that write is done
+  if (ctx->req) {
+    safe_free(ctx->req->url);
+    safe_free(ctx->req->response.data);
+    safe_free(ctx->req);
+  }
+  safe_free(ctx);
+}
+
+static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
+  (void) client;
+  uint64_t period = data ? *((uint64_t*) data) : 0;
+  safe_free(data);
+  if (!r->response.data && !r->error) r->error = strdup("unknown error!");
+  if (r->error) {
+    log_warn("period_store: LCU fetch for period %l failed: %s", period, r->error);
+    safe_free(r->url);
+    safe_free(r->response.data);
+    safe_free(r);
+    return;
+  }
+  // prepare async write of lcu.ssz
+  char* dir  = ensure_period_dir(period);
+  char* path = bprintf(NULL, "%s/lcu.ssz", dir);
+  safe_free(dir);
+  file_data_t* files = (file_data_t*) safe_calloc(1, sizeof(file_data_t));
+  files[0].path      = path;
+  files[0].offset    = 0;
+  files[0].limit     = r->response.len; // write all bytes
+  files[0].data      = r->response;
+  // keep request alive until write completes
+  lcu_write_ctx_t* wctx = (lcu_write_ctx_t*) safe_calloc(1, sizeof(lcu_write_ctx_t));
+  wctx->period          = period;
+  wctx->req             = r;
+  int rc                = c4_write_files_uv(wctx, lcu_write_done_cb, files, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (rc < 0) {
+    log_warn("period_store: scheduling LCU write failed for period %l", period);
+    c4_file_data_array_free(files, 1, 0);
+    // free request as we won't receive callback
+    safe_free(r->url);
+    safe_free(r->response.data);
+    safe_free(r);
+    safe_free(wctx);
+  }
+}
+
+static void schedule_fetch_lcu(uint64_t period) {
+  static client_t lcu_client = {0};
+  lcu_client.being_closed    = false;
+  data_request_t* req        = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->url                   = bprintf(NULL, "eth/v1/beacon/light_client/updates?start_period=%l&count=1", period);
+  req->method                = C4_DATA_METHOD_GET;
+  req->chain_id              = http_server.chain_id;
+  req->type                  = C4_DATA_TYPE_BEACON_API;
+  req->encoding              = C4_DATA_ENCODING_SSZ;
+  uint64_t* pdata            = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
+  *pdata                     = period;
+  c4_add_request(&lcu_client, req, pdata, fetch_lcu_cb);
+}
+
 typedef struct {
   period_data_t* out;
   uint64_t       period;
@@ -593,6 +689,16 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
     if (num_files > 1 && files[1].error)
       log_warn("period_store: could not read headers: %s", files[1].error);
   }
+  // lcu: wenn nicht vorhanden, Fetch asynchron anstoßen (nicht blockierend)
+  if (num_files > 2) {
+    if (files[2].error || files[2].data.len == 0) {
+      if (files[2].error)
+        log_info("period_store: lcu.ssz missing for period %l (%s) -> will fetch", p, files[2].error);
+      else
+        log_info("period_store: lcu.ssz empty for period %l -> will fetch", p);
+      schedule_fetch_lcu(p);
+    }
+  }
   pd->period = p;
   // free temp results (also frees remaining buffers if not ownership-transferred)
   c4_file_data_array_free(files, num_files, 1);
@@ -610,18 +716,21 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
 
 static void read_period(uint64_t period, period_data_t* period_data) {
   char*       dir  = ensure_period_dir(period);
-  file_data_t f[2] = {0};
+  file_data_t f[3] = {0};
   f[0].path        = bprintf(NULL, "%s/blocks.ssz", dir);
   f[0].offset      = 0;
   f[0].limit       = 32 * SLOTS_PER_PERIOD;
   f[1].path        = bprintf(NULL, "%s/headers.ssz", dir);
   f[1].offset      = 0;
   f[1].limit       = HEADER_SIZE * SLOTS_PER_PERIOD;
+  f[2].path        = bprintf(NULL, "%s/lcu.ssz", dir);
+  f[2].offset      = 0;
+  f[2].limit       = 0; // read all
   safe_free(dir);
   period_read_done_ctx_t* done = (period_read_done_ctx_t*) safe_calloc(1, sizeof(period_read_done_ctx_t));
   done->out                    = period_data;
   done->period                 = period;
-  c4_read_files_uv(done, read_period_done, f, 2);
+  c4_read_files_uv(done, read_period_done, f, 3);
 }
 
 static inline bool read_block(uint64_t slot, block_t* result) {
