@@ -114,7 +114,7 @@ typedef struct {
   char*          checkpointz_nodes;
   int            stream_beacon_events;
   char*          period_store;
-  int            period_backfill_delay_ms; // delay between backfill requests (ms) to avoid public API rate limits
+  int            period_backfill_delay_ms;    // delay between backfill requests (ms) to avoid public API rate limits
   int            period_backfill_max_periods; // how many periods to backfill at startup (default 2)
   bytes32_t      witness_key;
   server_stats_t stats;
@@ -260,6 +260,7 @@ typedef struct request_t request_t;
 typedef void (*http_client_cb)(request_t*);
 typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
 typedef void (*handle_stored_data_cb)(void* u_ptr, uint64_t period, bytes_t data, const char* error);
+
 // Struktur für jede aktive Anfrage
 typedef struct {
   char*              url;
@@ -336,6 +337,7 @@ typedef struct {
   int                 min;         // min value (for int)
   int                 max;         // max value (for int)
 } config_param_t;
+typedef bool (*call_handler)(single_request_t*);
 
 const config_param_t* c4_get_config_params(int* count);
 const char*           c4_get_config_file_path();
@@ -355,8 +357,6 @@ bool           c4_handle_unverified_rpc_request(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
 bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb);
-bool           c4_get_from_store(const char* path, void* uptr, handle_stored_data_cb cb);
-bool           c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
 const char*    c4_extract_server_name(const char* url);
@@ -397,6 +397,10 @@ data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
 c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
 bool                    c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
+
+// Internal call handlers
+void c4_register_internal_handler(call_handler handler);
+void c4_internal_call_finish(single_request_t* r);
 
 // Server storage functions
 void c4_init_server_storage();

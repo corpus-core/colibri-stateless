@@ -1,5 +1,6 @@
 #include "handler.h"
 #include "logger.h"
+#include "period_store.h"
 
 // Forward declarations for handlers from the moved files
 // These will be registered with the main server.
@@ -25,6 +26,10 @@ void eth_server_init(http_server_t* server) {
   // Register handlers that are now chain-specific
   c4_register_http_handler(c4_handle_lcu);
   c4_register_http_handler(c4_proxy);
+
+  // internal handlers
+  c4_register_internal_handler(c4_handle_period_store);
+  c4_register_internal_handler(c4_handle_lcu_updates);
 
   // Start background services like the beacon event watcher if configured
   if (server->stream_beacon_events) {

@@ -648,6 +648,156 @@ static void schedule_fetch_lcu(uint64_t period) {
   c4_add_request(&lcu_client, req, pdata, fetch_lcu_cb);
 }
 
+// ---- Assemble multiple LCU from cache (fetch missing) ----
+typedef struct {
+  void*           user_data;
+  light_client_cb cb;
+  uint64_t        start_period;
+  uint32_t        count;
+  buffer_t        out;
+  uint32_t        missing_count;
+  uint32_t*       missing_indices; // indices into [0..count)
+  uint32_t        missing_pos;     // next to fetch
+} lcu_assemble_ctx_t;
+
+typedef struct {
+  lcu_assemble_ctx_t* agg;
+  uint64_t            period;
+} lcu_fetch_ctx_t;
+
+static void lcu_fetch_next(lcu_assemble_ctx_t* ctx);
+
+static void lcu_assemble_fetch_cb(client_t* client, void* data, data_request_t* r) {
+  (void) client;
+  lcu_fetch_ctx_t*    fctx = (lcu_fetch_ctx_t*) data;
+  lcu_assemble_ctx_t* a    = fctx->agg;
+  uint64_t            p    = fctx->period;
+  safe_free(fctx);
+  if (!r->response.data && !r->error) r->error = strdup("unknown error!");
+  if (r->error) {
+    char* err = bprintf(NULL, "LCU fetch failed for period %l: %s", p, r->error);
+    // cleanup request
+    safe_free(r->url);
+    safe_free(r->response.data);
+    safe_free(r);
+    // finalize with error
+    bytes_t result = NULL_BYTES;
+    a->cb(a->user_data, result, err);
+    buffer_free(&a->out);
+    safe_free(a->missing_indices);
+    safe_free(a);
+    return;
+  }
+  // append to output
+  buffer_append(&a->out, bytes((uint8_t*) r->response.data, (uint32_t) r->response.len));
+  // persist to cache (reuse write helper; keeps r alive until write finishes)
+  char* dir  = ensure_period_dir(p);
+  char* path = bprintf(NULL, "%s/lcu.ssz", dir);
+  safe_free(dir);
+  file_data_t* files    = (file_data_t*) safe_calloc(1, sizeof(file_data_t));
+  files[0].path         = path;
+  files[0].offset       = 0;
+  files[0].limit        = r->response.len;
+  files[0].data         = r->response;
+  lcu_write_ctx_t* wctx = (lcu_write_ctx_t*) safe_calloc(1, sizeof(lcu_write_ctx_t));
+  wctx->period          = p;
+  wctx->req             = r; // will be freed in lcu_write_done_cb
+  int rc                = c4_write_files_uv(wctx, lcu_write_done_cb, files, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (rc < 0) {
+    log_warn("period_store: scheduling LCU write failed for period %l", p);
+    c4_file_data_array_free(files, 1, 0);
+    safe_free(r->url);
+    safe_free(r->response.data);
+    safe_free(r);
+    safe_free(wctx);
+  }
+  // next
+  lcu_fetch_next(a);
+}
+
+static void lcu_fetch_next(lcu_assemble_ctx_t* ctx) {
+  if (ctx->missing_pos >= ctx->missing_count) {
+    // done: deliver result
+    bytes_t result = ctx->out.data; // transfer ownership
+    ctx->out       = (buffer_t) {0};
+    ctx->cb(ctx->user_data, result, NULL);
+    safe_free(ctx->missing_indices);
+    safe_free(ctx);
+    return;
+  }
+  uint32_t        rel_idx    = ctx->missing_indices[ctx->missing_pos++];
+  uint64_t        period     = ctx->start_period + rel_idx;
+  static client_t agg_client = {0};
+  agg_client.being_closed    = false;
+  data_request_t* req        = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->url                   = bprintf(NULL, "eth/v1/beacon/light_client/updates?start_period=%l&count=1", period);
+  req->method                = C4_DATA_METHOD_GET;
+  req->chain_id              = http_server.chain_id;
+  req->type                  = C4_DATA_TYPE_BEACON_API;
+  req->encoding              = C4_DATA_ENCODING_SSZ;
+  lcu_fetch_ctx_t* fctx      = (lcu_fetch_ctx_t*) safe_calloc(1, sizeof(lcu_fetch_ctx_t));
+  fctx->agg                  = ctx;
+  fctx->period               = period;
+  c4_add_request(&agg_client, req, fctx, lcu_assemble_fetch_cb);
+}
+
+static void lcu_assemble_read_cb(void* user_data, file_data_t* files, int num_files) {
+  lcu_assemble_ctx_t* ctx = (lcu_assemble_ctx_t*) user_data;
+  // concatenate available; collect missing
+  ctx->missing_indices = (uint32_t*) safe_calloc((size_t) ctx->count, sizeof(uint32_t));
+  for (uint32_t i = 0; i < (uint32_t) num_files; i++) {
+    if (files[i].error || files[i].data.len == 0) {
+      ctx->missing_indices[ctx->missing_count++] = i;
+      if (files[i].error)
+        log_debug("period_store: lcu.ssz missing for period %l (%s)", ctx->start_period + i, files[i].error);
+    }
+    else {
+      buffer_append(&ctx->out, files[i].data);
+    }
+  }
+  // free read buffers; we've copied what we need
+  c4_file_data_array_free(files, num_files, 1);
+  if (ctx->missing_count == 0) {
+    // deliver immediately
+    bytes_t result = ctx->out.data; // transfer ownership to caller
+    ctx->out       = (buffer_t) {0};
+    ctx->cb(ctx->user_data, result, NULL);
+    safe_free(ctx->missing_indices);
+    safe_free(ctx);
+    return;
+  }
+  // fetch missing sequentially to keep order
+  lcu_fetch_next(ctx);
+}
+
+void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t count, light_client_cb cb) {
+  lcu_assemble_ctx_t* ctx = (lcu_assemble_ctx_t*) safe_calloc(1, sizeof(lcu_assemble_ctx_t));
+  ctx->user_data          = user_data;
+  ctx->cb                 = cb;
+  ctx->start_period       = period;
+  ctx->count              = count;
+  ctx->out                = (buffer_t) {0};
+  if (!http_server.period_store) {
+    // Fallback: kein Cache → hole alle Perioden direkt und liefere concatenated Ergebnis (nicht persistieren)
+    ctx->missing_count   = count;
+    ctx->missing_pos     = 0;
+    ctx->missing_indices = (uint32_t*) safe_calloc(count, sizeof(uint32_t));
+    for (uint32_t i = 0; i < count; i++) ctx->missing_indices[i] = i;
+    lcu_fetch_next(ctx);
+    return;
+  }
+  // prepare reads
+  file_data_t* files = (file_data_t*) safe_calloc(count, sizeof(file_data_t));
+  for (uint32_t i = 0; i < count; i++) {
+    char* dir       = ensure_period_dir(period + i);
+    files[i].path   = bprintf(NULL, "%s/lcu.ssz", dir);
+    files[i].offset = 0;
+    files[i].limit  = 0;
+    safe_free(dir);
+  }
+  c4_read_files_uv(ctx, lcu_assemble_read_cb, files, (int) count);
+}
+
 typedef struct {
   period_data_t* out;
   uint64_t       period;
@@ -860,4 +1010,29 @@ void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const u
   memcpy(block.header, header112, 112);
   memcpy(block.parent_root, header112 + 16, 32);
   set_block(&block, false);
+}
+
+static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int num_files) {
+  single_request_t* r = (single_request_t*) user_data;
+  if (files[0].error) {
+    log_error("period_store: could not read period store: %s", files[0].error);
+    r->req->error = strdup(files[0].error);
+  }
+  else {
+    // transfer ownership of the data to the response
+    r->req->response   = files[0].data;
+    files[0].data.data = NULL;
+  }
+  c4_file_data_array_free(files, num_files, 0);
+  c4_internal_call_finish(r);
+}
+
+bool c4_handle_period_store(single_request_t* r) {
+  const char* path = "period_store/";
+  if (strncmp(r->req->url, path, strlen(path))) return false;
+
+  file_data_t f = {.path = bprintf(NULL, "%s/%s", http_server.period_store, r->req->url + strlen(path))};
+  c4_read_files_uv(r, c4_handle_period_store_cb, &f, 1);
+
+  return true;
 }

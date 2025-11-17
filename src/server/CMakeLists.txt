@@ -55,8 +55,8 @@ add_library(serverlib STATIC
   handle_config.c
   handle_openapi.c
   cache.c
+  uv_util.c
   configure.c
-  store.c
   internal_calls.c
 )
 

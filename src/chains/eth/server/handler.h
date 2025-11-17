@@ -21,6 +21,7 @@
 // Ethereum-specific HTTP handlers, now part of the eth module
 bool c4_proxy(client_t* client);
 bool c4_handle_lcu(client_t* client);
+bool c4_handle_lcu_updates(single_request_t* r);
 
 // Ethereum-specific background service functions
 void c4_handle_new_head(json_t head);

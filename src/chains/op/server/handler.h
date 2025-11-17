@@ -18,4 +18,5 @@
       return (default_return);                                              \
   } while (0)
 
+bool c4_handle_preconf(single_request_t* r);
 #endif // ETH_SERVER_HANDLER_H

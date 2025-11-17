@@ -168,8 +168,8 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   TRY_ASYNC(status);                                                                         // wait for all async requests to finish
 
   TRY_ADD_ASYNC(status, c4_send_beacon_json(ctx, bprintf(&buf, beacon_type == BEACON_TYPE_NIMBUS ? "nimbus/v1/debug/beacon/states/0x%b/historical_summaries" : "eth/v1/lodestar/historical_summaries/0x%b", ssz_get(&block.header, "stateRoot").bytes), NULL, 120, &history_proof));
-  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "chain_store/%d/%d/blocks.ssz", (uint32_t) ctx->chain_id, block_period), NULL, 0, &blocks)); // get the blockd
-  TRY_ASYNC(status);                                                                                                                                              // finish requests before continuing
+  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "period_store/%d/blocks.ssz", block_period), NULL, 0, &blocks)); // get the blockd
+  TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
 
   fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
   json_t    data           = json_get(history_proof, "data");                                    // the the main json-object
@@ -288,7 +288,10 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
   uint32_t count      = (uint32_t) (sync_data->required_period - sync_data->newest_period);
   char     query[100] = {0};
   sbprintf(query, "start_period=%l&count=%l", sync_data->newest_period, sync_data->required_period - sync_data->newest_period);
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
+  if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)
+    TRY_ASYNC(c4_send_internal_request(ctx, "lcu_updates", query, 0, &result));
+  else
+    TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
 
   if (!updates) return C4_SUCCESS;
 
