@@ -55,7 +55,8 @@ foreach(test_source ${TEST_SOURCES})
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
         target_compile_definitions(${test_name} PRIVATE HTTP_SERVER)
-        target_link_libraries(${test_name} serverlib llhttp_static uv_a)
+        # Link order: handler libs first (consumers), then serverlib (providers)
+        target_link_libraries(${test_name} ${SERVER_HANDLER_LIBS} serverlib llhttp_static uv_a)
         add_dependencies(${test_name} llhttp_static uv_a serverlib)
         
         # Find CURL for server tests

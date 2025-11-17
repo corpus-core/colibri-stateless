@@ -36,7 +36,12 @@ add_custom_command(
 )
 
 add_custom_target(generate_openapi_yaml DEPENDS ${OPENAPI_YAML_HEADER})
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR} 
+  ${CMAKE_CURRENT_SOURCE_DIR}/../ 
 
+
+)
 # Create a static library with all server logic (for testing)
 add_library(serverlib STATIC
   server_control.c
@@ -69,7 +74,7 @@ target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/
 # Make sure config HTML and OpenAPI YAML are generated before building serverlib
 add_dependencies(serverlib generate_config_html generate_openapi_yaml)
 
-target_link_libraries(serverlib PUBLIC libuv llhttp prover util verifier CURL::libcurl ${SERVER_HANDLER_LIBS})
+target_link_libraries(serverlib PUBLIC libuv llhttp prover util verifier CURL::libcurl)
 
 # Additional system libraries that might be needed
 if(UNIX AND NOT APPLE)
@@ -81,7 +86,8 @@ endif()
 # Create the executable with just main()
 add_executable(colibri-server main.c)
 
-target_link_libraries(colibri-server PRIVATE serverlib)
+# Link order matters for static libs: handlers (consumers) before providers (serverlib)
+target_link_libraries(colibri-server PRIVATE ${SERVER_HANDLER_LIBS} serverlib)
 
 set_target_properties(colibri-server PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
