@@ -37,6 +37,12 @@ if(HTTP_SERVER)
   )
 endif()
 
+# We build libuv via libs/libuv and expose INTERFACE target 'libuv'
+set(HAVE_LIBUV OFF)
+if(TARGET libuv)
+  set(HAVE_LIBUV ON)
+endif()
+
 #add_definitions(-DTEST_DATA_DIR=${CMAKE_SOURCE_DIR}/test/data)
 
 foreach(test_source ${TEST_SOURCES})
@@ -55,12 +61,43 @@ foreach(test_source ${TEST_SOURCES})
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
         target_compile_definitions(${test_name} PRIVATE HTTP_SERVER)
-        target_link_libraries(${test_name} serverlib llhttp_static uv_a)
-        add_dependencies(${test_name} llhttp_static uv_a serverlib)
+        # Link order for static libs:
+        # 1) serverlib (needs handler symbols)
+        # 2) handlers (provide eth_* symbols)
+        # 3) serverio (provides uv_util symbols used by handlers)
+        target_link_libraries(${test_name} serverlib ${SERVER_HANDLER_LIBS} serverio llhttp_static libuv)
+        add_dependencies(${test_name} llhttp_static serverlib)
+        if(TARGET serverio)
+          add_dependencies(${test_name} serverio)
+        endif()
         
         # Find CURL for server tests
         find_package(CURL REQUIRED)
         target_link_libraries(${test_name} CURL::libcurl)
+    endif()
+
+    # Special linking for uv_util tests even without HTTP_SERVER
+    if("${test_name}" STREQUAL "test_uv_util")
+        # If HTTP_SERVER is OFF (minsize/valgrind job), don't pull in libuv or uv_util.c.
+        # Build a tiny binary that immediately skips at runtime.
+        if(NOT HTTP_SERVER)
+          target_compile_definitions(${test_name} PRIVATE NO_LIBUV=1)
+        else()
+          if(NOT HAVE_LIBUV)
+            target_compile_definitions(${test_name} PRIVATE NO_LIBUV=1)
+          endif()
+          # Prefer linking serverio if available; otherwise compile uv_util.c directly
+          if(TARGET serverio)
+            target_link_libraries(${test_name} serverio libuv)
+            target_include_directories(${test_name} PRIVATE ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
+            add_dependencies(${test_name} serverio)
+          else()
+            message(WARNING "serverio target not found; compiling uv_util.c directly into ${test_name}")
+            target_sources(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/src/server/uv_util.c)
+            target_include_directories(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/server ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
+            target_link_libraries(${test_name} util libuv)
+          endif()
+        endif()
     endif()
 
     # Suppress MSVC warning C4113 for test targets

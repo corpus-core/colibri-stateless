@@ -163,6 +163,7 @@ void c4_configure(int argc, char* argv[]) {
     log_info("  prover_nodes : %s", http_server.prover_nodes);
     log_info("  beacon_events : %d", (uint32_t) http_server.stream_beacon_events);
     log_info("  period_store  : %s", http_server.period_store);
+    log_info("  period_backfill_delay_ms: %d", (uint32_t) http_server.period_backfill_delay_ms);
     log_info("  web_ui_enabled: %d", (uint32_t) http_server.web_ui_enabled);
 
     // Show OP Stack preconf configuration if this is an OP Stack chain
@@ -505,6 +506,8 @@ static void config() {
   http_server.checkpointz_nodes                = "https://sync-mainnet.beaconcha.in,https://beaconstate.info,https://sync.invis.tools,https://beaconstate.ethstaker.cc";
   http_server.stream_beacon_events             = 0;
   http_server.period_store                     = NULL;
+  http_server.period_backfill_delay_ms         = 100; // default 100ms to be gentle with public APIs
+  http_server.period_backfill_max_periods      = 2;   // default backfill up to 2 periods
   http_server.preconf_storage_dir              = "./preconfs";
   http_server.preconf_ttl_minutes              = 30; // 30 minutes TTL
   http_server.preconf_cleanup_interval_minutes = 5;  // Cleanup every 5 minutes
@@ -568,6 +571,8 @@ static void config() {
   get_string(&http_server.prover_nodes, "PROVER", "prover", 'R', "list of remote prover endpoints");
   get_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
   get_int(&http_server.stream_beacon_events, "BEACON_EVENTS", "beacon_events", 'e', "activates beacon event streaming", 0, 1);
+  get_int(&http_server.period_backfill_delay_ms, "C4_PERIOD_BACKFILL_DELAY_MS", "period_backfill_delay_ms", 0, "delay between backfill requests (ms)", 0, 60000);
+  get_int(&http_server.period_backfill_max_periods, "C4_PERIOD_BACKFILL_MAX_PERIODS", "period_backfill_max_periods", 0, "max number of periods to backfill at startup", 0, 10000);
   // Optional logs cache size in blocks (default 0 = disabled). Only enabled when beacon events are active.
   int eth_logs_cache_blocks = 0;
   get_int(&eth_logs_cache_blocks, "ETH_LOGS_CACHE_BLOCKS", "eth_logs_cache_blocks", 0, "max number of contiguous blocks to cache logs for eth_getLogs", 0, 131072);

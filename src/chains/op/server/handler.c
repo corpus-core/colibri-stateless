@@ -1,8 +1,8 @@
 #include "handler.h"
 #include "../verifier/op_chains_conf.h"
 #include "kona_preconf_capture.h"
-#include "util/bytes.h"
 #include "logger.h"
+#include "util/bytes.h"
 #include <libgen.h>
 #include <limits.h>
 #include <stdio.h>
@@ -38,6 +38,7 @@ void op_server_init(http_server_t* server) {
   OP_HANDLER_CHECK(server);
 
   log_info("Initializing OP-Stack server handlers...");
+  c4_register_internal_handler(c4_handle_preconf);
 
   start_preconf_capture(server);
 }

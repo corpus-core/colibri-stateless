@@ -12,6 +12,7 @@
 #ifdef PROVER_CACHE
 #include "chains/eth/prover/logs_cache.h"
 #endif
+#include "chains/eth/server/period_store.h"
 #include "server.h"
 #include "tx_cache.h"
 #include "util/json.h"
@@ -133,6 +134,15 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
       log_warn("No logs bloom or block number for prefetching: %l (%l)", prefetch_block_number, beacon_block_number);
   }
 #endif
+  // Persist current head for period store (if enabled)
+  {
+    uint8_t header112[112] = {0};
+    // Direkt 80 Bytes der fixen Container-Felder kopieren (slot, proposerIndex, parentRoot, stateRoot)
+    memcpy(header112, ssz_get(&data_block, "slot").bytes.data, 80);
+    // body_root = hash_tree_root(body)
+    ssz_hash_tree_root(data_body, header112 + 80);
+    c4_period_sync_on_head(beacon_block.slot, data_root, header112);
+  }
   return C4_SUCCESS;
 }
 

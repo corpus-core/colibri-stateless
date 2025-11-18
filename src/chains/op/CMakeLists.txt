@@ -125,6 +125,7 @@ add_server_handler(
   NAME op_server_handler
   SOURCES 
     server/handler.c
+    server/preconf.c
   DEPENDS ${OP_SERVER_DEPENDS}
   INIT_FUNC op_server_init
   SHUTDOWN_FUNC op_server_shutdown

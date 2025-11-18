@@ -199,6 +199,7 @@ The server can be configured via:
 | Memcached Host | `-m, --memcached_host` | `MEMCACHED_HOST` | `localhost` | Memcached hostname (highly recommended!) |
 | Memcached Port | `-P, --memcached_port` | `MEMCACHED_PORT` | `11211` | Memcached port |
 | Beacon Events | `-e, --beacon_events` | `BEACON_EVENTS` | `false` | Enable proactive caching via beacon event streaming (recommended) |
+| Period Backfill Delay (ms) | `--period_backfill_delay_ms` | `C4_PERIOD_BACKFILL_DELAY_MS` | `100` | Delay between historical backfill requests (ms). Set to `0` if you run your own Beacon/RPC and want max speed |
 
 ### Advanced Load Balancing & Polling
 
@@ -249,6 +250,48 @@ docker run -p 8090:8090 \
 ```
 
 Refer to the [main documentation](https://corpus-core.gitbook.io/specification-colibri-stateless) or run `--help` for all options.
+
+### Historical Block Roots (Period Store)
+
+Some proofs for older transactions require the historical block roots for a full sync-period (8192 slots). The prover server can maintain these roots (and the corresponding headers) locally when Beacon Events are enabled and a data directory is configured.
+
+How it works:
+- Activation: set `BEACON_EVENTS=true` and `DATA=/path/to/data/<chain_id>` (e.g., `/data/1` for mainnet).
+- Storage layout: for each sync period `p` the server writes
+  - `DATA/<p>/blocks.ssz`  (8192 x 32-byte roots)
+  - `DATA/<p>/headers.ssz` (8192 x 112-byte headers)
+- On every new head: the server writes the block root and the 112-byte header to the correct slot offset. Reorgs are handled by overwrite at the fixed slot index.
+- On startup or when gaps are detected: the server backfills missing slots by fetching headers from the Beacon API. If a slot has no signed block, the previous root is repeated (per Beacon spec).
+- When `DATA` does not exist: the base directory is created automatically. If a period folder does not exist, it is created on first write.
+
+Rate limiting and backfill pacing:
+- Public Beacon APIs often throttle at scale. The server supports a pacing delay between backfill requests via:
+  - `C4_PERIOD_BACKFILL_DELAY_MS` (default: `100`)
+  - CLI: `--period_backfill_delay_ms`
+- With a delay > 0 the server backfills one request at a time with spacing. With `0` it uses small parallelism (4 inflight) for maximum speed (recommended only with your own Beacon/RPC).
+
+Metrics:
+- The following Prometheus metrics expose backfill state and progress:
+  - `colibri_period_sync_last_slot`
+  - `colibri_period_sync_last_slot_timestamp_seconds`
+  - `colibri_period_sync_lag_slots`
+  - `colibri_period_sync_queue_depth`
+  - `colibri_period_sync_written_slots_total`
+  - `colibri_period_sync_backfilled_slots_total`
+  - `colibri_period_sync_errors_total`
+  - `colibri_period_sync_retries_total`
+
+Example:
+```bash
+docker run -p 8090:8090 \
+  -e PORT=8090 \
+  -e CHAIN_ID=1 \
+  -e DATA=/data/1 \
+  -e BEACON_EVENTS=true \
+  -e C4_PERIOD_BACKFILL_DELAY_MS=100 \
+  -v $(pwd)/data:/data \
+  ghcr.io/corpus-core/colibri-prover:latest
+```
 
 ## License
 

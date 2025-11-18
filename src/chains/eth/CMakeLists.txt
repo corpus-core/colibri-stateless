@@ -175,6 +175,7 @@ add_server_handler(
     server/handle_headers.c
     server/client_detection.c
     server/client_mappings.c
+    server/period_store.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init
   SHUTDOWN_FUNC eth_server_shutdown

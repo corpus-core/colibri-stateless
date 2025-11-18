@@ -74,4 +74,36 @@ void eth_server_metrics(http_server_t* server, buffer_t* data) {
     bprintf(data, "colibri_eth_logs_cached_blocks{chain_id=\"%d\"} 0\n", (uint32_t) server->chain_id);
   }
 #endif
+  // Period store sync metrics (always export for visibility)
+  bprintf(data, "# HELP colibri_period_sync_last_slot Last slot persisted to period store.\n");
+  bprintf(data, "# TYPE colibri_period_sync_last_slot gauge\n");
+  bprintf(data, "colibri_period_sync_last_slot{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_last_slot);
+
+  bprintf(data, "# HELP colibri_period_sync_last_slot_timestamp_seconds Timestamp of last persisted slot (seconds).\n");
+  bprintf(data, "# TYPE colibri_period_sync_last_slot_timestamp_seconds gauge\n");
+  bprintf(data, "colibri_period_sync_last_slot_timestamp_seconds{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, (uint64_t) (server->stats.period_sync_last_slot_ts / 1000));
+
+  bprintf(data, "# HELP colibri_period_sync_lag_slots Lag between latest known slot and persisted slot.\n");
+  bprintf(data, "# TYPE colibri_period_sync_lag_slots gauge\n");
+  bprintf(data, "colibri_period_sync_lag_slots{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_lag_slots);
+
+  bprintf(data, "# HELP colibri_period_sync_queue_depth Current queue depth of pending writes.\n");
+  bprintf(data, "# TYPE colibri_period_sync_queue_depth gauge\n");
+  bprintf(data, "colibri_period_sync_queue_depth{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_queue_depth);
+
+  bprintf(data, "# HELP colibri_period_sync_written_slots_total Slots written directly from new_head.\n");
+  bprintf(data, "# TYPE colibri_period_sync_written_slots_total counter\n");
+  bprintf(data, "colibri_period_sync_written_slots_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_written_slots_total);
+
+  bprintf(data, "# HELP colibri_period_sync_backfilled_slots_total Slots written via backfill.\n");
+  bprintf(data, "# TYPE colibri_period_sync_backfilled_slots_total counter\n");
+  bprintf(data, "colibri_period_sync_backfilled_slots_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_backfilled_slots_total);
+
+  bprintf(data, "# HELP colibri_period_sync_errors_total Errors encountered during period sync.\n");
+  bprintf(data, "# TYPE colibri_period_sync_errors_total counter\n");
+  bprintf(data, "colibri_period_sync_errors_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_errors_total);
+
+  bprintf(data, "# HELP colibri_period_sync_retries_total Number of backfill retry scheduling events.\n");
+  bprintf(data, "# TYPE colibri_period_sync_retries_total counter\n");
+  bprintf(data, "colibri_period_sync_retries_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_retries_total);
 }
