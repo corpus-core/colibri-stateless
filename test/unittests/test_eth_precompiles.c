@@ -302,6 +302,33 @@ int main(void) {
   RUN_TEST(test_precompile_bls_g1msm_zero);
   RUN_TEST(test_precompile_bls_g2msm_zero);
 
+  // EIP-4844 point evaluation: basic negative tests and constant output on success path are tested elsewhere
+  {
+    uint8_t addr[20];
+    make_precompile_address(0x0a, addr);
+    // wrong length
+    uint8_t in_bad[10] = {0};
+    bytes_t  input     = bytes(in_bad, sizeof(in_bad));
+    buffer_t output    = {0};
+    uint64_t gas_used  = 0;
+    pre_result_t res   = eth_execute_precompile(addr, input, &output, &gas_used);
+    TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
+    buffer_free(&output);
+  }
+  {
+    // invalid versioned hash prefix
+    uint8_t addr[20];
+    make_precompile_address(0x0a, addr);
+    uint8_t in[192] = {0};
+    // vhash[0]!=0x01 triggers invalid
+    bytes_t  input    = bytes(in, sizeof(in));
+    buffer_t output   = {0};
+    uint64_t gas_used = 0;
+    pre_result_t res  = eth_execute_precompile(addr, input, &output, &gas_used);
+    TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
+    buffer_free(&output);
+  }
+
   return UNITY_END();
 }
 
@@ -395,6 +422,8 @@ void test_precompile_bls_g1msm_zero() {
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL(128, output.data.len);
   for (int i = 0; i < 128; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  // k=1 => gas = 1 * 12000 * 1000 / 1000 = 12000
+  TEST_ASSERT_EQUAL_UINT64(12000, gas_used);
   buffer_free(&output);
 }
 
@@ -410,5 +439,7 @@ void test_precompile_bls_g2msm_zero() {
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL(256, output.data.len);
   for (int i = 0; i < 256; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  // k=1 => gas = 1 * 22500 * 1000 / 1000 = 22500
+  TEST_ASSERT_EQUAL_UINT64(22500, gas_used);
   buffer_free(&output);
 }

@@ -43,6 +43,8 @@ typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint6
 #include "precompiles_ec.c"
 // BLS12-381 (EIP-2537) precompiles
 #include "precompiles_bls.c"
+// EIP-4844 point evaluation precompile
+#include "precompiles_kzg.c"
 
 static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas_used) {
   if (input.len != 128) return PRE_INVALID_INPUT;
@@ -209,10 +211,10 @@ const precompile_func_t precompile_fn[] = {
     NULL,
     NULL,
 #endif
-    // 0x08 - 0x0a (reserved/other precompiles not implemented here)
+    // 0x08 - 0x09 (reserved/other precompiles not implemented here)
     NULL, // 0x08
     NULL, // 0x09
-    NULL, // 0x0a
+    pre_point_evaluation, // 0x0a
     // 0x0b - 0x11 BLS12-381 (EIP-2537)
     pre_bls12_g1add,         // 0x0b
     pre_bls12_g1msm,         // 0x0c
