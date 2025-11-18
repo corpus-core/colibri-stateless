@@ -16,14 +16,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/stat.h>
 #include <sys/types.h>
+#endif
 
 static char g_ps_path[512];
 
 static void ensure_dir(const char* path) {
 #ifdef _WIN32
-  _mkdir(path);
+#include <windows.h>
+  CreateDirectoryA(path, NULL);
 #else
   mkdir(path, 0755);
 #endif
@@ -87,49 +90,81 @@ void test_period_backfill_writes_head_slot(void) {
   http_server.stream_beacon_events = 1;
   c4_watch_beacon_events();
 
-  // Let the watcher process a few events and give backfill some time
-  for (int i = 0; i < 30; i++) {
-    c4_server_run_once(&server_instance);
+  // Let the watcher process head(s); wait up to ~5s
+  {
+    const int max_iters = 500;
+    for (int i = 0; i < max_iters && http_server.stats.beacon_events_head < 1 && http_server.stats.period_sync_last_slot == 0; i++) {
+      c4_server_run_once(&server_instance);
 #ifndef _WIN32
-    usleep(20000);
+      usleep(10000);
 #else
-    Sleep(20);
+      Sleep(10);
 #endif
+    }
   }
 
   // Expect at least one head processed
   TEST_ASSERT_TRUE(http_server.stats.beacon_events_head >= 1);
 
-  // Compute latest head period/slot index from stats if available or probe last created directory
-  // For simplicity, check that the period directory exists and blocks.ssz contains non-zero at some tail slot
-  // (Head slot index is not directly exposed; we rely on the recording being recent)
-  // Probe period directories 0..5 (lightweight check)
-  int found_non_zero = 0;
-  for (int p = 0; p < 6 && !found_non_zero; p++) {
-    char dir[512];
-    snprintf(dir, sizeof(dir), "%s/%d", g_ps_path, p);
-    char blocks_path[512];
-    snprintf(blocks_path, sizeof(blocks_path), "%s/blocks.ssz", dir);
-    if (!file_exists(blocks_path)) continue;
-    // check the last 4 positions of the file for non-zero roots
-    for (int k = 0; k < 4; k++) {
-      // 8192 slots per period; sample tail indexes
-      size_t  idx = 8192 - 1 - (size_t) k;
-      uint8_t buf[32];
-      if (read_slot_root(blocks_path, idx, buf) && !all_zero(buf, 32)) {
-        found_non_zero = 1;
-        break;
-      }
+  // Wait until at least one period write completed (period_sync_last_slot > 0), up to ~5s
+  {
+    const int max_iters = 500;
+    for (int i = 0; i < max_iters && http_server.stats.period_sync_last_slot == 0; i++) {
+      c4_server_run_once(&server_instance);
+#ifndef _WIN32
+      usleep(10000);
+#else
+      Sleep(10);
+#endif
+    }
+  }
+  TEST_ASSERT_TRUE(http_server.stats.period_sync_last_slot > 0);
+
+  // Wait briefly for async writes/backfill to flush
+  {
+    const int max_iters = 300;
+    for (int i = 0; i < max_iters; i++) {
+      c4_server_run_once(&server_instance);
+#ifndef _WIN32
+      usleep(10000);
+#else
+      Sleep(10);
+#endif
     }
   }
 
-  TEST_ASSERT_TRUE(found_non_zero);
+  // Validate at the precise last written slot according to stats
+  const uint64_t SLOTS_PER_PERIOD = 8192;
+  uint64_t       last_slot        = http_server.stats.period_sync_last_slot;
+  TEST_ASSERT_TRUE(last_slot > 0);
+  uint64_t period = last_slot / SLOTS_PER_PERIOD;
+  uint64_t idx    = last_slot % SLOTS_PER_PERIOD;
+  char     dir[512];
+  snprintf(dir, sizeof(dir), "%s/%lu", g_ps_path, (unsigned long) period);
+  char blocks_path[512];
+  snprintf(blocks_path, sizeof(blocks_path), "%s/blocks.ssz", dir);
+  // Wait up to ~2s for blocks.ssz to appear
+  {
+    const int max_iters = 200;
+    for (int i = 0; i < max_iters && !file_exists(blocks_path); i++) {
+      c4_server_run_once(&server_instance);
+#ifndef _WIN32
+      usleep(10000);
+#else
+      Sleep(10);
+#endif
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(file_exists(blocks_path), "blocks.ssz missing for computed period");
+  uint8_t buf[32];
+  TEST_ASSERT_TRUE(read_slot_root(blocks_path, (size_t) idx, buf));
+  TEST_ASSERT_FALSE(all_zero(buf, 32));
 }
 
 int main(void) {
   UNITY_BEGIN();
 #ifndef _WIN32
-//  RUN_TEST(test_period_backfill_writes_head_slot);
+  RUN_TEST(test_period_backfill_writes_head_slot);
 #endif
   return UNITY_END();
 }
