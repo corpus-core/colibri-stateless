@@ -518,6 +518,16 @@ static void handle_curl_events() {
     pending_request_t* pending   = pending_find(r);
     long               http_code = 0;
     if (msg->data.result == CURLE_OK) curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+#ifdef TEST
+    // Gracefully handle missing file:// mocks by treating them as HTTP 404
+    if (msg->data.result == CURLE_FILE_COULDNT_READ_FILE) {
+      const char* url = r->url ? r->url : r->req->url;
+      if (url && strncmp(url, "file://", 7) == 0) {
+        http_code = 404;
+        log_warn(YELLOW("   [mock ]") " Missing mock file for %s -> treating as HTTP 404", url);
+      }
+    }
+#endif
 
 #ifdef TEST
     // For file:// URLs (mock responses), parse the HTTP code from the file content

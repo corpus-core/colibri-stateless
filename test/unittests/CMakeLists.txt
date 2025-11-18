@@ -67,6 +67,14 @@ foreach(test_source ${TEST_SOURCES})
         target_link_libraries(${test_name} CURL::libcurl)
     endif()
 
+    # Special linking for uv_util tests even without HTTP_SERVER
+    if("${test_name}" STREQUAL "test_uv_util")
+        # uv_util resides in serverio; link libuv too
+        target_link_libraries(${test_name} serverio uv_a)
+        target_include_directories(${test_name} PRIVATE ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
+        add_dependencies(${test_name} uv_a)
+    endif()
+
     # Suppress MSVC warning C4113 for test targets
     if(MSVC)
         target_compile_options(${test_name} PRIVATE /wd4113)
