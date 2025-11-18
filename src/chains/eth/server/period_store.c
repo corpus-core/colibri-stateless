@@ -293,12 +293,12 @@ static void ps_finish_write(fs_ctx_t* ctx, bool ok) {
     ctx->headers_fd = -1;
   }
 
-  write_task_t* task          = ctx->task;
+  write_task_t* task = ctx->task;
   // capture values we need after freeing the task/context
-  uint64_t      slot         = task->block.slot;
-  bool          was_backfill = task->run_backfill;
-  bool          call_backfill = was_backfill;
-  bool          call_next     = task->next != NULL;
+  uint64_t slot          = task->block.slot;
+  bool     was_backfill  = task->run_backfill;
+  bool     call_backfill = was_backfill;
+  bool     call_next     = task->next != NULL;
 
   // remove from queue
   if (task == queue.head) {
@@ -541,6 +541,9 @@ static void fetch_header_cb(client_t* client, void* data, data_request_t* r) {
 
 static void fetch_header(uint8_t* root, block_t* target) {
   if (graceful_shutdown_in_progress) return;
+  // Skip if no Beacon API servers configured
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  if (!sl || sl->count == 0) return;
   // Optional pacing to avoid rate-limits
   int delay_ms = http_server.period_backfill_delay_ms;
   if (delay_ms > 0) {
@@ -646,6 +649,9 @@ static void schedule_fetch_lcu(uint64_t period) {
   if (graceful_shutdown_in_progress) {
     return;
   }
+  // Skip if no Beacon API servers configured
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  if (!sl || sl->count == 0) return;
   static client_t lcu_client = {0};
   lcu_client.being_closed    = false;
   data_request_t* req        = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
@@ -887,7 +893,8 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
   }
 
   // continue backfill
-  backfill();
+  if (!graceful_shutdown_in_progress)
+    backfill();
 }
 
 static void read_period(uint64_t period, period_data_t* period_data) {
