@@ -12,9 +12,9 @@
 #include "precompiles.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // EIP-4844 point evaluation precompile (address 0x0a)
 // Input (192 bytes):
@@ -140,7 +140,7 @@ static bool ensure_g2_tau_loaded(void) {
   }
 #endif
   const char* path = getenv("CKZG_TRUSTED_SETUP");
-  if (path == NULL) path = "build/c-kzg-4844/src/trusted_setup.txt";
+  if (path == NULL) path = "src/chains/eth/precompiles/trusted_setup.txt";
   if (!load_g2_tau_from_file(path)) return false;
   g2_tau_loaded = true;
   return true;

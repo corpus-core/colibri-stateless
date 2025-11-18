@@ -31,7 +31,7 @@ target_link_libraries(eth_precompiles PRIVATE blst)
 
 # Optionally embed the KZG trusted setup (only the required G2^tau compressed point)
 option(ETH_PRECOMPILE_EMBED "Embed KZG trusted setup G2^tau as a generated header" OFF)
-set(ETH_TRUSTED_SETUP_FILE "${CMAKE_SOURCE_DIR}/build/c-kzg-4844/src/trusted_setup.txt" CACHE FILEPATH "Path to trusted_setup.txt (c-kzg-4844 format)")
+set(ETH_TRUSTED_SETUP_FILE "${CMAKE_SOURCE_DIR}/src/chains/eth/precompiles/trusted_setup.txt" CACHE FILEPATH "Path to trusted_setup.txt (c-kzg-4844 format)")
 
 if(ETH_PRECOMPILE_EMBED)
   # Generate a small header with the 96-byte compressed G2^tau (index 1 of G2 list)
