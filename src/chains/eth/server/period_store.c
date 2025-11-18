@@ -294,7 +294,10 @@ static void ps_finish_write(fs_ctx_t* ctx, bool ok) {
   }
 
   write_task_t* task          = ctx->task;
-  bool          call_backfill = task->run_backfill;
+  // capture values we need after freeing the task/context
+  uint64_t      slot         = task->block.slot;
+  bool          was_backfill = task->run_backfill;
+  bool          call_backfill = was_backfill;
   bool          call_next     = task->next != NULL;
 
   // remove from queue
@@ -320,18 +323,11 @@ static void ps_finish_write(fs_ctx_t* ctx, bool ok) {
     }
   }
 
-  // free task and context
-  safe_free(ctx->task);
-  safe_free(ctx->blocks_path);
-  safe_free(ctx->headers_path);
-  buffer_free(&ctx->tmp);
-  safe_free(ctx);
-
   // metrics and logging
   if (ok) {
-    http_server.stats.period_sync_last_slot    = task->block.slot;
+    http_server.stats.period_sync_last_slot    = slot;
     http_server.stats.period_sync_last_slot_ts = current_unix_ms();
-    if (task->run_backfill)
+    if (was_backfill)
       http_server.stats.period_sync_backfilled_slots_total++;
     else
       http_server.stats.period_sync_written_slots_total++;
@@ -339,12 +335,19 @@ static void ps_finish_write(fs_ctx_t* ctx, bool ok) {
       http_server.stats.period_sync_lag_slots = latest_head_slot - http_server.stats.period_sync_last_slot;
     else
       http_server.stats.period_sync_lag_slots = 0;
-    log_debug("period_store: wrote slot %l (%s)", task->block.slot, task->run_backfill ? "backfill" : "head");
+    log_debug("period_store: wrote slot %l (%s)", slot, was_backfill ? "backfill" : "head");
   }
   else {
     http_server.stats.period_sync_errors_total++;
     log_warn("period_store: write failed");
   }
+
+  // free task and context LAST, after all uses of task data
+  safe_free(ctx->task);
+  safe_free(ctx->blocks_path);
+  safe_free(ctx->headers_path);
+  buffer_free(&ctx->tmp);
+  safe_free(ctx);
 
   if (call_backfill) {
     log_debug("period_store: continue backfill after write");
@@ -470,6 +473,10 @@ static void run_write_block_queue() {
     // free allocated paths and the files array on failure (callback won't run)
     c4_file_data_array_free(files, 2, 0);
   }
+  else {
+    // util made its own copy of the array; free only the container to avoid leaking
+    safe_free(files);
+  }
 }
 
 static void set_block(block_t* block, bool run_backfill) {
@@ -533,6 +540,7 @@ static void fetch_header_cb(client_t* client, void* data, data_request_t* r) {
 }
 
 static void fetch_header(uint8_t* root, block_t* target) {
+  if (graceful_shutdown_in_progress) return;
   // Optional pacing to avoid rate-limits
   int delay_ms = http_server.period_backfill_delay_ms;
   if (delay_ms > 0) {
@@ -635,6 +643,9 @@ static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
 }
 
 static void schedule_fetch_lcu(uint64_t period) {
+  if (graceful_shutdown_in_progress) {
+    return;
+  }
   static client_t lcu_client = {0};
   lcu_client.being_closed    = false;
   data_request_t* req        = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
@@ -859,7 +870,9 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
         log_info("period_store: lcu.ssz missing for period %l (%s) -> will fetch", p, files[2].error);
       else
         log_info("period_store: lcu.ssz empty for period %l -> will fetch", p);
-      schedule_fetch_lcu(p);
+      if (!graceful_shutdown_in_progress) {
+        schedule_fetch_lcu(p);
+      }
     }
   }
   pd->period = p;
