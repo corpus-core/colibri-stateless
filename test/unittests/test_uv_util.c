@@ -3,21 +3,13 @@
  */
 
 #include "unity.h"
-
-#ifndef HTTP_SERVER
-int main(void) {
-  fprintf(stderr, "test_uv_util: Skipped (HTTP_SERVER not enabled)\n");
-  return 0;
-}
-#endif
-
-#ifndef NO_LIBUV
-#include "server/uv_util.h"
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef HTTP_SERVER
+#include "server/uv_util.h"
+
 #ifndef _WIN32
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -32,8 +24,6 @@ static int win_mkdir(const char* path) {
 }
 #define MKDIR(p) win_mkdir(p)
 #endif
-
-#ifndef NO_LIBUV
 
 static volatile int g_done = 0;
 
@@ -219,7 +209,6 @@ void test_uv_util_write_multi(void) {
     TEST_ASSERT_NULL(f);
   }
 }
-
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_uv_util_read_multi);
