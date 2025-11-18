@@ -224,7 +224,7 @@ const precompile_func_t precompile_fn[] = {
 };
 
 pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  if (!bytes_all_zero(bytes(address, 19)) || address[19] >= PRECOMPILE_FN_COUNT) return PRE_INVALID_ADDRESS;
+  if (!bytes_all_zero(bytes(address, 19)) || address[19] > PRECOMPILE_FN_COUNT) return PRE_INVALID_ADDRESS;
   precompile_func_t fn = precompile_fn[address[19] - 1];
   if (fn == NULL) return PRE_NOT_SUPPORTED;
   return fn(input, output, gas_used);
