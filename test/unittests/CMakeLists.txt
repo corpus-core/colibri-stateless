@@ -51,6 +51,10 @@ endif()
 if(NOT LIBUV_TARGET)
   message(WARNING "libuv target not found (uv_a/uv). Proceeding without explicit link; relying on transitive deps.")
 endif()
+set(HAVE_LIBUV OFF)
+if(LIBUV_TARGET)
+  set(HAVE_LIBUV ON)
+endif()
 
 #add_definitions(-DTEST_DATA_DIR=${CMAKE_SOURCE_DIR}/test/data)
 
@@ -92,6 +96,9 @@ foreach(test_source ${TEST_SOURCES})
 
     # Special linking for uv_util tests even without HTTP_SERVER
     if("${test_name}" STREQUAL "test_uv_util")
+        if(NOT HAVE_LIBUV)
+          target_compile_definitions(${test_name} PRIVATE NO_LIBUV=1)
+        endif()
         # uv_util resides in serverio; link libuv too
         target_link_libraries(${test_name} serverio ${LIBUV_TARGET})
         target_include_directories(${test_name} PRIVATE ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)

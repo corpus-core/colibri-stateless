@@ -18,8 +18,13 @@
 #endif
 
 #ifdef _WIN32
-#include <direct.h>
-#define MKDIR(p) _mkdir(p)
+#include <windows.h>
+static int win_mkdir(const char* path) {
+  if (CreateDirectoryA(path, NULL)) return 0;
+  DWORD err = GetLastError();
+  return (err == ERROR_ALREADY_EXISTS) ? 0 : -1;
+}
+#define MKDIR(p) win_mkdir(p)
 #else
 #include <unistd.h>
 #define MKDIR(p) mkdir(p, 0755)

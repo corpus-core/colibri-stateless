@@ -4,7 +4,9 @@
 
 #include "unity.h"
 
+#ifndef NO_LIBUV
 #include "server/uv_util.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,15 +14,19 @@
 #ifndef _WIN32
 #include <sys/stat.h>
 #include <sys/types.h>
-#endif
-
-#ifdef _WIN32
-#include <direct.h>
-#define MKDIR(p) _mkdir(p)
-#else
 #include <unistd.h>
 #define MKDIR(p) mkdir(p, 0755)
+#else
+#include <windows.h>
+static int win_mkdir(const char* path) {
+  if (CreateDirectoryA(path, NULL)) return 0;
+  DWORD err = GetLastError();
+  return (err == ERROR_ALREADY_EXISTS) ? 0 : -1;
+}
+#define MKDIR(p) win_mkdir(p)
 #endif
+
+#ifndef NO_LIBUV
 
 static volatile int g_done = 0;
 
@@ -211,4 +217,9 @@ int main(void) {
   return UNITY_END();
 }
 
-
+#else
+int main(void) {
+  fprintf(stderr, "test_uv_util: Skipped (libuv not available)\n");
+  return 0;
+}
+#endif
