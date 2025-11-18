@@ -44,6 +44,15 @@ static bytes_t hex_to_bytes_alloc(const char* hex) {
   return bytes(data, byte_len);
 }
 
+// Forward declarations for BLS tests
+void test_precompile_bls_g1add_infinity(void);
+void test_precompile_bls_g2add_infinity(void);
+void test_precompile_bls_pairing_empty(void);
+void test_precompile_bls_map_fp_to_g1_zero(void);
+void test_precompile_bls_map_fp2_to_g2_zero(void);
+void test_precompile_bls_g1msm_zero(void);
+void test_precompile_bls_g2msm_zero(void);
+
 // Test 1: ECRecover (0x01)
 // Example from https://www.evm.codes/precompiled
 void test_precompile_ecrecover() {
@@ -284,5 +293,122 @@ int main(void) {
   // RUN_TEST(test_precompile_ecmul);      // Returns PRE_INVALID_ADDRESS
   // RUN_TEST(test_precompile_ecpairing_invalid); // Returns unexpected result
 
+  // BLS12-381 EIP-2537
+  RUN_TEST(test_precompile_bls_g1add_infinity);
+  RUN_TEST(test_precompile_bls_g2add_infinity);
+  RUN_TEST(test_precompile_bls_pairing_empty);
+  RUN_TEST(test_precompile_bls_map_fp_to_g1_zero);
+  RUN_TEST(test_precompile_bls_map_fp2_to_g2_zero);
+  RUN_TEST(test_precompile_bls_g1msm_zero);
+  RUN_TEST(test_precompile_bls_g2msm_zero);
+
   return UNITY_END();
+}
+
+// -------------------- BLS12-381 (EIP-2537) tests --------------------
+
+static void make_zeros(uint8_t* p, size_t n) { memset(p, 0, n); }
+
+void test_precompile_bls_g1add_infinity() {
+  uint8_t addr[20];
+  make_precompile_address(0x0b, addr);
+  uint8_t in[256];
+  make_zeros(in, sizeof(in)); // P=O, Q=O
+  bytes_t      input    = bytes(in, sizeof(in));
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL(128, output.data.len);
+  // Infinity encoded as zeros
+  for (int i = 0; i < 128; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  buffer_free(&output);
+}
+
+void test_precompile_bls_g2add_infinity() {
+  uint8_t addr[20];
+  make_precompile_address(0x0d, addr);
+  uint8_t in[512];
+  make_zeros(in, sizeof(in)); // Q1=O, Q2=O
+  bytes_t      input    = bytes(in, sizeof(in));
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL(256, output.data.len);
+  for (int i = 0; i < 256; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  buffer_free(&output);
+}
+
+void test_precompile_bls_pairing_empty() {
+  uint8_t addr[20];
+  make_precompile_address(0x0f, addr);
+  bytes_t      input    = {.data = NULL, .len = 0};
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL(32, output.data.len);
+  // Expect 1
+  for (int i = 0; i < 31; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  TEST_ASSERT_EQUAL_UINT8(1, output.data.data[31]);
+  buffer_free(&output);
+}
+
+void test_precompile_bls_map_fp_to_g1_zero() {
+  uint8_t addr[20];
+  make_precompile_address(0x10, addr);
+  uint8_t in[64];
+  make_zeros(in, sizeof(in));
+  bytes_t      input    = bytes(in, sizeof(in));
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL(128, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_bls_map_fp2_to_g2_zero() {
+  uint8_t addr[20];
+  make_precompile_address(0x11, addr);
+  uint8_t in[128];
+  make_zeros(in, sizeof(in));
+  bytes_t      input    = bytes(in, sizeof(in));
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL(256, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_bls_g1msm_zero() {
+  uint8_t addr[20];
+  make_precompile_address(0x0c, addr);
+  uint8_t in[160];
+  make_zeros(in, sizeof(in)); // scalar=0, point=O
+  bytes_t      input    = bytes(in, sizeof(in));
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL(128, output.data.len);
+  for (int i = 0; i < 128; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  buffer_free(&output);
+}
+
+void test_precompile_bls_g2msm_zero() {
+  uint8_t addr[20];
+  make_precompile_address(0x0e, addr);
+  uint8_t in[288];
+  make_zeros(in, sizeof(in)); // scalar=0, point=O
+  bytes_t      input    = bytes(in, sizeof(in));
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL(256, output.data.len);
+  for (int i = 0; i < 256; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  buffer_free(&output);
 }

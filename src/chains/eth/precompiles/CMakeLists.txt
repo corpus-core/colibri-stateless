@@ -24,6 +24,10 @@ add_library(eth_precompiles STATIC
 )
 set (DEPS util crypto)
 target_include_directories(eth_precompiles INTERFACE .)
+# BLST headers are needed by precompiles_bls.c (included from precompiles_basic.c)
+# util links blst privately, so we must add the include path here as well.
+target_include_directories(eth_precompiles PRIVATE ${CMAKE_BINARY_DIR}/_deps/blst-src/bindings)
+target_link_libraries(eth_precompiles PRIVATE blst)
 
 if (INTX)
   set (DEPS ${DEPS} intx_wrapper)
