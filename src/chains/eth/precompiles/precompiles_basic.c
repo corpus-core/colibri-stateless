@@ -37,10 +37,12 @@
 
 typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint64_t* gas_used);
 
-#define PRECOMPILE_FN_COUNT 7
+#define PRECOMPILE_FN_COUNT 17
 #define data_word_size(x)   ((x + 31) / 32)
 
 #include "precompiles_ec.c"
+// BLS12-381 (EIP-2537) precompiles
+#include "precompiles_bls.c"
 
 static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas_used) {
   if (input.len != 128) return PRE_INVALID_INPUT;
@@ -207,6 +209,18 @@ const precompile_func_t precompile_fn[] = {
     NULL,
     NULL,
 #endif
+    // 0x08 - 0x0a (reserved/other precompiles not implemented here)
+    NULL, // 0x08
+    NULL, // 0x09
+    NULL, // 0x0a
+    // 0x0b - 0x11 BLS12-381 (EIP-2537)
+    pre_bls12_g1add,         // 0x0b
+    pre_bls12_g1msm,         // 0x0c
+    pre_bls12_g2add,         // 0x0d
+    pre_bls12_g2msm,         // 0x0e
+    pre_bls12_pairing_check, // 0x0f
+    pre_bls12_map_fp_to_g1,  // 0x10
+    pre_bls12_map_fp2_to_g2, // 0x11
 };
 
 pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used) {
