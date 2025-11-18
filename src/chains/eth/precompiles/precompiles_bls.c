@@ -186,10 +186,29 @@ static pre_result_t pre_bls12_g2add(bytes_t input, buffer_t* output, uint64_t* g
   return PRE_SUCCESS;
 }
 
-// MSM helpers (gas discount simplified as 1.0 placeholder)
-static inline uint64_t msm_discount(uint32_t k) {
-  (void) k;
-  return 1; // TODO: implement exact EIP-2537 discount schedule
+// MSM gas discount as per EIP-2537: discount(k) scaled by 1000
+// Table for k = 1..128. For k > 128 use 519.
+static const uint16_t MSM_DISCOUNT_TABLE[129] = {
+  0,
+  1000, 949, 848, 797, 764, 750, 738, 728, 719, 712,
+  705, 698, 692, 687, 682, 677, 673, 669, 665, 661,
+  658, 654, 651, 648, 645, 642, 640, 637, 635, 632,
+  630, 627, 625, 623, 621, 619, 617, 615, 613, 611,
+  609, 608, 606, 604, 603, 601, 599, 598, 596, 595,
+  593, 592, 591, 589, 588, 586, 585, 584, 582, 581,
+  580, 579, 577, 576, 575, 574, 573, 572, 570, 569,
+  568, 567, 566, 565, 564, 563, 562, 561, 560, 559,
+  558, 557, 556, 555, 554, 553, 552, 551, 550, 549,
+  548, 547, 547, 546, 545, 544, 543, 542, 541, 540,
+  540, 539, 538, 537, 536, 536, 535, 534, 533, 532,
+  532, 531, 530, 529, 528, 528, 527, 526, 525, 525,
+  524, 523, 522, 522, 521, 520, 520, 519
+};
+
+static inline uint32_t msm_discount_factor(uint32_t k) {
+  if (k == 0) return 0;
+  if (k <= 128) return MSM_DISCOUNT_TABLE[k];
+  return 519;
 }
 
 // 0x0c: G1MSM
@@ -198,9 +217,10 @@ static pre_result_t pre_bls12_g1msm(bytes_t input, buffer_t* output, uint64_t* g
   if (input.len < LEN_PER_PAIR || (input.len % LEN_PER_PAIR) != 0) return PRE_INVALID_INPUT;
   uint32_t k = (uint32_t) (input.len / LEN_PER_PAIR);
 
-  // Gas: placeholder linear model per EIP structure
-  uint64_t multiplication_cost = 12000; // placeholder
-  *gas_used                    = (uint64_t) k * multiplication_cost * msm_discount(k);
+  // Gas per EIP-2537: gas = (k * multiplication_cost * discount(k)) // 1000
+  const uint64_t multiplication_cost = 12000; // G1
+  const uint32_t disc                = msm_discount_factor(k);
+  *gas_used                          = ((uint64_t) k * multiplication_cost * disc) / 1000u;
 
   // Allocate arrays
   blst_p1_affine* points_store  = (blst_p1_affine*) safe_calloc(k, sizeof(blst_p1_affine));
@@ -267,8 +287,9 @@ static pre_result_t pre_bls12_g2msm(bytes_t input, buffer_t* output, uint64_t* g
   if (input.len < LEN_PER_PAIR || (input.len % LEN_PER_PAIR) != 0) return PRE_INVALID_INPUT;
   uint32_t k = (uint32_t) (input.len / LEN_PER_PAIR);
 
-  uint64_t multiplication_cost = 24000; // placeholder
-  *gas_used                    = (uint64_t) k * multiplication_cost * msm_discount(k);
+  const uint64_t multiplication_cost = 22500; // G2
+  const uint32_t disc                = msm_discount_factor(k);
+  *gas_used                          = ((uint64_t) k * multiplication_cost * disc) / 1000u;
 
   blst_p2_affine*        points_store  = (blst_p2_affine*) safe_calloc(k, sizeof(blst_p2_affine));
   byte*                  scalars_store = (byte*) safe_calloc(k, 32);
