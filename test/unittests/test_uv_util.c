@@ -4,6 +4,13 @@
 
 #include "unity.h"
 
+#ifndef HTTP_SERVER
+int main(void) {
+  fprintf(stderr, "test_uv_util: Skipped (HTTP_SERVER not enabled)\n");
+  return 0;
+}
+#endif
+
 #ifndef NO_LIBUV
 #include "server/uv_util.h"
 #endif
@@ -49,11 +56,14 @@ static void read_cb(void* user_data, file_data_t* files, int num_files) {
   (void) user_data;
   // Verification is in the test body via user_data if needed
   // Just signal completion; tests will inspect files in place
+  c4_file_data_array_free(files, num_files, 1);
   g_done = 1;
 }
 
 static void write_cb(void* user_data, file_data_t* files, int num_files) {
   (void) user_data;
+  // Do not free file data buffers here (owned by caller), only the container
+  c4_file_data_array_free(files, num_files, 0);
   g_done = 1;
 }
 
@@ -197,8 +207,8 @@ void test_uv_util_write_multi(void) {
   {
     FILE* f = fopen(path_ok, "rb");
     TEST_ASSERT_NOT_NULL(f);
-    char buf[64] = {0};
-    size_t n     = fread(buf, 1, sizeof(buf), f);
+    char   buf[64] = {0};
+    size_t n       = fread(buf, 1, sizeof(buf), f);
     fclose(f);
     TEST_ASSERT_EQUAL(strlen(msg), n);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(msg, buf, n);
