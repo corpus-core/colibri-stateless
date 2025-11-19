@@ -207,16 +207,16 @@ const precompile_func_t precompile_fn[] = {
 #endif
     pre_identity, // 0x04
 #ifdef INTX
-    pre_modexp, // 0x05
-    pre_ec_add, // 0x06
-    pre_ec_mul, // 0x07
+    pre_modexp,     // 0x05
+    pre_ec_add,     // 0x06
+    pre_ec_mul,     // 0x07
+    pre_ec_pairing, // 0x08
 #else
     NULL, // 0x05
     NULL, // 0x06
     NULL, // 0x07
+    NULL, // 0x08
 #endif
-    // 0x08 - 0x09 (reserved/other precompiles not implemented here)
-    pre_ec_pairing,       // 0x08
     pre_blake2f,          // 0x09
     pre_point_evaluation, // 0x0a
     // 0x0b - 0x11 BLS12-381 (EIP-2537)
