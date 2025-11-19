@@ -24,6 +24,7 @@
 #include "../../src/chains/eth/precompiles/precompiles.h"
 #include "bytes.h"
 #include "unity.h"
+#include <stdlib.h>
 #include <string.h>
 
 void setUp(void) {}
@@ -213,6 +214,70 @@ void test_precompile_ecpairing_invalid() {
   buffer_free(&output);
 }
 
+// Test 8b: ECPairing (0x08) - Valid check
+// Check e(P, Q) * e(-P, Q) = 1
+void test_precompile_ecpairing_valid() {
+  uint8_t addr[20];
+  make_precompile_address(0x08, addr);
+
+  // P = (1, 2)
+  // -P = (1, -2)
+  // Q = G2 generator
+
+  // P:
+  // x: 00...01
+  // y: 00...02
+  const char* P_hex =
+      "0000000000000000000000000000000000000000000000000000000000000001"
+      "0000000000000000000000000000000000000000000000000000000000000002";
+
+  // -P:
+  // x: 00...01
+  // y: 30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd01
+  const char* negP_hex =
+      "0000000000000000000000000000000000000000000000000000000000000001"
+      "30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd01";
+
+  // Q:
+  // x_im: 198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2
+  // x_re: 1800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed
+  // y_im: 090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b
+  // y_re: 12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa
+  const char* Q_hex =
+      "198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2"
+      "1800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed"
+      "090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b"
+      "12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa";
+
+  // Construct full input: P + Q + (-P) + Q
+  // Length: 64 + 128 + 64 + 128 = 384 bytes
+  // Hex length: 768
+
+  char* input_hex = (char*) malloc(769);
+  strcpy(input_hex, P_hex);
+  strcat(input_hex, Q_hex);
+  strcat(input_hex, negP_hex);
+  strcat(input_hex, Q_hex);
+
+  bytes_t  input    = hex_to_bytes_alloc(input_hex);
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
+  TEST_ASSERT_EQUAL(32, output.data.len);
+
+  // Check result is 1 (true)
+  // 31 bytes of 0, last byte 1
+  for (int i = 0; i < 31; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  TEST_ASSERT_EQUAL_UINT8(1, output.data.data[31]);
+
+  free(input_hex);
+  free(input.data);
+  buffer_free(&output);
+}
+
 // Test 9: Point Evaluation (0x0a) - EIP-4844
 void test_precompile_point_evaluation_invalid() {
   {
@@ -377,10 +442,11 @@ int main(void) {
   RUN_TEST(test_precompile_ecrecover);
 
   // TODO: These precompiles have bugs or are not fully implemented
-  RUN_TEST(test_precompile_modexp); // Crashes in intx_from_bytes
-  // RUN_TEST(test_precompile_ecadd);      // Returns PRE_INVALID_INPUT
-  // RUN_TEST(test_precompile_ecmul);      // Returns PRE_INVALID_ADDRESS
-  // RUN_TEST(test_precompile_ecpairing_invalid); // Returns unexpected result
+  RUN_TEST(test_precompile_modexp);
+  RUN_TEST(test_precompile_ecadd);
+  RUN_TEST(test_precompile_ecmul);
+  RUN_TEST(test_precompile_ecpairing_invalid);
+  RUN_TEST(test_precompile_ecpairing_valid);
 
   RUN_TEST(test_precompile_ecadd);
   RUN_TEST(test_precompile_ecmul);
