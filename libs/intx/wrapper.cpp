@@ -209,3 +209,24 @@ void intx_from_bytes(intx_uint256_t* result, const bytes_t bytes) {
     memcpy(result->bytes, bytes.data + (bytes.len - 32), 32);
   }
 }
+
+// Modular arithmetic operations
+void intx_add_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus) {
+  to_c(intx::addmod(to_cpp(a), to_cpp(b), to_cpp(modulus)), result);
+}
+
+void intx_sub_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus) {
+  intx::uint256 cpp_a = to_cpp(a);
+  intx::uint256 cpp_b = to_cpp(b);
+  intx::uint256 cpp_m = to_cpp(modulus);
+
+  intx::uint256 diff = cpp_a - cpp_b;
+  if (cpp_a < cpp_b) {
+    diff += cpp_m;
+  }
+  to_c(diff, result);
+}
+
+void intx_mul_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus) {
+  to_c(intx::mulmod(to_cpp(a), to_cpp(b), to_cpp(modulus)), result);
+}
