@@ -101,67 +101,48 @@ void intx_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint25
 
 // Bitwise operations
 void intx_and(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  to_c(cpp_a & cpp_b, result);
+  to_c(to_cpp(a) & to_cpp(b), result);
 }
 
 void intx_or(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  to_c(cpp_a | cpp_b, result);
+  to_c(to_cpp(a) | to_cpp(b), result);
 }
 
 void intx_xor(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  to_c(cpp_a ^ cpp_b, result);
+  to_c(to_cpp(a) ^ to_cpp(b), result);
 }
 
 void intx_not(intx_uint256_t* result, const intx_uint256_t* a) {
-  intx::uint256 cpp_a = to_cpp(a);
-  to_c(~cpp_a, result);
+  to_c(~to_cpp(a), result);
 }
 
 void intx_shl(intx_uint256_t* result, const intx_uint256_t* a, unsigned int shift) {
-  intx::uint256 cpp_a = to_cpp(a);
-  to_c(cpp_a << shift, result);
+  to_c(to_cpp(a) << shift, result);
 }
 
 void intx_shr(intx_uint256_t* result, const intx_uint256_t* a, unsigned int shift) {
-  intx::uint256 cpp_a = to_cpp(a);
-  to_c(cpp_a >> shift, result);
+  to_c(to_cpp(a) >> shift, result);
 }
 
 // Comparison operations
 int intx_eq(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a == cpp_b;
+  return to_cpp(a) == to_cpp(b);
 }
 
 int intx_lt(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a < cpp_b;
+  return to_cpp(a) < to_cpp(b);
 }
 
 int intx_gt(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a > cpp_b;
+  return to_cpp(a) > to_cpp(b);
 }
 
 int intx_lte(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a <= cpp_b;
+  return to_cpp(a) <= to_cpp(b);
 }
 
 int intx_gte(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a >= cpp_b;
+  return to_cpp(a) >= to_cpp(b);
 }
 
 // Other useful operations
@@ -182,8 +163,10 @@ void intx_exp(intx_uint256_t* result, const intx_uint256_t* base, const intx_uin
 }
 
 int intx_is_zero(const intx_uint256_t* value) {
-  intx::uint256 cpp_value = to_cpp(value);
-  return cpp_value == 0;
+  for (int i = 0; i < 32; ++i) {
+    if (value->bytes[i] != 0) return 0;
+  }
+  return 1;
 }
 
 // Add this implementation
@@ -225,4 +208,25 @@ void intx_from_bytes(intx_uint256_t* result, const bytes_t bytes) {
     // Input too large: take only the most significant 32 bytes
     memcpy(result->bytes, bytes.data + (bytes.len - 32), 32);
   }
+}
+
+// Modular arithmetic operations
+void intx_add_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus) {
+  to_c(intx::addmod(to_cpp(a), to_cpp(b), to_cpp(modulus)), result);
+}
+
+void intx_sub_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus) {
+  intx::uint256 cpp_a = to_cpp(a);
+  intx::uint256 cpp_b = to_cpp(b);
+  intx::uint256 cpp_m = to_cpp(modulus);
+
+  intx::uint256 diff = cpp_a - cpp_b;
+  if (cpp_a < cpp_b) {
+    diff += cpp_m;
+  }
+  to_c(diff, result);
+}
+
+void intx_mul_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus) {
+  to_c(intx::mulmod(to_cpp(a), to_cpp(b), to_cpp(modulus)), result);
 }

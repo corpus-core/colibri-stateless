@@ -37,14 +37,18 @@
 
 typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint64_t* gas_used);
 
-#define PRECOMPILE_FN_COUNT 17
+#define PRECOMPILE_FN_COUNT 20 // Updated count based on new array size (0x13 + 1)
 #define data_word_size(x)   ((x + 31) / 32)
 
 #include "precompiles_ec.c"
+// EIP-197 BN128 pairing precompile
+#include "precompiles_ec_pairing.c"
 // BLS12-381 (EIP-2537) precompiles
 #include "precompiles_bls.c"
 // EIP-4844 point evaluation precompile
 #include "precompiles_kzg.c"
+// EIP-152 Blake2f precompile
+#include "precompiles_blake2.c"
 
 static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas_used) {
   if (input.len != 128) return PRE_INVALID_INPUT;
@@ -194,26 +198,26 @@ static pre_result_t pre_modexp(bytes_t input, buffer_t* output, uint64_t* gas_us
 #endif
 
 const precompile_func_t precompile_fn[] = {
-    pre_ecrecover,
-    pre_sha256,
+    pre_ecrecover, // 0x01
+    pre_sha256,    // 0x02
 #ifdef PRECOMPILED_RIPEMD160
-    pre_ripemd160,
+    pre_ripemd160, // 0x03
 #else
-    NULL,
+    NULL, // 0x03
 #endif
-    pre_identity,
+    pre_identity, // 0x04
 #ifdef INTX
-    pre_modexp,
-    pre_ec_add,
-    pre_ec_mul,
+    pre_modexp, // 0x05
+    pre_ec_add, // 0x06
+    pre_ec_mul, // 0x07
 #else
-    NULL,
-    NULL,
-    NULL,
+    NULL, // 0x05
+    NULL, // 0x06
+    NULL, // 0x07
 #endif
     // 0x08 - 0x09 (reserved/other precompiles not implemented here)
-    NULL, // 0x08
-    NULL, // 0x09
+    pre_ec_pairing,       // 0x08
+    pre_blake2f,          // 0x09
     pre_point_evaluation, // 0x0a
     // 0x0b - 0x11 BLS12-381 (EIP-2537)
     pre_bls12_g1add,         // 0x0b
