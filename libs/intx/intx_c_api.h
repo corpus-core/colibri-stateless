@@ -37,8 +37,8 @@ typedef struct {
 #endif /* Define a struct to hold uint256 values directly (no pointers) */
 typedef struct {
   unsigned char bytes[32]; /* 256 bits = 32 bytes */
-} intx_uint256_t;
-typedef intx_uint256_t uint256_t;
+} __attribute__((aligned(32))) intx_uint256_t;
+typedef intx_uint256_t         uint256_t;
 
 /* Initialization functions */
 void intx_init(intx_uint256_t* value);
