@@ -278,6 +278,86 @@ void test_precompile_ecpairing_invalid() {
   buffer_free(&output);
 }
 
+// Test 9: Point Evaluation (0x0a) - EIP-4844
+void test_precompile_point_evaluation_invalid() {
+  {
+    uint8_t addr[20];
+    make_precompile_address(0x0a, addr);
+    // wrong length
+    uint8_t      in_bad[10] = {0};
+    bytes_t      input      = bytes(in_bad, sizeof(in_bad));
+    buffer_t     output     = {0};
+    uint64_t     gas_used   = 0;
+    pre_result_t res        = eth_execute_precompile(addr, input, &output, &gas_used);
+    TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
+    buffer_free(&output);
+  }
+  {
+    // invalid versioned hash prefix
+    uint8_t addr[20];
+    make_precompile_address(0x0a, addr);
+    uint8_t in[192] = {0};
+    // vhash[0]!=0x01 triggers invalid
+    bytes_t      input    = bytes(in, sizeof(in));
+    buffer_t     output   = {0};
+    uint64_t     gas_used = 0;
+    pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+    TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
+    buffer_free(&output);
+  }
+}
+
+// Test 10: Blake2f (0x09) - EIP-152
+void test_precompile_blake2f() {
+  uint8_t addr[20];
+  make_precompile_address(0x09, addr);
+
+  // Example from EIP-152
+  // rounds: 12 (0x0000000c)
+  // h: 0x48c9bdf267e6096a3ba7ca8485ae67bb2bf894fe72f36e3cf1361d5f3af54fa5d182e6ad7f520e511f6c3e2b8c68059b6bbd41fbabd9831f79217e1319cde05b
+  // m: 0x6162630000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+  // t: 0x03000000000000000000000000000000
+  // f: 0x01
+
+  const char* input_hex =
+      "0000000c"
+      "48c9bdf267e6096a3ba7ca8485ae67bb2bf894fe72f36e3cf1361d5f3af54fa5d182e6ad7f520e511f6c3e2b8c68059b6bbd41fbabd9831f79217e1319cde05b"
+      "6162630000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      "03000000000000000000000000000000"
+      "01";
+
+  bytes_t  input    = hex_to_bytes_alloc(input_hex);
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
+  TEST_ASSERT_EQUAL(64, output.data.len);
+  TEST_ASSERT_EQUAL(12, gas_used);
+
+  // Expected output: 0xba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923
+  const char* expected_hex = "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923";
+  bytes_t     expected     = hex_to_bytes_alloc(expected_hex);
+  TEST_ASSERT_EQUAL_MEMORY(expected.data, output.data.data, 64);
+
+  free(input.data);
+  free(expected.data);
+  buffer_free(&output);
+}
+
+void test_precompile_blake2f_invalid() {
+  uint8_t addr[20];
+  make_precompile_address(0x09, addr);
+  uint8_t      in[212]  = {0}; // 1 byte too short
+  bytes_t      input    = bytes(in, sizeof(in));
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t result   = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, result);
+  buffer_free(&output);
+}
+
 int main(void) {
   UNITY_BEGIN();
 
@@ -288,7 +368,7 @@ int main(void) {
   RUN_TEST(test_precompile_ecrecover);
 
   // TODO: These precompiles have bugs or are not fully implemented
-  // RUN_TEST(test_precompile_modexp);     // Crashes in intx_from_bytes
+  RUN_TEST(test_precompile_modexp); // Crashes in intx_from_bytes
   // RUN_TEST(test_precompile_ecadd);      // Returns PRE_INVALID_INPUT
   // RUN_TEST(test_precompile_ecmul);      // Returns PRE_INVALID_ADDRESS
   // RUN_TEST(test_precompile_ecpairing_invalid); // Returns unexpected result
@@ -302,32 +382,12 @@ int main(void) {
   RUN_TEST(test_precompile_bls_g1msm_zero);
   RUN_TEST(test_precompile_bls_g2msm_zero);
 
-  // EIP-4844 point evaluation: basic negative tests and constant output on success path are tested elsewhere
-  {
-    uint8_t addr[20];
-    make_precompile_address(0x0a, addr);
-    // wrong length
-    uint8_t in_bad[10] = {0};
-    bytes_t  input     = bytes(in_bad, sizeof(in_bad));
-    buffer_t output    = {0};
-    uint64_t gas_used  = 0;
-    pre_result_t res   = eth_execute_precompile(addr, input, &output, &gas_used);
-    TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
-    buffer_free(&output);
-  }
-  {
-    // invalid versioned hash prefix
-    uint8_t addr[20];
-    make_precompile_address(0x0a, addr);
-    uint8_t in[192] = {0};
-    // vhash[0]!=0x01 triggers invalid
-    bytes_t  input    = bytes(in, sizeof(in));
-    buffer_t output   = {0};
-    uint64_t gas_used = 0;
-    pre_result_t res  = eth_execute_precompile(addr, input, &output, &gas_used);
-    TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
-    buffer_free(&output);
-  }
+  // EIP-4844 point evaluation
+  RUN_TEST(test_precompile_point_evaluation_invalid);
+
+  // EIP-152 Blake2f
+  RUN_TEST(test_precompile_blake2f);
+  RUN_TEST(test_precompile_blake2f_invalid);
 
   return UNITY_END();
 }
