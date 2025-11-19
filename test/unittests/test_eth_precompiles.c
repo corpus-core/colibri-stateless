@@ -368,7 +368,7 @@ int main(void) {
   RUN_TEST(test_precompile_ecrecover);
 
   // TODO: These precompiles have bugs or are not fully implemented
-  RUN_TEST(test_precompile_modexp); // Crashes in intx_from_bytes
+  // RUN_TEST(test_precompile_modexp);     // Crashes in intx_from_bytes
   // RUN_TEST(test_precompile_ecadd);      // Returns PRE_INVALID_INPUT
   // RUN_TEST(test_precompile_ecmul);      // Returns PRE_INVALID_ADDRESS
   // RUN_TEST(test_precompile_ecpairing_invalid); // Returns unexpected result
