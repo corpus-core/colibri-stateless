@@ -8,6 +8,10 @@ if(NOT DEFINED OUTPUT)
   message(FATAL_ERROR "OUTPUT header path not specified")
 endif()
 
+# Strip potential quotes from paths
+string(REPLACE "\"" "" INPUT "${INPUT}")
+string(REPLACE "\"" "" OUTPUT "${OUTPUT}")
+
 if(NOT EXISTS "${INPUT}")
   message(FATAL_ERROR "Trusted setup file not found: ${INPUT}")
 endif()
