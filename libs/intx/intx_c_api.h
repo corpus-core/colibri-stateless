@@ -30,8 +30,8 @@ extern "C" {
 #ifndef BYTES_T_DEFINED
 #include <stdint.h>
 typedef struct {
-  uint8_t* data;
   uint32_t len;
+  uint8_t* data;
 } bytes_t;
 #define BYTES_T_DEFINED
 #endif /* Define a struct to hold uint256 values directly (no pointers) */
