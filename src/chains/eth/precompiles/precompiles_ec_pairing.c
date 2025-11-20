@@ -387,14 +387,6 @@ static void fp6_inv(fp6_t* r, const fp6_t* a, const uint256_t* p) {
 
   fp2_inv_impl(&invN, &N, p);
 
-  // Debug print
-
-  fp2_t check;
-  fp2_mul(&check, &N, &invN, p);
-  printf("fp6_inv check N*invN: c0=");
-  for (int k = 0; k < 32; k++) printf("%02x", check.c0.bytes[k]);
-  printf("\n");
-
   fp2_mul(&r->c0, &T0, &invN, p);
   fp2_mul(&r->c1, &T1, &invN, p);
   fp2_mul(&r->c2, &T2, &invN, p);
@@ -454,14 +446,6 @@ static void fp12_inv(fp12_t* r, const fp12_t* a, const uint256_t* p) {
 
   fp6_t invNorm;
   fp6_inv(&invNorm, &t0, p);
-
-  // Debug print
-
-  fp6_t check;
-  fp6_mul(&check, &t0, &invNorm, p);
-  printf("fp12_inv check norm*invNorm: c0.c0=");
-  for (int k = 0; k < 32; k++) printf("%02x", check.c0.c0.bytes[k]);
-  printf("\n");
 
   fp6_mul(&r->c0, &a->c0, &invNorm, p); // a0 * invNorm
   fp6_mul(&r->c1, &a->c1, &invNorm, p);
@@ -556,15 +540,7 @@ static void line_func_dbl(fp12_t* f, point_g2_jac_t* T, const point_g1_t* P, con
 
   fp12_mul(f, f, &l, p);
 
-  // Debug print l
-
-  printf("Dbl l: c0.c0=");
-  for (int k = 0; k < 32; k++) printf("%02x", l.c0.c0.c0.bytes[k]);
-  printf(" c1.c0=");
-  for (int k = 0; k < 32; k++) printf("%02x", l.c1.c0.c0.bytes[k]);
-  printf(" c1.c1=");
-  for (int k = 0; k < 32; k++) printf("%02x", l.c1.c1.c0.bytes[k]);
-  printf("\n");
+  fp12_mul(f, f, &l, p);
 }
 
 // Point addition T = T + R
@@ -628,16 +604,7 @@ static void line_func_add(fp12_t* f, point_g2_jac_t* T, const point_g2_t* R, con
 
   fp12_mul(f, f, &l, p);
 
-  // Debug print l
-  /*
-  printf("Add l: c0.c0=");
-  for(int k=0; k<32; k++) printf("%02x", l.c0.c0.c0.bytes[k]);
-  printf(" c1.c0=");
-  for(int k=0; k<32; k++) printf("%02x", l.c1.c0.c0.bytes[k]);
-  printf(" c1.c1=");
-  for(int k=0; k<32; k++) printf("%02x", l.c1.c1.c0.bytes[k]);
-  printf("\n");
-  */
+  fp12_mul(f, f, &l, p);
 }
 
 // Forward declaration
@@ -1055,48 +1022,8 @@ static pre_result_t pre_ec_pairing(bytes_t input, buffer_t* output, uint64_t* ga
   // Final exponentiation
   final_exponentiation(&result, &result, &p);
 
-  // Debug print result
-  printf("Result after final exp:\n");
-  printf("  c0.c0.c0: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c0.c0.bytes[k]);
-  printf("\n");
-  printf("  c0.c0.c1: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c0.c1.bytes[k]);
-  printf("\n");
-  printf("  c0.c1.c0: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c1.c0.bytes[k]);
-  printf("\n");
-  printf("  c0.c1.c1: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c1.c1.bytes[k]);
-  printf("\n");
-  printf("  c0.c2.c0: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c2.c0.bytes[k]);
-  printf("\n");
-  printf("  c0.c2.c1: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c2.c1.bytes[k]);
-  printf("\n");
-  printf("  c1.c0.c0: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c0.c0.bytes[k]);
-  printf("\n");
-  printf("  c1.c0.c1: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c0.c1.bytes[k]);
-  printf("\n");
-  printf("  c1.c1.c0: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c1.c0.bytes[k]);
-  printf("\n");
-  printf("  c1.c1.c1: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c1.c1.bytes[k]);
-  printf("\n");
-  printf("  c1.c2.c0: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c2.c0.bytes[k]);
-  printf("\n");
-  printf("  c1.c2.c1: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c2.c1.bytes[k]);
-  printf("\n");
-
   // Check if result is 1
   int is_one = fp12_is_one(&result);
-  printf("is_one: %d\n", is_one);
 
   buffer_reset(output);
   buffer_grow(output, 32);
