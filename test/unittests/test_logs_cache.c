@@ -86,6 +86,9 @@ static void run_scan_expect_success(json_t filter, json_t* out_result, bool* out
   char        tmp[100];
   buffer_t    buf = stack_buffer(tmp);
 
+  if (g_ctx)      c4_prover_free(g_ctx);
+  g_ctx = c4_prover_create("eth_getLogs", "[]", 1, 0);
+  
   do {
     status = c4_eth_logs_cache_scan(g_ctx, filter, out_result, out_cached);
 
