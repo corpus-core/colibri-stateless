@@ -24,6 +24,7 @@
 #include "../../src/chains/eth/precompiles/precompiles.h"
 #include "bytes.h"
 #include "unity.h"
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -43,6 +44,22 @@ static bytes_t hex_to_bytes_alloc(const char* hex) {
   uint8_t* data     = (uint8_t*) malloc(byte_len);
   hex_to_bytes(hex, hex_len, bytes(data, byte_len));
   return bytes(data, byte_len);
+}
+
+static void ensure_kzg_setup_loaded(void) {
+  static bool loaded = false;
+  if (loaded) return;
+  static const uint8_t G2_TAU_COMPRESSED[96] = {
+      0xb5, 0xbf, 0xd7, 0xdd, 0x8c, 0xde, 0xb1, 0x28, 0x84, 0x3b, 0xc2, 0x87,
+      0x23, 0x0a, 0xf3, 0x89, 0x26, 0x18, 0x70, 0x75, 0xcb, 0xfb, 0xef, 0xa8,
+      0x10, 0x09, 0xa2, 0xce, 0x61, 0x5a, 0xc5, 0x3d, 0x29, 0x14, 0xe5, 0x87,
+      0x0c, 0xb4, 0x52, 0xd2, 0xaf, 0xaa, 0xab, 0x24, 0xf3, 0x49, 0x9f, 0x72,
+      0x18, 0x5c, 0xbf, 0xee, 0x53, 0x49, 0x27, 0x14, 0x73, 0x44, 0x29, 0xb7,
+      0xb3, 0x86, 0x08, 0xe2, 0x39, 0x26, 0xc9, 0x11, 0xcc, 0xec, 0xea, 0xc9,
+      0xa3, 0x68, 0x51, 0x47, 0x7b, 0xa4, 0xc6, 0x0b, 0x08, 0x70, 0x41, 0xde,
+      0x62, 0x10, 0x00, 0xed, 0xc9, 0x8e, 0xda, 0xda, 0x20, 0xc1, 0xde, 0xf2};
+  TEST_ASSERT_TRUE(precompiles_kzg_set_trusted_setup_g2_tau(G2_TAU_COMPRESSED));
+  loaded = true;
 }
 
 // Forward declarations for BLS tests
@@ -279,6 +296,52 @@ void test_precompile_ecpairing_valid() {
 }
 
 // Test 9: Point Evaluation (0x0a) - EIP-4844
+void test_precompile_point_evaluation_valid() {
+  ensure_kzg_setup_loaded();
+
+  static const uint8_t VERSIONED_HASH[32] = {
+      0x01, 0x06, 0x57, 0xf3, 0x75, 0x54, 0xc7, 0x81, 0x40, 0x2a, 0x22, 0x91, 0x7d, 0xee, 0x2f, 0x75,
+      0xde, 0xf7, 0xab, 0x96, 0x6d, 0x7b, 0x77, 0x09, 0x05, 0x39, 0x8e, 0xba, 0x3c, 0x44, 0x40, 0x14};
+  static const uint8_t ZERO_FR[32]    = {0};
+  static const uint8_t COMMITMENT[48] = {
+      0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  static const uint8_t PROOF[48] = {
+      0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  static const uint8_t EXPECTED_FIELD_ELEMENTS[32] = {[30] = 0x10};
+  static const uint8_t EXPECTED_MODULUS[32]        = {
+      0x73, 0xed, 0xa7, 0x53, 0x29, 0x9d, 0x7d, 0x48, 0x33, 0x39, 0xd8, 0x08, 0x09, 0xa1, 0xd8, 0x05,
+      0x53, 0xbd, 0xa4, 0x02, 0xff, 0xfe, 0x5b, 0xfe, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01};
+
+  uint8_t input_data[192] = {0};
+  memcpy(input_data, VERSIONED_HASH, sizeof(VERSIONED_HASH));
+  memcpy(input_data + 32, ZERO_FR, sizeof(ZERO_FR));
+  memcpy(input_data + 64, ZERO_FR, sizeof(ZERO_FR));
+  memcpy(input_data + 96, COMMITMENT, sizeof(COMMITMENT));
+  memcpy(input_data + 144, PROOF, sizeof(PROOF));
+
+  uint8_t addr[20];
+  make_precompile_address(0x0a, addr);
+
+  bytes_t      input    = bytes(input_data, sizeof(input_data));
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(50000, gas_used);
+  TEST_ASSERT_EQUAL(64, output.data.len);
+  TEST_ASSERT_EQUAL_MEMORY(EXPECTED_FIELD_ELEMENTS, output.data.data, 32);
+  TEST_ASSERT_EQUAL_MEMORY(EXPECTED_MODULUS, output.data.data + 32, 32);
+
+  buffer_free(&output);
+}
+
 void test_precompile_point_evaluation_invalid() {
   {
     uint8_t addr[20];
@@ -432,44 +495,6 @@ void test_precompile_ecmul() {
   buffer_free(&output);
 }
 
-int main(void) {
-  UNITY_BEGIN();
-
-  // Working precompiles
-  RUN_TEST(test_precompile_sha256);
-  RUN_TEST(test_precompile_ripemd160);
-  RUN_TEST(test_precompile_identity);
-  RUN_TEST(test_precompile_ecrecover);
-
-  // TODO: These precompiles have bugs or are not fully implemented
-  RUN_TEST(test_precompile_modexp);
-  RUN_TEST(test_precompile_ecadd);
-  RUN_TEST(test_precompile_ecmul);
-  RUN_TEST(test_precompile_ecpairing_invalid);
-  RUN_TEST(test_precompile_ecpairing_valid);
-
-  RUN_TEST(test_precompile_ecadd);
-  RUN_TEST(test_precompile_ecmul);
-
-  // BLS12-381 EIP-2537
-  RUN_TEST(test_precompile_bls_g1add_infinity);
-  RUN_TEST(test_precompile_bls_g2add_infinity);
-  RUN_TEST(test_precompile_bls_pairing_empty);
-  RUN_TEST(test_precompile_bls_map_fp_to_g1_zero);
-  RUN_TEST(test_precompile_bls_map_fp2_to_g2_zero);
-  RUN_TEST(test_precompile_bls_g1msm_zero);
-  RUN_TEST(test_precompile_bls_g2msm_zero);
-
-  // EIP-4844 point evaluation
-  RUN_TEST(test_precompile_point_evaluation_invalid);
-
-  // EIP-152 Blake2f
-  RUN_TEST(test_precompile_blake2f);
-  RUN_TEST(test_precompile_blake2f_invalid);
-
-  return UNITY_END();
-}
-
 // -------------------- BLS12-381 (EIP-2537) tests --------------------
 
 static void make_zeros(uint8_t* p, size_t n) { memset(p, 0, n); }
@@ -580,4 +605,43 @@ void test_precompile_bls_g2msm_zero() {
   // k=1 => gas = 1 * 22500 * 1000 / 1000 = 22500
   TEST_ASSERT_EQUAL_UINT64(22500, gas_used);
   buffer_free(&output);
+}
+
+int main(void) {
+  UNITY_BEGIN();
+
+  // Working precompiles
+  RUN_TEST(test_precompile_sha256);
+  RUN_TEST(test_precompile_ripemd160);
+  RUN_TEST(test_precompile_identity);
+  RUN_TEST(test_precompile_ecrecover);
+
+  // TODO: These precompiles have bugs or are not fully implemented
+  RUN_TEST(test_precompile_modexp);
+  RUN_TEST(test_precompile_ecadd);
+  RUN_TEST(test_precompile_ecmul);
+  RUN_TEST(test_precompile_ecpairing_invalid);
+  RUN_TEST(test_precompile_ecpairing_valid);
+
+  RUN_TEST(test_precompile_ecadd);
+  RUN_TEST(test_precompile_ecmul);
+
+  // BLS12-381 EIP-2537
+  RUN_TEST(test_precompile_bls_g1add_infinity);
+  RUN_TEST(test_precompile_bls_g2add_infinity);
+  RUN_TEST(test_precompile_bls_pairing_empty);
+  RUN_TEST(test_precompile_bls_map_fp_to_g1_zero);
+  RUN_TEST(test_precompile_bls_map_fp2_to_g2_zero);
+  RUN_TEST(test_precompile_bls_g1msm_zero);
+  RUN_TEST(test_precompile_bls_g2msm_zero);
+
+  // EIP-4844 point evaluation
+  RUN_TEST(test_precompile_point_evaluation_valid);
+  RUN_TEST(test_precompile_point_evaluation_invalid);
+
+  // EIP-152 Blake2f
+  RUN_TEST(test_precompile_blake2f);
+  RUN_TEST(test_precompile_blake2f_invalid);
+
+  return UNITY_END();
 }
