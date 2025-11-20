@@ -2,6 +2,7 @@
  * Copyright (c) 2025 corpus.core
  * SPDX-License-Identifier: MIT
  */
+#ifdef PROVER_CACHE
 
 #include "bytes.h"
 #include "c4_assert.h"
@@ -309,3 +310,12 @@ int main(int argc, char** argv) {
   RUN_TEST(test_metrics);
   return UNITY_END();
 }
+
+#else
+
+
+int main(int argc, char** argv) {
+  UNITY_BEGIN();
+  return UNITY_END();
+}
+#endif
