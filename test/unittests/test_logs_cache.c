@@ -2,10 +2,11 @@
  * Copyright (c) 2025 corpus.core
  * SPDX-License-Identifier: MIT
  */
+#include "c4_assert.h"
+
 #ifdef PROVER_CACHE
 
 #include "bytes.h"
-#include "c4_assert.h"
 #include "json.h"
 #include "logs_cache.h"
 #include "prover.h"
