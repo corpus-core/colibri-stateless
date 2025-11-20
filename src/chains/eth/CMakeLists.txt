@@ -43,6 +43,7 @@ option(EVMONE "uses evmone to verify eth_calls" ON)
 option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas." OFF)
 # precompiles
 option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
+option(PRECOMPILES_BN128 "Precompile BN128 (ecadd, ecmul, ecpairing)" ON)
 
 if(NOT MSVC)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-excess-initializers")
@@ -65,6 +66,9 @@ if (EVMLIGHT OR EVMONE)
     endif()
     if (PRECOMPILES_RIPEMD160)
         add_definitions(-DPRECOMPILED_RIPEMD160)
+    endif()
+    if (PRECOMPILES_BN128)
+        add_definitions(-DPRECOMPILED_BN128)
     endif()
 endif()
 
