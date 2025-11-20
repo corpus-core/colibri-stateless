@@ -86,17 +86,15 @@ typedef struct {
 
 } logs_cache_t;
 
-static logs_cache_t g_cache = {0};
+typedef struct {
+  uint64_t total_events;
+  uint64_t total_txs; // we approximate by distinct tx_index per block when assembling
+  uint64_t hits;
+  uint64_t misses;
+} logs_metrics_t;
 
-// static bool     g_enabled            = false;
-static uint64_t g_blocks_cached      = 0;
-static uint64_t g_total_events       = 0;
-static uint64_t g_total_txs          = 0; // we approximate by distinct tx_index per block when assembling
-static uint64_t g_hits_total         = 0;
-static uint64_t g_misses_total       = 0;
-static uint64_t g_bloom_skips_total  = 0;
-static uint64_t g_first_block_number = 0;
-static uint64_t g_last_block_number  = 0;
+static logs_cache_t   g_cache   = {0};
+static logs_metrics_t g_metrics = {0};
 
 static void reset_cache(void) {
   for (uint32_t i = 0; i < g_cache.blocks_count; i++) {
@@ -108,11 +106,7 @@ static void reset_cache(void) {
   g_cache.start_idx    = 0;
   g_cache.start_number = 0;
 
-  g_blocks_cached      = 0;
-  g_total_events       = 0;
-  g_total_txs          = 0;
-  g_first_block_number = 0;
-  g_last_block_number  = 0;
+  memset(&g_metrics, 0, sizeof(g_metrics));
 }
 #define BLOOM_IDX(a, b) ((((uint64_t) (b) << 8) | (a)) & 2047u)
 
@@ -134,7 +128,8 @@ static block_entry_t* push_block(uint64_t block_number) {
 
   // is previous block in the cache? if not, we need to reset in order to have a contiguous cache
   if (g_cache.start_number + g_cache.blocks_count != block_number) {
-    log_warn("logs_cache: non-contiguous block detected (got %l, expected %l). Resetting cache.", block_number, g_last_block_number + 1);
+    log_warn("logs_cache: non-contiguous block detected (got %l, expected %l). Resetting cache.", block_number,
+             g_cache.start_number + g_cache.blocks_count);
     reset_cache();
   }
 
@@ -171,7 +166,7 @@ static void add_event(block_entry_t* e, address_t addr, uint32_t tx_index, uint3
   ev->log_index    = log_index;
   ev->topics_count = topics_count > 4 ? 4 : topics_count;
   for (uint8_t i = 0; i < ev->topics_count; i++) memcpy(ev->topics[i], topics[i], BYTES32_SIZE);
-  g_total_events++;
+  g_metrics.total_events++;
 }
 
 void c4_eth_logs_cache_add_block(uint64_t block_number, const uint8_t* logs_bloom, json_t receipts_array) {
@@ -203,7 +198,7 @@ void c4_eth_logs_cache_add_block(uint64_t block_number, const uint8_t* logs_bloo
       li++;
     }
   }
-  g_total_txs += tx_count_local;
+  g_metrics.total_txs += tx_count_local;
 }
 
 static void free_tx_results(tx_result_t* txs) {
@@ -528,7 +523,7 @@ c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out
   // since the range may have changed since last call
   if (!c4_eth_logs_cache_has_range(st->from_block, st->to_block)) {
     if (!st->miss_counted) {
-      g_misses_total++;
+      g_metrics.misses++;
       st->miss_counted = 1;
     }
     return C4_SUCCESS;
@@ -555,7 +550,7 @@ c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out
       if (served_from_cache) *served_from_cache = true;
       // keep ownership to free at end
       if (!st->hit_counted) {
-        g_hits_total++;
+        g_metrics.hits++;
         st->hit_counted = 1;
       }
       return C4_SUCCESS;
@@ -569,21 +564,21 @@ c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out
   TRY_ASYNC(build_result_json_from_matches(ctx, st, filter, out_logs));
   if (served_from_cache) *served_from_cache = true;
   if (!st->hit_counted) {
-    g_hits_total++;
+    g_metrics.hits++;
     st->hit_counted = 1;
   }
   return C4_SUCCESS;
 }
 
 void c4_eth_logs_cache_stats(uint64_t* blocks, uint64_t* txs, uint64_t* events) {
-  if (blocks) *blocks = g_blocks_cached;
-  if (txs) *txs = g_total_txs;
-  if (events) *events = g_total_events;
+  if (blocks) *blocks = g_cache.blocks_count;
+  if (txs) *txs = g_metrics.total_txs;
+  if (events) *events = g_metrics.total_events;
 }
 void c4_eth_logs_cache_counters(uint64_t* hits, uint64_t* misses, uint64_t* bloom_skips) {
-  if (hits) *hits = g_hits_total;
-  if (misses) *misses = g_misses_total;
-  if (bloom_skips) *bloom_skips = g_bloom_skips_total;
+  if (hits) *hits = g_metrics.hits;
+  if (misses) *misses = g_metrics.misses;
+  if (bloom_skips) *bloom_skips = 0; // unused
 }
 uint64_t c4_eth_logs_cache_first_block(void) { return g_cache.start_number; }
 uint64_t c4_eth_logs_cache_last_block(void) { return g_cache.start_number + g_cache.blocks_count - 1; }
