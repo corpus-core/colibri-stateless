@@ -157,33 +157,45 @@ static void fp2_neg(fp2_t* r, const fp2_t* a, const uint256_t* p) {
 // (a + bi)(c + di) = (ac - bd) + (ad + bc)i
 static void fp2_mul(fp2_t* r, const fp2_t* a, const fp2_t* b, const uint256_t* p) {
   uint256_t t0, t1, t2, t3;
+  uint256_t c0, c1; // Temporaries for result
   intx_init(&t0);
   intx_init(&t1);
   intx_init(&t2);
   intx_init(&t3);
+  intx_init(&c0);
+  intx_init(&c1);
 
   fp_mul(&t0, &a->c0, &b->c0, p); // ac
   fp_mul(&t1, &a->c1, &b->c1, p); // bd
-  fp_sub(&r->c0, &t0, &t1, p);    // ac - bd
+  fp_sub(&c0, &t0, &t1, p);       // ac - bd
 
   fp_mul(&t2, &a->c0, &b->c1, p); // ad
   fp_mul(&t3, &a->c1, &b->c0, p); // bc
-  fp_add(&r->c1, &t2, &t3, p);    // ad + bc
+  fp_add(&c1, &t2, &t3, p);       // ad + bc
+
+  memcpy(&r->c0, &c0, sizeof(uint256_t));
+  memcpy(&r->c1, &c1, sizeof(uint256_t));
 }
 
 // (a + bi)^2 = (a^2 - b^2) + 2abi
 static void fp2_sqr(fp2_t* r, const fp2_t* a, const uint256_t* p) {
   uint256_t t0, t1, t2;
+  uint256_t c0, c1; // Temporaries for result
   intx_init(&t0);
   intx_init(&t1);
   intx_init(&t2);
+  intx_init(&c0);
+  intx_init(&c1);
 
   fp_mul(&t0, &a->c0, &a->c0, p); // a^2
   fp_mul(&t1, &a->c1, &a->c1, p); // b^2
-  fp_sub(&r->c0, &t0, &t1, p);    // a^2 - b^2
+  fp_sub(&c0, &t0, &t1, p);       // a^2 - b^2
 
   fp_mul(&t2, &a->c0, &a->c1, p); // ab
-  fp_add(&r->c1, &t2, &t2, p);    // 2ab
+  fp_add(&c1, &t2, &t2, p);       // 2ab
+
+  memcpy(&r->c0, &c0, sizeof(uint256_t));
+  memcpy(&r->c1, &c1, sizeof(uint256_t));
 }
 
 // Corrected implementation of fp2_inv using the helper
@@ -255,6 +267,8 @@ static void fp6_mul(fp6_t* r, const fp6_t* a, const fp6_t* b, const uint256_t* p
   // (a0 + a1v + a2v^2)(b0 + b1v + b2v^2)
   // v^3 = xi
   fp2_t v0, v1, v2, t0, t1, t2;
+  fp2_t c0, c1, c2; // Temporaries for result
+
   // v0 = a0b0
   fp2_mul(&v0, &a->c0, &b->c0, p);
   // v1 = a1b1
@@ -269,7 +283,7 @@ static void fp6_mul(fp6_t* r, const fp6_t* a, const fp6_t* b, const uint256_t* p
   fp2_sub(&t0, &t0, &v1, p);
   fp2_sub(&t0, &t0, &v2, p); // (a1+a2)(b1+b2) - v1 - v2
   fp2_mul_xi(&t0, &t0, p);   // xi(...)
-  fp2_add(&r->c0, &v0, &t0, p);
+  fp2_add(&c0, &v0, &t0, p);
 
   // c1 = (a0+a1)(b0+b1) - v0 - v1 + xi*v2
   fp2_add(&t0, &a->c0, &a->c1, p);
@@ -278,7 +292,7 @@ static void fp6_mul(fp6_t* r, const fp6_t* a, const fp6_t* b, const uint256_t* p
   fp2_sub(&t0, &t0, &v0, p);
   fp2_sub(&t0, &t0, &v1, p); // ... - v0 - v1
   fp2_mul_xi(&t1, &v2, p);   // xi*v2
-  fp2_add(&r->c1, &t0, &t1, p);
+  fp2_add(&c1, &t0, &t1, p);
 
   // c2 = (a0+a2)(b0+b2) - v0 - v2 + v1
   fp2_add(&t0, &a->c0, &a->c2, p);
@@ -286,7 +300,11 @@ static void fp6_mul(fp6_t* r, const fp6_t* a, const fp6_t* b, const uint256_t* p
   fp2_mul(&t0, &t0, &t1, p); // (a0+a2)(b0+b2)
   fp2_sub(&t0, &t0, &v0, p);
   fp2_sub(&t0, &t0, &v2, p); // ... - v0 - v2
-  fp2_add(&r->c2, &t0, &v1, p);
+  fp2_add(&c2, &t0, &v1, p);
+
+  r->c0 = c0;
+  r->c1 = c1;
+  r->c2 = c2;
 }
 
 static void fp6_sqr(fp6_t* r, const fp6_t* a, const uint256_t* p) {
@@ -296,6 +314,8 @@ static void fp6_sqr(fp6_t* r, const fp6_t* a, const uint256_t* p) {
   // = (a0^2 + 2a1a2xi) + (2a0a1 + a2^2xi)v + (a1^2 + 2a0a2)v^2
 
   fp2_t s0, s1, s2, t0, t1;
+  fp2_t c0, c1, c2; // Temporaries for result
+
   fp2_sqr(&s0, &a->c0, p); // a0^2
   fp2_sqr(&s1, &a->c1, p); // a1^2
   fp2_sqr(&s2, &a->c2, p); // a2^2
@@ -304,18 +324,22 @@ static void fp6_sqr(fp6_t* r, const fp6_t* a, const uint256_t* p) {
   fp2_mul(&t0, &a->c1, &a->c2, p);
   fp2_add(&t0, &t0, &t0, p); // 2a1a2
   fp2_mul_xi(&t0, &t0, p);   // 2a1a2xi
-  fp2_add(&r->c0, &s0, &t0, p);
+  fp2_add(&c0, &s0, &t0, p);
 
   // c1 = 2a0a1 + s2xi
   fp2_mul(&t0, &a->c0, &a->c1, p);
   fp2_add(&t0, &t0, &t0, p); // 2a0a1
   fp2_mul_xi(&t1, &s2, p);   // s2xi
-  fp2_add(&r->c1, &t0, &t1, p);
+  fp2_add(&c1, &t0, &t1, p);
 
   // c2 = s1 + 2a0a2
   fp2_mul(&t0, &a->c0, &a->c2, p);
   fp2_add(&t0, &t0, &t0, p); // 2a0a2
-  fp2_add(&r->c2, &s1, &t0, p);
+  fp2_add(&c2, &s1, &t0, p);
+
+  r->c0 = c0;
+  r->c1 = c1;
+  r->c2 = c2;
 }
 
 static void fp6_mul_v(fp6_t* r, const fp6_t* a, const uint256_t* p) {
@@ -362,6 +386,14 @@ static void fp6_inv(fp6_t* r, const fp6_t* a, const uint256_t* p) {
   fp2_add(&N, &N, &tmp, p);
 
   fp2_inv_impl(&invN, &N, p);
+
+  // Debug print
+
+  fp2_t check;
+  fp2_mul(&check, &N, &invN, p);
+  printf("fp6_inv check N*invN: c0=");
+  for (int k = 0; k < 32; k++) printf("%02x", check.c0.bytes[k]);
+  printf("\n");
 
   fp2_mul(&r->c0, &T0, &invN, p);
   fp2_mul(&r->c1, &T1, &invN, p);
@@ -422,6 +454,14 @@ static void fp12_inv(fp12_t* r, const fp12_t* a, const uint256_t* p) {
 
   fp6_t invNorm;
   fp6_inv(&invNorm, &t0, p);
+
+  // Debug print
+
+  fp6_t check;
+  fp6_mul(&check, &t0, &invNorm, p);
+  printf("fp12_inv check norm*invNorm: c0.c0=");
+  for (int k = 0; k < 32; k++) printf("%02x", check.c0.c0.bytes[k]);
+  printf("\n");
 
   fp6_mul(&r->c0, &a->c0, &invNorm, p); // a0 * invNorm
   fp6_mul(&r->c1, &a->c1, &invNorm, p);
@@ -517,13 +557,14 @@ static void line_func_dbl(fp12_t* f, point_g2_jac_t* T, const point_g1_t* P, con
   fp12_mul(f, f, &l, p);
 
   // Debug print l
-  /*
-  printf("Dbl l: c0=");
-  for(int k=0; k<32; k++) printf("%02x", l.c0.c0.c0.bytes[k]);
+
+  printf("Dbl l: c0.c0=");
+  for (int k = 0; k < 32; k++) printf("%02x", l.c0.c0.c0.bytes[k]);
   printf(" c1.c0=");
-  for(int k=0; k<32; k++) printf("%02x", l.c1.c0.c0.bytes[k]);
+  for (int k = 0; k < 32; k++) printf("%02x", l.c1.c0.c0.bytes[k]);
+  printf(" c1.c1=");
+  for (int k = 0; k < 32; k++) printf("%02x", l.c1.c1.c0.bytes[k]);
   printf("\n");
-  */
 }
 
 // Point addition T = T + R
@@ -582,14 +623,19 @@ static void line_func_add(fp12_t* f, point_g2_jac_t* T, const point_g2_t* R, con
 
   l.c1.c1 = C;
 
+  // Fix sign inconsistency with dbl: negate the w term (c1.c0)
+  fp2_neg(&l.c1.c0, &l.c1.c0, p);
+
   fp12_mul(f, f, &l, p);
 
   // Debug print l
   /*
-  printf("Add l: c0=");
+  printf("Add l: c0.c0=");
   for(int k=0; k<32; k++) printf("%02x", l.c0.c0.c0.bytes[k]);
   printf(" c1.c0=");
   for(int k=0; k<32; k++) printf("%02x", l.c1.c0.c0.bytes[k]);
+  printf(" c1.c1=");
+  for(int k=0; k<32; k++) printf("%02x", l.c1.c1.c0.bytes[k]);
   printf("\n");
   */
 }
@@ -941,6 +987,32 @@ static void final_exponentiation(fp12_t* r, const fp12_t* f, const uint256_t* p)
   *r = res;
 }
 
+static int fp12_is_one(const fp12_t* a) {
+  // Check if a == 1
+  // c0.c0.c0 == 1, all others 0
+
+  // Check c0.c0.c0 == 1
+  if (a->c0.c0.c0.bytes[31] != 1) return 0;
+  for (int i = 0; i < 31; i++)
+    if (a->c0.c0.c0.bytes[i] != 0) return 0;
+
+  // Check others are 0
+  if (!intx_is_zero(&a->c0.c0.c1)) return 0;
+  if (!intx_is_zero(&a->c0.c1.c0)) return 0;
+  if (!intx_is_zero(&a->c0.c1.c1)) return 0;
+  if (!intx_is_zero(&a->c0.c2.c0)) return 0;
+  if (!intx_is_zero(&a->c0.c2.c1)) return 0;
+
+  if (!intx_is_zero(&a->c1.c0.c0)) return 0;
+  if (!intx_is_zero(&a->c1.c0.c1)) return 0;
+  if (!intx_is_zero(&a->c1.c1.c0)) return 0;
+  if (!intx_is_zero(&a->c1.c1.c1)) return 0;
+  if (!intx_is_zero(&a->c1.c2.c0)) return 0;
+  if (!intx_is_zero(&a->c1.c2.c1)) return 0;
+
+  return 1;
+}
+
 static pre_result_t pre_ec_pairing(bytes_t input, buffer_t* output, uint64_t* gas_used) {
   if (input.len % 192 != 0) {
     return PRE_INVALID_INPUT;
@@ -957,41 +1029,6 @@ static pre_result_t pre_ec_pairing(bytes_t input, buffer_t* output, uint64_t* ga
   memset(&result, 0, sizeof(fp12_t));
   result.c0.c0.c0.bytes[31] = 1; // Initialize to 1 (LSB is at index 31 for BE)
 
-  // Runtime check for arithmetic
-  {
-    uint256_t two, inv_two, prod;
-    memset(&two, 0, sizeof(uint256_t));
-    two.bytes[31] = 2;
-    fp_inv_mod(&inv_two, &two, &p);
-    fp_mul(&prod, &two, &inv_two, &p);
-    printf("2 * inv(2) = ");
-    for (int k = 0; k < 32; k++) printf("%02x", prod.bytes[k]);
-    printf("\n");
-
-    fp2_t a, inv_a, prod_a;
-    memset(&a, 0, sizeof(fp2_t));
-    a.c0.bytes[31] = 3;
-    a.c1.bytes[31] = 4;
-    fp2_inv(&inv_a, &a, &p);
-    fp2_mul(&prod_a, &a, &inv_a, &p);
-    printf("(3+4i) * inv(3+4i) = c0: ");
-    for (int k = 0; k < 32; k++) printf("%02x", prod_a.c0.bytes[k]);
-    printf(" c1: ");
-    for (int k = 0; k < 32; k++) printf("%02x", prod_a.c1.bytes[k]);
-    printf("\n");
-
-    // Check Fp12 inv
-    fp12_t f, inv_f, prod_f;
-    memset(&f, 0, sizeof(fp12_t));
-    f.c0.c0.c0.bytes[31] = 2; // Just a simple value
-    f.c1.c1.c1.bytes[31] = 3;
-    fp12_inv(&inv_f, &f, &p);
-    fp12_mul(&prod_f, &f, &inv_f, &p);
-    printf("f * inv(f) = c0.c0.c0: ");
-    for (int k = 0; k < 32; k++) printf("%02x", prod_f.c0.c0.c0.bytes[k]);
-    printf("\n");
-  }
-
   // Loop over pairs
   for (size_t i = 0; i < num_pairs; i++) {
     // Parse P (G1)
@@ -1007,64 +1044,65 @@ static pre_result_t pre_ec_pairing(bytes_t input, buffer_t* output, uint64_t* ga
     uint256_from_bytes(&Q.y.c1, input.data + i * 192 + 128); // y1
     uint256_from_bytes(&Q.y.c0, input.data + i * 192 + 160); // y0
 
-    // Debug print inputs
-    printf("Pair %zu:\n", i);
-    printf("  P.x: ");
-    for (int k = 0; k < 32; k++) printf("%02x", P.x.bytes[k]);
-    printf("\n");
-    printf("  P.y: ");
-    for (int k = 0; k < 32; k++) printf("%02x", P.y.bytes[k]);
-    printf("\n");
-    printf("  Q.x.c0: ");
-    for (int k = 0; k < 32; k++) printf("%02x", Q.x.c0.bytes[k]);
-    printf("\n");
-    printf("  Q.x.c1: ");
-    for (int k = 0; k < 32; k++) printf("%02x", Q.x.c1.bytes[k]);
-    printf("\n");
-    printf("  Q.y.c0: ");
-    for (int k = 0; k < 32; k++) printf("%02x", Q.y.c0.bytes[k]);
-    printf("\n");
-    printf("  Q.y.c1: ");
-    for (int k = 0; k < 32; k++) printf("%02x", Q.y.c1.bytes[k]);
-    printf("\n");
-
     // Miller loop
     fp12_t miller_res;
     miller_loop(&miller_res, &P, &Q, &p);
 
     // Accumulate result: result = result * miller_res
     fp12_mul(&result, &result, &miller_res, &p);
-
-    // Debug print
-    printf("Pair %zu Miller result: ", i);
-    for (int k = 0; k < 32; k++) printf("%02x", miller_res.c0.c0.c0.bytes[k]);
-    printf("\n");
   }
-
-  // Debug print result before final exp
-  printf("Result before final exp: ");
-  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c0.c0.bytes[k]);
-  printf("\n");
 
   // Final exponentiation
   final_exponentiation(&result, &result, &p);
 
-  // Debug print result after final exp
-  printf("Result after final exp: ");
+  // Debug print result
+  printf("Result after final exp:\n");
+  printf("  c0.c0.c0: ");
   for (int k = 0; k < 32; k++) printf("%02x", result.c0.c0.c0.bytes[k]);
   printf("\n");
+  printf("  c0.c0.c1: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c0.c1.bytes[k]);
+  printf("\n");
+  printf("  c0.c1.c0: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c1.c0.bytes[k]);
+  printf("\n");
+  printf("  c0.c1.c1: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c1.c1.bytes[k]);
+  printf("\n");
+  printf("  c0.c2.c0: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c2.c0.bytes[k]);
+  printf("\n");
+  printf("  c0.c2.c1: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c0.c2.c1.bytes[k]);
+  printf("\n");
+  printf("  c1.c0.c0: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c0.c0.bytes[k]);
+  printf("\n");
+  printf("  c1.c0.c1: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c0.c1.bytes[k]);
+  printf("\n");
+  printf("  c1.c1.c0: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c1.c0.bytes[k]);
+  printf("\n");
+  printf("  c1.c1.c1: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c1.c1.bytes[k]);
+  printf("\n");
+  printf("  c1.c2.c0: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c2.c0.bytes[k]);
+  printf("\n");
+  printf("  c1.c2.c1: ");
+  for (int k = 0; k < 32; k++) printf("%02x", result.c1.c2.c1.bytes[k]);
+  printf("\n");
 
-  // Check if result is 1 (unity)
-  // Unity in Fp12 is c0.c0.c0 = 1, all others 0.
-  int is_unity = 1;
-  if (result.c0.c0.c0.bytes[31] != 1) is_unity = 0;
-  for (int i = 0; i < 31; i++)
-    if (result.c0.c0.c0.bytes[i] != 0) is_unity = 0;
+  // Check if result is 1
+  int is_one = fp12_is_one(&result);
+  printf("is_one: %d\n", is_one);
 
   buffer_reset(output);
-  uint8_t out_bytes[32] = {0};
-  out_bytes[31]         = is_unity ? 1 : 0;
-  buffer_append(output, bytes(out_bytes, 32));
+  buffer_grow(output, 32);
+  memset(output->data.data, 0, 32);
+  output->data.data[31] = is_one ? 1 : 0;
+  output->data.len      = 32;
 
   return PRE_SUCCESS;
 }
