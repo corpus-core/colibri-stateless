@@ -388,7 +388,7 @@ static inline bool topics_matches(bytes_t filter_topics[MAX_TOPICS], bytes32_t* 
     if (topics_count <= p) return false;
 
     bool any = false;
-    for (uint32_t i = 0; i <= tp.len; i += 32) {
+    for (uint32_t i = 0; i < tp.len; i += 32) {
       if (memcmp(topics[p], tp.data + i, 32) == 0) {
         any = true;
         break;
