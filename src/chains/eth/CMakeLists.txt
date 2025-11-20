@@ -44,6 +44,7 @@ option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and f
 # precompiles
 option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
 option(PRECOMPILES_BN128 "Precompile BN128 (ecadd, ecmul, ecpairing)" ON)
+option(PRECOMPILES_KZG "Precompile KZG (point evaluation)" ON)
 
 if(NOT MSVC)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-excess-initializers")
@@ -69,6 +70,9 @@ if (EVMLIGHT OR EVMONE)
     endif()
     if (PRECOMPILES_BN128)
         add_definitions(-DPRECOMPILED_BN128)
+    endif()
+    if (PRECOMPILES_KZG)
+        add_definitions(-DPRECOMPILED_KZG)
     endif()
 endif()
 

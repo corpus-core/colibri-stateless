@@ -48,7 +48,9 @@ typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint6
 // BLS12-381 (EIP-2537) precompiles
 #include "precompiles_bls.c"
 // EIP-4844 point evaluation precompile
+#ifdef PRECOMPILED_KZG
 #include "precompiles_kzg.c"
+#endif
 // EIP-152 Blake2f precompile
 #include "precompiles_blake2.c"
 
@@ -219,8 +221,12 @@ const precompile_func_t precompile_fn[] = {
     NULL, // 0x07
     NULL, // 0x08
 #endif
-    pre_blake2f,          // 0x09
+    pre_blake2f, // 0x09
+#ifdef PRECOMPILED_KZG
     pre_point_evaluation, // 0x0a
+#else
+    NULL, // 0x0a
+#endif
     // 0x0b - 0x11 BLS12-381 (EIP-2537)
     pre_bls12_g1add,         // 0x0b
     pre_bls12_g1msm,         // 0x0c
