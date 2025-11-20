@@ -33,6 +33,9 @@ bool c4_eth_logs_cache_has_range(uint64_t from_block, uint64_t to_block);
 // or C4_ERROR on failure.
 c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out_logs, bool* served_from_cache);
 
+// creates a bloom filter from a filter JSON
+bytes_t c4_eth_create_bloomfilter(json_t filter);
+
 // Stats for Prometheus
 void     c4_eth_logs_cache_stats(uint64_t* blocks, uint64_t* txs, uint64_t* events);
 void     c4_eth_logs_cache_counters(uint64_t* hits, uint64_t* misses, uint64_t* bloom_skips);
