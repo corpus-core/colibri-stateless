@@ -221,11 +221,14 @@ static void fp2_mul_xi(fp2_t* r, const fp2_t* a, const uint256_t* p) {
   intx_init(&nine);
   nine.bytes[31] = 9; // BE
 
-  fp_mul(&t0, &a->c0, &nine, p);  // 9a0
-  fp_sub(&r->c0, &t0, &a->c1, p); // 9a0 - a1
+  fp_mul(&t0, &a->c0, &nine, p); // 9a0
+  fp_sub(&t2, &t0, &a->c1, p);   // 9a0 - a1 (store in t2)
 
-  fp_mul(&t1, &a->c1, &nine, p);  // 9a1
-  fp_add(&r->c1, &t1, &a->c0, p); // 9a1 + a0
+  fp_mul(&t1, &a->c1, &nine, p); // 9a1
+  fp_add(&t3, &t1, &a->c0, p);   // 9a1 + a0 (store in t3)
+
+  memcpy(&r->c0, &t2, sizeof(uint256_t));
+  memcpy(&r->c1, &t3, sizeof(uint256_t));
 }
 
 // Fp6 arithmetic
@@ -512,6 +515,15 @@ static void line_func_dbl(fp12_t* f, point_g2_jac_t* T, const point_g1_t* P, con
   l.c1.c1 = C;
 
   fp12_mul(f, f, &l, p);
+
+  // Debug print l
+  /*
+  printf("Dbl l: c0=");
+  for(int k=0; k<32; k++) printf("%02x", l.c0.c0.c0.bytes[k]);
+  printf(" c1.c0=");
+  for(int k=0; k<32; k++) printf("%02x", l.c1.c0.c0.bytes[k]);
+  printf("\n");
+  */
 }
 
 // Point addition T = T + R
@@ -571,6 +583,15 @@ static void line_func_add(fp12_t* f, point_g2_jac_t* T, const point_g2_t* R, con
   l.c1.c1 = C;
 
   fp12_mul(f, f, &l, p);
+
+  // Debug print l
+  /*
+  printf("Add l: c0=");
+  for(int k=0; k<32; k++) printf("%02x", l.c0.c0.c0.bytes[k]);
+  printf(" c1.c0=");
+  for(int k=0; k<32; k++) printf("%02x", l.c1.c0.c0.bytes[k]);
+  printf("\n");
+  */
 }
 
 // Forward declaration
@@ -592,8 +613,8 @@ static void miller_loop(fp12_t* res, const point_g1_t* P, const point_g2_t* Q, c
   memset(&T.z, 0, sizeof(fp2_t));
   T.z.c0.bytes[31] = 1; // Z = 1
 
-  // Loop from bit 64 down to 0
-  for (int i = 64; i >= 0; i--) {
+  // Loop from bit 63 down to 0
+  for (int i = 63; i >= 0; i--) {
     fp12_sqr(res, res, p);
     line_func_dbl(res, &T, P, p);
 
@@ -936,6 +957,41 @@ static pre_result_t pre_ec_pairing(bytes_t input, buffer_t* output, uint64_t* ga
   memset(&result, 0, sizeof(fp12_t));
   result.c0.c0.c0.bytes[31] = 1; // Initialize to 1 (LSB is at index 31 for BE)
 
+  // Runtime check for arithmetic
+  {
+    uint256_t two, inv_two, prod;
+    memset(&two, 0, sizeof(uint256_t));
+    two.bytes[31] = 2;
+    fp_inv_mod(&inv_two, &two, &p);
+    fp_mul(&prod, &two, &inv_two, &p);
+    printf("2 * inv(2) = ");
+    for (int k = 0; k < 32; k++) printf("%02x", prod.bytes[k]);
+    printf("\n");
+
+    fp2_t a, inv_a, prod_a;
+    memset(&a, 0, sizeof(fp2_t));
+    a.c0.bytes[31] = 3;
+    a.c1.bytes[31] = 4;
+    fp2_inv(&inv_a, &a, &p);
+    fp2_mul(&prod_a, &a, &inv_a, &p);
+    printf("(3+4i) * inv(3+4i) = c0: ");
+    for (int k = 0; k < 32; k++) printf("%02x", prod_a.c0.bytes[k]);
+    printf(" c1: ");
+    for (int k = 0; k < 32; k++) printf("%02x", prod_a.c1.bytes[k]);
+    printf("\n");
+
+    // Check Fp12 inv
+    fp12_t f, inv_f, prod_f;
+    memset(&f, 0, sizeof(fp12_t));
+    f.c0.c0.c0.bytes[31] = 2; // Just a simple value
+    f.c1.c1.c1.bytes[31] = 3;
+    fp12_inv(&inv_f, &f, &p);
+    fp12_mul(&prod_f, &f, &inv_f, &p);
+    printf("f * inv(f) = c0.c0.c0: ");
+    for (int k = 0; k < 32; k++) printf("%02x", prod_f.c0.c0.c0.bytes[k]);
+    printf("\n");
+  }
+
   // Loop over pairs
   for (size_t i = 0; i < num_pairs; i++) {
     // Parse P (G1)
@@ -948,8 +1004,29 @@ static pre_result_t pre_ec_pairing(bytes_t input, buffer_t* output, uint64_t* ga
     // Q.x = x1*i + x0. EIP-197 says: (x1, x0)
     uint256_from_bytes(&Q.x.c1, input.data + i * 192 + 64);
     uint256_from_bytes(&Q.x.c0, input.data + i * 192 + 96);
-    uint256_from_bytes(&Q.y.c1, input.data + i * 192 + 128);
-    uint256_from_bytes(&Q.y.c0, input.data + i * 192 + 160);
+    uint256_from_bytes(&Q.y.c1, input.data + i * 192 + 128); // y1
+    uint256_from_bytes(&Q.y.c0, input.data + i * 192 + 160); // y0
+
+    // Debug print inputs
+    printf("Pair %zu:\n", i);
+    printf("  P.x: ");
+    for (int k = 0; k < 32; k++) printf("%02x", P.x.bytes[k]);
+    printf("\n");
+    printf("  P.y: ");
+    for (int k = 0; k < 32; k++) printf("%02x", P.y.bytes[k]);
+    printf("\n");
+    printf("  Q.x.c0: ");
+    for (int k = 0; k < 32; k++) printf("%02x", Q.x.c0.bytes[k]);
+    printf("\n");
+    printf("  Q.x.c1: ");
+    for (int k = 0; k < 32; k++) printf("%02x", Q.x.c1.bytes[k]);
+    printf("\n");
+    printf("  Q.y.c0: ");
+    for (int k = 0; k < 32; k++) printf("%02x", Q.y.c0.bytes[k]);
+    printf("\n");
+    printf("  Q.y.c1: ");
+    for (int k = 0; k < 32; k++) printf("%02x", Q.y.c1.bytes[k]);
+    printf("\n");
 
     // Miller loop
     fp12_t miller_res;
