@@ -229,7 +229,7 @@ target_include_directories(evmone_wrapper
         ${CMAKE_CURRENT_SOURCE_DIR} # Our wrapper header
 )
 
-target_link_libraries(evmone_wrapper PUBLIC evmone keccak)
+target_link_libraries(evmone_wrapper PUBLIC evmone)
 
 # Install targets
 install(TARGETS evmone_wrapper

@@ -78,7 +78,7 @@ target_include_directories(serverlib PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 # Make sure config HTML and OpenAPI YAML are generated before building serverlib
 add_dependencies(serverlib generate_config_html generate_openapi_yaml)
 
-target_link_libraries(serverlib PUBLIC  prover verifier  serverio)
+target_link_libraries(serverlib PUBLIC  prover verifier eth_prover serverio)
 
 # Additional system libraries that might be needed
 if(UNIX AND NOT APPLE)

@@ -24,7 +24,7 @@ function(add_verifier)
     
     # Link dependencies
     target_link_libraries(${VERIFIER_NAME} PUBLIC ${VERIFIER_DEPENDS})
-    target_link_libraries(verifier PUBLIC ${VERIFIER_NAME})
+    target_link_libraries(verifier PRIVATE ${VERIFIER_NAME})
 
     # Get the current global list
     get_property(CURRENT_PROPERTIES CACHE VERIFIER_PROPERTIES PROPERTY VALUE)
@@ -93,7 +93,7 @@ function(add_prover)
     
     # Link dependencies
     target_link_libraries(${PROVER_NAME} PUBLIC ${PROVER_DEPENDS})
-    target_link_libraries(prover PUBLIC ${PROVER_NAME})
+    target_link_libraries(prover PRIVATE ${PROVER_NAME})
 
     # Get the current global list
     get_property(CURRENT_PROPERTIES CACHE PROVER_PROPERTIES PROPERTY VALUE)
@@ -223,7 +223,7 @@ function(add_server_handler)
     
     # Link against CURL since server.h includes curl/curl.h
     find_package(CURL REQUIRED)
-    target_link_libraries(${HANDLER_NAME} PUBLIC serverio prover verifier  ${HANDLER_DEPENDS} )
+    target_link_libraries(${HANDLER_NAME} PRIVATE serverio prover verifier  ${HANDLER_DEPENDS} )
     # target_link_libraries(server PUBLIC ${HANDLER_NAME}) # This is the problematic line
 
     # Get current list of properties
