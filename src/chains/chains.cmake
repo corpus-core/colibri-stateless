@@ -24,7 +24,7 @@ function(add_verifier)
     
     # Link dependencies
     target_link_libraries(${VERIFIER_NAME} PUBLIC ${VERIFIER_DEPENDS})
-    target_link_libraries(verifier PRIVATE ${VERIFIER_NAME})
+    target_link_libraries(verifier PUBLIC ${VERIFIER_NAME})
 
     # Get the current global list
     get_property(CURRENT_PROPERTIES CACHE VERIFIER_PROPERTIES PROPERTY VALUE)
