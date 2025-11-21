@@ -6,6 +6,7 @@
 
 #ifdef HTTP_SERVER
 
+#include "../../src/chains/eth/server/eth_conf.h"
 #include "../../src/chains/eth/server/handler.h"
 #include "../../src/server/server.h"
 #include "test_server_helper.h"
@@ -33,18 +34,18 @@ static void ensure_dir(const char* path) {
 }
 
 void setUp(void) {
-  http_server_t config        = (http_server_t) {0};
-  config.port                 = TEST_PORT;
-  config.host                 = TEST_HOST;
-  config.chain_id             = 1;
-  config.stream_beacon_events = 0;                                // Start watcher manually
-  config.beacon_nodes         = (char*) "http://localhost:5052/"; // match recorded URLs
+  http_server_t config            = (http_server_t) {0};
+  config.port                     = TEST_PORT;
+  config.host                     = TEST_HOST;
+  config.chain_id                 = 1;
+  eth_config.stream_beacon_events = 0;                                // Start watcher manually
+  config.beacon_nodes             = (char*) "http://localhost:5052/"; // match recorded URLs
   snprintf(g_ps_path, sizeof(g_ps_path), "%s/server/period_backfill", TESTDATA_DIR);
   ensure_dir(g_ps_path);
-  config.period_store = g_ps_path;
+  eth_config.period_store = g_ps_path;
   // Conservative backfill config to limit runtime
-  config.period_backfill_max_periods = 1;
-  config.period_backfill_delay_ms    = 0;
+  eth_config.period_backfill_max_periods = 1;
+  eth_config.period_backfill_delay_ms    = 0;
   c4_test_server_setup(&config);
 }
 
@@ -87,7 +88,7 @@ void test_period_backfill_writes_head_slot(void) {
   c4_test_set_beacon_watcher_url(sse_file);
   c4_test_set_beacon_watcher_no_reconnect(true);
 
-  http_server.stream_beacon_events = 1;
+  eth_config.stream_beacon_events = 1;
   c4_watch_beacon_events();
 
   // Let the watcher process head(s); wait up to ~5s

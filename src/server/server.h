@@ -100,6 +100,7 @@ typedef struct {
 } curl_stats_t;
 
 typedef struct {
+  uint32_t       prover_flags;
   char*          host; // Host/IP to bind to (default: 127.0.0.1 for security)
   char*          memcached_host;
   int            memcached_port;
@@ -112,10 +113,6 @@ typedef struct {
   char*          prover_nodes;
   char*          beacon_nodes;
   char*          checkpointz_nodes;
-  int            stream_beacon_events;
-  char*          period_store;
-  int            period_backfill_delay_ms;    // delay between backfill requests (ms) to avoid public API rate limits
-  int            period_backfill_max_periods; // how many periods to backfill at startup (default 2)
   bytes32_t      witness_key;
   server_stats_t stats;
   // Preconf storage configuration
@@ -155,8 +152,6 @@ typedef struct {
   char* tracing_url;            // Zipkin v2 endpoint
   char* tracing_service_name;   // service name
   int   tracing_sample_percent; // 0..100
-
-  int eth_logs_cache_blocks;
 } http_server_t;
 
 // Method support tracking for RPC methods

@@ -12,11 +12,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined(PROVER_CACHE) && defined(CHAIN_ETH)
-#include "chains/eth/prover/logs_cache.h"
-#endif
 
 http_server_t http_server = {
+
+    .prover_flags = 0,
 
     // Set default values
     .host              = "127.0.0.1", // Localhost only by default (security best practice)
@@ -32,10 +31,6 @@ http_server_t http_server = {
     .prover_nodes      = "",
     .checkpointz_nodes = "https://sync-mainnet.beaconcha.in,https://beaconstate.info,https://sync.invis.tools,https://beaconstate.ethstaker.cc",
 
-    .stream_beacon_events             = 0,
-    .period_store                     = NULL,
-    .period_backfill_delay_ms         = 100, // default 100ms to be gentle with public APIs,
-    .period_backfill_max_periods      = 2,   // default backfill up to 2 periods,
     .preconf_storage_dir              = "./preconfs",
     .preconf_ttl_minutes              = 30, // 30 minutes TTL,
     .preconf_cleanup_interval_minutes = 5,  // Cleanup every 5 minutes,
@@ -71,8 +66,6 @@ http_server_t http_server = {
     .curl.tcp_keepidle_s        = 30,
     .curl.tcp_keepintvl_s       = 15,
 
-    .eth_logs_cache_blocks = 0,
-
 #ifdef TEST
     .test_dir = NULL,
 #endif
@@ -105,14 +98,6 @@ static void config() {
   conf_string(&http_server.prover_nodes, "PROVER", "prover", 'R', "list of remote prover endpoints");
   conf_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
   conf_int(&http_server.req_timeout, "REQUEST_TIMEOUT", "req_timeout", 't', "request timeout", 1, 300);
-
-  c4_configure_add_section("ETH");
-
-  conf_int(&http_server.stream_beacon_events, "BEACON_EVENTS", "beacon_events", 'e', "activates beacon event streaming", 0, 1);
-  conf_int(&http_server.period_backfill_delay_ms, "C4_PERIOD_BACKFILL_DELAY_MS", "period_backfill_delay_ms", 0, "delay between backfill requests (ms)", 0, 60000);
-  conf_int(&http_server.period_backfill_max_periods, "C4_PERIOD_BACKFILL_MAX_PERIODS", "period_backfill_max_periods", 0, "max number of periods to backfill at startup", 0, 10000);
-  conf_int(&http_server.eth_logs_cache_blocks, "ETH_LOGS_CACHE_BLOCKS", "eth_logs_cache_blocks", 0, "max number of contiguous blocks to cache logs for eth_getLogs", 0, 131072);
-  conf_string(&http_server.period_store, "DATA", "data", 'd', "path to the data-directory holding blockroots and light client updates");
 
   c4_configure_add_section("OP Stack");
   conf_string(&http_server.preconf_storage_dir, "PRECONF_DIR", "preconf_dir", 'P', "directory for storing preconfirmations");
@@ -167,16 +152,6 @@ static void apply_config() {
                     http_server.tracing_url,
                     http_server.tracing_service_name,
                     (double) http_server.tracing_sample_percent / 100.0);
-#if defined(PROVER_CACHE) && defined(CHAIN_ETH)
-  if (http_server.stream_beacon_events && http_server.eth_logs_cache_blocks > 0) {
-    c4_eth_logs_cache_enable((uint32_t) http_server.eth_logs_cache_blocks);
-    log_info("eth_logs_cache enabled with capacity: %d blocks", (uint32_t) http_server.eth_logs_cache_blocks);
-  }
-  else {
-    c4_eth_logs_cache_disable();
-    log_info("eth_logs_cache disabled (beacon_events=%d, capacity=%d)", (uint32_t) http_server.stream_beacon_events, (uint32_t) http_server.eth_logs_cache_blocks);
-  }
-#endif
 }
 
 void c4_configure(int argc, char* argv[]) {

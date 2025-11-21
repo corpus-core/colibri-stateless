@@ -2,9 +2,9 @@
  * Copyright 2025 corpus.core
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
-
 #include "bytes.h"
 #include "chains.h"
+#include "eth_conf.h"
 #include "handler.h"
 #include "json.h"
 #include "logger.h"
@@ -475,7 +475,7 @@ static char* join_paths(const char* path1, const char* path2) {
 // --- Public Function ---
 
 void c4_watch_beacon_events() {
-  if (!http_server.stream_beacon_events) return;
+  if (!eth_config.stream_beacon_events) return;
   if (BEACON_WATCHER_URL == NULL) {
     server_list_t* list = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
     if (list->count == 0) {
@@ -659,8 +659,10 @@ static void schedule_reconnect() {
 void c4_stop_beacon_watcher() {
   log_info("Shutting down beacon watcher.");
   stop_beacon_watch();
-  buffer_free(&watcher_state.buffer);
+  // wait a second to ensure the watcher is stopped
   watcher_state.is_running = false;
+  uv_sleep(500);
+  buffer_free(&watcher_state.buffer);
 
   // Cleanup multi handle
   if (beacon_multi_handle) {

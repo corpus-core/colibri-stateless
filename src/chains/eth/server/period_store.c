@@ -1,6 +1,7 @@
 
 #include "period_store.h"
 #include "bytes.h"
+#include "eth_conf.h"
 #include "json.h"
 #include "logger.h"
 #include "server.h"
@@ -202,7 +203,7 @@ static void backfill_check(block_t* head) {
   else if (bf_ctx.start_slot == 0) {
     // we have not started anything yet.
     // let's start from the head down to the configured max periods.
-    uint64_t max_periods = http_server.period_backfill_max_periods > 0 ? http_server.period_backfill_max_periods : 2;
+    uint64_t max_periods = eth_config.period_backfill_max_periods > 0 ? eth_config.period_backfill_max_periods : 2;
     bf_ctx.started_ts    = current_ms();
     bf_ctx.start_slot    = head->slot;
     bf_ctx.end_slot      = head->slot - (head->slot % SLOTS_PER_PERIOD) - (SLOTS_PER_PERIOD * max_periods);
@@ -256,11 +257,11 @@ static char* response_to_header(data_request_t* r, block_t* header) {
 static char* ensure_period_dir(uint64_t period) {
   uv_fs_t req = {};
   if (!queue.base_dir) {
-    int rc = uv_fs_mkdir(uv_default_loop(), &req, http_server.period_store, 0777, NULL);
+    int rc = uv_fs_mkdir(uv_default_loop(), &req, eth_config.period_store, 0777, NULL);
     if (rc < 0 && req.result != UV_EEXIST)
-      log_warn("period_store: mkdir failed for %s: %s", http_server.period_store, uv_strerror((int) req.result));
+      log_warn("period_store: mkdir failed for %s: %s", eth_config.period_store, uv_strerror((int) req.result));
     else
-      queue.base_dir = http_server.period_store;
+      queue.base_dir = eth_config.period_store;
     uv_fs_req_cleanup(&req);
   }
 
@@ -545,7 +546,7 @@ static void fetch_header(uint8_t* root, block_t* target) {
   server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
   if (!sl || sl->count == 0) return;
   // Optional pacing to avoid rate-limits
-  int delay_ms = http_server.period_backfill_delay_ms;
+  int delay_ms = eth_config.period_backfill_delay_ms;
   if (delay_ms > 0) {
     if (!fetch_timer_initialized) {
       if (uv_timer_init(uv_default_loop(), &fetch_timer) != 0) {
@@ -794,7 +795,7 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
   ctx->start_period       = period;
   ctx->count              = count;
   ctx->out                = (buffer_t) {0};
-  if (!http_server.period_store) {
+  if (!eth_config.period_store) {
     // Fallback: kein Cache → hole alle Perioden direkt und liefere concatenated Ergebnis (nicht persistieren)
     ctx->missing_count   = count;
     ctx->missing_pos     = 0;
@@ -1036,7 +1037,7 @@ static void backfill() {
 }
 
 void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const uint8_t header112[112]) {
-  if (!http_server.period_store) return;
+  if (!eth_config.period_store) return;
   if (slot > latest_head_slot) latest_head_slot = slot;
   block_t block = {.slot = slot};
   memcpy(block.root, block_root, 32);
@@ -1064,7 +1065,7 @@ bool c4_handle_period_store(single_request_t* r) {
   const char* path = "period_store/";
   if (strncmp(r->req->url, path, strlen(path))) return false;
 
-  file_data_t f = {.path = bprintf(NULL, "%s/%s", http_server.period_store, r->req->url + strlen(path))};
+  file_data_t f = {.path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + strlen(path))};
   c4_read_files_uv(r, c4_handle_period_store_cb, &f, 1);
 
   return true;

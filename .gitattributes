@@ -10,3 +10,6 @@ bindings/kotlin/gradlew        text eol=lf
 # Binary files should be left untouched
 *.jar           binary
 
+# Test data JSON files are actually binary blobs
+test/data/*.json binary
+
