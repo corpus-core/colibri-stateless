@@ -31,10 +31,7 @@ http_server_t http_server = {
     .prover_nodes      = "",
     .checkpointz_nodes = "https://sync-mainnet.beaconcha.in,https://beaconstate.info,https://sync.invis.tools,https://beaconstate.ethstaker.cc",
 
-    .preconf_storage_dir              = "./preconfs",
-    .preconf_ttl_minutes              = 30, // 30 minutes TTL,
-    .preconf_cleanup_interval_minutes = 5,  // Cleanup every 5 minutes,
-                                            // preconf_use_gossip removed - now using automatic HTTP fallback,
+    // preconf_use_gossip removed - now using automatic HTTP fallback,
     // Web UI (disabled by default for security)
     .web_ui_enabled = 0,
 
@@ -98,11 +95,6 @@ static void config() {
   conf_string(&http_server.prover_nodes, "PROVER", "prover", 'R', "list of remote prover endpoints");
   conf_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
   conf_int(&http_server.req_timeout, "REQUEST_TIMEOUT", "req_timeout", 't', "request timeout", 1, 300);
-
-  c4_configure_add_section("OP Stack");
-  conf_string(&http_server.preconf_storage_dir, "PRECONF_DIR", "preconf_dir", 'P', "directory for storing preconfirmations");
-  conf_int(&http_server.preconf_ttl_minutes, "PRECONF_TTL", "preconf_ttl", 'T', "TTL for preconfirmations in minutes", 1, 1440);
-  conf_int(&http_server.preconf_cleanup_interval_minutes, "PRECONF_CLEANUP_INTERVAL", "preconf_cleanup_interval", 'C', "cleanup interval in minutes", 1, 60);
 
   // Heuristic load-balancing configuration (ENV/args)
   c4_configure_add_section("http pools");

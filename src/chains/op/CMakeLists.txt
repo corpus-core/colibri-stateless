@@ -126,10 +126,12 @@ add_server_handler(
   SOURCES 
     server/handler.c
     server/preconf.c
+    server/op_conf.c
   DEPENDS ${OP_SERVER_DEPENDS}
   INIT_FUNC op_server_init
   SHUTDOWN_FUNC op_server_shutdown
   METRICS_FUNC op_server_metrics
+  CONFIG_FUNC op_configure
 )
 
 # Go bridge dependencies removed - using Kona-Bridge only

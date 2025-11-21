@@ -116,10 +116,6 @@ typedef struct {
   bytes32_t      witness_key;
   server_stats_t stats;
   // Preconf storage configuration
-  char* preconf_storage_dir;
-  int   preconf_ttl_minutes;
-  int   preconf_cleanup_interval_minutes;
-  // preconf_use_gossip removed - now using automatic HTTP fallback until gossip is active
 
   // Web UI configuration
   int web_ui_enabled; // 0=disabled, 1=enabled (default: 0 for security)
