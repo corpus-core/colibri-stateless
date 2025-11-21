@@ -99,7 +99,7 @@ add_prover(
     prover/op_proof_logs.c
     prover/op_proof_call.c
     prover/op_proof_account.c
-  DEPENDS util eth_prover eth_verifier op_verifier
+  DEPENDS util eth_prover op_verifier
   PROOF op_prover_execute
 )
 

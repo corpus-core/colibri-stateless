@@ -126,7 +126,7 @@ if(ETH_CALL)
   if(EVMONE)
     add_subdirectory(precompiles)
     set(VERIFIER_SOURCES ${VERIFIER_SOURCES}  verifier/call_evmone.c)
-    set(VERIFIER_DEPS util evmone_wrapper eth_precompiles)
+    set(VERIFIER_DEPS PUBLIC evmone_wrapper eth_precompiles)
   endif()
   
 endif()
