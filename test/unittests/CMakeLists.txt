@@ -56,7 +56,7 @@ foreach(test_source ${TEST_SOURCES})
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
-    target_link_libraries(${test_name} unity verifier prover eth_verifier)
+    target_link_libraries(${test_name} unity verifier prover eth_verifier eth_prover)
     
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
