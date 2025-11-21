@@ -5,7 +5,7 @@
 
 #ifndef C4_SERVER_H
 #define C4_SERVER_H
-
+#include "configure.h"
 #include "prover.h"
 #include "tracing.h"
 #include <curl/curl.h>
@@ -155,6 +155,8 @@ typedef struct {
   char* tracing_url;            // Zipkin v2 endpoint
   char* tracing_service_name;   // service name
   int   tracing_sample_percent; // 0..100
+
+  int eth_logs_cache_blocks;
 } http_server_t;
 
 // Method support tracking for RPC methods
@@ -319,24 +321,9 @@ void c4_write_error_response(client_t* client, int status, const char* error);
 void c4_http_server_on_close_callback(uv_handle_t* handle); // Cleanup callback for closing client connections
 void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
-void c4_configure(int argc, char* argv[]);
 
 // Config parameter registry (for dynamic Web-UI)
-typedef enum {
-  CONFIG_PARAM_INT,
-  CONFIG_PARAM_STRING,
-  CONFIG_PARAM_KEY
-} config_param_type_t;
 
-typedef struct {
-  char*               name;        // env variable name
-  char*               arg_name;    // command line arg name
-  char*               description; // human-readable description
-  config_param_type_t type;        // parameter type
-  void*               value_ptr;   // pointer to actual value
-  int                 min;         // min value (for int)
-  int                 max;         // max value (for int)
-} config_param_t;
 typedef bool (*call_handler)(single_request_t*);
 
 const config_param_t* c4_get_config_params(int* count);

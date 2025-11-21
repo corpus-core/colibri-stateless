@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
-find_package(CURL REQUIRED)
 
 # Generate embedded HTML for config UI
 set(CONFIG_HTML_INPUT ${CMAKE_CURRENT_SOURCE_DIR}/web_ui/config.html)
@@ -43,12 +42,7 @@ include_directories(
 
 )
 
-# Create a static library with all server logic (for testing)
-# Shared async I/O utils
-add_library(serverio STATIC
-  uv_util.c
-)
-target_link_libraries(serverio PUBLIC util libuv llhttp CURL::libcurl )
+add_subdirectory(io)
 
 # Create a static library with all server logic (for testing)
 add_library(serverlib STATIC
@@ -68,7 +62,7 @@ add_library(serverlib STATIC
   handle_config.c
   handle_openapi.c
   cache.c
-  configure.c
+  configure_server.c
   internal_calls.c
 )
 

@@ -8,7 +8,7 @@
 #include <string.h>
 
 #ifdef HTTP_SERVER
-#include "server/uv_util.h"
+#include "uv_util.h"
 
 #ifndef _WIN32
 #include <sys/stat.h>
