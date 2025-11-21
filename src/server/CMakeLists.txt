@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
-find_package(CURL REQUIRED)
 
 # Generate embedded HTML for config UI
 set(CONFIG_HTML_INPUT ${CMAKE_CURRENT_SOURCE_DIR}/web_ui/config.html)
@@ -42,13 +41,8 @@ include_directories(
 
 
 )
-# Create a static library with all server logic (for testing)
-# Shared async I/O utils
-add_library(serverio STATIC
-  uv_util.c
-)
-target_include_directories(serverio PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
-target_link_libraries(serverio PUBLIC util)
+
+add_subdirectory(io)
 
 # Create a static library with all server logic (for testing)
 add_library(serverlib STATIC
@@ -68,20 +62,17 @@ add_library(serverlib STATIC
   handle_config.c
   handle_openapi.c
   cache.c
-  configure.c
+  configure_server.c
   internal_calls.c
 )
 
 target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR})
 target_include_directories(serverlib PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
-target_include_directories(serverlib PUBLIC ../../libs)
-target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include)
-target_include_directories(serverlib PUBLIC ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
 
 # Make sure config HTML and OpenAPI YAML are generated before building serverlib
 add_dependencies(serverlib generate_config_html generate_openapi_yaml)
 
-target_link_libraries(serverlib PUBLIC libuv llhttp prover util verifier CURL::libcurl serverio)
+target_link_libraries(serverlib PUBLIC  prover verifier eth_prover serverio)
 
 # Additional system libraries that might be needed
 if(UNIX AND NOT APPLE)
@@ -97,7 +88,7 @@ add_executable(colibri-server main.c)
 # 1) serverlib (needs handler symbols)
 # 2) handlers (provide eth_* symbols; need serverio symbols)
 # 3) serverio (provides uv_util symbols)
-target_link_libraries(colibri-server PRIVATE serverlib ${SERVER_HANDLER_LIBS} serverio)
+target_link_libraries(colibri-server PRIVATE serverlib ${SERVER_HANDLER_LIBS})
 
 set_target_properties(colibri-server PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin

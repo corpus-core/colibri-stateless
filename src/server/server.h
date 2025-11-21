@@ -5,7 +5,7 @@
 
 #ifndef C4_SERVER_H
 #define C4_SERVER_H
-
+#include "configure.h"
 #include "prover.h"
 #include "tracing.h"
 #include <curl/curl.h>
@@ -100,6 +100,7 @@ typedef struct {
 } curl_stats_t;
 
 typedef struct {
+  uint32_t       prover_flags;
   char*          host; // Host/IP to bind to (default: 127.0.0.1 for security)
   char*          memcached_host;
   int            memcached_port;
@@ -112,17 +113,9 @@ typedef struct {
   char*          prover_nodes;
   char*          beacon_nodes;
   char*          checkpointz_nodes;
-  int            stream_beacon_events;
-  char*          period_store;
-  int            period_backfill_delay_ms;    // delay between backfill requests (ms) to avoid public API rate limits
-  int            period_backfill_max_periods; // how many periods to backfill at startup (default 2)
   bytes32_t      witness_key;
   server_stats_t stats;
   // Preconf storage configuration
-  char* preconf_storage_dir;
-  int   preconf_ttl_minutes;
-  int   preconf_cleanup_interval_minutes;
-  // preconf_use_gossip removed - now using automatic HTTP fallback until gossip is active
 
   // Web UI configuration
   int web_ui_enabled; // 0=disabled, 1=enabled (default: 0 for security)
@@ -319,24 +312,9 @@ void c4_write_error_response(client_t* client, int status, const char* error);
 void c4_http_server_on_close_callback(uv_handle_t* handle); // Cleanup callback for closing client connections
 void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
-void c4_configure(int argc, char* argv[]);
 
 // Config parameter registry (for dynamic Web-UI)
-typedef enum {
-  CONFIG_PARAM_INT,
-  CONFIG_PARAM_STRING,
-  CONFIG_PARAM_KEY
-} config_param_type_t;
 
-typedef struct {
-  char*               name;        // env variable name
-  char*               arg_name;    // command line arg name
-  char*               description; // human-readable description
-  config_param_type_t type;        // parameter type
-  void*               value_ptr;   // pointer to actual value
-  int                 min;         // min value (for int)
-  int                 max;         // max value (for int)
-} config_param_t;
 typedef bool (*call_handler)(single_request_t*);
 
 const config_param_t* c4_get_config_params(int* count);

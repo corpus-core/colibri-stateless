@@ -6,8 +6,9 @@
 
 #ifdef HTTP_SERVER
 
-#include "test_server_helper.h"
+#include "../../src/chains/eth/server/eth_conf.h"
 #include "chains/eth/server/period_store.h"
+#include "test_server_helper.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,9 +45,9 @@ void setUp(void) {
   // Dedicated period_store dir for this test binary
   snprintf(g_ps_path, sizeof(g_ps_path), "%s/server/period_store_tests", TESTDATA_DIR);
   ensure_dir(g_ps_path);
-  config.period_store = g_ps_path;
+  eth_config.period_store = g_ps_path;
   // Disable backfill effects for this phase
-  config.period_backfill_max_periods = 0;
+  eth_config.period_backfill_max_periods = 0;
   c4_test_server_setup(&config);
 }
 
@@ -114,10 +115,10 @@ void test_period_store_set_block_write(void) {
   {
     FILE* f = fopen(blocks_path, "rb");
     TEST_ASSERT_NOT_NULL(f);
-    int      rc   = fseek(f, (long) (idx * 32), SEEK_SET);
+    int rc = fseek(f, (long) (idx * 32), SEEK_SET);
     TEST_ASSERT_EQUAL(0, rc);
-    uint8_t  buf[32] = {0};
-    size_t   n       = fread(buf, 1, 32, f);
+    uint8_t buf[32] = {0};
+    size_t  n       = fread(buf, 1, 32, f);
     fclose(f);
     TEST_ASSERT_EQUAL(32, n);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(root, buf, 32);
@@ -125,8 +126,8 @@ void test_period_store_set_block_write(void) {
   {
     FILE* f = fopen(headers_path, "rb");
     TEST_ASSERT_NOT_NULL(f);
-    long    off  = (long) (idx * 112);
-    int     rc   = fseek(f, off, SEEK_SET);
+    long off = (long) (idx * 112);
+    int  rc  = fseek(f, off, SEEK_SET);
     TEST_ASSERT_EQUAL(0, rc);
     uint8_t buf[112] = {0};
     size_t  n        = fread(buf, 1, 112, f);
@@ -199,5 +200,3 @@ int main(void) {
   return 0;
 }
 #endif
-
-

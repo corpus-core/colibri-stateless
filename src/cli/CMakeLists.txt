@@ -34,6 +34,7 @@ if (CLI)
     target_link_libraries(colibri-ssz PRIVATE 
       verifier
       prover
+      eth_verifier
     )
     set_target_properties(colibri-ssz PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
@@ -53,7 +54,8 @@ if (CLI)
         target_link_libraries(colibri-verifier PRIVATE 
             curl_fetch
             verifier
-        )
+            eth_verifier
+            )
 
     else()
         target_link_libraries(colibri-prover PRIVATE 
@@ -62,7 +64,8 @@ if (CLI)
         )   
         target_link_libraries(colibri-verifier PRIVATE 
             verifier
-        )
+            eth_verifier
+            )
 
     endif()
 
