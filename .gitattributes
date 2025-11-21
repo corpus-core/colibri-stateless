@@ -11,5 +11,5 @@ bindings/kotlin/gradlew        text eol=lf
 *.jar           binary
 
 # Test data JSON files are actually binary blobs
-test/data/*.json binary
+test/data/server/*/*.json binary
 
