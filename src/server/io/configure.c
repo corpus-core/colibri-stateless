@@ -444,10 +444,10 @@ void c4_init_config(int argc, char* argv[]) {
 }
 
 void c4_write_usage() {
-  fprintf(stderr, "Usage: %s [options]", args[0]);
-  fprintf(stderr, "  -h, --help                                 show this help message");
-  fprintf(stderr, "  -f, --config           CONFIG_FILE         path to config file (default: search in ./server.conf, /etc/colibri/server.conf, /usr/local/etc/colibri/server.conf)");
-  fprintf(stderr, "%s", help_buffer.data.data);
+  fprintf(stderr, "Usage: %s [options]\n", args[0]);
+  fprintf(stderr, "  -h, --help                                                               show this help message\n");
+  fprintf(stderr, "  -f, --config                           CONFIG_FILE                       path to config file (default: search in ./server.conf, /etc/colibri/server.conf, /usr/local/etc/colibri/server.conf)\n");
+  fprintf(stderr, "%s\n", help_buffer.data.data);
   // In TEST builds, don't exit the process so tests can capture output
 #ifdef TEST
   buffer_free(&help_buffer);
@@ -488,4 +488,8 @@ void c4_write_config() {
     log_info("%s", line.data.data);
   }
   buffer_free(&line);
+}
+
+void c4_configure_add_section(char* name) {
+  bprintf(&help_buffer, "\n::: %s\n\n", name);
 }

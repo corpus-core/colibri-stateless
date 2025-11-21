@@ -6,6 +6,7 @@
 #include "configure.h"
 #include "logger.h"
 #include "server.h"
+#include "server_handlers.h"
 #include "tracing.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -83,34 +84,43 @@ http_server_t http_server = {
 };
 
 static void config() {
+  c4_configure_add_section("General");
+  conf_int(&http_server.chain_id, "CHAIN_ID", "chain_id", 'c', "chain id", 1, 0xFFFFFFF);
+  conf_int(&http_server.loglevel, "LOG_LEVEL", "log_level", 'l', "log level", 0, 5);
   conf_string(&http_server.host, "HOST", "host", 'h', "Host/IP address to bind to (127.0.0.1=localhost only, 0.0.0.0=all interfaces)");
   conf_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);
+  conf_int(&http_server.web_ui_enabled, "WEB_UI_ENABLED", "web_ui_enabled", 'u', "enable web-based configuration UI (0=disabled, 1=enabled)", 0, 1);
+
+  c4_configure_add_section("Memcached");
   conf_string(&http_server.memcached_host, "MEMCACHED_HOST", "memcached_host", 'm', "hostnane of the memcached server");
-  conf_key(http_server.witness_key, "WITNESS_KEY", "witness_key", 'w', "hexcode or path to a private key used as signer for the witness");
   conf_int(&http_server.memcached_port, "MEMCACHED_PORT", "memcached_port", 'P', "port of the memcached server", 1, 65535);
   conf_int(&http_server.memcached_pool, "MEMCACHED_POOL", "memcached_pool", 'S', "pool size of the memcached server", 1, 100);
-  conf_int(&http_server.loglevel, "LOG_LEVEL", "log_level", 'l', "log level", 0, 5);
-  conf_int(&http_server.req_timeout, "REQUEST_TIMEOUT", "req_timeout", 't', "request timeout", 1, 300);
-  conf_int(&http_server.chain_id, "CHAIN_ID", "chain_id", 'c', "chain id", 1, 0xFFFFFFF);
+
+  c4_configure_add_section("Keys");
+  conf_key(http_server.witness_key, "WITNESS_KEY", "witness_key", 'w', "hexcode or path to a private key used as signer for the witness");
+
+  c4_configure_add_section("backends");
   conf_string(&http_server.rpc_nodes, "RPC", "rpc", 'r', "list of rpc endpoints");
   conf_string(&http_server.beacon_nodes, "BEACON", "beacon", 'b', "list of beacon nodes api endpoints");
   conf_string(&http_server.prover_nodes, "PROVER", "prover", 'R', "list of remote prover endpoints");
   conf_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
+  conf_int(&http_server.req_timeout, "REQUEST_TIMEOUT", "req_timeout", 't', "request timeout", 1, 300);
+
+  c4_configure_add_section("ETH");
+
   conf_int(&http_server.stream_beacon_events, "BEACON_EVENTS", "beacon_events", 'e', "activates beacon event streaming", 0, 1);
   conf_int(&http_server.period_backfill_delay_ms, "C4_PERIOD_BACKFILL_DELAY_MS", "period_backfill_delay_ms", 0, "delay between backfill requests (ms)", 0, 60000);
   conf_int(&http_server.period_backfill_max_periods, "C4_PERIOD_BACKFILL_MAX_PERIODS", "period_backfill_max_periods", 0, "max number of periods to backfill at startup", 0, 10000);
-  // Optional logs cache size in blocks (default 0 = disabled). Only enabled when beacon events are active.
   conf_int(&http_server.eth_logs_cache_blocks, "ETH_LOGS_CACHE_BLOCKS", "eth_logs_cache_blocks", 0, "max number of contiguous blocks to cache logs for eth_getLogs", 0, 131072);
-
   conf_string(&http_server.period_store, "DATA", "data", 'd', "path to the data-directory holding blockroots and light client updates");
+
+  c4_configure_add_section("OP Stack");
   conf_string(&http_server.preconf_storage_dir, "PRECONF_DIR", "preconf_dir", 'P', "directory for storing preconfirmations");
   conf_int(&http_server.preconf_ttl_minutes, "PRECONF_TTL", "preconf_ttl", 'T', "TTL for preconfirmations in minutes", 1, 1440);
   conf_int(&http_server.preconf_cleanup_interval_minutes, "PRECONF_CLEANUP_INTERVAL", "preconf_cleanup_interval", 'C', "cleanup interval in minutes", 1, 60);
-  // preconf_use_gossip option removed - now using automatic HTTP fallback
-
-  conf_int(&http_server.web_ui_enabled, "WEB_UI_ENABLED", "web_ui_enabled", 'u', "enable web-based configuration UI (0=disabled, 1=enabled)", 0, 1);
 
   // Heuristic load-balancing configuration (ENV/args)
+  c4_configure_add_section("http pools");
   conf_int(&http_server.max_concurrency_default, "C4_MAX_CONCURRENCY_DEFAULT", "max_concurrency_default", 'M', "default per-server max concurrency", 1, 4096);
   conf_int(&http_server.max_concurrency_cap, "C4_MAX_CONCURRENCY_CAP", "max_concurrency_cap", 'K', "cap for dynamic concurrency", 1, 65535);
   conf_int(&http_server.latency_target_ms, "C4_LATENCY_TARGET_MS", "latency_target_ms", 'L', "target latency for AIMD (ms)", 10, 100000);
@@ -138,27 +148,19 @@ static void config() {
   conf_int(&http_server.curl.tcp_keepintvl_s, "C4_TCP_KEEPINTVL", "tcp_keepintvl", 0, "TCP keepintvl seconds", 1, 3600);
 
 #ifdef TEST
+  c4_configure_add_section("Test");
   conf_string(&http_server.test_dir, "TEST_DIR", "test_dir", 'x', "TEST MODE: record all responses to TESTDATA_DIR/server/<test_dir>/");
 #endif
 
   // Tracing (ENV/args)
+  c4_configure_add_section("Tracing");
   conf_int(&http_server.tracing_enabled, "C4_TRACING_ENABLED", "tracing_enabled", 0, "enable tracing (0/1)", 0, 1);
   conf_string(&http_server.tracing_url, "C4_TRACING_URL", "tracing_url", 0, "Zipkin v2 endpoint (e.g. http://localhost:9411/api/v2/spans)");
   conf_string(&http_server.tracing_service_name, "C4_TRACING_SERVICE", "tracing_service", 0, "Tracing service name");
   conf_int(&http_server.tracing_sample_percent, "C4_TRACING_SAMPLE_PERCENT", "tracing_sample_percent", 0, "Tracing sample rate percent (0..100)", 0, 100);
 }
 
-void c4_configure(int argc, char* argv[]) {
-  c4_init_config(argc, argv);
-
-  // applymain config parameters
-  config();
-
-  if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))
-    c4_write_usage();
-  else
-    c4_write_config();
-
+static void apply_config() {
   c4_set_log_level(http_server.loglevel);
   // Apply tracing configuration
   tracing_configure(http_server.tracing_enabled != 0,
@@ -175,4 +177,19 @@ void c4_configure(int argc, char* argv[]) {
     log_info("eth_logs_cache disabled (beacon_events=%d, capacity=%d)", (uint32_t) http_server.stream_beacon_events, (uint32_t) http_server.eth_logs_cache_blocks);
   }
 #endif
+}
+
+void c4_configure(int argc, char* argv[]) {
+  c4_init_config(argc, argv);
+
+  // applymain config parameters
+  config();
+  c4_server_handlers_config();
+
+  if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))
+    c4_write_usage();
+  else
+    c4_write_config();
+
+  apply_config();
 }

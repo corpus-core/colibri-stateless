@@ -184,6 +184,7 @@ add_server_handler(
     server/client_detection.c
     server/client_mappings.c
     server/period_store.c
+    server/eth_conf.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init
   SHUTDOWN_FUNC eth_server_shutdown
@@ -191,5 +192,6 @@ add_server_handler(
   PARSE_VERSION_RESPONSE_FUNC eth_parse_version_response
   GET_CLIENT_MAPPINGS_FUNC eth_get_client_mappings
   METRICS_FUNC eth_server_metrics
+  CONFIG_FUNC eth_configure
 )
 

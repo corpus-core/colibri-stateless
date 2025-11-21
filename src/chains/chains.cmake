@@ -211,7 +211,7 @@ function(add_server_handler)
     endif()
 
     set(options "")
-    set(oneValueArgs NAME INIT_FUNC SHUTDOWN_FUNC GET_DETECTION_REQUEST_FUNC PARSE_VERSION_RESPONSE_FUNC GET_CLIENT_MAPPINGS_FUNC METRICS_FUNC)
+    set(oneValueArgs NAME INIT_FUNC SHUTDOWN_FUNC GET_DETECTION_REQUEST_FUNC PARSE_VERSION_RESPONSE_FUNC GET_CLIENT_MAPPINGS_FUNC METRICS_FUNC CONFIG_FUNC)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(HANDLER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -231,7 +231,7 @@ function(add_server_handler)
     
     # Append the new handler to the list
     list(APPEND CURRENT_PROPERTIES 
-         "${HANDLER_NAME}:${HANDLER_INIT_FUNC}:${HANDLER_SHUTDOWN_FUNC}:${HANDLER_GET_DETECTION_REQUEST_FUNC}:${HANDLER_PARSE_VERSION_RESPONSE_FUNC}:${HANDLER_GET_CLIENT_MAPPINGS_FUNC}:${HANDLER_METRICS_FUNC}")
+         "${HANDLER_NAME}:${HANDLER_INIT_FUNC}:${HANDLER_SHUTDOWN_FUNC}:${HANDLER_GET_DETECTION_REQUEST_FUNC}:${HANDLER_PARSE_VERSION_RESPONSE_FUNC}:${HANDLER_GET_CLIENT_MAPPINGS_FUNC}:${HANDLER_METRICS_FUNC}:${HANDLER_CONFIG_FUNC}")
     set(SERVER_HANDLER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all server handler properties" FORCE)
 
     # Add the handler library to the global list of libraries
@@ -261,7 +261,8 @@ function(generate_server_handlers_header)
         list(GET parts 4 parse_version_response_func)
         list(GET parts 5 get_client_mappings_func)
         list(GET parts 6 metrics_func)
-        
+        list(GET parts 7 config_func)
+
         # Only declare functions that have non-empty names
         if(NOT "${init_func}" STREQUAL "")
             file(APPEND ${SERVER_HANDLERS_H} "void ${init_func}(http_server_t* server);\n")
@@ -280,6 +281,9 @@ function(generate_server_handlers_header)
         endif()
         if(NOT "${metrics_func}" STREQUAL "")
             file(APPEND ${SERVER_HANDLERS_H} "void ${metrics_func}(http_server_t* server, buffer_t* data);\n")
+        endif()
+        if(NOT "${config_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "void ${config_func}();\n")
         endif()
     endforeach()
     file(APPEND ${SERVER_HANDLERS_H} "\n")
@@ -357,6 +361,19 @@ function(generate_server_handlers_header)
         endif()
     endforeach()
     file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+    # Config Dispatcher
+    file(APPEND ${SERVER_HANDLERS_H} "static void c4_server_handlers_config() {\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(GET parts 7 config_func)
+        if(NOT "${config_func}" STREQUAL "")
+            file(APPEND ${SERVER_HANDLERS_H} "  ${config_func}();\n")
+        endif()
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
+
+
 
     file(APPEND ${SERVER_HANDLERS_H} "#endif // SERVER_HANDLERS_H\n")
 endfunction()

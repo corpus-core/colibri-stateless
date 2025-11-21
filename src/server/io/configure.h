@@ -25,6 +25,8 @@ void                  c4_write_usage();
 void                  c4_init_config(int argc, char* argv[]);
 void                  c4_write_config();
 
+void c4_configure_add_section(char* name);
+
 int conf_string(char** target, char* env_name, char* arg_nane, char shortcut, char* descr);
 int conf_key(bytes32_t target, char* env_name, char* arg_nane, char shortcut, char* descr);
 int conf_int(int* target, char* env_name, char* arg_nane, char shortcut, char* descr, int min, int max);
