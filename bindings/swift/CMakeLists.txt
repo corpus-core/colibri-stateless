@@ -75,7 +75,7 @@ target_include_directories(c4_swift_binding
     ../../src/verifier
 )
 # Link dependencies based on enabled features
-set(C4_SWIFT_DEPENDENCIES util prover verifier)
+set(C4_SWIFT_DEPENDENCIES util prover verifier eth_verifier)
 
 # Add EVMOne dependencies if enabled
 if(EVMONE)
