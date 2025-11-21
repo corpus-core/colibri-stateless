@@ -29,7 +29,7 @@ void setUp(void) {
 
 // Unity teardown - called after each test
 void tearDown(void) {
-  c4_stop_beacon_watcher();
+  c4_test_stop_beacon_watcher();
   c4_test_server_teardown();
 }
 
