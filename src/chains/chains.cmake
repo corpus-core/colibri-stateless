@@ -219,13 +219,11 @@ function(add_server_handler)
     target_include_directories(${HANDLER_NAME} PUBLIC 
         ../../server
         ../../
-        ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include
-        ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
     )
     
     # Link against CURL since server.h includes curl/curl.h
     find_package(CURL REQUIRED)
-    target_link_libraries(${HANDLER_NAME} PUBLIC libuv llhttp prover util verifier CURL::libcurl ${HANDLER_DEPENDS} )
+    target_link_libraries(${HANDLER_NAME} PUBLIC serverio prover verifier  ${HANDLER_DEPENDS} )
     # target_link_libraries(server PUBLIC ${HANDLER_NAME}) # This is the problematic line
 
     # Get current list of properties
