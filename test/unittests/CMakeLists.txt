@@ -56,16 +56,23 @@ foreach(test_source ${TEST_SOURCES})
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
-    target_link_libraries(${test_name} unity verifier prover eth_verifier eth_prover)
+    target_link_libraries(${test_name} PRIVATE unity verifier prover eth_verifier eth_prover)
     
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
         target_compile_definitions(${test_name} PRIVATE HTTP_SERVER)
-        # Link order for static libs:
-        # 1) serverlib (needs handler symbols)
-        # 2) handlers (provide eth_* symbols)
-        # 3) serverio (provides uv_util symbols used by handlers)
-        target_link_libraries(${test_name} serverlib ${SERVER_HANDLER_LIBS} serverio llhttp_static libuv)
+
+        # Stelle sicher, dass GNU-Linker alle Symbole aus statischen Server-Bibliotheken finden:
+        # serverlib zuerst, danach Handler, dann serverio, und serverlib am Ende nochmals.
+        target_link_libraries(${test_name} PRIVATE
+            serverlib
+            ${SERVER_HANDLER_LIBS}
+            serverio
+            serverlib
+            llhttp_static
+            libuv
+        )
+
         add_dependencies(${test_name} llhttp_static serverlib)
         if(TARGET serverio)
           add_dependencies(${test_name} serverio)
@@ -73,7 +80,7 @@ foreach(test_source ${TEST_SOURCES})
         
         # Find CURL for server tests
         find_package(CURL REQUIRED)
-        target_link_libraries(${test_name} CURL::libcurl)
+        target_link_libraries(${test_name} PRIVATE CURL::libcurl)
     endif()
 
     # Special linking for uv_util tests even without HTTP_SERVER
@@ -88,14 +95,14 @@ foreach(test_source ${TEST_SOURCES})
           endif()
           # Prefer linking serverio if available; otherwise compile uv_util.c directly
           if(TARGET serverio)
-            target_link_libraries(${test_name} serverio libuv)
+            target_link_libraries(${test_name} PRIVATE serverio libuv)
             target_include_directories(${test_name} PRIVATE ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
             add_dependencies(${test_name} serverio)
           else()
             message(WARNING "serverio target not found; compiling uv_util.c directly into ${test_name}")
             target_sources(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/src/server/uv_util.c)
             target_include_directories(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/server ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
-            target_link_libraries(${test_name} util libuv)
+            target_link_libraries(${test_name} PRIVATE util libuv)
           endif()
         endif()
     endif()
