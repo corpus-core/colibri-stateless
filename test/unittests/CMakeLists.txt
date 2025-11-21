@@ -73,6 +73,16 @@ foreach(test_source ${TEST_SOURCES})
             libuv
         )
 
+        # Sicherheitsgurt: explizit die bekannten Handler-Bibliotheken linken, falls
+        # ${SERVER_HANDLER_LIBS} in dieser Konfiguration leer bleibt (z.B. bei
+        # fehlerhaften Cache-Werten oder teilweisen Chain-Builds).
+        if(TARGET eth_server_handler)
+            target_link_libraries(${test_name} PRIVATE eth_server_handler)
+        endif()
+        if(TARGET op_server_handler)
+            target_link_libraries(${test_name} PRIVATE op_server_handler)
+        endif()
+
         add_dependencies(${test_name} llhttp_static serverlib)
         if(TARGET serverio)
           add_dependencies(${test_name} serverio)
