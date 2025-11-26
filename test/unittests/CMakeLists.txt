@@ -58,11 +58,10 @@ foreach(test_source ${TEST_SOURCES})
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
     # Stelle sicher, dass Abhängigkeiten vor dem Test gebaut werden
-    add_dependencies(${test_name} crypto blst util verifier prover)
+    add_dependencies(${test_name} util verifier prover)
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
-    # Reihenfolge: Abhängige Libraries zuerst, crypto am Ende für statische Linking
-    target_link_libraries(${test_name} unity verifier prover blst util eth_verifier eth_prover crypto)
+    target_link_libraries(${test_name} unity verifier prover util eth_verifier eth_prover)
     
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
