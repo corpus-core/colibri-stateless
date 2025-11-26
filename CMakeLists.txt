@@ -58,6 +58,11 @@ option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
 
+if(WIN32 AND ETH_ZKPROOF)
+    message(WARNING "ZK-Proof verification is currently not supported on Windows. Disabling ETH_ZKPROOF.")
+    set(ETH_ZKPROOF OFF CACHE BOOL "includes the ETH ZK-Proof verification support" FORCE)
+endif()
+
 # Make ETH availability visible to all targets (server + chains)
 if(CHAIN_ETH)
   add_definitions(-DCHAIN_ETH)
