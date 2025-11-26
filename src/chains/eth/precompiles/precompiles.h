@@ -50,6 +50,14 @@ typedef enum {
 // Main precompile execution function
 pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used);
 
+/**
+ * Inject the trusted-setup G2^tau point (compressed, 96 bytes) for the KZG precompile.
+ * Allows runtime provisioning (e.g., in WASM) when not embedded at build time.
+ * @param comp96 96-byte compressed G2^tau (tau^1) in big-endian format
+ * @return true on success
+ */
+bool precompiles_kzg_set_trusted_setup_g2_tau(const uint8_t* comp96);
+
 #ifdef __cplusplus
 }
 #endif

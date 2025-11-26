@@ -83,6 +83,10 @@ typedef enum {
 typedef uint32_t prover_flags_t;
 
 #ifdef PROVER_CACHE
+typedef union {
+  uint8_t  bytes32[32];
+  uint64_t uint64[4];
+} prover_cache_key_t;
 
 // Warning: Cache implementation assumes single-threaded access via libuv event loop.
 // Multi-threaded usage requires external synchronization.
@@ -92,7 +96,7 @@ typedef uint32_t prover_flags_t;
 
 typedef void (*cache_free_cb)(void*);
 typedef struct cache_entry {
-  bytes32_t           key;       // cache key
+  prover_cache_key_t  key;       // cache key
   void*               value;     // cache value
   uint32_t            size;      // cache value size in order to
   uint64_t            timestamp; // cache timestamp to be removed after ttl. if this timestamp is 0. the entry will live only in the prover_ctx, otherwise it will be stored in the global cache when prover_free is called.
@@ -176,6 +180,15 @@ c4_status_t c4_prover_status(prover_ctx_t* ctx);
  */
 const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key);
 
+/**
+ * Retrieve a cached value by key, but only from the local cahe.
+ * @param ctx the prover context
+ * @param key 32-byte cache key
+ * @return read-only pointer to cached value, or NULL if not found.
+ *         Caller MUST NOT modify the returned data.
+ *         Pointer is valid until cache cleanup or context destruction.
+ */
+const void* c4_prover_cache_get_local(prover_ctx_t* ctx, bytes32_t key);
 /**
  * Store a value in the local cache. Will be moved to global cache on context destruction
  * if duration_ms > 0.

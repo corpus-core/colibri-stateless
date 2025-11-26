@@ -303,7 +303,8 @@ bool c4_handle_proof_request(client_t* client) {
     c4_write_error_response(client, 400, "Invalid request");
     return true;
   }
-  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | C4_PROVER_FLAG_USE_ACCESSLIST | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0);
+
+  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | http_server.prover_flags;
   buffer_t       client_state_buf = {0};
   char*          method_str       = bprintf(NULL, "%j", method);
   char*          params_str       = bprintf(NULL, "%J", params);

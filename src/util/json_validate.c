@@ -44,7 +44,7 @@ static const char* find_end(const char* pos, char start, char end) {
 static const char* next_name(const char* pos, const char** next, int* len) {
   while (*pos && isspace(*pos)) pos++;
   const char* start = pos;
-  while (*pos && isalnum(*pos)) pos++;
+  while (*pos && (isalnum(*pos) || *pos == '_')) pos++;
   *next = pos;
   *len  = pos - start;
   return start;
@@ -80,8 +80,11 @@ static const char* check_array(json_t val, const char* def, const char* error_pr
   while (*next && isspace(*next)) next++;
   json_for_each_value(val, item) {
     const char* err = json_validate(item, item_def, "");
-    if (err)
-      ERROR("%s at elemtent (idx: %d ) : %s", error_prefix, idx, err);
+    if (err) {
+      char* new_err = bprintf(NULL, "%s at elemtent (idx: %d ) : %s", error_prefix, idx, err);
+      safe_free((char*) err);
+      return new_err;
+    }
     if (*next == ',') {
       item_def = next_type(next + 1, &next, &item_len);
       while (*next && isspace(*next)) next++;
@@ -105,7 +108,11 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
     const char* item_def = next_type(next, &next, &item_len);
     json_for_each_property(ob, val, prop_name) {
       const char* err = json_validate(val, item_def, "");
-      if (err) ERROR("%s.%s%s", error_prefix, *err == '.' ? "" : ":", err);
+      if (err) {
+        const char* new_err = bprintf(NULL, "%s.%s%s", error_prefix, *err == '.' ? "" : ":", err);
+        safe_free((char*) err);
+        return (char*) new_err;
+      }
     }
     return NULL;
   }
@@ -125,7 +132,11 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
         found = true;
         if (optional && val.type == JSON_TYPE_NULL) break;
         const char* err = json_validate(val, item_def, "");
-        if (err) ERROR("%s.%j%s%s", error_prefix, (json_t) {.type = JSON_TYPE_OBJECT, .start = name, .len = name_len}, *err == '.' ? "" : ":", err);
+        if (err) {
+          const char* new_err = bprintf(NULL, "%s.%j%s%s", error_prefix, (json_t) {.type = JSON_TYPE_OBJECT, .start = name, .len = name_len}, *err == '.' ? "" : ":", err);
+          safe_free((char*) err);
+          return new_err;
+        }
         break;
       }
     }
@@ -169,6 +180,7 @@ static const char* check_suint(json_t val, const char* error_prefix) {
 }
 
 const char* json_validate(json_t val, const char* def, const char* error_prefix) {
+  if (val.type == JSON_TYPE_INVALID) return strdup("Invalid JSON");
   if (*def == '[') return check_array(val, def, error_prefix ? error_prefix : "");
   if (*def == '{') return check_object(val, def, error_prefix ? error_prefix : "");
   if (strncmp(def, "bytes32", 7) == 0) return check_hex(val, 32, false, error_prefix ? error_prefix : "");

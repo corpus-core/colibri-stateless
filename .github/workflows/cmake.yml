@@ -193,7 +193,12 @@ jobs:
               
               # For server tests, check for actual definite leaks, not just exit code
               if [[ "$TEST_NAME" == "test_server"* ]]; then
-                DEFINITELY_LOST=$(grep "definitely lost:" "$TEMP_OUTPUT" | grep -oE "[0-9,]+ bytes" | head -1 | tr -d ',' || echo "0 bytes")
+                # Parse 'definitely lost' bytes; default to 0 if the line is missing
+                RAW_DEF_LOST=$(grep -m1 "definitely lost:" "$TEMP_OUTPUT" || true)
+                DEFINITELY_LOST=$(echo "$RAW_DEF_LOST" | grep -oE "[0-9,]+ bytes" | tr -d ',' || true)
+                if [[ -z "$DEFINITELY_LOST" ]]; then
+                  DEFINITELY_LOST="0 bytes"
+                fi
                 if [[ "$DEFINITELY_LOST" != "0 bytes" ]]; then
                   EXIT_CODE=1
                   echo "❌ $TEST_NAME: definite memory leaks found ($DEFINITELY_LOST)" >> valgrind_summary.md

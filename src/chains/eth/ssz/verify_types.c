@@ -29,7 +29,9 @@
 #include "witness.h"
 #include <stdio.h>
 #include <stdlib.h>
+// Helper type definition for byte arrays with large maximum size (1GB)
 static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
+// Forward declaration for C4_ETH_LC_SYNCDATA (defined later after includes)
 static const ssz_def_t C4_ETH_LC_SYNCDATA[2];
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
@@ -47,12 +49,12 @@ static const ssz_def_t C4_ETH_LC_SYNCDATA[2];
 //  - 2 : `minor` . the minor version of the prover.
 //  - 3 : `patch` . the patch version of the prover.
 //
-// the `data` union can hold different types which represents the final data to be verified.
+// The `data` union can hold different types which represents the final data to be verified.
 //
-// the `proof` union can hold different types which represents the proof of the data.
+// The `proof` union can hold different types which represents the proof of the data.
 //
-// the `sync_data` union hold optional data used to update the sync_committee.
-// Most of the time this is empty since syncing the pubkey only is used whenever it is needed. But the structure
+// The `sync_data` union holds optional data used to update the sync_committee.
+// Most of the time, this is empty since syncing the pubkey only is used whenever it is needed. But the structure
 // allows to include those sync_proofs enabling a fully stateless proof.
 //
 //
@@ -60,7 +62,7 @@ static const ssz_def_t C4_ETH_LC_SYNCDATA[2];
 // A List of possible types of data matching the Proofs
 const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10] = {
     SSZ_NONE,
-    SSZ_BYTES32("hash"),                                       // the blochash  which is used for blockhash proof
+    SSZ_BYTES32("hash"),                                       // the blockhash  which is used for blockhash proof
     SSZ_BYTES("bytes", 1073741824),                            // the bytes of the data
     SSZ_UINT256("value"),                                      // the balance of an account
     SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),          // the transaction data
@@ -69,7 +71,6 @@ const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10] = {
     SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),             // the block data
     SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),             // the result of an eth_getProof
     SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),  // the result of an colibri_simulateTransaction
-
 };
 
 // A List of possible types of proofs matching the Data
@@ -93,13 +94,13 @@ static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
     SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP) // Electra Fork Structureed LightClient Bootstrap
 };
 
-// a List of LightClient Updates as returned fomr light_client/updates endpoint.
+// A List of LightClient Updates as returned from light_client/updates endpoint.
 static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
     SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),    // Denep Fork Structureed LightClient Update
     SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE) // Electra Fork Structureed LightClient Update
 };
 
-// A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
+// A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
     SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA), // Light Client Sync Data
@@ -107,22 +108,24 @@ const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
 
 // the main container defining the incoming data processed by the verifier
 static const ssz_def_t C4_REQUEST[] = {
-    SSZ_BYTE_VECTOR("version", 4),                          // the [domain, major, minor, patch] version of the request, domaon=1 = eth
+    SSZ_BYTE_VECTOR("version", 4),                          // the [domain, major, minor, patch] version of the request, domain=1 = eth
     SSZ_UNION("data", C4_ETH_REQUEST_DATA_UNION),           // the data to proof
     SSZ_UNION("proof", C4_REQUEST_PROOFS_UNION),            // the proof of the data
     SSZ_UNION("sync_data", C4_ETH_REQUEST_SYNCDATA_UNION)}; // the sync data containing proofs for the transition between the two periods
 
+// The main container type definition for C4Request, wrapping all request fields
 static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQUEST);
 
+// Union type for a single LightClient Update, which can be either Deneb or Electra format
 static const ssz_def_t C4_ETH_SYNCDATA_UPDATE = SSZ_UNION("updates", C4_ETH_SYNCDATA_UPDATE_UNION);
 
 // :: SyncCommittee Proof
 //
 // The Verifier always needs the pubkeys of the sync committee for a given period in order to verify the BLS signature of a Beacon BlockHeader.
 //
-// if a verifier requests a proof from a remote prover, the verifier may use the c4-property of the RPC-Request to describe it's state of the knpown periods or checkpoint.
-// if the verifier only reports a checkpoint, a bootstrap is added profing the current_sync_committee for the given checkpoint.
-// if the header requested has a higher period that the bootstrap or the latest period, all required lightClientUpdates will be proveded.
+// If a verifier requests a proof from a remote prover, the verifier may use the c4-property of the RPC-Request to describe it's state of the knpown periods or checkpoint.
+// If the verifier only reports a checkpoint, a bootstrap is added proving the current_sync_committee for the given checkpoint.
+// If the header requested has a higher period that the bootstrap or the latest period, all required lightClientUpdates will be proved.
 //
 
 // LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
@@ -131,15 +134,33 @@ static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
     SSZ_LIST("update", C4_ETH_SYNCDATA_UPDATE, 1024)         // optional update data for the sync committee
 };
 
+/**
+ * Finds the index of a target definition within an array of SSZ definitions.
+ * Searches for a container type whose elements pointer matches the target.
+ *
+ * @param array Array of SSZ definitions to search
+ * @param len Length of the array
+ * @param target Target definition to find (compares elements pointer)
+ * @return Index of the matching definition, or 0 if not found
+ */
 static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
   for (size_t i = 0; i < len; i++) {
     if (array[i].type >= SSZ_TYPE_CONTAINER && array[i].def.container.elements == target) return i;
   }
   return 0;
 }
+// Macro to get the index of a target definition in an array
 #define ARRAY_IDX(a, target)  array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
+// Macro to get a pointer to the definition at the index of the target in an array
 #define ARRAY_TYPE(a, target) a + array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 
+/**
+ * Returns the SSZ definition for a LightClient Update based on the fork ID.
+ * Maps fork identifiers to the corresponding update type in the union array.
+ *
+ * @param fork Fork identifier (C4_FORK_DENEB, C4_FORK_ELECTRA, C4_FORK_FULU)
+ * @return Pointer to the SSZ definition for the update type, or NULL for unsupported forks
+ */
 const ssz_def_t* eth_get_light_client_update(fork_id_t fork) {
   switch (fork) {
     case C4_FORK_DENEB:
@@ -151,6 +172,15 @@ const ssz_def_t* eth_get_light_client_update(fork_id_t fork) {
       return NULL;
   }
 }
+
+/**
+ * Returns the SSZ type definition for a given verification type enum.
+ * Maps eth_ssz_type_t enum values to their corresponding SSZ definition pointers.
+ * Used to retrieve the correct type definition for parsing and validating SSZ-encoded proof data.
+ *
+ * @param type The verification type enum value
+ * @return Pointer to the corresponding SSZ definition, or NULL for invalid types
+ */
 const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
   switch (type) {
     case ETH_SSZ_VERIFY_REQUEST:

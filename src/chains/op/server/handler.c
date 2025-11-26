@@ -1,8 +1,9 @@
 #include "handler.h"
 #include "../verifier/op_chains_conf.h"
 #include "kona_preconf_capture.h"
-#include "util/bytes.h"
 #include "logger.h"
+#include "op_conf.h"
+#include "util/bytes.h"
 #include <libgen.h>
 #include <limits.h>
 #include <stdio.h>
@@ -21,7 +22,7 @@ static void start_preconf_capture(http_server_t* server) {
   log_info("🦀 Starting Kona-P2P bridge (with HTTP fallback support)");
 
 #ifdef KONA_BRIDGE_AVAILABLE
-  int kona_result = start_kona_preconf_capture(loop, http_server.chain_id, http_server.preconf_storage_dir);
+  int kona_result = start_kona_preconf_capture(loop, http_server.chain_id, op_config.preconf_storage_dir);
   if (kona_result == 0) {
     log_info("✅ Kona-P2P bridge started successfully");
     return;
@@ -38,6 +39,7 @@ void op_server_init(http_server_t* server) {
   OP_HANDLER_CHECK(server);
 
   log_info("Initializing OP-Stack server handlers...");
+  c4_register_internal_handler(c4_handle_preconf);
 
   start_preconf_capture(server);
 }

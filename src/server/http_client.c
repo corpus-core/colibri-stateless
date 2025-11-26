@@ -518,6 +518,16 @@ static void handle_curl_events() {
     pending_request_t* pending   = pending_find(r);
     long               http_code = 0;
     if (msg->data.result == CURLE_OK) curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+#ifdef TEST
+    // Gracefully handle missing file:// mocks by treating them as HTTP 404
+    if (msg->data.result == CURLE_FILE_COULDNT_READ_FILE) {
+      const char* url = r->url ? r->url : r->req->url;
+      if (url && strncmp(url, "file://", 7) == 0) {
+        http_code = 404;
+        log_warn(YELLOW("   [mock ]") " Missing mock file for %s -> treating as HTTP 404", url);
+      }
+    }
+#endif
 
 #ifdef TEST
     // For file:// URLs (mock responses), parse the HTTP code from the file content
@@ -1064,7 +1074,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     }
     char* base_url = servers && servers->count > selected_index ? servers->urls[selected_index] : NULL;
     char* req_url  = c4_request_fix_url(r->req->url, r, servers->client_types[selected_index]);
-
+    if (req_url && req_url[0] == '/') req_url = req_url + 1;
     // Safeguard against NULL URLs
     if (!req_url) req_url = "";
     if (!base_url) base_url = "";

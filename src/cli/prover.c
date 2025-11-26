@@ -38,17 +38,21 @@
 // : Bindings
 
 // :: CLI
-// Colibri comes with a native comandline interface. The can be used to create proofs and verify them, which allows easy use within shellscripts, cronjobs or while testing or developing.
+//
+// **colibri.stateless** includes a native command-line interface.  
+// It can generate proofs and verify them, enabling use in shell scripts, cron jobs, tests, and development workflows.
 //
 // ## Configuration
 //
-// while you can pass arguments to the the prover or verifier, when it comes to configuring the backend apis, you can use create a config-file. colibri tools will try to find it in the following order:
+// Arguments can be passed directly to the prover or verifier.  
+// Backend API settings can also be provided through a config file.  
+// colibri tools search for configuration in the following order:
 //
-// 1. look for a file with the path specified in the `C4_CONFIG` environment variable
-// 2. look in the current directory for a file named `c4_config.json`
-// 3. use defaults.
+// 1. use the path set in the `C4_CONFIG` environment variable  
+// 2. search the current directory for `c4_config.json`  
+// 3. fall back to built-in defaults
 //
-// this file is a json-file in the form:
+// This file is a JSON file in the form:
 //
 // ````json
 // {
@@ -78,19 +82,28 @@
 // | `<method>`     |                 | The method to execute                                                       |              |
 // | `<params>`     |                 | Parameters for the method                                                   |              |
 
+/**
+ * Main entry point for the colibri-prover CLI tool.
+ * Parses command-line arguments, creates a prover context, and executes the proof generation.
+ *
+ * @param argc Number of command-line arguments
+ * @param argv Array of command-line argument strings
+ * @return EXIT_SUCCESS on success, EXIT_FAILURE on error
+ */
 int main(int argc, char* argv[]) {
-  // Check for --version
+  // Check for --version or -v flag
   if (argc >= 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
     c4_print_version(stdout, "colibri-prover");
     exit(EXIT_SUCCESS);
   }
 
+  // Display help if no arguments provided or help flag is used
   if (argc < 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s [options] <method> <params> > proof.ssz\n"
                     "\n"
                     "  -c <chain_id>    : selected chain (default MAINNET = 1)\n"
                     "  -t <testname>    : generates test files in test/data/<testname>\n"
-                    "  -x <cachedir>    : caches all reguests in the cache directory\n"
+                    "  -x <cachedir>    : caches all requests in the cache directory\n"
                     "  -o <outputfile>  : ssz file with the proof ( default to stdout )\n"
                     "  -d <chain_store> : use chain_data from the chain_store found within the path\n"
                     "  -i               : include code in the proof\n"
@@ -100,16 +113,21 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  char*      method     = NULL;
-  buffer_t   buffer     = {0};
-  char*      outputfile = NULL;
-  uint32_t   flags      = 0;
-  chain_id_t chain_id   = C4_CHAIN_MAINNET;
-  buffer_add_chars(&buffer, "[");
-  bytes_t client_state = {0};
+  // Initialize variables for argument parsing
+  char*      method     = NULL;  // RPC method name (e.g., "eth_getBlockByNumber")
+  buffer_t   buffer     = {0};   // Buffer for building JSON parameter array
+  char*      outputfile = NULL;   // Output file path (NULL = stdout)
+  uint32_t   flags      = 0;      // Prover flags (e.g., C4_PROVER_FLAG_INCLUDE_CODE)
+  chain_id_t chain_id   = C4_CHAIN_MAINNET; // Default to Ethereum mainnet
+  buffer_add_chars(&buffer, "["); // Start building JSON array for parameters
+  bytes_t client_state = {0};     // Client state data (loaded from chain_store if -d is used)
 
+  // Parse command-line arguments
+  // Options start with '-' and can be combined (e.g., "-co" = "-c -o")
+  // Non-option arguments are: first = method name, rest = method parameters
   for (int i = 1; i < argc; i++) {
     if (*argv[i] == '-') {
+      // Process option flags (can be combined like "-co" or separate like "-c -o")
       for (char* c = argv[i] + 1; *c; c++) {
         switch (*c) {
           case 'c':
@@ -120,14 +138,18 @@ int main(int argc, char* argv[]) {
             break;
 #ifdef USE_CURL
           case 'd': {
+            // Use chain_store: configure file-based chain data source
+            // and load client state from a state file if it exists
             curl_set_config(json_parse(bprintf(NULL, "{\"chain_store\":[\"file://%s\"]}", argv[++i])));
             flags |= C4_PROVER_FLAG_CHAIN_STORE;
+            // Try to load client state from file (e.g., "./states_1" for chain_id 1)
             char* path   = bprintf(NULL, "./states_%l", (uint64_t) chain_id);
             client_state = bytes_read(path);
             break;
           }
 #endif
           case 'i':
+            // Include contract code in the proof (for call proofs)
             flags |= C4_PROVER_FLAG_INCLUDE_CODE;
             break;
 #ifdef TEST
@@ -146,8 +168,10 @@ int main(int argc, char* argv[]) {
         }
       }
     }
-    else if (method == NULL)
+    else if (method == NULL) {
+      // First non-option argument is the RPC method name
       method = argv[i];
+    }
     else {
       if (buffer.data.len > 1) buffer_add_chars(&buffer, ",");
       if (argv[i][0] == '{' || argv[i][0] == '[' || strcmp(argv[i], "true") == 0 || strcmp(argv[i], "false") == 0)
@@ -158,8 +182,13 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&buffer, "]");
 
+  // Create prover context with parsed arguments
   prover_ctx_t* ctx = c4_prover_create(method, (char*) buffer.data.data, chain_id, flags);
-  ctx->client_state = client_state;
+  ctx->client_state = client_state; // Set client state if loaded from chain_store
+
+  // Main execution loop: execute prover until completion or error
+  // The prover may need to fetch data from remote APIs, so it can return C4_PENDING
+  // multiple times before completing.
   while (true) {
     switch (c4_prover_execute(ctx)) {
       case C4_SUCCESS:
@@ -175,13 +204,14 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
 
       case C4_PENDING:
+        // Prover needs to fetch data from remote APIs before continuing
 #ifdef USE_CURL
-        curl_fetch_all(&ctx->state);
+        curl_fetch_all(&ctx->state); // Fetch all pending HTTP requests
 #else
         fprintf(stderr, "CURL not enabled\n");
         exit(EXIT_FAILURE);
 #endif
-        break;
+        break; // Continue loop to retry execution
     }
   }
 

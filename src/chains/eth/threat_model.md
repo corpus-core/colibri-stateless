@@ -2,7 +2,7 @@
 
 :: Threat Model
 
-Considering the nature of a verifier, analysing and understanding the limits is critical. While the security of Colibri Stateless is similar to the security of a light client, since it is based on the same foundation, there are specific risks to be aware of. The following expands the classic LightClient threat model with Colibri-specific considerations.
+Considering the nature of a verifier, analysing and understanding the limits is critical. While the security of **colibri.stateless** is similar to the security of a light client, since it is based on the same foundation, there are specific risks to be aware of. The following expands the classic LightClient threat model with Colibri-specific considerations.
 
 ---
 
@@ -10,7 +10,7 @@ Considering the nature of a verifier, analysing and understanding the limits is 
 
 ### Description
 
-Both Light Clients and Colibri rely on the aggregated BLS signature from a sync committee comprising 512 validators. Given that Ethereum currently has over 1 million active validators, this subset represents a small fraction of the total validator set. The concern arises from the possibility that a compromised or malicious sync committee could sign off on invalid blocks, potentially misleading the client.
+Both Light Clients and **colibri** rely on the aggregated BLS signature from a sync committee comprising 512 validators. Given that Ethereum currently has over 1 million active validators, this subset represents a small fraction of the total validator set. The concern arises from the possibility that a compromised or malicious sync committee could sign off on invalid blocks, potentially misleading the client.
 
 ### Crypto-Economics
 
@@ -41,7 +41,7 @@ This attack would also expose the attacker to:
 
 * **Random Selection**: Sync committee members are selected pseudo-randomly every 256 epochs (\~27 hours), making it statistically improbable for an attacker to consistently control the committee.
 * **Economic Incentives**: Validators have significant ETH staked and are disincentivized from misbehavior.
-* **Future Change (EIP-7657)**: Once activated, double-signing in the sync committee becomes slashable, significantly strengthening the crypto-economic security for Colibri and Light Clients alike.
+* **Future Change (EIP-7657)**: Once activated, double-signing in the sync committee becomes slashable, significantly strengthening the crypto-economic security for **colibri** and Light Clients alike.
 
 ---
 
@@ -63,7 +63,7 @@ LightClientUpdates include both an `attestedHeader` and a `finalityHeader`. The 
 
 ### Description
 
-Long-range attacks involve adversaries creating an alternative chain that diverges from the main chain, potentially deceiving light clients that have been offline for extended periods. This is a known vulnerability in proof-of-stake systems, especially concerning nodes that lack recent state information.
+Long-range attacks involve adversaries creating an alternative chain that diverges from the main chain, potentially deceiving light clients or stateless clients that have been offline for extended periods. This is a known vulnerability in proof-of-stake systems, especially concerning nodes that lack recent state information.
 
 ### Crypto-Economic Risk Analysis
 
@@ -98,7 +98,7 @@ An attacker could attempt to:
 
 ### Mitigation
 
-* **Weak Subjectivity Checkpoints**: Colibri and Light Clients must be configured with trusted block hashes (Checkpoints) to anchor verification.
+* **Weak Subjectivity Checkpoints**: **Colibri** and Light Clients must be configured with trusted block hashes (Checkpoints) to anchor verification.
 * **Checkpoint Providers**: External sources can provide safe synchronization points.
 * **Community Consensus**: Social recovery (hard forks) in extreme attack scenarios.
 
@@ -106,12 +106,12 @@ An attacker could attempt to:
 
 ## 4. Colibri-Specific Considerations
 
-Unlike standard Light Clients, Colibri does **not** sync via gossip or LightClientUpdates. Instead, it:
+Unlike standard Light Clients, **Colibri** does **not** sync via gossip or LightClientUpdates. Instead, it:
 
 * Fetches blocks on-demand via Beacon APIs.
 * Verifies them using the **SyncAggregate** (up to 512 signatures from the next block’s BlockBody).
 
-This means that the **`is_better_update` logic has already been applied by consensus** before Colibri sees the signatures. Colibri therefore only validates a single aggregate per block — it never needs to resolve competing updates itself.
+This means that the **`is_better_update` logic has already been applied by consensus** before **Colibri** sees the signatures. **Colibri** therefore only validates a single aggregate per block — it never needs to resolve competing updates itself.
 
 ### Specific Risks
 
@@ -131,7 +131,7 @@ Reorganizations (reorgs) occur when the canonical chain switches to an alternati
 
 ### How Colibri uses SyncAggregate
 
-For latest queries, Colibri obtains the head block, extracts its `SyncAggregate`, then proves the parent block by computing the parent’s `execution_payload` `hash_tree_root` and verifying via the Merkle branch up to the parent header. The verifier checks the BLS aggregate against the `SigningRoot` and confirms a ≥2/3 sync committee majority.
+For latest queries, **Colibri** obtains the head block, extracts its `SyncAggregate`, then proves the parent block by computing the parent’s `execution_payload` `hash_tree_root` and verifying via the Merkle branch up to the parent header. The verifier checks the BLS aggregate against the `SigningRoot` and confirms a ≥2/3 sync committee majority.
 
 ### When can a valid aggregate point to a non-canonical block?
 
@@ -154,7 +154,7 @@ References: [EIP-7657 (Slash sync committee equivocations)](https://eips.ethereu
 * For high-assurance use cases: verify against finalized checkpoints (FFG finality) instead of latest.
 * BlockTag selection expresses acceptable reorg risk: `latest` (highest liveness, non-zero reorg risk), `justified` (reduced risk), `finalized` (zero reorg risk), or an explicit block number/hash.
 * For near-real-time queries: add a safety delay of k slots (e.g., 2–4) before accepting a block as stable; this reduces exposure to ≥2-slot reorgs.
-* Multiple Beacon APIs help detect divergent heads on the prover side. The verifier itself does not query Beacon APIs; it relies on checkpoints and proofs provided by the prover. Under optimistic heads, Colibri’s exposure is comparable to that of full Beacon clients and other light clients given the same head.
+* Multiple Beacon APIs help detect divergent heads on the prover side. The verifier itself does not query Beacon APIs; it relies on checkpoints and proofs provided by the prover. Under optimistic heads, **Colibri’s** exposure is comparable to that of full Beacon clients and other light clients given the same head.
 * Persist conflicting aggregates as evidence for future reporting; once EIP-7657 activates, equivocations become slashable.
 
 #### BlockTag trade-offs
@@ -204,7 +204,7 @@ sequenceDiagram
 
 ## 6. Conclusion
 
-* **Colibri vs. Light Clients**: Both rely on the same sync committee assumption (<1/3 byzantine). Colibri’s difference is the use of `SyncAggregate` from the block body rather than `LightClientUpdate`. This means Colibri is slightly simpler (no `is_better_update` handling), but equally exposed to the fundamental security assumption.
+* **Colibri vs. Light Clients**: Both rely on the same sync committee assumption (<1/3 byzantine). **Colibri’s** difference is the use of `SyncAggregate` from the block body rather than `LightClientUpdate`. This means **Colibri** is slightly simpler (no `is_better_update` handling), but equally exposed to the fundamental security assumption.
 * **Main Gap (today)**: Lack of slashing for sync committee equivocations.
-* **Future (with EIP-7657)**: Colibri achieves parity with classical Light Clients in crypto-economic security, with the added operational simplicity of on-demand verification.
+* **Future (with EIP-7657)**: **Colibri** achieves parity with classical Light Clients in crypto-economic security, with the added operational simplicity of on-demand verification.
 

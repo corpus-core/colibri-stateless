@@ -52,8 +52,11 @@
 #endif
 
 // Macro for efficient cache key comparison (32-byte keys)
-#define CACHE_KEY_MATCH(entry, key, key_start) \
-  (*((uint64_t*) (entry)->key) == (key_start) && memcmp((entry)->key, (key), 32) == 0)
+#define CACHE_KEY_MATCH(entry, query)             \
+  ((entry)->key.uint64[0] == (query.uint64[0]) && \
+   (entry)->key.uint64[1] == (query.uint64[1]) && \
+   (entry)->key.uint64[2] == (query.uint64[2]) && \
+   (entry)->key.uint64[3] == (query.uint64[3]))
 
 // ---- Time helpers (always available) ---------------------------------------
 // Function to get current time as Unix epoch milliseconds using system calls
@@ -101,12 +104,25 @@ typedef struct {
 static global_cache_t global_cache_array    = {NULL, 0, 0, 0};
 static uint64_t       global_cache_max_size = 1024 * 1024 * 100; // 100MB max cache size
 
-const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key) {
-  uint64_t key_start = *((uint64_t*) key); // optimize cache-loop by first checking the first word before doing a memcmp
+const void* c4_prover_cache_get_local(prover_ctx_t* ctx, bytes32_t key) {
+  prover_cache_key_t key_aligned;
+  memcpy(key_aligned.bytes32, key, 32);
 
   // 1. Check local cache (remains linked list)
   for (cache_entry_t* entry = ctx->cache; entry; entry = entry->next) {
-    if (CACHE_KEY_MATCH(entry, key, key_start))
+    if (CACHE_KEY_MATCH(entry, key_aligned))
+      return entry->value;
+  }
+  return NULL;
+}
+
+const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key) {
+  prover_cache_key_t key_aligned;
+  memcpy(key_aligned.bytes32, key, 32);
+
+  // 1. Check local cache (remains linked list)
+  for (cache_entry_t* entry = ctx->cache; entry; entry = entry->next) {
+    if (CACHE_KEY_MATCH(entry, key_aligned))
       return entry->value;
   }
 
@@ -119,7 +135,7 @@ const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key) {
   // 2. Check global cache (now an array)
   for (size_t i = 0; i < global_cache_array.count; ++i) {
     cache_entry_t* entry = &global_cache_array.entries[i]; // Get pointer to entry in array
-    if (CACHE_KEY_MATCH(entry, key, key_start)) {
+    if (CACHE_KEY_MATCH(entry, key_aligned)) {
 
       // Skip invalidated entries (timestamp == 0 means invalidated)
       if (entry->timestamp == 0) {
@@ -149,7 +165,7 @@ const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key) {
 
 void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free) {
   cache_entry_t* entry = (cache_entry_t*) safe_calloc(1, sizeof(cache_entry_t));
-  memcpy(entry->key, key, 32);
+  memcpy(entry->key.bytes32, key, 32);
   entry->value     = value;
   entry->size      = size;
   entry->timestamp = duration_ms; // Store the relative duration
@@ -193,7 +209,7 @@ void c4_prover_cache_cleanup(uint64_t now, uint64_t extra_size) {
     else {
       // Remove this entry
       log_debug("Removing cache entry %b (Size: %d, Expired: %s, OverSizeLimit: %s, UseCount: %d)",
-                bytes(entry->key, 32), entry->size, (entry->timestamp < now) ? "Yes" : "No",
+                bytes(entry->key.bytes32, 32), entry->size, (entry->timestamp < now) ? "Yes" : "No",
                 (current_kept_size + entry->size > max_size) ? "Yes" : "No", entry->use_counter);
 
       // Free the associated value if a free function exists
@@ -258,17 +274,18 @@ static bool add_entry_to_global_cache(cache_entry_t* entry_to_add) {
   global_cache_array.count++;
   global_cache_array.current_size += global_entry->size; // Use global_entry->size
 
-  log_debug("Added cache entry %b to global cache", bytes(global_entry->key, 32));
+  log_debug("Added cache entry %b to global cache", bytes(global_entry->key.bytes32, 32));
 
   return true;
 }
 
 // Find an entry in the global cache array by key
 static cache_entry_t* find_global_cache_entry(bytes32_t key) {
-  uint64_t key_start = *((uint64_t*) key); // optimize cache-loop by first checking the first word before doing a memcmp
+  prover_cache_key_t key_aligned;
+  memcpy(key_aligned.bytes32, key, 32);
   for (size_t i = 0; i < global_cache_array.count; ++i) {
     cache_entry_t* entry = &global_cache_array.entries[i];
-    if (CACHE_KEY_MATCH(entry, key, key_start) && entry->timestamp > 0) return entry; // Return pointer to the entry in the array
+    if (CACHE_KEY_MATCH(entry, key_aligned) && entry->timestamp > 0) return entry; // Return pointer to the entry in the array
   }
   return NULL; // Not found
 }
@@ -359,19 +376,19 @@ void c4_prover_free(prover_ctx_t* ctx) {
     cache_entry_t* current_local_entry = ctx->cache; // Keep pointer to current local entry
 
     // Check if the entry should be moved to the global cache
-    if (current_local_entry->timestamp &&                   // Has a TTL (intended for global)
-        !current_local_entry->from_global_cache &&          // Not sourced/copied from global
-        !find_global_cache_entry(current_local_entry->key)) // Doesn't already exist in global
+    if (current_local_entry->timestamp &&                           // Has a TTL (intended for global)
+        !current_local_entry->from_global_cache &&                  // Not sourced/copied from global
+        !find_global_cache_entry(current_local_entry->key.bytes32)) // Doesn't already exist in global
     {
       // Attempt to add to global cache array by copying data
       if (add_entry_to_global_cache(current_local_entry)) {
         // Success: Ownership of value transferred to global cache.
         // We only need to free the local cache entry *structure*.
-        log_debug("Moved cache entry %b to global cache", bytes(current_local_entry->key, 32));
+        log_debug("Moved cache entry %b to global cache", bytes(current_local_entry->key.bytes32, 32));
       }
       else {
         // Failed to add (e.g., allocation failure). Must free the value now.
-        log_warn("Failed to add cache entry %b to global cache, freeing value.", bytes(current_local_entry->key, 32));
+        log_warn("Failed to add cache entry %b to global cache, freeing value.", bytes(current_local_entry->key.bytes32, 32));
         if (current_local_entry->free && current_local_entry->value)
           current_local_entry->free(current_local_entry->value);
       }
@@ -383,11 +400,11 @@ void c4_prover_free(prover_ctx_t* ctx) {
       if (current_local_entry->from_global_cache) {
         // This was copied from global, decrement the counter on the source.
         // Re-find the global entry by key before decrementing for safety against realloc.
-        cache_entry_t* global_src = find_global_cache_entry(current_local_entry->key);
+        cache_entry_t* global_src = find_global_cache_entry(current_local_entry->key.bytes32);
         if (global_src && global_src->use_counter > 0) // Prevent underflow
           global_src->use_counter--;
         else
-          log_warn("Source entry for key %b not found in global cache or use_counter is 0 during free, use_counter not decremented.", bytes(current_local_entry->key, 32));
+          log_warn("Source entry for key %b not found in global cache or use_counter is 0 during free, use_counter not decremented.", bytes(current_local_entry->key.bytes32, 32));
       }
       else if (current_local_entry->free && current_local_entry->value)
         current_local_entry->free(current_local_entry->value);

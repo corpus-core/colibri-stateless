@@ -553,7 +553,7 @@ static c4_sync_validators_t get_validators_from_cache(verify_ctx_t* ctx, uint32_
 #ifdef BLS_DESERIALIZE
   // Check if validators need deserialization (only pubkeys, not including the 32-byte root)
   size_t expected_serialized_size = 512 * 48 + 32;
-  if (validators.data.data && validators.data.len == expected_serialized_size) {
+  if (validators.data.data && (validators.data.len == expected_serialized_size || validators.data.len == 512 * 48)) {
 #ifdef C4_STATIC_MEMORY
     memcpy(keys_48_buffer, validators.data.data, 512 * 48);
     bytes_t b = blst_deserialize_p1_affine(validators.data.data, 512, sync_buffer);

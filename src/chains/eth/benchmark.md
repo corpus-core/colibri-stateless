@@ -2,11 +2,12 @@
 
 :: Benchmark
 
-Verifying rpc-result may be a overheade, but the overhead my be a lot smaller than expected.
+Verifying RPC results introduces computational overhead, but in practice the cost is often significantly lower than expected.  
+Proof verification typically requires only a few hash computations and a single BLS signature check, which is negligible compared to the cost of executing or syncing full node data.
 
 ## Payload Size
 
-The Size of a payload depend on the method.  Here are some examples comparing the payload of colibri stateless (using ssz) to a direct json-response from a roc-provider:
+The size of a payload depend on the method.  Here are some examples comparing the payload of **colibri.stateless** (using ssz) to a direct json-response from a RPC-provider:
 
 | method | colibri proof incl. data (SSZ) | RPC-Data (JSON) |
 | ---------------- | -------------------------- | --------------------- |
@@ -17,14 +18,17 @@ The Size of a payload depend on the method.  Here are some examples comparing th
 | eth_getLogs | 53 kB | 15 kB |
 | eth_call ( ERC20.balanceOf) | 17 kB | 0.1 kB |
 
-So while a complete block is even smaller than the json-data (because colibri stateless packs in the binary (ssz) execution payload from the beacon-chain and extracts ), other methods such as eth_call require nerkle proofs for every storage value before execution the evm.
+So, while a complete block is often smaller than the corresponding JSON-RPC data (because **colibri.stateless** uses the binary **SSZ**-encoded execution payload from the beacon chain and extracts it directly), other methods such as `eth_call` require additional Merkle proofs for every accessed storage value before the EVM execution can be verified.
 
 ## Verification overhead
 
-Verifying usualy is not a huge overhead. The most time consuming part is the checking the BLS-Signature.
-These times in the table show the time used to create the proof and verify it. (the rpc-responses are taken from the filesystem in order to ignore latency issues). The numbers in bracket are the times for creating the proof and verifying it.
+Verification usualy is not a huge overhead. The most time consuming part is checking the BLS-Signature.
 
-These Benchmarks come from tests on Apple M3 Max :
+The times shown in the table represent the total time required to generate and verify each proof.  
+RPC responses were read from the local filesystem to eliminate network latency effects.  
+Numbers in brackets indicate the separate durations for proof creation and verification.
+
+These benchmarks were obtained from tests performed on an **Apple M3 Max** system:
 
 | method | native | JS (wasm)
 | ---------------- | -------------------------- | --------------------- |
@@ -34,10 +38,10 @@ These Benchmarks come from tests on Apple M3 Max :
 | eth_getLogs | 19 ms (17+2) | 47 ms (12+35) |
 | eth_call ( ERC20.balanceOf) | 12 ms (10+2) | 51 ms (11+40) |
 
-
 ## Code size
 
-Using cmake-defines you can adjust the codesize by only adding what you need. This is relevant especially for embedded devices.
+Using **CMake-defines**, the code size can be adjusted by including only the required components.  
+This is particularly relevant for embedded devices, where memory and storage resources are limited.
 
 Here are some examples of code sizes you may expect:
 

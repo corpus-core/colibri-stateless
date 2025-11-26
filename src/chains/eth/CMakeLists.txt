@@ -43,6 +43,8 @@ option(EVMONE "uses evmone to verify eth_calls" ON)
 option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas." OFF)
 # precompiles
 option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
+option(PRECOMPILES_BN128 "Precompile BN128 (ecadd, ecmul, ecpairing)" ON)
+option(PRECOMPILES_KZG "Precompile KZG (point evaluation)" ON)
 
 if(NOT MSVC)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-excess-initializers")
@@ -65,6 +67,12 @@ if (EVMLIGHT OR EVMONE)
     endif()
     if (PRECOMPILES_RIPEMD160)
         add_definitions(-DPRECOMPILED_RIPEMD160)
+    endif()
+    if (PRECOMPILES_BN128)
+        add_definitions(-DPRECOMPILED_BN128)
+    endif()
+    if (PRECOMPILES_KZG)
+        add_definitions(-DPRECOMPILED_KZG)
     endif()
 endif()
 
@@ -118,7 +126,7 @@ if(ETH_CALL)
   if(EVMONE)
     add_subdirectory(precompiles)
     set(VERIFIER_SOURCES ${VERIFIER_SOURCES}  verifier/call_evmone.c)
-    set(VERIFIER_DEPS util evmone_wrapper eth_precompiles)
+    set(VERIFIER_DEPS PUBLIC eth_precompiles evmone_wrapper )
   endif()
   
 endif()
@@ -151,6 +159,7 @@ add_prover(
     prover/beacon.c
     prover/proof_receipt.c
     prover/eth_req.c
+    prover/logs_cache.c
     prover/eth_tools.c
     prover/proof_sync.c
     prover/proof_block.c
@@ -160,10 +169,13 @@ add_prover(
   PROOF eth_prover_execute
 )
 
+
+
 add_server_handler(
   NAME eth_server_handler
   SOURCES 
     server/handler.c
+    server/metrics.c
     server/head_watcher.c
     server/head_update.c
     server/chain_props.c
@@ -171,11 +183,15 @@ add_server_handler(
     server/handle_headers.c
     server/client_detection.c
     server/client_mappings.c
+    server/period_store.c
+    server/eth_conf.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init
   SHUTDOWN_FUNC eth_server_shutdown
   GET_DETECTION_REQUEST_FUNC eth_get_detection_request
   PARSE_VERSION_RESPONSE_FUNC eth_parse_version_response
   GET_CLIENT_MAPPINGS_FUNC eth_get_client_mappings
+  METRICS_FUNC eth_server_metrics
+  CONFIG_FUNC eth_configure
 )
 

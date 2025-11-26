@@ -1,5 +1,7 @@
 #include "handler.h"
+#include "eth_conf.h"
 #include "logger.h"
+#include "period_store.h"
 
 // Forward declarations for handlers from the moved files
 // These will be registered with the main server.
@@ -26,8 +28,12 @@ void eth_server_init(http_server_t* server) {
   c4_register_http_handler(c4_handle_lcu);
   c4_register_http_handler(c4_proxy);
 
+  // internal handlers
+  c4_register_internal_handler(c4_handle_period_store);
+  c4_register_internal_handler(c4_handle_lcu_updates);
+
   // Start background services like the beacon event watcher if configured
-  if (server->stream_beacon_events) {
+  if (eth_config.stream_beacon_events) {
     log_info("Starting beacon event watcher...");
     c4_watch_beacon_events();
   }
@@ -44,7 +50,7 @@ void eth_server_shutdown(http_server_t* server) {
   ETH_HANDLER_CHECK(server);
 
   // Stop background services if they were configured to run
-  if (server->stream_beacon_events) {
+  if (eth_config.stream_beacon_events) {
     log_info("Stopping beacon event watcher...");
     c4_stop_beacon_watcher();
   }
