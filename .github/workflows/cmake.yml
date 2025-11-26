@@ -885,6 +885,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DTEST=true
           -DCURL=true
+          -DETH_ZKPROOF=0
           -DHTTP_SERVER=1
           -DPROVER_CACHE=true
           -S ${{ github.workspace }}
@@ -915,6 +916,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DTEST=true
           -DCURL=true
+          -DETH_ZKPROOF=0
           -DHTTP_SERVER=1
           -DPROVER_CACHE=true
           -DCMAKE_TOOLCHAIN_FILE="${env:VCPKG_ROOT}\\scripts\\buildsystems\\vcpkg.cmake"
