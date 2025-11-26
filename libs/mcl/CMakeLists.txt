@@ -23,6 +23,8 @@ set(MCL_MAX_BIT_SIZE 256 CACHE STRING "Max bit size (256 for BN254)" FORCE)
 # 4. Disable External Dependencies (Fixes WASM/Emscripten GMP error)
 set(MCL_USE_GMP OFF CACHE BOOL "Use GMP" FORCE)
 set(MCL_USE_GMP OFF) # Set as normal variable too, to override option() check if necessary
+set(MCL_TEST_WITH_GMP OFF CACHE BOOL "Use GMP for tests" FORCE) # THIS IS THE CULPRIT!
+set(MCL_TEST_WITH_GMP OFF)
 set(MCL_USE_OPENSSL OFF CACHE BOOL "Use OpenSSL" FORCE)
 set(MCL_USE_OPENSSL OFF)
 
