@@ -1,16 +1,13 @@
-cmake_minimum_required(VERSION 3.14)
-
-# Only build if ETH_ZKPROOF is enabled
 if(ETH_ZKPROOF)
-    project(zk_verifier C CXX)
-
-    # Library
     add_library(zk_verifier STATIC zk_verifier.c)
-    # mcl_interface is now available globally because it's added in libs/CMakeLists.txt
-    target_link_libraries(zk_verifier PUBLIC mcl_interface)
-    target_include_directories(zk_verifier PUBLIC .)
+    
+    # Link against mcl and util
+    target_link_libraries(zk_verifier PUBLIC mcl_interface util)
+    
+    # Export include directory for other targets (e.g. tests)
+    target_include_directories(zk_verifier PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-    # CLI Tool
+    # CLI Tool for quick manual testing
     add_executable(verify_zk_proof_cli main.c)
     target_link_libraries(verify_zk_proof_cli PRIVATE zk_verifier)
 endif()

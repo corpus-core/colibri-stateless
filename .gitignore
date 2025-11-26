@@ -56,3 +56,4 @@ compile_commands.json
 /*.ssz
 valgrind_results
 /src/chains/eth/zk_proof/target
+.zk_proofs

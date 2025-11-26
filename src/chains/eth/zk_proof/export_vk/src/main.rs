@@ -1,7 +1,7 @@
 use clap::Parser;
 use num_bigint::BigUint;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write, Read};
 use std::path::PathBuf;
 use regex::Regex;
 use sp1_sdk::{HashableKey, ProverClient, Prover, SP1VerifyingKey};
@@ -16,7 +16,11 @@ struct Args {
 
     /// Path to the ELF binary (to compute Program Hash)
     #[clap(long)]
-    elf_path: PathBuf,
+    elf_path: Option<PathBuf>,
+
+    /// Path to the VK binary (alternative to ELF)
+    #[clap(long)]
+    vk_path: Option<PathBuf>,
 
     /// Output header file path
     #[clap(long, default_value = "zk_verifier_constants.h")]
@@ -26,15 +30,25 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    // 1. Compute Program Hash from ELF
-    println!("Computing VK Hash from ELF: {:?}", args.elf_path);
-    let elf_bytes = std::fs::read(&args.elf_path).expect("Failed to read ELF file");
-    let client = ProverClient::builder().cpu().build();
-    let (_, vk) = client.setup(&elf_bytes);
+    // 1. Compute Program Hash
+    let vk = if let Some(vk_path) = &args.vk_path {
+        eprintln!("Loading VK from: {:?}", vk_path);
+        let file = File::open(vk_path).expect("Failed to open VK file");
+        let reader = std::io::BufReader::new(file);
+        bincode::deserialize_from(reader).expect("Failed to deserialize VK")
+    } else if let Some(elf_path) = &args.elf_path {
+        eprintln!("Computing VK Hash from ELF: {:?}", elf_path);
+        let elf_bytes = std::fs::read(elf_path).expect("Failed to read ELF file");
+        let client = ProverClient::builder().cpu().build();
+        let (_, vk) = client.setup(&elf_bytes);
+        vk
+    } else {
+        panic!("Either --elf-path or --vk-path must be provided");
+    };
     
     // Get the hash as field element string
     let vk_hash_debug = vk.hash_bn254().to_string();
-    println!("VK Hash Debug String: {}", vk_hash_debug);
+    eprintln!("VK Hash Debug String: {}", vk_hash_debug);
     
     // Parse hex from "FFBn254Fr(0x...)"
     let re_hex = Regex::new(r"0x([0-9a-fA-F]+)").unwrap();
@@ -61,7 +75,7 @@ fn main() {
     writeln!(out, "").unwrap();
     writeln!(out, "#include <stdint.h>").unwrap();
     writeln!(out, "").unwrap();
-    writeln!(out, "/* Extracted from Groth16Verifier.sol & ELF VK */").unwrap();
+    writeln!(out, "/* Extracted from Groth16Verifier.sol & VK */").unwrap();
     writeln!(out, "").unwrap();
 
     // Regex to find constants: uint256 constant NAME = VALUE;
@@ -141,7 +155,7 @@ fn main() {
 
     writeln!(out, "").unwrap();
     writeln!(out, "#endif // ZK_VERIFIER_CONSTANTS_H").unwrap();
-    println!("Header generated at {:?}", args.output_path);
+    eprintln!("Header generated at {:?}", args.output_path);
 }
 
 fn write_bytes(out: &mut File, name: &str, val: &BigUint) {

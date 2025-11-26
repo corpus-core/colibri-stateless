@@ -2,31 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "bytes.h"
 
 void print_usage(const char* prog_name) {
     printf("Usage: %s <proof_file> <public_values_file>\n", prog_name);
-}
-
-uint8_t* read_file(const char* filename, size_t* out_len) {
-    FILE* f = fopen(filename, "rb");
-    if (!f) {
-        fprintf(stderr, "Failed to open file: %s\n", filename);
-        return NULL;
-    }
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    
-    uint8_t* buf = malloc(fsize);
-    if (fread(buf, 1, fsize, f) != fsize) {
-        fprintf(stderr, "Failed to read file: %s\n", filename);
-        free(buf);
-        fclose(f);
-        return NULL;
-    }
-    fclose(f);
-    *out_len = fsize;
-    return buf;
 }
 
 int main(int argc, char** argv) {
@@ -42,22 +21,24 @@ int main(int argc, char** argv) {
     printf("  Proof File: %s\n", proof_file);
     printf("  Public Values: %s\n", pub_file);
     
-    size_t proof_len;
-    uint8_t* proof_bytes = read_file(proof_file, &proof_len);
-    if (!proof_bytes) return 1;
+    bytes_t proof = bytes_read((char*)proof_file);
+    if (!proof.data) {
+        fprintf(stderr, "Failed to read proof file\n");
+        return 1;
+    }
     
-    size_t pub_len;
-    uint8_t* pub_bytes = read_file(pub_file, &pub_len);
-    if (!pub_bytes) {
-        free(proof_bytes);
+    bytes_t pub = bytes_read((char*)pub_file);
+    if (!pub.data) {
+        fprintf(stderr, "Failed to read public values file\n");
+        free(proof.data);
         return 1;
     }
 
     // Verify
-    bool valid = verify_zk_proof(proof_bytes, proof_len, pub_bytes, pub_len);
+    bool valid = verify_zk_proof(proof, pub);
     
-    free(proof_bytes);
-    free(pub_bytes);
+    free(proof.data);
+    free(pub.data);
 
     if (valid) {
         printf("Verification SUCCESS! ✅\n");

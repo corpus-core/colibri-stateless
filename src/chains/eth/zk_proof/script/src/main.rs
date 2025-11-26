@@ -1,10 +1,11 @@
 use clap::Parser;
-use eth_sync_common::{ProofData, VerificationOutput};
+use eth_sync_common::{ProofData, VerificationOutput, SP1GuestInput, RecursionData};
 use eth_sync_common::merkle::create_root_hash;
-use sp1_sdk::{ProverClient, SP1Stdin};
+use sp1_sdk::{ProverClient, SP1Stdin, SP1ProofWithPublicValues, SP1VerifyingKey, HashableKey};
 use std::fs::File;
 use std::io::Read;
 use std::time::Instant;
+use sha2::{Sha256, Digest};
 
 const PROOF_OFFSET: usize = 49358;
 
@@ -22,6 +23,12 @@ struct Args {
 
     #[clap(long, default_value = "zk_input.ssz")]
     input_file: String,
+
+    #[clap(long)]
+    prev_proof: Option<String>,
+
+    #[clap(long)]
+    prev_vk: Option<String>,
 }
 
 fn read_proof_data(filename: &str) -> ProofData {
@@ -97,7 +104,51 @@ async fn main() {
     println!("Reading proof data from {}", args.input_file);
     let proof_data = read_proof_data(&args.input_file);
     
-    stdin.write(&proof_data);
+    // Build Recursion Data
+    let mut recursion_data = None;
+    
+    if let Some(prev_proof_path) = args.prev_proof {
+        let prev_vk_path = args.prev_vk.expect("prev-vk is required when prev-proof is provided");
+        
+        println!("Loading previous proof from {}", prev_proof_path);
+        let proof_file = File::open(&prev_proof_path).expect("Failed to open prev proof");
+        let proof: SP1ProofWithPublicValues = bincode::deserialize_from(proof_file).expect("Failed to deserialize proof");
+        
+        println!("Loading previous VK from {}", prev_vk_path);
+        let vk_file = File::open(&prev_vk_path).expect("Failed to open prev vk");
+        let vk: SP1VerifyingKey = bincode::deserialize_from(vk_file).expect("Failed to deserialize vk");
+        
+        // Extract public values digest (SHA256)
+        let mut hasher = Sha256::new();
+        hasher.update(proof.public_values.as_slice());
+        let hash_result = hasher.finalize();
+        
+        let hash_bytes: [u8; 32] = hash_result.into();
+        let mut digest = [0u32; 8];
+        for i in 0..8 {
+            let word_bytes = &hash_bytes[i*4..(i+1)*4];
+            digest[i] = u32::from_be_bytes(word_bytes.try_into().unwrap());
+        }
+        
+        // Write proof to stdin for recursion
+        // Assuming SP1 SDK v5 uses this method for deferred proofs
+        stdin.write_proof(proof.clone(), vk.vk.hash_u32());
+        
+        recursion_data = Some(RecursionData {
+            vkey_hash: vk.vk.hash_u32(),
+            public_values_digest: digest,
+            public_values: proof.public_values.to_vec(),
+        });
+        
+        println!("Recursion enabled. Validating chain from prev period.");
+    }
+    
+    // Write the wrapped input
+    let guest_input = SP1GuestInput {
+        proof_data,
+        recursion_data,
+    };
+    stdin.write(&guest_input);
     
     let elf_path = std::env::var("ELF_PATH").unwrap_or_else(|_| "../program/target/riscv32im-succinct-zkvm-elf/release/eth-sync-program".to_string());
     println!("Loading ELF from: {}", elf_path);
@@ -130,6 +181,10 @@ async fn main() {
         
         if args.groth16 {
             println!("Generating Groth16 proof (requires Docker)...");
+            // Note: For recursion, the inner proof should be Compressed/Core.
+            // Groth16 is usually the final step.
+            // But client.prove(...).groth16() does the full pipeline.
+            
             let proof = client.prove(&pk, &stdin).groth16().run().unwrap();
             println!("Groth16 Proof generated successfully in {:?}", start.elapsed());
             
@@ -145,17 +200,12 @@ async fn main() {
             println!("Saving raw Groth16 proof bytes to {}", raw_output);
             std::fs::write(&raw_output, &raw_proof).expect("Failed to save raw proof");
 
-            // Save Public Values
-            let mut reader = proof.public_values.as_slice();
-            let result: VerificationOutput = bincode::deserialize_from(&mut reader).expect("Failed to deserialize output");
+            // Save Public Values (DIRECT from proof to be safe)
             let public_values_path = std::env::var("PUBLIC_VALUES_FILE").unwrap_or("public_values.bin".to_string());
-            let mut pv_bytes = Vec::new();
-            pv_bytes.extend_from_slice(&result.next_keys_root);
-            pv_bytes.extend_from_slice(&result.next_period.to_le_bytes());
-            std::fs::write(&public_values_path, &pv_bytes).expect("Failed to save public values");
-            println!("Saved public values to {}", public_values_path);
+            println!("Saving raw public values to {}", public_values_path);
+            std::fs::write(&public_values_path, &proof.public_values.as_slice()).expect("Failed to save public values");
 
-            // Save VK (Program Hash) for Groth16 mode as well (useful for export)
+            // Save VK (Program Hash) for Groth16 mode as well
             let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk_groth16.bin".to_string());
             println!("Saving VK to {}", vk_output);
             let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
@@ -164,7 +214,6 @@ async fn main() {
             // Verify against SP1 VK
             client.verify(&proof, &vk).expect("Verification failed");
             println!("Proof verified successfully.");
-
             
         } else {
             println!("Generating Core/Compressed proof (default)...");

@@ -3,6 +3,19 @@ use serde::{Deserialize, Serialize};
 pub mod merkle;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SP1GuestInput {
+    pub proof_data: ProofData,
+    pub recursion_data: Option<RecursionData>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RecursionData {
+    pub vkey_hash: [u32; 8],
+    pub public_values_digest: [u32; 8],
+    pub public_values: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProofData {
     pub current_keys_root: [u8; 32],
     pub next_keys_root: [u8; 32],

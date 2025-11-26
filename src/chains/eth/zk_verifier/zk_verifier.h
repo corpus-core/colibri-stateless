@@ -1,30 +1,26 @@
 #ifndef ZK_VERIFIER_H
 #define ZK_VERIFIER_H
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
+#include "bytes.h" // from util
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * @brief Verifies an SP1 Zero-Knowledge Proof (Groth16/BN254)
+ * Verifies a Groth16 Zero-Knowledge Proof for Ethereum Sync Committee updates.
  * 
- * @param proof_bytes Pointer to the serialized proof
- * @param proof_len Length of the proof
- * @param public_inputs Pointer to the public inputs (if any)
- * @param inputs_len Length of the public inputs
- * @return true if verification succeeds
- * @return false if verification fails
+ * @param proof          The raw proof bytes (Groth16: A, B, C compressed).
+ * @param public_inputs  The public inputs (serialized: next_keys_root || next_period).
+ * @return true if the proof is valid, false otherwise.
  */
-bool verify_zk_proof(const uint8_t* proof_bytes, size_t proof_len, const uint8_t* public_inputs, size_t inputs_len);
+bool verify_zk_proof(bytes_t proof, bytes_t public_inputs);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif // ZK_VERIFIER_H
-
-

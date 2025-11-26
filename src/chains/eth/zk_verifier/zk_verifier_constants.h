@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-/* Extracted from Groth16Verifier.sol & ELF VK */
+/* Extracted from Groth16Verifier.sol & VK */
 
 // VK_PROGRAM_HASH (Digest of the Guest Program)
 const uint8_t VK_PROGRAM_HASH[32] = {

@@ -3,12 +3,55 @@ sp1_zkvm::entrypoint!(main);
 
 mod bls;
 
-use eth_sync_common::{ProofData, VerificationOutput};
+use eth_sync_common::{VerificationOutput, SP1GuestInput};
 use eth_sync_common::merkle::{create_root_hash, verify_merkle_proof, verify_slot};
 use bls::verify_signature;
+use sha2::{Sha256, Digest};
 
 pub fn main() {
-    let proof_data = sp1_zkvm::io::read::<ProofData>();
+    let input = sp1_zkvm::io::read::<SP1GuestInput>();
+    let proof_data = input.proof_data;
+    
+    // Recursion Check
+    if let Some(rec_data) = input.recursion_data {
+        // 1. Verify previous proof
+        sp1_zkvm::lib::verify::verify_sp1_proof(&rec_data.vkey_hash, &rec_data.public_values_digest);
+        
+        // 2. Verify that public_values match the digest
+        let mut hasher = Sha256::new();
+        hasher.update(&rec_data.public_values);
+        let hash_result = hasher.finalize();
+        
+        // Convert digest to [u32; 8] (Big Endian)
+        let hash_bytes: [u8; 32] = hash_result.into();
+        let mut calculated_digest = [0u32; 8];
+        for i in 0..8 {
+            let word_bytes = &hash_bytes[i*4..(i+1)*4];
+            calculated_digest[i] = u32::from_be_bytes(word_bytes.try_into().unwrap());
+        }
+        
+        if calculated_digest != rec_data.public_values_digest {
+             panic!("Public Values Hash Mismatch");
+        }
+        
+        // 3. Deserialize previous output
+        let prev_output: VerificationOutput = bincode::deserialize(&rec_data.public_values).expect("Failed to deserialize prev public values");
+        
+        // 4. Chain Continuity Checks
+        // Calculate current period from slot
+        let current_period = u64::from_le_bytes(proof_data.slot_bytes) >> 13;
+        
+        // Check Period Continuity
+        // The previous proof output 'next_period'. This must be our current period.
+        if prev_output.next_period != current_period {
+             panic!("Period mismatch: Prev target {} != Current {}", prev_output.next_period, current_period);
+        }
+        
+        // Check Key Continuity
+        if prev_output.next_keys_root != proof_data.current_keys_root {
+             panic!("Key mismatch: Chain broken");
+        }
+    }
     
     // 1. Verify period
     let period = u64::from_le_bytes(proof_data.slot_bytes) >> 13;
