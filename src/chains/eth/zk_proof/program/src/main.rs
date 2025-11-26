@@ -12,6 +12,9 @@ pub fn main() {
     let input = sp1_zkvm::io::read::<SP1GuestInput>();
     let proof_data = input.proof_data;
     
+    // Initialize output current keys with the current step's input (Default: Step-by-step)
+    let mut output_current_keys_root = proof_data.current_keys_root;
+    
     // Recursion Check
     if let Some(rec_data) = input.recursion_data {
         // 1. Verify previous proof
@@ -31,6 +34,11 @@ pub fn main() {
         
         // 3. Deserialize previous output
         let prev_output: VerificationOutput = bincode::deserialize(&rec_data.public_values).expect("Failed to deserialize prev public values");
+        
+        // AGGREGATION LOGIC:
+        // If we are verifying recursively, our "start state" is the start state of the previous proof.
+        // This allows us to prove a chain A->B->C with a single proof that says "A->C".
+        output_current_keys_root = prev_output.current_keys_root;
         
         // 4. Chain Continuity Checks
         // Calculate current period from slot
@@ -88,7 +96,7 @@ pub fn main() {
     }
     
     let output = VerificationOutput {
-        current_keys_root: proof_data.current_keys_root,
+        current_keys_root: output_current_keys_root, // Use aggregated start or current start
         next_keys_root: proof_data.next_keys_root,
         next_period: proof_data.next_period,
     };

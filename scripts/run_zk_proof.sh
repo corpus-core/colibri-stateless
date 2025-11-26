@@ -4,6 +4,8 @@ set -e
 # Defaults
 PERIOD=""
 PREV_PERIOD=""
+START_PERIOD=""
+END_PERIOD=""
 MODE="--execute"
 OUTPUT_DIR=".zk_proofs"
 REMOTE_URL="https://mainnet1.colibri-proof.tech/"
@@ -17,14 +19,45 @@ while [[ "$#" -gt 0 ]]; do
         --groth16) GROTH16="--groth16" ;;
         --period) PERIOD="$2"; shift ;;
         --prev-period) PREV_PERIOD="$2"; shift ;;
+        --start-period) START_PERIOD="$2"; shift ;;
+        --end-period) END_PERIOD="$2"; shift ;;
         --output) OUTPUT_DIR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
 done
 
+# LOOP MODE
+if [ -n "$START_PERIOD" ] && [ -n "$END_PERIOD" ]; then
+    echo "🔄 Running in Loop Mode: $START_PERIOD to $END_PERIOD"
+    
+    SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/run_zk_proof.sh"
+    
+    # Step 1: Initial Proof (Start Period)
+    echo "🏁 Step 1: Initial Proof for Period $START_PERIOD"
+    START_TIME=$(date +%s)
+    "$SCRIPT_PATH" --period "$START_PERIOD" $MODE $GROTH16 --output "$OUTPUT_DIR"
+    END_TIME=$(date +%s)
+    echo "⏱️  Initial Proof for Period $START_PERIOD took $((END_TIME - START_TIME)) seconds"
+    
+    # Loop
+    PREV=$START_PERIOD
+    for (( i=START_PERIOD+1; i<=END_PERIOD; i++ )); do
+        echo "🔗 Step $((i-START_PERIOD+1)): Recursive Proof for Period $i (prev: $PREV)"
+        START_TIME=$(date +%s)
+        "$SCRIPT_PATH" --period "$i" --prev-period "$PREV" $MODE $GROTH16 --output "$OUTPUT_DIR"
+        END_TIME=$(date +%s)
+        echo "⏱️  Proof for Period $i took $((END_TIME - START_TIME)) seconds"
+        PREV=$i
+    done
+    
+    echo "✅ Loop completed successfully from $START_PERIOD to $END_PERIOD"
+    exit 0
+fi
+
 if [ -z "$PERIOD" ]; then
     echo "Usage: ./run_zk_proof.sh --period <period> [--prev-period <period>] [--prove] [--groth16] [--output <dir>]"
+    echo "   OR: ./run_zk_proof.sh --start-period <start> --end-period <end> [--prove] [--groth16]"
     exit 1
 fi
 
@@ -67,13 +100,15 @@ fi
 # Prepare Recursion Args
 PREV_PROOF_ARGS=""
 if [ -n "$PREV_PERIOD" ]; then
-    # For recursion, we always need the COMPRESSED proof of the previous period (not Groth16 wrapper)
+    # For recursion, we always need the COMPRESSED proof of the previous period.
+    # If we ran with --groth16, the script now saves both _groth16.bin and .bin (compressed).
+    # We look for the .bin file.
     PREV_PROOF_FILE="$OUTPUT_DIR_ABS/proof_${PREV_PERIOD}.bin"
     PREV_VK_FILE="$OUTPUT_DIR_ABS/vk_${PREV_PERIOD}.bin"
     
     if [ ! -f "$PREV_PROOF_FILE" ]; then
         echo "❌ Error: Previous compressed proof not found at $PREV_PROOF_FILE"
-        echo "   Please run period $PREV_PERIOD without --groth16 first."
+        echo "   Please run period $PREV_PERIOD first."
         exit 1
     fi
     if [ ! -f "$PREV_VK_FILE" ]; then

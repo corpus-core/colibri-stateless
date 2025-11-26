@@ -1,6 +1,6 @@
 #include "zk_verifier.h"
 #include "zk_verifier_constants.h"
-#include "crypto.h" // util/crypto.h for sha256
+#include "crypto.h" // util/crypto.h
 #include <mcl/bn_c256.h>
 #include <stdio.h>
 #include <string.h>
@@ -101,9 +101,11 @@ bool verify_zk_proof(bytes_t proof, bytes_t public_inputs) {
     
     // 2. Compute Public Inputs Hash
     uint8_t pub_hash_bytes[32];
+    
+    // Use wrapper from crypto.h
     sha256(public_inputs, pub_hash_bytes);
     
-    // Mask to 253 bits
+    // Mask to 253 bits (SP1/Groth16 standard behavior)
     pub_hash_bytes[0] &= 0x1f; 
     
     mclBnFr pub_hash;

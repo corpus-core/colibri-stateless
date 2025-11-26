@@ -182,15 +182,34 @@ async fn main() {
         
         if args.groth16 {
             println!("Generating Groth16 proof (requires Docker)...");
-            // Note: For recursion, the inner proof should be Compressed/Core.
-            // Groth16 is usually the final step.
-            // But client.prove(...).groth16() does the full pipeline.
             
+            // 1. Generate Compressed Proof first (needed for recursion chain)
+            println!("1. Generating Compressed Proof (for recursion)...");
+            let compressed = client.prove(&pk, &stdin).compressed().run().unwrap();
+            
+            // Save Compressed Proof
+            let proof_output = std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof_groth16.bin".to_string());
+            // derive compressed path: proof_1600_groth16.bin -> proof_1600.bin
+            let compressed_path = proof_output.replace("_groth16.bin", ".bin");
+            
+            println!("Saving Compressed Proof to {}", compressed_path);
+            compressed.save(&compressed_path).expect("Failed to save compressed proof");
+            
+            // Save VK for Compressed (needed for next step input)
+            let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk_groth16.bin".to_string());
+            let vk_compressed_path = vk_output.replace("_groth16.bin", ".bin");
+            let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
+            std::fs::write(&vk_compressed_path, vk_bytes).expect("Failed to save VK");
+
+            // 2. Wrap in Groth16
+            println!("2. Wrapping in Groth16...");
+            // We verify the same input again, but requesting Groth16 mode.
+            // SP1 should reuse cached artifacts for the core proof.
             let proof = client.prove(&pk, &stdin).groth16().run().unwrap();
+            
             println!("Groth16 Proof generated successfully in {:?}", start.elapsed());
             
             // Save SP1 proof wrapper
-            let proof_output = std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof_groth16.bin".to_string());
             println!("Saving SP1 Groth16 proof to {}", proof_output);
             proof.save(&proof_output).expect("Failed to save proof");
             
@@ -206,8 +225,7 @@ async fn main() {
             println!("Saving raw public values to {}", public_values_path);
             std::fs::write(&public_values_path, &proof.public_values.as_slice()).expect("Failed to save public values");
 
-            // Save VK (Program Hash) for Groth16 mode as well
-            let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk_groth16.bin".to_string());
+            // Save VK (Program Hash) for Groth16 mode
             println!("Saving VK to {}", vk_output);
             let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
             std::fs::write(&vk_output, vk_bytes).expect("Failed to save VK");
