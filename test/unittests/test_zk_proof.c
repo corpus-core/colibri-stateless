@@ -116,6 +116,11 @@ void test_verify_zk_proof_tampered_inputs(void) {
 }
 
 #endif
+#ifndef ETH_ZKPROOF
+void test_skipped(void) {
+    TEST_IGNORE_MESSAGE("ETH_ZKPROOF is disabled");
+}
+#endif
 
 int main(void) {
     UNITY_BEGIN();
@@ -124,7 +129,7 @@ int main(void) {
     RUN_TEST(test_verify_zk_proof_valid);
     RUN_TEST(test_verify_zk_proof_tampered_inputs);
 #else
-    TEST_IGNORE_MESSAGE("ETH_ZKPROOF is disabled");
+    RUN_TEST(test_skipped);
 #endif
 
     return UNITY_END();
