@@ -61,7 +61,7 @@ foreach(test_source ${TEST_SOURCES})
     add_dependencies(${test_name} util verifier prover)
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
-    target_link_libraries(${test_name} unity verifier prover util eth_verifier eth_prover)
+   target_link_libraries(${test_name} unity verifier prover util eth_verifier eth_prover)
     
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
