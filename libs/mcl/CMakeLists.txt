@@ -8,21 +8,26 @@ FetchContent_Declare(
   GIT_TAG        v1.93
 )
 
-# Options for MCL
+# Options for MCL - Optimized for Portability and CI Stability
+
+# 1. Force Static Lib
 set(MCL_STATIC_LIB ON CACHE BOOL "Build static library" FORCE)
+
+# 2. Disable Bloat
 set(MCL_BUILD_TESTING OFF CACHE BOOL "Build tests" FORCE)
 set(MCL_BUILD_SAMPLE OFF CACHE BOOL "Build samples" FORCE)
 
-# Optimize for BN254 (ZK Proofs) - Disables support for larger curves like BLS12-381
-# inside MCL, which reduces binary size significantly.
-# Note: We use 'blst' for standard Ethereum BLS12-381 operations elsewhere.
+# 3. Optimize for BN254 (ZK Proofs)
 set(MCL_MAX_BIT_SIZE 256 CACHE STRING "Max bit size (256 for BN254)" FORCE)
 
-# For WASM/Embedded, we might want to disable some optimizations if they cause issues,
-# but MCL is generally very portable.
-if(EMSCRIPTEN)
-    set(MCL_USE_LLVM OFF CACHE BOOL "Use LLVM IR" FORCE)
-endif()
+# 4. Disable External Dependencies (Fixes WASM/Emscripten GMP error)
+set(MCL_USE_GMP OFF CACHE BOOL "Use GMP" FORCE)
+set(MCL_USE_OPENSSL OFF CACHE BOOL "Use OpenSSL" FORCE)
+
+# 5. Disable Assembly/JIT (Fixes Windows ML64 error and Linux CI SIGILL/Illegal Instruction)
+# This forces the use of portable C/C++ implementation.
+set(MCL_USE_ASM OFF CACHE BOOL "Use Assembly" FORCE)
+set(MCL_USE_LLVM OFF CACHE BOOL "Use LLVM IR" FORCE)
 
 FetchContent_MakeAvailable(mcl)
 
