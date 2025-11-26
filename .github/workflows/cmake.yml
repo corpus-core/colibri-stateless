@@ -558,7 +558,7 @@ jobs:
       - name: Build Project
         uses: threeal/cmake-action@v2.0.0
         with:
-          options: TEST=true CURL=true HTTP_SERVER=true PROVER_CACHE=true CMAKE_BUILD_TYPE=Debug COVERAGE=true
+          options: TEST=true CURL=true ETH_ZKPROOF=false HTTP_SERVER=true PROVER_CACHE=true CMAKE_BUILD_TYPE=Debug COVERAGE=true
 
       - name: Test Project
         uses: threeal/ctest-action@v1.1.0
