@@ -22,7 +22,9 @@ set(MCL_MAX_BIT_SIZE 256 CACHE STRING "Max bit size (256 for BN254)" FORCE)
 
 # 4. Disable External Dependencies (Fixes WASM/Emscripten GMP error)
 set(MCL_USE_GMP OFF CACHE BOOL "Use GMP" FORCE)
+set(MCL_USE_GMP OFF) # Set as normal variable too, to override option() check if necessary
 set(MCL_USE_OPENSSL OFF CACHE BOOL "Use OpenSSL" FORCE)
+set(MCL_USE_OPENSSL OFF)
 
 # 5. Disable Assembly/JIT (Fixes Windows ML64 error and Linux CI SIGILL/Illegal Instruction)
 # This forces the use of portable C/C++ implementation.

@@ -39,6 +39,7 @@ jobs:
             -DEVMLIGHT=OFF \
             -DPROVER=OFF \
             -DCLI=OFF \
+            -DETH_ZKPROOF=OFF \
             -DPRECOMPILE_ZERO_HASHES=OFF \
             -DUSE_CHECKPOINTZ=OFF \
             -DINCLUDE=test/embedded
