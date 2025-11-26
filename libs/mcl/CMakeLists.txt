@@ -28,6 +28,10 @@ set(MCL_USE_OPENSSL OFF CACHE BOOL "Use OpenSSL" FORCE)
 # This forces the use of portable C/C++ implementation.
 set(MCL_USE_ASM OFF CACHE BOOL "Use Assembly" FORCE)
 set(MCL_USE_LLVM OFF CACHE BOOL "Use LLVM IR" FORCE)
+set(MCL_USE_XBYAK OFF CACHE BOOL "Use Xbyak JIT" FORCE)
+
+# Force portable C++ build flags to avoid -march=native or similar
+add_definitions(-DMCL_NO_ASM -DMCL_DONT_USE_OPENSSL -DMCL_DONT_USE_XBYAK)
 
 FetchContent_MakeAvailable(mcl)
 
@@ -36,6 +40,9 @@ add_library(mcl_interface INTERFACE)
 # Link against mcl::mcl_st (core static lib) and mcl::mclbn256 (BN254/BN256 wrapper)
 target_link_libraries(mcl_interface INTERFACE mcl::mclbn256 mcl::mcl_st)
 target_include_directories(mcl_interface INTERFACE ${mcl_SOURCE_DIR}/include)
+
+# Ensure consumers also know we are in NO_ASM mode (important for headers)
+target_compile_definitions(mcl_interface INTERFACE MCL_NO_ASM MCL_DONT_USE_XBYAK)
 
 # For compatibility with other parts of the project that might look for variables
 set(MCL_INCLUDE_DIR ${mcl_SOURCE_DIR}/include PARENT_SCOPE)
