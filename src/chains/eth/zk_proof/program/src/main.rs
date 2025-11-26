@@ -22,13 +22,8 @@ pub fn main() {
         hasher.update(&rec_data.public_values);
         let hash_result = hasher.finalize();
         
-        // Convert digest to [u32; 8] (Big Endian)
-        let hash_bytes: [u8; 32] = hash_result.into();
-        let mut calculated_digest = [0u32; 8];
-        for i in 0..8 {
-            let word_bytes = &hash_bytes[i*4..(i+1)*4];
-            calculated_digest[i] = u32::from_be_bytes(word_bytes.try_into().unwrap());
-        }
+        // SP1 digest format is [u8; 32]
+        let calculated_digest: [u8; 32] = hash_result.into();
         
         if calculated_digest != rec_data.public_values_digest {
              panic!("Public Values Hash Mismatch");

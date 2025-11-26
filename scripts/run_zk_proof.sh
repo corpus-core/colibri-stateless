@@ -3,6 +3,7 @@ set -e
 
 # Defaults
 PERIOD=""
+PREV_PERIOD=""
 MODE="--execute"
 OUTPUT_DIR=".zk_proofs"
 REMOTE_URL="https://mainnet1.colibri-proof.tech/"
@@ -15,6 +16,7 @@ while [[ "$#" -gt 0 ]]; do
         --execute) MODE="--execute" ;;
         --groth16) GROTH16="--groth16" ;;
         --period) PERIOD="$2"; shift ;;
+        --prev-period) PREV_PERIOD="$2"; shift ;;
         --output) OUTPUT_DIR="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
@@ -22,7 +24,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if [ -z "$PERIOD" ]; then
-    echo "Usage: ./run_zk_proof.sh --period <period> [--prove] [--groth16] [--output <dir>]"
+    echo "Usage: ./run_zk_proof.sh --period <period> [--prev-period <period>] [--prove] [--groth16] [--output <dir>]"
     exit 1
 fi
 
@@ -60,6 +62,27 @@ if [ ! -f "$INPUT_FILE" ]; then
     echo "✅ Data saved to $INPUT_FILE"
 else
     echo "📂 Using existing data: $INPUT_FILE"
+fi
+
+# Prepare Recursion Args
+PREV_PROOF_ARGS=""
+if [ -n "$PREV_PERIOD" ]; then
+    # For recursion, we always need the COMPRESSED proof of the previous period (not Groth16 wrapper)
+    PREV_PROOF_FILE="$OUTPUT_DIR_ABS/proof_${PREV_PERIOD}.bin"
+    PREV_VK_FILE="$OUTPUT_DIR_ABS/vk_${PREV_PERIOD}.bin"
+    
+    if [ ! -f "$PREV_PROOF_FILE" ]; then
+        echo "❌ Error: Previous compressed proof not found at $PREV_PROOF_FILE"
+        echo "   Please run period $PREV_PERIOD without --groth16 first."
+        exit 1
+    fi
+    if [ ! -f "$PREV_VK_FILE" ]; then
+        echo "❌ Error: Previous VK not found at $PREV_VK_FILE"
+        exit 1
+    fi
+    
+    echo "🔗 Chaining with previous period $PREV_PERIOD"
+    PREV_PROOF_ARGS="--prev-proof $PREV_PROOF_FILE --prev-vk $PREV_VK_FILE"
 fi
 
 if [ "$MODE" == "--prove" ]; then
@@ -125,7 +148,7 @@ if [ -n "$PROOF_RAW_FILE" ]; then
 fi
 
 # Run
-ELF_PATH="$ELF" "$HOST_BINARY" $MODE $GROTH16 --input-file "$INPUT_FILE"
+ELF_PATH="$ELF" "$HOST_BINARY" $MODE $GROTH16 --input-file "$INPUT_FILE" $PREV_PROOF_ARGS
 
 if [ "$MODE" == "--prove" ]; then
     if [ -f "$PROOF_FILE" ]; then

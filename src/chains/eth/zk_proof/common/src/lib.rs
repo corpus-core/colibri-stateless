@@ -11,7 +11,7 @@ pub struct SP1GuestInput {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RecursionData {
     pub vkey_hash: [u32; 8],
-    pub public_values_digest: [u32; 8],
+    pub public_values_digest: [u8; 32], // Changed to [u8; 32]
     pub public_values: Vec<u8>,
 }
 

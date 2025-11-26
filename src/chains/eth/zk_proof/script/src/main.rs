@@ -123,16 +123,17 @@ async fn main() {
         hasher.update(proof.public_values.as_slice());
         let hash_result = hasher.finalize();
         
-        let hash_bytes: [u8; 32] = hash_result.into();
-        let mut digest = [0u32; 8];
-        for i in 0..8 {
-            let word_bytes = &hash_bytes[i*4..(i+1)*4];
-            digest[i] = u32::from_be_bytes(word_bytes.try_into().unwrap());
-        }
+        // Use direct bytes for digest
+        let digest: [u8; 32] = hash_result.into();
         
         // Write proof to stdin for recursion
-        // Assuming SP1 SDK v5 uses this method for deferred proofs
-        stdin.write_proof(proof.clone(), vk.vk.hash_u32());
+        // Extract the inner compressed proof (SP1ReduceProof)
+        let compressed_proof = match proof.proof {
+            sp1_sdk::SP1Proof::Compressed(p) => p,
+            _ => panic!("Previous proof must be a Compressed proof for recursion!"),
+        };
+
+        stdin.write_proof(*compressed_proof, vk.vk.clone());
         
         recursion_data = Some(RecursionData {
             vkey_hash: vk.vk.hash_u32(),
@@ -217,7 +218,7 @@ async fn main() {
             
         } else {
             println!("Generating Core/Compressed proof (default)...");
-            let proof = client.prove(&pk, &stdin).run().unwrap();
+            let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
             println!("Proof generated successfully in {:?}", start.elapsed());
             
             let proof_output = std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof.bin".to_string());
