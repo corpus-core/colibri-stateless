@@ -55,3 +55,4 @@ compile_commands.json
 /scripts/beacon-node-oapi.json
 /*.ssz
 valgrind_results
+/src/chains/eth/zk_proof/target

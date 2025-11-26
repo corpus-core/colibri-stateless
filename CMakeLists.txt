@@ -56,10 +56,15 @@ option(PROVER_CACHE "Caches blockhashes and maps, which makes a lot of sense on 
 option(PROVER_TRACE "Collect lightweight prover-internal spans for server export" OFF)
 option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support" OFF)
+option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
 
 # Make ETH availability visible to all targets (server + chains)
 if(CHAIN_ETH)
   add_definitions(-DCHAIN_ETH)
+endif()
+
+if(ETH_ZKPROOF)
+  add_definitions(-DETH_ZKPROOF)
 endif()
 
 # Build type options

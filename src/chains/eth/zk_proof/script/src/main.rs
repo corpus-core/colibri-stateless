@@ -1,0 +1,187 @@
+use clap::Parser;
+use eth_sync_common::{ProofData, VerificationOutput};
+use eth_sync_common::merkle::create_root_hash;
+use sp1_sdk::{ProverClient, SP1Stdin};
+use std::fs::File;
+use std::io::Read;
+use std::time::Instant;
+
+const PROOF_OFFSET: usize = 49358;
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    #[clap(long)]
+    execute: bool,
+
+    #[clap(long)]
+    prove: bool,
+    
+    #[clap(long)]
+    groth16: bool,
+
+    #[clap(long, default_value = "zk_input.ssz")]
+    input_file: String,
+}
+
+fn read_proof_data(filename: &str) -> ProofData {
+    let mut file = File::open(filename).expect("Failed to open file");
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).expect("Failed to read file");
+    
+    let current_keys_offset = 18;
+    let current_keys_len = 512 * 48;
+    let current_keys = buffer[current_keys_offset..current_keys_offset + current_keys_len].to_vec();
+    
+    let new_keys_offset = current_keys_offset + current_keys_len;
+    let new_keys_len = 512 * 48;
+    let new_keys = buffer[new_keys_offset..new_keys_offset + new_keys_len].to_vec();
+    
+    let sig_bits_offset = new_keys_offset + new_keys_len;
+    let sig_bits_len = 64;
+    let signature_bits = buffer[sig_bits_offset..sig_bits_offset + sig_bits_len].to_vec();
+    
+    let sig_offset = sig_bits_offset + sig_bits_len;
+    let sig_len = 96;
+    let signature = buffer[sig_offset..sig_offset + sig_len].to_vec();
+    
+    // gidx is 8 bytes in C (get_uint64_le)
+    let gidx_offset = sig_offset + sig_len;
+    let gidx_bytes: [u8; 8] = buffer[gidx_offset..gidx_offset + 8].try_into().unwrap();
+    let gidx = u64::from_le_bytes(gidx_bytes) as u32;
+    
+    let slot_offset = gidx_offset + 8;
+    let slot_bytes: [u8; 8] = buffer[slot_offset..slot_offset + 8].try_into().unwrap();
+    
+    let proposer_offset = slot_offset + 8;
+    let proposer_bytes: [u8; 8] = buffer[proposer_offset..proposer_offset + 8].try_into().unwrap();
+    
+    let proof_offset = PROOF_OFFSET;
+    if proof_offset >= buffer.len() {
+        panic!("Buffer too short for proof offset");
+    }
+    let proof_len = buffer.len() - proof_offset - 1;
+    let proof = buffer[proof_offset..proof_offset + proof_len].to_vec();
+    
+    // Calculate roots
+    let mut current_keys_root = [0u8; 32];
+    create_root_hash(&current_keys, &mut current_keys_root);
+    
+    let mut next_keys_root = [0u8; 32];
+    create_root_hash(&new_keys, &mut next_keys_root);
+    
+    let next_period = (u64::from_le_bytes(slot_bytes) >> 13) + 1;
+    
+    ProofData {
+        current_keys_root,
+        next_keys_root,
+        next_period,
+        current_keys,
+        signature_bits,
+        signature,
+        slot_bytes,
+        proposer_bytes,
+        proof,
+        gidx,
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    println!("Starting eth-sync-script...");
+    let args = Args::parse();
+
+    let client = ProverClient::from_env();
+    let mut stdin = SP1Stdin::new();
+    
+    println!("Reading proof data from {}", args.input_file);
+    let proof_data = read_proof_data(&args.input_file);
+    
+    stdin.write(&proof_data);
+    
+    let elf_path = std::env::var("ELF_PATH").unwrap_or_else(|_| "../program/target/riscv32im-succinct-zkvm-elf/release/eth-sync-program".to_string());
+    println!("Loading ELF from: {}", elf_path);
+    let elf_bytes = std::fs::read(&elf_path).expect(&format!("Failed to read ELF at {}", elf_path));
+    let elf = elf_bytes.as_slice();
+
+    if args.execute {
+        println!("Executing program...");
+        let start = Instant::now();
+        let (mut output, report) = client.execute(elf, &stdin).run().unwrap();
+        println!("Execution finished in {:?}", start.elapsed());
+        println!("Cycles: {}", report.total_instruction_count());
+        
+        let result: VerificationOutput = output.read();
+        println!("Result: Valid transition to period {}", result.next_period);
+        println!("Next Keys Root: {}", hex::encode(result.next_keys_root));
+
+        // Save Public Values
+        let public_values_path = std::env::var("PUBLIC_VALUES_FILE").unwrap_or("public_values.bin".to_string());
+        let mut pv_bytes = Vec::new();
+        pv_bytes.extend_from_slice(&result.next_keys_root);
+        pv_bytes.extend_from_slice(&result.next_period.to_le_bytes());
+        std::fs::write(&public_values_path, &pv_bytes).expect("Failed to save public values");
+        println!("Saved public values to {}", public_values_path);
+    } else {
+        println!("Generating proof...");
+        let (pk, vk) = client.setup(elf);
+        
+        let start = Instant::now();
+        
+        if args.groth16 {
+            println!("Generating Groth16 proof (requires Docker)...");
+            let proof = client.prove(&pk, &stdin).groth16().run().unwrap();
+            println!("Groth16 Proof generated successfully in {:?}", start.elapsed());
+            
+            // Save SP1 proof wrapper
+            let proof_output = std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof_groth16.bin".to_string());
+            println!("Saving SP1 Groth16 proof to {}", proof_output);
+            proof.save(&proof_output).expect("Failed to save proof");
+            
+            // Save RAW bytes for C-Verifier
+            let raw_proof = proof.bytes();
+            println!("Raw Proof size: {} bytes", raw_proof.len());
+            let raw_output = std::env::var("PROOF_RAW_FILE").unwrap_or("proof_raw.bin".to_string());
+            println!("Saving raw Groth16 proof bytes to {}", raw_output);
+            std::fs::write(&raw_output, &raw_proof).expect("Failed to save raw proof");
+
+            // Save Public Values
+            let mut reader = proof.public_values.as_slice();
+            let result: VerificationOutput = bincode::deserialize_from(&mut reader).expect("Failed to deserialize output");
+            let public_values_path = std::env::var("PUBLIC_VALUES_FILE").unwrap_or("public_values.bin".to_string());
+            let mut pv_bytes = Vec::new();
+            pv_bytes.extend_from_slice(&result.next_keys_root);
+            pv_bytes.extend_from_slice(&result.next_period.to_le_bytes());
+            std::fs::write(&public_values_path, &pv_bytes).expect("Failed to save public values");
+            println!("Saved public values to {}", public_values_path);
+
+            // Save VK (Program Hash) for Groth16 mode as well (useful for export)
+            let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk_groth16.bin".to_string());
+            println!("Saving VK to {}", vk_output);
+            let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
+            std::fs::write(&vk_output, vk_bytes).expect("Failed to save VK");
+            
+            // Verify against SP1 VK
+            client.verify(&proof, &vk).expect("Verification failed");
+            println!("Proof verified successfully.");
+
+            
+        } else {
+            println!("Generating Core/Compressed proof (default)...");
+            let proof = client.prove(&pk, &stdin).run().unwrap();
+            println!("Proof generated successfully in {:?}", start.elapsed());
+            
+            let proof_output = std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof.bin".to_string());
+            println!("Saving proof to {}", proof_output);
+            proof.save(&proof_output).expect("Failed to save proof");
+            
+            let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk.bin".to_string());
+            println!("Saving VK to {}", vk_output);
+            let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
+            std::fs::write(&vk_output, vk_bytes).expect("Failed to save VK");
+            
+            client.verify(&proof, &vk).expect("Verification failed");
+            println!("Proof verified successfully.");
+        }
+    }
+}

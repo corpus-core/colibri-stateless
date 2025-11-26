@@ -135,6 +135,12 @@ if(ETH_UTIL)
   add_definitions(-DETH_UTIL)
 endif()
 
+# Add ZK Verifier if enabled
+if(ETH_ZKPROOF)
+    add_subdirectory(zk_verifier)
+    set(VERIFIER_DEPS ${VERIFIER_DEPS} zk_verifier)
+endif()
+
 add_verifier(
   NAME eth_verifier
   SOURCES ${VERIFIER_SOURCES}
@@ -194,4 +200,3 @@ add_server_handler(
   METRICS_FUNC eth_server_metrics
   CONFIG_FUNC eth_configure
 )
-
