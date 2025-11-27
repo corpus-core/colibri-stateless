@@ -119,6 +119,12 @@ if(ETH_LOGS)
   add_definitions(-DETH_LOGS)
 endif()
 
+
+# Add BN254 library (used by precompiles and ZK verifier)
+if(PRECOMPILES_BN128 OR ETH_ZKPROOF)
+    add_subdirectory(bn254)
+endif()
+
 if(ETH_CALL)
   set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c verifier/verify_simulate.c)
   add_definitions(-DETH_CALL)
