@@ -172,7 +172,7 @@ int bn_bitcount(const bignum256* x) {
 #ifdef _MSC_VER
       unsigned long index;
       _BitScanReverse(&index, limb);
-      return i * BN_BITS_PER_LIMB + (31 - index);
+      return i * BN_BITS_PER_LIMB + (index + 1);
 #else
       return i * BN_BITS_PER_LIMB + (32 - __builtin_clz(limb));
 #endif
