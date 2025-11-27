@@ -57,11 +57,10 @@ foreach(test_source ${TEST_SOURCES})
     # Füge die Include-Verzeichnisse hinzu
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
-    # Stelle sicher, dass Abhängigkeiten vor dem Test gebaut werden
-    add_dependencies(${test_name} util verifier prover)
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
-   target_link_libraries(${test_name} unity verifier prover util eth_verifier eth_prover)
+    target_link_libraries(${test_name} PRIVATE unity verifier prover eth_verifier eth_prover)
+    
     
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
