@@ -616,7 +616,6 @@ int main(void) {
   RUN_TEST(test_precompile_identity);
   RUN_TEST(test_precompile_ecrecover);
 
-  // TODO: These precompiles have bugs or are not fully implemented
   RUN_TEST(test_precompile_modexp);
   RUN_TEST(test_precompile_ecadd);
   RUN_TEST(test_precompile_ecmul);
