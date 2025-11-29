@@ -55,7 +55,7 @@ build_ios_arch() {
     cmake \
         -DSWIFT=true \
         -DCHAIN_OP=ON \
-        -DETH_ZKPROOF=false \
+        -DETH_ZKPROOF=true \
         -DCMAKE_SYSTEM_NAME="iOS" \
         -DCMAKE_OSX_SYSROOT="$sysroot" \
         -DCMAKE_OSX_ARCHITECTURES="$arch" \

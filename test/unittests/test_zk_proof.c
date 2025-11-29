@@ -6,7 +6,6 @@
 #include "bytes.h"
 #include "c4_assert.h" // Contains read_testdata and unity includes
 #include "ssz.h"
-#include "zk_verifier.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +15,7 @@ void setUp(void) {}
 void tearDown(void) {}
 
 #ifdef ETH_ZKPROOF
+#include "zk_verifier.h"
 
 static bytes_t copy_bytes(bytes_t src) {
   bytes_t dst;
