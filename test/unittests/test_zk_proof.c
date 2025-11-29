@@ -5,6 +5,7 @@
 
 #include "bytes.h"
 #include "c4_assert.h" // Contains read_testdata and unity includes
+#include "prover.h"
 #include "ssz.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -149,7 +150,10 @@ void test_verify_1602_realistic(void) {
   uint64_to_le(public_values_data + 64, next_period);  // new period
 
   // 6. Verify
-  bool valid = verify_zk_proof(proof, bytes(public_values_data, 72));
+  uint64_t start = current_ms();
+  bool     valid = verify_zk_proof(proof, bytes(public_values_data, 72));
+  printf("verify_zk_proof time: %llu ms\n", current_ms() - start);
+
   TEST_ASSERT_TRUE_MESSAGE(valid, "Realistic 1602 verification failed");
 
   // Cleanup

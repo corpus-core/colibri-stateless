@@ -12,39 +12,64 @@ extern "C" {
 
 #include "intx_c_api.h"
 #include <stdbool.h>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
+
+#ifdef USE_MCL
+#include <mcl/bn_c384_256.h>
+
+// Types map to MCL types
+// Note: intx types are still available for scalar inputs
+typedef mclBnG1 bn254_g1_t;
+typedef mclBnG2 bn254_g2_t;
+typedef mclBnGT bn254_fp12_t;
+
+// Helper types not used in opaque MCL structs but might be needed if referenced
+typedef mclBnFp bn254_fp_t;
+typedef struct {
+  bn254_fp_t c0;
+  bn254_fp_t c1;
+} bn254_fp2_t; // Mock or map if needed
+typedef struct {
+  bn254_fp2_t c0;
+  bn254_fp2_t c1;
+  bn254_fp2_t c2;
+} bn254_fp6_t;
+
+#else
 
 // Types
 typedef uint256_t bn254_fp_t;
 
 typedef struct {
-    bn254_fp_t c0;
-    bn254_fp_t c1;
+  bn254_fp_t c0;
+  bn254_fp_t c1;
 } bn254_fp2_t;
 
 typedef struct {
-    bn254_fp2_t c0;
-    bn254_fp2_t c1;
-    bn254_fp2_t c2;
+  bn254_fp2_t c0;
+  bn254_fp2_t c1;
+  bn254_fp2_t c2;
 } bn254_fp6_t;
 
 typedef struct {
-    bn254_fp6_t c0;
-    bn254_fp6_t c1;
+  bn254_fp6_t c0;
+  bn254_fp6_t c1;
 } bn254_fp12_t;
 
 typedef struct {
-    bn254_fp_t x;
-    bn254_fp_t y;
-    bn254_fp_t z; // Jacobian: (x, y, z) => (x/z^2, y/z^3)
+  bn254_fp_t x;
+  bn254_fp_t y;
+  bn254_fp_t z; // Jacobian: (x, y, z) => (x/z^2, y/z^3)
 } bn254_g1_t;
 
 typedef struct {
-    bn254_fp2_t x;
-    bn254_fp2_t y;
-    bn254_fp2_t z; // Jacobian
+  bn254_fp2_t x;
+  bn254_fp2_t y;
+  bn254_fp2_t z; // Jacobian
 } bn254_g2_t;
+
+#endif
 
 // Initialization / Constants
 /**
@@ -68,7 +93,7 @@ bool bn254_g1_from_bytes(bn254_g1_t* p, const uint8_t* bytes);
  * @brief Explicit alias for bn254_g1_from_bytes.
  * @see bn254_g1_from_bytes
  */
-bool bn254_g1_from_bytes_be(bn254_g1_t* p, const uint8_t* bytes); 
+bool bn254_g1_from_bytes_be(bn254_g1_t* p, const uint8_t* bytes);
 
 /**
  * @brief Parses a G2 point from 128 bytes in Ethereum format.
@@ -147,7 +172,7 @@ void bn254_g2_add(bn254_g2_t* r, const bn254_g2_t* a, const bn254_g2_t* b);
  * @param p Base point
  * @param scalar Scalar value
  */
-void bn254_g2_mul(bn254_g2_t* r, const bn254_g2_t* p, const uint256_t* scalar); 
+void bn254_g2_mul(bn254_g2_t* r, const bn254_g2_t* p, const uint256_t* scalar);
 
 // Pairing
 
@@ -201,4 +226,3 @@ bool bn254_fp12_is_one(const bn254_fp12_t* a);
 #endif
 
 #endif // ETH_BN254_H
-

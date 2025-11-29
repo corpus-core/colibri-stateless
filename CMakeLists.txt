@@ -47,6 +47,7 @@ add_definitions(-DC4_VERSION="${C4_VERSION}")
 
 # Core build options
 option(CURL "Enable CURL support" ON)
+option(USE_MCL "Enable MCL support for ZK-Proof verification" OFF)
 option(WITNESS_SIGNER "Enable witness signing" ON)
 option(PROVER "Build the prover library" ON)
 option(CLI "Build command line tools" ON)
@@ -62,6 +63,10 @@ option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
 # Make ETH availability visible to all targets (server + chains)
 if(CHAIN_ETH)
   add_definitions(-DCHAIN_ETH)
+endif()
+
+if(USE_MCL)
+  add_definitions(-DUSE_MCL)
 endif()
 
 if(ETH_ZKPROOF)
