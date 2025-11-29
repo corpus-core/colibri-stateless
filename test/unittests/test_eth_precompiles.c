@@ -291,6 +291,7 @@ void test_precompile_ecpairing_valid() {
   for (int i = 0; i < 31; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
   TEST_ASSERT_EQUAL_UINT8(1, output.data.data[31]);
 
+  free(input_hex);
   free(input.data);
   buffer_free(&output);
 }
