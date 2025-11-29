@@ -77,11 +77,6 @@ target_include_directories(c4_swift_binding
 # Link dependencies based on enabled features
 set(C4_SWIFT_DEPENDENCIES util prover verifier eth_verifier)
 
-# Add BN254 library if available (needed for ZK proofs and precompiles)
-if(TARGET eth_bn254)
-    list(APPEND C4_SWIFT_DEPENDENCIES eth_bn254)
-endif()
-
 # Add EVMOne dependencies if enabled
 if(EVMONE)
     list(APPEND C4_SWIFT_DEPENDENCIES evmone_wrapper)
