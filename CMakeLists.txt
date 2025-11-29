@@ -69,6 +69,13 @@ if(USE_MCL)
         message(WARNING "MCL requires Clang for non-x86 platforms (to compile LLVM IR). Disabling USE_MCL.")
         set(USE_MCL OFF CACHE BOOL "Enable MCL support for ZK-Proof verification" FORCE)
     endif()
+
+    # Disable MCL for 32-bit x86 because MCL's CMake build system fails to pass target flags 
+    # (e.g. --target=i686-...) when compiling internal LLVM IR files, causing linker errors.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(i686|i386|x86)$")
+        message(WARNING "MCL has build issues on 32-bit x86 cross-compilation. Disabling USE_MCL.")
+        set(USE_MCL OFF CACHE BOOL "Enable MCL support for ZK-Proof verification" FORCE)
+    endif()
 endif()
 
 option(WITNESS_SIGNER "Enable witness signing" ON)
