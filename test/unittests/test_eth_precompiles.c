@@ -21,8 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "../../src/chains/eth/precompiles/precompiles.h"
 #include "../../src/chains/eth/bn254/bn254.h"
+#include "../../src/chains/eth/precompiles/precompiles.h"
 #include "bytes.h"
 #include "unity.h"
 #include <stdbool.h>
@@ -305,7 +305,7 @@ void test_precompile_ecpairing_bilinearity() {
   const char* P_hex =
       "0000000000000000000000000000000000000000000000000000000000000001"
       "0000000000000000000000000000000000000000000000000000000000000002";
-  
+
   // Q = G2 Generator (ETH format: Im, Re, Im, Re)
   const char* Q_hex =
       "198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2"
@@ -325,10 +325,9 @@ void test_precompile_ecpairing_bilinearity() {
   // Calculate -P2 manually (negate Y coordinate)
   // Modulus P = 21888242871839275222246405745257275088696311157297823662689037894645226208583
   uint256_t mod;
-  uint8_t mod_bytes[32] = {
+  uint8_t   mod_bytes[32] = {
       0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
-      0x97, 0x81, 0x6a, 0x91, 0x68, 0x71, 0xca, 0x8d, 0x3c, 0x20, 0x8c, 0x16, 0xd8, 0x7c, 0xfd, 0x47
-  };
+      0x97, 0x81, 0x6a, 0x91, 0x68, 0x71, 0xca, 0x8d, 0x3c, 0x20, 0x8c, 0x16, 0xd8, 0x7c, 0xfd, 0x47};
   bytes_t mod_b = {.data = mod_bytes, .len = 32};
   intx_from_bytes(&mod, mod_b);
 
@@ -341,30 +340,30 @@ void test_precompile_ecpairing_bilinearity() {
   // Construct Input: P (64) + Q (128) + P (64) + Q (128) + negP2 (64) + Q (128)
   // Total 3 pairs = 3 * 192 = 576 bytes
   uint8_t input_buf[576];
-  
+
   // Pair 1: P, Q
   bn254_g1_to_bytes(&P, input_buf);
   bn254_g2_to_bytes_eth(&Q, input_buf + 64);
-  
+
   // Pair 2: P, Q
   bn254_g1_to_bytes(&P, input_buf + 192);
   bn254_g2_to_bytes_eth(&Q, input_buf + 192 + 64);
-  
+
   // Pair 3: negP2, Q
   bn254_g1_to_bytes(&negP2, input_buf + 384);
   bn254_g2_to_bytes_eth(&Q, input_buf + 384 + 64);
 
-  buffer_t output = {0};
+  buffer_t output   = {0};
   uint64_t gas_used = 0;
-  
+
   bytes_t input = {.data = input_buf, .len = 576};
-  
+
   pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(32, output.data.len);
   // Expect success (1)
-  TEST_ASSERT_EQUAL_UINT8(1, output.data.data[31]); 
+  TEST_ASSERT_EQUAL_UINT8(1, output.data.data[31]);
 
   free(P_bytes.data);
   free(Q_bytes.data);
