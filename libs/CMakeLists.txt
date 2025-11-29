@@ -21,9 +21,7 @@
 
 add_subdirectory(crypto)
 add_subdirectory(blst)
-if(ETH_ZKPROOF)
-    add_subdirectory(mcl) # MCL for ZK proofs
-endif()
+
 if(CURL)
     add_subdirectory(curl)
 endif()
