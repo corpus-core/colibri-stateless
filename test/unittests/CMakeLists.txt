@@ -61,6 +61,10 @@ foreach(test_source ${TEST_SOURCES})
     # Verknüpfe die Testausführbare mit Unity und deinem Code
     target_link_libraries(${test_name} PRIVATE unity verifier prover eth_verifier eth_prover)
     
+    if("${test_name}" STREQUAL "test_eth_precompiles")
+        target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper eth_precompiles)
+    endif()
+    
     
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
