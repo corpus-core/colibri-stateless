@@ -54,6 +54,7 @@
                 "TEST": "0",
                 "CLI": "0",
                 "CURL": "0",
+                "USE_MCL": "1",
                 "WASM": "1",
                 "CHAIN_OP": "0",
                 "HTTP_SERVER": "0",

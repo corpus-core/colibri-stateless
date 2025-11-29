@@ -48,6 +48,29 @@ add_definitions(-DC4_VERSION="${C4_VERSION}")
 # Core build options
 option(CURL "Enable CURL support" ON)
 option(USE_MCL "Enable MCL support for ZK-Proof verification" OFF)
+
+# Check for MCL compatibility
+if(USE_MCL)
+    # MCL relies on LLVM IR (requiring Clang) for non-x86 platforms optimization.
+    # On x86_64 it uses Assembly (.S) which works with GCC.
+    # So if we are on ARM64 (or other non-x86) and NOT using Clang, we must disable MCL.
+    
+    set(IS_X86_64 FALSE)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+        set(IS_X86_64 TRUE)
+    endif()
+
+    set(IS_CLANG FALSE)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang")
+        set(IS_CLANG TRUE)
+    endif()
+
+    if(NOT IS_X86_64 AND NOT IS_CLANG AND NOT MSVC)
+        message(WARNING "MCL requires Clang for non-x86 platforms (to compile LLVM IR). Disabling USE_MCL.")
+        set(USE_MCL OFF CACHE BOOL "Enable MCL support for ZK-Proof verification" FORCE)
+    endif()
+endif()
+
 option(WITNESS_SIGNER "Enable witness signing" ON)
 option(PROVER "Build the prover library" ON)
 option(CLI "Build command line tools" ON)

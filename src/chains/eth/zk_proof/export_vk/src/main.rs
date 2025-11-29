@@ -107,61 +107,61 @@ fn main() {
         writeln!(out, "/* Extracted from Groth16Verifier.sol & VK */").unwrap();
         writeln!(out, "").unwrap();
 
-        let write_point_g1 = |out: &mut File, name: &str, x_name: &str, y_name: &str| {
-            let x = get(x_name);
-            let y = get(y_name);
-            writeln!(out, "// {}", name).unwrap();
-            write_bytes(out, &format!("{}_X", name), &x);
-            write_bytes(out, &format!("{}_Y", name), &y);
-        };
-        
-        let write_point_g2 = |out: &mut File, name: &str, prefix: &str| {
-            let x0 = get(&format!("{}_X_0", prefix));
-            let x1 = get(&format!("{}_X_1", prefix));
-            let y0 = get(&format!("{}_Y_0", prefix));
-            let y1 = get(&format!("{}_Y_1", prefix));
-            writeln!(out, "// {}", name).unwrap();
-            write_bytes(out, &format!("{}_X0", name), &x0);
-            write_bytes(out, &format!("{}_X1", name), &x1);
-            write_bytes(out, &format!("{}_Y0", name), &y0);
-            write_bytes(out, &format!("{}_Y1", name), &y1);
-        };
+    let write_point_g1 = |out: &mut File, name: &str, x_name: &str, y_name: &str| {
+        let x = get(x_name);
+        let y = get(y_name);
+        writeln!(out, "// {}", name).unwrap();
+        write_bytes(out, &format!("{}_X", name), &x);
+        write_bytes(out, &format!("{}_Y", name), &y);
+    };
+    
+    let write_point_g2 = |out: &mut File, name: &str, prefix: &str| {
+        let x0 = get(&format!("{}_X_0", prefix));
+        let x1 = get(&format!("{}_X_1", prefix));
+        let y0 = get(&format!("{}_Y_0", prefix));
+        let y1 = get(&format!("{}_Y_1", prefix));
+        writeln!(out, "// {}", name).unwrap();
+        write_bytes(out, &format!("{}_X0", name), &x0);
+        write_bytes(out, &format!("{}_X1", name), &x1);
+        write_bytes(out, &format!("{}_Y0", name), &y0);
+        write_bytes(out, &format!("{}_Y1", name), &y1);
+    };
 
-        // Write Program Hash
-        writeln!(out, "// VK_PROGRAM_HASH (Digest of the Guest Program)").unwrap();
-        write_bytes(&mut out, "VK_PROGRAM_HASH", &vk_hash);
+    // Write Program Hash
+    writeln!(out, "// VK_PROGRAM_HASH (Digest of the Guest Program)").unwrap();
+    write_bytes(&mut out, "VK_PROGRAM_HASH", &vk_hash);
 
-        // Write Alpha
-        write_point_g1(&mut out, "VK_ALPHA", "ALPHA_X", "ALPHA_Y");
-        
-        // Write Beta Neg
-        write_point_g2(&mut out, "VK_BETA_NEG", "BETA_NEG");
+    // Write Alpha
+    write_point_g1(&mut out, "VK_ALPHA", "ALPHA_X", "ALPHA_Y");
+    
+    // Write Beta Neg
+    write_point_g2(&mut out, "VK_BETA_NEG", "BETA_NEG");
 
-        // Write Gamma Neg
-        write_point_g2(&mut out, "VK_GAMMA_NEG", "GAMMA_NEG");
+    // Write Gamma Neg
+    write_point_g2(&mut out, "VK_GAMMA_NEG", "GAMMA_NEG");
 
-        // Write Delta Neg
-        write_point_g2(&mut out, "VK_DELTA_NEG", "DELTA_NEG");
-        
-        // Write IC (Gamma ABC)
-        // IC[0] = CONSTANT
-        writeln!(out, "// VK_IC[0] (Constant Term)").unwrap();
-        write_bytes(&mut out, "VK_IC0_X", &get("CONSTANT_X"));
-        write_bytes(&mut out, "VK_IC0_Y", &get("CONSTANT_Y"));
-        
-        // IC[1] = PUB_0
-        writeln!(out, "// VK_IC[1] (Program VKey Base)").unwrap();
-        write_bytes(&mut out, "VK_IC1_X", &get("PUB_0_X"));
-        write_bytes(&mut out, "VK_IC1_Y", &get("PUB_0_Y"));
+    // Write Delta Neg
+    write_point_g2(&mut out, "VK_DELTA_NEG", "DELTA_NEG");
+    
+    // Write IC (Gamma ABC)
+    // IC[0] = CONSTANT
+    writeln!(out, "// VK_IC[0] (Constant Term)").unwrap();
+    write_bytes(&mut out, "VK_IC0_X", &get("CONSTANT_X"));
+    write_bytes(&mut out, "VK_IC0_Y", &get("CONSTANT_Y"));
+    
+    // IC[1] = PUB_0
+    writeln!(out, "// VK_IC[1] (Program VKey Base)").unwrap();
+    write_bytes(&mut out, "VK_IC1_X", &get("PUB_0_X"));
+    write_bytes(&mut out, "VK_IC1_Y", &get("PUB_0_Y"));
 
-        // IC[2] = PUB_1
-        writeln!(out, "// VK_IC[2] (Public Values Digest Base)").unwrap();
-        write_bytes(&mut out, "VK_IC2_X", &get("PUB_1_X"));
-        write_bytes(&mut out, "VK_IC2_Y", &get("PUB_1_Y"));
+    // IC[2] = PUB_1
+    writeln!(out, "// VK_IC[2] (Public Values Digest Base)").unwrap();
+    write_bytes(&mut out, "VK_IC2_X", &get("PUB_1_X"));
+    write_bytes(&mut out, "VK_IC2_Y", &get("PUB_1_Y"));
 
-        writeln!(out, "").unwrap();
-        writeln!(out, "#endif // ZK_VERIFIER_CONSTANTS_H").unwrap();
-        eprintln!("Header generated at {:?}", args.output_path);
+    writeln!(out, "").unwrap();
+    writeln!(out, "#endif // ZK_VERIFIER_CONSTANTS_H").unwrap();
+    eprintln!("Header generated at {:?}", args.output_path);
     }
 
     // --- Generate C Source File (Optional) ---
