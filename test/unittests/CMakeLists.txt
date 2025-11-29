@@ -1,148 +1,47 @@
-# Copyright (c) 2025 corpus.core
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the "Software"), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-# the Software, and to permit persons to whom the Software is furnished to do so,
-# subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#
-# SPDX-License-Identifier: MIT
 
-# Finde alle C-Dateien im aktuellen Verzeichnis
-file(GLOB TEST_SOURCES test_*.c)
+# Unit test for BN254 library
+add_executable(test_bn254 test_bn254.c)
+target_link_libraries(test_bn254 PRIVATE eth_bn254 unity)
 
-set(TEST_INCLUDES
-  ${unity_SOURCE_DIR}/src 
-  ${CMAKE_SOURCE_DIR}/src 
+# Unit test for Ethereum Precompiles
+add_executable(test_eth_precompiles test_eth_precompiles.c)
+target_link_libraries(test_eth_precompiles PRIVATE eth_precompiles eth_bn254 unity util intx_wrapper)
+
+# Integration/Unit test for ZK Proof verification
+if(ETH_ZKPROOF)
+    add_executable(test_zk_proof test_zk_proof.c)
+    target_link_libraries(test_zk_proof PRIVATE zk_verifier unity util)
+    target_compile_definitions(test_zk_proof PRIVATE ETH_ZKPROOF)
+    target_include_directories(test_zk_proof PRIVATE 
+        ${CMAKE_SOURCE_DIR}/src/chains/eth 
+        ${CMAKE_SOURCE_DIR}/src/chains/eth/prover
+        ${CMAKE_SOURCE_DIR}/src/chains/eth/server
+        ${CMAKE_SOURCE_DIR}/src/chains/eth/verifier
+        ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
+        ${CMAKE_SOURCE_DIR}/src/util
+        ${CMAKE_SOURCE_DIR}/src/prover
+        ${CMAKE_SOURCE_DIR}/src/verifier
+    )
+endif()
+
+# Debug tool
+add_executable(debug_bn254_manual debug_bn254_manual.c)
+target_link_libraries(debug_bn254_manual PRIVATE eth_bn254 util intx_wrapper)
+target_include_directories(debug_bn254_manual PRIVATE 
+    ${CMAKE_SOURCE_DIR}/src/chains/eth/zk_verifier
+    ${CMAKE_SOURCE_DIR}/src/chains/eth/bn254
 )
 
-# Add server-specific includes if HTTP_SERVER is enabled
-if(HTTP_SERVER)
-  list(APPEND TEST_INCLUDES
-    ${CMAKE_SOURCE_DIR}/src/prover
-    ${CMAKE_SOURCE_DIR}/src/verifier
-    ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include
-    ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
-  )
-endif()
+# Compare tool
+add_executable(debug_compare_bn254 debug_compare_bn254.cpp)
+target_link_libraries(debug_compare_bn254 PRIVATE mcl_interface eth_bn254 util intx_wrapper)
+target_include_directories(debug_compare_bn254 PRIVATE 
+    ${CMAKE_SOURCE_DIR}/src/chains/eth/bn254
+)
 
-# We build libuv via libs/libuv and expose INTERFACE target 'libuv'
-set(HAVE_LIBUV OFF)
-if(TARGET libuv)
-  set(HAVE_LIBUV ON)
-endif()
-
-#add_definitions(-DTEST_DATA_DIR=${CMAKE_SOURCE_DIR}/test/data)
-
-foreach(test_source ${TEST_SOURCES})
-    # Extrahiere den Dateinamen ohne Pfad und Suffix
-    get_filename_component(test_name ${test_source} NAME_WE)
-
-    # Erstelle eine ausführbare Datei für den Test
-    add_executable(${test_name} ${test_source})
-
-    # Füge die Include-Verzeichnisse hinzu
-    target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
-
-    # Verknüpfe die Testausführbare mit Unity und deinem Code
-    target_link_libraries(${test_name} PRIVATE unity verifier prover eth_verifier eth_prover)
-    
-    # Add server dependencies if HTTP_SERVER is enabled
-    if(HTTP_SERVER)
-        target_compile_definitions(${test_name} PRIVATE HTTP_SERVER)
-
-        # Stelle sicher, dass GNU-Linker alle Symbole aus statischen Server-Bibliotheken finden:
-        # serverlib zuerst, danach Handler, dann serverio, und serverlib am Ende nochmals.
-        target_link_libraries(${test_name} PRIVATE
-            serverlib
-            ${SERVER_HANDLER_LIBS}
-            serverio
-            serverlib
-            llhttp_static
-            libuv
-        )
-
-        # Sicherheitsgurt: explizit die bekannten Handler-Bibliotheken linken, falls
-        # ${SERVER_HANDLER_LIBS} in dieser Konfiguration leer bleibt (z.B. bei
-        # fehlerhaften Cache-Werten oder teilweisen Chain-Builds).
-        if(TARGET eth_server_handler)
-            target_link_libraries(${test_name} PRIVATE eth_server_handler)
-        endif()
-        if(TARGET op_server_handler)
-            target_link_libraries(${test_name} PRIVATE op_server_handler)
-        endif()
-
-        add_dependencies(${test_name} llhttp_static serverlib)
-        if(TARGET serverio)
-          add_dependencies(${test_name} serverio)
-        endif()
-        
-        # Find CURL for server tests
-        find_package(CURL REQUIRED)
-        target_link_libraries(${test_name} PRIVATE CURL::libcurl)
-    endif()
-
-    # Special linking for uv_util tests even without HTTP_SERVER
-    if("${test_name}" STREQUAL "test_uv_util")
-        # If HTTP_SERVER is OFF (minsize/valgrind job), don't pull in libuv or uv_util.c.
-        # Build a tiny binary that immediately skips at runtime.
-        if(NOT HTTP_SERVER)
-          target_compile_definitions(${test_name} PRIVATE NO_LIBUV=1)
-        else()
-          if(NOT HAVE_LIBUV)
-            target_compile_definitions(${test_name} PRIVATE NO_LIBUV=1)
-          endif()
-          # Prefer linking serverio if available; otherwise compile uv_util.c directly
-          if(TARGET serverio)
-            target_link_libraries(${test_name} PRIVATE serverio libuv)
-            target_include_directories(${test_name} PRIVATE ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
-            add_dependencies(${test_name} serverio)
-          else()
-            message(WARNING "serverio target not found; compiling uv_util.c directly into ${test_name}")
-            target_sources(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/src/server/uv_util.c)
-            target_include_directories(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/server ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
-            target_link_libraries(${test_name} PRIVATE util libuv)
-          endif()
-        endif()
-    endif()
-
-    # Suppress MSVC warning C4113 for test targets
-    if(MSVC)
-        target_compile_options(${test_name} PRIVATE /wd4113)
-    endif()
-
-    # Füge den Test zu CTest hinzu
-    add_test(NAME ${test_name} COMMAND ${test_name})
-endforeach()
-
-if(MSVC)
-    # Add Windows-specific definitions for test compatibility
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-    add_definitions(-DWIN32_LEAN_AND_MEAN)
-endif()
-
-
-
-# Erstelle eine ausführbare Datei für den Test
-add_executable(verify_only verify_only.c)
-
-# Füge die Include-Verzeichnisse hinzu
-target_include_directories(verify_only PRIVATE  ${TEST_INCLUDES})
-
-# Define TESTDATA_DIR
-target_compile_definitions(verify_only PRIVATE TESTDATA_DIR="${CMAKE_SOURCE_DIR}/test/data")
-
-
-# Verknüpfe die Testausführbare mit Unity und deinem Code
-target_link_libraries(verify_only verifier)
+# Debug verify MCL
+add_executable(debug_verify_mcl debug_verify_mcl.cpp)
+target_link_libraries(debug_verify_mcl PRIVATE mcl_interface util intx_wrapper)
+target_include_directories(debug_verify_mcl PRIVATE 
+    ${CMAKE_SOURCE_DIR}/src/chains/eth/zk_verifier
+)

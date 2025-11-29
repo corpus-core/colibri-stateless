@@ -1,0 +1,2 @@
+FQ12 coeffs len: 12
+FQ12 coeff type: <class 'py_ecc.fields.field_elements.FQP_corresponding_FQ_class'>

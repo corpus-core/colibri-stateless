@@ -11,3 +11,4 @@ if(ETH_ZKPROOF)
     add_executable(verify_zk_proof_cli main.c)
     target_link_libraries(verify_zk_proof_cli PRIVATE zk_verifier)
 endif()
+

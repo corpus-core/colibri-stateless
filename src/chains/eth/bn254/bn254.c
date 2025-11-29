@@ -176,18 +176,17 @@ static void fp2_mul_xi(bn254_fp2_t* r, const bn254_fp2_t* a) {
 }
 
 static void fp2_pow(bn254_fp2_t* r, const bn254_fp2_t* a, const bn254_fp_t* exp) {
-    bn254_fp2_t res, base;
+    bn254_fp2_t res;
     memset(&res, 0, sizeof(bn254_fp2_t));
     res.c0.bytes[31] = 1; // BE 1
-    base = *a;
     
     // Scan MSB to LSB. Storage is BE, so bytes[0] is MSB.
     for (int i=0; i<32; i++) {
         uint8_t byte = exp->bytes[i];
         for (int j=7; j>=0; j--) {
+            fp2_sqr(&res, &res);
             int bit = (byte >> j) & 1;
-            if (bit) fp2_mul(&res, &res, &base);
-            fp2_sqr(&base, &base);
+            if (bit) fp2_mul(&res, &res, a);
         }
     }
     *r = res;
@@ -456,24 +455,46 @@ bool bn254_g1_from_bytes(bn254_g1_t* p, const uint8_t* bytes) {
     return bn254_g1_from_bytes_be(p, bytes);
 }
 
-void bn254_g1_to_bytes(const bn254_g1_t* p, uint8_t* out) {
-    // Convert Jacobian to Affine
-    bn254_fp_t x, y, z_inv, z2, z3;
-    intx_init(&z_inv); intx_init(&z2); intx_init(&z3);
-    
+static void g1_normalize(bn254_g1_t* r, const bn254_g1_t* p) {
     if (intx_is_zero(&p->z)) {
-        memset(out, 0, 64);
+        memset(r, 0, sizeof(bn254_g1_t));
         return;
     }
+    
+    // If Z is already 1, copy and return
+    if (p->z.bytes[31] == 1) {
+        bool others_zero = true;
+        for(int i=0; i<31; i++) if (p->z.bytes[i] != 0) others_zero = false;
+        if (others_zero) {
+            *r = *p;
+            return;
+        }
+    }
+
+    bn254_fp_t z_inv, z2, z3;
+    intx_init(&z_inv); intx_init(&z2); intx_init(&z3);
     
     fp_inv(&z_inv, &p->z);
     fp_mul(&z2, &z_inv, &z_inv);
     fp_mul(&z3, &z2, &z_inv);
-    fp_mul(&x, &p->x, &z2);
-    fp_mul(&y, &p->y, &z3);
     
-    uint256_to_bytes_be(&x, out);
-    uint256_to_bytes_be(&y, out + 32);
+    fp_mul(&r->x, &p->x, &z2);
+    fp_mul(&r->y, &p->y, &z3);
+    memset(&r->z, 0, 32);
+    r->z.bytes[31] = 1; // Z=1
+}
+
+void bn254_g1_to_bytes(const bn254_g1_t* p, uint8_t* out) {
+    bn254_g1_t aff;
+    g1_normalize(&aff, p);
+    
+    if (intx_is_zero(&aff.z)) {
+        memset(out, 0, 64);
+        return;
+    }
+    
+    uint256_to_bytes_be(&aff.x, out);
+    uint256_to_bytes_be(&aff.y, out + 32);
 }
 
 bool bn254_g2_is_on_curve(const bn254_g2_t* p) {
@@ -619,11 +640,8 @@ bool bn254_g1_is_on_curve(const bn254_g1_t* p) {
     return on_curve;
 }
 
-static void fp_print(const char* label, const bn254_fp_t* f) {
-    printf("%s: ", label);
-    for(int j=0; j<32; j++) printf("%02x", f->bytes[j]);
-    printf("\n");
-}
+// Helper for debugging (removed)
+
 
 static void g1_dbl_jacobian(bn254_g1_t* r, const bn254_g1_t* p) {
     if (intx_is_zero(&p->z)) { *r = *p; return; }
@@ -768,18 +786,6 @@ static void fp2_div2(bn254_fp2_t* r, const bn254_fp2_t* a) {
     fp_div2(&r->c1, &a->c1);
 }
 
-// Helper for debugging
-static void fp12_print(const char* label, const bn254_fp12_t* f) {
-    printf("%s: ", label);
-    bn254_fp_t* p = (bn254_fp_t*)f;
-    for(int i=0; i<12; i++) {
-        // Print bytes in Big Endian (bytes is already BE)
-        for(int j=0; j<32; j++) printf("%02x", p[i].bytes[j]);
-        printf(" ");
-    }
-    printf("\n");
-}
-
 static void line_func_dbl(bn254_fp12_t* f, bn254_g2_t* Q, const bn254_g1_t* P) {
     // Ported from MCL dblLineWithoutP + updateLine
     bn254_fp2_t t0, t1, t2, t3, t4, t5;
@@ -893,8 +899,14 @@ static void line_func_add(bn254_fp12_t* f, bn254_g2_t* R, const bn254_g2_t* Q, c
     fp12_mul_internal(f, f, &l);
 }
 
-void bn254_miller_loop(bn254_fp12_t* res, const bn254_g1_t* P, const bn254_g2_t* Q) {
+void bn254_miller_loop(bn254_fp12_t* res, const bn254_g1_t* P_in, const bn254_g2_t* Q) {
     bn254_init();
+    
+    // Normalize P to affine coordinates (Z=1)
+    bn254_g1_t P_aff;
+    g1_normalize(&P_aff, P_in);
+    const bn254_g1_t* P = &P_aff;
+
     // Loop parameter u = 4965661367192848881
     // 6u+2 = 29793968203157093288 = 0x19D797039BE763BA8
     // This requires 65 bits. Bit 64 is 1.
@@ -936,9 +948,11 @@ void bn254_miller_loop(bn254_fp12_t* res, const bn254_g1_t* P, const bn254_g2_t*
     intx_sub(&p_minus_1, &bn254_modulus, &one);
     intx_div(&exp1, &p_minus_1, &three);
     intx_div(&exp2, &p_minus_1, &two);
+    
     bn254_fp2_t xi_p_3, xi_p_2;
     fp2_pow(&xi_p_3, &xi, &exp1);
     fp2_pow(&xi_p_2, &xi, &exp2);
+    
     bn254_g2_t Q1, Q2;
     Q1.x = Q->x; fp_neg(&Q1.x.c1, &Q1.x.c1); fp2_mul(&Q1.x, &Q1.x, &xi_p_3);
     Q1.y = Q->y; fp_neg(&Q1.y.c1, &Q1.y.c1); fp2_mul(&Q1.y, &Q1.y, &xi_p_2);

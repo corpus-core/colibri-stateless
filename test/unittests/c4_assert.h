@@ -21,10 +21,12 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "beacon_denep.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "chains.h"
 #include "crypto.h"
+#include "eth_ssz_types.h"
 #include "json.h"
 #include "plugin.h"
 #include "prover.h"

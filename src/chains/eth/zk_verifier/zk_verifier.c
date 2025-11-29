@@ -6,8 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Helpers
+// (Debug helpers removed)
+
 bool verify_zk_proof(bytes_t proof, bytes_t public_inputs) {
-  printf("DEBUG verify_zk_proof START\n");
   // 1. Parse Proof
   if (proof.len != 260) {
     fprintf(stderr, "Invalid proof length: %u (expected 260)\n", proof.len);
@@ -23,9 +25,6 @@ bool verify_zk_proof(bytes_t proof, bytes_t public_inputs) {
     return false;
   }
   p += 64;
-  printf("DEBUG B Bytes: ");
-  for (int k = 0; k < 32; k++) printf("%02x", p[k]);
-  printf("\n");
   // Use ETH loading (Im, Re) for proof points (standard Ethereum format)
   if (!bn254_g2_from_bytes_eth(&B, p)) {
     fprintf(stderr, "Failed to parse B\n");
@@ -79,9 +78,6 @@ bool verify_zk_proof(bytes_t proof, bytes_t public_inputs) {
     memcpy(tmp + 32, VK_BETA_NEG_X1, 32);
     memcpy(tmp + 64, VK_BETA_NEG_Y0, 32);
     memcpy(tmp + 96, VK_BETA_NEG_Y1, 32);
-    printf("DEBUG VK BETA TMP: ");
-    for (int k = 0; k < 64; k++) printf("%02x", tmp[k]);
-    printf("\n");
     if (!bn254_g2_from_bytes_raw(&beta_neg, tmp)) return false;
 
     memcpy(tmp, VK_GAMMA_NEG_X0, 32);
@@ -110,18 +106,6 @@ bool verify_zk_proof(bytes_t proof, bytes_t public_inputs) {
 
   bn254_g1_add(&L, &L, &t1);
   bn254_g1_add(&L, &L, &t2);
-
-  // Debug Print L
-  uint8_t l_bytes[64];
-  bn254_g1_to_bytes(&L, l_bytes);
-  printf("DEBUG L: ");
-  for (int k = 0; k < 64; k++) printf("%02x", l_bytes[k]);
-  printf("\n");
-
-  // Debug pub hash
-  printf("DEBUG PubHash: ");
-  for (int k = 0; k < 32; k++) printf("%02x", pub_hash.bytes[k]);
-  printf("\n");
 
   // 5. Pairing Check
   // e(A, B) * e(C, delta_neg) * e(alpha, beta_neg) * e(L, gamma_neg) == 1
