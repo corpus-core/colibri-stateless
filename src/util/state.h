@@ -459,6 +459,17 @@ c4_status_t c4_state_add_error(c4_state_t* state, const char* error);
   } while (0)
 
 /**
+ * Helper function to set the error message safely, handling memory ownership.
+ * This avoids "use after free" issues in macros where the old error is read
+ * while formulating the new one.
+ */
+static inline c4_status_t c4_state_set_error_msg(c4_state_t* state, char* msg) {
+  if (state->error) safe_free(state->error);
+  state->error = msg;
+  return C4_ERROR;
+}
+
+/**
  * **THROW_ERROR(msg)** - Adds an error message to the state and returns C4_ERROR.
  *
  * This is a convenience macro for error handling that assumes a context
@@ -496,12 +507,8 @@ c4_status_t c4_state_add_error(c4_state_t* state, const char* error);
  * THROW_ERROR_WITH(msg, block_num);  // Compilation error!
  * ```
  */
-#define THROW_ERROR_WITH(fmt, ...)                                                                       \
-  do {                                                                                                   \
-    if (ctx->state.error) safe_free(ctx->state.error);                                                   \
-    ctx->state.error = bprintf(NULL, "%s" fmt, ctx->state.error ? ctx->state.error : "", ##__VA_ARGS__); \
-    return C4_ERROR;                                                                                     \
-  } while (0)
+#define THROW_ERROR_WITH(fmt, ...) \
+  return c4_state_set_error_msg(&ctx->state, bprintf(NULL, "%s" fmt, ctx->state.error ? ctx->state.error : "", ##__VA_ARGS__))
 
 /**
  * Static inline helpers for JSON validation macros to avoid static analyzer warnings.
@@ -509,29 +516,20 @@ c4_status_t c4_state_add_error(c4_state_t* state, const char* error);
  */
 static inline c4_status_t c4_check_json_inline(c4_state_t* state, json_t val, const char* def, const char* prefix) {
   char* err = (char*) json_validate(val, def, prefix);
-  if (err) {
-    if (state->error) safe_free(state->error);
-    state->error = err;
-    return C4_ERROR;
-  }
+  if (err) return c4_state_set_error_msg(state, err);
   return C4_SUCCESS;
 }
 
 static inline c4_status_t c4_check_json_cached_inline(c4_state_t* state, json_t val, const char* def, const char* prefix) {
   char* err = (char*) json_validate_cached(val, def, prefix);
-  if (err) {
-    if (state->error) safe_free(state->error);
-    state->error = err;
-    return C4_ERROR;
-  }
+  if (err) return c4_state_set_error_msg(state, err);
   return C4_SUCCESS;
 }
 
 static inline bool c4_check_json_verify_inline(c4_state_t* state, bool* success, json_t val, const char* def, const char* prefix) {
   char* err = (char*) json_validate(val, def, prefix);
   if (err) {
-    if (state->error) safe_free(state->error);
-    state->error = err;
+    c4_state_set_error_msg(state, err);
     if (success) *success = false;
     return false;
   }
@@ -541,8 +539,7 @@ static inline bool c4_check_json_verify_inline(c4_state_t* state, bool* success,
 static inline bool c4_check_json_verify_cached_inline(c4_state_t* state, bool* success, json_t val, const char* def, const char* prefix) {
   char* err = (char*) json_validate_cached(val, def, prefix);
   if (err) {
-    if (state->error) safe_free(state->error);
-    state->error = err;
+    c4_state_set_error_msg(state, err);
     if (success) *success = false;
     return false;
   }

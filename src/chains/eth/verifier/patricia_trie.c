@@ -146,12 +146,20 @@ static nibbles_t path_to_nibbles(bytes_t path, bool include_prefix) {
 }
 
 static bytes_t nibbles_to_path(nibbles_t nibbles, bool is_leaf) {
-  uint8_t* path = safe_calloc((nibbles.len >> 1) + 1, 1);
-  path[0]       = ((is_leaf << 1) + (nibbles.len & 1)) << 4;
-  int pos       = (nibbles.len & 1) ? 1 : 2;
-  for (int i = 0; i < nibbles.len; i++, pos++)
-    path[pos >> 1] |= pos % 2 ? nibbles.data[i] : (nibbles.data[i] << 4);
-  return bytes(path, (nibbles.len >> 1) + 1);
+  int      len  = (nibbles.len >> 1) + 1;
+  uint8_t* path = safe_calloc(len, 1);
+
+  path[0] = ((is_leaf << 1) + (nibbles.len & 1)) << 4;
+  int pos = (nibbles.len & 1) ? 1 : 2;
+  for (int i = 0; i < nibbles.len; i++, pos++) {
+    int idx = pos >> 1;
+    if (idx >= len) break; // Safety check
+    if (pos % 2)
+      path[idx] = path[idx] | nibbles.data[i];
+    else
+      path[idx] = path[idx] | (nibbles.data[i] << 4);
+  }
+  return bytes(path, len);
 }
 
 static node_t* create_leaf(node_t* parent, nibbles_t nibbles, bytes_t value) {
