@@ -273,7 +273,7 @@ json_t json_dup(json_t json);
  *     free((void*)err);
  *   }
  */
-const char* json_validate(json_t value, const char* def, const char* error_prefix) M_RET;
+const char* json_validate(json_t value, const char* def, const char* error_prefix);
 
 /**
  * Validate JSON with a small global cache to skip repeated validations.
@@ -288,7 +288,7 @@ const char* json_validate(json_t value, const char* def, const char* error_prefi
  * @param error_prefix prefix for error messages
  * @return NULL on success, dynamically allocated error message on failure
  */
-const char* json_validate_cached(json_t value, const char* def, const char* error_prefix) M_RET;
+const char* json_validate_cached(json_t value, const char* def, const char* error_prefix);
 
 /**
  * Iterate over properties in a JSON object.

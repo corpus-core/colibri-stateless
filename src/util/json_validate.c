@@ -70,6 +70,10 @@ static const char* next_type(const char* pos, const char** next, int* len) {
   return next_name(pos, next, len);
 }
 
+static bool starts_with_dot(const char* str) {
+  return str && *(const volatile char*) str == '.';
+}
+
 static const char* check_array(json_t val, const char* def, const char* error_prefix) {
   if (val.type != JSON_TYPE_ARRAY) ERROR("%sExpected array", error_prefix);
   const char* next     = NULL;
@@ -109,7 +113,8 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
     json_for_each_property(ob, val, prop_name) {
       const char* err = json_validate(val, item_def, "");
       if (err) {
-        const char* new_err = bprintf(NULL, "%s.%s%s", error_prefix, *err == '.' ? "" : ":", err);
+        const char* sep     = starts_with_dot(err) ? "" : ":";
+        const char* new_err = bprintf(NULL, "%s.%s%s", error_prefix, sep, err);
         safe_free((char*) err);
         return (char*) new_err;
       }
@@ -133,7 +138,7 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
         if (optional && val.type == JSON_TYPE_NULL) break;
         const char* err = json_validate(val, item_def, "");
         if (err) {
-          const char* new_err = bprintf(NULL, "%s.%j%s%s", error_prefix, (json_t) {.type = JSON_TYPE_OBJECT, .start = name, .len = name_len}, *err == '.' ? "" : ":", err);
+          const char* new_err = bprintf(NULL, "%s.%r%s%s", error_prefix, bytes(name, name_len), starts_with_dot(err) ? "" : ":", err);
           safe_free((char*) err);
           return new_err;
         }

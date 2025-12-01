@@ -517,14 +517,14 @@ c4_status_t c4_state_add_error(c4_state_t* state, const char* error);
  * CHECK_JSON(response_json, block_header_def, "Block header");
  * ```
  */
-#define CHECK_JSON(val, def, error_prefix)                   \
-  do {                                                       \
-    const char* err = json_validate(val, def, error_prefix); \
-    if (err) {                                               \
-      if (ctx->state.error) safe_free(ctx->state.error);     \
-      ctx->state.error = strdup(err);                        \
-      return C4_ERROR;                                       \
-    }                                                        \
+#define CHECK_JSON(val, def, error_prefix)                     \
+  do {                                                         \
+    char* err = (char*) json_validate(val, def, error_prefix); \
+    if (err) {                                                 \
+      if (ctx->state.error) safe_free(ctx->state.error);       \
+      ctx->state.error = err;                                  \
+      return C4_ERROR;                                         \
+    }                                                          \
   } while (0)
 
 /**
@@ -533,14 +533,14 @@ c4_status_t c4_state_add_error(c4_state_t* state, const char* error);
  * Uses json_validate_cached() which skips validation if the same payload+schema
  * was recently validated successfully.
  */
-#define CHECK_JSON_CACHED(val, def, error_prefix)                   \
-  do {                                                              \
-    const char* err = json_validate_cached(val, def, error_prefix); \
-    if (err) {                                                      \
-      if (ctx->state.error) safe_free(ctx->state.error);            \
-      ctx->state.error = strdup(err);                               \
-      return C4_ERROR;                                              \
-    }                                                               \
+#define CHECK_JSON_CACHED(val, def, error_prefix)                     \
+  do {                                                                \
+    char* err = (char*) json_validate_cached(val, def, error_prefix); \
+    if (err) {                                                        \
+      if (ctx->state.error) safe_free(ctx->state.error);              \
+      ctx->state.error = err;                                         \
+      return C4_ERROR;                                                \
+    }                                                                 \
   } while (0)
 
 /**
@@ -557,29 +557,29 @@ c4_status_t c4_state_add_error(c4_state_t* state, const char* error);
  * CHECK_JSON_VERIFY(proof_json, proof_def, "Proof structure");
  * ```
  */
-#define CHECK_JSON_VERIFY(val, def, error_prefix)            \
-  do {                                                       \
-    const char* err = json_validate(val, def, error_prefix); \
-    if (err) {                                               \
-      if (ctx->state.error) safe_free(ctx->state.error);     \
-      ctx->state.error = strdup(err);                        \
-      ctx->success     = false;                              \
-      return false;                                          \
-    }                                                        \
+#define CHECK_JSON_VERIFY(val, def, error_prefix)              \
+  do {                                                         \
+    char* err = (char*) json_validate(val, def, error_prefix); \
+    if (err) {                                                 \
+      if (ctx->state.error) safe_free(ctx->state.error);       \
+      ctx->state.error = err;                                  \
+      ctx->success     = false;                                \
+      return false;                                            \
+    }                                                          \
   } while (0)
 
 /**
  * **CHECK_JSON_VERIFY_CACHED(val, def, error_prefix)** - Cached variant for verification codepaths.
  */
-#define CHECK_JSON_VERIFY_CACHED(val, def, error_prefix)            \
-  do {                                                              \
-    const char* err = json_validate_cached(val, def, error_prefix); \
-    if (err) {                                                      \
-      if (ctx->state.error) safe_free(ctx->state.error);            \
-      ctx->state.error = strdup(err);                               \
-      ctx->success     = false;                                     \
-      return false;                                                 \
-    }                                                               \
+#define CHECK_JSON_VERIFY_CACHED(val, def, error_prefix)              \
+  do {                                                                \
+    char* err = (char*) json_validate_cached(val, def, error_prefix); \
+    if (err) {                                                        \
+      if (ctx->state.error) safe_free(ctx->state.error);              \
+      ctx->state.error = err;                                         \
+      ctx->success     = false;                                       \
+      return false;                                                   \
+    }                                                                 \
   } while (0)
 
 /**
