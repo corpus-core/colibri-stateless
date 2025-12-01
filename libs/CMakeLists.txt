@@ -21,15 +21,17 @@
 
 add_subdirectory(crypto)
 add_subdirectory(blst)
-if(ETH_ZKPROOF)
-    add_subdirectory(mcl) # MCL for ZK proofs
-endif()
+
 if(CURL)
     add_subdirectory(curl)
 endif()
 
 add_subdirectory(intx) # intx is needed for evmone and for the precompile, but will onlöy be build if needed
 add_subdirectory(evmone) # evmone will only be build if needed
+
+if((ETH_ZKPROOF OR ETH_CALL) AND USE_MCL)
+    add_subdirectory(mcl) # MCL for ZK proofs
+endif()
 
 if(CHAIN_OP)
     add_subdirectory(zstd) # ZSTD is only needed for OP-Stack chains

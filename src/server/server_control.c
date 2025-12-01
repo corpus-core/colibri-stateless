@@ -141,6 +141,7 @@ int c4_server_start(server_instance_t* instance, int port) {
   uint64_t           cleanup_interval_ms = 3000; // 3 seconds
 
   // Register http-handlers
+  // order is important, the first matching handler is used
   c4_register_http_handler(c4_handle_config_ui);
   c4_register_http_handler(c4_handle_get_config);
   c4_register_http_handler(c4_handle_post_config);

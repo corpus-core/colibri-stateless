@@ -175,7 +175,8 @@ jobs:
             -DCURL=false \
             -DKOTLIN=true \
             -DTEST=false \
-            -DETH_ZKPROOF=false \
+            -DETH_ZKPROOF=true \
+            -DUSE_MCL=true \
             -DWASM=false \
             -DCLI=false
 

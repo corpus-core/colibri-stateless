@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../../src/chains/eth/bn254/bn254.h"
 #include "../../src/chains/eth/precompiles/precompiles.h"
 #include "bytes.h"
 #include "unity.h"
@@ -292,6 +293,81 @@ void test_precompile_ecpairing_valid() {
 
   free(input_hex);
   free(input.data);
+  buffer_free(&output);
+}
+
+// Test 8c: ECPairing (0x08) - Bilinearity check
+// Check e(P, Q) * e(P, Q) * e(-2P, Q) = 1
+void test_precompile_ecpairing_bilinearity() {
+  uint8_t addr[20];
+  make_precompile_address(0x08, addr);
+
+  // P = G1 Generator (1, 2)
+  const char* P_hex =
+      "0000000000000000000000000000000000000000000000000000000000000001"
+      "0000000000000000000000000000000000000000000000000000000000000002";
+
+  // Q = G2 Generator (ETH format: Im, Re, Im, Re)
+  const char* Q_hex =
+      "198e9393920d483a7260bfb731fb5d25f1aa493335a9e71297e485b7aef312c2"
+      "1800deef121f1e76426a00665e5c4479674322d4f75edadd46debd5cd992f6ed"
+      "090689d0585ff075ec9e99ad690c3395bc4b313370b38ef355acdadcd122975b"
+      "12c85ea5db8c6deb4aab71808dcb408fe3d1e7690c43d37b4ce6cc0166fa7daa";
+
+  bytes_t P_bytes = hex_to_bytes_alloc(P_hex);
+  bytes_t Q_bytes = hex_to_bytes_alloc(Q_hex);
+
+  bn254_init();
+
+  bn254_g1_t P, P2, negP2;
+  bn254_g1_from_bytes_be(&P, P_bytes.data);
+  bn254_g1_add(&P2, &P, &P); // P2 = 2*P
+
+  // Calculate -P2 manually (negate Y coordinate)
+  // Modulus P = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+  uint256_t mod;
+  uint8_t   mod_bytes[32] = {
+      0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+      0x97, 0x81, 0x6a, 0x91, 0x68, 0x71, 0xca, 0x8d, 0x3c, 0x20, 0x8c, 0x16, 0xd8, 0x7c, 0xfd, 0x47};
+  bytes_t mod_b = {.data = mod_bytes, .len = 32};
+  intx_from_bytes(&mod, mod_b);
+
+  negP2 = P2;
+  intx_sub(&negP2.y, &mod, &P2.y);
+
+  bn254_g2_t Q;
+  bn254_g2_from_bytes_eth(&Q, Q_bytes.data);
+
+  // Construct Input: P (64) + Q (128) + P (64) + Q (128) + negP2 (64) + Q (128)
+  // Total 3 pairs = 3 * 192 = 576 bytes
+  uint8_t input_buf[576];
+
+  // Pair 1: P, Q
+  bn254_g1_to_bytes(&P, input_buf);
+  bn254_g2_to_bytes_eth(&Q, input_buf + 64);
+
+  // Pair 2: P, Q
+  bn254_g1_to_bytes(&P, input_buf + 192);
+  bn254_g2_to_bytes_eth(&Q, input_buf + 192 + 64);
+
+  // Pair 3: negP2, Q
+  bn254_g1_to_bytes(&negP2, input_buf + 384);
+  bn254_g2_to_bytes_eth(&Q, input_buf + 384 + 64);
+
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  bytes_t input = {.data = input_buf, .len = 576};
+
+  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
+  TEST_ASSERT_EQUAL(32, output.data.len);
+  // Expect success (1)
+  TEST_ASSERT_EQUAL_UINT8(1, output.data.data[31]);
+
+  free(P_bytes.data);
+  free(Q_bytes.data);
   buffer_free(&output);
 }
 
@@ -616,12 +692,12 @@ int main(void) {
   RUN_TEST(test_precompile_identity);
   RUN_TEST(test_precompile_ecrecover);
 
-  // TODO: These precompiles have bugs or are not fully implemented
   RUN_TEST(test_precompile_modexp);
   RUN_TEST(test_precompile_ecadd);
   RUN_TEST(test_precompile_ecmul);
   RUN_TEST(test_precompile_ecpairing_invalid);
   RUN_TEST(test_precompile_ecpairing_valid);
+  RUN_TEST(test_precompile_ecpairing_bilinearity);
 
   RUN_TEST(test_precompile_ecadd);
   RUN_TEST(test_precompile_ecmul);

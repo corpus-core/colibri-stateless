@@ -63,4 +63,7 @@ if (INTX)
   set (DEPS ${DEPS} intx_wrapper)
 endif()
 
+# Link against eth_bn254 for BN254 precompiles
+target_link_libraries(eth_precompiles PRIVATE eth_bn254)
+
 target_link_libraries(eth_precompiles PUBLIC ${DEPS})

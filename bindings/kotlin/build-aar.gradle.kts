@@ -69,7 +69,8 @@ android {
                     "-DGENERATE_JAVA_SOURCES=OFF", 
                     "-DKOTLIN=true", 
                     "-DCURL=false",
-                    "-DETH_ZKPROOF=false",
+                    "-DUSE_MCL=false",
+                    "-DETH_ZKPROOF=true",
                     // Force C++20 with concepts
                     "-DCMAKE_CXX_STANDARD=20", 
                     "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
