@@ -189,8 +189,12 @@ void test_period_store_lcu_cache_read(void) {
 
 int main(void) {
   UNITY_BEGIN();
+#ifdef _MSC_VER
+  fprintf(stderr, "test_server_period_store: Skipped (MSVC not supported)\n");
+#else
   RUN_TEST(test_period_store_set_block_write);
   RUN_TEST(test_period_store_lcu_cache_read);
+#endif
   return UNITY_END();
 }
 

@@ -104,6 +104,7 @@ static inline proof_logs_block_t* find_block(proof_logs_block_t* blocks, uint64_
 }
 
 static inline proof_logs_tx_t* find_tx(proof_logs_block_t* block, uint32_t tx_index) {
+  if (!block) return NULL;
   proof_logs_tx_t* tx = block->txs;
   while (tx && tx->tx_index != tx_index) tx = tx->next;
   return tx;
@@ -115,7 +116,10 @@ static inline void add_blocks(proof_logs_block_t** blocks, json_t logs) {
     uint32_t            tx_index     = json_get_uint32(log, "transactionIndex");
     proof_logs_block_t* block        = find_block(*blocks, block_number);
     if (!block) {
-      block               = safe_calloc(1, sizeof(proof_logs_block_t));
+      block = safe_calloc(1, sizeof(proof_logs_block_t));
+#ifdef __clang_analyzer__
+      memset(block, 0, sizeof(proof_logs_block_t));
+#endif
       block->block_number = block_number;
       block->next         = *blocks;
       *blocks             = block;
@@ -201,7 +205,9 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
 #endif
 
   // create receipts proofs
-  for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
+  proof_logs_tx_t* next_tx = NULL;
+  for (proof_logs_tx_t* tx = block->txs; tx; tx = next_tx) {
+    next_tx    = tx->next;
     tx->proof  = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx->tx_index, &buf));
     tx->raw_tx = ssz_at(ssz_get(&block->beacon_block.execution, "transactions"), tx->tx_index).bytes;
   }

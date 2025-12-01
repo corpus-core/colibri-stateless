@@ -145,13 +145,13 @@ typedef struct {
  * @return the prover context, which needs to get freed with c4_prover_free.
  *         Always returns a valid context - check ctx->state.error for validation errors.
  */
-prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, prover_flags_t flags);
+prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, prover_flags_t flags) M_RET;
 
 /**
  * cleanup for the ctx
  * @param ctx the prover context
  */
-void c4_prover_free(prover_ctx_t* ctx);
+void c4_prover_free(prover_ctx_t* ctx) M_TAKE(1);
 
 /**
  * tries to create the proof, but if there are pending requests, they need to fetched before calling it again.
@@ -199,7 +199,7 @@ const void* c4_prover_cache_get_local(prover_ctx_t* ctx, bytes32_t key);
  * @param duration_ms cache TTL in milliseconds (0 = local-only, never moved to global)
  * @param free function to free the value when cache entry is removed
  */
-void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free);
+void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free) M_TAKE(3);
 
 /**
  * Clean up expired entries from global cache and enforce size limits.

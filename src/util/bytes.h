@@ -51,6 +51,26 @@ extern "C" {
 #define NONNULL
 #define RETURNS_NONNULL
 #endif
+
+// Ownership attributes for static analysis
+#if defined(__clang_analyzer__)
+// Generic macros for custom classes (e.g. "file", "socket", "malloc")
+#define OWNERSHIP_RETURNS(c)  __attribute__((ownership_returns(c)))
+#define OWNERSHIP_TAKES(c, i) __attribute__((ownership_takes(c, i)))
+#define OWNERSHIP_HOLDS(c, i) __attribute__((ownership_holds(c, i)))
+
+// Short aliases specifically for memory (malloc class)
+#define M_RET     __attribute__((ownership_returns(malloc)))
+#define M_TAKE(i) __attribute__((ownership_takes(malloc, i)))
+#else
+#define OWNERSHIP_RETURNS(c)
+#define OWNERSHIP_TAKES(c, i)
+#define OWNERSHIP_HOLDS(c, i)
+
+#define M_RET
+#define M_TAKE(i)
+#endif
+
 // : APIs
 
 // :: Internal APIs
@@ -215,7 +235,7 @@ size_t buffer_grow(buffer_t* buffer, size_t min_len);
  * @param size the size of the memory to allocate
  * @return the pointer to the allocated memory (never NULL)
  */
-void* safe_malloc(size_t size) RETURNS_NONNULL;
+void* safe_malloc(size_t size) RETURNS_NONNULL M_RET;
 
 /**
  * calls calloc and check if the returned pointer is not NULL.
@@ -224,7 +244,7 @@ void* safe_malloc(size_t size) RETURNS_NONNULL;
  * @param size the size of the memory to allocate
  * @return the pointer to the allocated memory (never NULL for non-zero sizes)
  */
-void* safe_calloc(size_t num, size_t size);
+void* safe_calloc(size_t num, size_t size) M_RET;
 
 /**
  * calls realloc and check if the returned pointer is not NULL.
@@ -233,7 +253,7 @@ void* safe_calloc(size_t num, size_t size);
  * @param new_size the new size of the memory
  * @return the pointer to the reallocated memory (never NULL for non-zero sizes)
  */
-void* safe_realloc(void* ptr, size_t new_size);
+void* safe_realloc(void* ptr, size_t new_size) M_RET;
 
 /**
  * calls free and check if the pointer is not NULL.
