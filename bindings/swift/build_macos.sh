@@ -110,6 +110,7 @@ build_macos_arch() {
         cmake \
             -DSWIFT=true \
             -DCHAIN_OP=ON \
+            -DETH_ZKPROOF=false \
             -DCMAKE_SYSTEM_NAME="Darwin" \
             -DCMAKE_OSX_SYSROOT="$MACOS_SDK" \
             -DCMAKE_OSX_ARCHITECTURES="$arch" \

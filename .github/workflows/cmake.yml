@@ -39,6 +39,7 @@ jobs:
             -DEVMLIGHT=OFF \
             -DPROVER=OFF \
             -DCLI=OFF \
+            -DETH_ZKPROOF=OFF \
             -DPRECOMPILE_ZERO_HASHES=OFF \
             -DUSE_CHECKPOINTZ=OFF \
             -DINCLUDE=test/embedded
@@ -153,9 +154,9 @@ jobs:
       - name: Install Dependencies
         run: sudo apt-get update && sudo apt-get install -y valgrind libcurl4-openssl-dev
       - name: Build minsize
-        run: cmake -B build_minsize -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
+        run: cmake -B build_minsize -DETH_ZKPROOF=0 -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
       - name: Build
-        run: cmake -B build -DTEST=true -DCURL=true -DPROVER_CACHE=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
+        run: cmake -B build -DETH_ZKPROOF=0 -DTEST=true -DCURL=true -DPROVER_CACHE=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
 
       - name: Run Valgrind on all test binaries
         run: |
@@ -557,7 +558,7 @@ jobs:
       - name: Build Project
         uses: threeal/cmake-action@v2.0.0
         with:
-          options: TEST=true CURL=true HTTP_SERVER=true PROVER_CACHE=true CMAKE_BUILD_TYPE=Debug COVERAGE=true
+          options: TEST=true CURL=true ETH_ZKPROOF=false HTTP_SERVER=true PROVER_CACHE=true CMAKE_BUILD_TYPE=Debug COVERAGE=true
 
       - name: Test Project
         uses: threeal/ctest-action@v1.1.0
@@ -884,6 +885,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DTEST=true
           -DCURL=true
+          -DETH_ZKPROOF=0
           -DHTTP_SERVER=1
           -DPROVER_CACHE=true
           -S ${{ github.workspace }}
@@ -914,6 +916,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DTEST=true
           -DCURL=true
+          -DETH_ZKPROOF=0
           -DHTTP_SERVER=1
           -DPROVER_CACHE=true
           -DCMAKE_TOOLCHAIN_FILE="${env:VCPKG_ROOT}\\scripts\\buildsystems\\vcpkg.cmake"

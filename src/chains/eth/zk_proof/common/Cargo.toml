@@ -1,0 +1,13 @@
+[package]
+name = "eth-sync-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+bls12_381 = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+bincode = { workspace = true }
+
+
