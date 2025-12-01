@@ -358,7 +358,7 @@ c4_status_t c4_eth_update_finality(prover_ctx_t* ctx) {
   beacon_head_t hash = {0};
   sbprintf((char*) key, "%s", FINALITY_KEY);
   c4_prover_cache_invalidate(key);
-  return eth_get_final_hash(ctx, false, &hash);
+  return eth_get_final_hash(ctx, false, hash.root);
 }
 #endif
 
