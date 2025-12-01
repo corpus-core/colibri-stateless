@@ -147,7 +147,11 @@ static nibbles_t path_to_nibbles(bytes_t path, bool include_prefix) {
 
 static bytes_t nibbles_to_path(nibbles_t nibbles, bool is_leaf) {
   int      len  = (nibbles.len >> 1) + 1;
-  uint8_t* path = safe_calloc(len, 1);
+  uint8_t* path = safe_calloc(len + 1, 1);
+#ifdef __clang_analyzer__
+  if (!path) return NULL_BYTES;
+  memset(path, 0, len + 1);
+#endif
 
   path[0] = ((is_leaf << 1) + (nibbles.len & 1)) << 4;
   int pos = (nibbles.len & 1) ? 1 : 2;

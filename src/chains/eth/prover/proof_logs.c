@@ -116,7 +116,10 @@ static inline void add_blocks(proof_logs_block_t** blocks, json_t logs) {
     uint32_t            tx_index     = json_get_uint32(log, "transactionIndex");
     proof_logs_block_t* block        = find_block(*blocks, block_number);
     if (!block) {
-      block               = safe_calloc(1, sizeof(proof_logs_block_t));
+      block = safe_calloc(1, sizeof(proof_logs_block_t));
+#ifdef __clang_analyzer__
+      memset(block, 0, sizeof(proof_logs_block_t));
+#endif
       block->block_number = block_number;
       block->next         = *blocks;
       *blocks             = block;
