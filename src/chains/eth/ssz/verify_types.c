@@ -33,6 +33,7 @@
 static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 // Forward declaration for C4_ETH_LC_SYNCDATA (defined later after includes)
 static const ssz_def_t C4_ETH_LC_SYNCDATA[2];
+static const ssz_def_t C4_ETH_ZK_SYNCDATA[4];
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
@@ -104,6 +105,7 @@ static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
     SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA), // Light Client Sync Data
+    SSZ_CONTAINER("ZKSyncData", C4_ETH_ZK_SYNCDATA), // ZK Proof Sync Data
 };
 
 // the main container defining the incoming data processed by the verifier
@@ -134,6 +136,14 @@ static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
     SSZ_LIST("update", C4_ETH_SYNCDATA_UPDATE, 1024)         // optional update data for the sync committee
 };
 
+// ZK SyncData contains the recursive zk proof of the sync committee update
+static const ssz_def_t C4_ETH_ZK_SYNCDATA[4] = {
+    SSZ_BYTES32("vk_hash"),                                  // the hash of the vk used to generate the proof
+    SSZ_BYTE_VECTOR("proof", 260),                           // the recursive zk proof of the sync committee update as groth16 proof
+    SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
+    SSZ_LIST("signatures", ssz_secp256k1_signature, 16)      // the signatures for the checkpoint
+};
+
 /**
  * Finds the index of a target definition within an array of SSZ definitions.
  * Searches for a container type whose elements pointer matches the target.
@@ -150,7 +160,7 @@ static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def
   return 0;
 }
 // Macro to get the index of a target definition in an array
-#define ARRAY_IDX(a, target)  array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
+#define ARRAY_IDX(a, target) array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 // Macro to get a pointer to the definition at the index of the target in an array
 #define ARRAY_TYPE(a, target) a + array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 

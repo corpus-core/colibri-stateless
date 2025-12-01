@@ -560,8 +560,10 @@ static inline bool c4_check_json_verify_cached_inline(c4_state_t* state, bool* s
  * CHECK_JSON(response_json, block_header_def, "Block header");
  * ```
  */
-#define CHECK_JSON(val, def, error_prefix) \
-  if (c4_check_json_inline(&ctx->state, val, def, error_prefix) != C4_SUCCESS) return C4_ERROR
+#define CHECK_JSON(val, def, error_prefix)                                                        \
+  do {                                                                                            \
+    if (c4_check_json_inline(&ctx->state, val, def, error_prefix) != C4_SUCCESS) return C4_ERROR; \
+  } while (0)
 
 /**
  * **CHECK_JSON_CACHED(val, def, error_prefix)** - Cached JSON validation for large payloads.
@@ -569,8 +571,10 @@ static inline bool c4_check_json_verify_cached_inline(c4_state_t* state, bool* s
  * Uses json_validate_cached() which skips validation if the same payload+schema
  * was recently validated successfully.
  */
-#define CHECK_JSON_CACHED(val, def, error_prefix) \
-  if (c4_check_json_cached_inline(&ctx->state, val, def, error_prefix) != C4_SUCCESS) return C4_ERROR
+#define CHECK_JSON_CACHED(val, def, error_prefix)                                                        \
+  do {                                                                                                   \
+    if (c4_check_json_cached_inline(&ctx->state, val, def, error_prefix) != C4_SUCCESS) return C4_ERROR; \
+  } while (0)
 
 /**
  * **CHECK_JSON_VERIFY(val, def, error_prefix)** - Validates JSON data and sets verification failure on error.
@@ -586,14 +590,18 @@ static inline bool c4_check_json_verify_cached_inline(c4_state_t* state, bool* s
  * CHECK_JSON_VERIFY(proof_json, proof_def, "Proof structure");
  * ```
  */
-#define CHECK_JSON_VERIFY(val, def, error_prefix) \
-  if (!c4_check_json_verify_inline(&ctx->state, &ctx->success, val, def, error_prefix)) return false
+#define CHECK_JSON_VERIFY(val, def, error_prefix)                                                       \
+  do {                                                                                                  \
+    if (!c4_check_json_verify_inline(&ctx->state, &ctx->success, val, def, error_prefix)) return false; \
+  } while (0)
 
 /**
  * **CHECK_JSON_VERIFY_CACHED(val, def, error_prefix)** - Cached variant for verification codepaths.
  */
-#define CHECK_JSON_VERIFY_CACHED(val, def, error_prefix) \
-  if (!c4_check_json_verify_cached_inline(&ctx->state, &ctx->success, val, def, error_prefix)) return false
+#define CHECK_JSON_VERIFY_CACHED(val, def, error_prefix)                                                       \
+  do {                                                                                                         \
+    if (!c4_check_json_verify_cached_inline(&ctx->state, &ctx->success, val, def, error_prefix)) return false; \
+  } while (0)
 
 /**
  * **RETRY_REQUEST(req)** - Marks current node as excluded and retries the request.
