@@ -1,0 +1,12 @@
+{
+  "name": "prover-daemon",
+  "version": "1.0.0",
+  "description": "Daemon to trigger ZK proof generation based on Beacon Chain finality",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {},
+  "author": "",
+  "license": "MIT"
+}
