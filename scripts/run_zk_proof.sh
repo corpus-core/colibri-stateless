@@ -10,6 +10,8 @@ MODE="--execute"
 OUTPUT_DIR="build/default/.period_store"
 REMOTE_URL="https://mainnet1.colibri-proof.tech/"
 GROTH16=""
+USE_NETWORK=false
+PRIVATE_KEY_ARG=""
 
 # Parse Args
 while [[ "$#" -gt 0 ]]; do
@@ -17,6 +19,8 @@ while [[ "$#" -gt 0 ]]; do
         --prove) MODE="--prove" ;;
         --execute) MODE="--execute" ;;
         --groth16) GROTH16="--groth16" ;;
+        --network) USE_NETWORK=true ;;
+        --private-key) PRIVATE_KEY_ARG="$2"; shift ;;
         --period) PERIOD="$2"; shift ;;
         --prev-period) PREV_PERIOD="$2"; shift ;;
         --start-period) START_PERIOD="$2"; shift ;;
@@ -27,6 +31,21 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+# --- SP1 NETWORK SETUP ---
+if [ "$USE_NETWORK" = true ]; then
+    export SP1_PROVER="network"
+    if [ -n "$PRIVATE_KEY_ARG" ]; then
+        export SP1_PRIVATE_KEY="$PRIVATE_KEY_ARG"
+    fi
+
+    if [ -z "$SP1_PRIVATE_KEY" ]; then
+        echo "❌ Error: Network mode selected but SP1_PRIVATE_KEY not found."
+        echo "   Please provide it via --private-key <key> or export SP1_PRIVATE_KEY=<key>"
+        exit 1
+    fi
+    echo "🌐 SP1 Network Mode: ENABLED"
+fi
 
 # --- SP1 TOOLCHAIN SETUP ---
 
@@ -87,10 +106,13 @@ if [ -n "$START_PERIOD" ] && [ -n "$END_PERIOD" ]; then
     
     SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/run_zk_proof.sh"
     
+    NETWORK_OPT=""
+    if [ "$USE_NETWORK" = true ]; then NETWORK_OPT="--network"; fi
+
     # Step 1: Initial Proof (Start Period)
     echo "🏁 Step 1: Initial Proof for Period $START_PERIOD"
     START_TIME=$(date +%s)
-    "$SCRIPT_PATH" --period "$START_PERIOD" $MODE $GROTH16 --output "$OUTPUT_DIR"
+    "$SCRIPT_PATH" --period "$START_PERIOD" $MODE $GROTH16 $NETWORK_OPT --output "$OUTPUT_DIR"
     END_TIME=$(date +%s)
     echo "⏱️  Initial Proof for Period $START_PERIOD took $((END_TIME - START_TIME)) seconds"
     
@@ -99,7 +121,7 @@ if [ -n "$START_PERIOD" ] && [ -n "$END_PERIOD" ]; then
     for (( i=START_PERIOD+1; i<=END_PERIOD; i++ )); do
         echo "🔗 Step $((i-START_PERIOD+1)): Recursive Proof for Period $i (prev: $PREV)"
         START_TIME=$(date +%s)
-        "$SCRIPT_PATH" --period "$i" --prev-period "$PREV" $MODE $GROTH16 --output "$OUTPUT_DIR"
+        "$SCRIPT_PATH" --period "$i" --prev-period "$PREV" $MODE $GROTH16 $NETWORK_OPT --output "$OUTPUT_DIR"
         END_TIME=$(date +%s)
         echo "⏱️  Proof for Period $i took $((END_TIME - START_TIME)) seconds"
         PREV=$i
@@ -153,6 +175,14 @@ fi
 
 # Prepare Recursion Args
 PREV_PROOF_ARGS=""
+
+# Auto-detect previous period if not explicitly set
+IS_AUTO_PREV=false
+if [ -z "$PREV_PERIOD" ] && [ -n "$PERIOD" ]; then
+    PREV_PERIOD=$((PERIOD - 1))
+    IS_AUTO_PREV=true
+fi
+
 if [ -n "$PREV_PERIOD" ]; then
     # For recursion, we always need the COMPRESSED proof of the previous period.
     # If we ran with --groth16, the script now saves both _groth16.bin and .bin (compressed).
@@ -160,24 +190,32 @@ if [ -n "$PREV_PERIOD" ]; then
     PREV_PROOF_FILE="$OUTPUT_DIR_ABS/../${PREV_PERIOD}/zk_proof.bin"
     PREV_VK_FILE="$OUTPUT_DIR_ABS/../${PREV_PERIOD}/zk_vk_raw.bin"
     
-    if [ ! -f "$PREV_PROOF_FILE" ]; then
-        echo "❌ Error: Previous compressed proof not found at $PREV_PROOF_FILE"
-        echo "   Please run period $PREV_PERIOD first."
-        exit 1
+    MISSING_FILES=false
+    if [ ! -f "$PREV_PROOF_FILE" ]; then MISSING_FILES=true; fi
+    if [ ! -f "$PREV_VK_FILE" ]; then MISSING_FILES=true; fi
+
+    if [ "$MISSING_FILES" = true ]; then
+        if [ "$IS_AUTO_PREV" = true ]; then
+            echo "ℹ️  No previous proof found for period $PREV_PERIOD. Starting fresh (no recursion)."
+        else
+            echo "❌ Error: Previous compressed proof not found at $PREV_PROOF_FILE"
+            echo "   Please run period $PREV_PERIOD first."
+            exit 1
+        fi
+    else
+        echo "🔗 Chaining with previous period $PREV_PERIOD"
+        PREV_PROOF_ARGS="--prev-proof $PREV_PROOF_FILE --prev-vk $PREV_VK_FILE"
     fi
-    if [ ! -f "$PREV_VK_FILE" ]; then
-        echo "❌ Error: Previous VK not found at $PREV_VK_FILE"
-        exit 1
-    fi
-    
-    echo "🔗 Chaining with previous period $PREV_PERIOD"
-    PREV_PROOF_ARGS="--prev-proof $PREV_PROOF_FILE --prev-vk $PREV_VK_FILE"
 fi
 
 if [ "$MODE" == "--prove" ]; then
     echo "🚀 Running in PROVE mode (this will take time!)"
     if [ -n "$GROTH16" ]; then
-        echo "📦 Groth16 mode enabled (requires Docker)"
+        if [ "$USE_NETWORK" = true ]; then
+            echo "📦 Groth16 mode enabled (using SP1 Network)"
+        else
+            echo "📦 Groth16 mode enabled (requires Docker locally)"
+        fi
     fi
 else
     echo "⚡ Running in EXECUTE mode (fast simulation)"

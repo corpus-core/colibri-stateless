@@ -181,7 +181,7 @@ async fn main() {
         let start = Instant::now();
         
         if args.groth16 {
-            println!("Generating Groth16 proof (requires Docker)...");
+            println!("Generating Groth16 proof (requires Docker if local)...");
             
             // 1. Generate Compressed Proof first (needed for recursion chain)
             println!("1. Generating Compressed Proof (for recursion)...");
