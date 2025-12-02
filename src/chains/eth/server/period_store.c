@@ -16,7 +16,11 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <uv.h>
+static const char* internal_path = "period_store/";
 
+static inline bool is_file_not_found(char* error) {
+  return error && strstr(error, "No such file or directory") != NULL;
+}
 // Macro to log libuv errors, perform cleanup and return with a custom statement
 #define UVX_CHECK(op, expr, cleanup, retstmt)                                                  \
   do {                                                                                         \
@@ -185,6 +189,7 @@ static void backfill_done() {
 }
 
 static void backfill_check(block_t* head) {
+  if (eth_config.period_backfill_max_periods == 0) return;
   if (bf_ctx.done) {
     // should we rerun the backfill?
     // after 100 slots
@@ -203,12 +208,11 @@ static void backfill_check(block_t* head) {
   else if (bf_ctx.start_slot == 0) {
     // we have not started anything yet.
     // let's start from the head down to the configured max periods.
-    uint64_t max_periods = eth_config.period_backfill_max_periods > 0 ? eth_config.period_backfill_max_periods : 2;
-    bf_ctx.started_ts    = current_ms();
-    bf_ctx.start_slot    = head->slot;
-    bf_ctx.end_slot      = head->slot - (head->slot % SLOTS_PER_PERIOD) - (SLOTS_PER_PERIOD * max_periods);
-    bf_ctx.done          = false;
-    bf_ctx.current       = *head;
+    bf_ctx.started_ts = current_ms();
+    bf_ctx.start_slot = head->slot;
+    bf_ctx.end_slot   = head->slot - (head->slot % SLOTS_PER_PERIOD) - (SLOTS_PER_PERIOD * eth_config.period_backfill_max_periods);
+    bf_ctx.done       = false;
+    bf_ctx.current    = *head;
     memcpy(bf_ctx.current.parent_root, head->header + 16, 32);
     http_server.stats.period_sync_retries_total++;
     log_info("period_store: backfill start [%l -> %l)", bf_ctx.start_slot, bf_ctx.end_slot);
@@ -1046,9 +1050,57 @@ void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const u
   set_block(&block, false);
 }
 
+typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
+
+static void c4_handle_period_master_write_cb(void* user_data, file_data_t* files, int num_files) {
+  if (files[0].error)
+    log_error("period_store: could not write period master: %s", files[0].error);
+  c4_file_data_array_free(files, num_files, 0);
+}
+
+static void c4_handle_period_master_cb(client_t* client, void* user_data, data_request_t* data) {
+  single_request_t* r = (single_request_t*) user_data;
+  if (data->error) {
+    log_error("period_store: could not read period master: %s", data->error);
+
+    // transfer ownership to the response
+    r->req->error = data->error;
+    data->error   = NULL;
+  }
+  else {
+    // write the data to the period store
+    file_data_t f = {.data = bytes_dup(data->response), .limit = data->response.len, .offset = 0, .path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + strlen(internal_path))};
+    c4_write_files_uv(NULL, c4_handle_period_master_write_cb, &f, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+
+    // transfer ownership to the response
+    r->req->response = data->response;
+    data->response   = NULL_BYTES;
+  }
+
+  safe_free(data->url);
+  safe_free(data);
+  c4_internal_call_finish(r);
+}
+
 static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int num_files) {
   single_request_t* r = (single_request_t*) user_data;
-  if (files[0].error) {
+
+  // missing, so we try to fetch it from the master node
+  if (is_file_not_found(files[0].error) && eth_config.period_master_url) {
+    char* path = files[0].path + strlen(eth_config.period_store);
+    if (*path == '/') path++;
+    data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+    req->url            = bprintf(NULL, "%s/%s", eth_config.period_master_url, path);
+    req->method         = C4_DATA_METHOD_GET;
+    req->chain_id       = http_server.chain_id;
+    req->type           = C4_DATA_TYPE_REST_API;
+    req->encoding       = C4_DATA_ENCODING_SSZ;
+    c4_file_data_array_free(files, num_files, 0);
+    c4_add_request(r->parent->client, req, r, c4_handle_period_master_cb);
+    return;
+  }
+
+  else if (files[0].error) {
     log_error("period_store: could not read period store: %s", files[0].error);
     r->req->error = strdup(files[0].error);
   }
@@ -1062,10 +1114,17 @@ static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int n
 }
 
 bool c4_handle_period_store(single_request_t* r) {
-  const char* path = "period_store/";
-  if (strncmp(r->req->url, path, strlen(path))) return false;
+  if (strncmp(r->req->url, internal_path, strlen(internal_path))) return false;
 
-  file_data_t f = {.path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + strlen(path))};
+  // make sure the period-store is configured
+  if (!eth_config.period_store) {
+    r->req->error = strdup("period_store not configured");
+    c4_internal_call_finish(r);
+    return true;
+  }
+
+  // we simply read the file from the period-store
+  file_data_t f = {.path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + strlen(internal_path))};
   c4_read_files_uv(r, c4_handle_period_store_cb, &f, 1);
 
   return true;

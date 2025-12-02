@@ -5,6 +5,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_conf.h"
 #include "eth_req.h"
 #include "handler.h"
 #include "logger.h"
@@ -135,7 +136,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
   }
 #endif
   // Persist current head for period store (if enabled)
-  {
+  if (eth_config.period_store && !eth_config.period_master_url) {
     uint8_t header112[112] = {0};
     // Direkt 80 Bytes der fixen Container-Felder kopieren (slot, proposerIndex, parentRoot, stateRoot)
     memcpy(header112, ssz_get(&data_block, "slot").bytes.data, 80);

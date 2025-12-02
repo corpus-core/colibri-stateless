@@ -21,9 +21,7 @@ void eth_configure() {
   conf_int(&eth_config.period_backfill_max_periods, "C4_PERIOD_BACKFILL_MAX_PERIODS", "period_backfill_max_periods", 0, "max number of periods to backfill at startup", 0, 10000);
   conf_int(&eth_config.eth_logs_cache_blocks, "ETH_LOGS_CACHE_BLOCKS", "eth_logs_cache_blocks", 0, "max number of contiguous blocks to cache logs for eth_getLogs", 0, 131072);
   conf_string(&eth_config.period_store, "DATA", "data", 'd', "path to the data-directory holding blockroots and light client updates");
-#ifdef ETH_ZKPROOF
-  conf_string(&eth_config.zk_proofs_dir, "ZK_PROOFS_DIR", "zk_proofs_dir", 'z', "path to the directory to store zk proofs");
-#endif
+  conf_string(&eth_config.period_master_url, "PERIOD_MASTER_URL", "period_master_url", 0, "URL of the master node to use. if set, the server will not write to the period-store but fetch it when needed.");
 
 #if defined(PROVER_CACHE) && defined(CHAIN_ETH)
   if (eth_config.stream_beacon_events && eth_config.eth_logs_cache_blocks > 0) {

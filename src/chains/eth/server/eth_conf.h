@@ -8,8 +8,8 @@ typedef struct {
   char* period_store;
   int   period_backfill_delay_ms;    // delay between backfill requests (ms) to avoid public API rate limits
   int   period_backfill_max_periods; // how many periods to backfill at startup (default 2)
+  char* period_master_url;           // URL of the master node to use. if set, the server will not write to the period-store but fetch it when needed.
   int   eth_logs_cache_blocks;
-  char* zk_proofs_dir; // directory to store zk proofs
 
 } eth_config_t;
 
