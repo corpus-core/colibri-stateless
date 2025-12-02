@@ -177,6 +177,7 @@ add_prover(
     prover/proof_block.c
     prover/proof_witness.c
     prover/historic_proof.c
+    prover/historic_proof_zk.c
   DEPENDS util eth_verifier
   PROOF eth_prover_execute
 )

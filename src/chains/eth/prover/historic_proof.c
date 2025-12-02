@@ -322,7 +322,19 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder) {
   // nothing to be done - no data to be added.
-  if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0) return C4_SUCCESS;
+  if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0 && !(ctx->flags & C4_PROVER_FLAG_ZK_PROOF)) return C4_SUCCESS;
+  if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) {
+    // we need a zk_proof (if available) for the required period.
+    builder->def             = C4_ETH_REQUEST_SYNCDATA_UNION + 2; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
+    zk_proof_data_t zk_proof = {0};
+    TRY_ASYNC(c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period));
+    ssz_add_bytes(builder, "vk_hash", bytes(zk_proof.vk, 32));
+    ssz_add_bytes(builder, "proof", zk_proof.proof);
+    ssz_add_ob(builder, "bootstrap", zk_proof.bootstrap);
+    ssz_add_bytes(builder, "signatures", NULL_BYTES);
+
+    return C4_SUCCESS;
+  }
   if (sync_data->checkpoint_period == 0 && sync_data->required_period <= sync_data->newest_period) return C4_SUCCESS;
 
   builder->def            = C4_ETH_REQUEST_SYNCDATA_UNION + 1; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
@@ -340,11 +352,17 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
  * updates the sync_data, but also runs the request to fetch the bootstrap or updates data.
  */
 static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sync_data, const chain_spec_t* chain) {
-  if (!ctx->client_state.data || !ctx->client_state.len || !sync_data || !chain) return C4_SUCCESS;
+  if (!sync_data || !chain) return C4_SUCCESS;
   c4_chain_state_t chain_state = c4_state_deserialize(ctx->client_state);
   sync_data->status            = chain_state.status;
   switch (sync_data->status) {
-    case C4_STATE_SYNC_EMPTY: return C4_SUCCESS;
+    case C4_STATE_SYNC_EMPTY:
+      if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF) {
+        // we only fetch them so we safe time in case we download the proof files later.
+        zk_proof_data_t zk_proof = {0};
+        return c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+      }
+      return C4_SUCCESS;
     case C4_STATE_SYNC_PERIODS:
       for (int i = 0; i < MAX_SYNC_PERIODS && chain_state.data.periods[i]; i++) {
         if (!sync_data->oldest_period || chain_state.data.periods[i] < sync_data->oldest_period) sync_data->oldest_period = chain_state.data.periods[i];
@@ -367,7 +385,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
       break;
     }
   }
-
+  // if there is a gap, fetch the light client updates
   if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) && sync_data->newest_period < sync_data->required_period)
     return fetch_updates_data(ctx, sync_data, NULL);
   return C4_SUCCESS;
