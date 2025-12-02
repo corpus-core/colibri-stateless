@@ -22,6 +22,7 @@
  */
 
 #include "../server/eth_clients.h"
+#include "../zk_verifier/zk_verifier_constants.h"
 #include "beacon.h"
 #include "beacon_types.h"
 #include "eth_req.h"
@@ -33,7 +34,6 @@
 #include "ssz.h"
 #include "sync_committee.h"
 #include "version.h"
-#include "zk_verifier_constants.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>
