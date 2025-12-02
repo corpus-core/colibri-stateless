@@ -1233,4 +1233,6 @@ void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
   uint64_t period = slot >> 13;
   if (!file_exists(period, "lcb.ssz"))
     fetch_lcb_for_checkpoint(checkpoint, period);
+  if (!file_exists(period, "lcu.ssz"))
+    schedule_fetch_lcu(period);
 }

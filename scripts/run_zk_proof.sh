@@ -7,7 +7,7 @@ PREV_PERIOD=""
 START_PERIOD=""
 END_PERIOD=""
 MODE="--execute"
-OUTPUT_DIR=".zk_proofs"
+OUTPUT_DIR="build/default/.period_store"
 REMOTE_URL="https://mainnet1.colibri-proof.tech/"
 GROTH16=""
 
@@ -115,21 +115,21 @@ if [ -z "$PERIOD" ]; then
     exit 1
 fi
 
-# Ensure output dir exists relative to workspace root
-mkdir -p "$OUTPUT_DIR"
 # Convert to absolute path for safety when changing dirs
-OUTPUT_DIR_ABS=$(cd "$OUTPUT_DIR" && pwd)
-INPUT_FILE="$OUTPUT_DIR_ABS/sync_${PERIOD}.ssz"
+mkdir -p "$OUTPUT_DIR/${PERIOD}"
+OUTPUT_DIR_ABS=$(cd "$OUTPUT_DIR/${PERIOD}" && pwd)
+INPUT_FILE="$OUTPUT_DIR_ABS/sync.ssz"
+
 
 if [ -n "$GROTH16" ]; then
-    PROOF_FILE="$OUTPUT_DIR_ABS/proof_${PERIOD}_groth16.bin"
-    PROOF_RAW_FILE="$OUTPUT_DIR_ABS/proof_${PERIOD}_raw.bin"
-    VK_FILE="$OUTPUT_DIR_ABS/vk_${PERIOD}_groth16.bin"
-    PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/public_values_${PERIOD}.bin"
+    PROOF_FILE="$OUTPUT_DIR_ABS/zk_groth16.bin"
+    PROOF_RAW_FILE="$OUTPUT_DIR_ABS/zk_proof_g16.bin"
+    VK_FILE="$OUTPUT_DIR_ABS/zk_vk.bin"
+    PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/zk_pub.bin"
 else
-    PROOF_FILE="$OUTPUT_DIR_ABS/proof_${PERIOD}.bin"
-    VK_FILE="$OUTPUT_DIR_ABS/vk_${PERIOD}.bin"
-    PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/public_values_${PERIOD}.bin"
+    PROOF_FILE="$OUTPUT_DIR_ABS/zk_proof.bin"
+    VK_FILE="$OUTPUT_DIR_ABS/vk_raw.bin"
+    PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/zk_pub.bin"
 fi
 
 # Fetch Input Data if missing
@@ -157,8 +157,8 @@ if [ -n "$PREV_PERIOD" ]; then
     # For recursion, we always need the COMPRESSED proof of the previous period.
     # If we ran with --groth16, the script now saves both _groth16.bin and .bin (compressed).
     # We look for the .bin file.
-    PREV_PROOF_FILE="$OUTPUT_DIR_ABS/proof_${PREV_PERIOD}.bin"
-    PREV_VK_FILE="$OUTPUT_DIR_ABS/vk_${PREV_PERIOD}.bin"
+    PREV_PROOF_FILE="$OUTPUT_DIR_ABS/../${PREV_PERIOD}/zk_proof.bin"
+    PREV_VK_FILE="$OUTPUT_DIR_ABS/../${PREV_PERIOD}/zk_vk_raw.bin"
     
     if [ ! -f "$PREV_PROOF_FILE" ]; then
         echo "❌ Error: Previous compressed proof not found at $PREV_PROOF_FILE"
