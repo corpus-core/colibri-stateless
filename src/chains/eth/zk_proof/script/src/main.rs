@@ -189,15 +189,18 @@ async fn main() {
             
             // Save Compressed Proof
             let proof_output = std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof_groth16.bin".to_string());
-            // derive compressed path: proof_1600_groth16.bin -> proof_1600.bin
-            let compressed_path = proof_output.replace("_groth16.bin", ".bin");
+            // derive compressed path or use explicit env var
+            let compressed_path = std::env::var("PROOF_COMPRESSED_OUTPUT_FILE")
+                .unwrap_or_else(|_| proof_output.replace("_groth16.bin", ".bin"));
             
             println!("Saving Compressed Proof to {}", compressed_path);
             compressed.save(&compressed_path).expect("Failed to save compressed proof");
             
             // Save VK for Compressed (needed for next step input)
             let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk_groth16.bin".to_string());
-            let vk_compressed_path = vk_output.replace("_groth16.bin", ".bin");
+            let vk_compressed_path = std::env::var("VK_COMPRESSED_OUTPUT_FILE")
+                .unwrap_or_else(|_| vk_output.replace("_groth16.bin", ".bin"));
+
             let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
             std::fs::write(&vk_compressed_path, vk_bytes).expect("Failed to save VK");
 

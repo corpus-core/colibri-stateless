@@ -148,10 +148,18 @@ if [ -n "$GROTH16" ]; then
     PROOF_RAW_FILE="$OUTPUT_DIR_ABS/zk_proof_g16.bin"
     VK_FILE="$OUTPUT_DIR_ABS/zk_vk.bin"
     PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/zk_pub.bin"
+    
+    # Explicitly define compressed intermediates (needed for recursion)
+    PROOF_COMPRESSED_FILE="$OUTPUT_DIR_ABS/zk_proof.bin"
+    VK_COMPRESSED_FILE="$OUTPUT_DIR_ABS/zk_vk_raw.bin"
 else
     PROOF_FILE="$OUTPUT_DIR_ABS/zk_proof.bin"
-    VK_FILE="$OUTPUT_DIR_ABS/vk_raw.bin"
+    VK_FILE="$OUTPUT_DIR_ABS/zk_vk_raw.bin"
     PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/zk_pub.bin"
+    
+    # Same as main output
+    PROOF_COMPRESSED_FILE="$PROOF_FILE"
+    VK_COMPRESSED_FILE="$VK_FILE"
 fi
 
 # Fetch Input Data if missing
@@ -270,6 +278,9 @@ fi
 export PROOF_OUTPUT_FILE="$PROOF_FILE"
 export VK_OUTPUT_FILE="$VK_FILE"
 export PUBLIC_VALUES_FILE="$PUBLIC_VALUES_FILE"
+export PROOF_COMPRESSED_OUTPUT_FILE="$PROOF_COMPRESSED_FILE"
+export VK_COMPRESSED_OUTPUT_FILE="$VK_COMPRESSED_FILE"
+
 if [ -n "$PROOF_RAW_FILE" ]; then
     export PROOF_RAW_FILE="$PROOF_RAW_FILE"
 fi
