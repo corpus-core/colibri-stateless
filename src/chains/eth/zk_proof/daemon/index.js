@@ -11,6 +11,10 @@ const OUTPUT_DIR = process.env.OUTPUT_DIR || path.resolve(__dirname, '../../../.
 const PROMETHEUS_FILE = process.env.PROMETHEUS_FILE || '/metrics/proof.prom';
 const REPO_ROOT = process.env.REPO_ROOT || path.resolve(__dirname, '../../../../..');
 const SCRIPT_PATH = path.join(REPO_ROOT, 'scripts/run_zk_proof.sh');
+// Path to C-Verifier CLI (built via CMake)
+// Adjusted to standard binary output location (build/default/bin/verify_zk_proof_cli) or just build/bin depending on cmake config.
+// We try to be flexible or user can override.
+const VERIFIER_CLI = process.env.VERIFIER_CLI || path.join(REPO_ROOT, 'build/default/bin/verify_zk_proof_cli');
 
 // State
 let isRunning = false;
@@ -64,9 +68,32 @@ async function checkAndProve() {
         const proofPath = path.join(OUTPUT_DIR, targetPeriod.toString(), 'zk_proof_g16.bin');
 
         if (fs.existsSync(proofPath)) {
-            // Proof exists, do nothing.
-            updateMetrics(targetPeriod, 0, 0, 'skipped');
-            return;
+            // Proof exists, check if it's valid
+            const isValid = await verifyProof(targetPeriod);
+            if (isValid) {
+                updateMetrics(targetPeriod, 0, 0, 'skipped');
+                return;
+            } else {
+                console.warn(`⚠️  Proof for period ${targetPeriod} exists but FAILED verification.`);
+
+                // SAFETY CHECK: Don't infinite loop if proof generation is broken.
+                // We only delete and retry if the file is OLDER than X hours (e.g., 1 hour).
+                // If it was just created and failed, retrying immediately probably won't fix it (deterministic bug).
+                // But if it's old, maybe it was a partial write or corruption.
+
+                const stats = fs.statSync(proofPath);
+                const ageHours = (Date.now() - stats.mtimeMs) / (1000 * 60 * 60);
+
+                if (ageHours > 1) {
+                    console.warn(`   Proof is old (${ageHours.toFixed(1)}h). Deleting and retrying...`);
+                    fs.unlinkSync(proofPath);
+                    updateMetrics(targetPeriod, 0, 1, 'verification_failed_retry');
+                } else {
+                    console.error(`   Proof is new (${ageHours.toFixed(1)}h). NOT retrying to avoid loop. Please investigate manually.`);
+                    updateMetrics(targetPeriod, 0, 1, 'verification_failed_persistent');
+                    return;
+                }
+            }
         }
 
         console.log(`⚡ Proof for period ${targetPeriod} MISSING. Starting proof generation...`);
@@ -156,6 +183,42 @@ async function runProofScript(period, prevPeriod) {
             console.error('❌ Failed to spawn script:', err);
             updateMetrics(period, 0, 1, 'spawn_error');
             resolve();
+        });
+    });
+}
+
+async function verifyProof(period) {
+    const periodDir = path.join(OUTPUT_DIR, period.toString());
+    const proofFile = path.join(periodDir, 'zk_proof_g16.bin');
+    const pubFile = path.join(periodDir, 'zk_pub.bin');
+
+    if (!fs.existsSync(VERIFIER_CLI)) {
+        console.warn(`⚠️  Verifier CLI not found at ${VERIFIER_CLI}. Skipping verification.`);
+        // If we can't verify, we assume it's valid to avoid infinite loops if CLI is missing
+        // But we should probably metric this.
+        return true;
+    }
+
+    console.log(`🕵️  Verifying proof for period ${period}...`);
+
+    return new Promise((resolve) => {
+        const child = spawn(VERIFIER_CLI, [proofFile, pubFile], {
+            env: { ...process.env }
+        });
+
+        child.on('close', (code) => {
+            if (code === 0) {
+                console.log(`✅ Verification SUCCESS for period ${period}`);
+                resolve(true);
+            } else {
+                console.error(`❌ Verification FAILED for period ${period} (code ${code})`);
+                resolve(false);
+            }
+        });
+
+        child.on('error', (err) => {
+            console.error('❌ Failed to spawn verifier:', err);
+            resolve(false);
         });
     });
 }

@@ -133,14 +133,13 @@ static bool update_from_lc_sync_data(verify_ctx_t* ctx) {
 }
 static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
 #ifdef ETH_ZKPROOF
-  static const bytes32_t trusted_keys_root = "\x35\x1e\xd1\xaf\x40\x15\x93\xd7\xd8\xc9\xf7\x42\xbc\x59\x03\x95\xbf\xd0\xb3\xad\x76\x20\x98\x96\x95\x5e\x45\x5f\x36\x4a\x8f\x64";
-
-  bytes32_t checkpoint     = {0};
-  uint8_t   pub_inputs[72] = {0};
-  bytes_t   vk_hash        = ssz_get(&ctx->sync_data, "vk_hash").bytes;
-  bytes_t   proof          = ssz_get(&ctx->sync_data, "proof").bytes;
-  ssz_ob_t  bootstrap      = ssz_get(&ctx->sync_data, "bootstrap");
-  ssz_ob_t  signatures     = ssz_get(&ctx->sync_data, "signatures");
+  const chain_spec_t* spec           = c4_eth_get_chain_spec(ctx->chain_id);
+  bytes32_t           checkpoint     = {0};
+  uint8_t             pub_inputs[72] = {0};
+  bytes_t             vk_hash        = ssz_get(&ctx->sync_data, "vk_hash").bytes;
+  bytes_t             proof          = ssz_get(&ctx->sync_data, "proof").bytes;
+  ssz_ob_t            bootstrap      = ssz_get(&ctx->sync_data, "bootstrap");
+  ssz_ob_t            signatures     = ssz_get(&ctx->sync_data, "signatures");
 
   if (bootstrap.def->type != SSZ_TYPE_CONTAINER) RETURN_VERIFY_ERROR(ctx, "zk_proof without bootstrap data!");
   ssz_ob_t header                 = ssz_get(&bootstrap, "header");
@@ -150,7 +149,7 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
   ssz_hash_tree_root(beacon, checkpoint);
 
   // verify the proof
-  memcpy(pub_inputs, trusted_keys_root, 32);
+  memcpy(pub_inputs, spec->zk_sync_keys_root, 32);
   ssz_hash_tree_root(pub_keys, pub_inputs + 32);
   uint64_to_le(pub_inputs + 64, ssz_get_uint64(&beacon, "slot") >> 13);
   if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 72), vk_hash.data)) RETURN_VERIFY_ERROR(ctx, "invalid zk_proof!");

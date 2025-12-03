@@ -235,33 +235,58 @@ export PATH=$HOME/.cargo/bin:$HOME/.sp1/bin:$PATH
 # Workspace Root relative to this script (scripts/ -> ./)
 WORKSPACE_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
-# Build Guest
-echo "🔨 Building Guest Program..."
-(
-    # Use the SP1 toolchain rustc found earlier
-    export RUSTFLAGS='--cfg getrandom_backend="custom" -C link-arg=-Ttext=0x00201000 -C link-arg=--image-base=0x00200800 -C panic=abort'
-    cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program"
-    cargo build --release --target riscv32im-succinct-zkvm-elf
-)
+# Frozen ELF Path
+ELF_DIR="$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/elf"
+ELF_FROZEN="$ELF_DIR/eth_sync_program"
 
-# Find ELF
-ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" | head -n 1)
+if [ -f "$ELF_FROZEN" ]; then
+    echo "🧊 Using FROZEN Guest ELF: $ELF_FROZEN"
+    echo "   (Skipping guest build to ensure stable Verification Key)"
+    ELF="$ELF_FROZEN"
+else
+    # Build Guest
+    echo "🔨 Building Guest Program..."
+    (
+        # Use the SP1 toolchain rustc found earlier
+        export RUSTFLAGS='--cfg getrandom_backend="custom" -C link-arg=-Ttext=0x00201000 -C link-arg=--image-base=0x00200800 -C panic=abort'
+        cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program"
+        cargo build --release --target riscv32im-succinct-zkvm-elf
+    )
 
-if [ -z "$ELF" ]; then
-    # Fallback search
-    ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" 2>/dev/null | head -n 1)
+    # Find ELF
+    ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" | head -n 1)
+
+    if [ -z "$ELF" ]; then
+        # Fallback search
+        ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" 2>/dev/null | head -n 1)
+    fi
+    
+    if [ -z "$ELF" ]; then
+        echo "❌ Error: Could not find guest ELF binary."
+        exit 1
+    fi
+    
+    echo "✅ Built ELF: $ELF"
+    
+    # Save to frozen path for next time / git commit
+    echo "💾 Saving ELF to $ELF_FROZEN"
+    echo "   ⚠️  IMPORTANT: Commit this file to git to freeze the Verification Key!"
+    cp "$ELF" "$ELF_FROZEN"
+    ELF="$ELF_FROZEN"
 fi
 
-if [ -z "$ELF" ]; then
-    echo "❌ Error: Could not find guest ELF binary."
-    exit 1
-fi
-echo "✅ Found ELF: $ELF"
+echo "✅ Using ELF: $ELF"
 
 # Build Host
 echo "🔨 Building Host Script..."
 unset RUSTFLAGS
 unset RUSTC
+
+# Optimized CPU flags for Apple Silicon / Native
+if [[ "$OSTYPE" == "darwin"* && $(uname -m) == "arm64" ]]; then
+     export RUSTFLAGS="-C target-cpu=native"
+fi
+
 cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/script"
 cargo build --release
 

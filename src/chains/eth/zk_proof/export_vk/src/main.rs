@@ -272,7 +272,7 @@ fn write_bytes(out: &mut File, name: &str, val: &BigUint) {
     let offset = 32 - bytes.len();
     padded[offset..].copy_from_slice(&bytes);
     
-    writeln!(out, "const uint8_t {}[32] = {{", name).unwrap();
+    writeln!(out, "static const uint8_t {}[32] = {{", name).unwrap();
     write!(out, "    ").unwrap();
     for (i, b) in padded.iter().enumerate() {
         write!(out, "0x{:02x}", b).unwrap();

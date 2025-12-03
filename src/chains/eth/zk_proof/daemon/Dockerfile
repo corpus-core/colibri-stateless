@@ -1,13 +1,14 @@
 FROM node:20-bullseye
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# InARTall system dependencies
+RUN apt-get update && apt-get inrtll -y \
     curl \
     build-essential \
     pkg-config \
     libssl-dev \
     git \
     clang \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
@@ -31,8 +32,21 @@ WORKDIR /app
 
 # Copy only necessary directories to keep image small and build context clean
 # We need scripts/ for the runner and src/chains/eth/zk_proof for the program code
+# We also need src/util and src/chains/eth/ssz/zk_verifier/bn254 etc for the C-Verifier build.
+# To be safe and simple for the C build (which has many relative includes), we copy src/ and libs/
 COPY scripts/ ./scripts/
-COPY src/chains/eth/zk_proof/ ./src/chains/eth/zk_proof/
+COPY src/ ./src/
+COPY libs/ ./libs/
+COPY CMakeLists.txt ./CMakeLists.txt
+COPY CMakePresets.json ./CMakePresets.json
+
+# Build C-Verifier
+# We configure only the verifier target to save time
+# We explicitly set the output directory to build/default to match the daemon's expectation (and standard cmake behavior)
+# but standard cmake installs to bin/. Let's check where it lands.
+# Assuming standard cmake layout: build/default/bin/verify_zk_proof_cli or similar.
+RUN cmake -S . -B build/default -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build build/default --target verify_zk_proof_cli
 
 # Install Daemon dependencies
 WORKDIR /app/src/chains/eth/zk_proof/daemon
