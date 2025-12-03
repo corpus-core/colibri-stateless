@@ -323,7 +323,8 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder) {
   // nothing to be done - no data to be added.
   if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0 && !(ctx->flags & C4_PROVER_FLAG_ZK_PROOF)) return C4_SUCCESS;
-  if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) {
+  if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && ((sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) ||
+                                               (sync_data->newest_period && sync_data->newest_period < sync_data->required_period))) {
     // we need a zk_proof (if available) for the required period.
     builder->def             = C4_ETH_REQUEST_SYNCDATA_UNION + 2; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
     zk_proof_data_t zk_proof = {0};
@@ -353,15 +354,14 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
  */
 static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sync_data, const chain_spec_t* chain) {
   if (!sync_data || !chain) return C4_SUCCESS;
+  zk_proof_data_t  zk_proof    = {0};
   c4_chain_state_t chain_state = c4_state_deserialize(ctx->client_state);
   sync_data->status            = chain_state.status;
   switch (sync_data->status) {
     case C4_STATE_SYNC_EMPTY:
-      if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF) {
+      if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF)
         // we only fetch them so we safe time in case we download the proof files later.
-        zk_proof_data_t zk_proof = {0};
         return c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
-      }
       return C4_SUCCESS;
     case C4_STATE_SYNC_PERIODS:
       for (int i = 0; i < MAX_SYNC_PERIODS && chain_state.data.periods[i]; i++) {
@@ -386,7 +386,9 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
     }
   }
   // if there is a gap, fetch the light client updates
-  if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) && sync_data->newest_period < sync_data->required_period)
+  if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && sync_data->newest_period < sync_data->required_period)
+    return c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+  else if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) && sync_data->newest_period < sync_data->required_period)
     return fetch_updates_data(ctx, sync_data, NULL);
   return C4_SUCCESS;
 }
