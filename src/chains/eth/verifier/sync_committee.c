@@ -139,7 +139,7 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
   bytes_t             vk_hash        = ssz_get(&ctx->sync_data, "vk_hash").bytes;
   bytes_t             proof          = ssz_get(&ctx->sync_data, "proof").bytes;
   ssz_ob_t            bootstrap      = ssz_get(&ctx->sync_data, "bootstrap");
-  ssz_ob_t            signatures     = ssz_get(&ctx->sync_data, "signatures");
+  //  ssz_ob_t            signatures     = ssz_get(&ctx->sync_data, "signatures");
 
   if (bootstrap.def->type != SSZ_TYPE_CONTAINER) RETURN_VERIFY_ERROR(ctx, "zk_proof without bootstrap data!");
   ssz_ob_t header                 = ssz_get(&bootstrap, "header");
