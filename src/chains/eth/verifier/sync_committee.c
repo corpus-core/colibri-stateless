@@ -32,6 +32,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef ETH_ZKPROOF
+#include "zk_verifier.h"
+#endif
+
 #define DENEP_CURRENT_SYNC_COMMITTEE_GINDEX   54
 #define ELECTRA_CURRENT_SYNC_COMMITTEE_GINDEX 86
 #define DENEP_NEXT_SYNC_COMMITTEE_GINDEX      55
@@ -105,32 +109,72 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   return c4_set_sync_period(period, sync_committee, ctx->chain_id, previous_pubkeys_hash);
 }
 
+static bool update_from_lc_sync_data(verify_ctx_t* ctx) {
+  ssz_ob_t bootstrap = ssz_get(&ctx->sync_data, "bootstrap");
+  ssz_ob_t updates   = ssz_get(&ctx->sync_data, "update");
+
+  // do we have bootstrap data?
+  if (bootstrap.def->type == SSZ_TYPE_CONTAINER) {
+    c4_chain_state_t chain_state = c4_get_chain_state(ctx->chain_id);
+    if (chain_state.status == C4_STATE_SYNC_EMPTY) RETURN_VERIFY_ERROR(ctx, "bootstrap data found, but no checkpoint set!");
+    if (chain_state.status == C4_STATE_SYNC_CHECKPOINT && c4_handle_bootstrap(ctx, bootstrap.bytes, chain_state.data.checkpoint) != C4_SUCCESS) return false;
+  }
+
+  // run all light client updates
+  uint32_t updates_len = ssz_len(updates);
+  for (uint32_t i = 0; i < updates_len; i++) {
+    ssz_ob_t update = ssz_union(ssz_at(updates, i));
+    if (!update_light_client_update(ctx, &update)) return false;
+  }
+
+  // we may want to clean up the sync data, so we don't sync again.
+  ctx->sync_data.def = &ssz_none;
+  return true;
+}
+static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
+#ifdef ETH_ZKPROOF
+  static const bytes32_t trusted_keys_root = "\x35\x1e\xd1\xaf\x40\x15\x93\xd7\xd8\xc9\xf7\x42\xbc\x59\x03\x95\xbf\xd0\xb3\xad\x76\x20\x98\x96\x95\x5e\x45\x5f\x36\x4a\x8f\x64";
+
+  bytes32_t checkpoint     = {0};
+  uint8_t   pub_inputs[72] = {0};
+  bytes_t   vk_hash        = ssz_get(&ctx->sync_data, "vk_hash").bytes;
+  bytes_t   proof          = ssz_get(&ctx->sync_data, "proof").bytes;
+  ssz_ob_t  bootstrap      = ssz_get(&ctx->sync_data, "bootstrap");
+  ssz_ob_t  signatures     = ssz_get(&ctx->sync_data, "signatures");
+
+  if (bootstrap.def->type != SSZ_TYPE_CONTAINER) RETURN_VERIFY_ERROR(ctx, "zk_proof without bootstrap data!");
+  ssz_ob_t header                 = ssz_get(&bootstrap, "header");
+  ssz_ob_t beacon                 = ssz_get(&header, "beacon");
+  ssz_ob_t current_sync_committee = ssz_get(&bootstrap, "currentSyncCommittee");
+  ssz_ob_t pub_keys               = ssz_get(&current_sync_committee, "pubkeys");
+  ssz_hash_tree_root(beacon, checkpoint);
+
+  // verify the proof
+  memcpy(pub_inputs, trusted_keys_root, 32);
+  ssz_hash_tree_root(pub_keys, pub_inputs + 32);
+  uint64_to_le(pub_inputs + 64, ssz_get_uint64(&beacon, "slot") >> 13);
+  if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 72), vk_hash.data)) RETURN_VERIFY_ERROR(ctx, "invalid zk_proof!");
+
+  // TODO check signatures
+
+  if (c4_handle_bootstrap(ctx, bootstrap.bytes, checkpoint) != C4_SUCCESS) return false;
+
+  // we may want to clean up the sync data, so we don't sync again.
+  ctx->sync_data.def = &ssz_none;
+  return true;
+#else
+  RETURN_VERIFY_ERROR(ctx, "zk_proof not supported!");
+#endif
+}
+
 INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return true;
 
-  if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0) {
-    ssz_ob_t bootstrap = ssz_get(&ctx->sync_data, "bootstrap");
-    ssz_ob_t updates   = ssz_get(&ctx->sync_data, "update");
-
-    // do we have bootstrap data?
-    if (bootstrap.def->type == SSZ_TYPE_CONTAINER) {
-      c4_chain_state_t chain_state = c4_get_chain_state(ctx->chain_id);
-      if (chain_state.status == C4_STATE_SYNC_EMPTY) RETURN_VERIFY_ERROR(ctx, "bootstrap data found, but no checkpoint set!");
-      if (chain_state.status == C4_STATE_SYNC_CHECKPOINT && c4_handle_bootstrap(ctx, bootstrap.bytes, chain_state.data.checkpoint) != C4_SUCCESS) return false;
-    }
-
-    // run all light client updates
-    uint32_t updates_len = ssz_len(updates);
-    for (uint32_t i = 0; i < updates_len; i++) {
-      ssz_ob_t update = ssz_union(ssz_at(updates, i));
-      if (!update_light_client_update(ctx, &update)) return false;
-    }
-
-    // we may want to clean up the sync data, so we don't sync again.
-    ctx->sync_data.def = &ssz_none;
-    return true;
-  }
+  if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0)
+    return update_from_lc_sync_data(ctx);
+  else if (strcmp(ctx->sync_data.def->name, "ZKSyncData") == 0)
+    return update_from_zk_sync_data(ctx);
   else
     RETURN_VERIFY_ERROR(ctx, "unknown sync_data type!");
 }
