@@ -112,6 +112,7 @@ static void init_default_vk(void) {
 }
 
 bool c4_verify_zk_proof(bytes_t proof, bytes_t public_inputs, const uint8_t* program_hash) {
+  init_default_vk();
   const zk_vk_t* vk = c4_zk_get_vk(program_hash);
   if (!vk) {
     fprintf(stderr, "ZK Verifier: VK not found for program hash\n");
@@ -183,6 +184,6 @@ bool c4_verify_zk_proof(bytes_t proof, bytes_t public_inputs, const uint8_t* pro
 }
 
 bool verify_zk_proof(bytes_t proof, bytes_t public_inputs) {
-  init_default_vk();
+
   return c4_verify_zk_proof(proof, public_inputs, VK_PROGRAM_HASH);
 }
