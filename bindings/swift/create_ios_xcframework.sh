@@ -32,6 +32,7 @@ LIBRARIES=(
     "src/chains/eth/libeth_prover.a"
     "src/chains/eth/precompiles/libeth_precompiles.a"
     "src/chains/eth/bn254/libeth_bn254.a"
+    "src/chains/eth/zk_verifier/libzk_verifier.a"
     # OP Stack support (NEW - these were missing!)
     "src/chains/op/libop_verifier.a"
     "src/chains/op/libop_prover.a"

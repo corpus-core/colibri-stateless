@@ -27,6 +27,7 @@ let package = Package(
                     "../../build_macos_arm/src/chains/eth/libeth_prover.a",
                     "../../build_macos_arm/src/chains/eth/precompiles/libeth_precompiles.a",
                     "../../build_macos_arm/src/chains/eth/bn254/libeth_bn254.a",
+                    "../../build_macos_arm/src/chains/eth/zk_verifier/libzk_verifier.a",
                     // OP Stack support (NEW - these were missing!)
                     "../../build_macos_arm/src/chains/op/libop_verifier.a",
                     "../../build_macos_arm/src/chains/op/libop_prover.a",
