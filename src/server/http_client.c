@@ -597,8 +597,8 @@ static void handle_curl_events() {
                             http_code);
 #endif
 
-    const char* server_name = c4_extract_server_name(servers->urls[r->req->response_node_index]);
-    bytes_t     response    = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
+    const char* server_name = c4_extract_server_name(servers ? servers->urls[r->req->response_node_index] : r->req->url);
+    bytes_t     response    = c4_request_fix_response(r->buffer.data, r, servers ? servers->client_types[r->req->response_node_index] : 0);
 
     if (response_type == C4_RESPONSE_SUCCESS && response.data) {
       if (r->attempt_span) {
@@ -1039,14 +1039,14 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     int selected_index;
 
     // Check if this is a retry (exclude_mask > 0) with valid pre-selected server index
-    if (r->req->node_exclude_mask > 0 &&
+    if (servers && r->req->node_exclude_mask > 0 &&
         r->req->response_node_index < servers->count &&
         !(r->req->node_exclude_mask & (1 << r->req->response_node_index))) {
       // Use pre-selected index from retry logic
       selected_index = r->req->response_node_index;
       log_warn("   [retry] Using pre-selected server %s", c4_extract_server_name(servers->urls[selected_index]));
     }
-    else {
+    else if (servers) {
       // Use intelligent server selection for initial requests
       // For RPC requests, use method-aware selection
       char* rpc_method = extract_rpc_method(r->req);
@@ -1063,7 +1063,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
       if (selected_index == -1) {
         // This should be very rare after emergency reset logic in c4_select_best_server
-        log_error(":: CRITICAL ERROR: No available servers even after emergency reset attempts");
+        log_error(":: CRITICAL ERROR: No available servers even after emergency reset attempts %s", c4_req_info(r->req->type, r->req->url, r->req->payload));
         r->req->error = bprintf(NULL, "All servers exhausted - check network connectivity");
         r->end_time   = current_ms();
         call_callback_if_done(r->parent);
@@ -1073,7 +1073,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
       r->req->response_node_index = selected_index;
     }
     char* base_url = servers && servers->count > selected_index ? servers->urls[selected_index] : NULL;
-    char* req_url  = c4_request_fix_url(r->req->url, r, servers->client_types[selected_index]);
+    char* req_url  = c4_request_fix_url(r->req->url, r, servers ? servers->client_types[selected_index] : 0);
     if (req_url && req_url[0] == '/') req_url = req_url + 1;
     // Safeguard against NULL URLs
     if (!req_url) req_url = "";
@@ -1123,7 +1123,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     r->headers = NULL; // Initialize headers
     if (r->req->payload.len && r->req->payload.data)
       r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
-    r->headers = curl_slist_append(r->headers, c4_request_fix_encoding(r->req->encoding, r, servers->client_types[selected_index]) == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
+    r->headers = curl_slist_append(r->headers, c4_request_fix_encoding(r->req->encoding, r, servers ? servers->client_types[selected_index] : 0) == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
     r->headers = curl_slist_append(r->headers, "charsets: utf-8");
     r->headers = curl_slist_append(r->headers, "User-Agent: c4 curl ");
     // Inject b3 tracing headers

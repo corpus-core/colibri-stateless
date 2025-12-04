@@ -3,6 +3,7 @@
  */
 
 #include "unity.h"
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,6 +63,69 @@ static void ensure_dir(const char* path) {
   MKDIR(path);
 }
 
+static void remove_tree(const char* path) {
+  if (!path || !*path) return;
+  uv_loop_t* loop = uv_default_loop();
+  uv_fs_t    scandir_req;
+  int        rc = uv_fs_scandir(loop, &scandir_req, path, 0, NULL);
+  if (rc < 0) {
+    uv_fs_req_cleanup(&scandir_req);
+    if (rc == UV_ENOENT) return;
+    if (rc == UV_ENOTDIR) {
+      uv_fs_t unlink_req;
+      uv_fs_unlink(loop, &unlink_req, path, NULL);
+      uv_fs_req_cleanup(&unlink_req);
+    }
+    return;
+  }
+
+  uv_dirent_t ent;
+  while (uv_fs_scandir_next(&scandir_req, &ent) >= 0) {
+    if (strcmp(ent.name, ".") == 0 || strcmp(ent.name, "..") == 0) continue;
+    size_t child_len = strlen(path) + strlen(ent.name) + 2;
+    char*  child     = (char*) safe_calloc(child_len, 1);
+    snprintf(child, child_len, "%s/%s", path, ent.name);
+    if (ent.type == UV_DIRENT_DIR) {
+      remove_tree(child);
+    }
+    else {
+      uv_fs_t unlink_req;
+      uv_fs_unlink(loop, &unlink_req, child, NULL);
+      uv_fs_req_cleanup(&unlink_req);
+    }
+    safe_free(child);
+  }
+  uv_fs_req_cleanup(&scandir_req);
+
+  uv_fs_t rmdir_req;
+  uv_fs_rmdir(loop, &rmdir_req, path, NULL);
+  uv_fs_req_cleanup(&rmdir_req);
+}
+
+static void cleanup_uv_util_dirs(void) {
+  const char* prefix = "missing_";
+  char        base[512];
+  snprintf(base, sizeof(base), "%s/uv_util_write", TESTDATA_DIR);
+  uv_loop_t* loop = uv_default_loop();
+  uv_fs_t    scandir_req;
+  int        rc = uv_fs_scandir(loop, &scandir_req, base, 0, NULL);
+  if (rc < 0) {
+    uv_fs_req_cleanup(&scandir_req);
+    return;
+  }
+  uv_dirent_t ent;
+  while (uv_fs_scandir_next(&scandir_req, &ent) >= 0) {
+    if (ent.type != UV_DIRENT_DIR) continue;
+    if (strncmp(ent.name, prefix, strlen(prefix)) != 0) continue;
+    size_t child_len = strlen(base) + strlen(ent.name) + 2;
+    char*  child     = (char*) safe_calloc(child_len, 1);
+    snprintf(child, child_len, "%s/%s", base, ent.name);
+    remove_tree(child);
+    safe_free(child);
+  }
+  uv_fs_req_cleanup(&scandir_req);
+}
+
 typedef struct {
   file_data_t* out;
   int          n;
@@ -74,8 +138,12 @@ static void read_cb_capture(void* user_data, file_data_t* rfiles, int n) {
   g_done       = 1;
 }
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+  cleanup_uv_util_dirs();
+}
+void tearDown(void) {
+  cleanup_uv_util_dirs();
+}
 
 // Test 1: read multiple files (one present with content, one missing, one empty)
 void test_uv_util_read_multi(void) {
@@ -161,7 +229,7 @@ void test_uv_util_read_multi(void) {
   c4_file_data_array_free(cap.out, cap.n, 1);
 }
 
-// Test 2: write multiple files (one valid path, one invalid nested directory)
+// Test 2: write multiple files (one valid path, one nested path that requires mkdir -p)
 void test_uv_util_write_multi(void) {
   reset_done();
 
@@ -169,9 +237,11 @@ void test_uv_util_write_multi(void) {
   snprintf(base_dir, sizeof(base_dir), "%s/uv_util_write", TESTDATA_DIR);
   ensure_dir(base_dir);
 
-  char path_ok[512], path_bad[512];
+  char     path_ok[512];
+  char     path_nested[512];
+  uint64_t stamp = uv_hrtime();
   snprintf(path_ok, sizeof(path_ok), "%s/out1.bin", base_dir);
-  snprintf(path_bad, sizeof(path_bad), "%s/missing/sub/out2.bin", base_dir); // parent doesn't exist
+  snprintf(path_nested, sizeof(path_nested), "%s/missing_%llu/sub/out2.bin", base_dir, (unsigned long long) stamp);
 
   file_data_t* files = (file_data_t*) safe_calloc(2, sizeof(file_data_t));
   files[0].path      = strdup(path_ok);
@@ -180,10 +250,11 @@ void test_uv_util_write_multi(void) {
   const char* msg    = "payload-123";
   files[0].data      = bytes((uint8_t*) msg, (uint32_t) strlen(msg));
 
-  files[1].path   = strdup(path_bad);
-  files[1].offset = 0;
-  files[1].limit  = 0;
-  files[1].data   = bytes((uint8_t*) "x", 1);
+  const char* nested_msg = "nested-data";
+  files[1].path          = strdup(path_nested);
+  files[1].offset        = 0;
+  files[1].limit         = 0;
+  files[1].data          = bytes((uint8_t*) nested_msg, (uint32_t) strlen(nested_msg));
 
   int rc = c4_write_files_uv(NULL, write_cb, files, 2, O_WRONLY | O_CREAT | O_TRUNC, 0666);
   TEST_ASSERT_EQUAL(0, rc);
@@ -203,10 +274,15 @@ void test_uv_util_write_multi(void) {
     TEST_ASSERT_EQUAL(strlen(msg), n);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(msg, buf, n);
   }
-  // Verify bad file not created
+  // Verify nested path was created and data flushed
   {
-    FILE* f = fopen(path_bad, "rb");
-    TEST_ASSERT_NULL(f);
+    FILE* f = fopen(path_nested, "rb");
+    TEST_ASSERT_NOT_NULL(f);
+    char   buf[64] = {0};
+    size_t n       = fread(buf, 1, sizeof(buf), f);
+    fclose(f);
+    TEST_ASSERT_EQUAL(strlen(nested_msg), n);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(nested_msg, buf, n);
   }
 }
 int main(void) {

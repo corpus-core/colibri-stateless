@@ -57,3 +57,5 @@ compile_commands.json
 valgrind_results
 /src/chains/eth/zk_proof/target
 .zk_proofs
+# UV util test artifacts
+/test/data/uv_util_write/missing_*
