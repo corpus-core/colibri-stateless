@@ -71,6 +71,12 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
   int         level       = r->parent->client ? r->parent->client->trace_level : TRACE_LEVEL_MIN;
   const char* method_name = CURL_METHODS[r->req->method];
   const char* host_name   = c4_extract_server_name(base_url);
+  bool        has_server  = false;
+  size_t      server_idx  = 0;
+  if (servers && selected_index >= 0 && (size_t) selected_index < servers->count) {
+    has_server = true;
+    server_idx = (size_t) selected_index;
+  }
   // Build compact request description similar to c4_req_info(), but without ANSI colors
   const char* desc_colored = c4_req_info(r->req->type, r->req->url, r->req->payload);
   char        desc[512];
@@ -94,11 +100,13 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
   if (!r->attempt_span) return;
   // Selected server and client type
   tracing_span_tag_str(r->attempt_span, "server.selected", host_name ? host_name : "");
-  tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) servers->client_types[selected_index]);
+  uint32_t client_type = (has_server && servers->client_types) ? servers->client_types[server_idx] : 0;
+  tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) client_type);
   tracing_span_tag_i64(r->attempt_span, "exclude.mask", (int64_t) r->req->node_exclude_mask);
-  if (servers->health_stats) {
-    tracing_span_tag_i64(r->attempt_span, "last_client_block", (int64_t) servers->health_stats[selected_index].latest_block);
-    tracing_span_tag_i64(r->attempt_span, "head_last_seen_ms", (int64_t) (current_ms() - servers->health_stats[selected_index].head_last_seen_ms));
+  if (has_server && servers->health_stats) {
+    server_health_t* health = &servers->health_stats[server_idx];
+    tracing_span_tag_i64(r->attempt_span, "last_client_block", (int64_t) health->latest_block);
+    tracing_span_tag_i64(r->attempt_span, "head_last_seen_ms", (int64_t) (current_ms() - health->head_last_seen_ms));
   }
   if (r->req->payload.len > 0) {
     json_t json   = json_parse((char*) r->req->payload.data);
@@ -113,8 +121,9 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
     }
   }
   buffer_t excluded_methods = {0};
-  if (servers[selected_index].health_stats) {
-    for (method_support_t* m = servers[selected_index].health_stats->unsupported_methods; m; m = m->next) {
+  if (has_server && servers->health_stats) {
+    server_health_t* health = &servers->health_stats[server_idx];
+    for (method_support_t* m = health ? health->unsupported_methods : NULL; m; m = m->next) {
       if (!m->is_supported) bprintf(&excluded_methods, "%s%s", m->method_name, m->next ? "," : "");
     }
   }
@@ -641,7 +650,7 @@ static void handle_curl_events() {
 
       // Mark as non-retryable to avoid unnecessary retries
       log_warn(YELLOW("   [curl ]") " JSON-RPC user error - marking request as non-retryable");
-      r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
+      if (servers) r->req->node_exclude_mask = (1 << servers->count) - 1;
     }
     else if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
       if (r->attempt_span) {
@@ -695,7 +704,7 @@ static void handle_curl_events() {
       if (response_type == C4_RESPONSE_ERROR_USER) {
         log_warn(YELLOW("   [user ]") " User error detected - marking request as non-retryable");
         // Set exclude mask to all servers to prevent retries
-        r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
+        if (servers) r->req->node_exclude_mask = (1 << servers->count) - 1;
       }
     }
 
@@ -1036,7 +1045,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     // Cache miss - proceed with normal request handling
     server_list_t* servers = c4_get_server_list(r->req->type);
 
-    int selected_index;
+    int selected_index = -1;
 
     // Check if this is a retry (exclude_mask > 0) with valid pre-selected server index
     if (servers && r->req->node_exclude_mask > 0 &&
