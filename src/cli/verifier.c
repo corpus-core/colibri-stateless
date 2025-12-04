@@ -45,8 +45,13 @@ static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_i
   if (strcmp(method, "colibri_simulateTransaction") == 0) method = "eth_call";
   buffer_t   payload = {0};
   c4_state_t ctx     = {0};
+#ifdef ETH_ZKPROOF
+  char* additional_params = "\"zk_proof\":true";
+#else
+  char* additional_params = "";
+#endif
 
-  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\"}", method, args, state);
+  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\",%s}", method, args, state, additional_params);
   data_request_t req = {.chain_id = chain_id, .type = C4_DATA_TYPE_PROVER, .payload = payload.data, .encoding = C4_DATA_ENCODING_SSZ, .method = C4_DATA_METHOD_POST};
   ctx.requests       = &req;
   curl_fetch_all(&ctx);
@@ -121,6 +126,9 @@ int main(int argc, char* argv[]) {
 #ifdef TEST
     fprintf(stderr, "  -t <test_dir>  test directory\n");
 #endif
+#ifdef ETH_ZKPROOF
+    fprintf(stderr, "  -z use zk_proof\n");
+#endif
     fprintf(stderr, "  -i <proof_file> proof file to read\n");
     fprintf(stderr, "  -s <cache_dir> cache directory\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
@@ -144,6 +152,7 @@ int main(int argc, char* argv[]) {
   char*      output             = NULL;
   bytes32_t  trusted_checkpoint = {0};
   bool       has_checkpoint     = false;
+  bool       use_zk_proof       = false;
   char*      rpc_url            = NULL;
   char*      beacon_url         = NULL;
   char*      checkpointz_url    = NULL;
@@ -184,6 +193,11 @@ int main(int argc, char* argv[]) {
             break;
           case 'T':
             curl_set_config(json_parse(bprintf(&buf, "{\"trace_config\":{\"level\":\"%s\"}}", argv[++i])));
+            break;
+#endif
+#ifdef ETH_ZKPROOF
+          case 'z':
+            use_zk_proof = true;
             break;
 #endif
           case 'b':
@@ -230,7 +244,7 @@ int main(int argc, char* argv[]) {
 
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);
-  else if (c4_get_chain_state(chain_id).status == C4_STATE_SYNC_EMPTY) {
+  else if (c4_get_chain_state(chain_id).status == C4_STATE_SYNC_EMPTY && !use_zk_proof) {
     bytes32_t  checkpoint = {0};
     uint64_t   epoch      = 0;
     c4_state_t state      = {0};

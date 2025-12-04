@@ -124,6 +124,7 @@ export interface Config extends ChainConfig {
     cache?: Cache;
     debug?: boolean;
     include_code?: boolean;
+    zk_proof?: boolean;
     chains: {
         [chainId: number]: ChainConfig;
     };

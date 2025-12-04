@@ -299,7 +299,7 @@ export default class C4Client {
     // This rpc method is for the underlying data fetching/proving.
     if (!this.initMap.get(this.config.chainId)) {
       this.initMap.set(this.config.chainId, true);
-      if (this.config.checkpointz && this.config.checkpointz.length > 0 && !this.config.trusted_checkpoint && (await get_prover_config_hex(this.config.chainId as number)).length == 2)
+      if (!this.config.zk_proof && this.config.checkpointz && this.config.checkpointz.length > 0 && !this.config.trusted_checkpoint && (await get_prover_config_hex(this.config.chainId as number)).length == 2)
         await this.fetch_checkpointz();
 
     }
@@ -318,11 +318,13 @@ export default class C4Client {
 
     switch (method_type) {
       case C4MethodType.PROOFABLE: {
+
         if (this.config.verify && !this.config.verify(method, args)) {
+          // skip verification and fetch directly
           return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
         }
         const proof = this.config.prover && this.config.prover.length
-          ? await fetch_rpc(this.config.prover, { method, params: cleanup_args(method, args), c4: await get_prover_config_hex(this.config.chainId as number) }, true)
+          ? await fetch_rpc(this.config.prover, { method, params: cleanup_args(method, args), c4: await get_prover_config_hex(this.config.chainId as number), zk_proof: !!this.config.zk_proof }, true)
           : await this.createProof(method, args);
         return this.verifyProof(method, args, proof);
       }
