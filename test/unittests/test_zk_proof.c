@@ -34,8 +34,8 @@ static bytes_t copy_bytes(bytes_t src) {
 static uint8_t* verify_period_and_get_anchor(int period, const uint8_t* expected_anchor) {
   char proof_path[64];
   char pub_path[64];
-  snprintf(proof_path, sizeof(proof_path), "zk_data/proof_%d_raw.bin", period);
-  snprintf(pub_path, sizeof(pub_path), "zk_data/public_values_%d.bin", period);
+  snprintf(proof_path, sizeof(proof_path), "zk_data/%d/zk_proof_g16.bin", period);
+  snprintf(pub_path, sizeof(pub_path), "zk_data/%d/zk_pub.bin", period);
 
   bytes_t proof = read_testdata(proof_path);
   bytes_t pub   = read_testdata(pub_path);
@@ -85,7 +85,7 @@ static uint8_t* verify_period_and_get_anchor(int period, const uint8_t* expected
 
 void test_verify_chain(void) {
   // Define the chain to test
-  int periods[] = {1600, 1601, 1602};
+  int periods[] = {1600, 1601};
   int count     = sizeof(periods) / sizeof(int);
 
   uint8_t* trust_anchor = NULL;
@@ -129,7 +129,7 @@ void test_verify_1602_realistic(void) {
   hex_to_bytes(trusted_keys_hex, -1, bytes(current_keys_root, 32));
 
   // 2. Load Proof 1602
-  bytes_t proof = read_testdata("zk_data/proof_1602_raw.bin");
+  bytes_t proof = read_testdata("zk_data/1602/zk_proof_g16.bin");
 
   // 3. Load New Keys 1602
   uint64_t next_period   = 1602;
@@ -149,6 +149,8 @@ void test_verify_1602_realistic(void) {
   memcpy(public_values_data + 32, next_keys_root, 32); // new keys root
   uint64_to_le(public_values_data + 64, next_period);  // new period
 
+  print_hex(stderr, bytes(public_values_data, 72), "public_values_data: ", "\n");
+
   // 6. Verify
   uint64_t start = current_ms();
   bool     valid = verify_zk_proof(proof, bytes(public_values_data, 72));
@@ -165,20 +167,20 @@ void test_verify_1602_realistic(void) {
 void test_verify_tampered(void) {
   int  period = 1601;
   char proof_path[64];
-  snprintf(proof_path, sizeof(proof_path), "zk_data/proof_%d_raw.bin", period);
+  snprintf(proof_path, sizeof(proof_path), "zk_data/%d/zk_proof_g16.bin", period);
 
   // Fallback to 1600 if 1601 not yet built
   bytes_t check = read_testdata(proof_path);
   if (check.data == NULL) {
     period = 1600;
-    snprintf(proof_path, sizeof(proof_path), "zk_data/proof_%d_raw.bin", period);
+    snprintf(proof_path, sizeof(proof_path), "zk_data/%d/zk_proof_g16.bin", period);
   }
   else {
     free(check.data);
   }
 
   char pub_path[64];
-  snprintf(pub_path, sizeof(pub_path), "zk_data/public_values_%d.bin", period);
+  snprintf(pub_path, sizeof(pub_path), "zk_data/%d/zk_pub.bin", period);
 
   bytes_t proof    = read_testdata(proof_path);
   bytes_t pub_orig = read_testdata(pub_path);

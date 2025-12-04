@@ -332,7 +332,7 @@ static inline c4_status_t eth_get_by_hash(prover_ctx_t* ctx, json_t block_hash, 
   return get_beacon_header_from_eth_block(ctx, eth_block, &header, data_root, parent_root);
 }
 
-static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes32_t hash) {
+static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes32_t hash, uint64_t* slot) {
   json_t        result        = {0};
   beacon_head_t hashes[2]     = {0};
   buffer_t      buf_justified = {.allocated = -32, .data = {.data = hashes[0].root, .len = 0}};
@@ -342,23 +342,27 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
   TRY_ASYNC(get_finality_check_points(ctx, &result));
   json_get_bytes(json_get(result, "current_justified"), "root", &buf_justified);
   json_get_bytes(json_get(result, "finalized"), "root", &buf_finalized);
+  if (slot) {
+    const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
+    json_t              cp    = json_get(result, safe ? "finalized" : "current_justified");
+    *slot                     = json_get_uint64(cp, "epoch") << chain->slots_per_epoch_bits;
+  }
 
 #ifdef PROVER_CACHE
   bytes32_t key = {0};
   sbprintf((char*) key, "%s", FINALITY_KEY);
   c4_prover_cache_set(ctx, key, bytes_dup(bytes(hashes, sizeof(hashes))).data, sizeof(hashes), 1000 * 60 * 7, free); // 6 min
 #endif
-  memcpy(hash, hashes[safe ? 0 : 1].root, 32);
+  if (hash) memcpy(hash, hashes[safe ? 0 : 1].root, 32);
   return C4_SUCCESS;
 }
 
 #ifdef PROVER_CACHE
-c4_status_t c4_eth_update_finality(prover_ctx_t* ctx) {
-  bytes32_t     key  = {0};
-  beacon_head_t hash = {0};
+c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint64_t* slot) {
+  bytes32_t key = {0};
   sbprintf((char*) key, "%s", FINALITY_KEY);
   c4_prover_cache_invalidate(key);
-  return eth_get_final_hash(ctx, false, hash.root);
+  return eth_get_final_hash(ctx, true, checkpoint, slot);
 }
 #endif
 
@@ -375,9 +379,9 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
   if (strncmp(block.start, "\"latest\"", 8) == 0)
     return C4_SUCCESS; // latest -  we do nothing since 2 empty root_hashes are returned, which will trigger head-requests
   else if (strncmp(block.start, "\"safe\"", 6) == 0)
-    TRY_ASYNC(eth_get_final_hash(ctx, true, data_root));
+    TRY_ASYNC(eth_get_final_hash(ctx, true, data_root, NULL));
   else if (strncmp(block.start, "\"finalized\"", 12) == 0)
-    TRY_ASYNC(eth_get_final_hash(ctx, false, data_root));
+    TRY_ASYNC(eth_get_final_hash(ctx, false, data_root, NULL));
   else if (block.type == JSON_TYPE_STRING && block.len == 68) // blockhash
     TRY_ASYNC(eth_get_by_hash(ctx, block, data_root));
   else if (block.type == JSON_TYPE_STRING && block.len > 4 && block.start[1] == '0' && block.start[2] == 'x') // blocknumber

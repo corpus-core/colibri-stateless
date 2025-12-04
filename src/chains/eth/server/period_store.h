@@ -51,6 +51,14 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
  */
 bool c4_handle_period_store(single_request_t* r);
 
+/**
+ * Syncs the period store on a checkpoint.
+ *
+ * @param checkpoint The checkpoint to sync.
+ * @param slot The slot of the checkpoint.
+ */
+void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot);
+
 #ifdef __cplusplus
 }
 #endif

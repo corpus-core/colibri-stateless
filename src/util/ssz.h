@@ -503,15 +503,16 @@ bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
  */
 bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state);
 
-extern const ssz_def_t ssz_uint8;       // Uint<8> of length 1 - single byte
-extern const ssz_def_t ssz_uint32_def;  // Uint<32> of length 4
-extern const ssz_def_t ssz_uint64_def;  // Uint<64> of length 8
-extern const ssz_def_t ssz_uint256_def; // Uint<256> of length 32
-extern const ssz_def_t ssz_bytes32;     // Vector<uint8> of length 32
-extern const ssz_def_t ssz_bls_pubky;   // Vector<uint8> of length 48
-extern const ssz_def_t ssz_bytes_list;  // List<uint8> displayed as hex in JSON
-extern const ssz_def_t ssz_string_def;  // List<uint8> displayed as string in JSON
-extern const ssz_def_t ssz_none;        // special value for none in uions.
+extern const ssz_def_t ssz_uint8;               // Uint<8> of length 1 - single byte
+extern const ssz_def_t ssz_uint32_def;          // Uint<32> of length 4
+extern const ssz_def_t ssz_uint64_def;          // Uint<64> of length 8
+extern const ssz_def_t ssz_uint256_def;         // Uint<256> of length 32
+extern const ssz_def_t ssz_bytes32;             // Vector<uint8> of length 32
+extern const ssz_def_t ssz_secp256k1_signature; // Vector<uint8> of length 65
+extern const ssz_def_t ssz_bls_pubky;           // Vector<uint8> of length 48
+extern const ssz_def_t ssz_bytes_list;          // List<uint8> displayed as hex in JSON
+extern const ssz_def_t ssz_string_def;          // List<uint8> displayed as string in JSON
+extern const ssz_def_t ssz_none;                // special value for none in uions.
 
 /**
  * Defines a boolean field.

@@ -81,7 +81,7 @@ c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, c
 c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result);
 #ifdef PROVER_CACHE
 c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number);
-c4_status_t c4_eth_update_finality(prover_ctx_t* ctx);
+c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint64_t* slot);
 
 /*
  *  Updates the beacon block data in the cache.

@@ -7,7 +7,9 @@
 #include "server.h"
 #include "ssz.h"
 #include "state.h"
+#include "sync_committee.h"
 #include "uv_util.h"
+
 #include <errno.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -16,7 +18,11 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <uv.h>
+static const char* internal_path = "period_store/";
 
+static inline bool is_file_not_found(char* error) {
+  return error && strstr(error, "No such file or directory") != NULL;
+}
 // Macro to log libuv errors, perform cleanup and return with a custom statement
 #define UVX_CHECK(op, expr, cleanup, retstmt)                                                  \
   do {                                                                                         \
@@ -185,6 +191,7 @@ static void backfill_done() {
 }
 
 static void backfill_check(block_t* head) {
+  if (eth_config.period_backfill_max_periods == 0) return;
   if (bf_ctx.done) {
     // should we rerun the backfill?
     // after 100 slots
@@ -203,12 +210,11 @@ static void backfill_check(block_t* head) {
   else if (bf_ctx.start_slot == 0) {
     // we have not started anything yet.
     // let's start from the head down to the configured max periods.
-    uint64_t max_periods = eth_config.period_backfill_max_periods > 0 ? eth_config.period_backfill_max_periods : 2;
-    bf_ctx.started_ts    = current_ms();
-    bf_ctx.start_slot    = head->slot;
-    bf_ctx.end_slot      = head->slot - (head->slot % SLOTS_PER_PERIOD) - (SLOTS_PER_PERIOD * max_periods);
-    bf_ctx.done          = false;
-    bf_ctx.current       = *head;
+    bf_ctx.started_ts = current_ms();
+    bf_ctx.start_slot = head->slot;
+    bf_ctx.end_slot   = head->slot - (head->slot % SLOTS_PER_PERIOD) - (SLOTS_PER_PERIOD * eth_config.period_backfill_max_periods);
+    bf_ctx.done       = false;
+    bf_ctx.current    = *head;
     memcpy(bf_ctx.current.parent_root, head->header + 16, 32);
     http_server.stats.period_sync_retries_total++;
     log_info("period_store: backfill start [%l -> %l)", bf_ctx.start_slot, bf_ctx.end_slot);
@@ -623,7 +629,7 @@ static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
   }
   // prepare async write of lcu.ssz
   char* dir  = ensure_period_dir(period);
-  char* path = bprintf(NULL, "%s/lcu.ssz", dir);
+  char* path = bprintf(NULL, strstr(r->url, "bootstrap") ? "%s/lcb.ssz" : "%s/lcu.ssz", dir);
   safe_free(dir);
   file_data_t* files = (file_data_t*) safe_calloc(1, sizeof(file_data_t));
   files[0].path      = path;
@@ -647,9 +653,8 @@ static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
 }
 
 static void schedule_fetch_lcu(uint64_t period) {
-  if (graceful_shutdown_in_progress) {
-    return;
-  }
+  if (graceful_shutdown_in_progress) return;
+
   // Skip if no Beacon API servers configured
   server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
   if (!sl || sl->count == 0) return;
@@ -664,6 +669,76 @@ static void schedule_fetch_lcu(uint64_t period) {
   uint64_t* pdata            = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
   *pdata                     = period;
   c4_add_request(&lcu_client, req, pdata, fetch_lcu_cb);
+}
+
+#define THROW_PERIOD_ERROR(r, fmt, ...) \
+  {                                     \
+    log_warn(fmt, ##__VA_ARGS__);       \
+    safe_free(r->error);                \
+    safe_free(r->url);                  \
+    safe_free(r->response.data);        \
+    safe_free(r);                       \
+    return;                             \
+  }
+
+static void fetch_lcb_for_checkpoint(bytes32_t checkpoint, uint64_t period) {
+
+  // now fetch the lcb.ssz
+  static client_t lcu_client = {0};
+  data_request_t* req        = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->url                   = bprintf(NULL, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(checkpoint, 32));
+  req->method                = C4_DATA_METHOD_GET;
+  req->chain_id              = http_server.chain_id;
+  req->type                  = C4_DATA_TYPE_BEACON_API;
+  req->encoding              = C4_DATA_ENCODING_SSZ;
+  uint64_t* pdata            = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
+  *pdata                     = period;
+  c4_add_request(&lcu_client, req, pdata, fetch_lcu_cb);
+}
+static void fetch_lcb_cb(client_t* client, void* data, data_request_t* r) {
+  (void) client;
+  uint64_t period = data ? *((uint64_t*) data) : 0;
+  safe_free(data);
+
+  if (!r->response.data && !r->error) r->error = strdup("unknown error!");
+  if (r->error) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: %s", period, r->error);
+  if (r->response.len < UPDATE_PREFIX_SIZE) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
+
+  ssz_ob_t update = {.bytes = bytes(r->response.data + UPDATE_PREFIX_SIZE, uint64_from_le(r->response.data) - SSZ_OFFSET_SIZE), .def = NULL};
+  if (update.bytes.data + update.bytes.len > r->response.data + r->response.len) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
+  update.def                 = eth_get_light_client_update(c4_eth_get_fork_for_lcu(http_server.chain_id, update.bytes));
+  ssz_ob_t finalized         = ssz_get(&update, "finalizedHeader");
+  ssz_ob_t header            = ssz_get(&finalized, "beacon");
+  uint64_t checkpoint_period = ssz_get_uint64(&header, "slot") >> 13;
+  if (checkpoint_period != period) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: checkpoint period mismatch", period);
+  bytes32_t checkpoint = {0};
+  ssz_hash_tree_root(header, checkpoint);
+
+  safe_free(r->url);
+  safe_free(r->response.data);
+  safe_free(r);
+
+  fetch_lcb_for_checkpoint(checkpoint, period);
+}
+
+static void schedule_fetch_lcb(uint64_t period) {
+  if (graceful_shutdown_in_progress) return;
+
+  // Skip if no Beacon API servers configured
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  if (!sl || sl->count == 0) return;
+
+  static client_t lcu_client = {0};
+
+  data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->url            = bprintf(NULL, "eth/v1/beacon/light_client/updates?start_period=%l&count=1", period);
+  req->method         = C4_DATA_METHOD_GET;
+  req->chain_id       = http_server.chain_id;
+  req->type           = C4_DATA_TYPE_BEACON_API;
+  req->encoding       = C4_DATA_ENCODING_SSZ;
+  uint64_t* pdata     = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
+  *pdata              = period;
+  c4_add_request(&lcu_client, req, pdata, fetch_lcb_cb);
 }
 
 // ---- Assemble multiple LCU from cache (fetch missing) ----
@@ -834,6 +909,14 @@ typedef struct {
   uint64_t       period;
 } period_read_done_ctx_t;
 
+static bool file_exists(uint64_t period, const char* filename) {
+  char*       path = bprintf(NULL, "%s/%l/%s", eth_config.period_store, period, filename);
+  struct stat buffer;
+  bool        exists = stat(path, &buffer) == 0;
+  safe_free(path);
+  return exists;
+}
+
 static void read_period_done(void* user_data, file_data_t* files, int num_files) {
   period_read_done_ctx_t* done        = (period_read_done_ctx_t*) user_data;
   period_data_t*          pd          = done->out;
@@ -872,6 +955,8 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
   }
   // lcu: wenn nicht vorhanden, Fetch asynchron anstoßen (nicht blockierend)
   if (num_files > 2) {
+
+    // check lc update
     if (files[2].error || files[2].data.len == 0) {
       if (files[2].error)
         log_info("period_store: lcu.ssz missing for period %l (%s) -> will fetch", p, files[2].error);
@@ -882,6 +967,21 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
       }
     }
   }
+
+  if (num_files > 3) {
+
+    // check lc bootstrap
+    if ((files[3].error || files[3].data.len == 0) && file_exists(p - 1, "zk_proof_g16.bin")) {
+      if (files[3].error)
+        log_info("period_store: lcb.ssz missing for period %l (%s) -> will fetch", p, files[3].error);
+      else
+        log_info("period_store: lcb.ssz empty for period %l -> will fetch", p);
+      if (!graceful_shutdown_in_progress) {
+        schedule_fetch_lcb(p);
+      }
+    }
+  }
+
   pd->period = p;
   // free temp results (also frees remaining buffers if not ownership-transferred)
   c4_file_data_array_free(files, num_files, 1);
@@ -900,7 +1000,7 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
 
 static void read_period(uint64_t period, period_data_t* period_data) {
   char*       dir  = ensure_period_dir(period);
-  file_data_t f[3] = {0};
+  file_data_t f[4] = {0};
   f[0].path        = bprintf(NULL, "%s/blocks.ssz", dir);
   f[0].offset      = 0;
   f[0].limit       = 32 * SLOTS_PER_PERIOD;
@@ -910,11 +1010,14 @@ static void read_period(uint64_t period, period_data_t* period_data) {
   f[2].path        = bprintf(NULL, "%s/lcu.ssz", dir);
   f[2].offset      = 0;
   f[2].limit       = 0; // read all
+  f[3].path        = bprintf(NULL, "%s/lcb.ssz", dir);
+  f[3].offset      = 0;
+  f[3].limit       = 0; // read all
   safe_free(dir);
   period_read_done_ctx_t* done = (period_read_done_ctx_t*) safe_calloc(1, sizeof(period_read_done_ctx_t));
   done->out                    = period_data;
   done->period                 = period;
-  c4_read_files_uv(done, read_period_done, f, 3);
+  c4_read_files_uv(done, read_period_done, f, 4);
 }
 
 static inline bool read_block(uint64_t slot, block_t* result) {
@@ -1046,9 +1149,57 @@ void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const u
   set_block(&block, false);
 }
 
+typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
+
+static void c4_handle_period_master_write_cb(void* user_data, file_data_t* files, int num_files) {
+  if (files[0].error)
+    log_error("period_store: could not write period master: %s", files[0].error);
+  c4_file_data_array_free(files, num_files, 0);
+}
+
+static void c4_handle_period_master_cb(client_t* client, void* user_data, data_request_t* data) {
+  single_request_t* r = (single_request_t*) user_data;
+  if (data->error) {
+    log_error("period_store: could not read period master: %s", data->error);
+
+    // transfer ownership to the response
+    r->req->error = data->error;
+    data->error   = NULL;
+  }
+  else {
+    // write the data to the period store
+    file_data_t f = {.data = bytes_dup(data->response), .limit = data->response.len, .offset = 0, .path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + strlen(internal_path))};
+    c4_write_files_uv(NULL, c4_handle_period_master_write_cb, &f, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+
+    // transfer ownership to the response
+    r->req->response = data->response;
+    data->response   = NULL_BYTES;
+  }
+
+  safe_free(data->url);
+  safe_free(data);
+  c4_internal_call_finish(r);
+}
+
 static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int num_files) {
   single_request_t* r = (single_request_t*) user_data;
-  if (files[0].error) {
+
+  // missing, so we try to fetch it from the master node
+  if (is_file_not_found(files[0].error) && eth_config.period_master_url) {
+    char* path = files[0].path + strlen(eth_config.period_store);
+    if (*path == '/') path++;
+    data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+    req->url            = bprintf(NULL, "%s/%s", eth_config.period_master_url, path);
+    req->method         = C4_DATA_METHOD_GET;
+    req->chain_id       = http_server.chain_id;
+    req->type           = C4_DATA_TYPE_REST_API;
+    req->encoding       = C4_DATA_ENCODING_SSZ;
+    c4_file_data_array_free(files, num_files, 0);
+    c4_add_request(r->parent->client, req, r, c4_handle_period_master_cb);
+    return;
+  }
+
+  else if (files[0].error) {
     log_error("period_store: could not read period store: %s", files[0].error);
     r->req->error = strdup(files[0].error);
   }
@@ -1062,11 +1213,26 @@ static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int n
 }
 
 bool c4_handle_period_store(single_request_t* r) {
-  const char* path = "period_store/";
-  if (strncmp(r->req->url, path, strlen(path))) return false;
+  if (strncmp(r->req->url, internal_path, strlen(internal_path))) return false;
 
-  file_data_t f = {.path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + strlen(path))};
+  // make sure the period-store is configured
+  if (!eth_config.period_store) {
+    r->req->error = strdup("period_store not configured");
+    c4_internal_call_finish(r);
+    return true;
+  }
+
+  // we simply read the file from the period-store
+  file_data_t f = {.path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + strlen(internal_path))};
   c4_read_files_uv(r, c4_handle_period_store_cb, &f, 1);
 
   return true;
+}
+
+void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
+  uint64_t period = slot >> 13;
+  if (!file_exists(period, "lcb.ssz"))
+    fetch_lcb_for_checkpoint(checkpoint, period);
+  if (!file_exists(period, "lcu.ssz"))
+    schedule_fetch_lcu(period);
 }

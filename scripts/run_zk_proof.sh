@@ -7,9 +7,11 @@ PREV_PERIOD=""
 START_PERIOD=""
 END_PERIOD=""
 MODE="--execute"
-OUTPUT_DIR=".zk_proofs"
+OUTPUT_DIR="build/default/.period_store"
 REMOTE_URL="https://mainnet1.colibri-proof.tech/"
 GROTH16=""
+USE_NETWORK=false
+PRIVATE_KEY_ARG=""
 
 # Parse Args
 while [[ "$#" -gt 0 ]]; do
@@ -17,6 +19,8 @@ while [[ "$#" -gt 0 ]]; do
         --prove) MODE="--prove" ;;
         --execute) MODE="--execute" ;;
         --groth16) GROTH16="--groth16" ;;
+        --network) USE_NETWORK=true ;;
+        --private-key) PRIVATE_KEY_ARG="$2"; shift ;;
         --period) PERIOD="$2"; shift ;;
         --prev-period) PREV_PERIOD="$2"; shift ;;
         --start-period) START_PERIOD="$2"; shift ;;
@@ -27,6 +31,21 @@ while [[ "$#" -gt 0 ]]; do
     esac
     shift
 done
+
+# --- SP1 NETWORK SETUP ---
+if [ "$USE_NETWORK" = true ]; then
+    export SP1_PROVER="network"
+    if [ -n "$PRIVATE_KEY_ARG" ]; then
+        export SP1_PRIVATE_KEY="$PRIVATE_KEY_ARG"
+    fi
+
+    if [ -z "$SP1_PRIVATE_KEY" ]; then
+        echo "❌ Error: Network mode selected but SP1_PRIVATE_KEY not found."
+        echo "   Please provide it via --private-key <key> or export SP1_PRIVATE_KEY=<key>"
+        exit 1
+    fi
+    echo "🌐 SP1 Network Mode: ENABLED"
+fi
 
 # --- SP1 TOOLCHAIN SETUP ---
 
@@ -87,10 +106,13 @@ if [ -n "$START_PERIOD" ] && [ -n "$END_PERIOD" ]; then
     
     SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/run_zk_proof.sh"
     
+    NETWORK_OPT=""
+    if [ "$USE_NETWORK" = true ]; then NETWORK_OPT="--network"; fi
+
     # Step 1: Initial Proof (Start Period)
     echo "🏁 Step 1: Initial Proof for Period $START_PERIOD"
     START_TIME=$(date +%s)
-    "$SCRIPT_PATH" --period "$START_PERIOD" $MODE $GROTH16 --output "$OUTPUT_DIR"
+    "$SCRIPT_PATH" --period "$START_PERIOD" $MODE $GROTH16 $NETWORK_OPT --output "$OUTPUT_DIR"
     END_TIME=$(date +%s)
     echo "⏱️  Initial Proof for Period $START_PERIOD took $((END_TIME - START_TIME)) seconds"
     
@@ -99,7 +121,7 @@ if [ -n "$START_PERIOD" ] && [ -n "$END_PERIOD" ]; then
     for (( i=START_PERIOD+1; i<=END_PERIOD; i++ )); do
         echo "🔗 Step $((i-START_PERIOD+1)): Recursive Proof for Period $i (prev: $PREV)"
         START_TIME=$(date +%s)
-        "$SCRIPT_PATH" --period "$i" --prev-period "$PREV" $MODE $GROTH16 --output "$OUTPUT_DIR"
+        "$SCRIPT_PATH" --period "$i" --prev-period "$PREV" $MODE $GROTH16 $NETWORK_OPT --output "$OUTPUT_DIR"
         END_TIME=$(date +%s)
         echo "⏱️  Proof for Period $i took $((END_TIME - START_TIME)) seconds"
         PREV=$i
@@ -115,21 +137,29 @@ if [ -z "$PERIOD" ]; then
     exit 1
 fi
 
-# Ensure output dir exists relative to workspace root
-mkdir -p "$OUTPUT_DIR"
 # Convert to absolute path for safety when changing dirs
-OUTPUT_DIR_ABS=$(cd "$OUTPUT_DIR" && pwd)
-INPUT_FILE="$OUTPUT_DIR_ABS/sync_${PERIOD}.ssz"
+mkdir -p "$OUTPUT_DIR/${PERIOD}"
+OUTPUT_DIR_ABS=$(cd "$OUTPUT_DIR/${PERIOD}" && pwd)
+INPUT_FILE="$OUTPUT_DIR_ABS/sync.ssz"
+
 
 if [ -n "$GROTH16" ]; then
-    PROOF_FILE="$OUTPUT_DIR_ABS/proof_${PERIOD}_groth16.bin"
-    PROOF_RAW_FILE="$OUTPUT_DIR_ABS/proof_${PERIOD}_raw.bin"
-    VK_FILE="$OUTPUT_DIR_ABS/vk_${PERIOD}_groth16.bin"
-    PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/public_values_${PERIOD}.bin"
+    PROOF_FILE="$OUTPUT_DIR_ABS/zk_groth16.bin"
+    PROOF_RAW_FILE="$OUTPUT_DIR_ABS/zk_proof_g16.bin"
+    VK_FILE="$OUTPUT_DIR_ABS/zk_vk.bin"
+    PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/zk_pub.bin"
+    
+    # Explicitly define compressed intermediates (needed for recursion)
+    PROOF_COMPRESSED_FILE="$OUTPUT_DIR_ABS/zk_proof.bin"
+    VK_COMPRESSED_FILE="$OUTPUT_DIR_ABS/zk_vk_raw.bin"
 else
-    PROOF_FILE="$OUTPUT_DIR_ABS/proof_${PERIOD}.bin"
-    VK_FILE="$OUTPUT_DIR_ABS/vk_${PERIOD}.bin"
-    PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/public_values_${PERIOD}.bin"
+    PROOF_FILE="$OUTPUT_DIR_ABS/zk_proof.bin"
+    VK_FILE="$OUTPUT_DIR_ABS/zk_vk_raw.bin"
+    PUBLIC_VALUES_FILE="$OUTPUT_DIR_ABS/zk_pub.bin"
+    
+    # Same as main output
+    PROOF_COMPRESSED_FILE="$PROOF_FILE"
+    VK_COMPRESSED_FILE="$VK_FILE"
 fi
 
 # Fetch Input Data if missing
@@ -153,31 +183,47 @@ fi
 
 # Prepare Recursion Args
 PREV_PROOF_ARGS=""
+
+# Auto-detect previous period if not explicitly set
+IS_AUTO_PREV=false
+if [ -z "$PREV_PERIOD" ] && [ -n "$PERIOD" ]; then
+    PREV_PERIOD=$((PERIOD - 1))
+    IS_AUTO_PREV=true
+fi
+
 if [ -n "$PREV_PERIOD" ]; then
     # For recursion, we always need the COMPRESSED proof of the previous period.
     # If we ran with --groth16, the script now saves both _groth16.bin and .bin (compressed).
     # We look for the .bin file.
-    PREV_PROOF_FILE="$OUTPUT_DIR_ABS/proof_${PREV_PERIOD}.bin"
-    PREV_VK_FILE="$OUTPUT_DIR_ABS/vk_${PREV_PERIOD}.bin"
+    PREV_PROOF_FILE="$OUTPUT_DIR_ABS/../${PREV_PERIOD}/zk_proof.bin"
+    PREV_VK_FILE="$OUTPUT_DIR_ABS/../${PREV_PERIOD}/zk_vk_raw.bin"
     
-    if [ ! -f "$PREV_PROOF_FILE" ]; then
-        echo "❌ Error: Previous compressed proof not found at $PREV_PROOF_FILE"
-        echo "   Please run period $PREV_PERIOD first."
-        exit 1
+    MISSING_FILES=false
+    if [ ! -f "$PREV_PROOF_FILE" ]; then MISSING_FILES=true; fi
+    if [ ! -f "$PREV_VK_FILE" ]; then MISSING_FILES=true; fi
+
+    if [ "$MISSING_FILES" = true ]; then
+        if [ "$IS_AUTO_PREV" = true ]; then
+            echo "ℹ️  No previous proof found for period $PREV_PERIOD. Starting fresh (no recursion)."
+        else
+            echo "❌ Error: Previous compressed proof not found at $PREV_PROOF_FILE"
+            echo "   Please run period $PREV_PERIOD first."
+            exit 1
+        fi
+    else
+        echo "🔗 Chaining with previous period $PREV_PERIOD"
+        PREV_PROOF_ARGS="--prev-proof $PREV_PROOF_FILE --prev-vk $PREV_VK_FILE"
     fi
-    if [ ! -f "$PREV_VK_FILE" ]; then
-        echo "❌ Error: Previous VK not found at $PREV_VK_FILE"
-        exit 1
-    fi
-    
-    echo "🔗 Chaining with previous period $PREV_PERIOD"
-    PREV_PROOF_ARGS="--prev-proof $PREV_PROOF_FILE --prev-vk $PREV_VK_FILE"
 fi
 
 if [ "$MODE" == "--prove" ]; then
     echo "🚀 Running in PROVE mode (this will take time!)"
     if [ -n "$GROTH16" ]; then
-        echo "📦 Groth16 mode enabled (requires Docker)"
+        if [ "$USE_NETWORK" = true ]; then
+            echo "📦 Groth16 mode enabled (using SP1 Network)"
+        else
+            echo "📦 Groth16 mode enabled (requires Docker locally)"
+        fi
     fi
 else
     echo "⚡ Running in EXECUTE mode (fast simulation)"
@@ -189,33 +235,58 @@ export PATH=$HOME/.cargo/bin:$HOME/.sp1/bin:$PATH
 # Workspace Root relative to this script (scripts/ -> ./)
 WORKSPACE_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
-# Build Guest
-echo "🔨 Building Guest Program..."
-(
-    # Use the SP1 toolchain rustc found earlier
-    export RUSTFLAGS='--cfg getrandom_backend="custom" -C link-arg=-Ttext=0x00201000 -C link-arg=--image-base=0x00200800 -C panic=abort'
-    cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program"
-    cargo build --release --target riscv32im-succinct-zkvm-elf
-)
+# Frozen ELF Path
+ELF_DIR="$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/elf"
+ELF_FROZEN="$ELF_DIR/eth_sync_program"
 
-# Find ELF
-ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" | head -n 1)
+if [ -f "$ELF_FROZEN" ]; then
+    echo "🧊 Using FROZEN Guest ELF: $ELF_FROZEN"
+    echo "   (Skipping guest build to ensure stable Verification Key)"
+    ELF="$ELF_FROZEN"
+else
+    # Build Guest
+    echo "🔨 Building Guest Program..."
+    (
+        # Use the SP1 toolchain rustc found earlier
+        export RUSTFLAGS='--cfg getrandom_backend="custom" -C link-arg=-Ttext=0x00201000 -C link-arg=--image-base=0x00200800 -C panic=abort'
+        cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program"
+        cargo build --release --target riscv32im-succinct-zkvm-elf
+    )
 
-if [ -z "$ELF" ]; then
-    # Fallback search
-    ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" 2>/dev/null | head -n 1)
+    # Find ELF
+    ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" | head -n 1)
+
+    if [ -z "$ELF" ]; then
+        # Fallback search
+        ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" 2>/dev/null | head -n 1)
+    fi
+    
+    if [ -z "$ELF" ]; then
+        echo "❌ Error: Could not find guest ELF binary."
+        exit 1
+    fi
+    
+    echo "✅ Built ELF: $ELF"
+    
+    # Save to frozen path for next time / git commit
+    echo "💾 Saving ELF to $ELF_FROZEN"
+    echo "   ⚠️  IMPORTANT: Commit this file to git to freeze the Verification Key!"
+    cp "$ELF" "$ELF_FROZEN"
+    ELF="$ELF_FROZEN"
 fi
 
-if [ -z "$ELF" ]; then
-    echo "❌ Error: Could not find guest ELF binary."
-    exit 1
-fi
-echo "✅ Found ELF: $ELF"
+echo "✅ Using ELF: $ELF"
 
 # Build Host
 echo "🔨 Building Host Script..."
 unset RUSTFLAGS
 unset RUSTC
+
+# Optimized CPU flags for Apple Silicon / Native
+if [[ "$OSTYPE" == "darwin"* && $(uname -m) == "arm64" ]]; then
+     export RUSTFLAGS="-C target-cpu=native"
+fi
+
 cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/script"
 cargo build --release
 
@@ -232,6 +303,9 @@ fi
 export PROOF_OUTPUT_FILE="$PROOF_FILE"
 export VK_OUTPUT_FILE="$VK_FILE"
 export PUBLIC_VALUES_FILE="$PUBLIC_VALUES_FILE"
+export PROOF_COMPRESSED_OUTPUT_FILE="$PROOF_COMPRESSED_FILE"
+export VK_COMPRESSED_OUTPUT_FILE="$VK_COMPRESSED_FILE"
+
 if [ -n "$PROOF_RAW_FILE" ]; then
     export PROOF_RAW_FILE="$PROOF_RAW_FILE"
 fi

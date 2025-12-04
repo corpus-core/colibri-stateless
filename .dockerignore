@@ -39,6 +39,7 @@ venv/
 
 # Rust
 target/
+**/target/
 Cargo.lock
 
 # Node

@@ -42,11 +42,13 @@ To generate a proof for a specific period (e.g., 1600):
 *   `--period <N>`: The sync committee period to verify.
 
 **Output:**
-Artifacts are saved to `.zk_proofs/`:
-*   `proof_1600_groth16.bin`: SP1 Groth16 proof (for use with the C-Verifier).
-*   `proof_1600_raw.bin`: Raw compressed proof bytes (A, B, C points) extracted from the Groth16 proof.
-*   `public_values_1600.bin`: The public inputs/outputs (Trust Anchor, New Keys, Period).
-*   `vk_1600_groth16.bin`: The Verification Key used for this proof.
+Artifacts are saved to `build/default/.period_store/<PERIOD>/`:
+*   `blocks.ssz`, `headers.ssz`, `lcb.ssz`, `lcu.ssz`, `sync.ssz`: cached light-client inputs (fetched once and re-used by Slave nodes).
+*   `zk_proof.bin`: Compressed SP1 proof (used for recursion).
+*   `zk_vk_raw.bin`: Verification Key for the compressed proof (also fed into recursion).
+*   `zk_proof_g16.bin`: Raw Groth16 proof bytes (260-byte BN254 tuple, used by C/Solidity verifiers).
+*   `zk_vk.bin`: Verification Key for the Groth16 wrapper (converted to C via `export_vk`).
+*   `zk_pub.bin`: Public values (first keys_root + next keys root + next period) written as 2x 32 bytes + `u64` (le).
 
 ### 2. Generate a Recursive Chain (Loop Mode)
 
@@ -78,10 +80,45 @@ cargo run --manifest-path src/chains/eth/zk_proof/export_vk/Cargo.toml -- \
   --output-path src/chains/eth/zk_verifier/zk_verifier_constants.h
 ```
 
+### Frozen Guest ELF & Deterministic VK
+
+The Verification Key only stays stable if every proof is generated from **exactly the same guest ELF**.  
+`run_zk_proof.sh` now looks for `src/chains/eth/zk_proof/program/elf/eth_sync_program`:
+
+1.  If the file exists it is used as-is (no rebuild).
+2.  Otherwise the guest is compiled once, copied to `program/elf/`, and the script warns you to commit it.
+
+**Action item:** After the first successful build copy the ELF into `program/elf/eth_sync_program` (or let the script do it) and commit it so that every developer / prover node produces identical VKs.  
+Whenever you intentionally update the ELF (e.g. after modifying `program/`), regenerate the Groth16 verifier constants via:
+
+```bash
+cd src/chains/eth/zk_proof/export_vk
+cargo run --release -- \
+  --solidity-path ~/.sp1/circuits/groth16/v5.0.0/Groth16Verifier.sol \
+  --vk-path ../../../../../build/default/.period_store/<PERIOD>/zk_vk.bin \
+  --output-path ../../../../eth/zk_verifier/zk_verifier_constants.h
+```
+
+### SP1 Prover Network
+
+The script can offload proving to the SP1 Prover Network:
+
+```bash
+export SP1_PRIVATE_KEY=<network-api-key>
+./scripts/run_zk_proof.sh --prove --groth16 --network --period 1600
+```
+
+Flags:
+*   `--network`: switches `SP1_PROVER=network`.
+*   `--private-key <hex>`: optional inline key, otherwise `SP1_PRIVATE_KEY` must be set.
+
+The host still builds/uses the same ELF and runs the orchestration logic locally—the heavy lifting happens remotely.
+
 ## C-Verifier Integration
 
 The C implementation is located in `src/chains/eth/zk_verifier/`.
-It uses the **MCL** library for BN254 elliptic curve operations to verify the generated Groth16 proofs.
+By default it uses the hand-rolled BN254 implementation under `src/chains/eth/bn254`.  
+When Colibri is built with `-DUSE_MCL=1` the verifier instead uses **MCL** for accelerated pairings.
 
 *   **Library**: `zk_verifier.c` / `.h`
 *   **Build**: Controlled via `ETH_ZKPROOF` CMake option (Default: ON).
