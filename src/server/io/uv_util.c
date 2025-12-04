@@ -2,8 +2,23 @@
 #include "bytes.h"
 #include "logger.h"
 #include <errno.h>
-#include <string.h>
 #include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <sys/types.h>
+#else
+#include <direct.h>
+#endif
+
+#ifndef _WIN32
+#define C4_MKDIR(path, mode) mkdir((path), (mode_t) (mode))
+#define C4_DIR_MODE 0777
+#else
+#define C4_MKDIR(path, mode) (_mkdir(path))
+#define C4_DIR_MODE 0
+#endif
 
 typedef struct read_one_ctx_s  read_one_ctx_t;
 typedef struct write_one_ctx_s write_one_ctx_t;
@@ -28,6 +43,77 @@ struct read_one_ctx_s {
   size_t          to_read;
   size_t          done;
 };
+
+static int c4_is_dot_path(const char* path) {
+  if (!path) return 0;
+  return (strcmp(path, ".") == 0 || strcmp(path, "..") == 0);
+}
+
+static int c4_is_root_path(const char* path) {
+  if (!path) return 1;
+  size_t len = strlen(path);
+  if (len == 0) return 1;
+#ifndef _WIN32
+  return (len == 1 && path[0] == '/');
+#else
+  if (len == 1 && (path[0] == '/' || path[0] == '\\')) return 1;
+  if (len == 2 && path[1] == ':') return 1;
+  if (len == 3 && path[1] == ':' && (path[2] == '/' || path[2] == '\\')) return 1;
+  return 0;
+#endif
+}
+
+static int c4_mkpath(const char* path, int mode) {
+  if (!path || *path == '\0') return 0;
+  size_t len   = strlen(path);
+  char*  tmp   = (char*) safe_calloc(len + 1, 1);
+  char*  start = tmp;
+  memcpy(tmp, path, len);
+#ifdef _WIN32
+  if (len >= 2 && tmp[1] == ':') start = tmp + 2;
+#endif
+  for (char* cursor = start; *cursor; ++cursor) {
+    if (*cursor != '/' && *cursor != '\\') continue;
+    char saved = *cursor;
+    *cursor    = '\0';
+    if (!c4_is_root_path(tmp) && !c4_is_dot_path(tmp)) {
+      if (C4_MKDIR(tmp, mode) != 0 && errno != EEXIST) {
+        int err = errno;
+        safe_free(tmp);
+        return -err;
+      }
+    }
+    *cursor = saved;
+    while (*(cursor + 1) == '/' || *(cursor + 1) == '\\') cursor++;
+  }
+  if (!c4_is_root_path(tmp) && !c4_is_dot_path(tmp)) {
+    if (C4_MKDIR(tmp, mode) != 0 && errno != EEXIST) {
+      int err = errno;
+      safe_free(tmp);
+      return -err;
+    }
+  }
+  safe_free(tmp);
+  return 0;
+}
+
+static int c4_ensure_parent_directory(const char* filepath, int mode) {
+  if (!filepath) return -EINVAL;
+  const char* slash = strrchr(filepath, '/');
+#ifdef _WIN32
+  const char* backslash = strrchr(filepath, '\\');
+  if (!slash || (backslash && backslash > slash)) slash = backslash;
+#endif
+  if (!slash) return 0;
+  size_t len = (size_t) (slash - filepath);
+  if (len == 0) return 0;
+  char* dir = (char*) safe_calloc(len + 1, 1);
+  memcpy(dir, filepath, len);
+  dir[len] = '\0';
+  int rc   = c4_mkpath(dir, mode);
+  safe_free(dir);
+  return rc;
+}
 
 static void read_on_close(uv_fs_t* req) {
   read_one_ctx_t* ctx = (read_one_ctx_t*) req->data;
@@ -163,17 +249,21 @@ struct write_one_ctx_s {
   int             mode;
 };
 
-static void write_on_close(uv_fs_t* req) {
-  write_one_ctx_t* ctx = (write_one_ctx_t*) req->data;
-  uv_fs_req_cleanup(req);
-  ctx->fd                = -1;
+static void write_ctx_finish(write_one_ctx_t* ctx) {
   files_op_ctx_t* parent = ctx->parent;
-  // one file finished
   if (--parent->pending == 0) {
     if (parent->wcb) parent->wcb(parent->user_data, parent->files, parent->num_files);
     free(parent);
   }
   free(ctx);
+}
+
+static void write_on_close(uv_fs_t* req) {
+  write_one_ctx_t* ctx = (write_one_ctx_t*) req->data;
+  uv_fs_req_cleanup(req);
+  ctx->fd                = -1;
+  // one file finished
+  write_ctx_finish(ctx);
 }
 
 static void write_on_write(uv_fs_t* req) {
@@ -204,12 +294,7 @@ static void write_on_open(uv_fs_t* req) {
   if (req->result < 0) {
     ctx->f->error = strdup(uv_strerror((int) req->result));
     uv_fs_req_cleanup(req);
-    files_op_ctx_t* parent = ctx->parent;
-    if (--parent->pending == 0) {
-      if (parent->wcb) parent->wcb(parent->user_data, parent->files, parent->num_files);
-      free(parent);
-    }
-    free(ctx);
+    write_ctx_finish(ctx);
     return;
   }
   ctx->fd = (uv_file) req->result;
@@ -244,7 +329,16 @@ int c4_write_files_uv(void* user_data, c4_write_files_cb cb, file_data_t* files,
     ctx->fd              = -1;
     ctx->flags           = flags;
     ctx->mode            = mode;
-    ctx->open_req.data   = ctx;
+    int rc               = c4_ensure_parent_directory(ctx->f->path, C4_DIR_MODE);
+    if (rc != 0) {
+      int sys_err = -rc;
+      int uv_err  = uv_translate_sys_error(sys_err);
+      if (uv_err == 0) uv_err = UV_UNKNOWN;
+      ctx->f->error = strdup(uv_strerror(uv_err));
+      write_ctx_finish(ctx);
+      continue;
+    }
+    ctx->open_req.data = ctx;
     uv_fs_open(uv_default_loop(), &ctx->open_req, ctx->f->path, ctx->flags, ctx->mode, write_on_open);
   }
   return 0;

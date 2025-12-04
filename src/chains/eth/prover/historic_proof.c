@@ -119,9 +119,11 @@ static c4_status_t check_historic_proof_header(prover_ctx_t* ctx, blockroot_proo
 
 static c4_status_t get_historical_summaries(prover_ctx_t* ctx, beacon_block_t* block, json_t* history_proof) {
   if (ctx->state.error) return C4_ERROR;
-  uint8_t     tmp[200]       = {0};
-  buffer_t    buf            = stack_buffer(tmp);
-  json_t      history_proof1 = {0};
+  uint8_t  tmp[200] = {0};
+  buffer_t buf      = stack_buffer(tmp);
+
+  return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, history_proof, BEACON_CLIENT_LODESTAR);
+  /*
   json_t      history_proof2 = {0};
   c4_status_t status1        = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "nimbus/v1/debug/beacon/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof1, BEACON_CLIENT_NIMBUS);
   if (ctx->state.error) {
@@ -129,24 +131,27 @@ static c4_status_t get_historical_summaries(prover_ctx_t* ctx, beacon_block_t* b
     ctx->state.error = NULL;
     status1          = C4_ERROR;
   }
-  // /eth/v1/lodestar/states/{state_id}/historical_summaries
-  buffer_reset(&buf);
-  c4_status_t status2 = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof2, BEACON_CLIENT_LODESTAR);
-  if (ctx->state.error) {
-    safe_free(ctx->state.error);
-    ctx->state.error = NULL;
-    status2          = C4_ERROR;
-  }
+  */
+  /*
+   // /eth/v1/lodestar/states/{state_id}/historical_summaries
+   buffer_reset(&buf);
+   c4_status_t status2 = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof2, BEACON_CLIENT_LODESTAR);
+   if (ctx->state.error) {
+     safe_free(ctx->state.error);
+     ctx->state.error = NULL;
+     status2          = C4_ERROR;
+   }
 
-  if (status1 == C4_SUCCESS && history_proof1.type == JSON_TYPE_OBJECT)
-    *history_proof = history_proof1;
-  else if (status2 == C4_SUCCESS && history_proof2.type == JSON_TYPE_OBJECT)
-    *history_proof = history_proof2;
-  else if (status1 == C4_PENDING)
-    return C4_PENDING;
-  else
-    THROW_ERROR("Failed to get historical summaries! Looks like it is not supported by the beacon client!");
-  return C4_SUCCESS;
+   if (status1 == C4_SUCCESS && history_proof1.type == JSON_TYPE_OBJECT)
+     *history_proof = history_proof1;
+   else if (status2 == C4_SUCCESS && history_proof2.type == JSON_TYPE_OBJECT)
+     *history_proof = history_proof2;
+   else if (status1 == C4_PENDING)
+     return C4_PENDING;
+   else
+     THROW_ERROR("Failed to get historical summaries! Looks like it is not supported by the beacon client!");
+   return C4_SUCCESS;
+   */
 }
 
 static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
