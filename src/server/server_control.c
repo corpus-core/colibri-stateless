@@ -152,6 +152,7 @@ int c4_server_start(server_instance_t* instance, int port) {
   c4_register_http_handler(c4_handle_proof_request);
   c4_register_http_handler(c4_handle_metrics);
   c4_register_http_handler(c4_handle_status);
+  c4_register_http_handler(c4_handle_version);
 
   UV_CHECK("TCP initialization", uv_tcp_init(instance->loop, &instance->server), instance);
   UV_CHECK("IP address parsing", uv_ip4_addr(http_server.host, instance->port, &addr), instance);

@@ -6,6 +6,17 @@
 #include "beacon.h"
 #include "logger.h"
 #include "server.h"
+#include "version.h"
+
+bool c4_handle_version(client_t* client) {
+  if (strcmp(client->request.path, "/version") != 0) return false;
+
+  buffer_t data = {0};
+  bprintf(&data, "{\"vendor\":\"Colibri Stateless Server\",\"version\":\"%s\"}", C4_VERSION);
+  c4_http_respond(client, 200, "application/json", data.data);
+  buffer_free(&data);
+  return true;
+}
 
 bool c4_handle_status(client_t* client) {
   if (strcmp(client->request.path, "/health") != 0) return false;

@@ -331,6 +331,7 @@ bool           c4_handle_post_config(client_t* client);
 bool           c4_handle_restart_server(client_t* client);
 bool           c4_handle_config_ui(client_t* client);
 bool           c4_handle_openapi(client_t* client);
+bool           c4_handle_version(client_t* client);
 bool           c4_handle_unverified_rpc_request(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);

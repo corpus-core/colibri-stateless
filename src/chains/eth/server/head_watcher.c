@@ -293,14 +293,16 @@ static void on_reconnect_timer(uv_timer_t* handle) {
 // --- User Handler ---
 
 static void handle_beacon_event(char* event, char* data) {
-  log_info("Beacon Event Received: Type: " YELLOW("%s"), event);
+  json_t json = json_parse(data);
   http_server.stats.beacon_events_total++;
   if (strcmp(event, "head") == 0) {
     http_server.stats.beacon_events_head++;
+    log_info("Beacon Event Received: Type: " YELLOW("%s") " - Slot: " YELLOW("%j"), event, json_get(json, "slot"));
     c4_handle_new_head(json_parse(data));
   }
   else if (strcmp(event, "finalized_checkpoint") == 0) {
     http_server.stats.beacon_events_finalized++;
+    log_info("Beacon Event Received: Type: " YELLOW("%s") " - Epoch: " YELLOW("%j"), event, json_get(json, "epoch"));
     c4_handle_finalized_checkpoint(json_parse(data));
   }
   else {
