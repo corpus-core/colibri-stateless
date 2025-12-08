@@ -250,7 +250,15 @@ function updateMetrics(period, duration, status, type) {
     // BUT, for simplicity in this script, we can read existing metrics (or keep them in memory) and rewrite.
     // Since this is single threaded JS, we can just update a global state object and write it out.
 
-    globalMetrics.lastRunTimestamp = timestamp;
+    const shouldUseArtifact = type === 'success' || type === 'skipped';
+    const artifactTimestamp = shouldUseArtifact ? getProofArtifactTimestamp(period) : null;
+
+    if (shouldUseArtifact && artifactTimestamp) {
+        globalMetrics.lastRunTimestamp = artifactTimestamp;
+    } else if (!shouldUseArtifact && globalMetrics.lastRunTimestamp === 0) {
+        // Initialize metric so Prometheus does not see "0" forever
+        globalMetrics.lastRunTimestamp = timestamp;
+    }
     globalMetrics.lastCheckTimestamp = timestamp; // Always update check timestamp
 
     if (type !== 'skipped') {
@@ -283,8 +291,19 @@ const globalMetrics = {
     lastRunDuration: 0,
     lastRunStatus: 0,
     currentPeriod: 0,
-    fileSizes: {} // { period: { 'filename': size, ... } }
+    fileSizes: {}, // { period: { 'filename': size, ... } }
 };
+
+function getProofArtifactTimestamp(period) {
+    if (!period || period <= 0) return null;
+    const proofPath = path.join(OUTPUT_DIR, period.toString(), 'zk_proof_g16.bin');
+    try {
+        const stats = fs.statSync(proofPath);
+        return Math.floor(stats.mtimeMs / 1000);
+    } catch (_) {
+        return null;
+    }
+}
 
 function writeMetricsToFile() {
     let content = '';
