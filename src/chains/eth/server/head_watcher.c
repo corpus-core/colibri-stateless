@@ -191,12 +191,16 @@ static void parse_sse_buffer() {
       size_t line_len = next_newline - current_line;
 
       if (strncmp(current_line, "event:", 6) == 0) {
-        safe_free(event_type);                                // Free previous if any
-        event_type = strndup(current_line + 7, line_len - 7); // Skip "event: "
+        safe_free(event_type); // Free previous if any
+        size_t skip = 6;
+        if (line_len > 6 && current_line[6] == ' ') skip = 7; // Skip optional space
+        event_type = strndup(current_line + skip, line_len - skip);
       }
       else if (strncmp(current_line, "data:", 5) == 0) {
-        safe_free(event_data);                                // Free previous if any
-        event_data = strndup(current_line + 6, line_len - 6); // Skip "data: "
+        safe_free(event_data); // Free previous if any
+        size_t skip = 5;
+        if (line_len > 5 && current_line[5] == ' ') skip = 6; // Skip optional space
+        event_data = strndup(current_line + skip, line_len - skip);
       }
       // Ignore other lines (like comments starting with ':')
 

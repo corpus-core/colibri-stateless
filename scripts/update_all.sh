@@ -6,6 +6,7 @@ hosts=(
   cc_mainnet2
   cc_mainnet3
   cc_gnosis1
+  cc_gnosis2
 )
 
 # Colors (enabled for TTY)
