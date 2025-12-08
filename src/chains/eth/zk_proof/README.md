@@ -108,10 +108,12 @@ export SP1_PRIVATE_KEY=<network-api-key>
 ./scripts/run_zk_proof.sh --prove --groth16 --network --period 1600
 ```
 
-Flags:
+Flags / Env vars:
 *   `--network`: switches `SP1_PROVER=network`.
 *   `--private-key <hex>`: optional inline key, otherwise `SP1_PRIVATE_KEY` must be set.
+*   `CHAIN`: Selects chain-specific defaults. Supported: `mainnet` (default), `sepolia`, `gnosis`, `chiado`, `base`. Controls the default `EPOCHS_PER_PERIOD` (256 for mainnet/sepolia/base, 512 for gnosis/chiado) and, when available, a default Beacon RPC URL. You can still override `EPOCHS_PER_PERIOD` or `RPC_URL`.
 *   `SP1_PRIVATE_KEY_FILE` / `NETWORK_PRIVATE_KEY_FILE`: optional paths to files containing the hex key (handy for Docker secrets). When set, `run_zk_proof.sh` reads the file and exports `SP1_PRIVATE_KEY`/`NETWORK_PRIVATE_KEY` automatically. If you mount a secret to `/run/secrets/sp1_private_key`, the script will pick it up without additional flags.
+*   `SP1_SKIP_VERIFY=1`: skip the local Groth16 verification step (useful in containers where Docker isn’t available).
 
 The host still builds/uses the same ELF and runs the orchestration logic locally—the heavy lifting happens remotely.
 
@@ -130,7 +132,9 @@ Then mount it via Compose (see `docker-compose.example.yml`), for example:
 services:
   prover-daemon:
     environment:
+      - CHAIN=mainnet
       - SP1_PRIVATE_KEY_FILE=/run/secrets/sp1_network_key
+      - SP1_SKIP_VERIFY=1    # optional: skip local verification inside the container
     secrets:
       - sp1_network_key
 secrets:
@@ -138,7 +142,7 @@ secrets:
     file: ./secrets/sp1_private_key
 ```
 
-`run_zk_proof.sh` and the daemon will read `/run/secrets/sp1_network_key` and export `SP1_PRIVATE_KEY` for you, so the key never appears in the plain environment.
+`run_zk_proof.sh` and the daemon will read `/run/secrets/sp1_network_key` and export `SP1_PRIVATE_KEY` for you, so the key never appears in the plain environment. See `src/chains/eth/zk_proof/daemon/docker-compose.example.yml` for a full setup (volumes, metrics, etc.).
 
 ## C-Verifier Integration
 

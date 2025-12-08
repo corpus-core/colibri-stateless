@@ -4,9 +4,21 @@ const { spawn } = require('child_process');
 // Removed axios dependency, using native fetch (Node 18+)
 
 // Configuration
-const RPC_URL = process.env.RPC_URL || 'https://lodestar-mainnet.chainsafe.io';
+const CHAIN_CONFIGS = {
+    mainnet: { epochsPerPeriod: 256, rpc: 'https://lodestar-mainnet.chainsafe.io' },
+    sepolia: { epochsPerPeriod: 256 },
+    gnosis: { epochsPerPeriod: 512 },
+    chiado: { epochsPerPeriod: 512 },
+    base: { epochsPerPeriod: 256 },
+};
+
+const CHAIN = (process.env.CHAIN || 'mainnet').toLowerCase();
+const chainDefaults = CHAIN_CONFIGS[CHAIN] || CHAIN_CONFIGS.mainnet;
+
+const RPC_URL = process.env.RPC_URL || chainDefaults.rpc || 'https://lodestar-mainnet.chainsafe.io';
 const CHECK_INTERVAL_MS = parseInt(process.env.CHECK_INTERVAL_MS) || 10 * 60 * 1000; // 10 minutes
-const EPOCHS_PER_PERIOD = parseInt(process.env.EPOCHS_PER_PERIOD) || 256; // 256 for Mainnet, 512 for Gnosis
+const EPOCHS_PER_PERIOD =
+    parseInt(process.env.EPOCHS_PER_PERIOD) || chainDefaults.epochsPerPeriod || 256; // 256 for Mainnet, 512 for Gnosis
 const OUTPUT_DIR = process.env.OUTPUT_DIR || path.resolve(__dirname, '../../../../../build/default/.period_store');
 const PROMETHEUS_FILE = process.env.PROMETHEUS_FILE || '/metrics/proof.prom';
 const REPO_ROOT = process.env.REPO_ROOT || path.resolve(__dirname, '../../../../..');
@@ -21,6 +33,7 @@ let isRunning = false;
 
 async function main() {
     console.log('🚀 Starting Prover Daemon');
+    console.log(`   Chain: ${CHAIN}`);
     console.log(`   RPC: ${RPC_URL}`);
     console.log(`   Epochs/Period: ${EPOCHS_PER_PERIOD}`);
     console.log(`   Output Dir: ${OUTPUT_DIR}`);
@@ -278,24 +291,24 @@ function writeMetricsToFile() {
 
     content += `# HELP prover_daemon_last_check_timestamp_seconds Timestamp of the last daemon check loop\n`;
     content += `# TYPE prover_daemon_last_check_timestamp_seconds gauge\n`;
-    content += `prover_daemon_last_check_timestamp_seconds ${globalMetrics.lastCheckTimestamp}\n\n`;
+    content += `prover_daemon_last_check_timestamp_seconds{chain="${CHAIN}"} ${globalMetrics.lastCheckTimestamp}\n\n`;
 
     content += `# HELP prover_daemon_last_run_timestamp_seconds Timestamp of the last actual proof run attempt\n`;
     content += `# TYPE prover_daemon_last_run_timestamp_seconds gauge\n`;
-    content += `prover_daemon_last_run_timestamp_seconds ${globalMetrics.lastRunTimestamp}\n\n`;
+    content += `prover_daemon_last_run_timestamp_seconds{chain="${CHAIN}"} ${globalMetrics.lastRunTimestamp}\n\n`;
 
     content += `# HELP prover_daemon_last_run_duration_seconds Duration of the last proof run in seconds\n`;
     content += `# TYPE prover_daemon_last_run_duration_seconds gauge\n`;
-    content += `prover_daemon_last_run_duration_seconds ${globalMetrics.lastRunDuration}\n\n`;
+    content += `prover_daemon_last_run_duration_seconds{chain="${CHAIN}"} ${globalMetrics.lastRunDuration}\n\n`;
 
     content += `# HELP prover_daemon_last_run_status Status of the last proof run (0=success, 1=error)\n`;
     content += `# TYPE prover_daemon_last_run_status gauge\n`;
-    content += `prover_daemon_last_run_status ${globalMetrics.lastRunStatus}\n\n`;
+    content += `prover_daemon_last_run_status{chain="${CHAIN}"} ${globalMetrics.lastRunStatus}\n\n`;
 
     if (globalMetrics.currentPeriod > 0) {
         content += `# HELP prover_daemon_current_period The target period being processed\n`;
         content += `# TYPE prover_daemon_current_period gauge\n`;
-        content += `prover_daemon_current_period ${globalMetrics.currentPeriod}\n\n`;
+        content += `prover_daemon_current_period{chain="${CHAIN}"} ${globalMetrics.currentPeriod}\n\n`;
     }
 
     // File Sizes
@@ -305,7 +318,7 @@ function writeMetricsToFile() {
 
         for (const [p, files] of Object.entries(globalMetrics.fileSizes)) {
             for (const [filename, size] of Object.entries(files)) {
-                content += `prover_daemon_file_size_bytes{period="${p}",file="${filename}"} ${size}\n`;
+                content += `prover_daemon_file_size_bytes{chain="${CHAIN}",period="${p}",file="${filename}"} ${size}\n`;
             }
         }
     }
