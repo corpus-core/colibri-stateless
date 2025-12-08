@@ -1,7 +1,7 @@
 FROM node:20-bullseye
 
-# InARTall system dependencies
-RUN apt-get update && apt-get inrtll -y \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
     pkg-config \
