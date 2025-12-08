@@ -76,6 +76,7 @@ static const chain_spec_t chain_data[] = {
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
      .fork_epochs              = eth_gnosis_fork_epochs,
      .genesis_validators_root  = "\xf5\xdc\xb5\x56\x4e\x82\x9a\xab\x27\x26\x4b\x9b\xec\xd5\xdf\xaa\x01\x70\x85\x61\x12\x24\xcb\x30\x36\xf5\x73\x36\x8d\xbb\x9d\x47",
+     .zk_sync_keys_root        = "\xA5\x51\x77\x7C\xE1\xD8\xA8\x07\xAB\x7D\x68\xF9\x2C\xD3\x68\x20\x00\x81\xB1\xF8\x40\xD3\xD4\x6B\xDF\xF9\xB7\xCF\xC0\x90\xED\x09",
      .slots_per_epoch_bits     = 4,
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
