@@ -102,6 +102,7 @@ fn read_proof_data(filename: &str) -> ProofData {
 async fn main() {
     println!("Starting eth-sync-script...");
     let args = Args::parse();
+    let skip_local_verify = std::env::var("SP1_SKIP_VERIFY").is_ok();
 
     log_network_identity();
     let client = ProverClient::from_env();
@@ -254,9 +255,12 @@ async fn main() {
             let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
             std::fs::write(&vk_output, vk_bytes).expect("Failed to save VK");
 
-            // Verify against SP1 VK
-            client.verify(&proof, &vk).expect("Verification failed");
-            println!("Proof verified successfully.");
+            if skip_local_verify {
+                println!("Skipping local verification (SP1_SKIP_VERIFY is set).");
+            } else {
+                client.verify(&proof, &vk).expect("Verification failed");
+                println!("Proof verified successfully.");
+            }
         } else {
             println!("Generating Core/Compressed proof (default)...");
             let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
@@ -272,8 +276,12 @@ async fn main() {
             let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
             std::fs::write(&vk_output, vk_bytes).expect("Failed to save VK");
 
-            client.verify(&proof, &vk).expect("Verification failed");
-            println!("Proof verified successfully.");
+            if skip_local_verify {
+                println!("Skipping local verification (SP1_SKIP_VERIFY is set).");
+            } else {
+                client.verify(&proof, &vk).expect("Verification failed");
+                println!("Proof verified successfully.");
+            }
         }
     }
 }
