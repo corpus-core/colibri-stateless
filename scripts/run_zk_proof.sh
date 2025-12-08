@@ -32,13 +32,35 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# Load private keys from files (useful for Docker secrets)
+if [ -z "$SP1_PRIVATE_KEY" ] && [ -z "$PRIVATE_KEY_ARG" ]; then
+    if [ -z "$SP1_PRIVATE_KEY_FILE" ] && [ -f "/run/secrets/sp1_private_key" ]; then
+        SP1_PRIVATE_KEY_FILE="/run/secrets/sp1_private_key"
+    fi
+    if [ -n "$SP1_PRIVATE_KEY_FILE" ] && [ -f "$SP1_PRIVATE_KEY_FILE" ]; then
+        export SP1_PRIVATE_KEY="$(tr -d ' \r\n\t' < "$SP1_PRIVATE_KEY_FILE")"
+    fi
+fi
+
+if [ -z "$NETWORK_PRIVATE_KEY" ]; then
+    if [ -z "$NETWORK_PRIVATE_KEY_FILE" ] && [ -f "/run/secrets/network_private_key" ]; then
+        NETWORK_PRIVATE_KEY_FILE="/run/secrets/network_private_key"
+    fi
+    if [ -n "$NETWORK_PRIVATE_KEY_FILE" ] && [ -f "$NETWORK_PRIVATE_KEY_FILE" ]; then
+        export NETWORK_PRIVATE_KEY="$(tr -d ' \r\n\t' < "$NETWORK_PRIVATE_KEY_FILE")"
+    fi
+fi
+
+if [ -z "$NETWORK_PRIVATE_KEY" ] && [ -n "$SP1_PRIVATE_KEY" ]; then
+    export NETWORK_PRIVATE_KEY="$SP1_PRIVATE_KEY"
+fi
+
 # --- SP1 NETWORK SETUP ---
 if [ "$USE_NETWORK" = true ]; then
     export SP1_PROVER="network"
     if [ -n "$PRIVATE_KEY_ARG" ]; then
         export SP1_PRIVATE_KEY="$PRIVATE_KEY_ARG"
         export NETWORK_PRIVATE_KEY="$PRIVATE_KEY_ARG"
-#        export NETWORK_RPC_URL=https://rpc.mainnet.succinct.xyz
     fi
 
     if [ -z "$SP1_PRIVATE_KEY" ]; then

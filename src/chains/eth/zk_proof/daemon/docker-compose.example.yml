@@ -16,13 +16,19 @@ services:
       - OUTPUT_DIR=/data/proofs
       # Metrics file location
       - PROMETHEUS_FILE=/metrics/proof.prom
-      # REQUIRED: Your SP1 Private Key
-      - SP1_PRIVATE_KEY=${SP1_PRIVATE_KEY}
+      # Path to the Docker secret containing your SP1 private key
+      - SP1_PRIVATE_KEY_FILE=/run/secrets/sp1_network_key
     volumes:
       # Map the output directory to a persistent volume or host path
       - ./period_store_data:/data/proofs
       # Map the textfile collector directory for Node Exporter
       # Assuming node_exporter runs on host or another container sharing this volume
       - /var/lib/node_exporter/textfile_collector:/metrics
-    network_mode: "host" # Optional, or use bridge and expose nothing since it's a daemon
+    secrets:
+      - sp1_network_key
+    network_mode: "host" # Optional, or use bridge and expose nothing since a daemon
+
+secrets:
+  sp1_network_key:
+    file: ./secrets/sp1_private_key
 

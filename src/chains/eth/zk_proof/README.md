@@ -111,8 +111,34 @@ export SP1_PRIVATE_KEY=<network-api-key>
 Flags:
 *   `--network`: switches `SP1_PROVER=network`.
 *   `--private-key <hex>`: optional inline key, otherwise `SP1_PRIVATE_KEY` must be set.
+*   `SP1_PRIVATE_KEY_FILE` / `NETWORK_PRIVATE_KEY_FILE`: optional paths to files containing the hex key (handy for Docker secrets). When set, `run_zk_proof.sh` reads the file and exports `SP1_PRIVATE_KEY`/`NETWORK_PRIVATE_KEY` automatically. If you mount a secret to `/run/secrets/sp1_private_key`, the script will pick it up without additional flags.
 
 The host still builds/uses the same ELF and runs the orchestration logic locally—the heavy lifting happens remotely.
+
+#### Using Docker secrets
+
+Create a secret once on the host:
+
+```bash
+mkdir -p secrets
+echo "0xYOUR_SP1_NETWORK_KEY" > secrets/sp1_private_key
+```
+
+Then mount it via Compose (see `docker-compose.example.yml`), for example:
+
+```yaml
+services:
+  prover-daemon:
+    environment:
+      - SP1_PRIVATE_KEY_FILE=/run/secrets/sp1_network_key
+    secrets:
+      - sp1_network_key
+secrets:
+  sp1_network_key:
+    file: ./secrets/sp1_private_key
+```
+
+`run_zk_proof.sh` and the daemon will read `/run/secrets/sp1_network_key` and export `SP1_PRIVATE_KEY` for you, so the key never appears in the plain environment.
 
 ## C-Verifier Integration
 
