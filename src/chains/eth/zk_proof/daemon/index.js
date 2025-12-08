@@ -72,10 +72,10 @@ async function checkAndProve() {
         console.log(`   Target Period (to prove): ${targetPeriod}`);
 
         // Validate Current Period Files (P) - used for input
-        validatePeriodFiles(currentPeriod);
+        validatePeriodFiles(currentPeriod, { includeEarlyArtifacts: true });
 
-        // Validate Target Period Files (P+1) - potentially partially existing
-        validatePeriodFiles(targetPeriod);
+        // Validate Target Period Files (P+1) - skip artifacts that only exist once the period is finalized
+        validatePeriodFiles(targetPeriod, { includeEarlyArtifacts: false });
 
         // Check if proof exists
         const proofPath = path.join(OUTPUT_DIR, targetPeriod.toString(), 'zk_proof_g16.bin');
@@ -119,12 +119,16 @@ async function checkAndProve() {
     }
 }
 
-function validatePeriodFiles(period) {
+function validatePeriodFiles(period, options = {}) {
     const periodDir = path.join(OUTPUT_DIR, period.toString());
+    const includeEarlyArtifacts = options.includeEarlyArtifacts ?? true;
 
     // Define critical files to check
     // Added zk_proof_g16.bin as it's the final output we care about most, and light client update files
-    const filesToCheck = ['sync.ssz', 'zk_proof.bin', 'zk_vk_raw.bin', 'blocks.ssz', 'headers.ssz', 'zk_proof_g16.bin', 'lcu.ssz', 'lcb.ssz'];
+    const filesToCheck = ['sync.ssz', 'zk_proof.bin', 'zk_vk_raw.bin', 'zk_proof_g16.bin'];
+    if (includeEarlyArtifacts) {
+        filesToCheck.push('blocks.ssz', 'headers.ssz', 'lcu.ssz', 'lcb.ssz');
+    }
 
     // Helper to get file size or -1 if missing
     const getFileSize = (filename) => {
