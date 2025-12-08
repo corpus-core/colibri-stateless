@@ -37,6 +37,8 @@ if [ "$USE_NETWORK" = true ]; then
     export SP1_PROVER="network"
     if [ -n "$PRIVATE_KEY_ARG" ]; then
         export SP1_PRIVATE_KEY="$PRIVATE_KEY_ARG"
+        export NETWORK_PRIVATE_KEY="$PRIVATE_KEY_ARG"
+#        export NETWORK_RPC_URL=https://rpc.mainnet.succinct.xyz
     fi
 
     if [ -z "$SP1_PRIVATE_KEY" ]; then

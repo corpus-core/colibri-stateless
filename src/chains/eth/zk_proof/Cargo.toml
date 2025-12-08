@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.dependencies]
 sp1-zkvm = { version = "5.2.3" }
-sp1-sdk = { version = "5.2.3" }
+sp1-sdk = { version = "5.2.3", default-features = false, features = ["network"] }
 bls12_381 = "0.8.0"
 sha2 = "0.9.9"
 serde = { version = "1.0", features = ["derive"] }
