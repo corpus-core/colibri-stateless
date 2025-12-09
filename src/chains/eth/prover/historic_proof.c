@@ -177,9 +177,10 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "period_store/%d/blocks.ssz", block_period), NULL, 0, &blocks)); // get the blockd
   TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
 
+  uint32_t  offset_period  = (uint32_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
   fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
   json_t    data           = json_get(history_proof, "data");                                    // the the main json-object
-  uint32_t  summary_idx    = block_period - 758;                                                 // the index starting from the  cappella fork, where we got zhe first Summary entry.
+  uint32_t  summary_idx    = block_period - offset_period;                                       // the index starting from the  cappella fork, where we got zhe first Summary entry.
   uint32_t  block_idx      = slot % 8192;                                                        // idx within the period
   gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                           // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
   gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root");       // the gindex of the single summary-object we need to proof
