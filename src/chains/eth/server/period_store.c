@@ -1,6 +1,7 @@
 
 #include "period_store.h"
 #include "bytes.h"
+#include "eth_clients.h"
 #include "eth_conf.h"
 #include "json.h"
 #include "logger.h"
@@ -100,6 +101,9 @@ static void     fetch_header_cb(client_t* client, void* data, data_request_t* r)
 static void schedule_fetch_lcu(uint64_t period);
 static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r);
 static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files);
+static void schedule_fetch_historical_root(uint64_t period);
+static void fetch_historical_root_cb(client_t* client, void* data, data_request_t* r);
+static void historical_root_write_done_cb(void* user_data, file_data_t* files, int num_files);
 
 // write completion callback for c4_write_files_uv
 static void ps_write_done_cb(void* user_data, file_data_t* files, int num_files) {
@@ -595,6 +599,11 @@ typedef struct {
   data_request_t* req; // kept alive until write finishes
 } lcu_write_ctx_t;
 
+typedef struct {
+  uint64_t        period;
+  data_request_t* req; // kept alive until write finishes
+} historical_root_write_ctx_t;
+
 static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files) {
   (void) num_files;
   lcu_write_ctx_t* ctx = (lcu_write_ctx_t*) user_data;
@@ -624,6 +633,7 @@ static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
     log_warn("period_store: LCU fetch for period %l failed: %s", period, r->error);
     safe_free(r->url);
     safe_free(r->response.data);
+    safe_free(r->error);
     safe_free(r);
     return;
   }
@@ -631,11 +641,11 @@ static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
   char* dir  = ensure_period_dir(period);
   char* path = bprintf(NULL, strstr(r->url, "bootstrap") ? "%s/lcb.ssz" : "%s/lcu.ssz", dir);
   safe_free(dir);
-  file_data_t* files = (file_data_t*) safe_calloc(1, sizeof(file_data_t));
-  files[0].path      = path;
-  files[0].offset    = 0;
-  files[0].limit     = r->response.len; // write all bytes
-  files[0].data      = r->response;
+  file_data_t files[1] = {0};
+  files[0].path        = path;
+  files[0].offset      = 0;
+  files[0].limit       = r->response.len; // write all bytes
+  files[0].data        = r->response;
   // keep request alive until write completes
   lcu_write_ctx_t* wctx = (lcu_write_ctx_t*) safe_calloc(1, sizeof(lcu_write_ctx_t));
   wctx->period          = period;
@@ -669,6 +679,76 @@ static void schedule_fetch_lcu(uint64_t period) {
   uint64_t* pdata            = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
   *pdata                     = period;
   c4_add_request(&lcu_client, req, pdata, fetch_lcu_cb);
+}
+
+static void historical_root_write_done_cb(void* user_data, file_data_t* files, int num_files) {
+  (void) num_files;
+  historical_root_write_ctx_t* ctx = (historical_root_write_ctx_t*) user_data;
+  if (files && files[0].error) {
+    log_warn("period_store: writing historical_root.json for period %l failed: %s", ctx->period, files[0].error);
+  }
+  else {
+    log_info("period_store: wrote historical_root.json for period %l", ctx->period);
+  }
+  c4_file_data_array_free(files, num_files, 0);
+  if (ctx->req) {
+    safe_free(ctx->req->url);
+    safe_free(ctx->req->response.data);
+    safe_free(ctx->req);
+  }
+  safe_free(ctx);
+}
+
+static void fetch_historical_root_cb(client_t* client, void* data, data_request_t* r) {
+  (void) client;
+  uint64_t period = data ? *((uint64_t*) data) : 0;
+  safe_free(data);
+  if (!r->response.data && !r->error) r->error = strdup("unknown error!");
+  if (r->error) {
+    log_warn("period_store: historical summaries fetch for period %l failed: %s", period, r->error);
+    safe_free(r->url);
+    safe_free(r->response.data);
+    safe_free(r->error);
+    safe_free(r);
+    return;
+  }
+  char* dir  = ensure_period_dir(period);
+  char* path = bprintf(NULL, "%s/historical_root.json", dir);
+  safe_free(dir);
+  file_data_t files[1]              = {0};
+  files[0].path                     = path;
+  files[0].offset                   = 0;
+  files[0].limit                    = r->response.len;
+  files[0].data                     = r->response;
+  historical_root_write_ctx_t* wctx = (historical_root_write_ctx_t*) safe_calloc(1, sizeof(historical_root_write_ctx_t));
+  wctx->period                      = period;
+  wctx->req                         = r;
+  int rc                            = c4_write_files_uv(wctx, historical_root_write_done_cb, files, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (rc < 0) {
+    log_warn("period_store: scheduling historical_root.json write failed for period %l", period);
+    c4_file_data_array_free(files, 1, 0);
+    safe_free(r->url);
+    safe_free(r->response.data);
+    safe_free(r);
+    safe_free(wctx);
+  }
+}
+
+static void schedule_fetch_historical_root(uint64_t period) {
+  if (graceful_shutdown_in_progress) return;
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  if (!sl || sl->count == 0) return;
+  static client_t historical_client = {0};
+  data_request_t* req               = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->url                          = strdup("eth/v1/lodestar/states/head/historical_summaries");
+  req->method                       = C4_DATA_METHOD_GET;
+  req->chain_id                     = http_server.chain_id;
+  req->type                         = C4_DATA_TYPE_BEACON_API;
+  req->encoding                     = C4_DATA_ENCODING_JSON;
+  req->preferred_client_type        = BEACON_CLIENT_LODESTAR;
+  uint64_t* pdata                   = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
+  *pdata                            = period;
+  c4_add_request(&historical_client, req, pdata, fetch_historical_root_cb);
 }
 
 #define THROW_PERIOD_ERROR(r, fmt, ...) \
@@ -771,6 +851,7 @@ static void lcu_assemble_fetch_cb(client_t* client, void* data, data_request_t* 
     char* err = bprintf(NULL, "LCU fetch failed for period %l: %s", p, r->error);
     // cleanup request
     safe_free(r->url);
+    safe_free(r->error);
     safe_free(r->response.data);
     safe_free(r);
     // finalize with error
@@ -787,7 +868,7 @@ static void lcu_assemble_fetch_cb(client_t* client, void* data, data_request_t* 
   char* dir  = ensure_period_dir(p);
   char* path = bprintf(NULL, "%s/lcu.ssz", dir);
   safe_free(dir);
-  file_data_t* files    = (file_data_t*) safe_calloc(1, sizeof(file_data_t));
+  file_data_t files[1]  = {0};
   files[0].path         = path;
   files[0].offset       = 0;
   files[0].limit        = r->response.len;
@@ -1235,4 +1316,6 @@ void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
     fetch_lcb_for_checkpoint(checkpoint, period);
   if (!file_exists(period, "lcu.ssz"))
     schedule_fetch_lcu(period);
+  if (!file_exists(period, "historical_root.json"))
+    schedule_fetch_historical_root(period);
 }
