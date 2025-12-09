@@ -194,9 +194,28 @@ if [ ! -f "$INPUT_FILE" ]; then
          -d "{\"method\":\"eth_proof_sync\",\"params\":[$PERIOD],\"id\":1,\"jsonrpc\":\"2.0\"}" \
          --output "$INPUT_FILE" 
     
-    # Check if file is valid (not empty)
-    if [ ! -s "$INPUT_FILE" ]; then
-        echo "❌ Failed to fetch data or empty response"
+    # Check if file is valid (minimum size)
+    if [ ! -f "$INPUT_FILE" ]; then
+        echo "❌ Failed to fetch data or empty response (no file created)"
+        exit 1
+    fi
+
+    FILE_SIZE_BYTES=$(wc -c < "$INPUT_FILE" | tr -d '[:space:]')
+
+    # Very small response (< 1 kB) is likely just an error message: show it and abort
+    if [ "$FILE_SIZE_BYTES" -lt 1024 ]; then
+        echo "❌ Failed to fetch data: response too small (${FILE_SIZE_BYTES} bytes, likely error message)"
+        echo "---- Response from server ----"
+        cat "$INPUT_FILE"
+        echo "------------------------------"
+        rm -f "$INPUT_FILE"
+        exit 1
+    fi
+
+    # Below 25 kB we consider the payload invalid and abort without using it
+    MIN_VALID_SIZE_BYTES=$((25 * 1024))
+    if [ "$FILE_SIZE_BYTES" -lt "$MIN_VALID_SIZE_BYTES" ]; then
+        echo "❌ Failed to fetch data: response too small (${FILE_SIZE_BYTES} bytes, expected at least ${MIN_VALID_SIZE_BYTES} bytes)"
         rm -f "$INPUT_FILE"
         exit 1
     fi
