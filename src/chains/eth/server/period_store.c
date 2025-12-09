@@ -1,5 +1,6 @@
 
 #include "period_store.h"
+#include "../ssz/beacon_types.h"
 #include "bytes.h"
 #include "eth_clients.h"
 #include "eth_conf.h"
@@ -20,7 +21,13 @@
 #include <sys/stat.h>
 #include <uv.h>
 static const char* internal_path = "period_store/";
-
+static bool        file_exists(uint64_t period, const char* filename) {
+  char*       path = bprintf(NULL, "%s/%l/%s", eth_config.period_store, period, filename);
+  struct stat buffer;
+  bool        exists = stat(path, &buffer) == 0;
+  safe_free(path);
+  return exists;
+}
 static inline bool is_file_not_found(char* error) {
   return error && strstr(error, "such file or directory") != NULL;
 }
@@ -38,6 +45,9 @@ static inline bool is_file_not_found(char* error) {
 #define HEADER_SCHEMA    "{data:{root:bytes32,header:{message:{slot:suint,proposer_index:suint,parent_root:bytes32,state_root:bytes32,body_root:bytes32}}}}"
 #define SLOTS_PER_PERIOD 8192u
 #define HEADER_SIZE      112
+
+// SSZ definition for blocks.ssz: 8192 block roots (bytes32 each)
+static const ssz_def_t BLOCKS = SSZ_VECTOR("blocks", ssz_bytes32, SLOTS_PER_PERIOD);
 
 typedef struct {
   uint64_t  slot;
@@ -79,6 +89,19 @@ typedef struct {
 } write_queue_ctx_t;
 
 typedef struct {
+  uint64_t hist_period;
+  uint64_t current_period;
+  uint64_t last_period;
+  uint32_t offset_period;
+  uint64_t periods_verified;
+  uint64_t periods_skipped_verified;
+  uint64_t periods_failed;
+  json_t   json_doc;
+  json_t   data;
+  buffer_t json_buf;
+} verify_blocks_ctx_t;
+
+typedef struct {
   // lifecycle context across async fs ops
   write_task_t* task;
   char*         blocks_path;
@@ -95,7 +118,8 @@ static void     ps_finish_write(fs_ctx_t* ctx, bool ok);
 static void     backfill();
 static void     run_write_block_queue();
 static void     enqueue_backfill(void);
-static uint64_t latest_head_slot = 0;
+static uint64_t latest_head_slot   = 0;
+static uint64_t latest_hist_period = UINT64_MAX;
 static void     fetch_header_cb(client_t* client, void* data, data_request_t* r);
 // LCU forward declarations
 static void schedule_fetch_lcu(uint64_t period);
@@ -104,6 +128,9 @@ static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files
 static void schedule_fetch_historical_root(uint64_t period);
 static void fetch_historical_root_cb(client_t* client, void* data, data_request_t* r);
 static void historical_root_write_done_cb(void* user_data, file_data_t* files, int num_files);
+static void schedule_verify_all_blocks_for_historical(uint64_t hist_period);
+static void verify_hist_json_read_cb(void* user_data, file_data_t* files, int num_files);
+static void verify_blocks_for_period_read_cb(void* user_data, file_data_t* files, int num_files);
 
 // write completion callback for c4_write_files_uv
 static void ps_write_done_cb(void* user_data, file_data_t* files, int num_files) {
@@ -182,6 +209,21 @@ static void backfill_done() {
     log_info(YELLOW("period_store:") " backfill done at slot %l in " GREEN("%l s and %l ms"), bf_ctx.current.slot, duration_s, duration_ms % 1000);
   else
     log_info(YELLOW("period_store:") " backfill done at slot %l in " GREEN("%l ms"), bf_ctx.current.slot, duration_ms);
+
+  // After backfill finished, try to verify blocks_root for all periods using the latest historical_summaries.
+  // If we do not yet know which period provides historical_summaries, try to infer it from the current head period.
+  if (eth_config.period_store && latest_hist_period == UINT64_MAX) {
+    const chain_spec_t* chain = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
+    if (chain && chain->fork_epochs) {
+      uint64_t head_period = period_for_slot(bf_ctx.start_slot, chain);
+      if (file_exists(head_period, "historical_root.json")) {
+        latest_hist_period = head_period;
+      }
+    }
+  }
+  if (eth_config.period_store && latest_hist_period != UINT64_MAX) {
+    schedule_verify_all_blocks_for_historical(latest_hist_period);
+  }
 
   bf_ctx.done = true;
   safe_free(bf_ctx.current_period.blocks);
@@ -689,6 +731,10 @@ static void historical_root_write_done_cb(void* user_data, file_data_t* files, i
   }
   else {
     log_info("period_store: wrote historical_root.json for period %l", ctx->period);
+    // Remember latest period for which we have historical_summaries and trigger verification.
+    latest_hist_period = ctx->period;
+    if (bf_ctx.done)
+      schedule_verify_all_blocks_for_historical(latest_hist_period);
   }
   c4_file_data_array_free(files, num_files, 0);
   if (ctx->req) {
@@ -786,7 +832,8 @@ static void fetch_lcb_cb(client_t* client, void* data, data_request_t* r) {
 
   ssz_ob_t update = {.bytes = bytes(r->response.data + UPDATE_PREFIX_SIZE, uint64_from_le(r->response.data) - SSZ_OFFSET_SIZE), .def = NULL};
   if (update.bytes.data + update.bytes.len > r->response.data + r->response.len) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
-  update.def                 = eth_get_light_client_update(c4_eth_get_fork_for_lcu(http_server.chain_id, update.bytes));
+  update.def = eth_get_light_client_update(c4_eth_get_fork_for_lcu(http_server.chain_id, update.bytes));
+  if (!update.def) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: invalid update data len=%l", period, update.bytes.len);
   ssz_ob_t finalized         = ssz_get(&update, "finalizedHeader");
   ssz_ob_t header            = ssz_get(&finalized, "beacon");
   uint64_t checkpoint_period = ssz_get_uint64(&header, "slot") >> 13;
@@ -990,12 +1037,213 @@ typedef struct {
   uint64_t       period;
 } period_read_done_ctx_t;
 
-static bool file_exists(uint64_t period, const char* filename) {
-  char*       path = bprintf(NULL, "%s/%l/%s", eth_config.period_store, period, filename);
-  struct stat buffer;
-  bool        exists = stat(path, &buffer) == 0;
+static void verify_blocks_schedule_next(verify_blocks_ctx_t* ctx);
+
+static void verify_hist_json_read_cb(void* user_data, file_data_t* files, int num_files) {
+  verify_blocks_ctx_t* ctx = (verify_blocks_ctx_t*) user_data;
+  uint64_t             hp  = ctx ? ctx->hist_period : 0;
+
+  if (!files || num_files < 1) {
+    log_warn("period_store: verify blocks_root: failed to read historical_root.json for hist_period %l (invalid file count %d)", hp, num_files);
+    if (files) c4_file_data_array_free(files, num_files, 1);
+    buffer_free(&ctx->json_buf);
+    safe_free(ctx);
+    return;
+  }
+
+  if (files[0].error || !files[0].data.data || files[0].data.len == 0) {
+    log_warn("period_store: verify blocks_root: cannot read historical_root.json for hist_period %l (%s)", hp, files[0].error ? files[0].error : "empty file");
+    c4_file_data_array_free(files, num_files, 1);
+    buffer_free(&ctx->json_buf);
+    safe_free(ctx);
+    return;
+  }
+
+  buffer_append(&ctx->json_buf, files[0].data);
+  buffer_add_chars(&ctx->json_buf, ""); // ensure NULL-termination without changing length
+  ctx->json_doc = json_parse((char*) ctx->json_buf.data.data);
+
+  ctx->data = json_get(ctx->json_doc, "data");
+  if (ctx->data.type != JSON_TYPE_OBJECT) {
+    log_warn("period_store: verify blocks_root: historical_root.json for hist_period %l has no 'data' object", hp);
+    buffer_free(&ctx->json_buf);
+    c4_file_data_array_free(files, num_files, 1);
+    safe_free(ctx);
+    return;
+  }
+
+  c4_file_data_array_free(files, num_files, 1);
+
+  // Start verifying periods one by one using the parsed JSON.
+  verify_blocks_schedule_next(ctx);
+}
+
+static void verify_blocks_for_period_read_cb(void* user_data, file_data_t* files, int num_files) {
+  verify_blocks_ctx_t* ctx = (verify_blocks_ctx_t*) user_data;
+  if (!ctx) {
+    if (files) c4_file_data_array_free(files, num_files, 1);
+    return;
+  }
+
+  uint64_t p = ctx->current_period - 1; // period for which we scheduled this read
+
+  if (!files || num_files < 1) {
+    log_warn("period_store: verify blocks_root for period %l failed: invalid file count (%d)", p, num_files);
+    if (files) c4_file_data_array_free(files, num_files, 1);
+    ctx->periods_failed++;
+    verify_blocks_schedule_next(ctx);
+    return;
+  }
+
+  // blocks.ssz
+  if (files[0].error || !files[0].data.data || files[0].data.len == 0) {
+    log_warn("period_store: verify blocks_root for period %l skipped: cannot read blocks.ssz (%s)", p, files[0].error ? files[0].error : "empty file");
+    c4_file_data_array_free(files, num_files, 1);
+    verify_blocks_schedule_next(ctx);
+    return;
+  }
+
+  // Build SSZ object for blocks.ssz (zero-pad if file is shorter)
+  uint8_t blocks_buf[32 * SLOTS_PER_PERIOD] = {0};
+  size_t  blocks_len                        = sizeof(blocks_buf);
+  size_t  copy_len                          = files[0].data.len < blocks_len ? files[0].data.len : blocks_len;
+  memcpy(blocks_buf, files[0].data.data, copy_len);
+  ssz_ob_t blocks_ob = {.bytes = bytes(blocks_buf, (uint32_t) blocks_len), .def = &BLOCKS};
+  if (!ssz_is_type(&blocks_ob, &BLOCKS)) {
+    log_warn("period_store: verify blocks_root for period %l failed: blocks.ssz has unexpected SSZ type/length", p);
+    c4_file_data_array_free(files, num_files, 1);
+    ctx->periods_failed++;
+    verify_blocks_schedule_next(ctx);
+    return;
+  }
+  bytes32_t blocks_root = {0};
+  ssz_hash_tree_root(blocks_ob, blocks_root);
+
+  if (p < ctx->offset_period) {
+    // Historical summaries not defined yet for this period
+    c4_file_data_array_free(files, num_files, 1);
+    verify_blocks_schedule_next(ctx);
+    return;
+  }
+
+  uint32_t summary_idx = (uint32_t) (p - ctx->offset_period);
+  json_t   summaries   = json_get(ctx->data, "historical_summaries");
+  json_t   entry       = json_at(summaries, summary_idx);
+  if (entry.type == JSON_TYPE_NOT_FOUND) {
+    log_warn("period_store: verify blocks_root for period %l failed: missing historical_summaries[%d]", p, summary_idx);
+    c4_file_data_array_free(files, num_files, 1);
+    ctx->periods_failed++;
+    verify_blocks_schedule_next(ctx);
+    return;
+  }
+
+  bytes32_t block_summary_root = {0};
+  json_to_bytes(json_get(entry, "block_summary_root"), bytes(block_summary_root, 32));
+
+  if (memcmp(block_summary_root, blocks_root, 32) != 0) {
+    log_warn("period_store: blocks_root mismatch for period %l", p);
+    c4_file_data_array_free(files, num_files, 1);
+    ctx->periods_failed++;
+    verify_blocks_schedule_next(ctx);
+    return;
+  }
+
+  // Write marker file with blocks_root so we do not verify again
+  char* dir  = ensure_period_dir(p);
+  char* path = bprintf(NULL, "%s/blocks_root.bin", dir);
+  safe_free(dir);
+
+  FILE* f = fopen(path, "wb");
+  if (!f) {
+    log_warn("period_store: could not write blocks_root.bin for period %l: %s", p, strerror(errno));
+  }
+  else {
+    size_t written = fwrite(blocks_root, 1, sizeof(blocks_root), f);
+    if (written != sizeof(blocks_root))
+      log_warn("period_store: short write for blocks_root.bin for period %l (wrote %d bytes)", p, (int) written);
+    fclose(f);
+    log_info("period_store: verified blocks_root for period %l", p);
+    ctx->periods_verified++;
+  }
   safe_free(path);
-  return exists;
+
+  c4_file_data_array_free(files, num_files, 1);
+
+  verify_blocks_schedule_next(ctx);
+}
+
+static void verify_blocks_schedule_next(verify_blocks_ctx_t* ctx) {
+  while (ctx->current_period <= ctx->last_period) {
+    uint64_t p = ctx->current_period++;
+
+    if (file_exists(p, "blocks_root.bin")) {
+      ctx->periods_skipped_verified++;
+      continue;
+    }
+    if (!file_exists(p, "blocks.ssz")) continue;
+
+    char*       dir  = ensure_period_dir(p);
+    file_data_t f[1] = {0};
+    f[0].path        = bprintf(NULL, "%s/blocks.ssz", dir);
+    f[0].offset      = 0;
+    f[0].limit       = 32 * SLOTS_PER_PERIOD;
+    safe_free(dir);
+
+    int rc = c4_read_files_uv(ctx, verify_blocks_for_period_read_cb, f, 1);
+    if (rc < 0) {
+      log_warn("period_store: scheduling verify blocks_root read failed for period %l (hist_period %l)", p, ctx->hist_period);
+      c4_file_data_array_free(f, 1, 0);
+      continue;
+    }
+    // One async read in flight; the callback will continue with the next period.
+    return;
+  }
+
+  // Done with all periods
+  buffer_free(&ctx->json_buf);
+  log_info("period_store: blocks_root verification for hist_period %l finished (verified=%l, skipped=%l, failed=%l)",
+           ctx->hist_period,
+           ctx->periods_verified,
+           ctx->periods_skipped_verified,
+           ctx->periods_failed);
+  safe_free(ctx);
+}
+
+static void schedule_verify_all_blocks_for_historical(uint64_t hist_period) {
+  if (graceful_shutdown_in_progress) return;
+  if (!eth_config.period_store) return;
+
+  const chain_spec_t* chain = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
+  if (!chain || !chain->fork_epochs) return;
+
+  uint64_t offset_period = (uint64_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
+  if (hist_period <= offset_period) return;
+
+  // Do not verify the current (head) period itself; historical_summaries only cover completed periods.
+  uint64_t last_period = hist_period - 1;
+  if (last_period < offset_period) return;
+
+  verify_blocks_ctx_t* ctx = (verify_blocks_ctx_t*) safe_calloc(1, sizeof(verify_blocks_ctx_t));
+  ctx->hist_period         = hist_period;
+  ctx->current_period      = offset_period;
+  ctx->last_period         = last_period;
+  ctx->offset_period       = (uint32_t) offset_period;
+  ctx->json_buf            = (buffer_t) {0};
+
+  char*       dir  = ensure_period_dir(hist_period);
+  file_data_t f[1] = {0};
+  f[0].path        = bprintf(NULL, "%s/historical_root.json", dir);
+  f[0].offset      = 0;
+  f[0].limit       = 0; // read all
+  safe_free(dir);
+
+  int rc = c4_read_files_uv(ctx, verify_hist_json_read_cb, f, 1);
+  if (rc < 0) {
+    log_warn("period_store: scheduling historical_root.json read failed for hist_period %l", hist_period);
+    c4_file_data_array_free(f, 1, 0);
+    buffer_free(&ctx->json_buf);
+    safe_free(ctx);
+  }
 }
 
 static void read_period_done(void* user_data, file_data_t* files, int num_files) {
