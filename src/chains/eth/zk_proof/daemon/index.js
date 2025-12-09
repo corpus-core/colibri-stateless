@@ -5,11 +5,27 @@ const { spawn } = require('child_process');
 
 // Configuration
 const CHAIN_CONFIGS = {
-    mainnet: { epochsPerPeriod: 256, rpc: 'https://lodestar-mainnet.chainsafe.io' },
-    sepolia: { epochsPerPeriod: 256 },
-    gnosis: { epochsPerPeriod: 512 },
-    chiado: { epochsPerPeriod: 512 },
-    base: { epochsPerPeriod: 256 },
+    mainnet: {
+        epochsPerPeriod: 256,
+        rpc: 'https://lodestar-mainnet.chainsafe.io',
+        proverRpc: 'https://mainnet1.colibri-proof.tech/'
+    },
+    sepolia: {
+        epochsPerPeriod: 256,
+        proverRpc: 'https://sepolia.colibri-proof.tech/'
+    },
+    gnosis: {
+        epochsPerPeriod: 512,
+        proverRpc: 'https://gnosis.colibri-proof.tech/'
+    },
+    chiado: {
+        epochsPerPeriod: 512,
+        proverRpc: 'https://chiado.colibri-proof.tech/'
+    },
+    base: {
+        epochsPerPeriod: 256,
+        proverRpc: 'https://mainnet1.colibri-proof.tech/'
+    },
 };
 
 const CHAIN = (process.env.CHAIN || 'mainnet').toLowerCase();
@@ -23,6 +39,7 @@ const OUTPUT_DIR = process.env.OUTPUT_DIR || path.resolve(__dirname, '../../../.
 const PROMETHEUS_FILE = process.env.PROMETHEUS_FILE || '/metrics/proof.prom';
 const REPO_ROOT = process.env.REPO_ROOT || path.resolve(__dirname, '../../../../..');
 const SCRIPT_PATH = path.join(REPO_ROOT, 'scripts/run_zk_proof.sh');
+const PROVER_RPC_URL = process.env.PROVER_RPC_URL || chainDefaults.proverRpc || 'https://mainnet1.colibri-proof.tech/';
 // Path to C-Verifier CLI (built via CMake)
 // Adjusted to standard binary output location (build/default/bin/verify_zk_proof_cli) or just build/bin depending on cmake config.
 // We try to be flexible or user can override.
@@ -38,6 +55,7 @@ async function main() {
     console.log(`   Epochs/Period: ${EPOCHS_PER_PERIOD}`);
     console.log(`   Output Dir: ${OUTPUT_DIR}`);
     console.log(`   Script: ${SCRIPT_PATH}`);
+    console.log(`   Prover RPC: ${PROVER_RPC_URL}`);
 
     // Initial check
     await checkAndProve();
@@ -160,7 +178,8 @@ async function runProofScript(period, prevPeriod) {
         '--prove',
         '--groth16',
         '--network',
-        '--output', OUTPUT_DIR
+        '--output', OUTPUT_DIR,
+        '--rpc', PROVER_RPC_URL,
     ];
 
     console.log(`▶️  Executing: ${SCRIPT_PATH} ${args.join(' ')}`);

@@ -8,7 +8,7 @@ START_PERIOD=""
 END_PERIOD=""
 MODE="--execute"
 OUTPUT_DIR="build/default/.period_store"
-REMOTE_URL="https://mainnet1.colibri-proof.tech/"
+REMOTE_URL="${REMOTE_URL:-https://mainnet1.colibri-proof.tech/}"
 GROTH16=""
 USE_NETWORK=false
 PRIVATE_KEY_ARG=""
@@ -192,7 +192,7 @@ if [ ! -f "$INPUT_FILE" ]; then
     curl -X POST "$REMOTE_URL" \
          -H "content-type: application/json" \
          -d "{\"method\":\"eth_proof_sync\",\"params\":[$PERIOD],\"id\":1,\"jsonrpc\":\"2.0\"}" \
-         --output "$INPUT_FILE" --fail --silent
+         --output "$INPUT_FILE" 
     
     # Check if file is valid (not empty)
     if [ ! -s "$INPUT_FILE" ]; then

@@ -15,6 +15,8 @@ services:
       - OUTPUT_DIR=/data/proofs
       # Metrics file location
       - PROMETHEUS_FILE=/metrics/proof.prom
+      # Prover RPC endpoint (override per chain if needed)
+      - PROVER_RPC_URL=https://mainnet1.colibri-proof.tech/
       # Path to the Docker secret containing your SP1 private key
       - SP1_PRIVATE_KEY_FILE=/run/secrets/sp1_network_key
       # Skip local Groth16 verification inside the container (no nested Docker available)
