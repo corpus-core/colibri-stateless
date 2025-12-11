@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-// Removed axios dependency, using native fetch (Node 18+)
 
 // Configuration
 const CHAIN_CONFIGS = {
@@ -24,17 +23,15 @@ const CHAIN_CONFIGS = {
     },
     base: {
         epochsPerPeriod: 256,
-        proverRpc: 'https://mainnet1.colibri-proof.tech/'
+        proverRpc: 'https://base.colibri-proof.tech/'
     },
 };
 
 const CHAIN = (process.env.CHAIN || 'mainnet').toLowerCase();
 const chainDefaults = CHAIN_CONFIGS[CHAIN] || CHAIN_CONFIGS.mainnet;
-
 const RPC_URL = process.env.RPC_URL || chainDefaults.rpc || 'https://lodestar-mainnet.chainsafe.io';
 const CHECK_INTERVAL_MS = parseInt(process.env.CHECK_INTERVAL_MS) || 10 * 60 * 1000; // 10 minutes
-const EPOCHS_PER_PERIOD =
-    parseInt(process.env.EPOCHS_PER_PERIOD) || chainDefaults.epochsPerPeriod || 256; // 256 for Mainnet, 512 for Gnosis
+const EPOCHS_PER_PERIOD = parseInt(process.env.EPOCHS_PER_PERIOD) || chainDefaults.epochsPerPeriod || 256; // 256 for Mainnet, 512 for Gnosis
 const OUTPUT_DIR = process.env.OUTPUT_DIR || path.resolve(__dirname, '../../../../../build/default/.period_store');
 const PROMETHEUS_FILE = process.env.PROMETHEUS_FILE || '/metrics/proof.prom';
 const REPO_ROOT = process.env.REPO_ROOT || path.resolve(__dirname, '../../../../..');
@@ -74,12 +71,10 @@ async function checkAndProve() {
         console.log('🔍 Checking finality status...');
 
         const response = await fetch(`${RPC_URL}/eth/v1/beacon/states/head/finality_checkpoints`);
-        if (!response.ok) {
+        if (!response.ok)
             throw new Error(`HTTP error! status: ${response.status}`);
-        }
         const data = await response.json();
         const finalizedEpoch = parseInt(data.data.finalized.epoch);
-
         const currentPeriod = Math.floor(finalizedEpoch / EPOCHS_PER_PERIOD);
 
         const targetPeriod = currentPeriod + 1;
@@ -88,6 +83,9 @@ async function checkAndProve() {
         console.log(`   Finalized Epoch: ${finalizedEpoch}`);
         console.log(`   Current Period (Finalized): ${currentPeriod}`);
         console.log(`   Target Period (to prove): ${targetPeriod}`);
+
+        // reset, we only want the last 2 in the metrics
+        globalMetrics.fileSizes = {}
 
         // Validate Current Period Files (P) - used for input
         validatePeriodFiles(currentPeriod, { includeEarlyArtifacts: true });
@@ -144,9 +142,8 @@ function validatePeriodFiles(period, options = {}) {
     // Define critical files to check
     // Added zk_proof_g16.bin as it's the final output we care about most, and light client update files
     const filesToCheck = ['sync.ssz', 'zk_proof.bin', 'zk_vk_raw.bin', 'zk_proof_g16.bin'];
-    if (includeEarlyArtifacts) {
-        filesToCheck.push('blocks.ssz', 'headers.ssz', 'lcu.ssz', 'lcb.ssz');
-    }
+    if (includeEarlyArtifacts)
+        filesToCheck.push('blocks.ssz', 'headers.ssz', 'lcu.ssz', 'lcb.ssz', "historical_root.json");
 
     // Helper to get file size or -1 if missing
     const getFileSize = (filename) => {
