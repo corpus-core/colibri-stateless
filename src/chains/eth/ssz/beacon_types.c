@@ -68,6 +68,7 @@ static const chain_spec_t chain_data[] = {
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
      .fork_epochs              = eth_sepolia_fork_epochs,
      .genesis_validators_root  = "\xd8\xea\x17\x1f\x3c\x94\xae\xa2\x1e\xbc\x42\xa1\xed\x61\x05\x2a\xcf\x3f\x92\x09\xc0\x0e\x4e\xfb\xaa\xdd\xac\x09\xed\x9b\x80\x78",
+     .zk_sync_keys_root        = "\x41\x71\x87\x8D\xA7\x77\xDC\xF8\x51\x0D\x45\xD6\xF9\xB9\x93\xE1\x63\x95\x95\xA3\x02\x16\xFA\x43\x39\xC5\x05\xC4\x53\x5D\xD8\x1C",
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
