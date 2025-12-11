@@ -197,6 +197,9 @@ add_server_handler(
     server/client_detection.c
     server/client_mappings.c
     server/period_store.c
+    server/period_store_call.c
+    server/period_store_backfill.c
+    server/period_store_check.c
     server/eth_conf.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init
