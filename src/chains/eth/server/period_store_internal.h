@@ -112,9 +112,6 @@ void c4_ps_backfill_done(void);
 // Decides whether and where to (re)start backfill given the current head block.
 void c4_ps_backfill_check(block_t* head);
 
-// Executes the pending write_task at the head of the queue.
-void c4_ps_run_write_block_queue(void);
-
 // Schedules backfill execution on the event loop.
 void c4_ps_enqueue_backfill(void);
 

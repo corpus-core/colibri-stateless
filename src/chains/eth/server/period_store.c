@@ -19,9 +19,7 @@ bool c4_ps_file_exists(uint64_t period, const char* filename) {
   safe_free(path);
   return exists;
 }
-static inline bool is_file_not_found(char* error) {
-  return error && strstr(error, "such file or directory") != NULL;
-}
+
 // Backfill state is defined here and shared via period_store_internal.h
 backfill_ctx_t    bf_ctx             = {0};
 write_queue_ctx_t queue              = {0};
@@ -30,6 +28,8 @@ uint64_t          latest_hist_period = UINT64_MAX;
 
 // SSZ definition for blocks.ssz: 8192 block roots (bytes32 each)
 const ssz_def_t BLOCKS = SSZ_VECTOR("blocks", ssz_bytes32, SLOTS_PER_PERIOD);
+
+static void write_block_queue(void);
 
 char* c4_ps_ensure_period_dir(uint64_t period) {
   uv_fs_t req = {};
@@ -145,7 +145,7 @@ void c4_ps_finish_write(fs_ctx_t* ctx, bool ok) {
     log_debug("period_store: continue backfill after write");
     c4_ps_backfill();
   }
-  if (call_next) c4_ps_run_write_block_queue();
+  if (call_next) write_block_queue();
 }
 
 static void on_write_headers_done(uv_fs_t* req) {
@@ -229,7 +229,7 @@ static void on_open_blocks(uv_fs_t* req) {
 }
 
 // execute the head and if successful, we schedule the next one.
-void c4_ps_run_write_block_queue(void) {
+static void write_block_queue(void) {
   if (!queue.head) return;
   write_task_t* task     = queue.head;
   uint64_t      period   = task->block.slot / SLOTS_PER_PERIOD;
@@ -312,97 +312,9 @@ void c4_ps_set_block(block_t* block, bool run_backfill) {
     }
   }
 
-  if (queue.head == queue.tail)    // this means we have only one task in the queue
-    c4_ps_run_write_block_queue(); // if there are more it will be handled after the first is finished.
+  if (queue.head == queue.tail) // this means we have only one task in the queue
+    write_block_queue();        // if there are more it will be handled after the first is finished.
 }
-
-typedef struct {
-  period_data_t* out;
-  uint64_t       period;
-} period_read_done_ctx_t;
-
-static void read_period_done(void* user_data, file_data_t* files, int num_files) {
-  period_read_done_ctx_t* done        = (period_read_done_ctx_t*) user_data;
-  period_data_t*          pd          = done->out;
-  uint64_t                p           = done->period;
-  size_t                  blocks_len  = 32 * SLOTS_PER_PERIOD;
-  size_t                  headers_len = HEADER_SIZE * SLOTS_PER_PERIOD;
-  // blocks
-  if (num_files > 0 && files[0].error == NULL && files[0].data.data && files[0].data.len > 0) {
-    pd->blocks  = (uint8_t*) safe_calloc(1, blocks_len);
-    size_t copy = files[0].data.len < blocks_len ? files[0].data.len : blocks_len;
-    memcpy(pd->blocks, files[0].data.data, copy);
-  }
-  else {
-    pd->blocks = (uint8_t*) safe_calloc(1, blocks_len);
-    if (num_files > 0 && files[0].error)
-      log_warn("period_store: could not read blocks: %s", files[0].error);
-  }
-  // headers
-  if (num_files > 1 && files[1].error == NULL && files[1].data.data && files[1].data.len > 0) {
-    if (files[1].data.len == headers_len) {
-      // take ownership of the buffer to avoid copying ~1MB
-      pd->headers        = files[1].data.data;
-      files[1].data.data = NULL;
-      files[1].data.len  = 0;
-    }
-    else {
-      pd->headers = (uint8_t*) safe_calloc(1, headers_len);
-      size_t copy = files[1].data.len < headers_len ? files[1].data.len : headers_len;
-      memcpy(pd->headers, files[1].data.data, copy);
-    }
-  }
-  else {
-    pd->headers = (uint8_t*) safe_calloc(1, headers_len);
-    if (num_files > 1 && files[1].error)
-      log_warn("period_store: could not read headers: %s", files[1].error);
-  }
-  // If the LCU is missing, trigger an asynchronous, non-blocking fetch.
-  if (num_files > 2) {
-
-    // check lc update
-    if (files[2].error || files[2].data.len == 0) {
-      if (files[2].error)
-        log_info("period_store: lcu.ssz missing for period %l (%s) -> will fetch", p, files[2].error);
-      else
-        log_info("period_store: lcu.ssz empty for period %l -> will fetch", p);
-      if (!graceful_shutdown_in_progress) {
-        c4_ps_schedule_fetch_lcu(p);
-      }
-    }
-  }
-
-  if (num_files > 3) {
-
-    // Check light client bootstrap (LCB).
-    if ((files[3].error || files[3].data.len == 0) && c4_ps_file_exists(p - 1, "zk_proof_g16.bin")) {
-      if (files[3].error)
-        log_info("period_store: lcb.ssz missing for period %l (%s) -> will fetch", p, files[3].error);
-      else
-        log_info("period_store: lcb.ssz empty for period %l -> will fetch", p);
-      if (!graceful_shutdown_in_progress) {
-        c4_ps_schedule_fetch_lcb(p);
-      }
-    }
-  }
-
-  pd->period = p;
-  // free temp results (also frees remaining buffers if not ownership-transferred)
-  c4_file_data_array_free(files, num_files, 1);
-  safe_free(done);
-  static uint64_t last_logged = 0;
-  uint64_t        ts          = current_ms();
-  if (last_logged == 0 || ts - last_logged > 1000) {
-    log_info("backfilling period %l", p);
-    last_logged = ts;
-  }
-
-  // continue backfill
-  if (!graceful_shutdown_in_progress)
-    c4_ps_backfill();
-}
-
-// backfill implementation moved to period_store_backfill.c
 
 void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const uint8_t header112[112]) {
   if (!eth_config.period_store) return;
