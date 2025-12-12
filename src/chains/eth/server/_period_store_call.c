@@ -1,17 +1,21 @@
+/*
+ * Copyright 2025 corpus.core
+ * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+ */
+
+#include "period_store_call.h"
 #include "eth_conf.h"
 #include "logger.h"
-#include "period_store.h"
+#include "period_store_internal.h"
 #include "server.h"
+#include "ssz.h"
 #include "uv_util.h"
+
+#include <stdlib.h>
+#include <string.h>
+
 static const char* internal_path = "period_store/";
-
-static inline bool is_file_not_found(char* error) {
-  return error && strstr(error, "such file or directory") != NULL;
-}
-
-typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
-
-static void c4_handle_period_master_write_cb(void* user_data, file_data_t* files, int num_files) {
+static void        c4_handle_period_master_write_cb(void* user_data, file_data_t* files, int num_files) {
   if (files[0].error)
     log_error("period_store: could not write period master: %s", files[0].error);
   c4_file_data_array_free(files, num_files, 0);
@@ -45,7 +49,7 @@ static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int n
   single_request_t* r = (single_request_t*) user_data;
 
   // missing, so we try to fetch it from the master node
-  if (is_file_not_found(files[0].error) && eth_config.period_master_url) {
+  if ((files[0].error && strstr(files[0].error, "such file or directory") != NULL) && eth_config.period_master_url) {
     char* path = files[0].path + strlen(eth_config.period_store);
     if (*path == '/') path++;
     data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));

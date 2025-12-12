@@ -6,12 +6,29 @@
 #ifndef C4_ETH_PERIOD_STORE_H
 #define C4_ETH_PERIOD_STORE_H
 
+#include "bytes.h"
 #include "server.h"
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define HEADER_SIZE 112
+
+typedef struct {
+  uint64_t  slot;
+  bytes32_t root;
+  uint8_t   header[HEADER_SIZE];
+  bytes32_t parent_root;
+} block_t;
+
+void  c4_ps_set_block(block_t* block, bool run_backfill);
+bool  c4_ps_file_exists(uint64_t period, const char* filename);
+void  c4_ps_schedule_fetch_lcb(uint64_t period);
+void  c4_ps_fetch_lcb_for_checkpoint(bytes32_t checkpoint, uint64_t period);
+void  c4_ps_schedule_fetch_lcu(uint64_t period);
+void  c4_ps_schedule_fetch_historical_root(uint64_t period);
+char* c4_ps_ensure_period_dir(uint64_t period);
 
 /**
  * Callback for delivering concatenated LightClientUpdates (SSZ bytes).

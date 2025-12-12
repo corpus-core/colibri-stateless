@@ -4,10 +4,10 @@
  */
 #include "period_prover.h"
 #include "../zk_verifier/zk_verifier.h"
+#include "bytes.h"
 #include "eth_conf.h"
 #include "logger.h"
 #include "server.h"
-#include "util/bytes.h"
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <time.h>

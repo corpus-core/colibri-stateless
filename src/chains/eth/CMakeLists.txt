@@ -182,8 +182,6 @@ add_prover(
   PROOF eth_prover_execute
 )
 
-
-
 add_server_handler(
   NAME eth_server_handler
   SOURCES 
@@ -198,8 +196,9 @@ add_server_handler(
     server/client_mappings.c
     server/period_store.c
     server/period_store_call.c
-    server/period_store_backfill.c
+    server/period_store_lc.c
     server/period_store_check.c
+    server/period_store_roots.c
     server/period_prover.c
     server/handle_period_static.c
     server/eth_conf.c
