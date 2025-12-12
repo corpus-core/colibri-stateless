@@ -11,8 +11,16 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <time.h>
-#include <unistd.h>
 #include <uv.h>
+
+#ifdef _WIN32
+#include <io.h>
+#define access _access
+#define unlink _unlink
+#define X_OK   0
+#else
+#include <unistd.h>
+#endif
 
 prover_stats_t  prover_stats         = {0};
 static uint64_t last_verified_period = 0;

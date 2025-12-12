@@ -60,7 +60,7 @@ WORKDIR /app
 COPY --from=builder /build/bin/colibri-server /app/colibri-server
 
 # Copy the ZK Proof artifacts
-COPY --from=builder /build/src/chains/eth/zk_proof/script/target/release/eth-sync-script /app/eth-sync-script
+COPY --from=builder /build/src/chains/eth/zk_proof/target/release/eth-sync-script /app/eth-sync-script
 COPY --from=builder /build/src/chains/eth/zk_proof/program/elf/eth_sync_program /app/eth_sync_program
 COPY --from=builder /build/scripts/run_zk_proof.sh /app/run_zk_proof.sh
 
