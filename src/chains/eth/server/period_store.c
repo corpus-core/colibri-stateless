@@ -1,7 +1,7 @@
 
 #include "period_store.h"
 #include "eth_conf.h"
-#include "period_prover.h"
+#include "period_store_zk_prover.h"
 
 bool c4_ps_file_exists(uint64_t period, const char* filename) {
   char*       path = bprintf(NULL, "%s/%l/%s", eth_config.period_store, period, filename);

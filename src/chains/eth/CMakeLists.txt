@@ -197,9 +197,9 @@ add_server_handler(
     server/period_store.c
     server/period_store_call.c
     server/period_store_lc.c
-    server/period_store_check.c
-    server/period_store_roots.c
-    server/period_prover.c
+    server/period_store_historical_roots.c
+    server/period_store_backfill.c
+    server/period_store_zk_prover.c
     server/handle_period_static.c
     server/eth_conf.c
   DEPENDS eth_prover

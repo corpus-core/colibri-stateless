@@ -4,7 +4,7 @@
  */
 #include "handler.h"
 #include "logger.h"
-#include "period_prover.h"
+#include "period_store_zk_prover.h"
 #include "server.h"
 #include "util/bytes.h"
 

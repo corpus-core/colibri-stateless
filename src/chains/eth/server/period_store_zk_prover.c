@@ -2,7 +2,7 @@
  * Copyright (c) 2025 corpus.core
  * SPDX-License-Identifier: MIT
  */
-#include "period_prover.h"
+#include "period_store_zk_prover.h"
 #include "../zk_verifier/zk_verifier.h"
 #include "bytes.h"
 #include "eth_conf.h"
