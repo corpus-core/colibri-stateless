@@ -86,10 +86,6 @@ static void     run_write_block_queue();
 static void     enqueue_backfill(void);
 static uint64_t latest_head_slot = 0;
 static void     fetch_header_cb(client_t* client, void* data, data_request_t* r);
-// LCU forward declarations
-static void historical_root_write_done_cb(void* user_data, file_data_t* files, int num_files);
-static void schedule_verify_all_blocks_for_historical(uint64_t hist_period);
-static void verify_blocks_for_period_read_cb(void* user_data, file_data_t* files, int num_files);
 
 // write completion callback for c4_write_files_uv
 static void ps_write_done_cb(void* user_data, file_data_t* files, int num_files) {
