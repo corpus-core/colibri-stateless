@@ -67,9 +67,8 @@ static void verify_hist_json_read_cb(void* user_data, file_data_t* files, int nu
 
   buffer_append(&ctx->json_buf, files[0].data);
   buffer_add_chars(&ctx->json_buf, ""); // ensure NULL-termination without changing length
-  ctx->json_doc = json_parse((char*) ctx->json_buf.data.data);
-
-  ctx->data = json_get(ctx->json_doc, "data");
+  ctx->json_doc = json_parse(buffer_as_string(ctx->json_buf));
+  ctx->data     = json_get(ctx->json_doc, "data");
   if (ctx->data.type != JSON_TYPE_OBJECT) {
     log_warn("period_store: verify blocks_root: historical_root.json for hist_period %l has no 'data' object", hp);
     buffer_free(&ctx->json_buf);
@@ -255,9 +254,8 @@ void c4_ps_schedule_verify_all_blocks_for_historical(uint64_t hist_period) {
 static void historical_root_write_done_cb(void* user_data, file_data_t* files, int num_files) {
   (void) num_files;
   historical_root_write_ctx_t* ctx = (historical_root_write_ctx_t*) user_data;
-  if (files && files[0].error) {
+  if (files && files[0].error)
     log_warn("period_store: writing historical_root.json for period %l failed: %s", ctx->period, files[0].error);
-  }
   else {
     log_info("period_store: wrote historical_root.json for period %l", ctx->period);
     // Remember latest period for which we have historical_summaries and trigger verification.

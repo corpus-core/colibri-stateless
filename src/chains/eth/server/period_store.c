@@ -416,12 +416,9 @@ void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const u
 
 void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
   uint64_t period = slot >> 13;
-  if (!c4_ps_file_exists(period, "lcb.ssz"))
-    c4_ps_fetch_lcb_for_checkpoint(checkpoint, period);
-  if (!c4_ps_file_exists(period, "lcu.ssz"))
-    c4_ps_schedule_fetch_lcu(period);
-  if (!c4_ps_file_exists(period, "historical_root.json"))
-    c4_ps_schedule_fetch_historical_root(period);
+  if (!c4_ps_file_exists(period, "lcb.ssz")) c4_ps_fetch_lcb_for_checkpoint(checkpoint, period);
+  if (!c4_ps_file_exists(period, "lcu.ssz")) c4_ps_schedule_fetch_lcu(period);
+  if (!c4_ps_file_exists(period, "historical_root.json")) c4_ps_schedule_fetch_historical_root(period);
 
   c4_period_prover_on_checkpoint(period);
 }

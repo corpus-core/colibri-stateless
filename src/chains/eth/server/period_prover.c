@@ -56,13 +56,102 @@ static void on_prover_exit(uv_process_t* req, int64_t exit_status, int term_sign
   free(ctx);
 }
 
+static char* find_script() {
+  // Find script
+  char* script = "/app/run_zk_proof.sh";
+  if (access(script, X_OK) == 0) return script;
+  // Try local dev path relative to CWD (usually build/default)
+  // ../../../scripts/run_zk_proof.sh
+
+  script = "../../../scripts/run_zk_proof.sh";
+  if (access(script, X_OK) == 0) return script;
+  // Try current dir
+
+  script = "./run_zk_proof.sh";
+  if (access(script, X_OK) == 0) return script;
+
+  log_error("Prover: Script not found (checked /app, ../../../scripts, .)");
+  return NULL;
+}
+
+static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period) {
+  log_info("Prover: Starting proof generation for period %l", target_period);
+
+  // Spawn
+  char* script = find_script();
+  if (!script) return;
+
+  uv_process_t*    req = (uv_process_t*) malloc(sizeof(uv_process_t));
+  zk_prover_ctx_t* ctx = (zk_prover_ctx_t*) malloc(sizeof(zk_prover_ctx_t));
+  ctx->period          = target_period;
+  ctx->start_time      = current_ms();
+  req->data            = ctx;
+
+  uv_process_options_t options = {0};
+  options.exit_cb              = on_prover_exit;
+  options.file                 = script;
+
+  char target_str[32];
+  char prev_str[32];
+  sbprintf(target_str, "%l", target_period);
+  sbprintf(prev_str, "%l", prev_period);
+
+  char* args[13];
+  int   arg_i   = 0;
+  args[arg_i++] = script;
+  args[arg_i++] = "--period";
+  args[arg_i++] = target_str;
+  args[arg_i++] = "--prev-period";
+  args[arg_i++] = prev_str;
+  args[arg_i++] = "--prove";
+  args[arg_i++] = "--groth16";
+  args[arg_i++] = "--network";
+  args[arg_i++] = "--output";
+  args[arg_i++] = eth_config.period_store;
+  args[arg_i++] = NULL;
+
+  options.args = args;
+
+  extern char** environ;
+  int           env_count = 0;
+  while (environ[env_count]) env_count++;
+
+  // +2 for our new var and NULL
+  char** new_env = malloc((env_count + 2) * sizeof(char*));
+  for (int i = 0; i < env_count; i++)
+    new_env[i] = environ[i];
+
+  char* key_env_str = NULL;
+  if (eth_config.period_prover_key_file) {
+    key_env_str            = bprintf(NULL, "SP1_PRIVATE_KEY_FILE=%s", eth_config.period_prover_key_file);
+    new_env[env_count]     = key_env_str;
+    new_env[env_count + 1] = NULL;
+  }
+  else
+    new_env[env_count] = NULL;
+
+  options.env = new_env;
+
+  int r = uv_spawn(uv_default_loop(), req, &options);
+
+  if (key_env_str) safe_free(key_env_str);
+  safe_free(new_env);
+
+  if (r) {
+    log_error("Prover: Failed to spawn script: %s", uv_strerror(r));
+    free(req);
+    free(ctx);
+    prover_stats.total_failure++;
+  }
+}
+
 void c4_period_prover_on_checkpoint(uint64_t period) {
   // Slave check or no store check
   if (eth_config.period_master_url) return;
   if (!eth_config.period_store) return;
 
-  uint64_t target_period = period + 1;
-
+  bool     run_prover               = false;
+  uint64_t target_period            = period + 1;
   prover_stats.last_check_timestamp = current_unix_ms() / 1000;
   prover_stats.current_period       = target_period;
 
@@ -72,6 +161,7 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
   char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, target_period);
   char* proof_path = bprintf(NULL, "%s/zk_proof_g16.bin", period_dir);
   char* pub_path   = bprintf(NULL, "%s/zk_pub.bin", period_dir);
+  safe_free(period_dir);
 
   // Check if exists
   struct stat st;
@@ -83,13 +173,10 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
     bytes_t proof = bytes_read(proof_path);
     bytes_t pub   = bytes_read(pub_path);
 
-    bool valid = false;
-    if (proof.data && pub.data) {
-      valid = verify_zk_proof(proof, pub);
-    }
+    bool valid = proof.data && pub.data && verify_zk_proof(proof, pub);
 
-    if (proof.data) free(proof.data);
-    if (pub.data) free(pub.data);
+    safe_free(proof.data);
+    safe_free(pub.data);
 
     if (valid) {
       log_info("Prover: Existing proof valid for period %l", target_period);
@@ -105,120 +192,20 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
       if (age_sec < 3600) {
         log_error("Prover: Proof is fresh (%f s old), NOT retrying to avoid loop", age_sec);
         prover_stats.total_failure++;
-        safe_free(period_dir);
-        safe_free(proof_path);
-        safe_free(pub_path);
-        return;
       }
       else {
         log_warn("Prover: Proof is old (%f s old), deleting and retrying", age_sec);
         unlink(proof_path);
-        goto generate;
+        run_prover = true;
       }
     }
-
-    safe_free(period_dir);
-    safe_free(proof_path);
-    safe_free(pub_path);
-    return;
   }
+  else
+    run_prover = true;
 
-generate:
-  safe_free(period_dir);
   safe_free(proof_path);
   safe_free(pub_path);
 
-  log_info("Prover: Starting proof generation for period %l", target_period);
-
-  // Find script
-  char* script = "/app/run_zk_proof.sh";
-  if (access(script, X_OK) != 0) {
-    // Try local dev path relative to CWD (usually build/default)
-    // ../../../scripts/run_zk_proof.sh
-    script = "../../../scripts/run_zk_proof.sh";
-    if (access(script, X_OK) != 0) {
-      // Try current dir
-      script = "./run_zk_proof.sh";
-      if (access(script, X_OK) != 0) {
-        log_error("Prover: Script not found (checked /app, ../../../scripts, .)");
-        return;
-      }
-    }
-  }
-
-  // Spawn
-  uv_process_t*    req = (uv_process_t*) malloc(sizeof(uv_process_t));
-  zk_prover_ctx_t* ctx = (zk_prover_ctx_t*) malloc(sizeof(zk_prover_ctx_t));
-  ctx->period          = target_period;
-  ctx->start_time      = current_ms();
-  req->data            = ctx;
-
-  uv_process_options_t options = {0};
-  options.exit_cb              = on_prover_exit;
-  options.file                 = script;
-
-  char target_str[32];
-  sprintf(target_str, "%llu", (unsigned long long) target_period);
-
-  char prev_str[32];
-  sprintf(prev_str, "%llu", (unsigned long long) period); // prev = checkpoint period
-
-  char* args[13]; // Increased for --private-key
-  int   arg_i   = 0;
-  args[arg_i++] = script;
-  args[arg_i++] = "--period";
-  args[arg_i++] = target_str;
-  args[arg_i++] = "--prev-period";
-  args[arg_i++] = prev_str;
-  args[arg_i++] = "--prove";
-  args[arg_i++] = "--groth16";
-  args[arg_i++] = "--network";
-  args[arg_i++] = "--output";
-  args[arg_i++] = eth_config.period_store;
-
-  if (eth_config.period_prover_key_file) {
-    // Key file path is passed via SP1_PRIVATE_KEY_FILE environment variable below.
-  }
-
-  args[arg_i++] = NULL;
-
-  options.args = args;
-
-  // We construct the environment array manually to include SP1_PRIVATE_KEY_FILE if configured.
-  // libuv's uv_spawn inherits environment only if options.env is NULL.
-  // Since we want to add a variable, we must copy the current environment and append ours.
-
-  extern char** environ;
-  int           env_count = 0;
-  while (environ[env_count]) env_count++;
-
-  // +2 for our new var and NULL
-  char** new_env = malloc((env_count + 2) * sizeof(char*));
-  for (int i = 0; i < env_count; i++) {
-    new_env[i] = environ[i];
-  }
-
-  char* key_env_str = NULL;
-  if (eth_config.period_prover_key_file) {
-    key_env_str            = bprintf(NULL, "SP1_PRIVATE_KEY_FILE=%s", eth_config.period_prover_key_file);
-    new_env[env_count]     = key_env_str;
-    new_env[env_count + 1] = NULL;
-  }
-  else {
-    new_env[env_count] = NULL;
-  }
-
-  options.env = new_env;
-
-  int r = uv_spawn(uv_default_loop(), req, &options);
-
-  if (key_env_str) free(key_env_str);
-  free(new_env);
-
-  if (r) {
-    log_error("Prover: Failed to spawn script: %s", uv_strerror(r));
-    free(req);
-    free(ctx);
-    prover_stats.total_failure++;
-  }
+  if (run_prover)
+    c4_period_prover_spawn(target_period, period);
 }
