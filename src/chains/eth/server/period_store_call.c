@@ -53,7 +53,7 @@ static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int n
     char* path = files[0].path + strlen(eth_config.period_store);
     if (*path == '/') path++;
     data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-    req->url            = bprintf(NULL, "%s%s%s", eth_config.period_master_url, eth_config.period_master_url[strlen(eth_config.period_master_url) - 1] == '/' ? "" : "/", path);
+    req->url            = bprintf(NULL, "%s%speriod_store/%s", eth_config.period_master_url, eth_config.period_master_url[strlen(eth_config.period_master_url) - 1] == '/' ? "" : "/", path);
     req->method         = C4_DATA_METHOD_GET;
     req->chain_id       = http_server.chain_id;
     req->type           = C4_DATA_TYPE_REST_API;

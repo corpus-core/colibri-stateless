@@ -71,58 +71,69 @@ if [ "$USE_NETWORK" = true ]; then
     echo "🌐 SP1 Network Mode: ENABLED"
 fi
 
+# Check for pre-built artifacts (Docker/Production mode)
+SKIP_TOOLCHAIN=false
+if [ -f "/app/eth_sync_program" ] && [ -f "/app/eth-sync-script" ]; then
+    echo "🐳 Docker Environment Detected: Using pre-built artifacts"
+    ELF="/app/eth_sync_program"
+    HOST_BINARY="/app/eth-sync-script"
+    SKIP_TOOLCHAIN=true
+fi
+
 # --- SP1 TOOLCHAIN SETUP ---
 
-# Check for sp1up
-if ! command -v sp1up &> /dev/null; then
-    echo "⚠️  sp1up not found. Installing SP1 toolchain..."
-    curl -L https://sp1.succinct.xyz | bash
-    source $HOME/.bashrc || source $HOME/.zshrc || true
-fi
-
-# Ensure cargo-prove is installed
-if ! command -v cargo-prove &> /dev/null; then
-     echo "⚠️  cargo-prove not found. Installing..."
-     sp1up
-fi
-
-# Check Rust version (Host Compiler only)
-# This affects the host script, not the guest program (VK).
-REQUIRED_RUST_HOST="1.81.0"
-CURRENT_RUST=$(rustc --version | cut -d ' ' -f 2)
-
-# Add SP1 bin to PATH for this session
-export PATH=$HOME/.sp1/bin:$PATH
-
-# Locate SP1 Toolchain
-# CRITICAL: We pin a specific toolchain version to ensure the Verification Key (VK)
-# remains stable across different machines/developers.
-# PkFc33VNGO corresponds to sp1 v4.0.0 / v5.0.0 specific toolchain
-PINNED_TOOLCHAIN="PkFc33VNGO"
-SP1_TOOLCHAIN_DIR="$HOME/.sp1/toolchains"
-RUSTC_PATH="$SP1_TOOLCHAIN_DIR/$PINNED_TOOLCHAIN/bin/rustc"
-
-if [ ! -f "$RUSTC_PATH" ]; then
-    echo "⚠️  Pinned SP1 toolchain ($PINNED_TOOLCHAIN) not found."
-    echo "   Attempting to install/use specific version..."
-    # sp1up doesn't easily support installing a specific hash directly via CLI in all versions,
-    # but we can warn the user or try to find a compatible one.
-    # For now, we will fallback to the latest but WARN heavily.
-    
-    LATEST_TOOLCHAIN=$(ls -t "$SP1_TOOLCHAIN_DIR" 2>/dev/null | head -n 1)
-    if [ -n "$LATEST_TOOLCHAIN" ]; then
-        echo "⚠️  WARNING: Using latest toolchain ($LATEST_TOOLCHAIN) instead of pinned ($PINNED_TOOLCHAIN)."
-        echo "   This MAY change the Verification Key/Program Hash!"
-        RUSTC_PATH="$SP1_TOOLCHAIN_DIR/$LATEST_TOOLCHAIN/bin/rustc"
-    else
-         echo "❌ Error: No SP1 toolchain found. Please run 'sp1up'."
-         exit 1
+if [ "$SKIP_TOOLCHAIN" = false ]; then
+    # Check for sp1up
+    if ! command -v sp1up &> /dev/null; then
+        echo "⚠️  sp1up not found. Installing SP1 toolchain..."
+        curl -L https://sp1.succinct.xyz | bash
+        source $HOME/.bashrc || source $HOME/.zshrc || true
     fi
-else
-    echo "✅ Using Pinned SP1 Toolchain: $PINNED_TOOLCHAIN"
-fi
 
-export RUSTC="$RUSTC_PATH"
+    # Ensure cargo-prove is installed
+    if ! command -v cargo-prove &> /dev/null; then
+         echo "⚠️  cargo-prove not found. Installing..."
+         sp1up
+    fi
+
+    # Check Rust version (Host Compiler only)
+    # This affects the host script, not the guest program (VK).
+    REQUIRED_RUST_HOST="1.81.0"
+    CURRENT_RUST=$(rustc --version | cut -d ' ' -f 2)
+
+    # Add SP1 bin to PATH for this session
+    export PATH=$HOME/.sp1/bin:$PATH
+
+    # Locate SP1 Toolchain
+    # CRITICAL: We pin a specific toolchain version to ensure the Verification Key (VK)
+    # remains stable across different machines/developers.
+    # PkFc33VNGO corresponds to sp1 v4.0.0 / v5.0.0 specific toolchain
+    PINNED_TOOLCHAIN="PkFc33VNGO"
+    SP1_TOOLCHAIN_DIR="$HOME/.sp1/toolchains"
+    RUSTC_PATH="$SP1_TOOLCHAIN_DIR/$PINNED_TOOLCHAIN/bin/rustc"
+
+    if [ ! -f "$RUSTC_PATH" ]; then
+        echo "⚠️  Pinned SP1 toolchain ($PINNED_TOOLCHAIN) not found."
+        echo "   Attempting to install/use specific version..."
+        # sp1up doesn't easily support installing a specific hash directly via CLI in all versions,
+        # but we can warn the user or try to find a compatible one.
+        # For now, we will fallback to the latest but WARN heavily.
+        
+        LATEST_TOOLCHAIN=$(ls -t "$SP1_TOOLCHAIN_DIR" 2>/dev/null | head -n 1)
+        if [ -n "$LATEST_TOOLCHAIN" ]; then
+            echo "⚠️  WARNING: Using latest toolchain ($LATEST_TOOLCHAIN) instead of pinned ($PINNED_TOOLCHAIN)."
+            echo "   This MAY change the Verification Key/Program Hash!"
+            RUSTC_PATH="$SP1_TOOLCHAIN_DIR/$LATEST_TOOLCHAIN/bin/rustc"
+        else
+             echo "❌ Error: No SP1 toolchain found. Please run 'sp1up'."
+             exit 1
+        fi
+    else
+        echo "✅ Using Pinned SP1 Toolchain: $PINNED_TOOLCHAIN"
+    fi
+
+    export RUSTC="$RUSTC_PATH"
+fi
 
 # LOOP MODE
 if [ -n "$START_PERIOD" ] && [ -n "$END_PERIOD" ]; then
@@ -275,67 +286,72 @@ fi
 # Setup Env
 export PATH=$HOME/.cargo/bin:$HOME/.sp1/bin:$PATH
 
-# Workspace Root relative to this script (scripts/ -> ./)
-WORKSPACE_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+if [ "$SKIP_TOOLCHAIN" = false ]; then
+    # Workspace Root relative to this script (scripts/ -> ./)
+    WORKSPACE_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
-# Frozen ELF Path
-ELF_DIR="$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/elf"
-ELF_FROZEN="$ELF_DIR/eth_sync_program"
+    # Frozen ELF Path
+    ELF_DIR="$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/elf"
+    ELF_FROZEN="$ELF_DIR/eth_sync_program"
 
-if [ -f "$ELF_FROZEN" ]; then
-    echo "🧊 Using FROZEN Guest ELF: $ELF_FROZEN"
-    echo "   (Skipping guest build to ensure stable Verification Key)"
-    ELF="$ELF_FROZEN"
-else
-    # Build Guest
-    echo "🔨 Building Guest Program..."
-    (
-        # Use the SP1 toolchain rustc found earlier
-        export RUSTFLAGS='--cfg getrandom_backend="custom" -C link-arg=-Ttext=0x00201000 -C link-arg=--image-base=0x00200800 -C panic=abort'
-        cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program"
-        cargo build --release --target riscv32im-succinct-zkvm-elf
-    )
+    if [ -f "$ELF_FROZEN" ]; then
+        echo "🧊 Using FROZEN Guest ELF: $ELF_FROZEN"
+        echo "   (Skipping guest build to ensure stable Verification Key)"
+        ELF="$ELF_FROZEN"
+    else
+        # Build Guest
+        echo "🔨 Building Guest Program..."
+        (
+            # Use the SP1 toolchain rustc found earlier
+            export RUSTFLAGS='--cfg getrandom_backend="custom" -C link-arg=-Ttext=0x00201000 -C link-arg=--image-base=0x00200800 -C panic=abort'
+            cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program"
+            cargo build --release --target riscv32im-succinct-zkvm-elf
+        )
 
-    # Find ELF
-    ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" | head -n 1)
+        # Find ELF
+        ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" | head -n 1)
 
-    if [ -z "$ELF" ]; then
-        # Fallback search
-        ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" 2>/dev/null | head -n 1)
+        if [ -z "$ELF" ]; then
+            # Fallback search
+            ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" 2>/dev/null | head -n 1)
+        fi
+        
+        if [ -z "$ELF" ]; then
+            echo "❌ Error: Could not find guest ELF binary."
+            exit 1
+        fi
+        
+        echo "✅ Built ELF: $ELF"
+        
+        # Save to frozen path for next time / git commit
+        echo "💾 Saving ELF to $ELF_FROZEN"
+        echo "   ⚠️  IMPORTANT: Commit this file to git to freeze the Verification Key!"
+        cp "$ELF" "$ELF_FROZEN"
+        ELF="$ELF_FROZEN"
     fi
-    
-    if [ -z "$ELF" ]; then
-        echo "❌ Error: Could not find guest ELF binary."
-        exit 1
+
+    echo "✅ Using ELF: $ELF"
+
+    # Build Host
+    echo "🔨 Building Host Script..."
+    unset RUSTFLAGS
+    unset RUSTC
+
+    # Optimized CPU flags for Apple Silicon / Native
+    if [[ "$OSTYPE" == "darwin"* && $(uname -m) == "arm64" ]]; then
+         export RUSTFLAGS="-C target-cpu=native"
     fi
-    
-    echo "✅ Built ELF: $ELF"
-    
-    # Save to frozen path for next time / git commit
-    echo "💾 Saving ELF to $ELF_FROZEN"
-    echo "   ⚠️  IMPORTANT: Commit this file to git to freeze the Verification Key!"
-    cp "$ELF" "$ELF_FROZEN"
-    ELF="$ELF_FROZEN"
+
+    cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/script"
+    cargo build --release
+
+    # Run Host
+    echo "🏃 Running Host Script..."
+    HOST_BINARY="$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/release/eth-sync-script"
+else 
+    echo "✅ Using Pre-built ELF: $ELF"
+    echo "✅ Using Pre-built Host Binary: $HOST_BINARY"
 fi
-
-echo "✅ Using ELF: $ELF"
-
-# Build Host
-echo "🔨 Building Host Script..."
-unset RUSTFLAGS
-unset RUSTC
-
-# Optimized CPU flags for Apple Silicon / Native
-if [[ "$OSTYPE" == "darwin"* && $(uname -m) == "arm64" ]]; then
-     export RUSTFLAGS="-C target-cpu=native"
-fi
-
-cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/script"
-cargo build --release
-
-# Run Host
-echo "🏃 Running Host Script..."
-HOST_BINARY="$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/release/eth-sync-script"
 
 if [ ! -f "$HOST_BINARY" ]; then
     echo "❌ Error: Host binary not found at $HOST_BINARY"

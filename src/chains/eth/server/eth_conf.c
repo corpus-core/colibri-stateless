@@ -22,6 +22,7 @@ void eth_configure() {
   conf_int(&eth_config.eth_logs_cache_blocks, "ETH_LOGS_CACHE_BLOCKS", "eth_logs_cache_blocks", 0, "max number of contiguous blocks to cache logs for eth_getLogs", 0, 131072);
   conf_string(&eth_config.period_store, "DATA", "data", 'd', "path to the data-directory holding blockroots and light client updates");
   conf_string(&eth_config.period_master_url, "PERIOD_MASTER_URL", "period_master_url", 0, "URL of the master node to use. if set, the server will not write to the period-store but fetch it when needed.");
+  conf_string(&eth_config.period_prover_key_file, "PERIOD_PROVER_KEY_FILE", "period_prover_key_file", 0, "Path to file containing SP1/Network private key");
 
 #if defined(PROVER_CACHE) && defined(CHAIN_ETH)
   if (eth_config.stream_beacon_events && eth_config.eth_logs_cache_blocks > 0) {
