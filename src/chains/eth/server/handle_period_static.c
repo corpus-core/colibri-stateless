@@ -36,7 +36,7 @@ uint64_t c4_get_query(char* query, char* param);
 
 // Small in-memory cache for the most common manifest request (typically start=current period).
 // This avoids repeated directory scans when multiple slaves hit the master at the same checkpoint.
-static bytes_t        g_manifest_cache_bytes   = NULL_BYTES;
+static bytes_t        g_manifest_cache_bytes   = {0};
 static uint64_t       g_manifest_cache_start   = UINT64_MAX;
 static uint64_t       g_manifest_cache_ts_ms   = 0;
 static const int      g_manifest_cache_ttl_ms  = 30000;       // 30s
