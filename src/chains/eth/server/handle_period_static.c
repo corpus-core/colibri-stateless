@@ -42,7 +42,7 @@ static void c4_handle_period_static_read_cb(void* user_data, file_data_t* files,
 }
 
 bool c4_handle_period_static(client_t* client) {
-  if (strncmp(client->request.path, "/period_store/", 14) != 0) return false;
+  if (strncmp(client->request.path, "/period_store", 13) != 0) return false;
 
   // Security check: prevent directory traversal
   if (strstr(client->request.path, "..")) {
