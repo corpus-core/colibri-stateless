@@ -266,11 +266,7 @@ static void historical_root_write_done_cb(void* user_data, file_data_t* files, i
       c4_ps_schedule_verify_all_blocks_for_historical();
   }
   c4_file_data_array_free(files, num_files, 0);
-  if (ctx->req) {
-    safe_free(ctx->req->url);
-    safe_free(ctx->req->response.data);
-    safe_free(ctx->req);
-  }
+  c4_request_free(ctx->req);
   safe_free(ctx);
 }
 
@@ -281,10 +277,7 @@ static void fetch_historical_root_cb(client_t* client, void* data, data_request_
   if (!r->response.data && !r->error) r->error = strdup("unknown error!");
   if (r->error) {
     log_warn("period_store: historical summaries fetch for period %l failed: %s", period, r->error);
-    safe_free(r->url);
-    safe_free(r->response.data);
-    safe_free(r->error);
-    safe_free(r);
+    c4_request_free(r);
     return;
   }
   char* dir  = c4_ps_ensure_period_dir(period);
@@ -302,9 +295,7 @@ static void fetch_historical_root_cb(client_t* client, void* data, data_request_
   if (rc < 0) {
     log_warn("period_store: scheduling historical_root.json write failed for period %l", period);
     c4_file_data_array_free(files, 1, 0);
-    safe_free(r->url);
-    safe_free(r->response.data);
-    safe_free(r);
+    c4_request_free(r);
     safe_free(wctx);
   }
 }

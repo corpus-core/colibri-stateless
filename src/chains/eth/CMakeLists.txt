@@ -199,6 +199,8 @@ add_server_handler(
     server/period_store_lc.c
     server/period_store_historical_roots.c
     server/period_store_backfill.c
+    server/period_store_period_index.c
+    server/period_store_full_sync.c
     server/period_store_zk_prover.c
     server/handle_period_static.c
     server/eth_conf.c

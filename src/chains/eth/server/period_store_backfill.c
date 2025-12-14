@@ -217,10 +217,9 @@ static char* response_to_header(data_request_t* r, block_t* header) {
   char* err = NULL;
   if (!r->response.data && !r->error) r->error = strdup("unknown error!");
   if (r->error) {
-    err = r->error;
-    safe_free(r->url);
-    safe_free(r->response.data);
-    safe_free(r);
+    err      = r->error;
+    r->error = NULL;
+    c4_request_free(r);
     return err;
   }
   if (!r->response.data) return strdup("empty response!");
@@ -228,9 +227,7 @@ static char* response_to_header(data_request_t* r, block_t* header) {
   json_t js = json_parse((char*) r->response.data);
   err       = (char*) json_validate(js, HEADER_SCHEMA, "validating beacon header");
   if (err) {
-    safe_free(r->url);
-    safe_free(r->response.data);
-    safe_free(r);
+    c4_request_free(r);
     return err;
   }
   json_t dataj = json_get(js, "data");
@@ -244,9 +241,7 @@ static char* response_to_header(data_request_t* r, block_t* header) {
   json_to_bytes(json_get(msg, "body_root"), bytes(header->header + 80, 32));
   json_to_bytes(json_get(dataj, "root"), bytes(header->root, 32));
   memcpy(header->parent_root, header->header + 16, 32);
-  safe_free(r->url);
-  safe_free(r->response.data);
-  safe_free(r);
+  c4_request_free(r);
   return NULL; // no error
 }
 
@@ -267,6 +262,8 @@ char* c4_ps_ensure_period_dir(uint64_t period) {
     int rc = uv_fs_mkdir(uv_default_loop(), &req, dir, 0777, NULL);
     if (rc < 0 && req.result != UV_EEXIST)
       log_warn("period_store: mkdir failed for %s: %s", dir, uv_strerror((int) req.result));
+    else
+      c4_ps_period_index_on_period_dir(period);
     queue.last_checked_period = period;
     uv_fs_req_cleanup(&req);
   }
@@ -470,10 +467,9 @@ static void run_write_block_queue() {
     // free allocated paths and the files array on failure (callback won't run)
     c4_file_data_array_free(files, 2, 0);
   }
-  else {
+  else
     // util made its own copy of the array; free only the container to avoid leaking
     safe_free(files);
-  }
 }
 
 void c4_ps_set_block(block_t* block, bool run_backfill) {
@@ -644,9 +640,8 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
         log_info("period_store: lcb.ssz missing for period %l (%s) -> will fetch", p, files[3].error);
       else
         log_info("period_store: lcb.ssz empty for period %l -> will fetch", p);
-      if (!graceful_shutdown_in_progress) {
+      if (!graceful_shutdown_in_progress)
         c4_ps_schedule_fetch_lcb(p);
-      }
     }
   }
 

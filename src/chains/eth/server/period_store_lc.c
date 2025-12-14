@@ -9,10 +9,7 @@
 #define THROW_PERIOD_ERROR(r, fmt, ...) \
   {                                     \
     log_warn(fmt, ##__VA_ARGS__);       \
-    safe_free(r->error);                \
-    safe_free(r->url);                  \
-    safe_free(r->response.data);        \
-    safe_free(r);                       \
+    c4_request_free(r);                 \
     return;                             \
   }
 // ---- Assemble multiple LCU from cache (fetch missing) ----
@@ -51,12 +48,7 @@ static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files
   }
   // free file meta (we didn't transfer data ownership)
   c4_file_data_array_free(files, 1, 0);
-  // free request and its buffer now that write is done
-  if (ctx->req) {
-    safe_free(ctx->req->url);
-    safe_free(ctx->req->response.data);
-    safe_free(ctx->req);
-  }
+  c4_request_free(ctx->req);
   safe_free(ctx);
 }
 
@@ -67,10 +59,7 @@ static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
   if (!r->response.data && !r->error) r->error = strdup("unknown error!");
   if (r->error) {
     log_warn("period_store: LCU fetch for period %l failed: %s", period, r->error);
-    safe_free(r->url);
-    safe_free(r->response.data);
-    safe_free(r->error);
-    safe_free(r);
+    c4_request_free(r);
     return;
   }
   // prepare async write of lcu.ssz
@@ -90,10 +79,7 @@ static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
   if (rc < 0) {
     log_warn("period_store: scheduling LCU write failed for period %l", period);
     c4_file_data_array_free(files, 1, 0);
-    // free request as we won't receive callback
-    safe_free(r->url);
-    safe_free(r->response.data);
-    safe_free(r);
+    c4_request_free(r);
     safe_free(wctx);
   }
 }
@@ -126,12 +112,7 @@ static void lcu_assemble_fetch_cb(client_t* client, void* data, data_request_t* 
   if (!r->response.data && !r->error) r->error = strdup("unknown error!");
   if (r->error) {
     char* err = bprintf(NULL, "LCU fetch failed for period %l: %s", p, r->error);
-    // cleanup request
-    safe_free(r->url);
-    safe_free(r->error);
-    safe_free(r->response.data);
-    safe_free(r);
-    // finalize with error
+    c4_request_free(r);
     bytes_t result = NULL_BYTES;
     a->cb(a->user_data, result, err);
     buffer_free(&a->out);
@@ -157,9 +138,7 @@ static void lcu_assemble_fetch_cb(client_t* client, void* data, data_request_t* 
   if (rc < 0) {
     log_warn("period_store: scheduling LCU write failed for period %l", p);
     c4_file_data_array_free(files, 1, 0);
-    safe_free(r->url);
-    safe_free(r->response.data);
-    safe_free(r);
+    c4_request_free(r);
     safe_free(wctx);
   }
   // next
@@ -295,11 +274,7 @@ static void fetch_lcb_cb(client_t* client, void* data, data_request_t* r) {
   if (checkpoint_period != period) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: checkpoint period mismatch", period);
   bytes32_t checkpoint = {0};
   ssz_hash_tree_root(header, checkpoint);
-
-  safe_free(r->url);
-  safe_free(r->response.data);
-  safe_free(r);
-
+  c4_request_free(r);
   c4_ps_fetch_lcb_for_checkpoint(checkpoint, period);
 }
 

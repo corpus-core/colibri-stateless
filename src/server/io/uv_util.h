@@ -5,8 +5,25 @@
 #define uv_util_h__
 
 #include "bytes.h"
+#include "logger.h"
 #include <stddef.h>
 #include <uv.h>
+
+// Logs libuv error details (string + symbolic name).
+//
+// Use _NEG for APIs that return a negative libuv error code on failure (e.g. uv_fs_* when used synchronously).
+// Use _NZ  for APIs that return non-zero on failure (e.g. many libuv init/bind/listen calls).
+#define C4_UV_LOG_ERR_NEG(op, r)                                                         \
+  do {                                                                                   \
+    int _r = (int) (r);                                                                  \
+    if (_r < 0) log_error("%s failed: %s (%s)", (op), uv_strerror(_r), uv_err_name(_r)); \
+  } while (0)
+
+#define C4_UV_LOG_ERR_NZ(op, r)                                                           \
+  do {                                                                                    \
+    int _r = (int) (r);                                                                   \
+    if (_r != 0) log_error("%s failed: %s (%s)", (op), uv_strerror(_r), uv_err_name(_r)); \
+  } while (0)
 
 #ifdef __cplusplus
 extern "C" {

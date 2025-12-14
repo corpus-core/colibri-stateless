@@ -24,6 +24,16 @@
 #include "state.h"
 #include <stdlib.h>
 #include <string.h>
+
+void c4_request_free(data_request_t* req) {
+  if (!req) return;
+  if (req->url) safe_free(req->url);
+  if (req->error) safe_free(req->error);
+  if (req->payload.data) safe_free(req->payload.data);
+  if (req->response.data) safe_free(req->response.data);
+  safe_free(req);
+}
+
 void c4_state_free(c4_state_t* state) {
   data_request_t* data_request = state->requests;
   while (data_request) {

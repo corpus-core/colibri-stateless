@@ -272,6 +272,17 @@ typedef struct {
 void c4_state_free(c4_state_t* state);
 
 /**
+ * Frees all resources associated with a data request.
+ *
+ * Releases all memory allocated for the request URL, error message, payload, and response.
+ * Safe to call with partially initialized requests.
+ * Only use it if this is not associated with a state object, since it will not free the request from the state object.
+ *
+ * @param req Pointer to the request to free
+ */
+void c4_request_free(data_request_t* req);
+
+/**
  * Finds a data request by its unique identifier.
  *
  * Performs a linear search through the request list to find a request
