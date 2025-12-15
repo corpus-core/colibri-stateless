@@ -269,6 +269,10 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   args[arg_i++] = NULL;
 
   options.args = args;
+  buffer_t buf = {0};
+  for (int i = 0; i < arg_i && args[i]; i++) bprintf(&buf, "%s ", args[i]);
+  log_info("Prover: Spawning script with args: %s", buf.data.data);
+  buffer_free(&buf);
 
   uv_stdio_container_t stdio[3] = {0};
   stdio[0].flags                = UV_IGNORE;
