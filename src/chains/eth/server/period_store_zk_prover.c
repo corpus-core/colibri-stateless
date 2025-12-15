@@ -248,7 +248,11 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   sbprintf(target_str, "%l", target_period);
   sbprintf(prev_str, "%l", prev_period);
 
-  char* args[13];
+  char rpc_url[128];
+  // Use local server as RPC source for sync.ssz (prevents accidental mainnet fetch).
+  snprintf(rpc_url, sizeof(rpc_url), "http://127.0.0.1:%d/", http_server.port);
+
+  char* args[15];
   int   arg_i   = 0;
   args[arg_i++] = script;
   args[arg_i++] = "--period";
@@ -260,6 +264,8 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   args[arg_i++] = "--network";
   args[arg_i++] = "--output";
   args[arg_i++] = eth_config.period_store;
+  args[arg_i++] = "--rpc";
+  args[arg_i++] = rpc_url;
   args[arg_i++] = NULL;
 
   options.args = args;
