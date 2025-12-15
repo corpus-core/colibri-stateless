@@ -291,9 +291,11 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   while (environ[env_count]) env_count++;
 
   // +2 for our new var and NULL
-  new_env = malloc((env_count + 2) * sizeof(char*));
+  new_env = malloc((env_count + 3) * sizeof(char*));
   for (int i = 0; i < env_count; i++)
     new_env[i] = environ[i];
+
+  new_env[env_count++] = "SP1_SKIP_VERIFY=1";
 
   if (eth_config.period_prover_key_file) {
     key_env_str            = bprintf(NULL, "SP1_PRIVATE_KEY_FILE=%s", eth_config.period_prover_key_file);
