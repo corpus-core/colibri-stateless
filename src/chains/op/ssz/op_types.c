@@ -121,6 +121,9 @@ const ssz_def_t* op_ssz_verification_type(op_ssz_type_t type) {
     case OP_SSZ_VERIFY_PRECONF_PROOF:
       // OP_BLOCKPROOF_UNION is defined in op_proof_types.h and contains preconfirmation proofs
       return ARRAY_TYPE(OP_BLOCKPROOF_UNION, OP_PRECONF);
+    case OP_SSZ_VERIFY_L1_ANCHORED_PROOF:
+      // L1-anchored proof via L2OutputOracle on Ethereum L1
+      return ARRAY_TYPE(OP_BLOCKPROOF_UNION, OP_L1_ANCHORED_PROOF);
     default: return NULL;
   }
 }
