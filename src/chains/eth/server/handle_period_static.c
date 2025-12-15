@@ -74,7 +74,6 @@ static void c4_handle_period_static_manifest(client_t* client, uint64_t start_pe
 
   // Build SSZ list
   ssz_builder_t list_builder = ssz_builder_for_def(&C4_PERIOD_STORE_MANIFEST_LIST);
-  ssz_builder_t file_builder = ssz_builder_for_def(&C4_PERIOD_STORE_MANIFEST_ITEM_CONTAINER);
   uint32_t      file_count   = 0;
   uint64_t      first        = 0;
   uint64_t      last         = 0;
@@ -131,6 +130,7 @@ static void c4_handle_period_static_manifest(client_t* client, uint64_t start_pe
       uv_fs_req_cleanup(&streq);
 
       // encode item
+      ssz_builder_t file_builder = ssz_builder_for_def(&C4_PERIOD_STORE_MANIFEST_ITEM_CONTAINER);
       ssz_add_uint64(&file_builder, p);
       ssz_add_bytes(&file_builder, "filename", bytes((uint8_t*) f_ent.name, (uint32_t) strlen(f_ent.name) + 1)); // null-terminated filename only (period is separate field)
       ssz_add_uint32(&file_builder, len);

@@ -63,7 +63,7 @@ static char* find_script() {
   // Try local dev path relative to CWD (usually build/default)
   // ../../../scripts/run_zk_proof.sh
 
-  script = "../../../scripts/run_zk_proof.sh";
+  script = "../../scripts/run_zk_proof.sh";
   if (access(script, X_OK) == 0) return script;
   // Try current dir
 
@@ -79,7 +79,10 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
 
   // Spawn
   char* script = find_script();
-  if (!script) return;
+  if (!script) {
+    log_error("Prover: Script not found");
+    return;
+  }
 
   uv_process_t*    req = (uv_process_t*) malloc(sizeof(uv_process_t));
   zk_prover_ctx_t* ctx = (zk_prover_ctx_t*) malloc(sizeof(zk_prover_ctx_t));
