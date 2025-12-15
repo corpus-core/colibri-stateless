@@ -270,7 +270,7 @@ static void full_sync_download_next(void) {
   while (c4_ps_period_is_complete(ctx->last_full_period + 1))
     ctx->last_full_period++;
 
-  log_info("period_store: full_sync completed (last_full_period=%l, files=%u)", ctx->last_full_period, ctx->file_count);
+  log_info("period_store: full_sync completed (last_full_period=%l, files=%d)", ctx->last_full_period, ctx->file_count);
   free_sync_files(ctx->files, ctx->file_count);
   ctx->files         = NULL;
   ctx->file_count    = 0;
