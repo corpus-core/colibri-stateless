@@ -7,6 +7,7 @@
 // These will be registered with the main server.
 bool c4_handle_lcu(client_t* client);
 bool c4_proxy(client_t* client);
+bool c4_handle_period_static(client_t* client);
 
 // Forward declarations for background services
 void c4_watch_beacon_events();
@@ -27,6 +28,7 @@ void eth_server_init(http_server_t* server) {
   // Register handlers that are now chain-specific
   c4_register_http_handler(c4_handle_lcu);
   c4_register_http_handler(c4_proxy);
+  c4_register_http_handler(c4_handle_period_static);
 
   // internal handlers
   c4_register_internal_handler(c4_handle_period_store);

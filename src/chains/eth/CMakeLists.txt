@@ -182,8 +182,6 @@ add_prover(
   PROOF eth_prover_execute
 )
 
-
-
 add_server_handler(
   NAME eth_server_handler
   SOURCES 
@@ -197,6 +195,14 @@ add_server_handler(
     server/client_detection.c
     server/client_mappings.c
     server/period_store.c
+    server/period_store_call.c
+    server/period_store_lc.c
+    server/period_store_historical_roots.c
+    server/period_store_backfill.c
+    server/period_store_period_index.c
+    server/period_store_full_sync.c
+    server/period_store_zk_prover.c
+    server/handle_period_static.c
     server/eth_conf.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init

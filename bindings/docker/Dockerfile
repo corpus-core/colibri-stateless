@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust (required for Kona-P2P bridge)
+# Install Rust (required for Kona-P2P bridge and ZK Proof Host)
 RUN wget -O rustup-init.sh https://sh.rustup.rs \
     && chmod +x rustup-init.sh \
     && ./rustup-init.sh -y --default-toolchain stable \
@@ -33,11 +33,16 @@ COPY CMakePresets.json ./
 COPY src ./src
 COPY libs ./libs
 COPY bindings ./bindings
+COPY scripts ./scripts
 
 # Configure and build the server with Kona-P2P bridge
 ENV CC=clang
 ENV CXX=clang++
 RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true -DPROVER_TRACE=true . && make colibri-server
+
+# Build the ZK Proof Host Script
+WORKDIR /build/src/chains/eth/zk_proof/script
+RUN cargo build --release
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final
@@ -53,6 +58,14 @@ WORKDIR /app
 
 # Copy the built server executable from the builder stage
 COPY --from=builder /build/bin/colibri-server /app/colibri-server
+
+# Copy the ZK Proof artifacts
+COPY --from=builder /build/src/chains/eth/zk_proof/target/release/eth-sync-script /app/eth-sync-script
+COPY --from=builder /build/src/chains/eth/zk_proof/program/elf/eth_sync_program /app/eth_sync_program
+COPY --from=builder /build/scripts/run_zk_proof.sh /app/run_zk_proof.sh
+
+# Ensure script is executable
+RUN chmod +x /app/run_zk_proof.sh
 
 # Add OCI labels for better GHCR integration
 LABEL org.opencontainers.image.title="Colibri Prover"

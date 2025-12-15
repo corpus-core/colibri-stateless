@@ -198,7 +198,7 @@ static void c4_handle_finalized_checkpoint_cb(request_t* req) {
 
   switch (c4_eth_update_finality(ctx, checkpoint, &slot)) {
     case C4_SUCCESS: {
-      if (eth_config.period_store && !eth_config.period_master_url)
+      if (eth_config.period_store)
         c4_period_sync_on_checkpoint(checkpoint, slot);
 
       prover_request_free(req);

@@ -4,6 +4,7 @@
  */
 #include "handler.h"
 #include "logger.h"
+#include "period_store_zk_prover.h"
 #include "server.h"
 #include "util/bytes.h"
 
@@ -106,4 +107,33 @@ void eth_server_metrics(http_server_t* server, buffer_t* data) {
   bprintf(data, "# HELP colibri_period_sync_retries_total Number of backfill retry scheduling events.\n");
   bprintf(data, "# TYPE colibri_period_sync_retries_total counter\n");
   bprintf(data, "colibri_period_sync_retries_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_retries_total);
+
+  // Prover Metrics
+  bprintf(data, "# HELP colibri_prover_last_run_timestamp_seconds Timestamp of the last proof run.\n");
+  bprintf(data, "# TYPE colibri_prover_last_run_timestamp_seconds gauge\n");
+  bprintf(data, "colibri_prover_last_run_timestamp_seconds{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, prover_stats.last_run_timestamp);
+
+  bprintf(data, "# HELP colibri_prover_last_check_timestamp_seconds Timestamp of the last check loop.\n");
+  bprintf(data, "# TYPE colibri_prover_last_check_timestamp_seconds gauge\n");
+  bprintf(data, "colibri_prover_last_check_timestamp_seconds{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, prover_stats.last_check_timestamp);
+
+  bprintf(data, "# HELP colibri_prover_last_run_duration_seconds Duration of the last proof run in seconds.\n");
+  bprintf(data, "# TYPE colibri_prover_last_run_duration_seconds gauge\n");
+  bprintf(data, "colibri_prover_last_run_duration_seconds{chain_id=\"%d\"} %f\n", (uint32_t) server->chain_id, (double) prover_stats.last_run_duration_ms / 1000.0);
+
+  bprintf(data, "# HELP colibri_prover_last_run_status Status of the last proof run (0=success, 1=error).\n");
+  bprintf(data, "# TYPE colibri_prover_last_run_status gauge\n");
+  bprintf(data, "colibri_prover_last_run_status{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, prover_stats.last_run_status);
+
+  bprintf(data, "# HELP colibri_prover_current_period The target period being processed.\n");
+  bprintf(data, "# TYPE colibri_prover_current_period gauge\n");
+  bprintf(data, "colibri_prover_current_period{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, prover_stats.current_period);
+
+  bprintf(data, "# HELP colibri_prover_success_total Total successful proof runs.\n");
+  bprintf(data, "# TYPE colibri_prover_success_total counter\n");
+  bprintf(data, "colibri_prover_success_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, prover_stats.total_success);
+
+  bprintf(data, "# HELP colibri_prover_failure_total Total failed proof runs.\n");
+  bprintf(data, "# TYPE colibri_prover_failure_total counter\n");
+  bprintf(data, "colibri_prover_failure_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, prover_stats.total_failure);
 }
