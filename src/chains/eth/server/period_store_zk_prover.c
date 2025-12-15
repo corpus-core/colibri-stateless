@@ -8,6 +8,7 @@
 #include "eth_conf.h"
 #include "logger.h"
 #include "server.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -26,6 +27,11 @@
 prover_stats_t  prover_stats         = {0};
 static uint64_t last_verified_period = 0;
 
+// Prevent concurrent proof generation runs.
+static bool     g_prover_running          = false;
+static uint64_t g_prover_running_period   = 0;
+static uint64_t g_prover_running_start_ms = 0;
+
 // Context for spawn callback
 typedef struct {
   uint64_t  period;
@@ -34,8 +40,12 @@ typedef struct {
   uv_pipe_t stderr_pipe;
   buffer_t  stdout_buf;
   buffer_t  stderr_buf;
-  int       pipes_closing; // number of pipes still expected to close (0..2)
+  int       refcount;      // lifetime: 1=process handle + 1=stdout pipe + 1=stderr pipe
+  bool      stdout_closed; // true after close callback ran
+  bool      stderr_closed; // true after close callback ran
 } zk_prover_ctx_t;
+
+static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period);
 
 static void prover_flush_lines(zk_prover_ctx_t* ctx, bool is_stderr, bool flush_partial) {
   buffer_t* b = is_stderr ? &ctx->stderr_buf : &ctx->stdout_buf;
@@ -55,9 +65,9 @@ static void prover_flush_lines(zk_prover_ctx_t* ctx, bool is_stderr, bool flush_
     line[line_len] = 0;
 
     if (is_stderr)
-      log_warn("Prover: stderr: %s", line);
+      log_warn("Prover: %s", line);
     else
-      log_info("Prover: stdout: %s", line);
+      log_info("Prover: %s", line);
 
     safe_free(line);
     buffer_splice(b, 0, (uint32_t) ((nl - b->data.data) + 1), (bytes_t) {0});
@@ -74,24 +84,39 @@ static void prover_flush_lines(zk_prover_ctx_t* ctx, bool is_stderr, bool flush_
     line[line_len] = 0;
 
     if (is_stderr)
-      log_warn("Prover: stderr: %s", line);
+      log_warn("Prover: %s", line);
     else
-      log_info("Prover: stdout: %s", line);
+      log_info("Prover: %s", line);
 
     safe_free(line);
     buffer_reset(b);
   }
 }
 
-static void prover_on_pipe_closed(uv_handle_t* handle) {
-  zk_prover_ctx_t* ctx = (zk_prover_ctx_t*) handle->data;
+static void prover_release_ctx(zk_prover_ctx_t* ctx, const char* reason) {
   if (!ctx) return;
-  ctx->pipes_closing--;
-  if (ctx->pipes_closing <= 0) {
+  ctx->refcount--;
+  (void) reason;
+  if (ctx->refcount <= 0) {
     buffer_free(&ctx->stdout_buf);
     buffer_free(&ctx->stderr_buf);
     free(ctx);
   }
+}
+
+static void prover_on_pipe_closed(uv_handle_t* handle) {
+  zk_prover_ctx_t* ctx = (zk_prover_ctx_t*) handle->data;
+  if (!ctx) return;
+  if (handle == (uv_handle_t*) &ctx->stdout_pipe) ctx->stdout_closed = true;
+  if (handle == (uv_handle_t*) &ctx->stderr_pipe) ctx->stderr_closed = true;
+  prover_release_ctx(ctx, "release_pipe");
+}
+
+static void prover_on_process_closed(uv_handle_t* handle) {
+  uv_process_t*    req = (uv_process_t*) handle;
+  zk_prover_ctx_t* ctx = req ? (zk_prover_ctx_t*) req->data : NULL;
+  prover_release_ctx(ctx, "release_process");
+  free(req);
 }
 
 static void prover_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
@@ -127,6 +152,9 @@ static void prover_read_cb(uv_stream_t* stream, ssize_t nread, const uv_buf_t* b
 static void on_prover_exit(uv_process_t* req, int64_t exit_status, int term_signal) {
   zk_prover_ctx_t* ctx      = (zk_prover_ctx_t*) req->data;
   uint64_t         duration = current_ms() - ctx->start_time;
+  g_prover_running          = false;
+  g_prover_running_period   = 0;
+  g_prover_running_start_ms = 0;
 
   prover_stats.last_run_timestamp   = current_unix_ms() / 1000;
   prover_stats.last_run_duration_ms = duration;
@@ -146,16 +174,18 @@ static void on_prover_exit(uv_process_t* req, int64_t exit_status, int term_sign
   // Flush any remaining output and close pipes.
   prover_flush_lines(ctx, false, true);
   prover_flush_lines(ctx, true, true);
-  if (!uv_is_closing((uv_handle_t*) &ctx->stdout_pipe)) {
+  // Note: uv_is_closing() only reports "close is in progress". After the close callback ran,
+  // the handle is already closed and calling uv_close() again will assert/crash.
+  if (!ctx->stdout_closed && !uv_is_closing((uv_handle_t*) &ctx->stdout_pipe)) {
     uv_read_stop((uv_stream_t*) &ctx->stdout_pipe);
     uv_close((uv_handle_t*) &ctx->stdout_pipe, prover_on_pipe_closed);
   }
-  if (!uv_is_closing((uv_handle_t*) &ctx->stderr_pipe)) {
+  if (!ctx->stderr_closed && !uv_is_closing((uv_handle_t*) &ctx->stderr_pipe)) {
     uv_read_stop((uv_stream_t*) &ctx->stderr_pipe);
     uv_close((uv_handle_t*) &ctx->stderr_pipe, prover_on_pipe_closed);
   }
 
-  uv_close((uv_handle_t*) req, (uv_close_cb) free);
+  uv_close((uv_handle_t*) req, prover_on_process_closed);
 }
 
 static char* find_script() {
@@ -177,6 +207,11 @@ static char* find_script() {
 }
 
 static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period) {
+  if (g_prover_running) {
+    log_warn("Prover: already running (period=%l, running_period=%l), skipping", target_period, g_prover_running_period);
+    return;
+  }
+
   log_info("Prover: Starting proof generation for period %l", target_period);
 
   // Spawn
@@ -192,13 +227,17 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   ctx->start_time      = current_ms();
   req->data            = ctx;
 
+  g_prover_running          = true;
+  g_prover_running_period   = target_period;
+  g_prover_running_start_ms = ctx->start_time;
+
   // Setup stdout/stderr pipes for logging.
   uv_loop_t* loop = uv_default_loop();
   uv_pipe_init(loop, &ctx->stdout_pipe, 0);
   uv_pipe_init(loop, &ctx->stderr_pipe, 0);
   ctx->stdout_pipe.data = ctx;
   ctx->stderr_pipe.data = ctx;
-  ctx->pipes_closing    = 2;
+  ctx->refcount         = 3;
 
   uv_process_options_t options = {0};
   options.exit_cb              = on_prover_exit;
@@ -234,16 +273,18 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   options.stdio_count           = 3;
   options.stdio                 = stdio;
 
+  // Extend environment (pass secrets via env var).
+  char*         key_env_str = NULL;
+  char**        new_env     = NULL;
   extern char** environ;
   int           env_count = 0;
   while (environ[env_count]) env_count++;
 
   // +2 for our new var and NULL
-  char** new_env = malloc((env_count + 2) * sizeof(char*));
+  new_env = malloc((env_count + 2) * sizeof(char*));
   for (int i = 0; i < env_count; i++)
     new_env[i] = environ[i];
 
-  char* key_env_str = NULL;
   if (eth_config.period_prover_key_file) {
     key_env_str            = bprintf(NULL, "SP1_PRIVATE_KEY_FILE=%s", eth_config.period_prover_key_file);
     new_env[env_count]     = key_env_str;
@@ -257,11 +298,16 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   int r = uv_spawn(uv_default_loop(), req, &options);
 
   if (key_env_str) safe_free(key_env_str);
-  safe_free(new_env);
+  if (new_env) safe_free(new_env);
 
   if (r) {
     log_error("Prover: Failed to spawn script: %s", uv_strerror(r));
     free(req);
+    g_prover_running          = false;
+    g_prover_running_period   = 0;
+    g_prover_running_start_ms = 0;
+    // No process handle was created, so lifetime is only the pipes.
+    ctx->refcount = 2;
     if (!uv_is_closing((uv_handle_t*) &ctx->stdout_pipe))
       uv_close((uv_handle_t*) &ctx->stdout_pipe, prover_on_pipe_closed);
     if (!uv_is_closing((uv_handle_t*) &ctx->stderr_pipe))
