@@ -325,6 +325,7 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
   // Slave check or no store check
   if (eth_config.period_master_url) return;
   if (!eth_config.period_store) return;
+  if (!eth_config.period_prover_key_file) return;
 
   bool     run_prover               = false;
   uint64_t target_period            = period + 1;
