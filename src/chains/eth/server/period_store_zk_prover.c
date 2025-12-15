@@ -9,6 +9,7 @@
 #include "logger.h"
 #include "server.h"
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <uv.h>
@@ -27,11 +28,101 @@ static uint64_t last_verified_period = 0;
 
 // Context for spawn callback
 typedef struct {
-  uint64_t period;
-  uint64_t start_time;
+  uint64_t  period;
+  uint64_t  start_time;
+  uv_pipe_t stdout_pipe;
+  uv_pipe_t stderr_pipe;
+  buffer_t  stdout_buf;
+  buffer_t  stderr_buf;
+  int       pipes_closing; // number of pipes still expected to close (0..2)
 } zk_prover_ctx_t;
 
-// Removed file_read_bytes as we use bytes_read from util/bytes.h
+static void prover_flush_lines(zk_prover_ctx_t* ctx, bool is_stderr, bool flush_partial) {
+  buffer_t* b = is_stderr ? &ctx->stderr_buf : &ctx->stdout_buf;
+  if (!b->data.data || b->data.len == 0) return;
+
+  // Log complete lines (newline-delimited).
+  for (;;) {
+    uint8_t* nl = (uint8_t*) memchr(b->data.data, '\n', b->data.len);
+    if (!nl) break;
+    size_t line_len = (size_t) (nl - b->data.data);
+
+    // Trim trailing '\r' (Windows-style line endings).
+    while (line_len > 0 && b->data.data[line_len - 1] == '\r') line_len--;
+
+    char* line = (char*) safe_malloc(line_len + 1);
+    memcpy(line, b->data.data, line_len);
+    line[line_len] = 0;
+
+    if (is_stderr)
+      log_warn("Prover: stderr: %s", line);
+    else
+      log_info("Prover: stdout: %s", line);
+
+    safe_free(line);
+    buffer_splice(b, 0, (uint32_t) ((nl - b->data.data) + 1), (bytes_t) {0});
+  }
+
+  // Optionally flush remaining partial line.
+  if (flush_partial && b->data.len > 0) {
+    // Trim trailing '\r'
+    size_t line_len = b->data.len;
+    while (line_len > 0 && b->data.data[line_len - 1] == '\r') line_len--;
+
+    char* line = (char*) safe_malloc(line_len + 1);
+    memcpy(line, b->data.data, line_len);
+    line[line_len] = 0;
+
+    if (is_stderr)
+      log_warn("Prover: stderr: %s", line);
+    else
+      log_info("Prover: stdout: %s", line);
+
+    safe_free(line);
+    buffer_reset(b);
+  }
+}
+
+static void prover_on_pipe_closed(uv_handle_t* handle) {
+  zk_prover_ctx_t* ctx = (zk_prover_ctx_t*) handle->data;
+  if (!ctx) return;
+  ctx->pipes_closing--;
+  if (ctx->pipes_closing <= 0) {
+    buffer_free(&ctx->stdout_buf);
+    buffer_free(&ctx->stderr_buf);
+    free(ctx);
+  }
+}
+
+static void prover_alloc_cb(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
+  (void) handle;
+  size_t sz = suggested_size;
+  if (sz < 4096) sz = 4096;
+  buf->base = (char*) safe_malloc(sz);
+  buf->len  = (unsigned int) sz;
+}
+
+static void prover_read_cb(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
+  if (nread > 0) {
+    zk_prover_ctx_t* ctx       = (zk_prover_ctx_t*) ((uv_handle_t*) stream)->data;
+    bool             is_stderr = (stream == (uv_stream_t*) &ctx->stderr_pipe);
+
+    buffer_append(is_stderr ? &ctx->stderr_buf : &ctx->stdout_buf, bytes(buf->base, (uint32_t) nread));
+    prover_flush_lines(ctx, is_stderr, false);
+  }
+  else if (nread < 0) {
+    // EOF or error: stop reading and close the pipe.
+    zk_prover_ctx_t* ctx       = (zk_prover_ctx_t*) ((uv_handle_t*) stream)->data;
+    bool             is_stderr = (stream == (uv_stream_t*) &ctx->stderr_pipe);
+    if (ctx) prover_flush_lines(ctx, is_stderr, true);
+
+    uv_read_stop(stream);
+    if (!uv_is_closing((uv_handle_t*) stream))
+      uv_close((uv_handle_t*) stream, prover_on_pipe_closed);
+  }
+
+  if (buf && buf->base) safe_free(buf->base);
+}
 
 static void on_prover_exit(uv_process_t* req, int64_t exit_status, int term_signal) {
   zk_prover_ctx_t* ctx      = (zk_prover_ctx_t*) req->data;
@@ -52,8 +143,19 @@ static void on_prover_exit(uv_process_t* req, int64_t exit_status, int term_sign
     prover_stats.total_failure++;
   }
 
+  // Flush any remaining output and close pipes.
+  prover_flush_lines(ctx, false, true);
+  prover_flush_lines(ctx, true, true);
+  if (!uv_is_closing((uv_handle_t*) &ctx->stdout_pipe)) {
+    uv_read_stop((uv_stream_t*) &ctx->stdout_pipe);
+    uv_close((uv_handle_t*) &ctx->stdout_pipe, prover_on_pipe_closed);
+  }
+  if (!uv_is_closing((uv_handle_t*) &ctx->stderr_pipe)) {
+    uv_read_stop((uv_stream_t*) &ctx->stderr_pipe);
+    uv_close((uv_handle_t*) &ctx->stderr_pipe, prover_on_pipe_closed);
+  }
+
   uv_close((uv_handle_t*) req, (uv_close_cb) free);
-  free(ctx);
 }
 
 static char* find_script() {
@@ -85,10 +187,18 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   }
 
   uv_process_t*    req = (uv_process_t*) malloc(sizeof(uv_process_t));
-  zk_prover_ctx_t* ctx = (zk_prover_ctx_t*) malloc(sizeof(zk_prover_ctx_t));
+  zk_prover_ctx_t* ctx = (zk_prover_ctx_t*) safe_calloc(1, sizeof(zk_prover_ctx_t));
   ctx->period          = target_period;
   ctx->start_time      = current_ms();
   req->data            = ctx;
+
+  // Setup stdout/stderr pipes for logging.
+  uv_loop_t* loop = uv_default_loop();
+  uv_pipe_init(loop, &ctx->stdout_pipe, 0);
+  uv_pipe_init(loop, &ctx->stderr_pipe, 0);
+  ctx->stdout_pipe.data = ctx;
+  ctx->stderr_pipe.data = ctx;
+  ctx->pipes_closing    = 2;
 
   uv_process_options_t options = {0};
   options.exit_cb              = on_prover_exit;
@@ -114,6 +224,15 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   args[arg_i++] = NULL;
 
   options.args = args;
+
+  uv_stdio_container_t stdio[3] = {0};
+  stdio[0].flags                = UV_IGNORE;
+  stdio[1].flags                = (uv_stdio_flags) (UV_CREATE_PIPE | UV_WRITABLE_PIPE);
+  stdio[1].data.stream          = (uv_stream_t*) &ctx->stdout_pipe;
+  stdio[2].flags                = (uv_stdio_flags) (UV_CREATE_PIPE | UV_WRITABLE_PIPE);
+  stdio[2].data.stream          = (uv_stream_t*) &ctx->stderr_pipe;
+  options.stdio_count           = 3;
+  options.stdio                 = stdio;
 
   extern char** environ;
   int           env_count = 0;
@@ -143,8 +262,16 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   if (r) {
     log_error("Prover: Failed to spawn script: %s", uv_strerror(r));
     free(req);
-    free(ctx);
+    if (!uv_is_closing((uv_handle_t*) &ctx->stdout_pipe))
+      uv_close((uv_handle_t*) &ctx->stdout_pipe, prover_on_pipe_closed);
+    if (!uv_is_closing((uv_handle_t*) &ctx->stderr_pipe))
+      uv_close((uv_handle_t*) &ctx->stderr_pipe, prover_on_pipe_closed);
     prover_stats.total_failure++;
+  }
+  else {
+    // Start capturing output.
+    uv_read_start((uv_stream_t*) &ctx->stdout_pipe, prover_alloc_cb, prover_read_cb);
+    uv_read_start((uv_stream_t*) &ctx->stderr_pipe, prover_alloc_cb, prover_read_cb);
   }
 }
 
