@@ -39,6 +39,10 @@ else()
     message(STATUS "    See: https://github.com/runtimeverification/beacon-chain-verification")
 endif()
 
+if(ETH_ZKPROOF)
+  add_subdirectory(zk_proof)
+endif()
+
 option(EVMONE "uses evmone to verify eth_calls" ON)
 option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas." OFF)
 # precompiles
@@ -213,3 +217,8 @@ add_server_handler(
   METRICS_FUNC eth_server_metrics
   CONFIG_FUNC eth_configure
 )
+
+# Ensure ETH ZK-Proof artifacts are built/copied when building ETH server handler.
+if(TARGET eth_zkproof_artifacts)
+  add_dependencies(eth_server_handler eth_zkproof_artifacts)
+endif()
