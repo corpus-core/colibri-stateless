@@ -242,22 +242,29 @@ void c4_prover_handle_request(request_t* req) {
   if (c4_check_retry_request(req) || c4_check_worker_request(req)) return;
 
   prover_ctx_t* ctx = (prover_ctx_t*) req->ctx;
+  const char*   req_path =
+      (req && req->client && req->client->request.path) ? req->client->request.path : "";
+  bytes_t req_payload =
+      (req && req->client && req->client->request.payload && req->client->request.payload_len)
+          ? bytes(req->client->request.payload, (uint32_t) req->client->request.payload_len)
+          : (bytes_t) {0};
+  uint64_t client_ptr = (uint64_t) (uintptr_t) (req ? req->client : NULL);
   // measure and trace c4_prover_execute invocation on main thread
 
   switch (prover_execute(req, ctx)) {
     case C4_SUCCESS:
       log_info(MAGENTA("::[ OK ]") "%s " GRAY(" (%d bytes in %l ms) :: #%lx"),
-               c4_req_info(C4_DATA_TYPE_INTERN, req->client->request.path, bytes(req->client->request.payload, req->client->request.payload_len)),
-               ctx->proof.len, (uint64_t) (current_ms() - req->start_time), (uint64_t) (uintptr_t) req->client);
+               c4_req_info(C4_DATA_TYPE_INTERN, req_path, req_payload),
+               ctx->proof.len, (uint64_t) (current_ms() - req->start_time), client_ptr);
       respond(req, ctx->proof, 200, "application/octet-stream");
       prover_request_free(req);
       return;
 
     case C4_ERROR: {
       log_info(RED("::[ERR ]") "%s " YELLOW("%s") GRAY(" :: #%lx"),
-               c4_req_info(C4_DATA_TYPE_INTERN, req->client->request.path, bytes(req->client->request.payload, req->client->request.payload_len)),
+               c4_req_info(C4_DATA_TYPE_INTERN, req_path, req_payload),
                ctx->state.error ? ctx->state.error : "",
-               (uint64_t) (uintptr_t) req->client);
+               client_ptr);
 
       buffer_t buf = {0};
       bprintf(&buf, "{\"error\":\"%s\"}", ctx->state.error);

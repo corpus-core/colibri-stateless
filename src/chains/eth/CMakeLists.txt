@@ -39,6 +39,12 @@ else()
     message(STATUS "    See: https://github.com/runtimeverification/beacon-chain-verification")
 endif()
 
+# ZK host artifacts (eth-sync-script + eth_sync_program) are only needed when we build the HTTP server.
+# For non-server builds (e.g. wasm/embedded), avoid pulling in the Rust build toolchain.
+if(ETH_ZKPROOF AND HTTP_SERVER)
+  add_subdirectory(zk_proof)
+endif()
+
 option(EVMONE "uses evmone to verify eth_calls" ON)
 option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas." OFF)
 # precompiles
@@ -213,3 +219,8 @@ add_server_handler(
   METRICS_FUNC eth_server_metrics
   CONFIG_FUNC eth_configure
 )
+
+# Ensure ETH ZK-Proof artifacts are built/copied when building the ETH server handler (only exists with HTTP_SERVER).
+if(TARGET eth_zkproof_artifacts AND TARGET eth_server_handler)
+  add_dependencies(eth_server_handler eth_zkproof_artifacts)
+endif()
