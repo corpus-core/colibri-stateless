@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.16)
 # This is kept inside the ETH chain folder so it can be enabled/disabled together
 # with ETH_ZKPROOF, and the root server build can simply depend on the target.
 
-if(NOT ETH_ZKPROOF)
+if(NOT ETH_ZKPROOF OR NOT HTTP_SERVER)
   return()
 endif()
 
