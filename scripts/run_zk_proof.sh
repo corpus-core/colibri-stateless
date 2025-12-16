@@ -78,6 +78,15 @@ if [ -f "/app/eth_sync_program" ] && [ -f "/app/eth-sync-script" ]; then
     ELF="/app/eth_sync_program"
     HOST_BINARY="/app/eth-sync-script"
     SKIP_TOOLCHAIN=true
+else
+    # Prefer artifacts next to colibri-server (local build output)
+    # This matches the server integration which resolves via uv_exepath() directory.
+    if [ -z "$HOST_BINARY" ] && [ -f "build/default/bin/eth-sync-script" ]; then
+        HOST_BINARY="build/default/bin/eth-sync-script"
+    fi
+    if [ -z "$ELF" ] && [ -f "build/default/bin/eth_sync_program" ]; then
+        ELF="build/default/bin/eth_sync_program"
+    fi
 fi
 
 # --- SP1 TOOLCHAIN SETUP ---

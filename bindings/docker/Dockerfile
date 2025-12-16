@@ -38,11 +38,7 @@ COPY scripts ./scripts
 # Configure and build the server with Kona-P2P bridge
 ENV CC=clang
 ENV CXX=clang++
-RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true -DPROVER_TRACE=true . && make colibri-server
-
-# Build the ZK Proof Host Script
-WORKDIR /build/src/chains/eth/zk_proof/script
-RUN cargo build --release
+RUN cmake -DHTTP_SERVER=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true -DPROVER_TRACE=true -DETH_ZKPROOF_BUILD_HOST=ON . && make colibri-server
 
 # Use a small Debian image for the final stage
 FROM debian:bookworm-slim AS final
@@ -57,15 +53,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy the built server executable from the builder stage
+# and the ZK Proof artifacts produced by the CMake target `eth_zkproof_artifacts` and copied next to the server binary.
+
 COPY --from=builder /build/bin/colibri-server /app/colibri-server
-
-# Copy the ZK Proof artifacts
-COPY --from=builder /build/src/chains/eth/zk_proof/target/release/eth-sync-script /app/eth-sync-script
-COPY --from=builder /build/src/chains/eth/zk_proof/program/elf/eth_sync_program /app/eth_sync_program
-COPY --from=builder /build/scripts/run_zk_proof.sh /app/run_zk_proof.sh
-
-# Ensure script is executable
-RUN chmod +x /app/run_zk_proof.sh
+COPY --from=builder /build/bin/eth-sync-script /app/eth-sync-script
+COPY --from=builder /build/bin/eth_sync_program /app/eth_sync_program
 
 # Add OCI labels for better GHCR integration
 LABEL org.opencontainers.image.title="Colibri Prover"
