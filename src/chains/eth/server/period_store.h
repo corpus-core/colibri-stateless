@@ -39,6 +39,29 @@ void     c4_ps_schedule_fetch_lcu(uint64_t period);
 void     c4_ps_schedule_fetch_historical_root(uint64_t period);
 char*    c4_ps_ensure_period_dir(uint64_t period);
 
+// ---- Blocks root verification marker (blocks_root.bin) ----
+//
+// The file `blocks_root.bin` is written after a period's blocks_root is verified against
+// historical summaries. We expose the latest verified period/timestamp for monitoring.
+
+/**
+ * Initializes blocks_root verification stats from existing period_store artifacts.
+ *
+ * Intended to be called on server startup (master only) to avoid zero timestamps
+ * after restarts.
+ */
+void c4_ps_blocks_root_init_from_store(void);
+
+/**
+ * Returns the most recent period that has `blocks_root.bin` present.
+ */
+uint64_t c4_ps_blocks_root_last_verified_period(void);
+
+/**
+ * Returns the mtime of the most recent `blocks_root.bin` (seconds since epoch).
+ */
+uint64_t c4_ps_blocks_root_last_verified_timestamp_seconds(void);
+
 // Initializes the in-memory period directory index (lazy). Safe to call multiple times.
 void c4_ps_period_index_init_if_needed(void);
 

@@ -5,6 +5,7 @@
 #include "eth_conf.h"
 #include "handler.h"
 #include "logger.h"
+#include "period_store.h"
 #include "period_store_zk_prover.h"
 #include "server.h"
 #include "util/bytes.h"
@@ -124,6 +125,19 @@ void eth_server_metrics(http_server_t* server, buffer_t* data) {
   bprintf(data, "# HELP colibri_period_sync_retries_total Number of backfill retry scheduling events.\n");
   bprintf(data, "# TYPE colibri_period_sync_retries_total counter\n");
   bprintf(data, "colibri_period_sync_retries_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_retries_total);
+
+  // Blocks root verification marker metrics (blocks_root.bin).
+  bprintf(data, "# HELP colibri_blocks_root_last_verified_period Last period with verified blocks_root.bin marker.\n");
+  bprintf(data, "# TYPE colibri_blocks_root_last_verified_period gauge\n");
+  bprintf(data, "colibri_blocks_root_last_verified_period{chain_id=\"%d\"} %l\n",
+          (uint32_t) server->chain_id,
+          c4_ps_blocks_root_last_verified_period());
+
+  bprintf(data, "# HELP colibri_blocks_root_last_verified_timestamp_seconds Timestamp of last verified blocks_root.bin marker (seconds).\n");
+  bprintf(data, "# TYPE colibri_blocks_root_last_verified_timestamp_seconds gauge\n");
+  bprintf(data, "colibri_blocks_root_last_verified_timestamp_seconds{chain_id=\"%d\"} %l\n",
+          (uint32_t) server->chain_id,
+          c4_ps_blocks_root_last_verified_timestamp_seconds());
 
   // Prover Metrics
   bprintf(data, "# HELP colibri_prover_last_run_timestamp_seconds Timestamp of the last proof run.\n");

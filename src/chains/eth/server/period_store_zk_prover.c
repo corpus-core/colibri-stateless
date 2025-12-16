@@ -141,6 +141,41 @@ static bool c4_verify_proof_files(const char* proof_path, const char* pub_path) 
   return valid;
 }
 
+void c4_period_prover_init_from_store(void) {
+  // Only meaningful on master with a local period_store.
+  if (eth_config.period_master_url) return;
+  if (!eth_config.period_store) return;
+
+  uint64_t first = 0, last = 0;
+  if (!c4_ps_period_index_get_contiguous_from(0, &first, &last)) return;
+
+  // Walk backwards to find the newest valid Groth16 proof.
+  for (uint64_t p = last;; p--) {
+    if (c4_ps_file_exists(p, "zk_proof_g16.bin") && c4_ps_file_exists(p, "zk_pub.bin")) {
+      char* proof_path = bprintf(NULL, "%s/%l/zk_proof_g16.bin", eth_config.period_store, p);
+      char* pub_path   = bprintf(NULL, "%s/%l/zk_pub.bin", eth_config.period_store, p);
+
+      struct stat st;
+      if (proof_path && stat(proof_path, &st) == 0) {
+        if (c4_verify_proof_files(proof_path, pub_path)) {
+          prover_stats.last_run_timestamp = (uint64_t) st.st_mtime;
+          prover_stats.last_run_status    = 0;
+          last_verified_period            = p;
+          log_info("Prover: Initialized last_run_timestamp=%l from period %l", prover_stats.last_run_timestamp, p);
+          safe_free(proof_path);
+          safe_free(pub_path);
+          return;
+        }
+      }
+
+      safe_free(proof_path);
+      safe_free(pub_path);
+    }
+
+    if (p == first) break;
+  }
+}
+
 static void sync_gen_ctx_fail(sync_gen_ctx_t* ctx, data_request_t* res, const char* msg) {
   if (msg) log_error("%s", msg);
   if (res) c4_request_free(res);

@@ -2,6 +2,7 @@
 #include "eth_conf.h"
 #include "logger.h"
 #include "period_store.h"
+#include "period_store_zk_prover.h"
 
 // Forward declarations for handlers from the moved files
 // These will be registered with the main server.
@@ -38,6 +39,12 @@ void eth_server_init(http_server_t* server) {
   if (eth_config.stream_beacon_events) {
     log_info("Starting beacon event watcher...");
     c4_watch_beacon_events();
+  }
+
+  // Initialize prover stats from period_store on startup (master only).
+  if (!eth_config.period_master_url && eth_config.period_store) {
+    c4_period_prover_init_from_store();
+    c4_ps_blocks_root_init_from_store();
   }
 }
 

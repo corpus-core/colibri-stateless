@@ -12,6 +12,10 @@
 static const ssz_def_t BLOCKS             = SSZ_VECTOR("blocks", ssz_bytes32, SLOTS_PER_PERIOD);
 static uint64_t        latest_hist_period = UINT64_MAX;
 
+// Latest verified blocks_root marker (blocks_root.bin) for monitoring.
+static uint64_t g_blocks_root_last_verified_period = 0;
+static uint64_t g_blocks_root_last_verified_ts_s   = 0;
+
 typedef struct {
   uint64_t        period;
   data_request_t* req; // kept alive until write finishes
@@ -31,6 +35,37 @@ typedef struct {
 } verify_blocks_ctx_t;
 
 static void verify_blocks_schedule_next(verify_blocks_ctx_t* ctx);
+
+uint64_t c4_ps_blocks_root_last_verified_period(void) {
+  return g_blocks_root_last_verified_period;
+}
+
+uint64_t c4_ps_blocks_root_last_verified_timestamp_seconds(void) {
+  return g_blocks_root_last_verified_ts_s;
+}
+
+void c4_ps_blocks_root_init_from_store(void) {
+  if (eth_config.period_master_url) return;
+  if (!eth_config.period_store) return;
+
+  uint64_t first = 0, last = 0;
+  if (!c4_ps_period_index_get_contiguous_from(0, &first, &last)) return;
+
+  for (uint64_t p = last;; p--) {
+    if (c4_ps_file_exists(p, "blocks_root.bin")) {
+      char*       path = bprintf(NULL, "%s/%l/blocks_root.bin", eth_config.period_store, p);
+      struct stat st;
+      if (path && stat(path, &st) == 0) {
+        g_blocks_root_last_verified_period = p;
+        g_blocks_root_last_verified_ts_s   = (uint64_t) st.st_mtime;
+        safe_free(path);
+        return;
+      }
+      safe_free(path);
+    }
+    if (p == first) break;
+  }
+}
 
 static void verify_hist_json_read_cb(void* user_data, file_data_t* files, int num_files) {
   verify_blocks_ctx_t* ctx = (verify_blocks_ctx_t*) user_data;
@@ -157,6 +192,13 @@ static void verify_blocks_for_period_read_cb(void* user_data, file_data_t* files
     fclose(f);
     log_info("period_store: verified blocks_root for period %l", p);
     ctx->periods_verified++;
+
+    // Update monitoring state (mtime in seconds).
+    struct stat st;
+    if (stat(path, &st) == 0) {
+      g_blocks_root_last_verified_period = p;
+      g_blocks_root_last_verified_ts_s   = (uint64_t) st.st_mtime;
+    }
   }
   safe_free(path);
 

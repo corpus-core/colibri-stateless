@@ -17,6 +17,14 @@ typedef struct {
 extern prover_stats_t prover_stats;
 
 /**
+ * Initializes prover stats from existing period_store artifacts.
+ *
+ * Intended to be called on server startup (master only) to avoid a zero
+ * last_run timestamp after restarts.
+ */
+void c4_period_prover_init_from_store(void);
+
+/**
  * Triggered on checkpoint to potentially generate a proof.
  *
  * @param period The finalized period.
