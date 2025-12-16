@@ -166,6 +166,10 @@ if [ -n "$START_PERIOD" ] && [ -n "$END_PERIOD" ]; then
     exit 0
 fi
 
+# Write SP1 balance to a predictable file for monitoring (best-effort).
+# The Rust host binary will only use this when SP1_PROVER=network.
+export SP1_BALANCE_FILE="${OUTPUT_DIR%/}/sp1_balance.txt"
+
 if [ -z "$PERIOD" ]; then
     echo "Usage: ./run_zk_proof.sh --period <period> [--prev-period <period>] [--prove] [--groth16] [--output <dir>]"
     echo "   OR: ./run_zk_proof.sh --start-period <start> --end-period <end> [--prove] [--groth16]"

@@ -6,6 +6,8 @@ use k256::SecretKey;
 use sha2::{Digest, Sha256};
 use sha3::{Digest as Sha3Digest, Keccak256};
 use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey};
+#[cfg(feature = "network")]
+use sp1_sdk::network::builder::NetworkProverBuilder;
 use std::fs::File;
 use std::io::Read;
 use std::time::Instant;
@@ -284,6 +286,10 @@ async fn main() {
             }
         }
     }
+
+    // Best-effort: update a balance file for monitoring after execution/proving.
+    // This reflects remaining credits after this run when using SP1 prover network.
+    update_network_balance_file().await;
 }
 
 fn log_network_identity() {
@@ -328,4 +334,72 @@ fn derive_eth_address(private_key_hex: &str) -> Option<String> {
     let hash = <Keccak256 as Sha3Digest>::digest(&pub_bytes[1..]);
     let address = &hash[hash.len() - 20..];
     Some(format!("0x{}", hex::encode(address)))
+}
+
+fn write_atomic_text(path: &str, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::path::Path;
+
+    let p = Path::new(path);
+    if let Some(parent) = p.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
+    let tmp_path = format!("{path}.tmp");
+    {
+        let mut f = std::fs::File::create(&tmp_path)?;
+        f.write_all(contents.as_bytes())?;
+        f.sync_all().ok(); // best-effort
+    }
+
+    // On Windows, rename fails if destination exists.
+    if std::fs::metadata(p).is_ok() {
+        let _ = std::fs::remove_file(p);
+    }
+    std::fs::rename(&tmp_path, p)?;
+    Ok(())
+}
+
+async fn update_network_balance_file() {
+    let prover_mode = std::env::var("SP1_PROVER").unwrap_or_default();
+    if prover_mode != "network" {
+        return;
+    }
+
+    // If unset, do nothing (opt-in, so we don't write random files by default).
+    let balance_file = match std::env::var("SP1_BALANCE_FILE") {
+        Ok(p) if !p.trim().is_empty() => p,
+        _ => return,
+    };
+
+    // Best-effort: derive and print address, then fetch balance via network RPC.
+    let addr = get_network_private_key()
+        .as_deref()
+        .and_then(derive_eth_address);
+
+    #[cfg(feature = "network")]
+    {
+        let prover = NetworkProverBuilder::default().build();
+        match prover.get_balance().await {
+            Ok(balance) => {
+                if let Some(a) = &addr {
+                    println!("SP1 Network account: {}", a);
+                }
+                println!("SP1 Network balance: {}", balance);
+
+                // File format: decimal credits as a single line.
+                let _ = write_atomic_text(&balance_file, &format!("{balance}\n"));
+            }
+            Err(err) => {
+                eprintln!("⚠️  Unable to fetch SP1 network balance: {err}");
+            }
+        }
+    }
+
+    #[cfg(not(feature = "network"))]
+    {
+        let _ = addr; // keep unused warning away
+    }
 }

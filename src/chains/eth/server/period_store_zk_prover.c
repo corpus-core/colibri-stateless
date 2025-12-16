@@ -284,18 +284,24 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   options.stdio                 = stdio;
 
   // Extend environment (pass secrets via env var).
-  char*         key_env_str = NULL;
-  char**        new_env     = NULL;
+  char*         key_env_str     = NULL;
+  char*         balance_env_str = NULL;
+  char**        new_env         = NULL;
   extern char** environ;
   int           env_count = 0;
   while (environ[env_count]) env_count++;
 
-  // +2 for our new var and NULL
-  new_env = malloc((env_count + 3) * sizeof(char*));
+  // +3 for our new vars and NULL
+  new_env = malloc((env_count + 4) * sizeof(char*));
   for (int i = 0; i < env_count; i++)
     new_env[i] = environ[i];
 
   new_env[env_count++] = "SP1_SKIP_VERIFY=1";
+
+  // Balance file for monitoring (read by /metrics). Written by eth-sync-script (best-effort).
+  // Keep it in the period_store root so it is stable across periods.
+  balance_env_str      = bprintf(NULL, "SP1_BALANCE_FILE=%s/sp1_balance.txt", eth_config.period_store);
+  new_env[env_count++] = balance_env_str;
 
   if (eth_config.period_prover_key_file) {
     key_env_str            = bprintf(NULL, "SP1_PRIVATE_KEY_FILE=%s", eth_config.period_prover_key_file);
@@ -310,6 +316,7 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
   int r = uv_spawn(uv_default_loop(), req, &options);
 
   if (key_env_str) safe_free(key_env_str);
+  if (balance_env_str) safe_free(balance_env_str);
   if (new_env) safe_free(new_env);
 
   if (r) {
