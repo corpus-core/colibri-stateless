@@ -19,11 +19,24 @@ set(ZKPROOF_GUEST_ELF_DST ${ZKPROOF_BIN_DIR}/eth_sync_program)
 
 find_program(CARGO_EXECUTABLE cargo)
 
-if(CARGO_EXECUTABLE)
+# sp1-recursion-core (pulled in by eth-sync-script) compiles C++ code via cc-rs and
+# requires C++20 features (designated initializers). When enabled, we force C++20
+# explicitly via environment flags for the cargo build.
+if(MSVC)
+  set(ZKPROOF_CXXFLAGS_ENV "CXXFLAGS=-std:c++20")
+  set(ZKPROOF_CL_ENV "CL=-std:c++20")
+else()
+  set(ZKPROOF_CXXFLAGS_ENV "CXXFLAGS=-std=c++20")
+  set(ZKPROOF_CL_ENV "")
+endif()
+
+if(CARGO_EXECUTABLE AND ETH_ZKPROOF_BUILD_HOST)
   add_custom_command(
     OUTPUT ${ZKPROOF_BIN_DIR}/eth-sync-script.stamp
     COMMAND ${CMAKE_COMMAND} -E make_directory ${ZKPROOF_BIN_DIR}
     COMMAND ${CMAKE_COMMAND} -E env CARGO_NET_GIT_FETCH_WITH_CLI=true
+            ${ZKPROOF_CXXFLAGS_ENV}
+            ${ZKPROOF_CL_ENV}
             ${CARGO_EXECUTABLE} build --release
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${ZKPROOF_HOST_BIN_SRC}
@@ -38,7 +51,13 @@ if(CARGO_EXECUTABLE)
   )
   add_custom_target(eth_zkproof_artifacts DEPENDS ${ZKPROOF_BIN_DIR}/eth-sync-script.stamp)
 else()
-  message(WARNING "Cargo not found - eth-sync-script will not be built. Copying frozen eth_sync_program only.")
+  if(MSVC AND CARGO_EXECUTABLE AND NOT ETH_ZKPROOF_BUILD_HOST)
+    message(WARNING "MSVC build: skipping eth-sync-script build (sp1 C++ deps require C++20). Copying frozen eth_sync_program only. Set ETH_ZKPROOF_BUILD_HOST=ON to try building it.")
+  elseif(NOT CARGO_EXECUTABLE)
+    message(WARNING "Cargo not found - eth-sync-script will not be built. Copying frozen eth_sync_program only.")
+  else()
+    message(WARNING "ETH_ZKPROOF_BUILD_HOST disabled - eth-sync-script will not be built. Copying frozen eth_sync_program only.")
+  endif()
   add_custom_command(
     OUTPUT ${ZKPROOF_BIN_DIR}/eth_sync_program.stamp
     COMMAND ${CMAKE_COMMAND} -E make_directory ${ZKPROOF_BIN_DIR}

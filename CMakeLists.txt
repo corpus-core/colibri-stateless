@@ -88,6 +88,7 @@ option(PROVER_TRACE "Collect lightweight prover-internal spans for server export
 option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
+option(ETH_ZKPROOF_BUILD_HOST "Build eth-sync-script host binary (Rust/SP1). Disable for clients/slaves or platforms where SP1 doesn't build." OFF)
 
 
 # Make ETH availability visible to all targets (server + chains)
