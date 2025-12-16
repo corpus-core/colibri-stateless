@@ -6,8 +6,6 @@ use k256::SecretKey;
 use sha2::{Digest, Sha256};
 use sha3::{Digest as Sha3Digest, Keccak256};
 use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey};
-#[cfg(feature = "network")]
-use sp1_sdk::network::builder::NetworkProverBuilder;
 use std::fs::File;
 use std::io::Read;
 use std::time::Instant;
@@ -379,27 +377,20 @@ async fn update_network_balance_file() {
         .as_deref()
         .and_then(derive_eth_address);
 
-    #[cfg(feature = "network")]
-    {
-        let prover = NetworkProverBuilder::default().build();
-        match prover.get_balance().await {
-            Ok(balance) => {
-                if let Some(a) = &addr {
-                    println!("SP1 Network account: {}", a);
-                }
-                println!("SP1 Network balance: {}", balance);
+    // sp1-sdk is built with `features = ["network"]` in this workspace, so this is always available.
+    let prover = ProverClient::builder().network().build();
+    match prover.get_balance().await {
+        Ok(balance) => {
+            if let Some(a) = &addr {
+                println!("SP1 Network account: {}", a);
+            }
+            println!("SP1 Network balance: {}", balance);
 
-                // File format: decimal credits as a single line.
-                let _ = write_atomic_text(&balance_file, &format!("{balance}\n"));
-            }
-            Err(err) => {
-                eprintln!("⚠️  Unable to fetch SP1 network balance: {err}");
-            }
+            // File format: decimal credits as a single line.
+            let _ = write_atomic_text(&balance_file, &format!("{balance}\n"));
         }
-    }
-
-    #[cfg(not(feature = "network"))]
-    {
-        let _ = addr; // keep unused warning away
+        Err(err) => {
+            eprintln!("⚠️  Unable to fetch SP1 network balance: {err}");
+        }
     }
 }

@@ -587,6 +587,8 @@ static void c4_period_prover_spawn_host(uint64_t target_period, uint64_t prev_pe
   new_env[e++] = NULL;
   options.env  = new_env;
 
+  log_info("Prover: Spawning eth-sync-script with balance file : %s", env_balance_file);
+
   int r = uv_spawn(uv_default_loop(), proc, &options);
 
   safe_free(key);
