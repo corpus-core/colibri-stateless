@@ -10,6 +10,7 @@
 #include "util/bytes.h"
 
 #include <errno.h>
+#include <math.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 
@@ -20,6 +21,9 @@ static uint64_t g_sp1_balance_cache_mtime_s       = 0;
 static uint64_t g_sp1_balance_cache_updated_s     = 0;
 static uint64_t g_sp1_balance_cache_last_run_s    = 0;
 static uint64_t g_sp1_balance_cache_last_check_ms = 0;
+
+// PROVE token has 18 decimals.
+static const double PROVE_TOKEN_DECIMALS = 1e18;
 
 #if defined(PROVER_CACHE) && defined(CHAIN_ETH)
 #include "chains/eth/prover/logs_cache.h"
@@ -180,11 +184,13 @@ void eth_server_metrics(http_server_t* server, buffer_t* data) {
             memcpy(s, b.data, b.len);
             s[b.len] = 0;
 
-            errno                  = 0;
-            char*              end = NULL;
-            unsigned long long v   = strtoull(s, &end, 10);
-            if (errno == 0 && end && end != s) {
-              g_sp1_balance_cache_value     = (double) v;
+            errno     = 0;
+            char* end = NULL;
+            // Balance can exceed uint64_t; Prometheus gauges are float64 anyway.
+            // Parse as double (decimal). This is lossy for very large values but good enough for monitoring.
+            double v = strtod(s, &end);
+            if (errno == 0 && end && end != s && isfinite(v)) {
+              g_sp1_balance_cache_value     = v;
               g_sp1_balance_cache_valid     = 1;
               g_sp1_balance_cache_mtime_s   = mtime_s;
               g_sp1_balance_cache_updated_s = mtime_s;
@@ -219,9 +225,11 @@ void eth_server_metrics(http_server_t* server, buffer_t* data) {
       g_sp1_balance_cache_last_run_s = prover_last_run;
     }
 
-    bprintf(data, "# HELP colibri_prover_network_balance Current SP1 prover network credit balance (best-effort).\n");
+    bprintf(data, "# HELP colibri_prover_network_balance Current SP1 prover network balance in PROVE tokens (decimals=18, best-effort).\n");
     bprintf(data, "# TYPE colibri_prover_network_balance gauge\n");
-    bprintf(data, "colibri_prover_network_balance{chain_id=\"%d\"} %f\n", (uint32_t) server->chain_id, g_sp1_balance_cache_value);
+    bprintf(data, "colibri_prover_network_balance{chain_id=\"%d\"} %f\n",
+            (uint32_t) server->chain_id,
+            g_sp1_balance_cache_value / PROVE_TOKEN_DECIMALS);
 
     bprintf(data, "# HELP colibri_prover_network_balance_valid 1 if balance file was read and parsed successfully.\n");
     bprintf(data, "# TYPE colibri_prover_network_balance_valid gauge\n");
