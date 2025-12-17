@@ -33,6 +33,7 @@
 #include "op_chains_conf.h"
 #include "op_types.h"
 #include "op_verify.h"
+#include "op_verify_l1_anchored.h"
 #include "op_zstd.h"
 #include "patricia.h"
 #include "rlp.h"
@@ -56,15 +57,25 @@ static void verify_signature(bytes_t data, bytes_t signature, uint64_t chain_id,
 }
 
 ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash) {
-  const op_chain_config_t* config          = op_get_chain_config(ctx->chain_id);
-  address_t                signer          = {0};
-  ssz_ob_t                 compressed_data = ssz_get(&block_proof, "payload");
-  ssz_ob_t                 signature       = ssz_get(&block_proof, "signature");
+  const op_chain_config_t* config = op_get_chain_config(ctx->chain_id);
 
   if (config == NULL) {
     c4_state_add_error(&ctx->state, "chain not supported");
     return NULL;
   }
+
+  uint8_t proof_type = ssz_get_selector(&block_proof);
+
+  // L1-anchored proofs cannot be used with op_extract_verified_execution_payload
+  if (proof_type == 1) {
+    c4_state_add_error(&ctx->state, "L1-anchored proofs cannot be used with this RPC method.");
+    return NULL;
+  }
+
+  // Handle preconf proof (proof_type == 0) - existing logic
+  address_t signer          = {0};
+  ssz_ob_t  compressed_data = ssz_get(&block_proof, "payload");
+  ssz_ob_t  signature       = ssz_get(&block_proof, "signature");
 
   size_t expected_size = op_zstd_get_decompressed_size(compressed_data.bytes);
   if (expected_size == 0) RETURN_VERIFY_ERROR(ctx, "failed to get decompressed size");
@@ -89,8 +100,7 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
 
   if (parent_hash) memcpy(parent_hash, decompressed_data.data, 32);
 
-  // here we use the fact, that the execution payload starts at the 32nd byte
-  // so we store the ssz_ob_t at the beginning of the decompressed data, so we can then easily use it to call free on it.
+  // execution payload starts at the 32nd byte
   ssz_ob_t* execution_payload = (void*) decompressed_data.data;
   execution_payload->def      = &EXECUTION_PAYLOAD_CONTAINER;
   execution_payload->bytes    = bytes_slice(decompressed_data, 32, decompressed_data.len - 32);
@@ -119,11 +129,31 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
   return execution_payload;
 }
 
+bool op_verify_block_l1_anchored(verify_ctx_t* ctx) {
+  ssz_ob_t block_proof = ssz_get(&ctx->proof, "block_proof");
+
+  // Verify the L1-anchored proof
+  if (!op_verify_l1_anchored_proof(ctx, block_proof)) {
+    return false;
+  }
+
+  ctx->success = true;
+  return true;
+}
+
 bool op_verify_block(verify_ctx_t* ctx) {
+  ssz_ob_t block_proof = ssz_get(&ctx->proof, "block_proof");
+
+  // Check if this is an L1-anchored proof
+  uint8_t proof_type = ssz_get_selector(&block_proof);
+  if (proof_type == 1) {
+    return op_verify_block_l1_anchored(ctx);
+  }
+
+  // Handle preconf proofs
   bool      is_blocknumber    = strcmp(ctx->method, "eth_blockNumber") == 0;
   json_t    block_number      = is_blocknumber ? (json_t) {.type = JSON_TYPE_STRING, .start = "\"latest\"", .len = 8} : json_at(ctx->args, 0);
   bool      include_txs       = is_blocknumber ? false : json_as_bool(json_at(ctx->args, 1));
-  ssz_ob_t  block_proof       = ssz_get(&ctx->proof, "block_proof");
   bytes32_t parent_root       = {0};
   bytes32_t withdrawel_root   = {0};
   ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number, &parent_root);
