@@ -292,9 +292,10 @@ static char* method_str(data_request_method_t method) {
 }
 
 static void log_request(client_t* client) {
-  if (strcmp(client->request.path, "/health") == 0) return;      // no healthcheck logging
-  if (strcmp(client->request.path, "/healthcheck") == 0) return; // no healthcheck logging
-  if (strcmp(client->request.path, "/metrics") == 0) return;     // no metrics logging
+  if (strcmp(client->request.path, "/health") == 0) return;            // no healthcheck logging
+  if (strcmp(client->request.path, "/healthcheck") == 0) return;       // no healthcheck logging
+  if (strcmp(client->request.path, "/metrics") == 0) return;           // no metrics logging
+  if (strncmp(client->request.path, "/period_store", 13) == 0) return; // no period_store logging
 
 #ifdef HTTP_SERVER_GEO
   log_info(MAGENTA("::[%s]") "%s" GRAY(" (%s in %s) :: #%lx"),
@@ -336,6 +337,7 @@ static void c4_metrics_update_geo(client_t* client) {
   if (strcmp(client->request.path, "/health") == 0) return;
   if (strcmp(client->request.path, "/healthcheck") == 0) return;
   if (strcmp(client->request.path, "/metrics") == 0) return;
+  if (strncmp(client->request.path, "/period_store", 13) == 0) return;
   if (client->request.method != C4_DATA_METHOD_POST) return;
   if (!client->request.geo_city || !client->request.geo_country) return;
 
