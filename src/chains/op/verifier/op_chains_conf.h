@@ -12,6 +12,8 @@ extern "C" {
 typedef struct {
   uint64_t    chain_id;
   const char* sequencer_address; // 20 bytes hex string (always available)
+  const char* l2_output_oracle_address; // L2OutputOracle contract address (20 bytes hex)
+  uint8_t     l2_outputs_mapping_slot;  // Storage slot (usually 0)
 
 #ifdef PROVER
   // Additional fields only available when building with PROVER support
@@ -31,11 +33,11 @@ typedef struct {
 
 // Macro to define chain configurations conditionally
 #ifdef PROVER
-#define OP_CHAIN_CONFIG(id, signer, chain_name, endpoint, hf) \
-  {.chain_id = (id), .sequencer_address = (signer), .name = (chain_name), .http_endpoint = (endpoint), .hardfork_version = (hf), .kona_disc_port = 9090, .kona_gossip_port = 9091, .kona_ttl_minutes = 60, .kona_cleanup_interval = 5, .kona_http_poll_interval = 1, .kona_http_failure_threshold = 5}
+#define OP_CHAIN_CONFIG(id, signer, oracle_addr, slot, chain_name, endpoint, hf) \
+  {.chain_id = (id), .sequencer_address = (signer), .l2_output_oracle_address = (oracle_addr), .l2_outputs_mapping_slot = (slot), .name = (chain_name), .http_endpoint = (endpoint), .hardfork_version = (hf), .kona_disc_port = 9090, .kona_gossip_port = 9091, .kona_ttl_minutes = 60, .kona_cleanup_interval = 5, .kona_http_poll_interval = 1, .kona_http_failure_threshold = 5}
 #else
-#define OP_CHAIN_CONFIG(id, signer, chain_name, endpoint, hf) \
-  {.chain_id = (id), .sequencer_address = (signer)}
+#define OP_CHAIN_CONFIG(id, signer, oracle_addr, slot, chain_name, endpoint, hf) \
+  {.chain_id = (id), .sequencer_address = (signer), .l2_output_oracle_address = (oracle_addr), .l2_outputs_mapping_slot = (slot)}
 #endif
 
 // Function to get chain configuration by chain ID
