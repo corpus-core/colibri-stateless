@@ -61,8 +61,10 @@ typedef struct {
 typedef struct {
   bytes_t   proof;
   bytes32_t vk;
-  ssz_ob_t  bootstrap;
-
+  ssz_ob_t  nextSyncCommitteeBranch;
+  ssz_ob_t  nextSyncCommittee;
+  ssz_ob_t  header;
+  bytes_t   signatures;
 } zk_proof_data_t;
 /**
  * checks whether additional data is needed in order to proof the blockroot.asm

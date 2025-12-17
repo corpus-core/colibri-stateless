@@ -129,6 +129,7 @@ typedef struct {
 #ifdef HTTP_SERVER
   uint32_t client_type; // client type for the prover (for beacon API only)
 #endif
+
 #ifdef PROVER_TRACE
   // Collected finished spans (consumed by server); and currently open span
   prover_trace_span_t* trace_spans;

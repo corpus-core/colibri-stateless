@@ -33,7 +33,7 @@
 static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 // Forward declaration for C4_ETH_LC_SYNCDATA (defined later after includes)
 static const ssz_def_t C4_ETH_LC_SYNCDATA[2];
-static const ssz_def_t C4_ETH_ZK_SYNCDATA[4];
+static const ssz_def_t C4_ETH_ZK_SYNCDATA[6];
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
@@ -137,11 +137,13 @@ static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
 };
 
 // ZK SyncData contains the recursive zk proof of the sync committee update
-static const ssz_def_t C4_ETH_ZK_SYNCDATA[4] = {
-    SSZ_BYTES32("vk_hash"),                                  // the hash of the vk used to generate the proof
-    SSZ_BYTE_VECTOR("proof", 260),                           // the recursive zk proof of the sync committee update as groth16 proof
-    SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
-    SSZ_LIST("signatures", ssz_secp256k1_signature, 16)      // the signatures for the checkpoint
+static const ssz_def_t C4_ETH_ZK_SYNCDATA[6] = {
+    SSZ_BYTES32("vk_hash"),        // the hash of the vk used to generate the proof
+    SSZ_BYTE_VECTOR("proof", 260), // the recursive zk proof of the sync committee update as groth16 proof
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
+    SSZ_LIST("nextSyncCommitteeBranch", ssz_bytes32, 5),
+    SSZ_CONTAINER("nextSyncCommittee", SYNC_COMMITTEE),
+    SSZ_LIST("signatures", ssz_secp256k1_signature, 16) // the signatures for the checkpoint
 };
 
 /**
