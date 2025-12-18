@@ -26,7 +26,7 @@
 
 #include "bytes.h"
 #include "crypto.h"
-#include "libs/intx/intx_c_api.h"
+#include "intx_c_api.h"
 #include <stdint.h>
 #include <stdbool.h>
 

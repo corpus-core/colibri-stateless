@@ -23,9 +23,10 @@
 file(GLOB TEST_SOURCES test_*.c)
 
 set(TEST_INCLUDES
-  ${unity_SOURCE_DIR}/src 
-  ${CMAKE_SOURCE_DIR}/src 
+  ${unity_SOURCE_DIR}/src
+  ${CMAKE_SOURCE_DIR}/src
   ${CMAKE_SOURCE_DIR}/libs/crypto
+  ${CMAKE_SOURCE_DIR}/libs
   ${CMAKE_BINARY_DIR}/_deps/blst-src/bindings
 )
 
@@ -68,8 +69,12 @@ foreach(test_source ${TEST_SOURCES})
     if("${test_name}" STREQUAL "test_bn254")
         target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper util)
     endif()
-    
-    
+
+    if("${test_name}" STREQUAL "test_op_output_root")
+        target_link_libraries(${test_name} PRIVATE op_verifier intx_wrapper)
+    endif()
+
+
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
         target_compile_definitions(${test_name} PRIVATE HTTP_SERVER)

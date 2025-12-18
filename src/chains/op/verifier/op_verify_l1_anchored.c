@@ -29,7 +29,7 @@
 #include "patricia.h"
 #include "rlp.h"
 #include "logger.h"
-#include "libs/intx/intx_c_api.h"
+#include "intx_c_api.h"
 #include <string.h>
 
 bool op_verify_l1_anchored_proof(verify_ctx_t* ctx, ssz_ob_t l1_anchored_proof) {
