@@ -25,10 +25,7 @@
 #include "ssz.h"
 #include "../../eth/ssz/verify_proof_types.h"
 
-// Helper type definition for byte arrays with large maximum size (1GB)
-static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 // : OP-Stack
-//
 
 // Union type for specifying which block to prove.
 // Used to select between proving the latest block, a specific block hash, or a specific block number.

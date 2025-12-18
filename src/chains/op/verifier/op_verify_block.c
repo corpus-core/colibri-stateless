@@ -144,7 +144,6 @@ bool op_verify_block_l1_anchored(verify_ctx_t* ctx) {
 bool op_verify_block(verify_ctx_t* ctx) {
   ssz_ob_t block_proof = ssz_get(&ctx->proof, "block_proof");
 
-  // Check if this is an L1-anchored proof
   uint8_t proof_type = ssz_get_selector(&block_proof);
   if (proof_type == 1) {
     return op_verify_block_l1_anchored(ctx);
