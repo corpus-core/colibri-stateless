@@ -220,6 +220,15 @@ pub fn main() {
         panic!("Unexpected header proof length: {}", header_proof.len());
     }
 
+    // The last sibling on the path from `SigningData.BeaconBlockHeader.stateRoot` to the `SigningData`
+    // root is the `domain` leaf itself (SigningData has two fields: header + domain).
+    let domain: [u8; 32] = header_proof[header_proof.len() - 32..]
+        .try_into()
+        .unwrap();
+    if domain[0..4] != [0x07, 0x00, 0x00, 0x00] {
+        panic!("Invalid domain type: expected DOMAIN_SYNC_COMMITTEE");
+    }
+
     let mut header_g = SIGNING_DATA_STATE_ROOT_GINDEX;
     let mut attested_header_root = attested_state_root;
     // Traverse 3 levels to reach BeaconBlockHeader root at gindex 2.
@@ -285,6 +294,7 @@ pub fn main() {
         next_keys_root: proof_data.next_keys_root,   // New End (N+1)
         next_period: proof_data.next_period,         // Period Number
         attested_header_root,
+        domain,
     };
 
     sp1_zkvm::io::commit(&output);

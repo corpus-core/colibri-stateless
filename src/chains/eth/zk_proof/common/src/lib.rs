@@ -114,9 +114,16 @@ pub struct VerificationOutput {
     /// ensure this header root is consistent with an external trusted checkpoint and therefore
     /// treat the proven `next_keys_root` as canonical within the WS window.
     pub attested_header_root: [u8; 32],
+
+    /// The 32-byte domain used in `SigningData` for the sync committee signature.
+    ///
+    /// This binds the proof to a concrete domain value while keeping the guest program
+    /// chain-agnostic (no fork schedule hardcoding). Verifiers can validate the domain
+    /// semantics (e.g. `DOMAIN_SYNC_COMMITTEE` + correct chain/fork) outside the zk-proof.
+    pub domain: [u8; 32],
 }
 
-// Extension trait to help with slice copying in merkle.rs if needed, 
+// Extension trait to help with slice copying in merkle.rs if needed,
 // or just use standard copy_from_slice
 pub trait SliceHelper {
     fn copy_from_slice_safe(&mut self, src: &[u8]);
