@@ -48,7 +48,13 @@ Artifacts are saved to `build/default/.period_store/<PERIOD>/`:
 *   `zk_vk_raw.bin`: Verification Key for the compressed proof (also fed into recursion).
 *   `zk_proof_g16.bin`: Raw Groth16 proof bytes (260-byte BN254 tuple, used by C/Solidity verifiers).
 *   `zk_vk.bin`: Verification Key for the Groth16 wrapper (converted to C via `export_vk`).
-*   `zk_pub.bin`: Public values (first keys_root + next keys root + next period) written as 2x 32 bytes + `u64` (le).
+*   `zk_pub.bin`: Public values written as: `current_keys_root (32) | next_keys_root (32) | next_period (u64 LE) | attested_header_root (32)`.
+
+**`zk_pub.bin` layout (byte offsets):**
+*   `0..31`: `current_keys_root` (trust anchor pubkey root)
+*   `32..63`: `next_keys_root` (pubkey root for `next_period`)
+*   `64..71`: `next_period` (little-endian `u64`)
+*   `72..103`: `attested_header_root` (`hash_tree_root(attested_header.beacon)`)
 
 ### 2. Generate a Recursive Chain (Loop Mode)
 

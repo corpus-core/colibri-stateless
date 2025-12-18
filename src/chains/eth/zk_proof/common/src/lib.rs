@@ -107,6 +107,13 @@ pub struct VerificationOutput {
     /// The Period Number associated with the `next_keys_root`.
     /// Allows the verifier to ensure the update is for the expected period.
     pub next_period: u64,
+
+    /// The SSZ `hash_tree_root` of the `attested_header.beacon` (`BeaconBlockHeader`).
+    ///
+    /// This is useful for Weak Subjectivity (WS) checks outside the zk-proof: the verifier can
+    /// ensure this header root is consistent with an external trusted checkpoint and therefore
+    /// treat the proven `next_keys_root` as canonical within the WS window.
+    pub attested_header_root: [u8; 32],
 }
 
 // Extension trait to help with slice copying in merkle.rs if needed, 

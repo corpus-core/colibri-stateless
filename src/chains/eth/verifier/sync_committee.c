@@ -162,7 +162,7 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
   bytes32_t           previous_pubkeys_hash = {0};
   const chain_spec_t* spec                  = c4_eth_get_chain_spec(ctx->chain_id);
   bytes32_t           checkpoint            = {0};
-  uint8_t             pub_inputs[72]        = {0};
+  uint8_t             pub_inputs[104]       = {0};
   bytes_t             vk_hash               = ssz_get(&ctx->sync_data, "vk_hash").bytes;
   bytes_t             proof                 = ssz_get(&ctx->sync_data, "proof").bytes;
   ssz_ob_t            header                = ssz_get(&ctx->sync_data, "header");
@@ -176,10 +176,12 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
   ssz_hash_tree_root(header, checkpoint);
 
   // verify the proof
-  memcpy(pub_inputs, spec->zk_sync_keys_root, 32);
-  ssz_hash_tree_root(pub_keys, pub_inputs + 32);
-  uint64_to_le(pub_inputs + 64, period);
-  if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 72), vk_hash.data)) RETURN_VERIFY_ERROR(ctx, "invalid zk_proof!");
+  memcpy(pub_inputs, spec->zk_sync_keys_root, 32); // root-anchor
+  ssz_hash_tree_root(pub_keys, pub_inputs + 32); // next_keys_root
+  uint64_to_le(pub_inputs + 64, period); // next_period
+  // attested_header_root
+  memcpy(pub_inputs + 72, checkpoint, 32);
+  if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 104), vk_hash.data)) RETURN_VERIFY_ERROR(ctx, "invalid zk_proof!");
   if (!verify_signatures(ctx, next_sync_proof.bytes, checkpoint, attested_slot, ssz_get(&header, "stateRoot").bytes.data, next_sync, signatures)) RETURN_VERIFY_ERROR(ctx, "invalid checkpoint signatures!");
   if (!c4_set_sync_period(period, next_sync, ctx->chain_id, previous_pubkeys_hash)) RETURN_VERIFY_ERROR(ctx, "failed to store next sync committee!");
 

@@ -59,7 +59,8 @@ static uint8_t* verify_period_and_get_anchor(int period, const uint8_t* expected
   // [0..31]  = Current Keys Root (Anchor)
   // [32..63] = Next Keys Root
   // [64..71] = Next Period (LE)
-  TEST_ASSERT_GREATER_OR_EQUAL_INT(72, pub.len);
+  // [72..103] = Attested Header Root (BeaconBlockHeader hash_tree_root)
+  TEST_ASSERT_GREATER_OR_EQUAL_INT(104, pub.len);
 
   // Check Period
   uint64_t next_period = 0;
@@ -130,10 +131,19 @@ void test_verify_1602_realistic(void) {
 
   // 2. Load Proof 1602
   bytes_t proof = read_testdata("zk_data/1602/zk_proof_g16.bin");
+  if (proof.data == NULL) {
+    TEST_IGNORE_MESSAGE("Skipping realistic test: zk_data/1602/zk_proof_g16.bin not found");
+    return;
+  }
 
   // 3. Load New Keys 1602
   uint64_t next_period   = 1602;
   bytes_t  new_keys_data = read_testdata("zk_data/1602_keys.bin");
+  if (new_keys_data.data == NULL) {
+    free(proof.data);
+    TEST_IGNORE_MESSAGE("Skipping realistic test: zk_data/1602_keys.bin not found");
+    return;
+  }
 
   // Check size: 512 keys * 48 bytes = 24576 bytes
   TEST_ASSERT_EQUAL_INT(512 * 48, new_keys_data.len);
@@ -143,17 +153,31 @@ void test_verify_1602_realistic(void) {
   ssz_hash_tree_root(ssz_ob(keys_ssz_def, new_keys_data), next_keys_root);
 
   // 5. Construct Public Values
-  // [current_keys_root (32)] [next_keys_root (32)] [next_period (8)]
-  uint8_t public_values_data[72];
+  // [current_keys_root (32)] [next_keys_root (32)] [next_period (8)] [attested_header_root (32)]
+  // Note: For this test, we load the attested_header_root from the zk_pub.bin fixture to keep
+  // the test independent from SSZ header parsing logic.
+  uint8_t public_values_data[104];
   memcpy(public_values_data, current_keys_root, 32);   // trustanchor
   memcpy(public_values_data + 32, next_keys_root, 32); // new keys root
   uint64_to_le(public_values_data + 64, next_period);  // new period
+  {
+    bytes_t pub_fixture = read_testdata("zk_data/1602/zk_pub.bin");
+    if (pub_fixture.data == NULL) {
+      free(proof.data);
+      free(new_keys_data.data);
+      TEST_IGNORE_MESSAGE("Skipping realistic test: zk_data/1602/zk_pub.bin not found");
+      return;
+    }
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(104, pub_fixture.len);
+    memcpy(public_values_data + 72, pub_fixture.data + 72, 32);
+    free(pub_fixture.data);
+  }
 
-  print_hex(stderr, bytes(public_values_data, 72), "public_values_data: ", "\n");
+  print_hex(stderr, bytes(public_values_data, 104), "public_values_data: ", "\n");
 
   // 6. Verify
   uint64_t start = current_ms();
-  bool     valid = verify_zk_proof(proof, bytes(public_values_data, 72));
+  bool     valid = verify_zk_proof(proof, bytes(public_values_data, 104));
   printf("verify_zk_proof time: %llu ms\n", current_ms() - start);
 
   TEST_ASSERT_TRUE_MESSAGE(valid, "Realistic 1602 verification failed");

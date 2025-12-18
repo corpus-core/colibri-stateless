@@ -183,9 +183,7 @@ async fn main() {
         // Save Public Values
         let public_values_path =
             std::env::var("PUBLIC_VALUES_FILE").unwrap_or("public_values.bin".to_string());
-        let mut pv_bytes = Vec::new();
-        pv_bytes.extend_from_slice(&result.next_keys_root);
-        pv_bytes.extend_from_slice(&result.next_period.to_le_bytes());
+        let pv_bytes = bincode::serialize(&result).expect("Failed to serialize public values");
         std::fs::write(&public_values_path, &pv_bytes).expect("Failed to save public values");
         println!("Saved public values to {}", public_values_path);
     } else {
