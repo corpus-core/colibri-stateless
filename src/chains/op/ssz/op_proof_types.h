@@ -52,8 +52,31 @@ static const ssz_def_t OP_PRECONF[] = {
     SSZ_BYTE_VECTOR("signature", 65),               // the sequencer signature (65 bytes: r, s, v)
 };
 
-// Forward declaration for L1-anchored proof
-static const ssz_def_t OP_L1_ANCHORED_PROOF[];
+// :: L1-Anchored Proof
+//
+// The L1-Anchored Proof verifies OP Stack L2 blocks by anchoring to the L2OutputOracle contract on Ethereum L1.
+//
+// Verification Flow:
+// 1. Reconstruct OutputRoot from L2 components
+// 2. Verify L1 account proof for L2OutputOracle contract
+// 3. Verify L1 storage proof for the OutputRoot at specific index
+// 4. Verify L1 state proof via beacon chain (BLS signatures)
+//
+
+// L1-anchored proof structure
+static const ssz_def_t OP_L1_ANCHORED_PROOF[] = {
+    // L2 components for OutputRoot reconstruction
+    SSZ_BYTES32("version"),                      // Version
+    SSZ_BYTES32("stateRoot"),                    // L2 state root from execution payload
+    SSZ_BYTES32("messagePasserStorageRoot"),     // Storage root of L2ToL1MessagePasser 
+    SSZ_BYTES32("latestBlockHash"),              // L2 block hash
+    SSZ_UINT256("l2OutputIndex"),                // Index in L2OutputOracle l2Outputs mapping
+
+    // L1 proofs
+    SSZ_LIST("l1AccountProof", ssz_bytes_1024, 256),    // Patricia proof for L2OutputOracle contract on L1
+    SSZ_LIST("l1StorageProof", ssz_bytes_1024, 256),    // Storage proof for OutputRoot in L2OutputOracle
+    SSZ_CONTAINER("l1StateProof", ETH_STATE_PROOF)      // L1 beacon chain state proof (BLS signatures)
+};
 
 // Union type for block proof methods in OP-Stack.
 // Supports both preconfirmation-based proofs (sequencer-signed) and L1-anchored proofs (via L2OutputOracle).
@@ -180,30 +203,4 @@ static const ssz_def_t OP_CALL_PROOF[] = {
 // which verifies the block's validity through the sequencer signature.
 static const ssz_def_t OP_BLOCK_PROOF[] = {
     SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION) // proof for the block (preconfirmation-based or L1-anchored)
-};
-
-// :: L1-Anchored Proof
-//
-// The L1-Anchored Proof verifies OP Stack L2 blocks by anchoring to the L2OutputOracle contract on Ethereum L1.
-//
-// Verification Flow:
-// 1. Reconstruct OutputRoot from L2 components
-// 2. Verify L1 account proof for L2OutputOracle contract
-// 3. Verify L1 storage proof for the OutputRoot at specific index
-// 4. Verify L1 state proof via beacon chain (BLS signatures)
-//
-
-// L1-anchored proof structure
-static const ssz_def_t OP_L1_ANCHORED_PROOF[] = {
-    // L2 components for OutputRoot reconstruction
-    SSZ_BYTES32("version"),                      // Version
-    SSZ_BYTES32("stateRoot"),                    // L2 state root from execution payload
-    SSZ_BYTES32("messagePasserStorageRoot"),     // Storage root of L2ToL1MessagePasser 
-    SSZ_BYTES32("latestBlockHash"),              // L2 block hash
-    SSZ_UINT256("l2OutputIndex"),                // Index in L2OutputOracle l2Outputs mapping
-
-    // L1 proofs
-    SSZ_LIST("l1AccountProof", ssz_bytes_1024, 256),    // Patricia proof for L2OutputOracle contract on L1
-    SSZ_LIST("l1StorageProof", ssz_bytes_1024, 256),    // Storage proof for OutputRoot in L2OutputOracle
-    SSZ_CONTAINER("l1StateProof", ETH_STATE_PROOF)      // L1 beacon chain state proof (BLS signatures)
 };
