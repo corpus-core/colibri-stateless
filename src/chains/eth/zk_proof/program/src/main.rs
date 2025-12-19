@@ -222,9 +222,7 @@ pub fn main() {
 
     // The last sibling on the path from `SigningData.BeaconBlockHeader.stateRoot` to the `SigningData`
     // root is the `domain` leaf itself (SigningData has two fields: header + domain).
-    let domain: [u8; 32] = header_proof[header_proof.len() - 32..]
-        .try_into()
-        .unwrap();
+    let domain: [u8; 32] = header_proof[header_proof.len() - 32..].try_into().unwrap();
     if domain[0..4] != [0x07, 0x00, 0x00, 0x00] {
         panic!("Invalid domain type: expected DOMAIN_SYNC_COMMITTEE");
     }
