@@ -337,7 +337,7 @@ c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes
   uint32_t            period = (slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits));
 
   // Save sync committee for current period
-  return c4_set_sync_period(period, current_sync_committee, ctx->chain_id, previous_pubkeys_hash) ? C4_SUCCESS : C4_ERROR;
+  return c4_set_sync_period(period, ssz_get(&current_sync_committee, "pubkeys").bytes, ctx->chain_id, previous_pubkeys_hash) ? C4_SUCCESS : C4_ERROR;
 }
 
 /**
@@ -433,16 +433,12 @@ static bool store_sync_period(uint32_t period, bytes_t validators, bytes32_t pre
   return true;
 }
 
-INTERNAL bool c4_set_sync_period(uint32_t period, ssz_ob_t sync_committee, chain_id_t chain_id, bytes32_t previous_pubkeys_hash) {
+INTERNAL bool c4_set_sync_period(uint32_t period, bytes_t validators, chain_id_t chain_id, bytes32_t previous_pubkeys_hash) {
   const chain_spec_t* spec         = c4_eth_get_chain_spec(chain_id);
   storage_plugin_t    storage_conf = {0};
   c4_chain_state_t    state        = c4_get_chain_state(chain_id);
 
   if (!spec) return false;
-
-  // Extract validators (pubkeys) from sync committee
-  bytes_t validators = ssz_get(&sync_committee, "pubkeys").bytes;
-
   // Initialize period tracking if needed
   if (state.status != C4_STATE_SYNC_PERIODS) {
     state.status = C4_STATE_SYNC_PERIODS;
@@ -887,7 +883,7 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
     }
 
     // Step 7: Store period N's keys for future use (with no previous hash since we're using fallback)
-    if (!c4_set_sync_period(period, next_sync_committee, ctx->chain_id, no_prev)) {
+    if (!c4_set_sync_period(period, ssz_get(&next_sync_committee, "pubkeys").bytes, ctx->chain_id, no_prev)) {
       safe_free(b.data);
       THROW_ERROR("Failed to store sync committee for period transition");
     }

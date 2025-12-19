@@ -335,11 +335,11 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     builder->def             = C4_ETH_REQUEST_SYNCDATA_UNION + 2; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
     zk_proof_data_t zk_proof = {0};
     TRY_ASYNC(c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period));
-    ssz_add_bytes(builder, "vk_hash", bytes(zk_proof.vk, 32));
-    ssz_add_bytes(builder, "proof", zk_proof.proof);
-    ssz_add_ob(builder, "header", zk_proof.header);
-    ssz_add_ob(builder, "nextSyncCommitteeBranch", zk_proof.nextSyncCommitteeBranch);
-    ssz_add_ob(builder, "nextSyncCommittee", zk_proof.nextSyncCommittee);
+    ssz_add_bytes(builder, "vk_hash", ssz_get(&zk_proof.sync_proof, "vk_hash").bytes);
+    ssz_add_bytes(builder, "proof", ssz_get(&zk_proof.sync_proof, "proof").bytes);
+    ssz_add_ob(builder, "header", ssz_get(&zk_proof.sync_proof, "header"));
+    ssz_add_ob(builder, "pubkeys", ssz_get(&zk_proof.sync_proof, "pubkeys"));
+    ssz_add_ob(builder, "checkpoint", ssz_get(&zk_proof.sync_proof, "checkpoint"));
     ssz_add_bytes(builder, "signatures", zk_proof.signatures);
     safe_free(zk_proof.signatures.data);
     return C4_SUCCESS;

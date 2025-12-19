@@ -38,7 +38,7 @@ void     c4_ps_fetch_lcb_for_checkpoint(bytes32_t checkpoint, uint64_t period);
 void     c4_ps_schedule_fetch_lcu(uint64_t period);
 void     c4_ps_schedule_fetch_historical_root(uint64_t period);
 char*    c4_ps_ensure_period_dir(uint64_t period);
-
+void     c4_build_zk_sync_proof_data(uint64_t period);
 // ---- Blocks root verification marker (blocks_root.bin) ----
 //
 // The file `blocks_root.bin` is written after a period's blocks_root is verified against

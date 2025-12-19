@@ -143,12 +143,12 @@ c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes
  * Automatically manages storage limits by removing old periods when necessary.
  *
  * @param period Period number to store
- * @param sync_committee SSZ object containing validator pubkeys
+ * @param validatores  validator pubkeys
  * @param chain_id Chain identifier
  * @param previous_pubkeys_hash SHA256 hash of the previous period's validator keys
  * @return true on success, false on failure
  */
-bool c4_set_sync_period(uint32_t period, ssz_ob_t sync_committee, chain_id_t chain_id, bytes32_t previous_pubkeys_hash);
+bool c4_set_sync_period(uint32_t period, bytes_t validators, chain_id_t chain_id, bytes32_t previous_pubkeys_hash);
 
 /**
  * Retrieve chain state metadata from persistent storage.

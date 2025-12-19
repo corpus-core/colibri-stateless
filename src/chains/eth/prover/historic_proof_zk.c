@@ -46,28 +46,19 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   buffer_t    signatures                                    = stack_buffer(sig_buffer);
   char        buffer[1000]                                  = {0};
   buffer_t    buf                                           = stack_buffer(buffer);
-  memcpy(zk_proof->vk, VK_PROGRAM_HASH, 32);
-  ssz_ob_t bootstrap = {0};
-  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/zk_proof_g16.bin", period), NULL, 0, &zk_proof->proof)); // get the blockd
-  buffer_reset(&buf);
-  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/lcu.ssz", period - 1), NULL, 0, &bootstrap.bytes)); // get the blockd
+  zk_proof->sync_proof.def                                  = C4_ETH_REQUEST_SYNCDATA_UNION + 2;
+
+  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/zk_proof.ssz", period), NULL, 0, &zk_proof->sync_proof.bytes)); // get the blockd
   if (ctx->witness_key.len && ctx->witness_key.len % 20 == 0) {
     for (int i = 0; i < ctx->witness_key.len; i += 20) {
       buffer_reset(&buf);
-      TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period - 1, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &bootstrap.bytes)); // get the blockd
+      bytes_t sig_data = {0};
+      TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period - 1, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data)); // get the blockd
+      buffer_append(&signatures, sig_data);
     }
   }
-
-  if (status == C4_SUCCESS) {
-    fork_id_t fork = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap.bytes);
-    bootstrap.def  = eth_get_light_client_update(fork);
-    if (!ssz_is_valid(bootstrap, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
-    zk_proof->nextSyncCommitteeBranch = ssz_get(&bootstrap, "nextSyncCommitteeBranch");
-    zk_proof->nextSyncCommittee       = ssz_get(&bootstrap, "nextSyncCommittee");
-    zk_proof->header                  = ssz_get(&bootstrap, "attestedHeader");
-    zk_proof->header                  = ssz_get(&zk_proof->header, "beacon");
-    zk_proof->signatures              = bytes_dup(signatures.data);
-  }
+  if (status == C4_SUCCESS)
+    zk_proof->signatures = signatures.data.len ? bytes_dup(signatures.data) : NULL_BYTES;
 
   return status;
 }

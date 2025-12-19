@@ -106,19 +106,36 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   // +1 because nextSyncCommittee is for the next period
   const chain_spec_t* spec   = c4_eth_get_chain_spec(ctx->chain_id);
   uint32_t            period = (attested_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
-  return c4_set_sync_period(period, sync_committee, ctx->chain_id, previous_pubkeys_hash);
+  return c4_set_sync_period(period, ssz_get(&sync_committee, "pubkeys").bytes, ctx->chain_id, previous_pubkeys_hash);
 }
-static bool verify_signatures(verify_ctx_t* ctx, bytes_t proof, bytes32_t checkpoint, uint64_t attested_slot, bytes32_t state_root, ssz_ob_t next_sync, ssz_ob_t signatures) {
-  bytes32_t sync_root   = {0};
-  bytes32_t merkle_root = {0};
-  ssz_hash_tree_root(next_sync, sync_root);
-  ssz_verify_single_merkle_proof(proof, sync_root, next_sync_committee_gindex(ctx->chain_id, attested_slot), merkle_root);
-  if (memcmp(merkle_root, state_root, 32))
-    RETURN_VERIFY_ERROR(ctx, "invalid merkle root for next sync committee!");
+static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_t attested_header, ssz_ob_t signatures) {
+  ssz_ob_t  signed_header = ssz_get(&checkpoint_ob, "header");
+  bytes32_t checkpoint    = {0};
+  if (memcmp(attested_header.bytes.data, signed_header.bytes.data, 112)) {
+    ssz_ob_t  headers           = ssz_get(&checkpoint_ob, "headers"); // the intermediate headers between the current block and the block with the signature
+    uint32_t  header_count      = ssz_len(headers);                   // the number of intermediate headers
+    bytes32_t last_block_root   = {0};                                // last block root calculated from the current header
+    uint8_t   header_bytes[112] = {0};                                // temp blockheader while calculating
+    ssz_ob_t  header_ob         = {.bytes = bytes(header_bytes, sizeof(header_bytes)), .def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER, C4_CHAIN_MAINNET)};
+    ssz_hash_tree_root(attested_header, last_block_root);
+
+    for (size_t i = 0; i < header_count; i++) {
+      ssz_ob_t h = ssz_at(headers, i);                  // we copy into the ssz header structure because the headers are only 80 bytes since the do not hold the parentRoot.
+      memcpy(header_bytes, h.bytes.data, 16);           // slot and proposerIndex
+      memcpy(header_bytes + 16, last_block_root, 32);   // parent root
+      memcpy(header_bytes + 48, h.bytes.data + 16, 64); // state root and body root
+      ssz_hash_tree_root(header_ob, last_block_root);   // compute the root of the header
+    }
+
+    if (memcmp(last_block_root, ssz_get(&signed_header, "parentRoot").bytes.data, 32))
+      THROW_ERROR("invalid parent root for header proof!");
+  }
 
   if (signatures.def->type != SSZ_TYPE_LIST) RETURN_VERIFY_ERROR(ctx, "invalid signatures!");
+  ssz_hash_tree_root(signed_header, checkpoint);
   uint32_t signatures_len = ssz_len(signatures);
-  if (signatures_len != 16) RETURN_VERIFY_ERROR(ctx, "invalid number of signatures!");
+  if (signatures_len == 0) return true; // TODO if you expoect signatures, fail here.
+  if (signatures_len > 16) RETURN_VERIFY_ERROR(ctx, "invalid number of signatures!");
   for (uint32_t i = 0; i < signatures_len; i++) {
     uint8_t   pub_keys[64] = {0};
     address_t address      = {0};
@@ -161,33 +178,23 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
 #ifdef ETH_ZKPROOF
   bytes32_t           previous_pubkeys_hash = {0};
   const chain_spec_t* spec                  = c4_eth_get_chain_spec(ctx->chain_id);
-  bytes32_t           checkpoint            = {0};
   uint8_t             pub_inputs[136]       = {0};
   bytes_t             vk_hash               = ssz_get(&ctx->sync_data, "vk_hash").bytes;
   bytes_t             proof                 = ssz_get(&ctx->sync_data, "proof").bytes;
   ssz_ob_t            header                = ssz_get(&ctx->sync_data, "header");
-  ssz_ob_t            next_sync_proof       = ssz_get(&ctx->sync_data, "nextSyncCommitteeBranch");
-  ssz_ob_t            next_sync             = ssz_get(&ctx->sync_data, "nextSyncCommittee");
   uint64_t            attested_slot         = ssz_get_uint64(&header, "slot");
-  ssz_ob_t            pub_keys              = ssz_get(&next_sync, "pubkeys");
+  ssz_ob_t            pub_keys              = ssz_get(&ctx->sync_data, "pubkeys");
   uint32_t            period                = (attested_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
-  ssz_ob_t            signatures            = ssz_get(&ctx->sync_data, "signatures");
 
-  ssz_hash_tree_root(header, checkpoint);
-
-  // verify the proof
+  // create the public input for the zk proof
   memcpy(pub_inputs, spec->zk_sync_keys_root, 32); // root-anchor
   ssz_hash_tree_root(pub_keys, pub_inputs + 32);   // next_keys_root
   uint64_to_le(pub_inputs + 64, period);           // next_period
-  // attested_header_root
-  memcpy(pub_inputs + 72, checkpoint, 32);
-  // domain (SigningData.domain)
-  bytes32_t domain = {0};
-  if (!eth_calculate_domain(ctx->chain_id, attested_slot, domain)) RETURN_VERIFY_ERROR(ctx, "unsupported chain!");
-  memcpy(pub_inputs + 104, domain, 32);
+  ssz_hash_tree_root(header, pub_inputs + 72);     // attested_header_root
+  if (!eth_calculate_domain(ctx->chain_id, attested_slot, pub_inputs + 104)) RETURN_VERIFY_ERROR(ctx, "unsupported chain!");
   if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 136), vk_hash.data)) RETURN_VERIFY_ERROR(ctx, "invalid zk_proof!");
-  if (!verify_signatures(ctx, next_sync_proof.bytes, checkpoint, attested_slot, ssz_get(&header, "stateRoot").bytes.data, next_sync, signatures)) RETURN_VERIFY_ERROR(ctx, "invalid checkpoint signatures!");
-  if (!c4_set_sync_period(period, next_sync, ctx->chain_id, previous_pubkeys_hash)) RETURN_VERIFY_ERROR(ctx, "failed to store next sync committee!");
+  if (!verify_signatures(ctx, ssz_get(&ctx->sync_data, "checkpoint"), header, ssz_get(&ctx->sync_data, "signatures"))) RETURN_VERIFY_ERROR(ctx, "invalid checkpoint signatures!");
+  if (!c4_set_sync_period(period, pub_keys.bytes, ctx->chain_id, previous_pubkeys_hash)) RETURN_VERIFY_ERROR(ctx, "failed to store next sync committee!");
 
   // we may want to clean up the sync data, so we don't sync again.
   ctx->sync_data.def = &ssz_none;

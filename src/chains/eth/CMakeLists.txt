@@ -209,6 +209,7 @@ add_server_handler(
     server/period_store_period_index.c
     server/period_store_full_sync.c
     server/period_store_zk_prover.c
+    server/period_store_zk_ssz.c
     server/handle_period_static.c
     server/eth_conf.c
   DEPENDS eth_prover

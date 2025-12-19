@@ -141,8 +141,8 @@ static const ssz_def_t C4_ETH_ZK_SYNCDATA[6] = {
     SSZ_BYTES32("vk_hash"),        // the hash of the vk used to generate the proof
     SSZ_BYTE_VECTOR("proof", 260), // the recursive zk proof of the sync committee update as groth16 proof
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
-    SSZ_LIST("nextSyncCommitteeBranch", ssz_bytes32, 5),
-    SSZ_CONTAINER("nextSyncCommittee", SYNC_COMMITTEE),
+    SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512),          // the pubkeys of the sync committee
+    SSZ_UNION("checkpoint", ETH_HEADER_PROOFS_UNION),   // the proof from the checkpoint to the header
     SSZ_LIST("signatures", ssz_secp256k1_signature, 16) // the signatures for the checkpoint
 };
 
