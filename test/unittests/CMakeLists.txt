@@ -75,6 +75,11 @@ foreach(test_source ${TEST_SOURCES})
     endif()
 
 
+    if("${test_name}" STREQUAL "test_op_verify_block_l1_anchored_integration")
+        target_link_libraries(${test_name} PRIVATE op_verifier op_prover intx_wrapper util)
+    endif()
+
+
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
         target_compile_definitions(${test_name} PRIVATE HTTP_SERVER)

@@ -64,10 +64,8 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
     return NULL;
   }
 
-  uint8_t proof_type = ssz_get_selector(&block_proof);
-
   // L1-anchored proofs cannot be used with op_extract_verified_execution_payload
-  if (proof_type == 1) {
+  if (block_proof.def && strcmp(block_proof.def->name, "l1_anchored") == 0) {
     c4_state_add_error(&ctx->state, "L1-anchored proofs cannot be used with this RPC method.");
     return NULL;
   }
@@ -144,8 +142,7 @@ bool op_verify_block_l1_anchored(verify_ctx_t* ctx) {
 bool op_verify_block(verify_ctx_t* ctx) {
   ssz_ob_t block_proof = ssz_get(&ctx->proof, "block_proof");
 
-  uint8_t proof_type = ssz_get_selector(&block_proof);
-  if (proof_type == 1) {
+  if (block_proof.def && strcmp(block_proof.def->name, "l1_anchored") == 0) {
     return op_verify_block_l1_anchored(ctx);
   }
 

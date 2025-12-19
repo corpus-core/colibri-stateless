@@ -45,6 +45,7 @@ set(VERIFIER_SOURCES
   verifier/op_zstd.c
   verifier/op_chains_conf.c
   verifier/op_output_root.c
+  verifier/op_verify_l1_anchored.c
   ssz/op_types.c
 )
 

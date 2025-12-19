@@ -176,19 +176,6 @@ static inline bool ssz_is_error(ssz_ob_t ob) {
 }
 
 /**
- * Gets the selector byte from a union type.
- *
- * In SSZ, unions are serialized as [selector_byte][data...] where the selector
- * indicates which variant is active (0, 1, 2, etc.).
- *
- * @param ob The SSZ union object
- * @return The selector byte (variant index), or 0 if the object is empty
- */
-static inline uint8_t ssz_get_selector(ssz_ob_t* ob) {
-  return (ob && ob->bytes.len > 0) ? ob->bytes.data[0] : 0;
-}
-
-/**
  * Retrieves an element from a list or vector at the specified index.
  *
  * For lists/vectors with dynamic element types: Uses the offset array to locate the element.

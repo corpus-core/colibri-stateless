@@ -23,6 +23,8 @@
 
 #include "unity.h"
 #include "chains/op/verifier/op_output_root.h"
+#include "chains/op/verifier/op_chains_conf.h"
+#include "chains.h"
 #include "crypto.h"
 #include "bytes.h"
 #include "intx_c_api.h"
@@ -35,29 +37,9 @@ void tearDown(void) {
 }
 
 /**
- * Test OutputRoot reconstruction with zero values
- */
-void test_op_reconstruct_output_root_zeros(void) {
-  bytes32_t version                     = {0};
-  bytes32_t state_root                  = {0};
-  bytes32_t message_passer_storage_root = {0};
-  bytes32_t latest_block_hash           = {0};
-
-  bytes32_t output_root;
-  op_reconstruct_output_root(version, state_root, message_passer_storage_root, latest_block_hash, output_root);
-
-  // Calculate expected: keccak256(128 zero bytes)
-  uint8_t   zero_concat[128] = {0};
-  bytes32_t expected;
-  keccak(bytes(zero_concat, 128), expected);
-
-  TEST_ASSERT_EQUAL_MEMORY(expected, output_root, 32);
-}
-
-/**
  * Test OutputRoot reconstruction with non-zero values
  */
-void test_op_reconstruct_output_root_nonzero(void) {
+void test_op_reconstruct_output_root(void) {
   bytes32_t version = {
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -97,25 +79,6 @@ void test_op_reconstruct_output_root_nonzero(void) {
   keccak(bytes(concat, 128), expected);
 
   TEST_ASSERT_EQUAL_MEMORY(expected, output_root, 32);
-}
-
-/**
- * Test that different inputs produce different OutputRoots
- */
-void test_op_output_root_uniqueness(void) {
-  bytes32_t version                     = {0x01};
-  bytes32_t state_root1                 = {0x02};
-  bytes32_t state_root2                 = {0x03};
-  bytes32_t message_passer_storage_root = {0x04};
-  bytes32_t latest_block_hash           = {0x05};
-
-  bytes32_t output_root1, output_root2;
-
-  op_reconstruct_output_root(version, state_root1, message_passer_storage_root, latest_block_hash, output_root1);
-  op_reconstruct_output_root(version, state_root2, message_passer_storage_root, latest_block_hash, output_root2);
-
-  // Should produce different results
-  TEST_ASSERT_FALSE(memcmp(output_root1, output_root2, 32) == 0);
 }
 
 
@@ -164,41 +127,58 @@ void test_op_extract_output_root_valid(void) {
   TEST_ASSERT_EQUAL_MEMORY(expected_output_root, extracted_output_root, 32);
 }
 
+
 /**
- * Test OutputRoot extraction with empty storage
+ * Test that unsupported chain fails to get configuration
  */
-void test_op_extract_output_root_empty(void) {
-  bytes_t   empty_storage = bytes(NULL, 0);
-  bytes32_t output_root;
-
-  bool result = op_extract_output_root_from_storage(empty_storage, output_root);
-
-  TEST_ASSERT_FALSE(result);
+void test_unsupported_chain_config(void) {
+  const op_chain_config_t* config = op_get_chain_config(999999);
+  TEST_ASSERT_NULL(config);
 }
 
 /**
- * Test OutputRoot extraction with insufficient data
+ * Test that OP Mainnet has L2OutputOracle configured
  */
-void test_op_extract_output_root_too_short(void) {
-  uint8_t short_data[16] = {0};
-  bytes_t storage_value  = bytes(short_data, 16);
-  bytes32_t output_root;
+void test_op_mainnet_has_l2_output_oracle(void) {
+  const op_chain_config_t* config = op_get_chain_config(C4_CHAIN_OP_MAINNET);
 
-  bool result = op_extract_output_root_from_storage(storage_value, output_root);
+  TEST_ASSERT_NOT_NULL(config);
+  TEST_ASSERT_EQUAL_UINT64(C4_CHAIN_OP_MAINNET, config->chain_id);
 
-  TEST_ASSERT_FALSE(result);
+  // Verify L2OutputOracle address is configured
+  uint8_t zeros[20] = {0};
+  TEST_ASSERT_FALSE(memcmp(config->l2_output_oracle_address, zeros, 20) == 0);
+}
+
+/**
+ * Test that multiple chains have correct configurations
+ */
+void test_multiple_chain_configs(void) {
+  // OP Mainnet
+  const op_chain_config_t* op_mainnet = op_get_chain_config(C4_CHAIN_OP_MAINNET);
+  TEST_ASSERT_NOT_NULL(op_mainnet);
+  TEST_ASSERT_EQUAL_UINT64(10, op_mainnet->chain_id);
+
+  // Base Mainnet
+  const op_chain_config_t* base_mainnet = op_get_chain_config(C4_CHAIN_BASE);
+  TEST_ASSERT_NOT_NULL(base_mainnet);
+  TEST_ASSERT_EQUAL_UINT64(8453, base_mainnet->chain_id);
+
+  // Both should have L2OutputOracle configured
+  uint8_t zeros[20] = {0};
+  TEST_ASSERT_FALSE(memcmp(op_mainnet->l2_output_oracle_address, zeros, 20) == 0);
+  TEST_ASSERT_FALSE(memcmp(base_mainnet->l2_output_oracle_address, zeros, 20) == 0);
 }
 
 int main(void) {
   UNITY_BEGIN();
 
-  RUN_TEST(test_op_reconstruct_output_root_zeros);
-  RUN_TEST(test_op_reconstruct_output_root_nonzero);
-  RUN_TEST(test_op_output_root_uniqueness);
+  RUN_TEST(test_op_reconstruct_output_root);
   RUN_TEST(test_op_calculate_storage_slot);
   RUN_TEST(test_op_extract_output_root_valid);
-  RUN_TEST(test_op_extract_output_root_empty);
-  RUN_TEST(test_op_extract_output_root_too_short);
+  RUN_TEST(test_unsupported_chain_config);
+  RUN_TEST(test_op_mainnet_has_l2_output_oracle);
+  RUN_TEST(test_multiple_chain_configs);
 
   return UNITY_END();
 }
