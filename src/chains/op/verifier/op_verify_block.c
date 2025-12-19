@@ -70,7 +70,7 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
     return NULL;
   }
 
-  // Handle preconf proof (proof_type == 0) - existing logic
+  // Handle preconf proof
   address_t signer          = {0};
   ssz_ob_t  compressed_data = ssz_get(&block_proof, "payload");
   ssz_ob_t  signature       = ssz_get(&block_proof, "signature");

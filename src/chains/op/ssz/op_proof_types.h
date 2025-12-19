@@ -23,7 +23,7 @@
 
 #include "beacon_types.h"
 #include "ssz.h"
-#include "../../eth/ssz/verify_proof_types.h"
+#include "verify_proof_types.h"
 
 // : OP-Stack
 

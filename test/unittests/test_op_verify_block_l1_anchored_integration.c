@@ -223,16 +223,13 @@ static bytes_t create_l1_anchored_proof_ssz(void) {
 }
 
 /**
- * REAL integration test: op_verify_block with L1-anchored proof
+ * Integration test: op_verify_block with L1-anchored proof
  * Tests the complete flow from entry point through routing to verification
  */
 void test_op_verify_block_l1_anchored_integration(void) {
-  // Create a complete verify context as would be created in production
   verify_ctx_t ctx = {0};
   ctx.chain_id = C4_CHAIN_OP_MAINNET;
   ctx.method = "eth_getBlockByNumber";
-
-  // Create proper JSON arguments
   const char* args_str = "[\"0x123\", false]";
   ctx.args = (json_t){
     .start = args_str,
@@ -260,8 +257,8 @@ void test_op_verify_block_l1_anchored_integration(void) {
   // Call op_verify_block
   bool result = op_verify_block(&ctx);
 
-  // This is expected this to fail because our Patricia proofs aren't cryptographically valid
-  // Important thing is it goes through the correct flow
+  // Expected to fail because the Patricia proofs aren't cryptographically valid
+  // Verifies that the correct flow is executed
   TEST_ASSERT_FALSE(result);
 
   // Verify we got an appropriate error (not a crash)
@@ -276,9 +273,7 @@ void test_op_verify_block_l1_anchored_integration(void) {
 int main(void) {
   UNITY_BEGIN();
 
-  // Comprehensive integration test that covers:
-  // - Creating L1-anchored proof with selector=1
-  // - Testing the full routing through op_verify_block
+  // Test L1-anchored proof verification through op_verify_block
   RUN_TEST(test_op_verify_block_l1_anchored_integration);
 
   return UNITY_END();
