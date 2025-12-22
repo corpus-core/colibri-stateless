@@ -28,7 +28,6 @@ impl Prover {
         Ok(Self { ctx })
     }
 
-    // Get execution status as JSON string
     pub fn execute_json_status(&mut self) -> Result<String> {
         unsafe {
             let ptr = ffi::c4_prover_execute_json_status(self.ctx);
@@ -39,13 +38,11 @@ impl Prover {
             let cstr = CStr::from_ptr(ptr);
             let result = cstr.to_str()?.to_string();
 
-            // Free the C string
             libc::free(ptr as *mut libc::c_void);
             Ok(result)
         }
     }
 
-    // Get the proof bytes
     pub fn get_proof(&mut self) -> Result<Vec<u8>> {
         unsafe {
             let proof_bytes = ffi::c4_prover_get_proof(self.ctx);
@@ -53,7 +50,6 @@ impl Prover {
         }
     }
 
-    // Set response for a request
     pub fn set_response(&mut self, request_ptr: usize, data: &[u8], node_index: u16) {
         unsafe {
             ffi::c4_req_set_response(
@@ -64,7 +60,6 @@ impl Prover {
         }
     }
 
-    // Set error for a request
     pub fn set_error(&mut self, request_ptr: usize, error: &str, node_index: u16) -> Result<()> {
         let c_error = CString::new(error)?;
 
@@ -89,6 +84,5 @@ impl Drop for Prover {
     }
 }
 
-// Safety: Prover can be sent between threads
 unsafe impl Send for Prover {}
 unsafe impl Sync for Prover {}

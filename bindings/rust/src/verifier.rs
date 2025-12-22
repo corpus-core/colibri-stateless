@@ -36,7 +36,6 @@ impl Verifier {
         Ok(Self { ctx })
     }
 
-    // Execute verification and get status
     pub fn execute_json_status(&mut self) -> Result<String> {
         unsafe {
             let ptr = ffi::c4_verify_execute_json_status(self.ctx);
@@ -47,7 +46,6 @@ impl Verifier {
             let cstr = CStr::from_ptr(ptr);
             let result = cstr.to_str()?.to_string();
 
-            // Free the C string
             libc::free(ptr as *mut libc::c_void);
             Ok(result)
         }
@@ -64,6 +62,5 @@ impl Drop for Verifier {
     }
 }
 
-// Safety: Verifier can be sent between threads
 unsafe impl Send for Verifier {}
 unsafe impl Sync for Verifier {}

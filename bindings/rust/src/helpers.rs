@@ -1,6 +1,5 @@
 use crate::ffi;
 
-// Helper to convert bytes_t to Vec<u8>
 pub fn bytes_to_vec(bytes: ffi::bytes_t) -> Vec<u8> {
     if bytes.data.is_null() || bytes.len == 0 {
         Vec::new()
@@ -11,7 +10,6 @@ pub fn bytes_to_vec(bytes: ffi::bytes_t) -> Vec<u8> {
     }
 }
 
-// Helper to create bytes_t from slice
 pub fn slice_to_bytes(data: &[u8]) -> ffi::bytes_t {
     ffi::bytes_t {
         data: data.as_ptr() as *mut u8,

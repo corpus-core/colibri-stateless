@@ -2,10 +2,12 @@ mod ffi;
 mod helpers;
 mod prover;
 mod verifier;
+mod client;
 pub mod types;
 
 pub use prover::Prover;
 pub use verifier::Verifier;
+pub use client::ProverClient;
 pub use types::{ColibriError, Result};
 
 use std::ffi::CString;
