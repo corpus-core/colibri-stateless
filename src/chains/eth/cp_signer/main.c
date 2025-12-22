@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../../../../libs/curl/http.h"
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_verify.h"
 #include "json.h"
 #include "state.h"
-#include "../../../../libs/curl/http.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,8 +24,8 @@ static void usage(const char* argv0) {
           "  1) Derive signer address from private key\n"
           "  2) GET  /signed_checkpoints?signer=0x<address>\n"
           "  3) Verify checkpoint root is correct and finalized (Beacon API / checkpointz)\n"
-          "  3) EIP-191 sign each checkpoint root\n"
-          "  4) POST /signed_checkpoints  [{\"period\":...,\"signature\":\"0x...\"},...]\n",
+          "  4) EIP-191 sign each checkpoint root\n"
+          "  5) POST /signed_checkpoints  [{\"period\":...,\"signature\":\"0x...\"},...]\n",
           argv0);
 }
 
@@ -144,12 +144,12 @@ static char* join_url(const char* base, const char* path_and_query) {
 }
 
 static bool fetch_json_one(data_request_type_t type, char* url_owned, json_t* out_json) {
-  c4_state_t     state = {0};
-  data_request_t* req  = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-  req->type            = type;
-  req->encoding        = C4_DATA_ENCODING_JSON;
-  req->url             = url_owned; // owned by req/state
-  req->method          = C4_DATA_METHOD_GET;
+  c4_state_t      state = {0};
+  data_request_t* req   = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->type             = type;
+  req->encoding         = C4_DATA_ENCODING_JSON;
+  req->url              = url_owned; // owned by req/state
+  req->method           = C4_DATA_METHOD_GET;
   c4_state_add_request(&state, req);
   curl_fetch_all(&state);
   data_request_t* done = state.requests;
@@ -175,15 +175,15 @@ static bool checkpoint_root_matches_slot(uint64_t slot, const bytes32_t expected
   json_t res = {0};
   if (!fetch_json_one(C4_DATA_TYPE_CHECKPOINTZ, (char*) url.data.data, &res)) return false;
 
-  const char* err = json_validate(res, "{data:{root:bytes32}}", "block root");
-  if (err) {
-    safe_free((void*) err);
+  json_t data = json_get(res, "data");
+  json_t root = json_get(data, "root");
+  if (data.type != JSON_TYPE_OBJECT || root.type != JSON_TYPE_STRING) {
     safe_free((void*) res.start);
     return false;
   }
 
   bytes32_t got = {0};
-  if (json_to_bytes(json_get(json_get(res, "data"), "root"), bytes(got, 32)) != 32) {
+  if (json_to_bytes(root, bytes(got, 32)) != 32) {
     safe_free((void*) res.start);
     return false;
   }
@@ -199,21 +199,23 @@ static bool checkpoint_is_finalized_by_header_root(const bytes32_t root) {
   json_t res = {0};
   if (!fetch_json_one(C4_DATA_TYPE_BEACON_API, (char*) url.data.data, &res)) return false;
 
-  const char* err = json_validate(res, "{finalized:bool,data:{root:bytes32,canonical:bool}}", "header");
-  if (err) {
-    safe_free((void*) err);
+  json_t finalized_j = json_get(res, "finalized");
+  json_t data        = json_get(res, "data");
+  json_t canonical_j = json_get(data, "canonical");
+  json_t root_j      = json_get(data, "root");
+  if (finalized_j.type != JSON_TYPE_BOOLEAN || data.type != JSON_TYPE_OBJECT || canonical_j.type != JSON_TYPE_BOOLEAN || root_j.type != JSON_TYPE_STRING) {
     safe_free((void*) res.start);
     return false;
   }
 
   bytes32_t got = {0};
-  if (json_to_bytes(json_get(json_get(res, "data"), "root"), bytes(got, 32)) != 32) {
+  if (json_to_bytes(root_j, bytes(got, 32)) != 32) {
     safe_free((void*) res.start);
     return false;
   }
 
-  bool finalized  = json_as_bool(json_get(res, "finalized"));
-  bool canonical  = json_as_bool(json_get(json_get(res, "data"), "canonical"));
+  bool finalized  = json_as_bool(finalized_j);
+  bool canonical  = json_as_bool(canonical_j);
   bool root_match = memcmp(got, root, 32) == 0;
   safe_free((void*) res.start);
   return finalized && canonical && root_match;
@@ -225,23 +227,22 @@ static bool checkpoint_is_finalized_by_slot(uint64_t slot) {
   json_t res = {0};
   if (!fetch_json_one(C4_DATA_TYPE_CHECKPOINTZ, (char*) url.data.data, &res)) return false;
 
-  const char* err = json_validate(res, "{finalized:bool,data:{message:{slot:suint}}}", "block");
-  if (err) {
-    safe_free((void*) err);
+  json_t finalized_j = json_get(res, "finalized");
+  if (finalized_j.type != JSON_TYPE_BOOLEAN) {
     safe_free((void*) res.start);
     return false;
   }
 
-  bool finalized = json_as_bool(json_get(res, "finalized"));
+  bool finalized = json_as_bool(finalized_j);
   safe_free((void*) res.start);
   return finalized;
 }
 
 int main(int argc, char** argv) {
-  const char* server   = NULL;
-  const char* key_hex  = NULL;
-  const char* key_file = NULL;
-  bool        once     = false;
+  const char* server              = NULL;
+  const char* key_hex             = NULL;
+  const char* key_file            = NULL;
+  bool        once                = false;
   const char* checkpointz_urls[8] = {0};
   int         checkpointz_count   = 0;
   const char* beacon_urls[8]      = {0};
@@ -325,7 +326,7 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    c4_state_t state = {0};
+    c4_state_t      state     = {0};
     data_request_t* req_owned = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     req_owned->type           = C4_DATA_TYPE_REST_API;
     req_owned->encoding       = C4_DATA_ENCODING_JSON;
@@ -422,16 +423,16 @@ int main(int argc, char** argv) {
     // Free GET state + request first, then POST in a fresh state.
     c4_state_free(&state);
 
-    c4_state_t state_post = {0};
+    c4_state_t      state_post     = {0};
     data_request_t* post_req_owned = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     post_req_owned->type           = C4_DATA_TYPE_REST_API;
     post_req_owned->encoding       = C4_DATA_ENCODING_JSON;
     post_req_owned->url            = post_url;
     post_req_owned->method         = C4_DATA_METHOD_POST;
     post_req_owned->payload        = post.data; // transfer ownership to request/state
-    post.data.data           = NULL;
-    post.data.len            = 0;
-    post.allocated           = 0;
+    post.data.data                 = NULL;
+    post.data.len                  = 0;
+    post.allocated                 = 0;
     c4_state_add_request(&state_post, post_req_owned); // ownership transferred to `state_post`
     post_req_owned = NULL;
 

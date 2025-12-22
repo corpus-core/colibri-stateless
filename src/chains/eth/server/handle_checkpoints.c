@@ -100,6 +100,7 @@ static void find_missing_checkpoints(client_t* client) {
   for (uint64_t period = last_period; period >= first_period && period > last_period - MAX_BACKFILL_PERIODS; period--) {
     if (c4_ps_file_exists(period, sigfile)) break;
     if (!c4_ps_file_exists(period, "zk_proof.ssz")) continue; // no bootstrap, nothing to sign
+    ctx.periods[ctx.num_periods]  = period;
     files[ctx.num_periods++].path = bprintf(NULL, "%s/%l/zk_proof.ssz", eth_config.period_store, period);
   }
 
@@ -166,10 +167,12 @@ static void add_missing_checkpoints_cb(void* user_data, file_data_t* files, int 
     write_files[num_write_files++].path = bprintf(NULL, "%s/%l/sig_%x", eth_config.period_store, ctx->periods[i], bytes(hash + 12, 20));
   }
 
+  safe_free((void*) ctx->payload.start);
+  ctx->payload = (json_t) {0};
+
   if (num_write_files == 0) {
     c4_write_error_response(ctx->client, 400, "No signatures to add");
     c4_file_data_array_free(write_files, num_write_files, 1);
-    safe_free((void*) ctx->payload.start);
     safe_free(ctx);
     return;
   }
@@ -192,10 +195,14 @@ static void add_missing_checkpoints(client_t* client) {
   ctx->client                               = client;
   ctx->payload                              = json_parse((const char*) payload_json);
   ctx->num_periods                          = 0;
-  safe_free(payload_json);
+  // Ownership of `payload_json` is transferred to `ctx->payload.start` and will be freed
+  // once we no longer need the JSON (see add_missing_checkpoints_cb / error paths below).
+  payload_json = NULL;
 
   if (ctx->payload.type != JSON_TYPE_ARRAY || json_len(ctx->payload) > MAX_BACKFILL_PERIODS) {
     c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Invalid payload\"}", 22));
+    safe_free((void*) ctx->payload.start);
+    ctx->payload = (json_t) {0};
     safe_free(ctx);
     return;
   }
@@ -203,11 +210,14 @@ static void add_missing_checkpoints(client_t* client) {
   json_for_each_value(ctx->payload, item) {
     uint64_t period = json_get_uint64(item, "period");
     if (period < first_period || period > last_period || !c4_ps_file_exists(period, "zk_proof.ssz")) continue;
+    ctx->periods[ctx->num_periods] = period;
     files[ctx->num_periods++].path = bprintf(NULL, "%s/%l/zk_proof.ssz", eth_config.period_store, period);
   }
 
   if (ctx->num_periods == 0) {
     c4_write_error_response(client, 400, "No signatures to add");
+    safe_free((void*) ctx->payload.start);
+    ctx->payload = (json_t) {0};
     safe_free(ctx);
     return;
   }
