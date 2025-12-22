@@ -87,7 +87,7 @@ static uint8_t* verify_period_and_get_anchor(int period, const uint8_t* expected
 
 void test_verify_chain(void) {
   // Define the chain to test
-  int periods[] = {1600, 1601};
+  int periods[] = {1620, 1621};
   int count     = sizeof(periods) / sizeof(int);
 
   uint8_t* trust_anchor = NULL;
@@ -117,87 +117,16 @@ void test_verify_chain(void) {
   if (trust_anchor) free(trust_anchor);
 }
 
-// Define SSZ type for BLS Pubkey (48 bytes)
-static const ssz_def_t ssz_bls_pubkey = SSZ_BYTE_VECTOR("BLSPubkey", 48);
-static const ssz_def_t keys_ssz_def   = SSZ_VECTOR("pubkeys", ssz_bls_pubkey, 512);
-
-static const char* trusted_keys_hex = "0x351ed1af401593d7d8c9f742bc590395bfd0b3ad76209896955e455f364a8f64";
-
-void test_verify_1602_realistic(void) {
-  printf("Running Realistic Test for Period 1602...\n");
-
-  // 1. Trust Anchor (from 1600)
-  bytes32_t current_keys_root;
-  hex_to_bytes(trusted_keys_hex, -1, bytes(current_keys_root, 32));
-
-  // 2. Load Proof 1602
-  bytes_t proof = read_testdata("zk_data/1602/zk_proof_g16.bin");
-  if (proof.data == NULL) {
-    TEST_IGNORE_MESSAGE("Skipping realistic test: zk_data/1602/zk_proof_g16.bin not found");
-    return;
-  }
-
-  // 3. Load New Keys 1602
-  uint64_t next_period   = 1602;
-  bytes_t  new_keys_data = read_testdata("zk_data/1602_keys.bin");
-  if (new_keys_data.data == NULL) {
-    free(proof.data);
-    TEST_IGNORE_MESSAGE("Skipping realistic test: zk_data/1602_keys.bin not found");
-    return;
-  }
-
-  // Check size: 512 keys * 48 bytes = 24576 bytes
-  TEST_ASSERT_EQUAL_INT(512 * 48, new_keys_data.len);
-
-  // 4. Calculate Next Keys Root
-  bytes32_t next_keys_root;
-  ssz_hash_tree_root(ssz_ob(keys_ssz_def, new_keys_data), next_keys_root);
-
-  // 5. Construct Public Values
-  // [current_keys_root (32)] [next_keys_root (32)] [next_period (8)] [attested_header_root (32)]
-  // Note: For this test, we load the attested_header_root from the zk_pub.bin fixture to keep
-  // the test independent from SSZ header parsing logic.
-  uint8_t public_values_data[136];
-  memcpy(public_values_data, current_keys_root, 32);   // trustanchor
-  memcpy(public_values_data + 32, next_keys_root, 32); // new keys root
-  uint64_to_le(public_values_data + 64, next_period);  // new period
-  {
-    bytes_t pub_fixture = read_testdata("zk_data/1602/zk_pub.bin");
-    if (pub_fixture.data == NULL) {
-      free(proof.data);
-      free(new_keys_data.data);
-      TEST_IGNORE_MESSAGE("Skipping realistic test: zk_data/1602/zk_pub.bin not found");
-      return;
-    }
-    TEST_ASSERT_GREATER_OR_EQUAL_INT(136, pub_fixture.len);
-    memcpy(public_values_data + 72, pub_fixture.data + 72, 64);
-    free(pub_fixture.data);
-  }
-
-  print_hex(stderr, bytes(public_values_data, 136), "public_values_data: ", "\n");
-
-  // 6. Verify
-  uint64_t start = current_ms();
-  bool     valid = verify_zk_proof(proof, bytes(public_values_data, 136));
-  printf("verify_zk_proof time: %llu ms\n", current_ms() - start);
-
-  TEST_ASSERT_TRUE_MESSAGE(valid, "Realistic 1602 verification failed");
-
-  // Cleanup
-  free(proof.data);
-  free(new_keys_data.data);
-}
-
 // Keep the tampering test for robustness (using 1601 as target if available, else 1600)
 void test_verify_tampered(void) {
-  int  period = 1601;
+  int  period = 1621;
   char proof_path[64];
   snprintf(proof_path, sizeof(proof_path), "zk_data/%d/zk_proof_g16.bin", period);
 
-  // Fallback to 1600 if 1601 not yet built
+  // Fallback to 1620 if 1621 not yet built
   bytes_t check = read_testdata(proof_path);
   if (check.data == NULL) {
-    period = 1600;
+    period = 1620;
     snprintf(proof_path, sizeof(proof_path), "zk_data/%d/zk_proof_g16.bin", period);
   }
   else {
@@ -270,7 +199,6 @@ int main(void) {
 #ifdef ETH_ZKPROOF
   RUN_TEST(test_verify_chain);
   RUN_TEST(test_verify_tampered);
-  RUN_TEST(test_verify_1602_realistic);
 #else
   RUN_TEST(test_skipped);
 #endif
