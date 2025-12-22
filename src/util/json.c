@@ -369,6 +369,8 @@ uint32_t json_to_bytes(json_t value, bytes_t target) {
 }
 
 bytes_t json_as_bytes(json_t value, buffer_t* buffer) {
+  buffer_t tmp = {0};
+  if (!buffer) buffer = &tmp;
   if (value.type == JSON_TYPE_NUMBER) {
     buffer->data.len = 8;
     buffer_grow(buffer, 8);

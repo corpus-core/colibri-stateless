@@ -198,6 +198,7 @@ add_server_handler(
     server/chain_props.c
     server/handle_lcu.c
     server/handle_headers.c
+    server/handle_checkpoints.c
     server/client_detection.c
     server/client_mappings.c
     server/period_store.c
@@ -208,6 +209,7 @@ add_server_handler(
     server/period_store_period_index.c
     server/period_store_full_sync.c
     server/period_store_zk_prover.c
+    server/period_store_zk_ssz.c
     server/handle_period_static.c
     server/eth_conf.c
   DEPENDS eth_prover

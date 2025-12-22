@@ -254,7 +254,7 @@ static const ssz_def_t SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER = SSZ_CONTAINER("sig
 static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 
 // the public keys sync committee used within a period ( about 27h)
-const ssz_def_t SYNC_COMMITTEE[] = {
+const ssz_def_t SYNC_COMMITTEE[2] = {
     SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512), // the 512 pubkeys (each 48 bytes) of the validators in the sync committee
     SSZ_BYTE_VECTOR("aggregatePubkey", 48)};   // the aggregate pubkey (48 bytes) of the sync committee
 

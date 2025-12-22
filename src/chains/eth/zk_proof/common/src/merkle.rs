@@ -1,4 +1,9 @@
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
+
+fn floorlog2_u32(x: u32) -> u32 {
+    // floor(log2(x)) for x > 0
+    31 - x.leading_zeros()
+}
 
 /// Computes the SHA-256 Merkle hash of two 32-byte nodes.
 /// Returns SHA256(left || right).
@@ -21,10 +26,26 @@ pub fn sha256_merkle(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
 /// * `root` - A mutable reference to the starting leaf hash.
 ///            **On return, this will contain the computed root hash.**
 pub fn verify_merkle_proof(proof: &[u8], mut gindex: u32, root: &mut [u8; 32]) {
+    if gindex == 0 {
+        panic!("Invalid gindex: 0");
+    }
+    if proof.len() % 32 != 0 {
+        panic!("Invalid Merkle proof: length is not a multiple of 32");
+    }
+
+    // In SSZ, the generalized index defines the depth from the root:
+    // depth = floorlog2(gindex). A valid branch must supply exactly `depth` sibling nodes.
+    let expected_depth = floorlog2_u32(gindex) as usize;
+    let provided_depth = proof.len() / 32;
+    if provided_depth != expected_depth {
+        panic!(
+            "Invalid Merkle proof length: expected {} nodes for gindex {}, got {}",
+            expected_depth, gindex, provided_depth
+        );
+    }
+
     for chunk in proof.chunks(32) {
-        if chunk.len() != 32 {
-            break; 
-        }
+        debug_assert_eq!(chunk.len(), 32);
         let sibling: [u8; 32] = chunk.try_into().unwrap();
         if gindex & 1 == 1 {
             // Current node is right child, sibling is left
@@ -34,6 +55,14 @@ pub fn verify_merkle_proof(proof: &[u8], mut gindex: u32, root: &mut [u8; 32]) {
             *root = sha256_merkle(root, &sibling);
         }
         gindex >>= 1;
+    }
+
+    // We must have traversed all the way to the root.
+    if gindex != 1 {
+        panic!(
+            "Invalid Merkle proof: did not reach root (gindex ended at {})",
+            gindex
+        );
     }
 }
 
@@ -48,18 +77,18 @@ pub fn _root_hash(keys: &[u8], out: &mut [u8; 32], gindex: u32) {
         // Leaf node: Hash the pubkey (padded to 64 bytes for SSZ chunking)
         let offset = (gindex - 512) as usize * 48;
         if offset + 48 > keys.len() {
-             return;
+            return;
         }
         let mut left = [0u8; 32];
         let mut right = [0u8; 32];
-        
+
         // Pubkey is 48 bytes. SSZ chunks are 32 bytes.
         // Chunk 0: First 32 bytes of pubkey
-        left.copy_from_slice(&keys[offset..offset+32]);
-        
+        left.copy_from_slice(&keys[offset..offset + 32]);
+
         // Chunk 1: Remaining 16 bytes of pubkey + 16 bytes padding (zero)
-        right[0..16].copy_from_slice(&keys[offset+32..offset+48]);
-        
+        right[0..16].copy_from_slice(&keys[offset + 32..offset + 48]);
+
         *out = sha256_merkle(&left, &right);
     } else {
         // Internal node: Hash children
@@ -99,11 +128,11 @@ pub fn create_root_hash(keys: &[u8], out: &mut [u8; 32]) {
 pub fn verify_slot(slot: &[u8; 8], proposer: &[u8; 8], proof: &[u8; 32]) -> bool {
     let mut slot_hash = [0u8; 32];
     let mut proposer_hash = [0u8; 32];
-    
+
     // SSZ encoding: uint64 is just little-endian bytes, padded to 32 bytes for chunking
     slot_hash[0..8].copy_from_slice(slot);
     proposer_hash[0..8].copy_from_slice(proposer);
-    
+
     let calculated = sha256_merkle(&slot_hash, &proposer_hash);
     calculated == *proof
 }
