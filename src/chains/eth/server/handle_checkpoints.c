@@ -9,6 +9,7 @@
 #include "period_store.h"
 #include "server.h"
 #include "sync_committee.h"
+#include "eth_verify.h"
 #include "uv_util.h"
 #include <stdlib.h>
 #include <string.h>
@@ -49,16 +50,12 @@ typedef struct {
   json_t    payload;
 } checkpoints_ctx_t;
 
-static bool get_checkpoint_from_lcu(bytes_t lcu, bytes32_t checkpoint, uint64_t* slot) {
-  if (lcu.len < 25000) return false; //  make sure we have a min len
-  bytes_t data = bytes_slice(lcu, SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE, uint64_from_le(lcu.data));
-  if (data.len + data.data > lcu.data + lcu.len) return false;
-  fork_id_t      fork   = c4_eth_get_fork_for_lcu(http_server.chain_id, data);
-  const ssz_ob_t lcu_ob = {.bytes = data, .def = eth_get_light_client_update(fork)};
-  if (!lcu_ob.def) return false;
-  ssz_ob_t header = ssz_get(&lcu_ob, "attestedHeader");
-  ssz_ob_t beacon = ssz_get(&header, "beacon");
-  *slot           = ssz_get_uint64(&beacon, "slot");
+static bool get_checkpoint_from_proof(bytes_t proof_data, bytes32_t checkpoint, uint64_t* slot) {
+  if (proof_data.len < 25000) return false; //  make sure we have a min len
+  ssz_ob_t proof  = {.bytes = proof_data, .def = C4_ETH_REQUEST_SYNCDATA_UNION + 2};
+  ssz_ob_t cp     = ssz_get(&proof, "checkpoint");
+  ssz_ob_t header = ssz_get(&cp, "header");
+  *slot           = ssz_get_uint64(&header, "slot");
   ssz_hash_tree_root(header, checkpoint);
   return true;
 }
@@ -74,7 +71,7 @@ static void missing_checkpoints_cb(void* user_data, file_data_t* files, int num_
     }
     bytes32_t checkpoint = {0};
     uint64_t  slot       = 0;
-    if (!get_checkpoint_from_lcu(files[i].data, &checkpoint, &slot)) {
+    if (!get_checkpoint_from_proof(files[i].data, checkpoint, &slot)) {
       log_error("Failed to get checkpoint from lcu: %l", ctx->periods[i]);
       continue;
     }
@@ -102,8 +99,8 @@ static void find_missing_checkpoints(client_t* client) {
 
   for (uint64_t period = last_period; period >= first_period && period > last_period - MAX_BACKFILL_PERIODS; period--) {
     if (c4_ps_file_exists(period, sigfile)) break;
-    if (!c4_ps_file_exists(period, "lcb.ssz")) continue; // no bootstrap, nothing to sign
-    files[ctx.num_periods++].path = bprintf(NULL, "%s/%l/lcb.ssz", eth_config.period_store, period);
+    if (!c4_ps_file_exists(period, "zk_proof.ssz")) continue; // no bootstrap, nothing to sign
+    files[ctx.num_periods++].path = bprintf(NULL, "%s/%l/zk_proof.ssz", eth_config.period_store, period);
   }
 
   if (ctx.num_periods == 0) {
@@ -142,6 +139,7 @@ static void add_missing_checkpoints_cb(void* user_data, file_data_t* files, int 
     bytes32_t checkpoint    = {0};
     uint64_t  slot          = 0;
     bytes32_t hash          = {0};
+    bytes32_t digest        = {0};
     uint8_t   pub_key[64]   = {0};
     bool      found         = false;
     json_for_each_value(ctx->payload, item) {
@@ -153,12 +151,13 @@ static void add_missing_checkpoints_cb(void* user_data, file_data_t* files, int 
       }
     }
     if (!found) continue;
-    if (!get_checkpoint_from_lcu(files[i].data, &checkpoint, &slot)) {
-      log_error("Failed to get checkpoint from lcu: %l", ctx->periods[i]);
+    if (!get_checkpoint_from_proof(files[i].data, checkpoint, &slot)) {
+      log_error("Failed to get checkpoint from proof: %l", ctx->periods[i]);
       continue;
     }
 
-    if (!secp256k1_recover(checkpoint, bytes(signature, 65), pub_key)) {
+    c4_eth_eip191_digest_32(checkpoint, digest);
+    if (!secp256k1_recover(digest, bytes(signature, 65), pub_key)) {
       log_error("Failed to recover public key from signature: 0x%x for checkpoint: 0x%x in period:%l", bytes(signature, 65), bytes(checkpoint, 32), ctx->periods[i]);
       continue;
     }
@@ -170,7 +169,7 @@ static void add_missing_checkpoints_cb(void* user_data, file_data_t* files, int 
   if (num_write_files == 0) {
     c4_write_error_response(ctx->client, 400, "No signatures to add");
     c4_file_data_array_free(write_files, num_write_files, 1);
-    safe_free(ctx->payload.start);
+    safe_free((void*) ctx->payload.start);
     safe_free(ctx);
     return;
   }
@@ -192,6 +191,7 @@ static void add_missing_checkpoints(client_t* client) {
   checkpoints_ctx_t* ctx                    = safe_calloc(1, sizeof(checkpoints_ctx_t));
   ctx->client                               = client;
   ctx->payload                              = json_parse((const char*) payload_json);
+  ctx->num_periods                          = 0;
 
   if (ctx->payload.type != JSON_TYPE_ARRAY || json_len(ctx->payload) > MAX_BACKFILL_PERIODS) {
     c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Invalid payload\"}", 22));
@@ -202,8 +202,8 @@ static void add_missing_checkpoints(client_t* client) {
 
   json_for_each_value(ctx->payload, item) {
     uint64_t period = json_get_uint64(item, "period");
-    if (period < first_period || period > last_period || !c4_ps_file_exists(period, "lcu.ssz")) continue;
-    files[ctx->num_periods++].path = bprintf(NULL, "%s/%l/lcu.ssz", eth_config.period_store, period);
+    if (period < first_period || period > last_period || !c4_ps_file_exists(period, "zk_proof.ssz")) continue;
+    files[ctx->num_periods++].path = bprintf(NULL, "%s/%l/zk_proof.ssz", eth_config.period_store, period);
   }
 
   if (ctx->num_periods == 0) {
