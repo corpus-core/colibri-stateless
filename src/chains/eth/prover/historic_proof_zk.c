@@ -53,7 +53,7 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
     for (int i = 0; i < ctx->witness_key.len; i += 20) {
       buffer_reset(&buf);
       bytes_t sig_data = {0};
-      TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period - 1, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data)); // get the blockd
+      TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data)); // get the blockd
       buffer_append(&signatures, sig_data);
     }
   }

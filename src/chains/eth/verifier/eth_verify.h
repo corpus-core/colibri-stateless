@@ -45,4 +45,14 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
 void        eth_set_block_data(verify_ctx_t* ctx, uint32_t mask, ssz_ob_t block, bytes32_t parent_root, bytes32_t withdrawel_root, bool include_txs);
 bool        eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain);
 bool        c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root);
+
+/**
+ * Computes the EIP-191 `personal_sign` digest for a 32-byte message.
+ *
+ * The digest is `keccak256("\\x19Ethereum Signed Message:\\n32" || message)`.
+ *
+ * @param message 32-byte message to sign
+ * @param out_digest 32-byte digest output buffer
+ */
+void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest);
 #endif // eth_verify_h__

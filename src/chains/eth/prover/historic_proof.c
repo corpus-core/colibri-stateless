@@ -367,9 +367,13 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
   sync_data->status            = chain_state.status;
   switch (sync_data->status) {
     case C4_STATE_SYNC_EMPTY:
-      if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF)
+      if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF) {
         // we only fetch them so we safe time in case we download the proof files later.
-        return c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+        c4_status_t status = c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+        if (status == C4_SUCCESS)
+          safe_free(zk_proof.signatures.data);
+        return status;
+      }
       return C4_SUCCESS;
     case C4_STATE_SYNC_PERIODS:
       for (int i = 0; i < MAX_SYNC_PERIODS && chain_state.data.periods[i]; i++) {

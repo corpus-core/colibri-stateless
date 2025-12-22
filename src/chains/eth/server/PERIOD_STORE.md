@@ -84,6 +84,7 @@ A **period** is a contiguous range of **8192 beacon slots** (≈ 27h on mainnet)
   - `zk_proof.bin`: SP1 core proof
   - `zk_proof_g16.bin`: Groth16 proof (used by the verifier)
   - `zk_vk.bin`, `zk_vk_raw.bin`, `zk_groth16.bin`: verification keys / proof artifacts
+  - `zk_proof.ssz`: Packs `zk_proof_g16.bin` into the SSZ container used for sync-data delivery (`ZKSyncData`, see `C4_ETH_REQUEST_SYNCDATA_UNION[2]` in `src/chains/eth/ssz/verify_types.c`). This also includes the next checkpoint and all headers needed to prove the `attestedHeader`.
 
 ## Writer model
 

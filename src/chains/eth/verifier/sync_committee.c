@@ -23,6 +23,7 @@
 
 #include "sync_committee.h" // Includes c4_process_update_fn typedef
 #include "beacon_types.h"
+#include "crypto.h"
 #include "eth_verify.h"
 #include "json.h"
 #include "plugin.h"
@@ -42,6 +43,15 @@
 #define ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX    87
 #define DENEP_FINALIZED_ROOT_GINDEX           105
 #define ELECTRA_FINALIZED_ROOT_GINDEX         169
+
+void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest) {
+  static const char prefix[]                       = "\x19"
+                                                     "Ethereum Signed Message:\n32";
+  uint8_t           buf[(sizeof(prefix) - 1) + 32] = {0};
+  memcpy(buf, prefix, sizeof(prefix) - 1);
+  memcpy(buf + (sizeof(prefix) - 1), message, 32);
+  keccak(bytes(buf, sizeof(buf)), out_digest);
+}
 
 INTERNAL uint64_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
   const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
@@ -136,20 +146,27 @@ static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_
   uint32_t signatures_len = ssz_len(signatures);
   if (signatures_len == 0) return true; // TODO if you expoect signatures, fail here.
   if (signatures_len > 16) RETURN_VERIFY_ERROR(ctx, "invalid number of signatures!");
+  uint32_t witness_keys_found = 0;
   for (uint32_t i = 0; i < signatures_len; i++) {
     uint8_t   pub_keys[64] = {0};
     address_t address      = {0};
+    bytes32_t digest       = {0};
 
-    if (!secp256k1_recover(checkpoint, ssz_at(signatures, i).bytes, pub_keys))
+    c4_eth_eip191_digest_32(checkpoint, digest);
+    if (!secp256k1_recover(digest, ssz_at(signatures, i).bytes, pub_keys))
       RETURN_VERIFY_ERROR(ctx, "invalid signature!");
     keccak(bytes(pub_keys, 64), pub_keys);
     memcpy(address, pub_keys + 12, 20);
     if (bytes_all_zero(bytes(address, 20)))
       RETURN_VERIFY_ERROR(ctx, "invalid signature!");
-
-    // TODO was the address actually requested?
+    for (int j = 0, i = 0; j < ctx->witness_keys.len; j += 20, i++) {
+      if (memcmp(address, ctx->witness_keys.data + j, 20) == 0) {
+        witness_keys_found |= 1 << i;
+        break;
+      }
+    }
   }
-
+  if (witness_keys_found != (1 << ctx->witness_keys.len / 20) - 1) RETURN_VERIFY_ERROR(ctx, "some witness keys are missing!");
   return true;
 }
 static bool update_from_lc_sync_data(verify_ctx_t* ctx) {
