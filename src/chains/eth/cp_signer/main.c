@@ -18,11 +18,12 @@
 
 static void usage(const char* argv0) {
   fprintf(stderr,
-          "Usage: %s --server <base_url> (--key 0x.. | --key-file <path>) [--once]\n"
+          "Usage: %s --server <base_url> (--key 0x.. | --key-file <path>) [--checkpointz <url>] [--beacon-api <url>] [--once]\n"
           "\n"
           "Flow:\n"
           "  1) Derive signer address from private key\n"
           "  2) GET  /signed_checkpoints?signer=0x<address>\n"
+          "  3) Verify checkpoint root is correct and finalized (Beacon API / checkpointz)\n"
           "  3) EIP-191 sign each checkpoint root\n"
           "  4) POST /signed_checkpoints  [{\"period\":...,\"signature\":\"0x...\"},...]\n",
           argv0);
@@ -71,6 +72,55 @@ static bool derive_address_from_sk(const bytes32_t sk, address_t out_addr) {
   return !bytes_all_zero(bytes(out_addr, 20));
 }
 
+static void append_json_escaped_string(buffer_t* out, const char* s) {
+  buffer_add_chars(out, "\"");
+  for (const char* p = s; *p; p++) {
+    if (*p == '\\' || *p == '"') {
+      buffer_add_chars(out, "\\");
+      buffer_append(out, bytes((uint8_t*) p, 1));
+    }
+    else {
+      buffer_append(out, bytes((uint8_t*) p, 1));
+    }
+  }
+  buffer_add_chars(out, "\"");
+}
+
+static void maybe_set_curl_nodes_from_args(const char** checkpointz_urls, int checkpointz_count, const char** beacon_urls, int beacon_count) {
+  if (checkpointz_count == 0 && beacon_count == 0) return;
+
+  buffer_t cfg = {0};
+  buffer_add_chars(&cfg, "{");
+  bool first_field = true;
+
+  if (checkpointz_count > 0) {
+    if (!first_field) buffer_add_chars(&cfg, ",");
+    first_field = false;
+    buffer_add_chars(&cfg, "\"checkpointz\":[");
+    for (int i = 0; i < checkpointz_count; i++) {
+      if (i) buffer_add_chars(&cfg, ",");
+      append_json_escaped_string(&cfg, checkpointz_urls[i]);
+    }
+    buffer_add_chars(&cfg, "]");
+  }
+
+  if (beacon_count > 0) {
+    if (!first_field) buffer_add_chars(&cfg, ",");
+    first_field = false;
+    buffer_add_chars(&cfg, "\"beacon_api\":[");
+    for (int i = 0; i < beacon_count; i++) {
+      if (i) buffer_add_chars(&cfg, ",");
+      append_json_escaped_string(&cfg, beacon_urls[i]);
+    }
+    buffer_add_chars(&cfg, "]");
+  }
+
+  buffer_add_chars(&cfg, "}");
+  buffer_append(&cfg, bytes("", 1)); // NUL
+  curl_set_config(json_parse((char*) cfg.data.data));
+  buffer_free(&cfg);
+}
+
 static char* join_url(const char* base, const char* path_and_query) {
   buffer_t buf = {0};
   if (!base || !path_and_query) return NULL;
@@ -93,11 +143,109 @@ static char* join_url(const char* base, const char* path_and_query) {
   return (char*) buf.data.data; // caller owns
 }
 
+static bool fetch_json_one(data_request_type_t type, char* url_owned, json_t* out_json) {
+  c4_state_t     state = {0};
+  data_request_t* req  = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->type            = type;
+  req->encoding        = C4_DATA_ENCODING_JSON;
+  req->url             = url_owned; // owned by req/state
+  req->method          = C4_DATA_METHOD_GET;
+  c4_state_add_request(&state, req);
+  curl_fetch_all(&state);
+  data_request_t* done = state.requests;
+  if (!done || done->error) {
+    c4_state_free(&state);
+    return false;
+  }
+  if (!done->response.data || done->response.len == 0) {
+    c4_state_free(&state);
+    return false;
+  }
+
+  *out_json = json_parse((char*) done->response.data);
+  // Keep response memory alive: duplicate JSON slice now, then free state.
+  *out_json = json_dup(*out_json);
+  c4_state_free(&state);
+  return out_json->type != JSON_TYPE_INVALID;
+}
+
+static bool checkpoint_root_matches_slot(uint64_t slot, const bytes32_t expected_root) {
+  buffer_t url = {0};
+  bprintf(&url, "eth/v1/beacon/blocks/%l/root", slot);
+  json_t res = {0};
+  if (!fetch_json_one(C4_DATA_TYPE_CHECKPOINTZ, (char*) url.data.data, &res)) return false;
+
+  const char* err = json_validate(res, "{data:{root:bytes32}}", "block root");
+  if (err) {
+    safe_free((void*) err);
+    safe_free((void*) res.start);
+    return false;
+  }
+
+  bytes32_t got = {0};
+  if (json_to_bytes(json_get(json_get(res, "data"), "root"), bytes(got, 32)) != 32) {
+    safe_free((void*) res.start);
+    return false;
+  }
+
+  bool ok = memcmp(got, expected_root, 32) == 0;
+  safe_free((void*) res.start);
+  return ok;
+}
+
+static bool checkpoint_is_finalized_by_header_root(const bytes32_t root) {
+  buffer_t url = {0};
+  bprintf(&url, "eth/v1/beacon/headers/0x%x", bytes(root, 32));
+  json_t res = {0};
+  if (!fetch_json_one(C4_DATA_TYPE_BEACON_API, (char*) url.data.data, &res)) return false;
+
+  const char* err = json_validate(res, "{finalized:bool,data:{root:bytes32,canonical:bool}}", "header");
+  if (err) {
+    safe_free((void*) err);
+    safe_free((void*) res.start);
+    return false;
+  }
+
+  bytes32_t got = {0};
+  if (json_to_bytes(json_get(json_get(res, "data"), "root"), bytes(got, 32)) != 32) {
+    safe_free((void*) res.start);
+    return false;
+  }
+
+  bool finalized  = json_as_bool(json_get(res, "finalized"));
+  bool canonical  = json_as_bool(json_get(json_get(res, "data"), "canonical"));
+  bool root_match = memcmp(got, root, 32) == 0;
+  safe_free((void*) res.start);
+  return finalized && canonical && root_match;
+}
+
+static bool checkpoint_is_finalized_by_slot(uint64_t slot) {
+  buffer_t url = {0};
+  bprintf(&url, "eth/v2/beacon/blocks/%l", slot);
+  json_t res = {0};
+  if (!fetch_json_one(C4_DATA_TYPE_CHECKPOINTZ, (char*) url.data.data, &res)) return false;
+
+  const char* err = json_validate(res, "{finalized:bool,data:{message:{slot:suint}}}", "block");
+  if (err) {
+    safe_free((void*) err);
+    safe_free((void*) res.start);
+    return false;
+  }
+
+  bool finalized = json_as_bool(json_get(res, "finalized"));
+  safe_free((void*) res.start);
+  return finalized;
+}
+
 int main(int argc, char** argv) {
   const char* server   = NULL;
   const char* key_hex  = NULL;
   const char* key_file = NULL;
   bool        once     = false;
+  const char* checkpointz_urls[8] = {0};
+  int         checkpointz_count   = 0;
+  const char* beacon_urls[8]      = {0};
+  int         beacon_count        = 0;
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--server") == 0 && i + 1 < argc) {
@@ -111,6 +259,18 @@ int main(int argc, char** argv) {
     }
     else if (strcmp(argv[i], "--once") == 0) {
       once = true;
+    }
+    else if (strcmp(argv[i], "--checkpointz") == 0 && i + 1 < argc) {
+      if (checkpointz_count < (int) (sizeof(checkpointz_urls) / sizeof(checkpointz_urls[0])))
+        checkpointz_urls[checkpointz_count++] = argv[++i];
+      else
+        i++;
+    }
+    else if (strcmp(argv[i], "--beacon-api") == 0 && i + 1 < argc) {
+      if (beacon_count < (int) (sizeof(beacon_urls) / sizeof(beacon_urls[0])))
+        beacon_urls[beacon_count++] = argv[++i];
+      else
+        i++;
     }
     else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
       usage(argv[0]);
@@ -127,6 +287,8 @@ int main(int argc, char** argv) {
     usage(argv[0]);
     return 1;
   }
+
+  maybe_set_curl_nodes_from_args(checkpointz_urls, checkpointz_count, beacon_urls, beacon_count);
 
   bytes32_t sk = {0};
   if (key_hex) {
@@ -207,10 +369,24 @@ int main(int argc, char** argv) {
     json_for_each_value(arr, item) {
       uint64_t period = json_get_uint64(item, "period");
       json_t   root_j = json_get(item, "root");
+      uint64_t slot   = json_get_uint64(item, "slot");
       if (root_j.type != JSON_TYPE_STRING) continue;
 
       bytes32_t root = {0};
       if (json_to_bytes(root_j, bytes(root, 32)) != 32) continue;
+
+      // Verify root matches canonical root at slot, and block is finalized.
+      if (!checkpoint_root_matches_slot(slot, root)) {
+        fprintf(stderr, "Checkpoint root mismatch for period=%llu slot=%llu (not signing)\n", (unsigned long long) period, (unsigned long long) slot);
+        continue;
+      }
+      if (!checkpoint_is_finalized_by_header_root(root)) {
+        // Fallback for checkpointz (no headers endpoint): use v2 blocks by slot which returns finalized flag.
+        if (!checkpoint_is_finalized_by_slot(slot)) {
+          fprintf(stdout, "Checkpoint not finalized yet for period=%llu slot=%llu (skipping)\n", (unsigned long long) period, (unsigned long long) slot);
+          continue;
+        }
+      }
 
       bytes32_t digest = {0};
       uint8_t   sig[65];

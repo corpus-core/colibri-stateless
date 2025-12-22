@@ -4,12 +4,12 @@
  */
 
 #include "eth_conf.h"
+#include "eth_verify.h"
 #include "handler.h"
 #include "logger.h"
 #include "period_store.h"
 #include "server.h"
 #include "sync_committee.h"
-#include "eth_verify.h"
 #include "uv_util.h"
 #include <stdlib.h>
 #include <string.h>
@@ -192,10 +192,10 @@ static void add_missing_checkpoints(client_t* client) {
   ctx->client                               = client;
   ctx->payload                              = json_parse((const char*) payload_json);
   ctx->num_periods                          = 0;
+  safe_free(payload_json);
 
   if (ctx->payload.type != JSON_TYPE_ARRAY || json_len(ctx->payload) > MAX_BACKFILL_PERIODS) {
     c4_http_respond(client, 400, "application/json", bytes("{\"error\":\"Invalid payload\"}", 22));
-    safe_free(payload_json);
     safe_free(ctx);
     return;
   }
@@ -208,7 +208,6 @@ static void add_missing_checkpoints(client_t* client) {
 
   if (ctx->num_periods == 0) {
     c4_write_error_response(client, 400, "No signatures to add");
-    safe_free(payload_json);
     safe_free(ctx);
     return;
   }
