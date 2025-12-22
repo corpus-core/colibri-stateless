@@ -1,28 +1,28 @@
-## Externer Checkpoint-Signer (cp_signer)
+## External Checkpoint Signer (`cp_signer`)
 
-Dieses Verzeichnis enthält `cp_signer`, eine Referenz-Implementierung für einen **externen Signer**, der finalized Ethereum-Beacon-Checkpoints signiert und die Signaturen an den Colibri-Server zurückliefert.
+This directory contains `cp_signer`, a reference implementation of an **external signer** that signs finalized Ethereum Beacon checkpoints and submits the signatures back to the Colibri server.
 
-Der wichtigste Teil für andere Implementierungen ist die **API + Signatur-Spezifikation** weiter unten.
+If you want to implement your own signer (any language / environment), the most important parts are the **HTTP API** and the **signature specification** below.
 
-### Ziel
+### Goal
 
-- Möglichst viele unabhängige Entwickler/Betreiber sollen ihre eigenen Signer in beliebiger Umgebung (Server, HSM, Wallet, Cloud-Function, Offline) bauen können.
-- Der Colibri-Server stellt dafür eine einfache **Pull→Sign→Push**-Schnittstelle bereit.
+- Enable many independent developers/operators to run their own checkpoint signers (servers, HSM-backed signers, wallets, cloud functions, offline devices, etc.).
+- Provide a simple **pull → verify → sign → push** interface.
 
-### Begriffe
+### Terms
 
-- **Checkpoint root**: 32-Byte Root (Hex), der signiert wird. Er ist der `hash_tree_root` des `BeaconBlockHeader` (SSZ).
-- **Signer address**: Ethereum-Adresse (20 Bytes) des secp256k1 Keys, der signiert.
+- **Checkpoint root**: 32-byte root (hex) that must be signed. It is the SSZ `hash_tree_root` of the `BeaconBlockHeader`.
+- **Signer address**: Ethereum address (20 bytes) derived from the secp256k1 signing key.
 
 ---
 
 ## HTTP API (Server)
 
-### 1) Fehlende Checkpoints abfragen
+### 1) List unsigned checkpoints
 
 `GET /signed_checkpoints?signer=0x<address>`
 
-Antwort: JSON-Array; jeder Eintrag beschreibt einen zu signierenden Checkpoint:
+Response: JSON array; each item describes a checkpoint that should be signed:
 
 ```json
 [
@@ -34,16 +34,16 @@ Antwort: JSON-Array; jeder Eintrag beschreibt einen zu signierenden Checkpoint:
 ]
 ```
 
-Hinweise:
-- `period` wird serverseitig als Identifier verwendet (Period Store Pfad).
-- `slot` ist zur **externen Validierung** des Roots gedacht.
-- `root` ist der 32-Byte-Checkpoint, der signiert werden soll.
+Notes:
+- `period` is the server-side identifier (period store directory).
+- `slot` exists for **external validation**.
+- `root` is the 32-byte checkpoint root that must be signed.
 
-### 2) Signaturen hochladen
+### 2) Submit signatures
 
 `POST /signed_checkpoints`
 
-Body: JSON-Array, pro Signatur ein Objekt:
+Body: JSON array, one object per signature:
 
 ```json
 [
@@ -54,15 +54,15 @@ Body: JSON-Array, pro Signatur ein Objekt:
 ]
 ```
 
-Signaturformat:
-- `signature` ist eine **65-Byte recoverable secp256k1 Signatur** (R,S,V) als Hex-String.
-- Die Server-Implementation leitet die Ethereum-Adresse aus der Signatur ab und speichert die Signatur unter `sig_<address>`.
+Signature format:
+- `signature` is a **65-byte recoverable secp256k1 signature** (R,S,V) as a hex string.
+- The server recovers the signer address from the signature and stores it under `sig_<address>`.
 
 ---
 
-## Signatur-Spezifikation (EIP-191 / personal_sign)
+## Signature specification (EIP-191 / `personal_sign`)
 
-Der Signer signiert **ausschließlich** den 32-Byte `checkpoint_root` (nicht ein JSON, nicht ein SSZ-Objekt), aber mit EIP-191 Message Prefix (wie bei `personal_sign`).
+The signer signs **only** the 32-byte `checkpoint_root` (not JSON, not an SSZ object), but using the EIP-191 message prefix (as used by `personal_sign`).
 
 ### Message Digest
 
@@ -70,62 +70,62 @@ Der Signer signiert **ausschließlich** den 32-Byte `checkpoint_root` (nicht ein
 digest = keccak256("\x19Ethereum Signed Message:\n32" || checkpoint_root_32bytes)
 ```
 
-Dann wird `digest` mit **secp256k1** signiert (recoverable, 65 Byte).
+Then `digest` is signed using **secp256k1** (recoverable, 65 bytes).
 
-### Minimaler Ablauf für eigene Signer
+### Minimal workflow for custom signers
 
 1. `GET /signed_checkpoints?signer=0x...`
-2. Für jeden Eintrag:
-   - **Validieren**, dass `root` korrekt ist und **finalized** ist (siehe nächster Abschnitt).
-   - `digest` wie oben berechnen.
+2. For each item:
+   - **Verify** that `root` is correct and **finalized** (see next section).
+   - Compute `digest` as shown above.
    - `signature = secp256k1_sign_recoverable(digest)`
-3. `POST /signed_checkpoints` mit `{period, signature}`.
+3. `POST /signed_checkpoints` with `{period, signature}`.
 
 ---
 
-## Empfehlung: Root & Finality prüfen (Beacon API / checkpointz)
+## Recommendation: verify root & finality (Beacon API / checkpointz)
 
-Der Server liefert zwar `slot` und `root`, aber ein externer Signer sollte **nicht blind signieren**.
+The server provides `slot` and `root`, but an external signer should **not sign blindly**.
 
-Empfohlene Checks:
+Recommended checks:
 
-### A) Root passt zum Slot (canonical root)
+### A) Root matches the slot (canonical root)
 
 `GET /eth/v1/beacon/blocks/<slot>/root`
 
-Erwartete Struktur:
+Expected structure:
 
 ```json
 { "data": { "root": "0x..." } }
 ```
 
-Hinweis: Manche Dienste (z.B. `checkpointz`) liefern `root` auch **ohne** `0x` Prefix. Eine robuste Implementierung sollte beides akzeptieren.
+Note: Some services (e.g. `checkpointz`) may return `root` **without** the `0x` prefix. A robust implementation should accept both.
 
-### B) Block ist finalized
+### B) Block is finalized
 
-Bevorzugt (Beacon API, nicht immer von checkpointz unterstützt):
+Preferred (Beacon API, not always supported by checkpointz):
 
 `GET /eth/v1/beacon/headers/0x<root>`
 
-Erwartete Felder:
+Expected fields:
 - `finalized == true`
 - `data.canonical == true`
-- `data.root` entspricht dem angefragten Root
+- `data.root` matches the requested root
 
-Fallback (checkpointz-kompatibel):
+Fallback (checkpointz-compatible):
 
 `GET /eth/v2/beacon/blocks/<slot>`
 
-Erwartete Felder:
+Expected fields:
 - `finalized == true`
 
-Wenn `finalized` nicht true ist: **nicht signieren** (später erneut versuchen).
+If `finalized` is not true: **do not sign** (try again later).
 
 ---
 
-## Referenz-CLI: cp_signer benutzen
+## Reference CLI: use `cp_signer`
 
-Beispiel (lokaler Colibri-Server + lokaler Beacon Node):
+Example (local Colibri server + local Beacon node):
 
 ```bash
 build/default/bin/cp_signer \
@@ -135,7 +135,7 @@ build/default/bin/cp_signer \
   --once
 ```
 
-Optional kann man die Nodes explizit setzen (überschreibt/ergänzt die curl-config):
+Optionally you can provide nodes explicitly (overrides/extends the curl config):
 
 ```bash
 build/default/bin/cp_signer \
@@ -148,15 +148,15 @@ build/default/bin/cp_signer \
 
 ---
 
-## Curl-Quickstart (API-only)
+## Curl quickstart (API-only)
 
-1) Fehlende Checkpoints holen:
+1) Fetch checkpoints to sign:
 
 ```bash
 curl "http://localhost:8090/signed_checkpoints?signer=0x0123456789abcdef0123456789abcdef01234567"
 ```
 
-2) Signatur posten:
+2) Submit signature:
 
 ```bash
 curl -X POST "http://localhost:8090/signed_checkpoints" \
