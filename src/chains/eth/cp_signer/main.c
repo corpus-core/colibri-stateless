@@ -14,7 +14,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
+
+static void c4_sleep_seconds(unsigned int seconds) {
+#ifdef _WIN32
+  // Sleep() expects milliseconds.
+  Sleep((DWORD) seconds * 1000u);
+#else
+  sleep(seconds);
+#endif
+}
 
 static void usage(const char* argv0) {
   fprintf(stderr,
@@ -359,7 +373,7 @@ int main(int argc, char** argv) {
       if (once) break;
       // default sleep: 1h
       fprintf(stdout, "Sleeping 3600s...\n");
-      sleep(3600);
+      c4_sleep_seconds(3600);
       continue;
     }
 
@@ -448,7 +462,7 @@ int main(int argc, char** argv) {
 
     if (once) break;
     fprintf(stdout, "Sleeping 3600s...\n");
-    sleep(3600);
+    c4_sleep_seconds(3600);
   }
 
   buffer_free(&addr_buf);
