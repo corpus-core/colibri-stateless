@@ -1,6 +1,6 @@
-## External Checkpoint Signer (`cp_signer`)
+## External Checkpoint Signer (`colibri-signer`)
 
-This directory contains `cp_signer`, a reference implementation of an **external signer** that signs finalized Ethereum Beacon checkpoints and submits the signatures back to the Colibri server.
+This directory contains `colibri-signer`, a reference implementation of an **external signer** that signs finalized Ethereum Beacon checkpoints and submits the signatures back to the Colibri server.
 
 If you want to implement your own signer (any language / environment), the most important parts are the **HTTP API** and the **signature specification** below.
 
@@ -123,12 +123,12 @@ If `finalized` is not true: **do not sign** (try again later).
 
 ---
 
-## Reference CLI: use `cp_signer`
+## Reference CLI: use `colibri-signer`
 
 Example (local Colibri server + local Beacon node):
 
 ```bash
-build/default/bin/cp_signer \
+build/default/bin/colibri-signer \
   --server http://localhost:8090 \
   --key-file ./cp_key \
   --beacon-api http://localhost:5052 \
@@ -138,7 +138,7 @@ build/default/bin/cp_signer \
 Optionally you can provide nodes explicitly (overrides/extends the curl config):
 
 ```bash
-build/default/bin/cp_signer \
+build/default/bin/colibri-signer \
   --server http://localhost:8090 \
   --key 0x<32-byte-hex-private-key> \
   --checkpointz https://sync-mainnet.beaconcha.in \

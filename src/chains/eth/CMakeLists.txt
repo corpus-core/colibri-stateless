@@ -224,10 +224,10 @@ add_server_handler(
 
 # Checkpoint signer CLI (external cronjob helper)
 if(CURL)
-  add_executable(cp_signer cp_signer/main.c)
-  add_dependencies(cp_signer util curl_fetch eth_verifier)
-  target_link_libraries(cp_signer PRIVATE util curl_fetch eth_verifier)
-  set_target_properties(cp_signer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+  add_executable(colibri-signer cp_signer/main.c)
+  add_dependencies(colibri-signer util curl_fetch eth_verifier)
+  target_link_libraries(colibri-signer PRIVATE util curl_fetch eth_verifier)
+  set_target_properties(colibri-signer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 endif()
 
 # Ensure ETH ZK-Proof artifacts are built/copied when building the ETH server handler (only exists with HTTP_SERVER).
