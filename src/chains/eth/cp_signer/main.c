@@ -66,6 +66,16 @@ static void c4_prom_escape_label(char* out, size_t out_cap, const char* in) {
   out[o] = 0;
 }
 
+static void c4_parse_metric_value(const char* data, const char* label, const char* metric_name, uint64_t* out) {
+  if (!out || !data || !label || !metric_name) return;
+  char prefix[512] = {0};
+  snprintf(prefix, sizeof(prefix), "%s%s", metric_name, label);
+  const char* p = strstr(data, prefix);
+  if (!p) return;
+  p += strlen(prefix);
+  *out = strtoull(p, NULL, 10);
+}
+
 static void c4_write_metrics_file(const char* metrics_file,
                                   const char* chain,
                                   uint64_t    last_signed_ts,
@@ -114,6 +124,41 @@ static void c4_write_metrics_file(const char* metrics_file,
 
   // Best-effort atomic replace.
   (void) rename(tmp_path, metrics_file);
+}
+
+static bool c4_load_metrics_file(const char* metrics_file,
+                                 const char* chain,
+                                 uint64_t*   out_last_signed_ts,
+                                 uint64_t*   out_last_signed_period,
+                                 uint64_t*   out_last_signed_slot,
+                                 uint64_t*   out_signed_total,
+                                 uint64_t*   out_errors_total) {
+  if (!metrics_file || !*metrics_file) return false;
+
+  bytes_t content = bytes_read((char*) metrics_file);
+  if (!content.data || content.len == 0) {
+    safe_free(content.data);
+    return false;
+  }
+
+  // Match the exact label set we write out.
+  char chain_esc[128] = {0};
+  c4_prom_escape_label(chain_esc, sizeof(chain_esc), chain ? chain : "unknown");
+
+  char label[256] = {0};
+  snprintf(label, sizeof(label), "{chain=\"%s\"} ", chain_esc);
+
+  const char* data = (const char*) content.data;
+
+  // Defaults remain unchanged unless the metric exists.
+  c4_parse_metric_value(data, label, "c4_signer_last_signed_timestamp_seconds", out_last_signed_ts);
+  c4_parse_metric_value(data, label, "c4_signer_last_signed_period", out_last_signed_period);
+  c4_parse_metric_value(data, label, "c4_signer_last_signed_slot", out_last_signed_slot);
+  c4_parse_metric_value(data, label, "c4_signer_signed_total", out_signed_total);
+  c4_parse_metric_value(data, label, "c4_signer_errors_total", out_errors_total);
+
+  safe_free(content.data);
+  return true;
 }
 
 static void c4_write_status_ok(const char* status_file, const char* warn) {
@@ -227,12 +272,9 @@ static void maybe_set_curl_nodes_from_args(const char** checkpointz_urls, int ch
 
   buffer_t cfg = {0};
   buffer_add_chars(&cfg, "{");
-  bool first_field = true;
 
   // If the user provides any node overrides, we set both lists explicitly.
   // This prevents falling back to the built-in defaults for the non-provided one.
-  if (!first_field) buffer_add_chars(&cfg, ",");
-  first_field = false;
   buffer_add_chars(&cfg, "\"checkpointz\":[");
   for (int i = 0; i < checkpointz_count; i++) {
     if (i) buffer_add_chars(&cfg, ",");
@@ -441,11 +483,25 @@ int main(int argc, char** argv) {
 
   const time_t start_time       = time(NULL);
   time_t       last_post_time   = 0;
-  time_t       last_ok_time     = start_time;
   uint64_t     last_post_period = 0;
   uint64_t     last_post_slot   = 0;
   uint64_t     signed_total     = 0;
   uint64_t     errors_total     = 0;
+
+  // If a metrics file already exists (e.g. after restart), reuse its values so dashboards
+  // don't temporarily see zeros until the next successful post.
+  uint64_t persisted_last_ts     = 0;
+  uint64_t persisted_last_period = 0;
+  uint64_t persisted_last_slot   = 0;
+  uint64_t persisted_signed      = 0;
+  uint64_t persisted_errors      = 0;
+  if (metrics_file && c4_load_metrics_file(metrics_file, chain, &persisted_last_ts, &persisted_last_period, &persisted_last_slot, &persisted_signed, &persisted_errors)) {
+    if (persisted_last_ts > 0) last_post_time = (time_t) persisted_last_ts;
+    last_post_period = persisted_last_period;
+    last_post_slot   = persisted_last_slot;
+    signed_total     = persisted_signed;
+    errors_total     = persisted_errors;
+  }
 
   bytes32_t sk = {0};
   if (key_hex) {
@@ -555,7 +611,6 @@ int main(int argc, char** argv) {
       }
       else {
         c4_write_status_ok(status_file, NULL);
-        last_ok_time = now;
         c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
       }
       if (once) break;
@@ -631,7 +686,6 @@ int main(int argc, char** argv) {
       }
       else {
         c4_write_status_ok(status_file, NULL);
-        last_ok_time = now;
       }
       c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
       if (once) return 1;
@@ -702,7 +756,6 @@ int main(int argc, char** argv) {
     }
     else {
       c4_write_status_ok(status_file, NULL);
-      last_ok_time = now;
     }
     c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
 
