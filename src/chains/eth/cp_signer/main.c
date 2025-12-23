@@ -474,7 +474,7 @@ int main(int argc, char** argv) {
   bprintf(&addr_buf, "0x%x", bytes(addr, 20));
   char* addr_hex = (char*) addr_buf.data.data;
 
-  log_info("Starting colibri-signer: signer=%s server=%s beacon_api=%d checkpointz=%d status_file=%s metrics_file=%s chain=%s max_idle=%llu once=%s",
+  log_info("Starting colibri-signer: signer=%s server=%s beacon_api=%d checkpointz=%d status_file=%s metrics_file=%s chain=%s max_idle=%l once=%s",
            addr_hex,
            server,
            beacon_count,
@@ -482,7 +482,7 @@ int main(int argc, char** argv) {
            status_file ? status_file : "",
            metrics_file ? metrics_file : "",
            chain ? chain : "",
-           (unsigned long long) max_idle_seconds,
+           (uint64_t) max_idle_seconds,
            once ? "true" : "false");
 
   while (true) {
@@ -545,6 +545,7 @@ int main(int argc, char** argv) {
       c4_sleep_seconds(60);
       continue;
     }
+    log_info("Fetched %d checkpoints to consider", (uint32_t) json_len(arr));
     if (json_len(arr) == 0) {
       fprintf(stdout, "No checkpoints to sign for %s\n", addr_hex);
       c4_state_free(&state);
@@ -637,6 +638,7 @@ int main(int argc, char** argv) {
       c4_sleep_seconds(60);
       continue;
     }
+    log_info("Prepared %d signatures to submit", signed_count);
 
     char* post_url = join_url(server, "/signed_checkpoints");
     if (!post_url) {
@@ -686,10 +688,10 @@ int main(int argc, char** argv) {
       last_post_period = max_period_in_batch;
       last_post_slot   = max_slot_in_batch;
     }
-    log_info("Submitted %u signatures (last_period=%llu last_slot=%llu)",
+    log_info("Submitted %d signatures (last_period=%l last_slot=%l)",
              signed_count,
-             (unsigned long long) last_post_period,
-             (unsigned long long) last_post_slot);
+             (uint64_t) last_post_period,
+             (uint64_t) last_post_slot);
     c4_state_free(&state_post);
 
     if ((uint64_t) (now - last_activity_time) > max_idle_seconds) {
