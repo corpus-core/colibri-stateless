@@ -9,6 +9,7 @@
 #include "crypto.h"
 #include "eth_verify.h"
 #include "json.h"
+#include "logger.h"
 #include "state.h"
 
 #include <stdio.h>
@@ -228,27 +229,23 @@ static void maybe_set_curl_nodes_from_args(const char** checkpointz_urls, int ch
   buffer_add_chars(&cfg, "{");
   bool first_field = true;
 
-  if (checkpointz_count > 0) {
-    if (!first_field) buffer_add_chars(&cfg, ",");
-    first_field = false;
-    buffer_add_chars(&cfg, "\"checkpointz\":[");
-    for (int i = 0; i < checkpointz_count; i++) {
-      if (i) buffer_add_chars(&cfg, ",");
-      append_json_escaped_string(&cfg, checkpointz_urls[i]);
-    }
-    buffer_add_chars(&cfg, "]");
+  // If the user provides any node overrides, we set both lists explicitly.
+  // This prevents falling back to the built-in defaults for the non-provided one.
+  if (!first_field) buffer_add_chars(&cfg, ",");
+  first_field = false;
+  buffer_add_chars(&cfg, "\"checkpointz\":[");
+  for (int i = 0; i < checkpointz_count; i++) {
+    if (i) buffer_add_chars(&cfg, ",");
+    append_json_escaped_string(&cfg, checkpointz_urls[i]);
   }
+  buffer_add_chars(&cfg, "]");
 
-  if (beacon_count > 0) {
-    if (!first_field) buffer_add_chars(&cfg, ",");
-    first_field = false;
-    buffer_add_chars(&cfg, "\"beacon_api\":[");
-    for (int i = 0; i < beacon_count; i++) {
-      if (i) buffer_add_chars(&cfg, ",");
-      append_json_escaped_string(&cfg, beacon_urls[i]);
-    }
-    buffer_add_chars(&cfg, "]");
+  buffer_add_chars(&cfg, ",\"beacon_api\":[");
+  for (int i = 0; i < beacon_count; i++) {
+    if (i) buffer_add_chars(&cfg, ",");
+    append_json_escaped_string(&cfg, beacon_urls[i]);
   }
+  buffer_add_chars(&cfg, "]");
 
   buffer_add_chars(&cfg, "}");
   buffer_append(&cfg, bytes("", 1)); // NUL
@@ -477,6 +474,17 @@ int main(int argc, char** argv) {
   bprintf(&addr_buf, "0x%x", bytes(addr, 20));
   char* addr_hex = (char*) addr_buf.data.data;
 
+  log_info("Starting colibri-signer: signer=%s server=%s beacon_api=%d checkpointz=%d status_file=%s metrics_file=%s chain=%s max_idle=%llu once=%s",
+           addr_hex,
+           server,
+           beacon_count,
+           checkpointz_count,
+           status_file ? status_file : "",
+           metrics_file ? metrics_file : "",
+           chain ? chain : "",
+           (unsigned long long) max_idle_seconds,
+           once ? "true" : "false");
+
   while (true) {
     const time_t now                = time(NULL);
     const time_t last_activity_time = last_post_time ? last_post_time : start_time;
@@ -678,6 +686,10 @@ int main(int argc, char** argv) {
       last_post_period = max_period_in_batch;
       last_post_slot   = max_slot_in_batch;
     }
+    log_info("Submitted %u signatures (last_period=%llu last_slot=%llu)",
+             signed_count,
+             (unsigned long long) last_post_period,
+             (unsigned long long) last_post_slot);
     c4_state_free(&state_post);
 
     if ((uint64_t) (now - last_activity_time) > max_idle_seconds) {
