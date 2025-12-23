@@ -42,6 +42,79 @@ static void c4_write_status_file(const char* status_file, const char* content) {
   fclose(f);
 }
 
+static void c4_prom_escape_label(char* out, size_t out_cap, const char* in) {
+  if (!out || out_cap == 0) return;
+  if (!in) {
+    out[0] = 0;
+    return;
+  }
+  size_t o = 0;
+  for (const char* p = in; *p && o + 2 < out_cap; p++) {
+    if (*p == '\\' || *p == '"') {
+      out[o++] = '\\';
+      out[o++] = *p;
+    }
+    else if (*p == '\n') {
+      out[o++] = '\\';
+      out[o++] = 'n';
+    }
+    else {
+      out[o++] = *p;
+    }
+  }
+  out[o] = 0;
+}
+
+static void c4_write_metrics_file(const char* metrics_file,
+                                  const char* chain,
+                                  uint64_t    last_signed_ts,
+                                  uint64_t    last_signed_period,
+                                  uint64_t    last_signed_slot,
+                                  uint64_t    loop_ts,
+                                  uint64_t    signed_total,
+                                  uint64_t    errors_total) {
+  if (!metrics_file || !*metrics_file) return;
+
+  char chain_esc[128] = {0};
+  c4_prom_escape_label(chain_esc, sizeof(chain_esc), chain ? chain : "unknown");
+
+  // Write atomically (node_exporter textfile collector reads files concurrently).
+  char tmp_path[1024] = {0};
+  snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", metrics_file);
+
+  FILE* f = fopen(tmp_path, "wb");
+  if (!f) return;
+
+  fprintf(f, "# HELP c4_signer_last_signed_timestamp_seconds Unix timestamp of the last successfully submitted signature batch.\n");
+  fprintf(f, "# TYPE c4_signer_last_signed_timestamp_seconds gauge\n");
+  fprintf(f, "c4_signer_last_signed_timestamp_seconds{chain=\"%s\"} %llu\n", chain_esc, (unsigned long long) last_signed_ts);
+
+  fprintf(f, "# HELP c4_signer_last_signed_period Last period included in the last successfully submitted signature batch.\n");
+  fprintf(f, "# TYPE c4_signer_last_signed_period gauge\n");
+  fprintf(f, "c4_signer_last_signed_period{chain=\"%s\"} %llu\n", chain_esc, (unsigned long long) last_signed_period);
+
+  fprintf(f, "# HELP c4_signer_last_signed_slot Last slot included in the last successfully submitted signature batch.\n");
+  fprintf(f, "# TYPE c4_signer_last_signed_slot gauge\n");
+  fprintf(f, "c4_signer_last_signed_slot{chain=\"%s\"} %llu\n", chain_esc, (unsigned long long) last_signed_slot);
+
+  fprintf(f, "# HELP c4_signer_loop_timestamp_seconds Unix timestamp of the last signer loop iteration.\n");
+  fprintf(f, "# TYPE c4_signer_loop_timestamp_seconds gauge\n");
+  fprintf(f, "c4_signer_loop_timestamp_seconds{chain=\"%s\"} %llu\n", chain_esc, (unsigned long long) loop_ts);
+
+  fprintf(f, "# HELP c4_signer_signed_total Total number of checkpoints signed by this signer process.\n");
+  fprintf(f, "# TYPE c4_signer_signed_total counter\n");
+  fprintf(f, "c4_signer_signed_total{chain=\"%s\"} %llu\n", chain_esc, (unsigned long long) signed_total);
+
+  fprintf(f, "# HELP c4_signer_errors_total Total number of signer loop errors (best-effort).\n");
+  fprintf(f, "# TYPE c4_signer_errors_total counter\n");
+  fprintf(f, "c4_signer_errors_total{chain=\"%s\"} %llu\n", chain_esc, (unsigned long long) errors_total);
+
+  fclose(f);
+
+  // Best-effort atomic replace.
+  (void) rename(tmp_path, metrics_file);
+}
+
 static void c4_write_status_ok(const char* status_file, const char* warn) {
   if (!status_file || !*status_file) return;
   if (warn && *warn) {
@@ -80,7 +153,7 @@ static void c4_snip_ascii(char* out, size_t out_cap, const uint8_t* in, size_t i
 
 static void usage(const char* argv0) {
   fprintf(stderr,
-          "Usage: %s --server <base_url> (--key 0x.. | --key-file <path>) [--checkpointz <url>] [--beacon-api <url>] [--status-file <path>] [--max-idle <seconds>] [--once]\n"
+          "Usage: %s --server <base_url> (--key 0x.. | --key-file <path>) [--checkpointz <url>] [--beacon-api <url>] [--status-file <path>] [--metrics-file <path>] [--chain <name>] [--max-idle <seconds>] [--once]\n"
           "\n"
           "Flow:\n"
           "  1) Derive signer address from private key\n"
@@ -306,6 +379,8 @@ int main(int argc, char** argv) {
   const char* key_file            = NULL;
   bool        once                = false;
   const char* status_file         = NULL;
+  const char* metrics_file        = NULL;
+  const char* chain               = NULL;
   uint64_t    max_idle_seconds    = 27ull * 60ull * 60ull; // 27h
   const char* checkpointz_urls[8] = {0};
   int         checkpointz_count   = 0;
@@ -340,6 +415,12 @@ int main(int argc, char** argv) {
     else if (strcmp(argv[i], "--status-file") == 0 && i + 1 < argc) {
       status_file = argv[++i];
     }
+    else if (strcmp(argv[i], "--metrics-file") == 0 && i + 1 < argc) {
+      metrics_file = argv[++i];
+    }
+    else if (strcmp(argv[i], "--chain") == 0 && i + 1 < argc) {
+      chain = argv[++i];
+    }
     else if (strcmp(argv[i], "--max-idle") == 0 && i + 1 < argc) {
       max_idle_seconds = strtoull(argv[++i], NULL, 10);
     }
@@ -364,6 +445,10 @@ int main(int argc, char** argv) {
   const time_t start_time     = time(NULL);
   time_t       last_post_time = 0;
   time_t       last_ok_time   = start_time;
+  uint64_t     last_post_period = 0;
+  uint64_t     last_post_slot   = 0;
+  uint64_t     signed_total     = 0;
+  uint64_t     errors_total     = 0;
 
   bytes32_t sk = {0};
   if (key_hex) {
@@ -395,6 +480,7 @@ int main(int argc, char** argv) {
   while (true) {
     const time_t now                = time(NULL);
     const time_t last_activity_time = last_post_time ? last_post_time : start_time;
+    c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
 
     // --- GET missing checkpoints ---
     buffer_t query = {0};
@@ -404,6 +490,7 @@ int main(int argc, char** argv) {
     if (!get_url) {
       fprintf(stderr, "Failed to build GET url\n");
       c4_write_status_ok(status_file, "failed to build GET url");
+      errors_total++;
       if (once) return 1;
       c4_sleep_seconds(60);
       continue;
@@ -422,6 +509,7 @@ int main(int argc, char** argv) {
     if (req_done && req_done->error) {
       fprintf(stderr, "HTTP GET error: %s\n", req_done->error);
       c4_write_status_ok(status_file, "failed to reach colibri server");
+      errors_total++;
       c4_state_free(&state);
       if (once) return 1;
       c4_sleep_seconds(60);
@@ -430,6 +518,7 @@ int main(int argc, char** argv) {
     if (!req_done || !req_done->response.data || req_done->response.len == 0) {
       fprintf(stderr, "Empty HTTP GET response\n");
       c4_write_status_ok(status_file, "empty response from colibri server");
+      errors_total++;
       c4_state_free(&state);
       if (once) return 1;
       c4_sleep_seconds(60);
@@ -442,6 +531,7 @@ int main(int argc, char** argv) {
       c4_snip_ascii(snippet, sizeof(snippet), req_done->response.data, req_done->response.len);
       fprintf(stderr, "Unexpected response (expected JSON array). Response snippet: %s\n", snippet);
       c4_write_status_ok(status_file, "invalid JSON from colibri server");
+      errors_total++;
       c4_state_free(&state);
       if (once) return 1;
       c4_sleep_seconds(60);
@@ -452,10 +542,12 @@ int main(int argc, char** argv) {
       c4_state_free(&state);
       if ((uint64_t) (now - last_activity_time) > max_idle_seconds) {
         c4_write_status_error(status_file, "no signatures posted within max-idle");
+        c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
       }
       else {
         c4_write_status_ok(status_file, NULL);
         last_ok_time = now;
+        c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
       }
       if (once) break;
       // default sleep: 1h
@@ -471,6 +563,8 @@ int main(int argc, char** argv) {
     uint32_t signed_count    = 0;
     bool     had_error       = false;
     char     status_buf[256] = {0};
+    uint64_t max_period_in_batch = 0;
+    uint64_t max_slot_in_batch   = 0;
     json_for_each_value(arr, item) {
       uint64_t period = json_get_uint64(item, "period");
       json_t   root_j = json_get(item, "root");
@@ -485,6 +579,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Checkpoint root mismatch for period=%llu slot=%llu (not signing)\n", (unsigned long long) period, (unsigned long long) slot);
         snprintf(status_buf, sizeof(status_buf), "checkpoint root mismatch (period=%llu)", (unsigned long long) period);
         had_error = true;
+        errors_total++;
         continue;
       }
       if (!checkpoint_is_finalized_by_header_root(root)) {
@@ -509,6 +604,8 @@ int main(int argc, char** argv) {
       bprintf(&post, "{\"period\":%l,\"signature\":\"%s\"}", period, sig_hex);
       buffer_free(&sig_buf);
       signed_count++;
+      if (period > max_period_in_batch) max_period_in_batch = period;
+      if (slot > max_slot_in_batch) max_slot_in_batch = slot;
     }
     buffer_add_chars(&post, "]");
 
@@ -516,6 +613,7 @@ int main(int argc, char** argv) {
       fprintf(stderr, "No valid checkpoints parsed from response\n");
       buffer_free(&post);
       c4_state_free(&state);
+      errors_total++;
       if ((uint64_t) (now - last_activity_time) > max_idle_seconds) {
         c4_write_status_error(status_file, "no signatures posted within max-idle");
       }
@@ -526,6 +624,7 @@ int main(int argc, char** argv) {
         c4_write_status_ok(status_file, NULL);
         last_ok_time = now;
       }
+      c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
       if (once) return 1;
       c4_sleep_seconds(60);
       continue;
@@ -537,6 +636,8 @@ int main(int argc, char** argv) {
       buffer_free(&post);
       c4_state_free(&state);
       c4_write_status_ok(status_file, "failed to build POST url");
+      errors_total++;
+      c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
       if (once) return 1;
       c4_sleep_seconds(60);
       continue;
@@ -563,13 +664,20 @@ int main(int argc, char** argv) {
     if (post_req_done && post_req_done->error) {
       fprintf(stderr, "HTTP POST error: %s\n", post_req_done->error);
       c4_write_status_ok(status_file, "failed to submit signatures to colibri server");
+      errors_total++;
       c4_state_free(&state_post);
+      c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
       if (once) return 1;
       c4_sleep_seconds(60);
       continue;
     }
     fprintf(stdout, "Posted signatures for %s\n", addr_hex);
     if (signed_count > 0) last_post_time = now;
+    if (signed_count > 0) {
+      signed_total += signed_count;
+      last_post_period = max_period_in_batch;
+      last_post_slot   = max_slot_in_batch;
+    }
     c4_state_free(&state_post);
 
     if ((uint64_t) (now - last_activity_time) > max_idle_seconds) {
@@ -582,6 +690,7 @@ int main(int argc, char** argv) {
       c4_write_status_ok(status_file, NULL);
       last_ok_time = now;
     }
+    c4_write_metrics_file(metrics_file, chain, (uint64_t) last_post_time, last_post_period, last_post_slot, (uint64_t) now, signed_total, errors_total);
 
     if (once) break;
     fprintf(stdout, "Sleeping 3600s...\n");

@@ -133,6 +133,8 @@ build/default/bin/colibri-signer \
   --key-file ./cp_key \
   --beacon-api http://localhost:5052 \
   --status-file ./signer.status \
+  --metrics-file ./signer.prom \
+  --chain mainnet \
   --max-idle 97200 \
   --once
 ```
@@ -204,4 +206,23 @@ services:
 Notes:
 - `--max-idle` is in seconds. `97200` seconds = 27 hours.
 - The example considers the signer unhealthy if the status file is older than 70 minutes (4200 seconds).
+
+---
+
+## Prometheus textfile metrics (`--metrics-file`)
+
+If you run node_exporter's textfile collector, you can write Prometheus metrics into a file that node_exporter scrapes.
+
+Example (node_exporter default textfile dir on many setups):
+
+- `--metrics-file /var/lib/node_exporter/textcollector/colibri-signer.prom`
+- `--chain mainnet`
+
+Metrics written:
+- `c4_signer_last_signed_timestamp_seconds{chain="..."}`
+- `c4_signer_last_signed_period{chain="..."}`
+- `c4_signer_last_signed_slot{chain="..."}`
+- `c4_signer_loop_timestamp_seconds{chain="..."}`
+- `c4_signer_signed_total{chain="..."}`
+- `c4_signer_errors_total{chain="..."}`
 
