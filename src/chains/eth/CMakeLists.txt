@@ -223,7 +223,8 @@ add_server_handler(
 )
 
 # Checkpoint signer CLI (external cronjob helper)
-if(CURL)
+# Build only when CLI tools are enabled (e.g. skip for WASM builds) and CURL is available.
+if(CLI AND CURL)
   add_executable(colibri-signer cp_signer/main.c)
   add_dependencies(colibri-signer util curl_fetch eth_verifier)
   target_link_libraries(colibri-signer PRIVATE util curl_fetch eth_verifier)
