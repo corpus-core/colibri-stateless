@@ -132,6 +132,8 @@ build/default/bin/colibri-signer \
   --server http://localhost:8090 \
   --key-file ./cp_key \
   --beacon-api http://localhost:5052 \
+  --status-file ./signer.status \
+  --max-idle 97200 \
   --once
 ```
 
@@ -163,4 +165,43 @@ curl -X POST "http://localhost:8090/signed_checkpoints" \
   -H "Content-Type: application/json" \
   -d '[{"period":1621,"signature":"0x..."}]'
 ```
+
+---
+
+## Docker healthcheck (status file)
+
+`colibri-signer` can optionally write a status file on each loop iteration. The file content is either:
+
+- `ok`
+- `error: <message>`
+
+You can use the file content + mtime as a container healthcheck. Example:
+
+```yaml
+services:
+  colibri-signer:
+    image: ghcr.io/corpus-core/colibri-prover:dev
+    command:
+      [
+        "colibri-signer",
+        "--server", "http://colibri:8090",
+        "--key-file", "/run/secrets/cp_key",
+        "--beacon-api", "http://beacon:5052",
+        "--status-file", "/tmp/colibri-signer.status",
+        "--max-idle", "97200"
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /tmp/colibri-signer.status && grep -q '^ok$' /tmp/colibri-signer.status && test $(($(date +%s) - $(stat -c %Y /tmp/colibri-signer.status))) -lt 4200"
+        ]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+```
+
+Notes:
+- `--max-idle` is in seconds. `97200` seconds = 27 hours.
+- The example considers the signer unhealthy if the status file is older than 70 minutes (4200 seconds).
 
