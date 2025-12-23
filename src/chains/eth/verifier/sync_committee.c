@@ -144,7 +144,7 @@ static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_
   if (signatures.def->type != SSZ_TYPE_LIST) RETURN_VERIFY_ERROR(ctx, "invalid signatures!");
   ssz_hash_tree_root(signed_header, checkpoint);
   uint32_t signatures_len = ssz_len(signatures);
-  if (signatures_len == 0) return true; // TODO if you expoect signatures, fail here.
+  if (signatures_len == 0) return ctx->witness_keys.len == 0;
   if (signatures_len > 16) RETURN_VERIFY_ERROR(ctx, "invalid number of signatures!");
   uint32_t witness_keys_found = 0;
   for (uint32_t i = 0; i < signatures_len; i++) {

@@ -52,8 +52,10 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   if (ctx->witness_key.len && ctx->witness_key.len % 20 == 0) {
     for (int i = 0; i < ctx->witness_key.len; i += 20) {
       buffer_reset(&buf);
-      bytes_t sig_data = {0};
-      TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data)); // get the blockd
+      bytes_t     sig_data   = {0};
+      c4_status_t sig_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data);
+      if (sig_status == C4_ERROR) THROW_ERROR_WITH("There is no signature from 0x%x for period %l", bytes(ctx->witness_key.data + i, 20), period);
+      TRY_ADD_ASYNC(status, sig_status);
       buffer_append(&signatures, sig_data);
     }
   }

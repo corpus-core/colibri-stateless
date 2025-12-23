@@ -310,17 +310,15 @@ int main(int argc, char* argv[]) {
   }
 
   verify_ctx_t ctx = {0};
-  if (signers && strlen(signers) > 43 && signers[1] == '0' && signers[2] == 'x') {
+  c4_verify_init(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
+  if (signers && strlen(signers) > 40 && signers[0] == '0' && signers[1] == 'x') {
     ctx.witness_keys = bytes(safe_malloc(strlen(signers) / 2), (strlen(signers) - 2) / 2);
     if (hex_to_bytes(signers, -1, ctx.witness_keys) % 20 != 0) {
       fprintf(stderr, "invalid signers: %s\n", signers);
       exit(EXIT_FAILURE);
     }
   }
-  for (
-      c4_status_t status = c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
-      status == C4_PENDING;
-      status = c4_verify(&ctx))
+  while (c4_verify(&ctx) == C4_PENDING)
 #ifdef USE_CURL
     curl_fetch_all(&ctx.state);
 #else
@@ -329,6 +327,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 #endif
+
   if (ctx.success) {
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
