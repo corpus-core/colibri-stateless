@@ -442,9 +442,9 @@ int main(int argc, char** argv) {
 
   maybe_set_curl_nodes_from_args(checkpointz_urls, checkpointz_count, beacon_urls, beacon_count);
 
-  const time_t start_time     = time(NULL);
-  time_t       last_post_time = 0;
-  time_t       last_ok_time   = start_time;
+  const time_t start_time       = time(NULL);
+  time_t       last_post_time   = 0;
+  time_t       last_ok_time     = start_time;
   uint64_t     last_post_period = 0;
   uint64_t     last_post_slot   = 0;
   uint64_t     signed_total     = 0;
@@ -559,10 +559,10 @@ int main(int argc, char** argv) {
     // --- Build POST payload ---
     buffer_t post = {0};
     buffer_add_chars(&post, "[");
-    bool     first           = true;
-    uint32_t signed_count    = 0;
-    bool     had_error       = false;
-    char     status_buf[256] = {0};
+    bool     first               = true;
+    uint32_t signed_count        = 0;
+    bool     had_error           = false;
+    char     status_buf[256]     = {0};
     uint64_t max_period_in_batch = 0;
     uint64_t max_slot_in_batch   = 0;
     json_for_each_value(arr, item) {
