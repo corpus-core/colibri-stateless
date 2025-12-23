@@ -297,6 +297,9 @@ bool c4_handle_proof_request(client_t* client) {
   if (client->request.method != C4_DATA_METHOD_POST /*|| strncmp(client->request.path, "/proof/", 7) != 0*/)
     return false;
 
+  if (strlen(client->request.path) > 1 && strncmp(client->request.path, "/proof", 6) != 0)
+    return false;
+
   json_t rpc_req = json_parse((char*) client->request.payload);
   if (rpc_req.type != JSON_TYPE_OBJECT) {
     c4_write_error_response(client, 400, "Invalid request");
