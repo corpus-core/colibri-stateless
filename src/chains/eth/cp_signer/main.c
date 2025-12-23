@@ -42,6 +42,42 @@ static void c4_write_status_file(const char* status_file, const char* content) {
   fclose(f);
 }
 
+static void c4_write_status_ok(const char* status_file, const char* warn) {
+  if (!status_file || !*status_file) return;
+  if (warn && *warn) {
+    buffer_t b = {0};
+    bprintf(&b, "ok\nwarn: %s", warn);
+    c4_write_status_file(status_file, (char*) b.data.data);
+    buffer_free(&b);
+  }
+  else {
+    c4_write_status_file(status_file, "ok");
+  }
+}
+
+static void c4_write_status_error(const char* status_file, const char* err) {
+  if (!status_file || !*status_file) return;
+  if (err && *err) {
+    buffer_t b = {0};
+    bprintf(&b, "error\n%s", err);
+    c4_write_status_file(status_file, (char*) b.data.data);
+    buffer_free(&b);
+  }
+  else {
+    c4_write_status_file(status_file, "error");
+  }
+}
+
+static void c4_snip_ascii(char* out, size_t out_cap, const uint8_t* in, size_t in_len) {
+  if (!out || out_cap == 0) return;
+  size_t n = in_len < (out_cap - 1) ? in_len : (out_cap - 1);
+  for (size_t i = 0; i < n; i++) {
+    uint8_t c = in[i];
+    out[i]    = (c >= 32 && c < 127) ? (char) c : '.';
+  }
+  out[n] = 0;
+}
+
 static void usage(const char* argv0) {
   fprintf(stderr,
           "Usage: %s --server <base_url> (--key 0x.. | --key-file <path>) [--checkpointz <url>] [--beacon-api <url>] [--status-file <path>] [--max-idle <seconds>] [--once]\n"
@@ -325,22 +361,22 @@ int main(int argc, char** argv) {
 
   maybe_set_curl_nodes_from_args(checkpointz_urls, checkpointz_count, beacon_urls, beacon_count);
 
-  const time_t start_time      = time(NULL);
-  time_t       last_post_time  = 0;
-  time_t       last_ok_time    = start_time;
+  const time_t start_time     = time(NULL);
+  time_t       last_post_time = 0;
+  time_t       last_ok_time   = start_time;
 
   bytes32_t sk = {0};
   if (key_hex) {
     if (!read_key_hex(key_hex, sk)) {
       fprintf(stderr, "Invalid --key (expected 32-byte hex)\n");
-      c4_write_status_file(status_file, "error: invalid --key");
+      c4_write_status_error(status_file, "invalid --key");
       return 1;
     }
   }
   else {
     if (!read_key_file(key_file, sk)) {
       fprintf(stderr, "Invalid --key-file (expected 32-byte hex)\n");
-      c4_write_status_file(status_file, "error: invalid --key-file");
+      c4_write_status_error(status_file, "invalid --key-file");
       return 1;
     }
   }
@@ -348,7 +384,7 @@ int main(int argc, char** argv) {
   address_t addr = {0};
   if (!derive_address_from_sk(sk, addr)) {
     fprintf(stderr, "Failed to derive signer address from private key\n");
-    c4_write_status_file(status_file, "error: failed to derive signer address");
+    c4_write_status_error(status_file, "failed to derive signer address");
     return 1;
   }
 
@@ -357,7 +393,7 @@ int main(int argc, char** argv) {
   char* addr_hex = (char*) addr_buf.data.data;
 
   while (true) {
-    const time_t now = time(NULL);
+    const time_t now                = time(NULL);
     const time_t last_activity_time = last_post_time ? last_post_time : start_time;
 
     // --- GET missing checkpoints ---
@@ -367,7 +403,7 @@ int main(int argc, char** argv) {
     buffer_free(&query);
     if (!get_url) {
       fprintf(stderr, "Failed to build GET url\n");
-      c4_write_status_file(status_file, "error: failed to build GET url");
+      c4_write_status_ok(status_file, "failed to build GET url");
       if (once) return 1;
       c4_sleep_seconds(60);
       continue;
@@ -385,7 +421,7 @@ int main(int argc, char** argv) {
     data_request_t* req_done = state.requests;
     if (req_done && req_done->error) {
       fprintf(stderr, "HTTP GET error: %s\n", req_done->error);
-      c4_write_status_file(status_file, "error: failed to reach colibri server");
+      c4_write_status_ok(status_file, "failed to reach colibri server");
       c4_state_free(&state);
       if (once) return 1;
       c4_sleep_seconds(60);
@@ -393,7 +429,7 @@ int main(int argc, char** argv) {
     }
     if (!req_done || !req_done->response.data || req_done->response.len == 0) {
       fprintf(stderr, "Empty HTTP GET response\n");
-      c4_write_status_file(status_file, "error: empty response from colibri server");
+      c4_write_status_ok(status_file, "empty response from colibri server");
       c4_state_free(&state);
       if (once) return 1;
       c4_sleep_seconds(60);
@@ -402,8 +438,10 @@ int main(int argc, char** argv) {
 
     json_t arr = json_parse((char*) req_done->response.data);
     if (arr.type != JSON_TYPE_ARRAY) {
-      fprintf(stderr, "Unexpected response (expected JSON array)\n");
-      c4_write_status_file(status_file, "error: invalid JSON from colibri server");
+      char snippet[241] = {0};
+      c4_snip_ascii(snippet, sizeof(snippet), req_done->response.data, req_done->response.len);
+      fprintf(stderr, "Unexpected response (expected JSON array). Response snippet: %s\n", snippet);
+      c4_write_status_ok(status_file, "invalid JSON from colibri server");
       c4_state_free(&state);
       if (once) return 1;
       c4_sleep_seconds(60);
@@ -413,10 +451,10 @@ int main(int argc, char** argv) {
       fprintf(stdout, "No checkpoints to sign for %s\n", addr_hex);
       c4_state_free(&state);
       if ((uint64_t) (now - last_activity_time) > max_idle_seconds) {
-        c4_write_status_file(status_file, "error: no signatures posted within max-idle");
+        c4_write_status_error(status_file, "no signatures posted within max-idle");
       }
       else {
-        c4_write_status_file(status_file, "ok");
+        c4_write_status_ok(status_file, NULL);
         last_ok_time = now;
       }
       if (once) break;
@@ -429,9 +467,9 @@ int main(int argc, char** argv) {
     // --- Build POST payload ---
     buffer_t post = {0};
     buffer_add_chars(&post, "[");
-    bool first = true;
-    uint32_t signed_count = 0;
-    bool     had_error    = false;
+    bool     first           = true;
+    uint32_t signed_count    = 0;
+    bool     had_error       = false;
     char     status_buf[256] = {0};
     json_for_each_value(arr, item) {
       uint64_t period = json_get_uint64(item, "period");
@@ -445,7 +483,7 @@ int main(int argc, char** argv) {
       // Verify root matches canonical root at slot, and block is finalized.
       if (!checkpoint_root_matches_slot(slot, root)) {
         fprintf(stderr, "Checkpoint root mismatch for period=%llu slot=%llu (not signing)\n", (unsigned long long) period, (unsigned long long) slot);
-        snprintf(status_buf, sizeof(status_buf), "error: checkpoint root mismatch (period=%llu)", (unsigned long long) period);
+        snprintf(status_buf, sizeof(status_buf), "checkpoint root mismatch (period=%llu)", (unsigned long long) period);
         had_error = true;
         continue;
       }
@@ -479,13 +517,13 @@ int main(int argc, char** argv) {
       buffer_free(&post);
       c4_state_free(&state);
       if ((uint64_t) (now - last_activity_time) > max_idle_seconds) {
-        c4_write_status_file(status_file, "error: no signatures posted within max-idle");
+        c4_write_status_error(status_file, "no signatures posted within max-idle");
       }
       else if (had_error) {
-        c4_write_status_file(status_file, status_buf[0] ? status_buf : "error: failed to validate checkpoints");
+        c4_write_status_ok(status_file, status_buf[0] ? status_buf : "failed to validate checkpoints");
       }
       else {
-        c4_write_status_file(status_file, "ok");
+        c4_write_status_ok(status_file, NULL);
         last_ok_time = now;
       }
       if (once) return 1;
@@ -498,7 +536,7 @@ int main(int argc, char** argv) {
       fprintf(stderr, "Failed to build POST url\n");
       buffer_free(&post);
       c4_state_free(&state);
-      c4_write_status_file(status_file, "error: failed to build POST url");
+      c4_write_status_ok(status_file, "failed to build POST url");
       if (once) return 1;
       c4_sleep_seconds(60);
       continue;
@@ -524,7 +562,7 @@ int main(int argc, char** argv) {
     data_request_t* post_req_done = state_post.requests;
     if (post_req_done && post_req_done->error) {
       fprintf(stderr, "HTTP POST error: %s\n", post_req_done->error);
-      c4_write_status_file(status_file, "error: failed to submit signatures to colibri server");
+      c4_write_status_ok(status_file, "failed to submit signatures to colibri server");
       c4_state_free(&state_post);
       if (once) return 1;
       c4_sleep_seconds(60);
@@ -535,13 +573,13 @@ int main(int argc, char** argv) {
     c4_state_free(&state_post);
 
     if ((uint64_t) (now - last_activity_time) > max_idle_seconds) {
-      c4_write_status_file(status_file, "error: no signatures posted within max-idle");
+      c4_write_status_error(status_file, "no signatures posted within max-idle");
     }
     else if (had_error) {
-      c4_write_status_file(status_file, status_buf[0] ? status_buf : "error: checkpoint validation error");
+      c4_write_status_ok(status_file, status_buf[0] ? status_buf : "checkpoint validation error");
     }
     else {
-      c4_write_status_file(status_file, "ok");
+      c4_write_status_ok(status_file, NULL);
       last_ok_time = now;
     }
 
