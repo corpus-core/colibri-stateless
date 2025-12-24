@@ -1,5 +1,5 @@
 mod ffi;
-mod helpers;
+pub mod helpers;
 mod prover;
 mod verifier;
 mod client;
