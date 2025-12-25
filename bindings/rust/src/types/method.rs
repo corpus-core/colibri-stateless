@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-/// Represents the support level for an RPC method
+/// Represents the support level for an RPC method.
+///
+/// This enum categorizes Ethereum RPC methods based on whether they
+/// can generate cryptographic proofs, are handled locally, or are not supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum MethodType {
     /// Method is proofable - can generate cryptographic proofs

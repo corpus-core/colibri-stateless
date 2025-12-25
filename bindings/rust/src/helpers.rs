@@ -1,5 +1,5 @@
 use crate::ffi;
-use crate::types::{Result, ColibriError, MethodType};
+use crate::types::{Result, MethodType};
 use std::ffi::{c_void, CString};
 
 pub fn bytes_to_vec(bytes: ffi::bytes_t) -> Vec<u8> {
@@ -29,7 +29,20 @@ pub fn set_request_response(req_ptr: u64, data: &[u8], node_index: u16) {
     }
 }
 
-/// Check if a method is supported on a given chain
+/// Check if a method is supported on a given chain.
+///
+/// Returns an integer code indicating support level:
+/// - 0: Not supported
+/// - 1+: Proofable (can generate proofs)
+///
+/// # Example
+///
+/// ```rust
+/// use colibri::get_method_support;
+///
+/// let support = get_method_support(1, "eth_blockNumber").unwrap();
+/// assert!(support > 0); // eth_blockNumber is supported
+/// ```
 pub fn get_method_support(chain_id: u64, method: &str) -> Result<i32> {
     let c_method = CString::new(method)?;
 
@@ -40,7 +53,16 @@ pub fn get_method_support(chain_id: u64, method: &str) -> Result<i32> {
     Ok(support)
 }
 
-/// Get the method type (Proofable, Local, NotSupported) for a given method
+/// Get the method type (Proofable, Local, NotSupported) for a given method.
+///
+/// # Example
+///
+/// ```rust
+/// use colibri::{get_method_type, MethodType};
+///
+/// let method_type = get_method_type(1, "eth_blockNumber").unwrap();
+/// assert_eq!(method_type, MethodType::Proofable);
+/// ```
 pub fn get_method_type(chain_id: u64, method: &str) -> Result<MethodType> {
     let support_code = get_method_support(chain_id, method)?;
     Ok(MethodType::from_support_code(support_code))

@@ -4,8 +4,23 @@ use crate::types::{Result, ColibriError, Status, HttpRequest, MethodType};
 use crate::helpers;
 use reqwest::Client;
 use serde_json;
+use std::time::Duration;
 
-/// Unified client for both proving and verifying operations
+/// Unified client for both proving and verifying operations.
+///
+/// This client handles the HTTP communication required for proof generation
+/// and verification. It manages connections to beacon nodes and Ethereum RPC endpoints.
+///
+/// # Example
+///
+/// ```rust
+/// use colibri::ColibriClient;
+///
+/// let client = ColibriClient::with_urls(
+///     Some("https://beacon-node.example.com".to_string()),
+///     Some("https://eth-rpc.example.com".to_string()),
+/// );
+/// ```
 pub struct ColibriClient {
     http_client: Client,
     beacon_api_url: Option<String>,
@@ -15,8 +30,13 @@ pub struct ColibriClient {
 impl ColibriClient {
     /// Create a new client without URLs
     pub fn new() -> Self {
+        let http_client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
         Self {
-            http_client: Client::new(),
+            http_client,
             beacon_api_url: None,
             eth_rpc_url: None,
         }
@@ -27,8 +47,13 @@ impl ColibriClient {
         beacon_api_url: Option<String>,
         eth_rpc_url: Option<String>,
     ) -> Self {
+        let http_client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
         Self {
-            http_client: Client::new(),
+            http_client,
             beacon_api_url,
             eth_rpc_url,
         }
@@ -149,7 +174,28 @@ impl ColibriClient {
         Ok(bytes.to_vec())
     }
 
-    /// Generate a proof for an Ethereum RPC method
+    /// Generate a proof for an Ethereum RPC method.
+    ///
+    /// # Arguments
+    ///
+    /// * `method` - The RPC method name (e.g., "eth_blockNumber", "eth_getBalance")
+    /// * `params` - JSON-encoded parameters for the method
+    /// * `chain_id` - The chain ID (1 for mainnet, 11155111 for Sepolia, etc.)
+    /// * `flags` - Optional flags for proof generation (usually 0)
+    ///
+    /// # Returns
+    ///
+    /// Returns the generated proof as a byte vector.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # async fn example() -> colibri::Result<()> {
+    /// let client = colibri::ColibriClient::new();
+    /// let proof = client.prove("eth_blockNumber", "[]", 1, 0).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn prove(
         &self,
         method: &str,
@@ -194,7 +240,30 @@ impl ColibriClient {
         }
     }
 
-    /// Verify a proof and return the verified result
+    /// Verify a proof and return the verified result.
+    ///
+    /// # Arguments
+    ///
+    /// * `proof` - The proof bytes to verify
+    /// * `method` - The RPC method name that was proved
+    /// * `params` - The parameters that were used for proving
+    /// * `chain_id` - The chain ID
+    /// * `trusted_checkpoint` - Optional trusted checkpoint (usually empty string)
+    ///
+    /// # Returns
+    ///
+    /// Returns the verified result as a JSON value.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # async fn example() -> colibri::Result<()> {
+    /// let client = colibri::ColibriClient::new();
+    /// let proof = vec![/* proof bytes */];
+    /// let result = client.verify(&proof, "eth_blockNumber", "[]", 1, "").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn verify(
         &self,
         proof: &[u8],
