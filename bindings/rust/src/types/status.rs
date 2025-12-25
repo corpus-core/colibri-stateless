@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "status")]
 pub enum Status {
     #[serde(rename = "pending")]
@@ -17,7 +17,7 @@ pub enum Status {
     Success,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct HttpRequest {
     #[serde(rename = "req_ptr")]
     pub request_id: usize,

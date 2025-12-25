@@ -1,6 +1,7 @@
 use crate::prover::Prover;
 use crate::verifier::Verifier;
-use crate::types::{Result, ColibriError, Status, HttpRequest};
+use crate::types::{Result, ColibriError, Status, HttpRequest, MethodType};
+use crate::helpers;
 use reqwest::Client;
 use serde_json;
 
@@ -12,7 +13,7 @@ pub struct ColibriClient {
 }
 
 impl ColibriClient {
-    /// Create a new client without URLs (must be set later or use defaults)
+    /// Create a new client without URLs
     pub fn new() -> Self {
         Self {
             http_client: Client::new(),
@@ -41,6 +42,11 @@ impl ColibriClient {
     /// Set the Ethereum RPC URL
     pub fn set_eth_rpc_url(&mut self, url: String) {
         self.eth_rpc_url = Some(url);
+    }
+
+    /// Check if a method is supported and get its type
+    pub fn get_method_support(&self, method: &str, chain_id: u64) -> Result<MethodType> {
+        helpers::get_method_type(chain_id, method)
     }
 
     async fn handle_request(&self, req: &HttpRequest) -> Result<Vec<u8>> {
@@ -211,19 +217,18 @@ impl ColibriClient {
                     for request in requests {
                         match self.handle_request(&request).await {
                             Ok(data) => {
-                                crate::helpers::set_request_response(
-                                    request.request_id as u64,
+                                verifier.set_response(
+                                    request.request_id,
                                     &data,
                                     request.node_index,
                                 );
                             }
                             Err(err) => {
-                                // For verifier, we need to handle errors differently
-                                // since Verifier doesn't have set_error method exposed
-                                return Err(ColibriError::Ffi(format!(
-                                    "Request failed: {}",
-                                    err
-                                )));
+                                verifier.set_error(
+                                    request.request_id,
+                                    &err.to_string(),
+                                    request.node_index,
+                                )?;
                             }
                         }
                     }
@@ -240,5 +245,160 @@ impl ColibriClient {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    struct TestRequestBuilder {
+        request: HttpRequest,
+    }
+
+    impl TestRequestBuilder {
+        fn new() -> Self {
+            Self {
+                request: HttpRequest {
+                    request_id: 1,
+                    node_index: 0,
+                    url: String::new(),
+                    method: "GET".to_string(),
+                    headers: HashMap::new(),
+                    body: None,
+                    payload: None,
+                    encoding: "json".to_string(),
+                    request_type: "beacon_api".to_string(),
+                    chain_id: 1,
+                    exclude_mask: String::new(),
+                },
+            }
+        }
+
+        fn with_url(mut self, url: &str) -> Self {
+            self.request.url = url.to_string();
+            self
+        }
+
+        fn with_type(mut self, request_type: &str) -> Self {
+            self.request.request_type = request_type.to_string();
+            self
+        }
+
+        fn with_encoding(mut self, encoding: &str) -> Self {
+            self.request.encoding = encoding.to_string();
+            self
+        }
+
+        fn build(self) -> HttpRequest {
+            self.request
+        }
+    }
+
+    #[test]
+    fn test_client_creation() {
+        let client = ColibriClient::new();
+        assert!(std::mem::size_of_val(&client) > 0);
+
+        let client_with_urls = ColibriClient::with_urls(
+            Some("https://beacon.test".to_string()),
+            Some("https://rpc.test".to_string()),
+        );
+        assert!(std::mem::size_of_val(&client_with_urls) > 0);
+    }
+
+    #[test]
+    fn test_client_url_setters() {
+        let mut client = ColibriClient::new();
+        client.set_beacon_api_url("https://beacon.test".to_string());
+        client.set_eth_rpc_url("https://rpc.test".to_string());
+        assert_eq!(client.beacon_api_url, Some("https://beacon.test".to_string()));
+        assert_eq!(client.eth_rpc_url, Some("https://rpc.test".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_handle_request_beacon_api() {
+        let client = ColibriClient::with_urls(
+            Some("https://beacon.test".to_string()),
+            None,
+        );
+
+        let request = TestRequestBuilder::new()
+            .with_url("/eth/v1/beacon/genesis")
+            .with_type("beacon_api")
+            .build();
+
+        let result = client.handle_request(&request).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_request_missing_beacon_url() {
+        let client = ColibriClient::new();
+
+        let request = TestRequestBuilder::new()
+            .with_url("/eth/v1/beacon/genesis")
+            .with_type("beacon_api")
+            .build();
+
+        let result = client.handle_request(&request).await;
+        assert!(result.is_err());
+
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(error_msg.contains("Beacon API URL not configured"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_request_missing_rpc_url() {
+        let client = ColibriClient::new();
+
+        let request = TestRequestBuilder::new()
+            .with_url("")
+            .with_type("eth_rpc")
+            .build();
+
+        let result = client.handle_request(&request).await;
+        assert!(result.is_err());
+
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(error_msg.contains("Ethereum RPC URL not configured"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_request_checkpointz_type() {
+        let client = ColibriClient::with_urls(
+            Some("https://checkpoint.test".to_string()),
+            None,
+        );
+
+        let request = TestRequestBuilder::new()
+            .with_url("/eth/v1/beacon/light_client/bootstrap/0x123")
+            .with_type("checkpointz")
+            .build();
+
+        let result = client.handle_request(&request).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_request_ssz_encoding() {
+        let client = ColibriClient::with_urls(
+            Some("https://beacon.test".to_string()),
+            None,
+        );
+
+        let request = TestRequestBuilder::new()
+            .with_url("/eth/v1/beacon/blocks/head")
+            .with_type("beacon_api")
+            .with_encoding("ssz")
+            .build();
+
+        let result = client.handle_request(&request).await;
+        assert!(result.is_err());
     }
 }

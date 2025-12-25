@@ -50,6 +50,29 @@ impl Verifier {
             Ok(result)
         }
     }
+
+    pub fn set_response(&mut self, request_ptr: usize, data: &[u8], node_index: u16) {
+        unsafe {
+            ffi::c4_req_set_response(
+                request_ptr as *mut libc::c_void,
+                slice_to_bytes(data),
+                node_index,
+            );
+        }
+    }
+
+    pub fn set_error(&mut self, request_ptr: usize, error: &str, node_index: u16) -> Result<()> {
+        let c_error = CString::new(error)?;
+
+        unsafe {
+            ffi::c4_req_set_error(
+                request_ptr as *mut libc::c_void,
+                c_error.as_ptr() as *mut i8,
+                node_index,
+            );
+        }
+        Ok(())
+    }
 }
 
 impl Drop for Verifier {

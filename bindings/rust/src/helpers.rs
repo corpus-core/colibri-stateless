@@ -1,5 +1,6 @@
 use crate::ffi;
-use std::ffi::c_void;
+use crate::types::{Result, ColibriError, MethodType};
+use std::ffi::{c_void, CString};
 
 pub fn bytes_to_vec(bytes: ffi::bytes_t) -> Vec<u8> {
     if bytes.data.is_null() || bytes.len == 0 {
@@ -26,4 +27,21 @@ pub fn set_request_response(req_ptr: u64, data: &[u8], node_index: u16) {
             node_index,
         );
     }
+}
+
+/// Check if a method is supported on a given chain
+pub fn get_method_support(chain_id: u64, method: &str) -> Result<i32> {
+    let c_method = CString::new(method)?;
+
+    let support = unsafe {
+        ffi::c4_get_method_support(chain_id, c_method.as_ptr() as *mut i8)
+    };
+
+    Ok(support)
+}
+
+/// Get the method type (Proofable, Local, NotSupported) for a given method
+pub fn get_method_type(chain_id: u64, method: &str) -> Result<MethodType> {
+    let support_code = get_method_support(chain_id, method)?;
+    Ok(MethodType::from_support_code(support_code))
 }
