@@ -30,3 +30,7 @@ Thumbs.db
 
 # Benchmark results
 /benches/target/
+
+# Test artifacts and temporary files
+/states_*
+/sync_*
