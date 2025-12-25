@@ -120,7 +120,14 @@ impl ProverClient {
             }
         };
 
-        // Add headers
+        // Add Accept header based on encoding
+        if req.encoding == "ssz" {
+            request_builder = request_builder.header("Accept", "application/octet-stream");
+        } else {
+            request_builder = request_builder.header("Accept", "application/json");
+        }
+
+        // Add any additional headers from the request
         for (key, value) in &req.headers {
             request_builder = request_builder.header(key, value);
         }

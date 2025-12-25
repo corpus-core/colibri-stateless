@@ -1,50 +1,25 @@
-use colibri::{ProverClient, Verifier, Result};
+use colibri::{Verifier, Result};
+use std::fs;
+use std::env;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("=== Colibri Proof Generation and Verification Example ===\n");
+    // Get proof file from command line argument or use default
+    let args: Vec<String> = env::args().collect();
+    let proof_file = if args.len() > 1 {
+        &args[1]
+    } else {
+        "rust_proof.bin"
+    };
 
-    println!("Step 1: Generating proof...");
-    println!("{}", "-".repeat(40));
+    let proof = fs::read(proof_file)
+        .expect(&format!("Failed to read {}", proof_file));
+
+    println!("Loaded proof from {}: {} bytes", proof_file, proof.len());
 
     let method = "eth_blockNumber";
     let params = r#"[]"#;
     let chain_id = 1;
-    let flags = 0;
-
-    let beacon_api_url = std::env::var("BEACON_API_URL")
-        .unwrap_or_else(|_| "https://lodestar-mainnet.chainsafe.io".to_string());
-
-    let eth_rpc_url = std::env::var("ETH_RPC_URL")
-        .unwrap_or_else(|_| "https://ethereum-rpc.publicnode.com".to_string());
-
-    println!("Method: {}", method);
-    println!("Params: {}", params);
-    println!("Chain ID: {}", chain_id);
-
-    let mut client = ProverClient::with_urls(
-        method,
-        params,
-        chain_id,
-        flags,
-        Some(beacon_api_url),
-        Some(eth_rpc_url),
-    )?;
-
-    let proof = match client.run_to_completion().await {
-        Ok(proof) => {
-            println!("✅ Proof generated successfully!");
-            println!("   Size: {} bytes", proof.len());
-            proof
-        }
-        Err(e) => {
-            println!("❌ Failed to generate proof: {}", e);
-            return Err(e);
-        }
-    };
-
-    println!("\nStep 2: Verifying proof...");
-    println!("{}", "-".repeat(40));
 
     let mut verifier = Verifier::new(
         &proof,
@@ -53,7 +28,7 @@ async fn main() -> Result<()> {
         chain_id,
         "",
     )?;
-    println!("✅ Verifier created");
+    println!("Verifier created");
 
     let client = reqwest::Client::new();
     let beacon_api_base = "https://lodestar-mainnet.chainsafe.io";
@@ -65,11 +40,8 @@ async fn main() -> Result<()> {
         match status["status"].as_str() {
             Some("success") => {
                 println!("✅ Proof verification SUCCESSFUL!");
-
-                // Get the verified result
                 if let Some(result) = status.get("result") {
-                    println!("\nVerified Result:");
-                    println!("{}", serde_json::to_string_pretty(result)?);
+                    println!("Result: {}", result);
                 }
                 break;
             }
@@ -94,6 +66,7 @@ async fn main() -> Result<()> {
                         } else {
                             url.to_string()
                         };
+
                         let mut request_builder = if method == "POST" || method == "post" {
                             let payload = request["payload"].as_str().unwrap_or("{}");
                             client.post(&full_url)
@@ -121,8 +94,6 @@ async fn main() -> Result<()> {
             }
         }
     }
-
-    println!("\n🎉 Complete! The proof has been generated and verified.");
 
     Ok(())
 }
