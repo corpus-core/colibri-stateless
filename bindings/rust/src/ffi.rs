@@ -110,6 +110,7 @@ unsafe extern "C" {
     pub fn c4_set_storage_config(plugin: *mut storage_plugin_t);
 
     /// Get the current storage plugin configuration.
+    #[allow(dead_code)]
     pub fn c4_get_storage_config(plugin: *mut storage_plugin_t);
 
     /// Grow a buffer to hold at least min_len bytes.

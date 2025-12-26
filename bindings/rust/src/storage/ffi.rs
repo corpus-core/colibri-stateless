@@ -1,7 +1,7 @@
 use std::ffi::{CStr, c_char};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::ptr;
-use crate::storage::Storage;
+use super::Storage;
 use crate::ffi::{buffer_t, bytes_t, storage_plugin_t, c4_set_storage_config, buffer_grow};
 
 // Global storage instance
@@ -92,10 +92,12 @@ pub(crate) fn register_global_storage(storage: Box<dyn Storage>) {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn is_storage_registered() -> bool {
     unsafe { STORAGE_REGISTERED_WITH_C }
 }
 
+#[allow(dead_code)]
 pub(crate) fn cleanup_global_storage() {
     unsafe {
         if STORAGE_REGISTERED_WITH_C {
@@ -114,7 +116,7 @@ pub(crate) fn cleanup_global_storage() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::MemoryStorage;
+    use super::super::MemoryStorage;
     use crate::ffi::c4_get_storage_config;
 
     #[test]

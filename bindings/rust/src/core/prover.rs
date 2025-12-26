@@ -1,5 +1,5 @@
 use crate::ffi;
-use crate::helpers::{bytes_to_vec, slice_to_bytes};
+use super::helpers::{bytes_to_vec, slice_to_bytes};
 use crate::types::{Result, ColibriError};
 use std::ffi::{CStr, CString};
 

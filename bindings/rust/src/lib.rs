@@ -1,15 +1,9 @@
 mod ffi;
-pub mod helpers;
-mod prover;
-mod verifier;
-mod client;
-pub mod types;
+pub mod core;
 pub mod storage;
-mod storage_ffi;
+pub mod types;
 
-pub use prover::Prover;
-pub use verifier::Verifier;
-pub use client::{ColibriClient, ClientConfig};
+pub use core::{ColibriClient, ClientConfig, Prover, Verifier};
+pub use core::{get_method_support, get_method_type};
 pub use types::{ColibriError, Result, MethodType, MAINNET, SEPOLIA, GNOSIS, CHIADO};
-pub use helpers::{get_method_support, get_method_type};
 pub use storage::{Storage, MemoryStorage, FileStorage, DefaultStorage, default_storage};

@@ -1,5 +1,6 @@
-use crate::prover::Prover;
-use crate::verifier::Verifier;
+use super::prover::Prover;
+use super::verifier::Verifier;
+use super::helpers;
 use crate::types::{Result, ColibriError, Status, HttpRequest, MethodType, RequestType, HttpMethod, Encoding};
 use crate::types::chain::{
     MAINNET, SEPOLIA, GNOSIS, CHIADO,
@@ -8,7 +9,6 @@ use crate::types::chain::{
     MAINNET_CHECKPOINTZ_1, MAINNET_CHECKPOINTZ_2, MAINNET_CHECKPOINTZ_3, MAINNET_CHECKPOINTZ_4,
     MAINNET_PROVER, SEPOLIA_PROVER, GNOSIS_PROVER, CHIADO_PROVER, DEFAULT_PROVER,
 };
-use crate::helpers;
 use reqwest::Client;
 use serde_json;
 use std::time::Duration;
@@ -189,7 +189,7 @@ impl ColibriClient {
             }
         });
 
-        crate::storage_ffi::register_global_storage(storage);
+        crate::storage::ffi::register_global_storage(storage);
 
         Self { http_client, config }
     }
