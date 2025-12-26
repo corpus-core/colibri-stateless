@@ -7,9 +7,10 @@ async fn main() -> Result<()> {
     let chain_id = 1;
     let flags = 0;
 
-    let client = ColibriClient::with_urls(
+    let client = ColibriClient::new(
         Some("https://lodestar-mainnet.chainsafe.io".to_string()),
         Some("https://ethereum-rpc.publicnode.com".to_string()),
+        None,
     );
 
     // Generate proof

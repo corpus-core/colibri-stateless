@@ -4,12 +4,42 @@
 #![allow(non_snake_case)]
 
 pub type prover_t = ::std::os::raw::c_void;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct bytes_t {
     pub len: u32,
     pub data: *mut u8,
 }
+
+/// Buffer structure for growing byte arrays (matches C's buffer_t)
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct buffer_t {
+    pub data: bytes_t,
+    pub allocated: i32,
+}
+
+/// Storage plugin callback type for get operation
+/// Returns true if key found and data copied to buffer, false otherwise
+pub type storage_get_fn = Option<unsafe extern "C" fn(key: *mut ::std::os::raw::c_char, buffer: *mut buffer_t) -> bool>;
+
+/// Storage plugin callback type for set operation
+pub type storage_set_fn = Option<unsafe extern "C" fn(key: *mut ::std::os::raw::c_char, value: bytes_t)>;
+
+/// Storage plugin callback type for delete operation
+pub type storage_del_fn = Option<unsafe extern "C" fn(key: *mut ::std::os::raw::c_char)>;
+
+/// Storage plugin configuration (matches C's storage_plugin_t from plugin.h)
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct storage_plugin_t {
+    pub get: storage_get_fn,
+    pub set: storage_set_fn,
+    pub del: storage_del_fn,
+    pub max_sync_states: u32,
+}
+
 unsafe extern "C" {
     #[doc = " Creates a new prover context for generating a proof.\n\n This function initializes the proof generation process for a specific Ethereum RPC method.\n The returned context must be used with `c4_prover_execute_json_status()` to drive the\n asynchronous proof generation process.\n\n **Memory Management**: The caller is responsible for freeing the returned context using\n `c4_free_prover_ctx()` when done.\n\n @param method The Ethereum RPC method to prove (e.g., \"eth_getBalance\", \"eth_getBlockByHash\")\n @param params The method parameters as a JSON array string (e.g., '[\"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\", \"latest\"]')\n @param chain_id The blockchain chain ID (1 = Ethereum Mainnet, 11155111 = Sepolia, etc.)\n @param flags Flags to customize proof generation:\n              - Bit 0 (0x01): Include contract code in proof\n              - Other bits reserved for future use\n @return A new prover context pointer, or NULL if creation failed\n\n **Example**:\n ```c\n prover_t* ctx = c4_create_prover_ctx(\n     \"eth_getBalance\",\n     \"[\\\"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\\\", \\\"latest\\\"]\",\n     1,\n     0\n );\n if (!ctx) {\n     fprintf(stderr, \"Failed to create prover context\\n\");\n     return -1;\n }\n ```"]
     pub fn c4_create_prover_ctx(
@@ -73,4 +103,16 @@ unsafe extern "C" {
         chain_id: u64,
         method: *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    /// Configure the storage plugin for the C library.
+    /// This registers callbacks that the C library will use to store/retrieve data.
+    pub fn c4_set_storage_config(plugin: *mut storage_plugin_t);
+
+    /// Get the current storage plugin configuration.
+    pub fn c4_get_storage_config(plugin: *mut storage_plugin_t);
+
+    /// Grow a buffer to hold at least min_len bytes.
+    /// Returns the available length of the buffer.
+    pub fn buffer_grow(buffer: *mut buffer_t, min_len: usize) -> usize;
 }

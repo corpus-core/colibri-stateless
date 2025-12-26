@@ -16,46 +16,73 @@ use std::time::Duration;
 /// ```rust
 /// use colibri::ColibriClient;
 ///
-/// let client = ColibriClient::with_urls(
+/// let client = ColibriClient::new(
 ///     Some("https://beacon-node.example.com".to_string()),
 ///     Some("https://eth-rpc.example.com".to_string()),
+///     None,
 /// );
 /// ```
 pub struct ColibriClient {
     http_client: Client,
     beacon_api_url: Option<String>,
     eth_rpc_url: Option<String>,
+    storage_registered: bool,
 }
 
 impl ColibriClient {
-    /// Create a new client without URLs
-    pub fn new() -> Self {
-        let http_client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|_| Client::new());
-
-        Self {
-            http_client,
-            beacon_api_url: None,
-            eth_rpc_url: None,
-        }
-    }
-
-    /// Create a new client with specified URLs
-    pub fn with_urls(
+    /// Create a new client with optional configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `beacon_api_url` - Optional beacon chain API URL
+    /// * `eth_rpc_url` - Optional Ethereum RPC URL
+    /// * `storage` - Optional storage implementation (defaults to file storage)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use colibri::{ColibriClient, MemoryStorage, Storage};
+    ///
+    /// // Simple client with defaults
+    /// let client = ColibriClient::new(None, None, None);
+    ///
+    /// // Client with URLs
+    /// let client = ColibriClient::new(
+    ///     Some("https://beacon.example.com".to_string()),
+    ///     Some("https://rpc.example.com".to_string()),
+    ///     None,
+    /// );
+    ///
+    /// // Client with custom storage
+    /// let storage: Option<Box<dyn Storage>> = Some(MemoryStorage::new());
+    /// let client = ColibriClient::new(None, None, storage);
+    /// ```
+    pub fn new(
         beacon_api_url: Option<String>,
         eth_rpc_url: Option<String>,
+        storage: Option<Box<dyn crate::storage::Storage>>,
     ) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| Client::new());
 
+        // Use DefaultStorage if none provided 
+        let storage = storage.unwrap_or_else(|| {
+            match crate::storage::default_storage() {
+                Ok(fs) => Box::new(fs) as Box<dyn crate::storage::Storage>,
+                Err(_) => crate::storage::MemoryStorage::new() as Box<dyn crate::storage::Storage>,
+            }
+        });
+
+        // Register storage globally
+        crate::storage_ffi::register_global_storage(storage);
+
         Self {
             http_client,
             beacon_api_url,
             eth_rpc_url,
+            storage_registered: true,
         }
     }
 
@@ -191,7 +218,11 @@ impl ColibriClient {
     ///
     /// ```rust,no_run
     /// # async fn example() -> colibri::Result<()> {
-    /// let client = colibri::ColibriClient::new();
+    /// let client = colibri::ColibriClient::new(
+    ///     Some("https://beacon.example.com".to_string()),
+    ///     Some("https://rpc.example.com".to_string()),
+    ///     None,
+    /// );
     /// let proof = client.prove("eth_blockNumber", "[]", 1, 0).await?;
     /// # Ok(())
     /// # }
@@ -258,7 +289,11 @@ impl ColibriClient {
     ///
     /// ```rust,no_run
     /// # async fn example() -> colibri::Result<()> {
-    /// let client = colibri::ColibriClient::new();
+    /// let client = colibri::ColibriClient::new(
+    ///     Some("https://beacon.example.com".to_string()),
+    ///     Some("https://rpc.example.com".to_string()),
+    ///     None,
+    /// );
     /// let proof = vec![/* proof bytes */];
     /// let result = client.verify(&proof, "eth_blockNumber", "[]", 1, "").await?;
     /// # Ok(())
@@ -367,19 +402,20 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = ColibriClient::new();
+        let client = ColibriClient::new(None, None, None);
         assert!(std::mem::size_of_val(&client) > 0);
 
-        let client_with_urls = ColibriClient::with_urls(
+        let client_with_urls = ColibriClient::new(
             Some("https://beacon.test".to_string()),
             Some("https://rpc.test".to_string()),
+            None,
         );
         assert!(std::mem::size_of_val(&client_with_urls) > 0);
     }
 
     #[test]
     fn test_client_url_setters() {
-        let mut client = ColibriClient::new();
+        let mut client = ColibriClient::new(None, None, None);
         client.set_beacon_api_url("https://beacon.test".to_string());
         client.set_eth_rpc_url("https://rpc.test".to_string());
         assert_eq!(client.beacon_api_url, Some("https://beacon.test".to_string()));
@@ -388,8 +424,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_request_beacon_api() {
-        let client = ColibriClient::with_urls(
+        let client = ColibriClient::new(
             Some("https://beacon.test".to_string()),
+            None,
             None,
         );
 
@@ -404,7 +441,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_request_missing_beacon_url() {
-        let client = ColibriClient::new();
+        let client = ColibriClient::new(None, None, None);
 
         let request = TestRequestBuilder::new()
             .with_url("/eth/v1/beacon/genesis")
@@ -422,7 +459,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_request_missing_rpc_url() {
-        let client = ColibriClient::new();
+        let client = ColibriClient::new(None, None, None);
 
         let request = TestRequestBuilder::new()
             .with_url("")
@@ -440,8 +477,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_request_checkpointz_type() {
-        let client = ColibriClient::with_urls(
+        let client = ColibriClient::new(
             Some("https://checkpoint.test".to_string()),
+            None,
             None,
         );
 
@@ -456,8 +494,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_request_ssz_encoding() {
-        let client = ColibriClient::with_urls(
+        let client = ColibriClient::new(
             Some("https://beacon.test".to_string()),
+            None,
             None,
         );
 
