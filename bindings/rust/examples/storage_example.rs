@@ -4,13 +4,8 @@ use colibri::{ColibriClient, MemoryStorage, Storage, Result};
 async fn main() -> Result<()> {
     println!("Testing Colibri with custom storage...");
 
-    let storage = Some(MemoryStorage::new() as Box<dyn Storage>);
-
-    let client = ColibriClient::new(
-        Some("https://lodestar-mainnet.chainsafe.io".to_string()),
-        Some("https://rpc.ankr.com/eth".to_string()),
-        storage,
-    );
+    let storage: Option<Box<dyn Storage>> = Some(MemoryStorage::new());
+    let client = ColibriClient::new(None, storage);
 
     println!("Client created with memory storage");
 

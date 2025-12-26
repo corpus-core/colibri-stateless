@@ -105,11 +105,11 @@ fn test_method_type_enum() {
 fn test_client_method_support() {
     use colibri::ColibriClient;
 
-    let client = ColibriClient::new(None, None, None);
+    let client = ColibriClient::new(None, None);
 
-    let method_type = client.get_method_support("eth_blockNumber", 1).unwrap();
+    let method_type = client.get_method_support("eth_blockNumber").unwrap();
     assert!(method_type.is_supported());
 
-    let method_type = client.get_method_support("invalid_method", 1).unwrap();
+    let method_type = client.get_method_support("invalid_method").unwrap();
     assert_eq!(method_type, MethodType::NotSupported);
 }

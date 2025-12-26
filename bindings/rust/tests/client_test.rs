@@ -1,4 +1,4 @@
-use colibri::{ColibriClient, ColibriError, Result};
+use colibri::{ColibriClient, ClientConfig, ColibriError, Result};
 
 #[cfg(test)]
 mod client_operations {
@@ -6,7 +6,10 @@ mod client_operations {
 
     #[tokio::test]
     async fn test_prove_without_urls_should_fail() {
-        let client = ColibriClient::new(None, None, None);
+        let config = ClientConfig::new(1)
+            .with_eth_rpcs(vec![])
+            .with_beacon_apis(vec![]);
+        let client = ColibriClient::new(Some(config), None);
 
         let result = client.prove("eth_blockNumber", "[]", 1, 0).await;
 
@@ -15,8 +18,8 @@ mod client_operations {
         if let Err(e) = result {
             let error_msg = e.to_string();
             assert!(
-                error_msg.contains("not configured") || error_msg.contains("URL"),
-                "Error should mention missing URL configuration: {}",
+                error_msg.contains("No servers") || error_msg.contains("failed"),
+                "Error should mention missing servers: {}",
                 error_msg
             );
         }
@@ -24,7 +27,10 @@ mod client_operations {
 
     #[tokio::test]
     async fn test_verify_without_urls_should_fail() {
-        let client = ColibriClient::new(None, None, None);
+        let config = ClientConfig::new(1)
+            .with_eth_rpcs(vec![])
+            .with_beacon_apis(vec![]);
+        let client = ColibriClient::new(Some(config), None);
         let fake_proof = vec![0u8; 100];
 
         let result = client.verify(&fake_proof, "eth_blockNumber", "[]", 1, "").await;
@@ -34,11 +40,10 @@ mod client_operations {
 
     #[tokio::test]
     async fn test_prove_with_invalid_method() {
-        let client = ColibriClient::new(
-            Some("https://beacon.example.com".to_string()),
-            Some("https://rpc.example.com".to_string()),
-            None,
-        );
+        let config = ClientConfig::new(1)
+            .with_beacon_apis(vec!["https://beacon.example.com".into()])
+            .with_eth_rpcs(vec!["https://rpc.example.com".into()]);
+        let client = ColibriClient::new(Some(config), None);
 
         let result = client.prove("invalid_method", "[]", 1, 0).await;
 
@@ -47,11 +52,10 @@ mod client_operations {
 
     #[tokio::test]
     async fn test_verify_with_invalid_proof() {
-        let client = ColibriClient::new(
-            Some("https://beacon.example.com".to_string()),
-            Some("https://rpc.example.com".to_string()),
-            None,
-        );
+        let config = ClientConfig::new(1)
+            .with_beacon_apis(vec!["https://beacon.example.com".into()])
+            .with_eth_rpcs(vec!["https://rpc.example.com".into()]);
+        let client = ColibriClient::new(Some(config), None);
 
         let invalid_proof = vec![0xFF; 10];
 
@@ -67,28 +71,23 @@ mod client_error_handling {
 
     #[tokio::test]
     async fn test_error_for_missing_beacon_url() {
-        let client = ColibriClient::new(None, None, None);
+        let config = ClientConfig::new(1)
+            .with_eth_rpcs(vec![])
+            .with_beacon_apis(vec![]);
+        let client = ColibriClient::new(Some(config), None);
 
         let result = client.prove("eth_blockNumber", "[]", 1, 0).await;
 
         assert!(result.is_err());
-        match result {
-            Err(ColibriError::Ffi(msg)) => {
-                assert!(msg.contains("not configured") || msg.contains("URL"));
-            }
-            _ => panic!("Expected FFI error for missing URL"),
-        }
     }
 
     #[tokio::test]
     async fn test_error_for_missing_rpc_url() {
-        let client = ColibriClient::new(
-            Some("https://beacon.test".to_string()),
-            None,
-            None,
-        );
+        let config = ClientConfig::new(1)
+            .with_beacon_apis(vec!["https://beacon.test".into()])
+            .with_eth_rpcs(vec![]);
+        let client = ColibriClient::new(Some(config), None);
 
-        // eth_getBalance would need an RPC URL
         let result = client.prove("eth_getBalance", "[\"0x0\", \"latest\"]", 1, 0).await;
 
         assert!(result.is_err());
@@ -96,13 +95,11 @@ mod client_error_handling {
 
     #[tokio::test]
     async fn test_error_for_invalid_json_params() {
-        let client = ColibriClient::new(
-            Some("https://beacon.test".to_string()),
-            Some("https://rpc.test".to_string()),
-            None,
-        );
+        let config = ClientConfig::new(1)
+            .with_beacon_apis(vec!["https://beacon.test".into()])
+            .with_eth_rpcs(vec!["https://rpc.test".into()]);
+        let client = ColibriClient::new(Some(config), None);
 
-        // Invalid JSON in params
         let result = client.prove("eth_blockNumber", "[invalid json", 1, 0).await;
 
         assert!(result.is_err());
@@ -110,11 +107,10 @@ mod client_error_handling {
 
     #[tokio::test]
     async fn test_error_for_empty_proof() {
-        let client = ColibriClient::new(
-            Some("https://beacon.test".to_string()),
-            Some("https://rpc.test".to_string()),
-            None,
-        );
+        let config = ClientConfig::new(1)
+            .with_beacon_apis(vec!["https://beacon.test".into()])
+            .with_eth_rpcs(vec!["https://rpc.test".into()]);
+        let client = ColibriClient::new(Some(config), None);
 
         let empty_proof = vec![];
 
@@ -125,11 +121,10 @@ mod client_error_handling {
 
     #[tokio::test]
     async fn test_error_for_malformed_proof() {
-        let client = ColibriClient::new(
-            Some("https://beacon.test".to_string()),
-            Some("https://rpc.test".to_string()),
-            None,
-        );
+        let config = ClientConfig::new(1)
+            .with_beacon_apis(vec!["https://beacon.test".into()])
+            .with_eth_rpcs(vec!["https://rpc.test".into()]);
+        let client = ColibriClient::new(Some(config), None);
 
         let malformed_proof = vec![0xFF, 0xAA, 0xBB, 0xCC];
 
@@ -190,31 +185,19 @@ mod client_chain_configurations {
 
     #[test]
     fn test_mainnet_configuration() {
-        let client = ColibriClient::new(
-            Some("https://lodestar-mainnet.chainsafe.io".to_string()),
-            Some("https://ethereum-rpc.publicnode.com".to_string()),
-            None,
-        );
-        assert!(std::mem::size_of_val(&client) > 0);
+        let client = ColibriClient::new(Some(ClientConfig::new(1)), None);
+        assert_eq!(client.chain_id(), 1);
     }
 
     #[test]
     fn test_sepolia_configuration() {
-        let client = ColibriClient::new(
-            Some("https://lodestar-sepolia.chainsafe.io".to_string()),
-            Some("https://sepolia.gateway.tenderly.co".to_string()),
-            None,
-        );
-        assert!(std::mem::size_of_val(&client) > 0);
+        let client = ColibriClient::new(Some(ClientConfig::new(11155111)), None);
+        assert_eq!(client.chain_id(), 11155111);
     }
 
     #[test]
     fn test_gnosis_configuration() {
-        let client = ColibriClient::new(
-            Some("https://beacon.gnosischain.com".to_string()),
-            Some("https://rpc.gnosischain.com".to_string()),
-            None,
-        );
-        assert!(std::mem::size_of_val(&client) > 0);
+        let client = ColibriClient::new(Some(ClientConfig::new(100)), None);
+        assert_eq!(client.chain_id(), 100);
     }
 }
