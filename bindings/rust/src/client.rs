@@ -1,6 +1,13 @@
 use crate::prover::Prover;
 use crate::verifier::Verifier;
-use crate::types::{Result, ColibriError, Status, HttpRequest, MethodType};
+use crate::types::{Result, ColibriError, Status, HttpRequest, MethodType, RequestType, HttpMethod, Encoding};
+use crate::types::chain::{
+    MAINNET, SEPOLIA, GNOSIS, CHIADO,
+    MAINNET_ETH_RPC, SEPOLIA_ETH_RPC, GNOSIS_ETH_RPC, CHIADO_ETH_RPC,
+    MAINNET_BEACON_API, SEPOLIA_BEACON_API, GNOSIS_BEACON_API, CHIADO_BEACON_API,
+    MAINNET_CHECKPOINTZ_1, MAINNET_CHECKPOINTZ_2, MAINNET_CHECKPOINTZ_3, MAINNET_CHECKPOINTZ_4,
+    MAINNET_PROVER, SEPOLIA_PROVER, GNOSIS_PROVER, CHIADO_PROVER, DEFAULT_PROVER,
+};
 use crate::helpers;
 use reqwest::Client;
 use serde_json;
@@ -71,31 +78,31 @@ impl ClientConfig {
 
 fn default_eth_rpcs(chain_id: u64) -> Vec<String> {
     match chain_id {
-        1 => vec!["https://rpc.ankr.com/eth".into()],
-        11155111 => vec!["https://ethereum-sepolia-rpc.publicnode.com".into()],
-        100 => vec!["https://rpc.ankr.com/gnosis".into()],
-        10200 => vec!["https://gnosis-chiado-rpc.publicnode.com".into()],
-        _ => vec!["https://rpc.ankr.com/eth".into()],
+        MAINNET => vec![MAINNET_ETH_RPC.into()],
+        SEPOLIA => vec![SEPOLIA_ETH_RPC.into()],
+        GNOSIS => vec![GNOSIS_ETH_RPC.into()],
+        CHIADO => vec![CHIADO_ETH_RPC.into()],
+        _ => vec![MAINNET_ETH_RPC.into()],
     }
 }
 
 fn default_beacon_apis(chain_id: u64) -> Vec<String> {
     match chain_id {
-        1 => vec!["https://lodestar-mainnet.chainsafe.io".into()],
-        11155111 => vec!["https://ethereum-sepolia-beacon-api.publicnode.com".into()],
-        100 => vec!["https://gnosis.colibri-proof.tech".into()],
-        10200 => vec!["https://gnosis-chiado-beacon-api.publicnode.com".into()],
-        _ => vec!["https://lodestar-mainnet.chainsafe.io".into()],
+        MAINNET => vec![MAINNET_BEACON_API.into()],
+        SEPOLIA => vec![SEPOLIA_BEACON_API.into()],
+        GNOSIS => vec![GNOSIS_BEACON_API.into()],
+        CHIADO => vec![CHIADO_BEACON_API.into()],
+        _ => vec![MAINNET_BEACON_API.into()],
     }
 }
 
 fn default_checkpointz(chain_id: u64) -> Vec<String> {
     match chain_id {
-        1 => vec![
-            "https://sync-mainnet.beaconcha.in".into(),
-            "https://beaconstate.info".into(),
-            "https://sync.invis.tools".into(),
-            "https://beaconstate.ethstaker.cc".into(),
+        MAINNET => vec![
+            MAINNET_CHECKPOINTZ_1.into(),
+            MAINNET_CHECKPOINTZ_2.into(),
+            MAINNET_CHECKPOINTZ_3.into(),
+            MAINNET_CHECKPOINTZ_4.into(),
         ],
         _ => vec![],
     }
@@ -103,11 +110,11 @@ fn default_checkpointz(chain_id: u64) -> Vec<String> {
 
 fn default_provers(chain_id: u64) -> Vec<String> {
     match chain_id {
-        1 => vec!["https://mainnet1.colibri-proof.tech".into()],
-        11155111 => vec!["https://sepolia.colibri-proof.tech".into()],
-        100 => vec!["https://gnosis.colibri-proof.tech".into()],
-        10200 => vec!["https://chiado.colibri-proof.tech".into()],
-        _ => vec!["https://c4.incubed.net".into()],
+        MAINNET => vec![MAINNET_PROVER.into()],
+        SEPOLIA => vec![SEPOLIA_PROVER.into()],
+        GNOSIS => vec![GNOSIS_PROVER.into()],
+        CHIADO => vec![CHIADO_PROVER.into()],
+        _ => vec![DEFAULT_PROVER.into()],
     }
 }
 
@@ -168,7 +175,7 @@ impl ColibriClient {
         config: Option<ClientConfig>,
         storage: Option<Box<dyn crate::storage::Storage>>,
     ) -> Self {
-        let config = config.unwrap_or_else(|| ClientConfig::new(1));
+        let config = config.unwrap_or_else(|| ClientConfig::new(MAINNET));
 
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
@@ -197,17 +204,12 @@ impl ColibriClient {
         helpers::get_method_type(self.config.chain_id, method)
     }
 
-    fn get_servers_for_request(&self, request_type: &str) -> &[String] {
+    fn get_servers_for_request(&self, request_type: RequestType) -> &[String] {
         match request_type {
-            "checkpointz" => &self.config.checkpointz,
-            "beacon_api" | "beacon" => &self.config.beacon_apis,
-            "json_rpc" | "eth_rpc" => &self.config.eth_rpcs,
-            _ => &self.config.eth_rpcs,
+            RequestType::Checkpointz => &self.config.checkpointz,
+            RequestType::BeaconApi => &self.config.beacon_apis,
+            RequestType::JsonRpc => &self.config.eth_rpcs,
         }
-    }
-
-    fn parse_exclude_mask(&self, exclude_mask: &str) -> u32 {
-        exclude_mask.parse().unwrap_or(0)
     }
 
     async fn execute_request(
@@ -215,7 +217,7 @@ impl ColibriClient {
         req: &HttpRequest,
         server: &str,
     ) -> Result<Vec<u8>> {
-        let full_url = if req.url.is_empty() || req.request_type == "eth_rpc" || req.request_type == "json_rpc" {
+        let full_url = if req.url.is_empty() || req.request_type == RequestType::JsonRpc {
             server.to_string()
         } else {
             let base = server.trim_end_matches('/');
@@ -223,12 +225,12 @@ impl ColibriClient {
             format!("{}/{}", base, path)
         };
 
-        let mut request_builder = match req.method.to_uppercase().as_str() {
-            "GET" => self.http_client.get(&full_url),
-            "POST" => {
+        let mut request_builder = match req.method {
+            HttpMethod::Get => self.http_client.get(&full_url),
+            HttpMethod::Post => {
                 let mut builder = self.http_client.post(&full_url);
 
-                if req.request_type == "eth_rpc" || req.request_type == "json_rpc" {
+                if req.request_type == RequestType::JsonRpc {
                     if let Some(payload) = &req.payload {
                         let json_body = serde_json::to_string(payload)?;
                         builder = builder
@@ -245,16 +247,12 @@ impl ColibriClient {
 
                 builder
             }
-            method => {
-                return Err(ColibriError::Ffi(format!("Unsupported HTTP method: {}", method)));
-            }
         };
 
-        if req.encoding == "ssz" {
-            request_builder = request_builder.header("Accept", "application/octet-stream");
-        } else {
-            request_builder = request_builder.header("Accept", "application/json");
-        }
+        request_builder = match req.encoding {
+            Encoding::Ssz => request_builder.header("Accept", "application/octet-stream"),
+            Encoding::Json => request_builder.header("Accept", "application/json"),
+        };
 
         for (key, value) in &req.headers {
             request_builder = request_builder.header(key, value);
@@ -277,20 +275,19 @@ impl ColibriClient {
     }
 
     async fn handle_request(&self, req: &HttpRequest) -> Result<Vec<u8>> {
-        let servers = self.get_servers_for_request(&req.request_type);
+        let servers = self.get_servers_for_request(req.request_type);
 
         if servers.is_empty() {
             return Err(ColibriError::Ffi(format!(
-                "No servers configured for request type '{}'",
+                "No servers configured for request type '{:?}'",
                 req.request_type
             )));
         }
 
-        let exclude_mask = self.parse_exclude_mask(&req.exclude_mask);
         let mut last_error = None;
 
         for (i, server) in servers.iter().enumerate() {
-            if exclude_mask & (1 << i) != 0 {
+            if req.exclude_mask & (1 << i) != 0 {
                 continue;
             }
 
@@ -304,7 +301,7 @@ impl ColibriClient {
         }
 
         Err(last_error.unwrap_or_else(|| {
-            ColibriError::Ffi(format!("All servers failed for {}", req.request_type))
+            ColibriError::Ffi(format!("All servers failed for {:?}", req.request_type))
         }))
     }
 
@@ -461,7 +458,7 @@ mod tests {
 
     #[test]
     fn test_default_configs() {
-        let config = ClientConfig::new(1);
+        let config = ClientConfig::new(MAINNET);
         assert!(!config.eth_rpcs.is_empty());
         assert!(!config.beacon_apis.is_empty());
         assert!(!config.provers.is_empty());
@@ -476,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_client_with_config() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_beacon_apis(vec!["https://beacon.test".into()])
             .with_eth_rpcs(vec!["https://rpc.test".into()]);
         let client = ColibriClient::new(Some(config), None);
@@ -486,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_config_builder() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_eth_rpcs(vec!["https://custom-rpc.com".into()])
             .with_include_code(true);
 
@@ -498,20 +495,11 @@ mod tests {
     fn test_get_servers_for_request() {
         let client = ColibriClient::new(None, None);
 
-        let beacon_servers = client.get_servers_for_request("beacon_api");
+        let beacon_servers = client.get_servers_for_request(RequestType::BeaconApi);
         assert!(!beacon_servers.is_empty());
 
-        let rpc_servers = client.get_servers_for_request("eth_rpc");
+        let rpc_servers = client.get_servers_for_request(RequestType::JsonRpc);
         assert!(!rpc_servers.is_empty());
-    }
-
-    #[test]
-    fn test_exclude_mask_parsing() {
-        let client = ColibriClient::new(None, None);
-        assert_eq!(client.parse_exclude_mask("0"), 0);
-        assert_eq!(client.parse_exclude_mask("1"), 1);
-        assert_eq!(client.parse_exclude_mask("3"), 3);
-        assert_eq!(client.parse_exclude_mask("invalid"), 0);
     }
 
     struct TestRequestBuilder {
@@ -525,14 +513,14 @@ mod tests {
                     request_id: 1,
                     node_index: 0,
                     url: String::new(),
-                    method: "GET".to_string(),
+                    method: HttpMethod::Get,
                     headers: HashMap::new(),
                     body: None,
                     payload: None,
-                    encoding: "json".to_string(),
-                    request_type: "beacon_api".to_string(),
-                    chain_id: 1,
-                    exclude_mask: String::new(),
+                    encoding: Encoding::Json,
+                    request_type: RequestType::BeaconApi,
+                    chain_id: MAINNET,
+                    exclude_mask: 0,
                 },
             }
         }
@@ -542,8 +530,8 @@ mod tests {
             self
         }
 
-        fn with_type(mut self, request_type: &str) -> Self {
-            self.request.request_type = request_type.to_string();
+        fn with_type(mut self, request_type: RequestType) -> Self {
+            self.request.request_type = request_type;
             self
         }
 
@@ -564,7 +552,7 @@ mod tests {
 
         let request = TestRequestBuilder::new()
             .with_url("/eth/v1/beacon/genesis")
-            .with_type("beacon_api")
+            .with_type(RequestType::BeaconApi)
             .build();
 
         let result = client.handle_request(&request).await;
@@ -579,7 +567,7 @@ mod tests {
         let client = ColibriClient::new(Some(config), None);
 
         let request = TestRequestBuilder::new()
-            .with_type("checkpointz")
+            .with_type(RequestType::Checkpointz)
             .build();
 
         let result = client.handle_request(&request).await;

@@ -10,6 +10,6 @@ mod storage_ffi;
 pub use prover::Prover;
 pub use verifier::Verifier;
 pub use client::{ColibriClient, ClientConfig};
-pub use types::{ColibriError, Result, MethodType};
+pub use types::{ColibriError, Result, MethodType, MAINNET, SEPOLIA, GNOSIS, CHIADO};
 pub use helpers::{get_method_support, get_method_type};
 pub use storage::{Storage, MemoryStorage, FileStorage, DefaultStorage, default_storage};

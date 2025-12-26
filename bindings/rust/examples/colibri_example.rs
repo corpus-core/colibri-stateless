@@ -1,10 +1,10 @@
-use colibri::{ColibriClient, Result};
+use colibri::{ColibriClient, Result, MAINNET};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let method = "eth_blockNumber";
     let params = "[]";
-    let chain_id = 1;
+    let chain_id = MAINNET;
     let flags = 0;
 
     // Use mainnet defaults

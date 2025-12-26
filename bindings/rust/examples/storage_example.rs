@@ -1,4 +1,4 @@
-use colibri::{ColibriClient, MemoryStorage, Storage, Result};
+use colibri::{ColibriClient, MemoryStorage, Storage, Result, MAINNET};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
 
     let method = "eth_blockNumber";
     let params = "[]";
-    let chain_id = 1;
+    let chain_id = MAINNET;
     let flags = 0;
 
     println!("Generating proof for {}...", method);

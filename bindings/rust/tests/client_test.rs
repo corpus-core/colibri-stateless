@@ -1,4 +1,4 @@
-use colibri::{ColibriClient, ClientConfig, ColibriError, Result};
+use colibri::{ColibriClient, ClientConfig, ColibriError, Result, MAINNET, SEPOLIA, GNOSIS};
 
 #[cfg(test)]
 mod client_operations {
@@ -6,7 +6,7 @@ mod client_operations {
 
     #[tokio::test]
     async fn test_prove_without_urls_should_fail() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_eth_rpcs(vec![])
             .with_beacon_apis(vec![]);
         let client = ColibriClient::new(Some(config), None);
@@ -27,7 +27,7 @@ mod client_operations {
 
     #[tokio::test]
     async fn test_verify_without_urls_should_fail() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_eth_rpcs(vec![])
             .with_beacon_apis(vec![]);
         let client = ColibriClient::new(Some(config), None);
@@ -40,7 +40,7 @@ mod client_operations {
 
     #[tokio::test]
     async fn test_prove_with_invalid_method() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_beacon_apis(vec!["https://beacon.example.com".into()])
             .with_eth_rpcs(vec!["https://rpc.example.com".into()]);
         let client = ColibriClient::new(Some(config), None);
@@ -52,7 +52,7 @@ mod client_operations {
 
     #[tokio::test]
     async fn test_verify_with_invalid_proof() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_beacon_apis(vec!["https://beacon.example.com".into()])
             .with_eth_rpcs(vec!["https://rpc.example.com".into()]);
         let client = ColibriClient::new(Some(config), None);
@@ -71,7 +71,7 @@ mod client_error_handling {
 
     #[tokio::test]
     async fn test_error_for_missing_beacon_url() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_eth_rpcs(vec![])
             .with_beacon_apis(vec![]);
         let client = ColibriClient::new(Some(config), None);
@@ -83,7 +83,7 @@ mod client_error_handling {
 
     #[tokio::test]
     async fn test_error_for_missing_rpc_url() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_beacon_apis(vec!["https://beacon.test".into()])
             .with_eth_rpcs(vec![]);
         let client = ColibriClient::new(Some(config), None);
@@ -95,7 +95,7 @@ mod client_error_handling {
 
     #[tokio::test]
     async fn test_error_for_invalid_json_params() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_beacon_apis(vec!["https://beacon.test".into()])
             .with_eth_rpcs(vec!["https://rpc.test".into()]);
         let client = ColibriClient::new(Some(config), None);
@@ -107,7 +107,7 @@ mod client_error_handling {
 
     #[tokio::test]
     async fn test_error_for_empty_proof() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_beacon_apis(vec!["https://beacon.test".into()])
             .with_eth_rpcs(vec!["https://rpc.test".into()]);
         let client = ColibriClient::new(Some(config), None);
@@ -121,7 +121,7 @@ mod client_error_handling {
 
     #[tokio::test]
     async fn test_error_for_malformed_proof() {
-        let config = ClientConfig::new(1)
+        let config = ClientConfig::new(MAINNET)
             .with_beacon_apis(vec!["https://beacon.test".into()])
             .with_eth_rpcs(vec!["https://rpc.test".into()]);
         let client = ColibriClient::new(Some(config), None);
@@ -185,19 +185,19 @@ mod client_chain_configurations {
 
     #[test]
     fn test_mainnet_configuration() {
-        let client = ColibriClient::new(Some(ClientConfig::new(1)), None);
-        assert_eq!(client.chain_id(), 1);
+        let client = ColibriClient::new(Some(ClientConfig::new(MAINNET)), None);
+        assert_eq!(client.chain_id(), MAINNET);
     }
 
     #[test]
     fn test_sepolia_configuration() {
-        let client = ColibriClient::new(Some(ClientConfig::new(11155111)), None);
-        assert_eq!(client.chain_id(), 11155111);
+        let client = ColibriClient::new(Some(ClientConfig::new(SEPOLIA)), None);
+        assert_eq!(client.chain_id(), SEPOLIA);
     }
 
     #[test]
     fn test_gnosis_configuration() {
-        let client = ColibriClient::new(Some(ClientConfig::new(100)), None);
-        assert_eq!(client.chain_id(), 100);
+        let client = ColibriClient::new(Some(ClientConfig::new(GNOSIS)), None);
+        assert_eq!(client.chain_id(), GNOSIS);
     }
 }

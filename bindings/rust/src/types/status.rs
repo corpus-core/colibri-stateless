@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
+use super::request::{RequestType, HttpMethod, Encoding};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "status")]
@@ -17,20 +18,26 @@ pub enum Status {
     Success,
 }
 
+fn string_to_u32<'de, D: Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    let s = String::deserialize(d)?;
+    s.parse().map_err(serde::de::Error::custom)
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct HttpRequest {
     #[serde(rename = "req_ptr")]
     pub request_id: usize,
     pub url: String,
-    pub method: String,
-    #[serde(rename = "type")]
-    pub request_type: String,
+    #[serde(default)]
+    pub method: HttpMethod,
+    #[serde(rename = "type", default)]
+    pub request_type: RequestType,
     #[serde(default)]
     pub chain_id: u64,
     #[serde(default)]
-    pub encoding: String,
-    #[serde(default)]
-    pub exclude_mask: String,
+    pub encoding: Encoding,
+    #[serde(default, deserialize_with = "string_to_u32")]
+    pub exclude_mask: u32,
     #[serde(default)]
     pub headers: HashMap<String, String>,
     #[serde(default)]
