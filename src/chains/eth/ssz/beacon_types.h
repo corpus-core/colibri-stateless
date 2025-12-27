@@ -24,6 +24,7 @@
 #ifndef ETH_SSZ_TYPES_H
 #define ETH_SSZ_TYPES_H
 
+#include "common.h"
 #include "chains.h"
 #include "ssz.h"
 

@@ -44,9 +44,10 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(blst)
 
 # Set up initial flags
-# Always use -fPIC for static libraries that will be linked into shared libraries or PIE executables
-if((KOTLIN OR C4_PYTHON) AND (NOT WIN32 AND NOT EMSCRIPTEN))
-    set(EXTRA_C_FLAGS "-fPIC\ ")
+# Always use -fPIC for static libraries that might be linked into shared libraries or PIE executables.
+# IMPORTANT: Do not force -fPIC for EMBEDDED builds (e.g. ESP32 toolchains may not support it).
+if(NOT WIN32 AND NOT EMSCRIPTEN AND NOT EMBEDDED)
+    set(EXTRA_C_FLAGS "-fPIC ")
 endif()
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)
@@ -184,7 +185,7 @@ else()
                 OUTPUT_VARIABLE MACOS_SDK_PATH
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-            set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH}")
+            set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH} ${EXTRA_C_FLAGS}")
         else()
             set(BLST_CFLAGS "${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections")
         endif()

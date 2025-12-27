@@ -245,7 +245,7 @@ const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7] = {
     SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),        // the aggregates signature of the sync committee
     SSZ_UINT64("signatureSlot")};                          // the slot of the signature
 
-static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER __attribute__((unused)) = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
+static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER C4_UNUSED = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 
 // the light client bootstrap is used for initial sync from a trusted checkpoint
 const ssz_def_t ELECTRA_LIGHT_CLIENT_BOOTSTRAP[3] = {
@@ -254,7 +254,7 @@ const ssz_def_t ELECTRA_LIGHT_CLIENT_BOOTSTRAP[3] = {
     SSZ_VECTOR("currentSyncCommitteeBranch", ssz_bytes32, 6)}; // merkle proof for current sync committee (depth 6 in Electra)
 
 // the block header of the execution layer proved within the beacon block
-static const ssz_def_t EXECUTION_PAYLOAD_HEADER[] __attribute__((unused)) = {
+static const ssz_def_t EXECUTION_PAYLOAD_HEADER[] C4_UNUSED = {
     SSZ_BYTES32("parentHash"),         // the hash of the parent block
     SSZ_ADDRESS("feeRecipient"),       // the address of the fee recipient
     SSZ_BYTES32("stateRoot"),          // the merkle root of the state at the end of the block
