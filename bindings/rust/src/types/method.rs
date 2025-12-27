@@ -23,7 +23,7 @@ impl MethodType {
         match code {
             1.. => MethodType::Proofable,
             0 => MethodType::NotSupported,
-            _ => MethodType::NotSupported,  // Negative values also mean not supported
+            _ => MethodType::NotSupported, // Negative values also mean not supported
         }
     }
 

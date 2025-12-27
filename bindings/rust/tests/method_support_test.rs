@@ -36,7 +36,10 @@ fn test_eth_get_transaction_by_hash_support() {
 #[test]
 fn test_eth_get_transaction_receipt_support() {
     let support = get_method_support(1, "eth_getTransactionReceipt").unwrap();
-    assert!(support >= 0, "eth_getTransactionReceipt should be supported");
+    assert!(
+        support >= 0,
+        "eth_getTransactionReceipt should be supported"
+    );
 }
 
 #[test]

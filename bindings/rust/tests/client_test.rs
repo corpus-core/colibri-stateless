@@ -1,4 +1,4 @@
-use colibri::{ColibriClient, ClientConfig, ColibriError, Result, MAINNET, SEPOLIA, GNOSIS};
+use colibri::{ClientConfig, ColibriClient, ColibriError, Result, GNOSIS, MAINNET, SEPOLIA};
 
 #[cfg(test)]
 mod client_operations {
@@ -33,7 +33,9 @@ mod client_operations {
         let client = ColibriClient::new(Some(config), None);
         let fake_proof = vec![0u8; 100];
 
-        let result = client.verify(&fake_proof, "eth_blockNumber", "[]", 1, "").await;
+        let result = client
+            .verify(&fake_proof, "eth_blockNumber", "[]", 1, "")
+            .await;
 
         assert!(result.is_err(), "Should fail without configured URLs");
     }
@@ -59,7 +61,9 @@ mod client_operations {
 
         let invalid_proof = vec![0xFF; 10];
 
-        let result = client.verify(&invalid_proof, "eth_blockNumber", "[]", 1, "").await;
+        let result = client
+            .verify(&invalid_proof, "eth_blockNumber", "[]", 1, "")
+            .await;
 
         assert!(result.is_err(), "Should fail");
     }
@@ -88,7 +92,9 @@ mod client_error_handling {
             .with_eth_rpcs(vec![]);
         let client = ColibriClient::new(Some(config), None);
 
-        let result = client.prove("eth_getBalance", "[\"0x0\", \"latest\"]", 1, 0).await;
+        let result = client
+            .prove("eth_getBalance", "[\"0x0\", \"latest\"]", 1, 0)
+            .await;
 
         assert!(result.is_err());
     }
@@ -114,7 +120,9 @@ mod client_error_handling {
 
         let empty_proof = vec![];
 
-        let result = client.verify(&empty_proof, "eth_blockNumber", "[]", 1, "").await;
+        let result = client
+            .verify(&empty_proof, "eth_blockNumber", "[]", 1, "")
+            .await;
 
         assert!(result.is_err());
     }
@@ -128,7 +136,9 @@ mod client_error_handling {
 
         let malformed_proof = vec![0xFF, 0xAA, 0xBB, 0xCC];
 
-        let result = client.verify(&malformed_proof, "eth_blockNumber", "[]", 1, "").await;
+        let result = client
+            .verify(&malformed_proof, "eth_blockNumber", "[]", 1, "")
+            .await;
 
         assert!(result.is_err());
     }
@@ -148,8 +158,8 @@ mod error_types {
     #[test]
     fn test_error_from_json() {
         let json_str = "invalid json";
-        let result: Result<serde_json::Value> = serde_json::from_str(json_str)
-            .map_err(ColibriError::from);
+        let result: Result<serde_json::Value> =
+            serde_json::from_str(json_str).map_err(ColibriError::from);
 
         assert!(result.is_err());
         match result {

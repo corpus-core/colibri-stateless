@@ -1,13 +1,12 @@
-mod ffi;
 pub mod core;
+mod ffi;
 pub mod storage;
 pub mod types;
 
-pub use core::{ColibriClient, ClientConfig, Prover, Verifier};
 pub use core::{get_method_support, get_method_type};
+pub use core::{ClientConfig, ColibriClient, Prover, Verifier};
+pub use storage::{default_storage, DefaultStorage, FileStorage, MemoryStorage, Storage};
 pub use types::{
-    ColibriError, Result, MethodType,
-    ProofError, VerificationError, RPCError, HTTPError, StorageError,
-    MAINNET, SEPOLIA, GNOSIS, CHIADO,
+    ColibriError, HTTPError, MethodType, ProofError, RPCError, Result, StorageError,
+    VerificationError, CHIADO, GNOSIS, MAINNET, SEPOLIA,
 };
-pub use storage::{Storage, MemoryStorage, FileStorage, DefaultStorage, default_storage};

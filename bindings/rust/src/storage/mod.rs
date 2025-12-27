@@ -1,10 +1,10 @@
 pub(crate) mod ffi;
 
 use std::collections::HashMap;
+use std::env;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::fs;
-use std::env;
 
 /// Trait for storage implementations
 pub trait Storage: Send + Sync {
@@ -55,7 +55,10 @@ impl Storage for MemoryStorage {
     }
 
     fn set(&self, key: &str, value: &[u8]) {
-        self.data.lock().unwrap().insert(key.to_string(), value.to_vec());
+        self.data
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), value.to_vec());
     }
 
     fn delete(&self, key: &str) {
@@ -74,9 +77,7 @@ impl FileStorage {
         let base_dir = base_dir.unwrap_or_else(|| {
             env::var("C4_STATES_DIR")
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| {
-                    env::temp_dir().join("colibri_states")
-                })
+                .unwrap_or_else(|_| env::temp_dir().join("colibri_states"))
         });
 
         fs::create_dir_all(&base_dir)?;
@@ -87,7 +88,8 @@ impl FileStorage {
     /// Get the file path for a storage key
     fn get_file_path(&self, key: &str) -> PathBuf {
         // Sanitize the key to be filesystem-safe
-        let safe_key: String = key.chars()
+        let safe_key: String = key
+            .chars()
             .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '_' || *c == '-')
             .collect();
 

@@ -1,4 +1,4 @@
-use colibri::{ColibriClient, MemoryStorage, Storage, Result, MAINNET};
+use colibri::{ColibriClient, MemoryStorage, Result, Storage, MAINNET};
 
 #[tokio::main]
 async fn main() -> Result<()> {

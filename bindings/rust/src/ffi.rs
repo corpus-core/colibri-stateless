@@ -22,10 +22,12 @@ pub struct buffer_t {
 
 /// Storage plugin callback type for get operation
 /// Returns true if key found and data copied to buffer, false otherwise
-pub type storage_get_fn = Option<unsafe extern "C" fn(key: *mut ::std::os::raw::c_char, buffer: *mut buffer_t) -> bool>;
+pub type storage_get_fn =
+    Option<unsafe extern "C" fn(key: *mut ::std::os::raw::c_char, buffer: *mut buffer_t) -> bool>;
 
 /// Storage plugin callback type for set operation
-pub type storage_set_fn = Option<unsafe extern "C" fn(key: *mut ::std::os::raw::c_char, value: bytes_t)>;
+pub type storage_set_fn =
+    Option<unsafe extern "C" fn(key: *mut ::std::os::raw::c_char, value: bytes_t)>;
 
 /// Storage plugin callback type for delete operation
 pub type storage_del_fn = Option<unsafe extern "C" fn(key: *mut ::std::os::raw::c_char)>;

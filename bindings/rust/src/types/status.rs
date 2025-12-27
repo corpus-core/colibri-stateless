@@ -1,6 +1,6 @@
+use super::request::{Encoding, HttpMethod, RequestType};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
-use super::request::{RequestType, HttpMethod, Encoding};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "status")]
@@ -11,7 +11,7 @@ pub enum Status {
     #[serde(rename = "error")]
     Error {
         #[serde(rename = "error")]
-        message: String
+        message: String,
     },
 
     #[serde(rename = "success")]

@@ -1,16 +1,15 @@
+use super::helpers;
 use super::prover::Prover;
 use super::verifier::Verifier;
-use super::helpers;
-use crate::types::{
-    Result, ColibriError, Status, HttpRequest, MethodType, RequestType, HttpMethod, Encoding,
-    HTTPError, ProofError, VerificationError,
-};
 use crate::types::chain::{
-    MAINNET, SEPOLIA, GNOSIS, CHIADO,
-    MAINNET_ETH_RPC, SEPOLIA_ETH_RPC, GNOSIS_ETH_RPC, CHIADO_ETH_RPC,
-    MAINNET_BEACON_API, SEPOLIA_BEACON_API, GNOSIS_BEACON_API, CHIADO_BEACON_API,
+    CHIADO, CHIADO_BEACON_API, CHIADO_ETH_RPC, CHIADO_PROVER, DEFAULT_PROVER, GNOSIS,
+    GNOSIS_BEACON_API, GNOSIS_ETH_RPC, GNOSIS_PROVER, MAINNET, MAINNET_BEACON_API,
     MAINNET_CHECKPOINTZ_1, MAINNET_CHECKPOINTZ_2, MAINNET_CHECKPOINTZ_3, MAINNET_CHECKPOINTZ_4,
-    MAINNET_PROVER, SEPOLIA_PROVER, GNOSIS_PROVER, CHIADO_PROVER, DEFAULT_PROVER,
+    MAINNET_ETH_RPC, MAINNET_PROVER, SEPOLIA, SEPOLIA_BEACON_API, SEPOLIA_ETH_RPC, SEPOLIA_PROVER,
+};
+use crate::types::{
+    ColibriError, Encoding, HTTPError, HttpMethod, HttpRequest, MethodType, ProofError,
+    RequestType, Result, Status, VerificationError,
 };
 use reqwest::Client;
 use serde_json;
@@ -185,16 +184,17 @@ impl ColibriClient {
             .build()
             .unwrap_or_else(|_| Client::new());
 
-        let storage = storage.unwrap_or_else(|| {
-            match crate::storage::default_storage() {
-                Ok(fs) => Box::new(fs) as Box<dyn crate::storage::Storage>,
-                Err(_) => crate::storage::MemoryStorage::new() as Box<dyn crate::storage::Storage>,
-            }
+        let storage = storage.unwrap_or_else(|| match crate::storage::default_storage() {
+            Ok(fs) => Box::new(fs) as Box<dyn crate::storage::Storage>,
+            Err(_) => crate::storage::MemoryStorage::new() as Box<dyn crate::storage::Storage>,
         });
 
         crate::storage::ffi::register_global_storage(storage);
 
-        Self { http_client, config }
+        Self {
+            http_client,
+            config,
+        }
     }
 
     /// Get the chain ID
@@ -215,11 +215,7 @@ impl ColibriClient {
         }
     }
 
-    async fn execute_request(
-        &self,
-        req: &HttpRequest,
-        server: &str,
-    ) -> Result<Vec<u8>> {
+    async fn execute_request(&self, req: &HttpRequest, server: &str) -> Result<Vec<u8>> {
         let full_url = if req.url.is_empty() || req.request_type == RequestType::JsonRpc {
             server.to_string()
         } else {
@@ -266,11 +262,9 @@ impl ColibriClient {
         let bytes = response.bytes().await?;
 
         if !status.is_success() {
-            return Err(HTTPError::full(
-                String::from_utf8_lossy(&bytes),
-                status.as_u16(),
-                server,
-            ).into());
+            return Err(
+                HTTPError::full(String::from_utf8_lossy(&bytes), status.as_u16(), server).into(),
+            );
         }
 
         Ok(bytes.to_vec())
@@ -347,11 +341,7 @@ impl ColibriClient {
                     for request in requests {
                         match self.handle_request(&request).await {
                             Ok(data) => {
-                                prover.set_response(
-                                    request.request_id,
-                                    &data,
-                                    request.node_index,
-                                );
+                                prover.set_response(request.request_id, &data, request.node_index);
                             }
                             Err(err) => {
                                 prover.set_error(
@@ -443,7 +433,10 @@ impl ColibriClient {
                     if let Some(result) = status_json.get("result") {
                         return Ok(result.clone());
                     }
-                    return Err(VerificationError::Failed("Success but no result found".to_string()).into());
+                    return Err(VerificationError::Failed(
+                        "Success but no result found".to_string(),
+                    )
+                    .into());
                 }
                 Status::Error { message } => {
                     return Err(VerificationError::Failed(message).into());
@@ -544,11 +537,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_request_with_fallback() {
-        let config = ClientConfig::new(1)
-            .with_beacon_apis(vec![
-                "https://invalid-server-1.test".into(),
-                "https://invalid-server-2.test".into(),
-            ]);
+        let config = ClientConfig::new(1).with_beacon_apis(vec![
+            "https://invalid-server-1.test".into(),
+            "https://invalid-server-2.test".into(),
+        ]);
 
         let client = ColibriClient::new(Some(config), None);
 
@@ -563,8 +555,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_request_empty_servers() {
-        let config = ClientConfig::new(1)
-            .with_checkpointz(vec![]);
+        let config = ClientConfig::new(1).with_checkpointz(vec![]);
 
         let client = ColibriClient::new(Some(config), None);
 

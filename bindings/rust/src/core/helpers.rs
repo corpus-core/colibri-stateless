@@ -1,14 +1,12 @@
 use crate::ffi;
-use crate::types::{Result, MethodType};
+use crate::types::{MethodType, Result};
 use std::ffi::{c_void, CString};
 
 pub fn bytes_to_vec(bytes: ffi::bytes_t) -> Vec<u8> {
     if bytes.data.is_null() || bytes.len == 0 {
         Vec::new()
     } else {
-        unsafe {
-            std::slice::from_raw_parts(bytes.data, bytes.len as usize).to_vec()
-        }
+        unsafe { std::slice::from_raw_parts(bytes.data, bytes.len as usize).to_vec() }
     }
 }
 
@@ -21,11 +19,7 @@ pub fn slice_to_bytes(data: &[u8]) -> ffi::bytes_t {
 
 pub fn set_request_response(req_ptr: u64, data: &[u8], node_index: u16) {
     unsafe {
-        ffi::c4_req_set_response(
-            req_ptr as *mut c_void,
-            slice_to_bytes(data),
-            node_index,
-        );
+        ffi::c4_req_set_response(req_ptr as *mut c_void, slice_to_bytes(data), node_index);
     }
 }
 
@@ -46,9 +40,7 @@ pub fn set_request_response(req_ptr: u64, data: &[u8], node_index: u16) {
 pub fn get_method_support(chain_id: u64, method: &str) -> Result<i32> {
     let c_method = CString::new(method)?;
 
-    let support = unsafe {
-        ffi::c4_get_method_support(chain_id, c_method.as_ptr() as *mut i8)
-    };
+    let support = unsafe { ffi::c4_get_method_support(chain_id, c_method.as_ptr() as *mut i8) };
 
     Ok(support)
 }

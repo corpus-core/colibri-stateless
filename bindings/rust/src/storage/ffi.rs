@@ -1,8 +1,8 @@
-use std::ffi::{CStr, c_char};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::ptr;
 use super::Storage;
-use crate::ffi::{buffer_t, bytes_t, storage_plugin_t, c4_set_storage_config, buffer_grow};
+use crate::ffi::{buffer_grow, buffer_t, bytes_t, c4_set_storage_config, storage_plugin_t};
+use std::ffi::{c_char, CStr};
+use std::ptr;
+use std::sync::{Arc, Mutex, OnceLock};
 
 // Global storage instance
 static GLOBAL_STORAGE: OnceLock<Arc<Mutex<Box<dyn Storage>>>> = OnceLock::new();
@@ -115,8 +115,8 @@ pub(crate) fn cleanup_global_storage() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::MemoryStorage;
+    use super::*;
     use crate::ffi::c4_get_storage_config;
 
     #[test]
@@ -161,7 +161,10 @@ mod tests {
 
             assert_eq!(plugin.get.unwrap() as usize, storage_get_callback as usize);
             assert_eq!(plugin.set.unwrap() as usize, storage_set_callback as usize);
-            assert_eq!(plugin.del.unwrap() as usize, storage_delete_callback as usize);
+            assert_eq!(
+                plugin.del.unwrap() as usize,
+                storage_delete_callback as usize
+            );
         }
     }
 
@@ -186,7 +189,10 @@ mod tests {
             c4_get_storage_config(&mut plugin);
 
             let mut buffer = buffer_t {
-                data: bytes_t { len: 0, data: std::ptr::null_mut() },
+                data: bytes_t {
+                    len: 0,
+                    data: std::ptr::null_mut(),
+                },
                 allocated: 0,
             };
 
