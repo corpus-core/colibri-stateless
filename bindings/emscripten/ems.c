@@ -87,6 +87,8 @@ static const char* data_request_type_to_string(data_request_type_t type) {
       return "intern";
     case C4_DATA_TYPE_CHECKPOINTZ:
       return "checkpointz";
+    case C4_DATA_TYPE_PROVER:
+      return "prover";
   }
 }
 static void add_data_request(buffer_t* result, data_request_t* data_request) {
@@ -141,18 +143,23 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
   ctx->response_node_index = node_index;
 }
 
-void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint) {
+void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys) {
   if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
     bytes32_t checkpoint;
     hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
     c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
   }
-
   if (method == NULL || strlen(method) == 0) return NULL;
 
   c4w_verify_ctx_t* ctx = calloc(1, sizeof(c4w_verify_ctx_t));
   ctx->proof            = bytes_dup(bytes(proof, proof_len));
   c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id);
+
+  if (witness_keys && strlen(witness_keys) > 40 && witness_keys[0] == '0' && witness_keys[1] == 'x') {
+    bytes_t witness_key_bytes = bytes(safe_malloc(strlen(witness_keys) / 2), (strlen(witness_keys) - 2) / 2);
+    hex_to_bytes(witness_keys + 2, -1, witness_key_bytes);
+    ctx->verify.witness_keys = witness_key_bytes;
+  }
 
   return (void*) ctx;
 }

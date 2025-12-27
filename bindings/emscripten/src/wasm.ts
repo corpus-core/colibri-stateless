@@ -29,7 +29,7 @@ export interface C4W {
     _c4w_req_set_response: (reqPtr: number, data: number, len: number, node_index: number) => void;
     _c4w_req_set_error: (reqPtr: number, error: number, node_index: number) => void;
     _c4w_get_method_type: (chain_id: bigint, method: number) => number;
-    _c4w_create_verify_ctx: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint, trusted_checkpoint: number) => number;
+    _c4w_create_verify_ctx: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint, trusted_checkpoint: number, witness_keys: number) => number;
     _c4w_free_verify_ctx: (verifyCtx: number) => void;
     _c4w_verify_proof: (verifyCtx: number) => number;
     _c4w_req_free: (reqPtr: number) => void;
@@ -202,6 +202,6 @@ export async function get_prover_config_hex(chainId: number): Promise<string> {
 export async function set_trusted_checkpoint(chainId: number, checkpoint: string): Promise<void> {
     const c4w = await getC4w();
     const free_buffers: number[] = [];
-    c4w._c4w_create_verify_ctx(0, 0, 0, 0, BigInt(chainId), as_char_ptr(checkpoint, c4w, free_buffers));
+    c4w._c4w_create_verify_ctx(0, 0, 0, 0, BigInt(chainId), as_char_ptr(checkpoint, c4w, free_buffers), 0);
     free_buffers.forEach(ptr => c4w._free(ptr));
 }
