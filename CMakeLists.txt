@@ -110,7 +110,7 @@ option(BLOCK_HASH_CACHE "Cache block hashes for faster verification within the s
 option(WASM "Build WebAssembly target" OFF)
 option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)
-option(PYTHON "Build Python bindings" OFF)
+option(C4_PYTHON "Build Python bindings" OFF) # NOTE: ESP-IDF passes -DPYTHON=<python-executable> to CMake. Do not use PYTHON as a boolean option name.
 option(TEST "Build the unit tests" OFF)
 option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
@@ -134,7 +134,7 @@ if(WITNESS_SIGNER)
     add_definitions(-DWITNESS_SIGNER)
 endif()
 # Python bindings configuration
-if(PYTHON)
+if(C4_PYTHON)
     # Python bindings disable CURL/CLI (HTTP is handled in Python)
     set(CURL OFF CACHE BOOL "Disable CURL for Python bindings" FORCE)
     set(CLI OFF CACHE BOOL "Disable CLI tools for Python bindings" FORCE)
@@ -382,7 +382,7 @@ if(SWIFT)
     add_subdirectory(bindings/swift)
 endif()
 
-if(PYTHON)
+if(C4_PYTHON)
     add_subdirectory(bindings/python)
 endif()
 

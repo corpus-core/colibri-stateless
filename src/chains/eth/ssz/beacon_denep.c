@@ -251,7 +251,7 @@ static const ssz_def_t SIGNED_BEACON_BLOCK_CONTAINER        = SSZ_CONTAINER("sig
 static const ssz_def_t SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER = SSZ_CONTAINER("signedBeaconBlockGnosis", SIGNED_BEACON_BLOCK_GNOSIS);
 #endif
 
-static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
+static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER __attribute__((unused)) = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 
 // the public keys sync committee used within a period ( about 27h)
 const ssz_def_t SYNC_COMMITTEE[2] = {

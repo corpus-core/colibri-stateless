@@ -133,7 +133,7 @@ typedef struct {
  * ```
  */
 #define ssz_builder_for_def(typename) \
-  {.def = (ssz_def_t*) typename, .dynamic = {0}, .fixed = {0}}
+  (ssz_builder_t){ .def = (const ssz_def_t*) (typename), .fixed = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }, .dynamic = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }}
 
 /** gets the uint64 value of the object */
 static inline uint64_t ssz_uint64(ssz_ob_t ob) {
@@ -1000,7 +1000,17 @@ void ssz_builder_free(ssz_builder_t* buffer);
  * @return A builder wrapping the object's bytes
  */
 static inline ssz_builder_t ssz_builder_from(ssz_ob_t val) {
-  return (ssz_builder_t) {.def = val.def, .fixed = {.allocated = val.bytes.len, .data = val.bytes}, .dynamic = {0}};
+  return (ssz_builder_t){
+    .def = val.def,
+    .fixed = (buffer_t){
+        .data = (bytes_t){ .data = val.bytes.data, .len = val.bytes.len },
+        .allocated = (int32_t)val.bytes.len,
+    },
+    .dynamic = (buffer_t){
+        .data = (bytes_t){ .data = NULL, .len = 0 },
+        .allocated = 0,
+    },
+};
 }
 
 /**

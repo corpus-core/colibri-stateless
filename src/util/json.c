@@ -44,7 +44,7 @@
  * @return pointer to next non-whitespace character, or NULL if end of string
  */
 static const char* next_non_whitespace_token(const char* data) {
-  while (*data && isspace(*data)) data++;
+  while (*data && isspace((unsigned char)*data)) data++;
   return *data ? data : NULL;
 }
 
@@ -87,7 +87,7 @@ static const char* find_end(const char* pos, char start, char end) {
 static json_t parse_number(const char* start) {
   json_t json = json(JSON_TYPE_NUMBER, start, 0);
   for (; *start; start++) {
-    if (isdigit(*start) || *start == '.' || *start == '-' || *start == 'e' || *start == 'E')
+    if (isdigit((unsigned char)*start) || *start == '.' || *start == '-' || *start == 'e' || *start == 'E')
       json.len++;
     else
       break;
