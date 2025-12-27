@@ -1,7 +1,10 @@
 use super::prover::Prover;
 use super::verifier::Verifier;
 use super::helpers;
-use crate::types::{Result, ColibriError, Status, HttpRequest, MethodType, RequestType, HttpMethod, Encoding};
+use crate::types::{
+    Result, ColibriError, Status, HttpRequest, MethodType, RequestType, HttpMethod, Encoding,
+    HTTPError, ProofError, VerificationError,
+};
 use crate::types::chain::{
     MAINNET, SEPOLIA, GNOSIS, CHIADO,
     MAINNET_ETH_RPC, SEPOLIA_ETH_RPC, GNOSIS_ETH_RPC, CHIADO_ETH_RPC,
@@ -263,12 +266,11 @@ impl ColibriClient {
         let bytes = response.bytes().await?;
 
         if !status.is_success() {
-            return Err(ColibriError::Ffi(format!(
-                "HTTP {} from {}: {}",
+            return Err(HTTPError::full(
+                String::from_utf8_lossy(&bytes),
                 status.as_u16(),
                 server,
-                String::from_utf8_lossy(&bytes)
-            )));
+            ).into());
         }
 
         Ok(bytes.to_vec())
@@ -278,7 +280,7 @@ impl ColibriClient {
         let servers = self.get_servers_for_request(req.request_type);
 
         if servers.is_empty() {
-            return Err(ColibriError::Ffi(format!(
+            return Err(ColibriError::Config(format!(
                 "No servers configured for request type '{:?}'",
                 req.request_type
             )));
@@ -301,7 +303,7 @@ impl ColibriClient {
         }
 
         Err(last_error.unwrap_or_else(|| {
-            ColibriError::Ffi(format!("All servers failed for {:?}", req.request_type))
+            HTTPError::new(format!("All servers failed for {:?}", req.request_type)).into()
         }))
     }
 
@@ -365,7 +367,7 @@ impl ColibriClient {
                     return prover.get_proof();
                 }
                 Status::Error { message } => {
-                    return Err(ColibriError::Ffi(message));
+                    return Err(ProofError::Generation(message).into());
                 }
             }
         }
@@ -441,10 +443,10 @@ impl ColibriClient {
                     if let Some(result) = status_json.get("result") {
                         return Ok(result.clone());
                     }
-                    return Err(ColibriError::Ffi("Success but no result found".to_string()));
+                    return Err(VerificationError::Failed("Success but no result found".to_string()).into());
                 }
                 Status::Error { message } => {
-                    return Err(ColibriError::Ffi(message));
+                    return Err(VerificationError::Failed(message).into());
                 }
             }
         }

@@ -177,6 +177,70 @@ mod error_types {
         let display = format!("{}", error);
         assert!(display.contains("Invalid C string"));
     }
+
+    #[test]
+    fn test_proof_error() {
+        use colibri::ProofError;
+
+        let error = ProofError::Generation("test failure".to_string());
+        let display = format!("{}", error);
+        assert!(display.contains("Proof generation failed"));
+        assert!(display.contains("test failure"));
+
+        let colibri_error: ColibriError = error.into();
+        assert!(matches!(colibri_error, ColibriError::Proof(_)));
+    }
+
+    #[test]
+    fn test_verification_error() {
+        use colibri::VerificationError;
+
+        let error = VerificationError::Failed("invalid signature".to_string());
+        let display = format!("{}", error);
+        assert!(display.contains("Verification failed"));
+
+        let colibri_error: ColibriError = error.into();
+        assert!(matches!(colibri_error, ColibriError::Verification(_)));
+    }
+
+    #[test]
+    fn test_rpc_error() {
+        use colibri::RPCError;
+
+        let error = RPCError::new("method not found");
+        assert_eq!(format!("{}", error), "RPC error: method not found");
+
+        let error_with_code = RPCError::with_code("invalid params", -32602);
+        assert!(format!("{}", error_with_code).contains("-32602"));
+        assert!(format!("{}", error_with_code).contains("invalid params"));
+    }
+
+    #[test]
+    fn test_http_error() {
+        use colibri::HTTPError;
+
+        let error = HTTPError::new("connection refused");
+        assert!(format!("{}", error).contains("connection refused"));
+
+        let error_with_status = HTTPError::with_status("not found", 404);
+        assert!(format!("{}", error_with_status).contains("404"));
+
+        let full_error = HTTPError::full("server error", 500, "https://example.com");
+        let display = format!("{}", full_error);
+        assert!(display.contains("500"));
+        assert!(display.contains("example.com"));
+    }
+
+    #[test]
+    fn test_storage_error() {
+        use colibri::StorageError;
+
+        let error = StorageError::NotInitialized;
+        assert!(format!("{}", error).contains("not initialized"));
+
+        let read_error = StorageError::ReadFailed("key not found".to_string());
+        assert!(format!("{}", read_error).contains("read failed"));
+    }
 }
 
 #[cfg(test)]

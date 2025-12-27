@@ -1,6 +1,7 @@
+
 use crate::ffi;
 use super::helpers::slice_to_bytes;
-use crate::types::{Result, ColibriError};
+use crate::types::{Result, VerificationError};
 use std::ffi::{CStr, CString};
 
 pub struct Verifier {
@@ -30,7 +31,9 @@ impl Verifier {
         };
 
         if ctx.is_null() {
-            return Err(ColibriError::NullPointer);
+            return Err(VerificationError::ContextCreation(
+                format!("Failed to create verification context for method '{}'", method)
+            ).into());
         }
 
         Ok(Self { ctx })
@@ -40,7 +43,9 @@ impl Verifier {
         unsafe {
             let ptr = ffi::c4_verify_execute_json_status(self.ctx);
             if ptr.is_null() {
-                return Err(ColibriError::NullPointer);
+                return Err(VerificationError::Failed(
+                    "Verifier execution returned null status".to_string()
+                ).into());
             }
 
             let cstr = CStr::from_ptr(ptr);

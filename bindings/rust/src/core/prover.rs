@@ -1,6 +1,6 @@
 use crate::ffi;
 use super::helpers::{bytes_to_vec, slice_to_bytes};
-use crate::types::{Result, ColibriError};
+use crate::types::{Result, ProofError};
 use std::ffi::{CStr, CString};
 
 pub struct Prover {
@@ -22,7 +22,9 @@ impl Prover {
         };
 
         if ctx.is_null() {
-            return Err(ColibriError::NullPointer);
+            return Err(ProofError::ContextCreation(
+                format!("Failed to create prover context for method '{}'", method)
+            ).into());
         }
 
         Ok(Self { ctx })
@@ -32,7 +34,9 @@ impl Prover {
         unsafe {
             let ptr = ffi::c4_prover_execute_json_status(self.ctx);
             if ptr.is_null() {
-                return Err(ColibriError::NullPointer);
+                return Err(ProofError::Generation(
+                    "Prover execution returned null status".to_string()
+                ).into());
             }
 
             let cstr = CStr::from_ptr(ptr);
@@ -46,7 +50,13 @@ impl Prover {
     pub fn get_proof(&mut self) -> Result<Vec<u8>> {
         unsafe {
             let proof_bytes = ffi::c4_prover_get_proof(self.ctx);
-            Ok(bytes_to_vec(proof_bytes))
+            let proof = bytes_to_vec(proof_bytes);
+            if proof.is_empty() {
+                return Err(ProofError::InvalidData(
+                    "Generated proof is empty".to_string()
+                ).into());
+            }
+            Ok(proof)
         }
     }
 

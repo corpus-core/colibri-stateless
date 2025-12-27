@@ -4,7 +4,7 @@ pub mod method;
 pub mod chain;
 pub mod request;
 
-pub use error::{ColibriError, Result};
+pub use error::{ColibriError, Result, ProofError, VerificationError, RPCError, HTTPError, StorageError};
 pub use status::{Status, HttpRequest};
 pub use method::MethodType;
 pub use chain::{
