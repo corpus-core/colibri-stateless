@@ -270,9 +270,18 @@ static int on_body(llhttp_t* parser, const char* at, size_t length) {
   }
 
   client->body_size_received = new_total;
-  client->request.payload    = (uint8_t*) safe_malloc(length);
-  memcpy(client->request.payload, at, length);
-  client->request.payload_len = length;
+  // llhttp may call on_body multiple times (chunked encoding or segmented reads).
+  // Accumulate the full payload so handlers see a complete request body.
+  if (length > 0) {
+    uint8_t* new_payload = (uint8_t*) safe_malloc(new_total);
+    if (client->request.payload && client->request.payload_len > 0) {
+      memcpy(new_payload, client->request.payload, client->request.payload_len);
+      safe_free(client->request.payload);
+    }
+    memcpy(new_payload + (new_total - length), at, length);
+    client->request.payload     = new_payload;
+    client->request.payload_len = new_total;
+  }
   return 0;
 }
 
@@ -292,9 +301,10 @@ static char* method_str(data_request_method_t method) {
 }
 
 static void log_request(client_t* client) {
-  if (strcmp(client->request.path, "/health") == 0) return;      // no healthcheck logging
-  if (strcmp(client->request.path, "/healthcheck") == 0) return; // no healthcheck logging
-  if (strcmp(client->request.path, "/metrics") == 0) return;     // no metrics logging
+  if (strcmp(client->request.path, "/health") == 0) return;            // no healthcheck logging
+  if (strcmp(client->request.path, "/healthcheck") == 0) return;       // no healthcheck logging
+  if (strcmp(client->request.path, "/metrics") == 0) return;           // no metrics logging
+  if (strncmp(client->request.path, "/period_store", 13) == 0) return; // no period_store logging
 
 #ifdef HTTP_SERVER_GEO
   log_info(MAGENTA("::[%s]") "%s" GRAY(" (%s in %s) :: #%lx"),
@@ -336,6 +346,7 @@ static void c4_metrics_update_geo(client_t* client) {
   if (strcmp(client->request.path, "/health") == 0) return;
   if (strcmp(client->request.path, "/healthcheck") == 0) return;
   if (strcmp(client->request.path, "/metrics") == 0) return;
+  if (strncmp(client->request.path, "/period_store", 13) == 0) return;
   if (client->request.method != C4_DATA_METHOD_POST) return;
   if (!client->request.geo_city || !client->request.geo_country) return;
 

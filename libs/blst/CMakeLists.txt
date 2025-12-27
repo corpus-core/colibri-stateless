@@ -44,9 +44,10 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(blst)
 
 # Set up initial flags
-# Always use -fPIC for static libraries that will be linked into shared libraries or PIE executables
-if(KOTLIN OR PYTHON OR (NOT WIN32 AND NOT EMSCRIPTEN))
-    set(EXTRA_C_FLAGS "-fPIC\ ")
+# Always use -fPIC for static libraries that might be linked into shared libraries or PIE executables.
+# IMPORTANT: Do not force -fPIC for EMBEDDED builds (e.g. ESP32 toolchains may not support it).
+if(NOT WIN32 AND NOT EMSCRIPTEN AND NOT EMBEDDED)
+    set(EXTRA_C_FLAGS "-fPIC ")
 endif()
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)
@@ -88,11 +89,11 @@ elseif(EMBEDDED)
             CC=${CMAKE_C_COMPILER}
             AR=${CMAKE_AR}
             RANLIB=${CMAKE_RANLIB}
-            "CFLAGS=-mcpu=cortex-a15 -mthumb -ffunction-sections -fdata-sections -fno-common -D__BLST_PORTABLE__ ${EXTRA_C_FLAGS}"
+            "CFLAGS=-ffunction-sections -fdata-sections -fno-common -D__BLST_PORTABLE__ -D__BLST_NO_ASM__ ${EXTRA_C_FLAGS}"
             bash ${blst_SOURCE_DIR}/build.sh
         COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
-        COMMENT "Building blst for embedded target (ARM Cortex-A15)"
+        COMMENT "Building blst for embedded target"
         VERBATIM
     )
 elseif(WIN32)
@@ -184,7 +185,7 @@ else()
                 OUTPUT_VARIABLE MACOS_SDK_PATH
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-            set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH}")
+            set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH} ${EXTRA_C_FLAGS}")
         else()
             set(BLST_CFLAGS "${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections")
         endif()

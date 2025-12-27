@@ -27,15 +27,27 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Cross-compiler alignment helper to be placed after 'struct' */
+#if defined(__cplusplus) && (__cplusplus >= 201103L)
+#define INTX_ALIGN(n) alignas(n)
+#elif defined(_MSC_VER)
+#define INTX_ALIGN(n) __declspec(align(n))
+#elif defined(__GNUC__) || defined(__clang__)
+#define INTX_ALIGN(n) __attribute__((aligned(n)))
+#else
+#define INTX_ALIGN(n)
+#endif
+
 #ifndef BYTES_T_DEFINED
 #include <stdint.h>
 typedef struct {
-  uint8_t* data;
   uint32_t len;
+  uint8_t* data;
 } bytes_t;
 #define BYTES_T_DEFINED
 #endif /* Define a struct to hold uint256 values directly (no pointers) */
-typedef struct {
+typedef struct INTX_ALIGN(32) intx_uint256_s {
   unsigned char bytes[32]; /* 256 bits = 32 bytes */
 } intx_uint256_t;
 typedef intx_uint256_t uint256_t;
@@ -76,6 +88,11 @@ int  intx_is_zero(const intx_uint256_t* value);
 
 /* New function declaration */
 void intx_modexp(intx_uint256_t* result, const intx_uint256_t* base, const intx_uint256_t* exponent, const intx_uint256_t* modulus);
+
+/* Modular arithmetic operations */
+void intx_add_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus);
+void intx_sub_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus);
+void intx_mul_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus);
 
 /* Add this declaration to intx_c_api.h */
 void intx_from_bytes(intx_uint256_t* result, const bytes_t bytes);

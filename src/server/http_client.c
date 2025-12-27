@@ -71,6 +71,12 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
   int         level       = r->parent->client ? r->parent->client->trace_level : TRACE_LEVEL_MIN;
   const char* method_name = CURL_METHODS[r->req->method];
   const char* host_name   = c4_extract_server_name(base_url);
+  bool        has_server  = false;
+  size_t      server_idx  = 0;
+  if (servers && selected_index >= 0 && (size_t) selected_index < servers->count) {
+    has_server = true;
+    server_idx = (size_t) selected_index;
+  }
   // Build compact request description similar to c4_req_info(), but without ANSI colors
   const char* desc_colored = c4_req_info(r->req->type, r->req->url, r->req->payload);
   char        desc[512];
@@ -94,11 +100,13 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
   if (!r->attempt_span) return;
   // Selected server and client type
   tracing_span_tag_str(r->attempt_span, "server.selected", host_name ? host_name : "");
-  tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) servers->client_types[selected_index]);
+  uint32_t client_type = (has_server && servers->client_types) ? servers->client_types[server_idx] : 0;
+  tracing_span_tag_i64(r->attempt_span, "client_type", (int64_t) client_type);
   tracing_span_tag_i64(r->attempt_span, "exclude.mask", (int64_t) r->req->node_exclude_mask);
-  if (servers->health_stats) {
-    tracing_span_tag_i64(r->attempt_span, "last_client_block", (int64_t) servers->health_stats[selected_index].latest_block);
-    tracing_span_tag_i64(r->attempt_span, "head_last_seen_ms", (int64_t) (current_ms() - servers->health_stats[selected_index].head_last_seen_ms));
+  if (has_server && servers->health_stats) {
+    server_health_t* health = &servers->health_stats[server_idx];
+    tracing_span_tag_i64(r->attempt_span, "last_client_block", (int64_t) health->latest_block);
+    tracing_span_tag_i64(r->attempt_span, "head_last_seen_ms", (int64_t) (current_ms() - health->head_last_seen_ms));
   }
   if (r->req->payload.len > 0) {
     json_t json   = json_parse((char*) r->req->payload.data);
@@ -113,8 +121,9 @@ static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* serv
     }
   }
   buffer_t excluded_methods = {0};
-  if (servers[selected_index].health_stats) {
-    for (method_support_t* m = servers[selected_index].health_stats->unsupported_methods; m; m = m->next) {
+  if (has_server && servers->health_stats) {
+    server_health_t* health = &servers->health_stats[server_idx];
+    for (method_support_t* m = health ? health->unsupported_methods : NULL; m; m = m->next) {
       if (!m->is_supported) bprintf(&excluded_methods, "%s%s", m->method_name, m->next ? "," : "");
     }
   }
@@ -518,6 +527,16 @@ static void handle_curl_events() {
     pending_request_t* pending   = pending_find(r);
     long               http_code = 0;
     if (msg->data.result == CURLE_OK) curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &http_code);
+#ifdef TEST
+    // Gracefully handle missing file:// mocks by treating them as HTTP 404
+    if (msg->data.result == CURLE_FILE_COULDNT_READ_FILE) {
+      const char* url = r->url ? r->url : r->req->url;
+      if (url && strncmp(url, "file://", 7) == 0) {
+        http_code = 404;
+        log_warn(YELLOW("   [mock ]") " Missing mock file for %s -> treating as HTTP 404", url);
+      }
+    }
+#endif
 
 #ifdef TEST
     // For file:// URLs (mock responses), parse the HTTP code from the file content
@@ -587,8 +606,8 @@ static void handle_curl_events() {
                             http_code);
 #endif
 
-    const char* server_name = c4_extract_server_name(servers->urls[r->req->response_node_index]);
-    bytes_t     response    = c4_request_fix_response(r->buffer.data, r, servers->client_types[r->req->response_node_index]);
+    const char* server_name = c4_extract_server_name(servers ? servers->urls[r->req->response_node_index] : r->req->url);
+    bytes_t     response    = c4_request_fix_response(r->buffer.data, r, servers ? servers->client_types[r->req->response_node_index] : 0);
 
     if (response_type == C4_RESPONSE_SUCCESS && response.data) {
       if (r->attempt_span) {
@@ -631,7 +650,7 @@ static void handle_curl_events() {
 
       // Mark as non-retryable to avoid unnecessary retries
       log_warn(YELLOW("   [curl ]") " JSON-RPC user error - marking request as non-retryable");
-      r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
+      if (servers) r->req->node_exclude_mask = (1 << servers->count) - 1;
     }
     else if (response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
       if (r->attempt_span) {
@@ -685,7 +704,7 @@ static void handle_curl_events() {
       if (response_type == C4_RESPONSE_ERROR_USER) {
         log_warn(YELLOW("   [user ]") " User error detected - marking request as non-retryable");
         // Set exclude mask to all servers to prevent retries
-        r->req->node_exclude_mask = (1 << servers->count) - 1; // Set all bits
+        if (servers) r->req->node_exclude_mask = (1 << servers->count) - 1;
       }
     }
 
@@ -1026,17 +1045,17 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     // Cache miss - proceed with normal request handling
     server_list_t* servers = c4_get_server_list(r->req->type);
 
-    int selected_index;
+    int selected_index = -1;
 
     // Check if this is a retry (exclude_mask > 0) with valid pre-selected server index
-    if (r->req->node_exclude_mask > 0 &&
+    if (servers && r->req->node_exclude_mask > 0 &&
         r->req->response_node_index < servers->count &&
         !(r->req->node_exclude_mask & (1 << r->req->response_node_index))) {
       // Use pre-selected index from retry logic
       selected_index = r->req->response_node_index;
       log_warn("   [retry] Using pre-selected server %s", c4_extract_server_name(servers->urls[selected_index]));
     }
-    else {
+    else if (servers) {
       // Use intelligent server selection for initial requests
       // For RPC requests, use method-aware selection
       char* rpc_method = extract_rpc_method(r->req);
@@ -1053,7 +1072,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
       if (selected_index == -1) {
         // This should be very rare after emergency reset logic in c4_select_best_server
-        log_error(":: CRITICAL ERROR: No available servers even after emergency reset attempts");
+        log_error(":: CRITICAL ERROR: No available servers even after emergency reset attempts %s", c4_req_info(r->req->type, r->req->url, r->req->payload));
         r->req->error = bprintf(NULL, "All servers exhausted - check network connectivity");
         r->end_time   = current_ms();
         call_callback_if_done(r->parent);
@@ -1063,8 +1082,8 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
       r->req->response_node_index = selected_index;
     }
     char* base_url = servers && servers->count > selected_index ? servers->urls[selected_index] : NULL;
-    char* req_url  = c4_request_fix_url(r->req->url, r, servers->client_types[selected_index]);
-
+    char* req_url  = c4_request_fix_url(r->req->url, r, servers ? servers->client_types[selected_index] : 0);
+    if (req_url && req_url[0] == '/') req_url = req_url + 1;
     // Safeguard against NULL URLs
     if (!req_url) req_url = "";
     if (!base_url) base_url = "";
@@ -1113,7 +1132,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     r->headers = NULL; // Initialize headers
     if (r->req->payload.len && r->req->payload.data)
       r->headers = curl_slist_append(r->headers, r->req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
-    r->headers = curl_slist_append(r->headers, c4_request_fix_encoding(r->req->encoding, r, servers->client_types[selected_index]) == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
+    r->headers = curl_slist_append(r->headers, c4_request_fix_encoding(r->req->encoding, r, servers ? servers->client_types[selected_index] : 0) == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
     r->headers = curl_slist_append(r->headers, "charsets: utf-8");
     r->headers = curl_slist_append(r->headers, "User-Agent: c4 curl ");
     // Inject b3 tracing headers

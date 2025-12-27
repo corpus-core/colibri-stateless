@@ -26,5 +26,5 @@ target_include_directories(prover INTERFACE .)
 target_link_libraries(prover PUBLIC util)
 
 if (PROVER_CACHE AND HTTP_SERVER)
-    target_link_libraries(prover PUBLIC libuv)
+    target_link_libraries(prover PUBLIC serverio)
 endif()

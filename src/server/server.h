@@ -5,7 +5,7 @@
 
 #ifndef C4_SERVER_H
 #define C4_SERVER_H
-
+#include "configure.h"
 #include "prover.h"
 #include "tracing.h"
 #include <curl/curl.h>
@@ -53,6 +53,15 @@ typedef struct {
   uint64_t beacon_events_total;
   uint64_t beacon_events_head;
   uint64_t beacon_events_finalized;
+  // Period store sync metrics/state (for Prometheus export)
+  uint64_t period_sync_last_slot;              // last slot persisted
+  uint64_t period_sync_last_slot_ts;           // timestamp (ms) of last persisted slot (unix ms)
+  uint64_t period_sync_lag_slots;              // latest_known_slot - last_persisted_slot
+  uint64_t period_sync_queue_depth;            // queued write tasks
+  uint64_t period_sync_written_slots_total;    // direct writes from new_head
+  uint64_t period_sync_backfilled_slots_total; // writes from backfill
+  uint64_t period_sync_errors_total;           // fs or processing errors
+  uint64_t period_sync_retries_total;          // backfill retry-ish scheduling counter
 #ifdef HTTP_SERVER_GEO
   geo_location_t* geo_locations;
   size_t          geo_locations_count;
@@ -91,6 +100,7 @@ typedef struct {
 } curl_stats_t;
 
 typedef struct {
+  uint32_t       prover_flags;
   char*          host; // Host/IP to bind to (default: 127.0.0.1 for security)
   char*          memcached_host;
   int            memcached_port;
@@ -103,15 +113,9 @@ typedef struct {
   char*          prover_nodes;
   char*          beacon_nodes;
   char*          checkpointz_nodes;
-  int            stream_beacon_events;
-  char*          period_store;
   bytes32_t      witness_key;
   server_stats_t stats;
   // Preconf storage configuration
-  char* preconf_storage_dir;
-  int   preconf_ttl_minutes;
-  int   preconf_cleanup_interval_minutes;
-  // preconf_use_gossip removed - now using automatic HTTP fallback until gossip is active
 
   // Web UI configuration
   int web_ui_enabled; // 0=disabled, 1=enabled (default: 0 for security)
@@ -249,6 +253,7 @@ typedef struct request_t request_t;
 typedef void (*http_client_cb)(request_t*);
 typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
 typedef void (*handle_stored_data_cb)(void* u_ptr, uint64_t period, bytes_t data, const char* error);
+
 // Struktur für jede aktive Anfrage
 typedef struct {
   char*              url;
@@ -307,24 +312,10 @@ void c4_write_error_response(client_t* client, int status, const char* error);
 void c4_http_server_on_close_callback(uv_handle_t* handle); // Cleanup callback for closing client connections
 void c4_register_http_handler(http_handler handler);
 void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
-void c4_configure(int argc, char* argv[]);
 
 // Config parameter registry (for dynamic Web-UI)
-typedef enum {
-  CONFIG_PARAM_INT,
-  CONFIG_PARAM_STRING,
-  CONFIG_PARAM_KEY
-} config_param_type_t;
 
-typedef struct {
-  char*               name;        // env variable name
-  char*               arg_name;    // command line arg name
-  char*               description; // human-readable description
-  config_param_type_t type;        // parameter type
-  void*               value_ptr;   // pointer to actual value
-  int                 min;         // min value (for int)
-  int                 max;         // max value (for int)
-} config_param_t;
+typedef bool (*call_handler)(single_request_t*);
 
 const config_param_t* c4_get_config_params(int* count);
 const char*           c4_get_config_file_path();
@@ -340,12 +331,11 @@ bool           c4_handle_post_config(client_t* client);
 bool           c4_handle_restart_server(client_t* client);
 bool           c4_handle_config_ui(client_t* client);
 bool           c4_handle_openapi(client_t* client);
+bool           c4_handle_version(client_t* client);
 bool           c4_handle_unverified_rpc_request(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
 bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb);
-bool           c4_get_from_store(const char* path, void* uptr, handle_stored_data_cb cb);
-bool           c4_get_from_store_by_type(chain_id_t chain_id, uint64_t period, store_type_t type, uint32_t slot, void* uptr, handle_stored_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
 const char*    c4_extract_server_name(const char* url);
@@ -386,6 +376,10 @@ data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
 c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
 bool                    c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
+
+// Internal call handlers
+void c4_register_internal_handler(call_handler handler);
+void c4_internal_call_finish(single_request_t* r);
 
 // Server storage functions
 void c4_init_server_storage();

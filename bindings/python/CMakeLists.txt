@@ -32,6 +32,7 @@ target_include_directories(_native PRIVATE
 target_link_libraries(_native PRIVATE
     verifier
     prover
+    eth_verifier
 )
 
 # Platform-specific libraries

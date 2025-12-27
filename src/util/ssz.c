@@ -32,15 +32,16 @@
 #include <string.h>
 
 // predefined types
-const ssz_def_t ssz_uint8       = SSZ_UINT("", 1);
-const ssz_def_t ssz_uint32_def  = SSZ_UINT("", 4);
-const ssz_def_t ssz_uint64_def  = SSZ_UINT("", 8);
-const ssz_def_t ssz_uint256_def = SSZ_UINT("", 32);
-const ssz_def_t ssz_bytes32     = SSZ_BYTES32("bytes32");
-const ssz_def_t ssz_bls_pubky   = SSZ_BYTE_VECTOR("bls_pubky", 48);
-const ssz_def_t ssz_bytes_list  = SSZ_BYTES("bytes", 1024 << 8);
-const ssz_def_t ssz_string_def  = SSZ_BYTES("bytes", 1024 << 8);
-const ssz_def_t ssz_none        = SSZ_NONE;
+const ssz_def_t ssz_uint8               = SSZ_UINT("", 1);
+const ssz_def_t ssz_uint32_def          = SSZ_UINT("", 4);
+const ssz_def_t ssz_uint64_def          = SSZ_UINT("", 8);
+const ssz_def_t ssz_uint256_def         = SSZ_UINT("", 32);
+const ssz_def_t ssz_bytes32             = SSZ_BYTES32("bytes32");
+const ssz_def_t ssz_secp256k1_signature = SSZ_BYTE_VECTOR("secp256k1_signature", 65);
+const ssz_def_t ssz_bls_pubky           = SSZ_BYTE_VECTOR("bls_pubky", 48);
+const ssz_def_t ssz_bytes_list          = SSZ_BYTES("bytes", 1024 << 8);
+const ssz_def_t ssz_string_def          = SSZ_BYTES("bytes", 1024 << 8);
+const ssz_def_t ssz_none                = SSZ_NONE;
 
 /**
  * Checks if a type is a basic SSZ type.
@@ -460,7 +461,7 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
 }
 char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
   ssz_dump_t ctx = {
-      .buf               = {0},
+      .buf               = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 },
       .write_unit_as_hex = write_unit_as_hex,
   };
   dump(&ctx, ob, include_name ? ob.def->name : NULL, 0);
@@ -469,7 +470,7 @@ char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
 
 void ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
   ssz_dump_t ctx = {
-      .buf               = {0},
+      .buf               = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 },
       .write_unit_as_hex = write_unit_as_hex,
 
   };
@@ -479,7 +480,7 @@ void ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_a
 }
 void ssz_dump_to_file_no_quotes(FILE* f, ssz_ob_t ob) {
   ssz_dump_t ctx = {
-      .buf               = {0},
+      .buf               = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 },
       .write_unit_as_hex = true,
       .no_quotes         = true,
   };

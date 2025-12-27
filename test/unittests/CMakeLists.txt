@@ -25,6 +25,8 @@ file(GLOB TEST_SOURCES test_*.c)
 set(TEST_INCLUDES
   ${unity_SOURCE_DIR}/src 
   ${CMAKE_SOURCE_DIR}/src 
+  ${CMAKE_SOURCE_DIR}/libs/crypto
+  ${CMAKE_BINARY_DIR}/_deps/blst-src/bindings
 )
 
 # Add server-specific includes if HTTP_SERVER is enabled
@@ -35,6 +37,12 @@ if(HTTP_SERVER)
     ${CMAKE_BINARY_DIR}/_deps/llhttp-src/include
     ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
   )
+endif()
+
+# We build libuv via libs/libuv and expose INTERFACE target 'libuv'
+set(HAVE_LIBUV OFF)
+if(TARGET libuv)
+  set(HAVE_LIBUV ON)
 endif()
 
 #add_definitions(-DTEST_DATA_DIR=${CMAKE_SOURCE_DIR}/test/data)
@@ -49,18 +57,76 @@ foreach(test_source ${TEST_SOURCES})
     # Füge die Include-Verzeichnisse hinzu
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
+
     # Verknüpfe die Testausführbare mit Unity und deinem Code
-    target_link_libraries(${test_name} unity verifier prover)
+    target_link_libraries(${test_name} PRIVATE unity verifier prover eth_verifier eth_prover)
+    
+    if("${test_name}" STREQUAL "test_eth_precompiles")
+        target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper eth_precompiles)
+    endif()
+
+    if("${test_name}" STREQUAL "test_bn254")
+        target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper util)
+    endif()
+    
     
     # Add server dependencies if HTTP_SERVER is enabled
     if(HTTP_SERVER)
         target_compile_definitions(${test_name} PRIVATE HTTP_SERVER)
-        target_link_libraries(${test_name} serverlib llhttp_static uv_a)
-        add_dependencies(${test_name} llhttp_static uv_a serverlib)
+
+        # Stelle sicher, dass GNU-Linker alle Symbole aus statischen Server-Bibliotheken finden:
+        # serverlib zuerst, danach Handler, dann serverio, und serverlib am Ende nochmals.
+        target_link_libraries(${test_name} PRIVATE
+            serverlib
+            ${SERVER_HANDLER_LIBS}
+            serverio
+            serverlib
+            llhttp_static
+            libuv
+        )
+
+        # Sicherheitsgurt: explizit die bekannten Handler-Bibliotheken linken, falls
+        # ${SERVER_HANDLER_LIBS} in dieser Konfiguration leer bleibt (z.B. bei
+        # fehlerhaften Cache-Werten oder teilweisen Chain-Builds).
+        if(TARGET eth_server_handler)
+            target_link_libraries(${test_name} PRIVATE eth_server_handler)
+        endif()
+        if(TARGET op_server_handler)
+            target_link_libraries(${test_name} PRIVATE op_server_handler)
+        endif()
+
+        add_dependencies(${test_name} llhttp_static serverlib)
+        if(TARGET serverio)
+          add_dependencies(${test_name} serverio)
+        endif()
         
         # Find CURL for server tests
         find_package(CURL REQUIRED)
-        target_link_libraries(${test_name} CURL::libcurl)
+        target_link_libraries(${test_name} PRIVATE CURL::libcurl)
+    endif()
+
+    # Special linking for uv_util tests even without HTTP_SERVER
+    if("${test_name}" STREQUAL "test_uv_util")
+        # If HTTP_SERVER is OFF (minsize/valgrind job), don't pull in libuv or uv_util.c.
+        # Build a tiny binary that immediately skips at runtime.
+        if(NOT HTTP_SERVER)
+          target_compile_definitions(${test_name} PRIVATE NO_LIBUV=1)
+        else()
+          if(NOT HAVE_LIBUV)
+            target_compile_definitions(${test_name} PRIVATE NO_LIBUV=1)
+          endif()
+          # Prefer linking serverio if available; otherwise compile uv_util.c directly
+          if(TARGET serverio)
+            target_link_libraries(${test_name} PRIVATE serverio libuv)
+            target_include_directories(${test_name} PRIVATE ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
+            add_dependencies(${test_name} serverio)
+          else()
+            message(WARNING "serverio target not found; compiling uv_util.c directly into ${test_name}")
+            target_sources(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/src/server/uv_util.c)
+            target_include_directories(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/server ${CMAKE_BINARY_DIR}/_deps/libuv-src/include)
+            target_link_libraries(${test_name} PRIVATE util libuv)
+          endif()
+        endif()
     endif()
 
     # Suppress MSVC warning C4113 for test targets

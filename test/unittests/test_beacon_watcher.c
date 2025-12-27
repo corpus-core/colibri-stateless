@@ -9,6 +9,7 @@
 
 #ifdef HTTP_SERVER
 
+#include "../../src/chains/eth/server/eth_conf.h"
 #include "../../src/chains/eth/server/handler.h"
 #include "../../src/server/server.h" // Access http_server to toggle stream flag
 #include "test_server_helper.h"
@@ -18,18 +19,17 @@
 
 // Unity setup - called before each test
 void setUp(void) {
-  http_server_t config        = {0};
-  config.port                 = TEST_PORT;
-  config.host                 = TEST_HOST;
-  config.chain_id             = 1;
-  config.stream_beacon_events = 0;                        // Disable auto-start; test starts watcher manually
-  config.beacon_nodes         = "http://localhost:5052/"; // Must match recorded mock URLs
+  http_server_t config = {0};
+  config.port          = TEST_PORT;
+  config.host          = TEST_HOST;
+  config.chain_id      = 1;
+  config.beacon_nodes  = "http://localhost:5052/"; // Must match recorded mock URLs
   c4_test_server_setup(&config);
 }
 
 // Unity teardown - called after each test
 void tearDown(void) {
-  c4_stop_beacon_watcher();
+  c4_test_stop_beacon_watcher();
   c4_test_server_teardown();
 }
 
@@ -45,7 +45,7 @@ void test_beacon_watcher_head_event(void) {
 
   fprintf(stderr, "[TEST] Starting watcher (head_event)\n");
   // Enable watcher start for this test
-  http_server.stream_beacon_events = 1;
+  eth_config.stream_beacon_events = 1;
   // Start watcher
   c4_watch_beacon_events();
 
@@ -78,7 +78,7 @@ void test_beacon_watcher_event_parsing(void) {
 
   uint64_t start_time = http_server.stats.last_sync_event;
 
-  http_server.stream_beacon_events = 1;
+  eth_config.stream_beacon_events = 1;
   c4_watch_beacon_events();
 
   // Sehr kurze Eventloop-Phase
@@ -101,7 +101,7 @@ void test_beacon_watcher_stops_after_eof(void) {
   c4_test_set_beacon_watcher_url(sse_file);
   c4_test_set_beacon_watcher_no_reconnect(true);
 
-  http_server.stream_beacon_events = 1;
+  eth_config.stream_beacon_events = 1;
   c4_watch_beacon_events();
 
   // File-EOF sollte den watcher stoppen (Reconnect disabled)
@@ -119,8 +119,8 @@ void test_beacon_watcher_stops_after_eof(void) {
 int main(void) {
   UNITY_BEGIN();
 #ifndef _WIN32
-  RUN_TEST(test_beacon_watcher_head_event);
   RUN_TEST(test_beacon_watcher_event_parsing);
+  RUN_TEST(test_beacon_watcher_head_event);
   RUN_TEST(test_beacon_watcher_stops_after_eof);
 #endif
   return UNITY_END();

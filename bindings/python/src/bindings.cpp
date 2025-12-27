@@ -190,11 +190,11 @@ void register_storage(
   python_storage_delete = delete_func;
 
   // Configure the C storage plugin
-  storage_plugin_t plugin = {
-      .get             = storage_get_callback,
-      .set             = storage_set_callback,
-      .del             = storage_delete_callback,
-      .max_sync_states = 3};
+  storage_plugin_t plugin{};
+  plugin.get             = storage_get_callback;
+  plugin.set             = storage_set_callback;
+  plugin.del             = storage_delete_callback;
+  plugin.max_sync_states = 3;
   c4_set_storage_config(&plugin);
 }
 
@@ -205,11 +205,11 @@ void clear_storage() {
   python_storage_delete = nullptr;
 
   // Clear the C storage plugin
-  storage_plugin_t plugin = {
-      .get             = nullptr,
-      .set             = nullptr,
-      .del             = nullptr,
-      .max_sync_states = 0};
+  storage_plugin_t plugin{};
+  plugin.get             = nullptr;
+  plugin.set             = nullptr;
+  plugin.del             = nullptr;
+  plugin.max_sync_states = 0;
   c4_set_storage_config(&plugin);
 }
 

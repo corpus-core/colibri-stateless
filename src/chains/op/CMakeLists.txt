@@ -99,7 +99,7 @@ add_prover(
     prover/op_proof_logs.c
     prover/op_proof_call.c
     prover/op_proof_account.c
-  DEPENDS util eth_prover eth_verifier op_verifier
+  DEPENDS util eth_prover op_verifier
   PROOF op_prover_execute
 )
 
@@ -125,10 +125,13 @@ add_server_handler(
   NAME op_server_handler
   SOURCES 
     server/handler.c
+    server/preconf.c
+    server/op_conf.c
   DEPENDS ${OP_SERVER_DEPENDS}
   INIT_FUNC op_server_init
   SHUTDOWN_FUNC op_server_shutdown
   METRICS_FUNC op_server_metrics
+  CONFIG_FUNC op_configure
 )
 
 # Go bridge dependencies removed - using Kona-Bridge only

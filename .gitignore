@@ -23,7 +23,8 @@ bindings/kotlin/*.log
 *.log
 *.exitcode
 sync_1*
-
+.cache
+**/.cache
 # Generated config files
 bindings/emscripten/test/test_config.js
 bindings/emscripten/webpack/webpack_build_config.mjs
@@ -54,3 +55,7 @@ compile_commands.json
 /scripts/beacon-node-oapi.json
 /*.ssz
 valgrind_results
+/src/chains/eth/zk_proof/target
+.zk_proofs
+# UV util test artifacts
+/test/data/uv_util_write/missing_*

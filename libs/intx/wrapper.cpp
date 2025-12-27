@@ -16,28 +16,62 @@ void intx_init_value(intx_uint256_t* value, unsigned long long val) {
 }
 
 int intx_from_string(intx_uint256_t* value, const char* str, int base) {
-  try {
-    // The intx library doesn't support base parameter directly
-    // Need to handle hex prefix for base 16
-    std::string input_str = str;
-
-    if (base == 16 && input_str.substr(0, 2) != "0x") {
-      input_str = "0x" + input_str; // Add 0x prefix for hex if not present
-    }
-    else if (base != 10) {
-      // For other bases, we'd need custom implementation
-      // For now, only support base 10 and 16
-      intx_init(value);
-      return 0;
-    }
-
-    intx::uint256 cpp_value = intx::from_string<intx::uint256>(input_str);
-    to_c(cpp_value, value);
-    return 1; // Success
-  } catch (...) {
-    intx_init(value); // Set to 0 on error
-    return 0;         // Error
+  // ESP-IDF typically compiles C++ with exceptions disabled. Avoid try/catch in embedded builds.
+  // We implement a small base-10/base-16 parser that does not throw.
+  if (!value || !str) {
+    return 0;
   }
+
+  if (base != 10 && base != 16) {
+    intx_init(value);
+    return 0;
+  }
+
+  const char* p = str;
+  if (base == 16 && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+    p += 2;
+  }
+
+  intx::uint256 acc = 0;
+  bool has_digit = false;
+  for (; *p; ++p) {
+    const char c = *p;
+    unsigned v;
+
+    if (base == 10) {
+      if (c < '0' || c > '9') {
+        intx_init(value);
+        return 0;
+      }
+      v = static_cast<unsigned>(c - '0');
+    }
+    else {
+      if (c >= '0' && c <= '9') {
+        v = static_cast<unsigned>(c - '0');
+      }
+      else if (c >= 'a' && c <= 'f') {
+        v = static_cast<unsigned>(10 + (c - 'a'));
+      }
+      else if (c >= 'A' && c <= 'F') {
+        v = static_cast<unsigned>(10 + (c - 'A'));
+      }
+      else {
+        intx_init(value);
+        return 0;
+      }
+    }
+
+    has_digit = true;
+    acc = acc * base + v;
+  }
+
+  if (!has_digit) {
+    intx_init(value);
+    return 0;
+  }
+
+  to_c(acc, value);
+  return 1;
 }
 
 // Conversion functions
@@ -101,67 +135,48 @@ void intx_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint25
 
 // Bitwise operations
 void intx_and(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  to_c(cpp_a & cpp_b, result);
+  to_c(to_cpp(a) & to_cpp(b), result);
 }
 
 void intx_or(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  to_c(cpp_a | cpp_b, result);
+  to_c(to_cpp(a) | to_cpp(b), result);
 }
 
 void intx_xor(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  to_c(cpp_a ^ cpp_b, result);
+  to_c(to_cpp(a) ^ to_cpp(b), result);
 }
 
 void intx_not(intx_uint256_t* result, const intx_uint256_t* a) {
-  intx::uint256 cpp_a = to_cpp(a);
-  to_c(~cpp_a, result);
+  to_c(~to_cpp(a), result);
 }
 
 void intx_shl(intx_uint256_t* result, const intx_uint256_t* a, unsigned int shift) {
-  intx::uint256 cpp_a = to_cpp(a);
-  to_c(cpp_a << shift, result);
+  to_c(to_cpp(a) << shift, result);
 }
 
 void intx_shr(intx_uint256_t* result, const intx_uint256_t* a, unsigned int shift) {
-  intx::uint256 cpp_a = to_cpp(a);
-  to_c(cpp_a >> shift, result);
+  to_c(to_cpp(a) >> shift, result);
 }
 
 // Comparison operations
 int intx_eq(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a == cpp_b;
+  return to_cpp(a) == to_cpp(b);
 }
 
 int intx_lt(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a < cpp_b;
+  return to_cpp(a) < to_cpp(b);
 }
 
 int intx_gt(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a > cpp_b;
+  return to_cpp(a) > to_cpp(b);
 }
 
 int intx_lte(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a <= cpp_b;
+  return to_cpp(a) <= to_cpp(b);
 }
 
 int intx_gte(const intx_uint256_t* a, const intx_uint256_t* b) {
-  intx::uint256 cpp_a = to_cpp(a);
-  intx::uint256 cpp_b = to_cpp(b);
-  return cpp_a >= cpp_b;
+  return to_cpp(a) >= to_cpp(b);
 }
 
 // Other useful operations
@@ -182,8 +197,10 @@ void intx_exp(intx_uint256_t* result, const intx_uint256_t* base, const intx_uin
 }
 
 int intx_is_zero(const intx_uint256_t* value) {
-  intx::uint256 cpp_value = to_cpp(value);
-  return cpp_value == 0;
+  for (int i = 0; i < 32; ++i) {
+    if (value->bytes[i] != 0) return 0;
+  }
+  return 1;
 }
 
 // Add this implementation
@@ -225,4 +242,25 @@ void intx_from_bytes(intx_uint256_t* result, const bytes_t bytes) {
     // Input too large: take only the most significant 32 bytes
     memcpy(result->bytes, bytes.data + (bytes.len - 32), 32);
   }
+}
+
+// Modular arithmetic operations
+void intx_add_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus) {
+  to_c(intx::addmod(to_cpp(a), to_cpp(b), to_cpp(modulus)), result);
+}
+
+void intx_sub_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus) {
+  intx::uint256 cpp_a = to_cpp(a);
+  intx::uint256 cpp_b = to_cpp(b);
+  intx::uint256 cpp_m = to_cpp(modulus);
+
+  intx::uint256 diff = cpp_a - cpp_b;
+  if (cpp_a < cpp_b) {
+    diff += cpp_m;
+  }
+  to_c(diff, result);
+}
+
+void intx_mul_mod(intx_uint256_t* result, const intx_uint256_t* a, const intx_uint256_t* b, const intx_uint256_t* modulus) {
+  to_c(intx::mulmod(to_cpp(a), to_cpp(b), to_cpp(modulus)), result);
 }

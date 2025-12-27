@@ -121,9 +121,11 @@ export interface EIP1193Client {
 // C4Client configuration
 export interface Config extends ChainConfig {
     chainId: number | string;
+    checkpoint_witness_keys?: string;
     cache?: Cache;
     debug?: boolean;
     include_code?: boolean;
+    zk_proof?: boolean;
     chains: {
         [chainId: number]: ChainConfig;
     };

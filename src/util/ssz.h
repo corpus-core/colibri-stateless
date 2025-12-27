@@ -133,7 +133,7 @@ typedef struct {
  * ```
  */
 #define ssz_builder_for_def(typename) \
-  {.def = (ssz_def_t*) typename, .dynamic = {0}, .fixed = {0}}
+  (ssz_builder_t){ .def = (const ssz_def_t*) (typename), .fixed = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }, .dynamic = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }}
 
 /** gets the uint64 value of the object */
 static inline uint64_t ssz_uint64(ssz_ob_t ob) {
@@ -503,15 +503,16 @@ bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
  */
 bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state);
 
-extern const ssz_def_t ssz_uint8;       // Uint<8> of length 1 - single byte
-extern const ssz_def_t ssz_uint32_def;  // Uint<32> of length 4
-extern const ssz_def_t ssz_uint64_def;  // Uint<64> of length 8
-extern const ssz_def_t ssz_uint256_def; // Uint<256> of length 32
-extern const ssz_def_t ssz_bytes32;     // Vector<uint8> of length 32
-extern const ssz_def_t ssz_bls_pubky;   // Vector<uint8> of length 48
-extern const ssz_def_t ssz_bytes_list;  // List<uint8> displayed as hex in JSON
-extern const ssz_def_t ssz_string_def;  // List<uint8> displayed as string in JSON
-extern const ssz_def_t ssz_none;        // special value for none in uions.
+extern const ssz_def_t ssz_uint8;               // Uint<8> of length 1 - single byte
+extern const ssz_def_t ssz_uint32_def;          // Uint<32> of length 4
+extern const ssz_def_t ssz_uint64_def;          // Uint<64> of length 8
+extern const ssz_def_t ssz_uint256_def;         // Uint<256> of length 32
+extern const ssz_def_t ssz_bytes32;             // Vector<uint8> of length 32
+extern const ssz_def_t ssz_secp256k1_signature; // Vector<uint8> of length 65
+extern const ssz_def_t ssz_bls_pubky;           // Vector<uint8> of length 48
+extern const ssz_def_t ssz_bytes_list;          // List<uint8> displayed as hex in JSON
+extern const ssz_def_t ssz_string_def;          // List<uint8> displayed as string in JSON
+extern const ssz_def_t ssz_none;                // special value for none in uions.
 
 /**
  * Defines a boolean field.
@@ -999,7 +1000,17 @@ void ssz_builder_free(ssz_builder_t* buffer);
  * @return A builder wrapping the object's bytes
  */
 static inline ssz_builder_t ssz_builder_from(ssz_ob_t val) {
-  return (ssz_builder_t) {.def = val.def, .fixed = {.allocated = val.bytes.len, .data = val.bytes}, .dynamic = {0}};
+  return (ssz_builder_t){
+    .def = val.def,
+    .fixed = (buffer_t){
+        .data = (bytes_t){ .data = val.bytes.data, .len = val.bytes.len },
+        .allocated = (int32_t)val.bytes.len,
+    },
+    .dynamic = (buffer_t){
+        .data = (bytes_t){ .data = NULL, .len = 0 },
+        .allocated = 0,
+    },
+};
 }
 
 /**

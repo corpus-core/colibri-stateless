@@ -65,6 +65,7 @@ typedef struct {
 static methods_counts_t public_requests = {0};
 static methods_counts_t eth_requests    = {0};
 static methods_counts_t beacon_requests = {0};
+static methods_counts_t rest_requests   = {0};
 
 void c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached) {
   if (!method) return;
@@ -97,6 +98,9 @@ void c4_metrics_add_request(data_request_type_t type, const char* method, uint64
       break;
     case C4_DATA_TYPE_ETH_RPC:
       metrics = &eth_requests;
+      break;
+    case C4_DATA_TYPE_REST_API:
+      metrics = &rest_requests;
       break;
     default:
       metrics = &public_requests;
@@ -861,6 +865,9 @@ bool c4_handle_metrics(client_t* client) {
 
   // Beacon Requests
   c4_write_prometheus_bucket_metrics(&data, &beacon_requests, "beacon", "Beacon API (e.g. /eth/v1/beacon/genesis)", &method_metrics_described);
+
+  // Rest Requests
+  c4_write_prometheus_bucket_metrics(&data, &rest_requests, "rest", "Rest API", &method_metrics_described);
 
   // Server Health Statistics
   c4_write_curl_metrics(&data);

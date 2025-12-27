@@ -2,9 +2,9 @@
  * Copyright 2025 corpus.core
  * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
-
 #include "bytes.h"
 #include "chains.h"
+#include "eth_conf.h"
 #include "handler.h"
 #include "json.h"
 #include "logger.h"
@@ -191,12 +191,16 @@ static void parse_sse_buffer() {
       size_t line_len = next_newline - current_line;
 
       if (strncmp(current_line, "event:", 6) == 0) {
-        safe_free(event_type);                                // Free previous if any
-        event_type = strndup(current_line + 7, line_len - 7); // Skip "event: "
+        safe_free(event_type); // Free previous if any
+        size_t skip = 6;
+        if (line_len > 6 && current_line[6] == ' ') skip = 7; // Skip optional space
+        event_type = strndup(current_line + skip, line_len - skip);
       }
       else if (strncmp(current_line, "data:", 5) == 0) {
-        safe_free(event_data);                                // Free previous if any
-        event_data = strndup(current_line + 6, line_len - 6); // Skip "data: "
+        safe_free(event_data); // Free previous if any
+        size_t skip = 5;
+        if (line_len > 5 && current_line[5] == ' ') skip = 6; // Skip optional space
+        event_data = strndup(current_line + skip, line_len - skip);
       }
       // Ignore other lines (like comments starting with ':')
 
@@ -293,14 +297,16 @@ static void on_reconnect_timer(uv_timer_t* handle) {
 // --- User Handler ---
 
 static void handle_beacon_event(char* event, char* data) {
-  log_info("Beacon Event Received: Type: " YELLOW("%s"), event);
+  json_t json = json_parse(data);
   http_server.stats.beacon_events_total++;
   if (strcmp(event, "head") == 0) {
     http_server.stats.beacon_events_head++;
+    log_info("Beacon Event Received: Type: " YELLOW("%s") " - Slot: " YELLOW("%j"), event, json_get(json, "slot"));
     c4_handle_new_head(json_parse(data));
   }
   else if (strcmp(event, "finalized_checkpoint") == 0) {
     http_server.stats.beacon_events_finalized++;
+    log_info("Beacon Event Received: Type: " YELLOW("%s") " - Epoch: " YELLOW("%j"), event, json_get(json, "epoch"));
     c4_handle_finalized_checkpoint(json_parse(data));
   }
   else {
@@ -475,7 +481,7 @@ static char* join_paths(const char* path1, const char* path2) {
 // --- Public Function ---
 
 void c4_watch_beacon_events() {
-  if (!http_server.stream_beacon_events) return;
+  if (!eth_config.stream_beacon_events) return;
   if (BEACON_WATCHER_URL == NULL) {
     server_list_t* list = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
     if (list->count == 0) {
@@ -659,8 +665,10 @@ static void schedule_reconnect() {
 void c4_stop_beacon_watcher() {
   log_info("Shutting down beacon watcher.");
   stop_beacon_watch();
-  buffer_free(&watcher_state.buffer);
+  // wait a second to ensure the watcher is stopped
   watcher_state.is_running = false;
+  uv_sleep(500);
+  buffer_free(&watcher_state.buffer);
 
   // Cleanup multi handle
   if (beacon_multi_handle) {

@@ -74,7 +74,7 @@ typedef enum {
   C4_PROVER_FLAG_UNSTABLE_LATEST    = 1 << 4, // usually we use latest-1, but if this is set we return the real "latest"
   C4_PROVER_FLAG_INCLUDE_SYNC       = 1 << 5, // if true, the sync data will be included in the proof (requires the client_state to be set)
   C4_PROVER_FLAG_USE_ACCESSLIST     = 1 << 6, // if true, eth_call will use eth_createAccessList instead of eth_debug_traceCall
-
+  C4_PROVER_FLAG_ZK_PROOF           = 1 << 7, // if true, the the prover will try to store the zk_proof within the sync_section
 } prover_flag_types_t;
 
 /**
@@ -129,6 +129,7 @@ typedef struct {
 #ifdef HTTP_SERVER
   uint32_t client_type; // client type for the prover (for beacon API only)
 #endif
+
 #ifdef PROVER_TRACE
   // Collected finished spans (consumed by server); and currently open span
   prover_trace_span_t* trace_spans;
@@ -145,13 +146,13 @@ typedef struct {
  * @return the prover context, which needs to get freed with c4_prover_free.
  *         Always returns a valid context - check ctx->state.error for validation errors.
  */
-prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, prover_flags_t flags);
+prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, prover_flags_t flags) M_RET;
 
 /**
  * cleanup for the ctx
  * @param ctx the prover context
  */
-void c4_prover_free(prover_ctx_t* ctx);
+void c4_prover_free(prover_ctx_t* ctx) M_TAKE(1);
 
 /**
  * tries to create the proof, but if there are pending requests, they need to fetched before calling it again.
@@ -199,7 +200,7 @@ const void* c4_prover_cache_get_local(prover_ctx_t* ctx, bytes32_t key);
  * @param duration_ms cache TTL in milliseconds (0 = local-only, never moved to global)
  * @param free function to free the value when cache entry is removed
  */
-void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free);
+void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free) M_TAKE(3);
 
 /**
  * Clean up expired entries from global cache and enforce size limits.

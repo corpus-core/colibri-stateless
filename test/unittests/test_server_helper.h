@@ -12,6 +12,7 @@
 
 #include "../../src/server/server.h"
 #include "../../src/util/bytes.h"
+#include "../../src/util/logger.h"
 #ifdef _WIN32
 #include "../../src/util/win_compat.h"
 #endif
@@ -34,6 +35,8 @@
 #include "../../src/prover/prover.h"
 #endif
 
+void c4_stop_beacon_watcher(void);
+
 // Test configuration
 #define TEST_PORT 28545
 #define TEST_HOST "127.0.0.1"
@@ -54,6 +57,62 @@ typedef HANDLE pthread_t;
 static pthread_t     server_thread;
 static volatile bool server_should_stop = false;
 static const char*   current_test_name  = NULL;
+
+typedef struct {
+  uv_async_t async;
+  uv_sem_t   sem;
+  bool       initialized;
+} test_beacon_stop_dispatcher_t;
+
+static test_beacon_stop_dispatcher_t beacon_stop_dispatcher = {0};
+
+static void c4_test_beacon_stop_async_cb(uv_async_t* handle) {
+  (void) handle;
+  c4_stop_beacon_watcher();
+  uv_sem_post(&beacon_stop_dispatcher.sem);
+}
+
+static void c4_test_init_beacon_stop_dispatcher(void) {
+  if (beacon_stop_dispatcher.initialized) return;
+  if (!server_instance.loop) return;
+
+  if (uv_sem_init(&beacon_stop_dispatcher.sem, 0) != 0) {
+    log_error("[TEST] Failed to init beacon stop semaphore");
+    return;
+  }
+
+  int rc = uv_async_init(server_instance.loop, &beacon_stop_dispatcher.async, c4_test_beacon_stop_async_cb);
+  if (rc != 0) {
+    log_error("[TEST] uv_async_init failed for beacon stop helper: %s", uv_strerror(rc));
+    uv_sem_destroy(&beacon_stop_dispatcher.sem);
+    return;
+  }
+
+  beacon_stop_dispatcher.initialized = true;
+}
+
+static void c4_test_close_beacon_stop_dispatcher(void) {
+  if (!beacon_stop_dispatcher.initialized) return;
+  if (!uv_is_closing((uv_handle_t*) &beacon_stop_dispatcher.async)) {
+    uv_close((uv_handle_t*) &beacon_stop_dispatcher.async, NULL);
+  }
+}
+
+static void c4_test_cleanup_beacon_stop_dispatcher(void) {
+  if (!beacon_stop_dispatcher.initialized) return;
+  uv_sem_destroy(&beacon_stop_dispatcher.sem);
+  beacon_stop_dispatcher.initialized = false;
+}
+
+static void c4_test_stop_beacon_watcher(void) {
+  if (!beacon_stop_dispatcher.initialized || !server_instance.is_running) {
+    c4_stop_beacon_watcher();
+    return;
+  }
+
+  uv_async_send(&beacon_stop_dispatcher.async);
+  uv_sem_wait(&beacon_stop_dispatcher.sem);
+}
 
 // c4_test_url_rewriter is declared in server.h (TEST builds only)
 
@@ -188,6 +247,8 @@ static void c4_test_server_setup(http_server_t* config) {
     return;
   }
 
+  c4_test_init_beacon_stop_dispatcher();
+
   // Start server thread
   server_should_stop = false;
   pthread_create(&server_thread, NULL, server_thread_func, &server_instance);
@@ -198,6 +259,8 @@ static void c4_test_server_setup(http_server_t* config) {
 
 // Teardown function - call from Unity tearDown()
 static void c4_test_server_teardown(void) {
+  c4_test_close_beacon_stop_dispatcher();
+
   // Signal server to stop
   server_should_stop = true;
 
@@ -210,6 +273,8 @@ static void c4_test_server_teardown(void) {
 
   // Stop server and cleanup resources
   c4_server_stop(&server_instance);
+
+  c4_test_cleanup_beacon_stop_dispatcher();
 
   // Cleanup file mock system
   c4_file_mock_cleanup();

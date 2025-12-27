@@ -59,15 +59,34 @@ else
     # Prüfe verfügbare Checker und verwende nur die, die verfügbar sind
     AVAILABLE_CHECKERS=$(scan-build --help-checkers 2>/dev/null | grep -v "^$" || echo "")
     
-    # Basis-Optionen
+    # Basis-Optionen (angeglichen an CI)
     SCAN_BUILD_OPTS="\
       -analyzer-config mode=deep \
-      -analyzer-config aggressive-binary-operation-simplification=true"
+      -analyzer-config aggressive-binary-operation-simplification=true \
+      -analyzer-config explore-paths=true \
+      -analyzer-config strict-mode=true"
     
-    # Füge verfügbare Checker hinzu
-    if echo "$AVAILABLE_CHECKERS" | grep -q "alpha.security.ArrayBound"; then
+    # Füge verfügbare Checker hinzu (angeglichen an CI)
+    # CI verwendet: alpha.core.SizeofPtr, alpha.core.TestAfterDivZero, alpha.security.ArrayBoundV2,
+    # alpha.security.MallocOverflow, alpha.security.ReturnPtrRange, optin.performance.Padding
+
+    if echo "$AVAILABLE_CHECKERS" | grep -q "alpha.core.SizeofPtr"; then
+        SCAN_BUILD_OPTS="$SCAN_BUILD_OPTS -enable-checker alpha.core.SizeofPtr"
+        echo -e "${GREEN}  ✓ alpha.core.SizeofPtr${NC}"
+    fi
+
+    if echo "$AVAILABLE_CHECKERS" | grep -q "alpha.core.TestAfterDivZero"; then
+        SCAN_BUILD_OPTS="$SCAN_BUILD_OPTS -enable-checker alpha.core.TestAfterDivZero"
+        echo -e "${GREEN}  ✓ alpha.core.TestAfterDivZero${NC}"
+    fi
+
+    # Bevorzuge V2 wenn verfügbar, sonst Fallback oder nichts (CI nutzt V2)
+    if echo "$AVAILABLE_CHECKERS" | grep -q "alpha.security.ArrayBoundV2"; then
+        SCAN_BUILD_OPTS="$SCAN_BUILD_OPTS -enable-checker alpha.security.ArrayBoundV2"
+        echo -e "${GREEN}  ✓ alpha.security.ArrayBoundV2${NC}"
+    elif echo "$AVAILABLE_CHECKERS" | grep -q "alpha.security.ArrayBound"; then
         SCAN_BUILD_OPTS="$SCAN_BUILD_OPTS -enable-checker alpha.security.ArrayBound"
-        echo -e "${GREEN}  ✓ alpha.security.ArrayBound${NC}"
+        echo -e "${GREEN}  ✓ alpha.security.ArrayBound (Fallback für V2)${NC}"
     fi
     
     if echo "$AVAILABLE_CHECKERS" | grep -q "alpha.security.MallocOverflow"; then
@@ -83,17 +102,6 @@ else
     if echo "$AVAILABLE_CHECKERS" | grep -q "optin.performance.Padding"; then
         SCAN_BUILD_OPTS="$SCAN_BUILD_OPTS -enable-checker optin.performance.Padding"
         echo -e "${GREEN}  ✓ optin.performance.Padding${NC}"
-    fi
-    
-    # Zusätzliche nützliche Checker falls verfügbar
-    if echo "$AVAILABLE_CHECKERS" | grep -q "security.insecureAPI"; then
-        SCAN_BUILD_OPTS="$SCAN_BUILD_OPTS -enable-checker security.insecureAPI"
-        echo -e "${GREEN}  ✓ security.insecureAPI${NC}"
-    fi
-    
-    if echo "$AVAILABLE_CHECKERS" | grep -q "deadcode.DeadStores"; then
-        SCAN_BUILD_OPTS="$SCAN_BUILD_OPTS -enable-checker deadcode.DeadStores"
-        echo -e "${GREEN}  ✓ deadcode.DeadStores${NC}"
     fi
     
     if [[ -z "$AVAILABLE_CHECKERS" ]]; then

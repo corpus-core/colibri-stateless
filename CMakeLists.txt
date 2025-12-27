@@ -47,6 +47,37 @@ add_definitions(-DC4_VERSION="${C4_VERSION}")
 
 # Core build options
 option(CURL "Enable CURL support" ON)
+option(USE_MCL "Enable MCL support for ZK-Proof verification" OFF)
+
+# Check for MCL compatibility
+if(USE_MCL)
+    # MCL relies on LLVM IR (requiring Clang) for non-x86 platforms optimization.
+    # On x86_64 it uses Assembly (.S) which works with GCC.
+    # So if we are on ARM64 (or other non-x86) and NOT using Clang, we must disable MCL.
+    
+    set(IS_X86_64 FALSE)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+        set(IS_X86_64 TRUE)
+    endif()
+
+    set(IS_CLANG FALSE)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang")
+        set(IS_CLANG TRUE)
+    endif()
+
+    if(NOT IS_X86_64 AND NOT IS_CLANG AND NOT MSVC)
+        message(WARNING "MCL requires Clang for non-x86 platforms (to compile LLVM IR). Disabling USE_MCL.")
+        set(USE_MCL OFF CACHE BOOL "Enable MCL support for ZK-Proof verification" FORCE)
+    endif()
+
+    # Disable MCL for 32-bit x86 because MCL's CMake build system fails to pass target flags 
+    # (e.g. --target=i686-...) when compiling internal LLVM IR files, causing linker errors.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(i686|i386|x86)$")
+        message(WARNING "MCL has build issues on 32-bit x86 cross-compilation. Disabling USE_MCL.")
+        set(USE_MCL OFF CACHE BOOL "Enable MCL support for ZK-Proof verification" FORCE)
+    endif()
+endif()
+
 option(WITNESS_SIGNER "Enable witness signing" ON)
 option(PROVER "Build the prover library" ON)
 option(CLI "Build command line tools" ON)
@@ -56,10 +87,21 @@ option(PROVER_CACHE "Caches blockhashes and maps, which makes a lot of sense on 
 option(PROVER_TRACE "Collect lightweight prover-internal spans for server export" OFF)
 option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support" OFF)
+option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
+option(ETH_ZKPROOF_BUILD_HOST "Build eth-sync-script host binary (Rust/SP1). Disable for clients/slaves or platforms where SP1 doesn't build." OFF)
+
 
 # Make ETH availability visible to all targets (server + chains)
 if(CHAIN_ETH)
   add_definitions(-DCHAIN_ETH)
+endif()
+
+if(USE_MCL)
+  add_definitions(-DUSE_MCL)
+endif()
+
+if(ETH_ZKPROOF)
+  add_definitions(-DETH_ZKPROOF)
 endif()
 
 # Build type options
@@ -68,7 +110,7 @@ option(BLOCK_HASH_CACHE "Cache block hashes for faster verification within the s
 option(WASM "Build WebAssembly target" OFF)
 option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)
-option(PYTHON "Build Python bindings" OFF)
+option(C4_PYTHON "Build Python bindings" OFF) # NOTE: ESP-IDF passes -DPYTHON=<python-executable> to CMake. Do not use PYTHON as a boolean option name.
 option(TEST "Build the unit tests" OFF)
 option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
@@ -92,7 +134,7 @@ if(WITNESS_SIGNER)
     add_definitions(-DWITNESS_SIGNER)
 endif()
 # Python bindings configuration
-if(PYTHON)
+if(C4_PYTHON)
     # Python bindings disable CURL/CLI (HTTP is handled in Python)
     set(CURL OFF CACHE BOOL "Disable CURL for Python bindings" FORCE)
     set(CLI OFF CACHE BOOL "Disable CLI tools for Python bindings" FORCE)
@@ -340,7 +382,7 @@ if(SWIFT)
     add_subdirectory(bindings/swift)
 endif()
 
-if(PYTHON)
+if(C4_PYTHON)
     add_subdirectory(bindings/python)
 endif()
 
@@ -508,7 +550,7 @@ endif()
 # Shared library if requested and not embedded
 if(SHAREDLIB AND NOT EMBEDDED)
     add_library(c4 SHARED src/util/version.c bindings/colibri.c)
-    target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier)
+    target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier eth_verifier)
     set_target_properties(c4 PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
         VERSION 1.0

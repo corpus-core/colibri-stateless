@@ -24,6 +24,7 @@
 #ifndef ETH_SSZ_TYPES_H
 #define ETH_SSZ_TYPES_H
 
+#include "common.h"
 #include "chains.h"
 #include "ssz.h"
 
@@ -80,6 +81,7 @@ typedef struct {
   chain_id_t          chain_id;
   const uint64_t*     fork_epochs;
   const bytes32_t     genesis_validators_root;
+  const bytes32_t     zk_sync_keys_root;        // initial zk sync keys root
   const int           slots_per_epoch_bits;     // 5 = 32 slots per epoch
   const int           epochs_per_period_bits;   // 8 = 256 epochs per period
   const uint64_t      weak_subjectivity_epochs; // max epochs before checkpoint validation required
@@ -112,7 +114,7 @@ extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10];
-extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[2];
+extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
 
 #define epoch_for_slot(slot, chain_spec)  ((slot) >> (chain_spec ? chain_spec->slots_per_epoch_bits : 5))
 #define period_for_slot(slot, chain_spec) ((slot) >> (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))
@@ -121,7 +123,7 @@ extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[2];
 #define slot_for_period(period, chain_spec) ((period) << (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))
 
 #define ssz_builder_for_type(typename) \
-  {.def = eth_ssz_verification_type(typename), .dynamic = {0}, .fixed = {0}}
+  (ssz_builder_t){ .def = eth_ssz_verification_type(typename), .fixed = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }, .dynamic = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }}
 
 inline static bool is_gnosis_chain(chain_id_t chain_id) {
   return chain_id == C4_CHAIN_GNOSIS || chain_id == C4_CHAIN_GNOSIS_CHIADO;

@@ -104,6 +104,12 @@ let package = Package(
                     "../../build_quick/src/util/libutil.a",
                     "../../build_quick/src/prover/libprover.a", 
                     "../../build_quick/src/verifier/libverifier.a",
+                    "../../build_quick/src/chains/eth/libeth_verifier.a",
+                    "../../build_quick/src/chains/eth/libeth_prover.a",
+                    "../../build_quick/src/chains/eth/precompiles/libeth_precompiles.a",
+                    "../../build_quick/src/chains/eth/bn254/libeth_bn254.a",
+                    "../../build_quick/src/chains/eth/zk_verifier/libzk_verifier.a",
+                    "../../build_quick/libs/intx/libintx_wrapper.a",
                     "../../build_quick/libs/crypto/libcrypto.a",
                     "../../build_quick/libs/blst/libblst.a"
                 ])

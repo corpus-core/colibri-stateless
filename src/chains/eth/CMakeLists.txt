@@ -39,10 +39,18 @@ else()
     message(STATUS "    See: https://github.com/runtimeverification/beacon-chain-verification")
 endif()
 
+# ZK host artifacts (eth-sync-script + eth_sync_program) are only needed when we build the HTTP server.
+# For non-server builds (e.g. wasm/embedded), avoid pulling in the Rust build toolchain.
+if(ETH_ZKPROOF AND HTTP_SERVER)
+  add_subdirectory(zk_proof)
+endif()
+
 option(EVMONE "uses evmone to verify eth_calls" ON)
 option(EVMLIGHT "uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas." OFF)
 # precompiles
 option(PRECOMPILES_RIPEMD160 "Precompile ripemd160" ON)
+option(PRECOMPILES_BN128 "Precompile BN128 (ecadd, ecmul, ecpairing)" ON)
+option(PRECOMPILES_KZG "Precompile KZG (point evaluation)" ON)
 
 if(NOT MSVC)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-excess-initializers")
@@ -65,6 +73,12 @@ if (EVMLIGHT OR EVMONE)
     endif()
     if (PRECOMPILES_RIPEMD160)
         add_definitions(-DPRECOMPILED_RIPEMD160)
+    endif()
+    if (PRECOMPILES_BN128)
+        add_definitions(-DPRECOMPILED_BN128)
+    endif()
+    if (PRECOMPILES_KZG)
+        add_definitions(-DPRECOMPILED_KZG)
     endif()
 endif()
 
@@ -111,6 +125,12 @@ if(ETH_LOGS)
   add_definitions(-DETH_LOGS)
 endif()
 
+
+# Add BN254 library (used by precompiles and ZK verifier)
+if(PRECOMPILES_BN128 OR ETH_ZKPROOF)
+    add_subdirectory(bn254)
+endif()
+
 if(ETH_CALL)
   set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c verifier/verify_simulate.c)
   add_definitions(-DETH_CALL)
@@ -118,13 +138,19 @@ if(ETH_CALL)
   if(EVMONE)
     add_subdirectory(precompiles)
     set(VERIFIER_SOURCES ${VERIFIER_SOURCES}  verifier/call_evmone.c)
-    set(VERIFIER_DEPS util evmone_wrapper eth_precompiles)
+    set(VERIFIER_DEPS PUBLIC eth_precompiles evmone_wrapper )
   endif()
   
 endif()
 if(ETH_UTIL)
   set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_local.c)
   add_definitions(-DETH_UTIL)
+endif()
+
+# Add ZK Verifier if enabled
+if(ETH_ZKPROOF)
+    add_subdirectory(zk_verifier)
+    set(VERIFIER_DEPS ${VERIFIER_DEPS} zk_verifier)
 endif()
 
 add_verifier(
@@ -157,11 +183,10 @@ add_prover(
     prover/proof_block.c
     prover/proof_witness.c
     prover/historic_proof.c
+    prover/historic_proof_zk.c
   DEPENDS util eth_verifier
   PROOF eth_prover_execute
 )
-
-
 
 add_server_handler(
   NAME eth_server_handler
@@ -173,8 +198,20 @@ add_server_handler(
     server/chain_props.c
     server/handle_lcu.c
     server/handle_headers.c
+    server/handle_checkpoints.c
     server/client_detection.c
     server/client_mappings.c
+    server/period_store.c
+    server/period_store_call.c
+    server/period_store_lc.c
+    server/period_store_historical_roots.c
+    server/period_store_backfill.c
+    server/period_store_period_index.c
+    server/period_store_full_sync.c
+    server/period_store_zk_prover.c
+    server/period_store_zk_ssz.c
+    server/handle_period_static.c
+    server/eth_conf.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init
   SHUTDOWN_FUNC eth_server_shutdown
@@ -182,5 +219,19 @@ add_server_handler(
   PARSE_VERSION_RESPONSE_FUNC eth_parse_version_response
   GET_CLIENT_MAPPINGS_FUNC eth_get_client_mappings
   METRICS_FUNC eth_server_metrics
+  CONFIG_FUNC eth_configure
 )
 
+# Checkpoint signer CLI (external cronjob helper)
+# Build only when CLI tools are enabled (e.g. skip for WASM builds) and CURL is available.
+if(CLI AND CURL)
+  add_executable(colibri-signer cp_signer/main.c)
+  add_dependencies(colibri-signer util curl_fetch eth_verifier)
+  target_link_libraries(colibri-signer PRIVATE util curl_fetch eth_verifier)
+  set_target_properties(colibri-signer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+endif()
+
+# Ensure ETH ZK-Proof artifacts are built/copied when building the ETH server handler (only exists with HTTP_SERVER).
+if(TARGET eth_zkproof_artifacts AND TARGET eth_server_handler)
+  add_dependencies(eth_server_handler eth_zkproof_artifacts)
+endif()

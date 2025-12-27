@@ -5,6 +5,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_conf.h"
 #include "eth_req.h"
 #include "handler.h"
 #include "logger.h"
@@ -12,6 +13,7 @@
 #ifdef PROVER_CACHE
 #include "chains/eth/prover/logs_cache.h"
 #endif
+#include "chains/eth/server/period_store.h"
 #include "server.h"
 #include "tx_cache.h"
 #include "util/json.h"
@@ -133,6 +135,15 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
       log_warn("No logs bloom or block number for prefetching: %l (%l)", prefetch_block_number, beacon_block_number);
   }
 #endif
+  // Persist current head for period store (if enabled)
+  if (eth_config.period_store && !eth_config.period_master_url) {
+    uint8_t header112[112] = {0};
+    // Direkt 80 Bytes der fixen Container-Felder kopieren (slot, proposerIndex, parentRoot, stateRoot)
+    memcpy(header112, ssz_get(&data_block, "slot").bytes.data, 80);
+    // body_root = hash_tree_root(body)
+    ssz_hash_tree_root(data_body, header112 + 80);
+    c4_period_sync_on_head(beacon_block.slot, data_root, header112);
+  }
   return C4_SUCCESS;
 }
 
@@ -181,10 +192,15 @@ void c4_handle_new_head(json_t head) {
 
 static void c4_handle_finalized_checkpoint_cb(request_t* req) {
   if (c4_check_retry_request(req)) return;
-  prover_ctx_t* ctx = (prover_ctx_t*) req->ctx;
+  prover_ctx_t* ctx        = (prover_ctx_t*) req->ctx;
+  bytes32_t     checkpoint = {0};
+  uint64_t      slot       = 0;
 
-  switch (c4_eth_update_finality(ctx)) {
+  switch (c4_eth_update_finality(ctx, checkpoint, &slot)) {
     case C4_SUCCESS: {
+      if (eth_config.period_store)
+        c4_period_sync_on_checkpoint(checkpoint, slot);
+
       prover_request_free(req);
       return;
     }
@@ -207,6 +223,7 @@ void c4_handle_finalized_checkpoint(json_t checkpoint) {
   request_t* req                          = (request_t*) safe_calloc(1, sizeof(request_t));
   req->cb                                 = c4_handle_finalized_checkpoint_cb;
   req->ctx                                = safe_calloc(1, sizeof(prover_ctx_t));
+  ((prover_ctx_t*) req->ctx)->chain_id    = http_server.chain_id;
   ((prover_ctx_t*) req->ctx)->client_type = BEACON_CLIENT_EVENT_SERVER;
   req->cb(req);
 }

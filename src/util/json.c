@@ -44,7 +44,7 @@
  * @return pointer to next non-whitespace character, or NULL if end of string
  */
 static const char* next_non_whitespace_token(const char* data) {
-  while (*data && isspace(*data)) data++;
+  while (*data && isspace((unsigned char)*data)) data++;
   return *data ? data : NULL;
 }
 
@@ -87,7 +87,7 @@ static const char* find_end(const char* pos, char start, char end) {
 static json_t parse_number(const char* start) {
   json_t json = json(JSON_TYPE_NUMBER, start, 0);
   for (; *start; start++) {
-    if (isdigit(*start) || *start == '.' || *start == '-' || *start == 'e' || *start == 'E')
+    if (isdigit((unsigned char)*start) || *start == '.' || *start == '-' || *start == 'e' || *start == 'E')
       json.len++;
     else
       break;
@@ -193,6 +193,36 @@ size_t json_len(json_t parent) {
   size_t i = 0;
   json_for_each_value(parent, value) i++;
   return i;
+}
+
+json_t json_get_path(json_t parent, const char* path) {
+  char tmp[256];
+  if (!path) return JSON_INVALID(parent.start);
+  const char* next_prop = strchr(path, '.');
+  const char* next_idx  = strchr(path, '[');
+  const char* next      = (next_prop && next_idx) ? (next_prop < next_idx ? next_prop : next_idx) : (next_prop ? next_prop : next_idx);
+  if (!next) return json_get(parent, path);
+  strncpy(tmp, path, next - path);
+  tmp[next - path] = '\0';
+  json_t value     = json_get(parent, tmp);
+  if (value.type == JSON_TYPE_INVALID) return value;
+  if (next && strlen(next + 1) > 0) {
+    if (*next == '[') {
+      const char* end_idx = strchr(next + 1, ']');
+      if (!end_idx) return JSON_INVALID(parent.start);
+      strncpy(tmp, next + 1, end_idx - next - 1);
+      tmp[end_idx - next - 1] = '\0';
+      json_t item             = json_at(value, atoi(tmp));
+      if (item.type == JSON_TYPE_INVALID) return item;
+      if (end_idx[1] == '.')
+        return json_get_path(item, end_idx + 2);
+      else
+        return item;
+    }
+    else
+      return json_get_path(value, next + 1);
+  }
+  return value;
 }
 
 static void json_deescape_string(buffer_t* buffer) {
@@ -339,6 +369,8 @@ uint32_t json_to_bytes(json_t value, bytes_t target) {
 }
 
 bytes_t json_as_bytes(json_t value, buffer_t* buffer) {
+  buffer_t tmp = {0};
+  if (!buffer) buffer = &tmp;
   if (value.type == JSON_TYPE_NUMBER) {
     buffer->data.len = 8;
     buffer_grow(buffer, 8);

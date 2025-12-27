@@ -242,22 +242,29 @@ void c4_prover_handle_request(request_t* req) {
   if (c4_check_retry_request(req) || c4_check_worker_request(req)) return;
 
   prover_ctx_t* ctx = (prover_ctx_t*) req->ctx;
+  const char*   req_path =
+      (req && req->client && req->client->request.path) ? req->client->request.path : "";
+  bytes_t req_payload =
+      (req && req->client && req->client->request.payload && req->client->request.payload_len)
+          ? bytes(req->client->request.payload, (uint32_t) req->client->request.payload_len)
+          : (bytes_t) {0};
+  uint64_t client_ptr = (uint64_t) (uintptr_t) (req ? req->client : NULL);
   // measure and trace c4_prover_execute invocation on main thread
 
   switch (prover_execute(req, ctx)) {
     case C4_SUCCESS:
       log_info(MAGENTA("::[ OK ]") "%s " GRAY(" (%d bytes in %l ms) :: #%lx"),
-               c4_req_info(C4_DATA_TYPE_INTERN, req->client->request.path, bytes(req->client->request.payload, req->client->request.payload_len)),
-               ctx->proof.len, (uint64_t) (current_ms() - req->start_time), (uint64_t) (uintptr_t) req->client);
+               c4_req_info(C4_DATA_TYPE_INTERN, req_path, req_payload),
+               ctx->proof.len, (uint64_t) (current_ms() - req->start_time), client_ptr);
       respond(req, ctx->proof, 200, "application/octet-stream");
       prover_request_free(req);
       return;
 
     case C4_ERROR: {
       log_info(RED("::[ERR ]") "%s " YELLOW("%s") GRAY(" :: #%lx"),
-               c4_req_info(C4_DATA_TYPE_INTERN, req->client->request.path, bytes(req->client->request.payload, req->client->request.payload_len)),
+               c4_req_info(C4_DATA_TYPE_INTERN, req_path, req_payload),
                ctx->state.error ? ctx->state.error : "",
-               (uint64_t) (uintptr_t) req->client);
+               client_ptr);
 
       buffer_t buf = {0};
       bprintf(&buf, "{\"error\":\"%s\"}", ctx->state.error);
@@ -290,6 +297,9 @@ bool c4_handle_proof_request(client_t* client) {
   if (client->request.method != C4_DATA_METHOD_POST /*|| strncmp(client->request.path, "/proof/", 7) != 0*/)
     return false;
 
+  if (strlen(client->request.path) > 1 && strncmp(client->request.path, "/proof", 6) != 0)
+    return false;
+
   json_t rpc_req = json_parse((char*) client->request.payload);
   if (rpc_req.type != JSON_TYPE_OBJECT) {
     c4_write_error_response(client, 400, "Invalid request");
@@ -299,11 +309,14 @@ bool c4_handle_proof_request(client_t* client) {
   json_t params       = json_get(rpc_req, "params");
   json_t client_state = json_get(rpc_req, "c4");
   json_t include_code = json_get(rpc_req, "include_code");
+  json_t zk_proof     = json_get(rpc_req, "zk_proof");
+  json_t signers      = json_get(rpc_req, "signers");
   if (method.type != JSON_TYPE_STRING || params.type != JSON_TYPE_ARRAY) {
     c4_write_error_response(client, 400, "Invalid request");
     return true;
   }
-  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | C4_PROVER_FLAG_USE_ACCESSLIST | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0);
+
+  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | http_server.prover_flags;
   buffer_t       client_state_buf = {0};
   char*          method_str       = bprintf(NULL, "%j", method);
   char*          params_str       = bprintf(NULL, "%J", params);
@@ -314,9 +327,13 @@ bool c4_handle_proof_request(client_t* client) {
   req->cb                         = c4_prover_handle_request;
   req->ctx                        = ctx;
   if (include_code.type == JSON_TYPE_BOOLEAN && include_code.start[0] == 't') ctx->flags |= C4_PROVER_FLAG_INCLUDE_CODE;
+  if (zk_proof.type == JSON_TYPE_BOOLEAN && zk_proof.start[0] == 't') ctx->flags |= C4_PROVER_FLAG_ZK_PROOF;
   if (client_state.type == JSON_TYPE_STRING && client_state.len > 4) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
   if (ctx->client_state.len > 4) ctx->flags |= C4_PROVER_FLAG_INCLUDE_SYNC;
-  if (!bytes_all_zero(bytes(http_server.witness_key, 32))) ctx->witness_key = bytes(http_server.witness_key, 32);
+  if (signers.type == JSON_TYPE_STRING && signers.len > 43 && signers.start[1] == '0' && signers.start[2] == 'x')
+    ctx->witness_key = json_as_bytes(signers, NULL);
+  else if (!bytes_all_zero(bytes(http_server.witness_key, 32)))
+    ctx->witness_key = bytes_dup(bytes(http_server.witness_key, 32));
 
   // Tracing: start root span
   if (tracing_is_enabled() && client->trace_level != TRACE_LEVEL_NONE) {

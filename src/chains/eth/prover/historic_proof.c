@@ -22,6 +22,7 @@
  */
 
 #include "historic_proof.h"
+#include "../server/eth_clients.h"
 #include "beacon.h"
 #include "beacon_types.h"
 #include "eth_req.h"
@@ -37,40 +38,12 @@
 #include <string.h>
 #define MAX_HISTORIC_PROOF_HEADER_DEPTH 10
 
-typedef enum {
-  BEACON_TYPE_NONE     = 0,
-  BEACON_TYPE_LODESTAR = 1,
-  BEACON_TYPE_NIMBUS   = 2,
-} beacon_type_t;
-static beacon_type_t beacon_type = BEACON_TYPE_NONE;
-
 static const ssz_def_t HISTORICAL_SUMMARY[] = {
     SSZ_BYTES32("block_summary_root"),
     SSZ_BYTES32("state_summary_root")};
 static const ssz_def_t HISTORICAL_SUMMARY_CONTAINER = SSZ_CONTAINER("HISTORICAL_SUMMARY", HISTORICAL_SUMMARY);
 static const ssz_def_t SUMMARIES                    = SSZ_LIST("summaries", HISTORICAL_SUMMARY_CONTAINER, 1 << 24);
 static const ssz_def_t BLOCKS                       = SSZ_VECTOR("blocks", ssz_bytes32, 8192);
-
-static c4_status_t get_beacon_type(prover_ctx_t* ctx, beacon_type_t* type) {
-  if (beacon_type != BEACON_TYPE_NONE) {
-    *type = beacon_type;
-    return C4_SUCCESS;
-  }
-
-  json_t result = {0};
-  TRY_ASYNC(c4_send_beacon_json(ctx, "eth/v1/node/version", NULL, DEFAULT_TTL, &result));
-  json_t version = json_get(json_get(result, "data"), "version");
-  if (version.type != JSON_TYPE_STRING) THROW_ERROR("Invalid conses api response for version!");
-
-  if (version.len > 10 && strncmp(version.start + 1, "Nimbus", 6) == 0)
-    *type = BEACON_TYPE_NIMBUS;
-  else if (version.len > 10 && strncmp(version.start + 1, "Lodestar", 8) == 0)
-    *type = BEACON_TYPE_LODESTAR;
-  else
-    THROW_ERROR_WITH("Unsupported beacon client: %j", version);
-
-  return C4_SUCCESS;
-}
 
 static c4_status_t get_beacon_header(prover_ctx_t* ctx, bytes32_t block_hash, json_t* header) {
 
@@ -144,6 +117,43 @@ static c4_status_t check_historic_proof_header(prover_ctx_t* ctx, blockroot_proo
   return C4_SUCCESS;
 }
 
+static c4_status_t get_historical_summaries(prover_ctx_t* ctx, beacon_block_t* block, json_t* history_proof) {
+  if (ctx->state.error) return C4_ERROR;
+  uint8_t  tmp[200] = {0};
+  buffer_t buf      = stack_buffer(tmp);
+
+  return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, history_proof, BEACON_CLIENT_LODESTAR);
+  /*
+  json_t      history_proof2 = {0};
+  c4_status_t status1        = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "nimbus/v1/debug/beacon/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof1, BEACON_CLIENT_NIMBUS);
+  if (ctx->state.error) {
+    safe_free(ctx->state.error);
+    ctx->state.error = NULL;
+    status1          = C4_ERROR;
+  }
+  */
+  /*
+   // /eth/v1/lodestar/states/{state_id}/historical_summaries
+   buffer_reset(&buf);
+   c4_status_t status2 = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof2, BEACON_CLIENT_LODESTAR);
+   if (ctx->state.error) {
+     safe_free(ctx->state.error);
+     ctx->state.error = NULL;
+     status2          = C4_ERROR;
+   }
+
+   if (status1 == C4_SUCCESS && history_proof1.type == JSON_TYPE_OBJECT)
+     *history_proof = history_proof1;
+   else if (status2 == C4_SUCCESS && history_proof2.type == JSON_TYPE_OBJECT)
+     *history_proof = history_proof2;
+   else if (status1 == C4_PENDING)
+     return C4_PENDING;
+   else
+     THROW_ERROR("Failed to get historical summaries! Looks like it is not supported by the beacon client!");
+   return C4_SUCCESS;
+   */
+}
+
 static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
   uint64_t            slot          = src_block->slot;
   c4_status_t         status        = C4_SUCCESS;
@@ -154,7 +164,6 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   buffer_t            buf2          = stack_buffer(tmp);
   const chain_spec_t* chain         = c4_eth_get_chain_spec(ctx->chain_id);
   bytes_t             blocks        = {0};
-  beacon_type_t       beacon_type   = BEACON_TYPE_NONE;
 
   if (chain == NULL) THROW_ERROR("unsupported chain id!");
   if (!ctx->client_state.len || !(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS; // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
@@ -163,17 +172,15 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   if (!state_period) return C4_SUCCESS;                                                        // the client does not have a state yet, so he might as well get the head and verify the block.
   if (block_period >= state_period) return C4_SUCCESS;                                         // the target block is within the current range of the client
 
-  TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
-  TRY_ADD_ASYNC(status, get_beacon_type(ctx, &beacon_type));                                 // make sure we which beacon client we are using
-  TRY_ASYNC(status);                                                                         // wait for all async requests to finish
+  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
+  TRY_ADD_ASYNC(status, get_historical_summaries(ctx, &block, &history_proof));
+  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "period_store/%d/blocks.ssz", block_period), NULL, 0, &blocks)); // get the blockd
+  TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
 
-  TRY_ADD_ASYNC(status, c4_send_beacon_json(ctx, bprintf(&buf, beacon_type == BEACON_TYPE_NIMBUS ? "nimbus/v1/debug/beacon/states/0x%b/historical_summaries" : "eth/v1/lodestar/historical_summaries/0x%b", ssz_get(&block.header, "stateRoot").bytes), NULL, 120, &history_proof));
-  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "chain_store/%d/%d/blocks.ssz", (uint32_t) ctx->chain_id, block_period), NULL, 0, &blocks)); // get the blockd
-  TRY_ASYNC(status);                                                                                                                                              // finish requests before continuing
-
+  uint32_t  offset_period  = (uint32_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
   fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
   json_t    data           = json_get(history_proof, "data");                                    // the the main json-object
-  uint32_t  summary_idx    = block_period - 758;                                                 // the index starting from the  cappella fork, where we got zhe first Summary entry.
+  uint32_t  summary_idx    = block_period - offset_period;                                       // the index starting from the  cappella fork, where we got zhe first Summary entry.
   uint32_t  block_idx      = slot % 8192;                                                        // idx within the period
   gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                           // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
   gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root");       // the gindex of the single summary-object we need to proof
@@ -288,7 +295,10 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
   uint32_t count      = (uint32_t) (sync_data->required_period - sync_data->newest_period);
   char     query[100] = {0};
   sbprintf(query, "start_period=%l&count=%l", sync_data->newest_period, sync_data->required_period - sync_data->newest_period);
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
+  if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)
+    TRY_ASYNC(c4_send_internal_request(ctx, "lcu_updates", query, 0, &result));
+  else
+    TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
 
   if (!updates) return C4_SUCCESS;
 
@@ -318,7 +328,22 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder) {
   // nothing to be done - no data to be added.
-  if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0) return C4_SUCCESS;
+  if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0 && !(ctx->flags & C4_PROVER_FLAG_ZK_PROOF)) return C4_SUCCESS;
+  if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && ((sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) ||
+                                               (sync_data->newest_period && sync_data->newest_period < sync_data->required_period))) {
+    // we need a zk_proof (if available) for the required period.
+    builder->def             = C4_ETH_REQUEST_SYNCDATA_UNION + 2; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
+    zk_proof_data_t zk_proof = {0};
+    TRY_ASYNC(c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period));
+    ssz_add_bytes(builder, "vk_hash", ssz_get(&zk_proof.sync_proof, "vk_hash").bytes);
+    ssz_add_bytes(builder, "proof", ssz_get(&zk_proof.sync_proof, "proof").bytes);
+    ssz_add_ob(builder, "header", ssz_get(&zk_proof.sync_proof, "header"));
+    ssz_add_ob(builder, "pubkeys", ssz_get(&zk_proof.sync_proof, "pubkeys"));
+    ssz_add_ob(builder, "checkpoint", ssz_get(&zk_proof.sync_proof, "checkpoint"));
+    ssz_add_bytes(builder, "signatures", zk_proof.signatures);
+    safe_free(zk_proof.signatures.data);
+    return C4_SUCCESS;
+  }
   if (sync_data->checkpoint_period == 0 && sync_data->required_period <= sync_data->newest_period) return C4_SUCCESS;
 
   builder->def            = C4_ETH_REQUEST_SYNCDATA_UNION + 1; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
@@ -336,11 +361,20 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
  * updates the sync_data, but also runs the request to fetch the bootstrap or updates data.
  */
 static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sync_data, const chain_spec_t* chain) {
-  if (!ctx->client_state.data || !ctx->client_state.len || !sync_data || !chain) return C4_SUCCESS;
+  if (!sync_data || !chain) return C4_SUCCESS;
+  zk_proof_data_t  zk_proof    = {0};
   c4_chain_state_t chain_state = c4_state_deserialize(ctx->client_state);
   sync_data->status            = chain_state.status;
   switch (sync_data->status) {
-    case C4_STATE_SYNC_EMPTY: return C4_SUCCESS;
+    case C4_STATE_SYNC_EMPTY:
+      if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF) {
+        // we only fetch them so we safe time in case we download the proof files later.
+        c4_status_t status = c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+        if (status == C4_SUCCESS)
+          safe_free(zk_proof.signatures.data);
+        return status;
+      }
+      return C4_SUCCESS;
     case C4_STATE_SYNC_PERIODS:
       for (int i = 0; i < MAX_SYNC_PERIODS && chain_state.data.periods[i]; i++) {
         if (!sync_data->oldest_period || chain_state.data.periods[i] < sync_data->oldest_period) sync_data->oldest_period = chain_state.data.periods[i];
@@ -363,8 +397,10 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
       break;
     }
   }
-
-  if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) && sync_data->newest_period < sync_data->required_period)
+  // if there is a gap, fetch the light client updates
+  if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && sync_data->newest_period < sync_data->required_period)
+    return c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+  else if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) && sync_data->newest_period < sync_data->required_period)
     return fetch_updates_data(ctx, sync_data, NULL);
   return C4_SUCCESS;
 }

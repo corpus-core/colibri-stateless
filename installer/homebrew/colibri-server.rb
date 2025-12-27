@@ -84,6 +84,7 @@ class ColibriServer < Formula
              "-DPROVER_CACHE=ON",
              "-DVERIFIER=ON",
              "-DCLI=ON",
+             "-DETH_ZKPROOF_BUILD_HOST=OFF",
              "-DTEST=OFF",
              "-DFETCHCONTENT_FULLY_DISCONNECTED=ON",
              "-DFETCHCONTENT_SOURCE_DIR_BLST=#{buildpath}/build/_deps/blst-src",

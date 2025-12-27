@@ -58,6 +58,10 @@ typedef struct {
   syncdata_state_t      sync;
 } blockroot_proof_t;
 
+typedef struct {
+  ssz_ob_t sync_proof;
+  bytes_t  signatures;
+} zk_proof_data_t;
 /**
  * checks whether additional data is needed in order to proof the blockroot.asm
  *
@@ -81,6 +85,7 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder);
 void        ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof);
 void        c4_free_block_proof(blockroot_proof_t* block_proof);
+c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof, uint64_t period);
 #ifdef __cplusplus
 }
 #endif

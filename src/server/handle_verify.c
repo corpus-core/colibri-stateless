@@ -407,7 +407,7 @@ bool c4_handle_verify_request(client_t* client) {
             verify_req->method,
             params_str,
             (chain_id_t) http_server.chain_id,
-            C4_PROVER_FLAG_UV_SERVER_CTX | C4_PROVER_FLAG_INCLUDE_CODE | (http_server.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0));
+            C4_PROVER_FLAG_UV_SERVER_CTX | C4_PROVER_FLAG_INCLUDE_CODE | http_server.prover_flags);
 
         // Setup request_t for prover (SEPARATE from verify_req->req!)
         req->start_time = current_ms();

@@ -113,6 +113,7 @@ void ssz_add_ob(ssz_builder_t* buffer, const char* name, ssz_ob_t ob) {
 
 void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_builder_t data) {
   ssz_ob_t element = ssz_builder_to_bytes(&data);
+  buffer_reset(&data.fixed);
   ssz_add_dynamic_list_bytes(buffer, num_elements, element.bytes);
   safe_free(element.bytes.data);
 }

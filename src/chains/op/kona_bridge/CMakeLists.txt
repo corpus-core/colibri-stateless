@@ -76,16 +76,16 @@ target_include_directories(kona_preconf_capture PUBLIC
     ${CMAKE_BINARY_DIR}/_deps/libuv-src/include
 )
 
-target_link_libraries(kona_preconf_capture
+target_link_libraries(kona_preconf_capture PRIVATE
     kona_bridge_lib
-    libuv
+    serverio
     ${KONA_SYSTEM_LIBS}
 )
 
 # Add op_chains_conf.c as a separate object to avoid circular dependencies
 add_library(op_chains_conf_obj OBJECT ../verifier/op_chains_conf.c)
 target_include_directories(op_chains_conf_obj PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(kona_preconf_capture op_chains_conf_obj)
+target_link_libraries(kona_preconf_capture PRIVATE op_chains_conf_obj)
 
 # Definiere KONA_BRIDGE_AVAILABLE für bedingte Kompilierung
 target_compile_definitions(kona_preconf_capture PUBLIC KONA_BRIDGE_AVAILABLE=1)

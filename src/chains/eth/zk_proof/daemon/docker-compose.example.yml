@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  prover-daemon:
+    build:
+      context: ../../../../..
+      dockerfile: src/chains/eth/zk_proof/daemon/Dockerfile
+    restart: unless-stopped
+    environment:
+      - CHAIN=mainnet
+      - RPC_URL=https://lodestar-mainnet.chainsafe.io
+      # Check every 10 minutes
+      - CHECK_INTERVAL_MS=600000
+      # Directory inside container where proofs are stored/checked
+      - OUTPUT_DIR=/data/proofs
+      # Metrics file location
+      - PROMETHEUS_FILE=/metrics/proof.prom
+      # Prover RPC endpoint (override per chain if needed)
+      - PROVER_RPC_URL=https://mainnet1.colibri-proof.tech/
+      # Path to the Docker secret containing your SP1 private key
+      - SP1_PRIVATE_KEY_FILE=/run/secrets/sp1_network_key
+      # Skip local Groth16 verification inside the container (no nested Docker available)
+      - SP1_SKIP_VERIFY=1
+    volumes:
+      # Map the output directory to a persistent volume or host path
+      - ./period_store_data:/data/proofs
+      # Map the textfile collector directory for Node Exporter
+      # Assuming node_exporter runs on host or another container sharing this volume
+      - /var/lib/node_exporter/textfile_collector:/metrics
+    secrets:
+      - sp1_network_key
+    network_mode: "host" # Optional, or use bridge and expose nothing since a daemon
+
+secrets:
+  sp1_network_key:
+    file: ./secrets/sp1_private_key

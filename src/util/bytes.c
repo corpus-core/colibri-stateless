@@ -78,6 +78,11 @@ void* safe_calloc(size_t num, size_t size) {
     sbprintf(size_info, "%l items of size %l bytes", (uint64_t) num, (uint64_t) size);
     SAFE_ALLOC_ERROR_EXIT("calloc", size_info, strerror(errno));
   }
+#ifdef __clang_analyzer__
+  // calloc initializes memory to zero, but the static analyzer doesn't seem to know that.
+  // so we do it explicitly here to avoid false positives.
+  if (ptr) memset(ptr, 0, num * size);
+#endif
   return ptr;
 }
 
