@@ -121,7 +121,7 @@ bool c4_verify_zk_proof(bytes_t proof, bytes_t public_inputs, const uint8_t* pro
 
   // 1. Parse Proof
   if (proof.len != 260) {
-    fprintf(stderr, "Invalid proof length: %u (expected 260)\n", proof.len);
+    fprintf(stderr, "Invalid proof length: %u (expected 260)\n", (unsigned)proof.len);
     return false;
   }
 

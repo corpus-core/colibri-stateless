@@ -16,28 +16,62 @@ void intx_init_value(intx_uint256_t* value, unsigned long long val) {
 }
 
 int intx_from_string(intx_uint256_t* value, const char* str, int base) {
-  try {
-    // The intx library doesn't support base parameter directly
-    // Need to handle hex prefix for base 16
-    std::string input_str = str;
-
-    if (base == 16 && input_str.substr(0, 2) != "0x") {
-      input_str = "0x" + input_str; // Add 0x prefix for hex if not present
-    }
-    else if (base != 10) {
-      // For other bases, we'd need custom implementation
-      // For now, only support base 10 and 16
-      intx_init(value);
-      return 0;
-    }
-
-    intx::uint256 cpp_value = intx::from_string<intx::uint256>(input_str);
-    to_c(cpp_value, value);
-    return 1; // Success
-  } catch (...) {
-    intx_init(value); // Set to 0 on error
-    return 0;         // Error
+  // ESP-IDF typically compiles C++ with exceptions disabled. Avoid try/catch in embedded builds.
+  // We implement a small base-10/base-16 parser that does not throw.
+  if (!value || !str) {
+    return 0;
   }
+
+  if (base != 10 && base != 16) {
+    intx_init(value);
+    return 0;
+  }
+
+  const char* p = str;
+  if (base == 16 && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+    p += 2;
+  }
+
+  intx::uint256 acc = 0;
+  bool has_digit = false;
+  for (; *p; ++p) {
+    const char c = *p;
+    unsigned v;
+
+    if (base == 10) {
+      if (c < '0' || c > '9') {
+        intx_init(value);
+        return 0;
+      }
+      v = static_cast<unsigned>(c - '0');
+    }
+    else {
+      if (c >= '0' && c <= '9') {
+        v = static_cast<unsigned>(c - '0');
+      }
+      else if (c >= 'a' && c <= 'f') {
+        v = static_cast<unsigned>(10 + (c - 'a'));
+      }
+      else if (c >= 'A' && c <= 'F') {
+        v = static_cast<unsigned>(10 + (c - 'A'));
+      }
+      else {
+        intx_init(value);
+        return 0;
+      }
+    }
+
+    has_digit = true;
+    acc = acc * base + v;
+  }
+
+  if (!has_digit) {
+    intx_init(value);
+    return 0;
+  }
+
+  to_c(acc, value);
+  return 1;
 }
 
 // Conversion functions

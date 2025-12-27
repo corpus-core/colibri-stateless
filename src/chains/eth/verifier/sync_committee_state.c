@@ -497,6 +497,9 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
 
     case C4_STATE_SYNC_PERIODS:
       THROW_ERROR("init_sync_state called with existing sync committee state");
+
+    default:
+      THROW_ERROR("unknown sync state");
   }
 }
 

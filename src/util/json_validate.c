@@ -42,16 +42,16 @@ static const char* find_end(const char* pos, char start, char end) {
 }
 
 static const char* next_name(const char* pos, const char** next, int* len) {
-  while (*pos && isspace(*pos)) pos++;
+  while (*pos && isspace((unsigned char)*pos)) pos++;
   const char* start = pos;
-  while (*pos && (isalnum(*pos) || *pos == '_')) pos++;
+  while (*pos && (isalnum((unsigned char)*pos) || *pos == '_')) pos++;
   *next = pos;
   *len  = pos - start;
   return start;
 }
 
 static const char* next_type(const char* pos, const char** next, int* len) {
-  while (*pos && isspace(*pos)) pos++;
+  while (*pos && isspace((unsigned char)*pos)) pos++;
   const char* start = pos;
   if (*pos == '[') {
     const char* end = find_end(pos + 1, '[', ']');
@@ -81,7 +81,7 @@ static const char* check_array(json_t val, const char* def, const char* error_pr
   int         idx      = 0;
   const char* item_def = next_type(def + 1, &next, &item_len);
   if (!next) ERROR("%sExpected array", error_prefix);
-  while (*next && isspace(*next)) next++;
+  while (*next && isspace((unsigned char)*next)) next++;
   json_for_each_value(val, item) {
     const char* err = json_validate(item, item_def, "");
     if (err) {
@@ -91,7 +91,7 @@ static const char* check_array(json_t val, const char* def, const char* error_pr
     }
     if (*next == ',') {
       item_def = next_type(next + 1, &next, &item_len);
-      while (*next && isspace(*next)) next++;
+      while (*next && isspace((unsigned char)*next)) next++;
     }
     idx++;
   }
@@ -108,7 +108,7 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
 
   if (def[1] == '*' && def[2] == ':') {
     next += 3;
-    while (*next && isspace(*next)) next++;
+    while (*next && isspace((unsigned char)*next)) next++;
     const char* item_def = next_type(next, &next, &item_len);
     json_for_each_property(ob, val, prop_name) {
       const char* err = json_validate(val, item_def, "");
@@ -126,10 +126,10 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
     if (!next) ERROR("%sExpected object", error_prefix);
     bool optional = next && *next == '?';
     if (optional) next++;
-    while (*next && isspace(*next)) next++;
+    while (*next && isspace((unsigned char)*next)) next++;
     if (*next != ':') ERROR("%sExpected in def :", error_prefix);
     next++;
-    while (*next && isspace(*next)) next++;
+    while (*next && isspace((unsigned char)*next)) next++;
     const char* item_def = next_type(next, &next, &item_len);
     bool        found    = false;
     json_for_each_property(ob, val, prop_name) {
@@ -146,7 +146,7 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
       }
     }
     if (!found && !optional) ERROR("%smissing property %j", error_prefix, (json_t) {.type = JSON_TYPE_OBJECT, .start = name, .len = name_len});
-    while (*next && isspace(*next)) next++;
+    while (*next && isspace((unsigned char)*next)) next++;
     if (*next != ',') return NULL;
     def = next;
   }
@@ -158,7 +158,7 @@ static const char* check_hex(json_t val, int len, bool isuint, const char* error
   if (val.start[1] != '0' && val.start[2] != 'x') ERROR("%sExpected hex prefixed (0x) string", error_prefix);
   int l = 0;
   for (int i = 3; i < val.len - 1; i++, l++) {
-    if (!isxdigit(val.start[i])) ERROR("%sExpected hex string", error_prefix);
+    if (!isxdigit((unsigned char)val.start[i])) ERROR("%sExpected hex string", error_prefix);
   }
 
   if (len > 0 && (l % 2 || l / 2 != len)) ERROR("%sExpected hex string with fixed size (%d) but got %d bytes", error_prefix, len, l / 2);
@@ -179,7 +179,7 @@ static const char* check_suint(json_t val, const char* error_prefix) {
   // this is a uint number in quotes as string (no hex, only 0-9+)
   if (val.type != JSON_TYPE_STRING) ERROR("%sExpected suint", error_prefix);
   for (int i = 1; i < val.len - 1; i++) {
-    if (!isdigit(val.start[i])) ERROR("%sExpected suint", error_prefix);
+    if (!isdigit((unsigned char)val.start[i])) ERROR("%sExpected suint", error_prefix);
   }
   return NULL;
 }
