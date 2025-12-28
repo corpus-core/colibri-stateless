@@ -21,23 +21,41 @@ tokio = { version = "1.0", features = ["full"] }
 ### Basic Usage
 
 ```rust
-use colibri::{ColibriClient, Result};
+use colibri::{ColibriClient, ColibriError, MAINNET};
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    // Initialize client with beacon and RPC endpoints
-    let client = ColibriClient::with_urls(
-        Some("https://lodestar-mainnet.chainsafe.io".to_string()),
-        Some("https://ethereum-rpc.publicnode.com".to_string()),
-    );
+async fn main() -> Result<(), ColibriError> {
+    // Initialize client with mainnet defaults
+    let client = ColibriClient::new(None, None);
 
     // Generate a cryptographic proof
-    let proof = client.prove("eth_blockNumber", "[]", 1, 0).await?;
+    let proof = client.prove("eth_blockNumber", "[]", MAINNET, 0).await?;
     println!("Proof generated: {} bytes", proof.len());
 
     // Verify the proof and get result
-    let result = client.verify(&proof, "eth_blockNumber", "[]", 1, "").await?;
+    let result = client.verify(&proof, "eth_blockNumber", "[]", MAINNET, "").await?;
     println!("Verified result: {}", result);
+
+    Ok(())
+}
+```
+
+### Custom Configuration
+
+```rust
+use colibri::{ColibriClient, ClientConfig, ColibriError, MAINNET};
+
+#[tokio::main]
+async fn main() -> Result<(), ColibriError> {
+    // Create client with custom URLs
+    let config = ClientConfig::new(MAINNET)
+        .with_eth_rpcs(vec!["https://my-rpc.com".into()])
+        .with_beacon_apis(vec!["https://my-beacon.com".into()]);
+
+    let client = ColibriClient::new(Some(config), None);
+
+    let proof = client.prove("eth_blockNumber", "[]", MAINNET, 0).await?;
+    println!("Proof: {} bytes", proof.len());
 
     Ok(())
 }
@@ -67,14 +85,39 @@ async fn main() -> Result<()> {
 
 The main client for interacting with Colibri.
 
+#### Constructor
+
+- `new(config, storage)` - Create a client with optional config and storage
+  - `config: Option<ClientConfig>` - Configuration (None uses mainnet defaults)
+  - `storage: Option<Box<dyn Storage>>` - Custom storage (None uses file storage)
+
 #### Methods
 
-- `new()` - Create a client without URLs
-- `with_urls(beacon_api_url, eth_rpc_url)` - Create a client with specified URLs
 - `prove(method, params, chain_id, flags)` - Generate a cryptographic proof
 - `verify(proof, method, params, chain_id, checkpoint)` - Verify a proof and get the result
+- `chain_id()` - Get the configured chain ID
+- `get_method_support(method)` - Check if a method is supported
 
-### Supported Methods
+### ClientConfig
+
+Builder for client configuration.
+
+- `new(chain_id)` - Create config with defaults for a chain
+- `with_eth_rpcs(urls)` - Set Ethereum RPC URLs
+- `with_beacon_apis(urls)` - Set Beacon API URLs
+- `with_provers(urls)` - Set prover URLs
+- `with_checkpointz(urls)` - Set checkpoint sync URLs
+- `with_trusted_checkpoint(checkpoint)` - Set trusted checkpoint
+- `with_include_code(bool)` - Include contract code in proofs
+
+### Chain Constants
+
+- `MAINNET` (1) - Ethereum Mainnet
+- `SEPOLIA` (11155111) - Sepolia Testnet
+- `GNOSIS` (100) - Gnosis Chain
+- `CHIADO` (10200) - Chiado Testnet
+
+### Supported RPC Methods
 
 - `eth_blockNumber` - Get the latest block number
 - `eth_getBalance` - Get account balance
