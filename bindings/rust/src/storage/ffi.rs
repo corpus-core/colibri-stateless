@@ -74,41 +74,24 @@ unsafe extern "C" fn storage_delete_callback(key: *mut c_char) {
     }
 }
 
-/// Register storage with the C library. Idempotent.
-pub(crate) fn register_global_storage(storage: Box<dyn Storage>) {
-    let _ = GLOBAL_STORAGE.set(Arc::new(Mutex::new(storage)));
-
-    unsafe {
-        if !STORAGE_REGISTERED_WITH_C {
-            let mut plugin = storage_plugin_t {
-                get: Some(storage_get_callback),
-                set: Some(storage_set_callback),
-                del: Some(storage_delete_callback),
-                max_sync_states: 3,
-            };
-            c4_set_storage_config(&mut plugin);
-            STORAGE_REGISTERED_WITH_C = true;
-        }
-    }
-}
-
-#[allow(dead_code)]
 pub(crate) fn is_storage_registered() -> bool {
     unsafe { STORAGE_REGISTERED_WITH_C }
 }
 
-#[allow(dead_code)]
-pub(crate) fn cleanup_global_storage() {
-    unsafe {
-        if STORAGE_REGISTERED_WITH_C {
-            let mut plugin = storage_plugin_t {
-                get: None,
-                set: None,
-                del: None,
-                max_sync_states: 0,
-            };
+/// Register storage with the C library. Idempotent.
+pub(crate) fn register_global_storage(storage: Box<dyn Storage>) {
+    let _ = GLOBAL_STORAGE.set(Arc::new(Mutex::new(storage)));
+
+    if !is_storage_registered() {
+        let mut plugin = storage_plugin_t {
+            get: Some(storage_get_callback),
+            set: Some(storage_set_callback),
+            del: Some(storage_delete_callback),
+            max_sync_states: 3,
+        };
+        unsafe {
             c4_set_storage_config(&mut plugin);
-            STORAGE_REGISTERED_WITH_C = false;
+            STORAGE_REGISTERED_WITH_C = true;
         }
     }
 }
