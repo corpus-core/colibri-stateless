@@ -340,6 +340,7 @@ void c4_prover_free(prover_ctx_t* ctx) {
   if (ctx->params.start) safe_free((void*) ctx->params.start);
   if (ctx->proof.data) safe_free(ctx->proof.data);
   if (ctx->client_state.data) safe_free(ctx->client_state.data);
+  if (ctx->witness_key.data) safe_free(ctx->witness_key.data);
 #ifdef PROVER_TRACE
   // Free open span (if any)
   if (ctx->trace_open) {

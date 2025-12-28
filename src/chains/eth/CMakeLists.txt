@@ -198,6 +198,7 @@ add_server_handler(
     server/chain_props.c
     server/handle_lcu.c
     server/handle_headers.c
+    server/handle_checkpoints.c
     server/client_detection.c
     server/client_mappings.c
     server/period_store.c
@@ -208,6 +209,7 @@ add_server_handler(
     server/period_store_period_index.c
     server/period_store_full_sync.c
     server/period_store_zk_prover.c
+    server/period_store_zk_ssz.c
     server/handle_period_static.c
     server/eth_conf.c
   DEPENDS eth_prover
@@ -219,6 +221,15 @@ add_server_handler(
   METRICS_FUNC eth_server_metrics
   CONFIG_FUNC eth_configure
 )
+
+# Checkpoint signer CLI (external cronjob helper)
+# Build only when CLI tools are enabled (e.g. skip for WASM builds) and CURL is available.
+if(CLI AND CURL)
+  add_executable(colibri-signer cp_signer/main.c)
+  add_dependencies(colibri-signer util curl_fetch eth_verifier)
+  target_link_libraries(colibri-signer PRIVATE util curl_fetch eth_verifier)
+  set_target_properties(colibri-signer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+endif()
 
 # Ensure ETH ZK-Proof artifacts are built/copied when building the ETH server handler (only exists with HTTP_SERVER).
 if(TARGET eth_zkproof_artifacts AND TARGET eth_server_handler)

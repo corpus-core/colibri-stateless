@@ -257,13 +257,18 @@ export default class C4Client {
         ? as_char_ptr(this.config.trusted_checkpoint, c4w, free_buffers)
         : 0;
 
+      const witness_keys_ptr = this.config.checkpoint_witness_keys
+        ? as_char_ptr(this.config.checkpoint_witness_keys, c4w, free_buffers)
+        : 0;
+
       ctx = c4w._c4w_create_verify_ctx(
         copy_to_c(proof, c4w, free_buffers),
         proof.length,
         as_char_ptr(method, c4w, free_buffers),
         as_char_ptr(JSON.stringify(args), c4w, free_buffers),
         BigInt(this.config.chainId),
-        checkpoint_ptr);
+        checkpoint_ptr,
+        witness_keys_ptr);
 
       while (true) {
         const state = as_json(c4w._c4w_verify_proof(ctx), c4w, true);
@@ -323,8 +328,15 @@ export default class C4Client {
           // skip verification and fetch directly
           return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
         }
+
         const proof = this.config.prover && this.config.prover.length
-          ? await fetch_rpc(this.config.prover, { method, params: cleanup_args(method, args), c4: await get_prover_config_hex(this.config.chainId as number), zk_proof: !!this.config.zk_proof }, true)
+          ? await fetch_rpc(this.config.prover, {
+            method,
+            params: cleanup_args(method, args),
+            c4: await get_prover_config_hex(this.config.chainId as number),
+            zk_proof: !!this.config.zk_proof,
+            signers: this.config.checkpoint_witness_keys || '0x'
+          }, true)
           : await this.createProof(method, args);
         return this.verifyProof(method, args, proof);
       }

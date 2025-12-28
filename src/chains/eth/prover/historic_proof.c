@@ -335,11 +335,13 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     builder->def             = C4_ETH_REQUEST_SYNCDATA_UNION + 2; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
     zk_proof_data_t zk_proof = {0};
     TRY_ASYNC(c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period));
-    ssz_add_bytes(builder, "vk_hash", bytes(zk_proof.vk, 32));
-    ssz_add_bytes(builder, "proof", zk_proof.proof);
-    ssz_add_ob(builder, "bootstrap", zk_proof.bootstrap);
-    ssz_add_bytes(builder, "signatures", NULL_BYTES);
-
+    ssz_add_bytes(builder, "vk_hash", ssz_get(&zk_proof.sync_proof, "vk_hash").bytes);
+    ssz_add_bytes(builder, "proof", ssz_get(&zk_proof.sync_proof, "proof").bytes);
+    ssz_add_ob(builder, "header", ssz_get(&zk_proof.sync_proof, "header"));
+    ssz_add_ob(builder, "pubkeys", ssz_get(&zk_proof.sync_proof, "pubkeys"));
+    ssz_add_ob(builder, "checkpoint", ssz_get(&zk_proof.sync_proof, "checkpoint"));
+    ssz_add_bytes(builder, "signatures", zk_proof.signatures);
+    safe_free(zk_proof.signatures.data);
     return C4_SUCCESS;
   }
   if (sync_data->checkpoint_period == 0 && sync_data->required_period <= sync_data->newest_period) return C4_SUCCESS;
@@ -365,9 +367,13 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
   sync_data->status            = chain_state.status;
   switch (sync_data->status) {
     case C4_STATE_SYNC_EMPTY:
-      if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF)
+      if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF) {
         // we only fetch them so we safe time in case we download the proof files later.
-        return c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+        c4_status_t status = c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+        if (status == C4_SUCCESS)
+          safe_free(zk_proof.signatures.data);
+        return status;
+      }
       return C4_SUCCESS;
     case C4_STATE_SYNC_PERIODS:
       for (int i = 0; i < MAX_SYNC_PERIODS && chain_state.data.periods[i]; i++) {

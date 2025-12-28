@@ -270,9 +270,18 @@ static int on_body(llhttp_t* parser, const char* at, size_t length) {
   }
 
   client->body_size_received = new_total;
-  client->request.payload    = (uint8_t*) safe_malloc(length);
-  memcpy(client->request.payload, at, length);
-  client->request.payload_len = length;
+  // llhttp may call on_body multiple times (chunked encoding or segmented reads).
+  // Accumulate the full payload so handlers see a complete request body.
+  if (length > 0) {
+    uint8_t* new_payload = (uint8_t*) safe_malloc(new_total);
+    if (client->request.payload && client->request.payload_len > 0) {
+      memcpy(new_payload, client->request.payload, client->request.payload_len);
+      safe_free(client->request.payload);
+    }
+    memcpy(new_payload + (new_total - length), at, length);
+    client->request.payload     = new_payload;
+    client->request.payload_len = new_total;
+  }
   return 0;
 }
 

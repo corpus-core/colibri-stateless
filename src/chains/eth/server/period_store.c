@@ -30,6 +30,8 @@ void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
     if (!c4_ps_file_exists(period, "lcb.ssz")) c4_ps_fetch_lcb_for_checkpoint(checkpoint, period);
     if (!c4_ps_file_exists(period, "lcu.ssz")) c4_ps_schedule_fetch_lcu(period);
     if (!c4_ps_file_exists(period, "historical_root.json")) c4_ps_schedule_fetch_historical_root(period);
+    if (c4_ps_file_exists(period, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period);
+    if (c4_ps_file_exists(period + 1, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period + 1);
     c4_period_prover_on_checkpoint(period);
   }
   else

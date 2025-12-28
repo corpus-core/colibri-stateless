@@ -102,7 +102,7 @@ static const ssz_def_t ETH_HISTORIC_BLOCK_PROOF[] = {
     SSZ_BYTE_VECTOR("sync_committee_signature", 96) // the signature of the sync committee
 };
 
-static const ssz_def_t PROOF_HEADER[5];
+static const ssz_def_t PROOF_HEADER[4];
 
 static const ssz_def_t PROOF_HEADER_CONTAINER = SSZ_CONTAINER("ProofHeader", PROOF_HEADER);
 
@@ -117,7 +117,7 @@ static const ssz_def_t ETH_HEADERS_BLOCK_PROOF[] = {
 };
 
 // a header structures used for a chain of headers in the Header Proof, by representing a header without the parentRoot used.
-static const ssz_def_t PROOF_HEADER[5] = {
+static const ssz_def_t PROOF_HEADER[4] = {
     SSZ_UINT64("slot"),          // the slot of the block or blocknumber
     SSZ_UINT64("proposerIndex"), // the index of the validator proposing the block
     SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block

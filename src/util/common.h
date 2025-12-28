@@ -44,6 +44,14 @@
 #define API_PUBLIC
 #endif
 
+// Marks a symbol as potentially unused to avoid compiler warnings.
+// On MSVC this expands to nothing; on GCC/Clang it uses __attribute__((unused)).
+#if defined(__GNUC__) || defined(__clang__)
+#define C4_UNUSED __attribute__((unused))
+#else
+#define C4_UNUSED
+#endif
+
 #include <stdint.h>
 
 static inline uint32_t min32(uint32_t a, uint32_t b) {

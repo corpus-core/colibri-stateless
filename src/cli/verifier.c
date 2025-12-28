@@ -40,7 +40,7 @@
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
 
-static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_id_t chain_id) {
+static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_id_t chain_id, char* signers) {
   // fprintf(stderr, "reading from prover: %s(%s) from %s\n", method, args, url);
   if (strcmp(method, "colibri_simulateTransaction") == 0) method = "eth_call";
   buffer_t   payload = {0};
@@ -51,7 +51,7 @@ static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_i
   char* additional_params = "";
 #endif
 
-  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\",%s}", method, args, state, additional_params);
+  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\",%s,\"signers\":\"%s\"}", method, args, state, additional_params, signers ? signers : "");
   data_request_t req = {.chain_id = chain_id, .type = C4_DATA_TYPE_PROVER, .payload = payload.data, .encoding = C4_DATA_ENCODING_SSZ, .method = C4_DATA_METHOD_POST};
   ctx.requests       = &req;
   curl_fetch_all(&ctx);
@@ -135,6 +135,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -p url of the prover\n");
     fprintf(stderr, "  -r rpc url\n");
     fprintf(stderr, "  -x checkpointz url\n");
+    fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
@@ -150,6 +151,7 @@ int main(int argc, char* argv[]) {
   char*      test_dir           = NULL;
   char*      chain_name         = NULL;
   char*      output             = NULL;
+  char*      signers            = NULL;
   bytes32_t  trusted_checkpoint = {0};
   bool       has_checkpoint     = false;
   bool       use_zk_proof       = false;
@@ -185,6 +187,9 @@ int main(int argc, char* argv[]) {
             }
             break;
 #ifdef USE_CURL
+          case 'n':
+            signers = argv[++i];
+            break;
           case 'x':
             checkpointz_url = argv[++i];
             break;
@@ -283,7 +288,7 @@ int main(int argc, char* argv[]) {
         storage_plugin_t storage;
         c4_get_storage_config(&storage);
         storage.get(name, &state);
-        request = read_from_prover(method, (char*) args.data.data, state.data, chain_id);
+        request = read_from_prover(method, (char*) args.data.data, state.data, chain_id, signers);
         buffer_free(&state);
         if (output) bytes_write(request, fopen(output, "w"), true);
 #else
@@ -305,10 +310,15 @@ int main(int argc, char* argv[]) {
   }
 
   verify_ctx_t ctx = {0};
-  for (
-      c4_status_t status = c4_verify_from_bytes(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
-      status == C4_PENDING;
-      status = c4_verify(&ctx))
+  c4_verify_init(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
+  if (signers && strlen(signers) > 40 && signers[0] == '0' && signers[1] == 'x') {
+    ctx.witness_keys = bytes(safe_malloc(strlen(signers) / 2), (strlen(signers) - 2) / 2);
+    if (hex_to_bytes(signers, -1, ctx.witness_keys) % 20 != 0) {
+      fprintf(stderr, "invalid signers: %s\n", signers);
+      exit(EXIT_FAILURE);
+    }
+  }
+  while (c4_verify(&ctx) == C4_PENDING)
 #ifdef USE_CURL
     curl_fetch_all(&ctx.state);
 #else
@@ -317,6 +327,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 #endif
+
   if (ctx.success) {
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);

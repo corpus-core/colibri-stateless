@@ -202,6 +202,30 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ prover: ["https://mainnet.colibri-proof.tech" ]})
     ```
+- `zk_proof` - use remote ZK sync proof for bootstrap (default: `false`)
+    If `true`, the verifier will bootstrap the initial sync committee using the ZK proof (`ZKSyncData`) provided by the remote prover, instead of initializing via `checkpointz` / trusted checkpoints.
+    ```js
+    new Colibri({ prover: ["https://mainnet.colibri-proof.tech"], zk_proof: true })
+    ```
+- `checkpoint_witness_keys` - optional checkpoint signer addresses when using `zk_proof` (default: `null`)
+    A list of Ethereum addresses (20 bytes each). The current format is a single hex string where multiple addresses are **concatenated** (no separator).
+
+    Example (one signer):
+    ```js
+    new Colibri({
+      prover: ["https://mainnet.colibri-proof.tech"],
+      zk_proof: true,
+      checkpoint_witness_keys: "0x07f50c1d17cb84a656692ddfd577c09756cb305b"
+    })
+    ```
+
+    Example (two signers concatenated):
+    ```js
+    new Colibri({
+      zk_proof: true,
+      checkpoint_witness_keys: "0x<addr1_40hex><addr2_40hex>"
+    })
+    ```
 - `checkpointz` - urls for checkpoint servers (Checkpointz or Beacon API)    
     An array of server endpoints for fetching finalized checkpoint data and weak subjectivity validation. Supports both dedicated Checkpointz servers and standard Beacon API nodes, as the verifier uses the Beacon-API-compatible endpoint `/eth/v1/beacon/states/head/finality_checkpoints`. These servers provide finalized beacon block roots that the verifier uses for secure initialization and periodic validation. The verifier automatically queries these servers when no trusted checkpoint is provided or when validating long sync gaps. Multiple URLs enable automatic fallback for resilience. Defaults to public Checkpointz servers for mainnet, but you can also use your own Beacon node for maximum trust.
     ```js

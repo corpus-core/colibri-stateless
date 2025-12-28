@@ -199,6 +199,30 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ prover: ["https://mainnet.colibri-proof.tech" ]})
     ```
+- `zk_proof` - use remote ZK sync proof for bootstrap (default: `false`)
+    If `true`, the verifier will bootstrap the initial sync committee using the ZK proof (`ZKSyncData`) provided by the remote prover, instead of initializing via `checkpointz` / trusted checkpoints.
+    ```js
+    new Colibri({ prover: ["https://mainnet.colibri-proof.tech"], zk_proof: true })
+    ```
+- `checkpoint_witness_keys` - optional checkpoint signer addresses when using `zk_proof` (default: `null`)
+    A list of Ethereum addresses (20 bytes each). The current format is a single hex string where multiple addresses are **concatenated** (no separator).
+
+    Example (one signer, corpus-core):
+    ```js
+    new Colibri({
+      prover: ["https://mainnet.colibri-proof.tech"],
+      zk_proof: true,
+      checkpoint_witness_keys: "0x07f50c1d17cb84a656692ddfd577c09756cb305b"
+    })
+    ```
+
+    Example (two signers concatenated):
+    ```js
+    new Colibri({
+      zk_proof: true,
+      checkpoint_witness_keys: "0x<addr1_40hex><addr2_40hex>"
+    })
+    ```
 - `trusted_checkpoint` - optional beacon block hash used as trusted anchor    
     This single blockhash will be used as anchor for fetching the keys for the sync committee. So instead of starting with the genesis you can define a starting block, where you know the blockhash. If no trusted checkpoint is set, the verifier will automatically fetch the latest finalized checkpoint from a Checkpointz server, making initialization secure and convenient. Providing an explicit trusted checkpoint is recommended for maximum security control but is no longer required.
     ```js

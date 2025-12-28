@@ -297,6 +297,9 @@ bool c4_handle_proof_request(client_t* client) {
   if (client->request.method != C4_DATA_METHOD_POST /*|| strncmp(client->request.path, "/proof/", 7) != 0*/)
     return false;
 
+  if (strlen(client->request.path) > 1 && strncmp(client->request.path, "/proof", 6) != 0)
+    return false;
+
   json_t rpc_req = json_parse((char*) client->request.payload);
   if (rpc_req.type != JSON_TYPE_OBJECT) {
     c4_write_error_response(client, 400, "Invalid request");
@@ -307,6 +310,7 @@ bool c4_handle_proof_request(client_t* client) {
   json_t client_state = json_get(rpc_req, "c4");
   json_t include_code = json_get(rpc_req, "include_code");
   json_t zk_proof     = json_get(rpc_req, "zk_proof");
+  json_t signers      = json_get(rpc_req, "signers");
   if (method.type != JSON_TYPE_STRING || params.type != JSON_TYPE_ARRAY) {
     c4_write_error_response(client, 400, "Invalid request");
     return true;
@@ -326,7 +330,10 @@ bool c4_handle_proof_request(client_t* client) {
   if (zk_proof.type == JSON_TYPE_BOOLEAN && zk_proof.start[0] == 't') ctx->flags |= C4_PROVER_FLAG_ZK_PROOF;
   if (client_state.type == JSON_TYPE_STRING && client_state.len > 4) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
   if (ctx->client_state.len > 4) ctx->flags |= C4_PROVER_FLAG_INCLUDE_SYNC;
-  if (!bytes_all_zero(bytes(http_server.witness_key, 32))) ctx->witness_key = bytes(http_server.witness_key, 32);
+  if (signers.type == JSON_TYPE_STRING && signers.len > 43 && signers.start[1] == '0' && signers.start[2] == 'x')
+    ctx->witness_key = json_as_bytes(signers, NULL);
+  else if (!bytes_all_zero(bytes(http_server.witness_key, 32)))
+    ctx->witness_key = bytes_dup(bytes(http_server.witness_key, 32));
 
   // Tracing: start root span
   if (tracing_is_enabled() && client->trace_level != TRACE_LEVEL_NONE) {

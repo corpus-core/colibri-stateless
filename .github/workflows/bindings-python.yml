@@ -175,7 +175,7 @@ jobs:
           
           cd ..\..
           echo Configuring CMake...
-          cmake -S . -B build -DPYTHON=ON -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022"
+          cmake -S . -B build -DC4_PYTHON=ON -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022"
           if %errorlevel% neq 0 (
             echo CMake configuration failed with error %errorlevel%
             echo Current directory: %cd%

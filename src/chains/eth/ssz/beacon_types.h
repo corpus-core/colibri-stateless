@@ -24,6 +24,7 @@
 #ifndef ETH_SSZ_TYPES_H
 #define ETH_SSZ_TYPES_H
 
+#include "common.h"
 #include "chains.h"
 #include "ssz.h"
 
@@ -122,7 +123,7 @@ extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
 #define slot_for_period(period, chain_spec) ((period) << (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))
 
 #define ssz_builder_for_type(typename) \
-  {.def = eth_ssz_verification_type(typename), .dynamic = {0}, .fixed = {0}}
+  (ssz_builder_t){ .def = eth_ssz_verification_type(typename), .fixed = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }, .dynamic = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }}
 
 inline static bool is_gnosis_chain(chain_id_t chain_id) {
   return chain_id == C4_CHAIN_GNOSIS || chain_id == C4_CHAIN_GNOSIS_CHIADO;

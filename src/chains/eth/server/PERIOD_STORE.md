@@ -80,10 +80,11 @@ A **period** is a contiguous range of **8192 beacon slots** (≈ 27h on mainnet)
 
 - ZK-related files (produced by `scripts/run_zk_proof.sh`):
   - `sync.ssz`: prepared input data (temporary, may exist only during proof generation)
-  - `zk_pub.bin`: public input data (e.g. `[SRC_PUBKEY_HASH:u256 | DST_PUBKEY_HASH:u256 | DST_PERIOD:u64]`)
+  - `zk_pub.bin`: public input data (e.g. `[SRC_PUBKEY_HASH:u256 | DST_PUBKEY_HASH:u256 | DST_PERIOD:u64 | ATTESTED_HEADER_ROOT:u256 | DOMAIN:bytes32]`)
   - `zk_proof.bin`: SP1 core proof
   - `zk_proof_g16.bin`: Groth16 proof (used by the verifier)
   - `zk_vk.bin`, `zk_vk_raw.bin`, `zk_groth16.bin`: verification keys / proof artifacts
+  - `zk_proof.ssz`: Packs `zk_proof_g16.bin` into the SSZ container used for sync-data delivery (`ZKSyncData`, see `C4_ETH_REQUEST_SYNCDATA_UNION[2]` in `src/chains/eth/ssz/verify_types.c`). This also includes the next checkpoint and all headers needed to prove the `attestedHeader`.
 
 ## Writer model
 

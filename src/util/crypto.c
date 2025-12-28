@@ -126,7 +126,7 @@ bool blst_verify(bytes32_t       message_hash,
   blst_p1_to_affine(&pubkey_aggregated, &pubkey_sum);
 
   // Step 2: Deserialize the signature
-  if (blst_p2_deserialize(&sig, signature) != BLST_SUCCESS) return false;
+  if (blst_p2_uncompress(&sig, signature) != BLST_SUCCESS) return false;
 
   // Step 3: Perform pairing verification
   // Verify that e(pubkey, H(message)) == e(G1, signature)

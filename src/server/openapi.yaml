@@ -44,6 +44,8 @@ tags:
     description: Endpoints for verifying proofs and executing JSON-RPC calls
   - name: Unverified
     description: Unverified proxy endpoints that forward requests to upstream RPC nodes (no verification)
+  - name: Checkpoints
+    description: Endpoints for external checkpoint signers (pull missing checkpoints, push signatures)
   - name: Configuration
     description: Server configuration and management (requires WEB_UI_ENABLED)
   - name: Health
@@ -52,6 +54,113 @@ tags:
     description: Ethereum Beacon Chain light client endpoints
 
 paths:
+  /signed_checkpoints:
+    get:
+      tags:
+        - Checkpoints
+      summary: List unsigned checkpoints for a signer
+      description: |
+        Returns a list of checkpoints that should be signed by the given signer address.
+
+        Intended for external signing services (cronjobs, HSM-backed signers, wallets, etc.) which implement a **pull → verify → sign → push** workflow.
+
+        Each item includes:
+        - `period`: The period directory identifier in the server period store.
+        - `slot`: Beacon slot of the checkpoint header (for external validation).
+        - `root`: 32-byte checkpoint root (SSZ hash_tree_root of BeaconBlockHeader) to be signed.
+      operationId: listUnsignedCheckpoints
+      parameters:
+        - name: signer
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^0x[a-fA-F0-9]{40}$'
+          description: Ethereum address (20 bytes) of the signer (0x-prefixed hex)
+          example: '0x0123456789abcdef0123456789abcdef01234567'
+      responses:
+        '200':
+          description: List of checkpoints to sign (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UnsignedCheckpoint'
+              example:
+                - period: 1621
+                  slot: 13292352
+                  root: '0x76fb0f621ff30c53869de9fe9ebd498eb041be04b49b15284a4cc614d37d0971'
+        '400':
+          description: Invalid or missing signer parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: 'Invalid or missing signer address as query parameter'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Checkpoints
+      summary: Submit checkpoint signatures
+      description: |
+        Submits one or more signatures for previously returned checkpoints.
+
+        **Signature format (EIP-191 / personal_sign):**
+
+        The signer signs the 32-byte checkpoint root with the standard personal_sign prefix:
+
+        `digest = keccak256("\\x19Ethereum Signed Message:\\n32" || checkpoint_root_32bytes)`
+
+        The submitted `signature` must be a 65-byte recoverable secp256k1 signature (R,S,V) as a hex string.
+      operationId: submitCheckpointSignatures
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CheckpointSignature'
+            example:
+              - period: 1621
+                signature: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1b'
+      responses:
+        '200':
+          description: Signatures accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckpointSignatureResponse'
+              example:
+                success: 'Checkpoints added'
+        '400':
+          description: Invalid payload or no signatures to add
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_payload:
+                  value:
+                    error: 'Invalid payload'
+                no_signatures:
+                  value:
+                    error: 'No signatures to add'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /proof:
     post:
       tags:
@@ -794,6 +903,56 @@ paths:
 
 components:
   schemas:
+    UnsignedCheckpoint:
+      type: object
+      required:
+        - period
+        - slot
+        - root
+      properties:
+        period:
+          type: integer
+          minimum: 0
+          description: Sync committee period identifier
+          example: 1621
+        slot:
+          type: integer
+          minimum: 0
+          description: Beacon slot of the checkpoint header
+          example: 13292352
+        root:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{64}$'
+          description: 32-byte checkpoint root (0x-prefixed hex)
+          example: '0x76fb0f621ff30c53869de9fe9ebd498eb041be04b49b15284a4cc614d37d0971'
+
+    CheckpointSignature:
+      type: object
+      required:
+        - period
+        - signature
+      properties:
+        period:
+          type: integer
+          minimum: 0
+          description: Sync committee period identifier (must match an outstanding checkpoint)
+          example: 1621
+        signature:
+          type: string
+          pattern: '^0x[a-fA-F0-9]{130}$'
+          description: 65-byte recoverable secp256k1 signature (R,S,V) over the EIP-191 digest of the checkpoint root
+          example: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1b'
+
+    CheckpointSignatureResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: string
+          description: Status message
+          example: 'Checkpoints added'
+
     JsonRpcRequest:
       type: object
       required:

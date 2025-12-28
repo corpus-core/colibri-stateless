@@ -137,7 +137,7 @@ ci-install: ## Install for CI environment
 	make install-deps
 
 ci-build: ## Build for CI environment using integrated CMake
-	cd $(PROJECT_ROOT) && cmake -B build -DPYTHON=ON && make -C build -j$(BUILD_JOBS)
+	cd $(PROJECT_ROOT) && cmake -B build -DC4_PYTHON=ON && make -C build -j$(BUILD_JOBS)
 
 ci-test: ## Test for CI environment
 	$(PYTHON) -m pytest tests/ --junitxml=test-results.xml --cov=colibri --cov-report=xml

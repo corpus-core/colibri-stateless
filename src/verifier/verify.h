@@ -86,14 +86,15 @@ typedef enum {
  * a struct holding the verification context.
  */
 typedef struct {
-  char*          method;    // the rpc-method
-  json_t         args;      // the rpc-args as json array
-  ssz_ob_t       proof;     // the proof as ssz object using the Proof-Type directly
-  ssz_ob_t       data;      // the data as ssz object or Empty if not needed
-  ssz_ob_t       sync_data; // the sync-data as ssz object or Empty if not needed
-  bool           success;   // true if the verification was successful
-  c4_state_t     state;     // the state of the verification holding errors or data requests.
-  chain_id_t     chain_id;  // the chain-id of the verification
+  char*          method;       // the rpc-method
+  json_t         args;         // the rpc-args as json array
+  ssz_ob_t       proof;        // the proof as ssz object using the Proof-Type directly
+  ssz_ob_t       data;         // the data as ssz object or Empty if not needed
+  ssz_ob_t       sync_data;    // the sync-data as ssz object or Empty if not needed
+  bool           success;      // true if the verification was successful
+  c4_state_t     state;        // the state of the verification holding errors or data requests.
+  chain_id_t     chain_id;     // the chain-id of the verification
+  bytes_t        witness_keys; // the witness keys used to sign the checkpoints (multiple addresses are concatinated bytes with 20 bytes each)
   verify_flags_t flags;
 } verify_ctx_t;
 

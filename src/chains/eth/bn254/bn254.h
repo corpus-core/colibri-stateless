@@ -10,6 +10,7 @@
 extern "C" {
 #endif
 
+#include "common.h"
 #include "intx_c_api.h"
 #include <stdbool.h>
 #include <stddef.h>
