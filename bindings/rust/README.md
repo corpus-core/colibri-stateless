@@ -159,6 +159,55 @@ cargo fmt
 cargo clippy
 ```
 
+### Cross-Compilation
+
+The Rust bindings support cross-compilation to multiple platforms.
+
+#### Supported Targets
+
+| Target | Platform |
+|--------|----------|
+| `aarch64-apple-darwin` | macOS Apple Silicon |
+| `x86_64-apple-darwin` | macOS Intel |
+| `aarch64-unknown-linux-gnu` | Linux ARM64 |
+| `x86_64-unknown-linux-gnu` | Linux x86_64 |
+| `aarch64-apple-ios` | iOS Device |
+| `aarch64-linux-android` | Android ARM64 |
+
+#### Building for a Target
+
+```bash
+# Step 1: Build the C library for your target
+./build.sh --target aarch64-apple-darwin
+
+# Step 2: Add the Rust target (if not already installed)
+rustup target add aarch64-apple-darwin
+
+# Step 3: Build Rust bindings for the target
+cargo build --target aarch64-apple-darwin
+```
+
+#### Examples
+
+```bash
+# Cross-compile to macOS Intel from Apple Silicon
+./build.sh --target x86_64-apple-darwin
+cargo build --target x86_64-apple-darwin
+
+# Cross-compile to Linux ARM64 (requires cross-compiler)
+./build.sh --target aarch64-unknown-linux-gnu
+cargo build --target aarch64-unknown-linux-gnu
+
+# Cross-compile to Android (requires ANDROID_NDK_HOME)
+export ANDROID_NDK_HOME=/path/to/ndk
+./build.sh --target aarch64-linux-android
+cargo build --target aarch64-linux-android
+```
+
+The compiled libraries are stored in target-specific directories:
+- C library: `target/colibri/<target>/libcolibri_combined.a`
+- Rust output: `target/<target>/release/libcolibri.rlib`
+
 ### Running Tests
 
 ```bash
