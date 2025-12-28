@@ -1,5 +1,5 @@
 use crate::ffi;
-use crate::types::{MethodType, Result};
+use crate::types::{ColibriError, MethodType};
 use std::ffi::{c_void, CString};
 
 pub fn bytes_to_vec(bytes: ffi::bytes_t) -> Vec<u8> {
@@ -37,7 +37,7 @@ pub fn set_request_response(req_ptr: u64, data: &[u8], node_index: u16) {
 /// let support = get_method_support(1, "eth_blockNumber").unwrap();
 /// assert!(support > 0); // eth_blockNumber is supported
 /// ```
-pub fn get_method_support(chain_id: u64, method: &str) -> Result<i32> {
+pub fn get_method_support(chain_id: u64, method: &str) -> Result<i32, ColibriError> {
     let c_method = CString::new(method)?;
 
     let support = unsafe { ffi::c4_get_method_support(chain_id, c_method.as_ptr() as *mut i8) };
@@ -55,7 +55,7 @@ pub fn get_method_support(chain_id: u64, method: &str) -> Result<i32> {
 /// let method_type = get_method_type(1, "eth_blockNumber").unwrap();
 /// assert_eq!(method_type, MethodType::Proofable);
 /// ```
-pub fn get_method_type(chain_id: u64, method: &str) -> Result<MethodType> {
+pub fn get_method_type(chain_id: u64, method: &str) -> Result<MethodType, ColibriError> {
     let support_code = get_method_support(chain_id, method)?;
     Ok(MethodType::from_support_code(support_code))
 }

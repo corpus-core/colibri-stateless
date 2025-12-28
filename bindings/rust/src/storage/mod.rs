@@ -1,5 +1,6 @@
 pub(crate) mod ffi;
 
+use crate::types::{ColibriError, StorageError};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -73,14 +74,16 @@ pub struct FileStorage {
 
 impl FileStorage {
     /// Create a new file storage
-    pub fn new(base_dir: Option<PathBuf>) -> std::io::Result<Self> {
+    pub fn new(base_dir: Option<PathBuf>) -> Result<Self, ColibriError> {
         let base_dir = base_dir.unwrap_or_else(|| {
             env::var("C4_STATES_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| env::temp_dir().join("colibri_states"))
         });
 
-        fs::create_dir_all(&base_dir)?;
+        fs::create_dir_all(&base_dir).map_err(|e| {
+            StorageError::WriteFailed(format!("Failed to create storage directory: {}", e))
+        })?;
 
         Ok(Self { base_dir })
     }
@@ -124,7 +127,7 @@ impl Storage for FileStorage {
 pub type DefaultStorage = FileStorage;
 
 /// Create default storage
-pub fn default_storage() -> std::io::Result<DefaultStorage> {
+pub fn default_storage() -> Result<DefaultStorage, ColibriError> {
     FileStorage::new(None)
 }
 

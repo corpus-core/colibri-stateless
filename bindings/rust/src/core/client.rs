@@ -9,7 +9,7 @@ use crate::types::chain::{
 };
 use crate::types::{
     ColibriError, Encoding, HTTPError, HttpMethod, HttpRequest, MethodType, ProofError,
-    RequestType, Result, Status, VerificationError,
+    RequestType, Status, VerificationError,
 };
 use reqwest::Client;
 use serde_json;
@@ -203,7 +203,7 @@ impl ColibriClient {
     }
 
     /// Check if a method is supported and get its type
-    pub fn get_method_support(&self, method: &str) -> Result<MethodType> {
+    pub fn get_method_support(&self, method: &str) -> Result<MethodType, ColibriError> {
         helpers::get_method_type(self.config.chain_id, method)
     }
 
@@ -215,7 +215,7 @@ impl ColibriClient {
         }
     }
 
-    async fn execute_request(&self, req: &HttpRequest, server: &str) -> Result<Vec<u8>> {
+    async fn execute_request(&self, req: &HttpRequest, server: &str) -> Result<Vec<u8>, ColibriError> {
         let full_url = if req.url.is_empty() || req.request_type == RequestType::JsonRpc {
             server.to_string()
         } else {
@@ -270,7 +270,7 @@ impl ColibriClient {
         Ok(bytes.to_vec())
     }
 
-    async fn handle_request(&self, req: &HttpRequest) -> Result<Vec<u8>> {
+    async fn handle_request(&self, req: &HttpRequest) -> Result<Vec<u8>, ColibriError> {
         let servers = self.get_servers_for_request(req.request_type);
 
         if servers.is_empty() {
@@ -317,7 +317,7 @@ impl ColibriClient {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # async fn example() -> colibri::Result<()> {
+    /// # async fn example() -> Result<(), colibri::ColibriError> {
     /// let client = colibri::ColibriClient::new(None, None);
     /// let proof = client.prove("eth_blockNumber", "[]", 1, 0).await?;
     /// # Ok(())
@@ -329,7 +329,7 @@ impl ColibriClient {
         params: &str,
         chain_id: u64,
         flags: u32,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<Vec<u8>, ColibriError> {
         let mut prover = Prover::new(method, params, chain_id, flags)?;
 
         loop {
@@ -380,7 +380,7 @@ impl ColibriClient {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # async fn example() -> colibri::Result<()> {
+    /// # async fn example() -> Result<(), colibri::ColibriError> {
     /// let client = colibri::ColibriClient::new(None, None);
     /// let proof = vec![/* proof bytes */];
     /// let result = client.verify(&proof, "eth_blockNumber", "[]", 1, "").await?;
@@ -394,7 +394,7 @@ impl ColibriClient {
         params: &str,
         chain_id: u64,
         trusted_checkpoint: &str,
-    ) -> Result<serde_json::Value> {
+    ) -> Result<serde_json::Value, ColibriError> {
         let checkpoint = if trusted_checkpoint.is_empty() {
             self.config.trusted_checkpoint.as_deref().unwrap_or("")
         } else {

@@ -1,6 +1,6 @@
 use super::helpers::{bytes_to_vec, slice_to_bytes};
 use crate::ffi;
-use crate::types::{ProofError, Result};
+use crate::types::{ColibriError, ProofError};
 use std::ffi::{CStr, CString};
 
 pub struct Prover {
@@ -8,7 +8,7 @@ pub struct Prover {
 }
 
 impl Prover {
-    pub fn new(method: &str, params: &str, chain_id: u64, flags: u32) -> Result<Self> {
+    pub fn new(method: &str, params: &str, chain_id: u64, flags: u32) -> Result<Self, ColibriError> {
         let c_method = CString::new(method)?;
         let c_params = CString::new(params)?;
 
@@ -32,7 +32,7 @@ impl Prover {
         Ok(Self { ctx })
     }
 
-    pub fn execute_json_status(&mut self) -> Result<String> {
+    pub fn execute_json_status(&mut self) -> Result<String, ColibriError> {
         unsafe {
             let ptr = ffi::c4_prover_execute_json_status(self.ctx);
             if ptr.is_null() {
@@ -50,7 +50,7 @@ impl Prover {
         }
     }
 
-    pub fn get_proof(&mut self) -> Result<Vec<u8>> {
+    pub fn get_proof(&mut self) -> Result<Vec<u8>, ColibriError> {
         unsafe {
             let proof_bytes = ffi::c4_prover_get_proof(self.ctx);
             let proof = bytes_to_vec(proof_bytes);
@@ -71,7 +71,7 @@ impl Prover {
         }
     }
 
-    pub fn set_error(&mut self, request_ptr: usize, error: &str, node_index: u16) -> Result<()> {
+    pub fn set_error(&mut self, request_ptr: usize, error: &str, node_index: u16) -> Result<(), ColibriError> {
         let c_error = CString::new(error)?;
 
         unsafe {

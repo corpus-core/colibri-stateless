@@ -166,5 +166,3 @@ pub enum ColibriError {
     #[error("FFI error: {0}")]
     Ffi(String),
 }
-
-pub type Result<T> = std::result::Result<T, ColibriError>;

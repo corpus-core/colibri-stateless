@@ -1,4 +1,4 @@
-use colibri::{ClientConfig, ColibriClient, ColibriError, Result, GNOSIS, MAINNET, SEPOLIA};
+use colibri::{ClientConfig, ColibriClient, ColibriError, GNOSIS, MAINNET, SEPOLIA};
 
 #[cfg(test)]
 mod client_operations {
@@ -158,7 +158,7 @@ mod error_types {
     #[test]
     fn test_error_from_json() {
         let json_str = "invalid json";
-        let result: Result<serde_json::Value> =
+        let result: Result<serde_json::Value, ColibriError> =
             serde_json::from_str(json_str).map_err(ColibriError::from);
 
         assert!(result.is_err());

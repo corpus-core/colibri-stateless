@@ -33,7 +33,7 @@ pub use chain::{
     SEPOLIA_PROVER,
 };
 pub use error::{
-    ColibriError, HTTPError, ProofError, RPCError, Result, StorageError, VerificationError,
+    ColibriError, HTTPError, ProofError, RPCError, StorageError, VerificationError,
 };
 pub use method::MethodType;
 pub use request::{Encoding, HttpMethod, RequestType};

@@ -1,6 +1,6 @@
 use super::helpers::slice_to_bytes;
 use crate::ffi;
-use crate::types::{Result, VerificationError};
+use crate::types::{ColibriError, VerificationError};
 use std::ffi::{CStr, CString};
 
 pub struct Verifier {
@@ -14,7 +14,7 @@ impl Verifier {
         args: &str,
         chain_id: u64,
         trusted_checkpoint: &str,
-    ) -> Result<Self> {
+    ) -> Result<Self, ColibriError> {
         let c_method = CString::new(method)?;
         let c_args = CString::new(args)?;
         let c_checkpoint = CString::new(trusted_checkpoint)?;
@@ -40,7 +40,7 @@ impl Verifier {
         Ok(Self { ctx })
     }
 
-    pub fn execute_json_status(&mut self) -> Result<String> {
+    pub fn execute_json_status(&mut self) -> Result<String, ColibriError> {
         unsafe {
             let ptr = ffi::c4_verify_execute_json_status(self.ctx);
             if ptr.is_null() {
@@ -68,7 +68,7 @@ impl Verifier {
         }
     }
 
-    pub fn set_error(&mut self, request_ptr: usize, error: &str, node_index: u16) -> Result<()> {
+    pub fn set_error(&mut self, request_ptr: usize, error: &str, node_index: u16) -> Result<(), ColibriError> {
         let c_error = CString::new(error)?;
 
         unsafe {

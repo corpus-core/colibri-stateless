@@ -1,7 +1,7 @@
-use colibri::{ColibriClient, MemoryStorage, Result, Storage, MAINNET};
+use colibri::{ColibriClient, ColibriError, MemoryStorage, Storage, MAINNET};
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), ColibriError> {
     println!("Testing Colibri with custom storage...");
 
     let storage: Option<Box<dyn Storage>> = Some(MemoryStorage::new());
