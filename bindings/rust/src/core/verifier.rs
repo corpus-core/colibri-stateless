@@ -68,7 +68,12 @@ impl Verifier {
         }
     }
 
-    pub fn set_error(&mut self, request_ptr: usize, error: &str, node_index: u16) -> Result<(), ColibriError> {
+    pub fn set_error(
+        &mut self,
+        request_ptr: usize,
+        error: &str,
+        node_index: u16,
+    ) -> Result<(), ColibriError> {
         let c_error = CString::new(error)?;
 
         unsafe {

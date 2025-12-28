@@ -8,7 +8,12 @@ pub struct Prover {
 }
 
 impl Prover {
-    pub fn new(method: &str, params: &str, chain_id: u64, flags: u32) -> Result<Self, ColibriError> {
+    pub fn new(
+        method: &str,
+        params: &str,
+        chain_id: u64,
+        flags: u32,
+    ) -> Result<Self, ColibriError> {
         let c_method = CString::new(method)?;
         let c_params = CString::new(params)?;
 
@@ -71,7 +76,12 @@ impl Prover {
         }
     }
 
-    pub fn set_error(&mut self, request_ptr: usize, error: &str, node_index: u16) -> Result<(), ColibriError> {
+    pub fn set_error(
+        &mut self,
+        request_ptr: usize,
+        error: &str,
+        node_index: u16,
+    ) -> Result<(), ColibriError> {
         let c_error = CString::new(error)?;
 
         unsafe {

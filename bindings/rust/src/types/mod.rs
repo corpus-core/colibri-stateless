@@ -32,9 +32,7 @@ pub use chain::{
     SEPOLIA_ETH_RPC,
     SEPOLIA_PROVER,
 };
-pub use error::{
-    ColibriError, HTTPError, ProofError, RPCError, StorageError, VerificationError,
-};
+pub use error::{ColibriError, HTTPError, ProofError, RPCError, StorageError, VerificationError};
 pub use method::MethodType;
 pub use request::{Encoding, HttpMethod, RequestType};
 pub use status::{HttpRequest, Status};

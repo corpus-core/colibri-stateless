@@ -46,7 +46,10 @@ fn main() {
     println!("cargo:rustc-link-lib=static=colibri_combined");
 
     // Re-run build script if library changes
-    println!("cargo:rerun-if-changed={}/libcolibri_combined.a", lib_path.display());
+    println!(
+        "cargo:rerun-if-changed={}/libcolibri_combined.a",
+        lib_path.display()
+    );
 
     // Platform-specific system libraries
     if target.contains("apple-darwin") {

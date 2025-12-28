@@ -215,7 +215,11 @@ impl ColibriClient {
         }
     }
 
-    async fn execute_request(&self, req: &HttpRequest, server: &str) -> Result<Vec<u8>, ColibriError> {
+    async fn execute_request(
+        &self,
+        req: &HttpRequest,
+        server: &str,
+    ) -> Result<Vec<u8>, ColibriError> {
         let full_url = if req.url.is_empty() || req.request_type == RequestType::JsonRpc {
             server.to_string()
         } else {
