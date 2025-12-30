@@ -45,6 +45,44 @@ typedef struct {
 void c4_get_storage_config(storage_plugin_t* plugin);
 void c4_set_storage_config(storage_plugin_t* plugin);
 
+/**
+ * Optional parallel-for hook.
+ *
+ * This allows embedded targets to parallelize expensive per-item loops (e.g. deserializing 512 BLS pubkeys)
+ * without adding platform-specific dependencies to colibri-stateless.
+ *
+ * The implementation must execute `body(i, ctx)` for all i in [begin, end) and return only after completion.
+ * Implementations may execute the work serially.
+ *
+ * @param i current loop index
+ * @param ctx user context pointer
+ */
+typedef void (*c4_parallel_for_body_fn)(int i, void* ctx);
+
+/**
+ * Parallel-for executor.
+ *
+ * @param begin inclusive begin index
+ * @param end exclusive end index
+ * @param body loop body callback
+ * @param ctx user context pointer passed to body
+ */
+typedef void (*c4_parallel_for_fn)(int begin, int end, c4_parallel_for_body_fn body, void* ctx);
+
+/**
+ * Registers a parallel-for implementation. Pass NULL to disable.
+ *
+ * @param fn parallel-for implementation or NULL
+ */
+void c4_set_parallel_for(c4_parallel_for_fn fn);
+
+/**
+ * Returns the registered parallel-for implementation, or NULL if none is registered.
+ *
+ * @return parallel-for implementation or NULL
+ */
+c4_parallel_for_fn c4_get_parallel_for(void);
+
 #ifdef __cplusplus
 }
 #endif

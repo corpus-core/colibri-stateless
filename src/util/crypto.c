@@ -25,6 +25,7 @@
 #include "blst.h"
 #include "bytes.h"
 #include "logger.h"
+#include "plugin.h"
 #include "secp256k1.h"
 #include "sha2.h"
 #include "sha3.h"
@@ -62,16 +63,40 @@ static const uint8_t blst_dst[]   = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_
 static const size_t  blst_dst_len = sizeof(blst_dst) - 1;
 
 #ifdef BLS_DESERIALIZE
+typedef struct {
+  const uint8_t*  compressed;
+  blst_p1_affine* out;
+  volatile int    failed;
+} blst_deser_ctx_t;
+
+static void blst_deser_body(int i, void* ctx) {
+  blst_deser_ctx_t* c = (blst_deser_ctx_t*) ctx;
+  if (!c || c->failed) return;
+  if (blst_p1_deserialize(c->out + i, c->compressed + (size_t) i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+    c->failed = 1;
+  }
+}
+
 bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys, uint8_t* out) {
   if (num_public_keys <= 0) return NULL_BYTES;
 
   blst_p1_affine* pubkeys = out ? (blst_p1_affine*) out : (blst_p1_affine*) safe_malloc(num_public_keys * sizeof(blst_p1_affine));
 
-  for (int i = 0; i < num_public_keys; i++) {
-    if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
-      log_debug("failed to deserialize public key %d with compressed key %x", i, bytes(compressed_pubkeys + i * BLS_PUBKEY_SIZE, BLS_PUBKEY_SIZE));
+  c4_parallel_for_fn pf = c4_get_parallel_for();
+  if (pf && num_public_keys >= 128) {
+    blst_deser_ctx_t c = {.compressed = compressed_pubkeys, .out = pubkeys, .failed = 0};
+    pf(0, num_public_keys, blst_deser_body, &c);
+    if (c.failed) {
       if (!out) safe_free(pubkeys); // Only free if we allocated
       return NULL_BYTES;
+    }
+  }
+  else {
+    for (int i = 0; i < num_public_keys; i++) {
+      if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+        if (!out) safe_free(pubkeys); // Only free if we allocated
+        return NULL_BYTES;
+      }
     }
   }
   return bytes((uint8_t*) pubkeys, num_public_keys * sizeof(blst_p1_affine));
@@ -128,7 +153,7 @@ bool blst_verify(bytes32_t       message_hash,
   blst_p1_to_affine(&pubkey_aggregated, &pubkey_sum);
 
   // Step 2: Deserialize the signature
-  if (blst_p2_uncompress(&sig, signature) != BLST_SUCCESS) return false;
+  if (blst_p2_deserialize(&sig, signature) != BLST_SUCCESS) return false;
 
   // Step 3: Perform pairing verification
   // Verify that e(pubkey, H(message)) == e(G1, signature)
