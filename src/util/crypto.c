@@ -24,6 +24,7 @@
 #include "crypto.h"
 #include "blst.h"
 #include "bytes.h"
+#include "logger.h"
 #include "secp256k1.h"
 #include "sha2.h"
 #include "sha3.h"
@@ -68,6 +69,7 @@ bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_k
 
   for (int i = 0; i < num_public_keys; i++) {
     if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+      log_debug("failed to deserialize public key %d with compressed key %x", i, bytes(compressed_pubkeys + i * BLS_PUBKEY_SIZE, BLS_PUBKEY_SIZE));
       if (!out) safe_free(pubkeys); // Only free if we allocated
       return NULL_BYTES;
     }

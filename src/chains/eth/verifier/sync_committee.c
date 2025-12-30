@@ -26,6 +26,7 @@
 #include "crypto.h"
 #include "eth_verify.h"
 #include "json.h"
+#include "logger.h"
 #include "plugin.h"
 #include "ssz.h"
 #include "version.h"
@@ -119,6 +120,8 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   return c4_set_sync_period(period, ssz_get(&sync_committee, "pubkeys").bytes, ctx->chain_id, previous_pubkeys_hash);
 }
 static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_t attested_header, ssz_ob_t signatures) {
+  if (!checkpoint_ob.def || strcmp(checkpoint_ob.def->name, "header_proof"))
+    RETURN_VERIFY_ERROR(ctx, "invalid checkpoint, must be a header_proof!");
   ssz_ob_t  signed_header = ssz_get(&checkpoint_ob, "header");
   bytes32_t checkpoint    = {0};
   if (memcmp(attested_header.bytes.data, signed_header.bytes.data, 112)) {
@@ -126,7 +129,7 @@ static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_
     uint32_t  header_count      = ssz_len(headers);                   // the number of intermediate headers
     bytes32_t last_block_root   = {0};                                // last block root calculated from the current header
     uint8_t   header_bytes[112] = {0};                                // temp blockheader while calculating
-    ssz_ob_t  header_ob         = {.bytes = bytes(header_bytes, sizeof(header_bytes)), .def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER, C4_CHAIN_MAINNET)};
+    ssz_ob_t  header_ob         = {.bytes = bytes(header_bytes, 112), .def = attested_header.def};
     ssz_hash_tree_root(attested_header, last_block_root);
 
     for (size_t i = 0; i < header_count; i++) {
@@ -138,7 +141,8 @@ static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_
     }
 
     if (memcmp(last_block_root, ssz_get(&signed_header, "parentRoot").bytes.data, 32))
-      THROW_ERROR("invalid parent root for header proof!");
+      RETURN_VERIFY_ERROR(ctx, "invalid parent root in zkproof for header proof!");
+    log_debug("verified all %d headers", header_count);
   }
 
   if (signatures.def->type != SSZ_TYPE_LIST) RETURN_VERIFY_ERROR(ctx, "invalid signatures!");
@@ -151,6 +155,7 @@ static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_
     uint8_t   pub_keys[64] = {0};
     address_t address      = {0};
     bytes32_t digest       = {0};
+    log_debug("verifiy %d of %d signatures", i, signatures_len);
 
     c4_eth_eip191_digest_32(checkpoint, digest);
     if (!secp256k1_recover(digest, ssz_at(signatures, i).bytes, pub_keys))
@@ -202,6 +207,18 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
   uint64_t            attested_slot         = ssz_get_uint64(&header, "slot");
   ssz_ob_t            pub_keys              = ssz_get(&ctx->sync_data, "pubkeys");
   uint32_t            period                = (attested_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
+  c4_chain_state_t    chain_state           = c4_get_chain_state(ctx->chain_id);
+
+  // do we already have this period?
+  if (chain_state.status == C4_STATE_SYNC_PERIODS) {
+    for (int i = 0; i < MAX_SYNC_PERIODS; i++) {
+      if (chain_state.data.periods[i] == period) {
+        log_debug("period %d already exists", period);
+        ctx->sync_data.def = &ssz_none;
+        return true;
+      }
+    }
+  }
 
   // create the public input for the zk proof
   memcpy(pub_inputs, spec->zk_sync_keys_root, 32); // root-anchor
@@ -212,6 +229,7 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
   if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 136), vk_hash.data)) RETURN_VERIFY_ERROR(ctx, "invalid zk_proof!");
   if (!verify_signatures(ctx, ssz_get(&ctx->sync_data, "checkpoint"), header, ssz_get(&ctx->sync_data, "signatures"))) RETURN_VERIFY_ERROR(ctx, "invalid checkpoint signatures!");
   if (!c4_set_sync_period(period, pub_keys.bytes, ctx->chain_id, previous_pubkeys_hash)) RETURN_VERIFY_ERROR(ctx, "failed to store next sync committee!");
+  log_debug("zk proof and signatures verified successfully for period %d!", period);
 
   // we may want to clean up the sync data, so we don't sync again.
   ctx->sync_data.def = &ssz_none;
@@ -225,6 +243,7 @@ INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return true;
 
+  log_debug("c4_update_from_sync_data: %s", (char*) ctx->sync_data.def->name);
   if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0)
     return update_from_lc_sync_data(ctx);
   else if (strcmp(ctx->sync_data.def->name, "ZKSyncData") == 0)

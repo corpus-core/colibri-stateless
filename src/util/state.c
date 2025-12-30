@@ -22,6 +22,7 @@
  */
 
 #include "state.h"
+#include "logger.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -71,6 +72,7 @@ bool c4_state_is_pending(data_request_t* req) {
 }
 
 void c4_state_add_request(c4_state_t* state, data_request_t* data_request) {
+  log_debug("adding request type %d : %s %r", data_request->type, data_request->url ? "url" : "rpc", data_request->url ? bytes(data_request->url, strlen(data_request->url)) : data_request->payload);
   if (bytes_all_zero(bytes(data_request->id, C4_BYTES32_SIZE))) {
     if (data_request->payload.len)
       sha256(data_request->payload, data_request->id);
