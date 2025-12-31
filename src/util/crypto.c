@@ -72,7 +72,7 @@ typedef struct {
 static void blst_deser_body(int i, void* ctx) {
   blst_deser_ctx_t* c = (blst_deser_ctx_t*) ctx;
   if (!c || c->failed) return;
-  if (blst_p1_deserialize(c->out + i, c->compressed + (size_t) i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+  if (blst_p1_uncompress(c->out + i, c->compressed + (size_t) i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
     c->failed = 1;
   }
 }
@@ -93,7 +93,7 @@ bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_k
   }
   else {
     for (int i = 0; i < num_public_keys; i++) {
-      if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+      if (blst_p1_uncompress(pubkeys + i, compressed_pubkeys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
         if (!out) safe_free(pubkeys); // Only free if we allocated
         return NULL_BYTES;
       }
@@ -102,6 +102,71 @@ bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_k
   return bytes((uint8_t*) pubkeys, num_public_keys * sizeof(blst_p1_affine));
 }
 #endif
+
+#define MAX_AGGR_CHUNKS 8
+
+typedef struct {
+  const uint8_t* public_keys;
+  int            num_public_keys;
+  bytes_t        pubkeys_used;
+  bool           deserialized;
+  blst_p1        partial_sums[MAX_AGGR_CHUNKS];
+  bool           chunk_has_value[MAX_AGGR_CHUNKS];
+  int            num_chunks;
+  volatile int   failed;
+} blst_aggr_ctx_t;
+
+static void blst_aggregate_body(int chunk_idx, void* ctx_ptr) {
+  blst_aggr_ctx_t* ctx = (blst_aggr_ctx_t*) ctx_ptr;
+  if (!ctx || ctx->failed) return;
+
+  int start = (ctx->num_public_keys * chunk_idx) / ctx->num_chunks;
+  int end   = (ctx->num_public_keys * (chunk_idx + 1)) / ctx->num_chunks;
+
+  blst_p1 sum;
+  bool    first = true;
+
+  // We loop through the assigned range of keys
+  for (int i = start; i < end; i++) {
+    // Check bitmask
+    if (ctx->pubkeys_used.data[i / 8] & (1 << (i % 8))) {
+      blst_p1_affine pubkey_affine;
+
+      if (ctx->deserialized) {
+        pubkey_affine = ((blst_p1_affine*) ctx->public_keys)[i];
+      }
+      else {
+        if (blst_p1_uncompress(&pubkey_affine, ctx->public_keys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+          ctx->failed = 1;
+          return;
+        }
+      }
+
+      // Aggregate the public key
+      // We use blst_p1_add_or_double_affine which is safe for adding a point to itself.
+      // blst_p1_add_affine would be slightly faster but undefined if points are equal.
+      // Since public keys in the sync committee are unique, blst_p1_add_affine is safe here.
+      //
+      // Note on blst_p1s_add: We intentionally do not use the multi-scalar addition
+      // blst_p1s_add despite it using Pippenger's algorithm (approx 60-85% faster).
+      // Reason: It uses alloca() for scratch space up to ~144KB (SCRATCH_LIMIT),
+      // which causes stack overflows on ESP32 (typically 4-16KB stack per task).
+      if (first) {
+        blst_p1_from_affine(&sum, &pubkey_affine);
+        first = false;
+      }
+      else {
+        blst_p1_add_affine(&sum, &sum, &pubkey_affine);
+      }
+    }
+  }
+
+  ctx->chunk_has_value[chunk_idx] = !first;
+  if (!first) {
+    ctx->partial_sums[chunk_idx] = sum;
+  }
+}
+
 bool blst_verify(bytes32_t       message_hash,
                  bls_signature_t signature,
                  uint8_t*        public_keys,
@@ -121,29 +186,52 @@ bool blst_verify(bytes32_t       message_hash,
   blst_p1        pubkey_sum;
   bool           first_key = true;
 
-  for (int i = 0; i < num_public_keys; i++) {
-    // Check if this public key is included in the signature (via bitmask)
-    if (pubkeys_used.data[i / 8] & (1 << (i % 8))) {
-      blst_p1_affine pubkey_affine;
+  c4_parallel_for_fn pf = c4_get_parallel_for();
 
-      if (deserialized) {
-        // Public keys are already deserialized affine points
-        pubkey_affine = ((blst_p1_affine*) public_keys)[i];
-      }
-      else {
-        // Deserialize compressed public key (48 bytes)
-        if (blst_p1_deserialize(&pubkey_affine, public_keys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS)
-          return false;
-      }
+  // Use parallel aggregation if available and worth it (e.g. > 128 keys)
+  if (pf && num_public_keys >= 128) {
+    blst_aggr_ctx_t ctx;
+    ctx.public_keys     = public_keys;
+    ctx.num_public_keys = num_public_keys;
+    ctx.pubkeys_used    = pubkeys_used;
+    ctx.deserialized    = deserialized;
+    ctx.num_chunks      = MAX_AGGR_CHUNKS; // Use fixed number of chunks for simplicity
+    ctx.failed          = 0;
 
-      // Aggregate the public key
-      if (first_key) {
-        blst_p1_from_affine(&pubkey_sum, &pubkey_affine);
-        first_key = false;
+    // Run parallel aggregation
+    pf(0, ctx.num_chunks, blst_aggregate_body, &ctx);
+
+    if (ctx.failed) return false;
+
+    // Merge partial sums
+    for (int i = 0; i < ctx.num_chunks; i++) {
+      if (ctx.chunk_has_value[i]) {
+        if (first_key) {
+          pubkey_sum = ctx.partial_sums[i];
+          first_key  = false;
+        }
+        else {
+          blst_p1_add_or_double(&pubkey_sum, &pubkey_sum, &ctx.partial_sums[i]);
+        }
       }
-      else {
-        blst_p1_add_or_double_affine(&pubkey_sum, &pubkey_sum, &pubkey_affine);
-      }
+    }
+  }
+  else {
+    // Serial fallback
+    blst_aggr_ctx_t ctx;
+    ctx.public_keys     = public_keys;
+    ctx.num_public_keys = num_public_keys;
+    ctx.pubkeys_used    = pubkeys_used;
+    ctx.deserialized    = deserialized;
+    ctx.num_chunks      = 1;
+    ctx.failed          = 0;
+
+    blst_aggregate_body(0, &ctx);
+
+    if (ctx.failed) return false;
+    if (ctx.chunk_has_value[0]) {
+      pubkey_sum = ctx.partial_sums[0];
+      first_key  = false;
     }
   }
 
@@ -158,48 +246,20 @@ bool blst_verify(bytes32_t       message_hash,
 
   // Step 3: Perform pairing verification
   // Verify that e(pubkey, H(message)) == e(G1, signature)
-  blst_pairing* ctx         = NULL;
-  bool          ctx_dynamic = false;
-#ifdef C4_STATIC_MEMORY
-  // Avoid malloc/free in embedded mode. Note: this buffer is NOT re-entrant.
-  // If you run multiple verifications concurrently, use a per-thread context instead.
-  #ifndef C4_STATIC_PAIRING_CTX_SIZE
-  // blst_pairing_sizeof() is currently ~3.2KB on ESP32 builds; keep a safe margin.
-  #define C4_STATIC_PAIRING_CTX_SIZE (4u * 1024u)
-  #endif
-  static uint8_t pairing_ctx_buf[C4_STATIC_PAIRING_CTX_SIZE] __attribute__((aligned(16)));
-  size_t need = blst_pairing_sizeof();
-  log_debug("blst_pairing_sizeof=%l buf=%l", (uint64_t) need, (uint64_t) sizeof(pairing_ctx_buf));
-  if (need > sizeof(pairing_ctx_buf)) {
-    log_error("blst pairing ctx buffer too small: need=%l buf=%l", (uint64_t) need, (uint64_t) sizeof(pairing_ctx_buf));
-    return false;
-  }
-  ctx = (blst_pairing*) (void*) pairing_ctx_buf;
-#else
-  size_t need = blst_pairing_sizeof();
-  log_debug("blst_pairing_sizeof=%l", (uint64_t) need);
-  ctx         = (blst_pairing*) safe_malloc(need);
-  ctx_dynamic = true;
-  if (!ctx) {
-    log_error("malloc failed for blst pairing ctx (size=%l)", (uint64_t) need);
-    return false;
-  }
-#endif
+  // Use "one-shot" core verify to avoid manual context management and malloc
+  BLST_ERROR err = blst_core_verify_pk_in_g1(&pubkey_aggregated,
+                                             &sig,
+                                             true,                       // hash_or_encode = true (hash to curve)
+                                             message_hash, BYTES32_SIZE, // message (hash)
+                                             blst_dst, blst_dst_len,     // DST
+                                             NULL, 0);                   // aug
 
-  blst_pairing_init(ctx, true, blst_dst, blst_dst_len);
-
-  if (blst_pairing_aggregate_pk_in_g1(ctx, &pubkey_aggregated, &sig, message_hash, BYTES32_SIZE, NULL, 0) != BLST_SUCCESS) {
-    log_error("blst_pairing_aggregate_pk_in_g1 failed");
-    if (ctx_dynamic) safe_free(ctx);
+  if (err != BLST_SUCCESS) {
+    // log_debug("blst_core_verify_pk_in_g1 failed with error %d", err);
     return false;
   }
 
-  blst_pairing_commit(ctx);
-  bool result = blst_pairing_finalverify(ctx, NULL);
-
-  // Cleanup
-  if (ctx_dynamic) safe_free(ctx);
-  return result;
+  return true;
 }
 
 bool secp256k1_recover(const bytes32_t digest, bytes_t signature, uint8_t* pubkey) {
