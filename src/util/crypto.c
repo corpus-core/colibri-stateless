@@ -158,13 +158,39 @@ bool blst_verify(bytes32_t       message_hash,
 
   // Step 3: Perform pairing verification
   // Verify that e(pubkey, H(message)) == e(G1, signature)
-  blst_pairing* ctx = (blst_pairing*) safe_malloc(blst_pairing_sizeof());
-  if (!ctx) return false;
+  blst_pairing* ctx         = NULL;
+  bool          ctx_dynamic = false;
+#ifdef C4_STATIC_MEMORY
+  // Avoid malloc/free in embedded mode. Note: this buffer is NOT re-entrant.
+  // If you run multiple verifications concurrently, use a per-thread context instead.
+  #ifndef C4_STATIC_PAIRING_CTX_SIZE
+  // blst_pairing_sizeof() is currently ~3.2KB on ESP32 builds; keep a safe margin.
+  #define C4_STATIC_PAIRING_CTX_SIZE (4u * 1024u)
+  #endif
+  static uint8_t pairing_ctx_buf[C4_STATIC_PAIRING_CTX_SIZE] __attribute__((aligned(16)));
+  size_t need = blst_pairing_sizeof();
+  log_debug("blst_pairing_sizeof=%l buf=%l", (uint64_t) need, (uint64_t) sizeof(pairing_ctx_buf));
+  if (need > sizeof(pairing_ctx_buf)) {
+    log_error("blst pairing ctx buffer too small: need=%l buf=%l", (uint64_t) need, (uint64_t) sizeof(pairing_ctx_buf));
+    return false;
+  }
+  ctx = (blst_pairing*) (void*) pairing_ctx_buf;
+#else
+  size_t need = blst_pairing_sizeof();
+  log_debug("blst_pairing_sizeof=%l", (uint64_t) need);
+  ctx         = (blst_pairing*) safe_malloc(need);
+  ctx_dynamic = true;
+  if (!ctx) {
+    log_error("malloc failed for blst pairing ctx (size=%l)", (uint64_t) need);
+    return false;
+  }
+#endif
 
   blst_pairing_init(ctx, true, blst_dst, blst_dst_len);
 
   if (blst_pairing_aggregate_pk_in_g1(ctx, &pubkey_aggregated, &sig, message_hash, BYTES32_SIZE, NULL, 0) != BLST_SUCCESS) {
-    safe_free(ctx);
+    log_error("blst_pairing_aggregate_pk_in_g1 failed");
+    if (ctx_dynamic) safe_free(ctx);
     return false;
   }
 
@@ -172,7 +198,7 @@ bool blst_verify(bytes32_t       message_hash,
   bool result = blst_pairing_finalverify(ctx, NULL);
 
   // Cleanup
-  safe_free(ctx);
+  if (ctx_dynamic) safe_free(ctx);
   return result;
 }
 
