@@ -246,20 +246,47 @@ bool blst_verify(bytes32_t       message_hash,
 
   // Step 3: Perform pairing verification
   // Verify that e(pubkey, H(message)) == e(G1, signature)
-  // Use "one-shot" core verify to avoid manual context management and malloc
-  BLST_ERROR err = blst_core_verify_pk_in_g1(&pubkey_aggregated,
-                                             &sig,
-                                             true,                       // hash_or_encode = true (hash to curve)
-                                             message_hash, BYTES32_SIZE, // message (hash)
-                                             blst_dst, blst_dst_len,     // DST
-                                             NULL, 0);                   // aug
 
-  if (err != BLST_SUCCESS) {
-    // log_debug("blst_core_verify_pk_in_g1 failed with error %d", err);
+  // Use "one-shot" core verify to avoid manual context management and malloc
+  // NOTE: blst_core_verify_pk_in_g1 performs subgroup checks (pk_grpchk=true, sig_grpchk=true)
+  // which are redundant because we validated the inputs during deserialization (blst_p1/p2_uncompress).
+  // However, it avoids manual pairing context management.
+  //
+  // To optimize further (skip redundant checks), we manually manage the pairing context
+  // on the stack (approx 4KB) and disable the group checks.
+
+#define C4_PAIRING_CTX_SIZE (4u * 1024u)
+  static uint8_t pairing_ctx_buf[C4_PAIRING_CTX_SIZE] __attribute__((aligned(16)));
+  blst_pairing*  ctx  = (blst_pairing*) (void*) pairing_ctx_buf;
+  size_t         need = blst_pairing_sizeof();
+
+  if (need > sizeof(pairing_ctx_buf)) {
+    // Should not happen as sizeof(pairing) is ~3.2KB
     return false;
   }
 
-  return true;
+  // Init pairing context
+  blst_pairing_init(ctx, true, blst_dst, blst_dst_len);
+
+  // Aggregate PK and Signature
+  // using blst_pairing_chk_n_aggr_pk_in_g1 allows setting group check flags.
+  // We pass false for both checks because we already validated them during uncompress.
+  BLST_ERROR err = blst_pairing_chk_n_aggr_pk_in_g1(ctx,
+                                                    &pubkey_aggregated,
+                                                    false, // pk_grpchk = false (optimized)
+                                                    &sig,
+                                                    false,                      // sig_grpchk = false (optimized)
+                                                    message_hash, BYTES32_SIZE, // message
+                                                    NULL, 0);                   // aug
+
+  if (err != BLST_SUCCESS) {
+    return false;
+  }
+
+  blst_pairing_commit(ctx);
+  bool result = blst_pairing_finalverify(ctx, NULL);
+
+  return result;
 }
 
 bool secp256k1_recover(const bytes32_t digest, bytes_t signature, uint8_t* pubkey) {
