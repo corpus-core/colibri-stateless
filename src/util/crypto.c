@@ -32,6 +32,15 @@
 #include <stdlib.h> // For malloc and free
 #include <string.h>
 
+// Portable alignment helpers (MSVC doesn't support GCC's __attribute__ syntax).
+#if defined(_MSC_VER)
+#define C4_ALIGNED16_PREFIX __declspec(align(16))
+#define C4_ALIGNED16_SUFFIX
+#else
+#define C4_ALIGNED16_PREFIX
+#define C4_ALIGNED16_SUFFIX __attribute__((aligned(16)))
+#endif
+
 // ECDSA recovery id adjustment constant
 // Ethereum uses recovery ids 27/28, but the underlying library expects 0/1
 #define ECDSA_RECOVERY_ID_OFFSET 27
@@ -188,11 +197,16 @@ bool blst_verify(bytes32_t       message_hash,
 
   c4_parallel_for_fn pf = c4_get_parallel_for();
 
-#if defined(__EMSCRIPTEN__)
-  // Optimization for WASM: Use Pippenger's algorithm (blst_p1s_add)
-  // This is significantly faster for single-threaded execution (O(N/logN) vs O(N))
-  // Note: Requires sufficient stack size (~45KB scratch + overhead).
-  // Ensure -s STACK_SIZE=... is large enough (e.g. 524288 for 512KB).
+// Enable Pippenger optimization for platforms with large stacks (WebAssembly, Android, iOS, Desktop)
+// We avoid it on embedded devices (e.g. ESP32) because blst_p1s_add uses ~144KB stack (alloca).
+// If C4_SMALL_STACK is defined or EMBEDDED is defined, we also disable it.
+#if (defined(__EMSCRIPTEN__) || defined(__ANDROID__) || defined(__APPLE__) || defined(__linux__) || defined(_WIN32)) && !defined(C4_SMALL_STACK) && !defined(EMBEDDED) && !defined(ESP_PLATFORM)
+#define C4_USE_PIPPENGER 1
+#endif
+
+#if defined(C4_USE_PIPPENGER)
+  // Optimization: Use Pippenger's algorithm (blst_p1s_add) for single-threaded speedup (O(N/logN) vs O(N))
+  // Note: Requires sufficient stack size (~45-144KB scratch + overhead).
   if (deserialized && num_public_keys > 0) {
     // Create array of pointers to active keys
     // We allocate on heap to be safe regarding pointer array size,
@@ -215,9 +229,6 @@ bool blst_verify(bytes32_t       message_hash,
       safe_free(p_ptrs);
 
       // If we successfully used Pippenger, skip the standard loop
-      // by pretending parallel for loop "did nothing" but we set first_key=false
-      // and jump over the parallel/serial block.
-      // However, the cleanest way is to use if/else structure.
       goto skip_standard_aggregation;
     }
   }
@@ -270,7 +281,7 @@ bool blst_verify(bytes32_t       message_hash,
     }
   }
 
-#if defined(__EMSCRIPTEN__)
+#if defined(C4_USE_PIPPENGER)
 skip_standard_aggregation:
 #endif
 
@@ -295,9 +306,9 @@ skip_standard_aggregation:
   // on the stack (approx 4KB) and disable the group checks.
 
 #define C4_PAIRING_CTX_SIZE (4u * 1024u)
-  static uint8_t pairing_ctx_buf[C4_PAIRING_CTX_SIZE] __attribute__((aligned(16)));
-  blst_pairing*  ctx  = (blst_pairing*) (void*) pairing_ctx_buf;
-  size_t         need = blst_pairing_sizeof();
+  static C4_ALIGNED16_PREFIX uint8_t pairing_ctx_buf[C4_PAIRING_CTX_SIZE] C4_ALIGNED16_SUFFIX;
+  blst_pairing*                      ctx  = (blst_pairing*) (void*) pairing_ctx_buf;
+  size_t                             need = blst_pairing_sizeof();
 
   if (need > sizeof(pairing_ctx_buf)) {
     // Should not happen as sizeof(pairing) is ~3.2KB
