@@ -188,6 +188,41 @@ bool blst_verify(bytes32_t       message_hash,
 
   c4_parallel_for_fn pf = c4_get_parallel_for();
 
+#if defined(__EMSCRIPTEN__)
+  // Optimization for WASM: Use Pippenger's algorithm (blst_p1s_add)
+  // This is significantly faster for single-threaded execution (O(N/logN) vs O(N))
+  // Note: Requires sufficient stack size (~45KB scratch + overhead).
+  // Ensure -s STACK_SIZE=... is large enough (e.g. 524288 for 512KB).
+  if (deserialized && num_public_keys > 0) {
+    // Create array of pointers to active keys
+    // We allocate on heap to be safe regarding pointer array size,
+    // although scratch space of blst_p1s_add will still be on stack.
+    const blst_p1_affine** p_ptrs = (const blst_p1_affine**) safe_malloc(num_public_keys * sizeof(blst_p1_affine*));
+
+    if (p_ptrs) {
+      int count = 0;
+      for (int i = 0; i < num_public_keys; i++) {
+        if (pubkeys_used.data[i / 8] & (1 << (i % 8))) {
+          p_ptrs[count++] = &((const blst_p1_affine*) public_keys)[i];
+        }
+      }
+
+      if (count > 0) {
+        blst_p1s_add(&pubkey_sum, p_ptrs, count);
+        first_key = false;
+      }
+
+      safe_free(p_ptrs);
+
+      // If we successfully used Pippenger, skip the standard loop
+      // by pretending parallel for loop "did nothing" but we set first_key=false
+      // and jump over the parallel/serial block.
+      // However, the cleanest way is to use if/else structure.
+      goto skip_standard_aggregation;
+    }
+  }
+#endif
+
   // Use parallel aggregation if available and worth it (e.g. > 128 keys)
   if (pf && num_public_keys >= 128) {
     blst_aggr_ctx_t ctx;
@@ -234,6 +269,10 @@ bool blst_verify(bytes32_t       message_hash,
       first_key  = false;
     }
   }
+
+#if defined(__EMSCRIPTEN__)
+skip_standard_aggregation:
+#endif
 
   // Ensure at least one public key was aggregated
   if (first_key) return false;
