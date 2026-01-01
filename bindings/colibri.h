@@ -1036,6 +1036,26 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
 void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint);
 
 /**
+ * Creates a verification context for verifying a proof (extended).
+ *
+ * This extended variant additionally supports passing witness keys for ZK bootstrap flows.
+ * The witness keys format matches the JS bindings: a 0x-prefixed hex string containing one or
+ * more concatenated 20-byte addresses (no separators).
+ *
+ * **Memory Management**: The caller is responsible for freeing the returned context using
+ * `c4_verify_free_ctx()` when done.
+ *
+ * @param proof The proof data to verify
+ * @param method The Ethereum RPC method that was proven
+ * @param args The method arguments as JSON array string (must match proof)
+ * @param chain_id The blockchain chain ID (must match proof)
+ * @param trusted_checkpoint Optional trusted checkpoint as hex string (0x-prefixed, 66 chars), or NULL
+ * @param witness_keys Optional witness key hex string (0x-prefixed) or NULL
+ * @return A new verification context pointer, or NULL if creation failed
+ */
+void* c4_verify_create_ctx_ext(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys);
+
+/**
  * Executes one step of the proof verification state machine.
  *
  * This function drives the asynchronous proof verification process. Call it repeatedly in a loop

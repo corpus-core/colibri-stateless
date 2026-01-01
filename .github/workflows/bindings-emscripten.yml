@@ -14,11 +14,108 @@ permissions:
 
 jobs:
 
+  native_addon:
+    name: Native addon prebuilds (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runs_on: ubuntu-latest
+            optional: false
+          - name: linux-arm64
+            runs_on: [self-hosted, linux, arm64]
+            optional: true
+          - name: macos-x64
+            runs_on: macos-13
+            optional: false
+          - name: macos-arm64
+            runs_on: macos-14
+            optional: false
+          - name: windows-x64
+            runs_on: windows-latest
+            optional: false
+    runs-on: ${{ matrix.runs_on }}
+    continue-on-error: ${{ matrix.optional }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Build libc4 shared library (SHAREDLIB=1)
+        shell: bash
+        run: |
+          cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DSHAREDLIB=1 -DCURL=0 -DCLI=0 -DUSE_MCL=1
+          cmake --build build/node-addon -j
+
+      - name: Build node addon (node-gyp)
+        shell: bash
+        run: |
+          cd bindings/node-addon
+          npm install --no-audit --no-fund
+          npx --yes node-gyp rebuild
+
+      - name: Assemble prebuild folder
+        shell: bash
+        run: |
+          PLATFORM="$(node -p "process.platform")"
+          ARCH="$(node -p "process.arch")"
+          OUT="prebuilds/${PLATFORM}-${ARCH}"
+          mkdir -p "${OUT}"
+
+          cp -f "bindings/node-addon/build/Release/colibri_native.node" "${OUT}/colibri_native.node"
+
+          # Ship libc4 next to the addon so dlopen/LoadLibrary can resolve it.
+          # Name varies by platform; copy whatever exists.
+          if compgen -G "build/node-addon/lib/*c4*.dylib" > /dev/null; then
+            cp -f build/node-addon/lib/*c4*.dylib "${OUT}/"
+          fi
+          if compgen -G "build/node-addon/lib/*c4*.so*" > /dev/null; then
+            cp -f build/node-addon/lib/*c4*.so* "${OUT}/"
+          fi
+          if compgen -G "build/node-addon/lib/*c4*.dll" > /dev/null; then
+            cp -f build/node-addon/lib/*c4*.dll "${OUT}/"
+          fi
+
+          echo "Prebuild output:"
+          ls -la "${OUT}"
+
+      - name: Smoke test native addon (loads libc4)
+        shell: bash
+        run: |
+          # Ensure libc4 is next to the built .node for this smoke test.
+          cp -f prebuilds/*-*/colibri_native.node bindings/node-addon/build/Release/colibri_native.node
+          if compgen -G "prebuilds/*-*/*c4*" > /dev/null; then
+            cp -f prebuilds/*-*/*c4* bindings/node-addon/build/Release/
+          fi
+          node -e "const b=require('./bindings/node-addon/build/Release/colibri_native.node'); console.log('getMethodSupport=', b.getMethodSupport(1n,'eth_chainId'));"
+
+      - name: Upload prebuilds
+        uses: actions/upload-artifact@v4
+        with:
+          name: c4-native-${{ matrix.name }}
+          path: prebuilds/**
+
   emscripten:
+    needs: native_addon
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download native prebuilds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: c4-native-*
+          path: native-prebuilds
+          merge-multiple: true
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -27,13 +124,14 @@ jobs:
 
       - name: Build with Emscripten (Split WASM for npm)
         run: |
-          emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
+          emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -DC4W_PREBUILDS_DIR="${GITHUB_WORKSPACE}/native-prebuilds" -S .
           cmake --build build
 
       - name: Run tests
         run: |
           cd bindings/emscripten
           npm test
+          npm run test:node:native
           cd ../../
 
       - name: Create WASM Package

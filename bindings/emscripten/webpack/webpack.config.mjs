@@ -35,6 +35,8 @@ export default {
     resolve: {
         // Enable importing JS files without specifying their extension
         extensions: ['.js'],
+        // Ensure Webpack prefers browser-conditional exports when resolving packages.
+        conditionNames: ['browser', 'import', 'module', 'default'],
         alias: {
             // Use the dynamically determined path from the generated config
             '@c4w': emscriptenBuildDir
