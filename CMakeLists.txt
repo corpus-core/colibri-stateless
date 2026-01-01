@@ -118,6 +118,12 @@ option(STATIC_MEMORY "if true, the memory will be statically allocated, which on
 option(MESSAGES "if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory" ON)
 option(FILE_STORAGE "if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR" ON)
 
+# Shared library builds require all linked static libraries to be position independent (PIC),
+# otherwise platforms like Linux will fail to link with relocation errors.
+if(SHAREDLIB AND NOT EMBEDDED)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 if(MESSAGES)
     add_definitions(-DMESSAGES)
 endif()

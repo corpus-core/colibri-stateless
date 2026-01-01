@@ -13,6 +13,11 @@ FetchContent_Declare(
 # 1. Force Static Lib - Important for Emscripten/WASM and iOS
 set(MCL_STATIC_LIB ON CACHE BOOL "Build static library" FORCE)
 
+# Ensure we never build MCL as shared just because the parent project builds a shared library.
+# This avoids ABI/runtime mismatches (notably on Windows) and keeps linking deterministic.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+set(MCL_SHARED_LIB OFF CACHE BOOL "Build shared library" FORCE)
+
 # 2. Disable Bloat
 set(MCL_BUILD_TESTING OFF CACHE BOOL "Build tests" FORCE)
 set(MCL_BUILD_SAMPLE OFF CACHE BOOL "Build samples" FORCE)

@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DSHAREDLIB=1 -DCURL=0 -DCLI=0 -DUSE_MCL=1
-          cmake --build build/node-addon -j
+          cmake --build build/node-addon -j --config Release
 
       - name: Build node addon (node-gyp)
         shell: bash
