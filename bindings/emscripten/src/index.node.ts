@@ -36,13 +36,13 @@ const runtime = createNodeRuntime();
  * so bundlers for browsers will not see native addon loader code.
  */
 export default class Colibri extends C4ClientBase {
-  constructor(config?: any) {
-    super(runtime, config);
-  }
+    constructor(config?: any) {
+        super(runtime, config);
+    }
 
-  static async register_storage(storage: any) {
-    return C4ClientBase.register_storage(runtime, storage);
-  }
+    static async register_storage(storage: any) {
+        return C4ClientBase.register_storage(runtime, storage);
+    }
 }
 
 

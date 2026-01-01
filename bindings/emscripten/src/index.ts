@@ -35,13 +35,13 @@ const runtime = createWasmRuntime();
  * This file is intentionally WASM-only and must not import any Node.js native addon loader.
  */
 export default class Colibri extends C4ClientBase {
-  constructor(config?: any) {
-    super(runtime, config);
-  }
+    constructor(config?: any) {
+        super(runtime, config);
+    }
 
-  static async register_storage(storage: any) {
-    return C4ClientBase.register_storage(runtime, storage);
-  }
+    static async register_storage(storage: any) {
+        return C4ClientBase.register_storage(runtime, storage);
+    }
 }
 
 
