@@ -56,11 +56,24 @@
                 "CURL": "0",
                 "USE_MCL": "1",
                 "WASM": "1",
+                "WASM_EMBED": "0",
                 "CHAIN_OP": "0",
                 "HTTP_SERVER": "0",
                 "PROVER_CACHE": "0",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
                 "CMAKE_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
+            }
+        },
+        {
+            "name": "wasm-profile",
+            "displayName": "WASM (Profiling)",
+            "description": "WASM Build für Browser-Profiling (WASM_PROFILE=ON, Cache off)",
+            "inherits": "wasm",
+            "binaryDir": "${sourceDir}/build/wasm-profile",
+            "cacheVariables": {
+                "WASM_PROFILE": "1",
+                "BLOCK_HASH_CACHE": "0",
+                "WASM_EMBED": "0"
             }
         }
     ],
@@ -84,6 +97,11 @@
             "name": "wasm",
             "configurePreset": "wasm",
             "displayName": "WASM Build"
+        },
+        {
+            "name": "wasm-profile",
+            "configurePreset": "wasm-profile",
+            "displayName": "WASM Build (Profiling)"
         }
     ]
 }

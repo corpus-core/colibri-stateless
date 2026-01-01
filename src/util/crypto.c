@@ -164,16 +164,14 @@ static void blst_aggregate_body(int chunk_idx, void* ctx_ptr) {
         blst_p1_from_affine(&sum, &pubkey_affine);
         first = false;
       }
-      else {
+      else
         blst_p1_add_affine(&sum, &sum, &pubkey_affine);
-      }
     }
   }
 
   ctx->chunk_has_value[chunk_idx] = !first;
-  if (!first) {
+  if (!first)
     ctx->partial_sums[chunk_idx] = sum;
-  }
 }
 
 bool blst_verify(bytes32_t       message_hash,
@@ -212,25 +210,21 @@ bool blst_verify(bytes32_t       message_hash,
     // We allocate on heap to be safe regarding pointer array size,
     // although scratch space of blst_p1s_add will still be on stack.
     const blst_p1_affine** p_ptrs = (const blst_p1_affine**) safe_malloc(num_public_keys * sizeof(blst_p1_affine*));
-
-    if (p_ptrs) {
-      int count = 0;
-      for (int i = 0; i < num_public_keys; i++) {
-        if (pubkeys_used.data[i / 8] & (1 << (i % 8))) {
-          p_ptrs[count++] = &((const blst_p1_affine*) public_keys)[i];
-        }
-      }
-
-      if (count > 0) {
-        blst_p1s_add(&pubkey_sum, p_ptrs, count);
-        first_key = false;
-      }
-
-      safe_free(p_ptrs);
-
-      // If we successfully used Pippenger, skip the standard loop
-      goto skip_standard_aggregation;
+    int                    count  = 0;
+    for (int i = 0; i < num_public_keys; i++) {
+      if (pubkeys_used.data[i / 8] & (1 << (i % 8)))
+        p_ptrs[count++] = &((const blst_p1_affine*) public_keys)[i];
     }
+
+    if (count > 0) {
+      blst_p1s_add(&pubkey_sum, p_ptrs, count);
+      first_key = false;
+    }
+
+    safe_free(p_ptrs);
+
+    // If we successfully used Pippenger, skip the standard loop
+    goto skip_standard_aggregation;
   }
 #endif
 
@@ -256,9 +250,8 @@ bool blst_verify(bytes32_t       message_hash,
           pubkey_sum = ctx.partial_sums[i];
           first_key  = false;
         }
-        else {
+        else
           blst_p1_add_or_double(&pubkey_sum, &pubkey_sum, &ctx.partial_sums[i]);
-        }
       }
     }
   }
@@ -329,14 +322,11 @@ skip_standard_aggregation:
                                                     message_hash, BYTES32_SIZE, // message
                                                     NULL, 0);                   // aug
 
-  if (err != BLST_SUCCESS) {
+  if (err != BLST_SUCCESS)
     return false;
-  }
 
   blst_pairing_commit(ctx);
-  bool result = blst_pairing_finalverify(ctx, NULL);
-
-  return result;
+  return blst_pairing_finalverify(ctx, NULL);
 }
 
 bool secp256k1_recover(const bytes32_t digest, bytes_t signature, uint8_t* pubkey) {
