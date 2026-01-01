@@ -186,13 +186,22 @@ else()
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
             set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH} ${EXTRA_C_FLAGS}")
+
+            # Handle cross-compilation via CMAKE_OSX_ARCHITECTURES
+            if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+                set(BLST_CFLAGS "${BLST_CFLAGS} -arch x86_64 -target x86_64-apple-macos10.15")
+                message(STATUS "BLST: Cross-compiling for x86_64 on macOS")
+            elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+                set(BLST_CFLAGS "${BLST_CFLAGS} -arch arm64 -target arm64-apple-macos11.0")
+                message(STATUS "BLST: Cross-compiling for arm64 on macOS")
+            endif()
         else()
             set(BLST_CFLAGS "${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections")
         endif()
 
         add_custom_command(
             OUTPUT ${BLST_LIB}
-            COMMAND ${CMAKE_COMMAND} -E env 
+            COMMAND ${CMAKE_COMMAND} -E env
                 CC=${CMAKE_C_COMPILER}
                 CFLAGS=${BLST_CFLAGS}
                 bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__

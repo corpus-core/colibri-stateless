@@ -1,0 +1,25 @@
+[package]
+name = "colibri"
+version = "0.1.0"
+edition = "2021"
+authors = ["Colibri Contributors"]
+description = "Rust bindings for Colibri stateless Ethereum client"
+license = "MIT"
+repository = "https://github.com/corpus-core/colibri-stateless"
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.35", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+thiserror = "1.0"
+async-trait = "0.1"
+futures = "0.3.31"
+
+[build-dependencies]
+cc = "1.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockito = "1.2"
