@@ -50,6 +50,7 @@
 
 #include "../util/compat.h"
 #include "../util/crypto.h"
+#include "../util/logger.h"
 #include "../util/plugin.h"
 #include "./sync_committee.h"
 #include <stdint.h>
@@ -546,6 +547,7 @@ static c4_sync_validators_t get_validators_from_cache(verify_ctx_t* ctx, uint32_
   }
 
   if (found && storage_conf.get) storage_conf.get(name, &validators);
+  log_debug("fetch from cache %s : %d bytes)", name, validators.data.len);
   if (validators.data.len % 48 == 32)
     memcpy(previous_root, validators.data.data + validators.data.len - 32, 32);
 
@@ -553,25 +555,32 @@ static c4_sync_validators_t get_validators_from_cache(verify_ctx_t* ctx, uint32_
   // Check if validators need deserialization (only pubkeys, not including the 32-byte root)
   size_t expected_serialized_size = 512 * 48 + 32;
   if (validators.data.data && (validators.data.len == expected_serialized_size || validators.data.len == 512 * 48)) {
+    log_debug("deserializing validators (len=%d)", validators.data.len);
 #ifdef C4_STATIC_MEMORY
     memcpy(keys_48_buffer, validators.data.data, 512 * 48);
-    bytes_t b = blst_deserialize_p1_affine(validators.data.data, 512, sync_buffer);
+    bytes_t b = blst_deserialize_p1_affine(keys_48_buffer, 512, sync_buffer);
 #else
     bytes_t b = blst_deserialize_p1_affine(validators.data.data, 512, NULL);
     buffer_free(&validators);
 #endif
     validators.data = b;
     storage_conf.set(name, b);
+    //    log_debug("storing deserialized validators: %d bytes", b.len);
   }
   else if (validators.data.data && validators.data.len == 512 * 48 + 32) {
     // Old format without deserialization - just strip the root
     validators.data.len = 512 * 48;
+    log_debug("stripping root from validators (len=%d)", validators.data.len);
   }
+  else
+    log_debug("found validators (len=%d)", validators.data.len);
+
 #else
   // Strip the 32-byte root from validators data if present
   if (validators.data.len >= 32) {
     validators.data.len -= 32;
   }
+  log_debug("found validators (NO DESERIALIZATION) (len=%d)", validators.data.len);
 #endif
 
   if (validators.data.len == 0) validators.data.data = NULL; // just to make sure we mark it as not found, even if we are using static memory

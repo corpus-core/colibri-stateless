@@ -24,6 +24,8 @@
 #ifndef C4_LOGGER_H
 #define C4_LOGGER_H
 
+#include <stddef.h>
+
 #include "state.h"
 
 #define RED(txt)            "\x1b[31m" txt "\x1b[0m"
@@ -59,6 +61,29 @@ typedef enum {
 void        c4_set_log_level(log_level_t level);
 log_level_t c4_get_log_level();
 
+/**
+ * Function pointer type used to provide a stack size at runtime.
+ *
+ * The function must return the current stack size in bytes.
+ */
+typedef size_t (*c4_stacksize_fn_t)(void);
+
+/**
+ * Sets the function used by the logger to query the current stack size.
+ *
+ * When set (non-NULL), `log_debug()` will include the stack size in its output.
+ *
+ * @param fn Function returning stack size in bytes, or NULL to disable stack size logging.
+ */
+void c4_set_stacksize_fn(c4_stacksize_fn_t fn);
+
+/**
+ * Returns the currently configured stack size function (or NULL if not set).
+ *
+ * @return The currently configured function pointer or NULL.
+ */
+c4_stacksize_fn_t c4_get_stacksize_fn(void);
+
 #define _log_with_line(prefix, fmt, ...)                    \
   {                                                         \
     buffer_t log_buf = {0};                                 \
@@ -68,6 +93,18 @@ log_level_t c4_get_log_level();
     buffer_add_chars(&log_buf, "\n");                       \
     fwrite(log_buf.data.data, 1, log_buf.data.len, stderr); \
     buffer_free(&log_buf);                                  \
+  }
+
+#define _log_with_line_stack(prefix, stack_size, fmt, ...)         \
+  {                                                                \
+    buffer_t log_buf = {0};                                        \
+    bprintf(&log_buf, "%s\033[0m" GRAY(" %s:%d "),                 \
+            prefix, __func__, __LINE__);                           \
+    bprintf(&log_buf, GRAY("stack=%l "), (uint64_t) (stack_size)); \
+    bprintf(&log_buf, fmt, ##__VA_ARGS__);                         \
+    buffer_add_chars(&log_buf, "\n");                              \
+    fwrite(log_buf.data.data, 1, log_buf.data.len, stderr);        \
+    buffer_free(&log_buf);                                         \
   }
 #define _log(prefix, fmt, ...)                              \
   {                                                         \
@@ -90,9 +127,13 @@ log_level_t c4_get_log_level();
   do {                                                                     \
     if (c4_get_log_level() >= 3) _log("\033[33mWARN ", fmt, ##__VA_ARGS__) \
   } while (0)
-#define log_debug(fmt, ...)                                                          \
-  do {                                                                               \
-    if (c4_get_log_level() >= 4) _log_with_line("\033[33mDEBUG", fmt, ##__VA_ARGS__) \
+#define log_debug(fmt, ...)                                                                                                                \
+  do {                                                                                                                                     \
+    if (c4_get_log_level() >= 4) {                                                                                                         \
+      c4_stacksize_fn_t _c4_stack_fn = c4_get_stacksize_fn();                                                                              \
+      if (_c4_stack_fn)                                                                                                                    \
+        _log_with_line_stack("\033[33mDEBUG", _c4_stack_fn(), fmt, ##__VA_ARGS__) else _log_with_line("\033[33mDEBUG", fmt, ##__VA_ARGS__) \
+    }                                                                                                                                      \
   } while (0)
 #define log_debug_full(fmt, ...)                                                     \
   do {                                                                               \

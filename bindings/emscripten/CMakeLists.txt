@@ -19,9 +19,11 @@
 #
 # SPDX-License-Identifier: MIT
 
-set(EMC_PROPS "-s ALLOW_MEMORY_GROWTH=1 -s EXPORT_ES6=1 -s MODULARIZE=1 -s NODEJS_CATCH_REJECTION=0 -s EXPORT_NAME=c4w  -s FILESYSTEM=0 -s ENVIRONMENT=web,node  -sEXPORTED_FUNCTIONS=[\"_malloc\",\"_free\"]  -s 'EXPORTED_RUNTIME_METHODS=[\"ccall\", \"cwrap\",\"UTF8ToString\",\"stringToUTF8\"]'")
+set(EMC_PROPS "-s ALLOW_MEMORY_GROWTH=1 -s STACK_SIZE=1048576 -s EXPORT_ES6=1 -s MODULARIZE=1 -s NODEJS_CATCH_REJECTION=0 -s EXPORT_NAME=c4w  -s FILESYSTEM=0 -s ENVIRONMENT=web,node  -sEXPORTED_FUNCTIONS=[\"_malloc\",\"_free\"]  -s 'EXPORTED_RUNTIME_METHODS=[\"ccall\", \"cwrap\",\"UTF8ToString\",\"stringToUTF8\"]'")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -Wpointer-arith ")
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wpointer-arith ")
+
+option(WASM_PROFILE "Enable profiling-friendly WASM build (function names + source maps)" OFF)
 
 
 IF (CMAKE_BUILD_TYPE MATCHES Debug)
@@ -29,6 +31,12 @@ IF (CMAKE_BUILD_TYPE MATCHES Debug)
 ELSE (CMAKE_BUILD_TYPE MATCHES Debug)
    set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -O3 ")
 ENDIF (CMAKE_BUILD_TYPE MATCHES Debug)
+
+if (WASM_PROFILE)
+   # Keep wasm function names for the browser profiler and emit source maps.
+   # This is intended for local profiling (not for production builds).
+   set(EMC_PROPS "${EMC_PROPS} --profiling-funcs -gsource-map -s DEMANGLE_SUPPORT=1")
+endif()
 
 option(WASM_EMBED "Embed WASM into JS (SINGLE_FILE=1)" ON)
 if (WASM_EMBED)

@@ -31,6 +31,8 @@
 #define MAX_SYNC_STATES_DEFAULT 3
 
 storage_plugin_t storage_conf = {0};
+
+static c4_parallel_for_fn g_parallel_for = NULL;
 #ifdef FILE_STORAGE
 char* state_data_dir = NULL;
 
@@ -101,4 +103,12 @@ void c4_get_storage_config(storage_plugin_t* plugin) {
 void c4_set_storage_config(storage_plugin_t* plugin) {
   storage_conf = *plugin;
   if (!storage_conf.max_sync_states) storage_conf.max_sync_states = MAX_SYNC_STATES_DEFAULT;
+}
+
+void c4_set_parallel_for(c4_parallel_for_fn fn) {
+  g_parallel_for = fn;
+}
+
+c4_parallel_for_fn c4_get_parallel_for(void) {
+  return g_parallel_for;
 }

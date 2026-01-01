@@ -568,12 +568,6 @@ static bool merkle_proof(merkle_proof_data_t* proof, gindex_t start, gindex_t en
   memcpy(out, start_data.data, 32);
 
   while (start > end) {
-    log_debug_full("%l: %x", start, bytes(out, 32));
-
-    /*
-    fprintf(stderr, "s: %llu ", start);
-    print_hex(stderr, bytes(out, 32), " : ", "\n");
-    */
     gindex_t witness      = start & 1 ? start - 1 : start + 1;
     bytes_t  witness_data = merkle_get_data(proof, witness);
     if (witness_data.data == NULL) {
@@ -603,18 +597,6 @@ bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t*
   buffer_t calculated_gindex = {0};
   for (uint32_t i = 0; i < leafes.len / 32; i++)
     ssz_add_multi_merkle_proof(gindex[i], &witnesses_gindex, &calculated_gindex);
-  /*
-  fprintf(stderr, "_______\nwitnesses_gindex:\n");
-  for (uint32_t i = 0; i < witnesses_gindex.data.len / sizeof(gindex_t); i++) {
-    fprintf(stderr, "witness gindex: %llu\n", ((gindex_t*) witnesses_gindex.data.data)[i]);
-  }
-
-  fprintf(stderr, "_______\ncalculated_gindex:\n");
-  for (uint32_t i = 0; i < calculated_gindex.data.len / sizeof(gindex_t); i++) {
-    fprintf(stderr, "path gindex: %llu\n", ((gindex_t*) calculated_gindex.data.data)[i]);
-  }
-  fprintf(stderr, "_______\nvalues:\n");
-  */
 
   buffer_free(&calculated_gindex);
 
