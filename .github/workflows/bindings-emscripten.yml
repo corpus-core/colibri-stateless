@@ -2,6 +2,12 @@ name: Emscripten CI
 
 on:
   workflow_call:
+    inputs:
+      enable_linux_arm64:
+        description: "Run the linux-arm64 native addon prebuild job (requires a self-hosted runner with labels: self-hosted, linux, arm64)"
+        required: false
+        type: boolean
+        default: false
     secrets:
       NPM_TOKEN:
         required: false
@@ -23,14 +29,11 @@ jobs:
           - name: linux-x64
             runs_on: ubuntu-latest
             optional: false
-          - name: linux-arm64
-            runs_on: [self-hosted, linux, arm64]
-            optional: true
           - name: macos-x64
-            runs_on: macos-13
+            runs_on: macos-15-intel
             optional: false
           - name: macos-arm64
-            runs_on: macos-14
+            runs_on: macos-latest
             optional: false
           - name: windows-x64
             runs_on: windows-latest
@@ -101,6 +104,59 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: c4-native-${{ matrix.name }}
+          path: prebuilds/**
+
+  native_addon_linux_arm64:
+    name: Native addon prebuilds (linux-arm64, self-hosted)
+    if: ${{ inputs.enable_linux_arm64 }}
+    runs-on: [self-hosted, linux, arm64]
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Build libc4 shared library (SHAREDLIB=1)
+        shell: bash
+        run: |
+          cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DSHAREDLIB=1 -DCURL=0 -DCLI=0 -DUSE_MCL=1
+          cmake --build build/node-addon -j --config Release
+
+      - name: Build node addon (node-gyp)
+        shell: bash
+        run: |
+          cd bindings/node-addon
+          npm install --no-audit --no-fund
+          npx --yes node-gyp rebuild
+
+      - name: Assemble prebuild folder
+        shell: bash
+        run: |
+          PLATFORM="$(node -p "process.platform")"
+          ARCH="$(node -p "process.arch")"
+          OUT="prebuilds/${PLATFORM}-${ARCH}"
+          mkdir -p "${OUT}"
+
+          cp -f "bindings/node-addon/build/Release/colibri_native.node" "${OUT}/colibri_native.node"
+
+          if compgen -G "build/node-addon/lib/*c4*.so*" > /dev/null; then
+            cp -f build/node-addon/lib/*c4*.so* "${OUT}/"
+          fi
+
+          echo "Prebuild output:"
+          ls -la "${OUT}"
+
+      - name: Upload prebuilds
+        uses: actions/upload-artifact@v4
+        with:
+          name: c4-native-linux-arm64
           path: prebuilds/**
 
   emscripten:
