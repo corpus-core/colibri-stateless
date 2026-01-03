@@ -55,7 +55,11 @@ jobs:
       - name: Build libc4 shared library (SHAREDLIB=1)
         shell: bash
         run: |
-          cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DSHAREDLIB=1 -DCURL=0 -DCLI=0 -DUSE_MCL=1 -DMCL_MSVC_RUNTIME_DLL=ON
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DSHAREDLIB=1 -DCURL=0 -DCLI=0 -DUSE_MCL=0 -DMCL_MSVC_RUNTIME_DLL=ON
+          else
+            cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DSHAREDLIB=1 -DCURL=0 -DCLI=0 -DUSE_MCL=1 -DMCL_MSVC_RUNTIME_DLL=ON
+          fi
           cmake --build build/node-addon -j --config Release
 
       - name: Build node addon (node-gyp)
@@ -76,9 +80,15 @@ jobs:
           cp -f "bindings/node-addon/build/Release/colibri_native.node" "${OUT}/colibri_native.node"
 
           # Ship libc4 next to the addon so dlopen/LoadLibrary can resolve it.
-          # On Windows the DLL often ends up under a config subdir (e.g. lib/Release/c4.dll),
-          # so use find for robustness.
-          find build/node-addon -maxdepth 5 -type f \( -name "*c4*.dylib" -o -name "*c4*.so*" -o -name "*c4*.dll" \) -print -exec cp -f {} "${OUT}/" \; || true
+          # On macOS/Linux we may only have a versioned filename (e.g. libc4.so.1.0),
+          # but the addon prefers unversioned names too. Copy and add a stable alias.
+          find build/node-addon -maxdepth 6 -type f \( -name "*c4*.dylib" -o -name "*c4*.so*" -o -name "*c4*.dll" \) -print -exec cp -f {} "${OUT}/" \; || true
+          if compgen -G "${OUT}/libc4*.dylib" > /dev/null; then
+            cp -f "${OUT}"/libc4*.dylib "${OUT}/libc4.dylib" || true
+          fi
+          if compgen -G "${OUT}/libc4*.so*" > /dev/null; then
+            cp -f "${OUT}"/libc4*.so* "${OUT}/libc4.so" || true
+          fi
 
           echo "Prebuild output:"
           ls -la "${OUT}"
@@ -89,6 +99,12 @@ jobs:
           # Ensure libc4 is next to the built .node for this smoke test.
           cp -f prebuilds/*-*/colibri_native.node bindings/node-addon/build/Release/colibri_native.node
           find prebuilds -type f \( -name "*c4*.dylib" -o -name "*c4*.so*" -o -name "*c4*.dll" \) -print -exec cp -f {} bindings/node-addon/build/Release/ \; || true
+          if compgen -G "prebuilds/*-*/libc4*.dylib" > /dev/null; then
+            cp -f prebuilds/*-*/libc4*.dylib bindings/node-addon/build/Release/libc4.dylib || true
+          fi
+          if compgen -G "prebuilds/*-*/libc4*.so*" > /dev/null; then
+            cp -f prebuilds/*-*/libc4*.so* bindings/node-addon/build/Release/libc4.so || true
+          fi
           node -e "const b=require('./bindings/node-addon/build/Release/colibri_native.node'); console.log('getMethodSupport=', b.getMethodSupport(1n,'eth_chainId'));"
 
       - name: Upload prebuilds

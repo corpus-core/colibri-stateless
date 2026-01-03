@@ -125,6 +125,14 @@ static bool load_c4_library(void) {
 #if defined(__APPLE__)
     snprintf(lib_path, sizeof(lib_path) - 1, "%s/libc4.dylib", self_dir);
     g_c4.lib = dlopen(lib_path, RTLD_LAZY);
+    if (!g_c4.lib) {
+      snprintf(lib_path, sizeof(lib_path) - 1, "%s/libc4.1.0.dylib", self_dir);
+      g_c4.lib = dlopen(lib_path, RTLD_LAZY);
+    }
+    if (!g_c4.lib) {
+      snprintf(lib_path, sizeof(lib_path) - 1, "%s/libc4.1.dylib", self_dir);
+      g_c4.lib = dlopen(lib_path, RTLD_LAZY);
+    }
 #endif
     if (!g_c4.lib) {
       snprintf(lib_path, sizeof(lib_path) - 1, "%s/libc4.so", self_dir);
@@ -134,12 +142,21 @@ static bool load_c4_library(void) {
       snprintf(lib_path, sizeof(lib_path) - 1, "%s/libc4.so.1", self_dir);
       g_c4.lib = dlopen(lib_path, RTLD_LAZY);
     }
+    if (!g_c4.lib) {
+      snprintf(lib_path, sizeof(lib_path) - 1, "%s/libc4.so.1.0", self_dir);
+      g_c4.lib = dlopen(lib_path, RTLD_LAZY);
+    }
   }
 
   // Fallback to loader path / system search.
   if (!g_c4.lib) g_c4.lib = dlopen("libc4.dylib", RTLD_LAZY);
+#if defined(__APPLE__)
+  if (!g_c4.lib) g_c4.lib = dlopen("libc4.1.0.dylib", RTLD_LAZY);
+  if (!g_c4.lib) g_c4.lib = dlopen("libc4.1.dylib", RTLD_LAZY);
+#endif
   if (!g_c4.lib) g_c4.lib = dlopen("libc4.so", RTLD_LAZY);
   if (!g_c4.lib) g_c4.lib = dlopen("libc4.so.1", RTLD_LAZY);
+  if (!g_c4.lib) g_c4.lib = dlopen("libc4.so.1.0", RTLD_LAZY);
 #endif
 
   if (!g_c4.lib) return false;
