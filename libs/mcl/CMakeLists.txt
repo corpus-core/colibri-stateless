@@ -39,7 +39,34 @@ add_definitions(-DMCL_DONT_USE_OPENSSL)
 # MSVC runtime: prefer /MD when building host shared libraries (prevents RuntimeLibrary mismatch)
 set(MCL_MSVC_RUNTIME_DLL ON CACHE BOOL "Use dynamic runtime /MD in msvc builds" FORCE)
 
-FetchContent_MakeAvailable(mcl)
+FetchContent_GetProperties(mcl)
+if(NOT mcl_POPULATED)
+    FetchContent_Populate(mcl)
+
+    # Patch upstream mcl CMakeLists.txt:
+    # On Windows, mcl builds `msm_avx.obj` via a custom command that hardcodes `/MT`.
+    # This clashes with `/MD` builds and causes LNK2038 RuntimeLibrary mismatch.
+    # Make the runtime flag conditional on `MCL_MSVC_RUNTIME_DLL`.
+    set(MCL_CMAKELISTS "${mcl_SOURCE_DIR}/CMakeLists.txt")
+    if(EXISTS "${MCL_CMAKELISTS}")
+        file(READ "${MCL_CMAKELISTS}" _mcl_cmake)
+
+        # Replace the hardcoded /MT in the x64 msm_avx custom build step with /MD to match
+        # MCL_MSVC_RUNTIME_DLL=ON and avoid LNK2038 RuntimeLibrary mismatch.
+        set(_mcl_cmake_patched "${_mcl_cmake}")
+        string(REGEX REPLACE
+            "(msm_avx\\.cpp[^\\n]*?/EHsc) /MT (/GS-)"
+            "\\1 /MD \\2"
+            _mcl_cmake_patched
+            "${_mcl_cmake_patched}")
+
+        if(NOT _mcl_cmake_patched STREQUAL _mcl_cmake)
+            file(WRITE "${MCL_CMAKELISTS}" "${_mcl_cmake_patched}")
+        endif()
+    endif()
+endif()
+
+add_subdirectory(${mcl_SOURCE_DIR} ${mcl_BINARY_DIR})
 
 # Create an interface library for easy linking
 add_library(mcl_interface INTERFACE)
