@@ -81,7 +81,8 @@ set_target_properties(c4w PROPERTIES
 if (C4W_BUILD_NODE_ADDON)
    add_custom_target(build_node_addon_prebuild ALL
       COMMAND ${CMAKE_COMMAND} -E echo "Building host Node.js addon prebuild..."
-      COMMAND ${CMAKE_COMMAND} -E env C4W_PREBUILDS_OUT=${CMAKE_SOURCE_DIR}/bindings/emscripten/prebuilds bash ${CMAKE_SOURCE_DIR}/bindings/node-addon/scripts/build_prebuild_local.sh
+      # Write prebuilds directly into the npm package output folder (the one that gets published).
+      COMMAND ${CMAKE_COMMAND} -E env C4W_PREBUILDS_OUT=${EMSCRIPTEN_OUTPUT_DIR}/prebuilds bash ${CMAKE_SOURCE_DIR}/bindings/node-addon/scripts/build_prebuild_local.sh
       WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
       COMMENT "Building native Node.js addon prebuild for the host platform"
    )

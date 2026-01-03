@@ -61,6 +61,10 @@ function create_cache(dir) {
 }
 
 test('Native addon smoke tests', async (t) => {
+  // Important: set the state dir before the first Colibri instance is created.
+  // The native core may cache prover config/state globally.
+  process.env.C4_STATE_DIR = `${testdir}/eth_call1`;
+
   await t.test('should load Node entry and require native addon', async () => {
     const c4 = new Colibri();
     const result = await c4.getMethodSupport('eth_getTransactionByHash');
