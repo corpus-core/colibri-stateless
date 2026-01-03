@@ -12,6 +12,7 @@ DEFS_Debug := \
 	'-D_LARGEFILE_SOURCE' \
 	'-D_FILE_OFFSET_BITS=64' \
 	'-DNAPI_VERSION=8' \
+	'-D_GNU_SOURCE=1' \
 	'-DBUILDING_NODE_EXTENSION' \
 	'-DDEBUG' \
 	'-D_DEBUG'
@@ -67,6 +68,7 @@ DEFS_Release := \
 	'-D_LARGEFILE_SOURCE' \
 	'-D_FILE_OFFSET_BITS=64' \
 	'-DNAPI_VERSION=8' \
+	'-D_GNU_SOURCE=1' \
 	'-DBUILDING_NODE_EXTENSION'
 
 # Flags passed to all source files.

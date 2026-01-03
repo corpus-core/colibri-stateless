@@ -30,18 +30,6 @@
               "-std=c11"
             ]
           }
-        ],
-        [
-          "OS==\"win\"",
-          {
-            "msvs_settings": {
-              "VCCLCompilerTool": {
-                "AdditionalOptions": [
-                  "/std:c11"
-                ]
-              }
-            }
-          }
         ]
       ]
     }
