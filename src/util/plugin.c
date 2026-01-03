@@ -37,12 +37,14 @@ static c4_parallel_for_fn g_parallel_for = NULL;
 char* state_data_dir = NULL;
 
 static char* combine_filename(char* name) {
-  if (state_data_dir == NULL)
-    state_data_dir = getenv("C4_STATES_DIR");
-  if (state_data_dir == NULL)
-    state_data_dir = ".";
-  if (strcmp(state_data_dir, "."))
-    return bprintf(NULL, "%s/%s", state_data_dir, name);
+  // Determine state directory on every call.
+  // This allows tests or embeddings (e.g. Node.js) to switch the state directory at runtime
+  // by updating the C4_STATES_DIR environment variable between operations.
+  const char* env_dir = getenv("C4_STATES_DIR");
+  if (env_dir && (!state_data_dir || strcmp(state_data_dir, env_dir) != 0)) state_data_dir = (char*) env_dir;
+  if (state_data_dir == NULL) state_data_dir = ".";
+
+  if (strcmp(state_data_dir, ".")) return bprintf(NULL, "%s/%s", state_data_dir, name);
   else
     return strdup(name);
 }

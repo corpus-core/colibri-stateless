@@ -1,0 +1,15 @@
+{
+  "name": "@corpus-core/colibri-stateless-node-addon",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Build tooling for the Colibri Node.js native addon (N-API).",
+  "type": "commonjs",
+  "devDependencies": {
+    "node-gyp": "^10.2.0"
+  },
+  "scripts": {
+    "build": "node-gyp rebuild"
+  }
+}
+
+

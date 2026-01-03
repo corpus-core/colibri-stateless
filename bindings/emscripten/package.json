@@ -2,11 +2,31 @@
     "name": "@corpus-core/colibri-stateless",
     "version": "0.1.0",
     "description": "Colibri is a stateless and trustless ethereum client, which is optimized for the mobile apps or embedded devices, because it does not hols the state, but verifies on demand.",
-    "main": "index.js",
+    "main": "./index.js",
+    "types": "./index.d.ts",
     "type": "module",
+    "exports": {
+        ".": {
+            "browser": "./index.js",
+            "node": "./index.node.js",
+            "default": "./index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "browser": "./index.js",
+    "files": [
+        "*.js",
+        "*.d.ts",
+        "c4w.js",
+        "c4w.wasm",
+        "LICENSE",
+        "README.md",
+        "prebuilds/**"
+    ],
     "scripts": {
         "test": "npm run test:node && npm run test:webpack",
-        "test:node": "node --test test/*.test.mjs",
+        "test:node": "node --test test/rpc.test.mjs",
+        "test:node:native": "node --test test/native.test.mjs",
         "test:webpack": "npm run webpack:install && npm run webpack:build",
         "webpack:install": "cd webpack && npm install --legacy-peer-deps",
         "webpack:build": "cd webpack && npm run build",
@@ -42,7 +62,9 @@
         "url": "https://github.com/corpus-core/c4/issues"
     },
     "homepage": "https://github.com/corpus-core/c4#readme",
-    "dependencies": {},
+    "dependencies": {
+        "node-gyp-build": "^4.8.4"
+    },
     "devDependencies": {
         "@types/node": "^22.13.1",
         "typescript": "^5.7.3"

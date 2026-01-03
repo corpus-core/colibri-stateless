@@ -142,7 +142,13 @@ export interface DataRequest {
     exclude_mask: number;
     url: string;
     payload: any;
-    req_ptr: number;
+    /**
+     * Opaque request handle provided by the C core.
+     *
+     * - In WASM builds this is a 32-bit pointer-like number.
+     * - In native Node builds this may be a 64-bit pointer-like value (still represented as a number today).
+     */
+    req_ptr: any;
 }
 
 // Enum for RPC method types

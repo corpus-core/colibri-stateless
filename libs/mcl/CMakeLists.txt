@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.14)
 
 include(FetchContent)
 
+# CMake 4.2 deprecates calling FetchContent_Populate() directly. We still need
+# to populate first so we can patch upstream before add_subdirectory().
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
+
 FetchContent_Declare(
   mcl
   GIT_REPOSITORY https://github.com/herumi/mcl.git
@@ -12,6 +18,11 @@ FetchContent_Declare(
 
 # 1. Force Static Lib - Important for Emscripten/WASM and iOS
 set(MCL_STATIC_LIB ON CACHE BOOL "Build static library" FORCE)
+
+# Ensure we never build MCL as shared just because the parent project builds a shared library.
+# This avoids ABI/runtime mismatches (notably on Windows) and keeps linking deterministic.
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+set(MCL_SHARED_LIB OFF CACHE BOOL "Build shared library" FORCE)
 
 # 2. Disable Bloat
 set(MCL_BUILD_TESTING OFF CACHE BOOL "Build tests" FORCE)
@@ -31,7 +42,41 @@ set(MCL_USE_OPENSSL OFF)
 # Define only flags for missing dependencies
 add_definitions(-DMCL_DONT_USE_OPENSSL)
 
-FetchContent_MakeAvailable(mcl)
+# MSVC runtime: prefer /MD when building host shared libraries (prevents RuntimeLibrary mismatch)
+set(MCL_MSVC_RUNTIME_DLL ON CACHE BOOL "Use dynamic runtime /MD in msvc builds" FORCE)
+
+FetchContent_GetProperties(mcl)
+if(NOT mcl_POPULATED)
+    FetchContent_Populate(mcl)
+
+    # Patch upstream mcl CMakeLists.txt:
+    # On Windows, mcl builds `msm_avx.obj` via a custom command that hardcodes `/MT`.
+    # This clashes with `/MD` builds and causes LNK2038 RuntimeLibrary mismatch.
+    # Make the runtime flag conditional on `MCL_MSVC_RUNTIME_DLL`.
+    set(MCL_CMAKELISTS "${mcl_SOURCE_DIR}/CMakeLists.txt")
+    if(EXISTS "${MCL_CMAKELISTS}")
+        file(READ "${MCL_CMAKELISTS}" _mcl_cmake)
+
+        # Replace the hardcoded /MT in the x64 msm_avx custom build step with /MD to match
+        # MCL_MSVC_RUNTIME_DLL=ON and avoid LNK2038 RuntimeLibrary mismatch.
+        #
+        # We intentionally avoid regex here because CMake's regex engine differs across versions.
+        set(_mcl_cmake_patched "${_mcl_cmake}")
+        if(MCL_MSVC_RUNTIME_DLL)
+            string(REPLACE
+                "/EHsc /MT /GS-"
+                "/EHsc /MD /GS-"
+                _mcl_cmake_patched
+                "${_mcl_cmake_patched}")
+        endif()
+
+        if(NOT _mcl_cmake_patched STREQUAL _mcl_cmake)
+            file(WRITE "${MCL_CMAKELISTS}" "${_mcl_cmake_patched}")
+        endif()
+    endif()
+endif()
+
+add_subdirectory(${mcl_SOURCE_DIR} ${mcl_BINARY_DIR})
 
 # Create an interface library for easy linking
 add_library(mcl_interface INTERFACE)
