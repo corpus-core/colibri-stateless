@@ -197,7 +197,10 @@ export function createNodeRuntime(): C4Runtime {
 
         async getProverConfigHex(chainId: number): Promise<string> {
             // Native runtime uses file storage. Try to read persisted sync state from disk.
-            const dir = (typeof process !== 'undefined' && process.env && process.env.C4_STATE_DIR) ? process.env.C4_STATE_DIR : '.';
+            const dir =
+                (typeof process !== 'undefined' && process.env && (process.env.C4_STATES_DIR || process.env.C4_STATE_DIR))
+                    ? (process.env.C4_STATES_DIR || process.env.C4_STATE_DIR)!
+                    : '.';
             const path = `${dir}/states_${chainId}`;
             const data = await readFileIfExists(path);
             if (data && data.length) return '0x' + hexFromBytes(data);

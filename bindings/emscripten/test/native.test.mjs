@@ -63,7 +63,8 @@ function create_cache(dir) {
 test('Native addon smoke tests', async (t) => {
   // Important: set the state dir before the first Colibri instance is created.
   // The native core may cache prover config/state globally.
-  process.env.C4_STATE_DIR = `${testdir}/eth_call1`;
+  process.env.C4_STATES_DIR = `${testdir}/eth_call1`;
+  process.env.C4_STATE_DIR = `${testdir}/eth_call1`; // Backward-compatible alias
 
   await t.test('should load Node entry and require native addon', async () => {
     const c4 = new Colibri();
@@ -79,7 +80,8 @@ test('Native addon smoke tests', async (t) => {
     await t.test(`run ${name} (native)`, async () => {
       // Ensure the native runtime reads the test-specific persisted sync state, if present.
       // This keeps generated requests aligned with the fixtures under test/data/<name>/.
-      process.env.C4_STATE_DIR = `${testdir}/${name}`;
+      process.env.C4_STATES_DIR = `${testdir}/${name}`;
+      process.env.C4_STATE_DIR = `${testdir}/${name}`; // Backward-compatible alias
 
       const cache = {};
       Colibri.register_storage({
