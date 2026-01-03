@@ -36,6 +36,9 @@ set(MCL_USE_OPENSSL OFF)
 # Define only flags for missing dependencies
 add_definitions(-DMCL_DONT_USE_OPENSSL)
 
+# MSVC runtime: prefer /MD when building host shared libraries (prevents RuntimeLibrary mismatch)
+set(MCL_MSVC_RUNTIME_DLL ON CACHE BOOL "Use dynamic runtime /MD in msvc builds" FORCE)
+
 FetchContent_MakeAvailable(mcl)
 
 # Create an interface library for easy linking

@@ -9,7 +9,8 @@
         "<(module_root_dir)/../.."
       ],
       "defines": [
-        "NAPI_VERSION=8"
+        "NAPI_VERSION=8",
+        "_GNU_SOURCE=1"
       ],
       "conditions": [
         [
