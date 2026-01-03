@@ -25,7 +25,7 @@
     ],
     "scripts": {
         "test": "npm run test:node && npm run test:webpack",
-        "test:node": "node --test test/*.test.mjs",
+        "test:node": "node --test test/rpc.test.mjs",
         "test:node:native": "node --test test/native.test.mjs",
         "test:webpack": "npm run webpack:install && npm run webpack:build",
         "webpack:install": "cd webpack && npm install --legacy-peer-deps",

@@ -73,6 +73,10 @@ test('Native addon smoke tests', async (t) => {
 
   for (const name of tests) {
     await t.test(`run ${name} (native)`, async () => {
+      // Ensure the native runtime reads the test-specific persisted sync state, if present.
+      // This keeps generated requests aligned with the fixtures under test/data/<name>/.
+      process.env.C4_STATE_DIR = `${testdir}/${name}`;
+
       const cache = {};
       Colibri.register_storage({
         get: (key) => {

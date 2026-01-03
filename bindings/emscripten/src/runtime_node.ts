@@ -200,7 +200,10 @@ export function createNodeRuntime(): C4Runtime {
             const dir = (typeof process !== 'undefined' && process.env && process.env.C4_STATE_DIR) ? process.env.C4_STATE_DIR : '.';
             const path = `${dir}/states_${chainId}`;
             const data = await readFileIfExists(path);
-            return '0x' + (data ? hexFromBytes(data) : '');
+            if (data && data.length) return '0x' + hexFromBytes(data);
+            // If no persisted state is available, fall back to the WASM runtime's embedded defaults.
+            // This keeps behavior consistent across runtimes and avoids fixture drift in tests.
+            return wasmFallback.getProverConfigHex(chainId);
         },
 
         async setTrustedCheckpoint(chainId: number, checkpoint: string): Promise<void> {
