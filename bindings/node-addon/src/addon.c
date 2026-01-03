@@ -167,11 +167,12 @@ static napi_value throw_error(napi_env env, const char* msg) {
   return NULL;
 }
 
-static napi_value require_c4(napi_env env) {
+static bool require_c4(napi_env env) {
   if (!load_c4_library()) {
-    return throw_error(env, "Failed to load libc4 shared library (expected libc4 next to the addon or on the loader path).");
+    throw_error(env, "Failed to load libc4 shared library (expected c4.dll/libc4.dll next to the addon or on the loader path).");
+    return false;
   }
-  return NULL;
+  return true;
 }
 
 typedef struct {
@@ -242,7 +243,7 @@ static napi_value js_get_method_support(napi_env env, napi_callback_info info) {
   size_t     argc = 2;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 2) return throw_error(env, "getMethodSupport(chainId, method) requires 2 arguments");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   uint64_t chain_id = 0;
   if (!get_u64(env, argv[0], &chain_id)) return throw_error(env, "Invalid chainId");
@@ -262,7 +263,7 @@ static napi_value js_create_prover_ctx(napi_env env, napi_callback_info info) {
   size_t     argc = 4;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 4) return throw_error(env, "createProverCtx(method, paramsJson, chainId, flags) requires 4 arguments");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   char* method = NULL;
   char* params = NULL;
@@ -311,7 +312,7 @@ static napi_value js_prover_execute_json_status(napi_env env, napi_callback_info
   size_t     argc = 1;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 1) return throw_error(env, "proverExecuteJsonStatus(ctx) requires 1 argument");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   prover_wrap_t* wrap = NULL;
   if (!unwrap_prover(env, argv[0], &wrap) || !wrap || !wrap->ctx) return throw_error(env, "Invalid prover context");
@@ -330,7 +331,7 @@ static napi_value js_prover_get_proof(napi_env env, napi_callback_info info) {
   size_t     argc = 1;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 1) return throw_error(env, "proverGetProof(ctx) requires 1 argument");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   prover_wrap_t* wrap = NULL;
   if (!unwrap_prover(env, argv[0], &wrap) || !wrap || !wrap->ctx) return throw_error(env, "Invalid prover context");
@@ -351,7 +352,7 @@ static napi_value js_free_prover_ctx(napi_env env, napi_callback_info info) {
   size_t     argc = 1;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 1) return throw_error(env, "freeProverCtx(ctx) requires 1 argument");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   prover_wrap_t* wrap = NULL;
   if (!unwrap_prover(env, argv[0], &wrap) || !wrap) return throw_error(env, "Invalid prover context");
@@ -367,7 +368,7 @@ static napi_value js_create_verify_ctx(napi_env env, napi_callback_info info) {
   size_t     argc = 6;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 5) return throw_error(env, "createVerifyCtx(proof, method, argsJson, chainId, trustedCheckpoint, witnessKeys) requires at least 5 arguments");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   // proof: Uint8Array
   bool is_typed = false;
@@ -442,7 +443,7 @@ static napi_value js_verify_execute_json_status(napi_env env, napi_callback_info
   size_t     argc = 1;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 1) return throw_error(env, "verifyExecuteJsonStatus(ctx) requires 1 argument");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   verify_wrap_t* wrap = NULL;
   if (!unwrap_verify(env, argv[0], &wrap) || !wrap || !wrap->ctx) return throw_error(env, "Invalid verify context");
@@ -461,7 +462,7 @@ static napi_value js_free_verify_ctx(napi_env env, napi_callback_info info) {
   size_t     argc = 1;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 1) return throw_error(env, "freeVerifyCtx(ctx) requires 1 argument");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   verify_wrap_t* wrap = NULL;
   if (!unwrap_verify(env, argv[0], &wrap) || !wrap) return throw_error(env, "Invalid verify context");
@@ -477,7 +478,7 @@ static napi_value js_req_set_response(napi_env env, napi_callback_info info) {
   size_t     argc = 3;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 3) return throw_error(env, "reqSetResponse(reqPtr, data, nodeIndex) requires 3 arguments");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   uint64_t req_ptr_u64 = 0;
   if (!get_u64(env, argv[0], &req_ptr_u64)) return throw_error(env, "Invalid reqPtr");
@@ -507,7 +508,7 @@ static napi_value js_req_set_error(napi_env env, napi_callback_info info) {
   size_t     argc = 3;
   napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
   if (argc < 3) return throw_error(env, "reqSetError(reqPtr, error, nodeIndex) requires 3 arguments");
-  require_c4(env);
+  if (!require_c4(env)) return NULL;
 
   uint64_t req_ptr_u64 = 0;
   if (!get_u64(env, argv[0], &req_ptr_u64)) return throw_error(env, "Invalid reqPtr");

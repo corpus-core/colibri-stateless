@@ -76,16 +76,9 @@ jobs:
           cp -f "bindings/node-addon/build/Release/colibri_native.node" "${OUT}/colibri_native.node"
 
           # Ship libc4 next to the addon so dlopen/LoadLibrary can resolve it.
-          # Name varies by platform; copy whatever exists.
-          if compgen -G "build/node-addon/lib/*c4*.dylib" > /dev/null; then
-            cp -f build/node-addon/lib/*c4*.dylib "${OUT}/"
-          fi
-          if compgen -G "build/node-addon/lib/*c4*.so*" > /dev/null; then
-            cp -f build/node-addon/lib/*c4*.so* "${OUT}/"
-          fi
-          if compgen -G "build/node-addon/lib/*c4*.dll" > /dev/null; then
-            cp -f build/node-addon/lib/*c4*.dll "${OUT}/"
-          fi
+          # On Windows the DLL often ends up under a config subdir (e.g. lib/Release/c4.dll),
+          # so use find for robustness.
+          find build/node-addon -maxdepth 5 -type f \( -name "*c4*.dylib" -o -name "*c4*.so*" -o -name "*c4*.dll" \) -print -exec cp -f {} "${OUT}/" \; || true
 
           echo "Prebuild output:"
           ls -la "${OUT}"
@@ -95,9 +88,7 @@ jobs:
         run: |
           # Ensure libc4 is next to the built .node for this smoke test.
           cp -f prebuilds/*-*/colibri_native.node bindings/node-addon/build/Release/colibri_native.node
-          if compgen -G "prebuilds/*-*/*c4*" > /dev/null; then
-            cp -f prebuilds/*-*/*c4* bindings/node-addon/build/Release/
-          fi
+          find prebuilds -type f \( -name "*c4*.dylib" -o -name "*c4*.so*" -o -name "*c4*.dll" \) -print -exec cp -f {} bindings/node-addon/build/Release/ \; || true
           node -e "const b=require('./bindings/node-addon/build/Release/colibri_native.node'); console.log('getMethodSupport=', b.getMethodSupport(1n,'eth_chainId'));"
 
       - name: Upload prebuilds
