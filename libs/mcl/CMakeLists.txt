@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.14)
 
 include(FetchContent)
 
+# CMake 4.2 deprecates calling FetchContent_Populate() directly. We still need
+# to populate first so we can patch upstream before add_subdirectory().
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
+
 FetchContent_Declare(
   mcl
   GIT_REPOSITORY https://github.com/herumi/mcl.git
@@ -53,12 +59,16 @@ if(NOT mcl_POPULATED)
 
         # Replace the hardcoded /MT in the x64 msm_avx custom build step with /MD to match
         # MCL_MSVC_RUNTIME_DLL=ON and avoid LNK2038 RuntimeLibrary mismatch.
+        #
+        # We intentionally avoid regex here because CMake's regex engine differs across versions.
         set(_mcl_cmake_patched "${_mcl_cmake}")
-        string(REGEX REPLACE
-            "(msm_avx\\.cpp[^\\n]*?/EHsc) /MT (/GS-)"
-            "\\1 /MD \\2"
-            _mcl_cmake_patched
-            "${_mcl_cmake_patched}")
+        if(MCL_MSVC_RUNTIME_DLL)
+            string(REPLACE
+                "/EHsc /MT /GS-"
+                "/EHsc /MD /GS-"
+                _mcl_cmake_patched
+                "${_mcl_cmake_patched}")
+        endif()
 
         if(NOT _mcl_cmake_patched STREQUAL _mcl_cmake)
             file(WRITE "${MCL_CMAKELISTS}" "${_mcl_cmake_patched}")
