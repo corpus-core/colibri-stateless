@@ -559,9 +559,16 @@ if(SHAREDLIB AND NOT EMBEDDED)
     target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier eth_verifier)
     set_target_properties(c4 PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
+        RUNTIME_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
+        ARCHIVE_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
         VERSION 1.0
         SOVERSION 1
     )
+    if(WIN32)
+        # On Windows, symbols are not exported from DLLs by default.
+        # Export all non-static symbols so the Node addon can resolve C API functions via GetProcAddress.
+        set_target_properties(c4 PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    endif()
 endif()
 
 # Installer configuration

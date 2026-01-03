@@ -185,8 +185,22 @@ static napi_value throw_error(napi_env env, const char* msg) {
 }
 
 static bool require_c4(napi_env env) {
+  if (g_c4.lib) return true;
   if (!load_c4_library()) {
+#if defined(_WIN32)
+    DWORD err      = GetLastError();
+    char  buf[256] = {0};
+    snprintf(buf, sizeof(buf) - 1,
+             "Failed to load libc4 shared library (expected c4.dll/libc4.dll next to the addon or on the loader path). GetLastError=%lu",
+             (unsigned long) err);
+    throw_error(env, buf);
+#else
     throw_error(env, "Failed to load libc4 shared library (expected c4.dll/libc4.dll next to the addon or on the loader path).");
+#endif
+    return false;
+  }
+  if (!g_c4.c4_get_method_support) {
+    throw_error(env, "Loaded libc4 but failed to resolve required symbols (likely missing exports in the shared library).");
     return false;
   }
   return true;
