@@ -1,0 +1,1 @@
+cmd_Release/colibri_native.node := c++ -bundle -undefined dynamic_lookup -Wl,-search_paths_first -mmacosx-version-min=11.0 -arch arm64 -L./Release -stdlib=libc++  -o Release/colibri_native.node Release/obj.target/colibri_native/src/addon.o 

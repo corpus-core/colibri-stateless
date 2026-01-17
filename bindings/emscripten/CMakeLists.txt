@@ -43,6 +43,16 @@ if (WASM_EMBED)
    set(EMC_PROPS "${EMC_PROPS} -s SINGLE_FILE=1")
 endif()
 
+# Native addon prebuild integration (optional)
+set(C4W_PREBUILDS_DIR "" CACHE PATH "Directory containing native addon prebuilds to include in the npm package output (expects <platform>-<arch> subfolders)")
+option(C4W_BUILD_NODE_ADDON "Build host Node.js addon prebuild locally and include it in the npm package output" OFF)
+
+# Developer-friendly default: if we are not in CI and no external prebuilds are provided,
+# automatically rebuild the host prebuilds to avoid stale binaries during development.
+if (NOT C4W_PREBUILDS_DIR AND NOT DEFINED ENV{CI})
+   set(C4W_BUILD_NODE_ADDON ON CACHE BOOL "Build host Node.js addon prebuild locally and include it in the npm package output" FORCE)
+endif()
+
 # Define a custom output directory for Emscripten and TypeScript artifacts
 set(EMSCRIPTEN_OUTPUT_DIR "${CMAKE_BINARY_DIR}/emscripten")
 
@@ -68,6 +78,16 @@ set_target_properties(c4w PROPERTIES
     LINK_FLAGS "${EMC_PROPS}"
 )
 
+if (C4W_BUILD_NODE_ADDON)
+   add_custom_target(build_node_addon_prebuild ALL
+      COMMAND ${CMAKE_COMMAND} -E echo "Building host Node.js addon prebuild..."
+      # Write prebuilds directly into the npm package output folder (the one that gets published).
+      COMMAND ${CMAKE_COMMAND} -E env C4W_PREBUILDS_OUT=${EMSCRIPTEN_OUTPUT_DIR}/prebuilds bash ${CMAKE_SOURCE_DIR}/bindings/node-addon/scripts/build_prebuild_local.sh
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      COMMENT "Building native Node.js addon prebuild for the host platform"
+   )
+endif()
+
 # Copy package.json to the output directory
 add_custom_command(
     TARGET c4w POST_BUILD
@@ -85,6 +105,29 @@ add_custom_command(
     ${EMSCRIPTEN_OUTPUT_DIR}/LICENSE
     COMMENT "Copying package.json, LICENSE, and c4_logo.png to output directory"
 )
+
+if (C4W_PREBUILDS_DIR)
+   add_custom_command(
+       TARGET c4w POST_BUILD
+       COMMAND ${CMAKE_COMMAND} -E echo "Copying native prebuilds from ${C4W_PREBUILDS_DIR}"
+       COMMAND ${CMAKE_COMMAND} -E copy_directory
+       ${C4W_PREBUILDS_DIR}
+       ${EMSCRIPTEN_OUTPUT_DIR}/prebuilds
+       COMMENT "Copying native prebuilds into npm package output"
+   )
+else()
+   add_custom_command(
+       TARGET c4w POST_BUILD
+       COMMAND ${CMAKE_COMMAND} -E copy_directory
+       ${CMAKE_SOURCE_DIR}/bindings/emscripten/prebuilds
+       ${EMSCRIPTEN_OUTPUT_DIR}/prebuilds
+       COMMENT "Copying placeholder prebuilds directory into npm package output"
+   )
+endif()
+
+if (C4W_BUILD_NODE_ADDON)
+   add_dependencies(c4w build_node_addon_prebuild)
+endif()
 
 # Add a custom target to compile TypeScript
 add_custom_command(

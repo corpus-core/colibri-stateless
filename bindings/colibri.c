@@ -172,6 +172,19 @@ void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t cha
   return (void*) ctx;
 }
 
+void* c4_verify_create_ctx_ext(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys) {
+  c4_verify_ctx_t* ctx = (c4_verify_ctx_t*) c4_verify_create_ctx(proof, method, args, chain_id, trusted_checkpoint);
+  if (!ctx) return NULL;
+
+  if (witness_keys && strlen(witness_keys) > 40 && witness_keys[0] == '0' && witness_keys[1] == 'x') {
+    bytes_t witness_key_bytes = bytes(safe_malloc(strlen(witness_keys) / 2), (strlen(witness_keys) - 2) / 2);
+    hex_to_bytes(witness_keys + 2, -1, witness_key_bytes);
+    ctx->ctx.witness_keys = witness_key_bytes;
+  }
+
+  return (void*) ctx;
+}
+
 char* c4_verify_execute_json_status(void* ptr) {
   buffer_t         buf    = {0};
   c4_verify_ctx_t* ctx    = (c4_verify_ctx_t*) ptr;

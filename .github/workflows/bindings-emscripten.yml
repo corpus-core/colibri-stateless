@@ -2,6 +2,12 @@ name: Emscripten CI
 
 on:
   workflow_call:
+    inputs:
+      enable_linux_arm64:
+        description: "Run the linux-arm64 native addon prebuild job (requires a self-hosted runner with labels: self-hosted, linux, arm64)"
+        required: false
+        type: boolean
+        default: false
     secrets:
       NPM_TOKEN:
         required: false
@@ -14,11 +20,165 @@ permissions:
 
 jobs:
 
+  native_addon:
+    name: Native addon prebuilds (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runs_on: ubuntu-latest
+            optional: false
+          - name: macos-x64
+            runs_on: macos-15-intel
+            optional: false
+          - name: macos-arm64
+            runs_on: macos-latest
+            optional: false
+          - name: windows-x64
+            runs_on: windows-latest
+            optional: false
+    runs-on: ${{ matrix.runs_on }}
+    continue-on-error: ${{ matrix.optional }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Build libc4 shared library (SHAREDLIB=1)
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DSHAREDLIB=1 -DCURL=0 -DCLI=0 -DUSE_MCL=0 -DMCL_MSVC_RUNTIME_DLL=ON
+          else
+            cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DSHAREDLIB=1 -DCURL=0 -DCLI=0 -DUSE_MCL=1 -DMCL_MSVC_RUNTIME_DLL=ON
+          fi
+          cmake --build build/node-addon -j --config Release
+
+      - name: Build node addon (node-gyp)
+        shell: bash
+        run: |
+          cd bindings/node-addon
+          npm install --no-audit --no-fund
+          npx --yes node-gyp rebuild
+
+      - name: Assemble prebuild folder
+        shell: bash
+        run: |
+          PLATFORM="$(node -p "process.platform")"
+          ARCH="$(node -p "process.arch")"
+          OUT="prebuilds/${PLATFORM}-${ARCH}"
+          mkdir -p "${OUT}"
+
+          cp -f "bindings/node-addon/build/Release/colibri_native.node" "${OUT}/colibri_native.node"
+
+          # Ship libc4 next to the addon so dlopen/LoadLibrary can resolve it.
+          # On macOS/Linux we may only have a versioned filename (e.g. libc4.so.1.0),
+          # but the addon prefers unversioned names too. Copy and add a stable alias.
+          find build/node-addon -maxdepth 6 -type f \( -name "*c4*.dylib" -o -name "*c4*.so*" -o -name "*c4*.dll" \) -print -exec cp -f {} "${OUT}/" \; || true
+          if compgen -G "${OUT}/libc4*.dylib" > /dev/null; then
+            cp -f "${OUT}"/libc4*.dylib "${OUT}/libc4.dylib" || true
+          fi
+          if compgen -G "${OUT}/libc4*.so*" > /dev/null; then
+            cp -f "${OUT}"/libc4*.so* "${OUT}/libc4.so" || true
+          fi
+
+          echo "Prebuild output:"
+          ls -la "${OUT}"
+
+      - name: Smoke test native addon (loads libc4)
+        shell: bash
+        run: |
+          # Ensure libc4 is next to the built .node for this smoke test.
+          cp -f prebuilds/*-*/colibri_native.node bindings/node-addon/build/Release/colibri_native.node
+          find prebuilds -type f \( -name "*c4*.dylib" -o -name "*c4*.so*" -o -name "*c4*.dll" \) -print -exec cp -f {} bindings/node-addon/build/Release/ \; || true
+          if compgen -G "prebuilds/*-*/libc4*.dylib" > /dev/null; then
+            cp -f prebuilds/*-*/libc4*.dylib bindings/node-addon/build/Release/libc4.dylib || true
+          fi
+          if compgen -G "prebuilds/*-*/libc4*.so*" > /dev/null; then
+            cp -f prebuilds/*-*/libc4*.so* bindings/node-addon/build/Release/libc4.so || true
+          fi
+          node -e "const b=require('./bindings/node-addon/build/Release/colibri_native.node'); console.log('getMethodSupport=', b.getMethodSupport(1n,'eth_chainId'));"
+
+      - name: Upload prebuilds
+        uses: actions/upload-artifact@v4
+        with:
+          name: c4-native-${{ matrix.name }}
+          path: prebuilds/**
+
+  native_addon_linux_arm64:
+    name: Native addon prebuilds (linux-arm64, self-hosted)
+    if: ${{ inputs.enable_linux_arm64 }}
+    runs-on: [self-hosted, linux, arm64]
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Build libc4 shared library (SHAREDLIB=1)
+        shell: bash
+        run: |
+          cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DSHAREDLIB=1 -DCURL=0 -DCLI=0 -DUSE_MCL=1
+          cmake --build build/node-addon -j --config Release
+
+      - name: Build node addon (node-gyp)
+        shell: bash
+        run: |
+          cd bindings/node-addon
+          npm install --no-audit --no-fund
+          npx --yes node-gyp rebuild
+
+      - name: Assemble prebuild folder
+        shell: bash
+        run: |
+          PLATFORM="$(node -p "process.platform")"
+          ARCH="$(node -p "process.arch")"
+          OUT="prebuilds/${PLATFORM}-${ARCH}"
+          mkdir -p "${OUT}"
+
+          cp -f "bindings/node-addon/build/Release/colibri_native.node" "${OUT}/colibri_native.node"
+
+          if compgen -G "build/node-addon/lib/*c4*.so*" > /dev/null; then
+            cp -f build/node-addon/lib/*c4*.so* "${OUT}/"
+          fi
+
+          echo "Prebuild output:"
+          ls -la "${OUT}"
+
+      - name: Upload prebuilds
+        uses: actions/upload-artifact@v4
+        with:
+          name: c4-native-linux-arm64
+          path: prebuilds/**
+
   emscripten:
+    needs: native_addon
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download native prebuilds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: c4-native-*
+          path: native-prebuilds
+          merge-multiple: true
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -27,13 +187,14 @@ jobs:
 
       - name: Build with Emscripten (Split WASM for npm)
         run: |
-          emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
+          emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -DC4W_PREBUILDS_DIR="${GITHUB_WORKSPACE}/native-prebuilds" -S .
           cmake --build build
 
       - name: Run tests
         run: |
           cd bindings/emscripten
           npm test
+          npm run test:node:native
           cd ../../
 
       - name: Create WASM Package

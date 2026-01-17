@@ -22,6 +22,7 @@
  */
 import { getC4w, as_char_ptr, copy_to_c } from './wasm.js';
 import { Config as C4Config, DataRequest } from './types.js';
+import { C4Runtime } from './runtime.js';
 
 export type AcceptKind = 'json' | 'octet';
 
@@ -171,6 +172,57 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
     if (conf.debug) log(`::: ${path} (Error: ${last_error})`);
   } finally {
     free_buffers.forEach(ptr => c4w._free(ptr));
+  }
+}
+
+/**
+ * Runtime-aware version of handle_request().
+ *
+ * This is used by both backends:
+ * - WASM backend: converts responses to WASM heap and calls `_c4w_req_set_response`.
+ * - Native backend: calls `c4_req_set_response` directly via N-API.
+ */
+export async function handle_request_runtime(req: DataRequest, conf: C4Config, runtime: C4Runtime) {
+  let servers: string[] = [];
+  switch (req.type) {
+    case 'checkpointz':
+      servers = [...(conf.checkpointz || []), ...(conf.beacon_apis || []), ...(conf.prover || [])];
+      break;
+    case 'beacon_api':
+      servers = [...(conf.beacon_apis || []), ...(conf.prover || [])];
+      break;
+    case 'prover':
+      servers = [...(conf.prover || [])];
+      break;
+    default:
+      servers = conf.rpcs || [...((conf.prover || []).map(p => p + (p.endsWith('/') ? '' : '/') + 'unverified_rpc'))];
+      break;
+  }
+
+  const path = (req.type == 'eth_rpc' && req.payload)
+    ? `rpc: ${req.payload?.method}(${req.payload?.params.join(',')})`
+    : req.url;
+
+  const cacheable = conf.cache && conf.cache.cacheable(req);
+  if (cacheable && conf.cache) {
+    const data = conf.cache.get(req);
+    if (data) {
+      if (conf.debug) log(`::: ${path} (len=${data.length} bytes) CACHED`);
+      await runtime.reqSetResponse(req.req_ptr, data, 0);
+      return;
+    }
+  }
+
+  try {
+    const accept = req.encoding == 'json' ? 'json' : 'octet';
+    const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask);
+    await runtime.reqSetResponse(req.req_ptr, data, nodeIndex);
+    if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
+    if (conf.cache && cacheable) conf.cache.set(req, data);
+  } catch (e) {
+    const last_error = (e instanceof Error) ? e.message : String(e);
+    await runtime.reqSetError(req.req_ptr, last_error, 0);
+    if (conf.debug) log(`::: ${path} (Error: ${last_error})`);
   }
 }
 
