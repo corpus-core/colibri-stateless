@@ -31,6 +31,7 @@
 #include "precompiles.h"
 #include "rlp.h"
 #include "ssz.h"
+#include "state_overrides.h"
 #include "sync_committee.h"
 #include <inttypes.h>
 #include <stdbool.h>
@@ -104,8 +105,15 @@ static evmc_bytes32 host_get_storage(void* context, const evmc_address* addr, co
   changed_storage_t* storage = get_changed_storage(ctx, addr->bytes, key->bytes);
   if (storage)
     memcpy(result.bytes, storage->value, 32);
-  else
-    get_src_storage(ctx, addr->bytes, key->bytes, result.bytes);
+  else {
+    changed_account_t* acc = get_changed_account(ctx, addr->bytes);
+    if (acc && acc->full_state_override) {
+      // Full state overrides must not fall back to canonical storage for missing keys.
+      memset(result.bytes, 0, 32);
+    }
+    else
+      get_src_storage(ctx, addr->bytes, key->bytes, result.bytes);
+  }
 
   debug_print_bytes32("get_storage result", &result);
   return result;
@@ -367,6 +375,26 @@ static void host_access_storage(void* context, const evmc_address* addr, const e
   debug_print_bytes32("access_storage key", key);
 }
 
+static void apply_state_overrides(evmone_context_t* context, const eth_state_overrides_t* overrides) {
+  if (!overrides) return;
+  for (const eth_account_override_t* a = overrides->accounts; a; a = a->next) {
+    bool               created = false;
+    changed_account_t* acc     = create_changed_account(context, a->address, &created);
+    if (a->has_balance) memcpy(acc->balance, a->balance, 32);
+    if (a->has_code) {
+      acc->code      = a->code;
+      acc->free_code = false;
+    }
+    if (a->storage) {
+      acc->full_state_override = a->full_state;
+      for (const eth_storage_override_t* s = a->storage; s; s = s->next) {
+        bool tmp = false;
+        set_changed_storage(context, a->address, s->key, s->value, &tmp, &tmp);
+      }
+    }
+  }
+}
+
 // Set up the host interface with all our callback functions
 static const struct evmone_host_interface host_interface = {
     .account_exists = host_account_exists,
@@ -459,7 +487,7 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
 }
 
 // Function to run EVM call with optional event capture
-INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events) {
+INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides) {
   buffer_t       buffer  = {0};
   address_t      to      = {0};
   buffer_t       to_buf  = stack_buffer(to);
@@ -518,6 +546,8 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
       .logs             = NULL,
       .capture_events   = capture_events,
   };
+
+  apply_state_overrides(&context, overrides);
 
   bytes_t code = get_code(&context, to);
   EVM_LOG("Contract code size: %u bytes", (uint32_t) code.len);
@@ -603,6 +633,6 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
 }
 
 // Original function for backward compatibility
-INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result) {
-  return eth_run_call_evmone_with_events(ctx, call_codes, accounts, tx, call_result, NULL, false);
+INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, const eth_state_overrides_t* overrides) {
+  return eth_run_call_evmone_with_events(ctx, call_codes, accounts, tx, call_result, NULL, false, overrides);
 }

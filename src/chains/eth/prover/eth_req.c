@@ -131,13 +131,16 @@ c4_status_t eth_debug_trace_call(prover_ctx_t* ctx, json_t tx, json_t* trace, ui
   return C4_SUCCESS;
 }
 
-c4_status_t eth_create_access_list(prover_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number) {
+c4_status_t eth_create_access_list(prover_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number, json_t state_overrides) {
   buffer_t        buf = {0};
   data_request_t* req = NULL;
   tx.len--; // removing the closing '}', so we can add arguments
             //  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J,\"maxFeePerGas\":\"0x1\",\"maxPriorityFeePerGas\":\"0x1\"},\"0x%lx\"]", tx, block_number), 12, trace), buffer_free(&buf));
-  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\"]", tx, block_number), 12, trace, &req), buffer_free(&buf));
-  log_info("access list: %j", trace);
+  if (state_overrides.type == JSON_TYPE_OBJECT)
+    TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\",%J]", tx, block_number, state_overrides), 12, trace, &req), buffer_free(&buf));
+  else
+    TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\"]", tx, block_number), 12, trace, &req), buffer_free(&buf));
+  log_debug("access list: %j", trace);
   if (req && !req->validated) {
     CHECK_JSON(*trace, JSON_ACCESS_LIST_FIELDS, "Invalid results for access list: ");
     req->validated = true;

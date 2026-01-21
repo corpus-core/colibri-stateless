@@ -40,6 +40,7 @@
 #include "patricia.h"
 #include "rlp.h"
 #include "ssz.h"
+#include "state_overrides.h"
 #include "sync_committee.h"
 #include "verify_data_types.h" // For ETH_SIMULATION_* definitions
 #include <stdbool.h>
@@ -49,7 +50,7 @@
 #include <string.h>
 
 // Forward declaration
-c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events);
+c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides);
 
 // Function to build simulation result in SSZ format using ssz_builder_t (Tenderly-compatible)
 // Shared between ETH and OP Stack
@@ -117,12 +118,22 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
   call_code_t*   call_codes  = NULL;
   bool           match       = false;
 
-  CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
+  CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}?]", "Invalid transaction");
+  json_t                       overrides_json = json_at(ctx->args, 2);
+  eth_state_overrides_t        overrides      = {0};
+  const eth_state_overrides_t* overrides_ptr  = NULL;
+  if (overrides_json.type == JSON_TYPE_OBJECT) {
+    if (eth_parse_state_overrides(ctx, overrides_json, &overrides) != C4_SUCCESS) return false;
+    overrides_ptr = &overrides;
+  }
 
-  if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) return false;
+  if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) {
+    eth_state_overrides_free(&overrides);
+    return false;
+  }
 
 #ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, &logs, true);
+  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, &logs, true, overrides_ptr);
 #else
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
@@ -130,13 +141,13 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
   if (call_status != C4_SUCCESS) {
     free_emitted_logs(logs);
     eth_free_codes(call_codes);
+    eth_state_overrides_free(&overrides);
     return false;
   }
 
   // Build simulation result using SSZ (Tenderly-compatible format)
-  bool     success  = (call_status == C4_SUCCESS && ctx->state.error == NULL);
-  uint64_t gas_used = 21000; // TODO: Get actual gas usage from EVM execution
-
+  bool     success           = (call_status == C4_SUCCESS && ctx->state.error == NULL);
+  uint64_t gas_used          = 21000; // TODO: Get actual gas usage from EVM execution
   ssz_ob_t simulation_result = eth_build_simulation_result_ssz(call_result, logs, success, gas_used, NULL);
 
   // Set the result
@@ -149,14 +160,16 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
     match = simulation_result.bytes.data && bytes_eq(simulation_result.bytes, ctx->data.bytes);
     if (simulation_result.bytes.data) safe_free(simulation_result.bytes.data);
   }
+  bool accounts_verified = match && c4_eth_verify_accounts(ctx, accounts, state_root, overrides_ptr);
 
   // Cleanup
   safe_free(call_result.data);
   free_emitted_logs(logs);
   eth_free_codes(call_codes);
+  eth_state_overrides_free(&overrides);
 
   if (!match) RETURN_VERIFY_ERROR(ctx, "Simulation result mismatch");
-  if (!c4_eth_verify_accounts(ctx, accounts, state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
+  if (!accounts_verified) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
   if (!eth_verify_state_proof(ctx, state_proof, state_root)) return false;
   if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
 
