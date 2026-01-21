@@ -30,6 +30,7 @@
 #include "logger.h"
 #include "prover.h"
 #include "ssz.h"
+#include "state_overrides.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
@@ -109,14 +110,32 @@ static void add_account(prover_ctx_t* ctx, ssz_builder_t* builder, json_t values
   buffer_free(&buf);
 }
 
-static c4_status_t handle_access_list(prover_ctx_t* ctx, json_t storage, bytes_t account, json_t code, int accounts_len, uint64_t block_number, address_t address, ssz_builder_t* builder) {
-  json_t   eth_proof  = {0};
-  buffer_t keys       = {0};
-  json_t   keys_array = {0};
+static bool storage_key_is_overridden(const eth_account_override_t* acc_override, bytes32_t key) {
+  if (!acc_override) return false;
+  for (const eth_storage_override_t* s = acc_override->storage; s; s = s->next) {
+    if (memcmp(s->key, key, 32) == 0) return true;
+  }
+  return false;
+}
+
+static c4_status_t handle_access_list(prover_ctx_t* ctx, json_t storage, bytes_t account, json_t code, int accounts_len, uint64_t block_number, address_t address, ssz_builder_t* builder, const eth_state_overrides_t* overrides) {
+  json_t                        eth_proof    = {0};
+  buffer_t                      keys         = {0};
+  json_t                        keys_array   = {0};
+  const eth_account_override_t* acc_override = overrides ? eth_state_overrides_find(overrides, address) : NULL;
+
   if (storage.type == JSON_TYPE_OBJECT) {
     bprintf(&keys, "[");
     bytes_t key = {0};
     json_for_each_property(storage, val, key) {
+      if (acc_override) {
+        bytes32_t key32    = {0};
+        json_t    key_json = (json_t) {.type = JSON_TYPE_STRING, .start = (const char*) key.data - 1, .len = key.len + 2};
+        buffer_t  key_buf  = stack_buffer(key32);
+        if (json_as_bytes(key_json, &key_buf).len == 32) {
+          if (acc_override->full_state || storage_key_is_overridden(acc_override, key32)) continue;
+        }
+      }
       if (keys.data.len > 1)
         buffer_add_chars(&keys, ",\"");
       else
@@ -133,6 +152,28 @@ static c4_status_t handle_access_list(prover_ctx_t* ctx, json_t storage, bytes_t
   }
   else
     keys_array = storage;
+
+  if (acc_override && acc_override->full_state && storage.type == JSON_TYPE_ARRAY) {
+    buffer_reset(&keys);
+    bprintf(&keys, "[]");
+    keys_array = (json_t) {.type = JSON_TYPE_ARRAY, .start = (const char*) keys.data.data, .len = keys.data.len};
+  }
+  else if (acc_override && storage.type == JSON_TYPE_ARRAY) {
+    // Filter overridden storage keys from an access list array.
+    buffer_reset(&keys);
+    bprintf(&keys, "[");
+    size_t len = json_len(storage);
+    for (size_t i = 0; i < len; i++) {
+      bytes32_t key32    = {0};
+      buffer_t  key_buf  = stack_buffer(key32);
+      json_t    key_json = json_at(storage, i);
+      if (json_as_bytes(key_json, &key_buf).len == 32 && storage_key_is_overridden(acc_override, key32)) continue;
+      if (keys.data.len > 1) buffer_add_chars(&keys, ",");
+      buffer_add_json(&keys, key_json);
+    }
+    buffer_add_chars(&keys, "]");
+    keys_array = (json_t) {.type = JSON_TYPE_ARRAY, .start = (const char*) keys.data.data, .len = keys.data.len};
+  }
 
   TRY_ASYNC_FINAL(eth_get_proof(
                       ctx,
@@ -164,7 +205,7 @@ static c4_status_t handle_access_list(prover_ctx_t* ctx, json_t storage, bytes_t
   return C4_SUCCESS;
 }
 
-c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner) {
+c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner, const eth_state_overrides_t* overrides) {
   c4_status_t status       = C4_SUCCESS;
   json_t      eth_proof    = {0};
   bytes_t     account      = {0};
@@ -179,7 +220,7 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64
       json_t   addr = json_get(values, "address");
       account       = bytes(addr.start + 1, addr.len - 2);
       json_as_bytes(addr, &buf);
-      TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storageKeys"), account, (json_t) {0}, accounts_len, block_number, address, builder));
+      TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storageKeys"), account, (json_t) {0}, accounts_len, block_number, address, builder, overrides));
     }
   }
   else {
@@ -191,7 +232,7 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64
     json_for_each_property(trace, values, account) {
       hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
       if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
-      TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storage"), account, json_get(values, "code"), accounts_len, block_number, address, builder));
+      TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storage"), account, json_get(values, "code"), accounts_len, block_number, address, builder, overrides));
     }
   }
 
@@ -205,35 +246,47 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64
 }
 
 c4_status_t c4_proof_call(prover_ctx_t* ctx) {
-  json_t            tx             = json_at(ctx->params, 0);
-  json_t            block_number   = json_at(ctx->params, 1);
-  beacon_block_t    block          = {0};
-  json_t            trace          = {0};
-  ssz_builder_t     accounts       = {0};
-  blockroot_proof_t historic_proof = {0};
-  c4_status_t       status         = C4_SUCCESS;
+  json_t                tx               = json_at(ctx->params, 0);
+  json_t                block_number     = json_at(ctx->params, 1);
+  json_t                state_overrides  = json_at(ctx->params, 2);
+  beacon_block_t        block            = {0};
+  json_t                trace            = {0};
+  ssz_builder_t         accounts         = {0};
+  blockroot_proof_t     historic_proof   = {0};
+  c4_status_t           status           = C4_SUCCESS;
+  eth_state_overrides_t overrides_parsed = {0};
+  bool                  has_overrides    = state_overrides.type == JSON_TYPE_OBJECT;
 
   // Validate arguments before processing
   TRACE_START(ctx, "get_block_for_eth");
-  CHECK_JSON(ctx->params, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
+  CHECK_JSON(ctx->params, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}?]", "Invalid transaction");
+  if (has_overrides) TRY_ASYNC(eth_parse_state_overrides_state(&ctx->state, state_overrides, &overrides_parsed));
 
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));       // get the beacon-block matching thre block-tag (usually cached)
-  uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber"); // this is our blocknumber now
-  bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes; // we exclude accounts from the miner address, since mining is not part of an eth_call proof
+  TRY_ASYNC_CATCH(c4_beacon_get_block_for_eth(ctx, block_number, &block), eth_state_overrides_free(&overrides_parsed)); // get the beacon-block matching the block-tag (usually cached)
+  uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");                                              // this is our blocknumber now
+  bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;                                              // we exclude accounts from the miner address, since mining is not part of an eth_call proof
   TRACE_ADD_UINT64(ctx, "target_block", target_block);
 
   TRACE_START(ctx, "fetch access list and eth_getProof");
-  TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? eth_create_access_list(ctx, tx, &trace, target_block) : eth_debug_trace_call(ctx, tx, &trace, target_block));
+  // If state overrides are provided, we must use eth_createAccessList so the upstream can account for overrides.
+  if (has_overrides)
+    TRY_ADD_ASYNC(status, eth_create_access_list(ctx, tx, &trace, target_block, state_overrides));
+  else
+    TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? eth_create_access_list(ctx, tx, &trace, target_block, (json_t) {0}) : eth_debug_trace_call(ctx, tx, &trace, target_block));
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
-  TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof));
-  TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data), ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
+  TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed));
+  TRY_ASYNC_CATCH(
+      c4_get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data, has_overrides ? &overrides_parsed : NULL),
+      ssz_builder_free(&accounts);
+      c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed););
 
   // creating the proof is too heavy to do in the eventloop
-  REQUEST_WORKER_THREAD_CATCH(ctx, ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof););
+  REQUEST_WORKER_THREAD_CATCH(ctx, ssz_builder_free(&accounts); c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed););
 
   TRACE_START(ctx, "create proof");
   status = create_eth_call_proof(ctx, accounts, &block, block_number, &historic_proof);
   c4_free_block_proof(&historic_proof);
+  eth_state_overrides_free(&overrides_parsed);
 
   return status;
 }

@@ -83,7 +83,7 @@ c4_status_t c4_op_proof_call(prover_ctx_t* ctx) {
 
   TRY_ASYNC_CATCH(eth_debug_trace_call(ctx, tx, &proof.trace, proof.target_block), free_proof(&proof));
   // TRY_ASYNC_CATCH(eth_debug_trace_call(ctx, tx, &proof.trace, proof.target_block), free_proof(&proof));
-  TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, tx, proof.trace, proof.target_block, &proof.accounts, proof.miner.data), free_proof(&proof));
+  TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, tx, proof.trace, proof.target_block, &proof.accounts, proof.miner.data, NULL), free_proof(&proof));
 
   status = create_eth_call_proof(ctx, &proof);
   free_proof(&proof);
