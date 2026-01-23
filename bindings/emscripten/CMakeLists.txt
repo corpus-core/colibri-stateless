@@ -90,7 +90,7 @@ add_custom_command(
 add_custom_command(
     OUTPUT ${CMAKE_SOURCE_DIR}/bindings/emscripten/node_modules/timestamp
     COMMAND ${CMAKE_COMMAND} -E echo "Installing Node.js modules..."
-    COMMAND npm install
+    COMMAND npm install --no-save @types/node@22.13.1 typescript@5.7.3
     COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_SOURCE_DIR}/bindings/emscripten/node_modules/timestamp
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/emscripten
     DEPENDS ${CMAKE_SOURCE_DIR}/bindings/emscripten/package.json
