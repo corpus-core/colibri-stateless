@@ -1,0 +1,12 @@
+{
+  "extends": "@CMAKE_SOURCE_DIR@/bindings/emscripten/tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "rootDir": "./src",
+    "outDir": "./cjs",
+    "declaration": false,
+    "typeRoots": ["@CMAKE_SOURCE_DIR@/bindings/emscripten/node_modules/@types"]
+  },
+  "include": ["src/**/*.ts"]
+}
+
