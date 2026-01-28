@@ -46,15 +46,26 @@ const api = createC4wApi({
             // Default browser-friendly resolution so bundlers copy the asset without extra config
             return new URL('./c4w.wasm', import.meta.url).toString();
         }
-        if (isNodeEnvironment()) {
-            // Node ESM default: resolve the sidecar wasm next to this module.
-            // We return a filesystem path (not a file:// URL) because Emscripten's
-            // Node loader expects a path for fs.readFileSync().
-            const wasmUrl = new URL('./c4w.wasm', import.meta.url);
-            if (wasmUrl.protocol !== 'file:') return wasmUrl.toString();
-            return decodeURIComponent(wasmUrl.pathname);
-        }
         return null;
+    },
+    getWasmBinary: async (override: string | null) => {
+        // When the Emscripten glue is built for web/worker only, Node cannot use its
+        // internal fs-based loader. In Node we provide the bytes via wasmBinary.
+        if (!isNodeEnvironment()) return null;
+
+        const fs = await (new Function('return import("node:fs")') as () => Promise<any>)();
+
+        let wasmPath: string;
+        if (override) {
+            if (override.startsWith('file:')) wasmPath = decodeURIComponent(new URL(override).pathname);
+            else wasmPath = override;
+        } else {
+            const wasmUrl = new URL('./c4w.wasm', import.meta.url);
+            wasmPath = wasmUrl.protocol === 'file:' ? decodeURIComponent(wasmUrl.pathname) : wasmUrl.toString();
+        }
+
+        // Emscripten accepts Uint8Array/ArrayBuffer in Module.wasmBinary.
+        return fs.readFileSync(wasmPath);
     },
 });
 
