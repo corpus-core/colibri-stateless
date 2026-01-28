@@ -21,6 +21,11 @@
  * SPDX-License-Identifier: MIT
  */
 
+// This file is used only for the CommonJS build output. It must not use
+// `import.meta` because that is a parse error in CommonJS environments (e.g. Jest).
+
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
     as_bytes,
     as_char_ptr,
@@ -28,8 +33,6 @@ import {
     copy_to_c,
     createC4wApi,
     get_default_storage,
-    isBrowserEnvironment,
-    isNodeEnvironment,
     type C4W,
     type C4WModule,
     type Storage,
@@ -38,23 +41,23 @@ import {
 export type { C4W, C4WModule, Storage };
 export { as_bytes, as_char_ptr, as_json, copy_to_c, get_default_storage };
 
+async function dynamicImport(specifier: string): Promise<any> {
+    // Prevent TypeScript from transforming `import()` into `require()` in CJS output.
+    // Node supports dynamic import in CommonJS.
+    const importer = new Function('p', 'return import(p)') as (p: string) => Promise<any>;
+    return importer(specifier);
+}
+
 const api = createC4wApi({
-    importC4wModule: async () => (await import("./c4w.js")) as any,
+    importC4wModule: async () => {
+        const pkgRoot = join(__dirname, '..');
+        const glueUrl = pathToFileURL(join(pkgRoot, 'c4w.js')).href;
+        return await dynamicImport(glueUrl);
+    },
     resolveWasmLocation: (override: string | null) => {
         if (override) return override;
-        if (isBrowserEnvironment()) {
-            // Default browser-friendly resolution so bundlers copy the asset without extra config
-            return new URL('./c4w.wasm', import.meta.url).toString();
-        }
-        if (isNodeEnvironment()) {
-            // Node ESM default: resolve the sidecar wasm next to this module.
-            // We return a filesystem path (not a file:// URL) because Emscripten's
-            // Node loader expects a path for fs.readFileSync().
-            const wasmUrl = new URL('./c4w.wasm', import.meta.url);
-            if (wasmUrl.protocol !== 'file:') return wasmUrl.toString();
-            return decodeURIComponent(wasmUrl.pathname);
-        }
-        return null;
+        const pkgRoot = join(__dirname, '..');
+        return join(pkgRoot, 'c4w.wasm');
     },
 });
 
@@ -63,3 +66,4 @@ export const loadC4WModule = api.loadC4WModule;
 export const getC4w = api.getC4w;
 export const get_prover_config_hex = api.get_prover_config_hex;
 export const set_trusted_checkpoint = api.set_trusted_checkpoint;
+

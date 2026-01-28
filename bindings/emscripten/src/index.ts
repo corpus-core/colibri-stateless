@@ -53,6 +53,9 @@ import { fetch_rpc, handle_request } from './http.js';
 
 export { Strategy };
 
+// Public helper for controlling WASM loading behavior in Node/bundlers.
+export { set_wasm_url } from "./wasm.js";
+
 // Re-export types needed by consumers of the C4Client module
 export {
   ProviderRpcError,
