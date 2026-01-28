@@ -60,6 +60,14 @@ export function isBrowserEnvironment() {
     return (typeof window !== 'undefined' && typeof document !== 'undefined');
 }
 
+async function importNodeFs(): Promise<any> {
+    // Avoid bundlers (Webpack/Metro) trying to resolve Node builtins like 'fs'
+    // when targeting browsers / react-native-web.
+    // This only executes in Node, guarded by isNodeEnvironment().
+    const importer = new Function('return import("node:fs")') as () => Promise<any>;
+    return importer();
+}
+
 export async function get_default_storage(): Promise<Storage> {
     if (isBrowserEnvironment())
         // web interface
@@ -85,7 +93,7 @@ export async function get_default_storage(): Promise<Storage> {
         };
 
     else if (isNodeEnvironment()) {
-        const fs = await import('fs');
+        const fs = await importNodeFs();
         // node interface
         return {
             get: (key: string) => {
@@ -149,6 +157,7 @@ export function copy_to_c(data: Uint8Array, c4w: C4W, free_ptrs?: number[]): num
 export function createC4wApi(options: {
     importC4wModule: () => Promise<any>,
     resolveWasmLocation: (override: string | null) => string | null,
+    getWasmBinary?: (override: string | null) => Promise<Uint8Array | ArrayBuffer | null>,
 }) {
     let wasmUrlOverride: string | null = null;
     let moduleInstance: C4W | null = null;
@@ -161,6 +170,13 @@ export function createC4wApi(options: {
     async function loadC4WModule(): Promise<C4W> {
         const module = await options.importC4wModule();
         const args: any = {};
+
+        if (options.getWasmBinary) {
+            const wasmBinary = await options.getWasmBinary(wasmUrlOverride);
+            if (wasmBinary) {
+                args.wasmBinary = wasmBinary;
+            }
+        }
 
         const wasmLocation = options.resolveWasmLocation(wasmUrlOverride);
         if (wasmLocation) {

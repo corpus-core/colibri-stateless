@@ -55,9 +55,15 @@ const api = createC4wApi({
         return await dynamicImport(glueUrl);
     },
     resolveWasmLocation: (override: string | null) => {
+        // In CJS/Node we provide wasmBinary, so we don't need locateFile here.
+        // Keep override support for browser-like loaders (if someone uses it).
         if (override) return override;
-        const pkgRoot = join(__dirname, '..');
-        return join(pkgRoot, 'c4w.wasm');
+        return null;
+    },
+    getWasmBinary: async (override: string | null) => {
+        const fs = await dynamicImport('node:fs');
+        const wasmPath = override ?? join(__dirname, '..', 'c4w.wasm');
+        return fs.readFileSync(wasmPath);
     },
 });
 
