@@ -176,7 +176,7 @@ if(EMBEDDED)
     set(PROVER OFF)
     set(CLI OFF)
     set(STATIC_MEMORY ON)
-    set(BLS_DESERIALIZE OFF)
+#    set(BLS_DESERIALIZE OFF)
     
     message(STATUS "Embedded build mode enabled")
     message(STATUS "  Consider disabling optional features to save memory:")

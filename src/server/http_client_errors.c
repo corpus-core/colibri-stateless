@@ -112,6 +112,14 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
       json_t message = json_get(error, "message");
       if (message.type == JSON_TYPE_STRING) {
         bytes_t msg_bytes = bytes(message.start, message.len);
+        // Some clients respond with a generic "Invalid params" when they don't support extended parameters
+        // (e.g., stateOverrides) for certain methods. In that case, treat it as method-not-supported so the
+        // caller can fall back to another upstream client.
+        if (req && (req_is_method(req, "eth_createAccessList") || req_is_method(req, "eth_call")) &&
+            (bytes_contains_string(msg_bytes, "Invalid params") || bytes_contains_string(msg_bytes, "invalid params"))) {
+          set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method does not support provided parameters");
+          return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
+        }
         // Missing 0x prefix or block range limits are user errors
         if (bytes_contains_string(msg_bytes, "missing 0x prefix") ||
             bytes_contains_string(msg_bytes, "Block range limit exceeded") ||

@@ -18,7 +18,7 @@
 
 const ssz_def_t C4_PERIOD_STORE_MANIFEST_ITEM_DEF[] = {
     SSZ_UINT64("period"),
-    SSZ_STRING("filename", 32),
+    SSZ_STRING("filename", 256),
     SSZ_UINT32("length"),
 };
 

@@ -52,6 +52,7 @@ typedef struct changed_account {
   bytes_t                 code;
   struct changed_account* next;
   changed_storage_t*      storage;
+  bool                    full_state_override;
   bool                    deleted;
   bool                    free_code;
 } changed_account_t;
@@ -154,6 +155,7 @@ static changed_account_t* create_changed_account(evmone_context_t* ctx, const ad
   if (parent_acc) {
     memcpy(acc->balance, parent_acc->balance, 32);
     acc->code                       = parent_acc->code;
+    acc->full_state_override         = parent_acc->full_state_override;
     changed_storage_t** storage_ptr = &acc->storage;
     for (changed_storage_t* s = parent_acc->storage; s != NULL; s = s->next) {
       *storage_ptr = safe_calloc(1, sizeof(changed_storage_t));
@@ -276,6 +278,7 @@ static void context_apply(evmone_context_t* ctx) {
     memcpy(parent_acc->balance, acc->balance, 32);
     parent_acc->code      = acc->code;
     parent_acc->free_code = acc->free_code;
+    parent_acc->full_state_override = acc->full_state_override;
 
     for (changed_storage_t* s = acc->storage; s; s = s->next)
       set_changed_storage(ctx->parent, acc->address, s->key, s->value, &created, &created);

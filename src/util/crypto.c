@@ -24,11 +24,22 @@
 #include "crypto.h"
 #include "blst.h"
 #include "bytes.h"
+#include "logger.h"
+#include "plugin.h"
 #include "secp256k1.h"
 #include "sha2.h"
 #include "sha3.h"
 #include <stdlib.h> // For malloc and free
 #include <string.h>
+
+// Portable alignment helpers (MSVC doesn't support GCC's __attribute__ syntax).
+#if defined(_MSC_VER)
+#define C4_ALIGNED16_PREFIX __declspec(align(16))
+#define C4_ALIGNED16_SUFFIX
+#else
+#define C4_ALIGNED16_PREFIX
+#define C4_ALIGNED16_SUFFIX __attribute__((aligned(16)))
+#endif
 
 // ECDSA recovery id adjustment constant
 // Ethereum uses recovery ids 27/28, but the underlying library expects 0/1
@@ -61,20 +72,108 @@ static const uint8_t blst_dst[]   = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_
 static const size_t  blst_dst_len = sizeof(blst_dst) - 1;
 
 #ifdef BLS_DESERIALIZE
+typedef struct {
+  const uint8_t*  compressed;
+  blst_p1_affine* out;
+  volatile int    failed;
+} blst_deser_ctx_t;
+
+static void blst_deser_body(int i, void* ctx) {
+  blst_deser_ctx_t* c = (blst_deser_ctx_t*) ctx;
+  if (!c || c->failed) return;
+  if (blst_p1_uncompress(c->out + i, c->compressed + (size_t) i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+    c->failed = 1;
+  }
+}
+
 bytes_t blst_deserialize_p1_affine(uint8_t* compressed_pubkeys, int num_public_keys, uint8_t* out) {
   if (num_public_keys <= 0) return NULL_BYTES;
 
   blst_p1_affine* pubkeys = out ? (blst_p1_affine*) out : (blst_p1_affine*) safe_malloc(num_public_keys * sizeof(blst_p1_affine));
 
-  for (int i = 0; i < num_public_keys; i++) {
-    if (blst_p1_deserialize(pubkeys + i, compressed_pubkeys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+  c4_parallel_for_fn pf = c4_get_parallel_for();
+  if (pf && num_public_keys >= 128) {
+    blst_deser_ctx_t c = {.compressed = compressed_pubkeys, .out = pubkeys, .failed = 0};
+    pf(0, num_public_keys, blst_deser_body, &c);
+    if (c.failed) {
       if (!out) safe_free(pubkeys); // Only free if we allocated
       return NULL_BYTES;
+    }
+  }
+  else {
+    for (int i = 0; i < num_public_keys; i++) {
+      if (blst_p1_uncompress(pubkeys + i, compressed_pubkeys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+        if (!out) safe_free(pubkeys); // Only free if we allocated
+        return NULL_BYTES;
+      }
     }
   }
   return bytes((uint8_t*) pubkeys, num_public_keys * sizeof(blst_p1_affine));
 }
 #endif
+
+#define MAX_AGGR_CHUNKS 8
+
+typedef struct {
+  const uint8_t* public_keys;
+  int            num_public_keys;
+  bytes_t        pubkeys_used;
+  bool           deserialized;
+  blst_p1        partial_sums[MAX_AGGR_CHUNKS];
+  bool           chunk_has_value[MAX_AGGR_CHUNKS];
+  int            num_chunks;
+  volatile int   failed;
+} blst_aggr_ctx_t;
+
+static void blst_aggregate_body(int chunk_idx, void* ctx_ptr) {
+  blst_aggr_ctx_t* ctx = (blst_aggr_ctx_t*) ctx_ptr;
+  if (!ctx || ctx->failed) return;
+
+  int start = (ctx->num_public_keys * chunk_idx) / ctx->num_chunks;
+  int end   = (ctx->num_public_keys * (chunk_idx + 1)) / ctx->num_chunks;
+
+  blst_p1 sum;
+  bool    first = true;
+
+  // We loop through the assigned range of keys
+  for (int i = start; i < end; i++) {
+    // Check bitmask
+    if (ctx->pubkeys_used.data[i / 8] & (1 << (i % 8))) {
+      blst_p1_affine pubkey_affine;
+
+      if (ctx->deserialized) {
+        pubkey_affine = ((blst_p1_affine*) ctx->public_keys)[i];
+      }
+      else {
+        if (blst_p1_uncompress(&pubkey_affine, ctx->public_keys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS) {
+          ctx->failed = 1;
+          return;
+        }
+      }
+
+      // Aggregate the public key
+      // We use blst_p1_add_or_double_affine which is safe for adding a point to itself.
+      // blst_p1_add_affine would be slightly faster but undefined if points are equal.
+      // Since public keys in the sync committee are unique, blst_p1_add_affine is safe here.
+      //
+      // Note on blst_p1s_add: We intentionally do not use the multi-scalar addition
+      // blst_p1s_add despite it using Pippenger's algorithm (approx 60-85% faster).
+      // Reason: It uses alloca() for scratch space up to ~144KB (SCRATCH_LIMIT),
+      // which causes stack overflows on ESP32 (typically 4-16KB stack per task).
+      if (first) {
+        blst_p1_from_affine(&sum, &pubkey_affine);
+        first = false;
+      }
+      else
+        blst_p1_add_affine(&sum, &sum, &pubkey_affine);
+    }
+  }
+
+  ctx->chunk_has_value[chunk_idx] = !first;
+  if (!first)
+    ctx->partial_sums[chunk_idx] = sum;
+}
+
 bool blst_verify(bytes32_t       message_hash,
                  bls_signature_t signature,
                  uint8_t*        public_keys,
@@ -94,31 +193,90 @@ bool blst_verify(bytes32_t       message_hash,
   blst_p1        pubkey_sum;
   bool           first_key = true;
 
-  for (int i = 0; i < num_public_keys; i++) {
-    // Check if this public key is included in the signature (via bitmask)
-    if (pubkeys_used.data[i / 8] & (1 << (i % 8))) {
-      blst_p1_affine pubkey_affine;
+  c4_parallel_for_fn pf = c4_get_parallel_for();
 
-      if (deserialized) {
-        // Public keys are already deserialized affine points
-        pubkey_affine = ((blst_p1_affine*) public_keys)[i];
-      }
-      else {
-        // Deserialize compressed public key (48 bytes)
-        if (blst_p1_deserialize(&pubkey_affine, public_keys + i * BLS_PUBKEY_SIZE) != BLST_SUCCESS)
-          return false;
-      }
+// Enable Pippenger optimization for platforms with large stacks (WebAssembly, Android, iOS, Desktop)
+// We avoid it on embedded devices (e.g. ESP32) because blst_p1s_add uses ~144KB stack (alloca).
+// If C4_SMALL_STACK is defined or EMBEDDED is defined, we also disable it.
+#if (defined(__EMSCRIPTEN__) || defined(__ANDROID__) || defined(__APPLE__) || defined(__linux__) || defined(_WIN32)) && !defined(C4_SMALL_STACK) && !defined(EMBEDDED) && !defined(ESP_PLATFORM)
+#define C4_USE_PIPPENGER 1
+#endif
 
-      // Aggregate the public key
-      if (first_key) {
-        blst_p1_from_affine(&pubkey_sum, &pubkey_affine);
-        first_key = false;
-      }
-      else {
-        blst_p1_add_or_double_affine(&pubkey_sum, &pubkey_sum, &pubkey_affine);
+#if defined(C4_USE_PIPPENGER)
+  // Optimization: Use Pippenger's algorithm (blst_p1s_add) for single-threaded speedup (O(N/logN) vs O(N))
+  // Note: Requires sufficient stack size (~45-144KB scratch + overhead).
+  if (deserialized && num_public_keys > 0) {
+    // Create array of pointers to active keys
+    // We allocate on heap to be safe regarding pointer array size,
+    // although scratch space of blst_p1s_add will still be on stack.
+    const blst_p1_affine** p_ptrs = (const blst_p1_affine**) safe_malloc(num_public_keys * sizeof(blst_p1_affine*));
+    int                    count  = 0;
+    for (int i = 0; i < num_public_keys; i++) {
+      if (pubkeys_used.data[i / 8] & (1 << (i % 8)))
+        p_ptrs[count++] = &((const blst_p1_affine*) public_keys)[i];
+    }
+
+    if (count > 0) {
+      blst_p1s_add(&pubkey_sum, p_ptrs, count);
+      first_key = false;
+    }
+
+    safe_free(p_ptrs);
+
+    // If we successfully used Pippenger, skip the standard loop
+    goto skip_standard_aggregation;
+  }
+#endif
+
+  // Use parallel aggregation if available and worth it (e.g. > 128 keys)
+  if (pf && num_public_keys >= 128) {
+    blst_aggr_ctx_t ctx;
+    ctx.public_keys     = public_keys;
+    ctx.num_public_keys = num_public_keys;
+    ctx.pubkeys_used    = pubkeys_used;
+    ctx.deserialized    = deserialized;
+    ctx.num_chunks      = MAX_AGGR_CHUNKS; // Use fixed number of chunks for simplicity
+    ctx.failed          = 0;
+
+    // Run parallel aggregation
+    pf(0, ctx.num_chunks, blst_aggregate_body, &ctx);
+
+    if (ctx.failed) return false;
+
+    // Merge partial sums
+    for (int i = 0; i < ctx.num_chunks; i++) {
+      if (ctx.chunk_has_value[i]) {
+        if (first_key) {
+          pubkey_sum = ctx.partial_sums[i];
+          first_key  = false;
+        }
+        else
+          blst_p1_add_or_double(&pubkey_sum, &pubkey_sum, &ctx.partial_sums[i]);
       }
     }
   }
+  else {
+    // Serial fallback
+    blst_aggr_ctx_t ctx;
+    ctx.public_keys     = public_keys;
+    ctx.num_public_keys = num_public_keys;
+    ctx.pubkeys_used    = pubkeys_used;
+    ctx.deserialized    = deserialized;
+    ctx.num_chunks      = 1;
+    ctx.failed          = 0;
+
+    blst_aggregate_body(0, &ctx);
+
+    if (ctx.failed) return false;
+    if (ctx.chunk_has_value[0]) {
+      pubkey_sum = ctx.partial_sums[0];
+      first_key  = false;
+    }
+  }
+
+#if defined(C4_USE_PIPPENGER)
+skip_standard_aggregation:
+#endif
 
   // Ensure at least one public key was aggregated
   if (first_key) return false;
@@ -126,26 +284,49 @@ bool blst_verify(bytes32_t       message_hash,
   blst_p1_to_affine(&pubkey_aggregated, &pubkey_sum);
 
   // Step 2: Deserialize the signature
+  // Signature is provided in compressed form (96 bytes). Use uncompress, not deserialize (expects 192 bytes).
   if (blst_p2_uncompress(&sig, signature) != BLST_SUCCESS) return false;
 
   // Step 3: Perform pairing verification
   // Verify that e(pubkey, H(message)) == e(G1, signature)
-  blst_pairing* ctx = (blst_pairing*) safe_malloc(blst_pairing_sizeof());
-  if (!ctx) return false;
 
-  blst_pairing_init(ctx, true, blst_dst, blst_dst_len);
+  // Use "one-shot" core verify to avoid manual context management and malloc
+  // NOTE: blst_core_verify_pk_in_g1 performs subgroup checks (pk_grpchk=true, sig_grpchk=true)
+  // which are redundant because we validated the inputs during deserialization (blst_p1/p2_uncompress).
+  // However, it avoids manual pairing context management.
+  //
+  // To optimize further (skip redundant checks), we manually manage the pairing context
+  // on the stack (approx 4KB) and disable the group checks.
 
-  if (blst_pairing_aggregate_pk_in_g1(ctx, &pubkey_aggregated, &sig, message_hash, BYTES32_SIZE, NULL, 0) != BLST_SUCCESS) {
-    safe_free(ctx);
+#define C4_PAIRING_CTX_SIZE (4u * 1024u)
+  static C4_ALIGNED16_PREFIX uint8_t pairing_ctx_buf[C4_PAIRING_CTX_SIZE] C4_ALIGNED16_SUFFIX;
+  blst_pairing*                      ctx  = (blst_pairing*) (void*) pairing_ctx_buf;
+  size_t                             need = blst_pairing_sizeof();
+
+  if (need > sizeof(pairing_ctx_buf)) {
+    // Should not happen as sizeof(pairing) is ~3.2KB
     return false;
   }
 
-  blst_pairing_commit(ctx);
-  bool result = blst_pairing_finalverify(ctx, NULL);
+  // Init pairing context
+  blst_pairing_init(ctx, true, blst_dst, blst_dst_len);
 
-  // Cleanup
-  safe_free(ctx);
-  return result;
+  // Aggregate PK and Signature
+  // using blst_pairing_chk_n_aggr_pk_in_g1 allows setting group check flags.
+  // We pass false for both checks because we already validated them during uncompress.
+  BLST_ERROR err = blst_pairing_chk_n_aggr_pk_in_g1(ctx,
+                                                    &pubkey_aggregated,
+                                                    false, // pk_grpchk = false (optimized)
+                                                    &sig,
+                                                    false,                      // sig_grpchk = false (optimized)
+                                                    message_hash, BYTES32_SIZE, // message
+                                                    NULL, 0);                   // aug
+
+  if (err != BLST_SUCCESS)
+    return false;
+
+  blst_pairing_commit(ctx);
+  return blst_pairing_finalverify(ctx, NULL);
 }
 
 bool secp256k1_recover(const bytes32_t digest, bytes_t signature, uint8_t* pubkey) {
