@@ -36,6 +36,15 @@ jobs:
           npm test
           cd ../../
 
+      - name: RN-web smoke (Expo) tests
+        run: |
+          cd bindings/emscripten/rn-web-test
+          npm install
+          npm test
+          npm run build:web
+        env:
+          EXPO_NO_TELEMETRY: "1"
+
       - name: Create WASM Package
         run: |
           cd build/emscripten
