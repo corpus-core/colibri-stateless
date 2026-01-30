@@ -44,6 +44,8 @@ jobs:
           npm run build:web
         env:
           EXPO_NO_TELEMETRY: "1"
+          NODE_OPTIONS: "--experimental-vm-modules --preserve-symlinks"
+          NODE_PATH: "./node_modules"
 
       - name: Create WASM Package
         run: |

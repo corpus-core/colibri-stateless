@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
-    "test": "jest --runInBand",
+    "test": "NODE_PATH=./node_modules NODE_OPTIONS=\"--experimental-vm-modules --preserve-symlinks\" jest --runInBand",
     "build:web": "expo export --platform web --output-dir dist"
   },
   "dependencies": {
@@ -17,12 +17,20 @@
     "react-native-web": "^0.20.0"
   },
   "devDependencies": {
+    "@babel/runtime": "^7.26.0",
     "jest": "^29.7.0",
     "jest-expo": "^52.0.0"
   },
   "jest": {
     "preset": "jest-expo",
     "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^@corpus-core/colibri-stateless$": "<rootDir>/node_modules/@corpus-core/colibri-stateless/cjs/index.js"
+    },
+    "transformIgnorePatterns": [
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|expo-modules-core|@expo/.*)/)",
+      "<rootDir>/../../../build/emscripten/.*"
+    ],
     "testMatch": [
       "**/__tests__/**/*.test.js"
     ]
