@@ -9,7 +9,9 @@
     "build:web": "expo export --platform web --output-dir dist"
   },
   "dependencies": {
+    "@babel/runtime": "^7.26.0",
     "@corpus-core/colibri-stateless": "file:../../../build/emscripten",
+    "@expo/metro-runtime": "~4.0.1",
     "expo": "^52.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -17,7 +19,6 @@
     "react-native-web": "^0.20.0"
   },
   "devDependencies": {
-    "@babel/runtime": "^7.26.0",
     "jest": "^29.7.0",
     "jest-expo": "^52.0.0"
   },
