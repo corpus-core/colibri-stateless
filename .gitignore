@@ -4,6 +4,7 @@ bindings/swift/src/include
 bindings/swift/.build
 bindings/kotlin/.cxx
 bindings/emscripten/node_modules
+bindings/emscripten/rn-web-test/node_modules
 bindings/kotlin/build
 bindings/kotlin/example/build
 bindings/kotlin/example/.gradle
