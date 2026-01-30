@@ -29,6 +29,7 @@ sync_1*
 # Generated config files
 bindings/emscripten/test/test_config.js
 bindings/emscripten/webpack/webpack_build_config.mjs
+bindings/emscripten/rn-web-test/rn_web_test_build_config.cjs
 bindings/swift/Sources/TestConfig/
 bindings/swift/Tests/GeneratedIntegrationTests.swift
 bindings/swift/.swiftpm

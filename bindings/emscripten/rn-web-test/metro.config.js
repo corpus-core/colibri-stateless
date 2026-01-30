@@ -4,7 +4,17 @@ const { getDefaultConfig } = require("expo/metro-config");
 const { resolve } = require("metro-resolver");
 
 const projectRoot = __dirname;
-const colibriBuildDir = path.resolve(projectRoot, "../../../build/emscripten");
+let emscriptenBuildDir;
+try {
+  ({ emscriptenBuildDir } = require("./rn_web_test_build_config.cjs"));
+} catch (e) {
+  throw new Error(
+    "Missing generated `rn_web_test_build_config.cjs`. " +
+      "Build the Emscripten package first (CMake will generate this file)."
+  );
+}
+
+const colibriBuildDir = path.resolve(emscriptenBuildDir);
 const colibriBuildDirReal = fs.existsSync(colibriBuildDir)
   ? fs.realpathSync(colibriBuildDir)
   : colibriBuildDir;

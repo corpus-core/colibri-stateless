@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.26.0",
-    "@corpus-core/colibri-stateless": "file:../../../build/emscripten",
     "@expo/metro-runtime": "~4.0.1",
     "expo": "^52.0.0",
     "react": "^18.3.1",
@@ -21,20 +20,6 @@
   "devDependencies": {
     "jest": "^29.7.0",
     "jest-expo": "^52.0.0"
-  },
-  "jest": {
-    "preset": "jest-expo",
-    "testEnvironment": "node",
-    "moduleNameMapper": {
-      "^@corpus-core/colibri-stateless$": "<rootDir>/node_modules/@corpus-core/colibri-stateless/cjs/index.js"
-    },
-    "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|expo-modules-core|@expo/.*)/)",
-      "<rootDir>/../../../build/emscripten/.*"
-    ],
-    "testMatch": [
-      "**/__tests__/**/*.test.js"
-    ]
   }
 }
 
