@@ -4,6 +4,7 @@ bindings/swift/src/include
 bindings/swift/.build
 bindings/kotlin/.cxx
 bindings/emscripten/node_modules
+bindings/emscripten/rn-web-test/node_modules
 bindings/kotlin/build
 bindings/kotlin/example/build
 bindings/kotlin/example/.gradle
@@ -28,6 +29,7 @@ sync_1*
 # Generated config files
 bindings/emscripten/test/test_config.js
 bindings/emscripten/webpack/webpack_build_config.mjs
+bindings/emscripten/rn-web-test/rn_web_test_build_config.cjs
 bindings/swift/Sources/TestConfig/
 bindings/swift/Tests/GeneratedIntegrationTests.swift
 bindings/swift/.swiftpm
