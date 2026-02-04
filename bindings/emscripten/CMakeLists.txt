@@ -61,6 +61,15 @@ configure_file(
   @ONLY
 )
 
+# Configure the RN-web test helper file (so the project can find the correct build output dir)
+set(RN_WEB_TEST_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/rn-web-test/rn_web_test_build_config.cjs.in")
+set(RN_WEB_TEST_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/rn-web-test/rn_web_test_build_config.cjs")
+configure_file(
+  ${RN_WEB_TEST_CONFIG_TEMPLATE}
+  ${RN_WEB_TEST_CONFIG_OUTPUT}
+  @ONLY
+)
+
 add_executable(c4w ems.c)
 target_link_libraries(c4w prover verifier eth_verifier)
 set_target_properties(c4w PROPERTIES

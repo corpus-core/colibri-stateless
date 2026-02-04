@@ -60,6 +60,15 @@ export function isBrowserEnvironment() {
     return (typeof window !== 'undefined' && typeof document !== 'undefined');
 }
 
+function hasLocalStorage(): boolean {
+    try {
+        // In some contexts (e.g. extension workers), accessing localStorage may throw or be unavailable.
+        return typeof globalThis !== 'undefined' && !!(globalThis as any).localStorage;
+    } catch {
+        return false;
+    }
+}
+
 async function importNodeFs(): Promise<any> {
     // Avoid bundlers (Webpack/Metro) trying to resolve Node builtins like 'fs'
     // when targeting browsers / react-native-web.
@@ -69,11 +78,16 @@ async function importNodeFs(): Promise<any> {
 }
 
 export async function get_default_storage(): Promise<Storage> {
-    if (isBrowserEnvironment())
-        // web interface
+    if (hasLocalStorage())
+        // Web interface (localStorage).
         return {
             get: (key: string) => {
-                const value = window.localStorage.getItem(key);
+                const ls = (globalThis as any).localStorage as {
+                    getItem: (k: string) => string | null;
+                    setItem: (k: string, v: string) => void;
+                    removeItem: (k: string) => void;
+                };
+                const value = ls.getItem(key);
                 if (value) {
                     const length = value.length / 2;
                     const uint8Array = new Uint8Array(length);
@@ -85,10 +99,20 @@ export async function get_default_storage(): Promise<Storage> {
                 return null;
             },
             set: (key: string, value: Uint8Array) => {
-                window.localStorage.setItem(key, Array.from(value).map(_ => _.toString(16).padStart(2, '0')).join(''));
+                const ls = (globalThis as any).localStorage as {
+                    getItem: (k: string) => string | null;
+                    setItem: (k: string, v: string) => void;
+                    removeItem: (k: string) => void;
+                };
+                ls.setItem(key, Array.from(value).map(_ => _.toString(16).padStart(2, '0')).join(''));
             },
             del: (key: string) => {
-                window.localStorage.removeItem(key);
+                const ls = (globalThis as any).localStorage as {
+                    getItem: (k: string) => string | null;
+                    setItem: (k: string, v: string) => void;
+                    removeItem: (k: string) => void;
+                };
+                ls.removeItem(key);
             },
         };
 
@@ -111,7 +135,17 @@ export async function get_default_storage(): Promise<Storage> {
             },
         };
     }
-    throw new Error('Unsupported environment');
+
+    // Fallback for web-like runtimes without localStorage (e.g. Chrome extension MV3 service workers).
+    // This keeps the API usable but does not persist across restarts.
+    const mem = new Map<string, Uint8Array>();
+    return {
+        get: (key: string) => mem.get(key) ?? null,
+        set: (key: string, value: Uint8Array) => mem.set(key, new Uint8Array(value)),
+        del: (key: string) => {
+            mem.delete(key);
+        },
+    };
 }
 
 export function as_char_ptr(str: string, c4w: C4W, free_ptrs?: number[]) {

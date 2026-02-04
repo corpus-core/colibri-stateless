@@ -2,6 +2,7 @@
   "extends": "@CMAKE_SOURCE_DIR@/bindings/emscripten/tsconfig.json",
   "compilerOptions": {
     "module": "CommonJS",
+    "target": "ES2020",
     "rootDir": "./src",
     "outDir": "./cjs",
     "declaration": false,

@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "colibri-rn-web-test",
+    "slug": "colibri-rn-web-test",
+    "version": "0.0.0",
+    "platforms": ["ios", "android", "web"],
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
+
