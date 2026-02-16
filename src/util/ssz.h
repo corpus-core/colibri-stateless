@@ -79,6 +79,7 @@ typedef enum {
   SSZ_FLAG_OPT_MASK = 1, /**< Marks a field containing a bitmask indicating which optional fields are present in the container */
   SSZ_FLAG_UINT     = 2, /**< Render bytes as uint in JSON output (for numeric fields stored as bytes) */
   SSZ_FLAG_STRING   = 4, /**< Render bytes as string in JSON output (for text fields stored as bytes) */
+  SSZ_FLAG_NULLABLE = 8, /**< Render as null if the list is empty in JSON output */
 } ssz_flag_t;
 
 /** a SSZ Type Definition */
@@ -133,7 +134,7 @@ typedef struct {
  * ```
  */
 #define ssz_builder_for_def(typename) \
-  (ssz_builder_t){ .def = (const ssz_def_t*) (typename), .fixed = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }, .dynamic = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }}
+  (ssz_builder_t) { .def = (const ssz_def_t*) (typename), .fixed = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0}, .dynamic = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0} }
 
 /** gets the uint64 value of the object */
 static inline uint64_t ssz_uint64(ssz_ob_t ob) {
@@ -741,6 +742,17 @@ extern const ssz_def_t ssz_none;                // special value for none in uio
 #define SSZ_BYTES(name, limit) SSZ_LIST(name, ssz_uint8, limit)
 
 /**
+ * Defines a nullable byte list (rendered as hex in JSON).
+ * if (the list is empty, it is rendered as null in JSON).
+ *
+ * @param name Field name
+ * @param limit Maximum number of bytes
+ *
+ * Example: SSZ_NULLABLE_BYTES("to", 20)
+ */
+#define SSZ_NULLABLE_BYTES(name, limit) SSZ_FLAG_LIST(name, ssz_uint8, limit, SSZ_FLAG_NULLABLE)
+
+/**
  * Defines a string field (byte list rendered as UTF-8 string in JSON).
  *
  * @param name Field name
@@ -1000,17 +1012,17 @@ void ssz_builder_free(ssz_builder_t* buffer);
  * @return A builder wrapping the object's bytes
  */
 static inline ssz_builder_t ssz_builder_from(ssz_ob_t val) {
-  return (ssz_builder_t){
-    .def = val.def,
-    .fixed = (buffer_t){
-        .data = (bytes_t){ .data = val.bytes.data, .len = val.bytes.len },
-        .allocated = (int32_t)val.bytes.len,
-    },
-    .dynamic = (buffer_t){
-        .data = (bytes_t){ .data = NULL, .len = 0 },
-        .allocated = 0,
-    },
-};
+  return (ssz_builder_t) {
+      .def   = val.def,
+      .fixed = (buffer_t) {
+          .data      = (bytes_t) {.data = val.bytes.data, .len = val.bytes.len},
+          .allocated = (int32_t) val.bytes.len,
+      },
+      .dynamic = (buffer_t) {
+          .data      = (bytes_t) {.data = NULL, .len = 0},
+          .allocated = 0,
+      },
+  };
 }
 
 /**

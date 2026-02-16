@@ -111,7 +111,7 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_UINT64("v"),                                                           // the v value of the transaction signature
     SSZ_UINT64("gas"),                                                         // the gas limit
     SSZ_ADDRESS("from"),                                                       // the sender of the transaction
-    SSZ_BYTES("to", 20),                                                       // the target of the transaction
+    SSZ_NULLABLE_BYTES("to", 20),                                                       // the target of the transaction
     SSZ_UINT256("value"),                                                      // the value of the transaction
     SSZ_UINT64("gasPrice"),                                                    // the gas price of the transaction
     SSZ_UINT64("maxFeePerGas"),                                                // the maxFeePerGas of the transaction

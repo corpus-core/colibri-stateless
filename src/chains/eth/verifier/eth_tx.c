@@ -697,7 +697,7 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
   bytes_t  rlp_tx_sig_y_parity              = {0};
   bytes_t  rlp_v_field                      = {0};
   uint8_t  tx_sig_y_parity                  = 0;
-  uint64_t  v_for_ssz                        = 0;
+  uint64_t v_for_ssz                        = 0;
   uint32_t chain_id                         = 0;
   uint64_t gas_price_rlp_val                = 0;
   uint64_t max_priority_fee_per_gas_rlp_val = 0;
@@ -727,10 +727,10 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 
   // Calculate v_for_ssz, chain_id (legacy overwrite), and gas_price
   if (type == TX_TYPE_LEGACY) {
-    uint64_t rlp_v_val = rlp_v_field.len  && rlp_v_field.len<=8 ? bytes_as_be(rlp_v_field)  :  0;
-    tx_sig_y_parity   = (uint8_t) ((rlp_v_val - 1) % 2);
-    chain_id          = rlp_v_val < 28 ? 1 : (rlp_v_val - 35 - tx_sig_y_parity) / 2;
-    v_for_ssz         = rlp_v_val;
+    uint64_t rlp_v_val = rlp_v_field.len && rlp_v_field.len <= 8 ? bytes_as_be(rlp_v_field) : 0;
+    tx_sig_y_parity    = (uint8_t) ((rlp_v_val - 1) % 2);
+    chain_id           = rlp_v_val < 28 ? 1 : (rlp_v_val - 35 - tx_sig_y_parity) / 2;
+    v_for_ssz          = rlp_v_val;
   }
   else if (type != TX_TYPE_DEPOSITED)
     v_for_ssz = (uint64_t) tx_sig_y_parity;

@@ -421,6 +421,8 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
           for (int i = 0; i < ob.bytes.len; i++) tmp[i] = ob.bytes.data[ob.bytes.len - 1 - i];
           bprintf(buf, ctx->no_quotes ? "0x%u" : "\"0x%u\"", bytes(tmp, ob.bytes.len));
         }
+        else if (def->flags & SSZ_FLAG_NULLABLE && ob.bytes.len == 0)
+          buffer_add_chars(buf, "null");
         else // Render as hex bytes
           bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
       }
@@ -461,7 +463,7 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
 }
 char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
   ssz_dump_t ctx = {
-      .buf               = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 },
+      .buf               = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0},
       .write_unit_as_hex = write_unit_as_hex,
   };
   dump(&ctx, ob, include_name ? ob.def->name : NULL, 0);
@@ -470,7 +472,7 @@ char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
 
 void ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
   ssz_dump_t ctx = {
-      .buf               = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 },
+      .buf               = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0},
       .write_unit_as_hex = write_unit_as_hex,
 
   };
@@ -480,7 +482,7 @@ void ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_a
 }
 void ssz_dump_to_file_no_quotes(FILE* f, ssz_ob_t ob) {
   ssz_dump_t ctx = {
-      .buf               = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 },
+      .buf               = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0},
       .write_unit_as_hex = true,
       .no_quotes         = true,
   };
