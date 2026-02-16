@@ -50,7 +50,7 @@
 #include <string.h>
 
 // Forward declaration
-c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides);
+c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides, bytes32_t state_root);
 
 // Function to build simulation result in SSZ format using ssz_builder_t (Tenderly-compatible)
 // Shared between ETH and OP Stack
@@ -133,7 +133,7 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
   }
 
 #ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, &logs, true, overrides_ptr);
+  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, &logs, true, overrides_ptr, state_root);
 #else
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
@@ -160,7 +160,6 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
     match = simulation_result.bytes.data && bytes_eq(simulation_result.bytes, ctx->data.bytes);
     if (simulation_result.bytes.data) safe_free(simulation_result.bytes.data);
   }
-  bool accounts_verified = match && c4_eth_verify_accounts(ctx, accounts, state_root, overrides_ptr);
 
   // Cleanup
   safe_free(call_result.data);
@@ -169,7 +168,6 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
   eth_state_overrides_free(&overrides);
 
   if (!match) RETURN_VERIFY_ERROR(ctx, "Simulation result mismatch");
-  if (!accounts_verified) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
   if (!eth_verify_state_proof(ctx, state_proof, state_root)) return false;
   if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
 

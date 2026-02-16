@@ -32,11 +32,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+const ssz_def_t C4_PERIOD_STORE_MANIFEST_ITEM_DEF[] = {
+    SSZ_UINT64("period"),
+    SSZ_STRING("filename", 132),
+    SSZ_UINT32("length"),
+};
+
+const ssz_def_t C4_PERIOD_STORE_MANIFEST_ITEM_CONTAINER = SSZ_CONTAINER("files", C4_PERIOD_STORE_MANIFEST_ITEM_DEF);
+const ssz_def_t C4_PERIOD_STORE_MANIFEST_LIST           = SSZ_LIST("files", C4_PERIOD_STORE_MANIFEST_ITEM_CONTAINER, 10000);
+
 const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
   if (strcmp(typename, "signedblock") == 0) return eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_ELECTRA, chain_id);
   if (strcmp(typename, "blockbody") == 0) return eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_ELECTRA, chain_id);
   if (strcmp(typename, "lcu") == 0) return eth_get_light_client_update(C4_FORK_ELECTRA);
   if (strcmp(typename, "zk") == 0) return C4_ETH_REQUEST_SYNCDATA_UNION + 2;
+  if (strcmp(typename, "manifest") == 0) return &C4_PERIOD_STORE_MANIFEST_LIST;
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
 }

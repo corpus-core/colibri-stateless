@@ -114,15 +114,6 @@ static void get_src_storage(evmone_context_t* ctx, const address_t address, cons
     ssz_ob_t entry = ssz_at(storage, i);
     if (memcmp(ssz_get(&entry, "key").bytes.data, key, 32) == 0) {
       if (!eth_get_storage_value(entry, key, result)) memset(result, 0, 32);
-      // cache the verified value for subsequent reads
-      bool               created;
-      account_state_t*   acc = create_account_state(ctx, address, &created);
-      account_storage_t* s   = safe_calloc(1, sizeof(account_storage_t));
-      memcpy(s->key, key, 32);
-      memcpy(s->value, result, 32);
-      s->original  = true;
-      s->next      = acc->storage;
-      acc->storage = s;
       return;
     }
   }

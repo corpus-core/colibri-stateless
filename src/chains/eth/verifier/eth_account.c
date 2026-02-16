@@ -123,7 +123,9 @@ INTERNAL bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, 
     }
   }
 
-  if (!verify_storage(ctx, ssz_get(proof, "storageProof"), storage_hash, field == ETH_ACCOUNT_STORAGE_HASH ? values : NULL_BYTES)) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
+  // pass storage values buffer: for STORAGE_HASH the whole buffer, for other fields the portion after the first 32 bytes (if available)
+  bytes_t sv = field == ETH_ACCOUNT_STORAGE_HASH ? values : (values.len > 32 ? bytes(values.data + 32, values.len - 32) : NULL_BYTES);
+  if (!verify_storage(ctx, ssz_get(proof, "storageProof"), storage_hash, sv)) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
 
   return true;
 }

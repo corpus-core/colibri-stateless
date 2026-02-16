@@ -375,6 +375,82 @@ static void host_access_storage(void* context, const evmc_address* addr, const e
   debug_print_bytes32("access_storage key", key);
 }
 
+// verifies all account and storage proofs, populates the storage cache, and returns the state_root
+static bool verify_and_cache_accounts(evmone_context_t* evm_ctx, verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root, const eth_state_overrides_t* overrides) {
+  uint32_t  len = ssz_len(accounts);
+  bytes32_t root = {0};
+  for (uint32_t i = 0; i < len; i++) {
+    ssz_ob_t acc            = ssz_at(accounts, i);
+    ssz_ob_t storage_proofs = ssz_get(&acc, "storageProof");
+    uint32_t num_storage    = ssz_len(storage_proofs);
+    uint32_t values_len     = 32 + num_storage * 32;
+    uint8_t* values_buf     = safe_calloc(1, values_len);
+
+    if (!eth_verify_account_proof_exec(ctx, &acc, root, ETH_ACCOUNT_CODE_HASH, bytes(values_buf, values_len))) {
+      safe_free(values_buf);
+      return false;
+    }
+
+    // code hash check
+    ssz_ob_t                      code = ssz_get(&acc, "code");
+    uint8_t*                      addr = ssz_get(&acc, "address").bytes.data;
+    const eth_account_override_t* ov   = overrides ? eth_state_overrides_find(overrides, addr) : NULL;
+    if (ov && ov->has_code) { /* code override, skip check */ }
+    else if (code.def->type == SSZ_TYPE_LIST) {
+      bytes32_t code_hash_passed = {0};
+      keccak(code.bytes, code_hash_passed);
+      if (memcmp(values_buf, code_hash_passed, 32) != 0) {
+        safe_free(values_buf);
+        RETURN_VERIFY_ERROR(ctx, "Code hash mismatch");
+      }
+    }
+
+    // state root consistency
+    if (bytes_all_zero(bytes(state_root, 32)))
+      memcpy(state_root, root, 32);
+    else if (memcmp(state_root, root, 32) != 0) {
+      safe_free(values_buf);
+      RETURN_VERIFY_ERROR(ctx, "State root mismatch");
+    }
+
+    // populate storage cache from extracted values
+    if (num_storage > 0) {
+      bool             created;
+      account_state_t* state = create_account_state(evm_ctx, addr, &created);
+
+      // set balance from proof
+      eth_get_account_value(acc, ETH_ACCOUNT_BALANCE, state->balance);
+
+      // set code from call_codes or ssz
+      for (call_code_t* cc = evm_ctx->call_codes; cc; cc = cc->next) {
+        if (memcmp(cc->hash, values_buf, 32) == 0) {
+          state->code = cc->code;
+          break;
+        }
+      }
+      if (!state->code.data) {
+        ssz_ob_t code_ob = ssz_get(&acc, "code");
+        if (code_ob.def && code_ob.def->type == SSZ_TYPE_LIST)
+          state->code = code_ob.bytes;
+      }
+
+      // cache verified storage values
+      for (uint32_t j = 0; j < num_storage; j++) {
+        ssz_ob_t           entry = ssz_at(storage_proofs, j);
+        account_storage_t* s     = safe_calloc(1, sizeof(account_storage_t));
+        memcpy(s->key, ssz_get(&entry, "key").bytes.data, 32);
+        memcpy(s->value, values_buf + 32 + j * 32, 32);
+        s->original    = true;
+        s->next        = state->storage;
+        state->storage = s;
+      }
+    }
+
+    safe_free(values_buf);
+  }
+  return true;
+}
+
 static void apply_state_overrides(evmone_context_t* context, const eth_state_overrides_t* overrides) {
   if (!overrides) return;
   for (const eth_account_override_t* a = overrides->accounts; a; a = a->next) {
@@ -487,7 +563,7 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
 }
 
 // Function to run EVM call with optional event capture
-INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides) {
+INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides, bytes32_t state_root) {
   buffer_t       buffer  = {0};
   address_t      to      = {0};
   buffer_t       to_buf  = stack_buffer(to);
@@ -546,6 +622,14 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
       .logs           = NULL,
       .capture_events = capture_events,
   };
+
+  // verify all account and storage proofs, populate cache with verified storage values
+  if (state_root && !verify_and_cache_accounts(&context, ctx, accounts, state_root, overrides)) {
+    evmone_destroy_executor(executor);
+    buffer_free(&buffer);
+    context_free(&context);
+    return C4_ERROR;
+  }
 
   apply_state_overrides(&context, overrides);
 
@@ -633,6 +717,6 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
 }
 
 // Original function for backward compatibility
-INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, const eth_state_overrides_t* overrides) {
-  return eth_run_call_evmone_with_events(ctx, call_codes, accounts, tx, call_result, NULL, false, overrides);
+INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, const eth_state_overrides_t* overrides, bytes32_t state_root) {
+  return eth_run_call_evmone_with_events(ctx, call_codes, accounts, tx, call_result, NULL, false, overrides, state_root);
 }
