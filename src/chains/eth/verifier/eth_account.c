@@ -24,6 +24,7 @@
 #include "eth_account.h"
 #include "beacon_types.h"
 #include "bytes.h"
+#include "logger.h"
 #include "crypto.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
@@ -58,7 +59,8 @@ static bool is_equal(ssz_ob_t expect, bytes_t* list, int index) {
 static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash, bytes_t values) {
   if (values.data) memset(values.data, 0, 32);
   int len = ssz_len(storage_proofs);
-  if (len != 0 && memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0) RETURN_VERIFY_ERROR(ctx, "invalid storage proof because an empty storage hash can not have values!");
+  bool is_empty = memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0;
+//  if (len != 0 && memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0) RETURN_VERIFY_ERROR(ctx, "invalid storage proof because an empty storage hash can not have values!");
   for (int i = 0; i < len; i++) {
     bytes32_t path    = {0};
     bytes32_t root    = {0};
@@ -66,6 +68,10 @@ static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t
     ssz_ob_t  proof   = ssz_get(&storage, "proof");
     ssz_ob_t  key     = ssz_get(&storage, "key");
     bytes_t   leaf    = {0};
+    if (is_empty) {
+      if (ssz_len(proof) != 0) RETURN_VERIFY_ERROR(ctx, "invalid storage proof because an empty storage hash can not have values!");
+      continue;
+    }
     keccak(key.bytes, path);
     if (patricia_verify(root, bytes(path, 32), proof, &leaf) == PATRICIA_INVALID) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
     if (memcmp(root, storage_hash, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid storage root!");
@@ -139,12 +145,17 @@ static bytes_t get_last_value(ssz_ob_t proof) {
   return last_value;
 }
 
-bool eth_get_storage_value(ssz_ob_t storage, bytes32_t value) {
-  bytes_t last_value = get_last_value(ssz_get(&storage, "proof"));
-  if (!last_value.data) return false;
-  if (rlp_decode(&last_value, 0, &last_value) != RLP_ITEM) return false;
-  if (last_value.len > 32) return false;
-  memcpy(value + 32 - last_value.len, last_value.data, last_value.len);
+bool eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t value) {
+  bytes32_t path = {0};
+  bytes32_t root = {0};
+  bytes_t   leaf = {0};
+  keccak(bytes(key, 32), path);
+  patricia_result_t result = patricia_verify(root, bytes(path, 32), ssz_get(&storage, "proof"), &leaf);
+  if (result == PATRICIA_INVALID) return false;
+  if (result == PATRICIA_NOT_EXISTING) return true; // value is 0x0
+  if (rlp_decode(&leaf, 0, &leaf) != RLP_ITEM) return false;
+  if (leaf.len > 32) return false;
+  memcpy(value + 32 - leaf.len, leaf.data, leaf.len);
   return true;
 }
 

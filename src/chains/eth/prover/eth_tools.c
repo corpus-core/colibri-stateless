@@ -30,7 +30,7 @@
 #include "version.h"
 
 static void set_data(ssz_builder_t* req, const char* name, ssz_builder_t data) {
-  if (data.fixed.data.data || data.dynamic.data.data)
+  if (data.def)
     ssz_add_builders(req, name, data);
   else
     ssz_add_bytes(req, name, bytes(NULL, 1));
