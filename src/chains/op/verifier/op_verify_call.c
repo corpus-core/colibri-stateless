@@ -39,7 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, const eth_state_overrides_t* overrides, bytes32_t state_root);
+c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, const eth_state_overrides_t* overrides);
 
 // Function to verify call proof
 bool op_verify_call_proof(verify_ctx_t* ctx) {
@@ -61,7 +61,7 @@ bool op_verify_call_proof(verify_ctx_t* ctx) {
   // make sure we have all the code data we need
   if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) return false;
 #ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, overrides_ptr, state_root);
+  c4_status_t call_status = eth_run_call_evmone(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, overrides_ptr);
 #else
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
@@ -82,6 +82,10 @@ bool op_verify_call_proof(verify_ctx_t* ctx) {
   if (!match) {
     eth_state_overrides_free(&overrides);
     RETURN_VERIFY_ERROR(ctx, "Call result mismatch");
+  }
+  if (!c4_eth_verify_accounts(ctx, accounts, state_root, overrides_ptr)) {
+    eth_state_overrides_free(&overrides);
+    RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
   }
   ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
   if (!execution_payload) return false;

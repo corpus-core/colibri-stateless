@@ -19,7 +19,6 @@ const doc_files = [
 
     "util/witness.c",
     "chains/eth/threat_model.md",
-    "chains/eth/pap.md",
     "chains/eth/benchmark.md",
     "chains/eth/server/PERIOD_STORE.md",
 
