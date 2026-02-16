@@ -111,7 +111,7 @@ static void get_src_storage(evmone_context_t* ctx, const address_t address, cons
   for (int i = 0; i < len; i++) {
     ssz_ob_t entry = ssz_at(storage, i);
     if (memcmp(ssz_get(&entry, "key").bytes.data, key, 32) == 0) {
-      if (!eth_get_storage_value(entry, result)) memset(result, 0, 32);
+      if (!eth_get_storage_value(entry, key, result)) memset(result, 0, 32);
       return;
     }
   }
