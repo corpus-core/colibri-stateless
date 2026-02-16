@@ -39,13 +39,21 @@
 #define JSON_TRACE_FIELDS       "{*:{balance?:hexuint,code?:bytes,nonce?:uint,storage?:{*:bytes32}}}"
 #define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys:[hex32]}],error?:string,gasUsed:hexuint}"
 
+static bool is_nullable_method(char* method) {
+  return method && (strcmp(method, "eth_getTransactionByHash") == 0 || strcmp(method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 || strcmp(method, "eth_getTransactionReceipt") == 0);
+}
+
 c4_status_t get_eth_tx(prover_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   uint8_t         tmp[200];
   buffer_t        buf = stack_buffer(tmp);
   data_request_t* req = NULL;
   TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), DEFAULT_TTL, tx_data, &req));
   if (req && !req->validated) {
-    CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
+    if (tx_data->type == JSON_TYPE_OBJECT && (json_get(*tx_data, "transactionIndex").type != JSON_TYPE_STRING || json_get(*tx_data, "transactionIndex").len < 5))
+      // this tx is not mined yet, we treat it as not found
+      tx_data->type = JSON_TYPE_NULL;
+    else if (tx_data->type != JSON_TYPE_NULL)
+      CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
     req->validated = true;
   }
   return C4_SUCCESS;
@@ -252,6 +260,10 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
       //      THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s): Invalid JSON response (no result)", method, params);
 
       *result = res;
+      return C4_SUCCESS;
+    }
+    else if (data_request->error && strcmp(data_request->error, "JSON-RPC result is null") == 0 && is_nullable_method(method)) { // TODO this error message comes from the http_client of the server since null is handled as error there so we can test on different nodes.
+      *result = json_parse("null");
       return C4_SUCCESS;
     }
     else

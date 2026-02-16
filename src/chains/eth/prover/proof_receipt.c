@@ -147,6 +147,10 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   // not found in cache, so we need to get it from the RPC
   if (block_number.type == JSON_TYPE_INVALID) {
     TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+    if (tx_data.type == JSON_TYPE_NULL) { // did not find the tx or it is not mined yet
+      ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, NULL_SSZ_BUILDER, NULL_SSZ_BUILDER);
+      return C4_SUCCESS;
+    }
     tx_index     = json_get_uint32(tx_data, "transactionIndex");
     block_number = json_get(tx_data, "blockNumber");
   }

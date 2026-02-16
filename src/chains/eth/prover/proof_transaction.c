@@ -95,6 +95,10 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
 #endif
     if (block_number.type == JSON_TYPE_INVALID) {
       TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+      if (tx_data.type == JSON_TYPE_NULL) { // did not find the tx or it is not mined yet
+        ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, NULL_SSZ_BUILDER, NULL_SSZ_BUILDER);
+        return C4_SUCCESS;
+      }
       tx_index     = json_get_uint32(tx_data, "transactionIndex");
       block_number = json_get(tx_data, "blockNumber");
       if (block_number.type != JSON_TYPE_STRING || block_number.len < 5 || block_number.start[1] != '0' || block_number.start[2] != 'x') THROW_ERROR("Invalid block number");

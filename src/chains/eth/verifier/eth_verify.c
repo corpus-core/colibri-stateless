@@ -92,6 +92,10 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_sendRawTransaction", Void, Void),
 };
 
+static bool is_nullable_method(char* method) {
+  return method && (strcmp(method, "eth_getTransactionByHash") == 0 || strcmp(method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 || strcmp(method, "eth_getTransactionReceipt") == 0);
+}
+
 method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method) {
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return METHOD_UNDEFINED;
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
@@ -157,6 +161,8 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
 #endif
       if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok
+  else if (ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type == SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE && is_nullable_method(ctx->method))
+    ctx->success = true; // this means there is simply nothing to verify.
   else {
     ctx->state.error = strdup("proof is not a supported proof type or not enabled");
     ctx->success     = false;
