@@ -39,23 +39,23 @@ extern "C" {
 #include "evmone_c_wrapper.h" // For evmc_address and evmc_bytes32
 #endif
 
-typedef struct changed_storage {
+typedef struct account_storage {
   bytes32_t               key;
   bytes32_t               value;
-  struct changed_storage* next;
+  bool                    original; // true = cached from proof, not yet modified by SSTORE
+  struct account_storage* next;
+} account_storage_t;
 
-} changed_storage_t;
-
-typedef struct changed_account {
-  address_t               address;
-  bytes32_t               balance;
-  bytes_t                 code;
-  struct changed_account* next;
-  changed_storage_t*      storage;
-  bool                    full_state_override;
-  bool                    deleted;
-  bool                    free_code;
-} changed_account_t;
+typedef struct account_state {
+  address_t             address;
+  bytes32_t             balance;
+  bytes_t               code;
+  struct account_state* next;
+  account_storage_t*    storage;
+  bool                  full_state_override;
+  bool                  deleted;
+  bool                  free_code;
+} account_state_t;
 
 // Context for EVM execution
 // Structure to store emitted log events
@@ -68,11 +68,11 @@ typedef struct emitted_log {
 } emitted_log_t;
 
 typedef struct evmone_context {
-  void*              executor;
-  verify_ctx_t*      ctx;
-  ssz_ob_t           src_accounts;
-  changed_account_t* changed_accounts;
-  call_code_t*       call_codes;
+  void*            executor;
+  verify_ctx_t*    ctx;
+  ssz_ob_t         src_accounts;
+  account_state_t* account_states;
+  call_code_t*     call_codes;
   // Current block info
   uint64_t  block_number;
   bytes32_t block_hash;
@@ -87,6 +87,8 @@ typedef struct evmone_context {
   emitted_log_t* logs;           // Linked list of emitted logs
   bool           capture_events; // Whether to capture events
 } evmone_context_t;
+
+static account_state_t* create_account_state(evmone_context_t* ctx, const address_t address, bool* created);
 
 static ssz_ob_t get_src_account(evmone_context_t* ctx, const address_t address, bool allow_missing) {
   size_t len = ssz_len(ctx->src_accounts);
@@ -112,57 +114,67 @@ static void get_src_storage(evmone_context_t* ctx, const address_t address, cons
     ssz_ob_t entry = ssz_at(storage, i);
     if (memcmp(ssz_get(&entry, "key").bytes.data, key, 32) == 0) {
       if (!eth_get_storage_value(entry, key, result)) memset(result, 0, 32);
+      // cache the verified value for subsequent reads
+      bool               created;
+      account_state_t*   acc = create_account_state(ctx, address, &created);
+      account_storage_t* s   = safe_calloc(1, sizeof(account_storage_t));
+      memcpy(s->key, key, 32);
+      memcpy(s->value, result, 32);
+      s->original  = true;
+      s->next      = acc->storage;
+      acc->storage = s;
       return;
     }
   }
   if (!ctx->ctx->state.error) ctx->ctx->state.error = bprintf(NULL, "Missing account proof for account 0x%x and storage key 0x%x", bytes(address, 20), bytes(key, 32));
 }
 
-static changed_account_t* get_changed_account(evmone_context_t* ctx, const address_t address) {
-  for (changed_account_t* acc = ctx->changed_accounts; acc != NULL; acc = acc->next) {
+static account_state_t* get_account_state(evmone_context_t* ctx, const address_t address) {
+  for (account_state_t* acc = ctx->account_states; acc != NULL; acc = acc->next) {
     if (memcmp(acc->address, address, 20) == 0)
       return acc;
   }
   if (ctx->parent)
-    return get_changed_account(ctx->parent, address);
+    return get_account_state(ctx->parent, address);
   return NULL;
 }
 
-static changed_storage_t* get_changed_storage(evmone_context_t* ctx, const address_t addr, const bytes32_t key) {
-  changed_account_t* account = get_changed_account(ctx, addr);
+static account_storage_t* get_storage(evmone_context_t* ctx, const address_t addr, const bytes32_t key) {
+  account_state_t* account = get_account_state(ctx, addr);
   if (!account) return NULL;
-  for (changed_storage_t* s = account->storage; s != NULL; s = s->next) {
+  for (account_storage_t* s = account->storage; s != NULL; s = s->next) {
     if (memcmp(s->key, key, 32) == 0)
       return s;
   }
   return NULL;
 }
 
-static changed_account_t* create_changed_account(evmone_context_t* ctx, const address_t address, bool* created) {
+static account_state_t* create_account_state(evmone_context_t* ctx, const address_t address, bool* created) {
   *created = false;
-  for (changed_account_t* acc = ctx->changed_accounts; acc != NULL; acc = acc->next) {
+  for (account_state_t* acc = ctx->account_states; acc != NULL; acc = acc->next) {
     if (memcmp(acc->address, address, 20) == 0)
       return acc;
   }
-  changed_account_t* parent_acc  = ctx->parent ? get_changed_account(ctx->parent, address) : NULL;
-  *created                       = parent_acc == NULL;
-  ssz_ob_t           old_account = get_src_account(ctx, address, true);
-  changed_account_t* acc         = safe_calloc(1, sizeof(changed_account_t));
+  account_state_t* parent_acc  = ctx->parent ? get_account_state(ctx->parent, address) : NULL;
+  *created                     = parent_acc == NULL;
+  ssz_ob_t         old_account = get_src_account(ctx, address, true);
+  account_state_t* acc         = safe_calloc(1, sizeof(account_state_t));
   memcpy(acc->address, address, 20);
-  acc->next             = ctx->changed_accounts;
-  ctx->changed_accounts = acc;
+  acc->next           = ctx->account_states;
+  ctx->account_states = acc;
 
   if (parent_acc) {
     memcpy(acc->balance, parent_acc->balance, 32);
     acc->code                       = parent_acc->code;
-    acc->full_state_override         = parent_acc->full_state_override;
-    changed_storage_t** storage_ptr = &acc->storage;
-    for (changed_storage_t* s = parent_acc->storage; s != NULL; s = s->next) {
-      *storage_ptr = safe_calloc(1, sizeof(changed_storage_t));
+    acc->full_state_override        = parent_acc->full_state_override;
+    account_storage_t** storage_ptr = &acc->storage;
+    for (account_storage_t* s = parent_acc->storage; s != NULL; s = s->next) {
+      *storage_ptr = safe_calloc(1, sizeof(account_storage_t));
       memcpy((*storage_ptr)->key, s->key, 32);
       memcpy((*storage_ptr)->value, s->value, 32);
-      (*storage_ptr)->next = NULL;
-      storage_ptr          = &(*storage_ptr)->next;
+      (*storage_ptr)->original = s->original;
+      (*storage_ptr)->next     = NULL;
+      storage_ptr              = &(*storage_ptr)->next;
     }
   }
   else if (old_account.def) {
@@ -173,17 +185,18 @@ static changed_account_t* create_changed_account(evmone_context_t* ctx, const ad
   return acc;
 }
 
-static void set_changed_storage(evmone_context_t* ctx, const address_t addr, const bytes32_t key, const bytes32_t value, bool* account_created, bool* storage_created) {
-  changed_storage_t* storage = get_changed_storage(ctx, addr, key);
+static void set_storage(evmone_context_t* ctx, const address_t addr, const bytes32_t key, const bytes32_t value, bool* account_created, bool* storage_created) {
+  account_storage_t* storage = get_storage(ctx, addr, key);
   if (storage) {
+    *storage_created  = storage->original; // first real write counts as created
+    storage->original = false;
     memcpy(storage->value, value, 32);
     *account_created = false;
-    *storage_created = false;
   }
   else {
-    changed_account_t* account = create_changed_account(ctx, addr, account_created);
+    account_state_t* account   = create_account_state(ctx, addr, account_created);
     *storage_created           = true;
-    changed_storage_t* storage = safe_calloc(1, sizeof(changed_storage_t));
+    account_storage_t* storage = safe_calloc(1, sizeof(account_storage_t));
     memcpy(storage->key, key, 32);
     memcpy(storage->value, value, 32);
     storage->next    = account->storage;
@@ -191,8 +204,8 @@ static void set_changed_storage(evmone_context_t* ctx, const address_t addr, con
   }
 }
 static bytes_t get_code(evmone_context_t* ctx, const address_t address) {
-  changed_account_t* changed_account = get_changed_account(ctx, address);
-  if (changed_account) return changed_account->code;
+  account_state_t* acc = get_account_state(ctx, address);
+  if (acc) return acc->code;
   ssz_ob_t account = get_src_account(ctx, address, false);
   if (!account.def) return NULL_BYTES;
   bytes32_t code_hash = {0};
@@ -208,9 +221,9 @@ static bytes_t get_code(evmone_context_t* ctx, const address_t address) {
   //  return account.def ? ssz_get(&account, "code").bytes : NULL_BYTES;
 }
 
-static void changed_account_free(changed_account_t* acc) {
+static void account_state_free(account_state_t* acc) {
   while (acc->storage) {
-    changed_storage_t* storage = acc->storage;
+    account_storage_t* storage = acc->storage;
     acc->storage               = storage->next;
     safe_free(storage);
   }
@@ -230,10 +243,10 @@ static void free_emitted_logs(emitted_log_t* logs) {
 }
 
 static void context_free(evmone_context_t* ctx) {
-  while (ctx->changed_accounts) {
-    changed_account_t* next = ctx->changed_accounts->next;
-    changed_account_free(ctx->changed_accounts);
-    ctx->changed_accounts = next;
+  while (ctx->account_states) {
+    account_state_t* next = ctx->account_states->next;
+    account_state_free(ctx->account_states);
+    ctx->account_states = next;
   }
   free_emitted_logs(ctx->logs);
   ctx->logs = NULL;
@@ -273,15 +286,15 @@ static emitted_log_t* add_emitted_log(evmone_context_t* ctx, const evmc_address*
 static void context_apply(evmone_context_t* ctx) {
   if (!ctx->parent) return;
   bool created;
-  for (changed_account_t* acc = ctx->changed_accounts; acc; acc = acc->next) {
-    changed_account_t* parent_acc = create_changed_account(ctx->parent, acc->address, &created);
+  for (account_state_t* acc = ctx->account_states; acc; acc = acc->next) {
+    account_state_t* parent_acc = create_account_state(ctx->parent, acc->address, &created);
     memcpy(parent_acc->balance, acc->balance, 32);
-    parent_acc->code      = acc->code;
-    parent_acc->free_code = acc->free_code;
+    parent_acc->code                = acc->code;
+    parent_acc->free_code           = acc->free_code;
     parent_acc->full_state_override = acc->full_state_override;
 
-    for (changed_storage_t* s = acc->storage; s; s = s->next)
-      set_changed_storage(ctx->parent, acc->address, s->key, s->value, &created, &created);
+    for (account_storage_t* s = acc->storage; s; s = s->next)
+      set_storage(ctx->parent, acc->address, s->key, s->value, &created, &created);
   }
 
   // Transfer logs to parent if parent is capturing events

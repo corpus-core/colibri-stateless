@@ -87,7 +87,7 @@ static void debug_print_bytes32(const char* prefix, const evmc_bytes32* data) {
 static bool host_account_exists(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("account_exists for", addr);
-  changed_account_t* ac = get_changed_account(ctx, addr->bytes);
+  account_state_t* ac = get_account_state(ctx, addr->bytes);
   if (ac) return ac->deleted;
   bool exists = get_src_account(ctx, addr->bytes, false).def != NULL;
   // TODO existance check over the values of the account!
@@ -102,11 +102,11 @@ static evmc_bytes32 host_get_storage(void* context, const evmc_address* addr, co
   debug_print_bytes32("get_storage key", key);
 
   evmc_bytes32       result  = {0};
-  changed_storage_t* storage = get_changed_storage(ctx, addr->bytes, key->bytes);
+  account_storage_t* storage = get_storage(ctx, addr->bytes, key->bytes);
   if (storage)
     memcpy(result.bytes, storage->value, 32);
   else {
-    changed_account_t* acc = get_changed_account(ctx, addr->bytes);
+    account_state_t* acc = get_account_state(ctx, addr->bytes);
     if (acc && acc->full_state_override) {
       // Full state overrides must not fall back to canonical storage for missing keys.
       memset(result.bytes, 0, 32);
@@ -134,7 +134,7 @@ static evmone_storage_status host_set_storage(void* context, const evmc_address*
     return EVMONE_STORAGE_UNCHANGED;
   }
 
-  set_changed_storage(ctx, addr->bytes, key->bytes, value->bytes, &created_account, &created_storage);
+  set_storage(ctx, addr->bytes, key->bytes, value->bytes, &created_account, &created_storage);
   if (created_account) {
     EVM_LOG("set_storage: ADDED (created account)");
     return EVMONE_STORAGE_ADDED;
@@ -161,8 +161,8 @@ static evmc_bytes32 host_get_balance(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("get_balance for", addr);
 
-  evmc_bytes32       result = {0};
-  changed_account_t* acc    = get_changed_account(ctx, addr->bytes);
+  evmc_bytes32     result = {0};
+  account_state_t* acc    = get_account_state(ctx, addr->bytes);
   if (acc)
     memcpy(result.bytes, acc->balance, 32);
   else {
@@ -217,10 +217,10 @@ static void host_selfdestruct(void* context, const evmc_address* addr, const evm
   debug_print_address("selfdestruct account", addr);
   debug_print_address("selfdestruct beneficiary", beneficiary);
 
-  bool               created;
-  changed_account_t* acc = create_changed_account(ctx, addr->bytes, &created);
+  bool             created;
+  account_state_t* acc = create_account_state(ctx, addr->bytes, &created);
   while (acc->storage) {
-    changed_storage_t* storage = acc->storage;
+    account_storage_t* storage = acc->storage;
     acc->storage               = storage->next;
     safe_free(storage);
   }
@@ -282,7 +282,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
 
   evmone_context_t child = *ctx;
   child.parent           = ctx;
-  child.changed_accounts = NULL;
+  child.account_states   = NULL;
 
   // Execute the code (now using fetched code if needed)
   evmone_result exec_result = evmone_execute(
@@ -378,8 +378,8 @@ static void host_access_storage(void* context, const evmc_address* addr, const e
 static void apply_state_overrides(evmone_context_t* context, const eth_state_overrides_t* overrides) {
   if (!overrides) return;
   for (const eth_account_override_t* a = overrides->accounts; a; a = a->next) {
-    bool               created = false;
-    changed_account_t* acc     = create_changed_account(context, a->address, &created);
+    bool             created = false;
+    account_state_t* acc     = create_account_state(context, a->address, &created);
     if (a->has_balance) memcpy(acc->balance, a->balance, 32);
     if (a->has_code) {
       acc->code      = a->code;
@@ -389,7 +389,7 @@ static void apply_state_overrides(evmone_context_t* context, const eth_state_ove
       acc->full_state_override = a->full_state;
       for (const eth_storage_override_t* s = a->storage; s; s = s->next) {
         bool tmp = false;
-        set_changed_storage(context, a->address, s->key, s->value, &tmp, &tmp);
+        set_storage(context, a->address, s->key, s->value, &tmp, &tmp);
       }
     }
   }
@@ -531,20 +531,20 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
 
   // Initialize our EVM context with state from the proof
   evmone_context_t context = {
-      .executor         = executor,
-      .ctx              = ctx,
-      .src_accounts     = accounts,
-      .call_codes       = call_codes,
-      .changed_accounts = NULL,
-      .block_number     = 0,
-      .block_hash       = {0},
-      .timestamp        = 0,
-      .tx_origin        = {0},
-      .gas_price        = 0,
-      .parent           = NULL,
-      .results          = NULL,
-      .logs             = NULL,
-      .capture_events   = capture_events,
+      .executor       = executor,
+      .ctx            = ctx,
+      .src_accounts   = accounts,
+      .call_codes     = call_codes,
+      .account_states = NULL,
+      .block_number   = 0,
+      .block_hash     = {0},
+      .timestamp      = 0,
+      .tx_origin      = {0},
+      .gas_price      = 0,
+      .parent         = NULL,
+      .results        = NULL,
+      .logs           = NULL,
+      .capture_events = capture_events,
   };
 
   apply_state_overrides(&context, overrides);
