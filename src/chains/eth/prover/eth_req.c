@@ -262,7 +262,7 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
       *result = res;
       return C4_SUCCESS;
     }
-    else if (data_request->error && strcmp(data_request->error, "JSON-RPC result is null") == 0 && is_nullable_method(method)) { // TODO this error message comes from the http_client of the server since null is handled as error there so we can test on different nodes.
+    else if (data_request->error && strcmp(data_request->error, "JSON-RPC result is null") == 0 && is_nullable_method(method)) { // classify layer retried on a lagging node but all retries returned null - accept as valid
       *result = json_parse("null");
       return C4_SUCCESS;
     }
