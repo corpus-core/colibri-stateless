@@ -635,8 +635,3 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
 
   return ctx->state.error == NULL ? C4_SUCCESS : C4_ERROR;
 }
-
-// Original function for backward compatibility
-INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, const eth_state_overrides_t* overrides) {
-  return eth_run_call_evmone_with_events(ctx, call_codes, accounts, tx, call_result, NULL, false, overrides, NULL);
-}

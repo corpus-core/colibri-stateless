@@ -49,8 +49,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Forward declarations
-c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides, uint64_t* gas_used);
+// Forward declaration
 const char* eth_decode_known_event(const emitted_log_t* log, ssz_builder_t* inputs_builder);
 
 // Function to build simulation result in SSZ format using ssz_builder_t (Tenderly-compatible)

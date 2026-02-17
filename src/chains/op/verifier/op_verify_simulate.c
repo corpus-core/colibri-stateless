@@ -41,8 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Forward declaration
-c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides, uint64_t* gas_used);
+
 
 // Function to verify simulate transaction proof for OP Stack
 bool op_verify_simulate_proof(verify_ctx_t* ctx) {

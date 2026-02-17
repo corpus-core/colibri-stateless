@@ -23,6 +23,7 @@
 
 #include "beacon_types.h"
 #include "bytes.h"
+#include "call_ctx.h"
 #include "crypto.h"
 #include "eth_account.h"
 #include "eth_verify.h"
@@ -38,7 +39,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, const eth_state_overrides_t* overrides);
 
 bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root, const eth_state_overrides_t* overrides) {
   uint32_t  len                 = ssz_len(accounts);
@@ -89,19 +89,45 @@ bool verify_call_proof(verify_ctx_t* ctx) {
     eth_state_overrides_free(&overrides);
     return false;
   }
+  bool     is_estimate = strcmp(ctx->method, "eth_estimateGas") == 0;
+  uint64_t gas_used    = 0;
 #ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, overrides_ptr);
+  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, NULL, false, overrides_ptr, &gas_used);
 #else
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
-  if (call_result.data && (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE)) {
+  if (is_estimate && (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE)) {
+    // eth_estimateGas: return gas used as uint256
+    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+    uint8_t       gas_be[8];
+    for (int i = 0; i < 8; i++) gas_be[7 - i] = (uint8_t) ((gas_used >> (i * 8)) & 0xFF);
+    ssz_add_uint256(&builder, bytes(gas_be, 8));
+    ctx->data = ssz_builder_to_bytes(&builder);
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+    match = true;
+    safe_free(call_result.data);
+  }
+  else if (call_result.data && (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE)) {
     ctx->data = (ssz_ob_t) {.bytes = call_result, .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
     ctx->flags |= VERIFY_FLAG_FREE_DATA;
     match = true;
   }
   else {
-    match = call_result.data && bytes_eq(call_result, ctx->data.bytes);
-    safe_free(call_result.data);
+    if (is_estimate) {
+      // eth_estimateGas with existing data: compare gas value
+      ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+      uint8_t       gas_be[8];
+      for (int i = 0; i < 8; i++) gas_be[7 - i] = (uint8_t) ((gas_used >> (i * 8)) & 0xFF);
+      ssz_add_uint256(&builder, bytes(gas_be, 8));
+      ssz_ob_t gas_ob = ssz_builder_to_bytes(&builder);
+      match            = gas_ob.bytes.data && bytes_eq(gas_ob.bytes, ctx->data.bytes);
+      safe_free(gas_ob.bytes.data);
+      safe_free(call_result.data);
+    }
+    else {
+      match = call_result.data && bytes_eq(call_result, ctx->data.bytes);
+      safe_free(call_result.data);
+    }
   }
   eth_free_codes(call_codes);
   if (call_status != C4_SUCCESS) {

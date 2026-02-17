@@ -22,6 +22,7 @@
  */
 #include "beacon_types.h"
 #include "bytes.h"
+#include "call_ctx.h"
 #include "crypto.h"
 #include "eth_account.h"
 #include "eth_verify.h"
@@ -38,8 +39,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, const eth_state_overrides_t* overrides);
 
 // Function to verify call proof
 bool op_verify_call_proof(verify_ctx_t* ctx) {
@@ -61,7 +60,7 @@ bool op_verify_call_proof(verify_ctx_t* ctx) {
   // make sure we have all the code data we need
   if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) return false;
 #ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, overrides_ptr);
+  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, NULL, false, overrides_ptr, NULL);
 #else
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
