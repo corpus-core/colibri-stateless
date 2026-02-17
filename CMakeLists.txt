@@ -394,6 +394,13 @@ add_custom_target(doc
     COMMENT "Running update_doc.js to generate documentation"
 )
 
+add_custom_target(doc-agents
+    COMMAND ${CMAKE_COMMAND} -E echo "Generating agent documentation..."
+    COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/doc/agents.js
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Updating auto-generated sections in AGENTS.md files"
+)
+
 add_custom_target(valgrind
     COMMAND ${CMAKE_COMMAND} -E echo "Generating valgrind image..."
     COMMAND ${CMAKE_COMMAND} -E env bash -c "docker build -f test/valgrind/Dockerfile --platform=linux/amd64 -t c4_valgrind ."
