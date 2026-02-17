@@ -1,0 +1,75 @@
+---
+description: Documentation and comment conventions for the colibri-stateless codebase
+globs: ["src/**/*.c", "src/**/*.h", "bindings/**/*.c", "bindings/**/*.h"]
+---
+
+# Documentation Style
+
+## Language
+
+All comments and documentation in the code MUST be written in English.
+
+## Public API Documentation
+
+Use `/** ... */` block comments for public functions, structs, and macros in header files:
+
+```c
+/**
+ * Verify the given proof against the current sync committee state.
+ *
+ * The verification result is stored in `ctx->data` on success.
+ *
+ * Example:
+ *
+ * ```c
+ * verify_ctx_t ctx = {0};
+ * c4_status_t status = c4_verify(&ctx);
+ * ```
+ *
+ * @param ctx the verification context
+ * @return C4_SUCCESS, C4_ERROR, or C4_PENDING
+ */
+```
+
+- Use Markdown syntax in doc comments (code blocks, lists, bold, etc.).
+- Only `@param` and `@return` are allowed as tags. Do NOT use `@brief`, `@note`, `@see`, or other tags.
+
+## Section Markers (for documentation generation)
+
+Used to organize code sections for auto-generated documentation (gitbook + agents):
+
+- `// : Section` -- top-level section (e.g., `// : Ethereum`, `// : APIs`)
+- `// :: Subsection` -- second level (e.g., `// :: Internal APIs`)
+- `// ::: Detail` -- third level (e.g., `// ::: verify.h`)
+
+Content lines after a section marker start with `//` followed by a space and Markdown content:
+
+```c
+// ::: verify.h
+// The verifier API executes a proof verification.
+// When calling `c4_verify_from_bytes`, call `c4_verify` until the status
+// is either `C4_ERROR` or `C4_SUCCESS`.
+//
+// Example:
+//
+// ```c
+// verify_ctx_t ctx = {0};
+// c4_status_t status = c4_verify(&ctx);
+// ```
+//
+```
+
+The section ends when a non-`//` line is encountered or a new section marker appears.
+
+## Inline Comments
+
+- Use `//` for inline explanations.
+- Keep comments brief and relevant -- explain *why*, not *what*.
+- Field documentation in structs uses trailing `//`:
+
+```c
+typedef struct {
+  uint32_t len;             // the length of the data
+  uint8_t* data COUNTED_BY(len); // the data pointer
+} bytes_t;
+```

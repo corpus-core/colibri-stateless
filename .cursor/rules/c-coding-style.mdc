@@ -1,0 +1,57 @@
+---
+description: C coding style conventions for the colibri-stateless codebase
+globs: ["src/**/*.c", "src/**/*.h", "test/**/*.c", "libs/**/*.c", "libs/**/*.h"]
+---
+
+# C Coding Style
+
+## Naming Conventions
+
+- **Functions**: `snake_case` with module prefix: `c4_verify()`, `ssz_get()`, `bytes_as_le()`, `buffer_append()`, `json_parse()`.
+- **Types**: `snake_case_t` suffix: `bytes_t`, `ssz_ob_t`, `verify_ctx_t`, `c4_state_t`.
+- **Enums**: `UPPER_SNAKE_CASE` values: `C4_SUCCESS`, `SSZ_TYPE_UINT`, `C4_CHAIN_TYPE_ETHEREUM`.
+- **Macros**: `UPPER_SNAKE_CASE`: `TRY_ASYNC()`, `THROW_ERROR()`, `NULL_BYTES`, `HASH_LEN`.
+- **Files**: `snake_case.c` / `snake_case.h` pairs. Test files: `test_<feature>.c`.
+
+## Module Prefixes
+
+| Prefix | Module |
+|--------|--------|
+| `c4_` | Core API (verify, prover, state) |
+| `ssz_` | SSZ encoding/decoding |
+| `bytes_` | Byte operations |
+| `buffer_` | Buffer management |
+| `json_` | JSON parsing |
+
+## Header Files
+
+- Include guards: `#ifndef filename_h__` / `#define filename_h__` (NOT `#pragma once`).
+- Always wrap with `#ifdef __cplusplus extern "C" { #endif` ... `#endif`.
+- Includes: local headers first (`"./header.h"`), then system headers (`<stdlib.h>`).
+
+## Function Annotations
+
+- `NONNULL` / `NONNULL_FOR((n))` -- mark parameters that must not be NULL.
+- `RETURNS_NONNULL` -- function never returns NULL.
+- `M_RET` -- function returns allocated memory (caller must free).
+- `M_TAKE(n)` -- function takes ownership of parameter n.
+- `COUNTED_BY(len)` -- array size annotation for bounds checking.
+
+## Formatting
+
+Always format C code using the `.clang-format` file in the project root. Key settings (BasedOnStyle: LLVM):
+
+- No column limit (`ColumnLimit: 0`) -- lines are not wrapped.
+- Pointer alignment left: `int* ptr` (not `int *ptr`).
+- Space after C-style casts: `(int) x`.
+- Opening brace on same line (`BreakBeforeBraces: Custom`, `AfterControlStatement: Never`), `else` on new line (`BeforeElse: true`).
+- Align consecutive assignments, declarations, macros, and trailing comments.
+- Short blocks, case labels, functions, ifs, and loops allowed on a single line.
+- Includes are sorted (`SortIncludes: true`).
+
+## Type Patterns
+
+- Typedef structs: `typedef struct { ... } name_t;`
+- Forward declarations: `typedef struct name name_t;`
+- Enum typedefs: `typedef enum { ... } name_t;`
+- `bytes_t` is always passed by value (it is a fat pointer, not a reference type).
