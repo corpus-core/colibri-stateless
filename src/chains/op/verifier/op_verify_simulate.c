@@ -41,8 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Forward declaration
-c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides);
+
 
 // Function to verify simulate transaction proof for OP Stack
 bool op_verify_simulate_proof(verify_ctx_t* ctx) {
@@ -65,8 +64,9 @@ bool op_verify_simulate_proof(verify_ctx_t* ctx) {
 
   if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) return false;
 
+  uint64_t gas_used = 0;
 #ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, &logs, true, overrides_ptr);
+  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, &logs, true, overrides_ptr, &gas_used);
 #else
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
@@ -88,8 +88,7 @@ bool op_verify_simulate_proof(verify_ctx_t* ctx) {
   }
 
   // Build simulation result using shared function (Tenderly-compatible format)
-  bool     success  = (call_status == C4_SUCCESS && ctx->state.error == NULL);
-  uint64_t gas_used = 21000; // TODO: Get actual gas usage from EVM execution
+  bool success = (call_status == C4_SUCCESS && ctx->state.error == NULL);
 
   ssz_ob_t simulation_result = eth_build_simulation_result_ssz(call_result, logs, success, gas_used, execution_payload);
 

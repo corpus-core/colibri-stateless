@@ -39,6 +39,7 @@
 
 static const char* proofable_methods[] = {
     RPC_METHOD("eth_call", Bytes, EthCallProof),
+    RPC_METHOD("eth_estimateGas", Uint64, EthCallProof),
     RPC_METHOD("colibri_simulateTransaction", EthSimulationResult, EthCallProof),
     RPC_METHOD("eth_getProof", EthProofData, EthAccountProof),
     RPC_METHOD("eth_getBalance", Uint256, EthAccountProof),
@@ -81,7 +82,6 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_feeHistory", Void, Void),
     RPC_METHOD("eth_blobBaseFee", Uint64, EthBlockHeaderProof),
     RPC_METHOD("eth_createAccessList", EthAccessData, EthCallProof),
-    RPC_METHOD("eth_estimateGas", Uint64, EthCallProof),
     RPC_METHOD("eth_gasPrice", Void, Void),
     RPC_METHOD("eth_getBlockReceipts", Void, Void),
     RPC_METHOD("eth_getUncleByBlockHash", Void, Void),

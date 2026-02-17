@@ -35,6 +35,8 @@ extern "C" {
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct eth_state_overrides eth_state_overrides_t;
+
 #ifdef EVMONE
 #include "evmone_c_wrapper.h" // For evmc_address and evmc_bytes32
 #endif
@@ -312,6 +314,22 @@ static void context_apply(evmone_context_t* ctx) {
 
 // Shared simulation result builder for ETH and OP Stack
 ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload);
+
+/**
+ * Runs an EVM call with optional event capture and gas metering.
+ *
+ * @param ctx the verification context
+ * @param call_codes the call codes for the accounts
+ * @param accounts the SSZ accounts object
+ * @param tx the JSON transaction object
+ * @param call_result output: the call result bytes
+ * @param logs output: linked list of emitted logs (NULL to skip capture)
+ * @param capture_events whether to capture emitted events
+ * @param overrides optional state overrides
+ * @param gas_used output: gas consumed by the execution (NULL to skip)
+ * @return C4_SUCCESS, C4_ERROR, or C4_PENDING
+ */
+c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides, uint64_t* gas_used);
 
 #ifdef __cplusplus
 }
