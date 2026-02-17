@@ -487,7 +487,7 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
 }
 
 // Function to run EVM call with optional event capture
-INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides) {
+INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides, uint64_t* gas_used) {
   buffer_t       buffer  = {0};
   address_t      to      = {0};
   buffer_t       to_buf  = stack_buffer(to);
@@ -566,6 +566,10 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
   EVM_LOG("Gas left: %zu", (size_t) result.gas_left);
   EVM_LOG("Gas refund: %zu", (size_t) result.gas_refund);
 
+  // Report gas used to caller
+  if (gas_used)
+    *gas_used = (uint64_t) (message.gas - result.gas_left);
+
   if (EVM_DEBUG && result.output_data && result.output_size > 0)
     print_hex(stderr, bytes(result.output_data, result.output_size), "[EVM] Output data: 0x", "\n");
 
@@ -634,5 +638,5 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
 
 // Original function for backward compatibility
 INTERNAL c4_status_t eth_run_call_evmone(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, const eth_state_overrides_t* overrides) {
-  return eth_run_call_evmone_with_events(ctx, call_codes, accounts, tx, call_result, NULL, false, overrides);
+  return eth_run_call_evmone_with_events(ctx, call_codes, accounts, tx, call_result, NULL, false, overrides, NULL);
 }
