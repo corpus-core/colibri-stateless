@@ -257,9 +257,18 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   eth_state_overrides_t overrides_parsed = {0};
   bool                  has_overrides    = state_overrides.type == JSON_TYPE_OBJECT;
 
+  if (block_number.type == JSON_TYPE_NOT_FOUND) block_number = json_parse("\"latest\"");
+
   // Validate arguments before processing
   TRACE_START(ctx, "get_block_for_eth");
-  CHECK_JSON(ctx->params, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}?]", "Invalid transaction");
+
+
+  if (strcmp(ctx->method, "eth_call") == 0) {
+    CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}?]", "Invalid transaction");
+  }
+  else {
+    CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block?]", "Invalid transaction");
+  }
   if (has_overrides) TRY_ASYNC(eth_parse_state_overrides_state(&ctx->state, state_overrides, &overrides_parsed));
 
   TRY_ASYNC_CATCH(c4_beacon_get_block_for_eth(ctx, block_number, &block), eth_state_overrides_free(&overrides_parsed)); // get the beacon-block matching the block-tag (usually cached)

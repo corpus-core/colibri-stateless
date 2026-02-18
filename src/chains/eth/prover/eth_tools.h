@@ -29,6 +29,8 @@
 #include "historic_proof.h"
 #include "ssz.h"
 
+#define JSON_TX_CALL_FIELDS     "{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address}"
+
 // Forward declaration (defined in src/chains/eth/verifier/state_overrides.h).
 // Prover code only needs the pointer type.
 typedef struct eth_state_overrides eth_state_overrides_t;
