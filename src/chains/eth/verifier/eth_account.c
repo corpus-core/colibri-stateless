@@ -292,6 +292,7 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
   memcpy(leafes, state_root, 32);
   memcpy(leafes + 32, block.bytes.data, block.bytes.len);
   ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, block.def->type == SSZ_TYPE_NONE ? 32 : 64), gindex, body_root);
+  if (block_number.type != JSON_TYPE_STRING) block_number = json_parse("\"latest\"");
   if (block_number.type == JSON_TYPE_STRING && strncmp(block_number.start, "\"0x", 3) == 0) {
     if (block_number.len == 68) {
       if (block.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
