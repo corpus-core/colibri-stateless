@@ -206,6 +206,7 @@ static void set_storage(evmone_context_t* ctx, const address_t addr, const bytes
   }
 }
 static bytes_t get_code(evmone_context_t* ctx, const address_t address) {
+  if (bytes_all_zero(bytes(address, 20))) return NULL_BYTES;
   account_state_t* acc = get_account_state(ctx, address);
   if (acc) return acc->code;
   ssz_ob_t account = get_src_account(ctx, address, false);

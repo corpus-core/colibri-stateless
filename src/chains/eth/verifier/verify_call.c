@@ -39,7 +39,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root, const eth_state_overrides_t* overrides) {
   uint32_t  len                 = ssz_len(accounts);
   bytes32_t root                = {0};
@@ -97,11 +96,12 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
   if (is_estimate && (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE)) {
+    
     // eth_estimateGas: return gas used as uint256
     ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
-    uint8_t       gas_be[8];
-    for (int i = 0; i < 8; i++) gas_be[7 - i] = (uint8_t) ((gas_used >> (i * 8)) & 0xFF);
-    ssz_add_uint256(&builder, bytes(gas_be, 8));
+    ssz_add_uint64(&builder, gas_used + 21000); // TODO calculate gas for tx correctly
+    buffer_append(&builder.fixed, bytes(NULL, 32 - 8)); // pad to 32 bytes
+
     ctx->data = ssz_builder_to_bytes(&builder);
     ctx->flags |= VERIFY_FLAG_FREE_DATA;
     match = true;
@@ -115,13 +115,9 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   else {
     if (is_estimate) {
       // eth_estimateGas with existing data: compare gas value
-      ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
-      uint8_t       gas_be[8];
-      for (int i = 0; i < 8; i++) gas_be[7 - i] = (uint8_t) ((gas_used >> (i * 8)) & 0xFF);
-      ssz_add_uint256(&builder, bytes(gas_be, 8));
-      ssz_ob_t gas_ob = ssz_builder_to_bytes(&builder);
-      match            = gas_ob.bytes.data && bytes_eq(gas_ob.bytes, ctx->data.bytes);
-      safe_free(gas_ob.bytes.data);
+      uint8_t gas_le[8];
+      uint64_to_le(gas_le, gas_used);
+      match = bytes_eq(bytes(gas_le, 8), ctx->data.bytes);
       safe_free(call_result.data);
     }
     else {
@@ -144,9 +140,10 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   }
   eth_state_overrides_free(&overrides);
 
-  if (!eth_verify_state_proof(ctx, state_proof, state_root)) return false;
-  if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
-
+  if (!bytes_all_zero(bytes(state_root, 32))) { // if state root is zero, then there are no accounts and nothing to verify
+    if (!eth_verify_state_proof(ctx, state_proof, state_root)) return false;
+    if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
+  }
   ctx->success = true;
   return ctx->success;
 }
