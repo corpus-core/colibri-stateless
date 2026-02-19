@@ -493,6 +493,13 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
   buffer_t       to_buf  = stack_buffer(to);
   evmone_message message = {0};
 
+  // check calldata
+  json_t tx_input = json_get(tx, "data");
+  if (tx_input.type == JSON_TYPE_NOT_FOUND) tx_input = json_get(tx, "input");
+  if (tx_input.type != JSON_TYPE_STRING || tx_input.len < 5) {
+    // there are no call data, so we skip the execution
+    return C4_SUCCESS;
+  }
   // Check if the transaction has a "to" address
   if (json_get_bytes(tx, "to", &to_buf).len != 20) THROW_ERROR("Invalid transaction: to address is not 20 bytes");
 

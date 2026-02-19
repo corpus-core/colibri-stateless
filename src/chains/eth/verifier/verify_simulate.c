@@ -152,6 +152,8 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
 
+  gas_used += 21000; // TODO calculate gas for tx correctly
+
   if (call_status != C4_SUCCESS) {
     free_emitted_logs(logs);
     eth_free_codes(call_codes);
@@ -183,9 +185,10 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
 
   if (!match) RETURN_VERIFY_ERROR(ctx, "Simulation result mismatch");
   if (!accounts_verified) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
-  if (!eth_verify_state_proof(ctx, state_proof, state_root)) return false;
-  if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
-
+  if (!bytes_all_zero(bytes(state_root, 32))) {
+    if (!eth_verify_state_proof(ctx, state_proof, state_root)) return false;
+    if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
+  }
   ctx->success = true;
   return ctx->success;
 }
