@@ -179,7 +179,7 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
     log->next = logs;
     logs = log;
     bytes_t b = json_as_bytes(tx_input, &value_buf);
-    void* ptr = (void*) log->topics;
+    uint8_t* ptr = (uint8_t*) log->topics;
     memcpy(log->data.data+32-b.len, b.data, b.len);
     json_t from = json_get(tx, "from");
     if (from.type == JSON_TYPE_STRING && from.len >= 5 && strncmp(from.start, "\"0x0\"", 5) != 0) {
