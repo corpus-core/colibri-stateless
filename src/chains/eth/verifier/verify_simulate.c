@@ -152,6 +152,10 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
   c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
 #endif
 
+
+
+
+
   gas_used += 21000; // TODO calculate gas for tx correctly
 
   if (call_status != C4_SUCCESS) {
@@ -159,6 +163,36 @@ bool verify_simulate_proof(verify_ctx_t* ctx) {
     eth_free_codes(call_codes);
     eth_state_overrides_free(&overrides);
     return false;
+  }
+
+  json_t tx = json_at(ctx->args, 0);
+  json_t tx_input = json_get(tx, "value");
+  if (tx_input.type == JSON_TYPE_STRING && tx_input.len >= 5 && strncmp(tx_input.start, "\"0x0\"", 5) != 0) {
+    // we have a value, so we should add it as event to the logs
+    bytes32_t value = {0};
+    buffer_t value_buf = stack_buffer(value);
+
+    emitted_log_t* log = safe_calloc(sizeof(emitted_log_t),1);
+    log->data = bytes(safe_calloc(32,1),32);
+    log->topics = safe_calloc(3,sizeof(bytes32_t));
+    log->topics_count = 3;
+    log->next = logs;
+    logs = log;
+    bytes_t b = json_as_bytes(tx_input, &value_buf);
+    void* ptr = (void*) log->topics;
+    memcpy(log->data.data+32-b.len, b.data, b.len);
+    json_t from = json_get(tx, "from");
+    if (from.type == JSON_TYPE_STRING && from.len >= 5 && strncmp(from.start, "\"0x0\"", 5) != 0) {
+      b = json_as_bytes(from, &value_buf);
+      memcpy(ptr+64-b.len, b.data, b.len);
+    }
+    json_t to = json_get(tx, "to");
+    if (to.type == JSON_TYPE_STRING && to.len >= 5 && strncmp(to.start, "\"0x0\"", 5) != 0) {
+      b = json_as_bytes(to, &value_buf);
+      memcpy(ptr+96-b.len, b.data, b.len);
+    }
+    const char* signature = "Transfer(address,address,uint256)";
+    keccak(bytes(signature, strlen(signature)), ptr);
   }
 
   // Build simulation result using SSZ (Tenderly-compatible format)
