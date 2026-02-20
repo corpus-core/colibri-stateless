@@ -41,6 +41,21 @@
 
 #define GINDEX_BLOCKUMBER 806
 #define GINDEX_TIMESTAMP  809
+
+// gindexes from bodyRoot for block header fields (EP at gindex 25, field index i → 25*32+i)
+#define GINDEX_BH_PARENT_HASH    800
+#define GINDEX_BH_STATE_ROOT     802
+#define GINDEX_BH_RECEIPTS_ROOT  803
+#define GINDEX_BH_LOGS_BLOOM     804
+#define GINDEX_BH_BLOCK_NUMBER   806
+#define GINDEX_BH_GAS_LIMIT      807
+#define GINDEX_BH_GAS_USED       808
+#define GINDEX_BH_TIMESTAMP      809
+#define GINDEX_BH_BASE_FEE       811
+#define GINDEX_BH_BLOCK_HASH     812
+#define GINDEX_BH_BLOB_GAS_USED  815
+#define GINDEX_BH_EXCESS_BLOB_GAS 816
+#define BLOCK_HEADER_FIELD_COUNT  12
 static const char* SHA3_UNCLUES = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
 static const char* EMPTY_SHA256 = "\xe3\xb0\xc4\x42\x98\xfc\x1c\x14\x9a\xfb\xf4\xc8\x99\x6f\xb9\x24\x27\xae\x41\xe4\x64\x9b\x93\x4c\xa4\x95\x99\x1b\x78\x52\xb8\x55";
 
@@ -181,6 +196,47 @@ bool verify_block_number_proof(verify_ctx_t* ctx) {
 
   // TODO check if the timestamp is not in the future and within the 30s of the current time
   ctx->data    = block_number;
+  ctx->success = true;
+  return true;
+}
+
+bool verify_block_header_proof(verify_ctx_t* ctx) {
+  bytes32_t body_root = {0};
+  ssz_ob_t  proof     = ssz_get(&ctx->proof, "proof");
+  ssz_ob_t  header    = ssz_get(&ctx->proof, "header");
+
+  uint8_t  leafes[BLOCK_HEADER_FIELD_COUNT * 32] = {0};
+  gindex_t gindexes[BLOCK_HEADER_FIELD_COUNT]    = {
+      GINDEX_BH_PARENT_HASH, GINDEX_BH_STATE_ROOT, GINDEX_BH_RECEIPTS_ROOT,
+      GINDEX_BH_LOGS_BLOOM, GINDEX_BH_BLOCK_NUMBER, GINDEX_BH_GAS_LIMIT,
+      GINDEX_BH_GAS_USED, GINDEX_BH_TIMESTAMP, GINDEX_BH_BASE_FEE,
+      GINDEX_BH_BLOCK_HASH, GINDEX_BH_BLOB_GAS_USED, GINDEX_BH_EXCESS_BLOB_GAS};
+
+  // bytes32 fields
+  memcpy(leafes + 0 * 32, ssz_get(&ctx->data, "parentHash").bytes.data, 32);
+  memcpy(leafes + 1 * 32, ssz_get(&ctx->data, "stateRoot").bytes.data, 32);
+  memcpy(leafes + 2 * 32, ssz_get(&ctx->data, "receiptsRoot").bytes.data, 32);
+  // logsBloom is 256 bytes (ByteVector) → leaf is its hash_tree_root
+  ssz_hash_tree_root(ssz_get(&ctx->data, "logsBloom"), leafes + 3 * 32);
+  // uint64 fields (8 bytes LE, zero-padded to 32)
+  memcpy(leafes + 4 * 32, ssz_get(&ctx->data, "blockNumber").bytes.data, 8);
+  memcpy(leafes + 5 * 32, ssz_get(&ctx->data, "gasLimit").bytes.data, 8);
+  memcpy(leafes + 6 * 32, ssz_get(&ctx->data, "gasUsed").bytes.data, 8);
+  memcpy(leafes + 7 * 32, ssz_get(&ctx->data, "timestamp").bytes.data, 8);
+  // uint256 (32 bytes LE)
+  memcpy(leafes + 8 * 32, ssz_get(&ctx->data, "baseFeePerGas").bytes.data, 32);
+  // bytes32
+  memcpy(leafes + 9 * 32, ssz_get(&ctx->data, "blockHash").bytes.data, 32);
+  // uint64 fields
+  memcpy(leafes + 10 * 32, ssz_get(&ctx->data, "blobGasUsed").bytes.data, 8);
+  memcpy(leafes + 11 * 32, ssz_get(&ctx->data, "excessBlobGas").bytes.data, 8);
+
+  if (!ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, sizeof(leafes)), gindexes, body_root))
+    RETURN_VERIFY_ERROR(ctx, "invalid block header merkle proof!");
+  if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0)
+    RETURN_VERIFY_ERROR(ctx, "invalid body root!");
+  if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
+
   ctx->success = true;
   return true;
 }
