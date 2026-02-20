@@ -55,6 +55,7 @@ static const char* proofable_methods[] = {
     RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_blockNumber", Uint256, EthBlockNumberProof),
+    RPC_METHOD("eth_getBlockHeader", EthBlockHeaderData, EthBlockHeaderProof),
     RPC_METHOD("eth_newPendingTransactionFilter", Void, Void),
     RPC_METHOD("eth_newFilter", Void, Void),
     RPC_METHOD("eth_newBlockFilter", Void, Void),
