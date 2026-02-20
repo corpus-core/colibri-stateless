@@ -111,6 +111,7 @@ option(WASM "Build WebAssembly target" OFF)
 option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)
 option(C4_PYTHON "Build Python bindings" OFF) # NOTE: ESP-IDF passes -DPYTHON=<python-executable> to CMake. Do not use PYTHON as a boolean option name.
+option(DART "Build Dart bindings" OFF)
 option(TEST "Build the unit tests" OFF)
 option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
@@ -139,6 +140,15 @@ if(C4_PYTHON)
     set(CURL OFF CACHE BOOL "Disable CURL for Python bindings" FORCE)
     set(CLI OFF CACHE BOOL "Disable CLI tools for Python bindings" FORCE)
     message(STATUS "Python bindings enabled: CURL=OFF, CLI=OFF")
+endif()
+
+# Dart bindings configuration
+if(DART)
+    # Dart bindings disable CURL/CLI/HTTP server (HTTP is handled in Dart)
+    set(CURL OFF CACHE BOOL "Disable CURL for Dart bindings" FORCE)
+    set(CLI OFF CACHE BOOL "Disable CLI tools for Dart bindings" FORCE)
+    set(HTTP_SERVER OFF CACHE BOOL "Disable HTTP server for Dart bindings" FORCE)
+    message(STATUS "Dart bindings enabled: CURL=OFF, CLI=OFF, HTTP_SERVER=OFF")
 endif()
 
 # Android/Kotlin bindings configuration
@@ -384,6 +394,10 @@ endif()
 
 if(C4_PYTHON)
     add_subdirectory(bindings/python)
+endif()
+
+if(DART)
+    add_subdirectory(bindings/dart)
 endif()
 
 
