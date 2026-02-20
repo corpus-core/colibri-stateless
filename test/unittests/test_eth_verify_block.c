@@ -54,6 +54,10 @@ void test_block_number_electra() {
   run_rpc_test("eth_blockNumber_electra", C4_PROVER_FLAG_NO_CACHE);
 }
 
+void test_block_header() {
+  run_rpc_test("eth_getBlockHeader1", C4_PROVER_FLAG_NO_CACHE);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_block_by_number);
@@ -61,5 +65,6 @@ int main(void) {
   RUN_TEST(test_block_by_trusted_hash);
   RUN_TEST(test_block_electra);
   RUN_TEST(test_block_number_electra);
+  RUN_TEST(test_block_header);
   return UNITY_END();
 }

@@ -1,0 +1,19 @@
+{
+  "method":"eth_getBlockHeader",
+  "params":["latest"],
+  "chain_id": 1,
+  "expected_result": {
+  "parentHash":"0x067c9132eeb578d90d9177ebc0276dee459a1f9e898cf17bf048466d79ed276d",
+  "stateRoot":"0xa1659c40fcf789b5bfa7baaccc29c29d729e5c371479e70a685044d6feede7bf",
+  "receiptsRoot":"0x0824f07daa1858391c2a0d202a95412d6ed8b3ed080be52cdc89c556cb8c86ef",
+  "logsBloom":"0x73ed0b7751f4ffba139f7ffedbbb37e3fb77a6a6ad997af67f8a71cb7f7cd5f3f53ecdfdf7accb76fbff7fdfdee7c7dfff35f7e6fcbeefdf5ff787f6feff73d7ff2fb9fbff5b9f7bdc9f752afb69f4b734f57fdf477f4dfb7b73fd7ffaef96db7fefc5ae9a6f77d7fe7f9fb2afb6ddfbfbab65763ddea76ff2d9d35e7bdf7f9fe77777f83d4e9fbeb0bb3bd6a761dfd6dabb8f77fff5fb4f6efcdbf6ffffc7f83fff7fcf6ffef2ddfef9d7f49ef9bfeef4fefeefdab9768f8aea5e2affbd7fffefd5feffe94dffd53ef52f727bfdfffefd5c4edf3f58b7fcfeed7da3fde46e77d2bf7efeebefd9fe92fef4fcff5ff8d3a6bfbf22a77d9f69beffbfaf976dbebf",
+  "blockNumber":"0x175d310",
+  "gasLimit":"0x3938700",
+  "gasUsed":"0x1b309b7",
+  "timestamp":"0x69987d97",
+  "baseFeePerGas":"0x13d316c6",
+  "blockHash":"0x42160742644309f89d85b75c7adce32de7078a4d1697f50abdfa9e1352a79feb",
+  "blobGasUsed":"0x20000",
+  "excessBlobGas":"0xbaa3999"
+}
+}
