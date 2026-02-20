@@ -121,12 +121,8 @@ bool c4_op_verify(verify_ctx_t* ctx) {
     op_verify_receipt_proof(ctx);
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_LOGS_PROOF)))
     op_verify_logs_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_CALL_PROOF))) {
-    if (strcmp(ctx->method, "colibri_simulateTransaction") == 0)
-      op_verify_simulate_proof(ctx);
-    else
-      op_verify_call_proof(ctx);
-  }
+  else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_CALL_PROOF)))
+    op_verify_call_proof(ctx);
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_ACCOUNT_PROOF)))
     op_verify_account_proof(ctx);
   else if (c4_op_get_method_type(ctx->chain_id, ctx->method) == METHOD_LOCAL)

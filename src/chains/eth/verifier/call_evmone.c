@@ -487,32 +487,30 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
 }
 
 // Function to run EVM call with optional event capture
-INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides, uint64_t* gas_used) {
+INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool capture_events) {
   buffer_t       buffer  = {0};
   address_t      to      = {0};
   buffer_t       to_buf  = stack_buffer(to);
   evmone_message message = {0};
+  json_t         tx      = json_at(ctx->args, 0);
 
   // check calldata
   json_t tx_input = json_get(tx, "data");
   if (tx_input.type == JSON_TYPE_NOT_FOUND) tx_input = json_get(tx, "input");
-  if ((tx_input.type != JSON_TYPE_STRING || tx_input.len < 5) && ssz_len(accounts) == 0) {
-    // there are no call data, so we skip the execution
+  if ((tx_input.type != JSON_TYPE_STRING || tx_input.len < 5) && ssz_len(evm->accounts) == 0) {
     return C4_SUCCESS;
   }
-  // Check if the transaction has a "to" address
   if (json_get_bytes(tx, "to", &to_buf).len != 20) THROW_ERROR("Invalid transaction: to address is not 20 bytes");
 
-  // Initialize the EVM message
   set_message(&message, tx, &buffer);
 
   // is this a call to a precompile directly?
   if (bytes_all_zero(bytes(to, 19)) && to[19]) {
-    buffer_t     output     = {0};
-    uint64_t     gas_used   = 0;
-    pre_result_t pre_result = eth_execute_precompile(to, bytes(message.input_data, message.input_size), &output, &gas_used);
+    buffer_t     output         = {0};
+    uint64_t     precompile_gas = 0;
+    pre_result_t pre_result     = eth_execute_precompile(to, bytes(message.input_data, message.input_size), &output, &precompile_gas);
     buffer_free(&buffer);
-    *call_result = output.data;
+    evm->call_result = output.data;
     switch (pre_result) {
       case PRE_SUCCESS:
         return C4_SUCCESS;
@@ -536,12 +534,11 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
   void* executor = evmone_create_executor();
   if (!executor) THROW_ERROR("Error: Failed to create executor");
 
-  // Initialize our EVM context with state from the proof
   evmone_context_t context = {
       .executor       = executor,
       .ctx            = ctx,
-      .src_accounts   = accounts,
-      .call_codes     = call_codes,
+      .src_accounts   = evm->accounts,
+      .call_codes     = evm->call_codes,
       .account_states = NULL,
       .block_number   = 0,
       .block_hash     = {0},
@@ -554,7 +551,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
       .capture_events = capture_events,
   };
 
-  apply_state_overrides(&context, overrides);
+  apply_state_overrides(&context, &evm->overrides);
 
   bytes_t code = get_code(&context, to);
   EVM_LOG("Contract code size: %u bytes", (uint32_t) code.len);
@@ -573,23 +570,19 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_cod
   EVM_LOG("Gas left: %zu", (size_t) result.gas_left);
   EVM_LOG("Gas refund: %zu", (size_t) result.gas_refund);
 
-  // Report gas used to caller
-  if (gas_used)
-    *gas_used = (uint64_t) (message.gas - result.gas_left);
+  evm->gas_used = (uint64_t) (message.gas - result.gas_left);
 
   if (EVM_DEBUG && result.output_data && result.output_size > 0)
     print_hex(stderr, bytes(result.output_data, result.output_size), "[EVM] Output data: 0x", "\n");
 
-  // copy result
   if (!ctx->state.error)
-    *call_result = result.output_size ? bytes_dup(bytes(result.output_data, result.output_size)) : NULL_BYTES;
+    evm->call_result = result.output_size ? bytes_dup(bytes(result.output_data, result.output_size)) : NULL_BYTES;
   else
-    *call_result = NULL_BYTES;
+    evm->call_result = NULL_BYTES;
 
-  // Return captured logs if requested
-  if (logs && capture_events) {
-    *logs        = context.logs;
-    context.logs = NULL; // Prevent cleanup from freeing the logs
+  if (capture_events) {
+    evm->logs    = context.logs;
+    context.logs = NULL;
   }
 
   // Process the execution result

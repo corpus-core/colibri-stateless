@@ -31,11 +31,10 @@ extern "C" {
 #include "bytes.h"
 #include "eth_account.h"
 #include "ssz.h"
+#include "state_overrides.h"
 #include "verify.h"
 #include <stdlib.h>
 #include <string.h>
-
-typedef struct eth_state_overrides eth_state_overrides_t;
 
 #ifdef EVMONE
 #include "evmone_c_wrapper.h" // For evmc_address and evmc_bytes32
@@ -68,6 +67,26 @@ typedef struct emitted_log {
   size_t              topics_count; // Number of topics
   struct emitted_log* next;         // Linked list pointer
 } emitted_log_t;
+
+/**
+ * Shared context for EVM call verification (`eth_call`, `eth_estimateGas`, `colibri_simulateTransaction`).
+ *
+ * Holds all inputs, intermediate state, and outputs for the EVM execution.
+ * Cleanup via `evm_call_ctx_free()` frees all owned resources (overrides, call_codes,
+ * call_result, logs). Fields whose ownership was transferred to `ctx->data`
+ * must be zeroed before calling free.
+ */
+typedef struct evm_call_ctx {
+  ssz_ob_t              accounts;
+  call_code_t*          call_codes;
+  eth_state_overrides_t overrides;
+  bytes_t               call_result;
+  emitted_log_t*        logs;
+  uint64_t              gas_used;
+  bytes32_t             state_root;
+} evm_call_ctx_t;
+
+void evm_call_ctx_free(evm_call_ctx_t* evm);
 
 typedef struct evmone_context {
   void*            executor;
@@ -319,18 +338,16 @@ ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* log
 /**
  * Runs an EVM call with optional event capture and gas metering.
  *
+ * Reads `evm->accounts`, `evm->call_codes`, and `evm->overrides` as inputs.
+ * Writes results to `evm->call_result`, `evm->logs` (when `capture_events`),
+ * and `evm->gas_used`. The transaction is read from `ctx->args[0]`.
+ *
  * @param ctx the verification context
- * @param call_codes the call codes for the accounts
- * @param accounts the SSZ accounts object
- * @param tx the JSON transaction object
- * @param call_result output: the call result bytes
- * @param logs output: linked list of emitted logs (NULL to skip capture)
+ * @param evm call context with inputs populated, outputs written on return
  * @param capture_events whether to capture emitted events
- * @param overrides optional state overrides
- * @param gas_used output: gas consumed by the execution (NULL to skip)
  * @return C4_SUCCESS, C4_ERROR, or C4_PENDING
  */
-c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events, const eth_state_overrides_t* overrides, uint64_t* gas_used);
+c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool capture_events);
 
 #ifdef __cplusplus
 }
