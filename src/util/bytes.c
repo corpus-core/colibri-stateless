@@ -741,6 +741,7 @@ bytes_t bytes_remove_leading_zeros(bytes_t data) {
 
 bool bytes_eq(bytes_t a, bytes_t b) {
   if (a.len != b.len) return false;
+  if (a.data == NULL && b.data == NULL && a.len == 0 && b.len == 0) return true;
   if (!a.data || !b.data) return false;
   FOREACH_BYTE(a, i) {
     if (a.data[i] != b.data[i]) return false;
