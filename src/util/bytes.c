@@ -743,10 +743,7 @@ bool bytes_eq(bytes_t a, bytes_t b) {
   if (a.len != b.len) return false;
   if (a.data == NULL && b.data == NULL && a.len == 0 && b.len == 0) return true;
   if (!a.data || !b.data) return false;
-  FOREACH_BYTE(a, i) {
-    if (a.data[i] != b.data[i]) return false;
-  }
-  return true;
+  return memcmp(a.data, b.data, a.len) == 0;
 }
 uint64_t bytes_as_le(bytes_t data) {
   uint64_t result = 0;
