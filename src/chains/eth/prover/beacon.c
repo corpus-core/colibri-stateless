@@ -367,6 +367,7 @@ c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint
 #endif
 
 static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, bytes32_t sig_root, bytes32_t data_root) {
+  CHECK_JSON(block, block.len == 68 ? "bytes32" : "block", "block identifier");
 #ifdef PROVER_CACHE
   beacon_head_t* cached = c4_beacon_cache_get_slot(ctx, block);
   TRACE_ADD_STR(ctx, "block_tag_cached", cached ? "cached" : "missed");

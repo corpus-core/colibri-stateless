@@ -55,6 +55,9 @@ static const char* proofable_methods[] = {
     RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_blockNumber", Uint256, EthBlockNumberProof),
+    RPC_METHOD("eth_getBlockHeader", EthBlockHeaderData, EthBlockHeaderProof),
+    RPC_METHOD("eth_blobBaseFee", Uint256, EthBlockHeaderProof),
+    RPC_METHOD("eth_maxPriorityFeePerGas", Uint256, EthBlockHeaderProof),
     RPC_METHOD("eth_newPendingTransactionFilter", Void, Void),
     RPC_METHOD("eth_newFilter", Void, Void),
     RPC_METHOD("eth_newBlockFilter", Void, Void),
@@ -80,7 +83,6 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_getBlockTransactionCountByHash", Void, Void),
     RPC_METHOD("eth_getBlockTransactionCountByNumber", Void, Void),
     RPC_METHOD("eth_feeHistory", Void, Void),
-    RPC_METHOD("eth_blobBaseFee", Uint64, EthBlockHeaderProof),
     RPC_METHOD("eth_createAccessList", EthAccessData, EthCallProof),
     RPC_METHOD("eth_gasPrice", Void, Void),
     RPC_METHOD("eth_getBlockReceipts", Void, Void),
@@ -88,7 +90,6 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_getUncleByBlockNumber", Void, Void),
     RPC_METHOD("eth_getUncleCountByBlockHash", Void, Void),
     RPC_METHOD("eth_getUncleCountByBlockNumber", Void, Void),
-    RPC_METHOD("eth_maxPriorityFeePerGas", Void, Void),
     RPC_METHOD("eth_sendRawTransaction", Void, Void),
 };
 
@@ -148,6 +149,8 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
     verify_block_proof(ctx);
   else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF)))
     verify_block_number_proof(ctx);
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF)))
+    verify_block_header_proof(ctx);
   else
 #endif
 #ifdef ETH_UTIL

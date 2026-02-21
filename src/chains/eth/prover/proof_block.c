@@ -104,3 +104,54 @@ c4_status_t c4_proof_block_number(prover_ctx_t* ctx) {
 
   return C4_SUCCESS;
 }
+
+c4_status_t c4_proof_block_header(prover_ctx_t* ctx) {
+  beacon_block_t    block          = {0};
+  bytes32_t         body_root      = {0};
+  ssz_builder_t     header_proof   = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF);
+  ssz_builder_t     data           = ssz_builder_for_type(ETH_SSZ_DATA_BLOCK_HEADER);
+  blockroot_proof_t historic_proof = {0};
+  ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
+  json_t            block_arg      = json_len(ctx->params) > 0 ? json_at(ctx->params, 0) : json_parse("\"latest\"");
+
+  // fetch the block (default to "latest" if no params given, e.g. for eth_blobBaseFee)
+  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_arg, &block));
+  TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
+  TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
+
+  // create multi-merkle proof for 12 selected execution payload fields
+  const gindex_t* gi                      = c4_block_header_gindexes(ctx->chain_id, ssz_get_uint64(&block.header, "slot"));
+  bytes_t         execution_payload_proof = ssz_create_multi_proof(block.body, body_root, BLOCK_HEADER_FIELD_COUNT,
+                                                                   gi[0], gi[1], gi[2], gi[3], gi[4], gi[5],
+                                                                   gi[6], gi[7], gi[8], gi[9], gi[10], gi[11]);
+
+  // build the data
+  ssz_add_bytes(&data, "parentHash", ssz_get(&block.execution, "parentHash").bytes);
+  ssz_add_bytes(&data, "stateRoot", ssz_get(&block.execution, "stateRoot").bytes);
+  ssz_add_bytes(&data, "receiptsRoot", ssz_get(&block.execution, "receiptsRoot").bytes);
+  ssz_add_bytes(&data, "logsBloom", ssz_get(&block.execution, "logsBloom").bytes);
+  ssz_add_bytes(&data, "blockNumber", ssz_get(&block.execution, "blockNumber").bytes);
+  ssz_add_bytes(&data, "gasLimit", ssz_get(&block.execution, "gasLimit").bytes);
+  ssz_add_bytes(&data, "gasUsed", ssz_get(&block.execution, "gasUsed").bytes);
+  ssz_add_bytes(&data, "timestamp", ssz_get(&block.execution, "timestamp").bytes);
+  ssz_add_bytes(&data, "baseFeePerGas", ssz_get(&block.execution, "baseFeePerGas").bytes);
+  ssz_add_bytes(&data, "blockHash", ssz_get(&block.execution, "blockHash").bytes);
+  ssz_add_bytes(&data, "blobGasUsed", ssz_get(&block.execution, "blobGasUsed").bytes);
+  ssz_add_bytes(&data, "excessBlobGas", ssz_get(&block.execution, "excessBlobGas").bytes);
+
+  // build the proof
+  ssz_add_bytes(&header_proof, "proof", execution_payload_proof);
+  ssz_add_builders(&header_proof, "header", c4_proof_add_header(block.header, body_root));
+  ssz_add_header_proof(&header_proof, &block, historic_proof);
+  safe_free(execution_payload_proof.data);
+
+  ctx->proof = eth_create_proof_request(
+      ctx->chain_id,
+      data,
+      header_proof,
+      sync_proof);
+
+  c4_free_block_proof(&historic_proof);
+
+  return C4_SUCCESS;
+}

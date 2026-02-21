@@ -264,7 +264,7 @@ gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2);
  * @param out Output buffer for the computed root hash (32 bytes)
  * @return true if the proof is valid, false otherwise
  */
-bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out);
+bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, const gindex_t* gindex, bytes32_t out);
 
 /**
  * Verifies a single-leaf Merkle proof and computes the root hash.
