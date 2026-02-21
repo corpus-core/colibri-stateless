@@ -24,6 +24,7 @@ bindings/kotlin/*.log
 *.log
 *.exitcode
 sync_1*
+!test/data/**/sync_1*
 .cache
 **/.cache
 # Generated config files
