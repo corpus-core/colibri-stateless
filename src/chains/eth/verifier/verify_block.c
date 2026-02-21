@@ -192,16 +192,19 @@ bool verify_block_number_proof(verify_ctx_t* ctx) {
   return true;
 }
 
-// EIP-4844 blob base fee calculation using 128-bit arithmetic to avoid overflow
+// EIP-4844 blob base fee: factor * e^(numerator/denominator) via Taylor series.
+// Uses (a*b)/c = (a/c)*b + (a%c)*b/c to avoid 128-bit intermediate values.
 static uint64_t fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator) {
-  __uint128_t i = 1, output = 0;
-  __uint128_t numerator_accum = (__uint128_t) factor * denominator;
+  uint64_t i = 1, output = 0, numerator_accum = factor * denominator;
   while (numerator_accum > 0) {
     output += numerator_accum;
-    numerator_accum = (numerator_accum * numerator) / (denominator * i);
+    uint64_t div = denominator * i;
+    uint64_t q   = numerator_accum / div;
+    uint64_t r   = numerator_accum % div;
+    numerator_accum = q * numerator + r * numerator / div;
     i++;
   }
-  return (uint64_t) (output / denominator);
+  return output / denominator;
 }
 
 static bool is_block_header_method(const char* method) {
