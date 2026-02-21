@@ -1,19 +1,21 @@
 {
-  "method":"eth_getBlockHeader",
-  "params":["latest"],
+  "method": "eth_getBlockHeader",
+  "params": [
+    "latest"
+  ],
   "chain_id": 1,
   "expected_result": {
-  "parentHash":"0xc2d3eaa71be3fbde40bf8719df09301d4a2294e0d317035a09bbd651000d66c4",
-  "stateRoot":"0x79f4f5032368e035dbcd861c00a26c9894c78724dc30b2354746c551ec1bc099",
-  "receiptsRoot":"0x2805804bda2d93e445c98088b3706faf587761779241866727970685220c5f88",
-  "logsBloom":"0x577bd1f6c94f68f5ff7bfbfefffb73f8df5b8ecedf737d747e8913df7ce8fc2fbadd45f7fbaca9efdffd7fcdc3ee078f37f3f7acff4efda57ff7b7ffbf3e47cb3de934a636d87bffe9d2e5fdcf5977f330e7b4ff3fd5ed7e3d767effeaf77a87dfddf2ccdb7f9ffe9d1efff16ca5acedbbef7ff27fd5177f1fa45f9f5c0b56fdfb6f9efb7fe4daf9e9de7ef18f77fdbefc899a1ff9e1f99b7e39acf2f8fc77ef6ff63d7a5bfdfbf7bfd7f7f3bffebef9bec6c87fb6d9cecdc5ed9779ad8dfffbfb1f987f5c7fdffe6f7d1ef5677c7dbffa2d275f678f3f734faf99761cffef7f48f7fe7ac130280fddf9b6a1fbffffe7f77ff95acdfadee9fd19f1d655f6f5f3",
-  "blockNumber":"0x175d764",
-  "gasLimit":"0x3938700",
-  "gasUsed":"0x24c668a",
-  "timestamp":"0x6998b1c3",
-  "baseFeePerGas":"0x2fbf493",
-  "blockHash":"0x8172dcd8215f02003cd251864652a00bf9b011861a15324ac6b48281a912253f",
-  "blobGasUsed":"0x100000",
-  "excessBlobGas":"0xa6838a7"
-}
+    "parentHash": "0xc2d3eaa71be3fbde40bf8719df09301d4a2294e0d317035a09bbd651000d66c4",
+    "stateRoot": "0x79f4f5032368e035dbcd861c00a26c9894c78724dc30b2354746c551ec1bc099",
+    "receiptsRoot": "0x2805804bda2d93e445c98088b3706faf587761779241866727970685220c5f88",
+    "logsBloom": "0x577bd1f6c94f68f5ff7bfbfefffb73f8df5b8ecedf737d747e8913df7ce8fc2fbadd45f7fbaca9efdffd7fcdc3ee078f37f3f7acff4efda57ff7b7ffbf3e47cb3de934a636d87bffe9d2e5fdcf5977f330e7b4ff3fd5ed7e3d767effeaf77a87dfddf2ccdb7f9ffe9d1efff16ca5acedbbef7ff27fd5177f1fa45f9f5c0b56fdfb6f9efb7fe4daf9e9de7ef18f77fdbefc899a1ff9e1f99b7e39acf2f8fc77ef6ff63d7a5bfdfbf7bfd7f7f3bffebef9bec6c87fb6d9cecdc5ed9779ad8dfffbfb1f987f5c7fdffe6f7d1ef5677c7dbffa2d275f678f3f734faf99761cffef7f48f7fe7ac130280fddf9b6a1fbffffe7f77ff95acdfadee9fd19f1d655f6f5f3",
+    "blockNumber": "0x175d764",
+    "gasLimit": "0x3938700",
+    "gasUsed": "0x24c668a",
+    "timestamp": "0x6998b1c3",
+    "baseFeePerGas": "0x2fbf493",
+    "blockHash": "0x8172dcd8215f02003cd251864652a00bf9b011861a15324ac6b48281a912253f",
+    "blobGasUsed": "0x100000",
+    "excessBlobGas": "0xa6838a7"
+  }
 }
