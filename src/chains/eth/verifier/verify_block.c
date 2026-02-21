@@ -198,9 +198,9 @@ static uint64_t fake_exponential(uint64_t factor, uint64_t numerator, uint64_t d
   uint64_t i = 1, output = 0, numerator_accum = factor * denominator;
   while (numerator_accum > 0) {
     output += numerator_accum;
-    uint64_t div = denominator * i;
-    uint64_t q   = numerator_accum / div;
-    uint64_t r   = numerator_accum % div;
+    uint64_t div    = denominator * i;
+    uint64_t q      = numerator_accum / div;
+    uint64_t r      = numerator_accum % div;
     numerator_accum = q * numerator + r * numerator / div;
     i++;
   }
@@ -208,9 +208,7 @@ static uint64_t fake_exponential(uint64_t factor, uint64_t numerator, uint64_t d
 }
 
 static bool is_block_header_method(const char* method) {
-  return strcmp(method, "eth_getBlockHeader") == 0
-      || strcmp(method, "eth_blobBaseFee") == 0
-      || strcmp(method, "eth_maxPriorityFeePerGas") == 0;
+  return strcmp(method, "eth_getBlockHeader") == 0 || strcmp(method, "eth_blobBaseFee") == 0 || strcmp(method, "eth_maxPriorityFeePerGas") == 0;
 }
 
 bool verify_block_header_proof(verify_ctx_t* ctx) {
@@ -254,14 +252,14 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
     ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
     ssz_add_uint64(&builder, fee);
     buffer_append(&builder.fixed, bytes(NULL, 24));
-    ctx->data  = ssz_builder_to_bytes(&builder);
+    ctx->data = ssz_builder_to_bytes(&builder);
     ctx->flags |= VERIFY_FLAG_FREE_DATA;
   }
   else if (strcmp(ctx->method, "eth_maxPriorityFeePerGas") == 0) {
     ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
     ssz_add_uint64(&builder, 1000000000ULL);
     buffer_append(&builder.fixed, bytes(NULL, 24));
-    ctx->data  = ssz_builder_to_bytes(&builder);
+    ctx->data = ssz_builder_to_bytes(&builder);
     ctx->flags |= VERIFY_FLAG_FREE_DATA;
   }
 
