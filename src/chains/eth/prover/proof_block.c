@@ -112,17 +112,18 @@ c4_status_t c4_proof_block_header(prover_ctx_t* ctx) {
   ssz_builder_t     data           = ssz_builder_for_type(ETH_SSZ_DATA_BLOCK_HEADER);
   blockroot_proof_t historic_proof = {0};
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
+  json_t            block_arg      = json_len(ctx->params) > 0 ? json_at(ctx->params, 0) : json_parse("\"latest\"");
 
-  // fetch the block
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_at(ctx->params, 0), &block));
+  // fetch the block (default to "latest" if no params given, e.g. for eth_blobBaseFee)
+  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_arg, &block));
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
   // create multi-merkle proof for 12 selected execution payload fields
-  const gindex_t* gi                       = c4_block_header_gindexes(ctx->chain_id, ssz_get_uint64(&block.header, "slot"));
+  const gindex_t* gi                      = c4_block_header_gindexes(ctx->chain_id, ssz_get_uint64(&block.header, "slot"));
   bytes_t         execution_payload_proof = ssz_create_multi_proof(block.body, body_root, BLOCK_HEADER_FIELD_COUNT,
-                                                                    gi[0], gi[1], gi[2], gi[3], gi[4], gi[5],
-                                                                    gi[6], gi[7], gi[8], gi[9], gi[10], gi[11]);
+                                                                   gi[0], gi[1], gi[2], gi[3], gi[4], gi[5],
+                                                                   gi[6], gi[7], gi[8], gi[9], gi[10], gi[11]);
 
   // build the data
   ssz_add_bytes(&data, "parentHash", ssz_get(&block.execution, "parentHash").bytes);

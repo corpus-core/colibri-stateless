@@ -192,12 +192,30 @@ bool verify_block_number_proof(verify_ctx_t* ctx) {
   return true;
 }
 
+// EIP-4844 blob base fee calculation using 128-bit arithmetic to avoid overflow
+static uint64_t fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator) {
+  __uint128_t i = 1, output = 0;
+  __uint128_t numerator_accum = (__uint128_t) factor * denominator;
+  while (numerator_accum > 0) {
+    output += numerator_accum;
+    numerator_accum = (numerator_accum * numerator) / (denominator * i);
+    i++;
+  }
+  return (uint64_t) (output / denominator);
+}
+
+static bool is_block_header_method(const char* method) {
+  return strcmp(method, "eth_getBlockHeader") == 0
+      || strcmp(method, "eth_blobBaseFee") == 0
+      || strcmp(method, "eth_maxPriorityFeePerGas") == 0;
+}
+
 bool verify_block_header_proof(verify_ctx_t* ctx) {
   if (!ssz_is_type(&ctx->data, eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_HEADER)))
     RETURN_VERIFY_ERROR(ctx, "invalid data type for block header proof");
-  if (!ctx->method || strcmp(ctx->method, "eth_getBlockHeader") != 0)
+  if (!ctx->method || !is_block_header_method(ctx->method))
     RETURN_VERIFY_ERROR(ctx, "method mismatch for block header proof");
-  if (json_len(ctx->args) != 1)
+  if (json_len(ctx->args) > 1)
     RETURN_VERIFY_ERROR(ctx, "invalid arguments for block header proof");
 
   bytes32_t       body_root                             = {0};
@@ -226,7 +244,23 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0)
     RETURN_VERIFY_ERROR(ctx, "invalid body root!");
   if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
-  if (!matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
+  if (json_len(ctx->args) >= 1 && !matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
+
+  if (strcmp(ctx->method, "eth_blobBaseFee") == 0) {
+    uint64_t      fee     = fake_exponential(1, ssz_get_uint64(&ctx->data, "excessBlobGas"), 3338477);
+    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+    ssz_add_uint64(&builder, fee);
+    buffer_append(&builder.fixed, bytes(NULL, 24));
+    ctx->data  = ssz_builder_to_bytes(&builder);
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+  else if (strcmp(ctx->method, "eth_maxPriorityFeePerGas") == 0) {
+    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+    ssz_add_uint64(&builder, 1000000000ULL);
+    buffer_append(&builder.fixed, bytes(NULL, 24));
+    ctx->data  = ssz_builder_to_bytes(&builder);
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
 
   ctx->success = true;
   return true;
