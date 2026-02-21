@@ -132,4 +132,7 @@ inline static bool is_gnosis_chain(chain_id_t chain_id) {
   return chain_id == C4_CHAIN_GNOSIS || chain_id == C4_CHAIN_GNOSIS_CHIADO;
 }
 
+#define BLOCK_HEADER_FIELD_COUNT 12
+const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot);
+
 #endif

@@ -532,7 +532,7 @@ typedef struct {
   uint32_t  witnesses_len;
 
   bytes_t   leafes_data;
-  gindex_t* leafes_gindex;
+  const gindex_t* leafes_gindex;
   uint32_t  leafes_len;
 } merkle_proof_data_t;
 
@@ -592,7 +592,7 @@ static bool merkle_proof(merkle_proof_data_t* proof, gindex_t start, gindex_t en
   return true;
 }
 
-bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out) {
+bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, const gindex_t* gindex, bytes32_t out) {
   buffer_t witnesses_gindex  = {0};
   buffer_t calculated_gindex = {0};
   for (uint32_t i = 0; i < leafes.len / 32; i++)

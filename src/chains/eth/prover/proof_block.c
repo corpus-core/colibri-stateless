@@ -119,19 +119,10 @@ c4_status_t c4_proof_block_header(prover_ctx_t* ctx) {
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
   // create multi-merkle proof for 12 selected execution payload fields
-  bytes_t execution_payload_proof = ssz_create_multi_proof(block.body, body_root, 12,
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "parentHash"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "stateRoot"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "receiptsRoot"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "logsBloom"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "gasLimit"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "gasUsed"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "timestamp"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "baseFeePerGas"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "blobGasUsed"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "excessBlobGas"));
+  const gindex_t* gi                       = c4_block_header_gindexes(ctx->chain_id, ssz_get_uint64(&block.header, "slot"));
+  bytes_t         execution_payload_proof = ssz_create_multi_proof(block.body, body_root, BLOCK_HEADER_FIELD_COUNT,
+                                                                    gi[0], gi[1], gi[2], gi[3], gi[4], gi[5],
+                                                                    gi[6], gi[7], gi[8], gi[9], gi[10], gi[11]);
 
   // build the data
   ssz_add_bytes(&data, "parentHash", ssz_get(&block.execution, "parentHash").bytes);
