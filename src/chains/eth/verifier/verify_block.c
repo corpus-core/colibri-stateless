@@ -120,9 +120,15 @@ void eth_set_block_data(verify_ctx_t* ctx, uint32_t mask, ssz_ob_t block, bytes3
 }
 
 static bool matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_block) {
-  if (req_block.type != JSON_TYPE_STRING || req_block.len < 6) RETURN_VERIFY_ERROR(ctx, "invalid blocknumber");
-  if (req_block.start[1] != '0' || req_block.start[2] != 'x') return true;
-  if (req_block.len == 68) { // hash
+  const char* err = json_validate(req_block, req_block.len == 68 ? "bytes32" : "block", "params[0]");
+  if (err) {
+    c4_state_add_error(&ctx->state, err);
+    safe_free((void*) err);
+    ctx->success = false;
+    return false;
+  }
+  if (req_block.start[1] != '0' || req_block.start[2] != 'x') return true; // already validated as 'latest' or 'finalized'
+  if (req_block.len == 68) {                                               // hash
     bytes32_t hash = {0};
     buffer_t  buf  = stack_buffer(hash);
     json_as_bytes(req_block, &buf);
@@ -187,6 +193,13 @@ bool verify_block_number_proof(verify_ctx_t* ctx) {
 }
 
 bool verify_block_header_proof(verify_ctx_t* ctx) {
+  if (!ssz_is_type(&ctx->data, eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_HEADER)))
+    RETURN_VERIFY_ERROR(ctx, "invalid data type for block header proof");
+  if (!ctx->method || strcmp(ctx->method, "eth_getBlockHeader") != 0)
+    RETURN_VERIFY_ERROR(ctx, "method mismatch for block header proof");
+  if (json_len(ctx->args) != 1)
+    RETURN_VERIFY_ERROR(ctx, "invalid arguments for block header proof");
+
   bytes32_t       body_root                             = {0};
   ssz_ob_t        proof                                 = ssz_get(&ctx->proof, "proof");
   ssz_ob_t        header                                = ssz_get(&ctx->proof, "header");
@@ -213,6 +226,7 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0)
     RETURN_VERIFY_ERROR(ctx, "invalid body root!");
   if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
+  if (!matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
 
   ctx->success = true;
   return true;
