@@ -271,7 +271,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
   bytes_t       request     = {0};
-  method_type_t method_type = c4_get_method_type(chain_id, method, json_parse((char*) args.data.data));
+  method_type_t method_type = c4_get_method_type(chain_id, method, json_parse((char*) args.data.data), 0);
   switch (method_type) {
     case METHOD_UNDEFINED:
       fprintf(stderr, "method not known: %s\n", method);

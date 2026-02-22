@@ -14,6 +14,7 @@ from .types import (
     DataRequest,
     HTTPError,
     MethodType,
+    PrivacyMode,
     ProofError,
     RPCError,
     VerificationError,
@@ -50,6 +51,7 @@ class Colibri:
         checkpointz: List[str] = None,
         trusted_checkpoint: Optional[str] = None,
         include_code: bool = False,
+        privacy_mode: Optional[PrivacyMode] = None,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
     ):
@@ -64,6 +66,7 @@ class Colibri:
             checkpointz: List of checkpointz server URLs
             trusted_checkpoint: Optional trusted checkpoint as hex string (0x-prefixed, 66 chars)
             include_code: Whether to include code in proofs
+            privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
             storage: Storage implementation (defaults to DefaultStorage)
             request_handler: Optional request handler for testing
         """
@@ -75,6 +78,7 @@ class Colibri:
         self.checkpointz = checkpointz if checkpointz is not None else self._get_default_checkpointz(chain_id)
         self.trusted_checkpoint = trusted_checkpoint
         self.include_code = include_code
+        self.privacy_mode = privacy_mode if privacy_mode is not None else PrivacyMode.NONE
         self.request_handler = request_handler
 
         # Initialize storage - registration is global in C
@@ -138,6 +142,10 @@ class Colibri:
         }
         return defaults.get(chain_id, [])
 
+    def _get_verify_flags(self) -> int:
+        """Return verify flags for C API (e.g. VERIFY_FLAG_PAP = 2 for BASIC)."""
+        return 2 if self.privacy_mode == PrivacyMode.BASIC else 0
+
     def get_method_support(self, method: str, params: Optional[List[Any]] = None) -> MethodType:
         """
         Check what type of support a method has.
@@ -154,7 +162,7 @@ class Colibri:
             try:
                 import json
                 params_str = json.dumps(params) if params else ""
-                type_int = native.get_method_support(self.chain_id, method, params_str)
+                type_int = native.get_method_support(self.chain_id, method, params_str, self._get_verify_flags())
                 return MethodType(type_int)
             except (ValueError, TypeError):
                 return MethodType.UNDEFINED

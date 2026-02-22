@@ -213,6 +213,7 @@ void c4_verify_free_ctx(void* ptr) {
   free(ctx);
 }
 
-int c4_get_method_support(uint64_t chain_id, char* method, char* params) {
-  return (int) c4_get_method_type((chain_id_t) chain_id, method, params ? json_parse(params) : (json_t) {0});
+int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags) {
+  return (int) c4_get_method_type((chain_id_t) chain_id, method,
+      params ? json_parse(params) : (json_t) {0}, (verify_flags_t) flags);
 }

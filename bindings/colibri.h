@@ -1140,6 +1140,7 @@ void c4_verify_free_ctx(void* ctx);
  * @param method The Ethereum RPC method name (e.g., "eth_getBalance")
  * @param params The method parameters as a JSON array string (e.g., `[{"to":"0x...","data":"0x..."}, "latest"]`),
  *               or NULL if not available. Used in PAP mode to check cached data availability.
+ * @param flags Verify flags (e.g. 2 for VERIFY_FLAG_PAP / PAP basic mode). Use 0 for default.
  * @return Method support type (see table below)
  *
  * **Return Values**:
@@ -1171,7 +1172,7 @@ void c4_verify_free_ctx(void* ctx);
  * **Example**:
  * ```c
  * int support = c4_get_method_support(1, "eth_getBalance",
- *     "[\"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\", \"latest\"]");
+ *     "[\"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\", \"latest\"]", 0);
  *
  * switch (support) {
  *     case 1: // PROOFABLE
@@ -1192,4 +1193,4 @@ void c4_verify_free_ctx(void* ctx);
  * }
  * ```
  */
-int c4_get_method_support(uint64_t chain_id, char* method, char* params);
+int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags);

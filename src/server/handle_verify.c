@@ -267,7 +267,7 @@ static void prover_callback(client_t* client, void* data, data_request_t* req) {
   }
 
   // For proofable methods, we must have a proof
-  if (!req->response.data && c4_get_method_type(http_server.chain_id, verify_req->method, verify_req->params) == METHOD_PROOFABLE) {
+  if (!req->response.data && c4_get_method_type(http_server.chain_id, verify_req->method, verify_req->params, 0) == METHOD_PROOFABLE) {
     buffer_t buffer = {0};
     bprintf(&buffer, "{\"id\": %J, \"error\":\"Internal prover error: no proof available\"}", verify_req->id);
     c4_http_respond(client, 200, "application/json", buffer.data);
@@ -348,7 +348,7 @@ bool c4_handle_verify_request(client_t* client) {
     verify_req->method = bprintf(NULL, "%j", method);
 
   // Determine method type and start Phase 1 (proof retrieval/generation)
-  switch (c4_get_method_type(http_server.chain_id, verify_req->method, verify_req->params)) {
+  switch (c4_get_method_type(http_server.chain_id, verify_req->method, verify_req->params, 0)) {
 
     case METHOD_UNDEFINED: {
       free_verify_request(verify_req);

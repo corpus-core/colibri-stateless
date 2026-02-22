@@ -191,6 +191,13 @@ public struct DataRequest {
     }
 }
 
+// MARK: - Privacy Mode
+/// Pragmatic Adaptive Privacy mode. BASIC sets verify flag for PAP.
+public enum PrivacyMode: String, CaseIterable {
+    case none
+    case basic
+}
+
 // MARK: - Method Types
 public enum MethodType: Int, CaseIterable {
     case UNKNOWN = 0
@@ -219,7 +226,9 @@ public class Colibri {
     public var trustedCheckpoint: String? = nil
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
-    
+    /// PAP mode; .basic sets verify flag for Pragmatic Adaptive Privacy.
+    public var privacyMode: PrivacyMode = .none
+
     /// Optional request handler for mocking HTTP requests in tests
     public var requestHandler: RequestHandler?
 
@@ -253,7 +262,8 @@ public class Colibri {
         }
         defer { if let p = paramsCStr { free(p) } }
 
-        let typeRaw = c4_get_method_support(chainId, methodCStr, paramsCStr)
+        let flags: UInt32 = privacyMode == .basic ? 2 : 0
+        let typeRaw = c4_get_method_support(chainId, methodCStr, paramsCStr, flags)
         guard let type = MethodType(rawValue: Int(typeRaw)) else {
             print("Warning: Unknown method type raw value \(typeRaw) returned from c4_get_method_support for method \(method)")
             return .UNKNOWN

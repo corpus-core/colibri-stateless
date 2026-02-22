@@ -171,16 +171,19 @@ void c4_verify_free_data(verify_ctx_t* ctx);
 c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id);
 
 /**
- * get the method type for a given chain-id, method and params.
+ * get the method type for a given chain-id, method, params and verify flags.
  *
  * The params are used in PAP mode to check whether cached data is available,
  * which may change the returned method type (e.g. PROOFABLE to LOCAL).
+ * The flags (e.g. VERIFY_FLAG_PAP) must be passed because this function is
+ * called before the verify context exists.
  *
  * @param chain_id the chain-id
  * @param method the rpc-method name
  * @param params the rpc-params as parsed json array (may be empty)
+ * @param flags verify flags (e.g. VERIFY_FLAG_PAP for PAP mode)
  */
-method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t params);
+method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags);
 
 #pragma endregion
 #ifdef MESSAGES

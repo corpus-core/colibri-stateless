@@ -6,6 +6,12 @@ from enum import IntEnum
 from typing import Any, Dict, List, Optional
 
 
+class PrivacyMode(IntEnum):
+    """Pragmatic Adaptive Privacy mode. BASIC sets verify flag for PAP."""
+    NONE = 0
+    BASIC = 1
+
+
 class MethodType(IntEnum):
     """Enum for RPC method support types"""
     UNDEFINED = 0      # Method is not defined/recognized

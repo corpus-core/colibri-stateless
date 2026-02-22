@@ -49,6 +49,12 @@ enum class MethodType(val value: Int) {
     }
 }
 
+/** Pragmatic Adaptive Privacy mode. BASIC sets verify flag for PAP. */
+enum class PrivacyMode {
+    NONE,
+    BASIC
+}
+
 // Custom Exception for Colibri errors
 class ColibriException(message: String) : RuntimeException(message)
 
@@ -75,6 +81,7 @@ class Colibri(
     var checkpointz: Array<String> = arrayOf("https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"), // Default checkpointz servers
     var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
+    var privacyMode: PrivacyMode = PrivacyMode.NONE, // PAP mode; BASIC sets verify flag
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
     companion object {
@@ -126,7 +133,8 @@ class Colibri(
      */
     suspend fun getMethodSupport(method: String, params: String? = null): MethodType {
          return withContext(Dispatchers.IO) {
-             val typeInt = com.corpuscore.colibri.c4.c4_get_method_support(chainId, method, params ?: "")
+             val flags = if (privacyMode == PrivacyMode.BASIC) 2 else 0
+             val typeInt = com.corpuscore.colibri.c4.c4_get_method_support(chainId, method, params ?: "", flags)
              MethodType.fromInt(typeInt)
          }
     }

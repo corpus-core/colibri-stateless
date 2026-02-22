@@ -97,6 +97,7 @@ export default class C4Client {
   private subscriptionManager: SubscriptionManager;
   private initMap: Map<number | string, boolean> = new Map();
   private flags: number = 0;
+  private verify_flags: number = 0;
 
   // Protect against prototype pollution by freezing critical methods
   private static readonly CRITICAL_METHODS = ['rpc', 'request', 'verifyProof', 'createProof'] as const;
@@ -142,6 +143,9 @@ export default class C4Client {
     PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'prover', 'checkpointz']);
 
     this.config = baseConfig;
+
+    if (this.config.include_code) this.flags |= 1;
+    if (this.config.privacy_mode === 'basic') this.verify_flags |= 2;
 
     if (!this.config.warningHandler)
       this.config.warningHandler = async (req: RequestArguments, message: string) => console.warn(message)
@@ -202,7 +206,8 @@ export default class C4Client {
     const method_type = c4w._c4w_get_method_type(
       BigInt(this.config.chainId),
       as_char_ptr(method, c4w, free_buffers),
-      paramsStr ? as_char_ptr(paramsStr, c4w, free_buffers) : 0
+      paramsStr ? as_char_ptr(paramsStr, c4w, free_buffers) : 0,
+      this.verify_flags
     );
     free_buffers.forEach(ptr => c4w._free(ptr));
     return method_type as C4MethodType;
