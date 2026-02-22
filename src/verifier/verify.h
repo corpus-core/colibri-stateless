@@ -80,6 +80,7 @@ typedef uint32_t verify_flags_t;
  */
 typedef enum {
   VERIFY_FLAG_FREE_DATA = 1 << 0, // if set, the data section will be freed after verification. This flag is set when the verifier generates the actual result data from the proof and needs cleanup afterwards.
+  VERIFY_FLAG_PAP       = 1 << 1, // if set, Pragmatic Adaptive Privacy mode is active. The verifier may use cached storage values for optimistic execution and verify them afterwards.
 } verify_flag_t;
 
 /**
@@ -170,9 +171,16 @@ void c4_verify_free_data(verify_ctx_t* ctx);
 c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id);
 
 /**
- * get the method type for a given chain-id and method.
+ * get the method type for a given chain-id, method and params.
+ *
+ * The params are used in PAP mode to check whether cached data is available,
+ * which may change the returned method type (e.g. PROOFABLE to LOCAL).
+ *
+ * @param chain_id the chain-id
+ * @param method the rpc-method name
+ * @param params the rpc-params as parsed json array (may be empty)
  */
-method_type_t c4_get_method_type(chain_id_t chain_id, char* method);
+method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t params);
 
 #pragma endregion
 #ifdef MESSAGES

@@ -63,7 +63,7 @@ export class ProviderRpcError extends Error {
 
 export interface ColibriClient {
     rpc(method: string, params: any[], method_type?: MethodType): Promise<any>;
-    getMethodSupport(method: string): Promise<MethodType>;
+    getMethodSupport(method: string, args?: any[]): Promise<MethodType>;
 }
 
 export type FetchRpc = (urls: string[], payload: any, as_proof: boolean) => Promise<any>;

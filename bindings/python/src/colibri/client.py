@@ -138,20 +138,23 @@ class Colibri:
         }
         return defaults.get(chain_id, [])
 
-    def get_method_support(self, method: str) -> MethodType:
+    def get_method_support(self, method: str, params: Optional[List[Any]] = None) -> MethodType:
         """
-        Check what type of support a method has
-        
-        Args:
-            method: RPC method name
-            
-        Returns:
-            MethodType indicating the support level
+        Check what type of support a method has.
+
+        In PAP mode the result may depend on cached data for the given params
+        (e.g. `eth_call` can become LOCAL when storage values are cached).
+
+        @param method RPC method name
+        @param params Optional method parameters (used in PAP mode for cache lookup)
+        @return MethodType indicating the support level
         """
         native = _get_native()
         if native and hasattr(native, 'get_method_support'):
             try:
-                type_int = native.get_method_support(self.chain_id, method)
+                import json
+                params_str = json.dumps(params) if params else ""
+                type_int = native.get_method_support(self.chain_id, method, params_str)
                 return MethodType(type_int)
             except (ValueError, TypeError):
                 return MethodType.UNDEFINED
@@ -321,7 +324,7 @@ class Colibri:
         Raises:
             ColibriError: If the RPC call fails
         """
-        method_type = self.get_method_support(method)
+        method_type = self.get_method_support(method, params)
         
         if method_type == MethodType.PROOFABLE:
             # Try to fetch proof from prover first

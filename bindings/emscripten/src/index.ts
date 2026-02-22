@@ -192,12 +192,18 @@ export default class C4Client {
   /**
    * Checks whether the RPC method is supported or proofable.
    * @param method - The method to check
+   * @param args - Optional method arguments (used in PAP mode to check cached data availability)
    * @returns The method type
    */
-  async getMethodSupport(method: string): Promise<C4MethodType> {
+  async getMethodSupport(method: string, args?: any[]): Promise<C4MethodType> {
     const c4w = await getC4w();
     const free_buffers: number[] = [];
-    const method_type = c4w._c4w_get_method_type(BigInt(this.config.chainId), as_char_ptr(method, c4w, free_buffers));
+    const paramsStr = args ? JSON.stringify(args) : null;
+    const method_type = c4w._c4w_get_method_type(
+      BigInt(this.config.chainId),
+      as_char_ptr(method, c4w, free_buffers),
+      paramsStr ? as_char_ptr(paramsStr, c4w, free_buffers) : 0
+    );
     free_buffers.forEach(ptr => c4w._free(ptr));
     return method_type as C4MethodType;
   }
@@ -322,7 +328,7 @@ export default class C4Client {
     }
 
     if (method_type === undefined)
-      method_type = await this.getMethodSupport(method);
+      method_type = await this.getMethodSupport(method, args);
 
     switch (method_type) {
       case C4MethodType.PROOFABLE: {

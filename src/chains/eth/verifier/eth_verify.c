@@ -97,7 +97,8 @@ static bool is_nullable_method(char* method) {
   return method && (strcmp(method, "eth_getTransactionByHash") == 0 || strcmp(method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 || strcmp(method, "eth_getTransactionReceipt") == 0);
 }
 
-method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method) {
+method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t params) {
+  (void) params;
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return METHOD_UNDEFINED;
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
     if (strcmp(method, proofable_methods[i]) == 0) return METHOD_PROOFABLE;
@@ -154,7 +155,7 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
   else
 #endif
 #ifdef ETH_UTIL
-      if (c4_eth_get_method_type(ctx->chain_id, ctx->method) == METHOD_LOCAL)
+      if (c4_eth_get_method_type(ctx->chain_id, ctx->method, ctx->args) == METHOD_LOCAL)
     verify_eth_local(ctx);
   else
 #endif

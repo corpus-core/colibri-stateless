@@ -125,7 +125,7 @@ function(generate_verifiers_header)
         list(GET parts 3 method_type)
         file(APPEND ${VERIFIERS_H} "const ssz_def_t* ${get_req_type}(chain_type_t chain_type);\n")
         file(APPEND ${VERIFIERS_H} "bool ${verify}(verify_ctx_t* ctx);\n")
-        file(APPEND ${VERIFIERS_H} "method_type_t ${method_type}(chain_id_t chain_id, char* method);\n\n")
+        file(APPEND ${VERIFIERS_H} "method_type_t ${method_type}(chain_id_t chain_id, char* method, json_t params);\n\n")
     endforeach()
 
     # Add request_container function
@@ -150,12 +150,12 @@ function(generate_verifiers_header)
     file(APPEND ${VERIFIERS_H} "}\n\n")
 
     # Add request_container function
-    file(APPEND ${VERIFIERS_H} "method_type_t c4_get_method_type(chain_id_t chain_id, char* method) {\n")
+    file(APPEND ${VERIFIERS_H} "method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t params) {\n")
     file(APPEND ${VERIFIERS_H} "  method_type_t type = METHOD_UNDEFINED;\n")
     foreach(prop ${VERIFIER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 3 method_type)
-        file(APPEND ${VERIFIERS_H} "  if (!type) type = ${method_type}(chain_id, method);\n")
+        file(APPEND ${VERIFIERS_H} "  if (!type) type = ${method_type}(chain_id, method, params);\n")
     endforeach()
     file(APPEND ${VERIFIERS_H} "  return type;\n")
     file(APPEND ${VERIFIERS_H} "}\n\n")

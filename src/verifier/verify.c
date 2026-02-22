@@ -47,7 +47,7 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* metho
 
   memset(ctx, 0, sizeof(verify_ctx_t));
   if (request_bytes.len == 0) {
-    method_type_t method_type = c4_get_method_type(chain_id, method);
+    method_type_t method_type = c4_get_method_type(chain_id, method, args);
     if (method_type == METHOD_UNDEFINED)
       THROW_ERROR("method not known");
     else if (method_type == METHOD_NOT_SUPPORTED)

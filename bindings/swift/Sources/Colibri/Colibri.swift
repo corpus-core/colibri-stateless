@@ -231,17 +231,30 @@ public class Colibri {
 
     // MARK: - Method Support
     
-    /// Check if a method is supported for proof generation
-    public func getMethodSupport(method: String) -> MethodType {
+    /// Check if a method is supported for proof generation.
+    ///
+    /// In PAP mode the result may depend on cached data for the given params
+    /// (e.g. `eth_call` can become `.LOCAL` when storage values are cached).
+    ///
+    /// - Parameters:
+    ///   - method: RPC method name
+    ///   - params: Optional method parameters as JSON array string
+    /// - Returns: The method type indicating how to handle this call
+    public func getMethodSupport(method: String, params: String? = nil) -> MethodType {
         let methodPtr = method.withCString { strdup($0) }
         guard let methodCStr = methodPtr else {
             return .UNKNOWN
         }
         defer { free(methodCStr) }
 
-        let typeRaw = c4_get_method_support(chainId, methodCStr)
+        var paramsCStr: UnsafeMutablePointer<CChar>? = nil
+        if let params = params {
+            paramsCStr = params.withCString { strdup($0) }
+        }
+        defer { if let p = paramsCStr { free(p) } }
+
+        let typeRaw = c4_get_method_support(chainId, methodCStr, paramsCStr)
         guard let type = MethodType(rawValue: Int(typeRaw)) else {
-             // Handle cases where the C function might return an unexpected value
             print("Warning: Unknown method type raw value \(typeRaw) returned from c4_get_method_support for method \(method)")
             return .UNKNOWN
         }
@@ -384,7 +397,7 @@ public class Colibri {
 
     // Implement the rpc method
     public func rpc(method: String, params: String) async throws -> Any {
-        let methodType = getMethodSupport(method: method)
+        let methodType = getMethodSupport(method: method, params: params)
         var proof = Data()
 
         switch methodType {

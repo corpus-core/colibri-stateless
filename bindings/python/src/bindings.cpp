@@ -176,8 +176,8 @@ prover_t* create_prover_ctx_wrapper(const std::string& method, const std::string
       flags);
 }
 
-int get_method_support_wrapper(uint64_t chain_id, const std::string& method) {
-  return c4_get_method_support(chain_id, const_cast<char*>(method.c_str()));
+int get_method_support_wrapper(uint64_t chain_id, const std::string& method, const std::string& params) {
+  return c4_get_method_support(chain_id, const_cast<char*>(method.c_str()), params.empty() ? nullptr : const_cast<char*>(params.c_str()));
 }
 
 // Storage registration function
@@ -268,5 +268,5 @@ PYBIND11_MODULE(_native, m) {
   // Utility functions
   m.def("get_method_support", &get_method_support_wrapper,
         "Check method support type",
-        py::arg("chain_id"), py::arg("method"));
+        py::arg("chain_id"), py::arg("method"), py::arg("params") = "");
 }

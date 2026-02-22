@@ -171,8 +171,8 @@ void EMSCRIPTEN_KEEPALIVE c4w_free_verify_ctx(void* ptr) {
   c4_verify_free_data(&ctx->verify);
   free(ctx);
 }
-method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* method) {
-  return c4_get_method_type((chain_id_t) chain_id, method);
+method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* method, char* params) {
+  return c4_get_method_type((chain_id_t) chain_id, method, params ? json_parse(params) : (json_t) {0});
 }
 
 char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
