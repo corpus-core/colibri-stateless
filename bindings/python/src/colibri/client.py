@@ -275,11 +275,12 @@ class Colibri:
             trusted_checkpoint_str = self.trusted_checkpoint if self.trusted_checkpoint else ""
             
             ctx = native.create_verify_ctx(
-                proof, 
-                method, 
-                params_json, 
-                self.chain_id, 
-                trusted_checkpoint_str
+                proof,
+                method,
+                params_json,
+                self.chain_id,
+                trusted_checkpoint_str,
+                self._get_verify_flags()
             )
             
             if not ctx:

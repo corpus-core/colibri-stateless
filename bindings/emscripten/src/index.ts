@@ -282,7 +282,8 @@ export default class C4Client {
         as_char_ptr(JSON.stringify(args), c4w, free_buffers),
         BigInt(this.config.chainId),
         checkpoint_ptr,
-        witness_keys_ptr);
+        witness_keys_ptr,
+        this.verify_flags);
 
       while (true) {
         const state = as_json(c4w._c4w_verify_proof(ctx), c4w, true);

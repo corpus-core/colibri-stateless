@@ -238,6 +238,13 @@ public class Colibri {
         // Placeholder for initialization if needed
     }
 
+    // MARK: - Verify Flags
+
+    /// Returns verify flags (e.g. VERIFY_FLAG_PAP) derived from privacyMode. Centralized so future flags can be added in one place.
+    private func getVerifyFlags() -> UInt32 {
+        return privacyMode == .basic ? 2 : 0
+    }
+
     // MARK: - Method Support
     
     /// Check if a method is supported for proof generation.
@@ -262,8 +269,7 @@ public class Colibri {
         }
         defer { if let p = paramsCStr { free(p) } }
 
-        let flags: UInt32 = privacyMode == .basic ? 2 : 0
-        let typeRaw = c4_get_method_support(chainId, methodCStr, paramsCStr, flags)
+        let typeRaw = c4_get_method_support(chainId, methodCStr, paramsCStr, getVerifyFlags())
         guard let type = MethodType(rawValue: Int(typeRaw)) else {
             print("Warning: Unknown method type raw value \(typeRaw) returned from c4_get_method_support for method \(method)")
             return .UNKNOWN
@@ -362,7 +368,7 @@ public class Colibri {
             )
         }
         
-        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedCheckpointCStr) else {
+        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedCheckpointCStr, getVerifyFlags()) else {
             throw ColibriError.contextCreationFailed
         }
         defer { c4_verify_free_ctx(ctx) }

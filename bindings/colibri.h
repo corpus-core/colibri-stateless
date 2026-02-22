@@ -1003,6 +1003,7 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  * @param chain_id The blockchain chain ID (must match proof)
  * @param trusted_checkpoint Optional trusted checkpoint as hex string (0x-prefixed, 66 chars),
  *                           or NULL/empty string to use the default checkpoint for this chain
+ * @param flags Verify flags (e.g. 2 for VERIFY_FLAG_PAP). Use 0 for default.
  * @return A new verification context pointer, or NULL if creation failed
  *
  * **Trusted Checkpoints**:
@@ -1024,7 +1025,8 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  *     "eth_getBalance",
  *     "[\"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\", \"latest\"]",
  *     1, // Ethereum Mainnet
- *     "0x1234567890abcdef..." // Trusted checkpoint (66 chars)
+ *     "0x1234567890abcdef...", // Trusted checkpoint (66 chars)
+ *     0  // Flags (e.g. VERIFY_FLAG_PAP for PAP mode)
  * );
  *
  * if (!ctx) {
@@ -1033,7 +1035,7 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  * }
  * ```
  */
-void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint);
+void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, uint32_t flags);
 
 /**
  * Executes one step of the proof verification state machine.

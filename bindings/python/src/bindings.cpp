@@ -158,14 +158,15 @@ void req_set_error_wrapper(uintptr_t req_ptr, const std::string& error, uint16_t
   c4_req_set_error(reinterpret_cast<void*>(req_ptr), const_cast<char*>(error.c_str()), node_index);
 }
 
-void* verify_create_ctx_wrapper(py::bytes proof, const std::string& method, const std::string& args, uint64_t chain_id, const std::string& trusted_checkpoint) {
+void* verify_create_ctx_wrapper(py::bytes proof, const std::string& method, const std::string& args, uint64_t chain_id, const std::string& trusted_checkpoint, uint32_t flags) {
   bytes_t proof_data = python_to_bytes_t(proof);
   return c4_verify_create_ctx(
       proof_data,
       const_cast<char*>(method.c_str()),
       const_cast<char*>(args.c_str()),
       chain_id,
-      const_cast<char*>(trusted_checkpoint.c_str()));
+      const_cast<char*>(trusted_checkpoint.c_str()),
+      flags);
 }
 
 prover_t* create_prover_ctx_wrapper(const std::string& method, const std::string& params, uint64_t chain_id, uint32_t flags) {
@@ -246,7 +247,7 @@ PYBIND11_MODULE(_native, m) {
   // Verifier functions
   m.def("create_verify_ctx", &verify_create_ctx_wrapper,
         "Create a new verification context",
-        py::arg("proof"), py::arg("method"), py::arg("args"), py::arg("chain_id"), py::arg("trusted_checkpoint"),
+        py::arg("proof"), py::arg("method"), py::arg("args"), py::arg("chain_id"), py::arg("trusted_checkpoint"), py::arg("flags") = 0,
         py::return_value_policy::take_ownership);
 
   m.def("verify_execute_json_status", &verify_execute_json_status_wrapper,

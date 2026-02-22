@@ -143,7 +143,7 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
   ctx->response_node_index = node_index;
 }
 
-void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys) {
+void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys, uint32_t flags) {
   if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
     bytes32_t checkpoint;
     hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
@@ -154,6 +154,7 @@ void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_le
   c4w_verify_ctx_t* ctx = calloc(1, sizeof(c4w_verify_ctx_t));
   ctx->proof            = bytes_dup(bytes(proof, proof_len));
   c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id);
+  ctx->verify.flags     = (verify_flags_t) flags;
 
   if (witness_keys && strlen(witness_keys) > 40 && witness_keys[0] == '0' && witness_keys[1] == 'x') {
     bytes_t witness_key_bytes = bytes(safe_malloc(strlen(witness_keys) / 2), (strlen(witness_keys) - 2) / 2);

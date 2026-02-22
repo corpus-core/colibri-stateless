@@ -103,6 +103,7 @@ static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_i
 // | `-p`           | `<prover_url>` | URL of the prover           |         |
 // | `-r`           | `<rpc_url>` | URL of the rpc-prover          |         |
 // | `-x`           | `<checkpointz_url>` | URL of a checkpointz or beacon-api|         |
+// | `-P`           |                 | Enable PAP (Pragmatic Adaptive Privacy) mode       |         |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
@@ -136,6 +137,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -r rpc url\n");
     fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
+    fprintf(stderr, "  -P enable PAP (Pragmatic Adaptive Privacy) mode\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
@@ -144,22 +146,23 @@ int main(int argc, char* argv[]) {
   char     tmp[1000] = {0};
   buffer_t buf       = stack_buffer(tmp);
 #endif
-  char*      method             = NULL;
-  chain_id_t chain_id           = C4_CHAIN_MAINNET;
-  buffer_t   args               = {0};
-  char*      input              = NULL;
-  char*      test_dir           = NULL;
-  char*      chain_name         = NULL;
-  char*      output             = NULL;
-  char*      signers            = NULL;
-  bytes32_t  trusted_checkpoint = {0};
-  bool       has_checkpoint     = false;
-  bool       use_zk_proof       = false;
-  char*      rpc_url            = NULL;
-  char*      beacon_url         = NULL;
-  char*      checkpointz_url    = NULL;
-  char*      prover_url         = NULL;
-  char*      trace_id           = NULL;
+  char*          method             = NULL;
+  chain_id_t     chain_id           = C4_CHAIN_MAINNET;
+  buffer_t       args               = {0};
+  char*          input              = NULL;
+  char*          test_dir           = NULL;
+  char*          chain_name         = NULL;
+  char*          output             = NULL;
+  char*          signers            = NULL;
+  bytes32_t      trusted_checkpoint = {0};
+  bool           has_checkpoint     = false;
+  bool           use_zk_proof       = false;
+  verify_flags_t verify_flags       = 0;
+  char*          rpc_url            = NULL;
+  char*          beacon_url         = NULL;
+  char*          checkpointz_url    = NULL;
+  char*          prover_url         = NULL;
+  char*          trace_id           = NULL;
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
 
@@ -205,6 +208,9 @@ int main(int argc, char* argv[]) {
             use_zk_proof = true;
             break;
 #endif
+          case 'P':
+            verify_flags |= VERIFY_FLAG_PAP;
+            break;
           case 'b':
             if (hex_to_bytes(argv[++i], -1, bytes(trusted_checkpoint, 32)) == 32)
               has_checkpoint = true;
@@ -271,7 +277,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
   bytes_t       request     = {0};
-  method_type_t method_type = c4_get_method_type(chain_id, method, json_parse((char*) args.data.data), 0);
+  method_type_t method_type = c4_get_method_type(chain_id, method, json_parse((char*) args.data.data), verify_flags);
   switch (method_type) {
     case METHOD_UNDEFINED:
       fprintf(stderr, "method not known: %s\n", method);
@@ -311,6 +317,7 @@ int main(int argc, char* argv[]) {
 
   verify_ctx_t ctx = {0};
   c4_verify_init(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
+  ctx.flags = verify_flags;
   if (signers && strlen(signers) > 40 && signers[0] == '0' && signers[1] == 'x') {
     ctx.witness_keys = bytes(safe_malloc(strlen(signers) / 2), (strlen(signers) - 2) / 2);
     if (hex_to_bytes(signers, -1, ctx.witness_keys) % 20 != 0) {

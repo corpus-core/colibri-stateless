@@ -113,6 +113,9 @@ class Colibri(
         }
     }
 
+    /** Returns verify flags (e.g. VERIFY_FLAG_PAP) from privacyMode. Centralized so future flags can be added in one place. */
+    private fun getVerifyFlags(): Int = if (privacyMode == PrivacyMode.BASIC) 2 else 0
+
     // Example method to demonstrate usage
     fun printConfig() {
         println("Chain ID: $chainId")
@@ -133,8 +136,7 @@ class Colibri(
      */
     suspend fun getMethodSupport(method: String, params: String? = null): MethodType {
          return withContext(Dispatchers.IO) {
-             val flags = if (privacyMode == PrivacyMode.BASIC) 2 else 0
-             val typeInt = com.corpuscore.colibri.c4.c4_get_method_support(chainId, method, params ?: "", flags)
+             val typeInt = com.corpuscore.colibri.c4.c4_get_method_support(chainId, method, params ?: "", getVerifyFlags())
              MethodType.fromInt(typeInt)
          }
     }
@@ -411,8 +413,7 @@ class Colibri(
             val jsonArgs = formatArgsArray(args) // Use helper
             val trustedCheckpointStr = trustedCheckpoint ?: ""
 
-            // Assuming c4_verify_create_ctx takes JSON strings for args and trusted checkpoint
-            val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedCheckpointStr)
+            val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedCheckpointStr, getVerifyFlags())
                  ?: throw ColibriException("Failed to create verifier context for method $method")
 
             // Add iteration limit to prevent infinite loops
