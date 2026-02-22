@@ -36,6 +36,19 @@ extern "C" {
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct {
+  bytes32_t key;
+  bytes32_t value;
+} cached_storage_t;
+
+typedef struct {
+  bytes32_t         storage_root;
+  bytes32_t         balance;
+  bytes32_t         code_hash;
+  uint32_t          num_storage;
+  cached_storage_t* storage;
+} cached_account_t;
+
 #ifdef EVMONE
 #include "evmone_c_wrapper.h" // For evmc_address and evmc_bytes32
 #endif
