@@ -206,24 +206,22 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
 
 };
 
-// :: Block Header Proof
-
 // Compact block header data containing selected fields from the ExecutionPayload.
 // Used by eth_getBlockHeader, eth_gasPrice, eth_blobBaseFee, eth_maxPriorityFeePerGas,
 // and as a lightweight verified header cache for eth_call privacy mode and log filters.
 static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
-    SSZ_BYTES32("parentHash"),             // the hash of the parent block
-    SSZ_BYTES32("stateRoot"),              // the merkle root of the state at the end of the block
-    SSZ_BYTES32("receiptsRoot"),           // the merkle root of the transaction receipts
-    SSZ_BYTE_VECTOR("logsBloom", 256),     // the bloom filter of the logs
-    SSZ_UINT64("blockNumber"),             // the block number
-    SSZ_UINT64("gasLimit"),                // the gas limit of the block
-    SSZ_UINT64("gasUsed"),                 // the gas used of the block
-    SSZ_UINT64("timestamp"),               // the timestamp of the block
-    SSZ_UINT256("baseFeePerGas"),          // the base fee per gas of the block
-    SSZ_BYTES32("blockHash"),              // the hash of the block
-    SSZ_UINT64("blobGasUsed"),             // the gas used for the blob transactions
-    SSZ_UINT64("excessBlobGas"),           // the excess blob gas of the block
+    SSZ_BYTES32("parentHash"),         // the hash of the parent block
+    SSZ_BYTES32("stateRoot"),          // the merkle root of the state at the end of the block
+    SSZ_BYTES32("receiptsRoot"),       // the merkle root of the transaction receipts
+    SSZ_BYTE_VECTOR("logsBloom", 256), // the bloom filter of the logs
+    SSZ_UINT64("blockNumber"),         // the block number
+    SSZ_UINT64("gasLimit"),            // the gas limit of the block
+    SSZ_UINT64("gasUsed"),             // the gas used of the block
+    SSZ_UINT64("timestamp"),           // the timestamp of the block
+    SSZ_UINT256("baseFeePerGas"),      // the base fee per gas of the block
+    SSZ_BYTES32("blockHash"),          // the hash of the block
+    SSZ_UINT64("blobGasUsed"),         // the gas used for the blob transactions
+    SSZ_UINT64("excessBlobGas"),       // the excess blob gas of the block
 };
 
 // :: Account Proof
