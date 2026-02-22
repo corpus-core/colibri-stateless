@@ -114,7 +114,7 @@ class Colibri(
     }
 
     /** Returns verify flags (e.g. VERIFY_FLAG_PAP) from privacyMode. Centralized so future flags can be added in one place. */
-    private fun getVerifyFlags(): Int = if (privacyMode == PrivacyMode.BASIC) 2 else 0
+    private fun getVerifyFlags(): Long = if (privacyMode == PrivacyMode.BASIC) 2L else 0L
 
     // Example method to demonstrate usage
     fun printConfig() {
