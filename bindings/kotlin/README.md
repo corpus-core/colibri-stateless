@@ -46,7 +46,9 @@ dependencies {
 }
 ```
 
-use it like this:
+**Configuration:** You can set `privacyMode` to `PrivacyMode.BASIC` to enable PAP (Pragmatic Adaptive Privacy), which reduces intent leakage by using cached data when available.
+
+Use it like this:
 ```java
 import com.corpuscore.colibri.Colibri;
 import com.corpuscore.colibri.ColibriException;

@@ -177,6 +177,7 @@ class Colibri:
         beacon_apis: Optional[List[str]] = None,
         trusted_checkpoint: Optional[str] = None,
         request_handler: Optional[RequestHandler] = None,
+        privacy_mode: Optional[PrivacyMode] = None,
         storage: Optional[ColibriStorage] = None
     ):
         """
@@ -188,6 +189,7 @@ class Colibri:
             eth_rpcs: Ethereum RPC endpoints for execution layer
             beacon_apis: Beacon chain API endpoints
             trusted_checkpoint: Optional trusted checkpoint block hash for anchoring
+            privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
             request_handler: Custom HTTP request handler
             storage: Custom storage implementation
         """
@@ -449,10 +451,26 @@ client = Colibri(
     # Optional trusted anchoring point
     trusted_checkpoint="0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7",
     
+    # Privacy: PAP (Pragmatic Adaptive Privacy) mode
+    privacy_mode=PrivacyMode.BASIC,  # or PrivacyMode.NONE (default)
+    
     # Custom implementations
     storage=MyCustomStorage(),
     request_handler=MyCustomRequestHandler()
 )
+```
+
+### Privacy (PAP)
+
+**PAP (Pragmatic Adaptive Privacy)** reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards.
+
+- `privacy_mode` – `PrivacyMode.NONE` (default) or `PrivacyMode.BASIC`. With `BASIC`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
+
+```python
+from colibri import Colibri
+from colibri.types import PrivacyMode
+
+client = Colibri(chain_id=1, privacy_mode=PrivacyMode.BASIC)
 ```
 
 ## Error Handling
