@@ -97,6 +97,8 @@ typedef struct {
   chain_id_t     chain_id;     // the chain-id of the verification
   bytes_t        witness_keys; // the witness keys used to sign the checkpoints (multiple addresses are concatinated bytes with 20 bytes each)
   verify_flags_t flags;
+  void*          user_data;      // optional method-specific in-memory state surviving C4_PENDING rounds
+  void (*user_data_free)(void*); // cleanup function called by c4_verify_free(); may be NULL
 } verify_ctx_t;
 
 /**

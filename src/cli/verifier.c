@@ -40,13 +40,13 @@
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
 
-static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_id_t chain_id, char* signers) {
+static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_id_t chain_id, char* signers, bool use_zk_proof) {
   // fprintf(stderr, "reading from prover: %s(%s) from %s\n", method, args, url);
   if (strcmp(method, "colibri_simulateTransaction") == 0) method = "eth_call";
   buffer_t   payload = {0};
   c4_state_t ctx     = {0};
 #ifdef ETH_ZKPROOF
-  char* additional_params = "\"zk_proof\":true";
+  char* additional_params = use_zk_proof ? "\"zk_proof\":true" : "";
 #else
   char* additional_params = "";
 #endif
@@ -294,7 +294,7 @@ int main(int argc, char* argv[]) {
         storage_plugin_t storage;
         c4_get_storage_config(&storage);
         storage.get(name, &state);
-        request = read_from_prover(method, (char*) args.data.data, state.data, chain_id, signers);
+        request = read_from_prover(method, (char*) args.data.data, state.data, chain_id, signers, use_zk_proof);
         buffer_free(&state);
         if (output) bytes_write(request, fopen(output, "w"), true);
 #else

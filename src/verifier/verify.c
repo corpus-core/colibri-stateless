@@ -112,4 +112,7 @@ void c4_verify_free_data(verify_ctx_t* ctx) {
   }
   c4_state_free(&ctx->state);
   if (ctx->witness_keys.data) safe_free(ctx->witness_keys.data);
+  if (ctx->user_data && ctx->user_data_free) ctx->user_data_free(ctx->user_data);
+  ctx->user_data      = NULL;
+  ctx->user_data_free = NULL;
 }
