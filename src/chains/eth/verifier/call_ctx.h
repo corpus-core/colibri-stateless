@@ -39,14 +39,18 @@ extern "C" {
 typedef struct {
   bytes32_t key;
   bytes32_t value;
+  uint64_t  verified_at; // block number when this value was verified or zero if not at all.
 } cached_storage_t;
 
-typedef struct {
-  bytes32_t         storage_root;
-  bytes32_t         balance;
-  bytes32_t         code_hash;
-  uint32_t          num_storage;
-  cached_storage_t* storage;
+typedef struct cached_account {
+  address_t              address;
+  bytes32_t              storage_root;
+  bytes32_t              balance;
+  bytes32_t              code_hash;
+  uint32_t               num_storage;
+  uint64_t               verified_at; // block number when this value was verified or zero if not at all.
+  cached_storage_t*      storage;
+  struct cached_account* next;
 } cached_account_t;
 
 #ifdef EVMONE
