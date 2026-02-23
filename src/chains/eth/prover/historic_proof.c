@@ -296,7 +296,7 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
   char     query[100] = {0};
   sbprintf(query, "start_period=%l&count=%l", sync_data->newest_period, sync_data->required_period - sync_data->newest_period);
   if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)
-    TRY_ASYNC(c4_send_internal_request(ctx, "lcu_updates", query, 0, &result));
+    TRY_ASYNC(c4_send_internal_request(ctx, "lcu_updates", query, 0, &result.bytes));
   else
     TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
 
