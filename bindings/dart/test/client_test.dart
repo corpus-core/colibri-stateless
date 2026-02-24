@@ -75,4 +75,14 @@ void main() {
     /// Unknown methods are undefined.
     expect(colibri.getMethodSupport('custom_fakeMethod'), MethodType.undefined);
   }, skip: !hasNative);
+
+  /// RPC with unsupported/undefined method throws [ColibriError].
+  test('rpc throws for unsupported method', () async {
+    final colibri = Colibri(libraryPath: _resolveLibraryPath());
+    expect(
+      () => colibri.rpc('custom_fakeMethod', []),
+      throwsA(isA<ColibriError>().having((e) => e.message, 'message', contains('not supported'))),
+    );
+    colibri.close();
+  }, skip: !hasNative);
 }

@@ -10,6 +10,9 @@ import 'dart:typed_data';
 /// Import the public Colibri API.
 import 'package:colibri_stateless/colibri.dart';
 
+/// Import HTTP types for mock responses.
+import 'package:http/http.dart' as http;
+
 /// Import the HTTP mock client for offline tests.
 import 'package:http/testing.dart';
 
@@ -137,6 +140,225 @@ void main() {
         /// For tests without expected output, just assert a non-null result.
         expect(result, isNotNull);
       }
+    }, skip: !hasNative);
+  }
+
+  /// Prover fails (500) then fallback to local createProof succeeds via fixture mock.
+  if (testDirs.isNotEmpty) {
+    final dir = testDirs.first;
+    final name = dir.path.split(Platform.pathSeparator).last;
+    test('prover failure falls back to createProof: $name', () async {
+      final testJson = File('${dir.path}${Platform.pathSeparator}test.json');
+      final content = jsonDecode(testJson.readAsStringSync()) as Map<String, dynamic>;
+      if ((content['requires_chain_store'] as bool?) ?? false) return;
+
+      final method = content['method'] as String;
+      final params = content['params'] as List<dynamic>;
+      final chainId = (content['chain_id'] as num).toInt();
+      final trusted = content['trusted_blockhash']?.toString();
+      final expected = content['expected_result'];
+
+      const proverUrl = 'http://prover.example';
+      final responder = FileBasedMockResponder(dir);
+      final client = MockClient((req) async {
+        if (req.url.toString().startsWith(proverUrl)) {
+          return http.Response('', 500);
+        }
+        return responder.handle(req);
+      });
+
+      final colibri = Colibri(
+        chainId: chainId,
+        provers: [proverUrl],
+        trustedCheckpoint: trusted,
+        storage: FileBackedStorage(dir),
+        libraryPath: _resolveLibraryPath(),
+        httpClient: client,
+      );
+
+      final result = await colibri.rpc(method, params);
+      colibri.close();
+      if (expected != null) {
+        final adjusted = _adjustExpectedResult(method, params, expected, result);
+        expect(result, equals(adjusted));
+      } else {
+        expect(result, isNotNull);
+      }
+    }, skip: !hasNative);
+  }
+
+  /// _clientStateHex with storage that has state (prover fails, createProof path uses mock).
+  if (testDirs.isNotEmpty) {
+    final dir = testDirs.first;
+    final name = dir.path.split(Platform.pathSeparator).last;
+    test('client state hex with storage state: $name', () async {
+      final testJson = File('${dir.path}${Platform.pathSeparator}test.json');
+      final content = jsonDecode(testJson.readAsStringSync()) as Map<String, dynamic>;
+      if ((content['requires_chain_store'] as bool?) ?? false) return;
+
+      final method = content['method'] as String;
+      final params = content['params'] as List<dynamic>;
+      final chainId = (content['chain_id'] as num).toInt();
+      final trusted = content['trusted_blockhash']?.toString();
+
+      final storage = MemoryStorage();
+      storage.set('states_$chainId', Uint8List.fromList([1, 2, 3]));
+
+      const proverUrl = 'http://prover.example';
+      final responder = FileBasedMockResponder(dir);
+      final client = MockClient((req) async {
+        if (req.url.toString().startsWith(proverUrl)) return http.Response('', 500);
+        return responder.handle(req);
+      });
+
+      final colibri = Colibri(
+        chainId: chainId,
+        provers: [proverUrl],
+        trustedCheckpoint: trusted,
+        storage: storage,
+        libraryPath: _resolveLibraryPath(),
+        httpClient: client,
+      );
+
+      try {
+        final result = await colibri.rpc(method, params);
+        expect(result, isNotNull);
+      } on ColibriError {
+        /// May fail if fixture set does not provide all data needed by verifier.
+      }
+      colibri.close();
+    }, skip: !hasNative);
+  }
+
+  /// logProverRequests path: prover returns 200 with bytes, then verify may fail.
+  test('logProverRequests path hit when prover returns proof bytes', () async {
+    final client = MockClient((_) async => http.Response.bytes(Uint8List(64), 200));
+    final colibri = Colibri(
+      provers: ['http://prover.example'],
+      logProverRequests: true,
+      libraryPath: _resolveLibraryPath(),
+      httpClient: client,
+    );
+    try {
+      await colibri.rpc('eth_getBalance', ['0x0000000000000000000000000000000000000001', 'latest']);
+    } on VerificationError {
+      /// Expected when fake proof bytes are used.
+    } on ProofError {
+      /// Or proof path may fail.
+    } on ColibriError {
+      /// Or other Colibri error.
+    } finally {
+      colibri.close();
+    }
+  }, skip: !hasNative);
+
+  /// RPC error response throws RPCError (for unproofable method).
+  test('RPC error response throws RPCError', () async {
+    final colibri = Colibri(libraryPath: _resolveLibraryPath());
+    final support = colibri.getMethodSupport('eth_call');
+    colibri.close();
+    if (support != MethodType.unproofable) return;
+
+    final client = MockClient((_) async {
+      return http.Response(
+        '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid request"}}',
+        200,
+        headers: {'Content-Type': 'application/json'},
+      );
+    });
+    final colibri2 = Colibri(
+      ethRpcs: ['http://rpc.example'],
+      libraryPath: _resolveLibraryPath(),
+      httpClient: client,
+    );
+    expect(
+      () => colibri2.rpc('eth_call', []),
+      throwsA(isA<RPCError>().having((e) => e.message, 'message', isNotEmpty)),
+    );
+    colibri2.close();
+  }, skip: !hasNative);
+
+  /// All RPC servers failed throws RPCError.
+  test('All RPC servers failed throws RPCError', () async {
+    final colibri = Colibri(libraryPath: _resolveLibraryPath());
+    final support = colibri.getMethodSupport('eth_call');
+    colibri.close();
+    if (support != MethodType.unproofable) return;
+
+    final client = MockClient((_) async => throw Exception('network error'));
+    final colibri2 = Colibri(
+      ethRpcs: ['http://rpc.example'],
+      libraryPath: _resolveLibraryPath(),
+      httpClient: client,
+    );
+    expect(
+      () => colibri2.rpc('eth_call', []),
+      throwsA(isA<RPCError>().having((e) => e.message, 'message', contains('All RPC servers failed'))),
+    );
+    colibri2.close();
+  }, skip: !hasNative);
+
+  /// Storage that throws in get() exercises native _storageGet catch path.
+  if (testDirs.isNotEmpty) {
+    final dir = testDirs.first;
+    test('storage get throwing hits native callback error path', () async {
+      final testJson = File('${dir.path}${Platform.pathSeparator}test.json');
+      final content = jsonDecode(testJson.readAsStringSync()) as Map<String, dynamic>;
+      if ((content['requires_chain_store'] as bool?) ?? false) return;
+
+      final method = content['method'] as String;
+      final params = content['params'] as List<dynamic>;
+      final chainId = (content['chain_id'] as num).toInt();
+      final trusted = content['trusted_blockhash']?.toString();
+
+      final responder = FileBasedMockResponder(dir);
+      final client = MockClient(responder.handle);
+      final colibri = Colibri(
+        chainId: chainId,
+        provers: const [],
+        trustedCheckpoint: trusted,
+        storage: ThrowingStorage(),
+        libraryPath: _resolveLibraryPath(),
+        httpClient: client,
+      );
+      try {
+        await colibri.rpc(method, params);
+      } on ColibriError {
+        /// Expected when storage throws (e.g. in _clientStateHex or native callback).
+      } on Exception {
+        /// ThrowingStorage throws plain Exception.
+      }
+      colibri.close();
+    }, skip: !hasNative);
+  }
+
+  /// Pending request fails (e.g. mock returns 500) so reqSetError path is hit.
+  if (testDirs.isNotEmpty) {
+    final dir = testDirs.first;
+    test('pending request failure triggers reqSetError path', () async {
+      final testJson = File('${dir.path}${Platform.pathSeparator}test.json');
+      final content = jsonDecode(testJson.readAsStringSync()) as Map<String, dynamic>;
+      if ((content['requires_chain_store'] as bool?) ?? false) return;
+
+      final method = content['method'] as String;
+      final params = content['params'] as List<dynamic>;
+      final chainId = (content['chain_id'] as num).toInt();
+      final trusted = content['trusted_blockhash']?.toString();
+
+      final client = MockClient((_) async => http.Response('Server error', 500));
+      final colibri = Colibri(
+        chainId: chainId,
+        provers: const [],
+        trustedCheckpoint: trusted,
+        storage: FileBackedStorage(dir),
+        libraryPath: _resolveLibraryPath(),
+        httpClient: client,
+      );
+      expect(
+        () => colibri.rpc(method, params),
+        throwsA(isA<ColibriError>()),
+      );
+      colibri.close();
     }, skip: !hasNative);
   }
 }

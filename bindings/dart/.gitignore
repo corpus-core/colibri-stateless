@@ -3,4 +3,8 @@
 build/
 native/
 .env
+test/coverage/
 _tmp/
+code_*
+states_1
+sync_1_*

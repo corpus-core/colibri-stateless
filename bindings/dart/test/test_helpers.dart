@@ -43,6 +43,18 @@ List<Directory> discoverTestDirs() {
       .toList();
 }
 
+/// Storage that throws on [get] to exercise native callback error paths.
+class ThrowingStorage implements ColibriStorage {
+  @override
+  Uint8List? get(String key) => throw Exception('ThrowingStorage.get($key)');
+
+  @override
+  void set(String key, Uint8List value) => throw Exception('ThrowingStorage.set($key)');
+
+  @override
+  void delete(String key) => throw Exception('ThrowingStorage.delete($key)');
+}
+
 /// Storage that reads values from files within a fixture directory.
 class FileBackedStorage implements ColibriStorage {
   /// Create storage bound to a single fixture directory.

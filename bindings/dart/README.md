@@ -103,12 +103,34 @@ dart test
 
 If the native library lives elsewhere, set `COLIBRI_DART_LIBRARY`.
 
+### Coverage
+
+```bash
+./test/run_coverage.sh
+```
+
+Coverage output is written to `test/coverage/` (LCOV file: `test/coverage/lcov.info`).
+
 ### Compare C vs Dart results
 
 ```bash
 export C4_BUILD_DIR=/path/to/cmake/build
 ./scripts/compare_c_dart_tests.sh
 ```
+
+## Publishing (pub.dev)
+
+From this directory (`bindings/dart`):
+
+1. **Check**  
+   `dart pub publish --dry-run`  
+   Fix any reported issues (e.g. commit changes, ensure no secrets).
+
+2. **Publish**  
+   `dart pub publish`  
+   You will be prompted to log in with a Google account (first time: create publisher or link account at [pub.dev](https://pub.dev)).
+
+Recommended: publish from a clean git state and after running `dart test`.
 
 ## Documentation
 
