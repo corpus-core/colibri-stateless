@@ -24,6 +24,7 @@
 #include "bytes.h"
 #include "call_ctx.h"
 #include "crypto.h"
+#include "eth_call_cache.h"
 #include "eth_verify.h"
 #include "evmone_c_wrapper.h"
 #include "json.h"
@@ -103,16 +104,42 @@ static evmc_bytes32 host_get_storage(void* context, const evmc_address* addr, co
 
   evmc_bytes32       result  = {0};
   account_storage_t* storage = get_storage(ctx, addr->bytes, key->bytes);
-  if (storage)
+  if (storage) {
     memcpy(result.bytes, storage->value, 32);
+  }
   else {
     account_state_t* acc = get_account_state(ctx, addr->bytes);
     if (acc && acc->full_state_override) {
-      // Full state overrides must not fall back to canonical storage for missing keys.
       memset(result.bytes, 0, 32);
     }
-    else
-      get_src_storage(ctx, addr->bytes, key->bytes, result.bytes);
+    else {
+      // Unified path: try in-memory cache, then disk cache, then proof/RPC via get_src_storage.
+      if (ctx->pap_accounts) {
+        cached_account_t* cached = eth_call_cache_find(*ctx->pap_accounts, addr->bytes);
+        if (!cached) {
+          cached = eth_call_cache_load(ctx->ctx, addr->bytes);
+          if (cached) {
+            cached->next       = *ctx->pap_accounts;
+            *ctx->pap_accounts = cached;
+          }
+        }
+        if (cached && eth_call_cache_get_storage(cached, key->bytes, result.bytes)) {
+          eth_call_cache_mark_accessed(cached, key->bytes);
+          bool               created;
+          account_state_t*   state_acc = create_account_state(ctx, addr->bytes, &created);
+          account_storage_t* s         = safe_calloc(1, sizeof(account_storage_t));
+          memcpy(s->key, key->bytes, 32);
+          memcpy(s->value, result.bytes, 32);
+          s->original        = true;
+          s->next            = state_acc->storage;
+          state_acc->storage = s;
+        }
+        else
+          get_src_storage(ctx, addr->bytes, key->bytes, result.bytes);
+      }
+      else
+        get_src_storage(ctx, addr->bytes, key->bytes, result.bytes);
+    }
   }
 
   debug_print_bytes32("get_storage result", &result);
@@ -497,11 +524,12 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   // check calldata
   json_t tx_input = json_get(tx, "data");
   if (tx_input.type == JSON_TYPE_NOT_FOUND) tx_input = json_get(tx, "input");
-  if ((tx_input.type != JSON_TYPE_STRING || tx_input.len < 5) && ssz_len(evm->accounts) == 0) {
+  if ((tx_input.type != JSON_TYPE_STRING || tx_input.len < 5) && ssz_len(evm->accounts) == 0 && !evm->pap_accounts) {
     return C4_SUCCESS;
   }
   if (json_get_bytes(tx, "to", &to_buf).len != 20) THROW_ERROR("Invalid transaction: to address is not 20 bytes");
 
+  if (evm->pap_accounts) eth_call_cache_reset_accessed(*evm->pap_accounts);
   set_message(&message, tx, &buffer);
 
   // is this a call to a precompile directly?
@@ -515,17 +543,17 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       case PRE_SUCCESS:
         return C4_SUCCESS;
       case PRE_ERROR:
-        ctx->state.error = strdup("Precompile error");
+        c4_state_add_error(&ctx->state, "Precompile error");
         return C4_ERROR;
       case PRE_OUT_OF_BOUNDS:
-        ctx->state.error = strdup("Precompile out of bounds");
+        c4_state_add_error(&ctx->state, "Precompile out of bounds");
         return C4_ERROR;
       case PRE_INVALID_INPUT:
-        ctx->state.error = strdup("Precompile Invalid Input");
+        c4_state_add_error(&ctx->state, "Precompile Invalid Input");
         return C4_ERROR;
         break;
       default:
-        ctx->state.error = strdup("Precompile unknown error");
+        c4_state_add_error(&ctx->state, "Precompile unknown error");
         return C4_ERROR;
     }
   }
@@ -549,6 +577,8 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       .results        = NULL,
       .logs           = NULL,
       .capture_events = capture_events,
+      .pap_accounts   = evm->pap_accounts,
+      .storage_miss   = false,
   };
 
   apply_state_overrides(&context, &evm->overrides);
@@ -616,7 +646,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       case -3: error_msg = "Out of memory"; break;
     }
     EVM_LOG("Error details: %s", error_msg);
-    ctx->state.error = strdup(error_msg);
+    c4_state_add_error(&ctx->state, error_msg);
   }
 
   // Clean up resources
@@ -632,6 +662,18 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   }
   context_free(&context);
   EVM_LOG("=== EVM call verification complete ===");
+
+  if (context.storage_miss) {
+    if (c4_state_get_pending_request(&ctx->state)) {
+      if (ctx->state.error) {
+        safe_free(ctx->state.error);
+        ctx->state.error = NULL;
+      }
+      return C4_PENDING;
+    }
+    if (!ctx->state.error) c4_state_add_error(&ctx->state, "missing storage value but no pending request");
+    return C4_ERROR;
+  }
 
   return ctx->state.error == NULL ? C4_SUCCESS : C4_ERROR;
 }

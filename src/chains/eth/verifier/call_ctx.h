@@ -29,8 +29,12 @@ extern "C" {
 #endif
 
 #include "bytes.h"
+#include "crypto.h"
 #include "eth_account.h"
+#include "json.h"
+#include "plugin.h"
 #include "ssz.h"
+#include "state.h"
 #include "state_overrides.h"
 #include "verify.h"
 #include <stdlib.h>
@@ -40,6 +44,7 @@ typedef struct {
   bytes32_t key;
   bytes32_t value;
   uint64_t  verified_at; // block number when this value was verified or zero if not at all.
+  bool      accessed;    // true if this slot was read during the current EVM run (not persisted)
 } cached_storage_t;
 
 typedef struct cached_account {
@@ -52,6 +57,13 @@ typedef struct cached_account {
   cached_storage_t*      storage;
   struct cached_account* next;
 } cached_account_t;
+
+// Forward declarations for eth_call_cache helpers used in PAP-mode static functions below.
+// Full definitions are in eth_call_cache.h which must be included before call_ctx.h in
+// any translation unit that uses the PAP path (verify_call.c, call_evmone.c).
+cached_account_t* eth_call_cache_find(cached_account_t* list, const address_t addr);
+cached_account_t* eth_call_cache_get_or_create(cached_account_t** list, const address_t addr);
+void              eth_call_cache_set_storage(cached_account_t* account, const bytes32_t key, const bytes32_t value, uint64_t verified_at);
 
 #ifdef EVMONE
 #include "evmone_c_wrapper.h" // For evmc_address and evmc_bytes32
@@ -101,6 +113,7 @@ typedef struct evm_call_ctx {
   emitted_log_t*        logs;
   uint64_t              gas_used;
   bytes32_t             state_root;
+  cached_account_t**    pap_accounts; // pointer to list head (e.g. &state->accounts); NULL if not used
 } evm_call_ctx_t;
 
 void evm_call_ctx_free(evm_call_ctx_t* evm);
@@ -124,6 +137,9 @@ typedef struct evmone_context {
   // Event logging
   emitted_log_t* logs;           // Linked list of emitted logs
   bool           capture_events; // Whether to capture events
+  // Pointer to cache list head (e.g. &state->accounts); NULL if not used
+  cached_account_t** pap_accounts;
+  bool               storage_miss; // true once a storage request was created; suppresses further requests
 } evmone_context_t;
 
 static account_state_t* create_account_state(evmone_context_t* ctx, const address_t address, bool* created);
@@ -138,33 +154,103 @@ static ssz_ob_t get_src_account(evmone_context_t* ctx, const address_t address, 
   }
   if (ctx->parent)
     return get_src_account(ctx->parent, address, allow_missing);
-  if (!ctx->ctx->state.error && !allow_missing) ctx->ctx->state.error = bprintf(NULL, "Missing account proof for 0x%x", bytes(address, 20));
+  if (!ctx->ctx->state.error && !allow_missing) {
+    char _tmp[64];
+    sbprintf(_tmp, "Missing account proof for 0x%x", bytes(address, 20));
+    c4_state_add_error(&ctx->ctx->state, _tmp);
+  }
 
   return (ssz_ob_t) {0};
 }
 
 static void get_src_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result) {
-  ssz_ob_t account = get_src_account(ctx, address, false);
-  if (!account.def) return;
-  ssz_ob_t storage = ssz_get(&account, "storageProof");
-  uint32_t len     = ssz_len(storage);
-  for (int i = 0; i < len; i++) {
-    ssz_ob_t entry = ssz_at(storage, i);
-    if (memcmp(ssz_get(&entry, "key").bytes.data, key, 32) == 0) {
-      if (!eth_get_storage_value(entry, key, result)) memset(result, 0, 32);
-      // cache the verified value for subsequent reads
-      bool               created;
-      account_state_t*   acc = create_account_state(ctx, address, &created);
-      account_storage_t* s   = safe_calloc(1, sizeof(account_storage_t));
-      memcpy(s->key, key, 32);
-      memcpy(s->value, result, 32);
-      s->original  = true;
-      s->next      = acc->storage;
-      acc->storage = s;
-      return;
+  ssz_ob_t account = get_src_account(ctx, address, ctx->pap_accounts != NULL);
+  if (account.def) {
+    ssz_ob_t storage = ssz_get(&account, "storageProof");
+    uint32_t len     = ssz_len(storage);
+    for (uint32_t i = 0; i < len; i++) {
+      ssz_ob_t entry = ssz_at(storage, i);
+      if (memcmp(ssz_get(&entry, "key").bytes.data, key, 32) == 0) {
+        if (!eth_get_storage_value(entry, key, result)) memset(result, 0, 32);
+        // cache the verified value for subsequent reads
+        bool               created;
+        account_state_t*   acc = create_account_state(ctx, address, &created);
+        account_storage_t* s   = safe_calloc(1, sizeof(account_storage_t));
+        memcpy(s->key, key, 32);
+        memcpy(s->value, result, 32);
+        s->original  = true;
+        s->next      = acc->storage;
+        acc->storage = s;
+        return;
+      }
     }
   }
-  if (!ctx->ctx->state.error) ctx->ctx->state.error = bprintf(NULL, "Missing account proof for account 0x%x and storage key 0x%x", bytes(address, 20), bytes(key, 32));
+
+  // No value in proof: fetch via eth_getStorageAt (unified path; caller sets pap_accounts so we can track).
+  if (!ctx->pap_accounts) return; // No list to track; request creation below would orphan the response.
+
+  // Check for an existing data_request, or create one.
+  char      tmp[256];
+  buffer_t  buf    = stack_buffer(tmp);
+  bytes32_t req_id = {0};
+  bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getStorageAt\",\"params\":[\"0x%x\",\"0x%x\",\"latest\"]}", bytes((uint8_t*) address, 20), bytes((uint8_t*) key, 32));
+  keccak(buf.data, req_id);
+
+  data_request_t* req = c4_state_get_data_request_by_id(&ctx->ctx->state, req_id);
+  if (req && req->response.data) {
+    // Response available: parse the value and populate cache.
+    json_t    val_json = json_get(json_parse((char*) req->response.data), "result");
+    bytes32_t val      = {0};
+    if (val_json.type == JSON_TYPE_STRING) {
+      buffer_t val_buf = stack_buffer(val);
+      bytes_t  b       = json_as_bytes(val_json, &val_buf);
+      if (b.len <= 32) memcpy(val + (32 - b.len), b.data, b.len);
+    }
+    memcpy(result, val, 32);
+
+    // Store in the cache list (unverified) and mark as accessed.
+    if (ctx->pap_accounts) {
+      cached_account_t* cached = eth_call_cache_get_or_create(ctx->pap_accounts, address);
+      eth_call_cache_set_storage(cached, key, val, 0);
+      // Mark accessed so Phase C knows this slot needs proof verification.
+      for (uint32_t _i = 0; _i < cached->num_storage; _i++) {
+        if (memcmp(cached->storage[_i].key, key, 32) == 0) {
+          cached->storage[_i].accessed = true;
+          break;
+        }
+      }
+    }
+
+    // Also add to account_states for fast subsequent lookups within this EVM run.
+    bool               created;
+    account_state_t*   acc = create_account_state(ctx, address, &created);
+    account_storage_t* s   = safe_calloc(1, sizeof(account_storage_t));
+    memcpy(s->key, key, 32);
+    memcpy(s->value, val, 32);
+    s->original  = true;
+    s->next      = acc->storage;
+    acc->storage = s;
+    return;
+  }
+  else if (req && req->error) {
+    c4_state_add_error(&ctx->ctx->state, req->error);
+    return;
+  }
+
+  // No existing request: create one (unless we already have a pending miss) and let the EVM
+  // continue with 0. Once there is a miss, all subsequent results are unreliable so we skip
+  // creating further requests to avoid fetching values only needed on the wrong execution path.
+  if (!ctx->storage_miss) {
+    data_request_t* new_req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+    new_req->chain_id       = ctx->ctx->chain_id;
+    new_req->encoding       = C4_DATA_ENCODING_JSON;
+    new_req->type           = C4_DATA_TYPE_ETH_RPC;
+    new_req->method         = C4_DATA_METHOD_POST;
+    new_req->payload        = bytes_dup(buf.data);
+    memcpy(new_req->id, req_id, 32);
+    c4_state_add_request(&ctx->ctx->state, new_req);
+    ctx->storage_miss = true;
+  }
 }
 
 static account_state_t* get_account_state(evmone_context_t* ctx, const address_t address) {
@@ -219,6 +305,11 @@ static account_state_t* create_account_state(evmone_context_t* ctx, const addres
     ssz_ob_t code = ssz_get(&old_account, "code");
     if (code.def && code.def->type == SSZ_TYPE_LIST && code.bytes.len > 0) acc->code = code.bytes;
     eth_get_account_value(old_account, ETH_ACCOUNT_BALANCE, acc->balance);
+  }
+  else if (ctx->pap_accounts && *ctx->pap_accounts) {
+    // No proof account – fall back to cached account data when list exists.
+    cached_account_t* cached = eth_call_cache_find(*ctx->pap_accounts, address);
+    if (cached) memcpy(acc->balance, cached->balance, 32);
   }
   return acc;
 }

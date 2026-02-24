@@ -132,7 +132,7 @@ if(PRECOMPILES_BN128 OR ETH_ZKPROOF)
 endif()
 
 if(ETH_CALL)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c verifier/verify_simulate.c verifier/verify_simulation_events.c verifier/state_overrides.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c verifier/verify_simulate.c verifier/verify_simulation_events.c verifier/state_overrides.c verifier/eth_call_cache.c)
   add_definitions(-DETH_CALL)
 
   if(EVMONE)
