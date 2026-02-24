@@ -128,9 +128,42 @@ void eth_call_cache_save(verify_ctx_t* ctx, const address_t addr, cached_account
   if (!cache.set) return;
 
   char     tmp[80];
-  buffer_t key_buf  = stack_buffer(tmp);
-  buffer_t data_buf = {0};
+  buffer_t key_buf = stack_buffer(tmp);
   build_cache_key(&key_buf, ctx->chain_id, addr);
+
+  // Merge with existing disk state so parallel callers don't discard each other's slots.
+  cached_account_t disk     = {0};
+  buffer_t         disk_buf = {0};
+  bool have_disk = cache.get && cache.get((char*) key_buf.data.data, &disk_buf)
+                   && eth_call_cache_read(disk_buf.data, &disk);
+  buffer_free(&disk_buf);
+
+  if (have_disk) {
+    if (disk.verified_at > account->verified_at) {
+      memcpy(account->storage_root, disk.storage_root, 32);
+      memcpy(account->balance, disk.balance, 32);
+      memcpy(account->code_hash, disk.code_hash, 32);
+      account->verified_at = disk.verified_at;
+    }
+    for (uint32_t i = 0; i < disk.num_storage; i++) {
+      bool found = false;
+      for (uint32_t j = 0; j < account->num_storage; j++) {
+        if (memcmp(account->storage[j].key, disk.storage[i].key, 32) == 0) {
+          if (disk.storage[i].verified_at > account->storage[j].verified_at) {
+            memcpy(account->storage[j].value, disk.storage[i].value, 32);
+            account->storage[j].verified_at = disk.storage[i].verified_at;
+          }
+          found = true;
+          break;
+        }
+      }
+      if (!found)
+        eth_call_cache_set_storage(account, disk.storage[i].key, disk.storage[i].value, disk.storage[i].verified_at);
+    }
+    safe_free(disk.storage);
+  }
+
+  buffer_t data_buf = {0};
   eth_call_cache_write(&data_buf, account);
   cache.set((char*) key_buf.data.data, data_buf.data);
   buffer_free(&data_buf);

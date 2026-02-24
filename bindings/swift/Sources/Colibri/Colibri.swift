@@ -10,55 +10,60 @@ public protocol ColibriStorage {
     func delete(key: String)
 }
 
-/// Default file storage implementation (similar to C FILE_STORAGE)
+/// Thread-safe file storage implementation (similar to C FILE_STORAGE).
+/// All operations are serialized on a private queue to prevent races when
+/// multiple verifier contexts run in parallel.
 private class DefaultFileStorage: ColibriStorage {
     private let baseDirectory: URL
-    
+    private let queue = DispatchQueue(label: "com.corpuscore.colibri.storage")
+
     init() {
-        // Use C4_STATES_DIR environment variable or current directory
         if let statesDir = ProcessInfo.processInfo.environment["C4_STATES_DIR"] {
             baseDirectory = URL(fileURLWithPath: statesDir)
         } else {
             baseDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         }
-        
-        // Ensure directory exists
         try? FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
         print("🗄️ Default Storage: Using directory \(baseDirectory.path)")
     }
-    
+
     func get(key: String) -> Data? {
-        let fileURL = baseDirectory.appendingPathComponent(key)
-        
-        do {
-            let data = try Data(contentsOf: fileURL)
-            print("🗄️ Default Storage GET: \(key) (\(data.count) bytes)")
-            return data
-        } catch {
-            // File not found is normal for storage
-            return nil
+        queue.sync {
+            let fileURL = baseDirectory.appendingPathComponent(key)
+            do {
+                let data = try Data(contentsOf: fileURL)
+                print("🗄️ Default Storage GET: \(key) (\(data.count) bytes)")
+                return data
+            } catch {
+                return nil
+            }
         }
     }
-    
+
     func set(key: String, value: Data) {
-        let fileURL = baseDirectory.appendingPathComponent(key)
-        
-        do {
-            try value.write(to: fileURL)
-            print("🗄️ Default Storage SET: \(key) (\(value.count) bytes)")
-        } catch {
-            print("🗄️ Default Storage SET ERROR: \(key) - \(error)")
+        queue.sync {
+            let fileURL = baseDirectory.appendingPathComponent(key)
+            let tmpURL  = fileURL.appendingPathExtension("tmp")
+            do {
+                try value.write(to: tmpURL)
+                try? FileManager.default.removeItem(at: fileURL)
+                try FileManager.default.moveItem(at: tmpURL, to: fileURL)
+                print("🗄️ Default Storage SET: \(key) (\(value.count) bytes)")
+            } catch {
+                print("🗄️ Default Storage SET ERROR: \(key) - \(error)")
+            }
         }
     }
-    
+
     func delete(key: String) {
-        let fileURL = baseDirectory.appendingPathComponent(key)
-        
-        do {
-            try FileManager.default.removeItem(at: fileURL)
-            print("🗄️ Default Storage DELETE: \(key)")
-        } catch {
-            // File not found is normal for delete
+        queue.sync {
+            let fileURL = baseDirectory.appendingPathComponent(key)
+            do {
+                try FileManager.default.removeItem(at: fileURL)
+                print("🗄️ Default Storage DELETE: \(key)")
+            } catch {
+                // File not found is normal for delete
+            }
         }
     }
 }

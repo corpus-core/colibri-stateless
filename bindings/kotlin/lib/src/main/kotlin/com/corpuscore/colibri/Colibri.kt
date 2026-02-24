@@ -25,10 +25,11 @@ package com.corpuscore.colibri
 
 // Import the SWIG-generated class explicitly
 //import c4
+import kotlin.concurrent.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject // Use org.json for JSON parsing
-import org.json.JSONArray // Add JSONArray import
+import org.json.JSONObject
+import org.json.JSONArray
 import java.math.BigInteger
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -58,11 +59,24 @@ enum class PrivacyMode {
 // Custom Exception for Colibri errors
 class ColibriException(message: String) : RuntimeException(message)
 
-// Interface for storage operations callback
+// Interface for storage operations callback.
+// Implementations MUST be thread-safe when used with coroutines on Dispatchers.IO.
 interface ColibriStorage {
-    fun get(key: String): ByteArray? // Return nullable ByteArray
+    fun get(key: String): ByteArray?
     fun set(key: String, value: ByteArray)
-    fun delete(key: String) // Changed 'del' to 'delete' for Kotlin convention
+    fun delete(key: String)
+}
+
+/**
+ * Thread-safe wrapper around any [ColibriStorage] implementation.
+ * Serializes all operations with a [ReentrantLock] so the underlying
+ * delegate does not need to be thread-safe itself.
+ */
+class ThreadSafeStorage(private val delegate: ColibriStorage) : ColibriStorage {
+    private val lock = java.util.concurrent.locks.ReentrantLock()
+    override fun get(key: String): ByteArray? = lock.withLock { delegate.get(key) }
+    override fun set(key: String, value: ByteArray) = lock.withLock { delegate.set(key, value) }
+    override fun delete(key: String) = lock.withLock { delegate.delete(key) }
 }
 
 // Singleton object to hold the user-provided storage implementation

@@ -358,6 +358,20 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, pap_call_state_t* s
   }
   if (!all_verified) return false;
 
+  if (state->accounts == NULL && ctx->proof.def->type != SSZ_TYPE_NONE) {
+    ssz_ob_t           accounts = ssz_get(&ctx->proof, "accounts");
+    uint32_t           len      = ssz_len(accounts);
+    cached_account_t** next     = &state->accounts;
+    for (uint32_t i = 0; i < len; i++) {
+      ssz_ob_t          account = ssz_at(accounts, i);
+      cached_account_t* ac      = (cached_account_t*) safe_calloc(1, sizeof(cached_account_t));
+      memcpy(ac->address, ssz_get(&account, "address").bytes.data, 20);
+
+      *next = ac;
+      next  = &ac->next;
+    }
+  }
+
   for (cached_account_t* ac = state->accounts; ac; ac = ac->next)
     eth_call_cache_save(ctx, ac->address, ac);
 
