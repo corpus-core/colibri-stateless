@@ -198,17 +198,11 @@ static c4_status_t fetch_code(verify_ctx_t* ctx, call_code_t* ac, address_t addr
       else // store in cache
         cache.set(bprintf(&buf, "code_%x", bytes(ac->hash, 32)), ac->code);
     }
-    else {
-      safe_free(ac);
-      ac     = NULL;
+    else
       status = c4_state_add_error(&ctx->state, bprintf(&buf, "error fetching code from rpc: %s", req->response.data));
-    }
   }
-  else if (req && req->error) {
-    safe_free(ac);
-    ac     = NULL;
+  else if (req && req->error)
     status = c4_state_add_error(&ctx->state, req->error);
-  }
   else {
     // we need to fecth the code from rpc
     data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
