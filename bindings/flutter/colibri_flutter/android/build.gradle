@@ -1,0 +1,35 @@
+group 'com.corpuscore.colibri_flutter'
+version '0.1.0'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.0'
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.corpuscore.colibri_flutter'
+    compileSdkVersion 34
+
+    defaultConfig {
+        minSdkVersion 23
+        targetSdkVersion 34
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}

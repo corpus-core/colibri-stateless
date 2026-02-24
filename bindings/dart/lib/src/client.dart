@@ -9,7 +9,17 @@ import 'native.dart';
 import 'storage.dart';
 import 'types.dart';
 
+/// High-level Colibri client for proofed RPC calls.
 class Colibri {
+  /// Enable remote ZK sync proof bootstrap when supported by the prover.
+  static const int _proverFlagZkProof = 1 << 7;
+
+  /// Create a client with optional custom endpoints and storage.
+  ///
+  /// [libraryPath] overrides the platform default native library location.
+  /// [storage] registers Dart callbacks for the native cache layer.
+  /// [zkProof] requests ZK sync proofs from remote provers when available.
+  /// [checkpointWitnessKeys] provides signer keys for ZK proof verification.
   Colibri({
     this.chainId = 1,
     List<String>? provers,
@@ -18,6 +28,8 @@ class Colibri {
     List<String>? checkpointz,
     this.trustedCheckpoint,
     this.includeCode = false,
+    this.zkProof = false,
+    this.checkpointWitnessKeys,
     this.storage,
     String? libraryPath,
     http.Client? httpClient,
@@ -27,6 +39,7 @@ class Colibri {
         checkpointz = checkpointz ?? _defaultCheckpointz(chainId),
         _native = ColibriNative.load(libraryPath: libraryPath),
         _http = httpClient ?? http.Client() {
+    _runtimeTrustedCheckpoint = trustedCheckpoint;
     final storageInstance = storage;
     if (storageInstance != null) {
       _native.registerStorage(storageInstance);
@@ -40,27 +53,38 @@ class Colibri {
   final List<String> checkpointz;
   final String? trustedCheckpoint;
   final bool includeCode;
+  final bool zkProof;
+  final String? checkpointWitnessKeys;
   final ColibriStorage? storage;
 
   final ColibriNative _native;
   final http.Client _http;
+  String? _runtimeTrustedCheckpoint;
+  bool _checkpointInitialized = false;
 
+  /// Close the underlying HTTP client.
   void close() {
     _http.close();
   }
 
+  /// Determine whether a method is proofable, local, or unproofable.
   MethodType getMethodSupport(String method) {
     final support = _native.getMethodSupport(chainId, method);
     return MethodType.fromValue(support);
   }
 
+  /// Create a proof for [method] and [params] locally using the native library.
   Future<Uint8List> createProof(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
+    var flags = includeCode ? 1 : 0;
+    if (zkProof) {
+      flags |= _proverFlagZkProof;
+    }
     final ctx = _native.createProverCtx(
       method,
       paramsJson,
       chainId,
-      includeCode ? 1 : 0,
+      flags,
     );
 
     if (ctx == ffi.nullptr) {
@@ -93,19 +117,21 @@ class Colibri {
     }
   }
 
+  /// Verify a proof and return the verified RPC result.
   Future<dynamic> verifyProof(
     Uint8List proof,
     String method,
     List<dynamic> params,
   ) async {
     final paramsJson = jsonEncode(params);
-    final checkpoint = trustedCheckpoint ?? '';
+    final checkpoint = _runtimeTrustedCheckpoint ?? trustedCheckpoint ?? '';
     final ctx = _native.verifyCreateCtx(
       proof,
       method,
       paramsJson,
       chainId,
       checkpoint,
+      witnessKeys: checkpointWitnessKeys,
     );
 
     if (ctx == ffi.nullptr) {
@@ -138,11 +164,16 @@ class Colibri {
     }
   }
 
+  /// Execute an RPC call with automatic proof handling.
+  ///
+  /// Proofable methods try remote provers first (if configured), then fall back
+  /// to local proof creation and verification.
   Future<dynamic> rpc(String method, List<dynamic> params) async {
     final support = getMethodSupport(method);
 
     switch (support) {
       case MethodType.proofable:
+        await _ensureTrustedCheckpoint();
         final proof = await _fetchProofWithFallback(method, params);
         return verifyProof(proof, method, params);
       case MethodType.unproofable:
@@ -155,6 +186,7 @@ class Colibri {
     }
   }
 
+  /// Resolve proof via prover endpoints, falling back to local proof creation.
   Future<Uint8List> _fetchProofWithFallback(String method, List<dynamic> params) async {
     if (provers.isNotEmpty) {
       try {
@@ -166,6 +198,7 @@ class Colibri {
     return createProof(method, params);
   }
 
+  /// Handle pending native requests by fetching required data in parallel.
   Future<void> _handleRequests(
     List<DataRequest> requests, {
     required bool useProverFallback,
@@ -182,6 +215,7 @@ class Colibri {
     await Future.wait(requests.map(handleRequest));
   }
 
+  /// Execute a single pending request against the configured endpoints.
   Future<_HttpResult> _executeHttpRequest(
     DataRequest request, {
     required bool useProverFallback,
@@ -213,6 +247,7 @@ class Colibri {
     throw HTTPError('All servers failed for ${request.url}');
   }
 
+  /// Select endpoint list for the request type.
   List<String> _selectServers(DataRequest request, {required bool useProverFallback}) {
     switch (request.requestType) {
       case 'checkpointz':
@@ -229,6 +264,7 @@ class Colibri {
     }
   }
 
+  /// Send a single HTTP request for a pending data request.
   Future<http.Response> _sendHttp(DataRequest request, String url) async {
     final headers = <String, String>{
       'Accept': request.encoding == 'ssz' ? 'application/octet-stream' : 'application/json',
@@ -257,6 +293,7 @@ class Colibri {
     }
   }
 
+  /// Execute a direct RPC call (used for unproofable methods or prover requests).
   Future<dynamic> _fetchRpc(
     List<String> urls,
     String method,
@@ -269,6 +306,15 @@ class Colibri {
       'method': method,
       'params': params,
     };
+    if (asProof) {
+      payload['include_code'] = includeCode;
+      payload['zk_proof'] = zkProof;
+      payload['signers'] = checkpointWitnessKeys ?? '0x';
+      final clientState = _clientStateHex();
+      if (clientState != null) {
+        payload['c4'] = clientState;
+      }
+    }
 
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -302,8 +348,73 @@ class Colibri {
 
     throw RPCError('All RPC servers failed for $method');
   }
+
+  /// Ensure we have a trusted checkpoint before proof verification.
+  Future<void> _ensureTrustedCheckpoint() async {
+    if (_checkpointInitialized) {
+      return;
+    }
+    _checkpointInitialized = true;
+
+    if (zkProof) {
+      return;
+    }
+    if (_runtimeTrustedCheckpoint != null || trustedCheckpoint != null) {
+      return;
+    }
+    if (_clientStateHex() != null) {
+      return;
+    }
+
+    final endpoints = <String>[
+      ...checkpointz,
+      ...beaconApis,
+      ...provers,
+    ];
+    for (final base in endpoints) {
+      try {
+        final url = base.endsWith('/')
+            ? '${base}eth/v1/beacon/states/head/finality_checkpoints'
+            : '$base/eth/v1/beacon/states/head/finality_checkpoints';
+        final response = await _http
+            .get(Uri.parse(url), headers: {'Content-Type': 'application/json'})
+            .timeout(const Duration(seconds: 30));
+        if (response.statusCode != 200) {
+          continue;
+        }
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final data = body['data'];
+        final finalized = data is Map<String, dynamic> ? data['finalized'] : null;
+        final root = finalized is Map<String, dynamic> ? finalized['root'] : null;
+        if (root is String && root.startsWith('0x') && root.length == 66) {
+          _runtimeTrustedCheckpoint = root;
+          return;
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+  }
+
+  /// Read the client state from storage as hex string for prover requests.
+  String? _clientStateHex() {
+    final storageInstance = storage;
+    if (storageInstance == null) {
+      return null;
+    }
+    final state = storageInstance.get('states_$chainId');
+    if (state == null || state.isEmpty) {
+      return null;
+    }
+    final buffer = StringBuffer('0x');
+    for (final byte in state) {
+      buffer.write(byte.toRadixString(16).padLeft(2, '0'));
+    }
+    return buffer.toString();
+  }
 }
 
+/// HTTP response wrapper with node index for exclusion masks.
 class _HttpResult {
   _HttpResult(this.data, this.nodeIndex);
 
@@ -311,6 +422,7 @@ class _HttpResult {
   final int nodeIndex;
 }
 
+/// Default prover endpoints by chain.
 List<String> _defaultProvers(int chainId) {
   return switch (chainId) {
     1 => ['https://mainnet1.colibri-proof.tech'],
@@ -321,6 +433,7 @@ List<String> _defaultProvers(int chainId) {
   };
 }
 
+/// Default RPC endpoints by chain.
 List<String> _defaultEthRpcs(int chainId) {
   return switch (chainId) {
     1 => ['https://rpc.ankr.com/eth'],
@@ -331,6 +444,7 @@ List<String> _defaultEthRpcs(int chainId) {
   };
 }
 
+/// Default beacon API endpoints by chain.
 List<String> _defaultBeaconApis(int chainId) {
   return switch (chainId) {
     1 => ['https://lodestar-mainnet.chainsafe.io'],
@@ -341,6 +455,7 @@ List<String> _defaultBeaconApis(int chainId) {
   };
 }
 
+/// Default checkpointz endpoints by chain.
 List<String> _defaultCheckpointz(int chainId) {
   return switch (chainId) {
     1 => [

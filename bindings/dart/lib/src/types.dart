@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+/// Support classification for RPC methods in Colibri.
 enum MethodType {
   undefined(0),
   proofable(1),
@@ -10,6 +11,7 @@ enum MethodType {
   const MethodType(this.value);
   final int value;
 
+  /// Convert a native integer into a [MethodType] value.
   static MethodType fromValue(int value) {
     for (final type in MethodType.values) {
       if (type.value == value) {
@@ -20,6 +22,7 @@ enum MethodType {
   }
 }
 
+/// Base exception type for all Colibri Dart errors.
 class ColibriError implements Exception {
   ColibriError(this.message, {this.details});
 
@@ -35,24 +38,29 @@ class ColibriError implements Exception {
   }
 }
 
+/// Raised when proof creation fails.
 class ProofError extends ColibriError {
   ProofError(super.message, {super.details});
 }
 
+/// Raised when proof verification fails.
 class VerificationError extends ColibriError {
   VerificationError(super.message, {super.details});
 }
 
+/// Raised when an RPC call returns an error.
 class RPCError extends ColibriError {
   RPCError(super.message, {this.code, super.details});
   final int? code;
 }
 
+/// Raised when HTTP transport fails for a data request.
 class HTTPError extends ColibriError {
   HTTPError(super.message, {this.statusCode, super.details});
   final int? statusCode;
 }
 
+/// Represents a pending data request emitted by the native library.
 class DataRequest {
   DataRequest({
     required this.reqPtr,
@@ -74,6 +82,7 @@ class DataRequest {
   final int chainId;
   final Map<String, dynamic>? payload;
 
+  /// Parse a JSON request object returned by native status calls.
   static DataRequest fromJson(Map<String, dynamic> data) {
     final excludeRaw = data['exclude_mask'];
     final excludeMask = switch (excludeRaw) {

@@ -2,3 +2,5 @@
 .packages
 build/
 native/
+.env
+_tmp/

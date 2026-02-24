@@ -6,6 +6,7 @@ import 'package:ffi/ffi.dart';
 
 import 'storage.dart';
 
+/// Mirror of `bytes_t` from the C API.
 final class BytesT extends ffi.Struct {
   @ffi.Uint32()
   external int len;
@@ -13,6 +14,7 @@ final class BytesT extends ffi.Struct {
   external ffi.Pointer<ffi.Uint8> data;
 }
 
+/// Mirror of `buffer_t` from the C API.
 final class BufferT extends ffi.Struct {
   external BytesT data;
 
@@ -32,6 +34,7 @@ typedef _StorageDeleteNative = ffi.Void Function(
   ffi.Pointer<ffi.Int8>,
 );
 
+/// Mirror of `storage_plugin_t` from the C API.
 final class StoragePluginT extends ffi.Struct {
   external ffi.Pointer<ffi.NativeFunction<_StorageGetNative>> get;
   external ffi.Pointer<ffi.NativeFunction<_StorageSetNative>> set;
@@ -83,12 +86,14 @@ typedef _VerifyCreateNative = ffi.Pointer<ffi.Void> Function(
   ffi.Pointer<ffi.Int8>,
   ffi.Uint64,
   ffi.Pointer<ffi.Int8>,
+  ffi.Pointer<ffi.Int8>,
 );
 typedef _VerifyCreate = ffi.Pointer<ffi.Void> Function(
   BytesT,
   ffi.Pointer<ffi.Int8>,
   ffi.Pointer<ffi.Int8>,
   int,
+  ffi.Pointer<ffi.Int8>,
   ffi.Pointer<ffi.Int8>,
 );
 
@@ -104,9 +109,11 @@ typedef _SetStorageConfig = void Function(ffi.Pointer<StoragePluginT>);
 typedef _BufferAppendNative = ffi.Uint32 Function(ffi.Pointer<BufferT>, BytesT);
 typedef _BufferAppend = int Function(ffi.Pointer<BufferT>, BytesT);
 
+// Global storage bridge used by native callbacks.
 ColibriStorage? _storageHandler;
 late _BufferAppend _bufferAppend;
 
+/// Native storage get callback. Returns 1 on success, 0 on miss/error.
 int _storageGet(ffi.Pointer<ffi.Int8> keyPtr, ffi.Pointer<BufferT> bufferPtr) {
   final storage = _storageHandler;
   if (storage == null) {
@@ -136,6 +143,7 @@ int _storageGet(ffi.Pointer<ffi.Int8> keyPtr, ffi.Pointer<BufferT> bufferPtr) {
   }
 }
 
+/// Native storage set callback.
 void _storageSet(ffi.Pointer<ffi.Int8> keyPtr, BytesT value) {
   final storage = _storageHandler;
   if (storage == null) {
@@ -152,6 +160,7 @@ void _storageSet(ffi.Pointer<ffi.Int8> keyPtr, BytesT value) {
   }
 }
 
+/// Native storage delete callback.
 void _storageDelete(ffi.Pointer<ffi.Int8> keyPtr) {
   final storage = _storageHandler;
   if (storage == null) {
@@ -172,6 +181,7 @@ final ffi.Pointer<ffi.NativeFunction<_StorageSetNative>> _storageSetPtr =
 final ffi.Pointer<ffi.NativeFunction<_StorageDeleteNative>> _storageDeletePtr =
     ffi.Pointer.fromFunction<_StorageDeleteNative>(_storageDelete);
 
+/// Low-level FFI bindings for the Colibri C API.
 class ColibriNative {
   ColibriNative._(this._lib, this._libc) {
     _createProverCtx = _lib.lookupFunction<_CreateProverCtxNative, _CreateProverCtx>(
@@ -184,8 +194,9 @@ class ColibriNative {
     _reqSetResponse =
         _lib.lookupFunction<_ReqSetResponseNative, _ReqSetResponse>('c4_req_set_response');
     _reqSetError = _lib.lookupFunction<_ReqSetErrorNative, _ReqSetError>('c4_req_set_error');
-    _verifyCreateCtx =
-        _lib.lookupFunction<_VerifyCreateNative, _VerifyCreate>('c4_verify_create_ctx');
+    _verifyCreateCtx = _lib.lookupFunction<_VerifyCreateNative, _VerifyCreate>(
+      'c4_verify_create_ctx_with_witness',
+    );
     _verifyExecuteJsonStatus =
         _lib.lookupFunction<_ExecuteStatusNative, _ExecuteStatus>('c4_verify_execute_json_status');
     _verifyFreeCtx = _lib.lookupFunction<_FreeCtxNative, _FreeCtx>('c4_verify_free_ctx');
@@ -213,13 +224,20 @@ class ColibriNative {
   late final _Free _free;
   late final _SetStorageConfig _setStorageConfig;
 
+  /// Load the native shared library from [libraryPath] or platform defaults.
   static ColibriNative load({String? libraryPath}) {
+    if (Platform.isIOS) {
+      final lib = ffi.DynamicLibrary.process();
+      final libc = _openLibc();
+      return ColibriNative._(lib, libc);
+    }
     final resolvedPath = libraryPath ?? _resolveDefaultLibraryPath();
     final lib = ffi.DynamicLibrary.open(resolvedPath);
     final libc = _openLibc();
     return ColibriNative._(lib, libc);
   }
 
+  /// Create a prover context for a method + params JSON string.
   ffi.Pointer<ffi.Void> createProverCtx(
     String method,
     String params,
@@ -239,6 +257,7 @@ class ColibriNative {
     return ctx;
   }
 
+  /// Execute a prover step and return the JSON status string.
   String proverExecuteJsonStatus(ffi.Pointer<ffi.Void> ctx) {
     final resultPtr = _proverExecuteJsonStatus(ctx);
     final result = resultPtr.cast<Utf8>().toDartString();
@@ -246,6 +265,7 @@ class ColibriNative {
     return result;
   }
 
+  /// Read the proof bytes after a successful prover execution.
   Uint8List proverGetProof(ffi.Pointer<ffi.Void> ctx) {
     final proof = _proverGetProof(ctx);
     if (proof.len == 0 || proof.data == ffi.nullptr) {
@@ -254,15 +274,18 @@ class ColibriNative {
     return Uint8List.fromList(proof.data.asTypedList(proof.len));
   }
 
+  /// Free the prover context.
   void freeProverCtx(ffi.Pointer<ffi.Void> ctx) => _freeProverCtx(ctx);
 
+  /// Create a verification context for [proof] and method/args.
   ffi.Pointer<ffi.Void> verifyCreateCtx(
     Uint8List proof,
     String method,
     String args,
     int chainId,
-    String trustedCheckpoint,
-  ) {
+    String trustedCheckpoint, {
+    String? witnessKeys,
+  }) {
     final proofPtr = proof.isEmpty ? ffi.nullptr : malloc<ffi.Uint8>(proof.length);
     if (proof.isNotEmpty) {
       proofPtr.asTypedList(proof.length).setAll(0, proof);
@@ -275,6 +298,7 @@ class ColibriNative {
     final methodPtr = method.toNativeUtf8();
     final argsPtr = args.toNativeUtf8();
     final checkpointPtr = trustedCheckpoint.toNativeUtf8();
+    final witnessPtr = witnessKeys == null ? ffi.nullptr : witnessKeys.toNativeUtf8();
 
     final ctx = _verifyCreateCtx(
       bytes.ref,
@@ -282,6 +306,7 @@ class ColibriNative {
       argsPtr.cast(),
       chainId,
       checkpointPtr.cast(),
+      witnessPtr.cast(),
     );
 
     if (proofPtr != ffi.nullptr) {
@@ -291,10 +316,14 @@ class ColibriNative {
     malloc.free(methodPtr);
     malloc.free(argsPtr);
     malloc.free(checkpointPtr);
+    if (witnessPtr != ffi.nullptr) {
+      malloc.free(witnessPtr);
+    }
 
     return ctx;
   }
 
+  /// Execute a verifier step and return the JSON status string.
   String verifyExecuteJsonStatus(ffi.Pointer<ffi.Void> ctx) {
     final resultPtr = _verifyExecuteJsonStatus(ctx);
     final result = resultPtr.cast<Utf8>().toDartString();
@@ -302,8 +331,10 @@ class ColibriNative {
     return result;
   }
 
+  /// Free the verification context.
   void verifyFreeCtx(ffi.Pointer<ffi.Void> ctx) => _verifyFreeCtx(ctx);
 
+  /// Submit response bytes for a pending native request.
   void reqSetResponse(int reqPtr, Uint8List data, int nodeIndex) {
     final dataPtr = data.isEmpty ? ffi.nullptr : malloc<ffi.Uint8>(data.length);
     if (data.isNotEmpty) {
@@ -321,12 +352,14 @@ class ColibriNative {
     calloc.free(bytes);
   }
 
+  /// Submit an error for a pending native request.
   void reqSetError(int reqPtr, String error, int nodeIndex) {
     final errorPtr = error.toNativeUtf8();
     _reqSetError(ffi.Pointer.fromAddress(reqPtr), errorPtr.cast(), nodeIndex);
     malloc.free(errorPtr);
   }
 
+  /// Ask the native library how a method is supported.
   int getMethodSupport(int chainId, String method) {
     final methodPtr = method.toNativeUtf8();
     final result = _getMethodSupport(chainId, methodPtr.cast());
@@ -334,6 +367,7 @@ class ColibriNative {
     return result;
   }
 
+  /// Register Dart storage callbacks with the native library.
   void registerStorage(ColibriStorage storage, {int maxSyncStates = 3}) {
     _storageHandler = storage;
     final plugin = calloc<StoragePluginT>();
@@ -346,6 +380,7 @@ class ColibriNative {
     calloc.free(plugin);
   }
 
+  /// Clear storage callbacks to avoid using a stale handler.
   void clearStorage() {
     _storageHandler = null;
     final plugin = calloc<StoragePluginT>();
@@ -358,6 +393,7 @@ class ColibriNative {
     calloc.free(plugin);
   }
 
+  /// Resolve the platform-specific library path.
   static String _resolveDefaultLibraryPath() {
     final envPath = Platform.environment['COLIBRI_DART_LIBRARY'];
     if (envPath != null && envPath.isNotEmpty) {
@@ -376,6 +412,7 @@ class ColibriNative {
     throw UnsupportedError('Unsupported platform for Colibri native library');
   }
 
+  /// Resolve the platform-specific libc for `free()`.
   static ffi.DynamicLibrary _openLibc() {
     if (Platform.isMacOS) {
       return ffi.DynamicLibrary.open('/usr/lib/libc.dylib');

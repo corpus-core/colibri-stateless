@@ -44,11 +44,56 @@ final colibri = Colibri(
 
 You can also set the library path via `COLIBRI_DART_LIBRARY`.
 
+### iOS (Flutter)
+
+iOS loads the native library via `DynamicLibrary.process()` (no `dlopen`).
+Use the Flutter wrapper package in `bindings/flutter/colibri_flutter`, and
+copy the XCFramework into:
+
+```
+bindings/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework
+```
+
 ## Build (Debug)
 
 ```bash
 ./build_debug.sh
 ```
+
+## Flutter / Mobile Binaries
+
+One command to build platform-specific binaries for Flutter:
+
+```bash
+./scripts/build_flutter_binaries.sh
+```
+
+This script produces:
+
+- Android: `bindings/dart/native/android/<abi>/libcolibri.so`
+- iOS: `bindings/dart/native/ios/c4_swift.xcframework` (macOS only)
+- Windows: `bindings/dart/native/windows/colibri.dll` (Windows host only)
+
+Requirements:
+
+- Android: `ANDROID_NDK_HOME` (or `ANDROID_NDK`) set
+- iOS: macOS + Xcode (uses `bindings/swift/build_ios.sh`)
+- Windows: build on a Windows host
+
+You can also run per-platform:
+
+```bash
+./scripts/build_flutter_binaries.sh --android
+./scripts/build_flutter_binaries.sh --ios
+./scripts/build_flutter_binaries.sh --windows
+```
+
+## Examples
+
+- `example/basic_usage.dart` — minimal verified RPC call
+- `example/proof_verify.dart` — create + verify a proof manually
+- `example/custom_storage.dart` — custom storage integration
+- `example/unproofable_rpc.dart` — unproofable method routed to direct RPC
 
 ## Testing
 
@@ -57,6 +102,13 @@ dart test
 ```
 
 If the native library lives elsewhere, set `COLIBRI_DART_LIBRARY`.
+
+### Compare C vs Dart results
+
+```bash
+export C4_BUILD_DIR=/path/to/cmake/build
+./scripts/compare_c_dart_tests.sh
+```
 
 ## Documentation
 

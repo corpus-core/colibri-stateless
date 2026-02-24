@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -1034,6 +1034,15 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  * ```
  */
 void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint);
+
+/**
+ * Creates a verification context with optional checkpoint witness keys.
+ *
+ * [witness_keys] is a hex string that concatenates one or more signer addresses:
+ * - Format: "0x" + 40*N hex characters (20 bytes per signer)
+ * - Example: "0x<addr1_40hex><addr2_40hex>"
+ */
+void* c4_verify_create_ctx_with_witness(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys);
 
 /**
  * Executes one step of the proof verification state machine.
