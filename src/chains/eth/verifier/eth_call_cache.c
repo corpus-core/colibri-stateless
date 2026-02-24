@@ -27,41 +27,58 @@
 #include "plugin.h"
 #include <string.h>
 
+#define CACHE_VERSION 1
+
 // :: Serialization helpers
 
-void eth_call_cache_write(buffer_t* out, const cached_account_t* account) {
+void eth_call_cache_write(buffer_t* out, const call_account_t* account) {
   uint8_t tmp8[8];
   uint8_t tmp4[4];
 
-  // verified_at (8 bytes LE)
+  uint8_t version = CACHE_VERSION;
+  buffer_append(out, bytes(&version, 1));
+
+  uint32_to_le(tmp4, account->flags);
+  buffer_append(out, bytes(tmp4, 4));
+
+  uint64_to_le(tmp8, account->nonce);
+  buffer_append(out, bytes(tmp8, 8));
+
   uint64_to_le(tmp8, account->verified_at);
   buffer_append(out, bytes(tmp8, 8));
 
-  // storage_root, balance, code_hash (32 bytes each)
   buffer_append(out, bytes((uint8_t*) account->storage_root, 32));
   buffer_append(out, bytes((uint8_t*) account->balance, 32));
   buffer_append(out, bytes((uint8_t*) account->code_hash, 32));
 
-  // num_storage (4 bytes LE)
-  uint32_to_le(tmp4, account->num_storage);
+  uint32_t num_storage = 0;
+  for (call_storage_t* s = account->storage; s; s = s->next) num_storage++;
+  uint32_to_le(tmp4, num_storage);
   buffer_append(out, bytes(tmp4, 4));
 
-  // storage entries
-  for (uint32_t i = 0; i < account->num_storage; i++) {
-    const cached_storage_t* s = &account->storage[i];
+  for (call_storage_t* s = account->storage; s; s = s->next) {
     buffer_append(out, bytes((uint8_t*) s->key, 32));
-    buffer_append(out, bytes((uint8_t*) s->value, 32));
+    buffer_append(out, bytes((uint8_t*) s->src_value, 32));
+    uint8_t src = (uint8_t) s->source;
+    buffer_append(out, bytes(&src, 1));
     uint64_to_le(tmp8, s->verified_at);
     buffer_append(out, bytes(tmp8, 8));
   }
 }
 
-bool eth_call_cache_read(bytes_t data, cached_account_t* out) {
-  // Minimum size: 8 + 32 + 32 + 32 + 4 = 108 bytes
-  if (data.len < 108) return false;
+bool eth_call_cache_read(bytes_t data, call_account_t* out) {
+  // Minimum: 1 + 4 + 8 + 8 + 32 + 32 + 32 + 4 = 121 bytes
+  if (data.len < 121) return false;
 
   const uint8_t* p = data.data;
 
+  uint8_t version = *p++;
+  if (version != CACHE_VERSION) return false;
+
+  out->flags = uint32_from_le(p);
+  p += 4;
+  out->nonce = uint64_from_le(p);
+  p += 8;
   out->verified_at = uint64_from_le(p);
   p += 8;
   memcpy(out->storage_root, p, 32);
@@ -70,23 +87,26 @@ bool eth_call_cache_read(bytes_t data, cached_account_t* out) {
   p += 32;
   memcpy(out->code_hash, p, 32);
   p += 32;
-  out->num_storage = uint32_from_le(p);
+
+  uint32_t num_storage = uint32_from_le(p);
   p += 4;
 
-  uint32_t expected_len = 108 + out->num_storage * 72;
+  uint32_t expected_len = 121 + num_storage * 73;
   if (data.len < expected_len) return false;
 
-  if (out->num_storage > 0) {
-    out->storage = safe_calloc(out->num_storage, sizeof(cached_storage_t));
-    for (uint32_t i = 0; i < out->num_storage; i++) {
-      cached_storage_t* s = &out->storage[i];
-      memcpy(s->key, p, 32);
-      p += 32;
-      memcpy(s->value, p, 32);
-      p += 32;
-      s->verified_at = uint64_from_le(p);
-      p += 8;
-    }
+  call_storage_t** sp = &out->storage;
+  for (uint32_t i = 0; i < num_storage; i++) {
+    call_storage_t* s = safe_calloc(1, sizeof(call_storage_t));
+    memcpy(s->key, p, 32);
+    p += 32;
+    memcpy(s->src_value, p, 32);
+    memcpy(s->post_value, p, 32);
+    p += 32;
+    s->source      = (storage_source_t) (*p++);
+    s->verified_at = uint64_from_le(p);
+    p += 8;
+    *sp = s;
+    sp  = &s->next;
   }
   return true;
 }
@@ -99,7 +119,7 @@ static void build_cache_key(buffer_t* buf, chain_id_t chain_id, const address_t 
 
 // :: Cache load / save
 
-cached_account_t* eth_call_cache_load(verify_ctx_t* ctx, const address_t addr) {
+call_account_t* eth_call_cache_load(verify_ctx_t* ctx, const address_t addr) {
   storage_plugin_t cache = {0};
   c4_get_storage_config(&cache);
   if (!cache.get) return NULL;
@@ -111,18 +131,18 @@ cached_account_t* eth_call_cache_load(verify_ctx_t* ctx, const address_t addr) {
   buffer_t data = {0};
   if (!cache.get((char*) key_buf.data.data, &data)) return NULL;
 
-  cached_account_t* account = safe_calloc(1, sizeof(cached_account_t));
+  call_account_t* account = safe_calloc(1, sizeof(call_account_t));
   memcpy(account->address, addr, 20);
   if (!eth_call_cache_read(data.data, account)) {
     buffer_free(&data);
-    safe_free(account);
+    call_account_free(account);
     return NULL;
   }
   buffer_free(&data);
   return account;
 }
 
-void eth_call_cache_save(verify_ctx_t* ctx, const address_t addr, cached_account_t* account) {
+void eth_call_cache_save(verify_ctx_t* ctx, const address_t addr, call_account_t* account) {
   storage_plugin_t cache = {0};
   c4_get_storage_config(&cache);
   if (!cache.set) return;
@@ -132,10 +152,9 @@ void eth_call_cache_save(verify_ctx_t* ctx, const address_t addr, cached_account
   build_cache_key(&key_buf, ctx->chain_id, addr);
 
   // Merge with existing disk state so parallel callers don't discard each other's slots.
-  cached_account_t disk     = {0};
-  buffer_t         disk_buf = {0};
-  bool have_disk = cache.get && cache.get((char*) key_buf.data.data, &disk_buf)
-                   && eth_call_cache_read(disk_buf.data, &disk);
+  call_account_t disk      = {0};
+  buffer_t       disk_buf  = {0};
+  bool           have_disk = cache.get && cache.get((char*) key_buf.data.data, &disk_buf) && eth_call_cache_read(disk_buf.data, &disk);
   buffer_free(&disk_buf);
 
   if (have_disk) {
@@ -144,23 +163,22 @@ void eth_call_cache_save(verify_ctx_t* ctx, const address_t addr, cached_account
       memcpy(account->balance, disk.balance, 32);
       memcpy(account->code_hash, disk.code_hash, 32);
       account->verified_at = disk.verified_at;
+      account->flags |= disk.flags & (ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE);
     }
-    for (uint32_t i = 0; i < disk.num_storage; i++) {
-      bool found = false;
-      for (uint32_t j = 0; j < account->num_storage; j++) {
-        if (memcmp(account->storage[j].key, disk.storage[i].key, 32) == 0) {
-          if (disk.storage[i].verified_at > account->storage[j].verified_at) {
-            memcpy(account->storage[j].value, disk.storage[i].value, 32);
-            account->storage[j].verified_at = disk.storage[i].verified_at;
-          }
-          found = true;
-          break;
+    for (call_storage_t* ds = disk.storage; ds; ds = ds->next) {
+      call_storage_t* as = call_storage_find(account, ds->key);
+      if (as) {
+        if (ds->verified_at > as->verified_at) {
+          memcpy(as->src_value, ds->src_value, 32);
+          memcpy(as->post_value, ds->src_value, 32);
+          as->verified_at = ds->verified_at;
+          as->source      = ds->source;
         }
       }
-      if (!found)
-        eth_call_cache_set_storage(account, disk.storage[i].key, disk.storage[i].value, disk.storage[i].verified_at);
+      else
+        eth_call_cache_set_storage(account, ds->key, ds->src_value, ds->source, ds->verified_at);
     }
-    safe_free(disk.storage);
+    call_storage_free_list(disk.storage);
   }
 
   buffer_t data_buf = {0};
@@ -171,17 +189,17 @@ void eth_call_cache_save(verify_ctx_t* ctx, const address_t addr, cached_account
 
 // :: Linked-list helpers
 
-cached_account_t* eth_call_cache_find(cached_account_t* list, const address_t addr) {
-  for (cached_account_t* n = list; n; n = n->next) {
+call_account_t* eth_call_cache_find(call_account_t* list, const address_t addr) {
+  for (call_account_t* n = list; n; n = n->next) {
     if (memcmp(n->address, addr, 20) == 0) return n;
   }
   return NULL;
 }
 
-cached_account_t* eth_call_cache_get_or_create(cached_account_t** list, const address_t addr) {
-  cached_account_t* n = eth_call_cache_find(*list, addr);
+call_account_t* eth_call_cache_get_or_create(call_account_t** list, const address_t addr) {
+  call_account_t* n = eth_call_cache_find(*list, addr);
   if (n) return n;
-  n = safe_calloc(1, sizeof(cached_account_t));
+  n = safe_calloc(1, sizeof(call_account_t));
   memcpy(n->address, addr, 20);
   n->next = *list;
   *list   = n;
@@ -190,74 +208,45 @@ cached_account_t* eth_call_cache_get_or_create(cached_account_t** list, const ad
 
 // :: Storage slot helpers
 
-bool eth_call_cache_get_storage(const cached_account_t* account, const bytes32_t key, bytes32_t value_out) {
-  for (uint32_t i = 0; i < account->num_storage; i++) {
-    if (memcmp(account->storage[i].key, key, 32) == 0) {
-      memcpy(value_out, account->storage[i].value, 32);
+bool eth_call_cache_get_storage(const call_account_t* account, const bytes32_t key, bytes32_t value_out) {
+  for (call_storage_t* s = account->storage; s; s = s->next) {
+    if (memcmp(s->key, key, 32) == 0) {
+      memcpy(value_out, s->post_value, 32);
       return true;
     }
   }
   return false;
 }
 
-void eth_call_cache_set_storage(cached_account_t* account, const bytes32_t key, const bytes32_t value, uint64_t verified_at) {
-  for (uint32_t i = 0; i < account->num_storage; i++) {
-    if (memcmp(account->storage[i].key, key, 32) == 0) {
-      memcpy(account->storage[i].value, value, 32);
-      account->storage[i].verified_at = verified_at;
+void eth_call_cache_set_storage(call_account_t* account, const bytes32_t key, const bytes32_t value, storage_source_t source, uint64_t verified_at) {
+  for (call_storage_t* s = account->storage; s; s = s->next) {
+    if (memcmp(s->key, key, 32) == 0) {
+      memcpy(s->src_value, value, 32);
+      memcpy(s->post_value, value, 32);
+      s->verified_at = verified_at;
+      s->source      = source;
+      s->modified    = false;
       return;
     }
   }
-  // New entry
-  account->storage    = safe_realloc(account->storage, (account->num_storage + 1) * sizeof(cached_storage_t));
-  cached_storage_t* s = &account->storage[account->num_storage];
-  memset(s, 0, sizeof(cached_storage_t));
+  call_storage_t* s = safe_calloc(1, sizeof(call_storage_t));
   memcpy(s->key, key, 32);
-  memcpy(s->value, value, 32);
-  s->verified_at = verified_at;
-  account->num_storage++;
+  memcpy(s->src_value, value, 32);
+  memcpy(s->post_value, value, 32);
+  s->source        = source;
+  s->verified_at   = verified_at;
+  s->next          = account->storage;
+  account->storage = s;
 }
 
 // :: Access tracking helpers
 
-void eth_call_cache_reset_accessed(cached_account_t* list) {
-  for (cached_account_t* n = list; n; n = n->next)
-    for (uint32_t i = 0; i < n->num_storage; i++)
-      n->storage[i].accessed = false;
-}
-
-void eth_call_cache_mark_accessed(cached_account_t* account, const bytes32_t key) {
-  for (uint32_t i = 0; i < account->num_storage; i++) {
-    if (memcmp(account->storage[i].key, key, 32) == 0) {
-      account->storage[i].accessed = true;
-      return;
+void eth_call_cache_reset_accessed(call_account_t* list) {
+  for (call_account_t* n = list; n; n = n->next) {
+    for (call_storage_t* s = n->storage; s; s = s->next) {
+      s->accessed = false;
+      s->modified = false;
+      memcpy(s->post_value, s->src_value, 32);
     }
   }
-}
-
-// :: Memory management
-
-void eth_call_cache_free(cached_account_t* account) {
-  if (!account) return;
-  safe_free(account->storage);
-  safe_free(account);
-}
-
-void eth_call_cache_free_list(cached_account_t* list) {
-  while (list) {
-    cached_account_t* next = list->next;
-    eth_call_cache_free(list);
-    list = next;
-  }
-}
-
-// :: pap_call_state_t lifecycle
-
-void pap_call_state_free(void* ptr) {
-  if (!ptr) return;
-  pap_call_state_t* state = (pap_call_state_t*) ptr;
-  eth_call_cache_free_list(state->accounts);
-  safe_free(state->call_result.data);
-  free_emitted_logs(state->logs);
-  safe_free(state);
 }

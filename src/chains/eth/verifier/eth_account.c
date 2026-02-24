@@ -24,6 +24,7 @@
 #include "eth_account.h"
 #include "beacon_types.h"
 #include "bytes.h"
+#include "call_ctx.h"
 #include "crypto.h"
 #include "eth_call_cache.h"
 #include "eth_tx.h"
@@ -170,14 +171,14 @@ void eth_get_account_value(ssz_ob_t account, eth_account_field_t field, bytes32_
   memcpy(value + 32 - last_value.len, last_value.data, last_value.len);
 }
 
-static c4_status_t fetch_code(verify_ctx_t* ctx, call_code_t* ac, address_t address) {
+static c4_status_t fetch_account_code(verify_ctx_t* ctx, call_account_t* ac) {
   char             tmp[200];
   storage_plugin_t cache  = {0};
   c4_status_t      status = C4_SUCCESS;
   buffer_t         buf    = stack_buffer(tmp);
 
   c4_get_storage_config(&cache);
-  bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\": \"eth_getCode\", \"params\": [\"0x%x\", \"latest\"]}", bytes(address, 20));
+  bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\": \"eth_getCode\", \"params\": [\"0x%x\", \"latest\"]}", bytes(ac->address, 20));
   bytes32_t hash = {0};
   keccak(buf.data, hash);
   data_request_t* req = c4_state_get_data_request_by_id(&ctx->state, hash);
@@ -187,17 +188,17 @@ static c4_status_t fetch_code(verify_ctx_t* ctx, call_code_t* ac, address_t addr
     if (result.type == JSON_TYPE_STRING) {
       buffer_t code_data = {0};
       ac->code           = json_as_bytes(result, &code_data);
-      ac->free           = true;
+      ac->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
 
       keccak(ac->code, hash);
-      if (memcmp(hash, ac->hash, 32) != 0) { // code hash mismatch
-        if (ac->free) safe_free(ac->code.data);
+      if (memcmp(hash, ac->code_hash, 32) != 0) {
+        safe_free(ac->code.data);
         ac->code = NULL_BYTES;
-        ac->free = false;
-        status   = c4_state_add_error(&ctx->state, "code hash mismatch");
+        ac->flags &= ~(ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE);
+        status = c4_state_add_error(&ctx->state, "code hash mismatch");
       }
-      else // store in cache
-        cache.set(bprintf(&buf, "code_%x", bytes(ac->hash, 32)), ac->code);
+      else
+        cache.set(bprintf(&buf, "code_%x", bytes(ac->code_hash, 32)), ac->code);
     }
     else
       status = c4_state_add_error(&ctx->state, bprintf(&buf, "error fetching code from rpc: %s", req->response.data));
@@ -205,128 +206,48 @@ static c4_status_t fetch_code(verify_ctx_t* ctx, call_code_t* ac, address_t addr
   else if (req && req->error)
     status = c4_state_add_error(&ctx->state, req->error);
   else {
-    // we need to fecth the code from rpc
-    data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-    req->chain_id       = ctx->chain_id;
-    req->encoding       = C4_DATA_ENCODING_JSON;
-    req->type           = C4_DATA_TYPE_ETH_RPC;
-    req->payload        = bytes_dup(buf.data);
-    req->method         = C4_DATA_METHOD_POST;
-    memcpy(req->id, hash, 32);
-    c4_state_add_request(&ctx->state, req);
+    data_request_t* new_req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+    new_req->chain_id       = ctx->chain_id;
+    new_req->encoding       = C4_DATA_ENCODING_JSON;
+    new_req->type           = C4_DATA_TYPE_ETH_RPC;
+    new_req->payload        = bytes_dup(buf.data);
+    new_req->method         = C4_DATA_METHOD_POST;
+    memcpy(new_req->id, hash, 32);
+    c4_state_add_request(&ctx->state, new_req);
     status = C4_PENDING;
   }
   return status;
 }
 
-INTERNAL c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_codes, ssz_ob_t accounts) {
+INTERNAL c4_status_t eth_resolve_account_codes(verify_ctx_t* ctx, call_account_t* accounts) {
   c4_status_t      status = C4_SUCCESS;
   storage_plugin_t cache  = {0};
-  bytes32_t        hash   = {0};
   char             tmp[200];
   buffer_t         buf = stack_buffer(tmp);
   c4_get_storage_config(&cache);
-#ifdef ETH_CALL
-  if ((!accounts.def || !accounts.bytes.data) && (ctx->flags & VERIFY_FLAG_PAP)) {
-    // there are no proofable accounts, so we check the cache or trigger requests for the accounts
-    c4_status_t status   = C4_SUCCESS;
-    bytes_t     to_bytes = json_get_bytes(json_at(ctx->args, 0), "to", &buf);
-    if (to_bytes.len == 0) return C4_SUCCESS; // no to address means deployment, so we don't need to fetch the code
-    if (to_bytes.len != 20) RETURN_VERIFY_ERROR(ctx, "invalid to address");
-    address_t address = {0};
-    memcpy(address, to_bytes.data, 20);
-    buffer_reset(&buf);
-    pap_call_state_t* state = (pap_call_state_t*) ctx->user_data;
-    if (!state) return C4_SUCCESS; // no state means no accounts, so we don't need to fetch the code
-    cached_account_t* cached = eth_call_cache_find(state->accounts, address);
-    if (cached) {
-      buffer_t     data = {0};
-      call_code_t* ac   = (call_code_t*) safe_calloc(1, sizeof(call_code_t));
-      memcpy(ac->hash, cached->code_hash, 32);
-      if (memcmp(ac->hash, EMPTY_HASH, 32) == 0) { // empty code
-        ac->code = NULL_BYTES;
-        ac->free = false;
-      }
-      else if (cache.get(bprintf(&buf, "code_%x", bytes(ac->hash, 32)), &data)) {
-        ac->code = data.data;
-        ac->free = true;
-      }
-      else {
-        status = fetch_code(ctx, ac, address);
-        if (status != C4_SUCCESS) {
-          eth_free_codes(ac);
-          ac = NULL;
-        }
-      }
-      if (ac) {
-        call_code_t* next = *call_codes;
-        *call_codes       = ac;
-        ac->next          = next;
-      }
+
+  for (call_account_t* ac = accounts; ac; ac = ac->next) {
+    if (ac->flags & ACCOUNT_HAS_CODE) continue;
+    if (!(ac->flags & ACCOUNT_HAS_CODE_HASH)) continue;
+    if (memcmp(ac->code_hash, EMPTY_HASH, 32) == 0) {
+      ac->code = NULL_BYTES;
+      ac->flags |= ACCOUNT_HAS_CODE;
+      continue;
     }
-    else
-      THROW_ERROR("fetch code for account not implemented yet!");
-    return status;
-  }
-#endif
-  uint32_t len = ssz_len(accounts);
-  for (uint32_t i = 0; i < len; i++) {
-    ssz_ob_t acc  = ssz_at(accounts, i);
-    ssz_ob_t code = ssz_get(&acc, "code");
 
-    if (code.def->type == SSZ_TYPE_BOOLEAN && code.bytes.data[0] == 0) continue; // no code which might be relevant for us
-
-    call_code_t* ac = (call_code_t*) safe_calloc(1, sizeof(call_code_t));
-    eth_get_account_value(acc, ETH_ACCOUNT_CODE_HASH, ac->hash);
-
-    // fetch from cache
     buffer_reset(&buf);
     buffer_t data = {0};
-    if (memcmp(ac->hash, EMPTY_HASH, 32) == 0) { // empty code
-      ac->code = NULL_BYTES;
-      ac->free = false;
-    }
-    else if (cache.get(bprintf(&buf, "code_%x", bytes(ac->hash, 32)), &data)) {
+    if (cache.get && cache.get(bprintf(&buf, "code_%x", bytes(ac->code_hash, 32)), &data)) {
       ac->code = data.data;
-      ac->free = true;
+      ac->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
+      continue;
     }
-    else if (code.def->type == SSZ_TYPE_LIST) { // code is part of the proof, but not cached yet
-      ac->code = code.bytes;
-      ac->free = false;
 
-      // store in cache
-      cache.set((char*) buf.data.data, ac->code);
-    }
-    else {
-      c4_status_t fetch_status = fetch_code(ctx, ac, ssz_get(&acc, "address").bytes.data);
-      if (status != C4_ERROR) status = fetch_status;
-      if (fetch_status != C4_SUCCESS) {
-        eth_free_codes(ac);
-        ac = NULL;
-      }
-    }
-    if (ac) {
-      call_code_t* next = *call_codes;
-      *call_codes       = ac;
-      ac->next          = next;
-    }
-  }
-
-  if (status != C4_SUCCESS) {
-    eth_free_codes(*call_codes);
-    *call_codes = NULL;
+    c4_status_t fetch_status = fetch_account_code(ctx, ac);
+    if (status != C4_ERROR) status = fetch_status;
   }
 
   return status;
-}
-
-INTERNAL void eth_free_codes(call_code_t* call_codes) {
-  while (call_codes) {
-    call_code_t* next = call_codes->next;
-    if (call_codes->free) safe_free(call_codes->code.data);
-    safe_free(call_codes);
-    call_codes = next;
-  }
 }
 
 gindex_t eth_get_gindex_for_block(fork_id_t fork, json_t block) {
