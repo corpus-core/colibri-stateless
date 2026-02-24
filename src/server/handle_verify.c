@@ -278,7 +278,7 @@ static void prover_callback(client_t* client, void* data, data_request_t* req) {
   }
 
   // Initialize verification context with the proof
-  if (c4_verify_init(&verify_req->ctx, req->response, verify_req->method, verify_req->params, http_server.chain_id) != C4_SUCCESS) {
+  if (c4_verify_init(&verify_req->ctx, req->response, verify_req->method, verify_req->params, http_server.chain_id, 0) != C4_SUCCESS) {
     buffer_t buffer = {0};
     bprintf(&buffer, "{\"id\": %J, \"error\":\"%S\"}", verify_req->id, verify_req->ctx.state.error);
     c4_http_respond(client, 200, "application/json", buffer.data);

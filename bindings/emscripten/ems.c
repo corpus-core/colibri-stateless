@@ -153,8 +153,7 @@ void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_le
 
   c4w_verify_ctx_t* ctx = calloc(1, sizeof(c4w_verify_ctx_t));
   ctx->proof            = bytes_dup(bytes(proof, proof_len));
-  c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id);
-  ctx->verify.flags     = (verify_flags_t) flags;
+  c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id, (verify_flags_t) flags);
 
   if (witness_keys && strlen(witness_keys) > 40 && witness_keys[0] == '0' && witness_keys[1] == 'x') {
     bytes_t witness_key_bytes = bytes(safe_malloc(strlen(witness_keys) / 2), (strlen(witness_keys) - 2) / 2);
@@ -174,7 +173,7 @@ void EMSCRIPTEN_KEEPALIVE c4w_free_verify_ctx(void* ptr) {
 }
 method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* method, char* params, uint32_t flags) {
   return c4_get_method_type((chain_id_t) chain_id, method,
-      params ? json_parse(params) : (json_t) {0}, (verify_flags_t) flags);
+                            params ? json_parse(params) : (json_t) {0}, (verify_flags_t) flags);
 }
 
 char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {

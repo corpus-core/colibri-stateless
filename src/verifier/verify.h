@@ -170,7 +170,7 @@ void c4_verify_free_data(verify_ctx_t* ctx);
  * @param chain_id the chain-id of the request.
  * @return C4_SUCCESS or C4_ERROR
  */
-c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id);
+c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id, verify_flags_t flags);
 
 /**
  * get the method type for a given chain-id, method, params and verify flags.

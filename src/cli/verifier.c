@@ -316,8 +316,7 @@ int main(int argc, char* argv[]) {
   }
 
   verify_ctx_t ctx = {0};
-  c4_verify_init(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
-  ctx.flags = verify_flags;
+  c4_verify_init(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id, verify_flags);
   if (signers && strlen(signers) > 40 && signers[0] == '0' && signers[1] == 'x') {
     ctx.witness_keys = bytes(safe_malloc(strlen(signers) / 2), (strlen(signers) - 2) / 2);
     if (hex_to_bytes(signers, -1, ctx.witness_keys) % 20 != 0) {

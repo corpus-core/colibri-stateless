@@ -243,7 +243,7 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, cached_account_t* ac, b
   verify_ctx_t proof_ctx    = {0};
   bool         result       = false;
 
-  if (c4_verify_init(&proof_ctx, response, "eth_getProof", proof_args, ctx->chain_id) != C4_SUCCESS) {
+  if (c4_verify_init(&proof_ctx, response, "eth_getProof", proof_args, ctx->chain_id, 0) != C4_SUCCESS) {
     if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
     goto cleanup;
   }
