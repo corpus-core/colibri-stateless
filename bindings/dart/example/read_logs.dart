@@ -35,6 +35,7 @@ Future<void> main() async {
   final ethRpcs = resolveEthRpcs(fallback: defaultPublicEthRpcs()) ?? defaultPublicEthRpcs();
   final zkProof = resolveZkProof();
   final checkpointWitnessKeys = resolveCheckpointWitnessKeys();
+  final zkDebug = resolveZkDebug();
 
   /// Create the client for Ethereum mainnet.
   final colibri = Colibri(
@@ -44,6 +45,7 @@ Future<void> main() async {
     ethRpcs: ethRpcs,
     zkProof: zkProof,
     checkpointWitnessKeys: checkpointWitnessKeys,
+    logProverRequests: zkDebug,
   );
 
   /// Configure a basic filter: contract address + block range.

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DART_NATIVE_DIR="$ROOT_DIR/bindings/dart/native"
 BUILD_ROOT="$ROOT_DIR/build/flutter"
-FLUTTER_PLUGIN_DIR="$ROOT_DIR/bindings/flutter/colibri_flutter"
+FLUTTER_PLUGIN_DIR="$ROOT_DIR/bindings/dart/flutter/colibri_flutter"
 
 mkdir -p "$BUILD_ROOT"
 
@@ -133,7 +133,7 @@ build_ios() {
   echo "Building iOS XCFramework..."
   "$ROOT_DIR/bindings/swift/build_ios.sh"
 
-  local src_xcframework="$ROOT_DIR/build_ios_arm/c4_swift.xcframework"
+  local src_xcframework="$ROOT_DIR/build/ios/ios_arm64/c4_swift.xcframework"
   if [[ ! -d "$src_xcframework" ]]; then
     echo "Missing iOS XCFramework: $src_xcframework"
     exit 1

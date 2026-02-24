@@ -51,6 +51,7 @@ Future<void> main() async {
   final ethRpcs = resolveEthRpcs(fallback: defaultPublicEthRpcs());
   final zkProof = resolveZkProof();
   final checkpointWitnessKeys = resolveCheckpointWitnessKeys();
+  final zkDebug = resolveZkDebug();
 
   /// Create a client with a custom storage backend.
   /// This storage is used by the native verifier for cached sync state.
@@ -62,6 +63,7 @@ Future<void> main() async {
     ethRpcs: ethRpcs,
     zkProof: zkProof,
     checkpointWitnessKeys: checkpointWitnessKeys,
+    logProverRequests: zkDebug,
   );
 
   /// Execute a verified RPC call.

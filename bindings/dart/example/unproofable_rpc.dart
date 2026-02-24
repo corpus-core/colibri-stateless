@@ -29,6 +29,7 @@ Future<void> main() async {
   final ethRpcs = resolveEthRpcs(fallback: defaultPublicEthRpcs());
   final zkProof = resolveZkProof();
   final checkpointWitnessKeys = resolveCheckpointWitnessKeys();
+  final zkDebug = resolveZkDebug();
 
   /// Create the client for mainnet.
   final colibri = Colibri(
@@ -38,6 +39,7 @@ Future<void> main() async {
     ethRpcs: ethRpcs,
     zkProof: zkProof,
     checkpointWitnessKeys: checkpointWitnessKeys,
+    logProverRequests: zkDebug,
   );
 
   /// Unproofable methods are routed to direct RPC by the client.

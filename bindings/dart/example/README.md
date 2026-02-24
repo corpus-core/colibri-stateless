@@ -112,3 +112,20 @@ Supported keys:
 - `COLIBRI_ETH_RPC` / `COLIBRI_ETH_RPCS` (Ethereum RPC URLs)
 - `COLIBRI_ZK_PROOF` (set `true` to request ZK sync proofs from the prover)
 - `COLIBRI_CHECKPOINT_WITNESS_KEYS` (hex concatenated signer addresses for ZK proofs)
+- `COLIBRI_DEBUG_ZK` (set `true` to log prover request details)
+
+### Run examples with ZK proofs
+
+To force ZK sync proofs for the examples, set:
+
+```bash
+export COLIBRI_ZK_PROOF=true
+export COLIBRI_PROVER=https://mainnet.colibri-proof.tech
+export COLIBRI_CHECKPOINT_WITNESS_KEYS=0x07f50c1d17cb84a656692ddfd577c09756cb305b
+```
+
+Then run any example:
+
+```bash
+dart run example/basic_usage.dart
+```

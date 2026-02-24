@@ -30,6 +30,7 @@ class Colibri {
     this.includeCode = false,
     this.zkProof = false,
     this.checkpointWitnessKeys,
+    this.logProverRequests = false,
     this.storage,
     String? libraryPath,
     http.Client? httpClient,
@@ -55,6 +56,7 @@ class Colibri {
   final bool includeCode;
   final bool zkProof;
   final String? checkpointWitnessKeys;
+  final bool logProverRequests;
   final ColibriStorage? storage;
 
   final ColibriNative _native;
@@ -313,6 +315,15 @@ class Colibri {
       final clientState = _clientStateHex();
       if (clientState != null) {
         payload['c4'] = clientState;
+      }
+      if (logProverRequests) {
+        final hasState = clientState != null;
+        final signers = checkpointWitnessKeys ?? '0x';
+        print(
+          'prover request: method=$method zk_proof=$zkProof '
+          'include_code=$includeCode signers=$signers '
+          'client_state=${hasState ? "set" : "none"}',
+        );
       }
     }
 

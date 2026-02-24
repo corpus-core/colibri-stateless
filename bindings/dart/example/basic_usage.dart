@@ -17,6 +17,7 @@ Future<void> main() async {
   final ethRpcs = resolveEthRpcs(fallback: defaultPublicEthRpcs());
   final zkProof = resolveZkProof();
   final checkpointWitnessKeys = resolveCheckpointWitnessKeys();
+  final zkDebug = resolveZkDebug();
 
   /// Resolve the platform-specific path to the native Colibri library.
   /// This matches the output location of `./build.sh` in bindings/dart/native.
@@ -35,6 +36,7 @@ Future<void> main() async {
     ethRpcs: ethRpcs,
     zkProof: zkProof,
     checkpointWitnessKeys: checkpointWitnessKeys,
+    logProverRequests: zkDebug,
   );
 
   /// Call a simple RPC method.

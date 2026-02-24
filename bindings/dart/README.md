@@ -47,11 +47,11 @@ You can also set the library path via `COLIBRI_DART_LIBRARY`.
 ### iOS (Flutter)
 
 iOS loads the native library via `DynamicLibrary.process()` (no `dlopen`).
-Use the Flutter wrapper package in `bindings/flutter/colibri_flutter`, and
+Use the Flutter wrapper package in `bindings/dart/flutter/colibri_flutter`, and
 copy the XCFramework into:
 
 ```
-bindings/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework
+bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework
 ```
 
 ## Build (Debug)

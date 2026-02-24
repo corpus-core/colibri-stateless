@@ -96,6 +96,11 @@ String? resolveCheckpointWitnessKeys() {
   return readEnv('COLIBRI_CHECKPOINT_WITNESS_KEYS');
 }
 
+/// Resolve whether to log prover request details.
+bool resolveZkDebug() {
+  return _readBoolEnv('COLIBRI_DEBUG_ZK');
+}
+
 /// Format a block number as a decimal string when possible.
 String formatBlockNumber(dynamic value) {
   if (value == null) {

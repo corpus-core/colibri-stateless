@@ -7,7 +7,7 @@ Flutter wrapper for the Colibri Dart FFI bindings.
 ```yaml
 dependencies:
   colibri_flutter:
-    path: ../colibri-stateless/bindings/flutter/colibri_flutter
+    path: ../colibri-stateless/bindings/dart/flutter/colibri_flutter
 ```
 
 ## Native binaries
@@ -20,8 +20,8 @@ Build and copy all native binaries:
 
 This script will place binaries into:
 
-- `bindings/flutter/colibri_flutter/android/src/main/jniLibs/<abi>/libcolibri.so`
-- `bindings/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework`
+- `bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/<abi>/libcolibri.so`
+- `bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework`
 
 ## Usage
 

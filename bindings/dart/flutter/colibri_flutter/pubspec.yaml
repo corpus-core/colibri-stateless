@@ -11,7 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   colibri_stateless:
-    path: ../../dart
+    path: ../..
 
 flutter:
   plugin:

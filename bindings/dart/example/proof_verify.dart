@@ -30,6 +30,7 @@ Future<void> main() async {
   final ethRpcs = resolveEthRpcs();
   final zkProof = resolveZkProof();
   final checkpointWitnessKeys = resolveCheckpointWitnessKeys();
+  final zkDebug = resolveZkDebug();
 
   /// Instantiate a client for mainnet and load the native library.
   final colibri = Colibri(
@@ -39,6 +40,7 @@ Future<void> main() async {
     ethRpcs: ethRpcs,
     zkProof: zkProof,
     checkpointWitnessKeys: checkpointWitnessKeys,
+    logProverRequests: zkDebug,
   );
 
   /// Pick a proofable method and its parameters.

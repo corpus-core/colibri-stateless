@@ -20,7 +20,7 @@ packages:
   colibri_stateless:
     dependency: "direct main"
     description:
-      path: "../../dart"
+      path: "../.."
       relative: true
     source: path
     version: "0.1.0"
