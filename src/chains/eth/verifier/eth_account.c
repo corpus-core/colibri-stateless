@@ -191,9 +191,10 @@ static c4_status_t fetch_code(verify_ctx_t* ctx, call_code_t* ac, address_t addr
 
       keccak(ac->code, hash);
       if (memcmp(hash, ac->hash, 32) != 0) { // code hash mismatch
-        eth_free_codes(ac);
-        ac     = NULL;
-        status = c4_state_add_error(&ctx->state, "code hash mismatch");
+        if (ac->free) safe_free(ac->code.data);
+        ac->code = NULL_BYTES;
+        ac->free = false;
+        status   = c4_state_add_error(&ctx->state, "code hash mismatch");
       }
       else // store in cache
         cache.set(bprintf(&buf, "code_%x", bytes(ac->hash, 32)), ac->code);
@@ -253,7 +254,7 @@ INTERNAL c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_co
       else {
         status = fetch_code(ctx, ac, address);
         if (status != C4_SUCCESS) {
-          safe_free(ac);
+          eth_free_codes(ac);
           ac = NULL;
         }
       }
@@ -300,7 +301,7 @@ INTERNAL c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_co
       c4_status_t fetch_status = fetch_code(ctx, ac, ssz_get(&acc, "address").bytes.data);
       if (status != C4_ERROR) status = fetch_status;
       if (fetch_status != C4_SUCCESS) {
-        safe_free(ac);
+        eth_free_codes(ac);
         ac = NULL;
       }
     }

@@ -358,7 +358,7 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, pap_call_state_t* s
   }
   if (!all_verified) return false;
 
-  if (state->accounts == NULL && ctx->proof.def->type != SSZ_TYPE_NONE) {
+  if (state->accounts == NULL && ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE) {
     ssz_ob_t           accounts = ssz_get(&ctx->proof, "accounts");
     uint32_t           len      = ssz_len(accounts);
     cached_account_t** next     = &state->accounts;

@@ -211,6 +211,7 @@ void eth_call_cache_set_storage(cached_account_t* account, const bytes32_t key, 
   // New entry
   account->storage    = safe_realloc(account->storage, (account->num_storage + 1) * sizeof(cached_storage_t));
   cached_storage_t* s = &account->storage[account->num_storage];
+  memset(s, 0, sizeof(cached_storage_t));
   memcpy(s->key, key, 32);
   memcpy(s->value, value, 32);
   s->verified_at = verified_at;
