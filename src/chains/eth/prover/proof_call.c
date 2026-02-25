@@ -205,7 +205,7 @@ static c4_status_t handle_access_list(prover_ctx_t* ctx, json_t storage, bytes_t
   return C4_SUCCESS;
 }
 
-c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t tx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner, const eth_state_overrides_t* overrides) {
+c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner, const eth_state_overrides_t* overrides) {
   c4_status_t status       = C4_SUCCESS;
   json_t      eth_proof    = {0};
   bytes_t     account      = {0};
@@ -256,15 +256,18 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   c4_status_t           status           = C4_SUCCESS;
   eth_state_overrides_t overrides_parsed = {0};
   bool                  has_overrides    = state_overrides.type == JSON_TYPE_OBJECT;
+  bool                  is_proof_call    = strcmp(ctx->method, "colibri_proofCall") == 0;
 
   if (block_number.type == JSON_TYPE_NOT_FOUND) block_number = json_parse("\"latest\"");
 
   // Validate arguments before processing
   TRACE_START(ctx, "get_block_for_eth");
 
-
   if (strcmp(ctx->method, "eth_call") == 0) {
     CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}?]", "Invalid transaction");
+  }
+  else if (is_proof_call) {
+    CHECK_JSON(ctx->params, "[" JSON_ACCESS_LIST_FIELDS ",block]", "Invalid transaction");
   }
   else {
     CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block?]", "Invalid transaction");
@@ -278,14 +281,16 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
 
   TRACE_START(ctx, "fetch access list and eth_getProof");
   // If state overrides are provided, we must use eth_createAccessList so the upstream can account for overrides.
-  if (has_overrides)
+  if (is_proof_call)
+    trace = tx;
+  else if (has_overrides)
     TRY_ADD_ASYNC(status, eth_create_access_list(ctx, tx, &trace, target_block, state_overrides));
   else
     TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? eth_create_access_list(ctx, tx, &trace, target_block, (json_t) {0}) : eth_debug_trace_call(ctx, tx, &trace, target_block));
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed));
   TRY_ASYNC_CATCH(
-      c4_get_eth_proofs(ctx, tx, trace, target_block, &accounts, miner.data, has_overrides ? &overrides_parsed : NULL),
+      c4_get_eth_proofs(ctx, trace, target_block, &accounts, miner.data, has_overrides ? &overrides_parsed : NULL),
       ssz_builder_free(&accounts);
       c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed););
 
