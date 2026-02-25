@@ -70,9 +70,8 @@ bool eth_call_cache_read(bytes_t data, call_account_t* out) {
   // Minimum: 1 + 4 + 8 + 8 + 32 + 32 + 32 + 4 = 121 bytes
   if (data.len < 121) return false;
 
-  const uint8_t* p = data.data;
-
-  uint8_t version = *p++;
+  uint8_t* p       = data.data;
+  uint8_t  version = *p++;
   if (version != CACHE_VERSION) return false;
 
   out->flags = uint32_from_le(p);

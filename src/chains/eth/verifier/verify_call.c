@@ -101,7 +101,6 @@ bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t stat
     ssz_ob_t acc = ssz_at(accounts, i);
     if (!eth_verify_account_proof_exec(ctx, &acc, root, ETH_ACCOUNT_CODE_HASH, bytes(code_hash_exepected, 32))) RETURN_VERIFY_ERROR(ctx, "Failed to verify account proof");
     ssz_ob_t code = ssz_get(&acc, "code");
-    uint8_t* addr = ssz_get(&acc, "address").bytes.data;
     if (code.def->type == SSZ_TYPE_LIST) {
       bytes32_t code_hash_passed = {0};
       keccak(code.bytes, code_hash_passed);
@@ -184,6 +183,7 @@ RETURNS_NONNULL static evm_call_ctx_t* call_get_evm_ctx(verify_ctx_t* ctx) {
   evm_call_ctx_t* evm = (evm_call_ctx_t*) ctx->user_data;
   if (!evm) {
     evm                 = safe_calloc(1, sizeof(evm_call_ctx_t));
+    evm->evm_done       = false;
     evm->pap_mode       = ctx->flags & VERIFY_FLAG_PAP;
     ctx->user_data      = evm;
     ctx->user_data_free = evm_call_ctx_free_ptr;
