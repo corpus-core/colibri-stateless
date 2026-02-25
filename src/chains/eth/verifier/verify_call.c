@@ -48,20 +48,55 @@ static call_account_t* call_accounts_from_ssz(ssz_ob_t ssz_accounts) {
   for (uint32_t i = 0; i < len; i++) {
     ssz_ob_t        acc      = ssz_at(ssz_accounts, i);
     call_account_t* ca       = safe_calloc(1, sizeof(call_account_t));
-    bytes32_t       nonce_be = {0};
     bytes_t         addr     = ssz_get(&acc, "address").bytes;
 
     if (addr.data && addr.len >= 20) memcpy(ca->address, addr.data, 20);
     ca->flags = ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE;
 
-    eth_get_account_value(acc, ETH_ACCOUNT_BALANCE, ca->balance);
-    eth_get_account_value(acc, ETH_ACCOUNT_CODE_HASH, ca->code_hash);
-    eth_get_account_value(acc, ETH_ACCOUNT_STORAGE_HASH, ca->storage_root);
-    eth_get_account_value(acc, ETH_ACCOUNT_NONCE, nonce_be);
-    ca->nonce     = uint64_from_be(nonce_be + 24);
+    // walk the MPT proof to distinguish existing from non-existing accounts
+    bytes32_t addr_hash    = {0};
+    bytes32_t dummy_root   = {0};
+    bytes_t   rlp_account  = {0};
+    keccak(addr, addr_hash);
+    patricia_result_t mpt_result = patricia_verify(dummy_root, bytes(addr_hash, 32), ssz_get(&acc, "accountProof"), &rlp_account);
+
+    if (mpt_result == PATRICIA_FOUND && rlp_account.data) {
+      bytes_t   field_value = {0};
+      bytes_t   rlp_list    = rlp_account;
+      if (rlp_decode(&rlp_list, 0, &rlp_list) == RLP_LIST) {
+        if (rlp_decode(&rlp_list, ETH_ACCOUNT_NONCE - 1, &field_value) == RLP_ITEM && field_value.len <= 32) {
+          bytes32_t nonce_be = {0};
+          memcpy(nonce_be + 32 - field_value.len, field_value.data, field_value.len);
+          ca->nonce = uint64_from_be(nonce_be + 24);
+        }
+        if (rlp_decode(&rlp_list, ETH_ACCOUNT_BALANCE - 1, &field_value) == RLP_ITEM && field_value.len <= 32)
+          memcpy(ca->balance + 32 - field_value.len, field_value.data, field_value.len);
+        if (rlp_decode(&rlp_list, ETH_ACCOUNT_CODE_HASH - 1, &field_value) == RLP_ITEM && field_value.len <= 32)
+          memcpy(ca->code_hash + 32 - field_value.len, field_value.data, field_value.len);
+        else
+          memcpy(ca->code_hash, EMPTY_HASH, 32);
+        if (rlp_decode(&rlp_list, ETH_ACCOUNT_STORAGE_HASH - 1, &field_value) == RLP_ITEM && field_value.len <= 32)
+          memcpy(ca->storage_root + 32 - field_value.len, field_value.data, field_value.len);
+        else
+          memcpy(ca->storage_root, EMPTY_ROOT_HASH, 32);
+      }
+    }
+    else {
+      memcpy(ca->code_hash, EMPTY_HASH, 32);
+      memcpy(ca->storage_root, EMPTY_ROOT_HASH, 32);
+    }
+
+    // The SSZ "code" field is a union: either a byte list (full contract
+    // code) or a boolean "code_used" flag (false = no code, true = code
+    // exists but was not included in the proof).
     ssz_ob_t code = ssz_get(&acc, "code");
     if (code.def && code.def->type == SSZ_TYPE_LIST && code.bytes.len > 0) {
       ca->code = code.bytes;
+      ca->flags |= ACCOUNT_HAS_CODE;
+    }
+    else if (code.def && code.def->type == SSZ_TYPE_BOOLEAN && !code.bytes.data[0]) {
+      // code_used == false: account has no code (empty code hash).
+      ca->code = NULL_BYTES;
       ca->flags |= ACCOUNT_HAS_CODE;
     }
 
