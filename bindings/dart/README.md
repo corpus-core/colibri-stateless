@@ -72,16 +72,16 @@ iOS does not allow dynamic `dlopen` of external libraries. When building yoursel
 
 ## Flutter / Mobile Binaries
 
-One command to build platform-specific binaries for Flutter:
+From the **repository root**, one command builds platform-specific binaries for Flutter:
 
 ```bash
 ./scripts/build_flutter_binaries.sh
 ```
 
-This script produces:
+This produces:
 
-- Android: `bindings/dart/native/android/<abi>/libcolibri.so`
-- iOS: `bindings/dart/native/ios/c4_swift.xcframework` (macOS only)
+- Android: `bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/<abi>/libcolibri.so`
+- iOS: `bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework` (macOS only)
 - Windows: `bindings/dart/native/windows/colibri.dll` (Windows host only)
 
 Requirements:
@@ -90,7 +90,7 @@ Requirements:
 - iOS: macOS + Xcode (uses `bindings/swift/build_ios.sh`)
 - Windows: build on a Windows host
 
-You can also run per-platform:
+Per-platform:
 
 ```bash
 ./scripts/build_flutter_binaries.sh --android
@@ -104,6 +104,9 @@ You can also run per-platform:
 - `example/proof_verify.dart` — create + verify a proof manually
 - `example/custom_storage.dart` — custom storage integration
 - `example/unproofable_rpc.dart` — unproofable method routed to direct RPC
+- `example/read_block.dart`, `example/read_logs.dart`, `example/contract_call.dart`, `example/transaction_receipt.dart` — more RPC examples
+
+See [example/README.md](example/README.md) for run commands and optional `.env` configuration.
 
 ## Testing
 
@@ -123,6 +126,8 @@ Coverage output is written to `test/coverage/` (LCOV file: `test/coverage/lcov.i
 
 ### Compare C vs Dart results
 
+From the **repository root** (requires C build):
+
 ```bash
 export C4_BUILD_DIR=/path/to/cmake/build
 ./scripts/compare_c_dart_tests.sh
@@ -130,15 +135,28 @@ export C4_BUILD_DIR=/path/to/cmake/build
 
 ## Publishing (pub.dev)
 
-From this directory (`bindings/dart`):
+Package version is synced with the repository root. The canonical version is in the repo root file **`VERSION`** (same as used for releases). To update the Dart/Flutter package versions from it:
 
-1. **Check**  
-   `dart pub publish --dry-run`  
-   Fix any reported issues (e.g. commit changes, ensure no secrets).
+```bash
+./scripts/sync_version.sh
+```
 
-2. **Publish**  
-   `dart pub publish`  
-   You will be prompted to log in with a Google account (first time: create publisher or link account at [pub.dev](https://pub.dev)).
+Then publish **colibri_stateless** (from a copy that excludes the Flutter plugin, so the package stays small):
+
+```bash
+./scripts/publish_colibri_stateless.sh --dry-run   # check
+./scripts/publish_colibri_stateless.sh             # publish
+```
+
+To publish **colibri_flutter** (from its own directory; includes Android/iOS binaries):
+
+```bash
+cd flutter/colibri_flutter
+dart pub publish --dry-run
+dart pub publish
+```
+
+You will be prompted to log in with a Google account (first time: create publisher or link account at [pub.dev](https://pub.dev)).
 
 Recommended: publish from a clean git state and after running `dart test`.
 
