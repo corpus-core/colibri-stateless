@@ -31,6 +31,7 @@ extern "C" {
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_account.h"
+#include "eth_verify.h"
 #include "json.h"
 #include "plugin.h"
 #include "ssz.h"
@@ -186,10 +187,10 @@ static call_account_t* call_account_get_or_create(evmone_context_t* ctx, const a
     call_storage_t** sp = &acc->storage;
     for (call_storage_t* s = parent_acc->storage; s; s = s->next) {
       call_storage_t* ns = safe_calloc(1, sizeof(call_storage_t));
-      *ns      = *s;
-      ns->next = NULL;
-      *sp      = ns;
-      sp       = &ns->next;
+      *ns                = *s;
+      ns->next           = NULL;
+      *sp                = ns;
+      sp                 = &ns->next;
     }
   }
 
@@ -246,9 +247,15 @@ static void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address
 }
 
 static bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address) {
-  if (bytes_all_zero(bytes(address, 20))) return NULL_BYTES;
+  if (bytes_all_zero(bytes(address, 20)) || ctx->storage_miss) return NULL_BYTES;
   call_account_t* acc = call_account_find(ctx, address);
   if (!acc) {
+    if (ctx->pap_mode) {
+      acc               = call_account_get_or_create(ctx, address);
+      ctx->storage_miss = true;
+      return eth_fetch_account_code(ctx->ctx, acc) == C4_SUCCESS ? acc->code : NULL_BYTES;
+    }
+
     if (!ctx->ctx->state.error) {
       char _tmp[64];
       sbprintf(_tmp, "Missing account proof for 0x%x", bytes(address, 20));
@@ -257,6 +264,8 @@ static bytes_t call_account_get_code(evmone_context_t* ctx, const address_t addr
     return NULL_BYTES;
   }
   if (acc->flags & ACCOUNT_HAS_CODE) return acc->code;
+  if (ctx->pap_mode && !(acc->flags & ACCOUNT_HAS_CODE_HASH))
+    return eth_fetch_account_code(ctx->ctx, acc) == C4_SUCCESS ? acc->code : NULL_BYTES;
   return NULL_BYTES;
 }
 
@@ -391,9 +400,9 @@ static void context_apply(evmone_context_t* ctx) {
         ps->accessed |= s->accessed;
       }
       else {
-        call_storage_t* ns = safe_calloc(1, sizeof(call_storage_t));
-        *ns             = *s;
-        ns->next        = parent_acc->storage;
+        call_storage_t* ns  = safe_calloc(1, sizeof(call_storage_t));
+        *ns                 = *s;
+        ns->next            = parent_acc->storage;
         parent_acc->storage = ns;
       }
     }

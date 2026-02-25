@@ -401,11 +401,6 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
   }
 
   if (values_changed) {
-    safe_free(evm->call_result.data);
-    evm->call_result = NULL_BYTES;
-    free_emitted_logs(evm->logs);
-    evm->logs     = NULL;
-    evm->gas_used = 0;
     evm->evm_done = false;
     return false;
   }

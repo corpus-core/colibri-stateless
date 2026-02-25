@@ -171,7 +171,7 @@ void eth_get_account_value(ssz_ob_t account, eth_account_field_t field, bytes32_
   memcpy(value + 32 - last_value.len, last_value.data, last_value.len);
 }
 
-static c4_status_t fetch_account_code(verify_ctx_t* ctx, call_account_t* ac) {
+INTERNAL c4_status_t eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* ac) {
   char             tmp[200];
   storage_plugin_t cache  = {0};
   c4_status_t      status = C4_SUCCESS;
@@ -191,14 +191,19 @@ static c4_status_t fetch_account_code(verify_ctx_t* ctx, call_account_t* ac) {
       ac->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
 
       keccak(ac->code, hash);
-      if (memcmp(hash, ac->code_hash, 32) != 0) {
+      if (ac->flags & ACCOUNT_HAS_CODE_HASH && memcmp(hash, ac->code_hash, 32) != 0) {
         safe_free(ac->code.data);
         ac->code = NULL_BYTES;
         ac->flags &= ~(ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE);
         status = c4_state_add_error(&ctx->state, "code hash mismatch");
       }
-      else
+      else {
         cache.set(bprintf(&buf, "code_%x", bytes(ac->code_hash, 32)), ac->code);
+        if (!(ac->flags & ACCOUNT_HAS_CODE_HASH)) { // update the code hash in papmode
+          ac->flags |= ACCOUNT_HAS_CODE_HASH;
+          keccak(ac->code, ac->code_hash);
+        }
+      }
     }
     else
       status = c4_state_add_error(&ctx->state, bprintf(&buf, "error fetching code from rpc: %s", req->response.data));
@@ -243,7 +248,7 @@ INTERNAL c4_status_t eth_resolve_account_codes(verify_ctx_t* ctx, call_account_t
       continue;
     }
 
-    c4_status_t fetch_status = fetch_account_code(ctx, ac);
+    c4_status_t fetch_status = eth_fetch_account_code(ctx, ac);
     if (status != C4_ERROR) status = fetch_status;
   }
 

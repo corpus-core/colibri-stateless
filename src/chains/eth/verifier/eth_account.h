@@ -44,6 +44,7 @@ typedef enum {
 } eth_account_field_t;
 
 struct call_account;
+typedef struct call_account call_account_t;
 
 bool                eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t state_root);
 bool                eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t state_root, eth_account_field_t field, bytes_t value);
@@ -52,7 +53,7 @@ void                eth_get_account_value(ssz_ob_t account, eth_account_field_t 
 gindex_t            eth_get_gindex_for_block(fork_id_t fork, json_t block);
 eth_account_field_t eth_account_get_field(verify_ctx_t* ctx);
 bool                eth_account_verify_data(verify_ctx_t* ctx, address_t verified_address, eth_account_field_t field, bytes_t values);
-
+c4_status_t         eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* ac);
 /**
  * Resolves code for all accounts that have `ACCOUNT_HAS_CODE_HASH` but not `ACCOUNT_HAS_CODE`.
  *
