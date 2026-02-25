@@ -44,15 +44,25 @@ final colibri = Colibri(
 
 You can also set the library path via `COLIBRI_DART_LIBRARY`.
 
-### iOS (Flutter)
+### Flutter (with bundled binaries)
 
-iOS loads the native library via `DynamicLibrary.process()` (no `dlopen`).
-Use the Flutter wrapper package in `bindings/dart/flutter/colibri_flutter`, and
-copy the XCFramework into:
+For Flutter apps, use the **colibri_flutter** package on pub.dev — it includes Android and iOS binaries, so no separate build is required:
 
+```yaml
+dependencies:
+  colibri_flutter: ^0.1.0
 ```
-bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework
+
+```dart
+import 'package:colibri_flutter/colibri_flutter.dart';
+final colibri = Colibri(chainId: 1);
 ```
+
+See [flutter/colibri_flutter/README.md](flutter/colibri_flutter/README.md).
+
+### iOS (building yourself)
+
+iOS does not allow dynamic `dlopen` of external libraries. When building yourself, place the XCFramework at `bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework`, or use **colibri_flutter** from pub.dev (see above).
 
 ## Build (Debug)
 

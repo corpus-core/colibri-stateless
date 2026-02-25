@@ -1,7 +1,6 @@
 name: colibri_flutter
-description: Flutter wrapper for Colibri Stateless (Dart FFI).
+description: Flutter plugin for Colibri Stateless with bundled native binaries (Android arm64/armeabi/x86_64, iOS). Proof generation and verification for Ethereum RPC.
 version: 0.1.0
-publish_to: "none"
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -10,8 +9,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  colibri_stateless:
-    path: ../..
+  colibri_stateless: ^0.1.0
+
+repository: https://github.com/corpus-core/colibri-stateless
+homepage: https://corpus-core.gitbook.io/specification-colibri-stateless
+documentation: https://github.com/corpus-core/colibri-stateless/tree/main/bindings/dart/flutter/colibri_flutter
+issue_tracker: https://github.com/corpus-core/colibri-stateless/issues
 
 flutter:
   plugin:

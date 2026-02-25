@@ -5,7 +5,7 @@ Pod::Spec.new do |s|
   s.description      = 'Dart FFI wrapper for Colibri Stateless with bundled native binaries.'
   s.homepage         = 'https://github.com/corpus-core/colibri-stateless'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'corpus.core' => 'info@corpus-core.com' }
+  s.author           = { 'corpus.core' => 'info@corpuscore.tech' }
   s.source           = { :path => '.' }
   s.source_files     = 'Classes/**/*'
   s.platform         = :ios, '13.0'
