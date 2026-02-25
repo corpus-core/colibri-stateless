@@ -1,6 +1,8 @@
+# Stub so pub.dev repository verification finds a pubspec.yaml with name: colibri_stateless
+# at repo root. The actual package published to pub.dev is built from bindings/dart/.
 name: colibri_stateless
-description: Dart bindings for Colibri Stateless via FFI (proof generation and verification for Ethereum RPC).
 version: 0.1.1
+description: Dart bindings for Colibri Stateless via FFI (proof generation and verification for Ethereum RPC). Source in bindings/dart/.
 repository: https://github.com/corpus-core/colibri-stateless
 homepage: https://corpus-core.gitbook.io/specification-colibri-stateless
 documentation: https://github.com/corpus-core/colibri-stateless
@@ -9,11 +11,4 @@ issue_tracker: https://github.com/corpus-core/colibri-stateless/issues
 environment:
   sdk: ">=3.0.0 <4.0.0"
 
-dependencies:
-  ffi: ^2.1.0
-  http: ^1.2.0
-
-dev_dependencies:
-  coverage: ^1.15.0
-  lints: ^3.0.0
-  test: ^1.29.0
+dependencies: {}

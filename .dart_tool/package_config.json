@@ -1,0 +1,16 @@
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "colibri_stateless",
+      "rootUri": "../",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    }
+  ],
+  "generator": "pub",
+  "generatorVersion": "3.11.0",
+  "flutterRoot": "file:///Users/steffenkux/development/tools/flutter",
+  "flutterVersion": "3.41.2",
+  "pubCache": "file:///Users/steffenkux/.pub-cache"
+}
