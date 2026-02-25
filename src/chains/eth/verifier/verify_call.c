@@ -224,6 +224,132 @@ static bool match_call_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   return evm->call_result.data && bytes_eq(evm->call_result, ctx->data.bytes);
 }
 
+// :: EIP-7702 authorization list
+
+#define EIP7702_MAGIC      0x05
+#define EIP7702_MARKER_LEN 23
+
+/**
+ * Apply EIP-7702 authorization list before EVM execution.
+ *
+ * For each tuple `{chainId, address, nonce, yParity, r, s}` in the list:
+ * - recovers the authority via `ecrecover(keccak(0x05 || rlp([chainId, address, nonce])), yParity, r, s)`
+ * - verifies chain_id (must be 0 or match `ctx->chain_id`)
+ * - verifies the authority's code is empty or already a delegation indicator
+ * - verifies the authority's nonce matches
+ * - writes `0xef0100 || address` as the authority's code
+ * - increments the authority's nonce
+ *
+ * If any check fails for a tuple it is silently skipped (per EIP-7702 spec).
+ *
+ * @param ctx the verification context (used for chain_id)
+ * @param accounts pointer to the account list (may be extended)
+ * @param tx the transaction JSON object that may contain `authorizationList`
+ * @return `C4_SUCCESS` always (invalid tuples are skipped, not fatal)
+ */
+static c4_status_t call_apply_authorization_list(verify_ctx_t* ctx, call_account_t** accounts, json_t tx) {
+  json_t auth_list = json_get(tx, "authorizationList");
+  if (auth_list.type != JSON_TYPE_ARRAY) return C4_SUCCESS;
+
+  size_t   len = json_len(auth_list);
+  buffer_t buf = {0};
+
+  for (size_t i = 0; i < len; i++) {
+    json_t entry = json_at(auth_list, i);
+
+    // parse fields
+    uint64_t  chain_id = json_get_uint64(entry, "chainId");
+    address_t target   = {0};
+    buffer_t  addr_buf = stack_buffer(target);
+    if (json_get_bytes(entry, "address", &addr_buf).len != 20) continue;
+
+    uint64_t nonce = json_get_uint64(entry, "nonce");
+    if (nonce >= UINT64_MAX) continue;
+
+    uint8_t  sig[65]    = {0};
+    bytes_t  r_bytes    = {0};
+    bytes_t  s_bytes    = {0};
+    buffer_t r_buf      = stack_buffer(sig);
+    buffer_t s_buf      = {.data = bytes(sig + 32, 32), .allocated = -32};
+    r_bytes             = json_get_bytes(entry, "r", &r_buf);
+    s_bytes             = json_get_bytes(entry, "s", &s_buf);
+    if (r_bytes.len == 0 || r_bytes.len > 32) continue;
+    if (s_bytes.len == 0 || s_bytes.len > 32) continue;
+    // right-align r and s in their 32-byte slots
+    if (r_bytes.len < 32) {
+      memmove(sig + 32 - r_bytes.len, sig, r_bytes.len);
+      memset(sig, 0, 32 - r_bytes.len);
+    }
+    if (s_bytes.len < 32) {
+      memmove(sig + 64 - s_bytes.len, sig + 32, s_bytes.len);
+      memset(sig + 32, 0, 32 - s_bytes.len);
+    }
+    sig[64] = (uint8_t) json_get_uint64(entry, "yParity");
+
+    // verify chain_id
+    if (chain_id != 0 && chain_id != ctx->chain_id) continue;
+
+    // build signing digest: keccak(MAGIC || rlp([chain_id, address, nonce]))
+    buffer_reset(&buf);
+    rlp_add_uint64(&buf, chain_id);
+    rlp_add_item(&buf, bytes(target, 20));
+    rlp_add_uint64(&buf, nonce);
+    rlp_to_list(&buf);
+    buffer_splice(&buf, 0, 0, bytes(NULL, 1));
+    buf.data.data[0] = EIP7702_MAGIC;
+
+    bytes32_t digest = {0};
+    keccak(buf.data, digest);
+
+    // recover authority address
+    uint8_t pubkey[64] = {0};
+    if (!secp256k1_recover(digest, bytes(sig, 65), pubkey)) continue;
+
+    address_t authority = {0};
+    bytes32_t pub_hash  = {0};
+    keccak(bytes(pubkey, 64), pub_hash);
+    memcpy(authority, pub_hash + 12, 20);
+
+    // find or create the authority account
+    call_account_t* acc = call_account_list_get_or_create(accounts, authority);
+
+    // verify code is empty or already a delegation indicator
+    if (acc->flags & ACCOUNT_HAS_CODE) {
+      if (acc->code.len != 0 && !(acc->code.len == EIP7702_MARKER_LEN && acc->code.data[0] == 0xef && acc->code.data[1] == 0x01 && acc->code.data[2] == 0x00))
+        continue;
+    }
+
+    // verify nonce
+    if ((acc->flags & ACCOUNT_HAS_NONCE) && acc->nonce != nonce) continue;
+
+    // apply delegation: set code to 0xef0100 || target_address
+    uint8_t* delegation_code = safe_malloc(EIP7702_MARKER_LEN);
+    delegation_code[0]       = 0xef;
+    delegation_code[1]       = 0x01;
+    delegation_code[2]       = 0x00;
+    memcpy(delegation_code + 3, target, 20);
+
+    if (acc->flags & ACCOUNT_FREE_CODE) safe_free(acc->code.data);
+    acc->code  = bytes(delegation_code, EIP7702_MARKER_LEN);
+    acc->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
+
+    // special case: zero address clears delegation
+    if (bytes_all_zero(bytes(target, 20))) {
+      safe_free(delegation_code);
+      acc->code = NULL_BYTES;
+      acc->flags |= ACCOUNT_HAS_CODE;
+      acc->flags &= ~ACCOUNT_FREE_CODE;
+    }
+
+    // increment nonce
+    acc->nonce++;
+    acc->flags |= ACCOUNT_HAS_NONCE;
+  }
+
+  buffer_free(&buf);
+  return C4_SUCCESS;
+}
+
 bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   bool is_simulate = ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0;
   bool is_estimate = ctx->method && strcmp(ctx->method, "eth_estimateGas") == 0;
@@ -237,6 +363,7 @@ bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
 
   if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
   if (call_apply_state_overrides(ctx, &evm->accounts, json_at(ctx->args, 2)) != C4_SUCCESS) return false;
+  if (call_apply_authorization_list(ctx, &evm->accounts, json_at(ctx->args, 0)) != C4_SUCCESS) return false;
 
 #ifdef EVMONE
   c4_status_t call_status = eth_run_call_evmone_with_events(ctx, evm, is_simulate);
@@ -503,6 +630,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   }
   if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
   if (call_apply_state_overrides(ctx, &evm->accounts, json_at(ctx->args, 2)) != C4_SUCCESS) return false;
+  if (call_apply_authorization_list(ctx, &evm->accounts, json_at(ctx->args, 0)) != C4_SUCCESS) return false;
 
 #ifdef EVMONE
   c4_status_t call_status = eth_run_call_evmone_with_events(ctx, evm, is_simulate);
