@@ -167,6 +167,21 @@ class MainActivity : AppCompatActivity() {
 }
 ```
 
+## Configuration
+
+### Privacy (PAP)
+
+**PAP (Pragmatic Adaptive Privacy)** reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards.
+
+- `privacyMode` – `PrivacyMode.NONE` (default) or `PrivacyMode.BASIC`. With `BASIC`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
+
+```kotlin
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    privacyMode = PrivacyMode.BASIC
+)
+```
+
 ## Example Android App
 
 A complete working example is available in the [example directory](https://github.com/corpus-core/colibri-stateless/tree/main/bindings/kotlin/example). This minimal Android app demonstrates:

@@ -24,6 +24,7 @@
 #include "bytes.h"
 #include "call_ctx.h"
 #include "crypto.h"
+#include "eth_call_cache.h"
 #include "eth_verify.h"
 #include "evmone_c_wrapper.h"
 #include "json.h"
@@ -40,14 +41,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Define debug macro for EVM execution
-#define EVM_DEBUG 0 // Set to 0 to disable debugging
+#define EVM_DEBUG 0
 #define EVM_LOG(format, ...)                                              \
   do {                                                                    \
     if (EVM_DEBUG) fbprintf(stderr, "[EVM] " format "\n", ##__VA_ARGS__); \
   } while (0)
 
-/* Define the call kinds enum to match evmone_message's anonymous enum */
 typedef enum {
   CALL_KIND_CALL         = 0,
   CALL_KIND_DELEGATECALL = 1,
@@ -61,7 +60,6 @@ typedef struct evm_res_ptr {
   struct evm_res_ptr*  next;
 } evm_res_ptr_t;
 
-/* EVM Host interface implementation */
 static const struct evmone_host_interface host_interface;
 
 static void add_evm_result(evmone_context_t* ctx, struct evmone_result* result) {
@@ -71,138 +69,141 @@ static void add_evm_result(evmone_context_t* ctx, struct evmone_result* result) 
   ctx->results              = new_result;
 }
 
-// Debug function to print address as hex
 static void debug_print_address(const char* prefix, const evmc_address* addr) {
   if (!EVM_DEBUG) return;
   fbprintf(stderr, "[EVM] %s: 0x%x\n", prefix, bytes(addr->bytes, 20));
 }
 
-// Debug function to print bytes32 as hex
 static void debug_print_bytes32(const char* prefix, const evmc_bytes32* data) {
   if (!EVM_DEBUG) return;
   fbprintf(stderr, "[EVM] %s: 0x%x\n", prefix, bytes(data->bytes, 32));
 }
 
-// Check if an account exists
 static bool host_account_exists(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("account_exists for", addr);
-  account_state_t* ac = get_account_state(ctx, addr->bytes);
-  if (ac) return ac->deleted;
-  bool exists = get_src_account(ctx, addr->bytes, false).def != NULL;
-  // TODO existance check over the values of the account!
-  EVM_LOG("account_exists result: %s", exists ? "true" : "false");
-  return exists;
+  call_account_t* acc = call_account_find(ctx, addr->bytes);
+  if (acc) {
+    bool exists = !(acc->flags & ACCOUNT_DELETED);
+    EVM_LOG("account_exists result: %s", exists ? "true" : "false");
+    return exists;
+  }
+  EVM_LOG("account_exists result: false (not found)");
+  return false;
 }
 
-// Get storage value for an account
 static evmc_bytes32 host_get_storage(void* context, const evmc_address* addr, const evmc_bytes32* key) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("get_storage for account", addr);
   debug_print_bytes32("get_storage key", key);
 
-  evmc_bytes32       result  = {0};
-  account_storage_t* storage = get_storage(ctx, addr->bytes, key->bytes);
-  if (storage)
-    memcpy(result.bytes, storage->value, 32);
-  else {
-    account_state_t* acc = get_account_state(ctx, addr->bytes);
-    if (acc && acc->full_state_override) {
-      // Full state overrides must not fall back to canonical storage for missing keys.
-      memset(result.bytes, 0, 32);
+  evmc_bytes32    result = {0};
+  call_account_t* acc    = call_account_find(ctx, addr->bytes);
+  if (acc) {
+    call_storage_t* s = call_storage_find(acc, key->bytes);
+    if (s) {
+      memcpy(result.bytes, s->post_value, 32);
+      s->accessed = true;
+      debug_print_bytes32("get_storage result (found)", &result);
+      return result;
     }
-    else
-      get_src_storage(ctx, addr->bytes, key->bytes, result.bytes);
+    if (acc->flags & ACCOUNT_FULL_STATE) {
+      debug_print_bytes32("get_storage result (full_state override -> zero)", &result);
+      return result;
+    }
   }
 
-  debug_print_bytes32("get_storage result", &result);
+  if (ctx->pap_mode) {
+    call_account_lazy_fetch_storage(ctx, addr->bytes, key->bytes, result.bytes);
+    debug_print_bytes32("get_storage result (pap lazy)", &result);
+  }
+
   return result;
 }
 
-// Set storage value for an account
 static evmone_storage_status host_set_storage(void* context, const evmc_address* addr, const evmc_bytes32* key, const evmc_bytes32* value) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("set_storage for account", addr);
   debug_print_bytes32("set_storage key", key);
   debug_print_bytes32("set_storage value", value);
 
-  evmc_bytes32 current_value   = host_get_storage(context, addr, key);
-  bool         created_account = false;
-  bool         created_storage = false;
-  if (memcmp(current_value.bytes, value->bytes, 32) == 0) {
+  evmc_bytes32 current = host_get_storage(context, addr, key);
+  if (memcmp(current.bytes, value->bytes, 32) == 0) {
     EVM_LOG("set_storage: UNCHANGED");
     return EVMONE_STORAGE_UNCHANGED;
   }
 
-  set_storage(ctx, addr->bytes, key->bytes, value->bytes, &created_account, &created_storage);
-  if (created_account) {
-    EVM_LOG("set_storage: ADDED (created account)");
-    return EVMONE_STORAGE_ADDED;
+  call_account_t* acc         = call_account_get_or_create(ctx, addr->bytes);
+  call_storage_t* s           = call_storage_find(acc, key->bytes);
+  bool            first_write = true;
+  if (s) {
+    first_write = !s->modified;
+    memcpy(s->post_value, value->bytes, 32);
+    s->modified = memcmp(s->src_value, s->post_value, 32) != 0;
   }
+  else {
+    s = safe_calloc(1, sizeof(call_storage_t));
+    memcpy(s->key, key->bytes, 32);
+    memcpy(s->src_value, current.bytes, 32);
+    memcpy(s->post_value, value->bytes, 32);
+    s->modified  = true;
+    s->accessed  = true;
+    s->next      = acc->storage;
+    acc->storage = s;
+  }
+
   if (bytes_all_zero(bytes(value->bytes, 32))) {
     EVM_LOG("set_storage: DELETED");
     return EVMONE_STORAGE_DELETED;
   }
-  if (!created_storage) {
+  if (first_write && bytes_all_zero(bytes(current.bytes, 32))) {
+    EVM_LOG("set_storage: ADDED");
+    return EVMONE_STORAGE_ADDED;
+  }
+  if (!first_write) {
     EVM_LOG("set_storage: MODIFIED_AGAIN");
     return EVMONE_STORAGE_MODIFIED_AGAIN;
   }
-  if (created_storage && bytes_all_zero(bytes(current_value.bytes, 32))) {
-    EVM_LOG("set_storage: ADDED (created storage)");
-    return EVMONE_STORAGE_ADDED;
-  }
-
   EVM_LOG("set_storage: MODIFIED");
   return EVMONE_STORAGE_MODIFIED;
 }
 
-// Get account balance
 static evmc_bytes32 host_get_balance(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("get_balance for", addr);
 
-  evmc_bytes32     result = {0};
-  account_state_t* acc    = get_account_state(ctx, addr->bytes);
-  if (acc)
+  evmc_bytes32    result = {0};
+  call_account_t* acc    = call_account_find(ctx, addr->bytes);
+  if (acc && (acc->flags & ACCOUNT_HAS_BALANCE))
     memcpy(result.bytes, acc->balance, 32);
-  else {
-    ssz_ob_t account = get_src_account(ctx, addr->bytes, false);
-    if (account.def) eth_get_account_value(account, ETH_ACCOUNT_BALANCE, result.bytes);
-  }
 
   debug_print_bytes32("get_balance result", &result);
   return result;
 }
 
-// Get code size for an account
 static size_t host_get_code_size(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("get_code_size for", addr);
-
-  size_t size = get_code(ctx, addr->bytes).len;
+  size_t size = call_account_get_code(ctx, addr->bytes).len;
   EVM_LOG("get_code_size result: %zu bytes", size);
   return size;
 }
 
-// Get code hash for an account
 static evmc_bytes32 host_get_code_hash(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("get_code_hash for", addr);
-
   evmc_bytes32 result = {0};
-  keccak(get_code(ctx, addr->bytes), result.bytes);
-
+  keccak(call_account_get_code(ctx, addr->bytes), result.bytes);
   debug_print_bytes32("get_code_hash result", &result);
   return result;
 }
 
-// Copy code from an account
 static size_t host_copy_code(void* context, const evmc_address* addr, size_t code_offset, uint8_t* buffer_data, size_t buffer_size) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("copy_code for", addr);
   EVM_LOG("copy_code offset: %zu, buffer size: %zu", code_offset, buffer_size);
 
-  bytes_t code      = get_code(ctx, addr->bytes);
+  bytes_t code      = call_account_get_code(ctx, addr->bytes);
   size_t  copy_size = code.len - code_offset;
   if (buffer_size < copy_size) copy_size = buffer_size;
   if (code.data) memcpy(buffer_data, code.data + code_offset, copy_size);
@@ -211,25 +212,19 @@ static size_t host_copy_code(void* context, const evmc_address* addr, size_t cod
   return copy_size;
 }
 
-// Handle selfdestruct operation
 static void host_selfdestruct(void* context, const evmc_address* addr, const evmc_address* beneficiary) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("selfdestruct account", addr);
   debug_print_address("selfdestruct beneficiary", beneficiary);
 
-  bool             created;
-  account_state_t* acc = create_account_state(ctx, addr->bytes, &created);
-  while (acc->storage) {
-    account_storage_t* storage = acc->storage;
-    acc->storage               = storage->next;
-    safe_free(storage);
-  }
-  acc->deleted = true;
+  call_account_t* acc = call_account_get_or_create(ctx, addr->bytes);
+  call_storage_free_list(acc->storage);
+  acc->storage = NULL;
+  acc->flags |= ACCOUNT_DELETED;
 
   EVM_LOG("selfdestruct: account marked as deleted");
 }
 
-// Handle call to another contract
 static void host_call(void* context, const struct evmone_message* msg, const uint8_t* code, size_t code_size, struct evmone_result* result) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   EVM_LOG("========Executing child call...");
@@ -255,15 +250,13 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     return;
   }
 
-  // If code isn't provided (which happens during DELEGATECALL and CALLCODE),
-  // we need to fetch it from the account specified by code_address
   const uint8_t* execution_code      = code;
   size_t         execution_code_size = code_size;
   bytes_t        fetched_code        = {0};
 
   if ((execution_code == NULL || execution_code_size == 0) && msg->kind != CALL_KIND_CREATE && msg->kind != CALL_KIND_CREATE2) {
     EVM_LOG("Code not provided, fetching from code_address");
-    fetched_code        = get_code(ctx, msg->code_address.bytes);
+    fetched_code        = call_account_get_code(ctx, msg->code_address.bytes);
     execution_code      = fetched_code.data;
     execution_code_size = fetched_code.len;
     EVM_LOG("Fetched code size: %zu bytes", execution_code_size);
@@ -282,14 +275,13 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
 
   evmone_context_t child = *ctx;
   child.parent           = ctx;
-  child.account_states   = NULL;
+  child.accounts         = NULL;
 
-  // Execute the code (now using fetched code if needed)
   evmone_result exec_result = evmone_execute(
       ctx->executor,
       &host_interface,
       &child,
-      14, // Revision - using CANCUN
+      14,
       msg,
       execution_code,
       execution_code_size);
@@ -306,9 +298,8 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   }
   add_evm_result(ctx, &exec_result);
 
-  if (exec_result.status_code == 0) {
+  if (exec_result.status_code == 0)
     context_apply(&child);
-  }
   EVM_LOG("========/child call complete ====");
 
   context_free(&child);
@@ -316,37 +307,27 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   *result = exec_result;
 }
 
-// Get transaction context
 static evmc_bytes32 host_get_tx_context(void* context) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   EVM_LOG("get_tx_context called");
-
   evmc_bytes32 result = {0};
-  // TODO: Return serialized transaction context
-
   debug_print_bytes32("get_tx_context result", &result);
   return result;
 }
 
-// Get block hash for a specific block number
 static evmc_bytes32 host_get_block_hash(void* context, int64_t number) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   EVM_LOG("get_block_hash for block number: %zu", (size_t) number);
-
   evmc_bytes32 result = {0};
-  // TODO: Implement block hash retrieval logic
-
   debug_print_bytes32("get_block_hash result", &result);
   return result;
 }
 
-// Handle emitting logs
 static void host_emit_log(void* context, const evmc_address* addr, const uint8_t* data, size_t data_size, const evmc_bytes32 topics[], size_t topics_count) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("emit_log from", addr);
   EVM_LOG("emit_log: data size: %zu bytes, topics count: %zu", data_size, topics_count);
 
-  // Capture the log event if enabled
   if (ctx->capture_events)
     add_emitted_log(ctx, addr, data, data_size, topics, topics_count);
 
@@ -357,45 +338,21 @@ static void host_emit_log(void* context, const evmc_address* addr, const uint8_t
              data_size > 64 ? "..." : "");
   }
 
-  for (size_t i = 0; i < topics_count && EVM_DEBUG; i++) {
+  for (size_t i = 0; i < topics_count && EVM_DEBUG; i++)
     debug_print_bytes32("Log topic", &topics[i]);
-  }
 }
 
-// Track account access for gas metering
 static void host_access_account(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("access_account", addr);
 }
 
-// Track storage access for gas metering
 static void host_access_storage(void* context, const evmc_address* addr, const evmc_bytes32* key) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("access_storage account", addr);
   debug_print_bytes32("access_storage key", key);
 }
 
-static void apply_state_overrides(evmone_context_t* context, const eth_state_overrides_t* overrides) {
-  if (!overrides) return;
-  for (const eth_account_override_t* a = overrides->accounts; a; a = a->next) {
-    bool             created = false;
-    account_state_t* acc     = create_account_state(context, a->address, &created);
-    if (a->has_balance) memcpy(acc->balance, a->balance, 32);
-    if (a->has_code) {
-      acc->code      = a->code;
-      acc->free_code = false;
-    }
-    if (a->storage) {
-      acc->full_state_override = a->full_state;
-      for (const eth_storage_override_t* s = a->storage; s; s = s->next) {
-        bool tmp = false;
-        set_storage(context, a->address, s->key, s->value, &tmp, &tmp);
-      }
-    }
-  }
-}
-
-// Set up the host interface with all our callback functions
 static const struct evmone_host_interface host_interface = {
     .account_exists = host_account_exists,
     .get_storage    = host_get_storage,
@@ -414,16 +371,15 @@ static const struct evmone_host_interface host_interface = {
 };
 
 /**
- * Initialize an evmone_message from JSON transaction data
+ * Initialize an evmone_message from JSON transaction data.
  *
- * @param message Pointer to the message to initialize
- * @param tx JSON transaction object
- * @param buffer Buffer to use for string operations
+ * @param message pointer to the message to initialize
+ * @param tx      JSON transaction object
+ * @param buffer  buffer to use for string operations
  */
 static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
-  // Use a binary-compatible struct to avoid enum issues
   struct compatible_msg {
-    int            kind; // 0 = CALL
+    int            kind;
     bool           is_static;
     int32_t        depth;
     int64_t        gas;
@@ -433,42 +389,32 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
     size_t         input_size;
     evmc_bytes32   value;
     evmc_bytes32   create_salt;
-    evmc_address   code_address; /* Address of the code to execute */
+    evmc_address   code_address;
   } compat_msg = {0};
 
-  // Set destination (to) address
   bytes_t to = json_get_bytes(tx, "to", buffer);
   if (to.len == 20) {
     memcpy(compat_msg.destination.bytes, to.data, 20);
     memcpy(compat_msg.code_address.bytes, to.data, 20);
   }
 
-  // Set sender (from) address
   bytes_t from = json_get_bytes(tx, "from", buffer);
   if (from.len == 20) memcpy(compat_msg.sender.bytes, from.data, 20);
 
-  // Set gas limit
   compat_msg.gas = json_get_uint64(tx, "gas");
-  if (compat_msg.gas == 0) compat_msg.gas = 10000000; // Default gas limit if not specified
+  if (compat_msg.gas == 0) compat_msg.gas = 10000000;
 
-  // Set value
   bytes_t value = json_get_bytes(tx, "value", buffer);
   if (value.len && value.len <= 32) memcpy(compat_msg.value.bytes + 32 - value.len, value.data, value.len);
 
-  // Set input data (check both "data" and "input" fields)
   bytes_t input = json_get_bytes(tx, "data", buffer);
   if (!input.len) input = json_get_bytes(tx, "input", buffer);
   compat_msg.input_data = input.data;
   compat_msg.input_size = input.len;
 
-  // Set code_address to match destination by default
-  // This is what happens in normal CALL operations
   memcpy(compat_msg.code_address.bytes, compat_msg.destination.bytes, 20);
-
-  // Copy the initialized struct to the actual message
   memcpy(message, &compat_msg, sizeof(*message));
 
-  // Debug print message details
   EVM_LOG("Message initialized:");
   EVM_LOG("  kind: %d", message->kind);
   EVM_LOG("  is_static: %s", message->is_static ? "true" : "false");
@@ -486,7 +432,6 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
   debug_print_bytes32("  value", &message->value);
 }
 
-// Function to run EVM call with optional event capture
 INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool capture_events) {
   buffer_t       buffer  = {0};
   address_t      to      = {0};
@@ -494,17 +439,23 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   evmone_message message = {0};
   json_t         tx      = json_at(ctx->args, 0);
 
-  // check calldata
   json_t tx_input = json_get(tx, "data");
   if (tx_input.type == JSON_TYPE_NOT_FOUND) tx_input = json_get(tx, "input");
-  if ((tx_input.type != JSON_TYPE_STRING || tx_input.len < 5) && ssz_len(evm->accounts) == 0) {
-    return C4_SUCCESS;
-  }
+  if ((tx_input.type != JSON_TYPE_STRING || tx_input.len < 5) && !evm->accounts && !evm->pap_mode) return C4_SUCCESS;
   if (json_get_bytes(tx, "to", &to_buf).len != 20) THROW_ERROR("Invalid transaction: to address is not 20 bytes");
+
+  // reset the call result and logs
+  if (evm->call_result.data) safe_free(evm->call_result.data);
+  eth_call_cache_reset_accessed(evm->accounts);
+  evm->call_result = NULL_BYTES;
+  free_emitted_logs(evm->logs);
+  evm->logs     = NULL;
+  evm->gas_used = 0;
+  evm->evm_done = false;
 
   set_message(&message, tx, &buffer);
 
-  // is this a call to a precompile directly?
+  // special handling for precompiles
   if (bytes_all_zero(bytes(to, 19)) && to[19]) {
     buffer_t     output         = {0};
     uint64_t     precompile_gas = 0;
@@ -515,17 +466,16 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       case PRE_SUCCESS:
         return C4_SUCCESS;
       case PRE_ERROR:
-        ctx->state.error = strdup("Precompile error");
+        c4_state_add_error(&ctx->state, "Precompile error");
         return C4_ERROR;
       case PRE_OUT_OF_BOUNDS:
-        ctx->state.error = strdup("Precompile out of bounds");
+        c4_state_add_error(&ctx->state, "Precompile out of bounds");
         return C4_ERROR;
       case PRE_INVALID_INPUT:
-        ctx->state.error = strdup("Precompile Invalid Input");
+        c4_state_add_error(&ctx->state, "Precompile Invalid Input");
         return C4_ERROR;
-        break;
       default:
-        ctx->state.error = strdup("Precompile unknown error");
+        c4_state_add_error(&ctx->state, "Precompile unknown error");
         return C4_ERROR;
     }
   }
@@ -537,9 +487,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   evmone_context_t context = {
       .executor       = executor,
       .ctx            = ctx,
-      .src_accounts   = evm->accounts,
-      .call_codes     = evm->call_codes,
-      .account_states = NULL,
+      .accounts       = evm->accounts,
       .block_number   = 0,
       .block_hash     = {0},
       .timestamp      = 0,
@@ -549,19 +497,18 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       .results        = NULL,
       .logs           = NULL,
       .capture_events = capture_events,
+      .pap_mode       = evm->pap_mode,
+      .storage_miss   = false,
   };
 
-  apply_state_overrides(&context, &evm->overrides);
-
-  bytes_t code = get_code(&context, to);
+  bytes_t code = call_account_get_code(&context, to);
   EVM_LOG("Contract code size: %u bytes", (uint32_t) code.len);
 
-  // Execute the code
   evmone_result result = evmone_execute(
       executor,
       &host_interface,
       &context,
-      14, // Using CANCUN revision
+      14,
       &message,
       code.data,
       code.len);
@@ -585,13 +532,16 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     context.logs = NULL;
   }
 
-  // Process the execution result
-  if (result.status_code == 0) { // Success
+  // The EVM may have created/modified accounts in context.accounts that
+  // were originally pointing into evm->accounts. Propagate them back.
+  evm->accounts    = context.accounts;
+  context.accounts = NULL;
+
+  if (result.status_code == 0) {
     EVM_LOG("Call verification successful");
   }
   else {
     EVM_LOG("Call verification failed with status code: %d", result.status_code);
-    // Map status codes to error messages
     const char* error_msg = "Unknown error";
     switch (result.status_code) {
       case 1: error_msg = "Failure"; break;
@@ -616,10 +566,9 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       case -3: error_msg = "Out of memory"; break;
     }
     EVM_LOG("Error details: %s", error_msg);
-    ctx->state.error = strdup(error_msg);
+    if (!context.storage_miss) c4_state_add_error(&ctx->state, error_msg);
   }
 
-  // Clean up resources
   evmone_release_result(&result);
   evmone_destroy_executor(executor);
   buffer_free(&buffer);
@@ -630,8 +579,22 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     safe_free(res);
     context.results = next;
   }
-  context_free(&context);
+  // context.accounts already transferred to evm->accounts above
+  free_emitted_logs(context.logs);
   EVM_LOG("=== EVM call verification complete ===");
+
+  if (context.storage_miss) {
+    // if we have a pending request, the error is discarded since we could not stop the evm
+    if (c4_state_get_pending_request(&ctx->state)) {
+      if (ctx->state.error) {
+        safe_free(ctx->state.error);
+        ctx->state.error = NULL;
+      }
+      return C4_PENDING;
+    }
+    if (!ctx->state.error) c4_state_add_error(&ctx->state, "missing storage value but no pending request");
+    return C4_ERROR;
+  }
 
   return ctx->state.error == NULL ? C4_SUCCESS : C4_ERROR;
 }

@@ -160,10 +160,10 @@ bytes_t c4_prover_get_proof(prover_t* prover) {
   return ctx->proof;
 }
 
-void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint) {
+void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, uint32_t flags) {
   c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
   ctx->proof           = bytes_dup(proof);
-  c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t) {0}), (chain_id_t) chain_id);
+  c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t) {0}), (chain_id_t) chain_id, (verify_flags_t) flags);
   if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
     bytes32_t checkpoint;
     hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
@@ -213,6 +213,7 @@ void c4_verify_free_ctx(void* ptr) {
   free(ctx);
 }
 
-int c4_get_method_support(uint64_t chain_id, char* method) {
-  return (int) c4_get_method_type((chain_id_t) chain_id, method);
+int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags) {
+  return (int) c4_get_method_type((chain_id_t) chain_id, method,
+                                  params ? json_parse(params) : (json_t) {0}, (verify_flags_t) flags);
 }

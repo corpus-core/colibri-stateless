@@ -32,7 +32,6 @@
 bool op_verify_call_proof(verify_ctx_t* ctx) {
   evm_call_ctx_t evm         = {0};
   ssz_ob_t       block_proof = ssz_get(&ctx->proof, "block_proof");
-  evm.accounts               = ssz_get(&ctx->proof, "accounts");
 
   bool success = verify_evm_call(ctx, &evm);
 

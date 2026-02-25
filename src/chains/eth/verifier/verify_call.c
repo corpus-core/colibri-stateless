@@ -26,6 +26,7 @@
 #include "call_ctx.h"
 #include "crypto.h"
 #include "eth_account.h"
+#include "eth_call_cache.h"
 #include "eth_verify.h"
 #include "json.h"
 #include "patricia.h"
@@ -39,26 +40,66 @@
 #include <stdlib.h>
 #include <string.h>
 
-bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root, const eth_state_overrides_t* overrides) {
+// :: Build phase: materialize call_account_t list from SSZ proof accounts
+
+static call_account_t* call_accounts_from_ssz(ssz_ob_t ssz_accounts) {
+  call_account_t* list = NULL;
+  uint32_t        len  = ssz_len(ssz_accounts);
+  for (uint32_t i = 0; i < len; i++) {
+    ssz_ob_t        acc      = ssz_at(ssz_accounts, i);
+    call_account_t* ca       = safe_calloc(1, sizeof(call_account_t));
+    bytes32_t       nonce_be = {0};
+    bytes_t         addr     = ssz_get(&acc, "address").bytes;
+
+    if (addr.data && addr.len >= 20) memcpy(ca->address, addr.data, 20);
+    ca->flags = ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE;
+
+    eth_get_account_value(acc, ETH_ACCOUNT_BALANCE, ca->balance);
+    eth_get_account_value(acc, ETH_ACCOUNT_CODE_HASH, ca->code_hash);
+    eth_get_account_value(acc, ETH_ACCOUNT_STORAGE_HASH, ca->storage_root);
+    eth_get_account_value(acc, ETH_ACCOUNT_NONCE, nonce_be);
+    ca->nonce     = uint64_from_be(nonce_be + 24);
+    ssz_ob_t code = ssz_get(&acc, "code");
+    if (code.def && code.def->type == SSZ_TYPE_LIST && code.bytes.len > 0) {
+      ca->code = code.bytes;
+      ca->flags |= ACCOUNT_HAS_CODE;
+    }
+
+    ssz_ob_t sp = ssz_get(&acc, "storageProof");
+    for (uint32_t j = 0; j < ssz_len(sp); j++) {
+      ssz_ob_t        entry = ssz_at(sp, j);
+      call_storage_t* cs    = safe_calloc(1, sizeof(call_storage_t));
+      bytes_t         pk    = ssz_get(&entry, "key").bytes;
+      if (pk.data && pk.len == 32) memcpy(cs->key, pk.data, 32);
+      if (eth_get_storage_value(entry, cs->key, cs->src_value))
+        memcpy(cs->post_value, cs->src_value, 32);
+      cs->source      = STORAGE_SRC_PROOF;
+      cs->verified_at = 1;
+      cs->next        = ca->storage;
+      ca->storage     = cs;
+    }
+
+    ca->verified_at = 1;
+    ca->next        = list;
+    list            = ca;
+  }
+  return list;
+}
+
+bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root) {
   uint32_t  len                 = ssz_len(accounts);
   bytes32_t root                = {0};
   bytes32_t code_hash_exepected = {0};
   for (uint32_t i = 0; i < len; i++) {
     ssz_ob_t acc = ssz_at(accounts, i);
     if (!eth_verify_account_proof_exec(ctx, &acc, root, ETH_ACCOUNT_CODE_HASH, bytes(code_hash_exepected, 32))) RETURN_VERIFY_ERROR(ctx, "Failed to verify account proof");
-    ssz_ob_t                      code = ssz_get(&acc, "code");
-    uint8_t*                      addr = ssz_get(&acc, "address").bytes.data;
-    const eth_account_override_t* ov   = overrides ? eth_state_overrides_find(overrides, addr) : NULL;
-    if (ov && ov->has_code) {
-      // The request contains an explicit code override, so the canonical code hash check is not applicable.
-    }
-    else if (code.def->type == SSZ_TYPE_LIST) {
+    ssz_ob_t code = ssz_get(&acc, "code");
+    if (code.def->type == SSZ_TYPE_LIST) {
       bytes32_t code_hash_passed = {0};
       keccak(code.bytes, code_hash_passed);
       if (memcmp(code_hash_exepected, code_hash_passed, 32) != 0) RETURN_VERIFY_ERROR(ctx, "Code hash mismatch");
     }
 
-    // The first account proof establishes the state root; all subsequent proofs must agree.
     if (bytes_all_zero(bytes(state_root, 32)))
       memcpy(state_root, root, 32);
     else if (memcmp(state_root, root, 32) != 0)
@@ -67,10 +108,6 @@ bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t stat
   return true;
 }
 
-// Synthesizes an ERC-20 style Transfer(address,address,uint256) event for the native
-// value transfer of the transaction. This is prepended to the EVM-emitted logs so the
-// simulation result reflects the full value flow visible to callers.
-// Topic layout (ABI-encoded): [keccak(signature), from (padded), to (padded)]
 static void add_simulate_value_transfer_event(verify_ctx_t* ctx, emitted_log_t** logs) {
   json_t tx       = json_at(ctx->args, 0);
   json_t tx_value = json_get(tx, "value");
@@ -86,28 +123,26 @@ static void add_simulate_value_transfer_event(verify_ctx_t* ctx, emitted_log_t**
   log->next          = *logs;
   *logs              = log;
   bytes_t  b         = json_as_bytes(tx_value, &value_buf);
-  uint8_t* ptr       = (uint8_t*) log->topics;        // contiguous memory: [topic0][topic1][topic2], 32 bytes each
-  memcpy(log->data.data + 32 - b.len, b.data, b.len); // right-align value into 32-byte data field
+  uint8_t* ptr       = (uint8_t*) log->topics;
+  memcpy(log->data.data + 32 - b.len, b.data, b.len);
   json_t from = json_get(tx, "from");
   if (from.type == JSON_TYPE_STRING && from.len >= 5 && strncmp(from.start, "\"0x0\"", 5) != 0) {
     b = json_as_bytes(from, &value_buf);
-    memcpy(ptr + 64 - b.len, b.data, b.len); // right-align 20-byte address into topic1 (offset 32..63)
+    memcpy(ptr + 64 - b.len, b.data, b.len);
   }
   json_t to = json_get(tx, "to");
   if (to.type == JSON_TYPE_STRING && to.len >= 5 && strncmp(to.start, "\"0x0\"", 5) != 0) {
     b = json_as_bytes(to, &value_buf);
-    memcpy(ptr + 96 - b.len, b.data, b.len); // right-align 20-byte address into topic2 (offset 64..95)
+    memcpy(ptr + 96 - b.len, b.data, b.len);
   }
   const char* signature = "Transfer(address,address,uint256)";
-  keccak(bytes((uint8_t*) signature, strlen(signature)), ptr); // topic0 = event signature hash
+  keccak(bytes((uint8_t*) signature, strlen(signature)), ptr);
 }
 
-// Yellow Paper Appendix G – Fee Schedule
 #define G_TRANSACTION     21000
 #define G_TXDATA_ZERO     4
 #define G_TXDATA_NON_ZERO 16
 
-// Yellow Paper Section 6.2 (Eq. 64): G_transaction + per-byte calldata cost
 static uint64_t eth_intrinsic_gas(json_t tx) {
   uint64_t gas  = G_TRANSACTION;
   json_t   data = json_get(tx, "data");
@@ -123,14 +158,32 @@ static uint64_t eth_intrinsic_gas(json_t tx) {
 }
 
 void evm_call_ctx_free(evm_call_ctx_t* evm) {
-  eth_state_overrides_free(&evm->overrides);
-  eth_free_codes(evm->call_codes);
   safe_free(evm->call_result.data);
+  evm->call_result = NULL_BYTES;
   free_emitted_logs(evm->logs);
+  evm->logs = NULL;
+  call_account_free_list(evm->accounts);
+  evm->accounts = NULL;
 }
 
-// Each match_* function serves dual purpose: in prover mode (ctx->data not set) it
-// populates ctx->data with the result; in verifier mode it compares against the proof.
+static void evm_call_ctx_free_ptr(void* ptr) {
+  if (!ptr) return;
+  evm_call_ctx_free((evm_call_ctx_t*) ptr);
+  safe_free(ptr);
+}
+
+RETURNS_NONNULL static evm_call_ctx_t* call_get_evm_ctx(verify_ctx_t* ctx) {
+  evm_call_ctx_t* evm = (evm_call_ctx_t*) ctx->user_data;
+  if (!evm) {
+    evm                 = safe_calloc(1, sizeof(evm_call_ctx_t));
+    evm->accounts       = NULL;
+    evm->evm_done       = false;
+    evm->pap_mode       = ctx->flags & VERIFY_FLAG_PAP;
+    ctx->user_data      = evm;
+    ctx->user_data_free = evm_call_ctx_free_ptr;
+  }
+  return evm;
+}
 
 static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   add_simulate_value_transfer_event(ctx, &evm->logs);
@@ -165,7 +218,7 @@ static bool match_call_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   if (evm->call_result.data && (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE)) {
     ctx->data = (ssz_ob_t) {.bytes = evm->call_result, .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
     ctx->flags |= VERIFY_FLAG_FREE_DATA;
-    evm->call_result = NULL_BYTES; // ownership transferred to ctx->data
+    evm->call_result = NULL_BYTES;
     return true;
   }
   return evm->call_result.data && bytes_eq(evm->call_result, ctx->data.bytes);
@@ -177,9 +230,13 @@ bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
 
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block?,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}?]", "Invalid transaction");
 
-  json_t overrides_json = json_at(ctx->args, 2);
-  if (overrides_json.type == JSON_TYPE_OBJECT && eth_parse_state_overrides(ctx, overrides_json, &evm->overrides) != C4_SUCCESS) return false;
-  if (eth_get_call_codes(ctx, &evm->call_codes, evm->accounts) != C4_SUCCESS) return false;
+  ssz_ob_t ssz_accounts = (ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE) ? ssz_get(&ctx->proof, "accounts") : (ssz_ob_t) {0};
+
+  if (!evm->accounts && ssz_accounts.def)
+    evm->accounts = call_accounts_from_ssz(ssz_accounts);
+
+  if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
+  if (call_apply_state_overrides(ctx, &evm->accounts, json_at(ctx->args, 2)) != C4_SUCCESS) return false;
 
 #ifdef EVMONE
   c4_status_t call_status = eth_run_call_evmone_with_events(ctx, evm, is_simulate);
@@ -195,23 +252,267 @@ bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
                              : match_call_result(ctx, evm);
 
   if (!match) RETURN_VERIFY_ERROR(ctx, is_simulate ? "Simulation result mismatch" : "Call result mismatch");
-  if (!c4_eth_verify_accounts(ctx, evm->accounts, evm->state_root, &evm->overrides)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
+  if (!c4_eth_verify_accounts(ctx, ssz_accounts, evm->state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
+  return true;
+}
+
+// :: PAP Phase C + D helpers
+
+static uint32_t pap_build_proof_payload(call_account_t* ac, buffer_t* out_payload, bytes32_t out_req_id, json_t block_id) {
+
+  buffer_t keys_buf  = {0};
+  uint32_t key_count = 0;
+  for (call_storage_t* s = ac->storage; s; s = s->next) {
+    if (s->accessed && s->verified_at == 0) {
+      if (key_count > 0) buffer_append(&keys_buf, bytes((uint8_t*) ",", 1));
+      bprintf(&keys_buf, "\"0x%x\"", bytes((uint8_t*) s->key, 32));
+      key_count++;
+    }
+  }
+  if (key_count == 0) {
+    buffer_free(&keys_buf);
+    return 0;
+  }
+  bprintf(out_payload, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getProof\",\"params\":[\"0x%x\",[%s],%J]}",
+          bytes((uint8_t*) ac->address, 20), (char*) keys_buf.data.data, block_id);
+  buffer_free(&keys_buf);
+  keccak(out_payload->data, out_req_id);
+  return key_count;
+}
+
+static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_accounts, bytes_t response, bool* values_changed) {
+  verify_ctx_t proof_ctx = {0};
+  bool         result    = false;
+
+  if (c4_verify_init(&proof_ctx, response, "eth_call", ctx->args, ctx->chain_id, 0) != C4_SUCCESS) {
+    if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
+    goto cleanup;
+  }
+
+  if (!ssz_is_type(&proof_ctx.proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF))) {
+    c4_state_add_error(&ctx->state, "eth_getProof response has unexpected proof type");
+    goto cleanup;
+  }
+
+  bytes32_t state_root  = {0};
+  ssz_ob_t  state_proof = ssz_get(&proof_ctx.proof, "state_proof");
+  if (!c4_eth_verify_accounts(ctx, ssz_get(&proof_ctx.proof, "accounts"), state_root)) {
+    if (proof_ctx.state.error)
+      c4_state_add_error(&ctx->state, proof_ctx.state.error);
+    else
+      c4_state_add_error(&ctx->state, "invalid account proof");
+    goto cleanup;
+  }
+
+  if (!eth_verify_state_proof(&proof_ctx, state_proof, state_root)) {
+    if (proof_ctx.state.error)
+      c4_state_add_error(&ctx->state, proof_ctx.state.error);
+    else
+      c4_state_add_error(&ctx->state, "eth_getProof state proof verification failed");
+    goto cleanup;
+  }
+
+  if (!c4_update_from_sync_data(&proof_ctx)) {
+    if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
+    goto cleanup;
+  }
+
+  c4_status_t hdr_status = c4_verify_header(ctx, ssz_get(&state_proof, "header"), state_proof);
+  if (hdr_status == C4_ERROR && !ctx->state.error) c4_state_add_error(&ctx->state, "header verification failed");
+  if (hdr_status != C4_SUCCESS) goto cleanup;
+
+  // Proof is valid, so we check the values for changes
+  ssz_ob_t accounts     = ssz_get(&proof_ctx.proof, "accounts");
+  uint32_t num_accounts = ssz_len(accounts);
+  for (uint32_t i = 0; i < num_accounts; i++) {
+    ssz_ob_t        ac          = ssz_at(accounts, i);
+    uint8_t*        addr        = ssz_get(&ac, "address").bytes.data;
+    call_account_t* acc         = NULL;
+    ssz_ob_t        sp          = ssz_get(&ac, "storageProof");
+    uint32_t        num_storage = ssz_len(sp);
+    for (call_account_t* a = call_accounts; a; a = a->next) {
+      if (memcmp(a->address, addr, 20) == 0) {
+        acc = a;
+        break;
+      }
+    }
+    if (!acc) continue;
+
+    for (uint32_t j = 0; j < num_storage; j++) {
+      ssz_ob_t  entry     = ssz_at(sp, j);
+      bytes32_t proof_key = {0};
+      bytes32_t proof_val = {0};
+      bytes_t   pk        = ssz_get(&entry, "key").bytes;
+      if (pk.data && pk.len == 32) memcpy(proof_key, pk.data, 32);
+      if (!eth_get_storage_value(entry, proof_key, proof_val)) {
+        c4_state_add_error(&ctx->state, "failed to extract storage value from proof");
+        goto cleanup;
+      }
+      call_storage_t* cs = call_storage_find(acc, proof_key);
+      if (!cs || memcmp(cs->src_value, proof_val, 32) != 0)
+        *values_changed = true;
+      if (cs) {
+        memcpy(cs->src_value, proof_val, 32);
+        memcpy(cs->post_value, proof_val, 32);
+        cs->verified_at = 1;
+        cs->source      = STORAGE_SRC_PROOF;
+        cs->modified    = false;
+      }
+      else
+        eth_call_cache_set_storage(acc, proof_key, proof_val, STORAGE_SRC_PROOF, 1);
+    }
+  }
+
+  result = true;
+
+cleanup:
+  c4_verify_free_data(&proof_ctx);
+  return result;
+}
+
+static bool has_unverified_storage(call_account_t* ac) {
+  for (call_storage_t* s = ac->storage; s; s = s->next) {
+    if (s->accessed && s->verified_at == 0) return true;
+  }
+  return false;
+}
+
+static bool proof_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
+  json_t block_id = json_at(ctx->args, 1);
+  if (block_id.type != JSON_TYPE_STRING) block_id = json_parse("\"latest\"");
+  buffer_t  payload        = {0};
+  bytes32_t req_id         = {0};
+  bool      firstAccount   = true;
+  bool      firstStorage   = true;
+  bool      values_changed = false;
+  buffer_add_chars(&payload, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"colibri_proofCall\",\"params\":[{\"accessList\":[");
+  for (call_account_t* ac = evm->accounts; ac; ac = ac->next) {
+    if (!has_unverified_storage(ac)) continue;
+    if (firstAccount)
+      firstAccount = false;
+    else
+      buffer_add_chars(&payload, ",");
+    firstStorage = true;
+    bprintf(&payload, "{\"address\":\"0x%x\",\"storageKeys\":[", bytes(ac->address, 20));
+    for (call_storage_t* s = ac->storage; s; s = s->next) {
+      if (s->accessed && s->verified_at == 0) {
+        if (firstStorage)
+          firstStorage = false;
+        else
+          buffer_add_chars(&payload, ",");
+        bprintf(&payload, "\"0x%x\"", bytes(s->key, 32));
+      }
+    }
+    buffer_add_chars(&payload, "]}");
+  }
+  bprintf(&payload, "]},%J]}", block_id);
+  keccak(payload.data, req_id);
+  data_request_t* req = c4_state_get_data_request_by_id(&ctx->state, req_id);
+  if (req && req->response.data) {
+    buffer_free(&payload);
+    bool result = pap_verify_proof_response(ctx, evm->accounts, req->response, &values_changed);
+    if (!result) return false;
+    if (values_changed) {
+      evm->evm_done = false; // we need to repeat with the updates values
+      return true;
+    }
+    return result;
+  }
+  else if (!req) {
+    data_request_t* new_req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+    new_req->chain_id       = ctx->chain_id;
+    new_req->encoding       = C4_DATA_ENCODING_SSZ;
+    new_req->type           = C4_DATA_TYPE_PROVER;
+    new_req->method         = C4_DATA_METHOD_POST;
+    new_req->payload        = payload.data;
+    memcpy(new_req->id, req_id, 32);
+    c4_state_add_request(&ctx->state, new_req);
+    return false;
+  }
+  else {
+    if (req->error) c4_state_add_error(&ctx->state, req->error);
+    buffer_free(&payload);
+    return false;
+  }
+}
+
+static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool is_simulate, bool is_estimate) {
+  bool all_verified = true;
+
+  // check if we need to use proofCall
+  for (call_account_t* ac = evm->accounts; ac; ac = ac->next) {
+    if (has_unverified_storage(ac)) {
+      all_verified = false;
+      break;
+    }
+  }
+
+  // verify the values
+  if (!all_verified && !proof_call(ctx, evm)) return false;
+  if (!evm->evm_done) return true;
+
+  if (evm->pap_mode && json_len(ctx->args) < 3) { // only save the cache if we are not using state overrides
+
+    for (call_account_t* ac = evm->accounts; ac; ac = ac->next) {
+      ac->verified_at = 0;
+      ac->flags &= ~ACCOUNT_HAS_CODE;
+      ac->flags &= ~ACCOUNT_FREE_CODE;
+      ac->flags &= ~ACCOUNT_DELETED;
+      ac->flags &= ~ACCOUNT_FULL_STATE;
+      for (call_storage_t* s = ac->storage; s; s = s->next) {
+        s->verified_at = 0;
+        s->source      = STORAGE_SRC_NONE;
+        s->modified    = false;
+        s->accessed    = false;
+      }
+      eth_call_cache_save(ctx, ac->address, ac);
+    }
+  }
+
+  ctx->success = is_simulate   ? match_simulate_result(ctx, evm)
+                 : is_estimate ? match_estimate_result(ctx, evm)
+                               : match_call_result(ctx, evm);
+
+  if (!ctx->success) RETURN_VERIFY_ERROR(ctx, is_simulate ? "Simulation result mismatch" : "Call result mismatch");
   return true;
 }
 
 bool verify_call_proof(verify_ctx_t* ctx) {
-  evm_call_ctx_t evm         = {0};
-  ssz_ob_t       state_proof = ssz_get(&ctx->proof, "state_proof");
-  ssz_ob_t       header      = ssz_get(&state_proof, "header");
-  evm.accounts               = ssz_get(&ctx->proof, "accounts");
+  bool            is_simulate = ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0;
+  bool            is_estimate = ctx->method && strcmp(ctx->method, "eth_estimateGas") == 0;
+  bool            has_proof   = ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE;
+  evm_call_ctx_t* evm         = call_get_evm_ctx(ctx);
 
-  bool success = verify_evm_call(ctx, &evm);
-  // state_root is derived from the account proofs during EVM setup. If present,
-  // anchor it to the beacon chain by verifying the state proof and block header.
-  if (success && !bytes_all_zero(bytes(evm.state_root, 32)))
-    success = eth_verify_state_proof(ctx, state_proof, evm.state_root) && c4_verify_header(ctx, header, state_proof) == C4_SUCCESS;
+  if (evm->evm_done) {
+    bool success = verify_call_result_and_finish(ctx, evm, is_simulate, is_estimate);
+    if (!(success && !evm->evm_done)) return success; // do we need to re run because values changes?
+  }
 
-  evm_call_ctx_free(&evm);
-  ctx->success = success;
-  return ctx->success;
+  CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block?,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}?]", "Invalid transaction");
+
+  // prepare the accounts and storage
+  if (!evm->accounts && has_proof) {
+    ssz_ob_t accounts    = ssz_get(&ctx->proof, "accounts");
+    ssz_ob_t state_proof = ssz_get(&ctx->proof, "state_proof");
+    ssz_ob_t header      = ssz_get(&state_proof, "header");
+    if (!c4_eth_verify_accounts(ctx, accounts, evm->state_root)) return false;
+    if (!bytes_all_zero(bytes(evm->state_root, 32)) &&
+        (!eth_verify_state_proof(ctx, state_proof, evm->state_root) || c4_verify_header(ctx, header, state_proof) != C4_SUCCESS))
+      return false;
+    evm->accounts = call_accounts_from_ssz(accounts);
+  }
+  if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
+  if (call_apply_state_overrides(ctx, &evm->accounts, json_at(ctx->args, 2)) != C4_SUCCESS) return false;
+
+#ifdef EVMONE
+  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, evm, is_simulate);
+#else
+  c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
+#endif
+  evm->gas_used += eth_intrinsic_gas(json_at(ctx->args, 0));
+
+  if (call_status != C4_SUCCESS || c4_state_get_pending_request(&ctx->state)) return false;
+
+  evm->evm_done = true;
+  return verify_call_result_and_finish(ctx, evm, is_simulate, is_estimate);
 }

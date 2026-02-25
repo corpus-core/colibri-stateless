@@ -47,6 +47,7 @@ asyncio.run(main())
 - **🧪 Comprehensive Testing** - Mock HTTP requests and storage for testing
 - **🌐 Multi-Chain Support** - Ethereum Mainnet, Sepolia, Gnosis Chain, and more
 - **📦 Easy Integration** - Simple pip install with pre-built native extensions
+- **🔒 Privacy (PAP)** - Optional Pragmatic Adaptive Privacy mode (`privacy_mode=PrivacyMode.BASIC`) to reduce intent leakage
 
 ## 📖 Documentation
 

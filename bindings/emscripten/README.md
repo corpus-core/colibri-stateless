@@ -282,6 +282,10 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ include_code:  true})
     ```
+- `privacy_mode` - **PAP (Pragmatic Adaptive Privacy)** mode: `"none"` (default) or `"basic"`. With `"basic"`, the verifier may use cached storage for optimistic execution and verify afterwards; method type can depend on params.
+    ```js
+    new Colibri({ privacy_mode: "basic" })
+    ```
 
 - `verify`- a function to decide which request should be verified and which should be fetched from the default RPC-Provider. It allows you to speed up performance for requests which are not critical.
     ```js

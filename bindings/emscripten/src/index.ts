@@ -97,6 +97,7 @@ export default class C4Client {
   private subscriptionManager: SubscriptionManager;
   private initMap: Map<number | string, boolean> = new Map();
   private flags: number = 0;
+  private verify_flags: number = 0;
 
   // Protect against prototype pollution by freezing critical methods
   private static readonly CRITICAL_METHODS = ['rpc', 'request', 'verifyProof', 'createProof'] as const;
@@ -142,6 +143,9 @@ export default class C4Client {
     PrototypeProtection.protectConfig(baseConfig, ['rpcs', 'beacon_apis', 'prover', 'checkpointz']);
 
     this.config = baseConfig;
+
+    if (this.config.include_code) this.flags |= 1;
+    if (this.config.privacy_mode === 'basic') this.verify_flags |= 2;
 
     if (!this.config.warningHandler)
       this.config.warningHandler = async (req: RequestArguments, message: string) => console.warn(message)
@@ -192,12 +196,19 @@ export default class C4Client {
   /**
    * Checks whether the RPC method is supported or proofable.
    * @param method - The method to check
+   * @param args - Optional method arguments (used in PAP mode to check cached data availability)
    * @returns The method type
    */
-  async getMethodSupport(method: string): Promise<C4MethodType> {
+  async getMethodSupport(method: string, args?: any[]): Promise<C4MethodType> {
     const c4w = await getC4w();
     const free_buffers: number[] = [];
-    const method_type = c4w._c4w_get_method_type(BigInt(this.config.chainId), as_char_ptr(method, c4w, free_buffers));
+    const paramsStr = args ? JSON.stringify(args) : null;
+    const method_type = c4w._c4w_get_method_type(
+      BigInt(this.config.chainId),
+      as_char_ptr(method, c4w, free_buffers),
+      paramsStr ? as_char_ptr(paramsStr, c4w, free_buffers) : 0,
+      this.verify_flags
+    );
     free_buffers.forEach(ptr => c4w._free(ptr));
     return method_type as C4MethodType;
   }
@@ -271,7 +282,8 @@ export default class C4Client {
         as_char_ptr(JSON.stringify(args), c4w, free_buffers),
         BigInt(this.config.chainId),
         checkpoint_ptr,
-        witness_keys_ptr);
+        witness_keys_ptr,
+        this.verify_flags);
 
       while (true) {
         const state = as_json(c4w._c4w_verify_proof(ctx), c4w, true);
@@ -322,7 +334,7 @@ export default class C4Client {
     }
 
     if (method_type === undefined)
-      method_type = await this.getMethodSupport(method);
+      method_type = await this.getMethodSupport(method, args);
 
     switch (method_type) {
       case C4MethodType.PROOFABLE: {

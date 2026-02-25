@@ -67,7 +67,7 @@ function OnlyProofStrategy(client: ColibriClient, req: RequestArguments, config:
 
 
 async function ProofIfPossibleStrategy(client: ColibriClient, req: RequestArguments, config: Config, fetch_rpc: FetchRpc): Promise<any> {
-    const method_type = await client.getMethodSupport(req.method);
+    const method_type = await client.getMethodSupport(req.method, argsToArray(req.params));
     switch (method_type) {
         case MethodType.PROOFABLE:
         case MethodType.LOCAL:
@@ -79,7 +79,7 @@ async function ProofIfPossibleStrategy(client: ColibriClient, req: RequestArgume
 
 
 async function WarningStrategy(client: ColibriClient, req: RequestArguments, config: Config, fetch_rpc: FetchRpc): Promise<any> {
-    const method_type = await client.getMethodSupport(req.method);
+    const method_type = await client.getMethodSupport(req.method, argsToArray(req.params));
     switch (method_type) {
         case MethodType.LOCAL:
             return client.rpc(req.method, argsToArray(req.params), method_type);

@@ -63,7 +63,7 @@ export class ProviderRpcError extends Error {
 
 export interface ColibriClient {
     rpc(method: string, params: any[], method_type?: MethodType): Promise<any>;
-    getMethodSupport(method: string): Promise<MethodType>;
+    getMethodSupport(method: string, args?: any[]): Promise<MethodType>;
 }
 
 export type FetchRpc = (urls: string[], payload: any, as_proof: boolean) => Promise<any>;
@@ -91,6 +91,9 @@ export interface ProviderMessage {
 }
 
 // C4Client specific types
+
+/** Pragmatic Adaptive Privacy mode. PAP_BASIC sets VERIFY_FLAG_PAP for method-type and verification. */
+export type PrivacyMode = 'none' | 'basic';
 
 // Custom cache implementation
 export interface Cache {
@@ -125,6 +128,8 @@ export interface Config extends ChainConfig {
     cache?: Cache;
     debug?: boolean;
     include_code?: boolean;
+    /** Pragmatic Adaptive Privacy mode. Default "none". "basic" sets verify flag for PAP. */
+    privacy_mode?: PrivacyMode;
     zk_proof?: boolean;
     chains: {
         [chainId: number]: ChainConfig;

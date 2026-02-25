@@ -72,12 +72,19 @@ static bool file_get(char* filename, buffer_t* data) {
 
 static void file_set(char* key, bytes_t value) {
   char* full_path = combine_filename(key);
-  if (full_path == NULL) return;
-  FILE* file = fopen(full_path, "wb");
-  safe_free(full_path);
-  if (!file) return;
+  if (!full_path) return;
+  char* tmp_path = bprintf(NULL, "%s.tmp", full_path);
+  FILE* file     = fopen(tmp_path, "wb");
+  if (!file) {
+    safe_free(full_path);
+    safe_free(tmp_path);
+    return;
+  }
   fwrite(value.data, 1, value.len, file);
   fclose(file);
+  rename(tmp_path, full_path);
+  safe_free(tmp_path);
+  safe_free(full_path);
 }
 static void file_delete(char* filename) {
   char* full_path = combine_filename(filename);

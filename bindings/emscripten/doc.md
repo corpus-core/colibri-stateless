@@ -294,6 +294,10 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ include_code:  true})
     ```
+- `privacy_mode` - **PAP (Pragmatic Adaptive Privacy)** mode. Reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards. Allowed values: `"none"` (default), `"basic"`. With `"basic"`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
+    ```js
+    new Colibri({ privacy_mode: "basic" })
+    ```
 
 - `verify`- a function to decide which request should be verified and which should be fetched from the default RPC-Provider. It allows you to speed up performance for requests which are not critical.
     ```js
