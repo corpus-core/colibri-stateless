@@ -226,6 +226,8 @@ class TestSpecificIntegrationCases:
         client = Colibri(
             chain_id=config['chain_id'],
             provers=[],  # CRITICAL: Empty list forces local proof creation with mock data
+            include_code=config.get('include_code', False),
+            use_accesslist=config.get('use_accesslist', False),
             storage=mock_storage,
             request_handler=mock_request_handler
         )
@@ -288,6 +290,8 @@ class TestSpecificIntegrationCases:
         client = Colibri(
             chain_id=config['chain_id'],
             provers=[],  # CRITICAL: Empty list forces local proof creation with mock data
+            include_code=config.get('include_code', False),
+            use_accesslist=config.get('use_accesslist', False),
             storage=mock_storage,
             request_handler=mock_request_handler
         )

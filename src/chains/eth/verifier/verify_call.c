@@ -49,6 +49,7 @@ static call_account_t* call_accounts_from_ssz(ssz_ob_t ssz_accounts) {
     ssz_ob_t        acc      = ssz_at(ssz_accounts, i);
     call_account_t* ca       = safe_calloc(1, sizeof(call_account_t));
     bytes_t         addr     = ssz_get(&acc, "address").bytes;
+    ca->storage              = NULL; // redundant (calloc zeroes), but silences static analyzer
 
     if (addr.data && addr.len >= 20) memcpy(ca->address, addr.data, 20);
     ca->flags = ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE;

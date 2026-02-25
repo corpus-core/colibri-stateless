@@ -95,6 +95,7 @@ class Colibri(
     var checkpointz: Array<String> = arrayOf("https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"), // Default checkpointz servers
     var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
+    var useAccesslist: Boolean = false,
     var privacyMode: PrivacyMode = PrivacyMode.NONE, // PAP mode; BASIC sets verify flag
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
@@ -270,7 +271,8 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args) // Use helper
             // Create the prover context with properly formatted JSON args
-            val ctx = com.corpuscore.colibri.c4.c4_create_prover_ctx(method, jsonArgs, chainId, if (includeCode) 1 else 0)
+            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L)
+            val ctx = com.corpuscore.colibri.c4.c4_create_prover_ctx(method, jsonArgs, chainId, proverFlags)
                 ?: throw ColibriException("Failed to create prover context for method $method")
 
             // Add iteration limit to prevent infinite loops

@@ -96,11 +96,13 @@ test('RPC-Proof Test Suite', async (t) => {
 
             let test_conf = JSON.parse(fs.readFileSync(`${testdir}/${test}/test.json`, 'utf8'));
             if (test_conf.requires_chain_store) return;
-            let conf = { chain: test_conf.chain, cache: create_cache(`${testdir}/${test}`) }
-            if (test_conf.trusted_blockhash) {
+            let conf = { chainId: test_conf.chain_id, cache: create_cache(`${testdir}/${test}`) }
+            if (test_conf.trusted_blockhash)
                 conf.trusted_checkpoint = test_conf.trusted_blockhash
-                //                return;
-            }
+            if (test_conf.include_code)
+                conf.include_code = true
+            if (test_conf.use_accesslist)
+                conf.use_accesslist = true
             //            console.log(`### ${test} ######`)
 
             const c4 = new Colibri(conf);
