@@ -131,23 +131,6 @@ INTERNAL bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, 
   return true;
 }
 
-static bytes_t get_last_value(ssz_ob_t proof) {
-  bytes_t last_value = ssz_at(proof, ssz_len(proof) - 1).bytes;
-  if (!last_value.data) return NULL_BYTES;
-  if (rlp_decode(&last_value, 0, &last_value) != RLP_LIST) return NULL_BYTES;
-  switch ((int) rlp_decode(&last_value, -1, &last_value)) {
-    case 2: // must be a leaf (otherwise the verification would have failed)
-      if (rlp_decode(&last_value, 1, &last_value) != RLP_ITEM) return NULL_BYTES;
-      break;
-    case 17: // branch noch with the value
-      if (rlp_decode(&last_value, 16, &last_value) != RLP_ITEM) return NULL_BYTES;
-      break;
-    default:
-      return NULL_BYTES;
-  }
-  return last_value;
-}
-
 bool eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t value) {
   bytes32_t path = {0};
   bytes32_t root = {0};
@@ -160,15 +143,6 @@ bool eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t valu
   if (leaf.len > 32) return false;
   memcpy(value + 32 - leaf.len, leaf.data, leaf.len);
   return true;
-}
-
-void eth_get_account_value(ssz_ob_t account, eth_account_field_t field, bytes32_t value) {
-  bytes_t last_value = get_last_value(ssz_get(&account, "accountProof"));
-  if (!last_value.data) return;
-  if (rlp_decode(&last_value, 0, &last_value) != RLP_LIST) return;
-  if (rlp_decode(&last_value, field - 1, &last_value) != RLP_ITEM) return;
-  if (last_value.len > 32) return;
-  memcpy(value + 32 - last_value.len, last_value.data, last_value.len);
 }
 
 INTERNAL c4_status_t eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* ac) {
