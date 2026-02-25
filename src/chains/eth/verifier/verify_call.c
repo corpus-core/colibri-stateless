@@ -183,6 +183,7 @@ RETURNS_NONNULL static evm_call_ctx_t* call_get_evm_ctx(verify_ctx_t* ctx) {
   evm_call_ctx_t* evm = (evm_call_ctx_t*) ctx->user_data;
   if (!evm) {
     evm                 = safe_calloc(1, sizeof(evm_call_ctx_t));
+    evm->accounts       = NULL;
     evm->evm_done       = false;
     evm->pap_mode       = ctx->flags & VERIFY_FLAG_PAP;
     ctx->user_data      = evm;
