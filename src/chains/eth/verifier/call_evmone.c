@@ -455,6 +455,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
 
   set_message(&message, tx, &buffer);
 
+  // special handling for precompiles
   if (bytes_all_zero(bytes(to, 19)) && to[19]) {
     buffer_t     output         = {0};
     uint64_t     precompile_gas = 0;
@@ -565,7 +566,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       case -3: error_msg = "Out of memory"; break;
     }
     EVM_LOG("Error details: %s", error_msg);
-    c4_state_add_error(&ctx->state, error_msg);
+    if (!context.storage_miss) c4_state_add_error(&ctx->state, error_msg);
   }
 
   evmone_release_result(&result);
@@ -583,6 +584,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   EVM_LOG("=== EVM call verification complete ===");
 
   if (context.storage_miss) {
+    // if we have a pending request, the error is discarded since we could not stop the evm
     if (c4_state_get_pending_request(&ctx->state)) {
       if (ctx->state.error) {
         safe_free(ctx->state.error);

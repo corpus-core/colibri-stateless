@@ -46,26 +46,19 @@ static call_account_t* call_accounts_from_ssz(ssz_ob_t ssz_accounts) {
   call_account_t* list = NULL;
   uint32_t        len  = ssz_len(ssz_accounts);
   for (uint32_t i = 0; i < len; i++) {
-    ssz_ob_t        acc = ssz_at(ssz_accounts, i);
-    call_account_t* ca  = safe_calloc(1, sizeof(call_account_t));
+    ssz_ob_t        acc      = ssz_at(ssz_accounts, i);
+    call_account_t* ca       = safe_calloc(1, sizeof(call_account_t));
+    bytes32_t       nonce_be = {0};
+    bytes_t         addr     = ssz_get(&acc, "address").bytes;
 
-    bytes_t addr = ssz_get(&acc, "address").bytes;
     if (addr.data && addr.len >= 20) memcpy(ca->address, addr.data, 20);
+    ca->flags |= ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE;
 
     eth_get_account_value(acc, ETH_ACCOUNT_BALANCE, ca->balance);
-    ca->flags |= ACCOUNT_HAS_BALANCE;
-
     eth_get_account_value(acc, ETH_ACCOUNT_CODE_HASH, ca->code_hash);
-    ca->flags |= ACCOUNT_HAS_CODE_HASH;
-
     eth_get_account_value(acc, ETH_ACCOUNT_STORAGE_HASH, ca->storage_root);
-    ca->flags |= ACCOUNT_HAS_STORAGE_ROOT;
-
-    bytes32_t nonce_be = {0};
     eth_get_account_value(acc, ETH_ACCOUNT_NONCE, nonce_be);
-    ca->nonce = uint64_from_be(nonce_be + 24);
-    ca->flags |= ACCOUNT_HAS_NONCE;
-
+    ca->nonce     = uint64_from_be(nonce_be + 24);
     ssz_ob_t code = ssz_get(&acc, "code");
     if (code.def && code.def->type == SSZ_TYPE_LIST && code.bytes.len > 0) {
       ca->code = code.bytes;
