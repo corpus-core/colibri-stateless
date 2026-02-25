@@ -557,6 +557,8 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         let colibri = Colibri()
         colibri.requestHandler = mockHandler
         colibri.chainId = UInt64(chainId)  // Set chain ID from test.json
+        colibri.includeCode = (testJson["include_code"] as? Bool) ?? false
+        colibri.useAccesslist = (testJson["use_accesslist"] as? Bool) ?? false
         
         // 🎯 IMPORTANT: Clear provers to force LOCAL proof creation (not remote fetching)
         colibri.provers = []  // Force local C-library proof creation for testing

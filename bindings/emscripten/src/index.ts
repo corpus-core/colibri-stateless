@@ -145,6 +145,7 @@ export default class C4Client {
     this.config = baseConfig;
 
     if (this.config.include_code) this.flags |= 1;
+    if (this.config.use_accesslist) this.flags |= (1 << 6);
     if (this.config.privacy_mode === 'basic') this.verify_flags |= 2;
 
     if (!this.config.warningHandler)

@@ -212,9 +212,25 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t trace, uint64_t block_nu
   uint8_t     address[20]  = {0};
   int         accounts_len = 0;
 
+  // EIP-7702: ensure the to-address is always in the proof so the
+  // verifier can read its code and resolve delegation indicators.
+  json_t  to_json     = json_get(json_at(ctx->params, 0), "to");
+  uint8_t to_addr[20] = {0};
+  bool    to_found    = to_json.type != JSON_TYPE_STRING;
+  if (!to_found) {
+    buffer_t to_buf = stack_buffer(to_addr);
+    json_as_bytes(to_json, &to_buf);
+  }
+
   if (ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST) {
     json_t access_list = json_get(trace, "accessList");
     accounts_len       = json_len(access_list);
+    json_for_each_value(access_list, values) {
+      buffer_t buf = stack_buffer(address);
+      json_as_bytes(json_get(values, "address"), &buf);
+      if (!to_found && memcmp(address, to_addr, 20) == 0) to_found = true;
+    }
+    if (!to_found) accounts_len++;
     json_for_each_value(access_list, values) {
       buffer_t buf  = stack_buffer(address);
       json_t   addr = json_get(values, "address");
@@ -222,17 +238,27 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t trace, uint64_t block_nu
       json_as_bytes(addr, &buf);
       TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storageKeys"), account, (json_t) {0}, accounts_len, block_number, address, builder, overrides));
     }
+    if (!to_found) {
+      account = bytes(to_json.start + 1, to_json.len - 2);
+      TRY_ADD_ASYNC(status, handle_access_list(ctx, (json_t) {.type = JSON_TYPE_NOT_FOUND}, account, (json_t) {0}, accounts_len, block_number, to_addr, builder, overrides));
+    }
   }
   else {
     json_for_each_property(trace, values, account) {
       hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
       if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
+      if (!to_found && memcmp(address, to_addr, 20) == 0) to_found = true;
       accounts_len++;
     }
+    if (!to_found) accounts_len++;
     json_for_each_property(trace, values, account) {
       hex_to_bytes((const char*) account.data, account.len, bytes(address, sizeof(address)));
       if (bytes_all_zero(bytes(address, 20)) || memcmp(address, miner, 20) == 0) continue;
       TRY_ADD_ASYNC(status, handle_access_list(ctx, json_get(values, "storage"), account, json_get(values, "code"), accounts_len, block_number, address, builder, overrides));
+    }
+    if (!to_found) {
+      account = bytes(to_json.start + 1, to_json.len - 2);
+      TRY_ADD_ASYNC(status, handle_access_list(ctx, (json_t) {.type = JSON_TYPE_NOT_FOUND}, account, (json_t) {0}, accounts_len, block_number, to_addr, builder, overrides));
     }
   }
 

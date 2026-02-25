@@ -47,10 +47,19 @@ void test_electra() {
   run_rpc_test("eth_call_electra", C4_PROVER_FLAG_NO_CACHE);
   //  run_rpc_test("eth_call3", C4_PROVER_FLAG_INCLUDE_CODE);
 }
+void test_7702() {
+  run_rpc_test("eth_call_7702", C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE);
+}
+
+void test_7702_authorization_list() {
+  run_rpc_test("eth_call_authorization_list", C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE);
+}
 
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_call);
   RUN_TEST(test_electra);
+  RUN_TEST(test_7702);
+  RUN_TEST(test_7702_authorization_list);
   return UNITY_END();
 }

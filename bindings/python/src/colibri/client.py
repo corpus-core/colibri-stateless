@@ -51,6 +51,7 @@ class Colibri:
         checkpointz: List[str] = None,
         trusted_checkpoint: Optional[str] = None,
         include_code: bool = False,
+        use_accesslist: bool = False,
         privacy_mode: Optional[PrivacyMode] = None,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
@@ -66,6 +67,7 @@ class Colibri:
             checkpointz: List of checkpointz server URLs
             trusted_checkpoint: Optional trusted checkpoint as hex string (0x-prefixed, 66 chars)
             include_code: Whether to include code in proofs
+            use_accesslist: Whether to use eth_createAccessList instead of debug_traceCall
             privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
             storage: Storage implementation (defaults to DefaultStorage)
             request_handler: Optional request handler for testing
@@ -78,6 +80,7 @@ class Colibri:
         self.checkpointz = checkpointz if checkpointz is not None else self._get_default_checkpointz(chain_id)
         self.trusted_checkpoint = trusted_checkpoint
         self.include_code = include_code
+        self.use_accesslist = use_accesslist
         self.privacy_mode = privacy_mode if privacy_mode is not None else PrivacyMode.NONE
         self.request_handler = request_handler
 
@@ -207,11 +210,12 @@ class Colibri:
         try:
             # Create prover context
             params_json = json.dumps(params)
+            prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0)
             ctx = native.create_prover_ctx(
                 method, 
                 params_json, 
                 self.chain_id, 
-                1 if self.include_code else 0
+                prover_flags
             )
             
             if not ctx:

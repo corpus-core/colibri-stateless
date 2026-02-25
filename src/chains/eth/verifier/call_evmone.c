@@ -41,7 +41,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define EVM_DEBUG 0
+#define EVM_DEBUG      0
+#define EVMC_REV_OSAKA 14
 #define EVM_LOG(format, ...)                                              \
   do {                                                                    \
     if (EVM_DEBUG) fbprintf(stderr, "[EVM] " format "\n", ##__VA_ARGS__); \
@@ -259,6 +260,15 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     fetched_code        = call_account_get_code(ctx, msg->code_address.bytes);
     execution_code      = fetched_code.data;
     execution_code_size = fetched_code.len;
+
+    // EIP-7702: resolve delegation indicator for nested calls
+    if (execution_code_size == 23 && execution_code[0] == 0xef && execution_code[1] == 0x01 && execution_code[2] == 0x00) {
+      fetched_code        = call_account_get_code(ctx, execution_code + 3);
+      execution_code      = fetched_code.data;
+      execution_code_size = fetched_code.len;
+      EVM_LOG("EIP-7702: resolved delegation for nested call");
+    }
+
     EVM_LOG("Fetched code size: %zu bytes", execution_code_size);
   }
 
@@ -281,7 +291,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       ctx->executor,
       &host_interface,
       &child,
-      14,
+      EVMC_REV_OSAKA,
       msg,
       execution_code,
       execution_code_size);
@@ -502,13 +512,22 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   };
 
   bytes_t code = call_account_get_code(&context, to);
+
+  // EIP-7702: resolve delegation indicator for top-level call
+  if (code.len == 23 && code.data[0] == 0xef && code.data[1] == 0x01 && code.data[2] == 0x00) {
+    memcpy(message.code_address.bytes, code.data + 3, 20);
+    code = call_account_get_code(&context, message.code_address.bytes);
+    EVM_LOG("EIP-7702: resolved delegation to code_address");
+    debug_print_address("  delegated code_address", &message.code_address);
+  }
+
   EVM_LOG("Contract code size: %u bytes", (uint32_t) code.len);
 
   evmone_result result = evmone_execute(
       executor,
       &host_interface,
       &context,
-      14,
+      EVMC_REV_OSAKA,
       &message,
       code.data,
       code.len);

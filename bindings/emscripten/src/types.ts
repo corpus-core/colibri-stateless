@@ -128,6 +128,7 @@ export interface Config extends ChainConfig {
     cache?: Cache;
     debug?: boolean;
     include_code?: boolean;
+    use_accesslist?: boolean;
     /** Pragmatic Adaptive Privacy mode. Default "none". "basic" sets verify flag for PAP. */
     privacy_mode?: PrivacyMode;
     zk_proof?: boolean;

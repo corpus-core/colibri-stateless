@@ -39,8 +39,8 @@ static char* get_default_config(char* chain_name, chain_id_t* chain_id, char* co
       break;
 
     case 11155111: // sepolia
-      config = "{\"eth_rpc\":[\"https://ethereum-sepolia-rpc.publicnode.com\"],"
-               "\"beacon_api\":[\"https://ethereum-sepolia-beacon-api.publicnode.com/\"]"
+      config = "{\"eth_rpc\":[\"https://sepolia.colibri-proof.tech/execution\"],"
+               "\"beacon_api\":[\"https://sepolia.colibri-proof.tech/consensus/\"]"
                "\"checkpointz\":[],"
                "\"prover\":[\"https://sepolia.colibri-proof.tech\"]}";
       break;
