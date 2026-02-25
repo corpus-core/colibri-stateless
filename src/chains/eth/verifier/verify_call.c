@@ -52,7 +52,7 @@ static call_account_t* call_accounts_from_ssz(ssz_ob_t ssz_accounts) {
     bytes_t         addr     = ssz_get(&acc, "address").bytes;
 
     if (addr.data && addr.len >= 20) memcpy(ca->address, addr.data, 20);
-    ca->flags |= ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE;
+    ca->flags = ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE;
 
     eth_get_account_value(acc, ETH_ACCOUNT_BALANCE, ca->balance);
     eth_get_account_value(acc, ETH_ACCOUNT_CODE_HASH, ca->code_hash);
