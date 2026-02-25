@@ -24,6 +24,7 @@
 
 #include "eth_call_cache.h"
 #include "bytes.h"
+#include "call_ctx.h"
 #include "plugin.h"
 #include <string.h>
 

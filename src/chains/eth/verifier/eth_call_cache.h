@@ -29,8 +29,21 @@
 extern "C" {
 #endif
 
-#include "call_ctx.h"
+#include "bytes.h"
+#include "crypto.h"
 #include "verify.h"
+
+typedef struct call_account call_account_t;
+
+// :: Storage value source
+
+typedef enum {
+  STORAGE_SRC_NONE     = 0,
+  STORAGE_SRC_PROOF    = 1,
+  STORAGE_SRC_CACHE    = 2,
+  STORAGE_SRC_OVERRIDE = 3,
+  STORAGE_SRC_RPC      = 4,
+} storage_source_t;
 
 // :: Serialization helpers
 

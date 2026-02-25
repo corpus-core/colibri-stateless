@@ -31,6 +31,7 @@ extern "C" {
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_account.h"
+#include "eth_call_cache.h"
 #include "eth_verify.h"
 #include "json.h"
 #include "plugin.h"
@@ -41,15 +42,7 @@ extern "C" {
 #include <stdlib.h>
 #include <string.h>
 
-// :: Storage value source
-
-typedef enum {
-  STORAGE_SRC_NONE     = 0,
-  STORAGE_SRC_PROOF    = 1,
-  STORAGE_SRC_CACHE    = 2,
-  STORAGE_SRC_OVERRIDE = 3,
-  STORAGE_SRC_RPC      = 4,
-} storage_source_t;
+// storage_source_t is defined in eth_call_cache.h (included above)
 
 // :: Unified storage slot
 
@@ -249,6 +242,14 @@ static void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address
 static bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address) {
   if (bytes_all_zero(bytes(address, 20)) || ctx->storage_miss) return NULL_BYTES;
   call_account_t* acc = call_account_find(ctx, address);
+  if (!acc && ctx->pap_mode) { // try load it from cache
+    acc = eth_call_cache_load(ctx->ctx, address);
+    if (acc) {
+      acc->next     = ctx->accounts;
+      ctx->accounts = acc;
+    }
+  }
+
   if (!acc) {
     if (ctx->pap_mode) {
       acc               = call_account_get_or_create(ctx, address);
@@ -264,6 +265,25 @@ static bytes_t call_account_get_code(evmone_context_t* ctx, const address_t addr
     return NULL_BYTES;
   }
   if (acc->flags & ACCOUNT_HAS_CODE) return acc->code;
+  if (acc->flags & ACCOUNT_HAS_CODE_HASH) {
+    if (memcmp(acc->code_hash, EMPTY_HASH, 32) == 0) {
+      acc->code = NULL_BYTES;
+      acc->flags |= ACCOUNT_HAS_CODE;
+      return acc->code;
+    }
+    else {
+      storage_plugin_t cache = {0};
+      c4_get_storage_config(&cache);
+      char tmp[80];
+      sbprintf(tmp, "code_%x", bytes(acc->code_hash, 32));
+      buffer_t data = {0};
+      if (cache.get && cache.get(tmp, &data)) {
+        acc->code = data.data;
+        acc->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
+        return acc->code;
+      }
+    }
+  }
   if (ctx->pap_mode && !(acc->flags & ACCOUNT_HAS_CODE_HASH))
     return eth_fetch_account_code(ctx->ctx, acc) == C4_SUCCESS ? acc->code : NULL_BYTES;
   return NULL_BYTES;

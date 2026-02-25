@@ -198,11 +198,11 @@ INTERNAL c4_status_t eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* a
         status = c4_state_add_error(&ctx->state, "code hash mismatch");
       }
       else {
-        cache.set(bprintf(&buf, "code_%x", bytes(ac->code_hash, 32)), ac->code);
         if (!(ac->flags & ACCOUNT_HAS_CODE_HASH)) { // update the code hash in papmode
           ac->flags |= ACCOUNT_HAS_CODE_HASH;
           keccak(ac->code, ac->code_hash);
         }
+        cache.set(bprintf(&buf, "code_%x", bytes(ac->code_hash, 32)), ac->code);
       }
     }
     else
