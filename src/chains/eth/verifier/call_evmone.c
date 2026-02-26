@@ -716,6 +716,8 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   }
   // context.accounts already transferred to evm->accounts above
   free_emitted_logs(context.logs);
+  accessed_addr_free_list(context.accessed_addresses);
+  accessed_slot_free_list(context.accessed_storage_keys);
   EVM_LOG("=== EVM call verification complete ===");
 
   if (context.storage_miss) {
