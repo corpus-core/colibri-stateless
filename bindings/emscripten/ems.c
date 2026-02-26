@@ -207,6 +207,13 @@ char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
   return buffer_as_string(result);
 }
 
+char* EMSCRIPTEN_KEEPALIVE c4w_decode_proof(uint8_t* data, size_t len) {
+  bytes_t          req_data = bytes(data, len);
+  const ssz_def_t* def      = c4_get_req_type_from_req(req_data);
+  if (!def) return NULL;
+  return bprintf(NULL, "%Z", (ssz_ob_t) {.def = def, .bytes = req_data});
+}
+
 void EMSCRIPTEN_KEEPALIVE c4w_req_free(data_request_t* client_update) {
   if (client_update->error) free(client_update->error);
   if (client_update->response.data) free(client_update->response.data);

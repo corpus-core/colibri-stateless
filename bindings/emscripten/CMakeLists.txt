@@ -24,18 +24,20 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -Wpointer-arith ")
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wpointer-arith ")
 
 option(WASM_PROFILE "Enable profiling-friendly WASM build (function names + source maps)" OFF)
+option(WASM_DEBUG "Enable DWARF debug info for source-level WASM debugging" OFF)
 
-
-IF (CMAKE_BUILD_TYPE MATCHES Debug)
+if (WASM_DEBUG)
+   set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -g3 -O1 -gseparate-dwarf --profiling-funcs")
+   set(EMC_PROPS "${EMC_PROPS} -s ASSERTIONS=1 -s STACK_OVERFLOW_CHECK=1 -s RUNTIME_LOGGING=1")
+   set(EMC_PROPS "${EMC_PROPS} -s ENVIRONMENT=web,worker,node")
+elseif (CMAKE_BUILD_TYPE MATCHES Debug)
    set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -g -s SAFE_HEAP=1 -s ASSERTIONS=1 -s STACK_OVERFLOW_CHECK=1 -s RUNTIME_LOGGING=1 ")
-ELSE (CMAKE_BUILD_TYPE MATCHES Debug)
+else ()
    set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -O3 ")
-ENDIF (CMAKE_BUILD_TYPE MATCHES Debug)
+endif ()
 
 if (WASM_PROFILE)
-   # Keep wasm function names for the browser profiler and emit source maps.
-   # This is intended for local profiling (not for production builds).
-   set(EMC_PROPS "${EMC_PROPS} --profiling-funcs -gsource-map -s DEMANGLE_SUPPORT=1")
+   set(EMC_PROPS "${EMC_PROPS} --profiling-funcs -gsource-map")
 endif()
 
 option(WASM_EMBED "Embed WASM into JS (SINGLE_FILE=1)" ON)

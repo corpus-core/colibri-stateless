@@ -152,7 +152,7 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
 
   let cacheable = conf.cache && conf.cache.cacheable(req);
   if (cacheable && conf.cache) {
-    const data = conf.cache.get(req);
+    const data = await conf.cache.get(req);
     if (data) {
       if (conf.debug) log(`::: ${path} (len=${data.length} bytes) CACHED`);
       c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, 0);
