@@ -49,7 +49,7 @@ public:
 
   evmc_storage_status set_storage(const evmc::address& addr, const evmc::bytes32& key,
                                   const evmc::bytes32& value) noexcept override {
-    if (!m_adapter.c_interface->set_storage) return static_cast<evmc_storage_status>(EVMONE_STORAGE_UNCHANGED);
+    if (!m_adapter.c_interface->set_storage) return static_cast<evmc_storage_status>(EVMONE_STORAGE_ASSIGNED);
 
     evmone_storage_status status = m_adapter.c_interface->set_storage(
         m_adapter.context,
@@ -144,10 +144,20 @@ public:
 
   evmc_tx_context get_tx_context() const noexcept override {
     if (!m_adapter.c_interface->get_tx_context) return {};
-    evmc_bytes32 raw_result = m_adapter.c_interface->get_tx_context(m_adapter.context);
-    // In real implementation, you'd deserialize the raw_result into a proper tx_context
-    // This is simplified for demonstration
-    return evmc_tx_context{};
+    evmone_tx_context c_tx_ctx{};
+    m_adapter.c_interface->get_tx_context(m_adapter.context, &c_tx_ctx);
+    evmc_tx_context result{};
+    result.tx_gas_price      = *reinterpret_cast<const evmc_uint256be*>(&c_tx_ctx.tx_gas_price);
+    result.tx_origin         = *reinterpret_cast<const evmc_address*>(&c_tx_ctx.tx_origin);
+    result.block_coinbase    = *reinterpret_cast<const evmc_address*>(&c_tx_ctx.block_coinbase);
+    result.block_number      = c_tx_ctx.block_number;
+    result.block_timestamp   = c_tx_ctx.block_timestamp;
+    result.block_gas_limit   = c_tx_ctx.block_gas_limit;
+    result.block_prev_randao = *reinterpret_cast<const evmc_uint256be*>(&c_tx_ctx.block_prev_randao);
+    result.chain_id          = *reinterpret_cast<const evmc_uint256be*>(&c_tx_ctx.chain_id);
+    result.block_base_fee    = *reinterpret_cast<const evmc_uint256be*>(&c_tx_ctx.block_base_fee);
+    result.blob_base_fee     = *reinterpret_cast<const evmc_uint256be*>(&c_tx_ctx.blob_base_fee);
+    return result;
   }
 
   evmc::bytes32 get_block_hash(int64_t number) const noexcept override {
@@ -174,19 +184,21 @@ public:
 
   evmc_access_status access_account(const evmc::address& addr) noexcept override {
     if (m_adapter.c_interface->access_account) {
-      m_adapter.c_interface->access_account(
+      int status = m_adapter.c_interface->access_account(
           m_adapter.context,
           reinterpret_cast<const evmc_address*>(&addr));
+      return static_cast<evmc_access_status>(status);
     }
     return EVMC_ACCESS_COLD;
   }
 
   evmc_access_status access_storage(const evmc::address& addr, const evmc::bytes32& key) noexcept override {
     if (m_adapter.c_interface->access_storage) {
-      m_adapter.c_interface->access_storage(
+      int status = m_adapter.c_interface->access_storage(
           m_adapter.context,
           reinterpret_cast<const evmc_address*>(&addr),
           reinterpret_cast<const evmc_bytes32*>(&key));
+      return static_cast<evmc_access_status>(status);
     }
     return EVMC_ACCESS_COLD;
   }

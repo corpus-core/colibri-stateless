@@ -82,14 +82,36 @@ typedef struct evmone_message {
   evmc_address   code_address; /* Address of the code to execute (for DELEGATECALL) */
 } evmone_message;
 
-/* Storage status enum - maps to EVMC's storage statuses */
+/* Storage status enum - must match evmc_storage_status values exactly */
 typedef enum {
-  EVMONE_STORAGE_UNCHANGED,
-  EVMONE_STORAGE_MODIFIED,
-  EVMONE_STORAGE_MODIFIED_AGAIN,
-  EVMONE_STORAGE_ADDED,
-  EVMONE_STORAGE_DELETED
+  EVMONE_STORAGE_ASSIGNED          = 0, // no-op or dirty re-write (catch-all)
+  EVMONE_STORAGE_ADDED             = 1, // 0 -> 0 -> Z (clean zero to nonzero)
+  EVMONE_STORAGE_DELETED           = 2, // X -> X -> 0 (clean nonzero to zero)
+  EVMONE_STORAGE_MODIFIED          = 3, // X -> X -> Z (clean nonzero to other nonzero)
+  EVMONE_STORAGE_DELETED_ADDED     = 4, // X -> 0 -> Z (dirty zero, original != 0)
+  EVMONE_STORAGE_MODIFIED_DELETED  = 5, // X -> Y -> 0 (dirty nonzero to zero, original != 0)
+  EVMONE_STORAGE_DELETED_RESTORED  = 6, // X -> 0 -> X (dirty zero to original)
+  EVMONE_STORAGE_ADDED_DELETED     = 7, // 0 -> Y -> 0 (dirty nonzero to zero, original == 0)
+  EVMONE_STORAGE_MODIFIED_RESTORED = 8  // X -> Y -> X (dirty nonzero to original)
 } evmone_storage_status;
+
+/* Transaction context passed from host to EVM for opcodes like ORIGIN, NUMBER, TIMESTAMP, etc. */
+typedef struct evmone_tx_context {
+  evmc_bytes32 tx_gas_price;
+  evmc_address tx_origin;
+  evmc_address block_coinbase;
+  int64_t      block_number;
+  int64_t      block_timestamp;
+  int64_t      block_gas_limit;
+  evmc_bytes32 block_prev_randao;
+  evmc_bytes32 chain_id;
+  evmc_bytes32 block_base_fee;
+  evmc_bytes32 blob_base_fee;
+} evmone_tx_context;
+
+/* Access status returned by access_account / access_storage (EIP-2929) */
+#define EVMONE_ACCESS_COLD 0
+#define EVMONE_ACCESS_WARM 1
 
 /* Host context callbacks */
 typedef bool (*evmone_account_exists_fn)(void* context, const evmc_address* addr);
@@ -101,11 +123,11 @@ typedef evmc_bytes32 (*evmone_get_code_hash_fn)(void* context, const evmc_addres
 typedef size_t (*evmone_copy_code_fn)(void* context, const evmc_address* addr, size_t code_offset, uint8_t* buffer_data, size_t buffer_size);
 typedef void (*evmone_selfdestruct_fn)(void* context, const evmc_address* addr, const evmc_address* beneficiary);
 typedef void (*evmone_call_fn)(void* context, const struct evmone_message* msg, const uint8_t* code, size_t code_size, struct evmone_result* result);
-typedef evmc_bytes32 (*evmone_get_tx_context_fn)(void* context);
+typedef void (*evmone_get_tx_context_fn)(void* context, struct evmone_tx_context* result);
 typedef evmc_bytes32 (*evmone_get_block_hash_fn)(void* context, int64_t number);
 typedef void (*evmone_emit_log_fn)(void* context, const evmc_address* addr, const uint8_t* data, size_t data_size, const evmc_bytes32 topics[], size_t topic_count);
-typedef void (*evmone_access_account_fn)(void* context, const evmc_address* addr);
-typedef void (*evmone_access_storage_fn)(void* context, const evmc_address* addr, const evmc_bytes32* key);
+typedef int (*evmone_access_account_fn)(void* context, const evmc_address* addr);
+typedef int (*evmone_access_storage_fn)(void* context, const evmc_address* addr, const evmc_bytes32* key);
 
 /* Host interface */
 typedef struct evmone_host_interface {

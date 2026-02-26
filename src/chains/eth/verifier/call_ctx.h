@@ -89,6 +89,18 @@ typedef struct call_account {
 #include "evmone_c_wrapper.h"
 #endif
 
+// EIP-2929 access tracking (transaction-scoped, stored on root context)
+typedef struct accessed_addr {
+  address_t             addr;
+  struct accessed_addr* next;
+} accessed_addr_t;
+
+typedef struct accessed_slot {
+  address_t             addr;
+  bytes32_t             key;
+  struct accessed_slot* next;
+} accessed_slot_t;
+
 typedef struct emitted_log {
   address_t           address;
   bytes_t             data;
@@ -124,11 +136,15 @@ typedef struct evmone_context {
   uint64_t               block_number;
   bytes32_t              block_hash;
   uint64_t               timestamp;
-  bytes32_t              tx_origin;
+  address_t              tx_origin;
   uint64_t               gas_price;
+  uint64_t               chain_id;
+  uint64_t               block_gas_limit;
   struct evmone_context* parent;
   void*                  results;
   emitted_log_t*         logs;
+  accessed_addr_t*       accessed_addresses;
+  accessed_slot_t*       accessed_storage_keys;
   bool                   capture_events;
   bool                   pap_mode;
   bool                   storage_miss;
@@ -368,11 +384,30 @@ static void free_emitted_logs(emitted_log_t* logs) {
   }
 }
 
+static void accessed_addr_free_list(accessed_addr_t* list) {
+  while (list) {
+    accessed_addr_t* next = list->next;
+    safe_free(list);
+    list = next;
+  }
+}
+static void accessed_slot_free_list(accessed_slot_t* list) {
+  while (list) {
+    accessed_slot_t* next = list->next;
+    safe_free(list);
+    list = next;
+  }
+}
+
 static void context_free(evmone_context_t* ctx) {
   call_account_free_list(ctx->accounts);
   ctx->accounts = NULL;
   free_emitted_logs(ctx->logs);
   ctx->logs = NULL;
+  accessed_addr_free_list(ctx->accessed_addresses);
+  ctx->accessed_addresses = NULL;
+  accessed_slot_free_list(ctx->accessed_storage_keys);
+  ctx->accessed_storage_keys = NULL;
 }
 
 #ifdef EVMONE
