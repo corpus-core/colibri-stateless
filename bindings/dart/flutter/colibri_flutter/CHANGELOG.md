@@ -1,3 +1,7 @@
+## 0.1.2
+
+- Version aligned with repository root `VERSION` (0.1.2). Depends on `colibri_stateless: ^0.1.2`.
+
 ## 0.1.1
 
 - Version aligned with repository root `VERSION` (0.1.1). Depends on `colibri_stateless: ^0.1.1`.

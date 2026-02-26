@@ -1,3 +1,7 @@
+## 0.1.2
+
+- Package version aligned with repository root `VERSION` (0.1.2). Use `scripts/sync_version.sh` to update from root before publishing.
+
 ## 0.1.1
 
 - Package version aligned with repository root `VERSION` (0.1.1). Use `scripts/sync_version.sh` to update from root before publishing.
