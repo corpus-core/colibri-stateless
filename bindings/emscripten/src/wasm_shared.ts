@@ -33,6 +33,7 @@ export interface C4W {
     _c4w_free_verify_ctx: (verifyCtx: number) => void;
     _c4w_verify_proof: (verifyCtx: number) => number;
     _c4w_req_free: (reqPtr: number) => void;
+    _c4w_decode_proof: (data: number, len: number) => number;
     _init_storage: () => void;
     HEAPU8: Uint8Array;
     stringToUTF8: (str: string, ptr: number, length: number) => number;
@@ -258,12 +259,22 @@ export function createC4wApi(options: {
         free_buffers.forEach(ptr => c4w._free(ptr));
     }
 
+    async function decode_proof(proof: Uint8Array): Promise<any> {
+        const c4w = await getC4w();
+        const ptr = copy_to_c(proof, c4w);
+        const resultPtr = c4w._c4w_decode_proof(ptr, proof.length);
+        c4w._free(ptr);
+        if (!resultPtr) throw new Error('Unknown proof format');
+        return as_json(resultPtr, c4w, true);
+    }
+
     return {
         set_wasm_url,
         loadC4WModule,
         getC4w,
         get_prover_config_hex,
         set_trusted_checkpoint,
+        decode_proof,
     };
 }
 

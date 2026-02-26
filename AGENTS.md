@@ -126,9 +126,9 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `libs/zstd/`
 - `scripts/`
   - `scripts/doc/`
-- `src/` (133 .c, 60 .h) -- Core C Library
-  - `src/chains/` (94 .c, 38 .h)
-    - `src/chains/eth/` (71 .c, 27 .h) -- Ethereum Chain Module
+- `src/` (135 .c, 61 .h) -- Core C Library
+  - `src/chains/` (96 .c, 39 .h)
+    - `src/chains/eth/` (73 .c, 28 .h) -- Ethereum Chain Module
     - `src/chains/op/` (23 .c, 11 .h) -- OP-Stack Chain Module
   - `src/cli/` (3 .c, 1 .h)
   - `src/prover/` (1 .c, 1 .h) -- Prover
@@ -143,12 +143,15 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
     - `test/data/eth_blockNumber_electra/`
     - `test/data/eth_call1/`
     - `test/data/eth_call3/`
+    - `test/data/eth_call_7702/`
+    - `test/data/eth_call_authorization_list/`
     - `test/data/eth_call_electra/`
     - `test/data/eth_getBalance1/`
     - `test/data/eth_getBalance_electra/`
     - `test/data/eth_getBlockByHash1/`
     - `test/data/eth_getBlockByNumber1/`
     - `test/data/eth_getBlockByNumber_electra/`
+    - `test/data/eth_getBlockHeader1/`
     - `test/data/eth_getLogs1/`
     - `test/data/eth_getLogs_electra/`
     - `test/data/eth_getProof1/`
@@ -290,6 +293,7 @@ ctest --test-dir build/default  # Run tests
 | `USE_MCL` | OFF | Enable MCL support for ZK-Proof verification | CMakeLists.txt |
 | `VERIFIER` | ON | Build the verifier library | CMakeLists.txt |
 | `WASM` | OFF | Build WebAssembly target | CMakeLists.txt |
+| `WASM_DEBUG` | OFF | Enable DWARF debug info for source-level WASM debugging | bindings/emscripten/CMakeLists.txt |
 | `WASM_EMBED` | OFF | Embed WASM into JS (SINGLE_FILE=1 | bindings/emscripten/CMakeLists.txt |
 | `WASM_PROFILE` | OFF | Enable profiling-friendly WASM build (function names + source maps | bindings/emscripten/CMakeLists.txt |
 | `WITNESS_SIGNER` | ON | Enable witness signing | CMakeLists.txt |

@@ -1,0 +1,64 @@
+---
+description: Guides intelligent use of review agents (security, QA, code-reviewer) during planning and implementation
+globs: 
+alwaysApply: true
+---
+
+## Review Agents
+
+Three specialized review agents are available as subagents in `.cursor/agents/`:
+
+| Agent | Strength | When to consider |
+|-------|----------|-----------------|
+| **security-agent** | Memory safety, crypto correctness, input validation, information leakage | Changes to parsing, crypto, network code, memory management, or any code handling untrusted data |
+| **qa-agent** | Test coverage analysis, writing new unit tests, mapping changes to test files | New features, bug fixes, refactored logic, changed public APIs |
+| **code-reviewer** | Readability, naming, duplication, refactoring opportunities, convention compliance | Substantial new code, complex refactorings, changes touching multiple modules |
+
+## When Planning a Task
+
+When creating a TODO list for a non-trivial task, **decide which (if any) review agents should be involved** and add them as explicit TODO items at the appropriate point in the plan. This is a judgment call -- not every change needs review agents.
+
+### Guidelines for the decision
+
+- **No agents needed**: Trivial changes (typos, comment fixes, config tweaks, documentation-only).
+- **One agent**: Most changes benefit from at least one. Pick the most relevant:
+  - New feature → `qa-agent` (ensure tests exist)
+  - Security-sensitive code → `security-agent`
+  - Large refactoring → `code-reviewer`
+- **Two or three agents**: For substantial changes that cross concerns (e.g. a new SSZ parser that handles untrusted input and needs tests → all three).
+
+### Where to place review steps in the TODO list
+
+- **Plan review** (optional): Before implementation, if the approach has security or architectural implications, invoke the relevant agent(s) on the plan description to get early feedback.
+- **Post-implementation review**: After the code changes are complete, invoke the relevant agent(s) on the actual diff. This is the more common and valuable review point.
+- Run multiple agents **in parallel** using the Task tool when possible, to minimize latency.
+
+### Example TODO lists
+
+Substantial feature (all 3 agents):
+```
+1. [in_progress] Implement new SSZ union type handler
+2. [pending]     Add union serialization/deserialization
+3. [pending]     Update ssz_dump for union display
+4. [pending]     security-agent: Review memory safety and input validation
+5. [pending]     code-reviewer: Check readability and convention compliance
+6. [pending]     qa-agent: Verify test coverage, add missing tests
+```
+
+Bug fix in crypto code (2 agents):
+```
+1. [in_progress] Fix BLS signature edge case
+2. [pending]     security-agent: Verify fix doesn't introduce new vulnerabilities
+3. [pending]     qa-agent: Add regression test for the edge case
+```
+
+Simple refactoring (1 agent):
+```
+1. [in_progress] Extract helper function from verify_block
+2. [pending]     code-reviewer: Check naming and structure
+```
+
+Config change (no agents):
+```
+1. [in_progress] Update CMake preset for new build option
+```

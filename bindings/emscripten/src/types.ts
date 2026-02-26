@@ -98,7 +98,7 @@ export type PrivacyMode = 'none' | 'basic';
 // Custom cache implementation
 export interface Cache {
     cacheable(req: DataRequest): boolean;
-    get(req: DataRequest): Uint8Array | undefined;
+    get(req: DataRequest): Uint8Array | undefined | null | Promise<Uint8Array | undefined | null>;
     set(req: DataRequest, data: Uint8Array): void;
 }
 

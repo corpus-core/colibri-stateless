@@ -53,9 +53,9 @@ static beacon_head_t* c4_beacon_cache_get_slot(prover_ctx_t* ctx, json_t block) 
   bytes32_t key = {0};
   create_cache_block_key(key, block);
   beacon_head_t* cached = (beacon_head_t*) c4_prover_cache_get(ctx, key);
-  if (strncmp(block.start, "\"latest\"", 8) == 0 && !cached) {
-    log_warn("Slatest block not found in cache, but it is requested! This should not happen!");
-  }
+  //  if (strncmp(block.start, "\"latest\"", 8) == 0 && !cached) {
+  //    log_warn("Slatest block not found in cache, but it is requested! This should not happen!");
+  //  }
   if (cached && strncmp(block.start, "\"finalized\"", 12) == 0) return cached + 1;
   return cached;
 }
@@ -520,11 +520,11 @@ static bool convert_to_ssz(prover_ctx_t* ctx, data_request_t* data_request, ssz_
     return false;
   }
 
-  buffer_t buffer = {0};
-  bprintf(&buffer, "%z", ssz_result);
-  bytes_write(result->bytes, fopen("block_src.json", "wb"), true);
-  bytes_write(buffer.data, fopen("block_ssz.json", "wb"), true);
-  buffer_free(&buffer);
+  //  buffer_t buffer = {0};
+  //  bprintf(&buffer, "%z", ssz_result);
+  //  bytes_write(result->bytes, fopen("block_src.json", "wb"), true);
+  //  bytes_write(buffer.data, fopen("block_ssz.json", "wb"), true);
+  //  buffer_free(&buffer);
 
   safe_free(data_request->response.data);
   data_request->response = ssz_result.bytes;

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>Colibri WASM Debug</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, sans-serif;
+      padding: 1.5rem;
+      background: #1a1a2e;
+      color: #e0e0e0;
+    }
+
+    h2 {
+      font-size: 1.1rem;
+      margin-bottom: 0.8rem;
+      color: #7fdbca;
+    }
+
+    .panel {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: #aaa;
+      margin-bottom: 0.3rem;
+    }
+
+    select,
+    input,
+    button {
+      font-family: inherit;
+      font-size: 0.9rem;
+      padding: 0.4rem 0.6rem;
+      background: #0f3460;
+      color: #e0e0e0;
+      border: 1px solid #333;
+      border-radius: 4px;
+    }
+
+    select {
+      width: 100%;
+      margin-bottom: 0.6rem;
+    }
+
+    textarea {
+      width: 100%;
+      font-family: 'SF Mono', Menlo, monospace;
+      font-size: 0.82rem;
+      background: #0f3460;
+      color: #e0e0e0;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 0.5rem;
+      resize: vertical;
+      tab-size: 2;
+    }
+
+    button {
+      cursor: pointer;
+      background: #533483;
+      border-color: #7b5ea7;
+      margin-right: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    button:hover {
+      background: #7b5ea7;
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    .log {
+      background: #0a0a1a;
+      padding: 0.8rem;
+      border-radius: 6px;
+      font-family: 'SF Mono', Menlo, monospace;
+      font-size: 0.82rem;
+      white-space: pre-wrap;
+      max-height: 50vh;
+      overflow-y: auto;
+      line-height: 1.5;
+    }
+
+    .ok {
+      color: #7fdbca;
+    }
+
+    .err {
+      color: #ef5350;
+    }
+
+    .info {
+      color: #aaa;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 0;
+    }
+
+    .tab {
+      padding: 0.5rem 1.2rem;
+      background: #0f3460;
+      border: 1px solid #333;
+      border-bottom: none;
+      border-radius: 8px 8px 0 0;
+      cursor: pointer;
+      color: #aaa;
+      font-size: 0.9rem;
+    }
+
+    .tab.active {
+      background: #16213e;
+      color: #7fdbca;
+      border-color: #533483;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .row {
+      display: flex;
+      gap: 0.8rem;
+    }
+
+    .row>* {
+      flex: 1;
+    }
+
+    h1 {
+      font-size: 1.3rem;
+      margin-bottom: 1rem;
+      color: #7fdbca;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Colibri WASM Debug Harness</h1>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="tests">Unit Tests</div>
+    <div class="tab" data-tab="playground">Playground</div>
+  </div>
+
+  <!-- ==================== Unit Tests Tab ==================== -->
+  <div id="tab-tests" class="tab-content active">
+    <div class="panel" style="border-radius: 0 8px 8px 8px;">
+      <label for="testSelect">Test Case (from test/data/):</label>
+      <select id="testSelect">
+        <option value="">Loading...</option>
+      </select>
+      <button id="btnRun">Run createProof + verifyProof</button>
+      <button id="btnRunVerifyOnly">Run verifyProof only</button>
+    </div>
+    <div id="log" class="log"></div>
+  </div>
+
+  <!-- ==================== Playground Tab ==================== -->
+  <div id="tab-playground" class="tab-content">
+    <div class="panel" style="border-radius: 0 8px 8px 8px;">
+      <div class="row">
+        <div>
+          <label for="pgRequest">JSON-RPC Request:</label>
+          <textarea id="pgRequest" rows="10">{
+  "method": "eth_getBalance",
+  "params": [
+    "0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5",
+    "latest"
+  ]
+}</textarea>
+        </div>
+        <div>
+          <label for="pgConfig">Config (optional):</label>
+          <textarea id="pgConfig" rows="10">{
+  "chainId": 11155111,
+  "prover": ["https://sepolia.colibri-proof.tech"],
+  "rpcs": ["https://sepolia.colibri-proof.tech/execution"],
+  "beacon_apis": ["https://sepolia.colibri-proof.tech/consensus/"],
+  "debug": true
+}</textarea>
+        </div>
+      </div>
+      <button id="btnPgRpc">Execute RPC</button>
+      <button id="btnPgProve">createProof only</button>
+      <button id="btnPgVerify">verifyProof (from last proof)</button>
+    </div>
+    <div id="pgLog" class="log"></div>
+  </div>
+
+  <script type="module">
+    const buildBase = '../../../build/wasm-debug/emscripten';
+    const testDataBase = '../../../test/data';
+
+    // ---- Tab switching ----
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ---- Logging helpers ----
+    function createLogger(el) {
+      return function log(msg, cls = '') {
+        const span = document.createElement('span');
+        span.className = cls;
+        span.textContent = msg + '\n';
+        el.appendChild(span);
+        el.scrollTop = el.scrollHeight;
+      };
+    }
+    const log = createLogger(document.getElementById('log'));
+    const pgLog = createLogger(document.getElementById('pgLog'));
+
+    // ---- Load module ----
+    log('Importing Colibri module...', 'info');
+    pgLog('Importing Colibri module...', 'info');
+
+    const ColibriMod = await import(`${buildBase}/index.js`);
+    const Colibri = ColibriMod.default;
+    const decode_proof = ColibriMod.decode_proof;
+    log('Module loaded.', 'ok');
+    pgLog('Module loaded. Ready.', 'ok');
+
+    // ================================================================
+    //  Unit Tests Tab
+    // ================================================================
+    const testIndex = await(await fetch(`${testDataBase}/`)).text();
+    const dirs = [...testIndex.matchAll(/href="([^"]+)\/"/g)].map(m => m[1]);
+    const tests = [];
+    for (const dir of dirs) {
+      try {
+        const r = await fetch(`${testDataBase}/${dir}/test.json`);
+        if (r.ok) tests.push({ name: dir, conf: await r.json() });
+      } catch { }
+    }
+
+    const sel = document.getElementById('testSelect');
+    sel.innerHTML = '';
+    for (const t of tests) {
+      const opt = document.createElement('option');
+      opt.value = t.name;
+      opt.textContent = `${t.name}  (${t.conf.method})`;
+      sel.appendChild(opt);
+    }
+    log(`Found ${tests.length} test cases.`, 'ok');
+
+    async function fetchTestFile(dir, name) {
+      const r = await fetch(`${testDataBase}/${dir}/${name}`);
+      if (!r.ok) throw new Error(`${r.status} fetching ${dir}/${name}`);
+      return new Uint8Array(await r.arrayBuffer());
+    }
+
+    function createCache(dir, fileIndex) {
+      return {
+        cacheable: () => true,
+        async get(req) {
+          let name = '';
+          if (req.url) name = req.url;
+          else if (req.payload)
+            name = req.payload.method + req.payload.params.map(p => '_' + (typeof p === 'string' ? p : JSON.stringify(p))).join('');
+          for (let i = 0; i < name.length; i++) {
+            if ('/.,: =?"&[]{}'.includes(name[i])) name = name.slice(0, i) + '_' + name.slice(i + 1);
+          }
+          if (name.length > 100) name = name.slice(0, 100);
+          name = name + '.' + req.encoding;
+          if (!fileIndex.includes(name)) throw new Error(`Test data not found: ${dir}/${name}`);
+          return await fetchTestFile(dir, name);
+        },
+        set() { }
+      };
+    }
+
+    async function listFiles(dir) {
+      const html = await (await fetch(`${testDataBase}/${dir}/`)).text();
+      return [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).filter(f => !f.endsWith('/') && f !== '../');
+    }
+
+    async function runTest(verifyOnly) {
+      const name = sel.value;
+      const t = tests.find(t => t.name === name);
+      if (!t) { log('No test selected', 'err'); return; }
+      const conf = t.conf;
+      log(`\n--- ${name}: ${conf.method} ---`, 'info');
+
+      const fileIndex = await listFiles(name);
+      const storage = new Map();
+      Colibri.register_storage({
+        get: (key) => storage.get(key) ?? null,
+        set: (key, value) => storage.set(key, new Uint8Array(value)),
+        del: (key) => storage.delete(key),
+      });
+      for (const f of fileIndex) {
+        if (f.startsWith('states_') || f.startsWith('sync_'))
+          storage.set(f, await fetchTestFile(name, f));
+      }
+
+      const c4conf = { chainId: conf.chain_id, cache: createCache(name, fileIndex) };
+      if (conf.trusted_blockhash) c4conf.trusted_checkpoint = conf.trusted_blockhash;
+      if (conf.include_code) c4conf.include_code = true;
+      if (conf.use_accesslist) c4conf.use_accesslist = true;
+      const c4 = new Colibri(c4conf);
+
+      let proof;
+      if (!verifyOnly) {
+        log('createProof...', 'info');
+        const t0 = performance.now();
+        proof = await c4.createProof(conf.method, conf.params);
+        log(`createProof: ${(performance.now() - t0).toFixed(1)} ms, ${proof.length} bytes`, 'ok');
+      }
+      if (proof || verifyOnly) {
+        if (verifyOnly && !proof) { log('No proof available (run full test first)', 'err'); return; }
+        log('verifyProof...', 'info');
+        const t0 = performance.now();
+        const result = await c4.verifyProof(conf.method, conf.params, proof);
+        log(`verifyProof: ${(performance.now() - t0).toFixed(1)} ms`, 'ok');
+        log(`Result: ${JSON.stringify(result)}`, 'ok');
+        if (JSON.stringify(result) === JSON.stringify(conf.expected_result))
+          log('PASS', 'ok');
+        else
+          log(`FAIL - expected: ${JSON.stringify(conf.expected_result)}`, 'err');
+      }
+    }
+
+    document.getElementById('btnRun').addEventListener('click', () => runTest(false));
+    document.getElementById('btnRunVerifyOnly').addEventListener('click', () => runTest(true));
+
+    // ================================================================
+    //  Playground Tab
+    // ================================================================
+    let lastProof = null;
+    let lastMethod = null;
+    let lastParams = null;
+
+    function parsePlaygroundInputs() {
+      const reqText = document.getElementById('pgRequest').value.trim();
+      const cfgText = document.getElementById('pgConfig').value.trim();
+      let req, cfg;
+      try { req = JSON.parse(reqText); } catch (e) { throw new Error(`Invalid request JSON: ${e.message}`); }
+      try { cfg = cfgText ? JSON.parse(cfgText) : {}; } catch (e) { throw new Error(`Invalid config JSON: ${e.message}`); }
+      if (!req.method) throw new Error('Request must have a "method" field');
+      if (!Array.isArray(req.params)) req.params = [];
+      return { req, cfg };
+    }
+
+    async function pgRunRpc() {
+      const btn = document.getElementById('btnPgRpc');
+      btn.disabled = true;
+      try {
+        const { req, cfg } = parsePlaygroundInputs();
+        pgLog(`\n--- rpc(${req.method}) ---`, 'info');
+        const c4 = new Colibri({ chainId: 1, ...cfg });
+        const t0 = performance.now();
+        const result = await c4.rpc(req.method, req.params);
+        const dt = performance.now() - t0;
+        pgLog(`Completed in ${dt.toFixed(1)} ms`, 'ok');
+        pgLog(JSON.stringify(result, null, 2), 'ok');
+        lastMethod = req.method;
+        lastParams = req.params;
+      } catch (e) {
+        pgLog(`Error: ${e.message || e}`, 'err');
+        console.error(e);
+      } finally { btn.disabled = false; }
+    }
+
+    async function pgRunProve() {
+      const btn = document.getElementById('btnPgProve');
+      btn.disabled = true;
+      try {
+        const { req, cfg } = parsePlaygroundInputs();
+        pgLog(`\n--- createProof(${req.method}) ---`, 'info');
+        const c4 = new Colibri({ chainId: 1, ...cfg });
+        const t0 = performance.now();
+        const proof = await c4.createProof(req.method, req.params);
+        const dt = performance.now() - t0;
+        lastProof = proof;
+        lastMethod = req.method;
+        lastParams = req.params;
+        pgLog(`createProof: ${dt.toFixed(1)} ms, ${proof.length} bytes`, 'ok');
+        try {
+          const decoded = await decode_proof(proof);
+          pgLog('Decoded proof:', 'info');
+          pgLog(JSON.stringify(decoded, null, 2), 'ok');
+        } catch (e) {
+          pgLog(`Could not decode proof: ${e.message || e}`, 'info');
+        }
+      } catch (e) {
+        pgLog(`Error: ${e.message || e}`, 'err');
+        console.error(e);
+      } finally { btn.disabled = false; }
+    }
+
+    async function pgRunVerify() {
+      const btn = document.getElementById('btnPgVerify');
+      btn.disabled = true;
+      try {
+        if (!lastProof) { pgLog('No proof yet. Run "createProof" or "Execute RPC" first.', 'err'); return; }
+        const { cfg } = parsePlaygroundInputs();
+        pgLog(`\n--- verifyProof(${lastMethod}) ---`, 'info');
+        const c4 = new Colibri({ chainId: 1, ...cfg });
+        const t0 = performance.now();
+        const result = await c4.verifyProof(lastMethod, lastParams, lastProof);
+        const dt = performance.now() - t0;
+        pgLog(`verifyProof: ${dt.toFixed(1)} ms`, 'ok');
+        pgLog(JSON.stringify(result, null, 2), 'ok');
+      } catch (e) {
+        pgLog(`Error: ${e.message || e}`, 'err');
+        console.error(e);
+      } finally { btn.disabled = false; }
+    }
+
+    document.getElementById('btnPgRpc').addEventListener('click', pgRunRpc);
+    document.getElementById('btnPgProve').addEventListener('click', pgRunProve);
+    document.getElementById('btnPgVerify').addEventListener('click', pgRunVerify);
+  </script>
+</body>
+
+</html>

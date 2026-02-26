@@ -31,6 +31,7 @@ import {
   getC4w,
   get_prover_config_hex,
   set_trusted_checkpoint,
+  decode_proof,
   Storage as C4Storage
 } from "./wasm.js";
 import { EventEmitter } from './eventEmitter.js';
@@ -54,7 +55,7 @@ import { fetch_rpc, handle_request } from './http.js';
 export { Strategy };
 
 // Public helper for controlling WASM loading behavior in Node/bundlers.
-export { set_wasm_url } from "./wasm.js";
+export { set_wasm_url, decode_proof } from "./wasm.js";
 
 // Re-export types needed by consumers of the C4Client module
 export {
