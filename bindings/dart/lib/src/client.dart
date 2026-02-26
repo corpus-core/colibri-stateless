@@ -10,11 +10,14 @@ import 'storage.dart';
 import 'types.dart';
 
 /// High-level Colibri client for proofed RPC calls.
+///
+/// Use [rpc] to run Ethereum (and compatible) RPC methods with automatic
+/// proof generation and verification. Configure [provers], [ethRpcs], and
+/// [beaconApis] for your network; optionally set [storage] for native cache.
 class Colibri {
-  /// Enable remote ZK sync proof bootstrap when supported by the prover.
   static const int _proverFlagZkProof = 1 << 7;
 
-  /// Create a client with optional custom endpoints and storage.
+  /// Creates a client with optional custom endpoints and storage.
   ///
   /// [libraryPath] overrides the platform default native library location.
   /// [storage] registers Dart callbacks for the native cache layer.
@@ -47,16 +50,27 @@ class Colibri {
     }
   }
 
+  /// Chain ID (e.g. 1 for mainnet, 11155111 for Sepolia).
   final int chainId;
+  /// Prover endpoint URLs for remote proof fetching.
   final List<String> provers;
+  /// Execution RPC URLs for unproofable methods and data.
   final List<String> ethRpcs;
+  /// Beacon API URLs for checkpoint and light client data.
   final List<String> beaconApis;
+  /// Checkpointz-style URLs for finalized checkpoint bootstrap.
   final List<String> checkpointz;
+  /// Optional trusted checkpoint root (0x-prefixed hex).
   final String? trustedCheckpoint;
+  /// Whether to include code in proof requests.
   final bool includeCode;
+  /// Whether to request ZK sync proofs from provers.
   final bool zkProof;
+  /// Optional witness signer keys for ZK proof verification.
   final String? checkpointWitnessKeys;
+  /// Whether to log prover request parameters (debug).
   final bool logProverRequests;
+  /// Optional storage backend for native cache.
   final ColibriStorage? storage;
 
   final ColibriNative _native;
@@ -64,18 +78,23 @@ class Colibri {
   String? _runtimeTrustedCheckpoint;
   bool _checkpointInitialized = false;
 
-  /// Close the underlying HTTP client.
+  /// Closes the underlying HTTP client.
+  ///
+  /// Call when the client is no longer needed to release resources.
   void close() {
     _http.close();
   }
 
-  /// Determine whether a method is proofable, local, or unproofable.
+  /// Returns how [method] is supported (proofable, local, unproofable, etc.).
   MethodType getMethodSupport(String method) {
     final support = _native.getMethodSupport(chainId, method);
     return MethodType.fromValue(support);
   }
 
-  /// Create a proof for [method] and [params] locally using the native library.
+  /// Creates a proof for [method] and [params] locally using the native library.
+  ///
+  /// Returns the serialized proof bytes. Use [verifyProof] to verify and get
+  /// the result. Throws [ProofError] on failure.
   Future<Uint8List> createProof(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
     var flags = includeCode ? 1 : 0;
@@ -119,7 +138,9 @@ class Colibri {
     }
   }
 
-  /// Verify a proof and return the verified RPC result.
+  /// Verifies [proof] and returns the verified RPC result.
+  ///
+  /// Throws [VerificationError] if the proof is invalid.
   Future<dynamic> verifyProof(
     Uint8List proof,
     String method,
@@ -166,10 +187,12 @@ class Colibri {
     }
   }
 
-  /// Execute an RPC call with automatic proof handling.
+  /// Executes an RPC call with automatic proof handling.
   ///
-  /// Proofable methods try remote provers first (if configured), then fall back
-  /// to local proof creation and verification.
+  /// For proofable methods, tries remote provers first (if configured), then
+  /// falls back to local proof creation and verification. For local or
+  /// unproofable methods, calls the appropriate path. Throws [ColibriError]
+  /// or [RPCError] when the method is not supported or the call fails.
   Future<dynamic> rpc(String method, List<dynamic> params) async {
     final support = getMethodSupport(method);
 

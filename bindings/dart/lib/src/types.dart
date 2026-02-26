@@ -1,17 +1,25 @@
 import 'dart:convert';
 
-/// Support classification for RPC methods in Colibri.
+/// Classification of how an RPC method is supported by Colibri.
 enum MethodType {
+  /// Method not recognized.
   undefined(0),
+  /// Method supports proof generation and verification.
   proofable(1),
+  /// Method is fetched directly from RPC without proof.
   unproofable(2),
+  /// Method is not supported.
   notSupported(3),
+  /// Method is verified locally (e.g. eth_chainId).
   local(4);
 
   const MethodType(this.value);
+  /// Native integer value for this type.
   final int value;
 
-  /// Convert a native integer into a [MethodType] value.
+  /// Converts a native integer into a [MethodType] value.
+  ///
+  /// Returns [undefined] for unknown values.
   static MethodType fromValue(int value) {
     for (final type in MethodType.values) {
       if (type.value == value) {
@@ -24,9 +32,12 @@ enum MethodType {
 
 /// Base exception type for all Colibri Dart errors.
 class ColibriError implements Exception {
+  /// Creates an error with [message] and optional [details].
   ColibriError(this.message, {this.details});
 
+  /// Short error message.
   final String message;
+  /// Optional longer description.
   final String? details;
 
   @override
@@ -38,29 +49,34 @@ class ColibriError implements Exception {
   }
 }
 
-/// Raised when proof creation fails.
+/// Thrown when proof creation fails.
 class ProofError extends ColibriError {
   ProofError(super.message, {super.details});
 }
 
-/// Raised when proof verification fails.
+/// Thrown when proof verification fails.
 class VerificationError extends ColibriError {
   VerificationError(super.message, {super.details});
 }
 
-/// Raised when an RPC call returns an error.
+/// Thrown when an RPC call returns a JSON-RPC error.
 class RPCError extends ColibriError {
   RPCError(super.message, {this.code, super.details});
+  /// JSON-RPC error code when available.
   final int? code;
 }
 
-/// Raised when HTTP transport fails for a data request.
+/// Thrown when HTTP transport fails for a data request.
 class HTTPError extends ColibriError {
   HTTPError(super.message, {this.statusCode, super.details});
+  /// HTTP status code when available.
   final int? statusCode;
 }
 
-/// Represents a pending data request emitted by the native library.
+/// A pending data request emitted by the native library during proof/verify.
+///
+/// Used internally when the prover or verifier needs external data (e.g. RPC
+/// or beacon). Not typically used by callers directly.
 class DataRequest {
   DataRequest({
     required this.reqPtr,
@@ -82,7 +98,7 @@ class DataRequest {
   final int chainId;
   final Map<String, dynamic>? payload;
 
-  /// Parse a JSON request object returned by native status calls.
+  /// Parses a JSON request object returned by native status calls.
   static DataRequest fromJson(Map<String, dynamic> data) {
     final excludeRaw = data['exclude_mask'];
     final excludeMask = switch (excludeRaw) {

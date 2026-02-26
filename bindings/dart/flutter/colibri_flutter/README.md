@@ -56,7 +56,10 @@ This updates:
 ## Publishing (pub.dev)
 
 1. Publish **colibri_stateless** first from `bindings/dart`.
-2. From this directory: `dart pub publish --dry-run`, then `dart pub publish`.
+2. **Repository verification:** pub.dev expects the [repository](pubspec.yaml) URL to clone to a repo that contains a `pubspec.yaml` with `name: colibri_flutter` at root. This package lives in a monorepo subdirectory, so to pass that check either:
+   - **Option A:** Create a mirror repo (e.g. `corpus-core/colibri-flutter`) with this directory’s contents at root. Push the mirror, set `repository: https://github.com/corpus-core/colibri-flutter` in [pubspec.yaml](pubspec.yaml), then publish.
+   - **Option B:** Run `./scripts/prepare_pub_mirror.sh` from this directory to copy the package into a sibling folder; push that folder as the mirror repo, then set `repository` in pubspec to the mirror URL and publish.
+3. From this directory: `dart pub publish --dry-run`, then `dart pub publish`.
 
 ## iOS note
 

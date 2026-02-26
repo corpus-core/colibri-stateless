@@ -1,0 +1,15 @@
+name: colibri_flutter_example
+description: Example app for the colibri_flutter plugin.
+publish_to: "none"
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  colibri_flutter:
+    path: ..
+
+flutter:
+  uses-material-design: true

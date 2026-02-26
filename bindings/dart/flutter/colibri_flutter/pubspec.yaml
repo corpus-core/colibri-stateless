@@ -13,7 +13,7 @@ dependencies:
 
 repository: https://github.com/corpus-core/colibri-stateless
 homepage: https://corpus-core.gitbook.io/specification-colibri-stateless
-documentation: https://github.com/corpus-core/colibri-stateless/tree/main/bindings/dart/flutter/colibri_flutter
+documentation: https://github.com/corpus-core/colibri-stateless
 issue_tracker: https://github.com/corpus-core/colibri-stateless/issues
 
 flutter:
