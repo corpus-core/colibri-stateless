@@ -36,6 +36,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define JSON_STATE_OVERRIDES_FIELDS "{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}"
+
 static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, char* name) {
   const ssz_def_t* account_proof_container = eth_ssz_verification_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF);
   ssz_builder_t    list                    = {0};
@@ -290,13 +292,13 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   TRACE_START(ctx, "get_block_for_eth");
 
   if (strcmp(ctx->method, "eth_call") == 0) {
-    CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}?]", "Invalid transaction");
+    CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block," JSON_STATE_OVERRIDES_FIELDS "]", "Invalid transaction");
   }
   else if (is_proof_call) {
     CHECK_JSON(ctx->params, "[" JSON_ACCESS_LIST_FIELDS ",block]", "Invalid transaction");
   }
   else {
-    CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block?]", "Invalid transaction");
+    CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block," JSON_STATE_OVERRIDES_FIELDS "]", "Invalid transaction");
   }
   if (has_overrides) TRY_ASYNC(eth_parse_state_overrides_state(&ctx->state, state_overrides, &overrides_parsed));
 
