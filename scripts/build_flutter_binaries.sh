@@ -117,6 +117,7 @@ build_android() {
     local build_dir="$BUILD_ROOT/android/$abi"
     cmake -S "$ROOT_DIR" -B "$build_dir" \
       -DDART=ON \
+      -DETH_ZKPROOF=ON \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
       -DANDROID_ABI="$abi" \
@@ -184,6 +185,7 @@ build_macos() {
     local build_dir="$BUILD_ROOT/macos_$arch"
     cmake -S "$ROOT_DIR" -B "$build_dir" \
       -DDART=ON \
+      -DETH_ZKPROOF=ON \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_OSX_ARCHITECTURES="$arch"
     cmake --build "$build_dir" --target colibri_dart
@@ -223,6 +225,7 @@ build_linux() {
   local build_dir="$BUILD_ROOT/linux"
   cmake -S "$ROOT_DIR" -B "$build_dir" \
     -DDART=ON \
+    -DETH_ZKPROOF=ON \
     -DCMAKE_BUILD_TYPE=Release
   cmake --build "$build_dir" --target colibri_dart
 
@@ -255,7 +258,7 @@ build_windows() {
 
   echo "Building Windows DLL..."
   local build_dir="$BUILD_ROOT/windows"
-  cmake -S "$ROOT_DIR" -B "$build_dir" -DDART=ON -DCMAKE_BUILD_TYPE=Release
+  cmake -S "$ROOT_DIR" -B "$build_dir" -DDART=ON -DETH_ZKPROOF=ON -DCMAKE_BUILD_TYPE=Release
   cmake --build "$build_dir" --config Release --target colibri_dart
 
   local src_lib="$DART_NATIVE_DIR/colibri.dll"

@@ -23,6 +23,8 @@ target_link_libraries(colibri_dart
     prover
     verifier
     eth_verifier
+    blst
+    crypto
 )
 
 add_custom_command(TARGET colibri_dart POST_BUILD
