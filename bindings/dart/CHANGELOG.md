@@ -1,3 +1,8 @@
+## 0.1.5
+
+- Flutter build script: explicit `-DETH_ZKPROOF=ON` for Android, macOS, Linux, Windows so ZK proof support is always included.
+- Native Dart library: link `blst` and `crypto` into the shared library so macOS (and other platforms) resolve BLS/precompile symbols.
+
 ## 0.1.4
 
 - **Mobile default storage:** On Android and iOS, if no [storage] is passed to [Colibri], [MemoryStorage] is now used automatically so the native cache works without app code changes. Fixes "invalid zk_proof!" and crashes when integrating colibri_flutter in other apps.

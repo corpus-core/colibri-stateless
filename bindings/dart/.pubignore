@@ -9,6 +9,7 @@ sync_1_*
 .env.example
 _tmp/
 *.lock
+flutter/colibri_flutter/pubspec.lock
 test/coverage/
 coverage/
 audit/
