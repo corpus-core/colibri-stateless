@@ -63,4 +63,4 @@ valgrind_results
 /test/data/uv_util_write/missing_*
 # Dart tooling
 .dart_tool/
-bindings/dart/flutter/colibri_flutter/pubspec.lock
+
