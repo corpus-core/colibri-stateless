@@ -243,6 +243,7 @@ void eth_call_cache_set_storage(call_account_t* account, const bytes32_t key, co
 
 void eth_call_cache_reset_accessed(call_account_t* list) {
   for (call_account_t* n = list; n; n = n->next) {
+    n->flags &= ~ACCOUNT_ACCESSED;
     for (call_storage_t* s = n->storage; s; s = s->next) {
       s->accessed = false;
       s->modified = false;
