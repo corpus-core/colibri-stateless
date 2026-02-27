@@ -9,6 +9,7 @@ Future<void> main() async {
   runApp(const ColibriExampleApp());
 }
 
+/// Root widget with Material 3 theme.
 class ColibriExampleApp extends StatelessWidget {
   const ColibriExampleApp({super.key});
 
@@ -22,6 +23,7 @@ class ColibriExampleApp extends StatelessWidget {
   }
 }
 
+/// Available RPC test methods for the combo-button.
 enum RpcTest {
   blockNumber('Block Number', 'eth_blockNumber'),
   block('Block', 'eth_getBlockByNumber'),
@@ -32,6 +34,7 @@ enum RpcTest {
   final String method;
 }
 
+/// Main page with combo-button for running RPC tests and a scrollable log.
 class ExamplePage extends StatefulWidget {
   const ExamplePage({super.key});
 

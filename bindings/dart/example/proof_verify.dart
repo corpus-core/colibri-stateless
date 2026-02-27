@@ -1,14 +1,11 @@
-/// Import platform detection for selecting the correct native library file.
 import 'dart:io';
-
-/// Import the public Colibri API (client + types).
-import 'package:colibri_stateless/colibri.dart';
-
-/// Import helper utilities for loading .env configuration.
-import 'example_env.dart';
-
 import 'dart:typed_data';
 
+import 'package:colibri_stateless/colibri.dart';
+
+import 'example_env.dart';
+
+/// Formats up to [len] bytes of [proof] starting at [offset] as hex.
 String _proofHex(Uint8List proof, int offset, int len) {
   if (proof.isEmpty) return '(empty)';
   final start = offset.clamp(0, proof.length);
@@ -17,32 +14,26 @@ String _proofHex(Uint8List proof, int offset, int len) {
   return proof.sublist(start, end).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
 }
 
-/// Resolve the platform-specific library path for Colibri.
+/// Returns the platform-specific path to the native Colibri library.
 String _libraryPath() {
-  /// Choose the correct shared library based on the OS.
-  /// This mirrors the naming that CMake produces for the Dart binding.
-  if (Platform.isWindows) {
-    return 'native/colibri.dll';
-  }
-  if (Platform.isMacOS) {
-    return 'native/libcolibri.dylib';
-  }
+  if (Platform.isWindows) return 'native/colibri.dll';
+  if (Platform.isMacOS) return 'native/libcolibri.dylib';
   return 'native/libcolibri.so';
 }
 
 /// Example: manual proof creation and verification.
+///
+/// Creates a proof for `eth_getBalance`, then verifies it locally
+/// and prints the verified balance.
 Future<void> main() async {
-  /// Load optional configuration from a local .env file.
   loadExampleEnv();
 
-  /// Resolve prover and RPC endpoints from environment variables if set.
   final provers = resolveProvers();
   final ethRpcs = resolveEthRpcs();
   final zkProof = resolveZkProof();
   final checkpointWitnessKeys = resolveCheckpointWitnessKeys();
   final zkDebug = resolveZkDebug();
 
-  /// Instantiate a client for mainnet and load the native library.
   final colibri = Colibri(
     chainId: 1,
     libraryPath: _libraryPath(),
@@ -53,27 +44,19 @@ Future<void> main() async {
     logProverRequests: zkDebug,
   );
 
-  /// Pick a proofable method and its parameters.
   final method = 'eth_getBalance';
-  final params = [
-    '0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5',
-    'latest',
-  ];
+  final params = ['0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5', 'latest'];
 
-  /// Step 1: create the proof locally using the native prover state machine.
+  // Step 1: create the proof locally.
   final proof = await colibri.createProof(method, params);
 
-  /// Print proof for inspection (length + hex snippets).
   print('Proof length: ${proof.length} bytes');
   print('Proof (first 64 bytes hex): ${_proofHex(proof, 0, 64)}');
   print('Proof (last 32 bytes hex): ${_proofHex(proof, proof.length - 32, 32)}');
 
-  /// Step 2: verify the proof and extract the verified RPC result.
+  // Step 2: verify the proof and extract the result.
   final verified = await colibri.verifyProof(proof, method, params);
-
-  /// Print the verified value as a decimal string.
   print('Verified balance (dec): ${formatBlockNumber(verified)}');
 
-  /// Release resources.
   colibri.close();
 }

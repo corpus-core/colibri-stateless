@@ -12,6 +12,10 @@ dependencies:
   colibri_flutter:
     path: ..
 
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
 dependency_overrides:
   # Use local colibri_stateless so Android/iOS plugin loading works (not yet on pub.dev).
   colibri_stateless:

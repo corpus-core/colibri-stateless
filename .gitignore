@@ -61,3 +61,5 @@ valgrind_results
 .zk_proofs
 # UV util test artifacts
 /test/data/uv_util_write/missing_*
+# Dart tooling
+.dart_tool/

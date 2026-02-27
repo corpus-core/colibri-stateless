@@ -38,6 +38,7 @@ String? readEnv(String key) {
   return _dotenvValues[key] ?? Platform.environment[key];
 }
 
+/// Splits a comma-separated env value into a trimmed list, or `null` if empty.
 List<String>? _readCsvEnv(String key) {
   final raw = readEnv(key);
   if (raw == null || raw.trim().isEmpty) return null;
@@ -64,6 +65,7 @@ List<String>? resolveEthRpcs({List<String>? fallback}) {
   return _readCsvEnv('COLIBRI_ETH_RPCS') ?? _readCsvEnv('COLIBRI_ETH_RPC') ?? fallback;
 }
 
+/// Reads [key] as a boolean (`true`, `1`, `yes`, `on`).
 bool _readBoolEnv(String key, {bool defaultValue = false}) {
   final raw = readEnv(key);
   if (raw == null || raw.trim().isEmpty) return defaultValue;
@@ -71,8 +73,13 @@ bool _readBoolEnv(String key, {bool defaultValue = false}) {
   return n == '1' || n == 'true' || n == 'yes' || n == 'on';
 }
 
+/// Whether ZK sync proofs are enabled (`COLIBRI_ZK_PROOF`).
 bool resolveZkProof() => _readBoolEnv('COLIBRI_ZK_PROOF');
+
+/// Checkpoint witness signer keys (`COLIBRI_CHECKPOINT_WITNESS_KEYS`).
 String? resolveCheckpointWitnessKeys() => readEnv('COLIBRI_CHECKPOINT_WITNESS_KEYS');
+
+/// Whether verbose ZK debug logging is enabled (`COLIBRI_DEBUG_ZK`).
 bool resolveZkDebug() => _readBoolEnv('COLIBRI_DEBUG_ZK');
 
 /// Format block number like Dart example (hex → decimal when possible).

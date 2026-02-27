@@ -127,5 +127,33 @@ void main() {
       final req = DataRequest.fromJson(data);
       expect(req.chainId, 11155111);
     });
+
+    test('parses req_ptr as string (64-bit pointer)', () {
+      final data = <String, dynamic>{
+        'req_ptr': '140234567890',
+        'url': '/rpc',
+        'method': 'POST',
+        'encoding': 'json',
+        'type': 'eth_rpc',
+        'exclude_mask': 0,
+        'chain_id': 1,
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.reqPtr, 140234567890);
+    });
+
+    test('parses req_ptr as int', () {
+      final data = <String, dynamic>{
+        'req_ptr': 42,
+        'url': '',
+        'method': 'get',
+        'encoding': 'json',
+        'type': 'eth_rpc',
+        'exclude_mask': 0,
+        'chain_id': 1,
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.reqPtr, 42);
+    });
   });
 }

@@ -14,17 +14,16 @@ import 'types.dart';
 /// Use [rpc] to run Ethereum (and compatible) RPC methods with automatic
 /// proof generation and verification. Configure [provers], [ethRpcs], and
 /// [beaconApis] for your network; optionally set [storage] for native cache.
-/// Returns a hex string for up to [len] bytes of [proof] starting at [offset].
-String _proofHexSnippet(Uint8List proof, int offset, int len) {
-  if (proof.isEmpty) return '(empty)';
-  final start = offset.clamp(0, proof.length);
-  final end = (start + len).clamp(0, proof.length);
-  if (start >= end) return '(out of range)';
-  return proof.sublist(start, end).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
-}
-
 class Colibri {
   static const int _proverFlagZkProof = 1 << 7;
+
+  static String _proofHexSnippet(Uint8List proof, int offset, int len) {
+    if (proof.isEmpty) return '(empty)';
+    final start = offset.clamp(0, proof.length);
+    final end = (start + len).clamp(0, proof.length);
+    if (start >= end) return '(out of range)';
+    return proof.sublist(start, end).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+  }
 
   /// Creates a client with optional custom endpoints and storage.
   ///
