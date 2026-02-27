@@ -308,11 +308,10 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     }
   }
 
-  evmone_context_t child      = *ctx;
-  child.parent                = ctx;
-  child.accounts              = NULL;
-  child.accessed_addresses    = NULL;
-  child.accessed_storage_keys = NULL;
+  evmone_context_t child = *ctx;
+  child.parent           = ctx;
+  child.accounts         = NULL;
+  child.logs             = NULL;
 
   evmone_result exec_result = evmone_execute(
       ctx->executor,
@@ -399,36 +398,45 @@ static int host_access_account(void* context, const evmc_address* addr) {
   evmone_context_t* ctx  = (evmone_context_t*) context;
   evmone_context_t* root = context_root(ctx);
   debug_print_address("access_account", addr);
-  for (accessed_addr_t* a = root->accessed_addresses; a; a = a->next) {
-    if (memcmp(a->addr, addr->bytes, 20) == 0) {
-      EVM_LOG("access_account: WARM");
-      return EVMONE_ACCESS_WARM;
-    }
+
+  // precompiles 1-9 are always warm (EIP-2929)
+  if (bytes_all_zero(bytes(addr->bytes, 19)) && addr->bytes[19] >= 1 && addr->bytes[19] <= 9) {
+    EVM_LOG("access_account: WARM (precompile)");
+    return EVMONE_ACCESS_WARM;
   }
-  accessed_addr_t* entry = safe_calloc(1, sizeof(accessed_addr_t));
-  memcpy(entry->addr, addr->bytes, 20);
-  entry->next              = root->accessed_addresses;
-  root->accessed_addresses = entry;
+
+  call_account_t* acc = call_account_find(root, addr->bytes);
+  if (acc && (acc->flags & ACCOUNT_ACCESSED)) {
+    EVM_LOG("access_account: WARM");
+    return EVMONE_ACCESS_WARM;
+  }
+
+  if (!acc) acc = call_account_list_get_or_create(&root->accounts, addr->bytes);
+  acc->flags |= ACCOUNT_ACCESSED;
   EVM_LOG("access_account: COLD");
   return EVMONE_ACCESS_COLD;
 }
 
 static int host_access_storage(void* context, const evmc_address* addr, const evmc_bytes32* key) {
-  evmone_context_t* ctx  = (evmone_context_t*) context;
-  evmone_context_t* root = context_root(ctx);
+  evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("access_storage account", addr);
   debug_print_bytes32("access_storage key", key);
-  for (accessed_slot_t* s = root->accessed_storage_keys; s; s = s->next) {
-    if (memcmp(s->addr, addr->bytes, 20) == 0 && memcmp(s->key, key->bytes, 32) == 0) {
-      EVM_LOG("access_storage: WARM");
-      return EVMONE_ACCESS_WARM;
+
+  call_account_t* acc = call_account_find(ctx, addr->bytes);
+  if (acc) {
+    call_storage_t* s = call_storage_find(acc, key->bytes);
+    if (s) {
+      if (s->accessed) {
+        EVM_LOG("access_storage: WARM");
+        return EVMONE_ACCESS_WARM;
+      }
+      s->accessed = true;
+      EVM_LOG("access_storage: COLD (marked)");
+      return EVMONE_ACCESS_COLD;
     }
   }
-  accessed_slot_t* entry = safe_calloc(1, sizeof(accessed_slot_t));
-  memcpy(entry->addr, addr->bytes, 20);
-  memcpy(entry->key, key->bytes, 32);
-  entry->next                 = root->accessed_storage_keys;
-  root->accessed_storage_keys = entry;
+
+  // slot not found yet; subsequent get_storage/set_storage will create it with accessed=true
   EVM_LOG("access_storage: COLD");
   return EVMONE_ACCESS_COLD;
 }
@@ -565,44 +573,33 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   if (!executor) THROW_ERROR("Error: Failed to create executor");
 
   evmone_context_t context = {
-      .executor              = executor,
-      .ctx                   = ctx,
-      .accounts              = evm->accounts,
-      .block_number          = 0,
-      .block_hash            = {0},
-      .timestamp             = 0,
-      .tx_origin             = {0},
-      .gas_price             = 0,
-      .chain_id              = ctx->chain_id,
-      .block_gas_limit       = 30000000,
-      .parent                = NULL,
-      .results               = NULL,
-      .logs                  = NULL,
-      .accessed_addresses    = NULL,
-      .accessed_storage_keys = NULL,
-      .capture_events        = capture_events,
-      .pap_mode              = evm->pap_mode,
-      .storage_miss          = false,
+      .executor       = executor,
+      .ctx            = ctx,
+      .accounts       = evm->accounts,
+      .block_number   = 0,
+      .block_hash     = {0},
+      .timestamp      = 0,
+      .tx_origin      = {0},
+      .gas_price      = 0,
+      .chain_id       = ctx->chain_id,
+      .block_gas_limit = 30000000,
+      .parent         = NULL,
+      .results        = NULL,
+      .logs           = NULL,
+      .capture_events = capture_events,
+      .pap_mode       = evm->pap_mode,
+      .storage_miss   = false,
   };
 
   // populate tx_origin from the transaction's "from" field
   memcpy(context.tx_origin, message.sender.bytes, 20);
 
-  // EIP-2929: pre-warm sender, destination, and precompiles 1-9
+  // EIP-2929: pre-warm sender and destination
   {
-    const uint8_t* addrs_to_warm[] = {message.sender.bytes, to};
-    for (int i = 0; i < 2; i++) {
-      accessed_addr_t* entry = safe_calloc(1, sizeof(accessed_addr_t));
-      memcpy(entry->addr, addrs_to_warm[i], 20);
-      entry->next                = context.accessed_addresses;
-      context.accessed_addresses = entry;
-    }
-    for (uint8_t pc = 1; pc <= 9; pc++) {
-      accessed_addr_t* entry     = safe_calloc(1, sizeof(accessed_addr_t));
-      entry->addr[19]            = pc;
-      entry->next                = context.accessed_addresses;
-      context.accessed_addresses = entry;
-    }
+    call_account_t* sender_acc = call_account_list_get_or_create(&context.accounts, message.sender.bytes);
+    sender_acc->flags |= ACCOUNT_ACCESSED;
+    call_account_t* dest_acc = call_account_list_get_or_create(&context.accounts, to);
+    dest_acc->flags |= ACCOUNT_ACCESSED;
   }
 
   bytes_t code = call_account_get_code(&context, to);
@@ -716,8 +713,6 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   }
   // context.accounts already transferred to evm->accounts above
   free_emitted_logs(context.logs);
-  accessed_addr_free_list(context.accessed_addresses);
-  accessed_slot_free_list(context.accessed_storage_keys);
   EVM_LOG("=== EVM call verification complete ===");
 
   if (context.storage_miss) {

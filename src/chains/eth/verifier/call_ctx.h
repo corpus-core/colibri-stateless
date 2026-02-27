@@ -68,6 +68,7 @@ typedef enum {
   ACCOUNT_FREE_CODE        = 1 << 5,
   ACCOUNT_FULL_STATE       = 1 << 6,
   ACCOUNT_DELETED          = 1 << 7,
+  ACCOUNT_ACCESSED         = 1 << 8, // EIP-2929: account was accessed in this transaction
 } call_account_flags_t;
 
 // :: Unified account
@@ -88,18 +89,6 @@ typedef struct call_account {
 #ifdef EVMONE
 #include "evmone_c_wrapper.h"
 #endif
-
-// EIP-2929 access tracking (transaction-scoped, stored on root context)
-typedef struct accessed_addr {
-  address_t             addr;
-  struct accessed_addr* next;
-} accessed_addr_t;
-
-typedef struct accessed_slot {
-  address_t             addr;
-  bytes32_t             key;
-  struct accessed_slot* next;
-} accessed_slot_t;
 
 typedef struct emitted_log {
   address_t           address;
@@ -143,8 +132,6 @@ typedef struct evmone_context {
   struct evmone_context* parent;
   void*                  results;
   emitted_log_t*         logs;
-  accessed_addr_t*       accessed_addresses;
-  accessed_slot_t*       accessed_storage_keys;
   bool                   capture_events;
   bool                   pap_mode;
   bool                   storage_miss;
@@ -384,30 +371,11 @@ static void free_emitted_logs(emitted_log_t* logs) {
   }
 }
 
-static void accessed_addr_free_list(accessed_addr_t* list) {
-  while (list) {
-    accessed_addr_t* next = list->next;
-    safe_free(list);
-    list = next;
-  }
-}
-static void accessed_slot_free_list(accessed_slot_t* list) {
-  while (list) {
-    accessed_slot_t* next = list->next;
-    safe_free(list);
-    list = next;
-  }
-}
-
 static void context_free(evmone_context_t* ctx) {
   call_account_free_list(ctx->accounts);
   ctx->accounts = NULL;
   free_emitted_logs(ctx->logs);
   ctx->logs = NULL;
-  accessed_addr_free_list(ctx->accessed_addresses);
-  ctx->accessed_addresses = NULL;
-  accessed_slot_free_list(ctx->accessed_storage_keys);
-  ctx->accessed_storage_keys = NULL;
 }
 
 #ifdef EVMONE
