@@ -651,7 +651,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
     if (!(success && !evm->evm_done)) return success; // do we need to re run because values changes?
   }
 
-  CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block?,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}?]", "Invalid transaction");
+  CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
 
   // prepare the accounts and storage
   if (!evm->accounts && has_proof) {
@@ -665,7 +665,8 @@ bool verify_call_proof(verify_ctx_t* ctx) {
     evm->accounts = call_accounts_from_ssz(accounts);
   }
   if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
-  if (call_apply_state_overrides(ctx, &evm->accounts, json_at(ctx->args, 2)) != C4_SUCCESS) return false;
+  // for now we ig ore state overrides for since we cannot get the storage needed for the proof
+  // if (call_apply_state_overrides(ctx, &evm->accounts, json_at(ctx->args, 2)) != C4_SUCCESS) return false;
   if (call_apply_authorization_list(ctx, &evm->accounts, json_at(ctx->args, 0)) != C4_SUCCESS) return false;
 
 #ifdef EVMONE

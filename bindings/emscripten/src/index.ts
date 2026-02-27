@@ -85,6 +85,7 @@ function cleanup_args(method: string, args: any[]): any[] {
     transactionIndex: arg.transactionIndex,
     blockNumber: arg.blockNumber
   }))
+  if (method == "colibri_simulateTransaction") return args.slice(0, 2);
   return args;
 }
 
@@ -152,7 +153,7 @@ export default class C4Client {
     if (!this.config.warningHandler)
       this.config.warningHandler = async (req: RequestArguments, message: string) => console.warn(message)
     if (!this.config.proofStrategy)
-      this.config.proofStrategy = Strategy.VerifyIfPossible;
+      this.config.proofStrategy = Strategy.WarningWithFallback;
 
     this.eventEmitter = new EventEmitter();
     this.connectionState = new ConnectionState(
