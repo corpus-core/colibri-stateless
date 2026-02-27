@@ -1,3 +1,7 @@
+## 0.1.4
+
+- **Mobile default storage:** Requires `colibri_stateless: ^0.1.4`. On Android and iOS, Colibri now uses [MemoryStorage] by default when no storage is provided, so apps no longer need to pass `storage: MemoryStorage()` to avoid "invalid zk_proof!" or crashes.
+
 ## 0.1.3
 
 - Fix Android stack overflow: Flutter example uses `MemoryStorage` to avoid non-writable `FILE_STORAGE` on mobile.

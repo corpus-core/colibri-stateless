@@ -1,3 +1,7 @@
+## 0.1.4
+
+- **Mobile default storage:** On Android and iOS, if no [storage] is passed to [Colibri], [MemoryStorage] is now used automatically so the native cache works without app code changes. Fixes "invalid zk_proof!" and crashes when integrating colibri_flutter in other apps.
+
 ## 0.1.3
 
 - Fix Android stack overflow caused by `FILE_STORAGE` writing to non-writable CWD on mobile; Flutter example now uses `MemoryStorage`.

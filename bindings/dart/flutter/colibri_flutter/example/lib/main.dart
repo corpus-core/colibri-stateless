@@ -68,8 +68,7 @@ class _ExamplePageState extends State<ExamplePage> {
       zkProof: wantZk,
       checkpointWitnessKeys: witnessKeys,
       logProverRequests: resolveZkDebug(),
-      storage: MemoryStorage(),
-      onDebug: _addLog,
+        onDebug: _addLog,
     );
     _addLog('zkProof: $wantZk | provers: ${colibri.provers.length}');
     return colibri;

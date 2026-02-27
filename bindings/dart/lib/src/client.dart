@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -32,6 +33,10 @@ class Colibri {
   /// [zkProof] requests ZK sync proofs from remote provers when available.
   /// [checkpointWitnessKeys] provides signer keys for ZK proof verification.
   /// [onDebug] if set, called with short messages during rpc/verify (e.g. for UI log).
+  ///
+  /// On Android and iOS, if [storage] is not provided, [MemoryStorage] is used
+  /// by default so the native cache works (the C-side file storage cannot write
+  /// on mobile). On desktop, omitting [storage] uses the native file storage.
   Colibri({
     this.chainId = 1,
     List<String>? provers,
@@ -55,11 +60,14 @@ class Colibri {
         _native = ColibriNative.load(libraryPath: libraryPath),
         _http = httpClient ?? http.Client() {
     _runtimeTrustedCheckpoint = trustedCheckpoint;
-    final storageInstance = storage;
-    if (storageInstance != null) {
-      _native.registerStorage(storageInstance);
+    _effectiveStorage = storage ?? ((Platform.isAndroid || Platform.isIOS) ? MemoryStorage() : null);
+    if (_effectiveStorage != null) {
+      _native.registerStorage(_effectiveStorage!);
     }
   }
+
+  /// Storage actually used (user-provided or default [MemoryStorage] on Android/iOS).
+  ColibriStorage? _effectiveStorage;
 
   /// Chain ID (e.g. 1 for mainnet, 11155111 for Sepolia).
   final int chainId;
@@ -483,7 +491,7 @@ class Colibri {
 
   /// Read the client state from storage as hex string for prover requests.
   String? _clientStateHex() {
-    final storageInstance = storage;
+    final storageInstance = _effectiveStorage;
     if (storageInstance == null) {
       return null;
     }
