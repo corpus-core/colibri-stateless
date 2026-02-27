@@ -37,6 +37,7 @@ Future<void> main() async {
     zkProof: zkProof,
     checkpointWitnessKeys: checkpointWitnessKeys,
     logProverRequests: zkDebug,
+    onDebug: (msg) => print(msg),
   );
 
   /// Call a simple RPC method.

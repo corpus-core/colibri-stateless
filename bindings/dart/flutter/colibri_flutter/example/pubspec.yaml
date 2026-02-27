@@ -1,6 +1,7 @@
 name: colibri_flutter_example
 description: Example app for the colibri_flutter plugin.
 publish_to: "none"
+version: 0.0.1+1
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -11,5 +12,12 @@ dependencies:
   colibri_flutter:
     path: ..
 
+dependency_overrides:
+  # Use local colibri_stateless so Android/iOS plugin loading works (not yet on pub.dev).
+  colibri_stateless:
+    path: ../../..
+
 flutter:
   uses-material-design: true
+  assets:
+    - assets/

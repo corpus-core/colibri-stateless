@@ -7,6 +7,16 @@ import 'package:colibri_stateless/colibri.dart';
 /// Import helper utilities for loading .env configuration.
 import 'example_env.dart';
 
+import 'dart:typed_data';
+
+String _proofHex(Uint8List proof, int offset, int len) {
+  if (proof.isEmpty) return '(empty)';
+  final start = offset.clamp(0, proof.length);
+  final end = (start + len).clamp(0, proof.length);
+  if (start >= end) return '(out of range)';
+  return proof.sublist(start, end).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+}
+
 /// Resolve the platform-specific library path for Colibri.
 String _libraryPath() {
   /// Choose the correct shared library based on the OS.
@@ -52,6 +62,11 @@ Future<void> main() async {
 
   /// Step 1: create the proof locally using the native prover state machine.
   final proof = await colibri.createProof(method, params);
+
+  /// Print proof for inspection (length + hex snippets).
+  print('Proof length: ${proof.length} bytes');
+  print('Proof (first 64 bytes hex): ${_proofHex(proof, 0, 64)}');
+  print('Proof (last 32 bytes hex): ${_proofHex(proof, proof.length - 32, 32)}');
 
   /// Step 2: verify the proof and extract the verified RPC result.
   final verified = await colibri.verifyProof(proof, method, params);

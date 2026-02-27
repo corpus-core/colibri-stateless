@@ -7,9 +7,14 @@ import 'package:ffi/ffi.dart';
 import 'storage.dart';
 
 /// Mirror of `bytes_t` from the C API.
+/// C layout on 64-bit has 4 bytes padding after len so that data is 8-byte aligned.
 final class BytesT extends ffi.Struct {
   @ffi.Uint32()
   external int len;
+
+  @ffi.Uint32()
+  // ignore: unused_field - padding for C ABI alignment of data pointer
+  external int _padding;
 
   external ffi.Pointer<ffi.Uint8> data;
 }
@@ -227,7 +232,15 @@ class ColibriNative {
   /// Load the native shared library from [libraryPath] or platform defaults.
   static ColibriNative load({String? libraryPath}) {
     if (Platform.isIOS) {
+      // iOS: XCFramework is linked into the app; resolve symbols from process.
       final lib = ffi.DynamicLibrary.process();
+      final libc = _openLibc();
+      return ColibriNative._(lib, libc);
+    }
+    if (Platform.isAndroid) {
+      // Android: plugin loads libcolibri.so via System.loadLibrary("colibri");
+      // open by name so symbol lookup finds it (process() can miss plugin-loaded libs).
+      final lib = ffi.DynamicLibrary.open('libcolibri.so');
       final libc = _openLibc();
       return ColibriNative._(lib, libc);
     }
@@ -400,6 +413,12 @@ class ColibriNative {
       return envPath;
     }
 
+    if (Platform.isAndroid || Platform.isIOS) {
+      // Should not reach here: iOS/Android use DynamicLibrary.process() in load().
+      throw UnsupportedError(
+        'Colibri native library: use package colibri_flutter on Android/iOS so the plugin loads the library',
+      );
+    }
     if (Platform.isMacOS) {
       return 'native/libcolibri.dylib';
     }
@@ -409,13 +428,20 @@ class ColibriNative {
     if (Platform.isWindows) {
       return 'native/colibri.dll';
     }
-    throw UnsupportedError('Unsupported platform for Colibri native library');
+    throw UnsupportedError(
+      'Unsupported platform for Colibri native library. '
+      'Colibri is supported on Android, iOS, macOS, Linux, and Windows only. '
+      'Flutter web (Chrome) is not supported. Run on a device or desktop target.',
+    );
   }
 
   /// Resolve the platform-specific libc for `free()`.
   static ffi.DynamicLibrary _openLibc() {
-    if (Platform.isMacOS) {
+    if (Platform.isIOS || Platform.isMacOS) {
       return ffi.DynamicLibrary.open('/usr/lib/libc.dylib');
+    }
+    if (Platform.isAndroid) {
+      return ffi.DynamicLibrary.open('libc.so');
     }
     if (Platform.isLinux) {
       return ffi.DynamicLibrary.open('libc.so.6');

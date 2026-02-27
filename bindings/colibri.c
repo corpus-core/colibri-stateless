@@ -30,6 +30,7 @@
 #include "verify.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,7 +96,8 @@ static const char* data_request_type_to_string(data_request_type_t type) {
   }
 }
 static void add_data_request(buffer_t* result, data_request_t* data_request) {
-  bprintf(result, "{\"req_ptr\": %l,", (uint64_t) data_request);
+  /* Emit req_ptr as string so 64-bit pointers survive JSON (no double precision loss). */
+  bprintf(result, "{\"req_ptr\": \"%l\",", (uint64_t)(uintptr_t) data_request);
   bprintf(result, "\"chain_id\": %d,", (uint32_t) data_request->chain_id);
   bprintf(result, "\"encoding\": \"%s\",", encoding_to_string(data_request->encoding));
   bprintf(result, "\"exclude_mask\": \"%d\",", (uint32_t) data_request->node_exclude_mask);

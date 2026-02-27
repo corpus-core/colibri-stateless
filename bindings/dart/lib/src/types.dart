@@ -108,7 +108,17 @@ class DataRequest {
     };
 
     final reqPtrRaw = data['req_ptr'];
-    final reqPtr = reqPtrRaw is num ? reqPtrRaw.toInt() : int.parse(reqPtrRaw.toString());
+    int parseReqPtr(dynamic raw) {
+      if (raw is num) return raw.toInt();
+      final s = raw.toString().replaceAll(RegExp(r'[^0-9]'), '');
+      if (s.isEmpty) return 0;
+      final big = BigInt.parse(s);
+      final mask64 = (BigInt.one << 64) - BigInt.one;
+      final u64 = big & mask64;
+      final signBit = BigInt.one << 63;
+      return u64 >= signBit ? (u64 - (BigInt.one << 64)).toInt() : u64.toInt();
+    }
+    final reqPtr = parseReqPtr(reqPtrRaw);
 
     final payload = data['payload'];
     final normalizedPayload = payload is Map<String, dynamic>

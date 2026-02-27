@@ -14,6 +14,15 @@ import 'types.dart';
 /// Use [rpc] to run Ethereum (and compatible) RPC methods with automatic
 /// proof generation and verification. Configure [provers], [ethRpcs], and
 /// [beaconApis] for your network; optionally set [storage] for native cache.
+/// Returns a hex string for up to [len] bytes of [proof] starting at [offset].
+String _proofHexSnippet(Uint8List proof, int offset, int len) {
+  if (proof.isEmpty) return '(empty)';
+  final start = offset.clamp(0, proof.length);
+  final end = (start + len).clamp(0, proof.length);
+  if (start >= end) return '(out of range)';
+  return proof.sublist(start, end).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+}
+
 class Colibri {
   static const int _proverFlagZkProof = 1 << 7;
 
@@ -23,6 +32,7 @@ class Colibri {
   /// [storage] registers Dart callbacks for the native cache layer.
   /// [zkProof] requests ZK sync proofs from remote provers when available.
   /// [checkpointWitnessKeys] provides signer keys for ZK proof verification.
+  /// [onDebug] if set, called with short messages during rpc/verify (e.g. for UI log).
   Colibri({
     this.chainId = 1,
     List<String>? provers,
@@ -35,9 +45,11 @@ class Colibri {
     this.checkpointWitnessKeys,
     this.logProverRequests = false,
     this.storage,
+    void Function(String message)? onDebug,
     String? libraryPath,
     http.Client? httpClient,
   })  : provers = provers ?? _defaultProvers(chainId),
+        _onDebug = onDebug,
         ethRpcs = ethRpcs ?? _defaultEthRpcs(chainId),
         beaconApis = beaconApis ?? _defaultBeaconApis(chainId),
         checkpointz = checkpointz ?? _defaultCheckpointz(chainId),
@@ -73,6 +85,7 @@ class Colibri {
   /// Optional storage backend for native cache.
   final ColibriStorage? storage;
 
+  final void Function(String message)? _onDebug;
   final ColibriNative _native;
   final http.Client _http;
   String? _runtimeTrustedCheckpoint;
@@ -148,6 +161,11 @@ class Colibri {
   ) async {
     final paramsJson = jsonEncode(params);
     final checkpoint = _runtimeTrustedCheckpoint ?? trustedCheckpoint ?? '';
+    _onDebug?.call(
+      'Verifier call: method=$method paramsJson=$paramsJson chainId=$chainId '
+      'checkpoint=${checkpoint.isEmpty ? "(empty)" : "${checkpoint.length} chars"} '
+      'witnessKeys=${checkpointWitnessKeys ?? "null"}',
+    );
     final ctx = _native.verifyCreateCtx(
       proof,
       method,
@@ -195,12 +213,31 @@ class Colibri {
   /// or [RPCError] when the method is not supported or the call fails.
   Future<dynamic> rpc(String method, List<dynamic> params) async {
     final support = getMethodSupport(method);
+    _onDebug?.call('Method: $method, support: ${support.name}');
 
     switch (support) {
       case MethodType.proofable:
+        _onDebug?.call('Ensuring trusted checkpoint…');
         await _ensureTrustedCheckpoint();
+        _onDebug?.call('Fetching proof (prover or local)…');
         final proof = await _fetchProofWithFallback(method, params);
-        return verifyProof(proof, method, params);
+        _onDebug?.call('Proof length: ${proof.length} bytes');
+        _onDebug?.call('Proof (first 64 bytes hex): ${_proofHexSnippet(proof, 0, 64)}');
+        _onDebug?.call('Proof (last 32 bytes hex): ${_proofHexSnippet(proof, proof.length - 32, 32)}');
+        var result = await verifyProof(proof, method, params);
+        _onDebug?.call('Verify result: ${result == null ? "null" : result}');
+        // If verification returned null (e.g. prover sent JSON instead of binary proof),
+        // try to get result from prover as JSON (same as Python binding fallback behaviour).
+        if (result == null && provers.isNotEmpty) {
+          _onDebug?.call('Verify was null, trying prover as JSON…');
+          try {
+            result = await _fetchRpc(provers, method, params, asProof: false);
+            _onDebug?.call('Prover JSON result: $result');
+          } catch (e) {
+            _onDebug?.call('Prover JSON failed: $e');
+          }
+        }
+        return result;
       case MethodType.unproofable:
         return _fetchRpc(ethRpcs, method, params, asProof: false);
       case MethodType.local:
@@ -215,11 +252,16 @@ class Colibri {
   Future<Uint8List> _fetchProofWithFallback(String method, List<dynamic> params) async {
     if (provers.isNotEmpty) {
       try {
-        return await _fetchRpc(provers, method, params, asProof: true) as Uint8List;
-      } catch (_) {
+        _onDebug?.call('Requesting proof from prover (zk_proof=$zkProof, ${provers.length} URL(s))…');
+        final proof = await _fetchRpc(provers, method, params, asProof: true) as Uint8List;
+        _onDebug?.call('Prover returned ${proof.length} bytes');
+        return proof;
+      } catch (e) {
+        _onDebug?.call('Prover failed: $e → creating proof locally');
         return createProof(method, params);
       }
     }
+    _onDebug?.call('No provers, creating proof locally');
     return createProof(method, params);
   }
 
@@ -363,7 +405,17 @@ class Colibri {
 
         if (response.statusCode == 200) {
           if (asProof) {
-            return Uint8List.fromList(response.bodyBytes);
+            final bodyBytes = response.bodyBytes;
+            final len = bodyBytes.length;
+            _onDebug?.call('prover response from $url: length=$len (ZK expects 260 bytes)');
+            final contentType = (response.headers['content-type'] ?? response.headers['Content-Type'] ?? '').toString().toLowerCase();
+            if (contentType.contains('application/json')) {
+              _onDebug?.call('warning: Content-Type is application/json – response may be error/JSON, not binary proof');
+            }
+            if (len > 0 && bodyBytes[0] == 0x7b) {
+              _onDebug?.call('warning: response starts with "{" (looks like JSON), proof may be wrong');
+            }
+            return Uint8List.fromList(bodyBytes);
           }
           final body = jsonDecode(response.body) as Map<String, dynamic>;
           if (body.containsKey('error')) {

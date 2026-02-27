@@ -21,10 +21,10 @@ packages:
     dependency: "direct main"
     description:
       name: colibri_stateless
-      sha256: "0d2a4fc35d397c9b498d4af434da9936fa8c41d0c2b6c76e33853ddeb2e21ed7"
+      sha256: "61611969dc9efb2ff678c289fbe1ed90dee5ac68a6841c7986b388dadb066a95"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.1"
+    version: "0.1.2"
   collection:
     dependency: transitive
     description:

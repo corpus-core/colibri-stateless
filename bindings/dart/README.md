@@ -95,6 +95,8 @@ Per-platform:
 ```bash
 ./scripts/build_flutter_binaries.sh --android
 ./scripts/build_flutter_binaries.sh --ios
+./scripts/build_flutter_binaries.sh --macos    # macOS host; universal dylib
+./scripts/build_flutter_binaries.sh --linux    # Linux host
 ./scripts/build_flutter_binaries.sh --windows
 ```
 
