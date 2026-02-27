@@ -120,7 +120,7 @@ c4_status_t eth_get_code(prover_ctx_t* ctx, json_t address, json_t* code, uint64
   char            tmp[120];
   buffer_t        buf = stack_buffer(tmp);
   data_request_t* req = NULL;
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getCode", bprintf(&buf, "[%J,\"latest\"]", address), DEFAULT_TTL, code, &req));
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getCode", bprintf(&buf, "[%J,\"latest\"]", address), 12, code, &req));
   if (req && !req->validated) {
     CHECK_JSON(*code, "bytes", "Invalid results for Code: ");
     req->validated = true;

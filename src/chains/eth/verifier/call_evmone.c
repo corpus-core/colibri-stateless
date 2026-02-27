@@ -311,6 +311,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   evmone_context_t child = *ctx;
   child.parent           = ctx;
   child.accounts         = NULL;
+  child.logs             = NULL;
 
   evmone_result exec_result = evmone_execute(
       ctx->executor,
