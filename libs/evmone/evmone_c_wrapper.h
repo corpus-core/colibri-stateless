@@ -128,25 +128,27 @@ typedef evmc_bytes32 (*evmone_get_block_hash_fn)(void* context, int64_t number);
 typedef void (*evmone_emit_log_fn)(void* context, const evmc_address* addr, const uint8_t* data, size_t data_size, const evmc_bytes32 topics[], size_t topic_count);
 typedef int (*evmone_access_account_fn)(void* context, const evmc_address* addr);
 typedef int (*evmone_access_storage_fn)(void* context, const evmc_address* addr, const evmc_bytes32* key);
+typedef evmc_bytes32 (*evmone_get_transient_storage_fn)(void* context, const evmc_address* addr, const evmc_bytes32* key);
+typedef void (*evmone_set_transient_storage_fn)(void* context, const evmc_address* addr, const evmc_bytes32* key, const evmc_bytes32* value);
 
 /* Host interface */
 typedef struct evmone_host_interface {
-  evmone_account_exists_fn account_exists;
-  evmone_get_storage_fn    get_storage;
-  evmone_set_storage_fn    set_storage;
-  evmone_get_balance_fn    get_balance;
-  evmone_get_code_size_fn  get_code_size;
-  evmone_get_code_hash_fn  get_code_hash;
-  evmone_copy_code_fn      copy_code;
-  evmone_selfdestruct_fn   selfdestruct;
-  evmone_call_fn           call;
-  evmone_get_tx_context_fn get_tx_context;
-  evmone_get_block_hash_fn get_block_hash;
-  evmone_emit_log_fn       emit_log;
-  evmone_access_account_fn access_account;
-  evmone_access_storage_fn access_storage;
-  // Note: get_transient_storage and set_transient_storage are not included in this interface
-  // but are supported in the C++ adapter
+  evmone_account_exists_fn          account_exists;
+  evmone_get_storage_fn             get_storage;
+  evmone_set_storage_fn             set_storage;
+  evmone_get_balance_fn             get_balance;
+  evmone_get_code_size_fn           get_code_size;
+  evmone_get_code_hash_fn           get_code_hash;
+  evmone_copy_code_fn               copy_code;
+  evmone_selfdestruct_fn            selfdestruct;
+  evmone_call_fn                    call;
+  evmone_get_tx_context_fn          get_tx_context;
+  evmone_get_block_hash_fn          get_block_hash;
+  evmone_emit_log_fn                emit_log;
+  evmone_access_account_fn          access_account;
+  evmone_access_storage_fn          access_storage;
+  evmone_get_transient_storage_fn   get_transient_storage;
+  evmone_set_transient_storage_fn   set_transient_storage;
 } evmone_host_interface;
 
 /* Create EVM executor instance */

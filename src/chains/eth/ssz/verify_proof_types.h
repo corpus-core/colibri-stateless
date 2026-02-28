@@ -448,6 +448,22 @@ static const ssz_def_t ETH_CALL_ACCOUNT[] = {
 };
 static const ssz_def_t ETH_CALL_ACCOUNT_CONTAINER = SSZ_CONTAINER("EthCallAccount", ETH_CALL_ACCOUNT);
 
+// Extended state proof that includes execution payload context fields needed for EVM execution.
+// The multi-merkle proof also covers these fields as siblings of stateRoot in the execution payload tree.
+static const ssz_def_t ETH_CALL_STATE_PROOF[] = {
+    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),         // the block to be proven
+    SSZ_LIST("proof", ssz_bytes32, 256),               // the merkle proof from executionPayload.state down to blockBodyRoot
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),      // the header of the beacon block
+    SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION),// the proof for the correctness of the header
+    SSZ_UINT64("blockNumber"),                         // execution payload: blockNumber
+    SSZ_UINT64("timestamp"),                           // execution payload: timestamp
+    SSZ_ADDRESS("coinbase"),                           // execution payload: feeRecipient
+    SSZ_BYTES32("prevRandao"),                         // execution payload: prevRandao
+    SSZ_BYTES32("baseFee"),                            // execution payload: baseFeePerGas (uint256)
+    SSZ_BYTES32("blobBaseFee"),                        // derived from excessBlobGas (uint256)
+    SSZ_UINT64("gasLimit"),                            // execution payload: gasLimit
+};
+
 // The main proof data for a call.
 static const ssz_def_t ETH_CALL_PROOF[] = {
     SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256), // used accounts

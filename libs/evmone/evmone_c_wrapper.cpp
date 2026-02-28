@@ -203,14 +203,27 @@ public:
     return EVMC_ACCESS_COLD;
   }
 
-  // Implement the missing methods required by newer evmc API
   evmc::bytes32 get_transient_storage(const evmc::address& addr, const evmc::bytes32& key) const noexcept override {
-    // We don't have this in our C interface yet, so return default
+    if (m_adapter.c_interface->get_transient_storage) {
+      evmc_bytes32 result = m_adapter.c_interface->get_transient_storage(
+          m_adapter.context,
+          reinterpret_cast<const evmc_address*>(&addr),
+          reinterpret_cast<const evmc_bytes32*>(&key));
+      evmc::bytes32 ret;
+      std::memcpy(ret.bytes, result.bytes, 32);
+      return ret;
+    }
     return {};
   }
 
   void set_transient_storage(const evmc::address& addr, const evmc::bytes32& key, const evmc::bytes32& value) noexcept override {
-    // We don't have this in our C interface yet, so do nothing
+    if (m_adapter.c_interface->set_transient_storage) {
+      m_adapter.c_interface->set_transient_storage(
+          m_adapter.context,
+          reinterpret_cast<const evmc_address*>(&addr),
+          reinterpret_cast<const evmc_bytes32*>(&key),
+          reinterpret_cast<const evmc_bytes32*>(&value));
+    }
   }
 };
 

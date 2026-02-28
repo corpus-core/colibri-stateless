@@ -22,17 +22,93 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "eth_call_cache.h"
-#include "bytes.h"
-#include "call_ctx.h"
+#include "eth_call_account.h"
 #include "plugin.h"
 #include <string.h>
 
 #define CACHE_VERSION 1
 
+// :: Linked-list helpers
+
+call_account_t* call_account_list_find(call_account_t* list, const address_t addr) {
+  for (call_account_t* n = list; n; n = n->next)
+    if (memcmp(n->address, addr, 20) == 0) return n;
+  return NULL;
+}
+
+RETURNS_NONNULL call_account_t* call_account_list_get_or_create(call_account_t** list, const address_t addr) {
+  call_account_t* n = call_account_list_find(*list, addr);
+  if (n) return n;
+  n = safe_calloc(1, sizeof(call_account_t));
+  memcpy(n->address, addr, 20);
+  n->next = *list;
+  *list   = n;
+  return n;
+}
+
+// :: Memory management
+
+void call_storage_free_list(call_storage_t* s) {
+  while (s) {
+    call_storage_t* next = s->next;
+    safe_free(s);
+    s = next;
+  }
+}
+
+void call_account_free(call_account_t* acc) {
+  call_storage_free_list(acc->storage);
+  if (acc->flags & ACCOUNT_FREE_CODE) safe_free(acc->code.data);
+  safe_free(acc);
+}
+
+void call_account_free_list(call_account_t* list) {
+  while (list) {
+    call_account_t* next = list->next;
+    call_account_free(list);
+    list = next;
+  }
+}
+
+// :: Storage slot helpers
+
+void call_account_set_storage(call_account_t* account, const bytes32_t key, const bytes32_t value, storage_source_t source, uint64_t verified_at) {
+  for (call_storage_t* s = account->storage; s; s = s->next) {
+    if (memcmp(s->key, key, 32) == 0) {
+      memcpy(s->src_value, value, 32);
+      memcpy(s->post_value, value, 32);
+      s->verified_at = verified_at;
+      s->source      = source;
+      s->modified    = false;
+      return;
+    }
+  }
+  call_storage_t* s = safe_calloc(1, sizeof(call_storage_t));
+  memcpy(s->key, key, 32);
+  memcpy(s->src_value, value, 32);
+  memcpy(s->post_value, value, 32);
+  s->source        = source;
+  s->verified_at   = verified_at;
+  s->next          = account->storage;
+  account->storage = s;
+}
+
+// :: Access tracking helpers
+
+void call_account_reset_accessed(call_account_t* list) {
+  for (call_account_t* n = list; n; n = n->next) {
+    n->flags &= ~ACCOUNT_ACCESSED;
+    for (call_storage_t* s = n->storage; s; s = s->next) {
+      s->accessed = false;
+      s->modified = false;
+      memcpy(s->post_value, s->src_value, 32);
+    }
+  }
+}
+
 // :: Serialization helpers
 
-void eth_call_cache_write(buffer_t* out, const call_account_t* account) {
+void eth_call_account_serialize(buffer_t* out, const call_account_t* account) {
   uint8_t tmp8[8];
   uint8_t tmp4[4];
 
@@ -67,7 +143,7 @@ void eth_call_cache_write(buffer_t* out, const call_account_t* account) {
   }
 }
 
-bool eth_call_cache_read(bytes_t data, call_account_t* out) {
+bool eth_call_account_deserialize(bytes_t data, call_account_t* out) {
   // Minimum: 1 + 4 + 8 + 8 + 32 + 32 + 32 + 4 = 121 bytes
   if (data.len < 121) return false;
 
@@ -119,7 +195,7 @@ static void build_cache_key(buffer_t* buf, chain_id_t chain_id, const address_t 
 
 // :: Cache load / save
 
-call_account_t* eth_call_cache_load(verify_ctx_t* ctx, const address_t addr) {
+call_account_t* eth_call_account_cache_load(verify_ctx_t* ctx, const address_t addr) {
   storage_plugin_t cache = {0};
   c4_get_storage_config(&cache);
   if (!cache.get) return NULL;
@@ -133,7 +209,7 @@ call_account_t* eth_call_cache_load(verify_ctx_t* ctx, const address_t addr) {
 
   call_account_t* account = safe_calloc(1, sizeof(call_account_t));
   memcpy(account->address, addr, 20);
-  if (!eth_call_cache_read(data.data, account)) {
+  if (!eth_call_account_deserialize(data.data, account)) {
     buffer_free(&data);
     call_account_free(account);
     return NULL;
@@ -142,7 +218,7 @@ call_account_t* eth_call_cache_load(verify_ctx_t* ctx, const address_t addr) {
   return account;
 }
 
-void eth_call_cache_save(verify_ctx_t* ctx, const address_t addr, call_account_t* account) {
+void eth_call_account_cache_save(verify_ctx_t* ctx, const address_t addr, call_account_t* account) {
   storage_plugin_t cache = {0};
   c4_get_storage_config(&cache);
   if (!cache.set) return;
@@ -154,7 +230,7 @@ void eth_call_cache_save(verify_ctx_t* ctx, const address_t addr, call_account_t
   // Merge with existing disk state so parallel callers don't discard each other's slots.
   call_account_t disk      = {0};
   buffer_t       disk_buf  = {0};
-  bool           have_disk = cache.get && cache.get((char*) key_buf.data.data, &disk_buf) && eth_call_cache_read(disk_buf.data, &disk);
+  bool           have_disk = cache.get && cache.get((char*) key_buf.data.data, &disk_buf) && eth_call_account_deserialize(disk_buf.data, &disk);
   buffer_free(&disk_buf);
 
   if (have_disk) {
@@ -176,78 +252,13 @@ void eth_call_cache_save(verify_ctx_t* ctx, const address_t addr, call_account_t
         }
       }
       else
-        eth_call_cache_set_storage(account, ds->key, ds->src_value, ds->source, ds->verified_at);
+        call_account_set_storage(account, ds->key, ds->src_value, ds->source, ds->verified_at);
     }
     call_storage_free_list(disk.storage);
   }
 
   buffer_t data_buf = {0};
-  eth_call_cache_write(&data_buf, account);
+  eth_call_account_serialize(&data_buf, account);
   cache.set((char*) key_buf.data.data, data_buf.data);
   buffer_free(&data_buf);
-}
-
-// :: Linked-list helpers
-
-call_account_t* eth_call_cache_find(call_account_t* list, const address_t addr) {
-  for (call_account_t* n = list; n; n = n->next) {
-    if (memcmp(n->address, addr, 20) == 0) return n;
-  }
-  return NULL;
-}
-
-call_account_t* eth_call_cache_get_or_create(call_account_t** list, const address_t addr) {
-  call_account_t* n = eth_call_cache_find(*list, addr);
-  if (n) return n;
-  n = safe_calloc(1, sizeof(call_account_t));
-  memcpy(n->address, addr, 20);
-  n->next = *list;
-  *list   = n;
-  return n;
-}
-
-// :: Storage slot helpers
-
-bool eth_call_cache_get_storage(const call_account_t* account, const bytes32_t key, bytes32_t value_out) {
-  for (call_storage_t* s = account->storage; s; s = s->next) {
-    if (memcmp(s->key, key, 32) == 0) {
-      memcpy(value_out, s->post_value, 32);
-      return true;
-    }
-  }
-  return false;
-}
-
-void eth_call_cache_set_storage(call_account_t* account, const bytes32_t key, const bytes32_t value, storage_source_t source, uint64_t verified_at) {
-  for (call_storage_t* s = account->storage; s; s = s->next) {
-    if (memcmp(s->key, key, 32) == 0) {
-      memcpy(s->src_value, value, 32);
-      memcpy(s->post_value, value, 32);
-      s->verified_at = verified_at;
-      s->source      = source;
-      s->modified    = false;
-      return;
-    }
-  }
-  call_storage_t* s = safe_calloc(1, sizeof(call_storage_t));
-  memcpy(s->key, key, 32);
-  memcpy(s->src_value, value, 32);
-  memcpy(s->post_value, value, 32);
-  s->source        = source;
-  s->verified_at   = verified_at;
-  s->next          = account->storage;
-  account->storage = s;
-}
-
-// :: Access tracking helpers
-
-void eth_call_cache_reset_accessed(call_account_t* list) {
-  for (call_account_t* n = list; n; n = n->next) {
-    n->flags &= ~ACCOUNT_ACCESSED;
-    for (call_storage_t* s = n->storage; s; s = s->next) {
-      s->accessed = false;
-      s->modified = false;
-      memcpy(s->post_value, s->src_value, 32);
-    }
-  }
 }
