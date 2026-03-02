@@ -31,6 +31,27 @@
 
 // :: Account lookup helpers (traverse parent chain)
 
+
+static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
+  if (!ctx->proof.def || ctx->proof.def->type == SSZ_TYPE_NONE) return false;
+
+  ssz_ob_t sp = ssz_get(&ctx->proof, "state_proof");
+  ssz_ob_t bc = ssz_get(&sp, "block");
+  if (!bc.def || !ssz_is_type(&bc, eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT)))
+    return false;
+
+  out->block_number    = ssz_get_uint64(&bc, "blockNumber");
+  out->timestamp       = ssz_get_uint64(&bc, "timestamp");
+  out->gas_limit       = ssz_get_uint64(&bc, "gasLimit");
+  out->excess_blob_gas = ssz_get_uint64(&bc, "excessBlobGas");
+
+  memcpy(out->coinbase, ssz_get(&bc, "coinbase").bytes.data, 20);
+  memcpy(out->prev_randao, ssz_get(&bc, "prevRandao").bytes.data, 32);
+  memcpy(out->base_fee_per_gas, ssz_get(&bc, "baseFeePerGas").bytes.data, 32);
+
+  return true;
+}
+
 call_account_t* call_account_find(evmone_context_t* ctx, const address_t address) {
   for (call_account_t* acc = ctx->accounts; acc; acc = acc->next)
     if (memcmp(acc->address, address, 20) == 0) return acc;
@@ -331,26 +352,17 @@ void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_
   out->capture_events = capture_events;
   out->pap_mode       = evm->pap_mode;
 
-  // extract block context from ETH_CALL_STATE_PROOF if available
-  if (ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE) {
-    ssz_ob_t sp = ssz_get(&ctx->proof, "state_proof");
-    if (sp.def) {
-      // try reading fields that are present in ETH_CALL_STATE_PROOF
-      ssz_ob_t bn = ssz_get(&sp, "blockNumber");
-      if (bn.bytes.data) out->block_number = ssz_uint64(bn);
-      ssz_ob_t ts = ssz_get(&sp, "timestamp");
-      if (ts.bytes.data) out->timestamp = ssz_uint64(ts);
-      ssz_ob_t gl = ssz_get(&sp, "gasLimit");
-      if (gl.bytes.data) out->block_gas_limit = ssz_uint64(gl);
-      ssz_ob_t cb = ssz_get(&sp, "coinbase");
-      if (cb.bytes.data && cb.bytes.len >= 20) memcpy(out->block_coinbase, cb.bytes.data, 20);
-      ssz_ob_t pr = ssz_get(&sp, "prevRandao");
-      if (pr.bytes.data && pr.bytes.len == 32) memcpy(out->block_prev_randao, pr.bytes.data, 32);
-      ssz_ob_t bf = ssz_get(&sp, "baseFee");
-      if (bf.bytes.data && bf.bytes.len == 32) memcpy(out->block_base_fee, bf.bytes.data, 32);
-      ssz_ob_t bb = ssz_get(&sp, "blobBaseFee");
-      if (bb.bytes.data && bb.bytes.len == 32) memcpy(out->blob_base_fee, bb.bytes.data, 32);
-    }
+  // extract block context from state_proof.block when union selector is 3 (blockContext)
+  eth_call_block_context_t bctx = {0};
+  if (eth_get_call_block_context_from_proof(ctx, &bctx)) {
+    out->block_number    = bctx.block_number;
+    out->timestamp       = bctx.timestamp;
+    out->block_gas_limit = bctx.gas_limit;
+    memcpy(out->block_coinbase, bctx.coinbase, 20);
+    memcpy(out->block_prev_randao, bctx.prev_randao, 32);
+    memcpy(out->block_base_fee, bctx.base_fee_per_gas, 32);
+    // blob_base_fee can be derived from excess_blob_gas (EIP-4844); for now leave zero
+    (void) bctx.excess_blob_gas;
   }
 }
 

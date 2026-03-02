@@ -353,7 +353,8 @@ export default class C4Client {
             params: cleanup_args(method, args),
             c4: await get_prover_config_hex(this.config.chainId as number),
             zk_proof: !!this.config.zk_proof,
-            signers: this.config.checkpoint_witness_keys || '0x'
+            signers: this.config.checkpoint_witness_keys || '0x',
+            version: (await getC4w())._c4w_get_current_version_number()
           }, true)
           : await this.createProof(method, args);
         return this.verifyProof(method, args, proof);

@@ -73,7 +73,8 @@ typedef enum {
   ETH_SSZ_DATA_SIMULATION = 27,
 
   ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF = 28,
-  ETH_SSZ_DATA_BLOCK_HEADER         = 29
+  ETH_SSZ_DATA_BLOCK_HEADER         = 29,
+  ETH_SSZ_DATA_CALL_BLOCK_CONTEXT   = 30
 
 } eth_ssz_type_t;
 
@@ -134,5 +135,10 @@ inline static bool is_gnosis_chain(chain_id_t chain_id) {
 
 #define BLOCK_HEADER_FIELD_COUNT 12
 const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot);
+
+/** Number of leaves in the call state proof when block context is included (stateRoot + 7 execution payload fields). */
+#define CALL_BLOCK_CONTEXT_FIELD_COUNT 8
+/** Gindexes for state proof + block context: stateRoot, feeRecipient, prevRandao, blockNumber, gasLimit, timestamp, baseFeePerGas, excessBlobGas. */
+const gindex_t* c4_call_block_context_gindexes(void);
 
 #endif

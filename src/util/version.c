@@ -33,6 +33,30 @@ const uint8_t c4_protocol_version_bytes[4] = {CHAIN_TYPE, VERSION_MAJOR, VERSION
 
 const char* c4_client_version = C4_VERSION;
 
+/** Parse decimal digits from *s, advance *s past them. Returns value (0 if no digit). */
+static unsigned parse_component(const char** s) {
+  if (**s == '.')   (*s)++;
+  const char* p = *s;
+  unsigned   n = 0;
+  while (*p >= '0' && *p <= '9') {
+    n = n * 10u + (unsigned)(*p - '0');
+    p++;
+  }
+  *s = p;
+  return n > 255u ? 255u : n;
+}
+
+C4_VERSION_PURE uint32_t c4_current_version_number(void) {
+  // Parse version from C4_VERSION (build-time macro) so the compiler can constant-fold
+  // the entire function to a single constant. No sscanf: manual parsing avoids
+  // static-analysis warnings. Formats: "0.1.0-dev", "v1.1.15-6-g88aaf11d-dirty", "v1.1.15".
+  const char* s = C4_VERSION;
+  while (*s == 'v' || *s == 'V') s++;
+  return parse_component(&s) << 16 | parse_component(&s) << 8 | parse_component(&s);
+}
+
+
+
 void c4_print_version(FILE* out, const char* program_name) {
   fprintf(out, "%s version %s\n", program_name, c4_client_version);
   fprintf(out, "\nBuild Configuration:\n");

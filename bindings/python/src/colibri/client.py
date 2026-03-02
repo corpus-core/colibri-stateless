@@ -516,7 +516,11 @@ class Colibri:
             "method": method,
             "params": params
         }
-        
+        if as_proof:
+            native = _get_native()
+            if native is not None and hasattr(native, "get_current_version_number"):
+                payload["version"] = native.get_current_version_number()
+
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/octet-stream" if as_proof else "application/json"

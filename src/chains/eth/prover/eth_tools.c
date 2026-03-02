@@ -27,6 +27,7 @@
 #include "bytes.h"
 #include "eth_account.h"
 #include "eth_tx.h"
+#include "prover.h"
 #include "version.h"
 
 static void set_data(ssz_builder_t* req, const char* name, ssz_builder_t data) {
@@ -59,7 +60,21 @@ uint8_t* c4_eth_receipt_cachekey(bytes32_t target, bytes32_t blockhash) {
 }
 #endif
 
-static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_data, gindex_t block_index) {
+static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_data, gindex_t block_index, bool use_block_context) {
+  if (use_block_context) {
+    ssz_builder_t bc   = ssz_builder_for_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT);
+    ssz_ob_t      exec = block_data->execution;
+    ssz_add_bytes(&bc, "blockNumber", ssz_get(&exec, "blockNumber").bytes);
+    ssz_add_bytes(&bc, "timestamp", ssz_get(&exec, "timestamp").bytes);
+    ssz_add_bytes(&bc, "coinbase", ssz_get(&exec, "feeRecipient").bytes);
+    ssz_add_bytes(&bc, "prevRandao", ssz_get(&exec, "prevRandao").bytes);
+    ssz_add_bytes(&bc, "baseFeePerGas", ssz_get(&exec, "baseFeePerGas").bytes);
+    ssz_add_bytes(&bc, "gasLimit", ssz_get(&exec, "gasLimit").bytes);
+    ssz_add_bytes(&bc, "excessBlobGas", ssz_get(&exec, "excessBlobGas").bytes);
+    ssz_add_builders(builder, "block", bc);
+    return;
+  }
+
   uint8_t  buffer[33] = {0};
   uint32_t l          = 1;
   if (block_index == GINDEX_BLOCHASH) {
@@ -76,18 +91,26 @@ static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_da
 }
 
 ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number, beacon_block_t* block, blockroot_proof_t* historic_proof) {
-  uint8_t       empty_selector = 0;
-  bytes32_t     body_root      = {0};
-  ssz_builder_t state_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
-  gindex_t      block_index    = eth_get_gindex_for_block(c4_chain_fork_id(ctx->chain_id, block->slot >> 5), block_number);
-  gindex_t      state_index    = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
-  bytes_t       proof          = block_index == 0                                            // if we fetch latest,
-                                     ? ssz_create_proof(block->body, body_root, state_index) // we only proof the state root
-                                     : ssz_create_multi_proof(block->body, body_root, 2,     // but if a blocknumber or hash is given,
-                                                              block_index, state_index);     // we also need to add this to the proof.
+  bytes32_t     body_root   = {0};
+  ssz_builder_t state_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
+  bool          use_block_context = (ctx->flags & C4_PROVER_FLAG_CALL_BLOCK_CONTEXT) != 0;
+  bytes_t       proof;
 
-  // build the state proof
-  ssz_add_block_proof(&state_proof, block, block_index);
+  if (use_block_context) {
+    const gindex_t* gi = c4_call_block_context_gindexes();
+    proof = ssz_create_multi_proof(block->body, body_root, CALL_BLOCK_CONTEXT_FIELD_COUNT,
+                                   gi[0], gi[1], gi[2], gi[3], gi[4], gi[5], gi[6], gi[7]);
+    ssz_add_block_proof(&state_proof, block, 0, true);
+  }
+  else {
+    gindex_t block_index = eth_get_gindex_for_block(c4_chain_fork_id(ctx->chain_id, block->slot >> 5), block_number);
+    gindex_t state_index  = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
+    proof = block_index == 0
+                ? ssz_create_proof(block->body, body_root, state_index)
+                : ssz_create_multi_proof(block->body, body_root, 2, block_index, state_index);
+    ssz_add_block_proof(&state_proof, block, block_index, false);
+  }
+
   ssz_add_bytes(&state_proof, "proof", proof);
   ssz_add_builders(&state_proof, "header", c4_proof_add_header(block->header, body_root));
   ssz_add_header_proof(&state_proof, block, *historic_proof);

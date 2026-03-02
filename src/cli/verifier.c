@@ -51,7 +51,7 @@ static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_i
   char* additional_params = "";
 #endif
 
-  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\",%s,\"signers\":\"%s\"}", method, args, state, additional_params, signers ? signers : "");
+  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\",%s,\"signers\":\"%s\",\"version\":\"%d\"}", method, args, state, additional_params, signers ? signers : "", c4_current_version_number());
   data_request_t req = {.chain_id = chain_id, .type = C4_DATA_TYPE_PROVER, .payload = payload.data, .encoding = C4_DATA_ENCODING_SSZ, .method = C4_DATA_METHOD_POST};
   ctx.requests       = &req;
   curl_fetch_all(&ctx);

@@ -22,6 +22,7 @@
  */
 
 #include "colibri.h"
+#include "version.h"
 #include "beacon_types.h"
 #include "plugin.h"
 #include "prover.h"
@@ -216,4 +217,8 @@ void c4_verify_free_ctx(void* ptr) {
 int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags) {
   return (int) c4_get_method_type((chain_id_t) chain_id, method,
                                   params ? json_parse(params) : (json_t) {0}, (verify_flags_t) flags);
+}
+
+uint32_t c4_get_current_version_number(void) {
+  return c4_current_version_number();
 }

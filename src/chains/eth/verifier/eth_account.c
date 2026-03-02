@@ -240,24 +240,53 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
   ssz_ob_t  state_merkle_proof = ssz_get(&state_proof, "proof");
   ssz_ob_t  header             = ssz_get(&state_proof, "header");
   ssz_ob_t  block              = ssz_get(&state_proof, "block");
-  gindex_t  gindex[2]          = {STATE_ROOT_GINDEX, block.bytes.len == 8 ? GINDEX_BLOCKUMBER : GINDEX_BLOCHASH};
-  uint8_t   leafes[64]         = {0};
-  memcpy(leafes, state_root, 32);
-  memcpy(leafes + 32, block.bytes.data, block.bytes.len);
-  ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, block.def->type == SSZ_TYPE_NONE ? 32 : 64), gindex, body_root);
+  const bool is_block_context   = block.def && ssz_is_type(&block, eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT));
+
+  if (is_block_context) {
+    const gindex_t* gi   = c4_call_block_context_gindexes();
+    uint8_t         leafes[CALL_BLOCK_CONTEXT_FIELD_COUNT * 32];
+    memset(leafes, 0, sizeof(leafes));
+    memcpy(leafes + 0 * 32, state_root, 32);
+    memcpy(leafes + 1 * 32, ssz_get(&block, "blockNumber").bytes.data, 8);
+    memcpy(leafes + 2 * 32, ssz_get(&block, "timestamp").bytes.data, 8);
+    memcpy(leafes + 3 * 32, ssz_get(&block, "coinbase").bytes.data, 20);
+    memcpy(leafes + 4 * 32, ssz_get(&block, "prevRandao").bytes.data, 32);
+    memcpy(leafes + 5 * 32, ssz_get(&block, "baseFeePerGas").bytes.data, 32);
+    memcpy(leafes + 6 * 32, ssz_get(&block, "gasLimit").bytes.data, 8);
+    memcpy(leafes + 7 * 32, ssz_get(&block, "excessBlobGas").bytes.data, 8);
+    if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, sizeof(leafes)), gi, body_root))
+      RETURN_VERIFY_ERROR(ctx, "invalid state proof (block context)");
+  }
+  else {
+    gindex_t gindex[2] = {STATE_ROOT_GINDEX, block.bytes.len == 8 ? GINDEX_BLOCKUMBER : GINDEX_BLOCHASH};
+    uint8_t  leafes[64] = {0};
+    memcpy(leafes, state_root, 32);
+    memcpy(leafes + 32, block.bytes.data, block.bytes.len);
+    if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, block.def->type == SSZ_TYPE_NONE ? 32 : 64), gindex, body_root))
+      RETURN_VERIFY_ERROR(ctx, "invalid state proof");
+  }
+
   if (block_number.type != JSON_TYPE_STRING) block_number = json_parse("\"latest\"");
   if (block_number.type == JSON_TYPE_STRING && strncmp(block_number.start, "\"0x", 3) == 0) {
     if (block_number.len == 68) {
-      if (block.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
-      hex_to_bytes(block_number.start + 3, 64, bytes(leafes, 32));
-      if (memcmp(leafes, block.bytes.data, 32) == 0) RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
+      if (is_block_context) RETURN_VERIFY_ERROR(ctx, "block context does not include blockHash");
+      if (block.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "did not expect blockhash as blocknumber");
+      uint8_t want[32];
+      hex_to_bytes(block_number.start + 3, 64, bytes(want, 32));
+      if (memcmp(want, block.bytes.data, 32) == 0) RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
     }
     else {
-      if (block.bytes.len != 8) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
-      if (ssz_uint64(block) != json_as_uint64(block_number)) RETURN_VERIFY_ERROR(ctx, "wrong blocknumber");
+      if (is_block_context) {
+        if (ssz_get_uint64(&block, "blockNumber") != json_as_uint64(block_number))
+          RETURN_VERIFY_ERROR(ctx, "wrong blocknumber");
+      }
+      else {
+        if (block.bytes.len != 8) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
+        if (ssz_uint64(block) != json_as_uint64(block_number)) RETURN_VERIFY_ERROR(ctx, "wrong blocknumber");
+      }
     }
   }
-  else if (block.bytes.len)
+  else if (block.bytes.len && !is_block_context)
     RETURN_VERIFY_ERROR(ctx, "Expected a blocknumber or blockhash as blocknumber");
 
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");

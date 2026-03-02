@@ -107,6 +107,17 @@ typedef struct evmone_context {
   bool                   storage_miss;
 } evmone_context_t;
 
+/** Block context extracted from call proof when state_proof.block is the blockContext union variant (selector 3). */
+typedef struct eth_call_block_context {
+  uint64_t   block_number;
+  uint64_t   timestamp;
+  address_t  coinbase;
+  bytes32_t  prev_randao;
+  bytes32_t  base_fee_per_gas;
+  uint64_t   gas_limit;
+  uint64_t   excess_blob_gas;
+} eth_call_block_context_t;
+
 // :: EVM call context lifecycle
 
 void evm_call_ctx_free(evm_call_ctx_t* evm);

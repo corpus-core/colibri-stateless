@@ -24,6 +24,7 @@
 #ifndef eth_verify_h__
 #define eth_verify_h__
 
+#include "crypto.h"
 #include "state_overrides.h"
 #include "verify.h"
 
