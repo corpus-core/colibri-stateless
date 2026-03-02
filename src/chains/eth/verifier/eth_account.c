@@ -262,7 +262,7 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
     uint8_t  leafes[64] = {0};
     memcpy(leafes, state_root, 32);
     memcpy(leafes + 32, block.bytes.data, block.bytes.len);
-    if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, block.def->type == SSZ_TYPE_NONE ? 32 : 64), gindex, body_root))
+    if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, (!block.def || block.def->type == SSZ_TYPE_NONE) ? 32 : 64), gindex, body_root))
       RETURN_VERIFY_ERROR(ctx, "invalid state proof");
   }
 

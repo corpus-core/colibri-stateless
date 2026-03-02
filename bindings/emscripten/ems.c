@@ -25,6 +25,7 @@
 #include "prover.h"
 #include "sync_committee.h"
 #include "verify.h"
+#include "version.h"
 #include <emscripten.h>
 #include <stdio.h>
 #include <string.h>
