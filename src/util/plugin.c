@@ -147,6 +147,13 @@ static void file_delete(char* filename) {
   safe_free(full_path);
 }
 
+void c4_get_file_storage_plugin(storage_plugin_t* plugin) {
+  plugin->get             = file_get;
+  plugin->set             = file_set;
+  plugin->del             = file_delete;
+  plugin->max_sync_states = MAX_SYNC_STATES_DEFAULT;
+}
+
 #endif
 
 void c4_get_storage_config(storage_plugin_t* plugin) {

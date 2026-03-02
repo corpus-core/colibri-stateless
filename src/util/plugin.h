@@ -45,6 +45,17 @@ typedef struct {
 void c4_get_storage_config(storage_plugin_t* plugin);
 void c4_set_storage_config(storage_plugin_t* plugin);
 
+#ifdef FILE_STORAGE
+/**
+ * Fills the given plugin with the file-based storage implementation.
+ * Use this when file storage is preferred over the build default (e.g. CLI tools
+ * for persistent sync committee state).
+ *
+ * @param plugin output plugin struct to fill
+ */
+void c4_get_file_storage_plugin(storage_plugin_t* plugin);
+#endif
+
 /**
  * Optional parallel-for hook.
  *
