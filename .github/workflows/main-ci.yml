@@ -50,6 +50,9 @@ jobs:
     secrets:
       PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
 
+  dart:
+    uses: ./.github/workflows/bindings-dart.yml
+
   docker-prover:
     uses: ./.github/workflows/bindings-docker.yml
     with:

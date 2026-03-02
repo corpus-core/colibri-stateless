@@ -11,6 +11,10 @@ dependencies:
     sdk: flutter
   colibri_stateless: ^0.1.5
 
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
 repository: https://github.com/corpus-core/colibri-stateless
 homepage: https://corpus-core.gitbook.io/specification-colibri-stateless
 documentation: https://github.com/corpus-core/colibri-stateless
