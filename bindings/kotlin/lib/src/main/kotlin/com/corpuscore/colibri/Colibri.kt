@@ -368,6 +368,9 @@ class Colibri(
              // Alternatively, could try parsing as JSONObject if that's possible for params
              throw ColibriException("Invalid params JSON provided to fetchRpc: $paramsJson")
          }
+         if (asProof) {
+             jsonRpcPayload.put("version", com.corpuscore.colibri.c4.c4_get_current_version_number())
+         }
          val requestBody = jsonRpcPayload.toString()
 
 

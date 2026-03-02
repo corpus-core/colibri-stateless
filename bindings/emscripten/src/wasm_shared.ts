@@ -33,6 +33,7 @@ export interface C4W {
     _c4w_free_verify_ctx: (verifyCtx: number) => void;
     _c4w_verify_proof: (verifyCtx: number) => number;
     _c4w_req_free: (reqPtr: number) => void;
+    _c4w_get_current_version_number: () => number;
     _c4w_decode_proof: (data: number, len: number) => number;
     _init_storage: () => void;
     HEAPU8: Uint8Array;

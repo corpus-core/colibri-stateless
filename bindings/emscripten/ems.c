@@ -25,6 +25,7 @@
 #include "prover.h"
 #include "sync_committee.h"
 #include "verify.h"
+#include "version.h"
 #include <emscripten.h>
 #include <stdio.h>
 #include <string.h>
@@ -259,4 +260,8 @@ void EMSCRIPTEN_KEEPALIVE init_storage(void* ptr) {
       .set             = file_set,
       .max_sync_states = 3};
   c4_set_storage_config(&plgn);
+}
+
+uint32_t EMSCRIPTEN_KEEPALIVE c4w_get_current_version_number(void) {
+  return c4_current_version_number();
 }

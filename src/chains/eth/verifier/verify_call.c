@@ -26,7 +26,6 @@
 #include "call_ctx.h"
 #include "crypto.h"
 #include "eth_account.h"
-#include "eth_call_cache.h"
 #include "eth_verify.h"
 #include "json.h"
 #include "patricia.h"
@@ -191,15 +190,6 @@ static uint64_t eth_intrinsic_gas(json_t tx) {
     gas += calldata.data[i] == 0 ? G_TXDATA_ZERO : G_TXDATA_NON_ZERO;
   buffer_free(&buf);
   return gas;
-}
-
-void evm_call_ctx_free(evm_call_ctx_t* evm) {
-  safe_free(evm->call_result.data);
-  evm->call_result = NULL_BYTES;
-  free_emitted_logs(evm->logs);
-  evm->logs = NULL;
-  call_account_free_list(evm->accounts);
-  evm->accounts = NULL;
 }
 
 static void evm_call_ctx_free_ptr(void* ptr) {
@@ -386,6 +376,34 @@ static c4_status_t call_apply_authorization_list(verify_ctx_t* ctx, call_account
   return C4_SUCCESS;
 }
 
+// shared helper: resolve codes, apply state overrides and EIP-7702 authorization list
+static bool prepare_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool apply_overrides) {
+  if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
+  if (apply_overrides && call_apply_state_overrides(ctx, &evm->accounts, json_at(ctx->args, 2)) != C4_SUCCESS) return false;
+  if (call_apply_authorization_list(ctx, &evm->accounts, json_at(ctx->args, 0)) != C4_SUCCESS) return false;
+  return true;
+}
+
+// shared helper: run the EVM and add intrinsic gas
+static c4_status_t run_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool capture_events) {
+#ifdef EVMONE
+  c4_status_t status = eth_run_call_evmone_with_events(ctx, evm, capture_events);
+#else
+  c4_status_t status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
+#endif
+  evm->gas_used += eth_intrinsic_gas(json_at(ctx->args, 0));
+  return status;
+}
+
+// shared helper: match the EVM result against the expected value
+static bool match_evm_result(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool is_simulate, bool is_estimate) {
+  bool match = is_simulate   ? match_simulate_result(ctx, evm)
+               : is_estimate ? match_estimate_result(ctx, evm)
+                             : match_call_result(ctx, evm);
+  if (!match) RETURN_VERIFY_ERROR(ctx, is_simulate ? "Simulation result mismatch" : "Call result mismatch");
+  return true;
+}
+
 bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   bool is_simulate = ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0;
   bool is_estimate = ctx->method && strcmp(ctx->method, "eth_estimateGas") == 0;
@@ -397,24 +415,9 @@ bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   if (!evm->accounts && ssz_accounts.def)
     evm->accounts = call_accounts_from_ssz(ssz_accounts);
 
-  if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
-  if (call_apply_state_overrides(ctx, &evm->accounts, json_at(ctx->args, 2)) != C4_SUCCESS) return false;
-  if (call_apply_authorization_list(ctx, &evm->accounts, json_at(ctx->args, 0)) != C4_SUCCESS) return false;
-
-#ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, evm, is_simulate);
-#else
-  c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
-#endif
-
-  evm->gas_used += eth_intrinsic_gas(json_at(ctx->args, 0));
-  if (call_status != C4_SUCCESS) return false;
-
-  bool match = is_simulate   ? match_simulate_result(ctx, evm)
-               : is_estimate ? match_estimate_result(ctx, evm)
-                             : match_call_result(ctx, evm);
-
-  if (!match) RETURN_VERIFY_ERROR(ctx, is_simulate ? "Simulation result mismatch" : "Call result mismatch");
+  if (!prepare_evm_call(ctx, evm, true)) return false;
+  if (run_evm_call(ctx, evm, is_simulate) != C4_SUCCESS) return false;
+  if (!match_evm_result(ctx, evm, is_simulate, is_estimate)) return false;
   if (!c4_eth_verify_accounts(ctx, ssz_accounts, evm->state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
   return true;
 }
@@ -522,7 +525,7 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
         cs->modified    = false;
       }
       else
-        eth_call_cache_set_storage(acc, proof_key, proof_val, STORAGE_SRC_PROOF, 1);
+        call_account_set_storage(acc, proof_key, proof_val, STORAGE_SRC_PROOF, 1);
     }
   }
 
@@ -628,7 +631,7 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
         s->modified    = false;
         s->accessed    = false;
       }
-      eth_call_cache_save(ctx, ac->address, ac);
+      eth_call_account_cache_save(ctx, ac->address, ac);
     }
   }
 
@@ -664,18 +667,9 @@ bool verify_call_proof(verify_ctx_t* ctx) {
       return false;
     evm->accounts = call_accounts_from_ssz(accounts);
   }
-  if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
-  // for now we ig ore state overrides for since we cannot get the storage needed for the proof
-  // if (call_apply_state_overrides(ctx, &evm->accounts, json_at(ctx->args, 2)) != C4_SUCCESS) return false;
-  if (call_apply_authorization_list(ctx, &evm->accounts, json_at(ctx->args, 0)) != C4_SUCCESS) return false;
+  if (!prepare_evm_call(ctx, evm, false)) return false;
 
-#ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, evm, is_simulate);
-#else
-  c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
-#endif
-  evm->gas_used += eth_intrinsic_gas(json_at(ctx->args, 0));
-
+  c4_status_t call_status = run_evm_call(ctx, evm, is_simulate);
   if (call_status != C4_SUCCESS || c4_state_get_pending_request(&ctx->state)) return false;
 
   evm->evm_done = true;

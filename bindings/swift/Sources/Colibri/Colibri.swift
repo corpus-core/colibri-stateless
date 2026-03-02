@@ -636,12 +636,15 @@ public class Colibri {
         var lastError: Error = ColibriError.rpcError("All nodes failed") // Initialize with a default error
 
         // Prepare JSON RPC request body data once
-        let jsonRpcBody: [String: Any] = [
+        var jsonRpcBody: [String: Any] = [
             "id": 1,
             "jsonrpc": "2.0",
             "method": method,
             "params": try JSONSerialization.jsonObject(with: params.data(using: .utf8) ?? Data()) // Assume params is valid JSON string
         ]
+        if asProof {
+            jsonRpcBody["version"] = c4_get_current_version_number()
+        }
         let httpBody = try JSONSerialization.data(withJSONObject: jsonRpcBody)
 
         // 🎯 MOCK SUPPORT: Check if request handler is set for direct RPC calls

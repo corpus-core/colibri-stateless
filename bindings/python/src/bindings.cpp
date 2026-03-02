@@ -271,4 +271,7 @@ PYBIND11_MODULE(_native, m) {
   m.def("get_method_support", &get_method_support_wrapper,
         "Check method support type",
         py::arg("chain_id"), py::arg("method"), py::arg("params") = "", py::arg("flags") = 0);
+
+  m.def("get_current_version_number", &c4_get_current_version_number,
+        "Return the current Colibri library version number (uint32 as int).");
 }

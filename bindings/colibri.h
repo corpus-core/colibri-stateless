@@ -1196,3 +1196,10 @@ void c4_verify_free_ctx(void* ctx);
  * ```
  */
 int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags);
+
+/**
+ * Returns the current version number of the Colibri library.
+ *
+ * @return The current version number
+ */
+uint32_t c4_get_current_version_number(void);
