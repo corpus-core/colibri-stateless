@@ -28,6 +28,7 @@
 #include "../util/bytes.h"
 #include "../util/crypto.h"
 #include "../util/json.h"
+#include "../util/plugin.h"
 #include "../util/ssz.h"
 #include "../util/state.h"
 #include "../util/version.h"
@@ -96,6 +97,13 @@ int main(int argc, char* argv[]) {
     c4_print_version(stdout, "colibri-prover");
     exit(EXIT_SUCCESS);
   }
+
+#ifdef FILE_STORAGE
+  /* Prefer file storage so sync committee state is persisted across runs. */
+  storage_plugin_t file_plugin = {0};
+  c4_get_file_storage_plugin(&file_plugin);
+  c4_set_storage_config(&file_plugin);
+#endif
 
   // Display help if no arguments provided or help flag is used
   if (argc < 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {

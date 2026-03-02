@@ -115,6 +115,13 @@ int main(int argc, char* argv[]) {
     exit(EXIT_SUCCESS);
   }
 
+#ifdef FILE_STORAGE
+  /* Prefer file storage so sync committee state is persisted across runs. */
+  storage_plugin_t file_plugin = {0};
+  c4_get_file_storage_plugin(&file_plugin);
+  c4_set_storage_config(&file_plugin);
+#endif
+
   if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s <OPTIONS> <method> <args> \n", argv[0]);
     fprintf(stderr, "OPTIONS: \n");
