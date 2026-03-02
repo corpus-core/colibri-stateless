@@ -56,7 +56,6 @@ static const ssz_def_t ETH_CALL_BLOCK_CONTEXT[] = {
     SSZ_UINT64("gasLimit"),      // execution payload index 7
     SSZ_UINT64("excessBlobGas"), // execution payload index 16 (verifier derives blobBaseFee)
 };
-static const ssz_def_t ETH_CALL_BLOCK_CONTEXT_CONTAINER = SSZ_CONTAINER("BlockContext", ETH_CALL_BLOCK_CONTEXT);
 
 // definition of an enum depending on the requested block
 static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {

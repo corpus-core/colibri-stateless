@@ -42,6 +42,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 const uint8_t* EMPTY_HASH      = (uint8_t*) "\xc5\xd2\x46\x01\x86\xf7\x23\x3c\x92\x7e\x7d\xb2\xdc\xc7\x03\xc0\xe5\x00\xb6\x53\xca\x82\x27\x3b\x7b\xfa\xd8\x04\x5d\x85\xa4\x70";
 const uint8_t* EMPTY_ROOT_HASH = (uint8_t*) "\x56\xe8\x1f\x17\x1b\xcc\x55\xa6\xff\x83\x45\xe6\x92\xc0\xf8\x6e\x5b\x48\xe0\x1b\x99\x6c\xad\xc0\x01\x62\x2f\xb5\xe3\x63\xb4\x21";
 static void    remove_leading_zeros(bytes_t* value) {
@@ -235,15 +236,15 @@ gindex_t eth_get_gindex_for_block(fork_id_t fork, json_t block) {
 }
 
 bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t state_root) {
-  bytes32_t body_root          = {0};
-  json_t    block_number       = json_len(ctx->args) ? json_at(ctx->args, json_len(ctx->args) - 1) : (json_t) {0};
-  ssz_ob_t  state_merkle_proof = ssz_get(&state_proof, "proof");
-  ssz_ob_t  header             = ssz_get(&state_proof, "header");
-  ssz_ob_t  block              = ssz_get(&state_proof, "block");
-  const bool is_block_context   = block.def && ssz_is_type(&block, eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT));
+  bytes32_t  body_root          = {0};
+  json_t     block_number       = json_len(ctx->args) ? json_at(ctx->args, json_len(ctx->args) - 1) : (json_t) {0};
+  ssz_ob_t   state_merkle_proof = ssz_get(&state_proof, "proof");
+  ssz_ob_t   header             = ssz_get(&state_proof, "header");
+  ssz_ob_t   block              = ssz_get(&state_proof, "block");
+  const bool is_block_context   = block.def == eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT);
 
   if (is_block_context) {
-    const gindex_t* gi   = c4_call_block_context_gindexes();
+    const gindex_t* gi = c4_call_block_context_gindexes();
     uint8_t         leafes[CALL_BLOCK_CONTEXT_FIELD_COUNT * 32];
     memset(leafes, 0, sizeof(leafes));
     memcpy(leafes + 0 * 32, state_root, 32);
@@ -259,7 +260,7 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
       RETURN_VERIFY_ERROR(ctx, "invalid state proof (block context)");
   }
   else {
-    gindex_t gindex[2] = {STATE_ROOT_GINDEX, block.bytes.len == 8 ? GINDEX_BLOCKUMBER : GINDEX_BLOCHASH};
+    gindex_t gindex[2]  = {STATE_ROOT_GINDEX, block.bytes.len == 8 ? GINDEX_BLOCKUMBER : GINDEX_BLOCHASH};
     uint8_t  leafes[64] = {0};
     memcpy(leafes, state_root, 32);
     memcpy(leafes + 32, block.bytes.data, block.bytes.len);

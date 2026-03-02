@@ -63,16 +63,16 @@ static const ssz_def_t C4_ETH_ZK_SYNCDATA[6];
 // A List of possible types of data matching the Proofs
 const ssz_def_t C4_ETH_REQUEST_DATA_UNION[11] = {
     SSZ_NONE,
-    SSZ_BYTES32("hash"),                                           // the blockhash  which is used for blockhash proof
-    SSZ_BYTES("bytes", 1073741824),                                // the bytes of the data
-    SSZ_UINT256("value"),                                          // the balance of an account
-    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),              // the transaction data
-    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),             // the transaction receipt
-    SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024),     // result of eth_getLogs
-    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),                 // the block data
-    SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),                 // the result of an eth_getProof
-    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),      // the result of an colibri_simulateTransaction
-    SSZ_CONTAINER("EthBlockHeaderData", ETH_BLOCK_HEADER_DATA),    // compact block header data
+    SSZ_BYTES32("hash"),                                        // the blockhash  which is used for blockhash proof
+    SSZ_BYTES("bytes", 1073741824),                             // the bytes of the data
+    SSZ_UINT256("value"),                                       // the balance of an account
+    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),           // the transaction data
+    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),          // the transaction receipt
+    SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024),  // result of eth_getLogs
+    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),              // the block data
+    SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),              // the result of an eth_getProof
+    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),   // the result of an colibri_simulateTransaction
+    SSZ_CONTAINER("EthBlockHeaderData", ETH_BLOCK_HEADER_DATA), // compact block header data
 };
 
 // A List of possible types of proofs matching the Data
@@ -85,9 +85,9 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),                // a Proof of a Call like eth_call
     SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF),                // Proof as input data for the sync committee transition used by zk
     SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),              // Proof for BlockData
-    SSZ_CONTAINER("BlockNumberProof", ETH_BLOCK_NUMBER_PROOF),   // Proof for BlockNumber
-    SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED),            // Proof for Witness
-    SSZ_CONTAINER("BlockHeaderProof", ETH_BLOCK_HEADER_PROOF),   // Proof for compact BlockHeader
+    SSZ_CONTAINER("BlockNumberProof", ETH_BLOCK_NUMBER_PROOF), // Proof for BlockNumber
+    SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED),          // Proof for Witness
+    SSZ_CONTAINER("BlockHeaderProof", ETH_BLOCK_HEADER_PROOF), // Proof for compact BlockHeader
 }; // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -242,7 +242,7 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
     case ETH_SSZ_DATA_BLOCK_HEADER:
       return C4_ETH_REQUEST_DATA_UNION + 10;
     case ETH_SSZ_DATA_CALL_BLOCK_CONTEXT:
-      return &ETH_CALL_BLOCK_CONTEXT_CONTAINER;
+      return ETH_STATE_BLOCK_UNION + 3;
     case ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_HEADER_PROOF);
     default: return NULL;
