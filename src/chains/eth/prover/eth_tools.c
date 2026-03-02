@@ -93,7 +93,7 @@ static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_da
 ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number, beacon_block_t* block, blockroot_proof_t* historic_proof) {
   bytes32_t     body_root   = {0};
   ssz_builder_t state_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
-  bool          use_block_context = (ctx->flags & C4_PROVER_FLAG_CALL_BLOCK_CONTEXT) != 0;
+  bool          use_block_context = ctx->version >= c4_version_number(1, 1, 5); // block context is supported since version 1.1.5
   bytes_t       proof;
 
   if (use_block_context) {
