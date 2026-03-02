@@ -48,6 +48,7 @@ static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_bl
   memcpy(out->coinbase, ssz_get(&bc, "coinbase").bytes.data, 20);
   memcpy(out->prev_randao, ssz_get(&bc, "prevRandao").bytes.data, 32);
   memcpy(out->base_fee_per_gas, ssz_get(&bc, "baseFeePerGas").bytes.data, 32);
+  memcpy(out->block_hash, ssz_get(&bc, "blockHash").bytes.data, 32);
 
   return true;
 }
@@ -361,6 +362,7 @@ void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_
     memcpy(out->block_coinbase, bctx.coinbase, 20);
     memcpy(out->block_prev_randao, bctx.prev_randao, 32);
     memcpy(out->block_base_fee, bctx.base_fee_per_gas, 32);
+    memcpy(out->block_hash, bctx.block_hash, 32);
     // blob_base_fee can be derived from excess_blob_gas (EIP-4844); for now leave zero
     (void) bctx.excess_blob_gas;
   }

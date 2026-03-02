@@ -114,6 +114,7 @@ typedef struct eth_call_block_context {
   address_t  coinbase;
   bytes32_t  prev_randao;
   bytes32_t  base_fee_per_gas;
+  bytes32_t  block_hash;
   uint64_t   gas_limit;
   uint64_t   excess_blob_gas;
 } eth_call_block_context_t;

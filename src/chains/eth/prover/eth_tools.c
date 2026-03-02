@@ -69,6 +69,7 @@ static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_da
     ssz_add_bytes(&bc, "coinbase", ssz_get(&exec, "feeRecipient").bytes);
     ssz_add_bytes(&bc, "prevRandao", ssz_get(&exec, "prevRandao").bytes);
     ssz_add_bytes(&bc, "baseFeePerGas", ssz_get(&exec, "baseFeePerGas").bytes);
+    ssz_add_bytes(&bc, "blockHash", ssz_get(&exec, "blockHash").bytes);
     ssz_add_bytes(&bc, "gasLimit", ssz_get(&exec, "gasLimit").bytes);
     ssz_add_bytes(&bc, "excessBlobGas", ssz_get(&exec, "excessBlobGas").bytes);
     ssz_add_builders(builder, "block", bc);
@@ -93,13 +94,13 @@ static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_da
 ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number, beacon_block_t* block, blockroot_proof_t* historic_proof) {
   bytes32_t     body_root   = {0};
   ssz_builder_t state_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
-  bool          use_block_context = ctx->version >= c4_version_number(1, 1, 5); // block context is supported since version 1.1.5
+  bool          use_block_context = ctx->version >= c4_version_number(1, 1, 15); // block context is supported since version 1.1.15
   bytes_t       proof;
 
   if (use_block_context) {
     const gindex_t* gi = c4_call_block_context_gindexes();
     proof = ssz_create_multi_proof(block->body, body_root, CALL_BLOCK_CONTEXT_FIELD_COUNT,
-                                   gi[0], gi[1], gi[2], gi[3], gi[4], gi[5], gi[6], gi[7]);
+                                   gi[0], gi[1], gi[2], gi[3], gi[4], gi[5], gi[6], gi[7], gi[8]);
     ssz_add_block_proof(&state_proof, block, 0, true);
   }
   else {

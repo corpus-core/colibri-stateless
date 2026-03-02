@@ -52,6 +52,7 @@ static const ssz_def_t ETH_CALL_BLOCK_CONTEXT[] = {
     SSZ_ADDRESS("coinbase"),     // execution payload feeRecipient index 1
     SSZ_BYTES32("prevRandao"),   // execution payload index 5
     SSZ_BYTES32("baseFeePerGas"),// execution payload index 11 (uint256)
+    SSZ_BYTES32("blockHash"),    // execution payload index 12 (enables eth_call with block hash)
     SSZ_UINT64("gasLimit"),      // execution payload index 7
     SSZ_UINT64("excessBlobGas"), // execution payload index 16 (verifier derives blobBaseFee)
 };

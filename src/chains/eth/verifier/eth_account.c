@@ -252,8 +252,9 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
     memcpy(leafes + 3 * 32, ssz_get(&block, "coinbase").bytes.data, 20);
     memcpy(leafes + 4 * 32, ssz_get(&block, "prevRandao").bytes.data, 32);
     memcpy(leafes + 5 * 32, ssz_get(&block, "baseFeePerGas").bytes.data, 32);
-    memcpy(leafes + 6 * 32, ssz_get(&block, "gasLimit").bytes.data, 8);
-    memcpy(leafes + 7 * 32, ssz_get(&block, "excessBlobGas").bytes.data, 8);
+    memcpy(leafes + 6 * 32, ssz_get(&block, "blockHash").bytes.data, 32);
+    memcpy(leafes + 7 * 32, ssz_get(&block, "gasLimit").bytes.data, 8);
+    memcpy(leafes + 8 * 32, ssz_get(&block, "excessBlobGas").bytes.data, 8);
     if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, sizeof(leafes)), gi, body_root))
       RETURN_VERIFY_ERROR(ctx, "invalid state proof (block context)");
   }
@@ -269,11 +270,16 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
   if (block_number.type != JSON_TYPE_STRING) block_number = json_parse("\"latest\"");
   if (block_number.type == JSON_TYPE_STRING && strncmp(block_number.start, "\"0x", 3) == 0) {
     if (block_number.len == 68) {
-      if (is_block_context) RETURN_VERIFY_ERROR(ctx, "block context does not include blockHash");
-      if (block.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "did not expect blockhash as blocknumber");
       uint8_t want[32];
       hex_to_bytes(block_number.start + 3, 64, bytes(want, 32));
-      if (memcmp(want, block.bytes.data, 32) == 0) RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
+      if (is_block_context) {
+        if (memcmp(want, ssz_get(&block, "blockHash").bytes.data, 32) != 0)
+          RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
+      }
+      else {
+        if (block.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "did not expect blockhash as blocknumber");
+        if (memcmp(want, block.bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
+      }
     }
     else {
       if (is_block_context) {
