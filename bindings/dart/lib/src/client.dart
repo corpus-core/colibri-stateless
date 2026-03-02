@@ -16,8 +16,6 @@ import 'types.dart';
 /// proof generation and verification. Configure [provers], [ethRpcs], and
 /// [beaconApis] for your network; optionally set [storage] for native cache.
 class Colibri {
-  static const int _proverFlagZkProof = 1 << 7;
-
   static String _proofHexSnippet(Uint8List proof, int offset, int len) {
     if (proof.isEmpty) return '(empty)';
     final start = offset.clamp(0, proof.length);
@@ -33,6 +31,8 @@ class Colibri {
   /// [zkProof] requests ZK sync proofs from remote provers when available.
   /// [checkpointWitnessKeys] provides signer keys for ZK proof verification.
   /// [onDebug] if set, called with short messages during rpc/verify (e.g. for UI log).
+  /// Can contain sensitive data (e.g. witness keys, params). Do not forward to
+  /// production logging without redaction.
   ///
   /// On Android and iOS, if [storage] is not provided, [MemoryStorage] is used
   /// by default so the native cache works (the C-side file storage cannot write
@@ -87,7 +87,8 @@ class Colibri {
   final bool zkProof;
   /// Optional witness signer keys for ZK proof verification.
   final String? checkpointWitnessKeys;
-  /// Whether to log prover request parameters (debug).
+  /// Whether to log prover request parameters (debug only). When true, only
+  /// non-sensitive summaries are printed; do not enable in production.
   final bool logProverRequests;
   /// Optional storage backend for native cache.
   final ColibriStorage? storage;
@@ -115,12 +116,11 @@ class Colibri {
   ///
   /// Returns the serialized proof bytes. Use [verifyProof] to verify and get
   /// the result. Throws [ProofError] on failure.
+  /// Local proof creation always uses Merkle proofs; [zkProof] is ignored here
+  /// (ZK proofs are produced by remote provers, not the local prover).
   Future<Uint8List> createProof(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
-    var flags = includeCode ? 1 : 0;
-    if (zkProof) {
-      flags |= _proverFlagZkProof;
-    }
+    final flags = includeCode ? 1 : 0;
     final ctx = _native.createProverCtx(
       method,
       paramsJson,
@@ -171,7 +171,7 @@ class Colibri {
     _onDebug?.call(
       'Verifier call: method=$method paramsJson=$paramsJson chainId=$chainId '
       'checkpoint=${checkpoint.isEmpty ? "(empty)" : "${checkpoint.length} chars"} '
-      'witnessKeys=${checkpointWitnessKeys ?? "null"}',
+      'witnessKeys=${checkpointWitnessKeys != null ? "***" : "null"}',
     );
     final ctx = _native.verifyCreateCtx(
       proof,
@@ -390,10 +390,10 @@ class Colibri {
       }
       if (logProverRequests) {
         final hasState = clientState != null;
-        final signers = checkpointWitnessKeys ?? '0x';
+        final signersLen = (checkpointWitnessKeys ?? '0x').length;
         print(
           'prover request: method=$method zk_proof=$zkProof '
-          'include_code=$includeCode signers=$signers '
+          'include_code=$includeCode signers_length=$signersLen '
           'client_state=${hasState ? "set" : "none"}',
         );
       }

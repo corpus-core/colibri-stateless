@@ -6,7 +6,7 @@ Flutter plugin for Colibri Stateless with **bundled native binaries** (Android, 
 
 ```yaml
 dependencies:
-  colibri_flutter: ^0.1.2
+  colibri_flutter: ^0.1.5
 ```
 
 Then:
@@ -30,6 +30,8 @@ On Android and iOS the native library is loaded automatically; `colibriFlutterLi
 
 **Flutter web is not supported** (no native FFI). Use Android, iOS, macOS, Linux, or Windows.
 
+If you use `assets/.env` for configuration: do not commit real secrets; use other configuration (e.g. environment or secure storage) for production.
+
 ## Testing the plugin
 
 **1. Run the example app** (from this repo):
@@ -43,7 +45,7 @@ flutter run
 
 **2. In your own app**
 
-- Add dependency: `colibri_flutter: ^0.1.2` (and run `flutter pub get`).
+- Add dependency: `colibri_flutter: ^0.1.5` (and run `flutter pub get`).
 - Use the same constructor so the plugin’s library is used on all platforms:
 
 ```dart

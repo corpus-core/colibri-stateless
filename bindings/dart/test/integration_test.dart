@@ -361,4 +361,25 @@ void main() {
       colibri.close();
     }, skip: !hasNative);
   }
+
+  /// verifyProof with invalid proof bytes throws VerificationError.
+  test('verifyProof with invalid proof throws VerificationError', () async {
+    final colibri = Colibri(libraryPath: _resolveLibraryPath());
+    try {
+      await expectLater(
+        colibri.verifyProof(
+          Uint8List(0),
+          'eth_getBalance',
+          ['0x0000000000000000000000000000000000000001', 'latest'],
+        ),
+        throwsA(isA<VerificationError>().having(
+          (e) => e.message,
+          'message',
+          isNotEmpty,
+        )),
+      );
+    } finally {
+      colibri.close();
+    }
+  }, skip: !hasNative);
 }

@@ -78,6 +78,7 @@ class HTTPError extends ColibriError {
 /// Used internally when the prover or verifier needs external data (e.g. RPC
 /// or beacon). Not typically used by callers directly.
 class DataRequest {
+  /// Creates a [DataRequest] from the given native request fields.
   DataRequest({
     required this.reqPtr,
     required this.url,
@@ -89,13 +90,21 @@ class DataRequest {
     this.payload,
   });
 
+  /// Opaque native handle (pointer) for this request; used when fulfilling.
   final int reqPtr;
+  /// Endpoint URL to call (e.g. RPC or beacon URL).
   final String url;
+  /// HTTP or RPC method name (e.g. "eth_blockNumber").
   final String method;
+  /// Response encoding (e.g. "json").
   final String encoding;
+  /// Request type identifier from the native layer.
   final String requestType;
+  /// Bitmask of servers to exclude when retrying.
   final int excludeMask;
+  /// Chain ID (e.g. 1 for mainnet).
   final int chainId;
+  /// Optional JSON payload for the request.
   final Map<String, dynamic>? payload;
 
   /// Parses a JSON request object returned by native status calls.

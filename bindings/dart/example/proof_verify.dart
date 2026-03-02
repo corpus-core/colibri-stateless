@@ -47,8 +47,20 @@ Future<void> main() async {
   final method = 'eth_getBalance';
   final params = ['0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5', 'latest'];
 
-  // Step 1: create the proof locally.
-  final proof = await colibri.createProof(method, params);
+  Uint8List proof;
+  try {
+    // Step 1: create the proof (from prover if available, otherwise locally).
+    proof = await colibri.createProof(method, params);
+  } on ColibriError catch (e) {
+    // Local proof creation can fail if required data (e.g. period_store) cannot be
+    // fetched from the configured prover/beacon URLs. Use rpc() for automatic
+    // prover-first flow, or ensure your .env provers/beacon_apis serve the needed resources.
+    print('Proof creation failed: ${e.message}');
+    print('Tip: Run basic_usage.dart for prover-backed calls, or check prover/beacon URLs.');
+    colibri.close();
+    exitCode = 1;
+    return;
+  }
 
   print('Proof length: ${proof.length} bytes');
   print('Proof (first 64 bytes hex): ${_proofHex(proof, 0, 64)}');

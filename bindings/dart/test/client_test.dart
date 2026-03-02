@@ -85,4 +85,28 @@ void main() {
     );
     colibri.close();
   }, skip: !hasNative);
+
+  /// close() is idempotent; calling it multiple times does not throw.
+  test('close is idempotent', () {
+    final colibri = Colibri(libraryPath: _resolveLibraryPath());
+    colibri.close();
+    expect(() => colibri.close(), returnsNormally);
+  }, skip: !hasNative);
+
+  /// onDebug callback is invoked during rpc when provided.
+  test('onDebug callback is invoked during rpc', () async {
+    final messages = <String>[];
+    final colibri = Colibri(
+      libraryPath: _resolveLibraryPath(),
+      onDebug: (msg) => messages.add(msg),
+    );
+    try {
+      await colibri.rpc('eth_chainId', []);
+    } on ColibriError {
+      // May fail if native or network not available; we only care that onDebug ran.
+    }
+    colibri.close();
+    // Local method or proof path should have produced at least one debug message.
+    expect(messages, isNotEmpty);
+  }, skip: !hasNative);
 }

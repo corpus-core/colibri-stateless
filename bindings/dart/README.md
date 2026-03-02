@@ -50,7 +50,7 @@ For Flutter apps, use the **colibri_flutter** package on pub.dev — it includes
 
 ```yaml
 dependencies:
-  colibri_flutter: ^0.1.0
+  colibri_flutter: ^0.1.5
 ```
 
 ```dart
@@ -58,7 +58,7 @@ import 'package:colibri_flutter/colibri_flutter.dart';
 final colibri = Colibri(chainId: 1);
 ```
 
-See [flutter/colibri_flutter/README.md](flutter/colibri_flutter/README.md).
+See [flutter/colibri_flutter/README.md](flutter/colibri_flutter/README.md). On Android and iOS, if you omit `storage`, the client uses in-memory storage by default (see [Colibri](lib/src/client.dart) constructor docs).
 
 ### iOS (building yourself)
 
@@ -90,6 +90,8 @@ Requirements:
 - iOS: macOS + Xcode (uses `bindings/swift/build_ios.sh`)
 - Windows: build on a Windows host
 
+The build script uses `-DETH_ZKPROOF=ON` when building the C core for ZK proof support.
+
 Per-platform:
 
 ```bash
@@ -116,7 +118,7 @@ See [example/README.md](example/README.md) for run commands and optional `.env` 
 dart test
 ```
 
-If the native library lives elsewhere, set `COLIBRI_DART_LIBRARY`.
+Alternatively: `./run_tests.sh` (handles native library path etc.). If the native library lives elsewhere, set `COLIBRI_DART_LIBRARY`.
 
 ### Coverage
 
