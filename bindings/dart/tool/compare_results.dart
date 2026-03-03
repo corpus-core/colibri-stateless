@@ -147,6 +147,8 @@ Future<List<CompareResult>> compareAll() async {
     final chainId = (content['chain_id'] as num).toInt();
     final trusted = content['trusted_blockhash']?.toString();
     final expected = content['expected_result'];
+    final includeCode = (content['include_code'] as bool?) ?? false;
+    final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
 
     final storage = FileBackedStorage(dir);
     final responder = FileBasedMockResponder(dir);
@@ -156,6 +158,8 @@ Future<List<CompareResult>> compareAll() async {
       chainId: chainId,
       provers: const [],
       trustedCheckpoint: trusted,
+      includeCode: includeCode,
+      useAccesslist: useAccesslist,
       storage: storage,
       libraryPath: libraryPath,
       httpClient: client,

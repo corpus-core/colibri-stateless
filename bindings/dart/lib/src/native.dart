@@ -91,9 +91,26 @@ typedef _VerifyCreateNative = ffi.Pointer<ffi.Void> Function(
   ffi.Pointer<ffi.Int8>,
   ffi.Uint64,
   ffi.Pointer<ffi.Int8>,
-  ffi.Pointer<ffi.Int8>,
+  ffi.Uint32,
 );
 typedef _VerifyCreate = ffi.Pointer<ffi.Void> Function(
+  BytesT,
+  ffi.Pointer<ffi.Int8>,
+  ffi.Pointer<ffi.Int8>,
+  int,
+  ffi.Pointer<ffi.Int8>,
+  int,
+);
+
+typedef _VerifyCreateWithWitnessNative = ffi.Pointer<ffi.Void> Function(
+  BytesT,
+  ffi.Pointer<ffi.Int8>,
+  ffi.Pointer<ffi.Int8>,
+  ffi.Uint64,
+  ffi.Pointer<ffi.Int8>,
+  ffi.Pointer<ffi.Int8>,
+);
+typedef _VerifyCreateWithWitness = ffi.Pointer<ffi.Void> Function(
   BytesT,
   ffi.Pointer<ffi.Int8>,
   ffi.Pointer<ffi.Int8>,
@@ -102,8 +119,18 @@ typedef _VerifyCreate = ffi.Pointer<ffi.Void> Function(
   ffi.Pointer<ffi.Int8>,
 );
 
-typedef _GetMethodSupportNative = ffi.Int32 Function(ffi.Uint64, ffi.Pointer<ffi.Int8>);
-typedef _GetMethodSupport = int Function(int, ffi.Pointer<ffi.Int8>);
+typedef _GetMethodSupportNative = ffi.Int32 Function(
+  ffi.Uint64,
+  ffi.Pointer<ffi.Int8>,
+  ffi.Pointer<ffi.Int8>,
+  ffi.Uint32,
+);
+typedef _GetMethodSupport = int Function(
+  int,
+  ffi.Pointer<ffi.Int8>,
+  ffi.Pointer<ffi.Int8>,
+  int,
+);
 
 typedef _FreeNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _Free = void Function(ffi.Pointer<ffi.Void>);
@@ -200,8 +227,17 @@ class ColibriNative {
         _lib.lookupFunction<_ReqSetResponseNative, _ReqSetResponse>('c4_req_set_response');
     _reqSetError = _lib.lookupFunction<_ReqSetErrorNative, _ReqSetError>('c4_req_set_error');
     _verifyCreateCtx = _lib.lookupFunction<_VerifyCreateNative, _VerifyCreate>(
-      'c4_verify_create_ctx_with_witness',
+      'c4_verify_create_ctx',
     );
+    // Optional: only available in builds that export the witness variant.
+    try {
+      _verifyCreateCtxWithWitness =
+          _lib.lookupFunction<_VerifyCreateWithWitnessNative, _VerifyCreateWithWitness>(
+        'c4_verify_create_ctx_with_witness',
+      );
+    } catch (_) {
+      _verifyCreateCtxWithWitness = null;
+    }
     _verifyExecuteJsonStatus =
         _lib.lookupFunction<_ExecuteStatusNative, _ExecuteStatus>('c4_verify_execute_json_status');
     _verifyFreeCtx = _lib.lookupFunction<_FreeCtxNative, _FreeCtx>('c4_verify_free_ctx');
@@ -223,6 +259,7 @@ class ColibriNative {
   late final _ReqSetResponse _reqSetResponse;
   late final _ReqSetError _reqSetError;
   late final _VerifyCreate _verifyCreateCtx;
+  _VerifyCreateWithWitness? _verifyCreateCtxWithWitness;
   late final _ExecuteStatus _verifyExecuteJsonStatus;
   late final _FreeCtx _verifyFreeCtx;
   late final _GetMethodSupport _getMethodSupport;
@@ -291,12 +328,16 @@ class ColibriNative {
   void freeProverCtx(ffi.Pointer<ffi.Void> ctx) => _freeProverCtx(ctx);
 
   /// Create a verification context for [proof] and method/args.
+  ///
+  /// When [witnessKeys] is provided, uses `c4_verify_create_ctx_with_witness`.
+  /// Otherwise, uses `c4_verify_create_ctx` with [flags] (e.g. 2 for PAP basic).
   ffi.Pointer<ffi.Void> verifyCreateCtx(
     Uint8List proof,
     String method,
     String args,
     int chainId,
     String trustedCheckpoint, {
+    int flags = 0,
     String? witnessKeys,
   }) {
     final proofPtr = proof.isEmpty ? ffi.nullptr : malloc<ffi.Uint8>(proof.length);
@@ -311,16 +352,32 @@ class ColibriNative {
     final methodPtr = method.toNativeUtf8();
     final argsPtr = args.toNativeUtf8();
     final checkpointPtr = trustedCheckpoint.toNativeUtf8();
-    final witnessPtr = witnessKeys == null ? ffi.nullptr : witnessKeys.toNativeUtf8();
 
-    final ctx = _verifyCreateCtx(
-      bytes.ref,
-      methodPtr.cast(),
-      argsPtr.cast(),
-      chainId,
-      checkpointPtr.cast(),
-      witnessPtr.cast(),
-    );
+    final ffi.Pointer<ffi.Void> ctx;
+    ffi.Pointer<ffi.Uint8>? witnessPtr;
+
+    final withWitnessFn = _verifyCreateCtxWithWitness;
+    if (witnessKeys != null && withWitnessFn != null) {
+      final wPtr = witnessKeys.toNativeUtf8();
+      witnessPtr = wPtr.cast();
+      ctx = withWitnessFn(
+        bytes.ref,
+        methodPtr.cast(),
+        argsPtr.cast(),
+        chainId,
+        checkpointPtr.cast(),
+        wPtr.cast(),
+      );
+    } else {
+      ctx = _verifyCreateCtx(
+        bytes.ref,
+        methodPtr.cast(),
+        argsPtr.cast(),
+        chainId,
+        checkpointPtr.cast(),
+        flags,
+      );
+    }
 
     if (proofPtr != ffi.nullptr) {
       malloc.free(proofPtr);
@@ -329,7 +386,7 @@ class ColibriNative {
     malloc.free(methodPtr);
     malloc.free(argsPtr);
     malloc.free(checkpointPtr);
-    if (witnessPtr != ffi.nullptr) {
+    if (witnessPtr != null) {
       malloc.free(witnessPtr);
     }
 
@@ -373,10 +430,23 @@ class ColibriNative {
   }
 
   /// Ask the native library how a method is supported.
-  int getMethodSupport(int chainId, String method) {
+  ///
+  /// [params] is the optional JSON params string (used e.g. in PAP mode to
+  /// check cached data availability). [flags] are verify flags (0 = default,
+  /// 2 = VERIFY_FLAG_PAP).
+  int getMethodSupport(int chainId, String method, {String? params, int flags = 0}) {
     final methodPtr = method.toNativeUtf8();
-    final result = _getMethodSupport(chainId, methodPtr.cast());
+    final paramsPtr = params?.toNativeUtf8();
+    final result = _getMethodSupport(
+      chainId,
+      methodPtr.cast(),
+      paramsPtr?.cast() ?? ffi.nullptr,
+      flags,
+    );
     malloc.free(methodPtr);
+    if (paramsPtr != null) {
+      malloc.free(paramsPtr);
+    }
     return result;
   }
 

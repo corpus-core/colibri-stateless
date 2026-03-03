@@ -45,7 +45,9 @@ class Colibri {
     List<String>? checkpointz,
     this.trustedCheckpoint,
     this.includeCode = false,
+    this.useAccesslist = false,
     this.zkProof = false,
+    this.privacyMode = PrivacyMode.none,
     this.checkpointWitnessKeys,
     this.logProverRequests = false,
     this.storage,
@@ -83,8 +85,12 @@ class Colibri {
   final String? trustedCheckpoint;
   /// Whether to include code in proof requests.
   final bool includeCode;
+  /// Whether to include an access list in proof requests.
+  final bool useAccesslist;
   /// Whether to request ZK sync proofs from provers.
   final bool zkProof;
+  /// PAP mode; [PrivacyMode.basic] sets VERIFY_FLAG_PAP on verify / method-support calls.
+  final PrivacyMode privacyMode;
   /// Optional witness signer keys for ZK proof verification.
   final String? checkpointWitnessKeys;
   /// Whether to log prover request parameters (debug only). When true, only
@@ -106,9 +112,20 @@ class Colibri {
     _http.close();
   }
 
+  /// Returns verify flags derived from [privacyMode].
+  int _getVerifyFlags() => privacyMode == PrivacyMode.basic ? 2 : 0;
+
   /// Returns how [method] is supported (proofable, local, unproofable, etc.).
-  MethodType getMethodSupport(String method) {
-    final support = _native.getMethodSupport(chainId, method);
+  ///
+  /// In PAP mode the result may depend on cached data for [params].
+  MethodType getMethodSupport(String method, {List<dynamic>? params}) {
+    final paramsJson = params != null ? jsonEncode(params) : null;
+    final support = _native.getMethodSupport(
+      chainId,
+      method,
+      params: paramsJson,
+      flags: _getVerifyFlags(),
+    );
     return MethodType.fromValue(support);
   }
 
@@ -120,7 +137,7 @@ class Colibri {
   /// (ZK proofs are produced by remote provers, not the local prover).
   Future<Uint8List> createProof(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
-    final flags = includeCode ? 1 : 0;
+    final flags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0);
     final ctx = _native.createProverCtx(
       method,
       paramsJson,
@@ -179,6 +196,7 @@ class Colibri {
       paramsJson,
       chainId,
       checkpoint,
+      flags: _getVerifyFlags(),
       witnessKeys: checkpointWitnessKeys,
     );
 
@@ -219,7 +237,7 @@ class Colibri {
   /// unproofable methods, calls the appropriate path. Throws [ColibriError]
   /// or [RPCError] when the method is not supported or the call fails.
   Future<dynamic> rpc(String method, List<dynamic> params) async {
-    final support = getMethodSupport(method);
+    final support = getMethodSupport(method, params: params);
     _onDebug?.call('Method: $method, support: ${support.name}');
 
     switch (support) {

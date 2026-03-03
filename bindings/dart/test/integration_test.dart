@@ -109,6 +109,8 @@ void main() {
       final chainId = (content['chain_id'] as num).toInt();
       final trusted = content['trusted_blockhash']?.toString();
       final expected = content['expected_result'];
+      final includeCode = (content['include_code'] as bool?) ?? false;
+      final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
 
       /// Storage is backed by fixture files to emulate chain data.
       final storage = FileBackedStorage(dir);
@@ -121,6 +123,8 @@ void main() {
         chainId: chainId,
         provers: const [],
         trustedCheckpoint: trusted,
+        includeCode: includeCode,
+        useAccesslist: useAccesslist,
         storage: storage,
         libraryPath: _resolveLibraryPath(),
         httpClient: client,
@@ -157,6 +161,8 @@ void main() {
       final chainId = (content['chain_id'] as num).toInt();
       final trusted = content['trusted_blockhash']?.toString();
       final expected = content['expected_result'];
+      final includeCode = (content['include_code'] as bool?) ?? false;
+      final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
 
       const proverUrl = 'http://prover.example';
       final responder = FileBasedMockResponder(dir);
@@ -171,6 +177,8 @@ void main() {
         chainId: chainId,
         provers: [proverUrl],
         trustedCheckpoint: trusted,
+        includeCode: includeCode,
+        useAccesslist: useAccesslist,
         storage: FileBackedStorage(dir),
         libraryPath: _resolveLibraryPath(),
         httpClient: client,

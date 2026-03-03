@@ -175,14 +175,14 @@ void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t cha
   return (void*) ctx;
 }
 
-void* c4_verify_create_ctx_with_witness(
+/*void* c4_verify_create_ctx_with_witness(
     bytes_t proof,
     char* method,
     char* args,
     uint64_t chain_id,
     char* trusted_checkpoint,
     char* witness_keys) {
-  c4_verify_ctx_t* ctx = c4_verify_create_ctx(proof, method, args, chain_id, trusted_checkpoint);
+  c4_verify_ctx_t* ctx = c4_verify_create_ctx(proof, method, args, chain_id, trusted_checkpoint, 0);
   if (!ctx) {
     return NULL;
   }
@@ -195,7 +195,7 @@ void* c4_verify_create_ctx_with_witness(
   }
 
   return (void*) ctx;
-}
+}*/
 
 char* c4_verify_execute_json_status(void* ptr) {
   buffer_t         buf    = {0};

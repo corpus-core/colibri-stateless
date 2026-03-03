@@ -1,5 +1,15 @@
 import 'dart:convert';
 
+/// Pragmatic Adaptive Privacy mode.
+///
+/// [basic] sets `VERIFY_FLAG_PAP` (flag value 2) on verify and method-support
+/// calls, which allows the native library to serve cached results locally when
+/// possible.
+enum PrivacyMode {
+  none,
+  basic,
+}
+
 /// Classification of how an RPC method is supported by Colibri.
 enum MethodType {
   /// Method not recognized.
