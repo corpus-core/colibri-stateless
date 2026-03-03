@@ -332,21 +332,21 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
 
 // Compact block context for EVM execution (selector 3). All fields are proved via the same multi-merkle proof as stateRoot.
 static const ssz_def_t ETH_CALL_BLOCK_CONTEXT[] = {
-    SSZ_UINT64("blockNumber"),   // execution payload index 6
-    SSZ_UINT64("timestamp"),     // execution payload index 9
-    SSZ_ADDRESS("coinbase"),     // execution payload feeRecipient index 1
-    SSZ_BYTES32("prevRandao"),   // execution payload index 5
-    SSZ_BYTES32("baseFeePerGas"),// execution payload index 11 (uint256)
-    SSZ_BYTES32("blockHash"),    // execution payload index 12 (enables eth_call with block hash)
-    SSZ_UINT64("gasLimit"),      // execution payload index 7
-    SSZ_UINT64("excessBlobGas"), // execution payload index 16 (verifier derives blobBaseFee)
+    SSZ_UINT64("blockNumber"),    // execution payload index 6
+    SSZ_UINT64("timestamp"),      // execution payload index 9
+    SSZ_ADDRESS("coinbase"),      // execution payload feeRecipient index 1
+    SSZ_BYTES32("prevRandao"),    // execution payload index 5
+    SSZ_BYTES32("baseFeePerGas"), // execution payload index 11 (uint256)
+    SSZ_BYTES32("blockHash"),     // execution payload index 12 (enables eth_call with block hash)
+    SSZ_UINT64("gasLimit"),       // execution payload index 7
+    SSZ_UINT64("excessBlobGas"),  // execution payload index 16 (verifier derives blobBaseFee)
 };
 
 // definition of an enum depending on the requested block
 static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
-    SSZ_NONE,                                    // no block-proof for latest
-    SSZ_BYTES32("blockHash"),                    // proof for the right blockhash
-    SSZ_UINT64("blockNumber"),                   // proof for the right blocknumber
+    SSZ_NONE,                                             // no block-proof for latest
+    SSZ_BYTES32("blockHash"),                             // proof for the right blockhash
+    SSZ_UINT64("blockNumber"),                            // proof for the right blocknumber
     SSZ_CONTAINER("blockContext", ETH_CALL_BLOCK_CONTEXT) // compact header for EVM block context (multi-proof)
 };
 
