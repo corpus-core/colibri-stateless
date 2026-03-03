@@ -315,15 +315,25 @@ static mc_conn_t* mc_get_connection(mc_t* client) {
     return NULL;
   }
 
-  // If no connections are available, log it
+  // If no connections are available, log it (rate-limited to avoid log spam under heavy load)
   if (client->available == 0) {
-    log_warn("No available connections in pool (size: %d, connected: %d)", (uint32_t) client->size, (uint32_t) client->connected);
-
-    // Debug output for all connections
-    for (unsigned int i = 0; i < client->size; i++) {
-      log_debug("Connection %d: in_use=%d, reconnecting=%d",
-                (uint32_t) i, client->connections[i].in_use, client->connections[i].reconnecting);
+    static uint64_t last_pool_warn_ms    = 0;
+    static uint32_t pool_warn_suppressed = 0;
+    static bool     first_warn           = true;
+    uint64_t        now                  = uv_now(client->loop);
+    if (first_warn || now - last_pool_warn_ms > 1000) {
+      first_warn = false;
+      if (pool_warn_suppressed > 0)
+        log_warn("No available connections in pool (size: %d, connected: %d) - %d warnings suppressed",
+                 (uint32_t) client->size, (uint32_t) client->connected, pool_warn_suppressed);
+      else
+        log_warn("No available connections in pool (size: %d, connected: %d)",
+                 (uint32_t) client->size, (uint32_t) client->connected);
+      last_pool_warn_ms    = now;
+      pool_warn_suppressed = 0;
     }
+    else
+      pool_warn_suppressed++;
     return NULL;
   }
 
