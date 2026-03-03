@@ -1,6 +1,6 @@
 name: colibri_stateless
 description: Dart bindings for Colibri Stateless via FFI (proof generation and verification for Ethereum RPC).
-version: 0.1.6
+version: 0.1.7
 repository: https://github.com/corpus-core/colibri-stateless
 homepage: https://corpus-core.gitbook.io/specification-colibri-stateless
 documentation: https://github.com/corpus-core/colibri-stateless

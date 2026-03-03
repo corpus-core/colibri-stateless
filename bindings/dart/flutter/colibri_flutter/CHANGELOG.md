@@ -1,3 +1,7 @@
+## 0.1.7
+
+- Requires `colibri_stateless: ^0.1.7`. Removes witness function, fixes Linux build.
+
 ## 0.1.6
 
 - Requires `colibri_stateless: ^0.1.6`. Aligns with updated FFI bindings (flags, PrivacyMode, optional witness support).

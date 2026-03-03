@@ -1,3 +1,8 @@
+## 0.1.7
+
+- Removed `c4_verify_create_ctx_with_witness` from C bindings and Dart FFI layer.
+- Fixed Linux shared library build: added `CMAKE_POSITION_INDEPENDENT_CODE` for DART target.
+
 ## 0.1.6
 
 - Updated FFI bindings to match current C API: added `flags` parameter to `c4_verify_create_ctx` and `c4_get_method_support`, added `PrivacyMode` enum and `useAccesslist` support.

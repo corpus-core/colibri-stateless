@@ -45,7 +45,7 @@ jobs:
       - name: Verify XCFramework
         run: |
           echo "🔍 Verifying iOS XCFramework..."
-          XCFRAMEWORK_PATH="build_ios_arm/c4_swift.xcframework"
+          XCFRAMEWORK_PATH="build/ios/ios_arm64/c4_swift.xcframework"
           
           # Start GitHub Step Summary
           echo "# 📦 Swift iOS XCFramework Build Results" >> $GITHUB_STEP_SUMMARY
