@@ -289,6 +289,9 @@ if(KOTLIN)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     set(CURL OFF)
 endif()
+if(DART)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # Feature flags and compiler settings
 if (PROVER_CACHE) 
