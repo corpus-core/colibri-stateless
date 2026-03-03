@@ -222,7 +222,7 @@ class ColibriTest {
              return@runBlocking
         }
 
-        val chainId = testConf.optBigInteger("chain", BigInteger.ONE) // Assuming chainId is in test.json
+        val chainId = testConf.optBigInteger("chain_id", BigInteger.ONE)
         val method = testConf.getString("method")
         val trusted_blockhash = testConf.optString("trusted_blockhash", null) // Use optString
         val paramsJson = testConf.getJSONArray("params")
@@ -245,7 +245,12 @@ class ColibriTest {
 
         // Create Colibri instance with mock request handler
         val mockHandler = createMockRequestHandler(testDir)
-        val colibri = Colibri(chainId = chainId, requestHandler = mockHandler)
+        val colibri = Colibri(
+            chainId = chainId,
+            requestHandler = mockHandler,
+            includeCode = testConf.optBoolean("include_code", false),
+            useAccesslist = testConf.optBoolean("use_accesslist", false)
+        )
 
         if (trusted_blockhash != null) {
             colibri.trustedCheckpoint = trusted_blockhash

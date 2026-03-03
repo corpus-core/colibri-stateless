@@ -25,6 +25,7 @@
 #include "prover.h"
 #include "sync_committee.h"
 #include "verify.h"
+#include "version.h"
 #include <emscripten.h>
 #include <stdio.h>
 #include <string.h>
@@ -143,7 +144,7 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
   ctx->response_node_index = node_index;
 }
 
-void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys) {
+void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys, uint32_t flags) {
   if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
     bytes32_t checkpoint;
     hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
@@ -153,7 +154,7 @@ void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_le
 
   c4w_verify_ctx_t* ctx = calloc(1, sizeof(c4w_verify_ctx_t));
   ctx->proof            = bytes_dup(bytes(proof, proof_len));
-  c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id);
+  c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id, (verify_flags_t) flags);
 
   if (witness_keys && strlen(witness_keys) > 40 && witness_keys[0] == '0' && witness_keys[1] == 'x') {
     bytes_t witness_key_bytes = bytes(safe_malloc(strlen(witness_keys) / 2), (strlen(witness_keys) - 2) / 2);
@@ -171,8 +172,9 @@ void EMSCRIPTEN_KEEPALIVE c4w_free_verify_ctx(void* ptr) {
   c4_verify_free_data(&ctx->verify);
   free(ctx);
 }
-method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* method) {
-  return c4_get_method_type((chain_id_t) chain_id, method);
+method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* method, char* params, uint32_t flags) {
+  return c4_get_method_type((chain_id_t) chain_id, method,
+                            params ? json_parse(params) : (json_t) {0}, (verify_flags_t) flags);
 }
 
 char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
@@ -204,6 +206,13 @@ char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
   }
   bprintf(&result, "}");
   return buffer_as_string(result);
+}
+
+char* EMSCRIPTEN_KEEPALIVE c4w_decode_proof(uint8_t* data, size_t len) {
+  bytes_t          req_data = bytes(data, len);
+  const ssz_def_t* def      = c4_get_req_type_from_req(req_data);
+  if (!def) return NULL;
+  return bprintf(NULL, "%Z", (ssz_ob_t) {.def = def, .bytes = req_data});
 }
 
 void EMSCRIPTEN_KEEPALIVE c4w_req_free(data_request_t* client_update) {
@@ -251,4 +260,8 @@ void EMSCRIPTEN_KEEPALIVE init_storage(void* ptr) {
       .set             = file_set,
       .max_sync_states = 3};
   c4_set_storage_config(&plgn);
+}
+
+uint32_t EMSCRIPTEN_KEEPALIVE c4w_get_current_version_number(void) {
+  return c4_current_version_number();
 }

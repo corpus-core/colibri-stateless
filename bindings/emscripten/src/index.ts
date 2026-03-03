@@ -31,6 +31,7 @@ import {
   getC4w,
   get_prover_config_hex,
   set_trusted_checkpoint,
+  decode_proof,
   Storage as C4Storage
 } from "./wasm.js";
 import { EventEmitter } from './eventEmitter.js';
@@ -52,6 +53,9 @@ import { TransactionVerifier, PrototypeProtection } from './transactionVerifier.
 import { fetch_rpc, handle_request } from './http.js';
 
 export { Strategy };
+
+// Public helper for controlling WASM loading behavior in Node/bundlers.
+export { set_wasm_url, decode_proof } from "./wasm.js";
 
 // Re-export types needed by consumers of the C4Client module
 export {
@@ -81,6 +85,7 @@ function cleanup_args(method: string, args: any[]): any[] {
     transactionIndex: arg.transactionIndex,
     blockNumber: arg.blockNumber
   }))
+  if (method == "colibri_simulateTransaction") return args.slice(0, 2);
   return args;
 }
 
@@ -94,6 +99,7 @@ export default class C4Client {
   private subscriptionManager: SubscriptionManager;
   private initMap: Map<number | string, boolean> = new Map();
   private flags: number = 0;
+  private verify_flags: number = 0;
 
   // Protect against prototype pollution by freezing critical methods
   private static readonly CRITICAL_METHODS = ['rpc', 'request', 'verifyProof', 'createProof'] as const;
@@ -140,10 +146,14 @@ export default class C4Client {
 
     this.config = baseConfig;
 
+    if (this.config.include_code) this.flags |= 1;
+    if (this.config.use_accesslist) this.flags |= (1 << 6);
+    if (this.config.privacy_mode === 'basic') this.verify_flags |= 2;
+
     if (!this.config.warningHandler)
       this.config.warningHandler = async (req: RequestArguments, message: string) => console.warn(message)
     if (!this.config.proofStrategy)
-      this.config.proofStrategy = Strategy.VerifyIfPossible;
+      this.config.proofStrategy = Strategy.WarningWithFallback;
 
     this.eventEmitter = new EventEmitter();
     this.connectionState = new ConnectionState(
@@ -189,12 +199,19 @@ export default class C4Client {
   /**
    * Checks whether the RPC method is supported or proofable.
    * @param method - The method to check
+   * @param args - Optional method arguments (used in PAP mode to check cached data availability)
    * @returns The method type
    */
-  async getMethodSupport(method: string): Promise<C4MethodType> {
+  async getMethodSupport(method: string, args?: any[]): Promise<C4MethodType> {
     const c4w = await getC4w();
     const free_buffers: number[] = [];
-    const method_type = c4w._c4w_get_method_type(BigInt(this.config.chainId), as_char_ptr(method, c4w, free_buffers));
+    const paramsStr = args ? JSON.stringify(args) : null;
+    const method_type = c4w._c4w_get_method_type(
+      BigInt(this.config.chainId),
+      as_char_ptr(method, c4w, free_buffers),
+      paramsStr ? as_char_ptr(paramsStr, c4w, free_buffers) : 0,
+      this.verify_flags
+    );
     free_buffers.forEach(ptr => c4w._free(ptr));
     return method_type as C4MethodType;
   }
@@ -268,7 +285,8 @@ export default class C4Client {
         as_char_ptr(JSON.stringify(args), c4w, free_buffers),
         BigInt(this.config.chainId),
         checkpoint_ptr,
-        witness_keys_ptr);
+        witness_keys_ptr,
+        this.verify_flags);
 
       while (true) {
         const state = as_json(c4w._c4w_verify_proof(ctx), c4w, true);
@@ -319,7 +337,7 @@ export default class C4Client {
     }
 
     if (method_type === undefined)
-      method_type = await this.getMethodSupport(method);
+      method_type = await this.getMethodSupport(method, args);
 
     switch (method_type) {
       case C4MethodType.PROOFABLE: {
@@ -335,7 +353,8 @@ export default class C4Client {
             params: cleanup_args(method, args),
             c4: await get_prover_config_hex(this.config.chainId as number),
             zk_proof: !!this.config.zk_proof,
-            signers: this.config.checkpoint_witness_keys || '0x'
+            signers: this.config.checkpoint_witness_keys || '0x',
+            version: (await getC4w())._c4w_get_current_version_number()
           }, true)
           : await this.createProof(method, args);
         return this.verifyProof(method, args, proof);

@@ -24,6 +24,8 @@
 #ifndef eth_verify_h__
 #define eth_verify_h__
 
+#include "crypto.h"
+#include "state_overrides.h"
 #include "verify.h"
 
 bool verify_account_proof(verify_ctx_t* ctx);
@@ -31,9 +33,9 @@ bool verify_tx_proof(verify_ctx_t* ctx);
 bool verify_receipt_proof(verify_ctx_t* ctx);
 bool verify_logs_proof(verify_ctx_t* ctx);
 bool verify_call_proof(verify_ctx_t* ctx);
-bool verify_simulate_proof(verify_ctx_t* ctx);
 bool verify_block_proof(verify_ctx_t* ctx);
 bool verify_block_number_proof(verify_ctx_t* ctx);
+bool verify_block_header_proof(verify_ctx_t* ctx);
 bool verify_eth_local(verify_ctx_t* ctx);
 
 // helper
@@ -45,6 +47,23 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
 void        eth_set_block_data(verify_ctx_t* ctx, uint32_t mask, ssz_ob_t block, bytes32_t parent_root, bytes32_t withdrawel_root, bool include_txs);
 bool        eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain);
 bool        c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root);
+
+typedef struct evm_call_ctx evm_call_ctx_t;
+
+/**
+ * Shared EVM call verification for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction`.
+ *
+ * Validates JSON args, parses state overrides, runs the EVM, processes the
+ * result according to `ctx->method`, and verifies accounts against the proof.
+ * The caller must populate `evm->accounts` before calling and is responsible
+ * for chain-specific state root verification using `evm->state_root` afterwards.
+ * Cleanup via `evm_call_ctx_free()`.
+ *
+ * @param ctx verification context (method is detected automatically)
+ * @param evm call context with `accounts` populated; outputs written on return
+ * @return true on success, false on verification failure
+ */
+bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm);
 
 /**
  * Computes the EIP-191 `personal_sign` digest for a 32-byte message.

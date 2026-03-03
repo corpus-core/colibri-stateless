@@ -39,6 +39,7 @@
 
 static const char* proofable_methods[] = {
     RPC_METHOD("eth_call", Bytes, EthCallProof),
+    RPC_METHOD("eth_estimateGas", Uint64, EthCallProof),
     RPC_METHOD("colibri_simulateTransaction", EthSimulationResult, EthCallProof),
     RPC_METHOD("eth_getProof", EthProofData, EthAccountProof),
     RPC_METHOD("eth_getBalance", Uint256, EthAccountProof),
@@ -54,6 +55,9 @@ static const char* proofable_methods[] = {
     RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_blockNumber", Uint256, EthBlockNumberProof),
+    RPC_METHOD("eth_getBlockHeader", EthBlockHeaderData, EthBlockHeaderProof),
+    RPC_METHOD("eth_blobBaseFee", Uint256, EthBlockHeaderProof),
+    RPC_METHOD("eth_maxPriorityFeePerGas", Uint256, EthBlockHeaderProof),
     RPC_METHOD("eth_newPendingTransactionFilter", Void, Void),
     RPC_METHOD("eth_newFilter", Void, Void),
     RPC_METHOD("eth_newBlockFilter", Void, Void),
@@ -79,23 +83,38 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_getBlockTransactionCountByHash", Void, Void),
     RPC_METHOD("eth_getBlockTransactionCountByNumber", Void, Void),
     RPC_METHOD("eth_feeHistory", Void, Void),
-    RPC_METHOD("eth_blobBaseFee", Uint64, EthBlockHeaderProof),
     RPC_METHOD("eth_createAccessList", EthAccessData, EthCallProof),
-    RPC_METHOD("eth_estimateGas", Uint64, EthCallProof),
     RPC_METHOD("eth_gasPrice", Void, Void),
     RPC_METHOD("eth_getBlockReceipts", Void, Void),
     RPC_METHOD("eth_getUncleByBlockHash", Void, Void),
     RPC_METHOD("eth_getUncleByBlockNumber", Void, Void),
     RPC_METHOD("eth_getUncleCountByBlockHash", Void, Void),
     RPC_METHOD("eth_getUncleCountByBlockNumber", Void, Void),
-    RPC_METHOD("eth_maxPriorityFeePerGas", Void, Void),
     RPC_METHOD("eth_sendRawTransaction", Void, Void),
 };
 
-method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method) {
+static bool is_nullable_method(char* method) {
+  return method && (strcmp(method, "eth_getTransactionByHash") == 0 || strcmp(method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 || strcmp(method, "eth_getTransactionReceipt") == 0);
+}
+static bool is_call_method(char* method) {
+  return strcmp(method, "eth_call") == 0 || strcmp(method, "eth_estimateGas") == 0 || strcmp(method, "colibri_simulateTransaction") == 0;
+}
+
+static bool no_proof(verify_ctx_t* ctx) {
+  return ctx->proof.def->type == SSZ_TYPE_NONE;
+}
+method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
+  (void) params;
+  (void) flags;
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return METHOD_UNDEFINED;
+
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
-    if (strcmp(method, proofable_methods[i]) == 0) return METHOD_PROOFABLE;
+    if (strcmp(method, proofable_methods[i]) == 0) {
+      if (flags & VERIFY_FLAG_PAP && is_call_method(method))
+        return METHOD_LOCAL;
+      else
+        return METHOD_PROOFABLE;
+    }
   }
   for (int i = 0; i < sizeof(local_methods) / sizeof(local_methods[0]); i++) {
     if (strcmp(method, local_methods[i]) == 0) return METHOD_LOCAL;
@@ -135,12 +154,8 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
   else
 #endif
 #ifdef ETH_CALL
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF))) {
-    if (ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0)
-      verify_simulate_proof(ctx);
-    else
-      verify_call_proof(ctx);
-  }
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF)) || (no_proof(ctx) && is_call_method(ctx->method)))
+    verify_call_proof(ctx);
   else
 #endif
 #ifdef ETH_BLOCK
@@ -148,15 +163,19 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
     verify_block_proof(ctx);
   else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF)))
     verify_block_number_proof(ctx);
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF)))
+    verify_block_header_proof(ctx);
   else
 #endif
 #ifdef ETH_UTIL
-      if (c4_eth_get_method_type(ctx->chain_id, ctx->method) == METHOD_LOCAL)
+      if (c4_eth_get_method_type(ctx->chain_id, ctx->method, ctx->args, ctx->flags) == METHOD_LOCAL)
     verify_eth_local(ctx);
   else
 #endif
       if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok
+  else if (ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type == SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE && is_nullable_method(ctx->method))
+    ctx->success = true; // this means there is simply nothing to verify.
   else {
     ctx->state.error = strdup("proof is not a supported proof type or not enabled");
     ctx->success     = false;

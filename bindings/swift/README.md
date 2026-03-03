@@ -47,6 +47,14 @@ colibri.chainId = 137    // Polygon
 colibri.chainId = 42161  // Arbitrum
 ```
 
+### Privacy (PAP)
+
+Enable Pragmatic Adaptive Privacy to reduce intent leakage (e.g. use cached storage when available):
+
+```swift
+colibri.privacyMode = .basic  // default: .none
+```
+
 ### Custom Storage
 
 ```swift

@@ -4,6 +4,7 @@ Storage interfaces and implementations for Colibri
 
 import os
 import tempfile
+import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Optional, List
@@ -74,7 +75,11 @@ class MemoryStorage(ColibriStorage):
 
 
 class DefaultStorage(ColibriStorage):
-    """Default file-based storage implementation"""
+    """Thread-safe file-based storage implementation.
+    
+    All operations are serialized with a lock and writes use atomic
+    rename to prevent corruption from concurrent access.
+    """
 
     def __init__(self, base_dir: Optional[str] = None):
         """
@@ -91,10 +96,10 @@ class DefaultStorage(ColibriStorage):
         
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        
+        self._lock = threading.Lock()
+
     def _get_file_path(self, key: str) -> Path:
         """Get the file path for a storage key"""
-        # Sanitize the key to be filesystem-safe
         safe_key = "".join(c for c in key if c.isalnum() or c in "._-")
         if not safe_key:
             safe_key = "empty"
@@ -102,50 +107,58 @@ class DefaultStorage(ColibriStorage):
 
     def get(self, key: str) -> Optional[bytes]:
         """Retrieve data from file"""
-        try:
-            file_path = self._get_file_path(key)
-            if file_path.exists():
-                return file_path.read_bytes()
-            return None
-        except (OSError, IOError) as e:
-            raise StorageError(f"Failed to read key '{key}'") from e
+        with self._lock:
+            try:
+                file_path = self._get_file_path(key)
+                if file_path.exists():
+                    return file_path.read_bytes()
+                return None
+            except (OSError, IOError) as e:
+                raise StorageError(f"Failed to read key '{key}'") from e
 
     def set(self, key: str, value: bytes) -> None:
-        """Store data to file"""
-        try:
-            file_path = self._get_file_path(key)
-            file_path.write_bytes(value)
-        except (OSError, IOError) as e:
-            raise StorageError(f"Failed to write key '{key}'") from e
+        """Store data to file (atomic write via temp + rename)"""
+        with self._lock:
+            try:
+                file_path = self._get_file_path(key)
+                tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+                tmp_path.write_bytes(value)
+                tmp_path.replace(file_path)
+            except (OSError, IOError) as e:
+                raise StorageError(f"Failed to write key '{key}'") from e
 
     def delete(self, key: str) -> None:
         """Delete file"""
-        try:
-            file_path = self._get_file_path(key)
-            if file_path.exists():
-                file_path.unlink()
-        except (OSError, IOError) as e:
-            raise StorageError(f"Failed to delete key '{key}'") from e
+        with self._lock:
+            try:
+                file_path = self._get_file_path(key)
+                if file_path.exists():
+                    file_path.unlink()
+            except (OSError, IOError) as e:
+                raise StorageError(f"Failed to delete key '{key}'") from e
 
     def list_keys(self) -> List[str]:
         """List all stored keys"""
-        try:
-            return [f.name for f in self.base_dir.iterdir() if f.is_file()]
-        except (OSError, IOError) as e:
-            raise StorageError("Failed to list keys") from e
+        with self._lock:
+            try:
+                return [f.name for f in self.base_dir.iterdir() if f.is_file()]
+            except (OSError, IOError) as e:
+                raise StorageError("Failed to list keys") from e
 
     def clear(self) -> None:
         """Clear all stored data"""
-        try:
-            for file_path in self.base_dir.iterdir():
-                if file_path.is_file():
-                    file_path.unlink()
-        except (OSError, IOError) as e:
-            raise StorageError("Failed to clear storage") from e
+        with self._lock:
+            try:
+                for file_path in self.base_dir.iterdir():
+                    if file_path.is_file():
+                        file_path.unlink()
+            except (OSError, IOError) as e:
+                raise StorageError("Failed to clear storage") from e
 
     def size(self) -> int:
         """Get the number of stored files"""
-        try:
-            return len([f for f in self.base_dir.iterdir() if f.is_file()])
-        except (OSError, IOError):
-            return 0
+        with self._lock:
+            try:
+                return len([f for f in self.base_dir.iterdir() if f.is_file()])
+            except (OSError, IOError):
+                return 0

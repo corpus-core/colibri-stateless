@@ -14,6 +14,32 @@ The colibri client is a stateless and trustless ethereum client, which is optimi
 npm install @corpus-core/colibri-stateless
 ```
 
+## Import / Usage (ESM and CommonJS)
+
+Colibri is published as a **dual package** and can be used in both ESM and CommonJS environments.
+
+### ESM (browsers, modern bundlers, Node ESM)
+
+```js
+import Colibri, { Strategy, set_wasm_url } from "@corpus-core/colibri-stateless";
+
+// Optional: only needed if you want to pin the WASM location explicitly
+// set_wasm_url("https://example.com/c4w.wasm");
+
+const client = new Colibri();
+```
+
+### CommonJS (e.g. Jest, older Node toolchains)
+
+```js
+const { default: Colibri, Strategy, set_wasm_url } = require("@corpus-core/colibri-stateless");
+
+// Optional: in Node you can explicitly point to the wasm file path
+// set_wasm_url(require("node:path").join(__dirname, "c4w.wasm"));
+
+const client = new Colibri();
+```
+
 ## Using Colibri as RPC Provider
 
 The Colibri Class implements the EIP-1193 Interface, so any library supporting EIP-1193 Providers can easily use Colibri as RPCProvider. 
@@ -256,6 +282,10 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ include_code:  true})
     ```
+- `privacy_mode` - **PAP (Pragmatic Adaptive Privacy)** mode: `"none"` (default) or `"basic"`. With `"basic"`, the verifier may use cached storage for optimistic execution and verify afterwards; method type can depend on params.
+    ```js
+    new Colibri({ privacy_mode: "basic" })
+    ```
 
 - `verify`- a function to decide which request should be verified and which should be fetched from the default RPC-Provider. It allows you to speed up performance for requests which are not critical.
     ```js
@@ -345,6 +375,51 @@ If you prefer not to use presets or your environment doesn't support them well:
 
 After a successful build (using either method), the JS/WASM module will be in the configured build directory's `emscripten` subfolder (e.g., `build/wasm/emscripten`).
 
+
+## Debugging WASM
+
+When tracking down bugs in the C core running as WASM, there are two approaches depending on the level of detail you need.
+
+### Source-level C debugging in the browser (recommended)
+
+The `wasm-debug` CMake preset produces a WASM build with full [DWARF](https://yurydelendik.github.io/webassembly-dwarf/) debug info. Combined with the Chrome extension **C/C++ DevTools Support (DWARF)**, this allows setting breakpoints in C source files, inspecting variables and structs, and stepping through C code directly in Chrome DevTools.
+
+1. Install the Chrome extension [C/C++ DevTools Support (DWARF)](https://chromewebstore.google.com/detail/cc++-devtools-support-dwa/pdcpmagijalfljmkmjngeonclgbbannb).
+
+2. Build with the debug preset:
+   ```sh
+   cmake --preset wasm-debug
+   cmake --build build/wasm-debug
+   ```
+
+3. Serve the project root (so both build output and source files are accessible):
+   ```sh
+   python3 -m http.server 8080
+   ```
+
+4. Open the debug test harness in Chrome:
+   ```
+   http://localhost:8080/bindings/emscripten/test/debug.html
+   ```
+
+5. Open DevTools (F12), go to the **Sources** tab. After the WASM module loads, your C source files appear in the file tree. Set breakpoints, select a test case, and click Run.
+
+> **Note:** The DWARF extension only works in browser tabs, not in Node.js inspect sessions. For C-level debugging, always use the browser approach.
+
+The debug build uses `-O1` instead of `-O0` to keep crypto operations (BLS, SHA256) at a reasonable speed while preserving most debug information. If you need full variable visibility at the cost of performance, change `-O1` to `-O0` in `bindings/emscripten/CMakeLists.txt`.
+
+### Node.js test debugging (JS-level)
+
+For debugging the JavaScript/TypeScript layer or seeing C function names in stack traces without full source mapping:
+
+```sh
+cd bindings/emscripten
+node --inspect-brk --test test/rpc.test.mjs
+```
+
+Then open `chrome://inspect` in Chrome and click "inspect" on the Node.js target. You can set breakpoints in the JS/TS files and see readable C function names in call stacks (via `--profiling-funcs`), but C source stepping is not available in this mode.
+
+There is also a VS Code / Cursor launch configuration **"WASM Node Test (inspect)"** that starts the debugger automatically.
 
 ## Concept
 

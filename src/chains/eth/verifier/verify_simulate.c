@@ -30,29 +30,16 @@
 //
 // Simulates a Transaction before signing it. The input arguments are the same as eth_call, but the result represents the events created when executing the transaction.
 
-#include "beacon_types.h"
 #include "bytes.h"
 #include "call_ctx.h"
-#include "crypto.h"
-#include "eth_account.h"
-#include "eth_verify.h"
-#include "json.h"
-#include "patricia.h"
-#include "rlp.h"
 #include "ssz.h"
-#include "sync_committee.h"
-#include "verify_data_types.h" // For ETH_SIMULATION_* definitions
+#include "verify_data_types.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
-// Forward declaration
-c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, call_code_t* call_codes, ssz_ob_t accounts, json_t tx, bytes_t* call_result, emitted_log_t** logs, bool capture_events);
+const char* eth_decode_known_event(const emitted_log_t* log, ssz_builder_t* inputs_builder);
 
-// Function to build simulation result in SSZ format using ssz_builder_t (Tenderly-compatible)
-// Shared between ETH and OP Stack
 ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload) {
   ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_SIMULATION));
 
@@ -72,13 +59,26 @@ ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* log
   for (emitted_log_t* log = logs; log; log = log->next) {
     ssz_builder_t log_builder = ssz_builder_for_def(logs_builder.def->def.vector.type);
 
-    // Build log with minimal mask - only 'raw' field will be shown in JSON
-    ssz_add_uint16(&log_builder, ETH_SIMULATION_LOG_MASK_RAW); // _optmask - only raw field (bit 4)
-    ssz_add_uint8(&log_builder, 0);                            // anonymous (hidden by mask)
-    ssz_add_bytes(&log_builder, "inputs", NULL_BYTES);         // no inputs yet (hidden by mask)
-    ssz_add_bytes(&log_builder, "name", NULL_BYTES);           // name (hidden by mask)
+    // Try to decode known event (ERC20, ERC721, Uniswap, WETH)
+    ssz_builder_t inputs_builder = ssz_builder_for_def(ssz_get_def(log_builder.def, "inputs"));
+    const char*   event_name     = eth_decode_known_event(log, &inputs_builder);
 
-    // raw (visible) - the only field shown
+    if (event_name) {
+      // Decoded event: show inputs, name, and raw fields
+      ssz_add_uint16(&log_builder, ETH_SIMULATION_LOG_MASK_INPUTS | ETH_SIMULATION_LOG_MASK_NAME | ETH_SIMULATION_LOG_MASK_RAW);
+      ssz_add_uint8(&log_builder, 0); // anonymous = false
+      ssz_add_builders(&log_builder, "inputs", inputs_builder);
+      ssz_add_bytes(&log_builder, "name", bytes((uint8_t*) event_name, strlen(event_name)));
+    }
+    else {
+      // Unknown event: only show raw field
+      ssz_add_uint16(&log_builder, ETH_SIMULATION_LOG_MASK_RAW);
+      ssz_add_uint8(&log_builder, 0);
+      ssz_add_bytes(&log_builder, "inputs", NULL_BYTES);
+      ssz_add_bytes(&log_builder, "name", NULL_BYTES);
+    }
+
+    // raw (always visible)
     ssz_builder_t raw_builder = ssz_builder_for_def(ssz_get_def(log_builder.def, "raw"));
     ssz_add_bytes(&raw_builder, "address", bytes(log->address, 20));
     ssz_add_bytes(&raw_builder, "data", log->data);
@@ -103,63 +103,4 @@ ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* log
 
   // Build and return the SSZ object
   return ssz_builder_to_bytes(&builder);
-}
-
-// Function to verify simulate transaction proof
-bool verify_simulate_proof(verify_ctx_t* ctx) {
-  bytes32_t      body_root   = {0};
-  bytes32_t      state_root  = {0};
-  ssz_ob_t       state_proof = ssz_get(&ctx->proof, "state_proof");
-  ssz_ob_t       accounts    = ssz_get(&ctx->proof, "accounts");
-  ssz_ob_t       header      = ssz_get(&state_proof, "header");
-  bytes_t        call_result = NULL_BYTES;
-  emitted_log_t* logs        = NULL;
-  call_code_t*   call_codes  = NULL;
-  bool           match       = false;
-
-  CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block]", "Invalid transaction");
-
-  if (eth_get_call_codes(ctx, &call_codes, accounts) != C4_SUCCESS) return false;
-
-#ifdef EVMONE
-  c4_status_t call_status = eth_run_call_evmone_with_events(ctx, call_codes, accounts, json_at(ctx->args, 0), &call_result, &logs, true);
-#else
-  c4_status_t call_status = c4_state_add_error(&ctx->state, "no EVM is enabled, build with -DEVMONE=1");
-#endif
-
-  if (call_status != C4_SUCCESS) {
-    free_emitted_logs(logs);
-    eth_free_codes(call_codes);
-    return false;
-  }
-
-  // Build simulation result using SSZ (Tenderly-compatible format)
-  bool     success  = (call_status == C4_SUCCESS && ctx->state.error == NULL);
-  uint64_t gas_used = 21000; // TODO: Get actual gas usage from EVM execution
-
-  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(call_result, logs, success, gas_used, NULL);
-
-  // Set the result
-  if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
-    ctx->data = simulation_result;
-    ctx->flags |= VERIFY_FLAG_FREE_DATA;
-    match = true;
-  }
-  else {
-    match = simulation_result.bytes.data && bytes_eq(simulation_result.bytes, ctx->data.bytes);
-    if (simulation_result.bytes.data) safe_free(simulation_result.bytes.data);
-  }
-
-  // Cleanup
-  safe_free(call_result.data);
-  free_emitted_logs(logs);
-  eth_free_codes(call_codes);
-
-  if (!match) RETURN_VERIFY_ERROR(ctx, "Simulation result mismatch");
-  if (!c4_eth_verify_accounts(ctx, accounts, state_root)) RETURN_VERIFY_ERROR(ctx, "Failed to verify accounts");
-  if (!eth_verify_state_proof(ctx, state_proof, state_root)) return false;
-  if (c4_verify_header(ctx, header, state_proof) != C4_SUCCESS) return false;
-
-  ctx->success = true;
-  return ctx->success;
 }

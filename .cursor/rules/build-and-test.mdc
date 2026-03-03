@@ -1,0 +1,81 @@
+---
+description: Build system and test conventions for the colibri-stateless project
+globs: ["CMakeLists.txt", "**/CMakeLists.txt", "test/**/*.c", "scripts/**"]
+---
+
+# Build and Test
+
+## Building
+
+Use CMake presets for standard builds:
+
+```bash
+cmake --preset default          # Debug with OP-Stack + HTTP server + tests
+cmake --build build/default     # Build everything
+```
+
+Available presets: `default`, `testing`, `full-features`, `wasm`, `wasm-profile`.
+
+## Running Tests
+
+```bash
+ctest --test-dir build/default                        # All tests
+./build/default/test/unittests/test_<feature>          # Single test
+```
+
+## Creating New Tests
+
+1. Create `test/unittests/test_<feature>.c` using the Unity pattern.
+2. No need to modify any `CMakeLists.txt` -- test files are auto-discovered.
+3. Use `setUp()`/`tearDown()` for per-test setup.
+4. Register tests with `RUN_TEST(test_function_name)` in `main()`.
+5. For RPC tests, use `./scripts/create_test.sh <testname> <method> <args...>` to generate test data.
+
+## Test Pattern
+
+```c
+#include "unity.h"
+
+void setUp(void) { }
+void tearDown(void) { }
+
+void test_my_feature(void) {
+    TEST_ASSERT_EQUAL_INT(expected, actual);
+}
+
+int main(void) {
+    UNITY_BEGIN();
+    RUN_TEST(test_my_feature);
+    return UNITY_END();
+}
+```
+
+## Adding New Chain Modules
+
+Register verifier and prover in the chain's `CMakeLists.txt`:
+
+```cmake
+add_verifier(
+  NAME my_verifier
+  GET_REQ_TYPE my_get_request_type
+  VERIFY my_verify
+  METHOD_TYPE my_get_method_type
+)
+
+add_prover(
+  NAME my_prover
+  PROOF my_prover_execute
+)
+```
+
+These macros are defined in `src/chains/chains.cmake`.
+
+## Key CMake Options
+
+- `TEST=ON` -- build unit tests
+- `HTTP_SERVER=ON` -- build HTTP server
+- `CHAIN_OP=ON` -- include OP-Stack support
+- `CHAIN_ETH=ON` -- include Ethereum support (default ON)
+- `EMBEDDED=ON` -- build for embedded target
+- `WASM=ON` -- build WebAssembly
+- `COVERAGE=ON` -- enable test coverage

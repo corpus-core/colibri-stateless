@@ -1,0 +1,66 @@
+---
+description: Memory management patterns and conventions in colibri-stateless
+globs: ["src/**/*.c", "src/**/*.h"]
+---
+
+# Memory Management
+
+## Safe Allocation
+
+Always use safe allocation wrappers (defined in `src/util/bytes.h`). They abort on OOM:
+
+- `safe_malloc(size)` -- allocate memory, abort if NULL
+- `safe_calloc(count, size)` -- allocate zeroed memory
+- `safe_realloc(ptr, size)` -- resize allocation
+- `safe_free(ptr)` -- free memory (macro for `free()`)
+
+## Ownership Annotations
+
+Use Clang static analyzer annotations for ownership tracking:
+
+- `M_RET` -- function returns newly allocated memory (caller owns it)
+- `M_TAKE(n)` -- function takes ownership of parameter n (will free it)
+
+```c
+prover_ctx_t* c4_prover_create(...) M_RET;     // Caller must free
+void c4_prover_free(prover_ctx_t* ctx) M_TAKE(1); // Takes ownership
+```
+
+## bytes_t (Fat Pointer)
+
+`bytes_t` is a non-owning view: `{uint32_t len, uint8_t* data}`. Passed by value.
+
+- `NULL_BYTES` -- the zero/empty value `{0, NULL}`
+- `bytes_dup(b)` -- create a heap-allocated copy (caller must free the `.data`)
+- Never free a `bytes_t` directly unless you created it with `bytes_dup()`.
+
+## buffer_t (Growable Buffer)
+
+`buffer_t` is an owning growable buffer: `{bytes_t data, int32_t allocated}`.
+
+- `allocated > 0` -- heap-allocated, must be freed with `buffer_free()`
+- `allocated < 0` -- fixed/stack buffer, do NOT free
+- `allocated == 0` -- uninitialized/empty
+
+```c
+buffer_t buf = {0};               // Start empty
+buffer_append(&buf, some_bytes);   // Grow and append
+buffer_free(&buf);                 // Free only if heap-allocated
+```
+
+Use `buffer_grow(&buf, needed)` to pre-allocate capacity.
+
+## State Machine Cleanup
+
+- `c4_state_free(state)` -- free all requests and errors in a state.
+- `c4_request_free(req)` -- free a single data request.
+- Always free prover/verifier contexts when done:
+  - `c4_prover_free(ctx)` for prover
+  - Verifier context: `c4_state_free(&ctx.state)`
+
+## Common Pitfalls
+
+- `bytes_t` is a view -- do not use it after the underlying buffer is freed.
+- `buffer_t` with `allocated < 0` is stack-based -- do not return it from a function.
+- SSZ objects (`ssz_ob_t`) reference memory from the original proof bytes -- do not free proof data while SSZ objects are in use.
+- `bprintf()` writes into a `buffer_t` -- make sure the buffer is initialized before use.

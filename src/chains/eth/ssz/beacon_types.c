@@ -130,3 +130,42 @@ fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch) {
   while (data->fork_epochs[i] && epoch >= data->fork_epochs[i]) i++;
   return (fork_id_t) i;
 }
+
+const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot) {
+  // EP at gindex 25 in BeaconBlockBody (index 9, depth 4), field index i in EP (depth 5) → 25*32+i
+  // Deneb: body has 12 fields, EP has 17 fields → EP gindex=25, same layout
+  // Electra: body has 13 fields, EP has 17 fields → EP gindex=25, same layout
+  static const gindex_t deneb_gindexes[BLOCK_HEADER_FIELD_COUNT] = {
+      800,  // parentHash    (EP index 0)
+      802,  // stateRoot     (EP index 2)
+      803,  // receiptsRoot  (EP index 3)
+      804,  // logsBloom     (EP index 4)
+      806,  // blockNumber   (EP index 6)
+      807,  // gasLimit      (EP index 7)
+      808,  // gasUsed       (EP index 8)
+      809,  // timestamp     (EP index 9)
+      811,  // baseFeePerGas (EP index 11)
+      812,  // blockHash     (EP index 12)
+      815,  // blobGasUsed   (EP index 15)
+      816}; // excessBlobGas (EP index 16)
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  fork_id_t           fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
+  (void) fork;
+  return deneb_gindexes;
+}
+
+const gindex_t* c4_call_block_context_gindexes(void) {
+  // Order matches leaf layout: stateRoot, blockNumber, timestamp, coinbase, prevRandao, baseFeePerGas, blockHash, gasLimit, excessBlobGas
+  static const gindex_t gindexes[CALL_BLOCK_CONTEXT_FIELD_COUNT] = {
+      802,  // stateRoot     (EP index 2)
+      806,  // blockNumber   (EP index 6)
+      809,  // timestamp     (EP index 9)
+      801,  // feeRecipient  (EP index 1)
+      805,  // prevRandao    (EP index 5)
+      811,  // baseFeePerGas (EP index 11)
+      812,  // blockHash     (EP index 12)
+      807,  // gasLimit      (EP index 7)
+      816   // excessBlobGas (EP index 16)
+  };
+  return gindexes;
+}

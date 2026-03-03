@@ -41,6 +41,7 @@
 
 #define GINDEX_BLOCKUMBER 806
 #define GINDEX_TIMESTAMP  809
+
 static const char* SHA3_UNCLUES = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
 static const char* EMPTY_SHA256 = "\xe3\xb0\xc4\x42\x98\xfc\x1c\x14\x9a\xfb\xf4\xc8\x99\x6f\xb9\x24\x27\xae\x41\xe4\x64\x9b\x93\x4c\xa4\x95\x99\x1b\x78\x52\xb8\x55";
 
@@ -119,9 +120,15 @@ void eth_set_block_data(verify_ctx_t* ctx, uint32_t mask, ssz_ob_t block, bytes3
 }
 
 static bool matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_block) {
-  if (req_block.type != JSON_TYPE_STRING || req_block.len < 6) RETURN_VERIFY_ERROR(ctx, "invalid blocknumber");
-  if (req_block.start[1] != '0' || req_block.start[2] != 'x') return true;
-  if (req_block.len == 68) { // hash
+  const char* err = json_validate(req_block, req_block.len == 68 ? "bytes32" : "block", "params[0]");
+  if (err) {
+    c4_state_add_error(&ctx->state, err);
+    safe_free((void*) err);
+    ctx->success = false;
+    return false;
+  }
+  if (req_block.start[1] != '0' || req_block.start[2] != 'x') return true; // already validated as 'latest' or 'finalized'
+  if (req_block.len == 68) {                                               // hash
     bytes32_t hash = {0};
     buffer_t  buf  = stack_buffer(hash);
     json_as_bytes(req_block, &buf);
@@ -181,6 +188,81 @@ bool verify_block_number_proof(verify_ctx_t* ctx) {
 
   // TODO check if the timestamp is not in the future and within the 30s of the current time
   ctx->data    = block_number;
+  ctx->success = true;
+  return true;
+}
+
+// EIP-4844 blob base fee: factor * e^(numerator/denominator) via Taylor series.
+// Uses (a*b)/c = (a/c)*b + (a%c)*b/c to avoid 128-bit intermediate values.
+static uint64_t fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator) {
+  uint64_t i = 1, output = 0, numerator_accum = factor * denominator;
+  while (numerator_accum > 0) {
+    output += numerator_accum;
+    uint64_t div    = denominator * i;
+    uint64_t q      = numerator_accum / div;
+    uint64_t r      = numerator_accum % div;
+    numerator_accum = q * numerator + r * numerator / div;
+    i++;
+  }
+  return output / denominator;
+}
+
+static bool is_block_header_method(const char* method) {
+  return strcmp(method, "eth_getBlockHeader") == 0 || strcmp(method, "eth_blobBaseFee") == 0 || strcmp(method, "eth_maxPriorityFeePerGas") == 0;
+}
+
+bool verify_block_header_proof(verify_ctx_t* ctx) {
+  if (!ssz_is_type(&ctx->data, eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_HEADER)))
+    RETURN_VERIFY_ERROR(ctx, "invalid data type for block header proof");
+  if (!ctx->method || !is_block_header_method(ctx->method))
+    RETURN_VERIFY_ERROR(ctx, "method mismatch for block header proof");
+  if (json_len(ctx->args) > 1)
+    RETURN_VERIFY_ERROR(ctx, "invalid arguments for block header proof");
+
+  bytes32_t       body_root                             = {0};
+  ssz_ob_t        proof                                 = ssz_get(&ctx->proof, "proof");
+  ssz_ob_t        header                                = ssz_get(&ctx->proof, "header");
+  uint64_t        slot                                  = ssz_get_uint64(&header, "slot");
+  const gindex_t* gi                                    = c4_block_header_gindexes(ctx->chain_id, slot);
+  uint8_t         leafes[BLOCK_HEADER_FIELD_COUNT * 32] = {0};
+
+  // bytes32 fields
+  memcpy(leafes + 0 * 32, ssz_get(&ctx->data, "parentHash").bytes.data, 32);
+  memcpy(leafes + 1 * 32, ssz_get(&ctx->data, "stateRoot").bytes.data, 32);
+  memcpy(leafes + 2 * 32, ssz_get(&ctx->data, "receiptsRoot").bytes.data, 32);
+  ssz_hash_tree_root(ssz_get(&ctx->data, "logsBloom"), leafes + 3 * 32);     // logsBloom is 256 bytes (ByteVector) -- leaf is its hash_tree_root
+  memcpy(leafes + 4 * 32, ssz_get(&ctx->data, "blockNumber").bytes.data, 8); // uint64 fields (8 bytes LE, zero-padded to 32)
+  memcpy(leafes + 5 * 32, ssz_get(&ctx->data, "gasLimit").bytes.data, 8);
+  memcpy(leafes + 6 * 32, ssz_get(&ctx->data, "gasUsed").bytes.data, 8);
+  memcpy(leafes + 7 * 32, ssz_get(&ctx->data, "timestamp").bytes.data, 8);
+  memcpy(leafes + 8 * 32, ssz_get(&ctx->data, "baseFeePerGas").bytes.data, 32); // uint256 (32 bytes LE)
+  memcpy(leafes + 9 * 32, ssz_get(&ctx->data, "blockHash").bytes.data, 32);     // bytes32
+  memcpy(leafes + 10 * 32, ssz_get(&ctx->data, "blobGasUsed").bytes.data, 8);   // uint64 fields
+  memcpy(leafes + 11 * 32, ssz_get(&ctx->data, "excessBlobGas").bytes.data, 8);
+
+  if (!ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, sizeof(leafes)), gi, body_root))
+    RETURN_VERIFY_ERROR(ctx, "invalid block header merkle proof!");
+  if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0)
+    RETURN_VERIFY_ERROR(ctx, "invalid body root!");
+  if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
+  if (json_len(ctx->args) >= 1 && !matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
+
+  if (strcmp(ctx->method, "eth_blobBaseFee") == 0) {
+    uint64_t      fee     = fake_exponential(1, ssz_get_uint64(&ctx->data, "excessBlobGas"), 3338477);
+    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+    ssz_add_uint64(&builder, fee);
+    buffer_append(&builder.fixed, bytes(NULL, 24));
+    ctx->data = ssz_builder_to_bytes(&builder);
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+  else if (strcmp(ctx->method, "eth_maxPriorityFeePerGas") == 0) {
+    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+    ssz_add_uint64(&builder, 1000000000ULL);
+    buffer_append(&builder.fixed, bytes(NULL, 24));
+    ctx->data = ssz_builder_to_bytes(&builder);
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+
   ctx->success = true;
   return true;
 }

@@ -108,10 +108,10 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_BYTES32("r"),                                                          // the r value of the transaction
     SSZ_BYTES32("s"),                                                          // the s value of the transaction signature
     SSZ_UINT32("chainId"),                                                     // the chain ID of the transaction
-    SSZ_UINT8("v"),                                                            // the v value of the transaction signature
+    SSZ_UINT64("v"),                                                           // the v value of the transaction signature
     SSZ_UINT64("gas"),                                                         // the gas limit
     SSZ_ADDRESS("from"),                                                       // the sender of the transaction
-    SSZ_BYTES("to", 20),                                                       // the target of the transaction
+    SSZ_NULLABLE_BYTES("to", 20),                                              // the target of the transaction
     SSZ_UINT256("value"),                                                      // the value of the transaction
     SSZ_UINT64("gasPrice"),                                                    // the gas price of the transaction
     SSZ_UINT64("maxFeePerGas"),                                                // the maxFeePerGas of the transaction
@@ -166,7 +166,7 @@ static const ssz_def_t ETH_RECEIPT_DATA[] = {
 }; // the gasPrice of the transaction
 
 // Container type for transaction data
-static const ssz_def_t ETH_TX_DATA_CONTAINER              = SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA);
+static const ssz_def_t ETH_TX_DATA_CONTAINER = SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA);
 // Union type for block transactions: either as hashes or as full transaction data
 static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNION[] = {
     SSZ_LIST("as_hashes", ssz_bytes32, 4096),         // the transactions hashes
@@ -206,6 +206,24 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
 
 };
 
+// Compact block header data containing selected fields from the ExecutionPayload.
+// Used by eth_getBlockHeader, eth_gasPrice, eth_blobBaseFee, eth_maxPriorityFeePerGas,
+// and as a lightweight verified header cache for eth_call privacy mode and log filters.
+static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
+    SSZ_BYTES32("parentHash"),         // the hash of the parent block
+    SSZ_BYTES32("stateRoot"),          // the merkle root of the state at the end of the block
+    SSZ_BYTES32("receiptsRoot"),       // the merkle root of the transaction receipts
+    SSZ_BYTE_VECTOR("logsBloom", 256), // the bloom filter of the logs
+    SSZ_UINT64("blockNumber"),         // the block number
+    SSZ_UINT64("gasLimit"),            // the gas limit of the block
+    SSZ_UINT64("gasUsed"),             // the gas used of the block
+    SSZ_UINT64("timestamp"),           // the timestamp of the block
+    SSZ_UINT256("baseFeePerGas"),      // the base fee per gas of the block
+    SSZ_BYTES32("blockHash"),          // the hash of the block
+    SSZ_UINT64("blobGasUsed"),         // the gas used for the blob transactions
+    SSZ_UINT64("excessBlobGas"),       // the excess blob gas of the block
+};
+
 // :: Account Proof
 
 // Represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
@@ -221,10 +239,10 @@ static const ssz_def_t ETH_STORAGE_PROOF_DATA_CONTAINER = SSZ_CONTAINER("Storage
 // Account proof data as returned by eth_getProof.
 // Contains the account state and Merkle proofs for account and storage values.
 static const ssz_def_t ETH_PROOF_DATA[] = {
-    SSZ_UINT256("balance"),                                      // the account balance
-    SSZ_BYTES32("codeHash"),                                     // the hash of the contract code (empty for EOA)
-    SSZ_UINT256("nonce"),                                        // the account nonce
-    SSZ_BYTES32("storageHash"),                                 // the root hash of the storage trie
+    SSZ_UINT256("balance"),                                          // the account balance
+    SSZ_BYTES32("codeHash"),                                         // the hash of the contract code (empty for EOA)
+    SSZ_UINT256("nonce"),                                            // the account nonce
+    SSZ_BYTES32("storageHash"),                                      // the root hash of the storage trie
     SSZ_LIST("accountProof", ssz_bytes_list, 256),                   // Patricia Merkle proof for the account (from state root to account)
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_DATA_CONTAINER, 256), // the storage proofs for requested storage keys
 };

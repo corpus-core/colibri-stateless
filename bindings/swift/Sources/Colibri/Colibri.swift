@@ -10,55 +10,60 @@ public protocol ColibriStorage {
     func delete(key: String)
 }
 
-/// Default file storage implementation (similar to C FILE_STORAGE)
+/// Thread-safe file storage implementation (similar to C FILE_STORAGE).
+/// All operations are serialized on a private queue to prevent races when
+/// multiple verifier contexts run in parallel.
 private class DefaultFileStorage: ColibriStorage {
     private let baseDirectory: URL
-    
+    private let queue = DispatchQueue(label: "com.corpuscore.colibri.storage")
+
     init() {
-        // Use C4_STATES_DIR environment variable or current directory
         if let statesDir = ProcessInfo.processInfo.environment["C4_STATES_DIR"] {
             baseDirectory = URL(fileURLWithPath: statesDir)
         } else {
             baseDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         }
-        
-        // Ensure directory exists
         try? FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
         print("🗄️ Default Storage: Using directory \(baseDirectory.path)")
     }
-    
+
     func get(key: String) -> Data? {
-        let fileURL = baseDirectory.appendingPathComponent(key)
-        
-        do {
-            let data = try Data(contentsOf: fileURL)
-            print("🗄️ Default Storage GET: \(key) (\(data.count) bytes)")
-            return data
-        } catch {
-            // File not found is normal for storage
-            return nil
+        queue.sync {
+            let fileURL = baseDirectory.appendingPathComponent(key)
+            do {
+                let data = try Data(contentsOf: fileURL)
+                print("🗄️ Default Storage GET: \(key) (\(data.count) bytes)")
+                return data
+            } catch {
+                return nil
+            }
         }
     }
-    
+
     func set(key: String, value: Data) {
-        let fileURL = baseDirectory.appendingPathComponent(key)
-        
-        do {
-            try value.write(to: fileURL)
-            print("🗄️ Default Storage SET: \(key) (\(value.count) bytes)")
-        } catch {
-            print("🗄️ Default Storage SET ERROR: \(key) - \(error)")
+        queue.sync {
+            let fileURL = baseDirectory.appendingPathComponent(key)
+            let tmpURL  = fileURL.appendingPathExtension("tmp")
+            do {
+                try value.write(to: tmpURL)
+                try? FileManager.default.removeItem(at: fileURL)
+                try FileManager.default.moveItem(at: tmpURL, to: fileURL)
+                print("🗄️ Default Storage SET: \(key) (\(value.count) bytes)")
+            } catch {
+                print("🗄️ Default Storage SET ERROR: \(key) - \(error)")
+            }
         }
     }
-    
+
     func delete(key: String) {
-        let fileURL = baseDirectory.appendingPathComponent(key)
-        
-        do {
-            try FileManager.default.removeItem(at: fileURL)
-            print("🗄️ Default Storage DELETE: \(key)")
-        } catch {
-            // File not found is normal for delete
+        queue.sync {
+            let fileURL = baseDirectory.appendingPathComponent(key)
+            do {
+                try FileManager.default.removeItem(at: fileURL)
+                print("🗄️ Default Storage DELETE: \(key)")
+            } catch {
+                // File not found is normal for delete
+            }
         }
     }
 }
@@ -191,6 +196,13 @@ public struct DataRequest {
     }
 }
 
+// MARK: - Privacy Mode
+/// Pragmatic Adaptive Privacy mode. BASIC sets verify flag for PAP.
+public enum PrivacyMode: String, CaseIterable {
+    case none
+    case basic
+}
+
 // MARK: - Method Types
 public enum MethodType: Int, CaseIterable {
     case UNKNOWN = 0
@@ -219,7 +231,10 @@ public class Colibri {
     public var trustedCheckpoint: String? = nil
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
-    
+    public var useAccesslist: Bool = false
+    /// PAP mode; .basic sets verify flag for Pragmatic Adaptive Privacy.
+    public var privacyMode: PrivacyMode = .none
+
     /// Optional request handler for mocking HTTP requests in tests
     public var requestHandler: RequestHandler?
 
@@ -229,19 +244,39 @@ public class Colibri {
         // Placeholder for initialization if needed
     }
 
+    // MARK: - Verify Flags
+
+    /// Returns verify flags (e.g. VERIFY_FLAG_PAP) derived from privacyMode. Centralized so future flags can be added in one place.
+    private func getVerifyFlags() -> UInt32 {
+        return privacyMode == .basic ? 2 : 0
+    }
+
     // MARK: - Method Support
     
-    /// Check if a method is supported for proof generation
-    public func getMethodSupport(method: String) -> MethodType {
+    /// Check if a method is supported for proof generation.
+    ///
+    /// In PAP mode the result may depend on cached data for the given params
+    /// (e.g. `eth_call` can become `.LOCAL` when storage values are cached).
+    ///
+    /// - Parameters:
+    ///   - method: RPC method name
+    ///   - params: Optional method parameters as JSON array string
+    /// - Returns: The method type indicating how to handle this call
+    public func getMethodSupport(method: String, params: String? = nil) -> MethodType {
         let methodPtr = method.withCString { strdup($0) }
         guard let methodCStr = methodPtr else {
             return .UNKNOWN
         }
         defer { free(methodCStr) }
 
-        let typeRaw = c4_get_method_support(chainId, methodCStr)
+        var paramsCStr: UnsafeMutablePointer<CChar>? = nil
+        if let params = params {
+            paramsCStr = params.withCString { strdup($0) }
+        }
+        defer { if let p = paramsCStr { free(p) } }
+
+        let typeRaw = c4_get_method_support(chainId, methodCStr, paramsCStr, getVerifyFlags())
         guard let type = MethodType(rawValue: Int(typeRaw)) else {
-             // Handle cases where the C function might return an unexpected value
             print("Warning: Unknown method type raw value \(typeRaw) returned from c4_get_method_support for method \(method)")
             return .UNKNOWN
         }
@@ -264,7 +299,8 @@ public class Colibri {
             free(paramsPtr)
         }
         
-        guard let ctx = c4_create_prover_ctx(methodPtr, paramsPtr, chainId, includeCode ? 1 : 0) else {
+        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0)
+        guard let ctx = c4_create_prover_ctx(methodPtr, paramsPtr, chainId, proverFlags) else {
             throw ColibriError.contextCreationFailed
         }
         defer { c4_free_prover_ctx(ctx) }
@@ -339,7 +375,7 @@ public class Colibri {
             )
         }
         
-        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedCheckpointCStr) else {
+        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedCheckpointCStr, getVerifyFlags()) else {
             throw ColibriError.contextCreationFailed
         }
         defer { c4_verify_free_ctx(ctx) }
@@ -384,7 +420,7 @@ public class Colibri {
 
     // Implement the rpc method
     public func rpc(method: String, params: String) async throws -> Any {
-        let methodType = getMethodSupport(method: method)
+        let methodType = getMethodSupport(method: method, params: params)
         var proof = Data()
 
         switch methodType {
@@ -600,12 +636,15 @@ public class Colibri {
         var lastError: Error = ColibriError.rpcError("All nodes failed") // Initialize with a default error
 
         // Prepare JSON RPC request body data once
-        let jsonRpcBody: [String: Any] = [
+        var jsonRpcBody: [String: Any] = [
             "id": 1,
             "jsonrpc": "2.0",
             "method": method,
             "params": try JSONSerialization.jsonObject(with: params.data(using: .utf8) ?? Data()) // Assume params is valid JSON string
         ]
+        if asProof {
+            jsonRpcBody["version"] = c4_get_current_version_number()
+        }
         let httpBody = try JSONSerialization.data(withJSONObject: jsonRpcBody)
 
         // 🎯 MOCK SUPPORT: Check if request handler is set for direct RPC calls

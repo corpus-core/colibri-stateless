@@ -21,8 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "beacon_types.h"
 #include "eth_prover.h"
+#include "beacon_types.h"
 #include "json.h"
 #include "state.h"
 #include <stdlib.h>
@@ -57,12 +57,14 @@ bool eth_prover_execute(prover_ctx_t* ctx) {
     c4_proof_receipt(ctx);
   else if (strcmp(ctx->method, "eth_getLogs") == 0 || strcmp(ctx->method, "eth_verifyLogs") == 0)
     c4_proof_logs(ctx);
-  else if (strcmp(ctx->method, "eth_call") == 0 || strcmp(ctx->method, "colibri_simulateTransaction") == 0)
+  else if (strcmp(ctx->method, "eth_call") == 0 || strcmp(ctx->method, "eth_estimateGas") == 0 || strcmp(ctx->method, "colibri_simulateTransaction") == 0 || strcmp(ctx->method, "colibri_proofCall") == 0)
     c4_proof_call(ctx);
   else if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0)
     c4_proof_block(ctx);
   else if (strcmp(ctx->method, "eth_blockNumber") == 0)
     c4_proof_block_number(ctx);
+  else if (strcmp(ctx->method, "eth_getBlockHeader") == 0 || strcmp(ctx->method, "eth_blobBaseFee") == 0 || strcmp(ctx->method, "eth_maxPriorityFeePerGas") == 0)
+    c4_proof_block_header(ctx);
   else if (strcmp(ctx->method, "eth_proof_sync") == 0)
     c4_proof_sync(ctx);
   else if (strcmp(ctx->method, "c4_witness") == 0)

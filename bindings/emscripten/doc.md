@@ -10,6 +10,32 @@ The JS-Bindings uses emscripten to create a webassembly which can easily be pack
 npm install @corpus-core/colibri-stateless
 ```
 
+## Import / Usage (ESM and CommonJS)
+
+Colibri is published as a **dual package** and can be used in both ESM and CommonJS environments.
+
+### ESM (browsers, modern bundlers, Node ESM)
+
+```js
+import Colibri, { Strategy, set_wasm_url } from "@corpus-core/colibri-stateless";
+
+// Optional: only needed if you want to pin the WASM location explicitly
+// set_wasm_url("https://example.com/c4w.wasm");
+
+const client = new Colibri();
+```
+
+### CommonJS (e.g. Jest, older Node toolchains)
+
+```js
+const { default: Colibri, Strategy, set_wasm_url } = require("@corpus-core/colibri-stateless");
+
+// Optional: in Node you can explicitly point to the wasm file path
+// set_wasm_url(require("node:path").join(__dirname, "c4w.wasm"));
+
+const client = new Colibri();
+```
+
 ## Using Colibri as RPC Provider
 
 The Colibri Class implements the EIP-1193 Interface, so any library supporting EIP-1193 Providers can easily use Colibri as RPCProvider. 
@@ -267,6 +293,10 @@ The constructor of the colibri client accepts a configuration-object, which may 
 - `include_code`- if true the code of the contracts will be included when creating proofs. this is only  relevant when creating your own proofs for eth_call. (default: false)
     ```js
     new Colibri({ include_code:  true})
+    ```
+- `privacy_mode` - **PAP (Pragmatic Adaptive Privacy)** mode. Reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards. Allowed values: `"none"` (default), `"basic"`. With `"basic"`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
+    ```js
+    new Colibri({ privacy_mode: "basic" })
     ```
 
 - `verify`- a function to decide which request should be verified and which should be fetched from the default RPC-Provider. It allows you to speed up performance for requests which are not critical.

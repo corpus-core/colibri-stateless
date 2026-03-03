@@ -90,7 +90,9 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_sendRawTransaction", Void, Void),
 };
 
-method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method) {
+method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
+  (void) params;
+  (void) flags;
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_OP) return METHOD_UNDEFINED;
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
     if (strcmp(method, proofable_methods[i]) == 0) return METHOD_PROOFABLE;
@@ -121,15 +123,11 @@ bool c4_op_verify(verify_ctx_t* ctx) {
     op_verify_receipt_proof(ctx);
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_LOGS_PROOF)))
     op_verify_logs_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_CALL_PROOF))) {
-    if (strcmp(ctx->method, "colibri_simulateTransaction") == 0)
-      op_verify_simulate_proof(ctx);
-    else
-      op_verify_call_proof(ctx);
-  }
+  else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_CALL_PROOF)))
+    op_verify_call_proof(ctx);
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_ACCOUNT_PROOF)))
     op_verify_account_proof(ctx);
-  else if (c4_op_get_method_type(ctx->chain_id, ctx->method) == METHOD_LOCAL)
+  else if (c4_op_get_method_type(ctx->chain_id, ctx->method, ctx->args, ctx->flags) == METHOD_LOCAL)
     verify_eth_local(ctx);
   else if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok

@@ -57,8 +57,8 @@ void test_get_default_storage_config(void) {
   // Should have default max_sync_states
   TEST_ASSERT_EQUAL(3, plugin.max_sync_states);
 
-#ifdef FILE_STORAGE
-  // Should have file storage handlers set
+#if defined(FILE_STORAGE) || defined(MEMORY_STORAGE)
+  // Should have default storage handlers set
   TEST_ASSERT_NOT_NULL(plugin.get);
   TEST_ASSERT_NOT_NULL(plugin.set);
   TEST_ASSERT_NOT_NULL(plugin.del);
@@ -181,6 +181,61 @@ void test_file_storage_with_states_dir(void) {
 }
 #endif
 
+#ifdef MEMORY_STORAGE
+// Memory storage - write and read
+void test_memory_storage_write_and_read(void) {
+  storage_plugin_t plugin = {0};
+  c4_get_storage_config(&plugin);
+
+  const char* test_data = "Hello, Memory Storage!";
+  bytes_t     data      = {.data = (uint8_t*) test_data, .len = strlen(test_data)};
+
+  plugin.set("memory_key_1", data);
+
+  buffer_t read_buffer = {0};
+  bool     success     = plugin.get("memory_key_1", &read_buffer);
+
+  TEST_ASSERT_TRUE(success);
+  TEST_ASSERT_EQUAL(strlen(test_data), read_buffer.data.len);
+  TEST_ASSERT_EQUAL_MEMORY(test_data, read_buffer.data.data, strlen(test_data));
+
+  buffer_free(&read_buffer);
+}
+
+// Memory storage - delete
+void test_memory_storage_delete(void) {
+  storage_plugin_t plugin = {0};
+  c4_get_storage_config(&plugin);
+
+  const char* test_data = "Temporary data";
+  bytes_t     data      = {.data = (uint8_t*) test_data, .len = strlen(test_data)};
+  plugin.set("memory_key_del", data);
+
+  buffer_t read_buffer = {0};
+  TEST_ASSERT_TRUE(plugin.get("memory_key_del", &read_buffer));
+  buffer_free(&read_buffer);
+
+  plugin.del("memory_key_del");
+
+  buffer_t read_after_delete = {0};
+  bool     exists            = plugin.get("memory_key_del", &read_after_delete);
+  TEST_ASSERT_FALSE(exists);
+  buffer_free(&read_after_delete);
+}
+
+// Memory storage - read non-existent key
+void test_memory_storage_read_nonexistent(void) {
+  storage_plugin_t plugin = {0};
+  c4_get_storage_config(&plugin);
+
+  buffer_t read_buffer = {0};
+  bool     success     = plugin.get("nonexistent_memory_key_12345", &read_buffer);
+
+  TEST_ASSERT_FALSE(success);
+  buffer_free(&read_buffer);
+}
+#endif
+
 int main(void) {
   UNITY_BEGIN();
 
@@ -193,6 +248,12 @@ int main(void) {
   RUN_TEST(test_file_storage_delete);
   RUN_TEST(test_file_storage_read_nonexistent);
   RUN_TEST(test_file_storage_with_states_dir);
+#endif
+
+#ifdef MEMORY_STORAGE
+  RUN_TEST(test_memory_storage_write_and_read);
+  RUN_TEST(test_memory_storage_delete);
+  RUN_TEST(test_memory_storage_read_nonexistent);
 #endif
 
   return UNITY_END();

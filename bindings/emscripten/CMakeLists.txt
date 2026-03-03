@@ -19,23 +19,25 @@
 #
 # SPDX-License-Identifier: MIT
 
-set(EMC_PROPS "-s ALLOW_MEMORY_GROWTH=1 -s STACK_SIZE=1048576 -s EXPORT_ES6=1 -s MODULARIZE=1 -s NODEJS_CATCH_REJECTION=0 -s EXPORT_NAME=c4w  -s FILESYSTEM=0 -s ENVIRONMENT=web,node  -sEXPORTED_FUNCTIONS=[\"_malloc\",\"_free\"]  -s 'EXPORTED_RUNTIME_METHODS=[\"ccall\", \"cwrap\",\"UTF8ToString\",\"stringToUTF8\"]'")
+set(EMC_PROPS "-s ALLOW_MEMORY_GROWTH=1 -s STACK_SIZE=1048576 -s EXPORT_ES6=1 -s MODULARIZE=1 -s NODEJS_CATCH_REJECTION=0 -s EXPORT_NAME=c4w  -s FILESYSTEM=0 -s ENVIRONMENT=web,worker  -sEXPORTED_FUNCTIONS=[\"_malloc\",\"_free\"]  -s 'EXPORTED_RUNTIME_METHODS=[\"ccall\", \"cwrap\",\"UTF8ToString\",\"stringToUTF8\"]'")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -Wpointer-arith ")
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wpointer-arith ")
 
 option(WASM_PROFILE "Enable profiling-friendly WASM build (function names + source maps)" OFF)
+option(WASM_DEBUG "Enable DWARF debug info for source-level WASM debugging" OFF)
 
-
-IF (CMAKE_BUILD_TYPE MATCHES Debug)
+if (WASM_DEBUG)
+   set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -g3 -O1 -gseparate-dwarf --profiling-funcs")
+   set(EMC_PROPS "${EMC_PROPS} -s ASSERTIONS=1 -s STACK_OVERFLOW_CHECK=1 -s RUNTIME_LOGGING=1")
+   set(EMC_PROPS "${EMC_PROPS} -s ENVIRONMENT=web,worker,node")
+elseif (CMAKE_BUILD_TYPE MATCHES Debug)
    set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -g -s SAFE_HEAP=1 -s ASSERTIONS=1 -s STACK_OVERFLOW_CHECK=1 -s RUNTIME_LOGGING=1 ")
-ELSE (CMAKE_BUILD_TYPE MATCHES Debug)
+else ()
    set(EMC_PROPS "${EMC_PROPS} -s WASM=1 -O3 ")
-ENDIF (CMAKE_BUILD_TYPE MATCHES Debug)
+endif ()
 
 if (WASM_PROFILE)
-   # Keep wasm function names for the browser profiler and emit source maps.
-   # This is intended for local profiling (not for production builds).
-   set(EMC_PROPS "${EMC_PROPS} --profiling-funcs -gsource-map -s DEMANGLE_SUPPORT=1")
+   set(EMC_PROPS "${EMC_PROPS} --profiling-funcs -gsource-map")
 endif()
 
 option(WASM_EMBED "Embed WASM into JS (SINGLE_FILE=1)" ON)
@@ -58,6 +60,15 @@ set(WEBPACK_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/webpack/webpack_build_con
 configure_file(
   ${WEBPACK_CONFIG_TEMPLATE}
   ${WEBPACK_CONFIG_OUTPUT}
+  @ONLY
+)
+
+# Configure the RN-web test helper file (so the project can find the correct build output dir)
+set(RN_WEB_TEST_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/rn-web-test/rn_web_test_build_config.cjs.in")
+set(RN_WEB_TEST_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/rn-web-test/rn_web_test_build_config.cjs")
+configure_file(
+  ${RN_WEB_TEST_CONFIG_TEMPLATE}
+  ${RN_WEB_TEST_CONFIG_OUTPUT}
   @ONLY
 )
 
@@ -90,7 +101,7 @@ add_custom_command(
 add_custom_command(
     OUTPUT ${CMAKE_SOURCE_DIR}/bindings/emscripten/node_modules/timestamp
     COMMAND ${CMAKE_COMMAND} -E echo "Installing Node.js modules..."
-    COMMAND npm install
+    COMMAND npm install --no-save @types/node@22.13.1 typescript@5.7.3
     COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_SOURCE_DIR}/bindings/emscripten/node_modules/timestamp
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/emscripten
     DEPENDS ${CMAKE_SOURCE_DIR}/bindings/emscripten/package.json
@@ -103,23 +114,44 @@ add_custom_target(install_node_modules ALL
 # Find all TypeScript source files dynamically
 file(GLOB_RECURSE TS_SOURCES "${CMAKE_SOURCE_DIR}/bindings/emscripten/src/*.ts")
 
+# Configure a CJS tsconfig in the build directory (so we don't create temp files in the repo).
+set(EMSCRIPTEN_TS_CJS_DIR "${CMAKE_BINARY_DIR}/emscripten_ts_cjs_src")
+file(MAKE_DIRECTORY ${EMSCRIPTEN_TS_CJS_DIR})
+set(EMSCRIPTEN_TS_CJS_TSCONFIG_TEMPLATE "${CMAKE_SOURCE_DIR}/bindings/emscripten/tsconfig.cjs.json.in")
+set(EMSCRIPTEN_TS_CJS_TSCONFIG_OUTPUT "${EMSCRIPTEN_TS_CJS_DIR}/tsconfig.json")
+configure_file(
+  ${EMSCRIPTEN_TS_CJS_TSCONFIG_TEMPLATE}
+  ${EMSCRIPTEN_TS_CJS_TSCONFIG_OUTPUT}
+  @ONLY
+)
+
 # Add a custom target to compile TypeScript
 add_custom_command(
-    OUTPUT ${EMSCRIPTEN_OUTPUT_DIR}/index.js
+    OUTPUT ${EMSCRIPTEN_OUTPUT_DIR}/index.js ${EMSCRIPTEN_OUTPUT_DIR}/cjs/index.js ${EMSCRIPTEN_OUTPUT_DIR}/cjs/package.json
     COMMAND ${CMAKE_COMMAND} -E echo "Compiling TypeScript..."
+    # 1) ESM build (primary, bundler-friendly)
     COMMAND npx tsc --outDir ${EMSCRIPTEN_OUTPUT_DIR} --declaration
+    # 2) CJS build from a temp copy where wasm.ts is swapped (no import.meta in CJS output)
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${EMSCRIPTEN_TS_CJS_DIR}/src
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bindings/emscripten/src ${EMSCRIPTEN_TS_CJS_DIR}/src
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/bindings/emscripten/src/wasm_cjs.ts ${EMSCRIPTEN_TS_CJS_DIR}/src/wasm.ts
+    COMMAND npx tsc --project ${EMSCRIPTEN_TS_CJS_TSCONFIG_OUTPUT} --outDir ${EMSCRIPTEN_OUTPUT_DIR}/cjs
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${EMSCRIPTEN_OUTPUT_DIR}/cjs
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/bindings/emscripten/cjs/package.json ${EMSCRIPTEN_OUTPUT_DIR}/cjs/package.json
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/emscripten
     DEPENDS 
         ${CMAKE_SOURCE_DIR}/bindings/emscripten/node_modules/timestamp
         ${TS_SOURCES}
+        ${CMAKE_SOURCE_DIR}/bindings/emscripten/cjs/package.json
         ${CMAKE_SOURCE_DIR}/bindings/emscripten/tsconfig.json
+        ${CMAKE_SOURCE_DIR}/bindings/emscripten/tsconfig.cjs.json.in
     COMMENT "Building TypeScript sources"
 )
 
 # Add a custom target that depends on the TypeScript output file.
 # Building this target will trigger the add_custom_command above.
 add_custom_target(compile_typescript
-    DEPENDS ${EMSCRIPTEN_OUTPUT_DIR}/index.js
+    DEPENDS ${EMSCRIPTEN_OUTPUT_DIR}/index.js ${EMSCRIPTEN_OUTPUT_DIR}/cjs/index.js ${EMSCRIPTEN_OUTPUT_DIR}/cjs/package.json
 )
 
 # Ensure the TypeScript compilation happens after node modules are installed
@@ -149,7 +181,7 @@ configure_file(
 add_custom_target(test
     COMMAND npm test
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/emscripten
-    DEPENDS ${EMSCRIPTEN_OUTPUT_DIR}/index.js
+    DEPENDS ${EMSCRIPTEN_OUTPUT_DIR}/index.js ${EMSCRIPTEN_OUTPUT_DIR}/cjs/index.js
     COMMENT "Running npm tests"
 )
 

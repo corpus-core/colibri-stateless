@@ -239,7 +239,7 @@ static int on_headers_complete(llhttp_t* parser) {
   if (parser->content_length != ULLONG_MAX && parser->content_length > MAX_BODY_SIZE) {
     log_warn(YELLOW("SECURITY:") " Rejected request with Content-Length %l (max: %d) from client 0x%lx",
              (uint64_t) parser->content_length, MAX_BODY_SIZE, (uint64_t) (uintptr_t) client);
-    return HPE_USER; // Custom error to trigger rejection
+    return -1; // Info callbacks must return -1 for error → llhttp maps to HPE_CB_HEADERS_COMPLETE
   }
 
   return 0;
@@ -251,18 +251,12 @@ static int on_body(llhttp_t* parser, const char* at, size_t length) {
   // Track actual body bytes received for request smuggling protection
   size_t new_total = client->body_size_received + length;
 
-  // Validate that we don't receive more bytes than Content-Length specifies
-  // Only check if Content-Length was explicitly provided (not ULLONG_MAX and not 0)
-  // Note: parser->content_length is 0 when no Content-Length header is present
-  if (parser->content_length != ULLONG_MAX && parser->content_length > 0) {
-    if (new_total > parser->content_length) {
-      log_warn(YELLOW("SECURITY:") " Request smuggling attempt detected - body size %l exceeds Content-Length %l from client 0x%lx",
-               (uint64_t) new_total, (uint64_t) parser->content_length, (uint64_t) (uintptr_t) client);
-      return HPE_USER;
-    }
-  }
+  // Note: parser->content_length is the REMAINING byte count (llhttp decrements
+  // it as body data is delivered). llhttp already enforces Content-Length boundaries
+  // and will never deliver more body bytes than the original Content-Length header
+  // specified, so a redundant smuggling check here is not needed.
 
-  // Additional safety check: body should not exceed our maximum
+  // Safety check: body should not exceed our maximum
   if (new_total > MAX_BODY_SIZE) {
     log_warn(YELLOW("SECURITY:") " Body size %l exceeds maximum %d from client 0x%lx",
              (uint64_t) new_total, MAX_BODY_SIZE, (uint64_t) (uintptr_t) client);
@@ -440,21 +434,16 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
         error_reason      = "Request payload too large";
       }
       else if (err == HPE_USER) {
-        // HPE_USER is returned from our callbacks (header/body validation)
-        // Check which limit was exceeded based on client state
-        if (client->headers_size_received > MAX_HEADERS_SIZE ||
-            client->headers_size_received > 0) {
-          // Headers were being processed when error occurred
+        // HPE_USER is returned from our data callbacks (header/body validation)
+        if (client->headers_size_received > MAX_HEADERS_SIZE) {
           error_status_code = 431; // Request Header Fields Too Large
           error_reason      = "Request header fields too large";
         }
         else if (client->body_size_received > 0) {
-          // Body was being processed when error occurred
-          error_status_code = 400; // Bad Request
-          error_reason      = "Invalid request body";
+          error_status_code = 413; // Payload Too Large
+          error_reason      = "Request payload too large";
         }
         else {
-          // Generic user error
           error_status_code = 400; // Bad Request
           error_reason      = "Invalid request";
         }

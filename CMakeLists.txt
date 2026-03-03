@@ -117,7 +117,8 @@ option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
 option(STATIC_MEMORY "if true, the memory will be statically allocated, which only makes sense for embedded systems" OFF)
 option(MESSAGES "if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory" ON)
-option(FILE_STORAGE "if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR" ON)
+option(FILE_STORAGE "if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env var C4_STATES_DIR" ON)
+option(MEMORY_STORAGE "if activated the verifier will use an in-memory storage (no filesystem); useful for Android and embedded" ON)
 
 if(MESSAGES)
     add_definitions(-DMESSAGES)
@@ -125,6 +126,9 @@ endif()
 
 if(FILE_STORAGE AND NOT WASM)
     add_definitions(-DFILE_STORAGE)
+endif()
+if(MEMORY_STORAGE)
+    add_definitions(-DMEMORY_STORAGE)
 endif()
 
 if(BLOCK_HASH_CACHE)
@@ -406,6 +410,13 @@ add_custom_target(doc
     COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/doc/index.js
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/scripts
     COMMENT "Running update_doc.js to generate documentation"
+)
+
+add_custom_target(doc-agents
+    COMMAND ${CMAKE_COMMAND} -E echo "Generating agent documentation..."
+    COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/doc/agents.js
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Updating auto-generated sections in AGENTS.md files"
 )
 
 add_custom_target(valgrind

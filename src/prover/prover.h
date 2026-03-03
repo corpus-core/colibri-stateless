@@ -75,6 +75,7 @@ typedef enum {
   C4_PROVER_FLAG_INCLUDE_SYNC       = 1 << 5, // if true, the sync data will be included in the proof (requires the client_state to be set)
   C4_PROVER_FLAG_USE_ACCESSLIST     = 1 << 6, // if true, eth_call will use eth_createAccessList instead of eth_debug_traceCall
   C4_PROVER_FLAG_ZK_PROOF           = 1 << 7, // if true, the the prover will try to store the zk_proof within the sync_section
+  C4_PROVER_FLAG_CALL_BLOCK_CONTEXT = 1 << 8, // if true, eth_call state_proof uses blockContext union variant and multi-proof with execution payload fields
 } prover_flag_types_t;
 
 /**
@@ -129,6 +130,7 @@ typedef struct {
 #ifdef HTTP_SERVER
   uint32_t client_type; // client type for the prover (for beacon API only)
 #endif
+  uint32_t version; // the version of the requesting client
 
 #ifdef PROVER_TRACE
   // Collected finished spans (consumed by server); and currently open span

@@ -180,6 +180,9 @@ public class Colibri {
     /// List of Prover URLs (empty = local proof generation)
     public var provers: [String]
     
+    /// PAP (Pragmatic Adaptive Privacy) mode: .none (default) or .basic
+    public var privacyMode: PrivacyMode
+    
     /// Initialization
     public init()
     
@@ -189,6 +192,18 @@ public class Colibri {
     /// Check if an RPC method is supported
     public func getMethodSupport(method: String) -> Bool
 }
+```
+
+### Privacy (PAP)
+
+**PAP (Pragmatic Adaptive Privacy)** reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards.
+
+- `privacyMode` – `PrivacyMode.none` (default) or `PrivacyMode.basic`. With `.basic`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.privacyMode = .basic
 ```
 
 ### Storage System

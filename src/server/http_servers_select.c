@@ -1036,8 +1036,13 @@ void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
   if (method) {
 
     // Handle method not supported errors
-    if (cls == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED)
+    if (cls == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
+      // TODO: Make method support tracking param-shape aware.
+      // Some RPC methods are supported only for certain parameter variants. Example:
+      // - eth_createAccessList with 2 params may work on a node, but with a 3rd param (state overrides) it may return -32602.
+      // Currently we mark the whole method as unsupported per server, which can over-exclude nodes for the plain 2-param case.
       c4_mark_method_unsupported(servers, idx, method);
+    }
     else {
       method_stats_t* ms = c4_get_or_create_method_stats(h, method);
       if (ms) {

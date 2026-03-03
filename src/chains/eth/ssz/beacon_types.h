@@ -70,7 +70,11 @@ typedef enum {
   ETH_SSZ_DATA_LOGS       = 24,
   ETH_SSZ_DATA_BLOCK      = 25,
   ETH_SSZ_DATA_PROOF      = 26,
-  ETH_SSZ_DATA_SIMULATION = 27
+  ETH_SSZ_DATA_SIMULATION = 27,
+
+  ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF = 28,
+  ETH_SSZ_DATA_BLOCK_HEADER         = 29,
+  ETH_SSZ_DATA_CALL_BLOCK_CONTEXT   = 30
 
 } eth_ssz_type_t;
 
@@ -113,7 +117,7 @@ extern const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
-extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10];
+extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[11];
 extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
 
 #define epoch_for_slot(slot, chain_spec)  ((slot) >> (chain_spec ? chain_spec->slots_per_epoch_bits : 5))
@@ -128,5 +132,13 @@ extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
 inline static bool is_gnosis_chain(chain_id_t chain_id) {
   return chain_id == C4_CHAIN_GNOSIS || chain_id == C4_CHAIN_GNOSIS_CHIADO;
 }
+
+#define BLOCK_HEADER_FIELD_COUNT 12
+const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot);
+
+/** Number of leaves in the call state proof when block context is included (stateRoot + 8 execution payload fields). */
+#define CALL_BLOCK_CONTEXT_FIELD_COUNT 9
+/** Gindexes for state proof + block context: stateRoot, blockNumber, timestamp, feeRecipient, prevRandao, baseFeePerGas, blockHash, gasLimit, excessBlobGas. */
+const gindex_t* c4_call_block_context_gindexes(void);
 
 #endif
