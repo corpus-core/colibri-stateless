@@ -141,6 +141,9 @@ typedef struct {
   // Test recording mode: if set, all responses are written to TESTDATA_DIR/server/<test_dir>/
   char* test_dir;
 #endif
+  // Request dispatch throttling
+  int max_parallel_requests; // max requests dispatched per batch (0 = unlimited)
+
   // Global cURL pool configuration and metrics
   curl_stats_t curl;
   // Tracing configuration
@@ -278,7 +281,8 @@ typedef struct request_t {
   client_t*         client; // client request
   void*             ctx;    // prover
   single_request_t* requests;
-  size_t            request_count; // count of handles
+  size_t            request_count;  // count of handles
+  size_t            batch_started;  // how many requests have been dispatched so far (for throttled dispatch)
   uint64_t          start_time;
   http_client_cb    cb;          // callback function to call when all requests are done
   void*             parent_ctx;  // pointer to parent context or parent caller

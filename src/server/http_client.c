@@ -326,6 +326,7 @@ static server_list_t checkpointz_servers = {0};
 
 static void cache_response(single_request_t* r);
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
+static void trigger_cached_curl_requests(request_t* req);
 
 // Helper function to extract RPC method name from request payload
 static char* extract_rpc_method(data_request_t* req) {
@@ -480,12 +481,19 @@ static void pending_remove(single_request_t* req) {
   }
 }
 static void call_callback_if_done(request_t* req) {
-  for (size_t i = 0; i < req->request_count; i++) {
+  // Only check requests that have been dispatched so far
+  for (size_t i = 0; i < req->batch_started; i++) {
     if (c4_state_is_pending(req->requests[i].req)) return;                    // we are not done yet if one is still pending
     if (!req->requests[i].end_time) req->requests[i].end_time = current_ms(); // set the end time if it's not set yet
   }
 
-  // now handle metrics
+  // Current batch is complete but more requests are waiting -- dispatch next batch
+  if (req->batch_started < req->request_count) {
+    trigger_cached_curl_requests(req);
+    return;
+  }
+
+  // All requests are done -- handle metrics
   uint8_t  tmp[1024];
   buffer_t buffer = stack_buffer(tmp);
 
@@ -1178,8 +1186,19 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 }
 
 static void trigger_cached_curl_requests(request_t* req) {
-  uint64_t start_time = current_ms();
-  for (size_t i = 0; i < req->request_count; i++) {
+  uint64_t start_time  = current_ms();
+  size_t   max_batch   = http_server.max_parallel_requests > 0
+                             ? (size_t) http_server.max_parallel_requests
+                             : req->request_count;
+  size_t   batch_start = req->batch_started;
+  size_t   batch_end   = batch_start + max_batch;
+  if (batch_end > req->request_count) batch_end = req->request_count;
+
+  // Advance batch_started before dispatching so that synchronous completions
+  // (e.g. cache hits calling call_callback_if_done) see the correct range.
+  req->batch_started = batch_end;
+
+  for (size_t i = batch_start; i < batch_end; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
     r->start_time             = start_time;
@@ -1229,6 +1248,7 @@ void c4_add_request(client_t* client, data_request_t* req, void* data, http_requ
   r->requests          = (single_request_t*) safe_calloc(1, sizeof(single_request_t));
   r->requests->req     = req;
   r->request_count     = 1;
+  r->batch_started     = 0;
   r->ctx               = res;
   res->cb              = cb;
   res->data            = data;
@@ -1254,6 +1274,7 @@ void c4_start_curl_requests(request_t* req, c4_state_t* state) {
 
   req->requests      = (single_request_t*) safe_calloc(len, sizeof(single_request_t));
   req->request_count = len;
+  req->batch_started = 0;
 
   for (data_request_t* r = state->requests; r; r = r->next) {
     if (c4_state_is_pending(r)) req->requests[i++].req = r;
@@ -1341,6 +1362,7 @@ bool c4_check_retry_request(request_t* req) {
     for (int i = 0; i < req->request_count; i++) free_single_request(req->requests + i);
     req->requests      = pendings;
     req->request_count = retry_requests;
+    req->batch_started = 0;
 
     trigger_cached_curl_requests(req);
 
