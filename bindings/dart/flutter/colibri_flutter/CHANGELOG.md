@@ -1,3 +1,7 @@
+## 0.1.6
+
+- Requires `colibri_stateless: ^0.1.6`. Aligns with updated FFI bindings (flags, PrivacyMode, optional witness support).
+
 ## 0.1.5
 
 - Requires `colibri_stateless: ^0.1.5`. Aligns with Dart package 0.1.5 (ZK build flags, native link fix). Example app version 0.1.5+1.

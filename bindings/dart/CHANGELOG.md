@@ -1,3 +1,9 @@
+## 0.1.6
+
+- Updated FFI bindings to match current C API: added `flags` parameter to `c4_verify_create_ctx` and `c4_get_method_support`, added `PrivacyMode` enum and `useAccesslist` support.
+- Made `c4_verify_create_ctx_with_witness` lookup optional for builds that don't export the symbol.
+- Integration tests now read `include_code` and `use_accesslist` from test fixtures.
+
 ## 0.1.5
 
 - Flutter build script: explicit `-DETH_ZKPROOF=ON` for Android, macOS, Linux, Windows so ZK proof support is always included.
