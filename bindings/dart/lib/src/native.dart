@@ -102,23 +102,6 @@ typedef _VerifyCreate = ffi.Pointer<ffi.Void> Function(
   int,
 );
 
-typedef _VerifyCreateWithWitnessNative = ffi.Pointer<ffi.Void> Function(
-  BytesT,
-  ffi.Pointer<ffi.Int8>,
-  ffi.Pointer<ffi.Int8>,
-  ffi.Uint64,
-  ffi.Pointer<ffi.Int8>,
-  ffi.Pointer<ffi.Int8>,
-);
-typedef _VerifyCreateWithWitness = ffi.Pointer<ffi.Void> Function(
-  BytesT,
-  ffi.Pointer<ffi.Int8>,
-  ffi.Pointer<ffi.Int8>,
-  int,
-  ffi.Pointer<ffi.Int8>,
-  ffi.Pointer<ffi.Int8>,
-);
-
 typedef _GetMethodSupportNative = ffi.Int32 Function(
   ffi.Uint64,
   ffi.Pointer<ffi.Int8>,
@@ -229,15 +212,6 @@ class ColibriNative {
     _verifyCreateCtx = _lib.lookupFunction<_VerifyCreateNative, _VerifyCreate>(
       'c4_verify_create_ctx',
     );
-    // Optional: only available in builds that export the witness variant.
-    try {
-      _verifyCreateCtxWithWitness =
-          _lib.lookupFunction<_VerifyCreateWithWitnessNative, _VerifyCreateWithWitness>(
-        'c4_verify_create_ctx_with_witness',
-      );
-    } catch (_) {
-      _verifyCreateCtxWithWitness = null;
-    }
     _verifyExecuteJsonStatus =
         _lib.lookupFunction<_ExecuteStatusNative, _ExecuteStatus>('c4_verify_execute_json_status');
     _verifyFreeCtx = _lib.lookupFunction<_FreeCtxNative, _FreeCtx>('c4_verify_free_ctx');
@@ -259,7 +233,6 @@ class ColibriNative {
   late final _ReqSetResponse _reqSetResponse;
   late final _ReqSetError _reqSetError;
   late final _VerifyCreate _verifyCreateCtx;
-  _VerifyCreateWithWitness? _verifyCreateCtxWithWitness;
   late final _ExecuteStatus _verifyExecuteJsonStatus;
   late final _FreeCtx _verifyFreeCtx;
   late final _GetMethodSupport _getMethodSupport;
@@ -328,9 +301,6 @@ class ColibriNative {
   void freeProverCtx(ffi.Pointer<ffi.Void> ctx) => _freeProverCtx(ctx);
 
   /// Create a verification context for [proof] and method/args.
-  ///
-  /// When [witnessKeys] is provided, uses `c4_verify_create_ctx_with_witness`.
-  /// Otherwise, uses `c4_verify_create_ctx` with [flags] (e.g. 2 for PAP basic).
   ffi.Pointer<ffi.Void> verifyCreateCtx(
     Uint8List proof,
     String method,
@@ -338,7 +308,6 @@ class ColibriNative {
     int chainId,
     String trustedCheckpoint, {
     int flags = 0,
-    String? witnessKeys,
   }) {
     final proofPtr = proof.isEmpty ? ffi.nullptr : malloc<ffi.Uint8>(proof.length);
     if (proof.isNotEmpty) {
@@ -353,31 +322,14 @@ class ColibriNative {
     final argsPtr = args.toNativeUtf8();
     final checkpointPtr = trustedCheckpoint.toNativeUtf8();
 
-    final ffi.Pointer<ffi.Void> ctx;
-    ffi.Pointer<ffi.Uint8>? witnessPtr;
-
-    final withWitnessFn = _verifyCreateCtxWithWitness;
-    if (witnessKeys != null && withWitnessFn != null) {
-      final wPtr = witnessKeys.toNativeUtf8();
-      witnessPtr = wPtr.cast();
-      ctx = withWitnessFn(
-        bytes.ref,
-        methodPtr.cast(),
-        argsPtr.cast(),
-        chainId,
-        checkpointPtr.cast(),
-        wPtr.cast(),
-      );
-    } else {
-      ctx = _verifyCreateCtx(
-        bytes.ref,
-        methodPtr.cast(),
-        argsPtr.cast(),
-        chainId,
-        checkpointPtr.cast(),
-        flags,
-      );
-    }
+    final ctx = _verifyCreateCtx(
+      bytes.ref,
+      methodPtr.cast(),
+      argsPtr.cast(),
+      chainId,
+      checkpointPtr.cast(),
+      flags,
+    );
 
     if (proofPtr != ffi.nullptr) {
       malloc.free(proofPtr);
@@ -386,9 +338,6 @@ class ColibriNative {
     malloc.free(methodPtr);
     malloc.free(argsPtr);
     malloc.free(checkpointPtr);
-    if (witnessPtr != null) {
-      malloc.free(witnessPtr);
-    }
 
     return ctx;
   }

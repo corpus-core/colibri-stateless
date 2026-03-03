@@ -187,8 +187,7 @@ class Colibri {
     final checkpoint = _runtimeTrustedCheckpoint ?? trustedCheckpoint ?? '';
     _onDebug?.call(
       'Verifier call: method=$method paramsJson=$paramsJson chainId=$chainId '
-      'checkpoint=${checkpoint.isEmpty ? "(empty)" : "${checkpoint.length} chars"} '
-      'witnessKeys=${checkpointWitnessKeys != null ? "***" : "null"}',
+      'checkpoint=${checkpoint.isEmpty ? "(empty)" : "${checkpoint.length} chars"}',
     );
     final ctx = _native.verifyCreateCtx(
       proof,
@@ -197,7 +196,6 @@ class Colibri {
       chainId,
       checkpoint,
       flags: _getVerifyFlags(),
-      witnessKeys: checkpointWitnessKeys,
     );
 
     if (ctx == ffi.nullptr) {

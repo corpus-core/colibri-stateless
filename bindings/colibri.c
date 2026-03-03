@@ -175,28 +175,6 @@ void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t cha
   return (void*) ctx;
 }
 
-/*void* c4_verify_create_ctx_with_witness(
-    bytes_t proof,
-    char* method,
-    char* args,
-    uint64_t chain_id,
-    char* trusted_checkpoint,
-    char* witness_keys) {
-  c4_verify_ctx_t* ctx = c4_verify_create_ctx(proof, method, args, chain_id, trusted_checkpoint, 0);
-  if (!ctx) {
-    return NULL;
-  }
-
-  if (witness_keys && strlen(witness_keys) > 42 && witness_keys[0] == '0' && witness_keys[1] == 'x') {
-    size_t hex_len = strlen(witness_keys) - 2;
-    bytes_t witness_key_bytes = bytes(malloc(hex_len / 2), hex_len / 2);
-    hex_to_bytes(witness_keys + 2, -1, witness_key_bytes);
-    ctx->ctx.witness_keys = witness_key_bytes;
-  }
-
-  return (void*) ctx;
-}*/
-
 char* c4_verify_execute_json_status(void* ptr) {
   buffer_t         buf    = {0};
   c4_verify_ctx_t* ctx    = (c4_verify_ctx_t*) ptr;
