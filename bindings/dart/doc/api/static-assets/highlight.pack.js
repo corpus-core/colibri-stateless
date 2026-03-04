@@ -521,7 +521,7 @@ contains:[{begin:/\(\)/},R]
 match:[/const|var|let/,/\s+/,d,/\s*/,/=\s*/,/(async\s*)?/,l.lookahead(B)],
 keywords:"async",className:{1:"keyword",3:"title.function"},contains:[R]}
 ;return{name:"JavaScript",aliases:["js","jsx","mjs","cjs"],keywords:g,exports:{
-PARAMS_CONTAINS:w,CLASS_REFERENCE:k},illegal:/#(?![$_A-z])/,
+PARAMS_CONTAINS:w,CLASS_REFERENCE:k},illegal:/#(?![$_A-Za-z])/,
 contains:[o.SHEBANG({label:"shebang",binary:"node",relevance:5}),{
 label:"use_strict",className:"meta",relevance:10,
 begin:/^\s*['"]use (strict|asm)['"]/
