@@ -19,6 +19,8 @@ IOS_FRAMEWORKS_DIR="$PLUGIN_DIR/ios/Frameworks"
 
 build_android=false
 build_ios=false
+build_macos=false
+build_windows=false
 
 parse_args() {
     if [[ $# -eq 0 ]]; then
@@ -28,11 +30,12 @@ parse_args() {
         fi
         if [[ "$(uname)" == "Darwin" ]]; then
             build_ios=true
+            build_macos=true
         fi
-        if ! $build_android && ! $build_ios; then
+        if ! $build_android && ! $build_ios && ! $build_macos; then
             echo "Error: No platform available."
             echo "  Android: set ANDROID_NDK_HOME"
-            echo "  iOS: run on macOS with Xcode"
+            echo "  iOS/macOS: run on macOS with Xcode"
             exit 1
         fi
         return
@@ -40,12 +43,14 @@ parse_args() {
 
     for arg in "$@"; do
         case "$arg" in
-            --android) build_android=true ;;
-            --ios)     build_ios=true ;;
-            --all)     build_android=true; build_ios=true ;;
+            --android)  build_android=true ;;
+            --ios)      build_ios=true ;;
+            --macos)    build_macos=true ;;
+            --windows)  build_windows=true ;;
+            --all)      build_android=true; build_ios=true; build_macos=true; build_windows=true ;;
             *)
                 echo "Unknown option: $arg"
-                echo "Usage: $0 [--android] [--ios] [--all]"
+                echo "Usage: $0 [--android] [--ios] [--macos] [--windows] [--all]"
                 exit 1
                 ;;
         esac
@@ -140,6 +145,70 @@ build_ios_libs() {
     du -sh "$IOS_FRAMEWORKS_DIR/c4_swift.xcframework"
 }
 
+build_macos_libs() {
+    if [[ "$(uname)" != "Darwin" ]]; then
+        echo "Error: macOS build requires macOS."
+        exit 1
+    fi
+
+    echo "=== Building macOS universal dylib ==="
+    local dylibs=()
+    for arch in arm64 x86_64; do
+        echo "--- Building macOS $arch ---"
+        local build_dir="$ROOT_DIR/build/flutter-macos-$arch"
+
+        cmake -S "$ROOT_DIR" -B "$build_dir" \
+            -DDART=ON \
+            -DETH_ZKPROOF=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="$arch"
+
+        cmake --build "$build_dir" --target colibri_dart -j "$(sysctl -n hw.ncpu)"
+
+        local dylib
+        dylib=$(find "$build_dir" -name "libcolibri.dylib" -print -quit)
+        dylibs+=("$dylib")
+    done
+
+    local dest_dir="$PLUGIN_DIR/macos/Frameworks"
+    mkdir -p "$dest_dir"
+    lipo -create "${dylibs[@]}" -output "$dest_dir/libcolibri.dylib"
+
+    echo ""
+    echo "=== macOS build complete ==="
+    echo "Universal dylib: $dest_dir/libcolibri.dylib ($(du -h "$dest_dir/libcolibri.dylib" | cut -f1))"
+}
+
+build_windows_libs() {
+    echo "=== Building Windows DLL ==="
+    local build_dir="$ROOT_DIR/build/flutter-windows"
+
+    cmake -S "$ROOT_DIR" -B "$build_dir" \
+        -DDART=ON \
+        -DETH_ZKPROOF=ON \
+        -DCMAKE_BUILD_TYPE=Release
+
+    cmake --build "$build_dir" --config Release --target colibri_dart
+
+    local dll
+    dll=$(find "$build_dir" -name "colibri.dll" -print -quit 2>/dev/null || true)
+    if [[ -z "$dll" ]]; then
+        dll=$(find "$build_dir" -name "libcolibri.dll" -print -quit 2>/dev/null || true)
+    fi
+    if [[ -z "$dll" || ! -f "$dll" ]]; then
+        echo "Error: colibri.dll not found"
+        exit 1
+    fi
+
+    local dest_dir="$PLUGIN_DIR/windows/lib"
+    mkdir -p "$dest_dir"
+    cp "$dll" "$dest_dir/colibri.dll"
+
+    echo ""
+    echo "=== Windows build complete ==="
+    echo "DLL: $dest_dir/colibri.dll ($(du -h "$dest_dir/colibri.dll" | cut -f1))"
+}
+
 parse_args "$@"
 
 if $build_android; then
@@ -148,6 +217,14 @@ fi
 
 if $build_ios; then
     build_ios_libs
+fi
+
+if $build_macos; then
+    build_macos_libs
+fi
+
+if $build_windows; then
+    build_windows_libs
 fi
 
 echo ""

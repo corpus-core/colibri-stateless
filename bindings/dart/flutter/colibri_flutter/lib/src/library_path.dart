@@ -9,7 +9,7 @@ import 'dart:io';
 /// final colibri = Colibri(libraryPath: colibriFlutterLibraryPath);
 /// ```
 ///
-/// Returns `null` on Android, iOS, and Windows (no bundled library there yet).
+/// Returns `null` on Android and iOS (loaded automatically by the plugin).
 String? get colibriFlutterLibraryPath {
   if (Platform.isMacOS) {
     final exe = Platform.resolvedExecutable;
@@ -20,6 +20,11 @@ String? get colibriFlutterLibraryPath {
     final exe = Platform.resolvedExecutable;
     final dir = exe.contains('/') ? exe.substring(0, exe.lastIndexOf('/')) : '.';
     return '$dir/lib/libcolibri.so';
+  }
+  if (Platform.isWindows) {
+    final exe = Platform.resolvedExecutable;
+    final dir = exe.contains(r'\') ? exe.substring(0, exe.lastIndexOf(r'\')) : '.';
+    return '$dir\\colibri.dll';
   }
   return null;
 }

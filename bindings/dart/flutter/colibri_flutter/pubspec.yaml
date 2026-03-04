@@ -1,5 +1,5 @@
 name: colibri_flutter
-description: Flutter plugin for Colibri Stateless with bundled native binaries (Android, iOS, macOS, Linux). Proof generation and verification for Ethereum RPC.
+description: Flutter plugin for Colibri Stateless with bundled native binaries (Android, iOS, macOS, Linux, Windows). Proof generation and verification for Ethereum RPC.
 version: 0.1.7
 
 environment:
@@ -31,4 +31,6 @@ flutter:
       macos:
         pluginClass: ColibriFlutterPlugin
       linux:
+        pluginClass: ColibriFlutterPlugin
+      windows:
         pluginClass: ColibriFlutterPlugin
