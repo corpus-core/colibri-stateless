@@ -171,6 +171,25 @@ colibri.close();
 
 📖 [**Dart Binding Documentation**](bindings/dart/README.md)
 
+#### Dart / Flutter
+
+For Flutter apps (Android, iOS, macOS, Linux) with **bundled native binaries**:
+
+```yaml
+dependencies:
+  colibri_flutter: ^0.1.7
+```
+
+```dart
+import 'package:colibri_flutter/colibri_flutter.dart';
+
+final colibri = Colibri(chainId: 1, libraryPath: colibriFlutterLibraryPath);
+final blockNumber = await colibri.rpc('eth_blockNumber', []);
+colibri.close();
+```
+
+📖 [**Flutter Plugin Documentation**](bindings/dart/flutter/colibri_flutter/README.md) | 📦 [**pub.dev**](https://pub.dev/packages/colibri_flutter)
+
 #### Docker / Prover Server
 
 Run your own prover server using Docker:

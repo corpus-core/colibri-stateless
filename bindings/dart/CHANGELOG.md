@@ -2,6 +2,8 @@
 
 - Removed `c4_verify_create_ctx_with_witness` from C bindings and Dart FFI layer.
 - Fixed Linux shared library build: added `CMAKE_POSITION_INDEPENDENT_CODE` for DART target.
+- Removed root-level `pubspec.yaml`, `pubspec.lock`, and `lib/colibri_stateless.dart` (monorepo cleanup; canonical package is in `bindings/dart/`).
+- Updated publishing docs and README to reflect current build/publish workflow.
 
 ## 0.1.6
 

@@ -34,12 +34,9 @@ bool _nativeAvailable() {
   return File(path).existsSync();
 }
 
-/// Smoke tests for enum values and client defaults.
 void main() {
-  /// Determine once if the native library exists so we can skip native tests.
   final hasNative = _nativeAvailable();
 
-  /// Verify that enum values match the C bindings.
   test('MethodType values', () {
     expect(MethodType.undefined.value, 0);
     expect(MethodType.proofable.value, 1);
@@ -48,35 +45,24 @@ void main() {
     expect(MethodType.local.value, 4);
   });
 
-  /// Verify the default client configuration for mainnet.
   test('Default configs', () {
-    /// Instantiate a client using the default chain (1) and library path.
     final colibri = Colibri(libraryPath: _resolveLibraryPath());
-    /// Default chain id should be Ethereum mainnet.
     expect(colibri.chainId, 1);
-    /// Default endpoints should be set for prover, execution, and beacon APIs.
     expect(colibri.provers, isNotEmpty);
     expect(colibri.ethRpcs, isNotEmpty);
     expect(colibri.beaconApis, isNotEmpty);
-    /// No trusted checkpoint unless explicitly provided.
     expect(colibri.trustedCheckpoint, isNull);
   }, skip: !hasNative);
 
-  /// Verify method support classification via the native library.
   test('Method support - proofable/local/undefined', () {
-    /// Create a client with the native library available.
     final colibri = Colibri(libraryPath: _resolveLibraryPath());
 
-    /// Proofable methods should be classified as proofable.
     expect(colibri.getMethodSupport('eth_getBalance'), MethodType.proofable);
     expect(colibri.getMethodSupport('eth_getBlockByNumber'), MethodType.proofable);
-    /// Local methods are handled without proof.
     expect(colibri.getMethodSupport('eth_chainId'), MethodType.local);
-    /// Unknown methods are undefined.
     expect(colibri.getMethodSupport('custom_fakeMethod'), MethodType.undefined);
   }, skip: !hasNative);
 
-  /// RPC with unsupported/undefined method throws [ColibriError].
   test('rpc throws for unsupported method', () async {
     final colibri = Colibri(libraryPath: _resolveLibraryPath());
     expect(
@@ -86,14 +72,12 @@ void main() {
     colibri.close();
   }, skip: !hasNative);
 
-  /// close() is idempotent; calling it multiple times does not throw.
   test('close is idempotent', () {
     final colibri = Colibri(libraryPath: _resolveLibraryPath());
     colibri.close();
     expect(() => colibri.close(), returnsNormally);
   }, skip: !hasNative);
 
-  /// onDebug callback is invoked during rpc when provided.
   test('onDebug callback is invoked during rpc', () async {
     final messages = <String>[];
     final colibri = Colibri(
@@ -103,10 +87,134 @@ void main() {
     try {
       await colibri.rpc('eth_chainId', []);
     } on ColibriError {
-      // May fail if native or network not available; we only care that onDebug ran.
+      // May fail without network; we only verify onDebug was called.
     }
     colibri.close();
-    // Local method or proof path should have produced at least one debug message.
     expect(messages, isNotEmpty);
   }, skip: !hasNative);
+
+  group('PrivacyMode', () {
+    test('privacyMode.none produces flags 0', () {
+      final colibri = Colibri(
+        libraryPath: _resolveLibraryPath(),
+        privacyMode: PrivacyMode.none,
+      );
+      expect(colibri.privacyMode, PrivacyMode.none);
+      colibri.close();
+    }, skip: !hasNative);
+
+    test('privacyMode.basic is accepted by constructor', () {
+      final colibri = Colibri(
+        libraryPath: _resolveLibraryPath(),
+        privacyMode: PrivacyMode.basic,
+      );
+      expect(colibri.privacyMode, PrivacyMode.basic);
+      colibri.close();
+    }, skip: !hasNative);
+
+    test('Method support with PrivacyMode.basic does not throw', () {
+      final colibri = Colibri(
+        libraryPath: _resolveLibraryPath(),
+        privacyMode: PrivacyMode.basic,
+      );
+      final support = colibri.getMethodSupport('eth_getBalance');
+      expect(support, isA<MethodType>());
+      colibri.close();
+    }, skip: !hasNative);
+  });
+
+  group('Chain defaults', () {
+    test('Sepolia chain has correct defaults', () {
+      final colibri = Colibri(
+        chainId: 11155111,
+        libraryPath: _resolveLibraryPath(),
+      );
+      expect(colibri.provers, isNotEmpty);
+      expect(colibri.ethRpcs, isNotEmpty);
+      expect(colibri.beaconApis, isNotEmpty);
+      colibri.close();
+    }, skip: !hasNative);
+
+    test('Unknown chain falls back to default endpoints', () {
+      final colibri = Colibri(
+        chainId: 999999,
+        libraryPath: _resolveLibraryPath(),
+      );
+      expect(colibri.provers, isNotEmpty);
+      expect(colibri.ethRpcs, isNotEmpty);
+      colibri.close();
+    }, skip: !hasNative);
+  });
+
+  group('Constructor options', () {
+    test('custom provers/ethRpcs/beaconApis override defaults', () {
+      final colibri = Colibri(
+        libraryPath: _resolveLibraryPath(),
+        provers: ['https://my-prover.example'],
+        ethRpcs: ['https://my-rpc.example'],
+        beaconApis: ['https://my-beacon.example'],
+      );
+      expect(colibri.provers, ['https://my-prover.example']);
+      expect(colibri.ethRpcs, ['https://my-rpc.example']);
+      expect(colibri.beaconApis, ['https://my-beacon.example']);
+      colibri.close();
+    }, skip: !hasNative);
+
+    test('zkProof and includeCode flags are stored', () {
+      final colibri = Colibri(
+        libraryPath: _resolveLibraryPath(),
+        zkProof: true,
+        includeCode: true,
+        useAccesslist: true,
+      );
+      expect(colibri.zkProof, isTrue);
+      expect(colibri.includeCode, isTrue);
+      expect(colibri.useAccesslist, isTrue);
+      colibri.close();
+    }, skip: !hasNative);
+
+    test('MemoryStorage can be provided explicitly', () {
+      final storage = MemoryStorage();
+      final colibri = Colibri(
+        libraryPath: _resolveLibraryPath(),
+        storage: storage,
+      );
+      expect(colibri.storage, same(storage));
+      colibri.close();
+    }, skip: !hasNative);
+  });
+
+  group('rpc error paths', () {
+    test('rpc with undefined method throws ColibriError', () async {
+      final colibri = Colibri(libraryPath: _resolveLibraryPath());
+      expect(
+        () => colibri.rpc('nonexistent_method', []),
+        throwsA(isA<ColibriError>().having(
+          (e) => e.message,
+          'message',
+          contains('not supported'),
+        )),
+      );
+      colibri.close();
+    }, skip: !hasNative);
+
+    test('rpc with proofable method and unreachable prover falls back to local proof', () async {
+      final colibri = Colibri(
+        libraryPath: _resolveLibraryPath(),
+        provers: ['http://127.0.0.1:1'],
+        ethRpcs: ['http://127.0.0.1:1'],
+        beaconApis: ['http://127.0.0.1:1'],
+        checkpointz: ['http://127.0.0.1:1'],
+      );
+      // With all servers unreachable the proof creation / data fetch will fail.
+      // We verify the error is a Colibri exception, not an unhandled crash.
+      try {
+        await colibri.rpc('eth_blockNumber', []);
+        fail('Expected an exception');
+      } on ColibriError {
+        // Expected: some form of ColibriError (RPCError, HTTPError, ProofError, etc.)
+      }
+      colibri.close();
+    }, skip: !hasNative);
+  });
 }

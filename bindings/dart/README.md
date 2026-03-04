@@ -50,7 +50,7 @@ For Flutter apps, use the **colibri_flutter** package on pub.dev — it includes
 
 ```yaml
 dependencies:
-  colibri_flutter: ^0.1.5
+  colibri_flutter: ^0.1.7
 ```
 
 ```dart
@@ -152,11 +152,29 @@ Then publish **colibri_stateless** (from a copy that excludes the Flutter plugin
 ./scripts/publish_colibri_stateless.sh             # publish
 ```
 
-To publish **colibri_flutter** (from its own directory; includes Android/iOS binaries):
+To publish **colibri_flutter** (builds native binaries, then publishes):
 
 ```bash
 cd flutter/colibri_flutter
-dart pub publish --dry-run
+./scripts/publish_colibri_flutter.sh --dry-run   # build + check
+./scripts/publish_colibri_flutter.sh             # build + publish
+```
+
+This script builds the Android `.so` files (requires `ANDROID_NDK_HOME`) and the iOS XCFramework (requires macOS + Xcode), then runs `dart pub publish`. The binaries are **not** checked into git; they are built on demand before each publish.
+
+Alternatively, build binaries separately and publish manually:
+
+```bash
+./scripts/build_native_libs.sh --all   # from flutter/colibri_flutter/
+dart pub publish
+```
+
+Or use the repo-root script which also copies binaries into the plugin:
+
+```bash
+# from repo root
+./scripts/build_flutter_binaries.sh --android --ios
+cd bindings/dart/flutter/colibri_flutter
 dart pub publish
 ```
 

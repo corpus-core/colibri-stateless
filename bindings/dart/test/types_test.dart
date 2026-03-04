@@ -155,5 +155,129 @@ void main() {
       final req = DataRequest.fromJson(data);
       expect(req.reqPtr, 42);
     });
+
+    test('null req_ptr yields reqPtr 0', () {
+      final data = <String, dynamic>{
+        'req_ptr': null,
+        'url': '',
+        'method': 'get',
+        'encoding': 'json',
+        'type': 'eth_rpc',
+        'exclude_mask': 0,
+        'chain_id': 1,
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.reqPtr, 0);
+    });
+
+    test('missing req_ptr yields reqPtr 0', () {
+      final data = <String, dynamic>{
+        'url': '',
+        'method': 'get',
+        'encoding': 'json',
+        'type': 'eth_rpc',
+        'exclude_mask': 0,
+        'chain_id': 1,
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.reqPtr, 0);
+    });
+
+    test('invalid payload string does not crash', () {
+      final data = <String, dynamic>{
+        'req_ptr': 42,
+        'url': '',
+        'method': 'get',
+        'encoding': 'json',
+        'type': 'eth_rpc',
+        'exclude_mask': 0,
+        'chain_id': 1,
+        'payload': 'this is not valid json',
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.payload, isNull);
+    });
+
+    test('payload as Map is passed through directly', () {
+      final data = <String, dynamic>{
+        'req_ptr': 42,
+        'url': '',
+        'method': 'POST',
+        'encoding': 'json',
+        'type': 'eth_rpc',
+        'exclude_mask': 0,
+        'chain_id': 1,
+        'payload': <String, dynamic>{'method': 'eth_call', 'params': []},
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.payload, isA<Map<String, dynamic>>());
+      expect(req.payload!['method'], 'eth_call');
+    });
+
+    test('payload null results in null payload', () {
+      final data = <String, dynamic>{
+        'req_ptr': 42,
+        'url': '',
+        'method': 'get',
+        'encoding': 'json',
+        'type': 'eth_rpc',
+        'exclude_mask': 0,
+        'chain_id': 1,
+        'payload': null,
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.payload, isNull);
+    });
+
+    test('missing optional fields use sensible defaults', () {
+      final data = <String, dynamic>{
+        'req_ptr': 42,
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.reqPtr, 42);
+      expect(req.url, '');
+      expect(req.method, 'get');
+      expect(req.encoding, 'json');
+      expect(req.requestType, 'eth_rpc');
+      expect(req.excludeMask, 0);
+      expect(req.chainId, 1);
+      expect(req.payload, isNull);
+    });
+
+    test('large 64-bit req_ptr as string parses correctly', () {
+      final data = <String, dynamic>{
+        'req_ptr': '105553179454336',
+        'url': '',
+        'method': 'get',
+        'encoding': 'json',
+        'type': 'eth_rpc',
+        'exclude_mask': 0,
+        'chain_id': 1,
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.reqPtr, 105553179454336);
+    });
+
+    test('req_ptr as string with non-digit chars is cleaned', () {
+      final data = <String, dynamic>{
+        'req_ptr': '"12345"',
+        'url': '',
+        'method': 'get',
+        'encoding': 'json',
+        'type': 'eth_rpc',
+        'exclude_mask': 0,
+        'chain_id': 1,
+      };
+      final req = DataRequest.fromJson(data);
+      expect(req.reqPtr, 12345);
+    });
+  });
+
+  group('PrivacyMode', () {
+    test('enum values exist', () {
+      expect(PrivacyMode.values.length, 2);
+      expect(PrivacyMode.none, isNotNull);
+      expect(PrivacyMode.basic, isNotNull);
+    });
   });
 }

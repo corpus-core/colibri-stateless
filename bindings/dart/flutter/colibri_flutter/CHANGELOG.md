@@ -1,6 +1,9 @@
 ## 0.1.7
 
 - Requires `colibri_stateless: ^0.1.7`. Removes witness function, fixes Linux build.
+- Native binaries (`.so`, `.xcframework`) are no longer checked into git; they are built on demand before publishing via `scripts/build_native_libs.sh`.
+- Added `scripts/publish_colibri_flutter.sh` for automated build + publish workflow.
+- Updated README with new build/publish instructions.
 
 ## 0.1.6
 

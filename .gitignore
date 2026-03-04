@@ -67,3 +67,7 @@ valgrind_results
 # Dart tooling
 .dart_tool/
 
+# Flutter plugin pre-built native binaries (built in CI / locally before publish)
+bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/
+bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework/
+

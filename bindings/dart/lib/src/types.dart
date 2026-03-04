@@ -140,11 +140,16 @@ class DataRequest {
     final reqPtr = parseReqPtr(reqPtrRaw);
 
     final payload = data['payload'];
-    final normalizedPayload = payload is Map<String, dynamic>
-        ? payload
-        : payload is String
-            ? jsonDecode(payload) as Map<String, dynamic>
-            : null;
+    Map<String, dynamic>? normalizedPayload;
+    if (payload is Map<String, dynamic>) {
+      normalizedPayload = payload;
+    } else if (payload is String) {
+      try {
+        normalizedPayload = jsonDecode(payload) as Map<String, dynamic>;
+      } on FormatException {
+        normalizedPayload = null;
+      }
+    }
 
     return DataRequest(
       reqPtr: reqPtr,
@@ -153,9 +158,12 @@ class DataRequest {
       encoding: (data['encoding'] ?? 'json') as String,
       requestType: (data['type'] ?? 'eth_rpc') as String,
       excludeMask: excludeMask,
-      chainId: (data['chain_id'] ?? 1) is num
-          ? (data['chain_id'] as num).toInt()
-          : int.tryParse(data['chain_id'].toString()) ?? 1,
+      chainId: () {
+        final raw = data['chain_id'];
+        if (raw == null) return 1;
+        if (raw is num) return raw.toInt();
+        return int.tryParse(raw.toString()) ?? 1;
+      }(),
       payload: normalizedPayload,
     );
   }

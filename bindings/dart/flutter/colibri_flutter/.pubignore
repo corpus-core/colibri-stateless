@@ -1,0 +1,4 @@
+scripts/
+example/scripts/
+.dart_tool/
+pubspec_overrides.yaml
