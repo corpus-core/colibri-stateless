@@ -2,6 +2,7 @@
 /build/ios
 /build_ios_*
 .vscode
+.DS_Store
 bindings/swift/src/include
 bindings/swift/.build
 bindings/kotlin/.cxx
