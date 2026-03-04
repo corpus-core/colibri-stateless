@@ -489,17 +489,21 @@ public class Colibri {
                         return
                     }
                     
-                    // Convert req_ptr from NSNumber to UnsafeMutableRawPointer
                     let reqPtr: UnsafeMutableRawPointer
-                    if let reqPtrNum = request["req_ptr"] as? NSNumber {
-                        let reqPtrInt = reqPtrNum.int64Value
-                        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(reqPtrInt)) else {
-                            print("❌ ERROR: Invalid req_ptr conversion from NSNumber \(reqPtrNum)")
+                    if let reqPtrStr = request["req_ptr"] as? String, let reqPtrInt = UInt(reqPtrStr) {
+                        guard let ptr = UnsafeMutableRawPointer(bitPattern: reqPtrInt) else {
+                            print("❌ ERROR: Invalid req_ptr string \(reqPtrStr)")
+                            return
+                        }
+                        reqPtr = ptr
+                    } else if let reqPtrNum = request["req_ptr"] as? NSNumber {
+                        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(reqPtrNum.uint64Value)) else {
+                            print("❌ ERROR: Invalid req_ptr NSNumber \(reqPtrNum)")
                             return
                         }
                         reqPtr = ptr
                     } else {
-                        print("❌ ERROR: req_ptr not NSNumber in request: \(request)")
+                        print("❌ ERROR: req_ptr neither String nor NSNumber in request: \(request)")
                         return
                     }
                     
