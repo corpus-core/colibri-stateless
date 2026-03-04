@@ -29,6 +29,7 @@ const doc_files = [
     "cli/verifier.c",
 
     // bindings
+    "../bindings/dart/doc.md",
     "../bindings/emscripten/doc.md",
     "../bindings/kotlin/doc.md",
     "../bindings/swift/doc.md",

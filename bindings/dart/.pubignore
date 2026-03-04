@@ -1,0 +1,15 @@
+# Do not ship build artifacts or local state.
+# flutter/ omitted here so that "dart pub publish" from flutter/colibri_flutter works.
+# To publish colibri_stateless (without shipping flutter/), run: ./scripts/publish_colibri_stateless.sh
+native/
+code_*
+states_1
+sync_1_*
+.env
+.env.example
+_tmp/
+*.lock
+flutter/colibri_flutter/pubspec.lock
+test/coverage/
+coverage/
+audit/

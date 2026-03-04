@@ -10,12 +10,13 @@ echo "📱 Starte iOS XCFramework Build..."
 # Variablen
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SWIFT_DIR="$ROOT_DIR/bindings/swift"
-BUILD_iOS_X86_DIR="$ROOT_DIR/build_ios_x86"
-BUILD_iOS_ARM_DIR="$ROOT_DIR/build_ios_arm"
+BUILD_ROOT="$ROOT_DIR/build/ios"
+BUILD_iOS_X86_DIR="$BUILD_ROOT/ios_x86_64"
+BUILD_iOS_ARM_DIR="$BUILD_ROOT/ios_arm64"
 
 # Cleanup alte iOS Builds
 echo "🧹 Cleanup alte iOS Builds..."
-rm -rf "$BUILD_iOS_X86_DIR" "$BUILD_iOS_ARM_DIR"
+rm -rf "$BUILD_ROOT"
 
 # Prüfe ob wir auf macOS sind
 if [[ "$(uname)" != "Darwin" ]]; then

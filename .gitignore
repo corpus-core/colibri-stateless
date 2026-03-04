@@ -1,5 +1,8 @@
 /build
+/build/ios
+/build_ios_*
 .vscode
+.DS_Store
 bindings/swift/src/include
 bindings/swift/.build
 bindings/kotlin/.cxx
@@ -62,3 +65,10 @@ valgrind_results
 .zk_proofs
 # UV util test artifacts
 /test/data/uv_util_write/missing_*
+# Dart tooling
+.dart_tool/
+
+# Flutter plugin pre-built native binaries (built in CI / locally before publish)
+bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/
+bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework/
+

@@ -4,7 +4,7 @@
 
 ![ETH2.0_Spec_Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
 
-Colibri Stateless is a highly efficient prover/verifier for Ethereum and upcoming support for various Layer-2 solutions and other blockchains. The core library is written in C and provides bindings for JavaScript/TypeScript, Swift, Kotlin/Java, and Python.
+Colibri Stateless is a highly efficient prover/verifier for Ethereum and upcoming support for various Layer-2 solutions and other blockchains. The core library is written in C and provides bindings for JavaScript/TypeScript, Swift, Kotlin/Java, Python, and Dart.
 
 ## Overview
 
@@ -146,6 +146,49 @@ print(f"Current block: {block_number}")
 ```
 
 📖 [**Full Python Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/python)
+
+#### Dart
+
+```bash
+cd bindings/dart
+./build.sh
+```
+
+**Hello World:**
+```dart
+import 'package:colibri_stateless/colibri.dart';
+
+final colibri = Colibri(
+  chainId: 1,
+  libraryPath: 'native/libcolibri.dylib', // adjust for your OS
+);
+
+final blockNumber = await colibri.rpc('eth_blockNumber', []);
+print('Current block: $blockNumber');
+
+colibri.close();
+```
+
+📖 [**Dart Binding Documentation**](bindings/dart/README.md)
+
+#### Dart / Flutter
+
+For Flutter apps (Android, iOS, macOS, Linux) with **bundled native binaries**:
+
+```yaml
+dependencies:
+  colibri_flutter: ^0.1.7
+```
+
+```dart
+import 'package:colibri_flutter/colibri_flutter.dart';
+
+final colibri = Colibri(chainId: 1, libraryPath: colibriFlutterLibraryPath);
+final blockNumber = await colibri.rpc('eth_blockNumber', []);
+colibri.close();
+```
+
+📖 [**Flutter Plugin Documentation**](bindings/dart/flutter/colibri_flutter/README.md) | 📦 [**pub.dev**](https://pub.dev/packages/colibri_flutter)
 
 #### Docker / Prover Server
 

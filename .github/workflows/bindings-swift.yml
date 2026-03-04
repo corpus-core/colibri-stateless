@@ -45,7 +45,7 @@ jobs:
       - name: Verify XCFramework
         run: |
           echo "🔍 Verifying iOS XCFramework..."
-          XCFRAMEWORK_PATH="build_ios_arm/c4_swift.xcframework"
+          XCFRAMEWORK_PATH="build/ios/ios_arm64/c4_swift.xcframework"
           
           # Start GitHub Step Summary
           echo "# 📦 Swift iOS XCFramework Build Results" >> $GITHUB_STEP_SUMMARY
@@ -211,18 +211,13 @@ jobs:
           echo "### 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Capture test output
-          if test_output=$(swift test 2>&1); then
+          TEST_LOG="/tmp/swift_test_output.log"
+          if swift test 2>&1 | tee "$TEST_LOG"; then
             echo "✅ Swift tests passed"
             
-            # Zeige Test-Zusammenfassung in Console
-            echo "$test_output" | tail -20
+            test_count=$(grep -o "Test Suite.*passed" "$TEST_LOG" | tail -1 || echo "")
+            passed_count=$(grep -o "[0-9]* passed" "$TEST_LOG" | tail -1 || echo "")
             
-            # Extrahiere wichtige Metriken
-            test_count=$(echo "$test_output" | grep -o "Test Suite.*passed" | tail -1 || echo "")
-            passed_count=$(echo "$test_output" | grep -o "[0-9]* passed" | tail -1 || echo "")
-            
-            # Schreibe kompakte Summary
             echo "- ✅ **Swift Tests**: All tests passed" >> $GITHUB_STEP_SUMMARY || true
             if [[ -n "$test_count" ]]; then
               echo "- 📊 **Test Summary**: $test_count" >> $GITHUB_STEP_SUMMARY || true
@@ -231,23 +226,20 @@ jobs:
               echo "- ✅ **Tests Passed**: $passed_count" >> $GITHUB_STEP_SUMMARY || true
             fi
             
-            # Zähle durchgeführte Integration-Tests
-            integration_tests=$(echo "$test_output" | grep -c "testIntegration_" || echo "0")
+            integration_tests=$(grep -c "testIntegration_" "$TEST_LOG" || echo "0")
             echo "- 🧪 **Integration Tests**: $integration_tests test functions executed" >> $GITHUB_STEP_SUMMARY || true
             
           else
             EXIT_CODE=$?
             echo "❌ Swift tests failed (exit code: $EXIT_CODE)"
             
-            # Zeige Fehler in Console
-            echo "$test_output" | tail -50
+            tail -50 "$TEST_LOG"
             
-            # Schreibe Fehler ins Summary (begrenzt)
             echo "- ❌ **Swift Tests**: Tests failed (exit code $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY || true
             echo "" >> $GITHUB_STEP_SUMMARY || true
             echo "#### Test Output (Last 30 lines)" >> $GITHUB_STEP_SUMMARY || true
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY || true
-            echo "$test_output" | tail -30 >> $GITHUB_STEP_SUMMARY || true
+            tail -30 "$TEST_LOG" >> $GITHUB_STEP_SUMMARY || true
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY || true
             exit 1
           fi
