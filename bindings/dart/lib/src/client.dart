@@ -356,7 +356,7 @@ class Colibri {
         return checkpointz;
       case 'beacon_api':
         if (useProverFallback && provers.isNotEmpty) {
-          return provers;
+          return [...provers, ...beaconApis];
         }
         return beaconApis;
       case 'prover':
