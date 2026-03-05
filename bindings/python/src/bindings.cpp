@@ -182,6 +182,30 @@ int get_method_support_wrapper(uint64_t chain_id, const std::string& method, con
       params.empty() ? nullptr : const_cast<char*>(params.c_str()), flags);
 }
 
+void* create_rpc_ctx_wrapper(const std::string& method, const std::string& params, uint64_t chain_id,
+                             uint32_t prover_flags, uint32_t verify_flags, int use_remote_prover) {
+  return c4_create_rpc_ctx(
+      const_cast<char*>(method.c_str()),
+      const_cast<char*>(params.c_str()),
+      chain_id, prover_flags, verify_flags, use_remote_prover);
+}
+
+std::string rpc_execute_json_status_wrapper(void* ctx) {
+  char* result = c4_rpc_execute_json_status(ctx);
+  if (!result) return "";
+  std::string str(result);
+  free(result);
+  return str;
+}
+
+void set_checkpoint_wrapper(uint64_t chain_id, const std::string& checkpoint) {
+  c4_set_checkpoint(chain_id, checkpoint.empty() ? nullptr : checkpoint.c_str());
+}
+
+void rpc_set_witness_keys_wrapper(void* ctx, const std::string& keys) {
+  c4_rpc_set_witness_keys(ctx, keys.empty() ? nullptr : keys.c_str());
+}
+
 // Storage registration function
 void register_storage(
     std::function<py::bytes(const std::string&)>       get_func,
@@ -274,4 +298,27 @@ PYBIND11_MODULE(_native, m) {
 
   m.def("get_current_version_number", &c4_get_current_version_number,
         "Return the current Colibri library version number (uint32 as int).");
+
+  // Unified RPC API
+  m.def("create_rpc_ctx", &create_rpc_ctx_wrapper,
+        "Create a unified RPC context",
+        py::arg("method"), py::arg("params"), py::arg("chain_id"),
+        py::arg("prover_flags"), py::arg("verify_flags"), py::arg("use_remote_prover"),
+        py::return_value_policy::take_ownership);
+
+  m.def("rpc_execute_json_status", &rpc_execute_json_status_wrapper,
+        "Execute the unified RPC state machine and return JSON status",
+        py::arg("ctx"));
+
+  m.def("free_rpc_ctx", &c4_free_rpc_ctx,
+        "Free the unified RPC context",
+        py::arg("ctx"));
+
+  m.def("set_checkpoint", &set_checkpoint_wrapper,
+        "Set a trusted checkpoint for a chain",
+        py::arg("chain_id"), py::arg("checkpoint"));
+
+  m.def("rpc_set_witness_keys", &rpc_set_witness_keys_wrapper,
+        "Set witness/signer keys on an RPC context",
+        py::arg("ctx"), py::arg("keys"));
 }

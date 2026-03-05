@@ -52,7 +52,9 @@ class Colibri:
         trusted_checkpoint: Optional[str] = None,
         include_code: bool = False,
         use_accesslist: bool = False,
+        zk_proof: bool = False,
         privacy_mode: Optional[PrivacyMode] = None,
+        checkpoint_witness_keys: Optional[str] = None,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
     ):
@@ -68,7 +70,9 @@ class Colibri:
             trusted_checkpoint: Optional trusted checkpoint as hex string (0x-prefixed, 66 chars)
             include_code: Whether to include code in proofs
             use_accesslist: Whether to use eth_createAccessList instead of debug_traceCall
+            zk_proof: Whether to request ZK sync proofs from remote provers
             privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
+            checkpoint_witness_keys: Optional hex-encoded witness signer keys (0x-prefixed)
             storage: Storage implementation (defaults to DefaultStorage)
             request_handler: Optional request handler for testing
         """
@@ -81,7 +85,9 @@ class Colibri:
         self.trusted_checkpoint = trusted_checkpoint
         self.include_code = include_code
         self.use_accesslist = use_accesslist
+        self.zk_proof = zk_proof
         self.privacy_mode = privacy_mode if privacy_mode is not None else PrivacyMode.NONE
+        self.checkpoint_witness_keys = checkpoint_witness_keys
         self.request_handler = request_handler
 
         # Initialize storage - registration is global in C
@@ -325,45 +331,54 @@ class Colibri:
 
     async def rpc(self, method: str, params: List[Any]) -> Any:
         """
-        Execute an RPC call with automatic proof handling
+        Execute an RPC call via the unified C core state machine.
         
         Args:
             method: RPC method name
             params: Method parameters
             
         Returns:
-            RPC result
+            Verified RPC result
             
         Raises:
             ColibriError: If the RPC call fails
         """
-        method_type = self.get_method_support(method, params)
-        
-        if method_type == MethodType.PROOFABLE:
-            # Try to fetch proof from prover first
-            if self.provers:
-                try:
-                    proof = await self._fetch_rpc(self.provers, method, params, as_proof=True)
-                except Exception:
-                    # Fallback to local proof creation
-                    proof = await self.create_proof(method, params)
-            else:
-                proof = await self.create_proof(method, params)
-            
-            return await self.verify_proof(proof, method, params)
-            
-        elif method_type == MethodType.UNPROOFABLE:
-            return await self._fetch_rpc(self.eth_rpcs, method, params, as_proof=False)
-            
-        elif method_type == MethodType.LOCAL:
-            # Local methods use empty proof
-            return await self.verify_proof(b"", method, params)
-            
-        elif method_type == MethodType.NOT_SUPPORTED or method_type == MethodType.UNDEFINED:
-            raise ColibriError(f"Method {method} is not supported")
-            
-        else:
-            raise ColibriError(f"Unknown method type for {method}")
+        native = _get_native()
+        if not native:
+            raise ColibriError("Native module not available")
+
+        params_json = json.dumps(params)
+        prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0) | ((1 << 7) if self.zk_proof else 0)
+        use_remote = 1 if self.provers else 0
+
+        ctx = native.create_rpc_ctx(method, params_json, self.chain_id,
+                                    prover_flags, self._get_verify_flags(), use_remote)
+        if not ctx:
+            raise ColibriError(f"Failed to create RPC context for {method}")
+
+        if self.trusted_checkpoint:
+            native.set_checkpoint(self.chain_id, self.trusted_checkpoint)
+        if self.checkpoint_witness_keys:
+            native.rpc_set_witness_keys(ctx, self.checkpoint_witness_keys)
+
+        try:
+            while True:
+                status_json = native.rpc_execute_json_status(ctx)
+                if not status_json:
+                    raise ColibriError("RPC execution returned null")
+
+                status = json.loads(status_json)
+
+                if status["status"] == "success":
+                    return status.get("result")
+                elif status["status"] == "error":
+                    raise ColibriError(status.get("error", "Unknown RPC error"))
+                elif status["status"] == "pending":
+                    await self._handle_requests(status.get("requests", []), use_prover_fallback=True)
+                else:
+                    raise ColibriError(f"Unknown status: {status['status']}")
+        finally:
+            native.free_rpc_ctx(ctx)
 
     async def _handle_requests(
         self, 
@@ -398,6 +413,8 @@ class Colibri:
                 # Determine server list
                 if request.request_type == "checkpointz":
                     servers = self.checkpointz
+                elif request.request_type == "prover":
+                    servers = self.provers
                 elif request.request_type == "beacon_api":
                     if use_prover_fallback and self.provers:
                         servers = self.provers

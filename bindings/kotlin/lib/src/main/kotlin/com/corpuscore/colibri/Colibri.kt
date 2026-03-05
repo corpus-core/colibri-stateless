@@ -96,7 +96,9 @@ class Colibri(
     var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
     var useAccesslist: Boolean = false,
+    var zkProof: Boolean = false,
     var privacyMode: PrivacyMode = PrivacyMode.NONE, // PAP mode; BASIC sets verify flag
+    var checkpointWitnessKeys: String? = null,
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
     companion object {
@@ -513,81 +515,79 @@ class Colibri(
         }
     }
 
-     // Add rpc method implementation
-     suspend fun rpc(method: String, args: Array<Any?>): Any? { // Allow nullable args, return Any?
-         val argsJson = org.json.JSONArray(args.toList()).toString()
-         val methodType = getMethodSupport(method, argsJson)
-         var proof: ByteArray = byteArrayOf() // Initialize empty proof
+    // Unified RPC execution via the C core state machine.
+    suspend fun rpc(method: String, args: Array<Any?>): Any? {
+        return withContext(Dispatchers.IO) {
+            val jsonArgs = formatArgsArray(args)
+            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (zkProof) (1L shl 7) else 0L)
+            val useRemote = if (provers.isEmpty()) 0 else 1
 
-//         println("rpc: Method $method, Type: $methodType, Args: ${formatArgsArray(args)}")
+            val ctx = com.corpuscore.colibri.c4.c4_create_rpc_ctx(method, jsonArgs, chainId, proverFlags, getVerifyFlags(), useRemote)
+                ?: throw ColibriException("Failed to create RPC context for method $method")
 
-         when (methodType) {
-             MethodType.PROOFABLE -> {
-                 // TODO: Implement optional verify hook if needed
-                 if (provers.isNotEmpty()) {
-                  //   println("rpc: Fetching proof for $method from prover...")
-                     proof = try {
-                          fetchRpc(provers, method, formatArgsArray(args), true)
-                     } catch (e: Exception) {
-                          println("rpc: Failed to fetch proof from prover, falling back to local creation. Error: ${e.message}")
-                          println("rpc: Creating proof locally for $method...")
-                          getProof(method, args) // Create proof locally if fetch fails
-                     }
+            val checkpointStr = trustedCheckpoint
+            if (!checkpointStr.isNullOrEmpty()) {
+                com.corpuscore.colibri.c4.c4_set_checkpoint(chainId, checkpointStr)
+            }
+            val witnessKeys = checkpointWitnessKeys
+            if (!witnessKeys.isNullOrEmpty()) {
+                com.corpuscore.colibri.c4.c4_rpc_set_witness_keys(ctx, witnessKeys)
+            }
 
-                 } else {
-//                     println("rpc: Creating proof locally for $method...")
-                     proof = getProof(method, args)
-                 }
-//                 println("rpc: Obtained proof (${proof.size} bytes) for $method.")
-                 // Verification happens below
-             }
-             MethodType.UNPROOFABLE -> {
-//                 println("rpc: Method $method is UNPROOFABLE, fetching directly...")
-                 val responseData = fetchRpc(ethRpcs, method, formatArgsArray(args), false)
-//                 println("rpc: Fetched direct response (${responseData.size} bytes) for $method.")
-                 // Parse JSON response
-                 return try {
-                      val jsonString = responseData.toString(Charsets.UTF_8)
-                      if (jsonString.isBlank()) { // Handle empty response (e.g., 204 No Content)
-                            null
-                      } else {
-                          val jsonResponse = JSONObject(jsonString)
-                          if (jsonResponse.has("error") && jsonResponse.get("error") != JSONObject.NULL) {
-                              val errorObj = jsonResponse.getJSONObject("error")
-                              throw ColibriException("RPC Error for $method: ${errorObj.optString("message", "Unknown error")}")
-                          }
-                          if (jsonResponse.has("result")) {
-                              val result = jsonResponse.get("result")
-                              if (result == JSONObject.NULL) null else result // Return null if JSON result is null
-                          } else {
-                               // Neither error nor result - treat as success with null result?
-                               null
-                          }
-                      }
+            val maxIterations = 50
+            var iteration = 0
 
-                 } catch (e: Exception) {
-                      throw ColibriException("Failed to parse direct RPC response for $method: ${e.message}")
-                 }
-             }
-             MethodType.NOT_SUPPORTED -> {
-                 println("rpc: Method $method is NOT_SUPPORTED.")
-                 throw ColibriException("Method $method is not supported")
-             }
-             MethodType.LOCAL -> {
-//                 println("rpc: Method $method is LOCAL, proceeding with verification (empty proof).")
-                 proof = byteArrayOf() // Ensure proof is empty for local verification
-                 // Verification happens below
-             }
-             MethodType.UNKNOWN -> {
-                 println("rpc: Method $method has UNKNOWN type.")
-                 throw ColibriException("Method $method has unknown support type")
-             }
-         }
+            try {
+                while (iteration < maxIterations) {
+                    iteration++
+                    val statusJsonPtr = com.corpuscore.colibri.c4.c4_rpc_execute_json_status(ctx)
+                        ?: throw ColibriException("RPC execution returned null status for method $method")
+                    val stateString = statusJsonPtr.toString()
 
-         // Verify the proof (either created/fetched for PROOFABLE, or empty for LOCAL)
-//         println("rpc: Verifying proof for $method...")
-         return verifyProof(proof, method, args)
-     }
+                    val state = try {
+                        JSONObject(stateString)
+                    } catch (e: Exception) {
+                        throw ColibriException("Failed to parse RPC status JSON: ${e.message}")
+                    }
+
+                    when (state.getString("status")) {
+                        "success" -> {
+                            if (state.has("result")) {
+                                val result = state.get("result")
+                                return@withContext if (result == JSONObject.NULL) null else convertJsonToJava(result)
+                            }
+                            return@withContext null
+                        }
+                        "error" -> {
+                            throw ColibriException("RPC error for method $method: ${state.optString("error", "Unknown error")}")
+                        }
+                        "pending" -> {
+                            val requests = state.optJSONArray("requests") ?: JSONArray()
+                            for (i in 0 until requests.length()) {
+                                val request = requests.getJSONObject(i)
+                                val type = request.optString("type", "eth_rpc")
+                                val servers = when (type) {
+                                    "checkpointz" -> checkpointz
+                                    "beacon_api" -> if (provers.isNotEmpty()) provers else beaconApis
+                                    "prover" -> provers
+                                    else -> ethRpcs
+                                }
+                                try {
+                                    fetchRequest(servers, request)
+                                } catch (e: Exception) {
+                                    println("Error handling pending request $i: ${e.message}")
+                                }
+                            }
+                        }
+                        else -> throw ColibriException("Unknown RPC status: ${state.getString("status")}")
+                    }
+                }
+                throw ColibriException("rpc exceeded max iterations ($maxIterations) for method $method")
+            } finally {
+                com.corpuscore.colibri.c4.c4_free_rpc_ctx(ctx)
+            }
+        }
+    }
 }
 
 // Helper function to convert org.json types to standard Java/Kotlin types
