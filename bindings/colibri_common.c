@@ -315,6 +315,32 @@ static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
   }
 
   if (ctx->rpc_state.requests->response.data) {
+    bytes_t resp = ctx->rpc_state.requests->response;
+    char*   tmp  = safe_malloc(resp.len + 1);
+    memcpy(tmp, resp.data, resp.len);
+    tmp[resp.len] = '\0';
+
+    json_t rpc_json  = json_parse(tmp);
+    json_t rpc_error = json_get(rpc_json, "error");
+
+    if (rpc_error.type != JSON_TYPE_NOT_FOUND) {
+      json_t msg = json_get(rpc_error, "message");
+      ctx->error = (msg.type == JSON_TYPE_STRING)
+                       ? bprintf(NULL, "%j", msg)
+                       : bprintf(NULL, "RPC error");
+      safe_free(tmp);
+      ctx->phase = RPC_PHASE_DONE;
+      return C4_ERROR;
+    }
+
+    json_t rpc_result = json_get(rpc_json, "result");
+    if (rpc_result.type != JSON_TYPE_NOT_FOUND) {
+      bytes_t result_bytes = bytes_dup(bytes((uint8_t*) rpc_result.start, rpc_result.len));
+      free(ctx->rpc_state.requests->response.data);
+      ctx->rpc_state.requests->response = result_bytes;
+    }
+
+    safe_free(tmp);
     ctx->phase = RPC_PHASE_DONE;
     return C4_SUCCESS;
   }

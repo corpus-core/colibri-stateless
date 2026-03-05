@@ -130,10 +130,9 @@ class TestClientWithMocks:
     
     @pytest.mark.asyncio
     async def test_rpc_unproofable_method(self, mock_client):
-        """Test RPC call for unproofable method"""
+        """Test RPC call for unproofable method (goes through unified C core)"""
         client, storage, request_handler = mock_client
         
-        # Mock the response for eth_gasPrice (unproofable)
         expected_result = "0x4a817c800"  # 20 Gwei
         request_handler.add_method_response("eth_gasPrice", {
             "jsonrpc": "2.0",
@@ -141,13 +140,8 @@ class TestClientWithMocks:
             "result": expected_result
         })
         
-        # Mock the method support to return UNPROOFABLE
-        with patch.object(client, 'get_method_support', return_value=MethodType.UNPROOFABLE):
-            with patch.object(client, '_fetch_rpc', return_value=expected_result) as mock_fetch:
-                result = await client.rpc("eth_gasPrice", [])
-                
-                assert result == expected_result
-                mock_fetch.assert_called_once_with(client.eth_rpcs, "eth_gasPrice", [], as_proof=False)
+        result = await client.rpc("eth_gasPrice", [])
+        assert result == expected_result
     
     @pytest.mark.asyncio
     async def test_rpc_not_supported_method(self, mock_client):
@@ -192,14 +186,11 @@ class TestClientErrorHandling:
     
     @pytest.mark.asyncio
     async def test_rpc_with_empty_params(self):
-        """Test RPC call with empty parameters"""
+        """Test RPC call with empty parameters (LOCAL method via unified C core)"""
         client = Colibri()
         
-        # Should not raise an error for empty params
-        with patch.object(client, 'get_method_support', return_value=MethodType.LOCAL):
-            with patch.object(client, 'verify_proof', return_value="0x1") as mock_verify:
-                result = await client.rpc("eth_chainId", [])
-                mock_verify.assert_called_once_with(b"", "eth_chainId", [])
+        result = await client.rpc("eth_chainId", [])
+        assert result is not None
 
 
 class TestClientHelpers:
