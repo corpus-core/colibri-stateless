@@ -42,6 +42,8 @@ void eth_server_init(http_server_t* server) {
     c4_watch_beacon_events();
   }
 
+  if (eth_config.period_store)
+    http_server.prover_flags |= C4_PROVER_FLAG_CHAIN_STORE;
   // Initialize prover stats from period_store on startup (master only).
   if (!eth_config.period_master_url && eth_config.period_store) {
     c4_period_prover_init_from_store();

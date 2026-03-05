@@ -84,19 +84,17 @@ void c4i_add_data_request(buffer_t* result, data_request_t* req, bool req_ptr_as
   bprintf(result, "\"method\": \"%s\",", method_to_string(req->method));
   bprintf(result, "\"url\": \"%s\",", req->url);
   if (req->payload.data)
-    bprintf(result, "\"payload\": %j,", (json_t){.len = req->payload.len, .start = (char*) req->payload.data, .type = JSON_TYPE_OBJECT});
+    bprintf(result, "\"payload\": %j,", (json_t) {.len = req->payload.len, .start = (char*) req->payload.data, .type = JSON_TYPE_OBJECT});
   bprintf(result, "\"type\": \"%s\"}", data_request_type_to_string(req->type));
 }
 
 static void append_pending_requests(buffer_t* buf, c4_state_t* state, bool req_ptr_as_string) {
   bprintf(buf, "\"requests\": [");
-  data_request_t* req = c4_state_get_pending_request(state);
-  while (req) {
+  for (data_request_t* req = c4_state_get_pending_request(state); req; req = req->next) {
     if (!req->response.data && !req->error) {
       if (buf->data.data[buf->data.len - 1] != '[') bprintf(buf, ",");
       c4i_add_data_request(buf, req, req_ptr_as_string);
     }
-    req = req->next;
   }
   bprintf(buf, "]");
 }
@@ -131,12 +129,12 @@ char* c4i_build_prover_json_status(c4_status_t status, c4_state_t* state,
 
 char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
                                      ssz_ob_t result,
-                                     bool req_ptr_as_string) {
+                                     bool     req_ptr_as_string) {
   buffer_t buf = {0};
   bprintf(&buf, "{\"status\": \"%s\",", status_to_string(status));
-  if (status == C4_SUCCESS) 
-    return bprintf(&buf, "\"result\": %Z}", result);
-  return build_error_or_pending(&buf, status, state, req_ptr_as_string);
+  return status == C4_SUCCESS
+             ? bprintf(&buf, "\"result\": %Z}", result)
+             : build_error_or_pending(&buf, status, state, req_ptr_as_string);
 }
 
 /* ── Standalone checkpoint setter ── */
@@ -165,20 +163,23 @@ c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id
     ctx->phase = RPC_PHASE_DONE;
     return ctx;
   }
-  ctx->method             = strdup(method);
-  ctx->params             = strdup(params ? params : "[]");
-  ctx->chain_id           = chain_id;
-  ctx->prover_flags       = prover_flags;
-  ctx->verify_flags       = verify_flags;
-  ctx->use_remote_prover  = use_remote_prover;
-  ctx->phase              = RPC_PHASE_INIT;
-  ctx->method_type        = METHOD_UNDEFINED;
+  ctx->method            = strdup(method);
+  ctx->params            = strdup(params ? params : "[]");
+  ctx->chain_id          = chain_id;
+  ctx->prover_flags      = prover_flags;
+  ctx->verify_flags      = verify_flags;
+  ctx->use_remote_prover = use_remote_prover;
+  ctx->phase             = RPC_PHASE_INIT;
+  ctx->method_type       = METHOD_UNDEFINED;
   return ctx;
 }
 
 void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex) {
   if (!ctx) return;
-  if (ctx->witness_keys.data) { free(ctx->witness_keys.data); ctx->witness_keys = NULL_BYTES; }
+  if (ctx->witness_keys.data) {
+    free(ctx->witness_keys.data);
+    ctx->witness_keys = NULL_BYTES;
+  }
   if (keys_hex && strlen(keys_hex) > 4 && keys_hex[0] == '0' && keys_hex[1] == 'x') {
     uint32_t hex_len = strlen(keys_hex) - 2;
     if (hex_len % 2 != 0) return;
@@ -208,8 +209,8 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
 static c4_status_t rpc_handle_proving(c4_rpc_ctx_t* ctx) {
   c4_status_t status = c4_prover_execute(ctx->prover);
   if (status == C4_SUCCESS) {
-    ctx->proof       = bytes_dup(ctx->prover->proof);
-    ctx->proof_owned = true;
+    ctx->proof       = ctx->prover->proof;
+    ctx->proof_owned = false;
     return rpc_start_verifier(ctx, ctx->proof);
   }
   return status;
@@ -245,7 +246,7 @@ static void cleanup_remote_prover_params(buffer_t* buf, const char* method, cons
 
 static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
   if (!ctx->rpc_state.requests) {
-    ctx->rpc_state.requests = safe_calloc(1, sizeof(data_request_t));
+    ctx->rpc_state.requests           = safe_calloc(1, sizeof(data_request_t));
     ctx->rpc_state.requests->type     = C4_DATA_TYPE_PROVER;
     ctx->rpc_state.requests->chain_id = ctx->chain_id;
     ctx->rpc_state.requests->method   = C4_DATA_METHOD_POST;
@@ -287,8 +288,8 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
   }
 
   if (ctx->rpc_state.requests->response.data) {
-    ctx->proof       = bytes_dup(ctx->rpc_state.requests->response);
-    ctx->proof_owned = true;
+    ctx->proof       = ctx->rpc_state.requests->response;
+    ctx->proof_owned = false;
     return rpc_start_verifier(ctx, ctx->proof);
   }
 
@@ -297,7 +298,7 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
 
 static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
   if (!ctx->rpc_state.requests) {
-    ctx->rpc_state.requests = safe_calloc(1, sizeof(data_request_t));
+    ctx->rpc_state.requests           = safe_calloc(1, sizeof(data_request_t));
     ctx->rpc_state.requests->type     = C4_DATA_TYPE_ETH_RPC;
     ctx->rpc_state.requests->chain_id = ctx->chain_id;
     ctx->rpc_state.requests->method   = C4_DATA_METHOD_POST;
@@ -305,7 +306,7 @@ static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
 
     buffer_t payload = {0};
     bprintf(&payload, "{\"method\": \"%s\", \"params\": %s}", ctx->method, ctx->params);
-    ctx->rpc_state.requests->payload =payload.data;
+    ctx->rpc_state.requests->payload = payload.data;
 
     return C4_PENDING;
   }
@@ -445,9 +446,9 @@ char* c4_rpc_build_json_status(c4_rpc_ctx_t* ctx, bool req_ptr_as_string) {
 
   switch (status) {
     case C4_SUCCESS:
-      if (ctx->phase == RPC_PHASE_DONE && ctx->method_type == METHOD_UNPROOFABLE) 
+      if (ctx->phase == RPC_PHASE_DONE && ctx->method_type == METHOD_UNPROOFABLE)
         bprintf(&buf, "\"result\": %r", ctx->rpc_state.requests->response);
-      else 
+      else
         bprintf(&buf, "\"result\": %Z", ctx->verifier.data);
       break;
 
