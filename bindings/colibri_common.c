@@ -250,13 +250,13 @@ static void cleanup_remote_prover_params(buffer_t* buf, const char* method, cons
 }
 
 static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
-  if (!ctx->rpc_request) {
-    ctx->rpc_request = safe_calloc(1, sizeof(data_request_t));
-    ctx->rpc_request->type     = C4_DATA_TYPE_PROVER;
-    ctx->rpc_request->chain_id = ctx->chain_id;
-    ctx->rpc_request->method   = C4_DATA_METHOD_POST;
-    ctx->rpc_request->encoding = C4_DATA_ENCODING_SSZ;
-    ctx->rpc_request->url      = strdup("");
+  if (!ctx->rpc_state.requests) {
+    ctx->rpc_state.requests = safe_calloc(1, sizeof(data_request_t));
+    ctx->rpc_state.requests->type     = C4_DATA_TYPE_PROVER;
+    ctx->rpc_state.requests->chain_id = ctx->chain_id;
+    ctx->rpc_state.requests->method   = C4_DATA_METHOD_POST;
+    ctx->rpc_state.requests->encoding = C4_DATA_ENCODING_SSZ;
+    ctx->rpc_state.requests->url      = strdup("");
 
     buffer_t payload = {0};
     bprintf(&payload, "{\"method\": \"%s\", \"params\": ", ctx->method);
@@ -280,20 +280,20 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
       bprintf(&payload, ", \"signers\": \"0x%x\"", ctx->witness_keys);
 
     bprintf(&payload, "}");
-    ctx->rpc_request->payload = bytes_dup(payload.data);
+    ctx->rpc_state.requests->payload = bytes_dup(payload.data);
     buffer_free(&payload);
 
     return C4_PENDING;
   }
 
-  if (ctx->rpc_request->error) {
-    ctx->error = bprintf(NULL, "Remote prover failed: %s", ctx->rpc_request->error);
+  if (ctx->rpc_state.requests->error) {
+    ctx->error = bprintf(NULL, "Remote prover failed: %s", ctx->rpc_state.requests->error);
     ctx->phase = RPC_PHASE_DONE;
     return C4_ERROR;
   }
 
-  if (ctx->rpc_request->response.data) {
-    ctx->proof       = bytes_dup(ctx->rpc_request->response);
+  if (ctx->rpc_state.requests->response.data) {
+    ctx->proof       = bytes_dup(ctx->rpc_state.requests->response);
     ctx->proof_owned = true;
     return rpc_start_verifier(ctx, ctx->proof);
   }
@@ -302,27 +302,27 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
 }
 
 static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
-  if (!ctx->rpc_request) {
-    ctx->rpc_request = safe_calloc(1, sizeof(data_request_t));
-    ctx->rpc_request->type     = C4_DATA_TYPE_ETH_RPC;
-    ctx->rpc_request->chain_id = ctx->chain_id;
-    ctx->rpc_request->method   = C4_DATA_METHOD_POST;
-    ctx->rpc_request->encoding = C4_DATA_ENCODING_JSON;
+  if (!ctx->rpc_state.requests) {
+    ctx->rpc_state.requests = safe_calloc(1, sizeof(data_request_t));
+    ctx->rpc_state.requests->type     = C4_DATA_TYPE_ETH_RPC;
+    ctx->rpc_state.requests->chain_id = ctx->chain_id;
+    ctx->rpc_state.requests->method   = C4_DATA_METHOD_POST;
+    ctx->rpc_state.requests->encoding = C4_DATA_ENCODING_JSON;
 
     buffer_t payload = {0};
     bprintf(&payload, "{\"method\": \"%s\", \"params\": %s}", ctx->method, ctx->params);
-    ctx->rpc_request->payload =payload.data;
+    ctx->rpc_state.requests->payload =payload.data;
 
     return C4_PENDING;
   }
 
-  if (ctx->rpc_request->error) {
-    ctx->error = bprintf(NULL, "RPC request failed: %s", ctx->rpc_request->error);
+  if (ctx->rpc_state.requests->error) {
+    ctx->error = bprintf(NULL, "RPC request failed: %s", ctx->rpc_state.requests->error);
     ctx->phase = RPC_PHASE_DONE;
     return C4_ERROR;
   }
 
-  if (ctx->rpc_request->response.data) {
+  if (ctx->rpc_state.requests->response.data) {
     ctx->phase = RPC_PHASE_DONE;
     return C4_SUCCESS;
   }
@@ -338,6 +338,8 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
                                             json_parse(ctx->params), ctx->verify_flags);
       switch (ctx->method_type) {
         case METHOD_PROOFABLE:
+          if (ctx->proof.data)
+            return rpc_start_verifier(ctx, ctx->proof);
           if (ctx->use_remote_prover) {
             ctx->phase = RPC_PHASE_RPC;
             return rpc_handle_remote_proof(ctx);
@@ -391,6 +393,8 @@ c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx) {
       return ctx->prover ? &ctx->prover->state : NULL;
     case RPC_PHASE_VERIFYING:
       return &ctx->verifier.state;
+    case RPC_PHASE_RPC:
+      return &ctx->rpc_state;
     default:
       return NULL;
   }
@@ -406,8 +410,9 @@ void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx) {
   c4_verify_free_data(&ctx->verifier);
   if (ctx->proof_owned && ctx->proof.data) free(ctx->proof.data);
   if (ctx->witness_keys.data) free(ctx->witness_keys.data);
-  if (ctx->rpc_request)
-    c4_request_free(ctx->rpc_request);
+  if (ctx->rpc_state.requests)
+    c4_request_free(ctx->rpc_state.requests);
+  if (ctx->rpc_state.error) safe_free(ctx->rpc_state.error);
   if (ctx->error) free(ctx->error);
   free(ctx);
 }
@@ -423,7 +428,7 @@ char* c4_rpc_build_json_status(c4_rpc_ctx_t* ctx, bool req_ptr_as_string) {
   switch (status) {
     case C4_SUCCESS:
       if (ctx->phase == RPC_PHASE_DONE && ctx->method_type == METHOD_UNPROOFABLE) 
-        bprintf(&buf, "\"result\": %r", ctx->rpc_request->response);
+        bprintf(&buf, "\"result\": %r", ctx->rpc_state.requests->response);
       else 
         bprintf(&buf, "\"result\": %Z", ctx->verifier.data);
       break;
@@ -439,21 +444,14 @@ char* c4_rpc_build_json_status(c4_rpc_ctx_t* ctx, bool req_ptr_as_string) {
         bprintf(&buf, "\"error\": \"unknown error\"");
       break;
 
-    case C4_PENDING:
-      if (ctx->phase == RPC_PHASE_RPC && ctx->rpc_request) {
-        bprintf(&buf, "\"requests\": [");
-        if (!ctx->rpc_request->response.data && !ctx->rpc_request->error)
-          c4i_add_data_request(&buf, ctx->rpc_request, req_ptr_as_string);
-        bprintf(&buf, "]");
-      }
-      else {
-        c4_state_t* state = c4_rpc_get_state(ctx);
-        if (state)
-          append_pending_requests(&buf, state, req_ptr_as_string);
-        else
-          bprintf(&buf, "\"requests\": []");
-      }
+    case C4_PENDING: {
+      c4_state_t* state = c4_rpc_get_state(ctx);
+      if (state)
+        append_pending_requests(&buf, state, req_ptr_as_string);
+      else
+        bprintf(&buf, "\"requests\": []");
       break;
+    }
   }
 
   return bprintf(&buf, "}");

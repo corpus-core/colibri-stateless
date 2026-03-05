@@ -75,7 +75,7 @@ typedef struct {
   bytes_t         proof;
   bool            proof_owned;
 
-  data_request_t* rpc_request;
+  c4_state_t      rpc_state;
   char*           error;
 
   bytes_t         witness_keys;
@@ -108,10 +108,10 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx);
  * Returns a pointer to the `c4_state_t` that currently holds pending requests.
  *
  * Depending on the phase, this is the prover state, the verifier state,
- * or a synthetic state wrapping `rpc_request`.
+ * or the `rpc_state` holding forwarded requests.
  *
  * @param ctx the RPC context
- * @return pointer to the active state, or NULL if phase is INIT, RPC, or DONE
+ * @return pointer to the active state, or NULL if phase is INIT or DONE
  */
 c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx);
 

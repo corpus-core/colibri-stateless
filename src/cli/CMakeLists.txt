@@ -40,7 +40,7 @@ if (CLI)
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
 
-    add_executable(colibri-verifier verifier.c)
+    add_executable(colibri-verifier verifier.c ../../bindings/colibri_common.c)
     set_target_properties(colibri-verifier PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
@@ -53,6 +53,7 @@ if (CLI)
         )
         target_link_libraries(colibri-verifier PRIVATE 
             curl_fetch
+            prover
             verifier
             eth_verifier
             )
@@ -63,6 +64,7 @@ if (CLI)
             verifier
         )   
         target_link_libraries(colibri-verifier PRIVATE 
+            prover
             verifier
             eth_verifier
             )
