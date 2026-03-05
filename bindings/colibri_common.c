@@ -191,15 +191,9 @@ void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex) {
 }
 
 static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
-  char*  method_dup = strdup(ctx->method);
-  char*  params_dup = strdup(ctx->params);
-  json_t params_json = json_parse(params_dup);
-
-  c4_status_t status = c4_verify_init(&ctx->verifier, proof, method_dup, params_json,
+  c4_status_t status = c4_verify_init(&ctx->verifier, proof, ctx->method, json_parse(ctx->params),
                                       ctx->chain_id, ctx->verify_flags);
   if (status == C4_ERROR) {
-    if (!ctx->verifier.method) free(method_dup);
-    if (!ctx->verifier.args.start) free(params_dup);
     ctx->phase = RPC_PHASE_DONE;
     ctx->error = strdup(ctx->verifier.state.error ? ctx->verifier.state.error : "verifier init failed");
     return C4_ERROR;
@@ -256,7 +250,6 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
     ctx->rpc_state.requests->chain_id = ctx->chain_id;
     ctx->rpc_state.requests->method   = C4_DATA_METHOD_POST;
     ctx->rpc_state.requests->encoding = C4_DATA_ENCODING_SSZ;
-    ctx->rpc_state.requests->url      = strdup("");
 
     buffer_t payload = {0};
     bprintf(&payload, "{\"method\": \"%s\", \"params\": ", ctx->method);
@@ -280,8 +273,7 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
       bprintf(&payload, ", \"signers\": \"0x%x\"", ctx->witness_keys);
 
     bprintf(&payload, "}");
-    ctx->rpc_state.requests->payload = bytes_dup(payload.data);
-    buffer_free(&payload);
+    ctx->rpc_state.requests->payload = payload.data;
 
     return C4_PENDING;
   }
@@ -405,8 +397,6 @@ void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx) {
   if (ctx->method) free(ctx->method);
   if (ctx->params) free(ctx->params);
   if (ctx->prover) c4_prover_free(ctx->prover);
-  if (ctx->verifier.method) free((char*) ctx->verifier.method);
-  if (ctx->verifier.args.start) free((char*) ctx->verifier.args.start);
   c4_verify_free_data(&ctx->verifier);
   if (ctx->proof_owned && ctx->proof.data) free(ctx->proof.data);
   if (ctx->witness_keys.data) free(ctx->witness_keys.data);
