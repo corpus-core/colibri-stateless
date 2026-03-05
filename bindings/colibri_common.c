@@ -22,7 +22,11 @@
  */
 
 #include "colibri_common.h"
+#include "plugin.h"
 #include "version.h"
+#ifdef CHAIN_ETH
+#include "sync_committee.h"
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -116,8 +120,12 @@ char* c4i_build_prover_json_status(c4_status_t status, c4_state_t* state,
                                    bool req_ptr_as_string) {
   buffer_t buf = {0};
   bprintf(&buf, "{\"status\": \"%s\",", status_to_string(status));
-  if (status == C4_SUCCESS) 
-    return bprintf(&buf, "\"result\": \"0x%lx\", \"result_len\": %d}", (uint64_t) (uintptr_t) proof_ptr, proof_len);
+  if (status == C4_SUCCESS) {
+    if (req_ptr_as_string)
+      return bprintf(&buf, "\"result\": \"0x%lx\", \"result_len\": %d}", (uint64_t) (uintptr_t) proof_ptr, proof_len);
+    else
+      return bprintf(&buf, "\"result\": %l, \"result_len\": %d}", (uint64_t) (uintptr_t) proof_ptr, proof_len);
+  }
   return build_error_or_pending(&buf, status, state, req_ptr_as_string);
 }
 
@@ -129,6 +137,21 @@ char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
   if (status == C4_SUCCESS) 
     return bprintf(&buf, "\"result\": %Z}", result);
   return build_error_or_pending(&buf, status, state, req_ptr_as_string);
+}
+
+/* ── Standalone checkpoint setter ── */
+
+void c4_set_checkpoint(chain_id_t chain_id, const char* checkpoint_hex) {
+#ifdef CHAIN_ETH
+  if (checkpoint_hex && strlen(checkpoint_hex) == 66) {
+    bytes32_t checkpoint;
+    if (hex_to_bytes(checkpoint_hex + 2, 64, bytes(checkpoint, 32)) == 32)
+      c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
+  }
+#else
+  (void) chain_id;
+  (void) checkpoint_hex;
+#endif
 }
 
 /* ── rpc_ctx lifecycle ── */
@@ -153,6 +176,20 @@ c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id
   return ctx;
 }
 
+void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex) {
+  if (!ctx) return;
+  if (ctx->witness_keys.data) { free(ctx->witness_keys.data); ctx->witness_keys = NULL_BYTES; }
+  if (keys_hex && strlen(keys_hex) > 4 && keys_hex[0] == '0' && keys_hex[1] == 'x') {
+    uint32_t hex_len = strlen(keys_hex) - 2;
+    if (hex_len % 2 != 0) return;
+    ctx->witness_keys = bytes(safe_malloc(hex_len / 2), hex_len / 2);
+    if (hex_to_bytes(keys_hex + 2, -1, ctx->witness_keys) < 0) {
+      free(ctx->witness_keys.data);
+      ctx->witness_keys = NULL_BYTES;
+    }
+  }
+}
+
 static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   char*  method_dup = strdup(ctx->method);
   char*  params_dup = strdup(ctx->params);
@@ -167,6 +204,9 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
     ctx->error = strdup(ctx->verifier.state.error ? ctx->verifier.state.error : "verifier init failed");
     return C4_ERROR;
   }
+  if (ctx->witness_keys.data && ctx->witness_keys.len)
+    ctx->verifier.witness_keys = bytes_dup(ctx->witness_keys);
+
   ctx->phase = RPC_PHASE_VERIFYING;
   return c4_verify(&ctx->verifier);
 }
@@ -181,6 +221,34 @@ static c4_status_t rpc_handle_proving(c4_rpc_ctx_t* ctx) {
   return status;
 }
 
+static void cleanup_remote_prover_params(buffer_t* buf, const char* method, const char* params) {
+  json_t arr = json_parse(params);
+  if (strcmp(method, "eth_verifyLogs") == 0 && arr.type == JSON_TYPE_ARRAY) {
+    bprintf(buf, "[");
+    for (int i = 0; i < json_len(arr); i++) {
+      if (i > 0) bprintf(buf, ",");
+      json_t item     = json_at(arr, i);
+      json_t tx_index = json_get(item, "transactionIndex");
+      json_t block_nr = json_get(item, "blockNumber");
+      bprintf(buf, "{\"transactionIndex\":%j,\"blockNumber\":%j}", tx_index, block_nr);
+    }
+    bprintf(buf, "]");
+  }
+  else if (strcmp(method, "colibri_simulateTransaction") == 0 && arr.type == JSON_TYPE_ARRAY) {
+    int len = json_len(arr);
+    if (len > 2) len = 2;
+    bprintf(buf, "[");
+    for (int i = 0; i < len; i++) {
+      if (i > 0) bprintf(buf, ",");
+      bprintf(buf, "%j", json_at(arr, i));
+    }
+    bprintf(buf, "]");
+  }
+  else {
+    bprintf(buf, "%s", params);
+  }
+}
+
 static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
   if (!ctx->rpc_request) {
     ctx->rpc_request = safe_calloc(1, sizeof(data_request_t));
@@ -191,8 +259,27 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
     ctx->rpc_request->url      = strdup("");
 
     buffer_t payload = {0};
-    bprintf(&payload, "{\"method\": \"%s\", \"params\": %s, \"version\": %d}",
-            ctx->method, ctx->params, (uint32_t) c4_current_version_number());
+    bprintf(&payload, "{\"method\": \"%s\", \"params\": ", ctx->method);
+    cleanup_remote_prover_params(&payload, ctx->method, ctx->params);
+    bprintf(&payload, ", \"version\": %d", (uint32_t) c4_current_version_number());
+
+    storage_plugin_t storage = {0};
+    c4_get_storage_config(&storage);
+    buffer_t state_buf = {0};
+    char     name[100];
+    sbprintf(name, "states_%l", (uint64_t) ctx->chain_id);
+    if (storage.get && storage.get(name, &state_buf) && state_buf.data.data && state_buf.data.len)
+      bprintf(&payload, ", \"c4\": \"0x%x\"", state_buf.data);
+    buffer_free(&state_buf);
+
+    if (ctx->prover_flags & C4_PROVER_FLAG_ZK_PROOF)
+      bprintf(&payload, ", \"zk_proof\": true");
+    if (ctx->prover_flags & C4_PROVER_FLAG_INCLUDE_CODE)
+      bprintf(&payload, ", \"include_code\": true");
+    if (ctx->witness_keys.data && ctx->witness_keys.len)
+      bprintf(&payload, ", \"signers\": \"0x%x\"", ctx->witness_keys);
+
+    bprintf(&payload, "}");
     ctx->rpc_request->payload = bytes_dup(payload.data);
     buffer_free(&payload);
 
@@ -318,6 +405,7 @@ void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx) {
   if (ctx->verifier.args.start) free((char*) ctx->verifier.args.start);
   c4_verify_free_data(&ctx->verifier);
   if (ctx->proof_owned && ctx->proof.data) free(ctx->proof.data);
+  if (ctx->witness_keys.data) free(ctx->witness_keys.data);
   if (ctx->rpc_request)
     c4_request_free(ctx->rpc_request);
   if (ctx->error) free(ctx->error);

@@ -32,6 +32,19 @@ extern "C" {
 #include "verify.h"
 #include <stdbool.h>
 
+/* ── Standalone checkpoint setter (chain-global, not per-context) ── */
+
+/**
+ * Sets a trusted checkpoint for a chain (context-independent).
+ *
+ * Parses a hex checkpoint string and stores it globally for the chain.
+ * This must be called before verification if the host has a known checkpoint.
+ *
+ * @param chain_id target chain ID
+ * @param checkpoint_hex hex string with "0x" prefix (66 chars total, e.g. "0xabcd...")
+ */
+void c4_set_checkpoint(chain_id_t chain_id, const char* checkpoint_hex);
+
 /**
  * RPC context phases for the unified execution flow.
  */
@@ -64,6 +77,8 @@ typedef struct {
 
   data_request_t* rpc_request;
   char*           error;
+
+  bytes_t         witness_keys;
 } c4_rpc_ctx_t;
 
 /**
@@ -99,6 +114,17 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx);
  * @return pointer to the active state, or NULL if phase is INIT, RPC, or DONE
  */
 c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx);
+
+/**
+ * Sets witness/signer keys on the RPC context (hex-encoded).
+ *
+ * The keys are used for sync committee weak subjectivity signing during
+ * both proving (sent to remote prover) and verification.
+ *
+ * @param ctx the RPC context
+ * @param keys_hex hex string with "0x" prefix (e.g. "0xabcd..."), or NULL to clear
+ */
+void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex);
 
 /**
  * Frees the RPC context and all owned resources.

@@ -65,11 +65,7 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
 /* ── Verify API ── */
 
 void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys, uint32_t flags) {
-  if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
-    bytes32_t checkpoint;
-    hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
-    c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
-  }
+  c4_set_checkpoint((chain_id_t) chain_id, trusted_checkpoint);
   if (method == NULL || strlen(method) == 0) return NULL;
 
   c4w_verify_ctx_t* ctx = calloc(1, sizeof(c4w_verify_ctx_t));
@@ -121,6 +117,14 @@ char* EMSCRIPTEN_KEEPALIVE c4w_execute_rpc_ctx(void* ctx) {
 
 void EMSCRIPTEN_KEEPALIVE c4w_free_rpc_ctx(void* ctx) {
   c4_rpc_ctx_free((c4_rpc_ctx_t*) ctx);
+}
+
+void EMSCRIPTEN_KEEPALIVE c4w_set_checkpoint(uint64_t chain_id, char* checkpoint) {
+  c4_set_checkpoint((chain_id_t) chain_id, checkpoint);
+}
+
+void EMSCRIPTEN_KEEPALIVE c4w_rpc_ctx_set_witness_keys(void* ctx, char* keys) {
+  c4_rpc_ctx_set_witness_keys((c4_rpc_ctx_t*) ctx, keys);
 }
 
 /* ── Utilities ── */

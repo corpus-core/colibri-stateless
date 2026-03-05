@@ -75,11 +75,7 @@ void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t cha
   c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
   ctx->proof           = bytes_dup(proof);
   c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t){0}), (chain_id_t) chain_id, (verify_flags_t) flags);
-  if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
-    bytes32_t checkpoint;
-    hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
-    c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
-  }
+  c4_set_checkpoint((chain_id_t) chain_id, trusted_checkpoint);
   return (void*) ctx;
 }
 
@@ -117,6 +113,10 @@ void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t 
 
 char* c4_rpc_execute_json_status(void* ctx) {
   return c4_rpc_build_json_status((c4_rpc_ctx_t*) ctx, true);
+}
+
+void c4_rpc_set_witness_keys(void* ctx, const char* witness_keys) {
+  c4_rpc_ctx_set_witness_keys((c4_rpc_ctx_t*) ctx, witness_keys);
 }
 
 void c4_free_rpc_ctx(void* ctx) {

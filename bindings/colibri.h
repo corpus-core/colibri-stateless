@@ -1252,6 +1252,29 @@ uint32_t c4_get_current_version_number(void);
 void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int use_remote_prover);
 
 /**
+ * Sets a trusted checkpoint for a chain (context-independent).
+ *
+ * Parses a hex checkpoint string and stores it globally for the given chain.
+ * Call this once before any verification if the host has a known checkpoint.
+ * The checkpoint persists across all prover/verifier/RPC contexts for the chain.
+ *
+ * @param chain_id target chain ID
+ * @param trusted_checkpoint hex string with "0x" prefix (66 chars total), or NULL (no-op)
+ */
+void c4_set_checkpoint(uint64_t chain_id, const char* trusted_checkpoint);
+
+/**
+ * Sets witness/signer keys on an RPC context (hex-encoded).
+ *
+ * Used for sync committee weak subjectivity signing during proof generation
+ * (sent to remote prover as `"signers"`) and verification.
+ *
+ * @param ctx The RPC context created by `c4_create_rpc_ctx()`
+ * @param witness_keys hex string with "0x" prefix (e.g. "0xabcd..."), or NULL to clear
+ */
+void c4_rpc_set_witness_keys(void* ctx, const char* witness_keys);
+
+/**
  * Executes one step of the unified RPC state machine.
  *
  * This function drives the full RPC lifecycle: method type detection, proof generation
