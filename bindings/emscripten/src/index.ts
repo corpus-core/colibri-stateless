@@ -243,7 +243,7 @@ export default class C4Client {
             return as_bytes(state.result, state.result_len, c4w);
           case "error":
             throw new Error(state.error);
-          case "waiting": {
+          case "pending": {
             await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
             break;
           }
@@ -296,7 +296,7 @@ export default class C4Client {
             return state.result;
           case "error":
             throw new Error(state.error);
-          case "waiting": {
+          case "pending": {
             await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
             break;
           }

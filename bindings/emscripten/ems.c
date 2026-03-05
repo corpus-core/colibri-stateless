@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -21,10 +21,9 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../colibri_common.h"
 #include "plugin.h"
-#include "prover.h"
 #include "sync_committee.h"
-#include "verify.h"
 #include "version.h"
 #include <emscripten.h>
 #include <stdio.h>
@@ -36,6 +35,8 @@ typedef struct {
   verify_ctx_t verify;
 } c4w_verify_ctx_t;
 
+/* ── Prover API ── */
+
 prover_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args, uint64_t chain_id, uint32_t flags) {
   return c4_prover_create(method, args, chain_id, flags);
 }
@@ -43,96 +44,13 @@ prover_ctx_t* EMSCRIPTEN_KEEPALIVE c4w_create_proof_ctx(char* method, char* args
 void EMSCRIPTEN_KEEPALIVE c4w_free_proof_ctx(prover_ctx_t* ctx) {
   c4_prover_free(ctx);
 }
-static const char* status_to_string(c4_status_t status) {
-  switch (status) {
-    case C4_SUCCESS:
-      return "success";
-    case C4_ERROR:
-      return "error";
-    case C4_PENDING:
-      return "waiting";
-  }
-}
-
-static const char* encoding_to_string(data_request_encoding_t encoding) {
-  switch (encoding) {
-    case C4_DATA_ENCODING_SSZ:
-      return "ssz";
-    case C4_DATA_ENCODING_JSON:
-      return "json";
-  }
-}
-
-static const char* method_to_string(data_request_method_t method) {
-  switch (method) {
-    case C4_DATA_METHOD_GET:
-      return "get";
-    case C4_DATA_METHOD_POST:
-      return "post";
-    case C4_DATA_METHOD_PUT:
-      return "put";
-    case C4_DATA_METHOD_DELETE:
-      return "delete";
-  }
-}
-
-static const char* data_request_type_to_string(data_request_type_t type) {
-  switch (type) {
-    case C4_DATA_TYPE_BEACON_API:
-      return "beacon_api";
-    case C4_DATA_TYPE_ETH_RPC:
-      return "eth_rpc";
-    case C4_DATA_TYPE_REST_API:
-      return "rest_api";
-    case C4_DATA_TYPE_INTERN:
-      return "intern";
-    case C4_DATA_TYPE_CHECKPOINTZ:
-      return "checkpointz";
-    case C4_DATA_TYPE_PROVER:
-      return "prover";
-  }
-}
-static void add_data_request(buffer_t* result, data_request_t* data_request) {
-  bprintf(result, "{\"req_ptr\": %l,", (uint64_t) data_request);
-  bprintf(result, "\"chain_id\": %d,", (uint32_t) data_request->chain_id);
-  bprintf(result, "\"encoding\": \"%s\",", encoding_to_string(data_request->encoding));
-  bprintf(result, "\"exclude_mask\": \"%d\",", (uint32_t) data_request->node_exclude_mask);
-  bprintf(result, "\"method\": \"%s\",", method_to_string(data_request->method));
-  bprintf(result, "\"url\": \"%s\",", data_request->url);
-  if (data_request->payload.data)
-    bprintf(result, "\"payload\": %j,", (json_t) {.len = data_request->payload.len, .start = (char*) data_request->payload.data, .type = JSON_TYPE_OBJECT});
-  bprintf(result, "\"type\": \"%s\"}", data_request_type_to_string(data_request->type));
-}
 
 char* EMSCRIPTEN_KEEPALIVE c4w_execute_proof_ctx(prover_ctx_t* ctx) {
-  buffer_t    result = {0};
   c4_status_t status = c4_prover_execute(ctx);
-  bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
-  switch (status) {
-    case C4_SUCCESS:
-      bprintf(&result, "\"result\": %l, \"result_len\": %d", (uint64_t) ctx->proof.data, ctx->proof.len);
-      break;
-    case C4_ERROR:
-      bprintf(&result, "\"error\": \"%S\"", ctx->state.error);
-      break;
-    case C4_PENDING: {
-      bprintf(&result, "\"requests\": [");
-      data_request_t* data_request = c4_state_get_pending_request(&ctx->state);
-      while (data_request) {
-        if (!data_request->response.data && !data_request->error) {
-          if (result.data.data[result.data.len - 1] != '[') bprintf(&result, ",");
-          add_data_request(&result, data_request);
-        }
-        data_request = data_request->next;
-      }
-
-      bprintf(&result, "]");
-      break;
-    }
-  }
-  bprintf(&result, "}");
-  return buffer_as_string(result);
+  return c4i_build_prover_json_status(status, &ctx->state, ctx->proof.data, ctx->proof.len, false);
 }
+
+/* ── Request handling ── */
 
 void EMSCRIPTEN_KEEPALIVE c4w_req_set_response(data_request_t* ctx, void* data, size_t len, uint16_t node_index) {
   ctx->response            = bytes(data, len);
@@ -144,6 +62,8 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
   ctx->response_node_index = node_index;
 }
 
+/* ── Verify API ── */
+
 void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys, uint32_t flags) {
   if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
     bytes32_t checkpoint;
@@ -154,7 +74,7 @@ void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_le
 
   c4w_verify_ctx_t* ctx = calloc(1, sizeof(c4w_verify_ctx_t));
   ctx->proof            = bytes_dup(bytes(proof, proof_len));
-  c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id, (verify_flags_t) flags);
+  c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t){.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id, (verify_flags_t) flags);
 
   if (witness_keys && strlen(witness_keys) > 40 && witness_keys[0] == '0' && witness_keys[1] == 'x') {
     bytes_t witness_key_bytes = bytes(safe_malloc(strlen(witness_keys) / 2), (strlen(witness_keys) - 2) / 2);
@@ -164,6 +84,7 @@ void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_le
 
   return (void*) ctx;
 }
+
 void EMSCRIPTEN_KEEPALIVE c4w_free_verify_ctx(void* ptr) {
   c4w_verify_ctx_t* ctx = (c4w_verify_ctx_t*) ptr;
   if (ctx->verify.method) free((char*) ctx->verify.method);
@@ -172,47 +93,43 @@ void EMSCRIPTEN_KEEPALIVE c4w_free_verify_ctx(void* ptr) {
   c4_verify_free_data(&ctx->verify);
   free(ctx);
 }
-method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* method, char* params, uint32_t flags) {
-  return c4_get_method_type((chain_id_t) chain_id, method,
-                            params ? json_parse(params) : (json_t) {0}, (verify_flags_t) flags);
-}
 
 char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
   verify_ctx_t* ctx    = &((c4w_verify_ctx_t*) ptr)->verify;
-  buffer_t      result = {0};
   c4_status_t   status = c4_verify(ctx);
-  bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
-  switch (status) {
-    case C4_SUCCESS:
-      bprintf(&result, "\"result\": %Z", ctx->data);
-      break;
-    case C4_ERROR:
-      bprintf(&result, "\"error\": \"%S\"", ctx->state.error);
-      break;
-    case C4_PENDING: {
-      bprintf(&result, "\"requests\": [");
-      data_request_t* data_request = c4_state_get_pending_request(&ctx->state);
-      while (data_request) {
-        if (!data_request->response.data && !data_request->error) {
-          if (result.data.data[result.data.len - 1] != '[') bprintf(&result, ",");
-          add_data_request(&result, data_request);
-        }
-        data_request = data_request->next;
-      }
-
-      bprintf(&result, "]");
-      break;
-    }
-  }
-  bprintf(&result, "}");
-  return buffer_as_string(result);
+  return c4i_build_verifier_json_status(status, &ctx->state, ctx->data, false);
 }
+
+/* ── Method type ── */
+
+method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* method, char* params, uint32_t flags) {
+  return c4_get_method_type((chain_id_t) chain_id, method,
+                            params ? json_parse(params) : (json_t){0}, (verify_flags_t) flags);
+}
+
+/* ── Unified RPC API ── */
+
+void* EMSCRIPTEN_KEEPALIVE c4w_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int use_remote_prover) {
+  return (void*) c4_rpc_ctx_create(method, params, (chain_id_t) chain_id,
+                                   (prover_flags_t) prover_flags, (verify_flags_t) verify_flags,
+                                   use_remote_prover != 0);
+}
+
+char* EMSCRIPTEN_KEEPALIVE c4w_execute_rpc_ctx(void* ctx) {
+  return c4_rpc_build_json_status((c4_rpc_ctx_t*) ctx, false);
+}
+
+void EMSCRIPTEN_KEEPALIVE c4w_free_rpc_ctx(void* ctx) {
+  c4_rpc_ctx_free((c4_rpc_ctx_t*) ctx);
+}
+
+/* ── Utilities ── */
 
 char* EMSCRIPTEN_KEEPALIVE c4w_decode_proof(uint8_t* data, size_t len) {
   bytes_t          req_data = bytes(data, len);
   const ssz_def_t* def      = c4_get_req_type_from_req(req_data);
   if (!def) return NULL;
-  return bprintf(NULL, "%Z", (ssz_ob_t) {.def = def, .bytes = req_data});
+  return bprintf(NULL, "%Z", (ssz_ob_t){.def = def, .bytes = req_data});
 }
 
 void EMSCRIPTEN_KEEPALIVE c4w_req_free(data_request_t* client_update) {
@@ -226,6 +143,8 @@ uint8_t* EMSCRIPTEN_KEEPALIVE c4w_buffer_alloc(buffer_t* buf, size_t len) {
   buf->data.len = len;
   return buf->data.data;
 }
+
+/* ── Storage plugin (WASM ↔ JS bridge) ── */
 
 static bool file_get(char* key, buffer_t* buffer) {
   return EM_ASM_INT({

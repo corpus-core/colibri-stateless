@@ -17,6 +17,7 @@ find_package(pybind11 REQUIRED PATHS ${pybind11_DIR})
 pybind11_add_module(_native 
     src/bindings.cpp
     ${CMAKE_SOURCE_DIR}/bindings/colibri.c
+    ${CMAKE_SOURCE_DIR}/bindings/colibri_common.c
 )
 
 # Include directories for bindings (only generic APIs, no chain-specific headers)
