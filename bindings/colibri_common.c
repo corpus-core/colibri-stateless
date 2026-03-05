@@ -279,9 +279,11 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
   }
 
   if (ctx->rpc_state.requests->error) {
-    ctx->error = bprintf(NULL, "Remote prover failed: %s", ctx->rpc_state.requests->error);
-    ctx->phase = RPC_PHASE_DONE;
-    return C4_ERROR;
+    c4_request_free(ctx->rpc_state.requests);
+    ctx->rpc_state.requests = NULL;
+    ctx->prover             = c4_prover_create(ctx->method, ctx->params, ctx->chain_id, ctx->prover_flags);
+    ctx->phase              = RPC_PHASE_PROVING;
+    return rpc_handle_proving(ctx);
   }
 
   if (ctx->rpc_state.requests->response.data) {

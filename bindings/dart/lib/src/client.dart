@@ -238,6 +238,8 @@ class Colibri {
     final proverFlags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0);
     final useRemote = provers.isEmpty ? 0 : 1;
 
+    _onDebug?.call('rpc: method=$method useRemote=$useRemote chainId=$chainId');
+
     final ctx = _native.createRpcCtx(method, paramsJson, chainId, proverFlags, _getVerifyFlags(), useRemote);
     if (ctx == ffi.nullptr) {
       throw ColibriError('Failed to create RPC context for $method');
@@ -258,14 +260,18 @@ class Colibri {
 
         switch (status['status']) {
           case 'success':
+            _onDebug?.call('rpc: $method → success');
             return status['result'];
           case 'error':
-            throw ColibriError(status['error']?.toString() ?? 'Unknown RPC error');
+            final errorMsg = status['error']?.toString() ?? 'Unknown RPC error';
+            _onDebug?.call('rpc: $method → error: $errorMsg');
+            throw ColibriError(errorMsg);
           case 'pending':
             final requests = (status['requests'] as List<dynamic>? ?? [])
                 .whereType<Map<String, dynamic>>()
                 .map(DataRequest.fromJson)
                 .toList();
+            _onDebug?.call('rpc: $method → pending (${requests.length} requests)');
             await _handleRequests(requests, useProverFallback: true);
             break;
           default:
