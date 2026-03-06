@@ -72,7 +72,7 @@ configure_file(
   @ONLY
 )
 
-add_executable(c4w ems.c)
+add_executable(c4w ems.c ../colibri_common.c)
 target_link_libraries(c4w prover verifier eth_verifier)
 set_target_properties(c4w PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${EMSCRIPTEN_OUTPUT_DIR}

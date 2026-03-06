@@ -232,8 +232,12 @@ public class Colibri {
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
     public var useAccesslist: Bool = false
+    /// Whether to request ZK sync proofs from remote provers.
+    public var zkProof: Bool = false
     /// PAP mode; .basic sets verify flag for Pragmatic Adaptive Privacy.
     public var privacyMode: PrivacyMode = .none
+    /// Optional witness signer keys (hex-encoded, 0x-prefixed) for sync committee signing.
+    public var checkpointWitnessKeys: String? = nil
 
     /// Optional request handler for mocking HTTP requests in tests
     public var requestHandler: RequestHandler?
@@ -418,57 +422,58 @@ public class Colibri {
         }
     }
 
-    // Implement the rpc method
+    // Unified RPC execution via the C core state machine.
     public func rpc(method: String, params: String) async throws -> Any {
-        let methodType = getMethodSupport(method: method, params: params)
-        var proof = Data()
+        let methodCStr = method.withCString { strdup($0) }
+        let paramsCStr = params.withCString { strdup($0) }
+        guard let mPtr = methodCStr, let pPtr = paramsCStr else {
+            throw ColibriError.invalidInput
+        }
+        defer { free(mPtr); free(pPtr) }
 
-        switch methodType {
-        case .PROOFABLE:
-            // Assuming params is a JSON string representing an array or object
-            // We prefer fetching from a prover if available
-            if !provers.isEmpty {
-                 proof = try await fetchRpc(urls: provers, method: method, params: params, asProof: true)
-            } else {
-                 proof = try await createProof(method: method, params: params)
-            }
-            // Verification happens below, after the switch
+        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0)
+        let useRemote: Int32 = provers.isEmpty ? 0 : 1
 
-        case .UNPROOFABLE:
-            let responseData = try await fetchRpc(urls: eth_rpcs, method: method, params: params, asProof: false)
-            // Parse JSON response
-            do {
-                guard let jsonResponse = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
-                    throw ColibriError.invalidJSON
-                }
-                if let error = jsonResponse["error"] as? [String: Any] {
-                     let errorMessage = error["message"] as? String ?? "Unknown RPC error"
-                     throw ColibriError.rpcError(errorMessage)
-                }
-                guard let result = jsonResponse["result"] else {
-                    throw ColibriError.invalidJSON // Result field is missing
-                }
-                return result
-            } catch let error as ColibriError {
-                 throw error // Re-throw Colibri specific errors
-            } catch {
-                 throw ColibriError.invalidJSON // Catch JSON parsing errors
-            }
+        guard let ctx = c4_create_rpc_ctx(mPtr, pPtr, chainId, proverFlags, getVerifyFlags(), useRemote) else {
+            throw ColibriError.contextCreationFailed
+        }
+        defer { c4_free_rpc_ctx(ctx) }
 
-        case .NOT_SUPPORTED:
-            throw ColibriError.methodNotSupported(method)
-
-        case .LOCAL:
-            // For local methods, we still call verify with empty proof
-            proof = Data()
-            // Verification happens below, after the switch
-
-        case .UNKNOWN:
-             throw ColibriError.unknownMethodType(method)
+        if let checkpoint = trustedCheckpoint {
+            checkpoint.withCString { c4_set_checkpoint(chainId, $0) }
+        }
+        if let keys = checkpointWitnessKeys, !keys.isEmpty {
+            keys.withCString { c4_rpc_set_witness_keys(ctx, $0) }
         }
 
-        // Verify the proof (either created/fetched for PROOFABLE, or empty for LOCAL)
-        return try await verifyProof(proof: proof, method: method, params: params)
+        while true {
+            guard let statusPtr = c4_rpc_execute_json_status(ctx) else {
+                throw ColibriError.nullPointerReceived
+            }
+            let statusJson = String(cString: statusPtr)
+            free(statusPtr)
+
+            guard let statusData = statusJson.data(using: .utf8),
+                  let statusDict = try JSONSerialization.jsonObject(with: statusData) as? [String: Any],
+                  let status = statusDict["status"] as? String else {
+                throw ColibriError.invalidJSON
+            }
+
+            switch status {
+            case "success":
+                return statusDict["result"] as Any
+            case "error":
+                let errorMsg = statusDict["error"] as? String ?? "Unknown error"
+                throw ColibriError.proofError("RPC error for method \(method): \(errorMsg)")
+            case "pending":
+                guard let requests = statusDict["requests"] as? [[String: Any]] else {
+                    throw ColibriError.invalidJSON
+                }
+                try await handleRequests(requests, useProverFallback: true)
+            default:
+                throw ColibriError.unknownStatus(status)
+            }
+        }
     }
 
     // Helper function to handle pending requests
@@ -527,9 +532,11 @@ public class Colibri {
                     let servers: [String]
                     if requestType == "checkpointz" {
                         servers = self.checkpointz
-                    } else if useProverFallback && requestType == "beacon" && !self.provers.isEmpty {
+                    } else if requestType == "prover" {
                         servers = self.provers
-                    } else if requestType == "beacon" {
+                    } else if requestType == "beacon_api" && useProverFallback && !self.provers.isEmpty {
+                        servers = self.provers
+                    } else if requestType == "beacon_api" {
                         servers = self.beacon_apis
                     } else {
                         servers = self.eth_rpcs

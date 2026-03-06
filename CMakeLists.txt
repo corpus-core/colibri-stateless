@@ -577,7 +577,7 @@ endif()
 
 # Shared library if requested and not embedded
 if(SHAREDLIB AND NOT EMBEDDED)
-    add_library(c4 SHARED src/util/version.c bindings/colibri.c)
+    add_library(c4 SHARED src/util/version.c bindings/colibri.c bindings/colibri_common.c)
     target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier eth_verifier)
     set_target_properties(c4 PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}

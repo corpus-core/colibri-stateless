@@ -29,8 +29,6 @@ import {
   C4W,
   copy_to_c,
   getC4w,
-  get_prover_config_hex,
-  set_trusted_checkpoint,
   decode_proof,
   Storage as C4Storage
 } from "./wasm.js";
@@ -76,20 +74,6 @@ export {
   PrototypeProtection
 } from './transactionVerifier.js';
 
-// fetch_rpc und handle_request sind nach http.ts verschoben
-
-// default_config, get_chain_id, chain_conf ausgelagert nach ./chains.ts
-
-function cleanup_args(method: string, args: any[]): any[] {
-  if (method == "eth_verifyLogs") return args.map(arg => ({
-    transactionIndex: arg.transactionIndex,
-    blockNumber: arg.blockNumber
-  }))
-  if (method == "colibri_simulateTransaction") return args.slice(0, 2);
-  return args;
-}
-
-
 
 export default class C4Client {
 
@@ -97,7 +81,6 @@ export default class C4Client {
   private eventEmitter: EventEmitter;
   private connectionState: ConnectionState;
   private subscriptionManager: SubscriptionManager;
-  private initMap: Map<number | string, boolean> = new Map();
   private flags: number = 0;
   private verify_flags: number = 0;
 
@@ -172,30 +155,6 @@ export default class C4Client {
     )
   }
 
-  // Prover config helpers are moved to wasm.ts (get_prover_config_hex)
-
-  private async fetch_checkpointz() {
-    let checkpoint: string | undefined = undefined
-    for (const url of [...(this.config.checkpointz || []), ...(this.config.beacon_apis || []), ...(this.config.prover || [])]) {
-      const response = await fetch(url + (url.endsWith('/') ? '' : '/') + 'eth/v1/beacon/states/head/finality_checkpoints', {
-        method: 'GET',
-        headers: {
-          "Content-Type": "application/json"
-        }
-      })
-      if (response.ok) {
-        const res = await response.json();
-        checkpoint = res?.data?.finalized?.root
-        if (checkpoint) break;
-      }
-    }
-    if (!checkpoint) throw new Error('No checkpoint found');
-    this.config.trusted_checkpoint = checkpoint;
-
-    // set trusted checkpoint in C state so we can use it in proof calls immediately
-    await set_trusted_checkpoint(this.config.chainId as number, checkpoint);
-  }
-
   /**
    * Checks whether the RPC method is supported or proofable.
    * @param method - The method to check
@@ -243,7 +202,7 @@ export default class C4Client {
             return as_bytes(state.result, state.result_len, c4w);
           case "error":
             throw new Error(state.error);
-          case "waiting": {
+          case "pending": {
             await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
             break;
           }
@@ -296,7 +255,7 @@ export default class C4Client {
             return state.result;
           case "error":
             throw new Error(state.error);
-          case "waiting": {
+          case "pending": {
             await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
             break;
           }
@@ -318,15 +277,7 @@ export default class C4Client {
    * @returns The result
    */
   async rpc(method: string, args: any[], method_type?: C4MethodType): Promise<any> {
-    // eth_subscribe and eth_unsubscribe are handled by C4Client.request before this method is called.
-    // This rpc method is for the underlying data fetching/proving.
-    if (!this.initMap.get(this.config.chainId)) {
-      this.initMap.set(this.config.chainId, true);
-      if (!this.config.zk_proof && this.config.checkpointz && this.config.checkpointz.length > 0 && !this.config.trusted_checkpoint && (await get_prover_config_hex(this.config.chainId as number)).length == 2)
-        await this.fetch_checkpointz();
-
-    }
-    // Special handling for eth_sendTransaction with verification
+    // eth_sendTransaction stays in bindings (requires fallback_provider interaction)
     if (method === 'eth_sendTransaction' && (this.config as any).verifyTransactions) {
       return await TransactionVerifier.verifyAndSendTransaction(
         args[0],
@@ -336,38 +287,51 @@ export default class C4Client {
       );
     }
 
+    // Allow host to skip verification for specific calls
     if (method_type === undefined)
       method_type = await this.getMethodSupport(method, args);
+    if (method_type === C4MethodType.PROOFABLE && this.config.verify && !this.config.verify(method, args))
+      return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
 
-    switch (method_type) {
-      case C4MethodType.PROOFABLE: {
+    const c4w = await getC4w();
+    const free_buffers: number[] = [];
+    let ctx = 0;
 
-        if (this.config.verify && !this.config.verify(method, args)) {
-          // skip verification and fetch directly
-          return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
+    try {
+      const use_remote_prover = (method_type === C4MethodType.PROOFABLE && this.config.prover?.length) ? 1 : 0;
+      let prover_flags = this.flags;
+      if (this.config.zk_proof) prover_flags |= (1 << 7);
+
+      ctx = c4w._c4w_create_rpc_ctx(
+        as_char_ptr(method, c4w, free_buffers),
+        as_char_ptr(JSON.stringify(args || []), c4w, free_buffers),
+        BigInt(this.config.chainId),
+        prover_flags,
+        this.verify_flags,
+        use_remote_prover
+      );
+
+      if (this.config.trusted_checkpoint)
+        c4w._c4w_set_checkpoint(BigInt(this.config.chainId), as_char_ptr(this.config.trusted_checkpoint, c4w, free_buffers));
+      if (this.config.checkpoint_witness_keys)
+        c4w._c4w_rpc_ctx_set_witness_keys(ctx, as_char_ptr(this.config.checkpoint_witness_keys, c4w, free_buffers));
+
+      while (true) {
+        const state = as_json(c4w._c4w_execute_rpc_ctx(ctx), c4w, true);
+        switch (state.status) {
+          case "success":
+            return state.result;
+          case "error":
+            throw new Error(state.error);
+          case "pending":
+            await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
+            break;
         }
-
-        const proof = this.config.prover && this.config.prover.length
-          ? await fetch_rpc(this.config.prover, {
-            method,
-            params: cleanup_args(method, args),
-            c4: await get_prover_config_hex(this.config.chainId as number),
-            zk_proof: !!this.config.zk_proof,
-            signers: this.config.checkpoint_witness_keys || '0x',
-            version: (await getC4w())._c4w_get_current_version_number()
-          }, true)
-          : await this.createProof(method, args);
-        return this.verifyProof(method, args, proof);
       }
-      case C4MethodType.UNPROOFABLE:
-        return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
-      case C4MethodType.NOT_SUPPORTED:
-        throw new ProviderRpcError(4200, `Method ${method} is not supported by C4Client.rpc core`);
-      case C4MethodType.LOCAL:
-        return this.verifyProof(method, args, new Uint8Array());
+    } finally {
+      free_buffers.forEach(ptr => c4w._free(ptr));
+      if (ctx) c4w._c4w_free_rpc_ctx(ctx);
     }
-    // Should be unreachable if MethodType enum is comprehensive and handled
-    throw new ProviderRpcError(-32603, `Internal error: Unhandled method type for ${method} in C4Client.rpc core`);
   }
 
 

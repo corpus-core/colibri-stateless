@@ -34,6 +34,11 @@ export interface C4W {
     _c4w_verify_proof: (verifyCtx: number) => number;
     _c4w_req_free: (reqPtr: number) => void;
     _c4w_get_current_version_number: () => number;
+    _c4w_create_rpc_ctx: (method: number, params: number, chainId: bigint, prover_flags: number, verify_flags: number, use_remote_prover: number) => number;
+    _c4w_execute_rpc_ctx: (ctx: number) => number;
+    _c4w_free_rpc_ctx: (ctx: number) => void;
+    _c4w_set_checkpoint: (chainId: bigint, checkpoint: number) => void;
+    _c4w_rpc_ctx_set_witness_keys: (ctx: number, keys: number) => void;
     _c4w_decode_proof: (data: number, len: number) => number;
     _init_storage: () => void;
     HEAPU8: Uint8Array;
@@ -256,7 +261,7 @@ export function createC4wApi(options: {
     async function set_trusted_checkpoint(chainId: number, checkpoint: string): Promise<void> {
         const c4w = await getC4w();
         const free_buffers: number[] = [];
-        c4w._c4w_create_verify_ctx(0, 0, 0, 0, BigInt(chainId), as_char_ptr(checkpoint, c4w, free_buffers), 0, 0);
+        c4w._c4w_set_checkpoint(BigInt(chainId), as_char_ptr(checkpoint, c4w, free_buffers));
         free_buffers.forEach(ptr => c4w._free(ptr));
     }
 

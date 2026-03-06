@@ -228,46 +228,58 @@ class Colibri {
     }
   }
 
-  /// Executes an RPC call with automatic proof handling.
+  /// Executes an RPC call via the unified C core state machine.
   ///
-  /// For proofable methods, tries remote provers first (if configured), then
-  /// falls back to local proof creation and verification. For local or
-  /// unproofable methods, calls the appropriate path. Throws [ColibriError]
-  /// or [RPCError] when the method is not supported or the call fails.
+  /// The C core handles method type detection, proof generation (local or
+  /// remote), and verification internally. The host only handles pending
+  /// data requests.
   Future<dynamic> rpc(String method, List<dynamic> params) async {
-    final support = getMethodSupport(method, params: params);
-    _onDebug?.call('Method: $method, support: ${support.name}');
+    final paramsJson = jsonEncode(params);
+    final proverFlags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0);
+    final useRemote = provers.isEmpty ? 0 : 1;
 
-    switch (support) {
-      case MethodType.proofable:
-        _onDebug?.call('Ensuring trusted checkpoint…');
-        await _ensureTrustedCheckpoint();
-        _onDebug?.call('Fetching proof (prover or local)…');
-        final proof = await _fetchProofWithFallback(method, params);
-        _onDebug?.call('Proof length: ${proof.length} bytes');
-        _onDebug?.call('Proof (first 64 bytes hex): ${_proofHexSnippet(proof, 0, 64)}');
-        _onDebug?.call('Proof (last 32 bytes hex): ${_proofHexSnippet(proof, proof.length - 32, 32)}');
-        var result = await verifyProof(proof, method, params);
-        _onDebug?.call('Verify result: ${result == null ? "null" : result}');
-        // If verification returned null (e.g. prover sent JSON instead of binary proof),
-        // try to get result from prover as JSON (same as Python binding fallback behaviour).
-        if (result == null && provers.isNotEmpty) {
-          _onDebug?.call('Verify was null, trying prover as JSON…');
-          try {
-            result = await _fetchRpc(provers, method, params, asProof: false);
-            _onDebug?.call('Prover JSON result: $result');
-          } catch (e) {
-            _onDebug?.call('Prover JSON failed: $e');
-          }
+    _onDebug?.call('rpc: method=$method useRemote=$useRemote chainId=$chainId');
+
+    final ctx = _native.createRpcCtx(method, paramsJson, chainId, proverFlags, _getVerifyFlags(), useRemote);
+    if (ctx == ffi.nullptr) {
+      throw ColibriError('Failed to create RPC context for $method');
+    }
+
+    final checkpoint = _runtimeTrustedCheckpoint ?? trustedCheckpoint;
+    if (checkpoint != null && checkpoint.isNotEmpty) {
+      _native.setCheckpoint(chainId, checkpoint);
+    }
+    if (checkpointWitnessKeys != null && checkpointWitnessKeys!.isNotEmpty) {
+      _native.rpcSetWitnessKeys(ctx, checkpointWitnessKeys!);
+    }
+
+    try {
+      while (true) {
+        final statusJson = _native.rpcExecuteJsonStatus(ctx);
+        final status = jsonDecode(statusJson) as Map<String, dynamic>;
+
+        switch (status['status']) {
+          case 'success':
+            _onDebug?.call('rpc: $method → success');
+            return status['result'];
+          case 'error':
+            final errorMsg = status['error']?.toString() ?? 'Unknown RPC error';
+            _onDebug?.call('rpc: $method → error: $errorMsg');
+            throw ColibriError(errorMsg);
+          case 'pending':
+            final requests = (status['requests'] as List<dynamic>? ?? [])
+                .whereType<Map<String, dynamic>>()
+                .map(DataRequest.fromJson)
+                .toList();
+            _onDebug?.call('rpc: $method → pending (${requests.length} requests)');
+            await _handleRequests(requests, useProverFallback: true);
+            break;
+          default:
+            throw ColibriError('Unknown RPC status: ${status['status']}');
         }
-        return result;
-      case MethodType.unproofable:
-        return _fetchRpc(ethRpcs, method, params, asProof: false);
-      case MethodType.local:
-        return verifyProof(Uint8List(0), method, params);
-      case MethodType.notSupported:
-      case MethodType.undefined:
-        throw ColibriError('Method $method is not supported');
+      }
+    } finally {
+      _native.freeRpcCtx(ctx);
     }
   }
 
@@ -344,7 +356,7 @@ class Colibri {
         return checkpointz;
       case 'beacon_api':
         if (useProverFallback && provers.isNotEmpty) {
-          return provers;
+          return [...provers, ...beaconApis];
         }
         return beaconApis;
       case 'prover':

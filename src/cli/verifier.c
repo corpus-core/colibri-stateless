@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../../bindings/colibri_common.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "config.h"
@@ -30,7 +31,6 @@
 #include "ssz.h"
 #include "state.h"
 #include "sync_committee.h"
-#include "verify.h"
 #include "version.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -39,41 +39,6 @@
 
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
-
-static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_id_t chain_id, char* signers, bool use_zk_proof) {
-  // fprintf(stderr, "reading from prover: %s(%s) from %s\n", method, args, url);
-  if (strcmp(method, "colibri_simulateTransaction") == 0) method = "eth_call";
-  buffer_t   payload = {0};
-  c4_state_t ctx     = {0};
-#ifdef ETH_ZKPROOF
-  char* additional_params = use_zk_proof ? ",\"zk_proof\":true" : "";
-#else
-  char* additional_params = "";
-#endif
-
-  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\"%s,\"signers\":\"%s\",\"version\":%d}", method, args, state, additional_params, signers ? signers : "", c4_current_version_number());
-  data_request_t req = {.chain_id = chain_id, .type = C4_DATA_TYPE_PROVER, .payload = payload.data, .encoding = C4_DATA_ENCODING_SSZ, .method = C4_DATA_METHOD_POST};
-  ctx.requests       = &req;
-  curl_fetch_all(&ctx);
-  if (req.error) {
-    fprintf(stderr, "Prover returned error: %s\n", req.error);
-    exit(EXIT_FAILURE);
-  }
-  else if (req.response.data == NULL) {
-    fprintf(stderr, "prover returned empty response\n");
-    exit(EXIT_FAILURE);
-  }
-  else if (req.response.data[0] == '{') {
-    json_t json  = json_parse((char*) req.response.data);
-    json_t error = json_get(json, "error");
-    if (error.type == JSON_TYPE_STRING)
-      fprintf(stderr, "prover returned error: %s\n", json_new_string(error));
-    else
-      fprintf(stderr, "prover returned unknown error: %s\n", json_new_string(error));
-    exit(EXIT_FAILURE);
-  }
-  return req.response;
-}
 #endif
 
 // : Bindings
@@ -283,81 +248,61 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "method is required\n");
     exit(EXIT_FAILURE);
   }
-  bytes_t       request     = {0};
-  method_type_t method_type = c4_get_method_type(chain_id, method, json_parse((char*) args.data.data), verify_flags);
-  switch (method_type) {
-    case METHOD_UNDEFINED:
-      fprintf(stderr, "method not known: %s\n", method);
-      exit(EXIT_FAILURE);
-    case METHOD_NOT_SUPPORTED:
-      fprintf(stderr, "method not supported: %s\n", method);
-      exit(EXIT_FAILURE);
-    case METHOD_PROOFABLE:
-      if (!input) {
-#ifdef USE_CURL
-        char name[100];
-        sprintf(name, "states_%d", (uint32_t) chain_id);
-        buffer_t         state = {0};
-        storage_plugin_t storage;
-        c4_get_storage_config(&storage);
-        storage.get(name, &state);
-        request = read_from_prover(method, (char*) args.data.data, state.data, chain_id, signers, use_zk_proof);
-        buffer_free(&state);
-        if (output) bytes_write(request, fopen(output, "w"), true);
-#else
-        fprintf(stderr, "require data, but no curl installed");
-        exit(EXIT_FAILURE);
-#endif
-      }
-      else
-        request = bytes_read(input);
 
-      break;
-    case METHOD_LOCAL:
-      request = NULL_BYTES;
-      break;
-    case METHOD_UNPROOFABLE:
-      fprintf(stderr, "method not proofable: %s\n", method);
-      exit(EXIT_FAILURE);
-      break;
+  prover_flags_t prover_flags = 0;
+  if (use_zk_proof) prover_flags |= C4_PROVER_FLAG_ZK_PROOF;
+  bool use_remote = (prover_url != NULL && input == NULL);
+
+  c4_rpc_ctx_t* ctx = c4_rpc_ctx_create(method, (char*) args.data.data, chain_id,
+                                         prover_flags, verify_flags, use_remote);
+
+  if (input) {
+    ctx->proof       = bytes_read(input);
+    ctx->proof_owned = true;
   }
 
-  verify_ctx_t ctx = {0};
-  c4_verify_init(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id, verify_flags);
-  if (signers && strlen(signers) > 40 && signers[0] == '0' && signers[1] == 'x') {
-    ctx.witness_keys = bytes(safe_malloc(strlen(signers) / 2), (strlen(signers) - 2) / 2);
-    if (hex_to_bytes(signers, -1, ctx.witness_keys) % 20 != 0) {
+  if (signers) {
+    c4_rpc_ctx_set_witness_keys(ctx, signers);
+    if (!ctx->witness_keys.data || ctx->witness_keys.len % 20 != 0) {
       fprintf(stderr, "invalid signers: %s\n", signers);
+      c4_rpc_ctx_free(ctx);
       exit(EXIT_FAILURE);
     }
   }
-  while (c4_verify(&ctx) == C4_PENDING)
-#ifdef USE_CURL
-    curl_fetch_all(&ctx.state);
-#else
-  {
-    fprintf(stderr, "require data, but no curl installed");
-    exit(EXIT_FAILURE);
-  }
-#endif
 
-  if (ctx.success) {
+  c4_status_t status;
+  while ((status = c4_rpc_execute(ctx)) == C4_PENDING) {
+#ifdef USE_CURL
+    c4_state_t* state = c4_rpc_get_state(ctx);
+    if (state) curl_fetch_all(state);
+#else
+    fprintf(stderr, "require data, but no curl installed");
+    c4_rpc_ctx_free(ctx);
+    exit(EXIT_FAILURE);
+#endif
+  }
+
+  if (output && ctx->proof.data)
+    bytes_write(ctx->proof, fopen(output, "w"), true);
+
+  if (status == C4_SUCCESS) {
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
       char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"expected_result\": %Z\n}",
-                               ctx.method, ctx.args, chain_id, ctx.data);
+                               ctx->verifier.method, ctx->verifier.args, chain_id, ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
       safe_free(content);
     }
-    ssz_dump_to_file_no_quotes(stdout, ctx.data);
+    ssz_dump_to_file_no_quotes(stdout, ctx->verifier.data);
     fflush(stdout);
+    c4_rpc_ctx_free(ctx);
     return EXIT_SUCCESS;
   }
-  else if (ctx.state.error) {
-    fprintf(stderr, "proof is invalid: %s\n", ctx.state.error);
-    return EXIT_FAILURE;
-  }
-  else
-    return EXIT_FAILURE;
+
+  fprintf(stderr, "proof is invalid: %s\n",
+          ctx->error ? ctx->error
+                     : (ctx->verifier.state.error ? ctx->verifier.state.error : "unknown error"));
+  c4_rpc_ctx_free(ctx);
+  return EXIT_FAILURE;
 }
