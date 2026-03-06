@@ -30,10 +30,16 @@ jobs:
           emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
           cmake --build build
 
-      - name: Run tests
+      - name: Run unit tests (node) + webpack build
         run: |
           cd bindings/emscripten
           npm test
+          cd ../../
+
+      - name: Run integration tests (real infrastructure)
+        run: |
+          cd bindings/emscripten
+          npm run test:integration
           cd ../../
 
       - name: RN-web smoke (Expo) tests
