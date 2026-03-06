@@ -218,9 +218,15 @@ int main(int argc, char* argv[]) {
     }
   }
   buffer_add_chars(&args, "]");
+  json_t default_config = json_parse(get_default_config(chain_name, &chain_id, NULL));
 
-  get_default_config(chain_name, &chain_id, NULL);
-  if (prover_url) set_config("prover", prover_url);
+  if (prover_url)
+    set_config("prover", prover_url);
+  else {
+    json_t provers = json_get(default_config, "prover");
+    if (json_len(provers) > 0)
+      prover_url = json_get(provers, 0).start;
+  }
   if (rpc_url) set_config("eth_rpc", rpc_url);
   if (beacon_url) set_config("beacon_api", beacon_url);
   if (checkpointz_url) set_config("checkpointz", checkpointz_url);
@@ -254,7 +260,7 @@ int main(int argc, char* argv[]) {
   bool use_remote = (prover_url != NULL && input == NULL);
 
   c4_rpc_ctx_t* ctx = c4_rpc_ctx_create(method, (char*) args.data.data, chain_id,
-                                         prover_flags, verify_flags, use_remote);
+                                        prover_flags, verify_flags, use_remote);
 
   if (input) {
     ctx->proof       = bytes_read(input);

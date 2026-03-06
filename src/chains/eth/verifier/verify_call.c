@@ -45,24 +45,24 @@ static call_account_t* call_accounts_from_ssz(ssz_ob_t ssz_accounts) {
   call_account_t* list = NULL;
   uint32_t        len  = ssz_len(ssz_accounts);
   for (uint32_t i = 0; i < len; i++) {
-    ssz_ob_t        acc      = ssz_at(ssz_accounts, i);
-    call_account_t* ca       = safe_calloc(1, sizeof(call_account_t));
-    bytes_t         addr     = ssz_get(&acc, "address").bytes;
-    ca->storage              = NULL; // redundant (calloc zeroes), but silences static analyzer
+    ssz_ob_t        acc  = ssz_at(ssz_accounts, i);
+    call_account_t* ca   = safe_calloc(1, sizeof(call_account_t));
+    bytes_t         addr = ssz_get(&acc, "address").bytes;
+    ca->storage          = NULL; // redundant (calloc zeroes), but silences static analyzer
 
     if (addr.data && addr.len >= 20) memcpy(ca->address, addr.data, 20);
     ca->flags = ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE;
 
     // walk the MPT proof to distinguish existing from non-existing accounts
-    bytes32_t addr_hash    = {0};
-    bytes32_t dummy_root   = {0};
-    bytes_t   rlp_account  = {0};
+    bytes32_t addr_hash   = {0};
+    bytes32_t dummy_root  = {0};
+    bytes_t   rlp_account = {0};
     keccak(addr, addr_hash);
     patricia_result_t mpt_result = patricia_verify(dummy_root, bytes(addr_hash, 32), ssz_get(&acc, "accountProof"), &rlp_account);
 
     if (mpt_result == PATRICIA_FOUND && rlp_account.data) {
-      bytes_t   field_value = {0};
-      bytes_t   rlp_list    = rlp_account;
+      bytes_t field_value = {0};
+      bytes_t rlp_list    = rlp_account;
       if (rlp_decode(&rlp_list, 0, &rlp_list) == RLP_LIST) {
         if (rlp_decode(&rlp_list, ETH_ACCOUNT_NONCE - 1, &field_value) == RLP_ITEM && field_value.len <= 32) {
           bytes32_t nonce_be = {0};
@@ -292,13 +292,13 @@ static c4_status_t call_apply_authorization_list(verify_ctx_t* ctx, call_account
     uint64_t nonce = json_get_uint64(entry, "nonce");
     if (nonce >= UINT64_MAX) continue;
 
-    uint8_t  sig[65]    = {0};
-    bytes_t  r_bytes    = {0};
-    bytes_t  s_bytes    = {0};
-    buffer_t r_buf      = stack_buffer(sig);
-    buffer_t s_buf      = {.data = bytes(sig + 32, 32), .allocated = -32};
-    r_bytes             = json_get_bytes(entry, "r", &r_buf);
-    s_bytes             = json_get_bytes(entry, "s", &s_buf);
+    uint8_t  sig[65] = {0};
+    bytes_t  r_bytes = {0};
+    bytes_t  s_bytes = {0};
+    buffer_t r_buf   = stack_buffer(sig);
+    buffer_t s_buf   = {.data = bytes(sig + 32, 32), .allocated = -32};
+    r_bytes          = json_get_bytes(entry, "r", &r_buf);
+    s_bytes          = json_get_bytes(entry, "s", &s_buf);
     if (r_bytes.len == 0 || r_bytes.len > 32) continue;
     if (s_bytes.len == 0 || s_bytes.len > 32) continue;
     // right-align r and s in their 32-byte slots
@@ -356,7 +356,7 @@ static c4_status_t call_apply_authorization_list(verify_ctx_t* ctx, call_account
     memcpy(delegation_code + 3, target, 20);
 
     if (acc->flags & ACCOUNT_FREE_CODE) safe_free(acc->code.data);
-    acc->code  = bytes(delegation_code, EIP7702_MARKER_LEN);
+    acc->code = bytes(delegation_code, EIP7702_MARKER_LEN);
     acc->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
 
     // special case: zero address clears delegation
@@ -644,10 +644,11 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
 }
 
 bool verify_call_proof(verify_ctx_t* ctx) {
-  bool            is_simulate = ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0;
-  bool            is_estimate = ctx->method && strcmp(ctx->method, "eth_estimateGas") == 0;
-  bool            has_proof   = ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE;
-  evm_call_ctx_t* evm         = call_get_evm_ctx(ctx);
+  bool            is_simulate   = ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0;
+  bool            is_estimate   = ctx->method && strcmp(ctx->method, "eth_estimateGas") == 0;
+  bool            has_overrides = json_len(ctx->args) > 2 && json_at(ctx->args, 2).type == JSON_TYPE_OBJECT;
+  bool            has_proof     = ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE;
+  evm_call_ctx_t* evm           = call_get_evm_ctx(ctx);
 
   if (evm->evm_done) {
     bool success = verify_call_result_and_finish(ctx, evm, is_simulate, is_estimate);
@@ -667,7 +668,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
       return false;
     evm->accounts = call_accounts_from_ssz(accounts);
   }
-  if (!prepare_evm_call(ctx, evm, false)) return false;
+  if (!prepare_evm_call(ctx, evm, has_overrides)) return false;
 
   c4_status_t call_status = run_evm_call(ctx, evm, is_simulate);
   if (call_status != C4_SUCCESS || c4_state_get_pending_request(&ctx->state)) return false;

@@ -60,15 +60,24 @@ static void debug_print_bytes32(const char* prefix, const evmc_bytes32* data) {
 
 static const char* evmone_status_message(int code) {
   static const char* positive_msgs[] = {
-      [0] = "Success",           [1] = "Failure",
-      [2] = "Revert",            [3] = "Out of gas",
-      [4] = "Invalid instruction",[5] = "Undefined instruction",
-      [6] = "Stack overflow",    [7] = "Stack underflow",
-      [8] = "Bad jump destination",[9] = "Invalid memory access",
-      [10] = "Call depth exceeded",[11] = "Static mode violation",
-      [12] = "Precompile failure",[13] = "Contract validation failure",
-      [14] = "Argument out of range",[15] = "WASM unreachable instruction",
-      [16] = "WASM trap",        [17] = "Insufficient balance",
+      [0]  = "Success",
+      [1]  = "Failure",
+      [2]  = "Revert",
+      [3]  = "Out of gas",
+      [4]  = "Invalid instruction",
+      [5]  = "Undefined instruction",
+      [6]  = "Stack overflow",
+      [7]  = "Stack underflow",
+      [8]  = "Bad jump destination",
+      [9]  = "Invalid memory access",
+      [10] = "Call depth exceeded",
+      [11] = "Static mode violation",
+      [12] = "Precompile failure",
+      [13] = "Contract validation failure",
+      [14] = "Argument out of range",
+      [15] = "WASM unreachable instruction",
+      [16] = "WASM trap",
+      [17] = "Insufficient balance",
   };
   if (code >= 0 && code <= 17) return positive_msgs[code];
   if (code == -1) return "Internal error";
@@ -285,7 +294,7 @@ static void host_selfdestruct(void* context, const evmc_address* addr, const evm
   // EIP-6780: transfer remaining balance to beneficiary, zero own balance.
   // Storage is NOT cleared post-Cancun (unless created in same tx, which we don't track).
   if (!bytes_all_zero(bytes(acc->balance, 32)) && memcmp(addr->bytes, beneficiary->bytes, 20) != 0) {
-    call_account_t* ben = call_account_get_or_create(ctx, beneficiary->bytes);
+    call_account_t* ben   = call_account_get_or_create(ctx, beneficiary->bytes);
     uint16_t        carry = 0;
     for (int i = 31; i >= 0; i--) {
       carry += (uint16_t) ben->balance[i] + (uint16_t) acc->balance[i];
@@ -435,8 +444,8 @@ static void host_get_tx_context(void* context, evmone_tx_context* result) {
 static evmc_bytes32 host_get_block_hash(void* context, int64_t number) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   EVM_LOG("get_block_hash for block number: %l", (size_t) number);
-  evmc_bytes32 result     = {0};
-  c4_status_t  status     = call_fetch_block_hash(ctx, number, result.bytes);
+  evmc_bytes32 result = {0};
+  c4_status_t  status = call_fetch_block_hash(ctx, number, result.bytes);
   if (status == C4_PENDING) ctx->storage_miss = true;
   debug_print_bytes32("get_block_hash result", &result);
   return result;
@@ -539,7 +548,7 @@ static void host_set_transient_storage(void* context, const evmc_address* addr, 
   memcpy(slot->address, addr->bytes, 20);
   memcpy(slot->key, key->bytes, 32);
   memcpy(slot->value, value->bytes, 32);
-  slot->next             = root->transient_storage;
+  slot->next              = root->transient_storage;
   root->transient_storage = slot;
 }
 
@@ -688,7 +697,10 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     debug_print_address("  delegated code_address", &message.code_address);
   }
 
-  EVM_LOG("Contract code size: %d bytes", (uint32_t) code.len);
+  if (code.len < 500)
+    EVM_LOG("Contract code : 0x%x", code);
+  else
+    EVM_LOG("Contract code : %d bytes", (uint32_t) code.len);
 
   // Apply top-level value transfer: credit msg.value to destination account
   if (!bytes_all_zero(bytes(message.value.bytes, 32))) {

@@ -31,7 +31,6 @@
 
 // :: Account lookup helpers (traverse parent chain)
 
-
 static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
   if (!ctx->proof.def || ctx->proof.def->type == SSZ_TYPE_NONE) return false;
 
@@ -218,9 +217,10 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
       acc->flags |= ACCOUNT_HAS_BALANCE;
     }
     if (a->has_code) {
-      acc->code = a->code;
-      acc->flags |= ACCOUNT_HAS_CODE;
-      acc->flags &= ~ACCOUNT_FREE_CODE;
+      if (acc->code.data && (acc->flags & ACCOUNT_FREE_CODE))
+        safe_free(acc->code.data);
+      acc->code = bytes_dup(a->code);
+      acc->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
     }
     if (a->storage) {
       if (a->full_state) acc->flags |= ACCOUNT_FULL_STATE;
@@ -345,13 +345,13 @@ void context_apply(evmone_context_t* ctx) {
 
 void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_t* evm, void* executor, bool capture_events) {
   memset(out, 0, sizeof(*out));
-  out->executor       = executor;
-  out->ctx            = ctx;
-  out->accounts       = evm->accounts;
-  out->chain_id       = ctx->chain_id;
+  out->executor        = executor;
+  out->ctx             = ctx;
+  out->accounts        = evm->accounts;
+  out->chain_id        = ctx->chain_id;
   out->block_gas_limit = 30000000; // safe default
-  out->capture_events = capture_events;
-  out->pap_mode       = evm->pap_mode;
+  out->capture_events  = capture_events;
+  out->pap_mode        = evm->pap_mode;
 
   // extract block context from state_proof.block when union selector is 3 (blockContext)
   eth_call_block_context_t bctx = {0};
