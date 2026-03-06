@@ -312,7 +312,7 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   if (is_proof_call)
     trace = tx;
   else if (has_overrides)
-    TRY_ADD_ASYNC(status, eth_create_access_list(ctx, tx, &trace, target_block, (json_t) {0} /*state_overrides*/));
+    TRY_ADD_ASYNC(status, eth_create_access_list(ctx, tx, &trace, target_block, state_overrides));
   else
     TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? eth_create_access_list(ctx, tx, &trace, target_block, (json_t) {0}) : eth_debug_trace_call(ctx, tx, &trace, target_block));
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
