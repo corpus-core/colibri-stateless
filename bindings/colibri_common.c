@@ -229,6 +229,7 @@ static void cleanup_remote_prover_params(buffer_t* buf, const char* method, cons
     }
     bprintf(buf, "]");
   }
+/*  
   else if (strcmp(method, "colibri_simulateTransaction") == 0 && arr.type == JSON_TYPE_ARRAY) {
     int len = json_len(arr);
     if (len > 2) len = 2;
@@ -239,9 +240,10 @@ static void cleanup_remote_prover_params(buffer_t* buf, const char* method, cons
     }
     bprintf(buf, "]");
   }
-  else {
+  */
+  else 
     bprintf(buf, "%s", params);
-  }
+  
 }
 
 static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
