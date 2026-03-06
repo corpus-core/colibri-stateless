@@ -10,7 +10,7 @@ const RUN_INTEGRATION = process.env.C4_RUN_INTEGRATION === '1' || process.env.GI
 const RUN_SLOW = process.env.C4_RUN_SLOW_TESTS === '1';
 
 const CHAIN_ID = 1; // mainnet
-const BEACON_API = 'https://lodestar-mainnet.chainsafe.io';
+const BEACON_API = 'https://mainnet1.colibri-proof.tech/consensus/';
 const SLOTS_PER_EPOCH = 32;
 const SECONDS_PER_SLOT = 12;
 const SLOTS_PER_PERIOD = 8192;
