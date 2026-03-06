@@ -229,16 +229,18 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
         if (cs) {
           memcpy(cs->src_value, s->value, 32);
           memcpy(cs->post_value, s->value, 32);
-          cs->source = STORAGE_SRC_OVERRIDE;
+          cs->verified_at = 1;
+          cs->source      = STORAGE_SRC_OVERRIDE;
         }
         else {
           cs = safe_calloc(1, sizeof(call_storage_t));
           memcpy(cs->key, s->key, 32);
           memcpy(cs->src_value, s->value, 32);
           memcpy(cs->post_value, s->value, 32);
-          cs->source   = STORAGE_SRC_OVERRIDE;
-          cs->next     = acc->storage;
-          acc->storage = cs;
+          cs->source      = STORAGE_SRC_OVERRIDE;
+          cs->verified_at = 1;
+          cs->next        = acc->storage;
+          acc->storage    = cs;
         }
       }
     }
