@@ -225,7 +225,7 @@ int main(int argc, char* argv[]) {
   else {
     json_t provers = json_get(default_config, "prover");
     if (json_len(provers) > 0)
-      prover_url = json_get(provers, 0).start;
+      prover_url = (char*)json_at(provers, 0).start;
   }
   if (rpc_url) set_config("eth_rpc", rpc_url);
   if (beacon_url) set_config("beacon_api", beacon_url);
