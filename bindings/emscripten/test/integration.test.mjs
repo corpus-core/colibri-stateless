@@ -26,7 +26,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function createMemoryStorage() {
   const map = new Map();
   return {
-    get: (key) => map.get(key) ?? null,
+    get: (key) => {
+      const r =map.get(key) ?? null
+ //     console.log('get', key, r);
+      return r;
+    },
     set: (key, value) => map.set(key, new Uint8Array(value)),
     del: (key) => map.delete(key),
     _map: map,
@@ -111,12 +115,19 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
   });
 
   before(async () => {
+    const blockNum = await fetch('https://mainnet1.colibri-proof.tech/execution', {
+      method: 'POST',
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+      .then(res => res.json())
+      .then(data => data.result);
+    const older = '0x' + (parseInt(blockNum, 16) - 10000).toString(16);
+    console.log({ blockNum, older });
     oldStateStorage = createMemoryStorage();
     Colibri.register_storage(oldStateStorage);
 
     const c4 = new Colibri({ chainId: CHAIN_ID, zk_proof: true });
-    const blockNum = await c4.rpc('eth_blockNumber', []);
-    const older = '0x' + (parseInt(blockNum, 16) - 1000).toString(16);
     await c4.rpc('eth_getBlockByNumber', [older, false]);
     assert.ok(oldStateStorage._map.size > 0, 'Storage should be populated after initial request');
   });
@@ -136,8 +147,8 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
       const result = await c4.rpc('eth_blockNumber', []);
       assertIsHexBlockNumber(result);
 
-      assert.ok(spy.log.length > 0, 'Should have made network requests');
-      assert.ok(storage._map.size > 0, 'Storage should be populated after zk_proof sync');
+      assert.ok(spy.log.length == 1, 'Should have made one network requests');
+      assert.ok(storage._map.size == 2, 'Storage should be populated after zk_proof sync');
     });
 
     test('empty storage + checkpoint (current)', { timeout: TIMEOUT }, async () => {
@@ -202,6 +213,7 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
       assert.ok(spy.log.length > 0, 'Should have made network requests');
     });
   });
+
 
   // -------------------------------------------------------------------
   // Remote Proof scenarios (old storage)
