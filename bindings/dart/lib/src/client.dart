@@ -51,6 +51,8 @@ class Colibri {
     this.checkpointWitnessKeys,
     this.logProverRequests = false,
     this.storage,
+    this.rpcTimeout = const Duration(seconds: 30),
+    this.proverTimeout = const Duration(seconds: 120),
     void Function(String message)? onDebug,
     String? libraryPath,
     http.Client? httpClient,
@@ -98,6 +100,11 @@ class Colibri {
   final bool logProverRequests;
   /// Optional storage backend for native cache.
   final ColibriStorage? storage;
+  /// Timeout for direct RPC calls (eth_blockNumber, eth_call, …).
+  final Duration rpcTimeout;
+  /// Timeout for prover requests (proof fetching, which can involve many
+  /// internal beacon calls and take significantly longer).
+  final Duration proverTimeout;
 
   final void Function(String message)? _onDebug;
   final ColibriNative _native;
@@ -383,15 +390,15 @@ class Colibri {
 
     switch (method) {
       case 'GET':
-        return _http.get(uri, headers: headers).timeout(const Duration(seconds: 30));
+        return _http.get(uri, headers: headers).timeout(rpcTimeout);
       case 'POST':
-        return _http.post(uri, headers: headers, body: body).timeout(const Duration(seconds: 30));
+        return _http.post(uri, headers: headers, body: body).timeout(rpcTimeout);
       case 'PUT':
-        return _http.put(uri, headers: headers, body: body).timeout(const Duration(seconds: 30));
+        return _http.put(uri, headers: headers, body: body).timeout(rpcTimeout);
       case 'DELETE':
-        return _http.delete(uri, headers: headers, body: body).timeout(const Duration(seconds: 30));
+        return _http.delete(uri, headers: headers, body: body).timeout(rpcTimeout);
       default:
-        return _http.post(uri, headers: headers, body: body).timeout(const Duration(seconds: 30));
+        return _http.post(uri, headers: headers, body: body).timeout(rpcTimeout);
     }
   }
 
@@ -436,7 +443,7 @@ class Colibri {
       try {
         final response = await _http
             .post(Uri.parse(url), headers: headers, body: jsonEncode(payload))
-            .timeout(const Duration(seconds: 30));
+            .timeout(proverTimeout);
 
         if (response.statusCode == 200) {
           if (asProof) {
@@ -499,7 +506,7 @@ class Colibri {
             : '$base/eth/v1/beacon/states/head/finality_checkpoints';
         final response = await _http
             .get(Uri.parse(url), headers: {'Content-Type': 'application/json'})
-            .timeout(const Duration(seconds: 30));
+            .timeout(rpcTimeout);
         if (response.statusCode != 200) {
           continue;
         }

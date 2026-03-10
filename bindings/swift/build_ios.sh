@@ -13,6 +13,7 @@ SWIFT_DIR="$ROOT_DIR/bindings/swift"
 BUILD_ROOT="$ROOT_DIR/build/ios"
 BUILD_iOS_X86_DIR="$BUILD_ROOT/ios_x86_64"
 BUILD_iOS_ARM_DIR="$BUILD_ROOT/ios_arm64"
+BUILD_iOS_ARM_SIM_DIR="$BUILD_ROOT/ios_arm64_sim"
 
 # Cleanup alte iOS Builds
 echo "🧹 Cleanup alte iOS Builds..."
@@ -49,16 +50,24 @@ build_ios_arch() {
     local build_dir="$2"  
     local arch="$3"
     local sysroot="$4"
+    local is_simulator="${5:-}"
     
     echo "🛠️  Baue $name ($arch)..."
     cd "$ROOT_DIR"
     
+    local resolved_sysroot="$sysroot"
+    if [[ "$is_simulator" == "simulator" ]]; then
+        # Use short platform name so CMake correctly identifies arm64 as simulator
+        # (full path + arm64 makes CMake assume device target)
+        resolved_sysroot="iphonesimulator"
+    fi
+
     cmake \
         -DSWIFT=true \
         -DCHAIN_OP=ON \
         -DETH_ZKPROOF=true \
         -DCMAKE_SYSTEM_NAME="iOS" \
-        -DCMAKE_OSX_SYSROOT="$sysroot" \
+        -DCMAKE_OSX_SYSROOT="$resolved_sysroot" \
         -DCMAKE_OSX_ARCHITECTURES="$arch" \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="13.0" \
         -DCMAKE_BUILD_TYPE=Release \
@@ -73,16 +82,18 @@ build_ios_arch() {
 }
 
 # Build iOS Architekturen
-build_ios_arch "iOS Simulator x86_64" "$BUILD_iOS_X86_DIR" "x86_64" "$SIMULATOR_SDK"
+build_ios_arch "iOS Simulator x86_64" "$BUILD_iOS_X86_DIR" "x86_64" "$SIMULATOR_SDK" "simulator"
+build_ios_arch "iOS Simulator arm64" "$BUILD_iOS_ARM_SIM_DIR" "arm64" "$SIMULATOR_SDK" "simulator"
 build_ios_arch "iOS Device arm64" "$BUILD_iOS_ARM_DIR" "arm64" "$DEVICE_SDK"
 
 # Erstelle iOS XCFramework
-echo "🔨 Erstelle iOS XCFramework (Device + Simulator x86_64)..."
+echo "🔨 Erstelle iOS XCFramework (Device + Simulator arm64/x86_64)..."
 "$SWIFT_DIR/create_ios_xcframework.sh" \
     "$BUILD_iOS_ARM_DIR" \
     "$BUILD_iOS_X86_DIR" \
     "$ROOT_DIR/bindings/colibri.h" \
-    "$SWIFT_DIR/xcframework/modules/module.modulemap"
+    "$SWIFT_DIR/xcframework/modules/module.modulemap" \
+    "$BUILD_iOS_ARM_SIM_DIR"
 
 # Prüfe Ergebnis
 XCFRAMEWORK_PATH="$BUILD_iOS_ARM_DIR/c4_swift.xcframework"
@@ -93,7 +104,8 @@ if [[ -d "$XCFRAMEWORK_PATH" ]]; then
     echo "📊 Framework-Info:"
     echo "📱 iOS Device (arm64):"
     file "$XCFRAMEWORK_PATH/ios-arm64/c4_swift.framework/c4_swift" 2>/dev/null || echo "  [nicht gefunden]"
-    echo "📱 iOS Simulator (x86_64):"  
+    echo "📱 iOS Simulator (arm64 + x86_64):"
+    lipo -info "$XCFRAMEWORK_PATH/ios-arm64_x86_64-simulator/c4_swift.framework/c4_swift" 2>/dev/null || \
     file "$XCFRAMEWORK_PATH/ios-x86_64-simulator/c4_swift.framework/c4_swift" 2>/dev/null || echo "  [nicht gefunden]"
     
     # Größe anzeigen

@@ -1,3 +1,12 @@
+## 0.1.8
+
+- Requires `colibri_stateless: ^0.1.8`.
+- iOS: fixed XCFramework build – arm64 simulator slice now correctly compiled for simulator (not device), resolving `xcodebuild -create-xcframework` "binaries with multiple platforms" error.
+- iOS: added `force_link.c` to retain all C symbols through linking (prevents `dlsym` lookup failures).
+- iOS: added `s.dependency 'Flutter'` to podspec for Xcode 26+ Swift Explicit Module compatibility.
+- Android: switched to static C++ STL linking (`c++_static`), fixing `libc++_shared.so` not found at runtime.
+- Updated example app: `eth_getLogs` now queries blocks N-10..N-5 (prover requires block N+1 for `parentBeaconBlockRoot`).
+
 ## 0.1.7
 
 - Requires `colibri_stateless: ^0.1.7`. Removes witness function, fixes Linux build.

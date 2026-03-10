@@ -278,8 +278,16 @@ class ColibriNative {
   /// Load the native shared library from [libraryPath] or platform defaults.
   static ColibriNative load({String? libraryPath}) {
     if (Platform.isIOS) {
-      // iOS: XCFramework is linked into the app; resolve symbols from process.
-      final lib = ffi.DynamicLibrary.process();
+      // iOS: static XCFramework is linked into the Flutter runner binary.
+      // Try executable() first (dlsym RTLD_MAIN_ONLY), fall back to process()
+      // (dlsym RTLD_DEFAULT) which works on some simulator configurations.
+      ffi.DynamicLibrary lib;
+      try {
+        lib = ffi.DynamicLibrary.executable();
+        lib.lookup<ffi.Void>('c4_create_rpc_ctx');
+      } catch (_) {
+        lib = ffi.DynamicLibrary.process();
+      }
       final libc = _openLibc();
       return ColibriNative._(lib, libc);
     }
@@ -518,7 +526,7 @@ class ColibriNative {
     }
 
     if (Platform.isAndroid || Platform.isIOS) {
-      // Should not reach here: iOS/Android use DynamicLibrary.process() in load().
+      // Should not reach here: iOS uses executable(), Android uses open() in load().
       throw UnsupportedError(
         'Colibri native library: use package colibri_flutter on Android/iOS so the plugin loads the library',
       );

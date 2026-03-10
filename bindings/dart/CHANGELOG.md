@@ -1,3 +1,12 @@
+## 0.1.8
+
+- Configurable timeouts: added `rpcTimeout` (default 30s) and `proverTimeout` (default 120s) to `Colibri` constructor, replacing hardcoded 30s timeouts.
+- iOS: fixed `DynamicLibrary` loading – uses `executable()` with `process()` fallback for static XCFramework symbol resolution.
+- iOS: fixed XCFramework build for arm64 simulator (CMake now correctly targets `arm64-apple-ios-simulator` instead of device).
+- iOS: added `force_link.c` to prevent linker dead-stripping of C symbols used via `dlsym`.
+- iOS: added `s.dependency 'Flutter'` to podspec for Xcode 26+ compatibility.
+- Android: fixed runtime crash by statically linking C++ STL (`c++_static` instead of `c++_shared`).
+
 ## 0.1.7
 
 - Removed `c4_verify_create_ctx_with_witness` from C bindings and Dart FFI layer.
