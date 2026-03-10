@@ -102,7 +102,6 @@ class Colibri {
   final ColibriNative _native;
   final http.Client _http;
   String? _runtimeTrustedCheckpoint;
-  bool _checkpointInitialized = false;
 
   /// Closes the underlying HTTP client.
   ///
@@ -282,23 +281,6 @@ class Colibri {
     }
   }
 
-  /// Resolve proof via prover endpoints, falling back to local proof creation.
-  Future<Uint8List> _fetchProofWithFallback(String method, List<dynamic> params) async {
-    if (provers.isNotEmpty) {
-      try {
-        _onDebug?.call('Requesting proof from prover (zk_proof=$zkProof, ${provers.length} URL(s))…');
-        final proof = await _fetchRpc(provers, method, params, asProof: true) as Uint8List;
-        _onDebug?.call('Prover returned ${proof.length} bytes');
-        return proof;
-      } catch (e) {
-        _onDebug?.call('Prover failed: $e → creating proof locally');
-        return createProof(method, params);
-      }
-    }
-    _onDebug?.call('No provers, creating proof locally');
-    return createProof(method, params);
-  }
-
   /// Handle pending native requests by fetching required data in parallel.
   Future<void> _handleRequests(
     List<DataRequest> requests, {
@@ -394,144 +376,7 @@ class Colibri {
     }
   }
 
-  /// Execute a direct RPC call (used for unproofable methods or prover requests).
-  Future<dynamic> _fetchRpc(
-    List<String> urls,
-    String method,
-    List<dynamic> params, {
-    required bool asProof,
-  }) async {
-    final payload = <String, dynamic>{
-      'id': 1,
-      'jsonrpc': '2.0',
-      'method': method,
-      'params': params,
-    };
-    if (asProof) {
-      payload['include_code'] = includeCode;
-      payload['zk_proof'] = zkProof;
-      payload['signers'] = checkpointWitnessKeys ?? '0x';
-      final clientState = _clientStateHex();
-      if (clientState != null) {
-        payload['c4'] = clientState;
-      }
-      if (logProverRequests) {
-        final hasState = clientState != null;
-        final signersLen = (checkpointWitnessKeys ?? '0x').length;
-        print(
-          'prover request: method=$method zk_proof=$zkProof '
-          'include_code=$includeCode signers_length=$signersLen '
-          'client_state=${hasState ? "set" : "none"}',
-        );
-      }
-    }
 
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-      'Accept': asProof ? 'application/octet-stream' : 'application/json',
-    };
-
-    for (final url in urls) {
-      try {
-        final response = await _http
-            .post(Uri.parse(url), headers: headers, body: jsonEncode(payload))
-            .timeout(proverTimeout);
-
-        if (response.statusCode == 200) {
-          if (asProof) {
-            final bodyBytes = response.bodyBytes;
-            final len = bodyBytes.length;
-            _onDebug?.call('prover response from $url: length=$len (ZK expects 260 bytes)');
-            final contentType = (response.headers['content-type'] ?? response.headers['Content-Type'] ?? '').toString().toLowerCase();
-            if (contentType.contains('application/json')) {
-              _onDebug?.call('warning: Content-Type is application/json – response may be error/JSON, not binary proof');
-            }
-            if (len > 0 && bodyBytes[0] == 0x7b) {
-              _onDebug?.call('warning: response starts with "{" (looks like JSON), proof may be wrong');
-            }
-            return Uint8List.fromList(bodyBytes);
-          }
-          final body = jsonDecode(response.body) as Map<String, dynamic>;
-          if (body.containsKey('error')) {
-            final error = body['error'] as Map<String, dynamic>;
-            throw RPCError(
-              error['message']?.toString() ?? 'RPC error',
-              code: error['code'] is num ? (error['code'] as num).toInt() : null,
-            );
-          }
-          return body['result'];
-        }
-      } catch (_) {
-        continue;
-      }
-    }
-
-    throw RPCError('All RPC servers failed for $method');
-  }
-
-  /// Ensure we have a trusted checkpoint before proof verification.
-  Future<void> _ensureTrustedCheckpoint() async {
-    if (_checkpointInitialized) {
-      return;
-    }
-    _checkpointInitialized = true;
-
-    if (zkProof) {
-      return;
-    }
-    if (_runtimeTrustedCheckpoint != null || trustedCheckpoint != null) {
-      return;
-    }
-    if (_clientStateHex() != null) {
-      return;
-    }
-
-    final endpoints = <String>[
-      ...checkpointz,
-      ...beaconApis,
-      ...provers,
-    ];
-    for (final base in endpoints) {
-      try {
-        final url = base.endsWith('/')
-            ? '${base}eth/v1/beacon/states/head/finality_checkpoints'
-            : '$base/eth/v1/beacon/states/head/finality_checkpoints';
-        final response = await _http
-            .get(Uri.parse(url), headers: {'Content-Type': 'application/json'})
-            .timeout(rpcTimeout);
-        if (response.statusCode != 200) {
-          continue;
-        }
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-        final data = body['data'];
-        final finalized = data is Map<String, dynamic> ? data['finalized'] : null;
-        final root = finalized is Map<String, dynamic> ? finalized['root'] : null;
-        if (root is String && root.startsWith('0x') && root.length == 66) {
-          _runtimeTrustedCheckpoint = root;
-          return;
-        }
-      } catch (_) {
-        continue;
-      }
-    }
-  }
-
-  /// Read the client state from storage as hex string for prover requests.
-  String? _clientStateHex() {
-    final storageInstance = _effectiveStorage;
-    if (storageInstance == null) {
-      return null;
-    }
-    final state = storageInstance.get('states_$chainId');
-    if (state == null || state.isEmpty) {
-      return null;
-    }
-    final buffer = StringBuffer('0x');
-    for (final byte in state) {
-      buffer.write(byte.toRadixString(16).padLeft(2, '0'));
-    }
-    return buffer.toString();
-  }
 }
 
 /// HTTP response wrapper with node index for exclusion masks.
