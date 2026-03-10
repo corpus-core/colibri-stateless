@@ -317,10 +317,13 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
         return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
       }
       else {
-        for (int i = 0; i < def->def.vector.len; i++) {
-          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type, state);
+        int i = 0;
+        json_for_each_value(json, value) {
+          if (i >= def->def.vector.len) break;
+          ssz_ob_t ob = ssz_from_json(value, def->def.vector.type, state);
           buffer_append(&buf.fixed, ob.bytes);
           safe_free(ob.bytes.data);
+          i++;
         }
         return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
       }
@@ -329,18 +332,24 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       // List: convert JSON array to variable-length SSZ list
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
         return (ssz_ob_t) {.def = def, .bytes = json_as_bytes(json, &buf.fixed)};
-      uint32_t len = json_len(json);
-      if (ssz_is_dynamic(def->def.vector.type))
-        for (uint32_t i = 0; i < len; i++) {
-          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type, state);
-          ssz_add_uint32(&buf, 4 * len + buf.dynamic.data.len);
+      if (ssz_is_dynamic(def->def.vector.type)) {
+        // Single pass: write running offset (position in dynamic), then fix up by adding len*4
+        uint32_t len = 0;
+        json_for_each_value(json, value) {
+          ssz_add_uint32(&buf, buf.dynamic.data.len);
+          ssz_ob_t ob = ssz_from_json(value, def->def.vector.type, state);
           buffer_append(&buf.dynamic, ob.bytes);
           safe_free(ob.bytes.data);
+          len++;
         }
+        for (uint32_t i = 0; i < len; i++) {
+          uint8_t* offset_ptr = buf.fixed.data.data + i * 4;
+          uint32_to_le(offset_ptr, uint32_from_le(offset_ptr) + len * 4);
+        }
+      }
       else {
-        buffer_grow(&buf.fixed, len * ssz_fixed_length(def->def.vector.type));
-        for (int i = 0; i < len; i++) {
-          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type, state);
+        json_for_each_value(json, value) {
+          ssz_ob_t ob = ssz_from_json(value, def->def.vector.type, state);
           buffer_append(&buf.fixed, ob.bytes);
           safe_free(ob.bytes.data);
         }
