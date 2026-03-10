@@ -183,6 +183,9 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &block->block_proof, &block->beacon_block));
 
+  TRACE_START(ctx, "build_receipt_tree");
+  TRACE_ADD_UINT64(ctx, "block", block->block_number);
+
 #ifdef PROVER_CACHE
   bytes32_t cachekey;
   root = (node_t*) c4_prover_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, block->block_hash.data));
@@ -204,14 +207,21 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
   }
 #endif
 
-  // create receipts proofs
+  TRACE_START(ctx, "create_receipt_proofs");
+  TRACE_ADD_UINT64(ctx, "block", block->block_number);
+  TRACE_ADD_UINT64(ctx, "tx_count", block->tx_count);
+
   proof_logs_tx_t* next_tx = NULL;
   for (proof_logs_tx_t* tx = block->txs; tx; tx = next_tx) {
     next_tx    = tx->next;
     tx->proof  = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx->tx_index, &buf));
     tx->raw_tx = ssz_at(ssz_get(&block->beacon_block.execution, "transactions"), tx->tx_index).bytes;
   }
-  // create multiproof for the transactions
+
+  TRACE_START(ctx, "create_multiproof");
+  TRACE_ADD_UINT64(ctx, "block", block->block_number);
+  TRACE_ADD_UINT64(ctx, "gindex_count", 3 + block->tx_count);
+
   proof_create_multiproof(ctx, block);
 #ifndef PROVER_CACHE
   patricia_node_free(root);
@@ -267,6 +277,8 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   ssz_builder_t       sync_proof    = NULL_SSZ_BUILDER;
   proof_logs_block_t* highest_block = NULL;
 
+  TRACE_START(ctx, "fetch_logs");
+
   if (proof_logs_block_proof_type(ctx) == ETH_GET_LOGS) { // for eth_getLogs
 #ifdef PROVER_CACHE
     bool served = false;
@@ -280,6 +292,8 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   }
   else                  // for eth_proofLogs
     logs = ctx->params; // => we use the logs from the proof request
+
+  TRACE_START(ctx, "get_receipts");
 
   add_blocks(&blocks, logs); // find which blocks do we need
   TRY_ASYNC_CATCH(get_receipts(ctx, blocks), free_blocks(blocks));
@@ -300,8 +314,12 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   if (ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC && highest_block)
     TRY_ASYNC(c4_get_syncdata_proof(ctx, &highest_block->block_proof.sync, &sync_proof));
 
-  // serialize the proof
+  TRACE_START(ctx, "serialize_proof");
+  TRACE_ADD_UINT64(ctx, "log_count", json_len(logs));
+  TRACE_ADD_UINT64(ctx, "block_count", get_block_count(blocks));
+
   serialize_log_proof(ctx, blocks, logs, sync_proof);
+  TRACE_END(ctx);
 
   free_blocks(blocks);
   return C4_SUCCESS;
