@@ -426,7 +426,7 @@ class FileBasedMockRequestHandler:
             params = request.payload.get('params', [])
             base_name = method
             for param in params:
-                param_str = param if isinstance(param, str) else json.dumps(param)
+                param_str = param if isinstance(param, str) else json.dumps(param, separators=(',', ':'))
                 base_name += '_' + param_str
             # Sanitize the base name
             for char in ['/', '.', ',', ' ', ':', '=', '?', '"', '&', '[', ']', '{', '}']:
@@ -526,7 +526,10 @@ def discover_tests(test_data_root=None):
                 'method': test_config['method'],
                 'params': test_config['params'],
                 'chain_id': test_config['chain_id'],
-                'expected_result': test_config.get('expected_result')
+                'expected_result': test_config.get('expected_result'),
+                'pap': test_config.get('pap', False),
+                'include_code': test_config.get('include_code', False),
+                'use_accesslist': test_config.get('use_accesslist', False),
             }
             
             test_cases.append(test_case)
@@ -548,12 +551,17 @@ async def run_test_case(test_case):
     # Lazy import to avoid circular import issues
     from .client import Colibri
     
+    from .types import PrivacyMode
+
     test_name = test_case['name']
     test_dir = test_case['directory']
     method = test_case['method']
     params = test_case['params']
     chain_id = test_case['chain_id']
     expected_result = test_case.get('expected_result')
+    pap = test_case.get('pap', False)
+    include_code = test_case.get('include_code', False)
+    use_accesslist = test_case.get('use_accesslist', False)
     
     print(f"\nRunning test: {test_name}")
     print(f"   Method: {method}")
@@ -563,10 +571,15 @@ async def run_test_case(test_case):
     mock_storage = FileBasedMockStorage(test_dir)
     mock_request_handler = FileBasedMockRequestHandler(test_dir)
     
-    # Create client with NO provers to force local proof creation
+    # PAP tests need a prover URL so use_remote_prover=1 is set; the mock
+    # handler serves the cached proof SSZ from the test directory.
+    # Non-PAP tests clear provers to force local proof creation.
     client = Colibri(
         chain_id=chain_id,
-        provers=[],  # CRITICAL: No remote provers! Use only mock data
+        provers=['http://mock-prover'] if pap else [],
+        include_code=include_code,
+        use_accesslist=use_accesslist,
+        privacy_mode=PrivacyMode.BASIC if pap else PrivacyMode.NONE,
         storage=mock_storage,
         request_handler=mock_request_handler
     )
