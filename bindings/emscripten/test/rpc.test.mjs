@@ -107,7 +107,8 @@ test('RPC-Proof Test Suite', async (t) => {
                 conf.privacy_mode = "basic";
             if (test_conf.remote_prover)
                 conf.prover = ["http://mock-prover"];
-            //            console.log(`### ${test} ######`)
+            else
+                conf.prover = [];
 
             const c4 = new Colibri(conf);
 
