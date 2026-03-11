@@ -567,11 +567,11 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         colibri.includeCode = (testJson["include_code"] as? Bool) ?? false
         colibri.useAccesslist = (testJson["use_accesslist"] as? Bool) ?? false
         let pap = (testJson["pap"] as? Bool) ?? false
+        let remoteProver = (testJson["remote_prover"] as? Bool) ?? false
         colibri.privacyMode = pap ? .basic : .none
-        // PAP tests need a prover URL so use_remote_prover=1 is set; the mock
-        // handler serves the cached proof SSZ from the test directory.
-        // Non-PAP tests clear provers to force local proof creation.
-        colibri.provers = pap ? ["http://mock-prover"] : []
+        // Only tests with remote_prover:true use a mock prover URL;
+        // all others use an empty provers list to force local proof creation.
+        colibri.provers = remoteProver ? ["http://mock-prover"] : []
         
         // 🗄️ Register mock storage for this test (reads state/sync files from test directory)
         let mockStorage = MockFileStorage(testDirectory: testDirectory)

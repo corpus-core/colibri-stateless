@@ -528,6 +528,7 @@ def discover_tests(test_data_root=None):
                 'chain_id': test_config['chain_id'],
                 'expected_result': test_config.get('expected_result'),
                 'pap': test_config.get('pap', False),
+                'remote_prover': test_config.get('remote_prover', False),
                 'include_code': test_config.get('include_code', False),
                 'use_accesslist': test_config.get('use_accesslist', False),
             }
@@ -560,6 +561,7 @@ async def run_test_case(test_case):
     chain_id = test_case['chain_id']
     expected_result = test_case.get('expected_result')
     pap = test_case.get('pap', False)
+    remote_prover = test_case.get('remote_prover', False)
     include_code = test_case.get('include_code', False)
     use_accesslist = test_case.get('use_accesslist', False)
     
@@ -571,12 +573,11 @@ async def run_test_case(test_case):
     mock_storage = FileBasedMockStorage(test_dir)
     mock_request_handler = FileBasedMockRequestHandler(test_dir)
     
-    # PAP tests need a prover URL so use_remote_prover=1 is set; the mock
-    # handler serves the cached proof SSZ from the test directory.
-    # Non-PAP tests clear provers to force local proof creation.
+    # Only tests with remote_prover:true use a mock prover URL;
+    # all others use an empty provers list to force local proof creation.
     client = Colibri(
         chain_id=chain_id,
-        provers=['http://mock-prover'] if pap else [],
+        provers=['http://mock-prover'] if remote_prover else [],
         include_code=include_code,
         use_accesslist=use_accesslist,
         privacy_mode=PrivacyMode.BASIC if pap else PrivacyMode.NONE,

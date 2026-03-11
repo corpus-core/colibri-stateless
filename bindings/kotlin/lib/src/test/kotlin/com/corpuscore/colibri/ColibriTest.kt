@@ -245,10 +245,12 @@ class ColibriTest {
 
         // Create Colibri instance with mock request handler
         val pap = testConf.optBoolean("pap", false)
+        val remoteProver = testConf.optBoolean("remote_prover", false)
         val mockHandler = createMockRequestHandler(testDir)
         val colibri = Colibri(
             chainId = chainId,
             requestHandler = mockHandler,
+            provers = if (remoteProver) arrayOf("http://mock-prover") else emptyArray(),
             includeCode = testConf.optBoolean("include_code", false),
             useAccesslist = testConf.optBoolean("use_accesslist", false),
             privacyMode = if (pap) PrivacyMode.BASIC else PrivacyMode.NONE

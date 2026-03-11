@@ -298,7 +298,7 @@ export default class C4Client {
     let ctx = 0;
 
     try {
-      const use_remote_prover = (method_type === C4MethodType.PROOFABLE && this.config.prover?.length) ? 1 : 0;
+      const use_remote_prover = (this.config.prover?.length) ? 1 : 0;
       let prover_flags = this.flags;
       if (this.config.zk_proof) prover_flags |= (1 << 7);
 

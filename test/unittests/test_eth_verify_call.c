@@ -40,7 +40,7 @@ void test_call() {
   char* dir             = "eth_call1";
   char* expected_result = "\"0x0000000000000000000000000000000000000000000000000011c04f6834033e\"";
 
-  verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROVER_FLAG_INCLUDE_CODE, 0,expected_result);
+  verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROVER_FLAG_INCLUDE_CODE, 0,expected_result, false);
 }
 
 void test_electra() {
@@ -60,10 +60,10 @@ void test_pap_cached() {
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_pap_cached);
   RUN_TEST(test_call);
   RUN_TEST(test_electra);
   RUN_TEST(test_7702);
   RUN_TEST(test_7702_authorization_list);
-  RUN_TEST(test_pap_cached);
   return UNITY_END();
 }
