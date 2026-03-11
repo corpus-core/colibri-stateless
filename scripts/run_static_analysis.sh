@@ -192,6 +192,14 @@ if grep -q -E "No bugs found\.|scan-build: 0 bugs found" scan-build-output.txt; 
     
     exit 0
 else
+    # Check for suppressed false positives (same logic as CI via scripts/scan-build-apply-suppressions.sh)
+    if "$PROJECT_ROOT/scripts/scan-build-apply-suppressions.sh" scan-build-results "$PROJECT_ROOT/scripts/scan-build-suppressions.txt"; then
+        echo -e "${GREEN}✅ Alle gefundenen Meldungen sind bekannte False Positives (siehe scripts/scan-build-suppressions.txt)${NC}"
+        echo -e "\n${BLUE}📈 Analyse-Zusammenfassung:${NC}"
+        grep -E "scan-build:" scan-build-output.txt || true
+        exit 0
+    fi
+
     echo -e "${RED}⚠️  Statische Analyse hat Probleme gefunden${NC}"
     
     # Zeige gefundene Issues

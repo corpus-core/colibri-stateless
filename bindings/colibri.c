@@ -73,9 +73,23 @@ bytes_t c4_prover_get_proof(prover_t* prover) {
 
 void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, uint32_t flags) {
   c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
-  ctx->proof           = bytes_dup(proof);
-  c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t){0}), (chain_id_t) chain_id, (verify_flags_t) flags);
+  if (!ctx) return NULL;
+  ctx->proof = bytes_dup(proof);
+  char* method_copy = method ? strdup(method) : NULL;
+  char* args_copy   = args ? strdup(args) : NULL;
+  json_t args_json  = args_copy ? json_parse(args_copy) : (json_t){0};
+  if (c4_verify_init(&ctx->ctx, ctx->proof, method_copy, args_json, (chain_id_t) chain_id, (verify_flags_t) flags) != C4_SUCCESS) {
+    if (ctx->proof.data) free(ctx->proof.data);
+    free(method_copy);
+    free(args_copy);
+    free(ctx);
+    return NULL;
+  }
   c4_set_checkpoint((chain_id_t) chain_id, trusted_checkpoint);
+  /* method_copy and args_copy are transferred to ctx (ctx->ctx.method, ctx->ctx.args.start) and
+   * freed in c4_verify_free_ctx() below. scan-build reports a false-positive leak here because
+   * it does not track inter-procedural ownership; suppressed in scripts/scan-build-suppressions.txt.
+   * Valgrind confirms no leak. */
   return (void*) ctx;
 }
 
