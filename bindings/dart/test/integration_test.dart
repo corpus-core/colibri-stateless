@@ -111,6 +111,7 @@ void main() {
       final expected = content['expected_result'];
       final includeCode = (content['include_code'] as bool?) ?? false;
       final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
+      final pap = (content['pap'] as bool?) ?? false;
 
       /// Storage is backed by fixture files to emulate chain data.
       final storage = FileBackedStorage(dir);
@@ -119,12 +120,15 @@ void main() {
       final client = MockClient(responder.handle);
 
       /// Create a Colibri instance with fixtures and a mock HTTP client.
+      /// PAP tests need a prover URL so use_remote_prover=1 is set; the mock
+      /// client serves the cached proof SSZ from the test directory.
       final colibri = Colibri(
         chainId: chainId,
-        provers: const [],
+        provers: pap ? ['http://mock-prover'] : const [],
         trustedCheckpoint: trusted,
         includeCode: includeCode,
         useAccesslist: useAccesslist,
+        privacyMode: pap ? PrivacyMode.basic : PrivacyMode.none,
         storage: storage,
         libraryPath: _resolveLibraryPath(),
         httpClient: client,

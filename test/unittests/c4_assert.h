@@ -21,6 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../../bindings/colibri.h"
+#include "../../bindings/colibri_common.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "chains.h"
@@ -33,7 +35,6 @@
 #include "sync_committee.h"
 #include "unity.h"
 #include "verify.h"
-
 #ifdef _MSC_VER
 #include <windows.h>
 #else
@@ -251,8 +252,7 @@ static void set_state(chain_id_t chain_id, char* dirname) {
   closedir(dir);
 #endif
 }
-static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, prover_flags_t flags, char* expected_result) {
-  char tmp[1024];
+static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, prover_flags_t flags, verify_flags_t verify_flags, char* expected_result) {
 
 #ifdef PROVER_CACHE
   // Clear the global prover cache before each test to ensure isolation
@@ -263,20 +263,17 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
   if ((flags & C4_PROVER_FLAG_NO_CACHE) == 0)
     set_state(chain_id, dirname);
 
-  bytes_t  proof_data   = {0};
-  buffer_t tmp_buf      = stack_buffer(tmp);
-  buffer_t client_state = {0};
-  file_get(bprintf(&tmp_buf, "states_%l", (uint64_t) chain_id), &client_state);
+  c4_rpc_ctx_t* rpc_ctx = c4_rpc_ctx_create(method, args, chain_id, flags, verify_flags, false);
 
-  // prover
-  uint64_t      proof_start = now();
-  prover_ctx_t* proof_ctx   = c4_prover_create(method, args, chain_id, flags);
-  proof_ctx->client_state   = client_state.data;
-  data_request_t* req;
-  while (proof_data.data == NULL) {
-    switch (c4_prover_execute(proof_ctx)) {
+  bool done = false;
+  //  bytes_t  proof_data   = {0};
+  while (!done) {
+    data_request_t* req;
+    switch (c4_rpc_execute(rpc_ctx)) {
       case C4_PENDING:
-        while ((req = c4_state_get_pending_request(&proof_ctx->state))) {
+        while ((req = c4_state_get_pending_request(c4_rpc_get_state(rpc_ctx)))) {
+          char tmp[1024];
+
           char* filename = c4_req_mockname(req);
           sprintf(tmp, "%s/%s", dirname, filename);
           safe_free(filename);
@@ -288,44 +285,14 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
         break;
 
       case C4_ERROR:
-        TEST_FAIL_MESSAGE(proof_ctx->state.error);
-        return;
+        TEST_FAIL_MESSAGE(rpc_ctx->error ? rpc_ctx->error
+                                         : (rpc_ctx->verifier.state.error ? rpc_ctx->verifier.state.error : "unknown error"));
+        done = true;
+        break;
 
       case C4_SUCCESS:
-        proof_data = proof_ctx->proof;
-        FILE* f    = fopen("new_proof.ssz", "w");
-        ssz_dump_to_file(f, (ssz_ob_t) {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = proof_data}, true, true);
-        fclose(f);
-        break;
-    }
-  }
-  uint64_t proof_end    = now();
-  uint64_t verify_start = now();
-
-  //  bytes_write(proof_ctx->proof, fopen("_proof.ssz", "w"), true);
-
-  for (int n = 0; n < count; n++) {
-    // now verify
-    bool         success    = false;
-    verify_ctx_t verify_ctx = {0};
-    for (int i = 0; i < 10; i++) {
-      c4_status_t status = i == 0 ? c4_verify_from_bytes(&verify_ctx, proof_ctx->proof, method, json_parse(args), chain_id) : c4_verify(&verify_ctx);
-      if (status == C4_PENDING) {
-        for (data_request_t* req = c4_state_get_pending_request(&verify_ctx.state); req; req = c4_state_get_pending_request(&verify_ctx.state)) {
-          char* filename = c4_req_mockname(req);
-          sprintf(tmp, "%s/%s", dirname, filename);
-          safe_free(filename);
-          //          printf("read : %s\n     %s", tmp, req->payload.data);
-          bytes_t content = read_testdata(tmp);
-          TEST_ASSERT_NOT_NULL_MESSAGE(content.data, bprintf(NULL, "Did not find the testdata: %s", tmp));
-          req->response = content;
-        }
-        continue;
-      }
-
-      if (verify_ctx.success) {
         if (expected_result) {
-          char* result                     = ssz_dump_to_str(verify_ctx.data, false, true);
+          char* result                     = ssz_dump_to_str(rpc_ctx->verifier.data, false, true);
           char* normalized_result          = normalize_newlines(result);
           char* normalized_expected_result = normalize_newlines(expected_result);
 
@@ -334,28 +301,19 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
           safe_free(normalized_result);
           safe_free(normalized_expected_result);
         }
-        success = true;
+        done = true;
         break;
-      }
-      else if (status == C4_ERROR) {
-        TEST_FAIL_MESSAGE(verify_ctx.state.error);
-        break;
-      }
     }
-    TEST_ASSERT_TRUE_MESSAGE(success, "not able to verify"); //    TEST_FAIL_MESSAGE("not able to verify");
-    c4_verify_free_data(&verify_ctx);
   }
-  c4_prover_free(proof_ctx);
-  uint64_t verify_end = now();
 
-  //  fprintf(stderr, "::Test: %s, %s,  proof: %lld ms, verify: %lld ms, total: %lld ms\n", dirname, method, proof_end - proof_start, verify_end - verify_start, verify_end - proof_start);
+  c4_rpc_ctx_free(rpc_ctx);
 }
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
-  verify_count(dirname, method, args, chain_id, 1, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_CHAIN_STORE, NULL);
+  verify_count(dirname, method, args, chain_id, 1, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_CHAIN_STORE, 0, NULL);
 }
 
-static void run_rpc_test(char* dirname, prover_flags_t flags) {
+static void run_rpc_test(char* dirname, prover_flags_t flags, verify_flags_t verify_flags) {
   char test_filename[1024];
   sprintf(test_filename, "%s/test.json", dirname);
   bytes_t    test_content      = read_testdata(test_filename);
@@ -372,7 +330,7 @@ static void run_rpc_test(char* dirname, prover_flags_t flags) {
     c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
   }
 
-  verify_count(dirname, method, args, chain_id, 1, flags, expected_result);
+  verify_count(dirname, method, args, chain_id, 1, flags, verify_flags, expected_result);
 
   safe_free(method);
   safe_free(args);

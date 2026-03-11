@@ -76,7 +76,6 @@ public class StorageBridge {
     /// Register a storage implementation
     public static func registerStorage(_ storage: ColibriStorage) {
         implementation = storage
-        print("🗄️ Swift Storage implementation registered")
         
         // Initialize C bridge if not already done
         if !isInitialized {
@@ -103,7 +102,7 @@ public class StorageBridge {
         // Initialize the C storage plugin
         swift_storage_bridge_initialize()
         
-        print("🗄️ Storage bridge initialized with Swift callbacks")
+        
     }
 }
 

@@ -40,19 +40,22 @@ void test_call() {
   char* dir             = "eth_call1";
   char* expected_result = "\"0x0000000000000000000000000000000000000000000000000011c04f6834033e\"";
 
-  verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROVER_FLAG_INCLUDE_CODE, expected_result);
+  verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROVER_FLAG_INCLUDE_CODE, 0,expected_result);
 }
 
 void test_electra() {
-  run_rpc_test("eth_call_electra", C4_PROVER_FLAG_NO_CACHE);
+  run_rpc_test("eth_call_electra", C4_PROVER_FLAG_NO_CACHE,0);
   //  run_rpc_test("eth_call3", C4_PROVER_FLAG_INCLUDE_CODE);
 }
 void test_7702() {
-  run_rpc_test("eth_call_7702", C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE);
+  run_rpc_test("eth_call_7702", C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE,0);
 }
 
 void test_7702_authorization_list() {
-  run_rpc_test("eth_call_authorization_list", C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE);
+  run_rpc_test("eth_call_authorization_list", C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE,0);
+}
+void test_pap_cached() {
+  run_rpc_test("eth_call_pap_cached", C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE, VERIFY_FLAG_PAP);
 }
 
 int main(void) {
@@ -61,5 +64,6 @@ int main(void) {
   RUN_TEST(test_electra);
   RUN_TEST(test_7702);
   RUN_TEST(test_7702_authorization_list);
+  RUN_TEST(test_pap_cached);
   return UNITY_END();
 }

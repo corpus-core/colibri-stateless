@@ -74,17 +74,14 @@ static void bridge_storage_del(char* key) {
 // Functions to register Swift callbacks (called from Swift)
 void swift_storage_bridge_register_get(swift_storage_get_fn fn) {
   g_swift_get = fn;
-  printf("🗄️ Swift storage get function registered\n");
 }
 
 void swift_storage_bridge_register_set(swift_storage_set_fn fn) {
   g_swift_set = fn;
-  printf("🗄️ Swift storage set function registered\n");
 }
 
 void swift_storage_bridge_register_delete(swift_storage_delete_fn fn) {
   g_swift_delete = fn;
-  printf("🗄️ Swift storage delete function registered\n");
 }
 
 // Initialize the storage plugin with Swift bridges
@@ -96,5 +93,4 @@ void swift_storage_bridge_initialize() {
       .max_sync_states = 10};
 
   c4_set_storage_config(&plugin);
-  printf("🗄️ Swift Storage Bridge initialized with correct ABI\n");
 }

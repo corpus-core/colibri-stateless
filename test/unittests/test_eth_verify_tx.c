@@ -51,11 +51,11 @@ void test_tx_with_history() {
 }
 
 void test_tx_by_hash_and_index() {
-  run_rpc_test("eth_getTransactionByBlockHashAndIndex1", 0);
+  run_rpc_test("eth_getTransactionByBlockHashAndIndex1", 0,0);
 }
 
 void test_tx_type_4() {
-  run_rpc_test("eth_getTransaction_Type_4", 0);
+  run_rpc_test("eth_getTransaction_Type_4", 0,0);
 }
 
 int main(void) {

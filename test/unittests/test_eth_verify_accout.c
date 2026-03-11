@@ -43,7 +43,7 @@ void test_balance_electra() {
 }
 
 void test_eth_get_proof() {
-  run_rpc_test("eth_getProof2", 0);
+  run_rpc_test("eth_getProof2", 0, 0);
 }
 
 int main(void) {

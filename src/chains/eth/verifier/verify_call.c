@@ -621,6 +621,10 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
 
     for (call_account_t* ac = evm->accounts; ac; ac = ac->next) {
       ac->verified_at = 0;
+      if (ac->flags & ACCOUNT_FREE_CODE) {
+        safe_free(ac->code.data);
+        ac->code = NULL_BYTES;
+      }
       ac->flags &= ~ACCOUNT_HAS_CODE;
       ac->flags &= ~ACCOUNT_FREE_CODE;
       ac->flags &= ~ACCOUNT_DELETED;

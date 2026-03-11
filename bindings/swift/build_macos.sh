@@ -237,6 +237,13 @@ EOF
 # Continue with the rest of the file content without variable expansion
 cat >> "$GENERATED_TESTS_FILE" << 'EOF'
     
+    /// Enable verbose logging via COLIBRI_TEST_VERBOSE environment variable.
+    private static let verbose = ProcessInfo.processInfo.environment["COLIBRI_TEST_VERBOSE"] != nil
+
+    private static func log(_ message: @autoclosure () -> String) {
+        if verbose { print(message()) }
+    }
+
     /// Serial queue to ensure tests run sequentially (since storage is global)
     private static let testQueue = DispatchQueue(label: "colibri.integration.tests", qos: .userInitiated)
     
@@ -277,30 +284,30 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
             
             do {
                 let data = try Data(contentsOf: fileURL)
-                print("🗄️ Storage GET: \(key) → \(fileName) (\(data.count) bytes)")
+                GeneratedIntegrationTests.log("🗄️ Storage GET: \(key) → \(fileName) (\(data.count) bytes)")
                 return data
             } catch {
                 // Try variations with different extensions
                 for ext in ["ssz", "json", "bin"] {
                     let altURL = testDirectory.appendingPathComponent("\(fileName).\(ext)")
                     if let data = try? Data(contentsOf: altURL) {
-                        print("🗄️ Storage GET: \(key) → \(fileName).\(ext) (\(data.count) bytes)")
+                        GeneratedIntegrationTests.log("🗄️ Storage GET: \(key) → \(fileName).\(ext) (\(data.count) bytes)")
                         return data
                     }
                 }
                 
-                print("🗄️ Storage GET: \(key) → NOT FOUND (\(fileName))")
+                GeneratedIntegrationTests.log("🗄️ Storage GET: \(key) → NOT FOUND (\(fileName))")
                 return nil
             }
         }
         
         func set(key: String, value: Data) {
-            print("🗄️ Storage SET: \(key) (\(value.count) bytes)")
+            GeneratedIntegrationTests.log("🗄️ Storage SET: \(key) (\(value.count) bytes)")
             // For tests, we don't need to persist
         }
         
         func delete(key: String) {
-            print("🗄️ Storage DELETE: \(key)")
+            GeneratedIntegrationTests.log("🗄️ Storage DELETE: \(key)")
             // For tests, we don't need to persist
         }
         
@@ -344,10 +351,10 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 do {
                     let data = try Data(contentsOf: fileURL)
-                    print("    📁 Serving \(filename) (\(data.count) bytes)")
+                    GeneratedIntegrationTests.log("    📁 Serving \(filename) (\(data.count) bytes)")
                     return data
                 } catch {
-                    print("    ❌ Failed to read \(filename): \(error)")
+                    GeneratedIntegrationTests.log("    ❌ Failed to read \(filename): \(error)")
                     throw ColibriError.rpcError("Failed to read mock file: \(filename)")
                 }
             }
@@ -368,7 +375,7 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
                         if !matching.isEmpty {
                             let fallbackFile = testDirectory.appendingPathComponent(matching[0])
                             let data = try Data(contentsOf: fallbackFile)
-                            print("    📁 Fallback serving \(matching[0]) (\(data.count) bytes)")
+                            GeneratedIntegrationTests.log("    📁 Fallback serving \(matching[0]) (\(data.count) bytes)")
                             return data
                         }
                     }
@@ -378,7 +385,7 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
                         if !matching.isEmpty {
                             let fallbackFile = testDirectory.appendingPathComponent(matching[0])
                             let data = try Data(contentsOf: fallbackFile)
-                            print("    📁 Fallback serving \(matching[0]) (\(data.count) bytes)")
+                            GeneratedIntegrationTests.log("    📁 Fallback serving \(matching[0]) (\(data.count) bytes)")
                             return data
                         }
                     }
@@ -389,7 +396,7 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
                         if !matching.isEmpty {
                             let fallbackFile = testDirectory.appendingPathComponent(matching[0])
                             let data = try Data(contentsOf: fallbackFile)
-                            print("    📁 Fallback serving \(matching[0]) (\(data.count) bytes)")
+                            GeneratedIntegrationTests.log("    📁 Fallback serving \(matching[0]) (\(data.count) bytes)")
                             return data
                         }
                     }
@@ -404,12 +411,12 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
                     if matching.count == 1 {
                         let fallbackFile = testDirectory.appendingPathComponent(matching[0])
                         let data = try Data(contentsOf: fallbackFile)
-                        print("    📁 Method fallback serving \(matching[0]) (\(data.count) bytes)")
+                        GeneratedIntegrationTests.log("    📁 Method fallback serving \(matching[0]) (\(data.count) bytes)")
                         return data
                     } else if matching.count > 1 {
                         let fallbackFile = testDirectory.appendingPathComponent(matching[0])
                         let data = try Data(contentsOf: fallbackFile)
-                        print("    📁 Method fallback serving \(matching[0]) (\(data.count) bytes)")
+                        GeneratedIntegrationTests.log("    📁 Method fallback serving \(matching[0]) (\(data.count) bytes)")
                         return data
                     } else {
                         // Smart fallback: for certain methods, try related methods
@@ -432,17 +439,17 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
                             if !fallbackMatching.isEmpty {
                                 let fallbackFile = testDirectory.appendingPathComponent(fallbackMatching[0])
                                 let data = try Data(contentsOf: fallbackFile)
-                                print("    📁 Smart fallback serving \(fallbackMatching[0]) (\(data.count) bytes)")
+                                GeneratedIntegrationTests.log("    📁 Smart fallback serving \(fallbackMatching[0]) (\(data.count) bytes)")
                                 return data
                             }
                         }
                     }
                 }
             } catch {
-                print("    ❌ Fallback failed: \(error)")
+                GeneratedIntegrationTests.log("    ❌ Fallback failed: \(error)")
             }
             
-            print("    ❌ Mock: File not found: \(filename)")
+            GeneratedIntegrationTests.log("    ❌ Mock: File not found: \(filename)")
             throw ColibriError.rpcError("Mock file not found: \(filename)")
         }
         
@@ -527,7 +534,7 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         let testJsonURL = testDirectory.appendingPathComponent("test.json")
         
         guard FileManager.default.fileExists(atPath: testJsonURL.path) else {
-            print("  ⏭️ No test.json found, skipping")
+            Self.log("  ⏭️ No test.json found, skipping")
             return false
         }
         
@@ -538,7 +545,7 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         guard let method = testJson["method"] as? String,
               let params = testJson["params"] as? [Any],
               let chainId = testJson["chain_id"] as? Int else {
-            print("  ⏭️ Missing required fields in test.json")
+            Self.log("  ⏭️ Missing required fields in test.json")
             return false
         }
         
@@ -548,9 +555,9 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         let paramsData = try JSONSerialization.data(withJSONObject: params)
         let paramsString = String(data: paramsData, encoding: .utf8)!
         
-        print("  📋 Method: \(method)")
-        print("  📋 Params: \(params)")
-        print("  📋 Chain ID: \(chainId)")
+        Self.log("  📋 Method: \(method)")
+        Self.log("  📋 Params: \(params)")
+        Self.log("  📋 Chain ID: \(chainId)")
         
         // Create Colibri instance with mock handler
         let mockHandler = MockFileRequestHandler(testDirectory: testDirectory)
@@ -559,9 +566,12 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         colibri.chainId = UInt64(chainId)  // Set chain ID from test.json
         colibri.includeCode = (testJson["include_code"] as? Bool) ?? false
         colibri.useAccesslist = (testJson["use_accesslist"] as? Bool) ?? false
-        
-        // 🎯 IMPORTANT: Clear provers to force LOCAL proof creation (not remote fetching)
-        colibri.provers = []  // Force local C-library proof creation for testing
+        let pap = (testJson["pap"] as? Bool) ?? false
+        colibri.privacyMode = pap ? .basic : .none
+        // PAP tests need a prover URL so use_remote_prover=1 is set; the mock
+        // handler serves the cached proof SSZ from the test directory.
+        // Non-PAP tests clear provers to force local proof creation.
+        colibri.provers = pap ? ["http://mock-prover"] : []
         
         // 🗄️ Register mock storage for this test (reads state/sync files from test directory)
         let mockStorage = MockFileStorage(testDirectory: testDirectory)
@@ -592,11 +602,11 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
             resultDescription = "type: \(type(of: result))"
         }
         
-        print("  ✅ \(method) → \(resultDescription) in \(String(format: "%.1f", rpcTime * 1000))ms")
+        Self.log("  ✅ \(method) → \(resultDescription) in \(String(format: "%.1f", rpcTime * 1000))ms")
         
         // Compare with expected result if available
         if let expectedResult = testJson["expected_result"] {
-            print("  📋 Expected: \(expectedResult)")
+            Self.log("  📋 Expected: \(expectedResult)")
             
             // Try structural comparison first for complex objects
             var matches = false
@@ -606,24 +616,24 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
                 // Compare dictionaries structurally
                 matches = NSDictionary(dictionary: expectedDict).isEqual(to: actualDict)
                 if matches {
-                    print("  ✅ Structural comparison: dictionaries match")
+                    Self.log("  ✅ Structural comparison: dictionaries match")
                 }
             } else if let expectedArray = expectedResult as? [Any],
                       let actualArray = result as? [Any] {
                 // Compare arrays structurally
                 matches = NSArray(array: expectedArray).isEqual(actualArray)
                 if matches {
-                    print("  ✅ Structural comparison: arrays match")
+                    Self.log("  ✅ Structural comparison: arrays match")
                 }
             } else if String(describing: expectedResult) == String(describing: result) {
                 // Simple value comparison
                 matches = true
-                print("  ✅ Simple comparison: values match")
+                Self.log("  ✅ Simple comparison: values match")
             }
             
             // If structural comparison fails, fall back to string comparison with normalization
             if !matches {
-                print("  ⚠️ Structural comparison failed, trying string comparison...")
+                Self.log("  ⚠️ Structural comparison failed, trying string comparison...")
                 
                 // Normalize both results to JSON format for comparison
                 let normalizedExpected: String
@@ -665,14 +675,11 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
                 
                 if normalizedExpected == normalizedActual {
                     matches = true
-                    print("  ✅ Normalized string comparison: results match")
+                    Self.log("  ✅ Normalized string comparison: results match")
                 } else {
-                    print("  ❌ MISMATCH!")
-                    print("     Expected (normalized): \(normalizedExpected)")
-                    print("     Actual (normalized):   \(normalizedActual)")
-                    
-                    // Don't throw error for now - just log the mismatch for debugging
-                    print("  ⚠️ Continuing test despite mismatch (for debugging)")
+                    print("  ❌ MISMATCH! Expected: \(normalizedExpected), Actual: \(normalizedActual)")
+                    Self.log("     Expected (normalized): \(normalizedExpected)")
+                    Self.log("     Actual (normalized):   \(normalizedActual)")
                     // throw ColibriError.rpcError("Expected result '\(normalizedExpected)' but got '\(normalizedActual)'")
                 }
             }

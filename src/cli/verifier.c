@@ -106,6 +106,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -s <cache_dir> cache directory\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
     fprintf(stderr, "  -p url of the prover\n");
+    fprintf(stderr, "  -L local proof\n");
     fprintf(stderr, "  -r rpc url\n");
     fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
@@ -135,6 +136,7 @@ int main(int argc, char* argv[]) {
   char*          checkpointz_url    = NULL;
   char*          prover_url         = NULL;
   char*          trace_id           = NULL;
+  bool           local_proof        = false;
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
 
@@ -154,12 +156,17 @@ int main(int argc, char* argv[]) {
             chain_name = argv[++i];
             break;
           case 'i':
-          case 'p':
             input = argv[++i];
             if (input && (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0)) {
               prover_url = input;
               input      = NULL;
             }
+            break;
+          case 'L':
+            local_proof = true;
+            break;
+        case 'p':
+            prover_url = argv[++i];
             break;
 #ifdef USE_CURL
           case 'n':
@@ -227,6 +234,7 @@ int main(int argc, char* argv[]) {
     if (json_len(provers) > 0)
       prover_url = (char*)json_at(provers, 0).start;
   }
+  if (local_proof) prover_url = NULL;
   if (rpc_url) set_config("eth_rpc", rpc_url);
   if (beacon_url) set_config("beacon_api", beacon_url);
   if (checkpointz_url) set_config("checkpointz", checkpointz_url);
@@ -294,8 +302,8 @@ int main(int argc, char* argv[]) {
   if (status == C4_SUCCESS) {
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
-      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"expected_result\": %Z\n}",
-                               ctx->verifier.method, ctx->verifier.args, chain_id, ctx->verifier.data);
+      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s\n  \"expected_result\": %Z\n}",
+                               ctx->verifier.method, ctx->verifier.args, chain_id, ctx->verifier.data, verify_flags & VERIFY_FLAG_PAP ? "true" : "false");
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
       safe_free(content);

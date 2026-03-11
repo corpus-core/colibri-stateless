@@ -211,6 +211,7 @@ static c4_status_t rpc_handle_proving(c4_rpc_ctx_t* ctx) {
   if (status == C4_SUCCESS) {
     ctx->proof       = ctx->prover->proof;
     ctx->proof_owned = false;
+    //    bytes_write(ctx->proof, fopen("last_proof.ssz", "wb"), true);
     return rpc_start_verifier(ctx, ctx->proof);
   }
   return status;
@@ -229,21 +230,20 @@ static void cleanup_remote_prover_params(buffer_t* buf, const char* method, cons
     }
     bprintf(buf, "]");
   }
-/*  
-  else if (strcmp(method, "colibri_simulateTransaction") == 0 && arr.type == JSON_TYPE_ARRAY) {
-    int len = json_len(arr);
-    if (len > 2) len = 2;
-    bprintf(buf, "[");
-    for (int i = 0; i < len; i++) {
-      if (i > 0) bprintf(buf, ",");
-      bprintf(buf, "%j", json_at(arr, i));
+  /*
+    else if (strcmp(method, "colibri_simulateTransaction") == 0 && arr.type == JSON_TYPE_ARRAY) {
+      int len = json_len(arr);
+      if (len > 2) len = 2;
+      bprintf(buf, "[");
+      for (int i = 0; i < len; i++) {
+        if (i > 0) bprintf(buf, ",");
+        bprintf(buf, "%j", json_at(arr, i));
+      }
+      bprintf(buf, "]");
     }
-    bprintf(buf, "]");
-  }
-  */
-  else 
+    */
+  else
     bprintf(buf, "%s", params);
-  
 }
 
 static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
@@ -369,6 +369,17 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
           }
           ctx->prover = c4_prover_create(ctx->method, ctx->params, ctx->chain_id, ctx->prover_flags);
           ctx->phase  = RPC_PHASE_PROVING;
+#ifdef TEST
+          storage_plugin_t storage = {0};
+          c4_get_storage_config(&storage);
+          char     name[100];
+          buffer_t state_buf = {0};
+          sbprintf(name, "states_%l", (uint64_t) ctx->chain_id);
+          if (storage.get && storage.get(name, &state_buf) && state_buf.data.data && state_buf.data.len)
+            ctx->prover->client_state = state_buf.data;
+          else
+            buffer_free(&state_buf);
+#endif
           return rpc_handle_proving(ctx);
 
         case METHOD_LOCAL:
