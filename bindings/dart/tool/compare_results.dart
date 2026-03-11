@@ -149,6 +149,7 @@ Future<List<CompareResult>> compareAll() async {
     final expected = content['expected_result'];
     final includeCode = (content['include_code'] as bool?) ?? false;
     final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
+    final pap = (content['pap'] as bool?) ?? false;
 
     final storage = FileBackedStorage(dir);
     final responder = FileBasedMockResponder(dir);
@@ -156,10 +157,11 @@ Future<List<CompareResult>> compareAll() async {
 
     final colibri = Colibri(
       chainId: chainId,
-      provers: const [],
+      provers: pap ? ['http://mock-prover'] : const [],
       trustedCheckpoint: trusted,
       includeCode: includeCode,
       useAccesslist: useAccesslist,
+      privacyMode: pap ? PrivacyMode.basic : PrivacyMode.none,
       storage: storage,
       libraryPath: libraryPath,
       httpClient: client,
