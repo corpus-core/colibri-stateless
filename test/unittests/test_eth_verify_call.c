@@ -64,5 +64,6 @@ int main(void) {
   RUN_TEST(test_electra);
   RUN_TEST(test_7702);
   RUN_TEST(test_7702_authorization_list);
+  RUN_TEST(test_pap_cached);
   return UNITY_END();
 }

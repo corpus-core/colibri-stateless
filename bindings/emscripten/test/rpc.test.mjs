@@ -103,9 +103,17 @@ test('RPC-Proof Test Suite', async (t) => {
                 conf.include_code = true
             if (test_conf.use_accesslist)
                 conf.use_accesslist = true
+            if (test_conf.pap)
+                conf.privacy_mode = "basic";
             //            console.log(`### ${test} ######`)
 
             const c4 = new Colibri(conf);
+
+            if (conf.privacy_mode == "basic") {
+                const result = await c4.rpc(test_conf.method, test_conf.params);
+                assert.strictEqual(result, test_conf.expected_result, 'Proof should be valid');
+                return;
+            }
 
             // Benchmark für createProof
             const createProofStart = performance.now();
