@@ -125,6 +125,29 @@ method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t p
   return METHOD_UNDEFINED;
 }
 
+bool c4_eth_get_prover_payload(chain_id_t chain_id, const char* method, const char* params,
+                               verify_flags_t flags, buffer_t* method_out, buffer_t* params_out) {
+  (void) flags;
+  if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return false;
+
+  if (strcmp(method, "eth_verifyLogs") == 0) {
+    json_t arr = json_parse((char*) params);
+    if (arr.type == JSON_TYPE_ARRAY) {
+      bprintf(params_out, "[");
+      for (int i = 0; i < json_len(arr); i++) {
+        if (i > 0) bprintf(params_out, ",");
+        json_t item     = json_at(arr, i);
+        json_t tx_index = json_get(item, "transactionIndex");
+        json_t block_nr = json_get(item, "blockNumber");
+        bprintf(params_out, "{\"transactionIndex\":%j,\"blockNumber\":%j}", tx_index, block_nr);
+      }
+      bprintf(params_out, "]");
+    }
+  }
+
+  return true;
+}
+
 const ssz_def_t* c4_eth_get_request_type(chain_type_t chain_type) {
   return chain_type == C4_CHAIN_TYPE_ETHEREUM ? eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST) : NULL;
 }

@@ -12,7 +12,7 @@ function(add_verifier)
 
     # Parse arguments
     set(options "")
-    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE)
+    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE PROVER_PAYLOAD)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(VERIFIER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -29,8 +29,8 @@ function(add_verifier)
     # Get the current global list
     get_property(CURRENT_PROPERTIES CACHE VERIFIER_PROPERTIES PROPERTY VALUE)
     
-    # Append to the global list
-    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}")
+    # Append to the global list (PROVER_PAYLOAD may be empty for modules that don't need it)
+    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}:${VERIFIER_PROVER_PAYLOAD}")
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
 endfunction()
 
@@ -160,6 +160,32 @@ function(generate_verifiers_header)
     file(APPEND ${VERIFIERS_H} "  return type;\n")
     file(APPEND ${VERIFIERS_H} "}\n\n")
 
+
+    # Add prover payload declarations for modules that provide one
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 4)
+            list(GET parts 4 prover_payload)
+            if(NOT "${prover_payload}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "bool ${prover_payload}(chain_id_t chain_id, const char* method, const char* params, verify_flags_t flags, buffer_t* method_out, buffer_t* params_out);\n")
+            endif()
+        endif()
+    endforeach()
+
+    # Add c4_get_prover_payload dispatcher
+    file(APPEND ${VERIFIERS_H} "\nvoid c4_get_prover_payload(chain_id_t chain_id, const char* method, const char* params, verify_flags_t flags, buffer_t* method_out, buffer_t* params_out) {\n")
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 4)
+            list(GET parts 4 prover_payload)
+            if(NOT "${prover_payload}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "  if (${prover_payload}(chain_id, method, params, flags, method_out, params_out)) return;\n")
+            endif()
+        endif()
+    endforeach()
+    file(APPEND ${VERIFIERS_H} "}\n\n")
 
     # Close header guard
     file(APPEND ${VERIFIERS_H} "#endif // VERIFIERS_H\n")
