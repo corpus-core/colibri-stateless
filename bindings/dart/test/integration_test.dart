@@ -111,6 +111,7 @@ void main() {
       final expected = content['expected_result'];
       final includeCode = (content['include_code'] as bool?) ?? false;
       final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
+      final pap = (content['pap'] as bool?) ?? false;
 
       /// Storage is backed by fixture files to emulate chain data.
       final storage = FileBackedStorage(dir);
@@ -125,6 +126,7 @@ void main() {
         trustedCheckpoint: trusted,
         includeCode: includeCode,
         useAccesslist: useAccesslist,
+        privacyMode: pap ? PrivacyMode.basic : PrivacyMode.none,
         storage: storage,
         libraryPath: _resolveLibraryPath(),
         httpClient: client,

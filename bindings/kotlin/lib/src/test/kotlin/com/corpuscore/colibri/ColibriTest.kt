@@ -244,25 +244,28 @@ class ColibriTest {
         // --- End Storage Setup ---
 
         // Create Colibri instance with mock request handler
+        val pap = testConf.optBoolean("pap", false)
         val mockHandler = createMockRequestHandler(testDir)
         val colibri = Colibri(
             chainId = chainId,
             requestHandler = mockHandler,
             includeCode = testConf.optBoolean("include_code", false),
-            useAccesslist = testConf.optBoolean("use_accesslist", false)
+            useAccesslist = testConf.optBoolean("use_accesslist", false),
+            privacyMode = if (pap) PrivacyMode.BASIC else PrivacyMode.NONE
         )
 
         if (trusted_blockhash != null) {
             colibri.trustedCheckpoint = trusted_blockhash
         }
 
-        // Run the test logic 
-//        println("Creating proof for ${testDir.name}...")
-        val proof = colibri.getProof(method, params)
-        assertTrue("Proof should not be empty for ${testDir.name}", proof.isNotEmpty())
-//        println("Proof created (size: ${proof.size}). Verifying...")
-
-        val result = colibri.verifyProof(proof, method, params)
+        val result: Any?
+        if (pap) {
+            result = colibri.rpc(method, params)
+        } else {
+            val proof = colibri.getProof(method, params)
+            assertTrue("Proof should not be empty for ${testDir.name}", proof.isNotEmpty())
+            result = colibri.verifyProof(proof, method, params)
+        }
 //        println("Verification result: $result")
 
         // Compare result with expected_result (needs careful comparison of Any? and org.json)
