@@ -191,6 +191,8 @@ void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex) {
   }
 }
 
+static c4_status_t rpc_handle_verifying(c4_rpc_ctx_t* ctx);
+
 static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   c4_status_t status = c4_verify_init(&ctx->verifier, proof, ctx->method, json_parse(ctx->params),
                                       ctx->chain_id, ctx->verify_flags);
@@ -203,7 +205,7 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
     ctx->verifier.witness_keys = bytes_dup(ctx->witness_keys);
 
   ctx->phase = RPC_PHASE_VERIFYING;
-  return c4_verify(&ctx->verifier);
+  return rpc_handle_verifying(ctx);
 }
 
 static c4_status_t rpc_handle_proving(c4_rpc_ctx_t* ctx) {
@@ -353,6 +355,107 @@ static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
   return C4_PENDING;
 }
 
+/* ── Local prover for verifier-emitted PROVER requests (PAP) ── */
+
+static data_request_t* find_pending_prover_request(c4_state_t* state) {
+  for (data_request_t* req = state->requests; req; req = req->next) {
+    if (req->type == C4_DATA_TYPE_PROVER && c4_state_is_pending(req))
+      return req;
+  }
+  return NULL;
+}
+
+static prover_ctx_t* create_prover_from_request(data_request_t* req, chain_id_t chain_id, prover_flags_t prover_flags) {
+  if (!req->payload.data || !req->payload.len || req->payload.len > (UINT32_MAX - 1)) {
+    req->error = strdup("Empty or oversized prover request payload");
+    return NULL;
+  }
+  char* tmp = safe_malloc(req->payload.len + 1);
+  memcpy(tmp, req->payload.data, req->payload.len);
+  tmp[req->payload.len] = '\0';
+
+  json_t root = json_parse(tmp);
+  if (root.type != JSON_TYPE_OBJECT) {
+    safe_free(tmp);
+    req->error = strdup("Invalid prover request payload");
+    return NULL;
+  }
+  json_t method = json_get(root, "method");
+  json_t params = json_get(root, "params");
+
+  if (method.type != JSON_TYPE_STRING || params.type == JSON_TYPE_NOT_FOUND) {
+    safe_free(tmp);
+    req->error = strdup("Invalid prover request payload");
+    return NULL;
+  }
+
+  char* method_str = bprintf(NULL, "%j", method);
+  char* params_str = bprintf(NULL, "%j", params);
+  safe_free(tmp);
+
+  prover_ctx_t* pctx = c4_prover_create(method_str, params_str, chain_id, prover_flags);
+  safe_free(method_str);
+  safe_free(params_str);
+  if (!pctx) {
+    req->error = strdup("Failed to create local prover");
+    return NULL;
+  }
+  return pctx;
+}
+
+static void free_request_prover(c4_rpc_ctx_t* ctx) {
+  if (!ctx->request_prover) return;
+  c4_prover_free(ctx->request_prover->ctx);
+  safe_free(ctx->request_prover);
+  ctx->request_prover = NULL;
+}
+
+static void check_prover_requests(c4_rpc_ctx_t* ctx) {
+  if (ctx->use_remote_prover || ctx->request_prover) return;
+  data_request_t* prover_req = find_pending_prover_request(&ctx->verifier.state);
+  if (!prover_req) return;
+  prover_ctx_t* pctx = create_prover_from_request(prover_req, ctx->chain_id, ctx->prover_flags);
+  if (!pctx) return;
+  request_prover_t* rp = safe_calloc(1, sizeof(request_prover_t));
+  rp->request          = prover_req;
+  rp->ctx              = pctx;
+  ctx->request_prover  = rp;
+}
+
+static c4_status_t handle_request_prover(c4_rpc_ctx_t* ctx) {
+  request_prover_t* rp     = ctx->request_prover;
+  c4_status_t       status = c4_prover_execute(rp->ctx);
+  switch (status) {
+    case C4_SUCCESS:
+      rp->request->response            = bytes_dup(rp->ctx->proof);
+      rp->request->response_node_index = 0;
+      free_request_prover(ctx);
+      return C4_SUCCESS;
+    case C4_ERROR:
+      rp->request->error = strdup(rp->ctx->state.error ? rp->ctx->state.error : "local prover failed");
+      free_request_prover(ctx);
+      return C4_ERROR;
+    default:
+      return C4_PENDING;
+  }
+}
+
+static c4_status_t rpc_handle_verifying(c4_rpc_ctx_t* ctx) {
+  for (;;) {
+    if (ctx->request_prover) {
+      c4_status_t ps = handle_request_prover(ctx);
+      if (ps == C4_PENDING) return C4_PENDING;
+    }
+    c4_status_t status = c4_verify(&ctx->verifier);
+    if (status == C4_SUCCESS || status == C4_ERROR) {
+      ctx->phase = RPC_PHASE_DONE;
+      return status;
+    }
+    check_prover_requests(ctx);
+    if (!ctx->request_prover) return C4_PENDING;
+  }
+}
+
 c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
   if (!ctx) return C4_ERROR;
   switch (ctx->phase) {
@@ -401,12 +504,8 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
     case RPC_PHASE_PROVING:
       return rpc_handle_proving(ctx);
 
-    case RPC_PHASE_VERIFYING: {
-      c4_status_t status = c4_verify(&ctx->verifier);
-      if (status == C4_SUCCESS || status == C4_ERROR)
-        ctx->phase = RPC_PHASE_DONE;
-      return status;
-    }
+    case RPC_PHASE_VERIFYING:
+      return rpc_handle_verifying(ctx);
 
     case RPC_PHASE_RPC:
       if (ctx->method_type == METHOD_PROOFABLE)
@@ -426,6 +525,8 @@ c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx) {
     case RPC_PHASE_PROVING:
       return ctx->prover ? &ctx->prover->state : NULL;
     case RPC_PHASE_VERIFYING:
+      if (ctx->request_prover)
+        return &ctx->request_prover->ctx->state;
       return &ctx->verifier.state;
     case RPC_PHASE_RPC:
       return &ctx->rpc_state;
@@ -436,6 +537,7 @@ c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx) {
 
 void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx) {
   if (!ctx) return;
+  free_request_prover(ctx);
   if (ctx->method) free(ctx->method);
   if (ctx->params) free(ctx->params);
   if (ctx->prover) c4_prover_free(ctx->prover);

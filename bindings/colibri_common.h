@@ -57,6 +57,15 @@ typedef enum {
 } c4_rpc_phase_t;
 
 /**
+ * Tracks a local prover fulfilling a C4_DATA_TYPE_PROVER request emitted
+ * by the verifier (e.g. PAP proofCall). Only one is active at a time.
+ */
+typedef struct {
+  data_request_t* request; ///< borrowed pointer into verifier.state.requests
+  prover_ctx_t*   ctx;     ///< owned prover context
+} request_prover_t;
+
+/**
  * Unified RPC context that manages the full lifecycle of an RPC request:
  * method type determination, proof generation (local or remote), and verification.
  */
@@ -79,6 +88,8 @@ typedef struct {
   char*           error;
 
   bytes_t         witness_keys;
+
+  request_prover_t* request_prover; ///< active local prover for a verifier-emitted PROVER request (NULL if idle)
 } c4_rpc_ctx_t;
 
 /**
