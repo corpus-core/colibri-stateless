@@ -252,7 +252,7 @@ static void set_state(chain_id_t chain_id, char* dirname) {
   closedir(dir);
 #endif
 }
-static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, prover_flags_t flags, verify_flags_t verify_flags, char* expected_result) {
+static void verify_count(char* dirname, char* method, char* args, chain_id_t chain_id, size_t count, prover_flags_t flags, verify_flags_t verify_flags, char* expected_result, bool remote_prover) {
 
 #ifdef PROVER_CACHE
   // Clear the global prover cache before each test to ensure isolation
@@ -263,7 +263,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
   if ((flags & C4_PROVER_FLAG_NO_CACHE) == 0)
     set_state(chain_id, dirname);
 
-  c4_rpc_ctx_t* rpc_ctx = c4_rpc_ctx_create(method, args, chain_id, flags, verify_flags, false);
+  c4_rpc_ctx_t* rpc_ctx = c4_rpc_ctx_create(method, args, chain_id, flags, verify_flags, remote_prover);
 
   bool done = false;
   //  bytes_t  proof_data   = {0};
@@ -310,7 +310,7 @@ static void verify_count(char* dirname, char* method, char* args, chain_id_t cha
 }
 
 static void verify(char* dirname, char* method, char* args, chain_id_t chain_id) {
-  verify_count(dirname, method, args, chain_id, 1, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_CHAIN_STORE, 0, NULL);
+  verify_count(dirname, method, args, chain_id, 1, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_CHAIN_STORE, 0, NULL, false);
 }
 
 static void run_rpc_test(char* dirname, prover_flags_t flags, verify_flags_t verify_flags) {
@@ -323,6 +323,7 @@ static void run_rpc_test(char* dirname, prover_flags_t flags, verify_flags_t ver
   json_t     trusted_blockhash = json_get(test, "trusted_blockhash");
   chain_id_t chain_id          = (chain_id_t) json_get_uint64(test, "chain_id");
   char*      expected_result   = bprintf(NULL, "%J", json_get(test, "expected_result"));
+  json_t     remote_prover     = json_get(test, "remote_prover");
 
   if (trusted_blockhash.type == JSON_TYPE_STRING && trusted_blockhash.len == 68) {
     bytes32_t checkpoint;
@@ -330,7 +331,7 @@ static void run_rpc_test(char* dirname, prover_flags_t flags, verify_flags_t ver
     c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
   }
 
-  verify_count(dirname, method, args, chain_id, 1, flags, verify_flags, expected_result);
+  verify_count(dirname, method, args, chain_id, 1, flags, verify_flags, expected_result, remote_prover.type == JSON_TYPE_BOOLEAN && *remote_prover.start=='t');
 
   safe_free(method);
   safe_free(args);
