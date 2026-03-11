@@ -678,6 +678,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
 
   // read gas_price from the transaction if provided
   context.gas_price = json_get_uint64(json_at(ctx->args, 0), "gasPrice");
+  bytes_t code = call_account_get_code(&context, to);
 
   // EIP-2929: pre-warm sender and destination
   {
@@ -687,7 +688,6 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     dest_acc->flags |= ACCOUNT_ACCESSED;
   }
 
-  bytes_t code = call_account_get_code(&context, to);
 
   // EIP-7702: resolve delegation indicator for top-level call
   if (code.len == 23 && code.data[0] == 0xef && code.data[1] == 0x01 && code.data[2] == 0x00) {
