@@ -1,3 +1,8 @@
+## 0.1.9
+
+- Web: conditional export uses `dart.library.ffi` so the web compiler does not load the FFI package; default export is `client_web.dart` for web.
+- Dart/Flutter web: Colibri loads from CDN via plugin bootstrap script; no manual WASM build required for web apps.
+
 ## 0.1.8
 
 - Configurable timeouts: added `rpcTimeout` (default 30s) and `proverTimeout` (default 120s) to `Colibri` constructor, replacing hardcoded 30s timeouts.
