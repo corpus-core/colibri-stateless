@@ -160,6 +160,7 @@ add_verifier(
   GET_REQ_TYPE c4_eth_get_request_type
   VERIFY c4_eth_verify
   METHOD_TYPE c4_eth_get_method_type
+  PROVER_PAYLOAD c4_eth_get_prover_payload
 )
 
 # Register ETH chain properties provider

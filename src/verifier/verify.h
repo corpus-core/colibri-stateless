@@ -187,6 +187,25 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* metho
  */
 method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags);
 
+/**
+ * Transforms method and params for a remote prover request.
+ *
+ * Each chain module may rewrite the RPC method and parameters before they
+ * are sent to the remote prover. For example, PAP mode may replace
+ * `eth_call` with `eth_getProof` and adjust the params accordingly.
+ * If no module transforms the payload, the output buffers remain empty
+ * and the caller should use the original method/params.
+ *
+ * @param chain_id the chain-id
+ * @param method the original rpc-method name
+ * @param params the original rpc-params as JSON string
+ * @param flags verify flags (e.g. VERIFY_FLAG_PAP)
+ * @param method_out output buffer for the transformed method (empty if unchanged)
+ * @param params_out output buffer for the transformed params (empty if unchanged)
+ */
+void c4_get_prover_payload(chain_id_t chain_id, const char* method, const char* params,
+                           verify_flags_t flags, buffer_t* method_out, buffer_t* params_out);
+
 #pragma endregion
 #ifdef MESSAGES
 #define RETURN_VERIFY_ERROR(ctx, msg)     \

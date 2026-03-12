@@ -219,35 +219,6 @@ static c4_status_t rpc_handle_proving(c4_rpc_ctx_t* ctx) {
   return status;
 }
 
-static void cleanup_remote_prover_params(buffer_t* buf, const char* method, const char* params) {
-  json_t arr = json_parse(params);
-  if (strcmp(method, "eth_verifyLogs") == 0 && arr.type == JSON_TYPE_ARRAY) {
-    bprintf(buf, "[");
-    for (int i = 0; i < json_len(arr); i++) {
-      if (i > 0) bprintf(buf, ",");
-      json_t item     = json_at(arr, i);
-      json_t tx_index = json_get(item, "transactionIndex");
-      json_t block_nr = json_get(item, "blockNumber");
-      bprintf(buf, "{\"transactionIndex\":%j,\"blockNumber\":%j}", tx_index, block_nr);
-    }
-    bprintf(buf, "]");
-  }
-  /*
-    else if (strcmp(method, "colibri_simulateTransaction") == 0 && arr.type == JSON_TYPE_ARRAY) {
-      int len = json_len(arr);
-      if (len > 2) len = 2;
-      bprintf(buf, "[");
-      for (int i = 0; i < len; i++) {
-        if (i > 0) bprintf(buf, ",");
-        bprintf(buf, "%j", json_at(arr, i));
-      }
-      bprintf(buf, "]");
-    }
-    */
-  else
-    bprintf(buf, "%s", params);
-}
-
 static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
   if (!ctx->rpc_state.requests) {
     ctx->rpc_state.requests           = safe_calloc(1, sizeof(data_request_t));
@@ -256,9 +227,16 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
     ctx->rpc_state.requests->method   = C4_DATA_METHOD_POST;
     ctx->rpc_state.requests->encoding = C4_DATA_ENCODING_SSZ;
 
+    buffer_t method_buf = {0};
+    buffer_t params_buf = {0};
+    c4_get_prover_payload(ctx->chain_id, ctx->method, ctx->params, ctx->verify_flags, &method_buf, &params_buf);
+    const char* prover_method = method_buf.data.len ? (char*) method_buf.data.data : ctx->method;
+    const char* prover_params = params_buf.data.len ? (char*) params_buf.data.data : ctx->params;
+
     buffer_t payload = {0};
-    bprintf(&payload, "{\"method\": \"%s\", \"params\": ", ctx->method);
-    cleanup_remote_prover_params(&payload, ctx->method, ctx->params);
+    bprintf(&payload, "{\"method\": \"%s\", \"params\": %s", prover_method, prover_params);
+    buffer_free(&method_buf);
+    buffer_free(&params_buf);
     bprintf(&payload, ", \"version\": %d", (uint32_t) c4_current_version_number());
 
     storage_plugin_t storage = {0};
