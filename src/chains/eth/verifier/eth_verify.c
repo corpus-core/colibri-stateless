@@ -127,11 +127,10 @@ method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t p
 
 bool c4_eth_get_prover_payload(chain_id_t chain_id, const char* method, const char* params,
                                verify_flags_t flags, buffer_t* method_out, buffer_t* params_out) {
-  (void) flags;
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return false;
+  json_t arr = json_parse((char*) params);
 
   if (strcmp(method, "eth_verifyLogs") == 0) {
-    json_t arr = json_parse((char*) params);
     if (arr.type == JSON_TYPE_ARRAY) {
       bprintf(params_out, "[");
       for (int i = 0; i < json_len(arr); i++) {
@@ -142,6 +141,16 @@ bool c4_eth_get_prover_payload(chain_id_t chain_id, const char* method, const ch
         bprintf(params_out, "{\"transactionIndex\":%j,\"blockNumber\":%j}", tx_index, block_nr);
       }
       bprintf(params_out, "]");
+    }
+  }
+  else if ((flags & VERIFY_FLAG_PAP) && arr.type == JSON_TYPE_ARRAY) {
+    if ((strcmp(method, "eth_getBalance") == 0 || strcmp(method, "eth_getTransactionCount") == 0) && json_len(arr) == 2) {
+      bprintf(method_out, "eth_getProof");
+      bprintf(params_out, "[%J,[],%J]", json_at(arr, 0), json_at(arr, 1));
+    }
+    else if (strcmp(method, "eth_getStorageAt") == 0 && json_len(arr) == 3) {
+      bprintf(method_out, "eth_getProof");
+      bprintf(params_out, "[%J,[%J],%J]", json_at(arr, 0), json_at(arr, 1), json_at(arr, 2));
     }
   }
 
