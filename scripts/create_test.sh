@@ -66,8 +66,8 @@ mkdir -p "$TEST_DATA_DIR"
 # Verify proof and let verifier automatically create test.json
 # Note: -t expects testname, not full path. Verifier writes to test/data/<testname>/test.json
 echo -e "${BLUE}🔍 Verifying proof and generating test.json...${NC}"
+echo "$BUILD_DIR/bin/colibri-verifier"  -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS 
 "$BUILD_DIR/bin/colibri-verifier"  -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS | tee "$RESULT_FILE"
-
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Verification failed!${NC}"
     exit 1

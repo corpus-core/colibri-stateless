@@ -303,7 +303,7 @@ int main(int argc, char* argv[]) {
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
       char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s\n  \"expected_result\": %Z\n}",
-                               ctx->verifier.method, ctx->verifier.args, chain_id, ctx->verifier.data, verify_flags & VERIFY_FLAG_PAP ? "true" : "false");
+                               ctx->verifier.method, ctx->verifier.args, chain_id,  verify_flags & VERIFY_FLAG_PAP ? "true" : "false", ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
       safe_free(content);
