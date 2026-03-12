@@ -538,10 +538,7 @@ char* c4_rpc_build_json_status(c4_rpc_ctx_t* ctx, bool req_ptr_as_string) {
 
   switch (status) {
     case C4_SUCCESS:
-      if (ctx->phase == RPC_PHASE_DONE && ctx->method_type == METHOD_UNPROOFABLE)
-        bprintf(&buf, "\"result\": %r", ctx->rpc_state.requests->response);
-      else
-        bprintf(&buf, "\"result\": %Z", ctx->verifier.data);
+      bprintf(&buf, "\"result\": %Z", ctx->verifier.data);
       break;
 
     case C4_ERROR:
