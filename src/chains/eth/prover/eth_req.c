@@ -47,7 +47,7 @@ c4_status_t get_eth_tx(prover_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   uint8_t         tmp[200];
   buffer_t        buf = stack_buffer(tmp);
   data_request_t* req = NULL;
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), DEFAULT_TTL, tx_data, &req));
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), 12, tx_data, &req));
   if (req && !req->validated) {
     if (tx_data->type == JSON_TYPE_OBJECT && (json_get(*tx_data, "transactionIndex").type != JSON_TYPE_STRING || json_get(*tx_data, "transactionIndex").len < 5))
       // this tx is not mined yet, we treat it as not found
