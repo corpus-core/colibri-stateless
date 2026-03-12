@@ -41,6 +41,7 @@ const ssz_def_t ssz_secp256k1_signature = SSZ_BYTE_VECTOR("secp256k1_signature",
 const ssz_def_t ssz_bls_pubky           = SSZ_BYTE_VECTOR("bls_pubky", 48);
 const ssz_def_t ssz_bytes_list          = SSZ_BYTES("bytes", 1024 << 8);
 const ssz_def_t ssz_string_def          = SSZ_BYTES("bytes", 1024 << 8);
+const ssz_def_t ssz_json_def            = SSZ_BYTES("bytes", 1024 << 8);
 const ssz_def_t ssz_none                = SSZ_NONE;
 
 /**
@@ -415,6 +416,8 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
       // Lists/vectors: special handling for byte arrays, strings, and complex types
       if (def == &ssz_string_def || def->flags & SSZ_FLAG_STRING)
         bprintf(buf, ctx->no_quotes ? "%J" : "\"%J\"", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) ob.bytes.data, .len = ob.bytes.len});
+      else if (def == &ssz_json_def)
+        bprintf(buf, "%r", ob.bytes);
       else if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1) { // byte array
         if (def->flags & SSZ_FLAG_UINT) {
           bytes32_t tmp = {0};

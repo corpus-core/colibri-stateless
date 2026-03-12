@@ -320,9 +320,8 @@ static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
 
     json_t rpc_result = json_get(rpc_json, "result");
     if (rpc_result.type != JSON_TYPE_NOT_FOUND) {
-      bytes_t result_bytes = bytes_dup(bytes((uint8_t*) rpc_result.start, rpc_result.len));
-      free(ctx->rpc_state.requests->response.data);
-      ctx->rpc_state.requests->response = result_bytes;
+      ctx->verifier.data = (ssz_ob_t){.def = &ssz_json_def, .bytes = bytes_dup(bytes((uint8_t*) rpc_result.start, rpc_result.len))};
+      ctx->verifier.flags |= VERIFY_FLAG_FREE_DATA;
     }
 
     safe_free(tmp);

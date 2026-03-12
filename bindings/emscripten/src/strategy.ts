@@ -89,9 +89,9 @@ async function WarningStrategy(client: ColibriClient, req: RequestArguments, con
         case MethodType.PROOFABLE: {
             return client.rpc(req.method, argsToArray(req.params), method_type).catch(async err => {
                 if (config.warningHandler)
-                    await config.warningHandler(req, `[Warning] ${req.method} failed to be verfiy: ${err.message}, falling back to Default`);
+                    await config.warningHandler(req, `[Warning] ${req.method} with params ${JSON.stringify(req.params)} failed to be verfiy: ${err.message}, falling back to Default`);
                 else
-                    console.warn(`[Warning] ${req.method} failed to be verfiy: ${err.message}, falling back to Default`);
+                    console.warn(`[Warning] ${req.method} with params ${JSON.stringify(req.params)} failed to be verfiy: ${err.message}, falling back to Default`);
                 return fetch_unverified_rpc(config, req, fetch_rpc)
             });
         }

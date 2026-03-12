@@ -513,6 +513,7 @@ extern const ssz_def_t ssz_secp256k1_signature; // Vector<uint8> of length 65
 extern const ssz_def_t ssz_bls_pubky;           // Vector<uint8> of length 48
 extern const ssz_def_t ssz_bytes_list;          // List<uint8> displayed as hex in JSON
 extern const ssz_def_t ssz_string_def;          // List<uint8> displayed as string in JSON
+extern const ssz_def_t ssz_json_def;            // List<uint8> displayed as raw json 
 extern const ssz_def_t ssz_none;                // special value for none in uions.
 
 /**
