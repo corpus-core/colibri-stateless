@@ -28,7 +28,42 @@ colibri.close();
 
 On Android and iOS the native library is loaded automatically; `colibriFlutterLibraryPath` is `null` there. On macOS and Linux, pass `colibriFlutterLibraryPath` so the plugin's bundled library is used.
 
-**Flutter web is not supported** (no native FFI). Use Android, iOS, macOS, Linux, or Windows.
+### Flutter web (WASM)
+
+On web, Colibri uses the **JavaScript/WASM** build instead of native FFI. No manual WASM build needed: the plugin loads Colibri from the CDN.
+
+**1. One script in your app’s `web/index.html`**
+
+Replace the `<body>` content with a single script that loads Colibri, the bridge, and then Flutter:
+
+```html
+<body>
+  <script type="module" src="assets/packages/colibri_flutter/web/colibri_flutter_web_bootstrap.js"></script>
+</body>
+```
+
+Remove any existing `<script src="flutter_bootstrap.js">` – the bootstrap loads it after Colibri is ready.
+
+**2. Use Colibri in Dart as on other platforms** – no `libraryPath` on web:
+
+```dart
+final colibri = Colibri(chainId: 1, libraryPath: colibriFlutterLibraryPath);
+// On web, libraryPath is ignored and the JS/WASM bridge is used.
+```
+
+**3. Local development and CORS**
+
+RPC/Prover/Beacon endpoints often block cross-origin requests from `localhost`. For local testing, run Chrome with web security disabled:
+
+```bash
+flutter run -d chrome --web-browser-flag "--disable-web-security"
+```
+
+Use this only for development. For production, your backend or the Colibri prover must allow your app’s origin (CORS).
+
+**Optional: custom WASM build**
+
+If you prefer not to use the CDN, you can build the WASM bundle from the repo (Emscripten), host it yourself, and load it in `index.html` before the bootstrap script. The bootstrap then only needs to load the bridge and Flutter.
 
 If you use `assets/.env` for configuration: do not commit real secrets; use other configuration (e.g. environment or secure storage) for production.
 

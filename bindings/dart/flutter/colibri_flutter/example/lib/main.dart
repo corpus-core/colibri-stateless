@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:colibri_flutter/colibri_flutter.dart';
 
@@ -56,10 +57,18 @@ class _ExamplePageState extends State<ExamplePage> {
 
   Colibri _createClient() {
     final provers = resolveProvers();
-    final ethRpcs = resolveEthRpcs(fallback: defaultPublicEthRpcs());
+    // On web, prefer Colibri execution endpoint first (same origin often allows CORS).
+    final ethRpcs = kIsWeb
+        ? (resolveEthRpcs(fallback: [
+            'https://mainnet1.colibri-proof.tech/execution',
+            ...defaultPublicEthRpcs(),
+          ]))
+        : resolveEthRpcs(fallback: defaultPublicEthRpcs());
     final zkFromEnv = resolveZkProof();
     final witnessKeys = resolveCheckpointWitnessKeys();
-    final wantZk = zkFromEnv || (witnessKeys != null && witnessKeys.isNotEmpty && witnessKeys != '0x');
+    // On web, prover/beacon often block CORS from localhost; use RPC-only by default.
+    bool wantZk = zkFromEnv || (witnessKeys != null && witnessKeys.isNotEmpty && witnessKeys != '0x');
+    if (kIsWeb) wantZk = false;
     final colibri = Colibri(
       chainId: 1,
       libraryPath: colibriFlutterLibraryPath,
@@ -70,6 +79,7 @@ class _ExamplePageState extends State<ExamplePage> {
       logProverRequests: resolveZkDebug(),
         onDebug: _addLog,
     );
+    if (kIsWeb) _addLog('Web: using RPC-only (no proof) to avoid CORS.');
     _addLog('zkProof: $wantZk | provers: ${colibri.provers.length}');
     return colibri;
   }

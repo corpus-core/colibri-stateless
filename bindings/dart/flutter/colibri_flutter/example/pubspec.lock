@@ -39,14 +39,21 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "0.1.7"
+    version: "0.1.8"
   colibri_stateless:
     dependency: "direct overridden"
     description:
       path: "../../.."
       relative: true
     source: path
-    version: "0.1.7"
+    version: "0.1.8"
+  colibri_stateless_ffi:
+    dependency: transitive
+    description:
+      path: "../../../ffi"
+      relative: true
+    source: path
+    version: "0.1.8"
   collection:
     dependency: transitive
     description:
@@ -78,6 +85,11 @@ packages:
     version: "0.0.0"
   flutter_test:
     dependency: "direct dev"
+    description: flutter
+    source: sdk
+    version: "0.0.0"
+  flutter_web_plugins:
+    dependency: transitive
     description: flutter
     source: sdk
     version: "0.0.0"

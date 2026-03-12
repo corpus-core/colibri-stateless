@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
-import 'storage.dart';
+import 'package:colibri_stateless/src/storage.dart';
 
 /// Mirror of `bytes_t` from the C API.
 /// C layout on 64-bit has 4 bytes padding after len so that data is 8-byte aligned.

@@ -1,0 +1,13 @@
+name: colibri_stateless_ffi
+description: FFI (native) implementation of Colibri Stateless for VM/mobile/desktop. Used by colibri_stateless when dart.library.io is available.
+version: 0.1.9
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  colibri_stateless:
+    path: ..
+  ffi: ^2.1.0
+  http: ^1.2.0

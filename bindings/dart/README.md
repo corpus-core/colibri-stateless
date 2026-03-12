@@ -44,6 +44,10 @@ final colibri = Colibri(
 
 You can also set the library path via `COLIBRI_DART_LIBRARY`.
 
+### Web (WASM)
+
+When compiled for **web**, the package uses the JavaScript/WASM Colibri build instead of FFI. Load the Colibri WASM bundle and `colibri_web_bridge.js` (see **colibri_flutter** README for web setup), then use the same API: `Colibri(chainId: 1)` — no `libraryPath` on web.
+
 ### Flutter (with bundled binaries)
 
 For Flutter apps, use the **colibri_flutter** package on pub.dev — it includes Android and iOS binaries, so no separate build is required:

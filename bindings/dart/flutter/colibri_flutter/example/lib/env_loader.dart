@@ -1,12 +1,14 @@
-import 'dart:io';
+import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
 /// In-memory store for values loaded from `.env` (asset or process env).
 final Map<String, String> _dotenvValues = {};
 
-/// Load `.env` from the app asset `assets/.env`, then overlay [Platform.environment].
+/// Load `.env` from the app asset `assets/.env`, then overlay process environment (VM only).
 /// Call once at startup (e.g. in main() before runApp).
+/// On web, [Platform.environment] is unavailable; only asset `.env` is used.
 Future<void> loadExampleEnv() async {
   try {
     final content = await rootBundle.loadString('assets/.env');
@@ -25,17 +27,22 @@ Future<void> loadExampleEnv() async {
       _dotenvValues[key] = value;
     }
   } catch (_) {
-    // Asset missing or unreadable: use only process environment
+    // Asset missing or unreadable: use only process environment on VM
   }
-  // Overlay process environment so env vars set at run time win
-  for (final e in Platform.environment.entries) {
-    _dotenvValues[e.key] = e.value;
+  // Overlay process environment on VM/mobile/desktop (not available on web)
+  if (!kIsWeb) {
+    for (final e in Platform.environment.entries) {
+      _dotenvValues[e.key] = e.value;
+    }
   }
 }
 
-/// Read a key from loaded .env first, then from process environment.
+/// Read a key from loaded .env first, then from process environment (VM only).
 String? readEnv(String key) {
-  return _dotenvValues[key] ?? Platform.environment[key];
+  final fromDotenv = _dotenvValues[key];
+  if (fromDotenv != null) return fromDotenv;
+  if (kIsWeb) return null;
+  return Platform.environment[key];
 }
 
 /// Splits a comma-separated env value into a trimmed list, or `null` if empty.

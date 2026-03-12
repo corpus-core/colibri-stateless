@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
   colibri_stateless: ^0.1.8
 
 dev_dependencies:
@@ -32,3 +34,8 @@ flutter:
         pluginClass: ColibriFlutterPlugin
       linux:
         pluginClass: ColibriFlutterPlugin
+      web:
+        default_package: colibri_flutter
+  assets:
+    - web/colibri_web_bridge.js
+    - web/colibri_flutter_web_bootstrap.js
