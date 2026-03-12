@@ -11,4 +11,5 @@ Pod::Spec.new do |s|
   s.platform         = :ios, '13.0'
   s.swift_version    = '5.0'
   s.vendored_frameworks = 'Frameworks/c4_swift.xcframework'
+  s.dependency 'Flutter'
 end

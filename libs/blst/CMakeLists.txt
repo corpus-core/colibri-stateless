@@ -144,38 +144,21 @@ else()
             VERBATIM
         )
     elseif(SWIFT AND CMAKE_SYSTEM_NAME STREQUAL "iOS")
-        # iOS build configuration (only when explicitly building for iOS)
-        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
-            add_custom_command(
-                OUTPUT ${BLST_LIB}
-                COMMAND ${CMAKE_COMMAND} -E env 
-                    CC=${CMAKE_C_COMPILER}
-                    AR=${CMAKE_AR}
-                    RANLIB=${CMAKE_RANLIB}
-                    CROSS_COMPILE=x86_64-apple-ios-simulator
-                    "CFLAGS=-target x86_64-apple-ios-simulator -isysroot ${CMAKE_OSX_SYSROOT} -D__BLST_PORTABLE__"
-                    bash ${blst_SOURCE_DIR}/build.sh
-                COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
-                WORKING_DIRECTORY ${blst_SOURCE_DIR}
-                COMMENT "Building blst for iOS Simulator (x86_64)"
-                VERBATIM
-            )
-        else()
-            add_custom_command(
-                OUTPUT ${BLST_LIB}
-                COMMAND ${CMAKE_COMMAND} -E env 
-                    CC=${CMAKE_C_COMPILER}
-                    AR=${CMAKE_AR}
-                    RANLIB=${CMAKE_RANLIB}
-                    CROSS_COMPILE=arm64-apple-ios
-                    "CFLAGS=-target arm64-apple-ios -isysroot ${CMAKE_OSX_SYSROOT} -D__BLST_PORTABLE__"
-                    bash ${blst_SOURCE_DIR}/build.sh
-                COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
-                WORKING_DIRECTORY ${blst_SOURCE_DIR}
-                COMMENT "Building blst for iOS Device (arm64)"
-                VERBATIM
-            )
-        endif()
+        # iOS build: use TARGET_TRIPLE from root CMakeLists.txt for correct device/simulator targeting
+        add_custom_command(
+            OUTPUT ${BLST_LIB}
+            COMMAND ${CMAKE_COMMAND} -E env 
+                CC=${CMAKE_C_COMPILER}
+                AR=${CMAKE_AR}
+                RANLIB=${CMAKE_RANLIB}
+                CROSS_COMPILE=${TARGET_TRIPLE}
+                "CFLAGS=-target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT} -D__BLST_PORTABLE__"
+                bash ${blst_SOURCE_DIR}/build.sh
+            COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+            WORKING_DIRECTORY ${blst_SOURCE_DIR}
+            COMMENT "Building blst for iOS (${TARGET_TRIPLE})"
+            VERBATIM
+        )
     else()
         # Standard build for native platforms
         if(APPLE)

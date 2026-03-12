@@ -235,15 +235,26 @@ if(SWIFT)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         message(STATUS "Building for iOS (CMAKE_SYSTEM_NAME=iOS)")
         
-        # Set SDK paths based on target architecture
-        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+        # Detect whether the caller requested a simulator build via CMAKE_OSX_SYSROOT
+        set(_IS_SIMULATOR OFF)
+        if(CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator" OR CMAKE_OSX_SYSROOT STREQUAL "iphonesimulator")
+            set(_IS_SIMULATOR ON)
+        endif()
+
+        # Set SDK paths based on target architecture and simulator flag
+        if(_IS_SIMULATOR)
             execute_process(
                 COMMAND xcrun --sdk iphonesimulator --show-sdk-path
                 OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-            set(IOS_PLATFORM "SIMULATOR64")
-            set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+            if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+                set(IOS_PLATFORM "SIMULATOR64")
+                set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+            else()
+                set(IOS_PLATFORM "SIMULATORARM64")
+                set(TARGET_TRIPLE "arm64-apple-ios-simulator")
+            endif()
         elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
             execute_process(
                 COMMAND xcrun --sdk iphoneos --show-sdk-path
@@ -252,6 +263,14 @@ if(SWIFT)
             )
             set(IOS_PLATFORM "OS64")
             set(TARGET_TRIPLE "arm64-apple-ios")
+        elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+            execute_process(
+                COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+                OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            set(IOS_PLATFORM "SIMULATOR64")
+            set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
         endif()
 
         # Set iOS-specific compiler and linker flags

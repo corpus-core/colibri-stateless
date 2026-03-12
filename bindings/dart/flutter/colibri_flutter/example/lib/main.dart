@@ -142,12 +142,16 @@ class _ExamplePageState extends State<ExamplePage> {
       return;
     }
     final blockNum = int.tryParse(blockHex.toString().replaceFirst('0x', ''), radix: 16) ?? 0;
-    final fromBlock = '0x${(blockNum - 5).toRadixString(16)}';
-    final toBlock = blockHex.toString();
-    _addLog('Querying logs from $fromBlock to $toBlock (last 5 blocks)');
-    final result = await colibri.rpc('eth_getLogs', [
+    // Use blocks N-10..N-5 instead of N-5..N: the prover needs block N+1
+    // to read parentBeaconBlockRoot, so the very latest block always fails.
+    final fromBlock = '0x${(blockNum - 10).toRadixString(16)}';
+    final toBlock = '0x${(blockNum - 5).toRadixString(16)}';
+    final params = [
       {'fromBlock': fromBlock, 'toBlock': toBlock}
-    ]);
+    ];
+    _addLog('Querying logs from $fromBlock to $toBlock (5 blocks, offset -5 from head)');
+    _addLog('rpc: method=eth_getLogs params=$params');
+    final result = await colibri.rpc('eth_getLogs', params);
     if (result is List) {
       final count = result.length;
       final buf = StringBuffer('$count log entries (blocks $fromBlock..$toBlock)\n');
