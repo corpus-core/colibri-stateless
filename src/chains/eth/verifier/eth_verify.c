@@ -111,7 +111,7 @@ method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t p
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
     if (strcmp(method, proofable_methods[i]) == 0) {
       if (strcmp(method, "eth_estimateGas") == 0) 
-        return ((flags & VERIFY_FLAG_PAP) ? METHOD_PROOFABLE : METHOD_UNPROOFABLE);
+        return ((flags & VERIFY_FLAG_PAP) ? METHOD_LOCAL : METHOD_UNPROOFABLE);
       if (flags & VERIFY_FLAG_PAP && is_call_method(method))
         return METHOD_LOCAL;
       else
