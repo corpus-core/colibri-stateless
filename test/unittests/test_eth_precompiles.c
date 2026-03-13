@@ -104,6 +104,53 @@ void test_precompile_ecrecover() {
   buffer_free(&output);
 }
 
+// ECRecover with invalid (all-zero) signature must return PRE_SUCCESS with
+// empty output and still charge 3000 gas (Yellow Paper behavior).
+void test_precompile_ecrecover_invalid_input() {
+  uint8_t addr[20];
+  make_precompile_address(0x01, addr);
+
+  // 128 bytes of zeros: invalid v/r/s so recovery must fail gracefully
+  const char* input_hex =
+      "0000000000000000000000000000000000000000000000000000000000000000"
+      "0000000000000000000000000000000000000000000000000000000000000000"
+      "0000000000000000000000000000000000000000000000000000000000000000"
+      "0000000000000000000000000000000000000000000000000000000000000000";
+
+  bytes_t  input    = hex_to_bytes_alloc(input_hex);
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
+  TEST_ASSERT_EQUAL(3000, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+
+  free(input.data);
+  buffer_free(&output);
+}
+
+// ECRecover with short input (< 128 bytes) must return PRE_SUCCESS with
+// empty output and 3000 gas.
+void test_precompile_ecrecover_short_input() {
+  uint8_t addr[20];
+  make_precompile_address(0x01, addr);
+
+  bytes_t  input    = hex_to_bytes_alloc("abcd");
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
+  TEST_ASSERT_EQUAL(3000, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+
+  free(input.data);
+  buffer_free(&output);
+}
+
 // Test 2: SHA-256 (0x02)
 // Example from https://www.evm.codes/precompiled
 void test_precompile_sha256() {
@@ -691,6 +738,8 @@ int main(void) {
   RUN_TEST(test_precompile_ripemd160);
   RUN_TEST(test_precompile_identity);
   RUN_TEST(test_precompile_ecrecover);
+  RUN_TEST(test_precompile_ecrecover_invalid_input);
+  RUN_TEST(test_precompile_ecrecover_short_input);
 
   RUN_TEST(test_precompile_modexp);
   RUN_TEST(test_precompile_ecadd);
