@@ -97,6 +97,11 @@ bool pap_tx_cache_get(chain_id_t chain_id, bytes32_t tx_hash,
 bool pap_tx_cache_is_loaded(chain_id_t chain_id);
 
 /**
+ * Resets the in-memory PAP tx cache (for test isolation).
+ */
+void pap_tx_cache_reset(void);
+
+/**
  * Adds a transaction hash to the persistent pending list.
  *
  * The hash is stored with `time(NULL)` as timestamp. If the hash

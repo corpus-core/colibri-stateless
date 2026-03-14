@@ -1,0 +1,8 @@
+{
+  "method":"eth_getTransactionByHash",
+  "params":["0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"],
+  "chain_id": 1,
+  "pap": true,
+  "remote_prover": false,
+  "expected_result": null
+}

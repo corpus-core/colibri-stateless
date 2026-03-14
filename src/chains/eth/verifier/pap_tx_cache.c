@@ -136,6 +136,10 @@ bool pap_tx_cache_is_loaded(chain_id_t chain_id) {
   return g_cache.ssz_data.data && g_cache.chain_id == chain_id;
 }
 
+void pap_tx_cache_reset(void) {
+  cache_free();
+}
+
 /* ── pending transaction list ── */
 
 #define PAP_PENDING_MAX_ENTRIES 256
