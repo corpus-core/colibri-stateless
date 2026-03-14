@@ -194,8 +194,11 @@ void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex) {
 static c4_status_t rpc_handle_verifying(c4_rpc_ctx_t* ctx);
 
 static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
+  verify_flags_t vf = ctx->verify_flags;
+  if (ctx->use_remote_prover)
+    vf |= VERIFY_FLAG_REMOTE_PROVER;
   c4_status_t status = c4_verify_init(&ctx->verifier, proof, ctx->method, json_parse(ctx->params),
-                                      ctx->chain_id, ctx->verify_flags);
+                                      ctx->chain_id, vf);
   if (status == C4_ERROR) {
     ctx->phase = RPC_PHASE_DONE;
     ctx->error = strdup(ctx->verifier.state.error ? ctx->verifier.state.error : "verifier init failed");

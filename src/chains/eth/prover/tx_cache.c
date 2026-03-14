@@ -288,4 +288,9 @@ size_t c4_eth_tx_cache_capacity(void) {
   return g_max_tx_cache_size;
 }
 
+void c4_eth_tx_cache_visit_blocks(tx_cache_block_visitor_t visitor, void* user_data) {
+  for (block_node_t* node = g_head; node; node = node->next)
+    visitor(node->block_number, node->items, node->count, user_data);
+}
+
 #endif

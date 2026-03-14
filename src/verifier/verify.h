@@ -79,8 +79,9 @@ typedef uint32_t verify_flags_t;
  * a enum as list of flags used during the verification context.
  */
 typedef enum {
-  VERIFY_FLAG_FREE_DATA = 1 << 0, // if set, the data section will be freed after verification. This flag is set when the verifier generates the actual result data from the proof and needs cleanup afterwards.
-  VERIFY_FLAG_PAP       = 1 << 1, // if set, Pragmatic Adaptive Privacy mode is active. The verifier may use cached storage values for optimistic execution and verify them afterwards.
+  VERIFY_FLAG_FREE_DATA      = 1 << 0, // if set, the data section will be freed after verification. This flag is set when the verifier generates the actual result data from the proof and needs cleanup afterwards.
+  VERIFY_FLAG_PAP            = 1 << 1, // if set, Pragmatic Adaptive Privacy mode is active. The verifier may use cached storage values for optimistic execution and verify them afterwards.
+  VERIFY_FLAG_REMOTE_PROVER  = 1 << 2, // if set, a remote prover server is available. The verifier may emit C4_DATA_TYPE_PROVER requests (e.g. fetch tx_cache, request block proofs).
 } verify_flag_t;
 
 /**

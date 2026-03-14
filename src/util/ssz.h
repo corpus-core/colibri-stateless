@@ -957,6 +957,21 @@ void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_
  */
 void ssz_add_uint256(ssz_builder_t* buffer, bytes_t data);
 
+/**
+ * Fixes the offset table of a dynamic-element list builder after all
+ * elements have been added with `num_elements=0`.
+ *
+ * When using `ssz_add_dynamic_list_builders()` / `ssz_add_dynamic_list_bytes()`
+ * with `num_elements=0`, each offset is written relative to the dynamic
+ * area only. This function adds `num_elements * 4` to every offset so
+ * they become relative to the start of the serialized list body (which
+ * begins with the offset table itself).
+ *
+ * @param builder the list builder whose offsets need correction
+ * @param num_elements total number of elements that were added
+ */
+void ssz_builder_fix_list_offsets(ssz_builder_t* builder, uint32_t num_elements);
+
 /** Adds a uint64 value to the builder in little-endian format */
 void ssz_add_uint64(ssz_builder_t* buffer, uint64_t value);
 
