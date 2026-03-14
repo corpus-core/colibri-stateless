@@ -82,13 +82,12 @@ static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
   if (!c4_update_from_sync_data(ctx)) return false;
 
   ssz_ob_t block_proof = ssz_get(&proof_req, "proof");
-  ctx->proof = block_proof;
-  #ifdef ETH_BLOCK
-    if (!verify_block_proof_for_block(ctx, block_proof, req_block, NULL))
-      return false;
-  else
-     if (req_block.start) RETURN_VERIFY_ERROR(ctx, "PAP: no block-proof support");
-  #endif
+#ifdef ETH_BLOCK
+  if (!verify_block_proof_for_block(ctx, block_proof, req_block, NULL))
+    return false;
+#else
+  RETURN_VERIFY_ERROR(ctx, "PAP: block proof verification requires ETH_BLOCK");
+#endif
 
   ssz_ob_t exec_payload = ssz_get(&block_proof, "executionPayload");
   ssz_ob_t txs          = ssz_get(&exec_payload, "transactions");

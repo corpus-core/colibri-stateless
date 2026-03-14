@@ -55,8 +55,18 @@ void test_tx_by_hash_and_index() {
 }
 
 void test_tx_type_4() {
-  run_rpc_test("eth_getTransaction_Type_4", 0,0);
+  run_rpc_test("eth_getTransaction_Type_4", 0, 0);
 }
+
+#ifdef PAP
+void test_pap_tx_by_hash() {
+  run_rpc_test("pap_tx_by_hash", 0, VERIFY_FLAG_PAP);
+}
+
+void test_pap_tx_by_block_index() {
+  run_rpc_test("pap_tx_by_block_index", 0, VERIFY_FLAG_PAP);
+}
+#endif
 
 int main(void) {
   UNITY_BEGIN();
@@ -65,5 +75,9 @@ int main(void) {
   RUN_TEST(test_tx_with_history);
   RUN_TEST(test_tx_electra);
   RUN_TEST(test_tx_type_4);
+#ifdef PAP
+  RUN_TEST(test_pap_tx_by_hash);
+  RUN_TEST(test_pap_tx_by_block_index);
+#endif
   return UNITY_END();
 }

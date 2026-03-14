@@ -153,7 +153,7 @@ bool verify_block_proof_for_block(verify_ctx_t* ctx, ssz_ob_t block_proof, json_
 
   ssz_verify_single_merkle_proof(proof.bytes, exec_root, EXECUTION_PAYLOAD_ROOT_GINDEX, body_root);
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
-  if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
+  if (c4_verify_header(ctx, header, block_proof) != C4_SUCCESS) return false;
   ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), exec_root);
 
   if (ctx->state.error || !matches_blocknumber(ctx, execution_payload, block_number)) return false;
