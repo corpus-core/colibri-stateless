@@ -77,10 +77,12 @@ echo -e "${GREEN}✓ Proof verified and test.json created${NC}"
 # Copy state files from temporary directory
 echo -e "${BLUE}💾 Copying state files...${NC}"
 if [ -d "$TEMP_STATE_DIR" ]; then
-    # Copy all state files (states_*, sync_*, code_*)
+    # Copy all state files (states_*, sync_*, code_*, tx_cache_*, tx_pending_*)
     cp -v "$TEMP_STATE_DIR"/states_* "$TEST_DATA_DIR/" 2>/dev/null || true
     cp -v "$TEMP_STATE_DIR"/sync_* "$TEST_DATA_DIR/" 2>/dev/null || true
     cp -v "$TEMP_STATE_DIR"/code_* "$TEST_DATA_DIR/" 2>/dev/null || true
+    cp -v "$TEMP_STATE_DIR"/tx_cache_* "$TEST_DATA_DIR/" 2>/dev/null || true
+    cp -v "$TEMP_STATE_DIR"/tx_pending_* "$TEST_DATA_DIR/" 2>/dev/null || true
     
     STATE_FILE_COUNT=$(ls "$TEST_DATA_DIR"/states_* "$TEST_DATA_DIR"/sync_* 2>/dev/null | wc -l)
     echo -e "${GREEN}✓ Copied $STATE_FILE_COUNT state files${NC}"

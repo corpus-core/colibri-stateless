@@ -108,6 +108,7 @@ void main() {
       final params = (content['params'] as List<dynamic>);
       final chainId = (content['chain_id'] as num).toInt();
       final trusted = content['trusted_blockhash']?.toString();
+      final hasExpectedResult = content.containsKey('expected_result');
       final expected = content['expected_result'];
       final includeCode = (content['include_code'] as bool?) ?? false;
       final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
@@ -141,7 +142,7 @@ void main() {
       colibri.close();
 
       /// Compare against expected output when defined.
-      if (expected != null) {
+      if (hasExpectedResult) {
         /// Adjust expected output for known format differences.
         final adjusted = _adjustExpectedResult(method, params, expected, result);
         expect(result, equals(adjusted));

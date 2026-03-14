@@ -38,6 +38,10 @@ bool verify_block_number_proof(verify_ctx_t* ctx);
 bool verify_block_header_proof(verify_ctx_t* ctx);
 bool verify_eth_local(verify_ctx_t* ctx);
 
+#ifdef PAP
+bool verify_pap_tx(verify_ctx_t* ctx);
+#endif
+
 // helper
 #define ETH_BLOCK_DATA_MASK_ALL                  0xFFFFFFFF
 #define ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS (ETH_BLOCK_DATA_MASK_ALL & ~(1 << 25))
@@ -47,6 +51,7 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
 void        eth_set_block_data(verify_ctx_t* ctx, uint32_t mask, ssz_ob_t block, bytes32_t parent_root, bytes32_t withdrawel_root, bool include_txs);
 bool        eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain);
 bool        c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root);
+bool        verify_block_proof_for_block(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t block_number, bytes32_t execution_payload_root);
 
 typedef struct evm_call_ctx evm_call_ctx_t;
 

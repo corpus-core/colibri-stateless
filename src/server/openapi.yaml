@@ -52,8 +52,34 @@ tags:
     description: Health checks and monitoring
   - name: Beacon
     description: Ethereum Beacon Chain light client endpoints
+  - name: PAP
+    description: Pragmatic Adaptive Privacy endpoints for transaction cache
 
 paths:
+  /tx_cache:
+    get:
+      tags:
+        - PAP
+      summary: Get transaction cache snapshot
+      operationId: getTxCache
+      description: |
+        Returns an SSZ-encoded snapshot of the server's transaction cache.
+        The snapshot is a list of blocks, each containing the block number
+        and the keccak-256 hashes of all transactions in that block.
+        Clients use this to populate their local tx-hash-to-block mapping
+        for privacy-preserving transaction lookups (PAP mode).
+      responses:
+        '200':
+          description: SSZ-encoded TxCacheSnapshot (may be empty if cache is not populated)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '405':
+          description: Method not allowed (only GET is supported)
+        '503':
+          description: Transaction cache not available (PROVER_CACHE disabled)
   /signed_checkpoints:
     get:
       tags:

@@ -99,28 +99,43 @@ static bool is_nullable_method(char* method) {
 static bool is_call_method(char* method) {
   return strcmp(method, "eth_call") == 0 || strcmp(method, "eth_estimateGas") == 0 || strcmp(method, "colibri_simulateTransaction") == 0;
 }
+#ifdef PAP
+static bool is_pap_tx_method(char* method) {
+  return strcmp(method, "eth_getTransactionByHash") == 0 ||
+         strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 ||
+         strcmp(method, "eth_sendRawTransaction") == 0 ||
+         strcmp(method, "eth_sendTransaction") == 0;
+}
+#endif
 
 static bool no_proof(verify_ctx_t* ctx) {
   return ctx->proof.def->type == SSZ_TYPE_NONE;
 }
 method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
   (void) params;
-  (void) flags;
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return METHOD_UNDEFINED;
 
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
     if (strcmp(method, proofable_methods[i]) == 0) {
-      if (strcmp(method, "eth_estimateGas") == 0) 
+      if (strcmp(method, "eth_estimateGas") == 0)
         return ((flags & VERIFY_FLAG_PAP) ? METHOD_LOCAL : METHOD_UNPROOFABLE);
+#ifdef PAP
       if (flags & VERIFY_FLAG_PAP && is_call_method(method))
         return METHOD_LOCAL;
-      else
-        return METHOD_PROOFABLE;
+      if (flags & VERIFY_FLAG_PAP && is_pap_tx_method(method))
+        return METHOD_LOCAL;
+#endif
+      return METHOD_PROOFABLE;
     }
   }
   for (int i = 0; i < sizeof(local_methods) / sizeof(local_methods[0]); i++) {
     if (strcmp(method, local_methods[i]) == 0) return METHOD_LOCAL;
   }
+#ifdef PAP
+  if ((flags & VERIFY_FLAG_PAP) &&
+      (strcmp(method, "eth_sendRawTransaction") == 0 || strcmp(method, "eth_sendTransaction") == 0))
+    return METHOD_LOCAL;
+#endif
   for (int i = 0; i < sizeof(not_verifieable_yet_methods) / sizeof(not_verifieable_yet_methods[0]); i++) {
     if (strcmp(method, not_verifieable_yet_methods[i]) == 0) return METHOD_UNPROOFABLE;
   }
@@ -199,6 +214,11 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
     verify_block_number_proof(ctx);
   else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF)))
     verify_block_header_proof(ctx);
+  else
+#endif
+#ifdef PAP
+      if ((ctx->flags & VERIFY_FLAG_PAP) && is_pap_tx_method(ctx->method) && no_proof(ctx))
+    verify_pap_tx(ctx);
   else
 #endif
 #ifdef ETH_UTIL

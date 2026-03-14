@@ -99,6 +99,27 @@ void c4_eth_tx_cache_set_max_size(uint32_t max);
  */
 size_t c4_eth_tx_cache_capacity(void);
 
+/**
+ * Callback invoked by `c4_eth_tx_cache_visit_blocks()` for each cached block.
+ *
+ * @param block_number the execution-layer block number
+ * @param tx_hashes array of 32-byte transaction hashes in that block
+ * @param count number of entries in `tx_hashes`
+ * @param user_data opaque pointer forwarded from the caller
+ */
+typedef void (*tx_cache_block_visitor_t)(uint64_t block_number,
+                                        const bytes32_t* tx_hashes,
+                                        uint32_t count, void* user_data);
+
+/**
+ * Iterates all cached blocks from oldest to newest, invoking the visitor
+ * for each block. Intended for serialization (e.g. SSZ snapshot export).
+ *
+ * @param visitor callback invoked per block
+ * @param user_data opaque pointer forwarded to the visitor
+ */
+void c4_eth_tx_cache_visit_blocks(tx_cache_block_visitor_t visitor, void* user_data);
+
 #ifdef __cplusplus
 }
 #endif

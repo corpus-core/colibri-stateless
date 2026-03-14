@@ -166,7 +166,11 @@ class ColibriTest {
             if (file.exists() && file.isFile) {
              //    println("InMemoryStorage: Reading '$key' from file ${file.absolutePath}")
                 return try {
-                     file.readBytes()
+                     var data = file.readBytes()
+                     if (key.startsWith("tx_pending_")) {
+                         data = refreshPendingTimestamps(data)
+                     }
+                     data
                  } catch (e: Exception) {
                      println("InMemoryStorage: Error reading file '$key': ${e.message}")
                      null
@@ -187,8 +191,18 @@ class ColibriTest {
             cache.remove(key)
         }
 
-        // No preloading needed with this get logic
-        // fun preloadFromFile(file: File) { ... }
+        private fun refreshPendingTimestamps(data: ByteArray): ByteArray {
+            val buf = data.copyOf()
+            val now = System.currentTimeMillis() / 1000
+            var offset = 0
+            while (offset + 40 <= buf.size) {
+                for (b in 0 until 8) {
+                    buf[offset + 32 + b] = ((now shr (b * 8)) and 0xFF).toByte()
+                }
+                offset += 40
+            }
+            return buf
+        }
     }
 
     @Test

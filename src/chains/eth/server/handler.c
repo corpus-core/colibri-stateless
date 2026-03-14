@@ -31,6 +31,7 @@ void eth_server_init(http_server_t* server) {
   c4_register_http_handler(c4_proxy);
   c4_register_http_handler(c4_handle_period_static);
   c4_register_http_handler(c4_handle_checkpoints);
+  c4_register_http_handler(c4_handle_tx_cache);
 
   // internal handlers
   c4_register_internal_handler(c4_handle_period_store);

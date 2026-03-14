@@ -26,6 +26,7 @@
 #include "bytes.h"
 #include "chains.h"
 #include "crypto.h"
+#include "pap_tx_cache_types.h"
 #include "verify.h"
 #include "version.h"
 #include <stdio.h>
@@ -40,6 +41,8 @@ const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
   if (strcmp(typename, "lcu") == 0) return eth_get_light_client_update(C4_FORK_ELECTRA);
   if (strcmp(typename, "lcb") == 0) return &ELECTRA_LIGHT_CLIENT_BOOTSTRAP_CONTAINER;
   if (strcmp(typename, "zk") == 0) return C4_ETH_REQUEST_SYNCDATA_UNION + 2;
+  if (strcmp(typename, "txcache") == 0) return &PAP_TX_CACHE_SNAPSHOT;
+  if (strcmp(typename, "txpending") == 0) return &PAP_PENDING_TX_LIST;
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
 }

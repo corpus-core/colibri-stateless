@@ -148,12 +148,7 @@ static void c4_handle_period_static_manifest(client_t* client, uint64_t start_pe
     if (p == UINT64_MAX) break;
   }
 
-  // Patch SSZ offsets: list_builder.fixed contains uint32 offsets, measured from start of list body.
-  // Since we added elements with num_elements=0, offsets are missing the fixed-size offset-table length (file_count * 4).
-  for (uint32_t i = 0; i < file_count; i++) {
-    uint32_t off = uint32_from_le(list_builder.fixed.data.data + i * 4);
-    uint32_to_le(list_builder.fixed.data.data + i * 4, off + file_count * 4);
-  }
+  ssz_builder_fix_list_offsets(&list_builder, file_count);
 
   ssz_ob_t list_ob = ssz_builder_to_bytes(&list_builder);
 

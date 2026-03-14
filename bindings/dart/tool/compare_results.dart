@@ -146,10 +146,12 @@ Future<List<CompareResult>> compareAll() async {
     final params = (content['params'] as List<dynamic>);
     final chainId = (content['chain_id'] as num).toInt();
     final trusted = content['trusted_blockhash']?.toString();
+    final hasExpectedResult = content.containsKey('expected_result');
     final expected = content['expected_result'];
     final includeCode = (content['include_code'] as bool?) ?? false;
     final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
     final pap = (content['pap'] as bool?) ?? false;
+    final remoteProver = (content['remote_prover'] as bool?) ?? false;
 
     final storage = FileBackedStorage(dir);
     final responder = FileBasedMockResponder(dir);
@@ -157,7 +159,7 @@ Future<List<CompareResult>> compareAll() async {
 
     final colibri = Colibri(
       chainId: chainId,
-      provers: pap ? ['http://mock-prover'] : const [],
+      provers: remoteProver ? ['http://mock-prover'] : const [],
       trustedCheckpoint: trusted,
       includeCode: includeCode,
       useAccesslist: useAccesslist,
@@ -176,7 +178,12 @@ Future<List<CompareResult>> compareAll() async {
         adjustedExpected = _adjustExpectedResult(method, params, expected, result);
       }
 
-      final passed = expected == null ? result != null : _deepEquals(result, adjustedExpected);
+      final bool passed;
+      if (hasExpectedResult) {
+        passed = _deepEquals(result, adjustedExpected);
+      } else {
+        passed = result != null;
+      }
       results.add(CompareResult(
         name: name,
         passed: passed,

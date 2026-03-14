@@ -379,11 +379,7 @@ INTERNAL ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
   }
   safe_free(nibbles.data);
 
-  // fix offsets in builder
-  if (builder.fixed.data.data) {
-    for (int i = 0; i < len; i++)
-      uint32_to_le(builder.fixed.data.data + i * 4, uint32_from_le(builder.fixed.data.data + i * 4) + len * 4);
-  }
+  ssz_builder_fix_list_offsets(&builder, (uint32_t) len);
 
   return ssz_builder_to_bytes(&builder);
 }

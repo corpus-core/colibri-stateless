@@ -342,10 +342,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
           safe_free(ob.bytes.data);
           len++;
         }
-        for (uint32_t i = 0; i < len; i++) {
-          uint8_t* offset_ptr = buf.fixed.data.data + i * 4;
-          uint32_to_le(offset_ptr, uint32_from_le(offset_ptr) + len * 4);
-        }
+        ssz_builder_fix_list_offsets(&buf, len);
       }
       else {
         json_for_each_value(json, value) {
@@ -368,5 +365,14 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       return (ssz_ob_t) {.def = def, .bytes = json_as_bytes(json, &buf.fixed)};
     default:
       return (ssz_ob_t) {.def = def, .bytes = {0}};
+  }
+}
+
+void ssz_builder_fix_list_offsets(ssz_builder_t* builder, uint32_t num_elements) {
+  if (!builder->fixed.data.data || num_elements == 0) return;
+  uint32_t table_size = num_elements * 4;
+  for (uint32_t i = 0; i < num_elements; i++) {
+    uint8_t* p = builder->fixed.data.data + i * 4;
+    uint32_to_le(p, uint32_from_le(p) + table_size);
   }
 }

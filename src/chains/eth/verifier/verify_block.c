@@ -140,26 +140,40 @@ static bool matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_bl
   return true;
 }
 
-bool verify_block_proof(verify_ctx_t* ctx) {
+bool verify_block_proof_for_block(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t block_number, bytes32_t execution_payload_root) {
 
-  json_t    block_number      = json_at(ctx->args, 0);
-  bool      include_txs       = json_as_bool(json_at(ctx->args, 1));
   bytes32_t body_root         = {0};
   bytes32_t exec_root         = {0};
-  ssz_ob_t  execution_payload = ssz_get(&ctx->proof, "executionPayload");
-  ssz_ob_t  proof             = ssz_get(&ctx->proof, "proof");
-  ssz_ob_t  header            = ssz_get(&ctx->proof, "header");
+  ssz_ob_t  execution_payload = ssz_get(&block_proof, "executionPayload");
+  ssz_ob_t  proof             = ssz_get(&block_proof, "proof");
+  ssz_ob_t  header            = ssz_get(&block_proof, "header");
 
   // calculate the tree root of the execution payload
   ssz_hash_tree_root(execution_payload, exec_root);
 
   ssz_verify_single_merkle_proof(proof.bytes, exec_root, EXECUTION_PAYLOAD_ROOT_GINDEX, body_root);
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
-  if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
+  if (c4_verify_header(ctx, header, block_proof) != C4_SUCCESS) return false;
   ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), exec_root);
 
-  eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
   if (ctx->state.error || !matches_blocknumber(ctx, execution_payload, block_number)) return false;
+  if (execution_payload_root) memcpy(execution_payload_root,exec_root, 32);
+  return true;
+}
+
+
+bool verify_block_proof(verify_ctx_t* ctx) {
+  json_t    block_number      = json_at(ctx->args, 0);
+  bytes32_t exec_root         = {0};
+  ssz_ob_t  execution_payload = ssz_get(&ctx->proof, "executionPayload");
+  ssz_ob_t  header            = ssz_get(&ctx->proof, "header");
+  bool      include_txs       = json_as_bool(json_at(ctx->args, 1));
+
+  if (!verify_block_proof_for_block(ctx, ctx->proof,block_number,exec_root)) return false;
+
+
+  eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
+  if (ctx->state.error) return false;
 
   ctx->success = true;
   return true;

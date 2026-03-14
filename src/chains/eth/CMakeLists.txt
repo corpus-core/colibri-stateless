@@ -147,6 +147,10 @@ if(ETH_UTIL)
   add_definitions(-DETH_UTIL)
 endif()
 
+if(PAP)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/pap_tx_cache.c verifier/pap_req.c verifier/verify_pap_tx.c)
+endif()
+
 # Add ZK Verifier if enabled
 if(ETH_ZKPROOF)
     add_subdirectory(zk_verifier)
@@ -212,6 +216,7 @@ add_server_handler(
     server/period_store_zk_prover.c
     server/period_store_zk_ssz.c
     server/handle_period_static.c
+    server/handle_tx_cache.c
     server/eth_conf.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init
