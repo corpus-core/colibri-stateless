@@ -28,7 +28,6 @@
 #include "unity.h"
 #ifdef PAP
 #include "pap_tx_cache.h"
-#include <time.h>
 #endif
 void setUp(void) {
   reset_local_filecache();
@@ -74,12 +73,6 @@ void test_pap_tx_by_block_index() {
 }
 
 void test_pap_tx_pending() {
-  uint8_t pending_data[40];
-  hex_to_bytes("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", 64, bytes(pending_data, 32));
-  uint64_t ts = (uint64_t) time(NULL);
-  for (int i = 0; i < 8; i++)
-    pending_data[32 + i] = (uint8_t) (ts >> (i * 8));
-  file_set("tx_pending_1", bytes(pending_data, 40));
   run_rpc_test("pap_tx_pending", 0, VERIFY_FLAG_PAP);
 }
 

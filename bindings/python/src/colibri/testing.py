@@ -346,7 +346,8 @@ class FileBasedMockStorage(ColibriStorage):
         file_path = self._find_file_with_truncation(key)
         if file_path:
             data = file_path.read_bytes()
-            # Load file from storage
+            if key.startswith('tx_pending_'):
+                data = self._refresh_pending_timestamps(data)
             self._cache[key] = data
             return data
         else:
@@ -354,6 +355,17 @@ class FileBasedMockStorage(ColibriStorage):
             self._cache[key] = None
             return None
     
+    @staticmethod
+    def _refresh_pending_timestamps(data: bytes) -> bytes:
+        """Refresh timestamps in pending tx entries so the TTL check always passes.
+        Each entry is 40 bytes: 32 bytes tx_hash + 8 bytes uint64 LE timestamp."""
+        import struct, time
+        buf = bytearray(data)
+        now = int(time.time())
+        for i in range(0, len(buf) - 39, 40):
+            struct.pack_into('<Q', buf, i + 32, now)
+        return bytes(buf)
+
     def set(self, key: str, value: bytes) -> None:
         # Cache value in mock storage
         self._cache[key] = value
