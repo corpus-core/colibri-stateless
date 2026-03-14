@@ -86,7 +86,10 @@ class FileBackedStorage implements ColibriStorage {
     final file = _findFileWithTruncation(key);
     if (file != null) {
       /// Read bytes from disk and cache.
-      final bytes = file.readAsBytesSync();
+      var bytes = file.readAsBytesSync();
+      if (key.startsWith('tx_pending_')) {
+        bytes = _refreshPendingTimestamps(bytes);
+      }
       _cache[key] = bytes;
       return bytes;
     }
@@ -106,6 +109,21 @@ class FileBackedStorage implements ColibriStorage {
   /// Remove a cached value for `key`.
   void delete(String key) {
     _cache.remove(key);
+  }
+
+  /// Refresh timestamps in pending tx entries so the TTL check always passes.
+  /// Each entry is 40 bytes: 32 bytes tx_hash + 8 bytes uint64 LE timestamp.
+  Uint8List _refreshPendingTimestamps(Uint8List data) {
+    final buf = Uint8List.fromList(data);
+    var now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    for (var offset = 0; offset + 40 <= buf.length; offset += 40) {
+      var ts = now;
+      for (var b = 0; b < 8; b++) {
+        buf[offset + 32 + b] = ts & 0xFF;
+        ts >>= 8;
+      }
+    }
+    return buf;
   }
 
   /// Locate a file by exact name or by truncated prefix.

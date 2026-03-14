@@ -283,7 +283,10 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
             let fileURL = testDirectory.appendingPathComponent(fileName)
             
             do {
-                let data = try Data(contentsOf: fileURL)
+                var data = try Data(contentsOf: fileURL)
+                if key.hasPrefix("tx_pending_") {
+                    data = MockFileStorage.refreshPendingTimestamps(data)
+                }
                 GeneratedIntegrationTests.log("🗄️ Storage GET: \(key) → \(fileName) (\(data.count) bytes)")
                 return data
             } catch {
@@ -309,6 +312,21 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         func delete(key: String) {
             GeneratedIntegrationTests.log("🗄️ Storage DELETE: \(key)")
             // For tests, we don't need to persist
+        }
+        
+        static func refreshPendingTimestamps(_ data: Data) -> Data {
+            var buf = [UInt8](data)
+            let now = UInt64(Date().timeIntervalSince1970)
+            var offset = 0
+            while offset + 40 <= buf.count {
+                var ts = now
+                for b in 0..<8 {
+                    buf[offset + 32 + b] = UInt8(ts & 0xFF)
+                    ts >>= 8
+                }
+                offset += 40
+            }
+            return Data(buf)
         }
         
         /// Convert storage key to filename

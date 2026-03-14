@@ -213,7 +213,13 @@ static void set_state(chain_id_t chain_id, char* dirname) {
     bytes_t content = read_testdata(rel_path);
 
     if (content.data) {
-      // Store in file cache
+      if (strncmp(filename, "tx_pending_", 11) == 0) {
+        for (uint32_t off = 0; off + 40 <= content.len; off += 40) {
+          uint64_t ts = (uint64_t) time(NULL);
+          for (int b = 0; b < 8; b++)
+            content.data[off + 32 + b] = (uint8_t) (ts >> (b * 8));
+        }
+      }
       file_set(filename, content);
       safe_free(content.data);
     }
