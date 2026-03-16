@@ -34,7 +34,7 @@ void tearDown(void) {
 }
 
 void test_block_receipts() {
-  verify("eth_getBlockReceipts1", "eth_getBlockReceipts", "[\"latest\"]", C4_CHAIN_MAINNET);
+  run_rpc_test("eth_getBlockReceipts1", 0, 0);
 }
 
 int main(void) {

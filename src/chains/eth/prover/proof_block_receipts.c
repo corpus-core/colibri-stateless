@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "bytes.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "historic_proof.h"
@@ -30,7 +31,6 @@
 #include "prover.h"
 #include "ssz.h"
 #include "version.h"
-#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -48,7 +48,7 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   // use the resolved block number for fetching receipts to avoid race conditions with "latest"
   uint64_t block_num = ssz_get_uint64(&block.execution, "blockNumber");
   char     block_num_hex[32];
-  snprintf(block_num_hex, sizeof(block_num_hex), "\"0x%" PRIx64 "\"", block_num);
+  sbprintf(block_num_hex, "\"0x%lx\"", block_num);
   TRY_ASYNC(eth_getBlockReceipts(ctx, json_parse(block_num_hex), &block_receipts));
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &block_proof, &block));
@@ -61,29 +61,34 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   // add transactions list from execution payload
   ssz_add_bytes(&proof_builder, "transactions", ssz_get(&block.execution, "transactions").bytes);
 
-  // serialize all receipts to RLP and build the receipts list
+  // serialize all receipts to RLP and build the receipts list (single pass to avoid repeated json parsing)
   const ssz_def_t* receipts_list_def = ssz_get_def(proof_builder.def, "receipts");
   ssz_builder_t    receipts_builder  = ssz_builder_for_def(receipts_list_def);
-  int              num_receipts      = json_len(block_receipts);
+  buffer_t         rbuf             = {0};
+  uint32_t         num_receipts     = 0;
 
-  for (int i = 0; i < num_receipts; i++) {
-    buffer_t rbuf       = {0};
-    bytes_t  serialized = c4_serialize_receipt(json_at(block_receipts, i), &rbuf);
-    ssz_add_dynamic_list_bytes(&receipts_builder, num_receipts, serialized);
-    buffer_free(&rbuf);
+  json_for_each_value(block_receipts, receipt) {
+    bytes_t serialized = c4_serialize_receipt(receipt, &rbuf);
+    ssz_add_dynamic_list_bytes(&receipts_builder, 0, serialized);
+    buffer_reset(&rbuf);
+    num_receipts++;
   }
+  ssz_builder_fix_list_offsets(&receipts_builder, num_receipts);
+  buffer_free(&rbuf);
   ssz_add_builders(&proof_builder, "receipts", receipts_builder);
 
-  // add blockNumber and blockHash
+  // add blockNumber, blockHash and baseFeePerGas (verifier builds receipt data from RLP, needs base_fee for effectiveGasPrice)
   ssz_add_bytes(&proof_builder, "blockNumber", ssz_get(&block.execution, "blockNumber").bytes);
   ssz_add_bytes(&proof_builder, "blockHash", ssz_get(&block.execution, "blockHash").bytes);
+  ssz_add_bytes(&proof_builder, "baseFeePerGas", ssz_get(&block.execution, "baseFeePerGas").bytes);
 
-  // create multi-merkle proof for blockNumber, blockHash, receiptsRoot, transactions
-  bytes_t multi_proof = ssz_create_multi_proof(block.body, body_root, 4,
+  // create multi-merkle proof for blockNumber, blockHash, receiptsRoot, transactions, baseFeePerGas
+  bytes_t multi_proof = ssz_create_multi_proof(block.body, body_root, 5,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
                                                ssz_gindex(block.body.def, 2, "executionPayload", "receiptsRoot"),
-                                               ssz_gindex(block.body.def, 2, "executionPayload", "transactions"));
+                                               ssz_gindex(block.body.def, 2, "executionPayload", "transactions"),
+                                               ssz_gindex(block.body.def, 2, "executionPayload", "baseFeePerGas"));
   ssz_add_bytes(&proof_builder, "block_proof", multi_proof);
   safe_free(multi_proof.data);
 
@@ -91,11 +96,8 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   ssz_add_builders(&proof_builder, "header", c4_proof_add_header(block.header, body_root));
   ssz_add_header_proof(&proof_builder, &block, block_proof);
 
-  ctx->proof = eth_create_proof_request(
-      ctx->chain_id,
-      FROM_JSON(block_receipts, ETH_SSZ_DATA_BLOCK_RECEIPTS),
-      proof_builder,
-      sync_proof);
+  // verifier builds receipt data from RLP receipts + transactions to avoid redundant payload
+  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, proof_builder, sync_proof);
 
   c4_free_block_proof(&block_proof);
   return C4_SUCCESS;

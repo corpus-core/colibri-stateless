@@ -50,8 +50,9 @@ static const ssz_def_t* find_def(const ssz_def_t* def, const char* name) {
 void ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t data) {
   const ssz_def_t* child_def = buffer->def->def.vector.type;
   if (ssz_is_dynamic(child_def)) {
-    // For dynamic elements: add offset to fixed portion, data to dynamic portion
-    uint32_t offset = SSZ_OFFSET_SIZE * num_elements + buffer->dynamic.data.len;
+    // If num_elements is the real count: store final offset (no fix_list_offsets needed).
+    // If num_elements is 0: store position in dynamic section; caller must use ssz_builder_fix_list_offsets afterwards.
+    uint32_t offset = (uint32_t) (SSZ_OFFSET_SIZE * num_elements + buffer->dynamic.data.len);
     ssz_add_uint32(buffer, offset);
     buffer_append(&buffer->dynamic, data);
   }

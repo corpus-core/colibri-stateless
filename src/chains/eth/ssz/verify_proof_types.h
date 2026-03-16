@@ -706,6 +706,7 @@ static const ssz_def_t ETH_BLOCK_RECEIPTS_PROOF[] = {
     SSZ_LIST("receipts", ssz_bytes_list, 65536),               // all RLP-serialized receipts of the block
     SSZ_UINT64("blockNumber"),                                 // the number of the execution block
     SSZ_BYTES32("blockHash"),                                  // the blockHash of the execution block
-    SSZ_LIST("block_proof", ssz_bytes32, 64),                  // the multi proof of transactions, receiptsRoot, blockNumber and blockHash
+    SSZ_UINT256("baseFeePerGas"),                               // for effectiveGasPrice when building receipt data in verifier
+    SSZ_LIST("block_proof", ssz_bytes32, 64),                  // the multi proof of transactions, receiptsRoot, blockNumber, blockHash and baseFeePerGas
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),              // the header of the beacon block
     SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION)};       // the proof for the correctness of the header
