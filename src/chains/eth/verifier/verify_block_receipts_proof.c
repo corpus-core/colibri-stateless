@@ -35,7 +35,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define GINDEX_TRANSACTIONS   813
+#define GINDEX_TRANSACTIONS  813
 #define GINDEX_BASEFEEPERGAS 811
 
 static bool verify_block_receipts_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof, bytes_t block_hash, bytes_t block_number,
@@ -58,23 +58,19 @@ static bool verify_block_receipts_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof
   return true;
 }
 
-bool verify_block_receipts_proof(verify_ctx_t* ctx) {
-  if (ctx->data.def->type != SSZ_TYPE_NONE)
-    RETURN_VERIFY_ERROR(ctx, "data must be empty; verifier builds receipt data from RLP!");
-
-  ssz_ob_t  transactions   = ssz_get(&ctx->proof, "transactions");
-  ssz_ob_t  receipts       = ssz_get(&ctx->proof, "receipts");
-  ssz_ob_t  block_proof    = ssz_get(&ctx->proof, "block_proof");
-  ssz_ob_t  header         = ssz_get(&ctx->proof, "header");
-  ssz_ob_t  block_hash     = ssz_get(&ctx->proof, "blockHash");
-  ssz_ob_t  block_number   = ssz_get(&ctx->proof, "blockNumber");
-  ssz_ob_t  base_fee_per_gas = ssz_get(&ctx->proof, "baseFeePerGas");
-  ssz_ob_t  body_root      = ssz_get(&header, "bodyRoot");
-  uint32_t  num_receipts   = ssz_len(receipts);
-  uint32_t  num_txs       = ssz_len(transactions);
-  bytes32_t receipt_root   = {0};
-  bytes32_t tx_root        = {0};
-  uint64_t  blk_num       = ssz_uint64(block_number);
+bool verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof) {
+  ssz_ob_t  transactions     = ssz_get(&receipts_proof, "transactions");
+  ssz_ob_t  receipts         = ssz_get(&receipts_proof, "receipts");
+  ssz_ob_t  block_proof      = ssz_get(&receipts_proof, "block_proof");
+  ssz_ob_t  header           = ssz_get(&receipts_proof, "header");
+  ssz_ob_t  block_hash       = ssz_get(&receipts_proof, "blockHash");
+  ssz_ob_t  block_number     = ssz_get(&receipts_proof, "blockNumber");
+  ssz_ob_t  base_fee_per_gas = ssz_get(&receipts_proof, "baseFeePerGas");
+  ssz_ob_t  body_root        = ssz_get(&header, "bodyRoot");
+  uint32_t  num_receipts     = ssz_len(receipts);
+  uint32_t  num_txs          = ssz_len(transactions);
+  bytes32_t receipt_root     = {0};
+  bytes32_t tx_root          = {0};
 
   if (num_receipts != num_txs)
     RETURN_VERIFY_ERROR(ctx, "receipt count does not match transaction count!");
@@ -101,29 +97,44 @@ bool verify_block_receipts_proof(verify_ctx_t* ctx) {
                                           receipt_root, tx_root, base_fee_per_gas.bytes, body_root.bytes.data))
     return false;
 
-      // verify beacon header and sync committee signature
-  if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
+  // verify beacon header and sync committee signature
+  if (c4_verify_header(ctx, header, receipts_proof) != C4_SUCCESS) return false;
+
+  return true;
+}
+
+bool verify_block_receipts_proof(verify_ctx_t* ctx) {
+  if (ctx->data.def->type != SSZ_TYPE_NONE)
+    RETURN_VERIFY_ERROR(ctx, "data must be empty; verifier builds receipt data from RLP!");
+
+  if (!verify_block_receipts_proof_for(ctx, ctx->proof))
+    RETURN_VERIFY_ERROR(ctx, "invalid block receipts proof!");
 
   // build receipt data list from RLP receipts + transactions (reduces payload; no redundant data from prover)
-  const ssz_def_t* list_def = eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_RECEIPTS);
-  ssz_builder_t    data_builder = ssz_builder_for_def(list_def);
+  const ssz_def_t* list_def        = eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_RECEIPTS);
+  ssz_builder_t    data_builder    = ssz_builder_for_def(list_def);
+  uint64_t         base_fee        = ssz_get_uint64(&ctx->proof, "baseFeePerGas");
   uint64_t         prev_cumulative = 0;
   uint32_t         next_log_index  = 0;
-  uint64_t         base_fee = ssz_uint64(base_fee_per_gas);
+  ssz_ob_t         receipts        = ssz_get(&ctx->proof, "receipts");
+  ssz_ob_t         block_hash      = ssz_get(&ctx->proof, "blockHash");
+  ssz_ob_t         transactions    = ssz_get(&ctx->proof, "transactions");
+  uint64_t         blk_num         = ssz_get_uint64(&ctx->proof, "blockNumber");
+  uint32_t         num_receipts    = ssz_len(receipts);
 
   for (uint32_t i = 0; i < num_receipts; i++) {
-    bytes_t         raw_tx      = ssz_at(transactions, i).bytes;
-    bytes_t         raw_receipt = ssz_at(receipts, i).bytes;
-    const ssz_def_t* item_def  = list_def->def.vector.type;
-    ssz_builder_t   item_builder = ssz_builder_for_def(item_def);
+    bytes_t          raw_tx       = ssz_at(transactions, i).bytes;
+    bytes_t          raw_receipt  = ssz_at(receipts, i).bytes;
+    const ssz_def_t* item_def     = list_def->def.vector.type;
+    ssz_builder_t    item_builder = ssz_builder_for_def(item_def);
 
     if (!c4_write_receipt_data_from_raw(ctx, &item_builder, raw_tx, raw_receipt, block_hash.bytes.data, blk_num, i,
-                                         base_fee, &prev_cumulative,  &next_log_index))
+                                        base_fee, &prev_cumulative, &next_log_index))
       RETURN_VERIFY_ERROR(ctx, "invalid receipt data from RLP!");
     ssz_add_dynamic_list_builders(&data_builder, (int) num_receipts, item_builder);
   }
-  ctx->data      = ssz_builder_to_bytes(&data_builder);
-  ctx->flags    |= VERIFY_FLAG_FREE_DATA;
+  ctx->data = ssz_builder_to_bytes(&data_builder);
+  ctx->flags |= VERIFY_FLAG_FREE_DATA;
   ctx->success = true;
   return true;
 }
