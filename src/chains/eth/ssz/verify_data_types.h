@@ -165,6 +165,10 @@ static const ssz_def_t ETH_RECEIPT_DATA[] = {
     SSZ_UINT32("depositReceiptVersion"),                   // the deposit receipt version of the transaction
 }; // the gasPrice of the transaction
 
+static const ssz_def_t ETH_RECEIPT_DATA_CONTAINER = SSZ_CONTAINER("EthTransactionReceipt", ETH_RECEIPT_DATA);
+
+
+
 // Container type for transaction data
 static const ssz_def_t ETH_TX_DATA_CONTAINER = SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA);
 // Union type for block transactions: either as hashes or as full transaction data

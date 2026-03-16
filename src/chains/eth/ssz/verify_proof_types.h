@@ -675,3 +675,38 @@ static const ssz_def_t ETH_BLOCK_HEADER_PROOF[] = {
     SSZ_LIST("proof", ssz_bytes32, 256),                 // the multi merkle proof from the selected executionPayload fields down to the blockBodyRoot hash
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),        // the header of the beacon block
     SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION)}; // the proof for the correctness of the header
+
+// :: Block Receipts Proof
+//
+// A **Block Receipts Proof** verifies all transaction receipts of a given block.
+// Instead of proving a single receipt via Patricia Merkle Proof, the proof includes
+// **all** raw serialized receipts and the full transactions list from the execution payload.
+//
+// 1. **Receipt Trie Verification:**
+//    The verifier builds the complete Patricia Merkle Trie from all serialized receipts
+//    and computes the `receiptsRoot`, comparing it against the value in the ExecutionPayload.
+//
+// 2. **Transactions Verification:**
+//    The raw transactions list is included so the verifier can compute each `transactionHash`
+//    and verify `transactionIndex` for every receipt.
+//
+// 3. **Execution Payload Proof:**
+//    An SSZ multi-Merkle proof connects `blockNumber`, `blockHash`, `receiptsRoot`, and
+//    the `transactions` hash tree root to the `blockBodyRoot`.
+//
+// 4. **Consensus Reference:**
+//    The BeaconBlockHeader provides the `slot` for sync committee identification.
+//
+// 5. **Sync Committee Signature:**
+//    The BLS aggregate signature from the sync committee confirms canonical chain membership.
+
+// The main proof data for all receipts of a block.
+static const ssz_def_t ETH_BLOCK_RECEIPTS_PROOF[] = {
+    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576), // all transactions from the execution payload
+    SSZ_LIST("receipts", ssz_bytes_list, 65536),               // all RLP-serialized receipts of the block
+    SSZ_UINT64("blockNumber"),                                 // the number of the execution block
+    SSZ_BYTES32("blockHash"),                                  // the blockHash of the execution block
+    SSZ_UINT256("baseFeePerGas"),                               // for effectiveGasPrice when building receipt data in verifier
+    SSZ_LIST("block_proof", ssz_bytes32, 64),                  // the multi proof of transactions, receiptsRoot, blockNumber, blockHash and baseFeePerGas
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),              // the header of the beacon block
+    SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION)};       // the proof for the correctness of the header

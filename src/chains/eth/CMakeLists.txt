@@ -116,7 +116,7 @@ if(ETH_BLOCK)
 endif()
 
 if(ETH_RECEIPT)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_receipt_proof.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_receipt_proof.c verifier/verify_block_receipts_proof.c)
   add_definitions(-DETH_RECEIPT)
 endif()
 
@@ -181,6 +181,7 @@ add_prover(
     prover/proof_call.c
     prover/beacon.c
     prover/proof_receipt.c
+    prover/proof_block_receipts.c
     prover/eth_req.c
     prover/logs_cache.c
     prover/eth_tools.c
