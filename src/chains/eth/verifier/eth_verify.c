@@ -51,6 +51,7 @@ static const char* proofable_methods[] = {
     RPC_METHOD("eth_getTransactionCount", Uint256, EthAccountProof),
     RPC_METHOD("eth_getStorageAt", Bytes32, EthAccountProof),
     RPC_METHOD("eth_getTransactionReceipt", EthReceiptData, EthReceiptProof),
+    RPC_METHOD("eth_getBlockReceipts", ListEthBlockReceipts, BlockReceiptsProof),
     RPC_METHOD("eth_getTransactionByHash", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTxData, EthTransactionProof),
@@ -85,7 +86,6 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_feeHistory", Void, Void),
     RPC_METHOD("eth_createAccessList", EthAccessData, EthCallProof),
     RPC_METHOD("eth_gasPrice", Void, Void),
-    RPC_METHOD("eth_getBlockReceipts", Void, Void),
     RPC_METHOD("eth_getUncleByBlockHash", Void, Void),
     RPC_METHOD("eth_getUncleByBlockNumber", Void, Void),
     RPC_METHOD("eth_getUncleCountByBlockHash", Void, Void),
@@ -190,6 +190,8 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
 #ifdef ETH_RECEIPT
       if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_RECEIPT_PROOF)))
     verify_receipt_proof(ctx);
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF)))
+    verify_block_receipts_proof(ctx);
   else
 #endif
 #ifdef ETH_LOGS

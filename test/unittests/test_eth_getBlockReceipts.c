@@ -21,28 +21,24 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ETH_PROVER_H
-#define ETH_PROVER_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include "prover.h"
-
-c4_status_t c4_proof_account(prover_ctx_t* ctx);     // creates an account proof
-c4_status_t c4_proof_transaction(prover_ctx_t* ctx); // creates a transaction proof
-c4_status_t c4_proof_receipt(prover_ctx_t* ctx);     // creates a receipt proof
-c4_status_t c4_proof_logs(prover_ctx_t* ctx);        // creates a logs proof
-c4_status_t c4_proof_call(prover_ctx_t* ctx);
-c4_status_t c4_proof_sync(prover_ctx_t* ctx);
-c4_status_t c4_proof_block(prover_ctx_t* ctx);
-c4_status_t c4_proof_block_number(prover_ctx_t* ctx);
-c4_status_t c4_proof_block_header(prover_ctx_t* ctx);
-c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx);
-c4_status_t c4_proof_witness(prover_ctx_t* ctx);
-#ifdef __cplusplus
+#include "bytes.h"
+#include "c4_assert.h"
+#include "ssz.h"
+#include "unity.h"
+void setUp(void) {
+  reset_local_filecache();
 }
-#endif
 
-#endif
+void tearDown(void) {
+  reset_local_filecache();
+}
+
+void test_block_receipts() {
+  verify("eth_getBlockReceipts1", "eth_getBlockReceipts", "[\"latest\"]", C4_CHAIN_MAINNET);
+}
+
+int main(void) {
+  UNITY_BEGIN();
+  RUN_TEST(test_block_receipts);
+  return UNITY_END();
+}

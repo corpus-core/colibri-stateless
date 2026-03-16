@@ -74,7 +74,10 @@ typedef enum {
 
   ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF = 28,
   ETH_SSZ_DATA_BLOCK_HEADER         = 29,
-  ETH_SSZ_DATA_CALL_BLOCK_CONTEXT   = 30
+  ETH_SSZ_DATA_CALL_BLOCK_CONTEXT   = 30,
+
+  ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF = 31,
+  ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32
 
 } eth_ssz_type_t;
 
@@ -117,7 +120,7 @@ extern const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
-extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[11];
+extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[12];
 extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
 
 #define epoch_for_slot(slot, chain_spec)  ((slot) >> (chain_spec ? chain_spec->slots_per_epoch_bits : 5))

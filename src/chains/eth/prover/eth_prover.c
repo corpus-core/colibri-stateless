@@ -55,6 +55,8 @@ bool eth_prover_execute(prover_ctx_t* ctx) {
     c4_proof_transaction(ctx);
   else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
     c4_proof_receipt(ctx);
+  else if (strcmp(ctx->method, "eth_getBlockReceipts") == 0)
+    c4_proof_block_receipts(ctx);
   else if (strcmp(ctx->method, "eth_getLogs") == 0 || strcmp(ctx->method, "eth_verifyLogs") == 0)
     c4_proof_logs(ctx);
   else if (strcmp(ctx->method, "eth_call") == 0 || strcmp(ctx->method, "eth_estimateGas") == 0 || strcmp(ctx->method, "colibri_simulateTransaction") == 0 || strcmp(ctx->method, "colibri_proofCall") == 0)

@@ -61,7 +61,7 @@ static const ssz_def_t C4_ETH_ZK_SYNCDATA[6];
 //
 
 // A List of possible types of data matching the Proofs
-const ssz_def_t C4_ETH_REQUEST_DATA_UNION[11] = {
+const ssz_def_t C4_ETH_REQUEST_DATA_UNION[12] = {
     SSZ_NONE,
     SSZ_BYTES32("hash"),                                        // the blockhash  which is used for blockhash proof
     SSZ_BYTES("bytes", 1073741824),                             // the bytes of the data
@@ -73,6 +73,7 @@ const ssz_def_t C4_ETH_REQUEST_DATA_UNION[11] = {
     SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),              // the result of an eth_getProof
     SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),   // the result of an colibri_simulateTransaction
     SSZ_CONTAINER("EthBlockHeaderData", ETH_BLOCK_HEADER_DATA), // compact block header data
+    SSZ_LIST("EthBlockReceipts", ETH_RECEIPT_DATA_CONTAINER, 2048), // all receipts of a block
 };
 
 // A List of possible types of proofs matching the Data
@@ -87,7 +88,8 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),              // Proof for BlockData
     SSZ_CONTAINER("BlockNumberProof", ETH_BLOCK_NUMBER_PROOF), // Proof for BlockNumber
     SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED),          // Proof for Witness
-    SSZ_CONTAINER("BlockHeaderProof", ETH_BLOCK_HEADER_PROOF), // Proof for compact BlockHeader
+    SSZ_CONTAINER("BlockHeaderProof", ETH_BLOCK_HEADER_PROOF),     // Proof for compact BlockHeader
+    SSZ_CONTAINER("BlockReceiptsProof", ETH_BLOCK_RECEIPTS_PROOF), // Proof for all block receipts
 }; // a Proof for multiple accounts
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -245,6 +247,10 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ETH_STATE_BLOCK_UNION + 3;
     case ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_HEADER_PROOF);
+    case ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF:
+      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_RECEIPTS_PROOF);
+    case ETH_SSZ_DATA_BLOCK_RECEIPTS:
+      return C4_ETH_REQUEST_DATA_UNION + 11;
     default: return NULL;
   }
 }
