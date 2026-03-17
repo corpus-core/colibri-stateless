@@ -41,7 +41,7 @@
 
 #ifdef PROVER_CACHE
 // Default maximum entries; can be adjusted at runtime via API
-static size_t g_max_tx_cache_size = 10000u;
+static size_t g_max_tx_cache_size = 80000u;
 typedef struct { // cache key for the transaction proof
   uint64_t block_number;
   uint32_t tx_index;
