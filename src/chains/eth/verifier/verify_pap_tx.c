@@ -23,15 +23,15 @@
 
 #ifdef PAP
 
-#include "pap_req.h"
-#include "pap_tx_cache.h"
-#include "pap_tx_cache_types.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
+#include "pap_req.h"
+#include "pap_tx_cache.h"
+#include "pap_tx_cache_types.h"
 #include "ssz.h"
 #include "sync_committee.h"
 #include "verify.h"
@@ -75,8 +75,8 @@ static c4_status_t ensure_tx_cache(verify_ctx_t* ctx) {
 /* ── block proof verification + tx extraction ── */
 
 static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
-                                        json_t req_block,
-                                        uint32_t target_tx_index,
+                                        json_t          req_block,
+                                        uint32_t        target_tx_index,
                                         const bytes32_t expected_tx_hash) {
   ctx->sync_data = ssz_get(&proof_req, "sync_data");
   if (!c4_update_from_sync_data(ctx)) return false;
@@ -115,8 +115,102 @@ static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
     return false;
   }
 
-  ctx->data    = ssz_builder_to_bytes(&tx_data);
-  ctx->flags  |= VERIFY_FLAG_FREE_DATA;
+  ctx->data = ssz_builder_to_bytes(&tx_data);
+  ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  ctx->success = true;
+  return true;
+}
+
+static bool get_tx_index_and_block(verify_ctx_t* ctx, bytes32_t requested_hash, uint64_t* block_number, uint32_t* tx_index) {
+  if (ensure_tx_cache(ctx) != C4_SUCCESS) return false;
+
+  if (!pap_tx_cache_get(ctx->chain_id, requested_hash, block_number, tx_index)) {
+    if (pap_tx_cache_is_pending(ctx->chain_id, requested_hash)) {
+
+      // if it is a pending tx and we can't fetch updates from the prover -> return null
+      if (!(ctx->flags & VERIFY_FLAG_REMOTE_PROVER)) {
+        ctx->success = true;
+        return false;
+      }
+
+      // update the tx cache from the server
+      if (fetch_tx_cache_from_server(ctx) != C4_SUCCESS) return false;
+
+      // if the tx is still not found, return null
+      if (!pap_tx_cache_get(ctx->chain_id, requested_hash, block_number, tx_index)) {
+        ctx->success = true;
+        return false;
+      }
+
+      // we found it, so it is no longer pending
+      pap_tx_cache_remove_pending(ctx->chain_id, requested_hash);
+    }
+    else {
+      // we didn't find it in the cache and since it is not pending, we need to fetch it from the server
+      uint8_t  tmp[200];
+      buffer_t buf = stack_buffer(tmp);
+      ssz_ob_t proof_req;
+      if (pap_request_proof(ctx, ctx->method, bprintf(&buf, "[%J]", json_at(ctx->args, 0)), &proof_req) == C4_SUCCESS) {
+        ctx->proof     = ssz_get(&proof_req, "proof");
+        ctx->data      = ssz_get(&proof_req, "data");
+        ctx->sync_data = ssz_get(&proof_req, "sync_data");
+        c4_verify(ctx);
+      }
+      return false;
+    }
+  }
+  else
+    pap_tx_cache_remove_pending(ctx->chain_id, requested_hash);
+  return true;
+}
+
+static bool pap_tx_receipt(verify_ctx_t* ctx) {
+  bytes32_t requested_hash = {0};
+  buffer_t  hbuf           = stack_buffer(requested_hash);
+  bytes_t   h              = json_as_bytes(json_at(ctx->args, 0), &hbuf);
+  char      tmp[80]        = {0};
+  buffer_t  buf            = stack_buffer(tmp);
+  uint64_t  block_number   = 0;
+  uint32_t  tx_index       = 0;
+  ssz_ob_t  proof;
+
+  if (h.len != 32) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction hash");
+
+  if (!get_tx_index_and_block(ctx, requested_hash, &block_number, &tx_index)) return false;
+
+  if (pap_request_proof(ctx, "eth_getBlockReceipts", bprintf(&buf, "[\"0x%lx\"]", block_number), &proof) != C4_SUCCESS)
+    return false;
+
+  ctx->sync_data           = ssz_get(&proof, "sync_data");
+  ssz_ob_t receipt_proof   = ssz_get(&proof, "proof");
+  ssz_ob_t receipts        = ssz_get(&receipt_proof, "receipts");
+  ssz_ob_t transactions    = ssz_get(&receipt_proof, "transactions");
+  ssz_ob_t block_hash      = ssz_get(&receipt_proof, "blockHash");
+  uint64_t blk_num         = ssz_get_uint64(&receipt_proof, "blockNumber");
+  uint64_t base_fee        = ssz_get_uint64(&receipt_proof, "baseFeePerGas");
+  uint32_t num_receipts    = ssz_len(ssz_get(&receipt_proof, "receipts"));
+  uint64_t prev_cumulative = 0;
+  uint32_t next_log_index  = 0;
+  if (tx_index > num_receipts) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction index");
+  if (!c4_update_from_sync_data(ctx)) return false;
+  #ifdef ETH_RECEIPT
+    if (!verify_block_receipts_proof_for(ctx, receipt_proof)) return false;
+  #else
+    RETURN_VERIFY_ERROR(ctx, "PAP: ETH_RECEIPT is not enabled");
+  #endif
+
+  ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_RECEIPT));
+  for (uint32_t i = 0; i <= tx_index; i++) {
+    buffer_reset(&builder.dynamic);
+    buffer_reset(&builder.fixed);
+    bytes_t raw_tx      = ssz_at(transactions, i).bytes;
+    bytes_t raw_receipt = ssz_at(receipts, i).bytes;
+    if (!c4_write_receipt_data_from_raw(ctx, &builder, raw_tx, raw_receipt, block_hash.bytes.data, blk_num, i, base_fee, &prev_cumulative, &next_log_index))
+      RETURN_VERIFY_ERROR(ctx, "invalid receipt data from RLP!");
+  }
+
+  ctx->data = ssz_builder_to_bytes(&builder);
+  ctx->flags |= VERIFY_FLAG_FREE_DATA;
   ctx->success = true;
   return true;
 }
@@ -124,62 +218,24 @@ static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
 /* ── eth_getTransactionByHash ── */
 
 static bool pap_tx_by_hash(verify_ctx_t* ctx) {
+  uint64_t  block_number   = 0;
+  uint32_t  tx_index       = 0;
   bytes32_t requested_hash = {0};
   buffer_t  hbuf           = stack_buffer(requested_hash);
   bytes_t   h              = json_as_bytes(json_at(ctx->args, 0), &hbuf);
+  char      tmp[80]        = {0};
+  buffer_t  buf            = stack_buffer(tmp);
+  ssz_ob_t  proof;
   if (h.len != 32) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction hash");
+  if (!get_tx_index_and_block(ctx, requested_hash, &block_number, &tx_index)) return false;
+  if (pap_request_proof(ctx, "eth_getBlockByNumber", bprintf(&buf, "[\"0x%lx\",true]", block_number), &proof) != C4_SUCCESS)
+    return false;
 
-  if (ensure_tx_cache(ctx) != C4_SUCCESS) return false;
-
-  uint64_t block_number = 0;
-  uint32_t tx_index     = 0;
-
-  if (!pap_tx_cache_get(ctx->chain_id, requested_hash, &block_number, &tx_index)) {
-    if (pap_tx_cache_is_pending(ctx->chain_id, requested_hash)) {
-      if (!(ctx->flags & VERIFY_FLAG_REMOTE_PROVER))
-        goto return_null;
-
-      if (fetch_tx_cache_from_server(ctx) != C4_SUCCESS) return false;
-
-      if (!pap_tx_cache_get(ctx->chain_id, requested_hash, &block_number, &tx_index))
-        goto return_null;
-
-      pap_tx_cache_remove_pending(ctx->chain_id, requested_hash);
-    }
-    else {
-      uint8_t  tmp[200];
-      buffer_t buf = stack_buffer(tmp);
-      ssz_ob_t proof_req;
-      if (pap_request_proof(ctx, "eth_getTransactionByHash",
-                            bprintf(&buf, "[%J]", json_at(ctx->args, 0)), &proof_req) != C4_SUCCESS)
-        return false;
-
-      ctx->proof     = ssz_get(&proof_req, "proof");
-      ctx->data      = ssz_get(&proof_req, "data");
-      ctx->sync_data = ssz_get(&proof_req, "sync_data");
-      c4_verify(ctx);
-      return true;
-    }
-  }
-  else
-    pap_tx_cache_remove_pending(ctx->chain_id, requested_hash);
-
-  {
-    char     tmp[80];
-    buffer_t buf = stack_buffer(tmp);
-    ssz_ob_t proof;
-    if (pap_request_proof(ctx, "eth_getBlockByNumber",
-                          bprintf(&buf, "[\"0x%lx\",true]", block_number), &proof) != C4_SUCCESS)
-      return false;
-
-    char     bn[24];
-    buffer_t bn_buf = stack_buffer(bn);
-    return extract_tx_from_block_proof(ctx, proof,
-                                       json_parse(bprintf(&bn_buf, "\"0x%lx\"", block_number)),
-                                       tx_index, requested_hash);
-  }
-
-return_null:
+  char     bn[24];
+  buffer_t bn_buf = stack_buffer(bn);
+  return extract_tx_from_block_proof(ctx, proof,
+                                     json_parse(bprintf(&bn_buf, "\"0x%lx\"", block_number)),
+                                     tx_index, requested_hash);
   ctx->success = true;
   return true;
 }
@@ -218,7 +274,7 @@ static bool pap_handle_send_tx(verify_ctx_t* ctx) {
       pap_tx_cache_add_pending(ctx->chain_id, tx_hash);
   }
 
-  ctx->data    = (ssz_ob_t){.def = &ssz_json_def, .bytes = bytes((uint8_t*) result.start, result.len)};
+  ctx->data    = (ssz_ob_t) {.def = &ssz_json_def, .bytes = bytes((uint8_t*) result.start, result.len)};
   ctx->success = true;
   return true;
 }
@@ -228,6 +284,8 @@ static bool pap_handle_send_tx(verify_ctx_t* ctx) {
 bool verify_pap_tx(verify_ctx_t* ctx) {
   if (strcmp(ctx->method, "eth_getTransactionByHash") == 0)
     return pap_tx_by_hash(ctx);
+  if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
+    return pap_tx_receipt(ctx);
   if (strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0)
     return pap_tx_by_block_and_index(ctx);
   if (strcmp(ctx->method, "eth_sendRawTransaction") == 0 ||
