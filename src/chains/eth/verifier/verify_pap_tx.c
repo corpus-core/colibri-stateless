@@ -193,7 +193,11 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
   uint32_t next_log_index  = 0;
   if (tx_index > num_receipts) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction index");
   if (!c4_update_from_sync_data(ctx)) return false;
-  if (!verify_block_receipts_proof_for(ctx, receipt_proof)) return false;
+  #ifdef ETH_RECEIPT
+    if (!verify_block_receipts_proof_for(ctx, receipt_proof)) return false;
+  #else
+    RETURN_VERIFY_ERROR(ctx, "PAP: ETH_RECEIPT is not enabled");
+  #endif
 
   ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_RECEIPT));
   for (uint32_t i = 0; i <= tx_index; i++) {
