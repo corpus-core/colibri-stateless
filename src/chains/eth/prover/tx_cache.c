@@ -218,8 +218,8 @@ static void clean_up_cache(int number_of_entries_to_add) {
   while (g_size + (size_t) number_of_entries_to_add > g_max_tx_cache_size) {
     if (!g_head) break; // nothing to evict
     block_node_t* victim = g_head;
-    log_debug("tx_cache evicting block %lu (%u txs), entries=%zu max=%zu to_add=%d",
-              (unsigned long) victim->block_number, (unsigned) victim->count, g_size, g_max_tx_cache_size, number_of_entries_to_add);
+    log_debug("tx_cache evicting block %l (%d txs), entries=%d max=%d to_add=%d",
+              victim->block_number, victim->count, (uint32_t)g_size, (uint32_t)g_max_tx_cache_size, (uint32_t)number_of_entries_to_add);
     // remove all txs of this block from the table
     for (uint32_t i = 0; i < victim->count; i++) {
       table_remove(victim->items[i]);
