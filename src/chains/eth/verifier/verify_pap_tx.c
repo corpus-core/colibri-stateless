@@ -36,24 +36,50 @@
 #include "sync_committee.h"
 #include "verify.h"
 #include <string.h>
+#include <time.h>
 
 #define EXECUTION_PAYLOAD_ROOT_GINDEX 25
+#define PAP_TX_CACHE_STALE_THRESHOLD_S 12
 
 /* ── tx cache fetch ── */
 
 static c4_status_t fetch_tx_cache_from_server(verify_ctx_t* ctx) {
-  bytes_t response;
-  TRY_ASYNC(pap_request_get(ctx, "tx_cache", &response));
+  bytes_t  response;
+  char     url_tmp[128];
+  buffer_t url_buf     = stack_buffer(url_tmp);
+  bool     incremental = pap_tx_cache_is_loaded(ctx->chain_id);
+  char*    path;
+
+  if (incremental) {
+    uint64_t max_blk = pap_tx_cache_max_block(ctx->chain_id);
+    if (max_blk < UINT64_MAX)
+      path = bprintf(&url_buf, "tx_cache?from_block=%l&max_blocks=%d",
+                     max_blk + 1, (uint32_t) PAP_TX_CACHE_MAX_BLOCKS);
+    else
+      path = bprintf(&url_buf, "tx_cache?max_blocks=%d",
+                     (uint32_t) PAP_TX_CACHE_MAX_BLOCKS);
+  }
+  else
+    path = bprintf(&url_buf, "tx_cache?max_blocks=%d",
+                   (uint32_t) PAP_TX_CACHE_MAX_BLOCKS);
+
+  TRY_ASYNC(pap_request_get(ctx, path, &response));
 
   if (response.len > PAP_TX_CACHE_MAX_SSZ_SIZE)
     THROW_ERROR("PAP: tx_cache response exceeds size limit");
 
-  ssz_ob_t snapshot = {.bytes = response, .def = &PAP_TX_CACHE_SNAPSHOT};
-  if (!ssz_is_valid(snapshot, true, &ctx->state))
-    return C4_ERROR;
+  if (response.len > 0) {
+    ssz_ob_t snapshot = {.bytes = response, .def = &PAP_TX_CACHE_SNAPSHOT};
+    if (!ssz_is_valid(snapshot, true, &ctx->state))
+      return C4_ERROR;
+  }
 
-  pap_tx_cache_populate_from_ssz(ctx->chain_id, response);
-  if (!pap_tx_cache_is_loaded(ctx->chain_id))
+  if (incremental)
+    pap_tx_cache_merge_from_ssz(ctx->chain_id, response);
+  else
+    pap_tx_cache_populate_from_ssz(ctx->chain_id, response);
+
+  if (!pap_tx_cache_is_loaded(ctx->chain_id) && response.len > 0)
     THROW_ERROR("PAP: failed to populate tx cache from server data");
 
   return C4_SUCCESS;
@@ -146,7 +172,15 @@ static bool get_tx_index_and_block(verify_ctx_t* ctx, bytes32_t requested_hash, 
       pap_tx_cache_remove_pending(ctx->chain_id, requested_hash);
     }
     else {
-      // we didn't find it in the cache and since it is not pending, we need to fetch it from the server
+      uint64_t now  = (uint64_t) time(NULL);
+      uint64_t last = pap_tx_cache_last_updated(ctx->chain_id);
+      if ((ctx->flags & VERIFY_FLAG_REMOTE_PROVER) &&
+          last > 0 && now >= last &&
+          now - last >= PAP_TX_CACHE_STALE_THRESHOLD_S) {
+        if (fetch_tx_cache_from_server(ctx) != C4_SUCCESS) return false;
+        if (pap_tx_cache_get(ctx->chain_id, requested_hash, block_number, tx_index))
+          return true;
+      }
       uint8_t  tmp[200];
       buffer_t buf = stack_buffer(tmp);
       ssz_ob_t proof_req;

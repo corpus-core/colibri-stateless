@@ -113,22 +113,26 @@ static size_t table_find_index(const bytes32_t key) {
   }
 }
 
-// Backshift deletion starting from position pos
+// Backshift deletion (Knuth's Algorithm R for open-addressing with linear probing).
+// After removing the entry at `pos`, scan forward and shift back any entry whose
+// home bucket is not reachable without crossing the gap.
 static void table_delete_at(size_t pos) {
-  size_t i = pos;
-  size_t j = (i + 1u) & (TABLE_CAPACITY - 1u);
-  while (g_table[j].used) {
-    uint64_t h    = hash_bytes32(g_table[j].key);
-    size_t   home = table_index(h);
-    // If entry is in its home bucket, stop shifting
-    if (home == j) {
-      break;
+  size_t gap = pos;
+  g_table[gap].used = false;
+  for (size_t j = (gap + 1u) & (TABLE_CAPACITY - 1u); g_table[j].used; j = (j + 1u) & (TABLE_CAPACITY - 1u)) {
+    size_t home = table_index(hash_bytes32(g_table[j].key));
+    // Entry at j is still reachable if its home is in the cyclic range (gap, j].
+    // A lookup starting at home would probe home, home+1, ..., j without
+    // hitting the empty slot at gap.
+    bool reachable = (gap < j)
+                         ? (home > gap && home <= j)
+                         : (home > gap || home <= j);
+    if (!reachable) {
+      g_table[gap]    = g_table[j];
+      g_table[j].used = false;
+      gap             = j;
     }
-    g_table[i] = g_table[j];
-    i          = j;
-    j          = (j + 1u) & (TABLE_CAPACITY - 1u);
   }
-  g_table[i].used = false;
 }
 
 // Insert or update. Returns true if inserted as new key, false if updated.
