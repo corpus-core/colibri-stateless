@@ -60,6 +60,12 @@ extern "C" {
 #define PAP_PENDING_TX_TTL_S 3600
 
 /**
+ * Default maximum number of blocks to request from the server
+ * in a single `/tx_cache` fetch.
+ */
+#define PAP_TX_CACHE_MAX_BLOCKS 256
+
+/**
  * Attempts to load the tx cache for `chain_id` from storage.
  *
  * @param chain_id target chain
@@ -76,6 +82,35 @@ bool pap_tx_cache_load(chain_id_t chain_id);
  * @param ssz_data raw SSZ bytes of the TxCacheSnapshot
  */
 void pap_tx_cache_populate_from_ssz(chain_id_t chain_id, bytes_t ssz_data);
+
+/**
+ * Merges an incremental SSZ `TxCacheSnapshot` blob into the existing
+ * in-memory cache. New blocks are appended; blocks already present
+ * (same `block_number`) are replaced. Falls back to
+ * `pap_tx_cache_populate_from_ssz` when no cache exists yet.
+ *
+ * @param chain_id target chain
+ * @param ssz_data raw SSZ bytes of the (partial) TxCacheSnapshot
+ */
+void pap_tx_cache_merge_from_ssz(chain_id_t chain_id, bytes_t ssz_data);
+
+/**
+ * Returns the highest block number in the loaded cache, or 0 if
+ * no cache is loaded for `chain_id`.
+ *
+ * @param chain_id target chain
+ * @return highest cached block number
+ */
+uint64_t pap_tx_cache_max_block(chain_id_t chain_id);
+
+/**
+ * Returns the Unix timestamp (seconds) of the last successful
+ * server fetch for `chain_id`, or 0 if never fetched this session.
+ *
+ * @param chain_id target chain
+ * @return timestamp of last server update
+ */
+uint64_t pap_tx_cache_last_updated(chain_id_t chain_id);
 
 /**
  * Looks up a transaction hash in the cache.

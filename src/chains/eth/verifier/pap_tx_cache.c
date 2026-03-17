@@ -38,6 +38,8 @@ typedef struct {
   chain_id_t chain_id;
   bytes_t    ssz_data;
   ssz_ob_t   snapshot;
+  uint64_t   max_block;
+  uint64_t   last_updated;
 } pap_cache_t;
 
 static pap_cache_t g_cache = {0};
@@ -55,6 +57,16 @@ static bool parse_snapshot(bytes_t ssz_data) {
   if (!ssz_data.data || ssz_data.len == 0) return false;
   g_cache.snapshot = (ssz_ob_t){.bytes = ssz_data, .def = &PAP_TX_CACHE_SNAPSHOT};
   return ssz_len(g_cache.snapshot) > 0;
+}
+
+static void update_max_block(void) {
+  g_cache.max_block = 0;
+  uint32_t n = ssz_len(g_cache.snapshot);
+  for (uint32_t i = 0; i < n; i++) {
+    ssz_ob_t block = ssz_at(g_cache.snapshot, i);
+    uint64_t bn    = ssz_get_uint64(&block, "block_number");
+    if (bn > g_cache.max_block) g_cache.max_block = bn;
+  }
 }
 
 bool pap_tx_cache_load(chain_id_t chain_id) {
@@ -85,6 +97,8 @@ bool pap_tx_cache_load(chain_id_t chain_id) {
     return false;
   }
 
+  update_max_block();
+  g_cache.last_updated = (uint64_t) time(NULL);
   return true;
 }
 
@@ -100,6 +114,9 @@ void pap_tx_cache_populate_from_ssz(chain_id_t chain_id, bytes_t ssz_data) {
     cache_free();
     return;
   }
+
+  update_max_block();
+  g_cache.last_updated = (uint64_t) time(NULL);
 
   storage_plugin_t plugin = {0};
   c4_get_storage_config(&plugin);
@@ -138,6 +155,92 @@ bool pap_tx_cache_is_loaded(chain_id_t chain_id) {
 
 void pap_tx_cache_reset(void) {
   cache_free();
+}
+
+static void append_block_to_builder(ssz_builder_t* list, ssz_ob_t block, uint32_t* count) {
+  ssz_builder_t bb = ssz_builder_for_def(&PAP_TX_CACHE_BLOCK);
+  ssz_add_uint64(&bb, ssz_get_uint64(&block, "block_number"));
+  ssz_add_bytes(&bb, "tx_hashes", ssz_get(&block, "tx_hashes").bytes);
+  ssz_add_dynamic_list_builders(list, 0, bb);
+  (*count)++;
+}
+
+void pap_tx_cache_merge_from_ssz(chain_id_t chain_id, bytes_t ssz_data) {
+  if (!ssz_data.data || ssz_data.len == 0 || ssz_data.len > PAP_TX_CACHE_MAX_SSZ_SIZE) return;
+
+  if (!g_cache.ssz_data.data || g_cache.chain_id != chain_id) {
+    pap_tx_cache_populate_from_ssz(chain_id, ssz_data);
+    return;
+  }
+
+  ssz_ob_t new_snapshot = {.bytes = ssz_data, .def = &PAP_TX_CACHE_SNAPSHOT};
+  uint32_t new_len      = ssz_len(new_snapshot);
+  if (new_len == 0) {
+    g_cache.last_updated = (uint64_t) time(NULL);
+    return;
+  }
+
+  ssz_builder_t merged = ssz_builder_for_def(&PAP_TX_CACHE_SNAPSHOT);
+  uint32_t      count  = 0;
+
+  uint32_t old_len = ssz_len(g_cache.snapshot);
+  for (uint32_t i = 0; i < old_len; i++) {
+    ssz_ob_t block = ssz_at(g_cache.snapshot, i);
+    uint64_t bn    = ssz_get_uint64(&block, "block_number");
+
+    bool dup = false;
+    for (uint32_t j = 0; j < new_len; j++) {
+      ssz_ob_t nb = ssz_at(new_snapshot, j);
+      if (ssz_get_uint64(&nb, "block_number") == bn) {
+        dup = true;
+        break;
+      }
+    }
+    if (dup) continue;
+
+    append_block_to_builder(&merged, block, &count);
+  }
+
+  for (uint32_t j = 0; j < new_len; j++)
+    append_block_to_builder(&merged, ssz_at(new_snapshot, j), &count);
+
+  ssz_builder_fix_list_offsets(&merged, count);
+  ssz_ob_t merged_ob = ssz_builder_to_bytes(&merged);
+
+  if (merged_ob.bytes.len > PAP_TX_CACHE_MAX_SSZ_SIZE) {
+    safe_free(merged_ob.bytes.data);
+    return;
+  }
+
+  cache_free();
+  g_cache.chain_id = chain_id;
+  g_cache.ssz_data = merged_ob.bytes;
+
+  if (!parse_snapshot(g_cache.ssz_data)) {
+    cache_free();
+    return;
+  }
+
+  update_max_block();
+  g_cache.last_updated = (uint64_t) time(NULL);
+
+  storage_plugin_t plugin = {0};
+  c4_get_storage_config(&plugin);
+  if (plugin.set) {
+    char key[32] = {0};
+    tx_cache_storage_key(chain_id, key, sizeof(key));
+    plugin.set(key, g_cache.ssz_data);
+  }
+}
+
+uint64_t pap_tx_cache_max_block(chain_id_t chain_id) {
+  if (!g_cache.ssz_data.data || g_cache.chain_id != chain_id) return 0;
+  return g_cache.max_block;
+}
+
+uint64_t pap_tx_cache_last_updated(chain_id_t chain_id) {
+  if (!g_cache.ssz_data.data || g_cache.chain_id != chain_id) return 0;
+  return g_cache.last_updated;
 }
 
 /* ── pending transaction list ── */
