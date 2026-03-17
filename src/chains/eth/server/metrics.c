@@ -92,10 +92,10 @@ void eth_server_metrics(http_server_t* server, buffer_t* data) {
     bprintf(data, "colibri_eth_tx_cache_entries{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, (uint64_t)tx_entries);
     bprintf(data, "# HELP colibri_eth_tx_cache_blocks Number of blocks currently in tx cache.\n");
     bprintf(data, "# TYPE colibri_eth_tx_cache_blocks gauge\n");
-    bprintf(data, "colibri_eth_tx_cache_blocks{chain_id=\"%d\"} %u\n", (uint32_t) server->chain_id, (unsigned) tx_blocks);
+    bprintf(data, "colibri_eth_tx_cache_blocks{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, tx_blocks);
     bprintf(data, "# HELP colibri_eth_tx_cache_capacity Maximum number of entries the tx cache can hold.\n");
     bprintf(data, "# TYPE colibri_eth_tx_cache_capacity gauge\n");
-    bprintf(data, "colibri_eth_tx_cache_capacity{chain_id=\"%d\"} %zu\n", (uint32_t) server->chain_id, tx_cap);
+    bprintf(data, "colibri_eth_tx_cache_capacity{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, (uint32_t)tx_cap);
     bprintf(data, "\n");
   }
 
