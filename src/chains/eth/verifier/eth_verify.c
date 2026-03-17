@@ -101,7 +101,8 @@ static bool is_call_method(char* method) {
 }
 #ifdef PAP
 static bool is_pap_tx_method(char* method) {
-  return strcmp(method, "eth_getTransactionByHash") == 0 ||
+  return strcmp(method, "eth_getTransactionReceipt") == 0 ||
+         strcmp(method, "eth_getTransactionByHash") == 0 ||
          strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 ||
          strcmp(method, "eth_sendRawTransaction") == 0 ||
          strcmp(method, "eth_sendTransaction") == 0;

@@ -28,6 +28,7 @@ static const double PROVE_TOKEN_DECIMALS = 1e18;
 
 #if defined(PROVER_CACHE) && defined(CHAIN_ETH)
 #include "chains/eth/prover/logs_cache.h"
+#include "chains/eth/prover/tx_cache.h"
 #endif
 
 void eth_server_metrics(http_server_t* server, buffer_t* data) {
@@ -80,7 +81,25 @@ void eth_server_metrics(http_server_t* server, buffer_t* data) {
 
     bprintf(data, "\n");
   }
-  else {
+
+  // Transaction cache (tx_cache) metrics – entries and blocks currently in cache
+  {
+    size_t   tx_entries = c4_eth_tx_cache_size();
+    uint32_t tx_blocks  = c4_eth_tx_cache_block_count();
+    size_t   tx_cap     = c4_eth_tx_cache_capacity();
+    bprintf(data, "# HELP colibri_eth_tx_cache_entries Number of transaction entries currently in tx cache.\n");
+    bprintf(data, "# TYPE colibri_eth_tx_cache_entries gauge\n");
+    bprintf(data, "colibri_eth_tx_cache_entries{chain_id=\"%d\"} %zu\n", (uint32_t) server->chain_id, tx_entries);
+    bprintf(data, "# HELP colibri_eth_tx_cache_blocks Number of blocks currently in tx cache.\n");
+    bprintf(data, "# TYPE colibri_eth_tx_cache_blocks gauge\n");
+    bprintf(data, "colibri_eth_tx_cache_blocks{chain_id=\"%d\"} %u\n", (uint32_t) server->chain_id, (unsigned) tx_blocks);
+    bprintf(data, "# HELP colibri_eth_tx_cache_capacity Maximum number of entries the tx cache can hold.\n");
+    bprintf(data, "# TYPE colibri_eth_tx_cache_capacity gauge\n");
+    bprintf(data, "colibri_eth_tx_cache_capacity{chain_id=\"%d\"} %zu\n", (uint32_t) server->chain_id, tx_cap);
+    bprintf(data, "\n");
+  }
+
+  if (!c4_eth_logs_cache_is_enabled()) {
     // If disabled, export zeros for visibility
     bprintf(data, "# HELP colibri_eth_logs_cache_hits_total Total eth_getLogs served from cache.\n");
     bprintf(data, "# TYPE colibri_eth_logs_cache_hits_total counter\n");

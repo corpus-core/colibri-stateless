@@ -211,12 +211,19 @@ static void free_block_node(block_node_t* node) {
   free(node);
 }
 
+uint32_t c4_eth_tx_cache_block_count(void) {
+  uint32_t n = 0;
+  for (block_node_t* node = g_head; node; node = node->next) n++;
+  return n;
+}
 // remove as many entries as needed, so the number_of_entries_to_add can be added.
 static void clean_up_cache(int number_of_entries_to_add) {
   // Evict whole blocks from the head until there is enough room
   while (g_size + (size_t) number_of_entries_to_add > g_max_tx_cache_size) {
     if (!g_head) break; // nothing to evict
     block_node_t* victim = g_head;
+    log_debug("tx_cache evicting block %lu (%u txs), entries=%zu max=%zu to_add=%d",
+              (unsigned long) victim->block_number, (unsigned) victim->count, g_size, g_max_tx_cache_size, number_of_entries_to_add);
     // remove all txs of this block from the table
     for (uint32_t i = 0; i < victim->count; i++) {
       table_remove(victim->items[i]);
@@ -286,6 +293,12 @@ void c4_eth_tx_cache_set_max_size(uint32_t max) {
 
 size_t c4_eth_tx_cache_capacity(void) {
   return g_max_tx_cache_size;
+}
+
+uint32_t c4_eth_tx_cache_block_count(void) {
+  uint32_t n = 0;
+  for (block_node_t* node = g_head; node; node = node->next) n++;
+  return n;
 }
 
 void c4_eth_tx_cache_visit_blocks(tx_cache_block_visitor_t visitor, void* user_data) {

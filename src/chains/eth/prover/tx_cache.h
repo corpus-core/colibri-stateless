@@ -100,6 +100,13 @@ void c4_eth_tx_cache_set_max_size(uint32_t max);
 size_t c4_eth_tx_cache_capacity(void);
 
 /**
+ * Returns the current number of blocks in the cache (each block holds one or more transaction entries).
+ *
+ * @return Number of cached blocks
+ */
+uint32_t c4_eth_tx_cache_block_count(void);
+
+/**
  * Callback invoked by `c4_eth_tx_cache_visit_blocks()` for each cached block.
  *
  * @param block_number the execution-layer block number
