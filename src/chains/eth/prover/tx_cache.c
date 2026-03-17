@@ -211,11 +211,7 @@ static void free_block_node(block_node_t* node) {
   free(node);
 }
 
-uint32_t c4_eth_tx_cache_block_count(void) {
-  uint32_t n = 0;
-  for (block_node_t* node = g_head; node; node = node->next) n++;
-  return n;
-}
+
 // remove as many entries as needed, so the number_of_entries_to_add can be added.
 static void clean_up_cache(int number_of_entries_to_add) {
   // Evict whole blocks from the head until there is enough room
