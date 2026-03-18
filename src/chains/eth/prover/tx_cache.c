@@ -40,16 +40,19 @@
 #include <string.h>
 
 #ifdef PROVER_CACHE
-// Default maximum entries; can be adjusted at runtime via API
+// Default maximum entries; can be adjusted at runtime via c4_eth_tx_cache_set_max_size().
+// Must not exceed TABLE_MAX_LOAD to avoid infinite loops in the open-addressing table.
 static size_t g_max_tx_cache_size = 80000u;
 typedef struct { // cache key for the transaction proof
   uint64_t block_number;
   uint32_t tx_index;
 } eth_tx_cache_value_t;
 
-// Fixed-size open addressing hash table for Tx cache.
+// Fixed-size open-addressing hash table for Tx cache.
 // Capacity is a power-of-two for efficient masking.
-#define TABLE_CAPACITY 16384u
+#define TABLE_CAPACITY 131072u
+// Linear probing degrades severely above ~75% load; enforce this as hard ceiling.
+#define TABLE_MAX_LOAD (TABLE_CAPACITY * 3u / 4u)
 
 typedef struct {
   bool      used;
@@ -285,9 +288,9 @@ void c4_eth_tx_cache_reserve(uint32_t number_of_entries_to_add) {
 }
 
 void c4_eth_tx_cache_set_max_size(uint32_t max) {
-  if (max == 0) max = 1; // avoid zero which breaks invariants
+  if (max == 0) max = 1;
+  if (max > TABLE_MAX_LOAD) max = TABLE_MAX_LOAD;
   g_max_tx_cache_size = (size_t) max;
-  // Ensure we do not exceed the new limit
   clean_up_cache(0);
 }
 
