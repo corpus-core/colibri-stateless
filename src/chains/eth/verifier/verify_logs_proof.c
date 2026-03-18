@@ -25,6 +25,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "eth_bloom.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
@@ -150,6 +151,18 @@ bool verify_logs_proof(verify_ctx_t* ctx) {
     ssz_ob_t log = ssz_at(ctx->data, i);
     if (!has_proof(ctx, ssz_get(&log, "blockNumber").bytes, ssz_get(&log, "transactionIndex").bytes, block_count)) RETURN_VERIFY_ERROR(ctx, "missing log proof!");
   }
+
+#ifdef PAP
+  if (ctx->flags & VERIFY_FLAG_PAP) {
+    json_t filter = json_at(ctx->args, 0);
+    if (filter.type != JSON_TYPE_OBJECT) RETURN_VERIFY_ERROR(ctx, "PAP mode requires filter object in args");
+    ssz_ob_t filtered = c4_eth_filter_logs(ctx->data, filter);
+    if (ctx->flags & VERIFY_FLAG_FREE_DATA)
+      safe_free(ctx->data.bytes.data);
+    ctx->data = filtered;
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+#endif
 
   ctx->success = true;
   return true;

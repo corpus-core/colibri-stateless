@@ -8,15 +8,12 @@
 
 #include "beacon.h"
 #include "bytes.h"
-#include "crypto.h"
+#include "eth_bloom.h"
 #include "eth_req.h"
 #include "logger.h"
 #include "prover.h"
 #include <stdlib.h>
 #include <string.h>
-
-#define MAX_TOPICS         4
-#define MAX_BLOOM_VARIANTS 16
 
 #if defined(_MSC_VER)
 #define C4_ALIGN8 __declspec(align(8))
@@ -67,7 +64,7 @@ typedef struct {
   // Prepared filter
   bytes_t filter_blooms;             // n*256 bytes (n variants) or len=0 => bloom disabled
   bytes_t filter_addresses;          // m*20 bytes or len=0 => wildcard
-  bytes_t filter_topics[MAX_TOPICS]; // per position: k*32 bytes or len=0 => wildcard
+  bytes_t filter_topics[C4_ETH_LOG_MAX_TOPICS]; // per position: k*32 bytes or len=0 => wildcard
   // Backfill state (loading older blocks into cache on demand)
   uint64_t backfill_from;            // first block number to backfill
   uint32_t backfill_count;           // number of blocks to backfill
@@ -88,7 +85,7 @@ typedef struct {
   uint32_t  tx_index;           // transaction index in the block
   uint32_t  log_index;          // log index in the transaction
   uint8_t   topics_count;       // number of topics in the event
-  bytes32_t topics[MAX_TOPICS]; // topics of the event
+  bytes32_t topics[C4_ETH_LOG_MAX_TOPICS]; // topics of the event
 } cached_event_t;
 
 /**
@@ -140,24 +137,6 @@ static void reset_cache(void) {
   g_cache.start_number = 0;
 
   memset(&g_metrics, 0, sizeof(g_metrics));
-}
-#define BLOOM_BYTE_LENGTH 256u
-
-static inline void bloom_set(uint8_t* bloom, uint16_t idx) {
-  uint16_t byte_index = (uint16_t) (BLOOM_BYTE_LENGTH - 1u - ((idx >> 3u) & 0xffu));
-  uint8_t  bit_mask   = (uint8_t) (1u << (idx & 7u));
-  bloom[byte_index] |= bit_mask;
-}
-
-// Build bloom from filter's address/topics and check subset of block bloom
-static void bloom_add_element_buf(uint8_t bloom[256], bytes_t element) {
-  bytes32_t hash = {0};
-  keccak(element, hash);
-
-  for (int i = 0; i < 6; i += 2) {
-    uint16_t idx = (uint16_t) ((((uint16_t) hash[i] << 8u) | hash[i + 1]) & 0x7ffu);
-    bloom_set(bloom, idx);
-  }
 }
 
 /**
@@ -298,7 +277,7 @@ static void free_log_state(void* ptr) {
   if (st->result_owner) free(st->result_owner);
   if (st->filter_blooms.data) free(st->filter_blooms.data);
   if (st->filter_addresses.data) free(st->filter_addresses.data);
-  for (int i = 0; i < MAX_TOPICS; i++)
+  for (int i = 0; i < C4_ETH_LOG_MAX_TOPICS; i++)
     if (st->filter_topics[i].data) free(st->filter_topics[i].data);
   if (st->backfill_receipts) safe_free(st->backfill_receipts);
   free_block_results(st->blocks);
@@ -388,9 +367,9 @@ static inline bool address_matches(bytes_t addresses, address_t address) {
  * @param topics_count Number of topics in the event.
  * @return True if all non-wildcard positions match.
  */
-static inline bool topics_matches(bytes_t filter_topics[MAX_TOPICS], bytes32_t* topics, uint8_t topics_count) {
+static inline bool topics_matches(bytes_t filter_topics[C4_ETH_LOG_MAX_TOPICS], bytes32_t* topics, uint8_t topics_count) {
   // Topics positional check (bytes)
-  for (int p = 0; p < MAX_TOPICS; p++) {
+  for (int p = 0; p < C4_ETH_LOG_MAX_TOPICS; p++) {
     bytes_t tp = filter_topics[p];
     if (tp.len == 0) continue; // wildcard
     if (topics_count <= p) return false;
@@ -405,128 +384,6 @@ static inline bool topics_matches(bytes_t filter_topics[MAX_TOPICS], bytes32_t* 
     if (!any) return false;
   }
   return true;
-}
-
-// -------- Filter preparation (addresses/topics as bytes and bloom variants) --------
-
-/**
- * Extracts addresses from filter JSON into a flat byte buffer.
- * Handles single address string or array of address strings.
- */
-static void build_filter_addresses(json_t address_json, bytes_t* out_addresses) {
-  uint8_t  tmp[ADDRESS_SIZE] = {0};
-  buffer_t b                 = stack_buffer(tmp);
-  switch (address_json.type) {
-    case JSON_TYPE_STRING: {
-      bytes_t a = json_as_bytes(address_json, &b);
-      if (a.len == ADDRESS_SIZE) {
-        *out_addresses = bytes_dup(a);
-      }
-      return;
-    }
-    case JSON_TYPE_ARRAY: {
-      int count = 0;
-      json_for_each_value(address_json, _) count++;
-      if (count <= 0) return;
-      uint8_t* buf = (uint8_t*) safe_malloc((size_t) count * ADDRESS_SIZE);
-      int      i   = 0;
-      json_for_each_value(address_json, a) {
-        bytes_t ab = json_as_bytes(a, &b);
-        if (ab.len == ADDRESS_SIZE) memcpy(buf + (i++ * ADDRESS_SIZE), ab.data, ADDRESS_SIZE);
-      }
-      *out_addresses = bytes(buf, (uint32_t) (i * ADDRESS_SIZE));
-      return;
-    }
-    default:
-      return;
-  }
-}
-
-/**
- * Extracts topics from filter JSON into per-position flat byte buffers.
- * Handles single topic or array of topics (OR condition) per position.
- */
-static void build_filter_topics(json_t topics_json, bytes_t out_topics[MAX_TOPICS]) {
-  memset(out_topics, 0, sizeof(bytes_t) * MAX_TOPICS);
-  if (topics_json.type != JSON_TYPE_ARRAY) return;
-  uint8_t  tmp[32] = {0};
-  buffer_t b       = stack_buffer(tmp);
-  int      pos     = 0;
-  json_for_each_value(topics_json, tpos) {
-    if (pos >= MAX_TOPICS) break;
-    if (tpos.type == JSON_TYPE_STRING) {
-      bytes_t v = json_as_bytes(tpos, &b);
-      if (v.len == 32) {
-        uint8_t* buf = (uint8_t*) safe_malloc(32);
-        memcpy(buf, v.data, 32);
-        out_topics[pos] = bytes(buf, 32);
-      }
-    }
-    else if (tpos.type == JSON_TYPE_ARRAY) {
-      // Collect OR list
-      int count = json_len(tpos);
-      if (count > 0) {
-        uint8_t* buf = (uint8_t*) safe_malloc((size_t) count * 32);
-        int      i   = 0;
-        json_for_each_value(tpos, cand) {
-          bytes_t v = json_as_bytes(cand, &b);
-          if (v.len == 32) memcpy(buf + (i++ * 32), v.data, 32);
-        }
-        out_topics[pos] = bytes(buf, (uint32_t) (32 * i));
-      }
-    }
-    // else: null => wildcard (len=0)
-    pos++;
-  }
-}
-
-/**
- * Generates all combinations of bloom filters for the given addresses and topics.
- * Used for fast pre-filtering of blocks using the block's logs bloom.
- * If too many variants would be generated, returns 0 to disable bloom filtering.
- *
- * @param addresses Filter addresses.
- * @param topics Filter topics.
- * @param out_variants Output array for generated bloom filters.
- * @return Number of variants generated, or 0 if limit exceeded.
- */
-static int build_bloom_variants(bytes_t addresses, bytes_t topics[MAX_TOPICS], uint64_t out_variants[MAX_BLOOM_VARIANTS][32]) {
-  int addr_count         = (int) (addresses.len / ADDRESS_SIZE);
-  int counts[MAX_TOPICS] = {0};
-  int positions          = MAX_TOPICS;
-  for (int p = 0; p < MAX_TOPICS; p++) counts[p] = (int) topics[p].len / 32;
-  // Calculate total combinations, cap
-  int total = (addr_count ? addr_count : 1);
-  for (int p = 0; p < MAX_TOPICS; p++) {
-    int c = counts[p] ? counts[p] : 1;
-    if (total > (MAX_BLOOM_VARIANTS / c)) return 0; // disable bloom prefilter
-    total *= c;
-  }
-  // Mixed-radix indices: addr + topics
-  int idx_addr        = 0;
-  int idx[MAX_TOPICS] = {0, 0, 0, 0};
-  for (int v = 0; v < total && v < MAX_BLOOM_VARIANTS; v++) {
-    uint8_t* bloom = (uint8_t*) out_variants[v];
-    memset(bloom, 0, 256);
-    if (addr_count) bloom_add_element_buf(bloom, bytes(addresses.data + (idx_addr * ADDRESS_SIZE), ADDRESS_SIZE));
-    for (int p = 0; p < MAX_TOPICS; p++) {
-      if (!counts[p]) continue; // wildcard
-      bloom_add_element_buf(bloom, bytes(topics[p].data + (idx[p] * 32), 32));
-    }
-    // increment
-    if (addr_count) {
-      idx_addr++;
-      if (idx_addr < addr_count) continue;
-      idx_addr = 0;
-    }
-    for (int p = MAX_TOPICS - 1; p >= 0; p--) {
-      if (counts[p] < 2) continue; // skip wildcard (0) and single-option (1) positions
-      idx[p]++;
-      if (idx[p] < counts[p]) break;
-      idx[p] = 0;
-    }
-  }
-  return total;
 }
 
 /**
@@ -696,7 +553,7 @@ static void prepend_blocks(uint64_t from_block, uint32_t count) {
 static int parse_bloom_filter_array(json_t bloom_json, bytes_t* out_blooms) {
   if (bloom_json.type != JSON_TYPE_ARRAY) return 0;
   int count = json_len(bloom_json);
-  if (count <= 0 || count > MAX_BLOOM_VARIANTS) return 0;
+  if (count <= 0 || count > C4_ETH_BLOOM_MAX_VARIANTS) return 0;
   uint8_t* buf = (uint8_t*) safe_calloc((size_t) count, 256);
   int      n   = 0;
   uint8_t  tmp[256] = {0};
@@ -870,14 +727,9 @@ c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out
   // Build filter (addresses/topics/bloom variants) and match index on first pass
   if (!st->blocks) {
     if (!st->bloom_only && st->filter_blooms.len == 0 && !st->filter_addresses.len) {
-      build_filter_addresses(json_get(filter, "address"), &st->filter_addresses);
-      build_filter_topics(json_get(filter, "topics"), st->filter_topics);
-      uint64_t tmp_variants[MAX_BLOOM_VARIANTS][32];
-      int      vcount = build_bloom_variants(st->filter_addresses, st->filter_topics, tmp_variants);
-      if (vcount > 0) {
-        st->filter_blooms = bytes(safe_malloc((size_t) vcount * 256), (uint32_t) (vcount * 256));
-        memcpy(st->filter_blooms.data, tmp_variants, (size_t) vcount * 256);
-      }
+      c4_eth_parse_filter_addresses(json_get(filter, "address"), &st->filter_addresses);
+      c4_eth_parse_filter_topics(json_get(filter, "topics"), st->filter_topics);
+      st->filter_blooms = c4_eth_create_bloomfilter(filter);
     }
     build_match_index(st);
     // No matches -> empty result immediately
@@ -937,23 +789,6 @@ bool c4_eth_logs_cache_is_enabled(void) {
 bool c4_eth_logs_cache_has_range(uint64_t from_block, uint64_t to_block) {
   if (g_cache.blocks_count == 0 || from_block > to_block) return false;
   return from_block >= g_cache.start_number && to_block < g_cache.start_number + g_cache.blocks_count;
-}
-
-bytes_t c4_eth_create_bloomfilter(json_t filter) {
-  bytes_t result             = {0};
-  bytes_t addresses          = {0};
-  bytes_t topics[MAX_TOPICS] = {0};
-  build_filter_addresses(json_get(filter, "address"), &addresses);
-  build_filter_topics(json_get(filter, "topics"), topics);
-  uint64_t tmp_variants[MAX_BLOOM_VARIANTS][32];
-  int      vcount = build_bloom_variants(addresses, topics, tmp_variants);
-  if (vcount > 0) {
-    result = bytes(safe_malloc((size_t) vcount * 256), (uint32_t) (vcount * 256));
-    memcpy(result.data, tmp_variants, (size_t) vcount * 256);
-  }
-  safe_free(addresses.data);
-  for (int i = 0; i < MAX_TOPICS; i++) safe_free(topics[i].data);
-  return result;
 }
 
 #endif // PROVER_CACHE

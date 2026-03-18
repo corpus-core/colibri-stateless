@@ -8,6 +8,7 @@
 
 #include "bytes.h"
 #include "json.h"
+#include "eth_bloom.h"
 #include "logs_cache.h"
 #include "prover.h"
 #include "unity.h"

@@ -121,7 +121,7 @@ if(ETH_RECEIPT)
 endif()
 
 if(ETH_LOGS)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_logs_proof.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_logs_proof.c verifier/eth_bloom.c)
   add_definitions(-DETH_LOGS)
 endif()
 
