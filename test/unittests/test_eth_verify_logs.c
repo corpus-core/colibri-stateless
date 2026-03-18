@@ -42,8 +42,13 @@ void test_electra() {
   run_rpc_test("eth_getLogs_electra", C4_PROVER_FLAG_NO_CACHE,0);
 }
 
+void test_pap1() {
+  run_rpc_test("eth_getLogs_pap1", 0, VERIFY_FLAG_PAP | VERIFY_FLAG_REMOTE_PROVER);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_pap1);
   RUN_TEST(test_denep);
   RUN_TEST(test_electra);
   return UNITY_END();
