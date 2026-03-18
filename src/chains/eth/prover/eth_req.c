@@ -37,7 +37,7 @@
 #define JSON_RECEIPTS_FIELDS    "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
 #define JSON_ETH_PROOF_FIELDS   "{accountProof:[bytes],storageProof:[{key:hex32,value:hex32,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
 #define JSON_TRACE_FIELDS       "{*:{balance?:hexuint,code?:bytes,nonce?:uint,storage?:{*:bytes32}}}"
-#define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys:[hex32]}],error?:string,gasUsed:hexuint}"
+#define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys?:[hex32]}],error?:string,gasUsed:hexuint}"
 
 static bool is_nullable_method(char* method) {
   return method && (strcmp(method, "eth_getTransactionByHash") == 0 || strcmp(method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 || strcmp(method, "eth_getTransactionReceipt") == 0);
