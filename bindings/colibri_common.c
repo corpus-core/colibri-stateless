@@ -218,6 +218,13 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   if (ctx->witness_keys.data && ctx->witness_keys.len)
     ctx->verifier.witness_keys = bytes_dup(ctx->witness_keys);
 
+  if (vf & VERIFY_FLAG_PROOF_ONLY) {
+    ctx->phase = RPC_PHASE_DONE;
+    ctx->verifier.data = (ssz_ob_t) {.def = &ssz_bytes_list, .bytes = proof};
+    ctx->verifier.success = true;
+    return C4_SUCCESS;
+  }
+
   ctx->phase = RPC_PHASE_VERIFYING;
   return rpc_handle_verifying(ctx);
 }
