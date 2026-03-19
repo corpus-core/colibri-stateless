@@ -396,13 +396,13 @@ static prover_ctx_t* create_prover_from_request(data_request_t* req, chain_id_t 
   safe_free(tmp);
 
   prover_ctx_t* pctx = c4_prover_create(method_str, params_str, chain_id, prover_flags);
-  pctx->client_state = get_client_state(chain_id);
   safe_free(method_str);
   safe_free(params_str);
   if (!pctx) {
     req->error = strdup("Failed to create local prover");
     return NULL;
   }
+  pctx->client_state = get_client_state(chain_id);
   if (pctx->state.error) {
     req->error        = pctx->state.error;
     pctx->state.error = NULL;
