@@ -111,6 +111,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
     fprintf(stderr, "  -P enable PAP (Pragmatic Adaptive Privacy) mode\n");
+    fprintf(stderr, "  -O no verifier, just return the proof\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
@@ -189,6 +190,9 @@ int main(int argc, char* argv[]) {
 #endif
           case 'P':
             verify_flags |= VERIFY_FLAG_PAP;
+            break;
+          case 'O':
+            verify_flags |= VERIFY_FLAG_PROOF_ONLY;
             break;
           case 'b':
             if (hex_to_bytes(argv[++i], -1, bytes(trusted_checkpoint, 32)) == 32)
@@ -311,7 +315,10 @@ int main(int argc, char* argv[]) {
       safe_free(filename);
       safe_free(content);
     }
-    ssz_dump_to_file_no_quotes(stdout, ctx->verifier.data);
+    if (verify_flags && VERIFY_FLAG_PROOF_ONLY)
+      fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
+    else
+      ssz_dump_to_file_no_quotes(stdout, ctx->verifier.data);
     fflush(stdout);
     c4_rpc_ctx_free(ctx);
     return EXIT_SUCCESS;

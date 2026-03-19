@@ -29,8 +29,19 @@
 #endif
 #include <stdlib.h>
 #include <string.h>
-
+#define MAX_PROOF_DEPTH 10 // max number of proofs requested by the verifier
 /* ── string converters ── */
+
+static bytes_t get_client_state(chain_id_t chain_id) {
+  storage_plugin_t storage = {0};
+  c4_get_storage_config(&storage);
+  char name[100] = {0};
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
+  buffer_t state_buf = {0};
+  if (storage.get && storage.get(name, &state_buf) && state_buf.data.data && state_buf.data.len)
+    return state_buf.data;
+  return NULL_BYTES;
+}
 
 static const char* status_to_string(c4_status_t status) {
   switch (status) {
@@ -207,6 +218,13 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   if (ctx->witness_keys.data && ctx->witness_keys.len)
     ctx->verifier.witness_keys = bytes_dup(ctx->witness_keys);
 
+  if (vf & VERIFY_FLAG_PROOF_ONLY) {
+    ctx->phase = RPC_PHASE_DONE;
+    ctx->verifier.data = (ssz_ob_t) {.def = &ssz_bytes_list, .bytes = proof};
+    ctx->verifier.success = true;
+    return C4_SUCCESS;
+  }
+
   ctx->phase = RPC_PHASE_VERIFYING;
   return rpc_handle_verifying(ctx);
 }
@@ -229,27 +247,24 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
     ctx->rpc_state.requests->chain_id = ctx->chain_id;
     ctx->rpc_state.requests->method   = C4_DATA_METHOD_POST;
     ctx->rpc_state.requests->encoding = C4_DATA_ENCODING_SSZ;
+    buffer_t method_buf               = {0};
+    buffer_t params_buf               = {0};
+    buffer_t payload                  = {0};
 
-    buffer_t method_buf = {0};
-    buffer_t params_buf = {0};
     c4_get_prover_payload(ctx->chain_id, ctx->method, ctx->params, ctx->verify_flags, &method_buf, &params_buf);
-    const char* prover_method = method_buf.data.len ? (char*) method_buf.data.data : ctx->method;
-    const char* prover_params = params_buf.data.len ? (char*) params_buf.data.data : ctx->params;
 
-    buffer_t payload = {0};
-    bprintf(&payload, "{\"method\": \"%s\", \"params\": %s", prover_method, prover_params);
+    bprintf(&payload, "{\"method\": \"%s\", \"params\": %s",
+            method_buf.data.len ? (char*) method_buf.data.data : ctx->method,
+            params_buf.data.len ? (char*) params_buf.data.data : ctx->params);
     buffer_free(&method_buf);
     buffer_free(&params_buf);
     bprintf(&payload, ", \"version\": %d", (uint32_t) c4_current_version_number());
 
-    storage_plugin_t storage = {0};
-    c4_get_storage_config(&storage);
-    buffer_t state_buf = {0};
-    char     name[100];
-    sbprintf(name, "states_%l", (uint64_t) ctx->chain_id);
-    if (storage.get && storage.get(name, &state_buf) && state_buf.data.data && state_buf.data.len)
-      bprintf(&payload, ", \"c4\": \"0x%x\"", state_buf.data);
-    buffer_free(&state_buf);
+    bytes_t client_state = get_client_state(ctx->chain_id);
+    if (client_state.data) {
+      bprintf(&payload, ", \"c4\": \"0x%x\"", client_state);
+      safe_free(client_state.data);
+    }
 
     if (ctx->prover_flags & C4_PROVER_FLAG_ZK_PROOF)
       bprintf(&payload, ", \"zk_proof\": true");
@@ -264,6 +279,7 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
     return C4_PENDING;
   }
 
+  // fallback to local proving in case of an error
   if (ctx->rpc_state.requests->error) {
     c4_request_free(ctx->rpc_state.requests);
     ctx->rpc_state.requests = NULL;
@@ -274,7 +290,7 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
 
   if (ctx->rpc_state.requests->response.data) {
     ctx->proof       = ctx->rpc_state.requests->response;
-    ctx->proof_owned = false;
+    ctx->proof_owned = false; // proof is still owned by the rpc_state.requests
     return rpc_start_verifier(ctx, ctx->proof);
   }
 
@@ -283,15 +299,15 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
 
 static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
   if (!ctx->rpc_state.requests) {
+    buffer_t payload = {0};
+    bprintf(&payload, "{\"jsonrpc\": \"2.0\",\"id\": 1, \"method\": \"%s\", \"params\": %s}", ctx->method, ctx->params);
+
     ctx->rpc_state.requests           = safe_calloc(1, sizeof(data_request_t));
     ctx->rpc_state.requests->type     = C4_DATA_TYPE_ETH_RPC;
     ctx->rpc_state.requests->chain_id = ctx->chain_id;
     ctx->rpc_state.requests->method   = C4_DATA_METHOD_POST;
     ctx->rpc_state.requests->encoding = C4_DATA_ENCODING_JSON;
-
-    buffer_t payload = {0};
-    bprintf(&payload, "{\"method\": \"%s\", \"params\": %s}", ctx->method, ctx->params);
-    ctx->rpc_state.requests->payload = payload.data;
+    ctx->rpc_state.requests->payload  = payload.data;
 
     return C4_PENDING;
   }
@@ -303,6 +319,7 @@ static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
   }
 
   if (ctx->rpc_state.requests->response.data) {
+    // make it null terminated
     bytes_t resp = ctx->rpc_state.requests->response;
     char*   tmp  = safe_malloc(resp.len + 1);
     memcpy(tmp, resp.data, resp.len);
@@ -323,13 +340,18 @@ static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
 
     json_t rpc_result = json_get(rpc_json, "result");
     if (rpc_result.type != JSON_TYPE_NOT_FOUND) {
-      ctx->verifier.data = (ssz_ob_t){.def = &ssz_json_def, .bytes = bytes_dup(bytes((uint8_t*) rpc_result.start, rpc_result.len))};
+      ctx->phase         = RPC_PHASE_DONE;
+      ctx->verifier.data = (ssz_ob_t) {.def = &ssz_json_def, .bytes = bytes_dup(bytes((uint8_t*) rpc_result.start, rpc_result.len))};
       ctx->verifier.flags |= VERIFY_FLAG_FREE_DATA;
+      safe_free(tmp);
+      return C4_SUCCESS;
     }
-
-    safe_free(tmp);
-    ctx->phase = RPC_PHASE_DONE;
-    return C4_SUCCESS;
+    else {
+      safe_free(tmp);
+      ctx->error = bprintf(NULL, "RPC result is not found");
+      ctx->phase = RPC_PHASE_DONE;
+      return C4_ERROR;
+    }
   }
 
   return C4_PENDING;
@@ -380,6 +402,13 @@ static prover_ctx_t* create_prover_from_request(data_request_t* req, chain_id_t 
     req->error = strdup("Failed to create local prover");
     return NULL;
   }
+  pctx->client_state = get_client_state(chain_id);
+  if (pctx->state.error) {
+    req->error        = pctx->state.error;
+    pctx->state.error = NULL;
+    c4_prover_free(pctx);
+    return NULL;
+  }
   return pctx;
 }
 
@@ -390,16 +419,19 @@ static void free_request_prover(c4_rpc_ctx_t* ctx) {
   ctx->request_prover = NULL;
 }
 
-static void check_prover_requests(c4_rpc_ctx_t* ctx) {
-  if (ctx->use_remote_prover || ctx->request_prover) return;
+// returns true if there is a prover request which needs to be handled
+static bool check_prover_requests(c4_rpc_ctx_t* ctx) {
+  if (ctx->request_prover) return true;     // still processing a proof
+  if (ctx->use_remote_prover) return false; // no need
   data_request_t* prover_req = find_pending_prover_request(&ctx->verifier.state);
-  if (!prover_req) return;
+  if (!prover_req) return false; // no prover request found
   prover_ctx_t* pctx = create_prover_from_request(prover_req, ctx->chain_id, ctx->prover_flags);
-  if (!pctx) return;
+  if (!pctx) return false;
   request_prover_t* rp = safe_calloc(1, sizeof(request_prover_t));
   rp->request          = prover_req;
   rp->ctx              = pctx;
   ctx->request_prover  = rp;
+  return true;
 }
 
 static c4_status_t handle_request_prover(c4_rpc_ctx_t* ctx) {
@@ -421,19 +453,22 @@ static c4_status_t handle_request_prover(c4_rpc_ctx_t* ctx) {
 }
 
 static c4_status_t rpc_handle_verifying(c4_rpc_ctx_t* ctx) {
-  for (;;) {
-    if (ctx->request_prover) {
-      c4_status_t ps = handle_request_prover(ctx);
-      if (ps == C4_PENDING) return C4_PENDING;
-    }
+  for (int i = 0; i < MAX_PROOF_DEPTH; i++) {
+    if (ctx->request_prover) // if the verifier requested proof, we need to handle it first.
+      TRY_ASYNC(handle_request_prover(ctx));
+
     c4_status_t status = c4_verify(&ctx->verifier);
-    if (status == C4_SUCCESS || status == C4_ERROR) {
+    if (status == C4_SUCCESS || status == C4_ERROR) { // are we done?
       ctx->phase = RPC_PHASE_DONE;
       return status;
     }
-    check_prover_requests(ctx);
-    if (!ctx->request_prover) return C4_PENDING;
+    // so there are pending requests, let's check if the verifier requested proof again.
+    // if there was a prover request, we need repeat the loop to handle it.
+    if (!check_prover_requests(ctx)) return C4_PENDING;
   }
+  ctx->error = bprintf(NULL, "Max proof depth reached");
+  ctx->phase = RPC_PHASE_DONE;
+  return C4_ERROR;
 }
 
 c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
@@ -444,26 +479,18 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
                                             json_parse(ctx->params), ctx->verify_flags);
       switch (ctx->method_type) {
         case METHOD_PROOFABLE:
-          if (ctx->proof.data)
+          if (ctx->proof.data) // the user passed in a proof
             return rpc_start_verifier(ctx, ctx->proof);
-          if (ctx->use_remote_prover) {
+          else if (ctx->use_remote_prover) { // fetch the proof from the remote prover
             ctx->phase = RPC_PHASE_RPC;
             return rpc_handle_remote_proof(ctx);
           }
-          ctx->prover = c4_prover_create(ctx->method, ctx->params, ctx->chain_id, ctx->prover_flags);
-          ctx->phase  = RPC_PHASE_PROVING;
-#ifdef TEST
-          storage_plugin_t storage = {0};
-          c4_get_storage_config(&storage);
-          char     name[100];
-          buffer_t state_buf = {0};
-          sbprintf(name, "states_%l", (uint64_t) ctx->chain_id);
-          if (storage.get && storage.get(name, &state_buf) && state_buf.data.data && state_buf.data.len)
-            ctx->prover->client_state = state_buf.data;
-          else
-            buffer_free(&state_buf);
-#endif
-          return rpc_handle_proving(ctx);
+          else { // we create the proof locally
+            ctx->prover               = c4_prover_create(ctx->method, ctx->params, ctx->chain_id, ctx->prover_flags);
+            ctx->phase                = RPC_PHASE_PROVING;
+            ctx->prover->client_state = get_client_state(ctx->chain_id);
+            return rpc_handle_proving(ctx);
+          }
 
         case METHOD_LOCAL:
           return rpc_start_verifier(ctx, NULL_BYTES);

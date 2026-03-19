@@ -39,10 +39,22 @@ if (CLI)
     set_target_properties(colibri-ssz PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
+    add_custom_command(TARGET colibri-ssz POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+            colibri-ssz$<TARGET_FILE_SUFFIX:colibri-ssz>
+            "${CMAKE_BINARY_DIR}/bin/ssz$<TARGET_FILE_SUFFIX:colibri-ssz>"
+        COMMENT "Creating symlink: ssz -> colibri-ssz"
+    )
 
     add_executable(colibri-verifier verifier.c ../../bindings/colibri_common.c)
     set_target_properties(colibri-verifier PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+    add_custom_command(TARGET colibri-verifier POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+            colibri-verifier$<TARGET_FILE_SUFFIX:colibri-verifier>
+            "${CMAKE_BINARY_DIR}/bin/colibri$<TARGET_FILE_SUFFIX:colibri-verifier>"
+        COMMENT "Creating symlink: colibri -> colibri-verifier"
     )
 
     if(CURL)

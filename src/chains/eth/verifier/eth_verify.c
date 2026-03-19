@@ -24,6 +24,7 @@
 #include "eth_verify.h"
 #include "beacon_types.h"
 #include "chains.h"
+#include "eth_bloom.h"
 #include "json.h"
 #include "ssz.h"
 #include "sync_committee.h"
@@ -170,6 +171,32 @@ bool c4_eth_get_prover_payload(chain_id_t chain_id, const char* method, const ch
       bprintf(method_out, "eth_getProof");
       bprintf(params_out, "[%J,[%J],%J]", json_at(arr, 0), json_at(arr, 1), json_at(arr, 2));
     }
+#if defined(ETH_LOGS) && defined(PAP)
+    else if (strcmp(method, "eth_getLogs") == 0 && json_len(arr) >= 1) {
+      json_t  filter = json_at(arr, 0);
+      bytes_t blooms = c4_eth_create_bloomfilter(filter);
+      if (blooms.len > 0) {
+        int     count = (int) (blooms.len / 256);
+        bool    first = true;
+        bytes_t pname = {0};
+        bprintf(params_out, "[{");
+        json_for_each_property(filter, val, pname) {
+          if (bytes_eq(pname, bytes("address", 7)) || bytes_eq(pname, bytes("topics", 6))) continue;
+          if (!first) bprintf(params_out, ",");
+          bprintf(params_out, "\"%r\":%J", pname, val);
+          first = false;
+        }
+        if (!first) bprintf(params_out, ",");
+        bprintf(params_out, "\"bloomFilter\":[");
+        for (int i = 0; i < count; i++) {
+          if (i) bprintf(params_out, ",");
+          bprintf(params_out, "\"0x%x\"", bytes(blooms.data + i * 256, 256));
+        }
+        bprintf(params_out, "]}]");
+        safe_free(blooms.data);
+      }
+    }
+#endif
   }
 
   return true;
