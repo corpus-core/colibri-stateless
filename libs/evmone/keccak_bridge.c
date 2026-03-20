@@ -11,8 +11,14 @@
 #include "evmone_c_wrapper.h"
 #include <sha3.h>
 
-static _Thread_local evmone_keccak_fn keccak_hook_fn  = NULL;
-static _Thread_local void*            keccak_hook_ctx = NULL;
+#if defined(_MSC_VER)
+#define THREAD_LOCAL __declspec(thread)
+#else
+#define THREAD_LOCAL _Thread_local
+#endif
+
+static THREAD_LOCAL evmone_keccak_fn keccak_hook_fn  = NULL;
+static THREAD_LOCAL void*            keccak_hook_ctx = NULL;
 
 void evmone_set_keccak_hook(evmone_keccak_fn fn, void* hook_ctx) {
   keccak_hook_fn  = fn;

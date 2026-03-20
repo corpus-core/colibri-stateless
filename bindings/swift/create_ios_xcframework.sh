@@ -48,7 +48,7 @@ LIBRARIES=(
     "libs/intx/libintx_wrapper.a"
     "libs/evmone/libevmone_wrapper.a"
     "_deps/evmone_external-build/libevmone.a"
-    "_deps/ethhash_external-build/libkeccak.a"
+    "libs/evmone/libkeccak_bridge.a"
     # ZSTD support for OP Stack preconfirmations
     "libs/zstd/zstd_build/lib/libzstd.a"
 )

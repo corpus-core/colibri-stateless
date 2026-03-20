@@ -42,18 +42,13 @@ class ColibriServer < Formula
   end
   
   resource "evmone" do
-    url "https://github.com/ethereum/evmone/archive/refs/tags/v0.15.0.tar.gz"
-    sha256 "6eb2122c98bd86a083015b4e41f46b16df4d9bff608d2bf2f2d985ec18e6d640"
+    url "https://github.com/ipsilon/evmone/archive/refs/tags/v0.19.0.tar.gz"
+    sha256 "ee9b5f5375410bebf67a092b495c8009aa1484dfdb950d647b769f99df940e58"
   end
   
   resource "intx" do
-    url "https://github.com/chfast/intx/archive/refs/tags/v0.10.0.tar.gz"
-    sha256 "80513a8ca8b039fa8d40ce88a1910baefc5273259282cf664a10f0707f41cd75"
-  end
-  
-  resource "ethash" do
-    url "https://github.com/chfast/ethash/archive/refs/tags/v1.1.0.tar.gz"
-    sha256 "73b327f3c23f407389845d936c1138af6328c5841a331c1abe3a2add53c558aa"
+    url "https://github.com/chfast/intx/archive/refs/tags/v0.15.0.tar.gz"
+    sha256 "7db5d37ae5e9c3787a12c27e53a28be840a35ee51101c3ac15412ce259191600"
   end
 
   resource "evmc" do
@@ -70,7 +65,6 @@ class ColibriServer < Formula
     resource("tommath").stage { (buildpath/"build/_deps/libtommath-src").install Dir["*"] }
     resource("evmone").stage { (buildpath/"build/_deps/evmone_external-src").install Dir["*"] }
     resource("intx").stage { (buildpath/"build/_deps/intx-src").install Dir["*"] }
-    resource("ethash").stage { (buildpath/"build/_deps/ethhash_external-src").install Dir["*"] }
     # evmc is a submodule of evmone
     resource("evmc").stage { (buildpath/"build/_deps/evmone_external-src/evmc").install Dir["*"] }
     
@@ -94,7 +88,6 @@ class ColibriServer < Formula
              "-DFETCHCONTENT_SOURCE_DIR_LIBTOMMATH=#{buildpath}/build/_deps/libtommath-src",
              "-DFETCHCONTENT_SOURCE_DIR_EVMONE_EXTERNAL=#{buildpath}/build/_deps/evmone_external-src",
              "-DFETCHCONTENT_SOURCE_DIR_INTX=#{buildpath}/build/_deps/intx-src",
-             "-DFETCHCONTENT_SOURCE_DIR_ETHHASH_EXTERNAL=#{buildpath}/build/_deps/ethhash_external-src",
              *std_cmake_args
       system "make", "-j#{ENV.make_jobs}", "colibri-server", "colibri-prover", "colibri-verifier", "colibri-ssz"
       
