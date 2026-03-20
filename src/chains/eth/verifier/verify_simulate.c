@@ -70,6 +70,89 @@ static bool account_has_changes(const call_account_t* acc) {
   return false;
 }
 
+static const char* trace_type_string(uint8_t kind) {
+  switch (kind) {
+    case 0: return "CALL";
+    case 1: return "DELEGATECALL";
+    case 2: return "CALLCODE";
+    case 3: return "CREATE";
+    case 4: return "CREATE2";
+    case 5: return "STATICCALL";
+    default: return "CALL";
+  }
+}
+
+#define ETH_SIMULATION_TRACE_MASK_BASE         \
+  (ETH_SIMULATION_TRACE_MASK_FROM |            \
+   ETH_SIMULATION_TRACE_MASK_GAS |             \
+   ETH_SIMULATION_TRACE_MASK_GAS_USED |        \
+   ETH_SIMULATION_TRACE_MASK_INPUT |           \
+   ETH_SIMULATION_TRACE_MASK_OUTPUT |          \
+   ETH_SIMULATION_TRACE_MASK_SUBTRACES |       \
+   ETH_SIMULATION_TRACE_MASK_TO |              \
+   ETH_SIMULATION_TRACE_MASK_TRACE_ADDRESS |   \
+   ETH_SIMULATION_TRACE_MASK_TYPE |            \
+   ETH_SIMULATION_TRACE_MASK_VALUE)
+
+static trace_entry_t* reverse_trace_list(trace_entry_t* head) {
+  trace_entry_t* prev = NULL;
+  while (head) {
+    trace_entry_t* next = head->next;
+    head->next          = prev;
+    prev                = head;
+    head                = next;
+  }
+  return prev;
+}
+
+static void build_traces(ssz_builder_t* builder, trace_entry_t* traces) {
+  size_t count = 0;
+  for (trace_entry_t* t = traces; t; t = t->next) count++;
+  if (!count) {
+    ssz_add_bytes(builder, "trace", NULL_BYTES);
+    return;
+  }
+
+  ssz_builder_t list_builder = ssz_builder_for_def(ssz_get_def(builder->def, "trace"));
+
+  for (trace_entry_t* t = traces; t; t = t->next) {
+    ssz_builder_t tb = ssz_builder_for_def(list_builder.def->def.vector.type);
+
+    ssz_add_uint32(&tb, ETH_SIMULATION_TRACE_MASK_BASE);
+    ssz_add_bytes(&tb, "decodedInput", NULL_BYTES);
+    ssz_add_bytes(&tb, "decodedOutput", NULL_BYTES);
+    ssz_add_bytes(&tb, "from", bytes(t->from, 20));
+    ssz_add_uint64(&tb, t->gas);
+    ssz_add_uint64(&tb, t->gas_used);
+    ssz_add_bytes(&tb, "input", t->input);
+
+    ssz_add_bytes(&tb, "method", NULL_BYTES);
+    ssz_add_bytes(&tb, "output", t->output);
+    ssz_add_uint32(&tb, t->subtraces);
+    ssz_add_bytes(&tb, "to", bytes(t->to, 20));
+
+    // traceAddress: list of uint32 indices
+    ssz_builder_t ta_builder = ssz_builder_for_def(ssz_get_def(tb.def, "traceAddress"));
+    for (uint32_t i = 0; i < t->trace_depth; i++) {
+      uint8_t buf[4];
+      buf[0] = (uint8_t) (t->trace_address[i] >> 24);
+      buf[1] = (uint8_t) (t->trace_address[i] >> 16);
+      buf[2] = (uint8_t) (t->trace_address[i] >> 8);
+      buf[3] = (uint8_t) (t->trace_address[i]);
+      ssz_add_dynamic_list_bytes(&ta_builder, t->trace_depth, bytes(buf, 4));
+    }
+    ssz_add_builders(&tb, "traceAddress", ta_builder);
+
+    const char* type_str = trace_type_string(t->type);
+    ssz_add_bytes(&tb, "type", bytes((uint8_t*) type_str, strlen(type_str)));
+    ssz_add_uint256(&tb, bytes32_trimmed(t->value));
+
+    ssz_add_dynamic_list_builders(&list_builder, count, tb);
+  }
+
+  ssz_add_builders(builder, "trace", list_builder);
+}
+
 static void build_state_changes(ssz_builder_t* builder, call_account_t* accounts, keccak_entry_t* keccak_entries) {
   size_t account_count = 0;
   for (call_account_t* acc = accounts; acc; acc = acc->next)
@@ -144,14 +227,18 @@ static void build_state_changes(ssz_builder_t* builder, call_account_t* accounts
   ssz_add_builders(builder, "stateChanges", changes_builder);
 }
 
-ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload, call_account_t* accounts, keccak_entry_t* keccak_entries) {
+ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload, call_account_t* accounts, keccak_entry_t* keccak_entries, trace_entry_t* traces) {
   ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_SIMULATION));
 
   bool has_state_changes = false;
   for (call_account_t* a = accounts; a && !has_state_changes; a = a->next)
     has_state_changes = account_has_changes(a);
 
+  // reverse trace list to chronological order (entries were prepended during execution)
+  traces = reverse_trace_list(traces);
+
   uint32_t result_mask = ETH_SIMULATION_RESULT_MASK_GAS_USED | ETH_SIMULATION_RESULT_MASK_LOGS | ETH_SIMULATION_RESULT_MASK_STATUS | ETH_SIMULATION_RESULT_MASK_RETURN_VALUE;
+  if (traces) result_mask |= ETH_SIMULATION_RESULT_MASK_TRACE;
   if (has_state_changes) result_mask |= ETH_SIMULATION_RESULT_MASK_STATE_CHANGES;
   ssz_add_uint32(&builder, result_mask);
   ssz_add_uint64(&builder, execution_payload ? ssz_get_uint64(execution_payload, "blockNumber") : 0);                                                                            // blockNumber (hidden by mask)
@@ -206,7 +293,7 @@ ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* log
   ssz_add_builders(&builder, "logs", logs_builder);    // logs (visible)
   ssz_add_bytes(&builder, "logsBloom", NULL_BYTES);    // logsBloom (hidden by mask)
   ssz_add_uint8(&builder, success ? 1 : 0);            // status (visible)
-  ssz_add_bytes(&builder, "trace", NULL_BYTES);        // trace (hidden by mask)
+  build_traces(&builder, traces);                      // trace (visible when traces exist)
   ssz_add_uint8(&builder, 0);                          // type (hidden by mask)
   ssz_add_bytes(&builder, "returnValue", call_result); // returnValue (visible)
 
