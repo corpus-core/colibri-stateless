@@ -91,8 +91,7 @@ typedef enum {
   CALL_KIND_DELEGATECALL = 1,
   CALL_KIND_CALLCODE     = 2,
   CALL_KIND_CREATE       = 3,
-  CALL_KIND_CREATE2      = 4,
-  CALL_KIND_STATICCALL   = 5
+  CALL_KIND_CREATE2      = 4
 } evmone_call_kind;
 
 typedef struct evm_res_ptr {
@@ -320,7 +319,7 @@ static evmone_context_t* context_root(evmone_context_t* ctx) {
 
 static trace_entry_t* create_trace_entry(evmone_context_t* ctx, const struct evmone_message* msg) {
   trace_entry_t* entry = safe_calloc(1, sizeof(trace_entry_t));
-  entry->type          = (msg->kind == CALL_KIND_CALL && msg->is_static) ? CALL_KIND_STATICCALL : (uint8_t) msg->kind;
+  entry->type          = (msg->kind == CALL_KIND_CALL && msg->is_static) ? TRACE_STATICCALL : (uint8_t) msg->kind;
   entry->gas           = (uint64_t) msg->gas;
   memcpy(entry->from, msg->sender.bytes, 20);
   memcpy(entry->to, msg->destination.bytes, 20);
@@ -328,17 +327,16 @@ static trace_entry_t* create_trace_entry(evmone_context_t* ctx, const struct evm
   if (msg->input_data && msg->input_size)
     entry->input = bytes_dup(bytes(msg->input_data, msg->input_size));
 
-  entry->trace_depth = ctx->trace_depth + 1;
-  if (entry->trace_depth) {
-    entry->trace_address = safe_malloc(entry->trace_depth * sizeof(uint32_t));
-    if (ctx->trace_depth && ctx->trace_address)
-      memcpy(entry->trace_address, ctx->trace_address, ctx->trace_depth * sizeof(uint32_t));
-    entry->trace_address[ctx->trace_depth] = ctx->subtrace_count;
-  }
+  entry->trace_depth   = ctx->trace_depth + 1;
+  entry->trace_address = safe_malloc(entry->trace_depth * sizeof(uint32_t));
+  if (ctx->trace_depth && ctx->trace_address)
+    memcpy(entry->trace_address, ctx->trace_address, ctx->trace_depth * sizeof(uint32_t));
+  entry->trace_address[ctx->trace_depth] = ctx->subtrace_count;
   ctx->subtrace_count++;
 
-  entry->next                  = context_root(ctx)->traces;
-  context_root(ctx)->traces    = entry;
+  evmone_context_t* root       = context_root(ctx);
+  entry->next                  = root->traces;
+  root->traces                 = entry;
   return entry;
 }
 
@@ -365,7 +363,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     }
     if (ctx->capture_events) {
       trace_entry_t* entry = create_trace_entry(ctx, msg);
-      entry->gas_used      = gas_used;
+      entry->gas_used      = (pre_result == PRE_SUCCESS) ? gas_used : (uint64_t) msg->gas;
       if (result->output_data && result->output_size)
         entry->output = bytes_dup(bytes(result->output_data, result->output_size));
     }
@@ -416,7 +414,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   child.subtrace_count    = 0;
   if (trace) {
     child.trace_depth   = trace->trace_depth;
-    child.trace_address = trace->trace_address;
+    child.trace_address = trace->trace_address; // borrowed, owned by root trace list
   }
 
   evmone_result exec_result = evmone_execute(
@@ -692,7 +690,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   free_emitted_logs(evm->logs);
   evm->logs = NULL;
   free_trace_entries(evm->traces);
-  evm->traces   = NULL;
+  evm->traces = NULL;
   evm->gas_used = 0;
   evm->evm_done = false;
 

@@ -214,6 +214,18 @@ RETURNS_NONNULL static evm_call_ctx_t* call_get_evm_ctx(verify_ctx_t* ctx) {
 static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   add_simulate_value_transfer_event(ctx, &evm->logs);
 
+  // reverse trace list to chronological order (entries were prepended during execution)
+  {
+    trace_entry_t* prev = NULL;
+    trace_entry_t* cur  = evm->traces;
+    while (cur) {
+      trace_entry_t* next = cur->next;
+      cur->next            = prev;
+      prev                 = cur;
+      cur                  = next;
+    }
+    evm->traces = prev;
+  }
   ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, ctx->state.error == NULL, evm->gas_used, NULL, evm->accounts, evm->keccak_entries, evm->traces);
 
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {

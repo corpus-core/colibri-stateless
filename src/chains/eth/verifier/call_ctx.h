@@ -46,6 +46,17 @@ typedef struct keccak_entry {
   struct keccak_entry* next;
 } keccak_entry_t;
 
+// :: Trace call kind (mirrors evmone call kinds + STATICCALL)
+
+typedef enum {
+  TRACE_CALL         = 0,
+  TRACE_DELEGATECALL = 1,
+  TRACE_CALLCODE     = 2,
+  TRACE_CREATE       = 3,
+  TRACE_CREATE2      = 4,
+  TRACE_STATICCALL   = 5
+} trace_call_kind_t;
+
 // :: Execution trace entry (captured during simulation)
 
 typedef struct trace_entry {
@@ -189,8 +200,11 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
 // :: Emitted log helpers
 
 void           free_keccak_entries(keccak_entry_t* entries);
-void           free_trace_entries(trace_entry_t* entries);
 void           free_emitted_logs(emitted_log_t* logs);
+
+// :: Trace helpers
+
+void           free_trace_entries(trace_entry_t* entries);
 emitted_log_t* add_emitted_log(emitted_log_t** logs, const address_t addr, const uint8_t* data, size_t data_size, const bytes32_t* topics, size_t topics_count);
 
 // :: Child-context management

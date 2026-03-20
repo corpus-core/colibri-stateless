@@ -72,13 +72,13 @@ static bool account_has_changes(const call_account_t* acc) {
 
 static const char* trace_type_string(uint8_t kind) {
   switch (kind) {
-    case 0: return "CALL";
-    case 1: return "DELEGATECALL";
-    case 2: return "CALLCODE";
-    case 3: return "CREATE";
-    case 4: return "CREATE2";
-    case 5: return "STATICCALL";
-    default: return "CALL";
+    case TRACE_CALL:         return "CALL";
+    case TRACE_DELEGATECALL: return "DELEGATECALL";
+    case TRACE_CALLCODE:     return "CALLCODE";
+    case TRACE_CREATE:       return "CREATE";
+    case TRACE_CREATE2:      return "CREATE2";
+    case TRACE_STATICCALL:   return "STATICCALL";
+    default:                 return "CALL";
   }
 }
 
@@ -93,17 +93,6 @@ static const char* trace_type_string(uint8_t kind) {
    ETH_SIMULATION_TRACE_MASK_TRACE_ADDRESS |   \
    ETH_SIMULATION_TRACE_MASK_TYPE |            \
    ETH_SIMULATION_TRACE_MASK_VALUE)
-
-static trace_entry_t* reverse_trace_list(trace_entry_t* head) {
-  trace_entry_t* prev = NULL;
-  while (head) {
-    trace_entry_t* next = head->next;
-    head->next          = prev;
-    prev                = head;
-    head                = next;
-  }
-  return prev;
-}
 
 static void build_traces(ssz_builder_t* builder, trace_entry_t* traces) {
   size_t count = 0;
@@ -233,9 +222,6 @@ ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* log
   bool has_state_changes = false;
   for (call_account_t* a = accounts; a && !has_state_changes; a = a->next)
     has_state_changes = account_has_changes(a);
-
-  // reverse trace list to chronological order (entries were prepended during execution)
-  traces = reverse_trace_list(traces);
 
   uint32_t result_mask = ETH_SIMULATION_RESULT_MASK_GAS_USED | ETH_SIMULATION_RESULT_MASK_LOGS | ETH_SIMULATION_RESULT_MASK_STATUS | ETH_SIMULATION_RESULT_MASK_RETURN_VALUE;
   if (traces) result_mask |= ETH_SIMULATION_RESULT_MASK_TRACE;
