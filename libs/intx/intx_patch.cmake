@@ -7,6 +7,31 @@ message(STATUS "Applying intx patch for Android compatibility")
 set(INTX_HPP_PATH "${intx_SOURCE_DIR}/include/intx/intx.hpp")
 
 if(EXISTS "${INTX_HPP_PATH}")
+    # --- Pre-pass: whole-file replacements using file(READ)/file(WRITE) ---
+    # Must happen BEFORE the line-by-line pass because CMake's file(STRINGS)
+    # treats semicolons as list separators, corrupting C++ lines that contain them.
+    file(READ "${INTX_HPP_PATH}" _intx_raw)
+
+    # Replace consteval with constexpr globally (NDK clang lacks full consteval)
+    string(REPLACE "consteval" "constexpr" _intx_raw "${_intx_raw}")
+
+    # Replace the entire DEFINE_ALIAS_AND_LITERAL macro (multi-line with \ continuations)
+    # with a version that only defines the type alias.
+    # The literal operators use operator""/consteval which Android NDK clang cannot compile.
+    # Regex: match #define DEFINE_ALIAS_AND_LITERAL(N) <first line>\<NL>
+    #        then zero or more continuation lines ending with \<NL>
+    #        then final line <NL>
+    string(REGEX REPLACE
+        "#define DEFINE_ALIAS_AND_LITERAL\\(N\\)[^\n]*\\\\\n([^\n]*\\\\\n)*[^\n]*\n"
+        "#define DEFINE_ALIAS_AND_LITERAL(N) using uint##N = uint<N>\\;\n"
+        _intx_raw "${_intx_raw}")
+
+    # The simplified macro no longer creates a 'literals' namespace
+    string(REPLACE "using namespace literals;" "// using namespace literals;" _intx_raw "${_intx_raw}")
+
+    file(WRITE "${INTX_HPP_PATH}" "${_intx_raw}")
+    message(STATUS "Pre-pass: simplified DEFINE_ALIAS_AND_LITERAL for Android")
+
     # Create the fallback header include line
     set(FALLBACK_INCLUDE "// Include fallback implementation for countl_zero on Android
 #include \"${CMAKE_CURRENT_SOURCE_DIR}/countl_zero_fallback.hpp\"
@@ -128,9 +153,6 @@ constexpr uint16_t reciprocal_table[] = {
             continue()
         endif()
         
-        # Replace consteval with constexpr (Android NDK clang lacks full consteval support)
-        string(REPLACE "consteval" "constexpr" LINE "${LINE}")
-
         # Otherwise, write the line as is
         file(APPEND "${OUTPUT_FILE}" "${LINE}\n")
     endforeach()
