@@ -168,11 +168,22 @@ add_subdirectory(${evmone_external_SOURCE_DIR} ${evmone_external_BINARY_DIR} EXC
 # linking the full evmone_precompiles library (avoids duplicate precompile code).
 target_include_directories(evmone PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Create our wrapper library (includes the keccak bridge)
+# Build the keccak bridge as a standalone library so that any target linking
+# evmone (directly or transitively) gets the ethash_keccak256 symbol.
+add_library(keccak_bridge STATIC EXCLUDE_FROM_ALL
+    ${CMAKE_CURRENT_SOURCE_DIR}/keccak_bridge.c
+)
+target_include_directories(keccak_bridge PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}                    # evmone_precompiles/ headers + evmone_c_wrapper.h
+    ${evmone_external_SOURCE_DIR}/evmc/include     # evmc/evmc.h (needed by evmone_c_wrapper.h)
+    ${CMAKE_SOURCE_DIR}/libs/crypto                # sha3.h
+)
+target_link_libraries(evmone PUBLIC keccak_bridge)
+
+# Create our wrapper library
 add_library(evmone_wrapper STATIC EXCLUDE_FROM_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/evmone_c_wrapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/evmone_c_wrapper.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/keccak_bridge.c
 )
 
 # Set properties
@@ -188,11 +199,8 @@ target_include_directories(evmone_wrapper
         ${evmone_external_SOURCE_DIR}/include       # evmone private headers
     PUBLIC
         ${evmone_external_SOURCE_DIR}/evmc/include  # EVMC headers needed by clients
-        ${CMAKE_CURRENT_SOURCE_DIR} # Our wrapper header + keccak bridge headers
+        ${CMAKE_CURRENT_SOURCE_DIR} # Our wrapper header
 )
-
-# keccak_bridge.c needs the sha3 headers from libs/crypto
-target_include_directories(evmone_wrapper PRIVATE ${CMAKE_SOURCE_DIR}/libs/crypto)
 
 target_link_libraries(evmone_wrapper PUBLIC evmone)
 
