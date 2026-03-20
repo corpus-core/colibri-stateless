@@ -97,7 +97,9 @@ void call_account_set_storage(call_account_t* account, const bytes32_t key, cons
 
 void call_account_reset_accessed(call_account_t* list) {
   for (call_account_t* n = list; n; n = n->next) {
-    n->flags &= ~ACCOUNT_ACCESSED;
+    n->flags &= ~(ACCOUNT_ACCESSED | ACCOUNT_BALANCE_MODIFIED | ACCOUNT_NONCE_MODIFIED);
+    memcpy(n->src_balance, n->balance, 32);
+    n->src_nonce = n->nonce;
     for (call_storage_t* s = n->storage; s; s = s->next) {
       s->accessed = false;
       s->modified = false;

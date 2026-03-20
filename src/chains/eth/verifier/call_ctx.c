@@ -251,6 +251,26 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
 
 // :: Emitted log helpers
 
+void free_keccak_entries(keccak_entry_t* entries) {
+  while (entries) {
+    keccak_entry_t* next = entries->next;
+    safe_free(entries->input.data);
+    safe_free(entries);
+    entries = next;
+  }
+}
+
+void free_trace_entries(trace_entry_t* entries) {
+  while (entries) {
+    trace_entry_t* next = entries->next;
+    safe_free(entries->input.data);
+    safe_free(entries->output.data);
+    safe_free(entries->trace_address);
+    safe_free(entries);
+    entries = next;
+  }
+}
+
 void free_emitted_logs(emitted_log_t* logs) {
   while (logs) {
     emitted_log_t* next = logs->next;
@@ -299,6 +319,8 @@ void context_free(evmone_context_t* ctx) {
   ctx->accounts = NULL;
   free_emitted_logs(ctx->logs);
   ctx->logs = NULL;
+  free_trace_entries(ctx->traces);
+  ctx->traces = NULL;
   if (!ctx->parent) {
     free_transient_storage(ctx->transient_storage);
     ctx->transient_storage = NULL;
@@ -377,6 +399,10 @@ void evm_call_ctx_free(evm_call_ctx_t* evm) {
   evm->call_result = NULL_BYTES;
   free_emitted_logs(evm->logs);
   evm->logs = NULL;
+  free_keccak_entries(evm->keccak_entries);
+  evm->keccak_entries = NULL;
+  free_trace_entries(evm->traces);
+  evm->traces = NULL;
   call_account_free_list(evm->accounts);
   evm->accounts = NULL;
 }

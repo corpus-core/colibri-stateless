@@ -38,6 +38,42 @@ extern "C" {
 #include "evmone_c_wrapper.h"
 #endif
 
+// :: Keccak preimage (captured via hook during simulation)
+
+typedef struct keccak_entry {
+  bytes32_t            hash;
+  bytes_t              input;
+  struct keccak_entry* next;
+} keccak_entry_t;
+
+// :: Trace call kind (mirrors evmone call kinds + STATICCALL)
+
+typedef enum {
+  TRACE_CALL         = 0,
+  TRACE_DELEGATECALL = 1,
+  TRACE_CALLCODE     = 2,
+  TRACE_CREATE       = 3,
+  TRACE_CREATE2      = 4,
+  TRACE_STATICCALL   = 5
+} trace_call_kind_t;
+
+// :: Execution trace entry (captured during simulation)
+
+typedef struct trace_entry {
+  uint8_t              type;          // EVMONE_CALL, EVMONE_DELEGATECALL, etc.
+  address_t            from;
+  address_t            to;
+  uint64_t             gas;
+  uint64_t             gas_used;
+  bytes_t              input;
+  bytes_t              output;
+  bytes32_t            value;
+  uint32_t             subtraces;
+  uint32_t*            trace_address;
+  uint32_t             trace_depth;
+  struct trace_entry*  next;
+} trace_entry_t;
+
 // :: Emitted log (captured during EVM execution for simulation)
 
 typedef struct emitted_log {
@@ -57,13 +93,15 @@ typedef struct emitted_log {
  * it may be stack-allocated with a single-pass lifetime.
  */
 typedef struct evm_call_ctx {
-  call_account_t* accounts;
-  bytes_t         call_result;
-  emitted_log_t*  logs;
-  uint64_t        gas_used;
-  bytes32_t       state_root;
-  bool            pap_mode;
-  bool            evm_done;
+  call_account_t*  accounts;
+  bytes_t          call_result;
+  emitted_log_t*   logs;
+  keccak_entry_t*  keccak_entries;
+  trace_entry_t*   traces;
+  uint64_t         gas_used;
+  bytes32_t        state_root;
+  bool             pap_mode;
+  bool             evm_done;
 } evm_call_ctx_t;
 
 /**
@@ -101,7 +139,11 @@ typedef struct evmone_context {
   struct evmone_context* parent;
   void*                  results;
   emitted_log_t*         logs;
+  trace_entry_t*         traces;
   transient_slot_t*      transient_storage; // EIP-1153: only at root context
+  uint32_t               subtrace_count;
+  uint32_t               trace_depth;
+  uint32_t*              trace_address;
   bool                   capture_events;
   bool                   pap_mode;
   bool                   storage_miss;
@@ -157,7 +199,12 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
 
 // :: Emitted log helpers
 
+void           free_keccak_entries(keccak_entry_t* entries);
 void           free_emitted_logs(emitted_log_t* logs);
+
+// :: Trace helpers
+
+void           free_trace_entries(trace_entry_t* entries);
 emitted_log_t* add_emitted_log(emitted_log_t** logs, const address_t addr, const uint8_t* data, size_t data_size, const bytes32_t* topics, size_t topics_count);
 
 // :: Child-context management
@@ -186,7 +233,7 @@ void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_
 
 // :: Shared builders
 
-ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload);
+ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload, call_account_t* accounts, keccak_entry_t* keccak_entries, trace_entry_t* traces);
 
 /**
  * Runs an EVM call with optional event capture and gas metering.

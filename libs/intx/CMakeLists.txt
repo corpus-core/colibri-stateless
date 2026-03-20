@@ -27,7 +27,7 @@ include(FetchContent)
 FetchContent_Declare(
     intx
     GIT_REPOSITORY https://github.com/chfast/intx.git
-    GIT_TAG v0.10.0  # Use a specific version
+    GIT_TAG v0.15.0
 )
 
 # Make the content available

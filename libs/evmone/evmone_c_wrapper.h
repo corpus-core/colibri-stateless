@@ -170,6 +170,31 @@ evmone_result evmone_execute(
 /* Release result resources */
 void evmone_release_result(evmone_result* result);
 
+/**
+ * Callback invoked for every KECCAK256 opcode during EVM execution.
+ *
+ * All pointers are only valid for the duration of the callback.
+ *
+ * @param context  Opaque pointer set via `evmone_set_keccak_hook`.
+ * @param data     Pointer to the raw input bytes hashed by the opcode.
+ * @param size     Length of `data` in bytes.
+ * @param hash     Pointer to the 32-byte Keccak-256 result.
+ */
+typedef void (*evmone_keccak_fn)(void* context, const uint8_t* data,
+                                 size_t size, const uint8_t* hash);
+
+/**
+ * Install a thread-local hook that fires on every `ethash_keccak256` call
+ * (i.e. the EVM KECCAK256 opcode). Pass `NULL` to clear the hook.
+ *
+ * The hook is stored in thread-local storage, so each worker thread can
+ * have its own independent callback.
+ *
+ * @param fn   Callback function, or NULL to clear.
+ * @param ctx  Opaque context forwarded to `fn`.
+ */
+void evmone_set_keccak_hook(evmone_keccak_fn fn, void* ctx);
+
 #ifdef __cplusplus
 }
 #endif

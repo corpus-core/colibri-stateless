@@ -80,42 +80,13 @@ endif()
 
 
 
-# include keccak
-FetchContent_Declare(
-    ethhash_external
-    GIT_REPOSITORY https://github.com/chfast/ethash.git
-    GIT_TAG v1.1.0
-    GIT_SHALLOW TRUE
-)
-
-FetchContent_GetProperties(ethhash_external)
-if(NOT ethhash_external_POPULATED)
-    FetchContent_Populate(ethhash_external)
-    # Eigene CMakeLists.txt anlegen
-    file(WRITE ${ethhash_external_SOURCE_DIR}/CMakeLists.txt "
-        # Set deployment target for iOS builds
-        if(APPLE)
-            set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"Minimum deployment target\" FORCE)
-        endif()
-
-        add_library(keccak STATIC
-            lib/keccak/keccak.c
-        )
-        target_include_directories(keccak PUBLIC include)
-    ")
-endif()
-add_subdirectory(${ethhash_external_SOURCE_DIR} ${ethhash_external_BINARY_DIR} EXCLUDE_FROM_ALL)
-
-
-
-
 # include evmone
 FetchContent_Declare(
     evmone_external
-    GIT_REPOSITORY https://github.com/ethereum/evmone.git
-    GIT_TAG v0.15.0
+    GIT_REPOSITORY https://github.com/ipsilon/evmone.git
+    GIT_TAG v0.19.0
     GIT_SHALLOW TRUE
-    RECURSE TRUE
+    GIT_SUBMODULES_RECURSE TRUE
 )
 
 FetchContent_GetProperties(evmone_external)
@@ -123,9 +94,6 @@ if(NOT evmone_external_POPULATED)
     FetchContent_Populate(evmone_external)
     
     # Copy compatibility files to the source directory
-    file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/compat/aligned_alloc_fallback.hpp 
-         DESTINATION ${evmone_external_SOURCE_DIR}/lib/evmone/)
-    
     file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/compat/ios_compat.hpp 
          DESTINATION ${evmone_external_SOURCE_DIR}/evmc/include/evmc/)
     
@@ -134,28 +102,20 @@ if(NOT evmone_external_POPULATED)
     
     # Apply patches using the CMake scripts
     set(SOURCE_DIR ${evmone_external_SOURCE_DIR})
-    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_execution_state.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_evmc.cmake)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_eof.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_instructions_calls.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_baseline_analysis.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_consteval.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_delegation.cmake)
     
     # Now create the CMakeLists.txt file
     file(WRITE ${evmone_external_SOURCE_DIR}/CMakeLists.txt "
         # Set deployment target for iOS builds
         if(APPLE)
             set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"Minimum deployment target\" FORCE)
-            # Enable aligned_alloc fallback for iOS
-            add_definitions(-DUSE_ALIGNED_ALLOC_FALLBACK)
         endif()
 
-        # Windows-specific settings
-        if(MSVC OR WIN32)
-            add_definitions(-DUSE_ALIGNED_ALLOC_FALLBACK)
-        endif()
-
-        add_definitions(-DPROJECT_VERSION=\\\"0.14.1\\\")
+        add_definitions(-DPROJECT_VERSION=\\\"0.19.0\\\")
 
         add_library(evmone STATIC
             include/evmone/evmone.h
@@ -172,14 +132,13 @@ if(NOT evmone_external_POPULATED)
             lib/evmone/constants.hpp
             lib/evmone/delegation.cpp
             lib/evmone/delegation.hpp
-            lib/evmone/eof.cpp
-            lib/evmone/eof.hpp
             lib/evmone/instructions.hpp
             lib/evmone/instructions_calls.cpp
             lib/evmone/instructions_opcodes.hpp
             lib/evmone/instructions_storage.cpp
             lib/evmone/instructions_traits.hpp
             lib/evmone/instructions_xmacro.hpp
+            lib/evmone/lru_cache.hpp
             lib/evmone/tracing.cpp
             lib/evmone/tracing.hpp
             lib/evmone/vm.cpp
@@ -187,10 +146,9 @@ if(NOT evmone_external_POPULATED)
         )
         target_include_directories(evmone PUBLIC include evmc/include)
         target_compile_features(evmone PUBLIC cxx_std_20)
-        target_link_libraries(evmone PUBLIC intx::intx PRIVATE keccak)
+        target_link_libraries(evmone PUBLIC intx::intx)
 
         if(EVMONE_X86_64_ARCH_LEVEL GREATER_EQUAL 2)
-            # Add CPU architecture runtime check. The EVMONE_X86_64_ARCH_LEVEL has a valid value.
             target_sources(evmone PRIVATE lib/evmone/cpu_check.cpp)
             set_source_files_properties(lib/evmone/cpu_check.cpp PROPERTIES COMPILE_DEFINITIONS EVMONE_X86_64_ARCH_LEVEL=${EVMONE_X86_64_ARCH_LEVEL})
         endif()
@@ -206,9 +164,24 @@ if(NOT evmone_external_POPULATED)
 endif()
 add_subdirectory(${evmone_external_SOURCE_DIR} ${evmone_external_BINARY_DIR} EXCLUDE_FROM_ALL)
 
+# Provide evmone_precompiles/keccak.hpp via our local bridge instead of
+# linking the full evmone_precompiles library (avoids duplicate precompile code).
+target_include_directories(evmone PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Build the keccak bridge as a standalone library so that any target linking
+# evmone (directly or transitively) gets the ethash_keccak256 symbol.
+add_library(keccak_bridge STATIC EXCLUDE_FROM_ALL
+    ${CMAKE_CURRENT_SOURCE_DIR}/keccak_bridge.c
+)
+target_include_directories(keccak_bridge PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}                    # evmone_precompiles/ headers + evmone_c_wrapper.h
+    ${evmone_external_SOURCE_DIR}/evmc/include     # evmc/evmc.h (needed by evmone_c_wrapper.h)
+    ${CMAKE_SOURCE_DIR}/libs/crypto                # sha3.h
+)
+target_link_libraries(evmone PUBLIC keccak_bridge)
 
 # Create our wrapper library
-add_library(evmone_wrapper STATIC  EXCLUDE_FROM_ALL
+add_library(evmone_wrapper STATIC EXCLUDE_FROM_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/evmone_c_wrapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/evmone_c_wrapper.h
 )
