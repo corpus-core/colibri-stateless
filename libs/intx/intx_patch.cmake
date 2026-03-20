@@ -23,7 +23,7 @@ if(EXISTS "${INTX_HPP_PATH}")
     #        then final line <NL>
     string(REGEX REPLACE
         "#define DEFINE_ALIAS_AND_LITERAL\\(N\\)[^\n]*\\\\\n([^\n]*\\\\\n)*[^\n]*\n"
-        "#define DEFINE_ALIAS_AND_LITERAL(N) using uint##N = uint<N>\\;\n"
+        "#define DEFINE_ALIAS_AND_LITERAL(N) using uint##N = uint<N>;\n"
         _intx_raw "${_intx_raw}")
 
     # The simplified macro no longer creates a 'literals' namespace
