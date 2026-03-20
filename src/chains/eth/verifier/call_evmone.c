@@ -618,6 +618,15 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
   debug_print_bytes32("  value", &message->value);
 }
 
+static void keccak_hook_cb(void* context, const uint8_t* data, size_t size, const uint8_t* hash) {
+  keccak_entry_t** head  = (keccak_entry_t**) context;
+  keccak_entry_t*  entry = safe_calloc(1, sizeof(keccak_entry_t));
+  memcpy(entry->hash, hash, 32);
+  entry->input = bytes_dup(bytes(data, size));
+  entry->next  = *head;
+  *head        = entry;
+}
+
 INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool capture_events) {
   buffer_t       buffer  = {0};
   address_t      to      = {0};
@@ -716,6 +725,12 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     }
   }
 
+  if (capture_events) {
+    free_keccak_entries(evm->keccak_entries);
+    evm->keccak_entries = NULL;
+    evmone_set_keccak_hook(keccak_hook_cb, &evm->keccak_entries);
+  }
+
   evmone_result result = evmone_execute(
       executor,
       &host_interface,
@@ -724,6 +739,9 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       &message,
       code.data,
       code.len);
+
+  if (capture_events)
+    evmone_set_keccak_hook(NULL, NULL);
 
   EVM_LOG("Result status code: %d", result.status_code);
   EVM_LOG("Gas left: %l", (size_t) result.gas_left);
@@ -756,6 +774,14 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   // were originally pointing into evm->accounts. Propagate them back.
   evm->accounts    = context.accounts;
   context.accounts = NULL;
+
+  // detect balance/nonce modifications for simulation stateChanges
+  for (call_account_t* acc = evm->accounts; acc; acc = acc->next) {
+    if (memcmp(acc->balance, acc->src_balance, 32) != 0)
+      acc->flags |= ACCOUNT_BALANCE_MODIFIED;
+    if (acc->nonce != acc->src_nonce)
+      acc->flags |= ACCOUNT_NONCE_MODIFIED;
+  }
 
   if (result.status_code == 0) {
     EVM_LOG("Call verification successful");

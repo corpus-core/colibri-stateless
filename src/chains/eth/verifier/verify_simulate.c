@@ -40,11 +40,120 @@
 
 const char* eth_decode_known_event(const emitted_log_t* log, ssz_builder_t* inputs_builder);
 
-ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload) {
+static bytes_t bytes32_trimmed(const bytes32_t val) {
+  uint32_t i = 0;
+  while (i < 31 && val[i] == 0) i++;
+  return bytes((uint8_t*) val + i, 32 - i);
+}
+
+static bytes_t uint64_as_bytes(uint64_t val, uint8_t buf[8]) {
+  if (val == 0) return bytes(buf, 0);
+  uint32_t len = 0;
+  for (int i = 7; i >= 0; i--) {
+    buf[i] = (uint8_t) (val & 0xFF);
+    val >>= 8;
+  }
+  while (len < 7 && buf[len] == 0) len++;
+  return bytes(buf + len, 8 - len);
+}
+
+static keccak_entry_t* find_keccak_preimage(keccak_entry_t* entries, const bytes32_t key) {
+  for (keccak_entry_t* e = entries; e; e = e->next)
+    if (memcmp(e->hash, key, 32) == 0) return e;
+  return NULL;
+}
+
+static bool account_has_changes(const call_account_t* acc) {
+  if (acc->flags & (ACCOUNT_BALANCE_MODIFIED | ACCOUNT_NONCE_MODIFIED)) return true;
+  for (call_storage_t* s = acc->storage; s; s = s->next)
+    if (s->modified) return true;
+  return false;
+}
+
+static void build_state_changes(ssz_builder_t* builder, call_account_t* accounts, keccak_entry_t* keccak_entries) {
+  size_t account_count = 0;
+  for (call_account_t* acc = accounts; acc; acc = acc->next)
+    if (account_has_changes(acc)) account_count++;
+  if (!account_count) {
+    ssz_add_bytes(builder, "stateChanges", NULL_BYTES);
+    return;
+  }
+
+  ssz_builder_t changes_builder = ssz_builder_for_def(ssz_get_def(builder->def, "stateChanges"));
+
+  for (call_account_t* acc = accounts; acc; acc = acc->next) {
+    if (!account_has_changes(acc)) continue;
+
+    ssz_builder_t acc_builder = ssz_builder_for_def(changes_builder.def->def.vector.type);
+
+    uint8_t  acc_mask = ETH_SIMULATION_ACCOUNT_CHANGE_MASK_ADDRESS;
+    uint32_t storage_change_count = 0;
+    for (call_storage_t* s = acc->storage; s; s = s->next)
+      if (s->modified) storage_change_count++;
+
+    if (storage_change_count)                      acc_mask |= ETH_SIMULATION_ACCOUNT_CHANGE_MASK_STORAGE;
+    if (acc->flags & ACCOUNT_NONCE_MODIFIED)   acc_mask |= ETH_SIMULATION_ACCOUNT_CHANGE_MASK_NONCE;
+    if (acc->flags & ACCOUNT_BALANCE_MODIFIED) acc_mask |= ETH_SIMULATION_ACCOUNT_CHANGE_MASK_BALANCE;
+
+    ssz_add_uint8(&acc_builder, acc_mask);
+    ssz_add_bytes(&acc_builder, "address", bytes(acc->address, 20));
+
+    // storage changes
+    ssz_builder_t storage_builder = ssz_builder_for_def(ssz_get_def(acc_builder.def, "storage"));
+    for (call_storage_t* s = acc->storage; s; s = s->next) {
+      if (!s->modified) continue;
+
+      ssz_builder_t slot_builder = ssz_builder_for_def(storage_builder.def->def.vector.type);
+      keccak_entry_t* preimage   = find_keccak_preimage(keccak_entries, s->key);
+
+      uint8_t slot_mask = ETH_SIMULATION_STORAGE_CHANGE_MASK_BASE;
+      if (preimage) slot_mask |= ETH_SIMULATION_STORAGE_CHANGE_MASK_SLOT_SOURCE;
+      ssz_add_uint8(&slot_builder, slot_mask);
+      ssz_add_bytes(&slot_builder, "slot", bytes(s->key, 32));
+      ssz_add_bytes(&slot_builder, "previousValue", bytes(s->src_value, 32));
+      ssz_add_bytes(&slot_builder, "newValue", bytes(s->post_value, 32));
+      if (preimage && preimage->input.len <= 1024)
+        ssz_add_bytes(&slot_builder, "slotSource", preimage->input);
+      else
+        ssz_add_bytes(&slot_builder, "slotSource", NULL_BYTES);
+
+      ssz_add_dynamic_list_builders(&storage_builder, storage_change_count, slot_builder);
+    }
+    ssz_add_builders(&acc_builder, "storage", storage_builder);
+
+    // nonce change
+    {
+      ssz_builder_t nonce_builder = ssz_builder_for_def(ssz_get_def(acc_builder.def, "nonce"));
+      uint8_t       prev_buf[8], new_buf[8];
+      ssz_add_bytes(&nonce_builder, "previousValue", uint64_as_bytes(acc->src_nonce, prev_buf));
+      ssz_add_bytes(&nonce_builder, "newValue", uint64_as_bytes(acc->nonce, new_buf));
+      ssz_add_builders(&acc_builder, "nonce", nonce_builder);
+    }
+
+    // balance change
+    {
+      ssz_builder_t balance_builder = ssz_builder_for_def(ssz_get_def(acc_builder.def, "balance"));
+      ssz_add_bytes(&balance_builder, "previousValue", bytes32_trimmed(acc->src_balance));
+      ssz_add_bytes(&balance_builder, "newValue", bytes32_trimmed(acc->balance));
+      ssz_add_builders(&acc_builder, "balance", balance_builder);
+    }
+
+    ssz_add_dynamic_list_builders(&changes_builder, account_count, acc_builder);
+  }
+
+  ssz_add_builders(builder, "stateChanges", changes_builder);
+}
+
+ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload, call_account_t* accounts, keccak_entry_t* keccak_entries) {
   ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_SIMULATION));
 
-  // Build with minimal mask - only essential fields will be shown in JSON
-  ssz_add_uint32(&builder, ETH_SIMULATION_RESULT_MASK_GAS_USED | ETH_SIMULATION_RESULT_MASK_LOGS | ETH_SIMULATION_RESULT_MASK_STATUS | ETH_SIMULATION_RESULT_MASK_RETURN_VALUE); // _optmask - corrected bits: 3,4,6,9
+  bool has_state_changes = false;
+  for (call_account_t* a = accounts; a && !has_state_changes; a = a->next)
+    has_state_changes = account_has_changes(a);
+
+  uint32_t result_mask = ETH_SIMULATION_RESULT_MASK_GAS_USED | ETH_SIMULATION_RESULT_MASK_LOGS | ETH_SIMULATION_RESULT_MASK_STATUS | ETH_SIMULATION_RESULT_MASK_RETURN_VALUE;
+  if (has_state_changes) result_mask |= ETH_SIMULATION_RESULT_MASK_STATE_CHANGES;
+  ssz_add_uint32(&builder, result_mask);
   ssz_add_uint64(&builder, execution_payload ? ssz_get_uint64(execution_payload, "blockNumber") : 0);                                                                            // blockNumber (hidden by mask)
   ssz_add_uint64(&builder, gas_used);                                                                                                                                            // cumulativeGasUsed (hidden by mask)
   ssz_add_uint64(&builder, gas_used);                                                                                                                                            // gasUsed (visible)
@@ -100,6 +209,8 @@ ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* log
   ssz_add_bytes(&builder, "trace", NULL_BYTES);        // trace (hidden by mask)
   ssz_add_uint8(&builder, 0);                          // type (hidden by mask)
   ssz_add_bytes(&builder, "returnValue", call_result); // returnValue (visible)
+
+  build_state_changes(&builder, accounts, keccak_entries);
 
   // Build and return the SSZ object
   return ssz_builder_to_bytes(&builder);

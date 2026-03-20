@@ -214,7 +214,7 @@ RETURNS_NONNULL static evm_call_ctx_t* call_get_evm_ctx(verify_ctx_t* ctx) {
 static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   add_simulate_value_transfer_event(ctx, &evm->logs);
 
-  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, ctx->state.error == NULL, evm->gas_used, NULL);
+  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, ctx->state.error == NULL, evm->gas_used, NULL, evm->accounts, evm->keccak_entries);
 
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
     ctx->data = simulation_result;
