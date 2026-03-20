@@ -1,0 +1,107 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { explainSimulation, createProvider, buildPrompt } from '../dist/index.js';
+import { WETH_DEPOSIT_RESULT, TX_PARAMS } from './fixtures.mjs';
+
+describe('createProvider', () => {
+    it('creates an OpenAI provider', () => {
+        const provider = createProvider({ provider: 'openai', apiKey: 'test' });
+        assert.ok(provider);
+        assert.ok(typeof provider.complete === 'function');
+    });
+
+    it('creates an Anthropic provider', () => {
+        const provider = createProvider({ provider: 'anthropic', apiKey: 'test' });
+        assert.ok(provider);
+        assert.ok(typeof provider.complete === 'function');
+    });
+
+    it('creates an Ollama provider', () => {
+        const provider = createProvider({ provider: 'ollama' });
+        assert.ok(provider);
+        assert.ok(typeof provider.complete === 'function');
+    });
+
+    it('throws on unknown provider', () => {
+        assert.throws(
+            () => createProvider({ provider: 'unknown' }),
+            /Unknown LLM provider/
+        );
+    });
+});
+
+describe('explainSimulation', () => {
+    it('calls provider with built prompt and returns response', async () => {
+        const mockExplanation = 'This transaction deposits 0.1 ETH into WETH.';
+
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (_url, opts) => {
+            const body = JSON.parse(opts?.body);
+            assert.equal(body.model, 'gpt-4o-mini');
+            assert.ok(body.messages[0].content.includes('blockchain transaction analyst'));
+            assert.ok(body.messages[1].content.includes('WETH'));
+            assert.equal(body.temperature, 0.2);
+
+            return new Response(JSON.stringify({
+                choices: [{ message: { content: mockExplanation } }],
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        };
+
+        try {
+            const result = await explainSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, {
+                provider: 'openai',
+                apiKey: 'test-key',
+                model: 'gpt-4o-mini',
+            });
+
+            assert.equal(result, mockExplanation);
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it('propagates API errors', async () => {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async () => {
+            return new Response('Internal Server Error', { status: 500 });
+        };
+
+        try {
+            await assert.rejects(
+                () => explainSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, {
+                    provider: 'openai',
+                    apiKey: 'test-key',
+                }),
+                /OpenAI API error 500/
+            );
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it('validates required inputs', async () => {
+        await assert.rejects(
+            () => explainSimulation(null, TX_PARAMS, { provider: 'openai' }),
+            /result is required/
+        );
+
+        await assert.rejects(
+            () => explainSimulation(WETH_DEPOSIT_RESULT, { to: '' }, { provider: 'openai' }),
+            /txParams.to is required/
+        );
+
+        await assert.rejects(
+            () => explainSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, {}),
+            /config.provider is required/
+        );
+    });
+});
+
+describe('buildPrompt (re-exported)', () => {
+    it('is accessible from the main entry point', () => {
+        const { systemPrompt, userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {});
+
+        assert.ok(systemPrompt.length > 0);
+        assert.ok(userPrompt.length > 0);
+    });
+});
