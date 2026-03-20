@@ -128,6 +128,9 @@ constexpr uint16_t reciprocal_table[] = {
             continue()
         endif()
         
+        # Replace consteval with constexpr (Android NDK clang lacks full consteval support)
+        string(REPLACE "consteval" "constexpr" LINE "${LINE}")
+
         # Otherwise, write the line as is
         file(APPEND "${OUTPUT_FILE}" "${LINE}\n")
     endforeach()
