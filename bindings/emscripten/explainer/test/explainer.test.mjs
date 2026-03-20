@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { explainSimulation, createProvider, buildPrompt } from '../dist/index.js';
-import { WETH_DEPOSIT_RESULT, TX_PARAMS } from './fixtures.mjs';
+import { explainSimulation, enhanceSimulation, createProvider, buildPrompt } from '../dist/index.js';
+import { WETH_DEPOSIT_RESULT, TX_PARAMS, WETH_ABI } from './fixtures.mjs';
 
 describe('createProvider', () => {
     it('creates an OpenAI provider', () => {
@@ -31,7 +31,7 @@ describe('createProvider', () => {
 });
 
 describe('explainSimulation', () => {
-    it('calls provider with built prompt and returns response', async () => {
+    it('calls provider with built prompt and returns response (no enrichment)', async () => {
         const mockExplanation = 'This transaction deposits 0.1 ETH into WETH.';
 
         const originalFetch = globalThis.fetch;
@@ -92,6 +92,83 @@ describe('explainSimulation', () => {
 
         await assert.rejects(
             () => explainSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, {}),
+            /config.provider is required/
+        );
+    });
+});
+
+describe('enhanceSimulation', () => {
+    it('returns enhanced result with explanation and decoded data', async () => {
+        const mockExplanation = 'Deposits 0.1 ETH into WETH.';
+
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (url, opts) => {
+            if (url.includes('sourcify')) {
+                const match = url.match(/\/v2\/contract\/\d+\/([^?]+)/);
+                const addr = match?.[1]?.toLowerCase();
+                const abi = addr === '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' ? WETH_ABI : null;
+                return new Response(JSON.stringify({
+                    abi, sources: null, storageLayout: null,
+                }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            }
+            return new Response(JSON.stringify({
+                choices: [{ message: { content: mockExplanation } }],
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        };
+
+        try {
+            const enhanced = await enhanceSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, {
+                provider: 'openai',
+                apiKey: 'test-key',
+                model: 'gpt-4o-mini',
+                chainId: 1,
+            });
+
+            assert.equal(enhanced.explanation, mockExplanation);
+            assert.equal(enhanced.gasUsed, WETH_DEPOSIT_RESULT.gasUsed);
+            assert.ok(enhanced.decodedCall);
+            assert.equal(enhanced.decodedCall.name, 'deposit');
+            assert.ok(enhanced.trace[0].decoded);
+            assert.ok(enhanced.stateChanges[0].storage[0].resolved);
+
+            const json = JSON.stringify(enhanced);
+            assert.ok(json, 'must be JSON-serializable');
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it('works without chainId (no enrichment)', async () => {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async () => new Response(JSON.stringify({
+            choices: [{ message: { content: 'Simple explanation' } }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+        try {
+            const enhanced = await enhanceSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, {
+                provider: 'openai',
+                apiKey: 'test-key',
+            });
+
+            assert.equal(enhanced.explanation, 'Simple explanation');
+            assert.equal(enhanced.decodedCall, undefined);
+            assert.equal(enhanced.logs.length, 2);
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it('validates required inputs', async () => {
+        await assert.rejects(
+            () => enhanceSimulation(null, TX_PARAMS, { provider: 'openai' }),
+            /result is required/
+        );
+        await assert.rejects(
+            () => enhanceSimulation(WETH_DEPOSIT_RESULT, { to: '' }, { provider: 'openai' }),
+            /txParams.to is required/
+        );
+        await assert.rejects(
+            () => enhanceSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, {}),
             /config.provider is required/
         );
     });

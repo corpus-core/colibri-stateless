@@ -21,7 +21,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { SimulationResult, SimulationLog, StateChange, BalanceChange, AssetChange, TraceEntry, TxParams, PromptConfig } from './types.js';
+import type {
+    SimulationResult, SimulationLog, ContractStateChange, TraceEntry,
+    TxParams, PromptConfig, EnrichedContext, ResolvedSlot, ContractMetadata,
+} from './types.js';
 import { hexToBigInt, weiToEth, formatGas, shortenAddress, formatSelector } from './format.js';
 import { labelAddress } from './known_addresses.js';
 
@@ -42,9 +45,14 @@ export interface PromptParts {
 }
 
 /** Build system and user prompts from simulation result and transaction parameters. */
-export function buildPrompt(result: SimulationResult, txParams: TxParams, config: PromptConfig): PromptParts {
+export function buildPrompt(
+    result: SimulationResult,
+    txParams: TxParams,
+    config: PromptConfig,
+    context?: EnrichedContext,
+): PromptParts {
     const systemPrompt = buildSystemPrompt(config);
-    const userPrompt = buildUserPrompt(result, txParams);
+    const userPrompt = buildUserPrompt(result, txParams, context);
     return { systemPrompt, userPrompt };
 }
 
@@ -62,29 +70,26 @@ function buildSystemPrompt(config: PromptConfig): string {
     return prompt;
 }
 
-function buildUserPrompt(result: SimulationResult, txParams: TxParams): string {
+function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?: EnrichedContext): string {
     const sections: string[] = [];
 
-    sections.push(formatTxOverview(result, txParams));
+    sections.push(formatTxOverview(result, txParams, context));
 
     if (result.logs && result.logs.length > 0) {
-        sections.push(formatEvents(result.logs));
+        sections.push(formatEvents(result.logs, context));
     }
 
     if (result.stateChanges && result.stateChanges.length > 0) {
-        sections.push(formatStateChanges(result.stateChanges));
-    }
-
-    if (result.balanceChanges && result.balanceChanges.length > 0) {
-        sections.push(formatBalanceChanges(result.balanceChanges));
-    }
-
-    if (result.assetChanges && result.assetChanges.length > 0) {
-        sections.push(formatAssetChanges(result.assetChanges));
+        sections.push(formatStateChanges(result.stateChanges, context));
     }
 
     if (result.trace && result.trace.length > 0) {
-        sections.push(formatTrace(result.trace));
+        sections.push(formatTrace(result.trace, context));
+    }
+
+    if (context) {
+        const sourceSection = formatSourceContext(result, context);
+        if (sourceSection) sections.push(sourceSection);
     }
 
     sections.push('Please explain what this transaction would do.');
@@ -92,12 +97,11 @@ function buildUserPrompt(result: SimulationResult, txParams: TxParams): string {
     return sections.join('\n\n');
 }
 
-function formatTxOverview(result: SimulationResult, txParams: TxParams): string {
+function formatTxOverview(result: SimulationResult, txParams: TxParams, context?: EnrichedContext): string {
     const status = result.status === '0x1' ? 'SUCCESS' : 'REVERTED';
     const to = labelAddress(txParams.to, shortenAddress);
     const from = txParams.from ? labelAddress(txParams.from, shortenAddress) : 'unknown sender';
     const value = txParams.value ? weiToEth(txParams.value) : '0';
-    const selector = formatSelector(txParams.data);
     const gas = formatGas(result.gasUsed);
 
     let overview = `## Transaction Overview\n`;
@@ -105,13 +109,32 @@ function formatTxOverview(result: SimulationResult, txParams: TxParams): string 
     overview += `- From: ${from}\n`;
     overview += `- To: ${to}\n`;
     if (value !== '0') overview += `- Value: ${value} ETH\n`;
-    if (selector) overview += `- Function selector: ${selector}\n`;
-    overview += `- Gas used: ${gas}`;
 
-    return overview;
+    if (context?.decodedCall) {
+        const dc = context.decodedCall;
+        const params = dc.params.map(p => `${p.name}=${p.value}`).join(', ');
+        overview += `- Function: ${dc.name}(${params})\n`;
+    } else {
+        const selector = formatSelector(txParams.data);
+        if (selector) overview += `- Function selector: ${selector}\n`;
+    }
+
+    overview += `- Gas used: ${gas}\n`;
+
+    if (result.status !== '0x1' && context?.decodedError) {
+        const err = context.decodedError;
+        if (err.reason) {
+            overview += `- Revert reason: ${err.reason}\n`;
+        } else {
+            const params = err.params.map(p => `${p.name}=${p.value}`).join(', ');
+            overview += `- Revert error: ${err.name}(${params})\n`;
+        }
+    }
+
+    return overview.trimEnd();
 }
 
-function formatEvents(logs: SimulationLog[]): string {
+function formatEvents(logs: SimulationLog[], context?: EnrichedContext): string {
     const lines: string[] = ['## Emitted Events'];
 
     for (let i = 0; i < logs.length; i++) {
@@ -120,7 +143,13 @@ function formatEvents(logs: SimulationLog[]): string {
             ? labelAddress(log.raw.address, shortenAddress)
             : 'unknown contract';
 
-        if (log.name && log.inputs) {
+        const decoded = context?.decodedEvents?.[i];
+
+        if (decoded) {
+            const params = decoded.params.map(p => formatEventParam(p)).join(', ');
+            lines.push(`${i + 1}. **${decoded.name}** on ${contractAddr}`);
+            lines.push(`   Parameters: ${params}`);
+        } else if (log.name && log.inputs) {
             const params = log.inputs.map(p => formatEventParam(p)).join(', ');
             lines.push(`${i + 1}. **${log.name}** on ${contractAddr}`);
             lines.push(`   Parameters: ${params}`);
@@ -161,51 +190,125 @@ function formatNumericParam(hexValue: string, name: string): string {
     return val.toString();
 }
 
-function formatStateChanges(changes: StateChange[]): string {
+function formatStateChanges(changes: ContractStateChange[], context?: EnrichedContext): string {
     const lines: string[] = ['## State Changes'];
-    for (const c of changes) {
-        const addr = labelAddress(c.address, shortenAddress);
-        const varName = c.soltype ? `${c.soltype.name} (${c.soltype.type})` : shortenAddress(c.slot);
-        lines.push(`- ${addr}: ${varName}: ${shortenAddress(c.oldValue)} -> ${shortenAddress(c.newValue)}`);
+
+    for (const change of changes) {
+        const addr = labelAddress(change.address, shortenAddress);
+        const resolvedSlots = context?.resolvedStorage?.get(change.address.toLowerCase());
+
+        if (change.balance) {
+            const oldBal = weiToEth(change.balance.previousValue);
+            const newBal = weiToEth(change.balance.newValue);
+            lines.push(`- ${addr}: balance ${oldBal} ETH -> ${newBal} ETH`);
+        }
+
+        if (change.storage) {
+            for (let i = 0; i < change.storage.length; i++) {
+                const s = change.storage[i];
+                const resolved = resolvedSlots?.[i];
+
+                if (resolved?.variableName) {
+                    const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') || '';
+                    const varLabel = `${resolved.variableName}${keyStr}`;
+                    const typeHint = resolved.variableType ? ` (${resolved.variableType})` : '';
+                    lines.push(`- ${addr}: ${varLabel}${typeHint}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
+                } else if (resolved) {
+                    const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') || '';
+                    lines.push(`- ${addr}: slot ${resolved.baseSlot}${keyStr}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
+                } else {
+                    lines.push(`- ${addr}: ${shortenAddress(s.slot)}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
+                }
+            }
+        }
     }
+
     return lines.join('\n');
 }
 
-function formatBalanceChanges(changes: BalanceChange[]): string {
-    const lines: string[] = ['## Balance Changes'];
-    for (const c of changes) {
-        const addr = labelAddress(c.address, shortenAddress);
-        const oldBal = weiToEth(c.oldBalance);
-        const newBal = weiToEth(c.newBalance);
-        lines.push(`- ${addr}: ${oldBal} ETH -> ${newBal} ETH`);
-    }
-    return lines.join('\n');
+function formatKeyValue(key: { type: string; value: string }): string {
+    if (key.type === 'address') return labelAddress(key.value, shortenAddress);
+    return key.value;
 }
 
-function formatAssetChanges(changes: AssetChange[]): string {
-    const lines: string[] = ['## Asset Changes'];
-    for (const c of changes) {
-        const from = labelAddress(c.from, shortenAddress);
-        const to = labelAddress(c.to, shortenAddress);
-        const symbol = c.tokenInfo?.symbol || '???';
-        lines.push(`- ${c.type}: ${c.amount} ${symbol} from ${from} to ${to}`);
-    }
-    return lines.join('\n');
+function formatSlotValue(hex: string): string {
+    const val = hexToBigInt(hex);
+    if (val === 0n) return '0';
+    return val.toString();
 }
 
-function formatTrace(trace: TraceEntry[]): string {
+function formatTrace(trace: TraceEntry[], context?: EnrichedContext): string {
     const lines: string[] = ['## Call Trace'];
-    for (let i = 0; i < Math.min(trace.length, 20); i++) {
+    const limit = Math.min(trace.length, 20);
+
+    for (let i = 0; i < limit; i++) {
         const t = trace[i];
         const from = t.from ? labelAddress(t.from, shortenAddress) : '?';
         const to = t.to ? labelAddress(t.to, shortenAddress) : '?';
-        const method = t.method || t.type || 'CALL';
-        const value = t.value && t.value !== '0x0' ? ` (${weiToEth(t.value)} ETH)` : '';
-        lines.push(`${i + 1}. ${from} -> ${to}: ${method}${value}`);
+        const callType = t.type || 'CALL';
+        const value = t.value && t.value !== '0x0' && t.value !== '0x' ? ` (${weiToEth(t.value)} ETH)` : '';
+
+        const decoded = context?.decodedTrace?.[i];
+        if (decoded) {
+            const params = decoded.params.map(p => `${p.name}=${p.value}`).join(', ');
+            lines.push(`${i + 1}. ${from} -> ${to}: ${decoded.name}(${params})${value} [${callType}]`);
+        } else {
+            const selector = t.input ? formatSelector(t.input) : '';
+            const method = selector || callType;
+            lines.push(`${i + 1}. ${from} -> ${to}: ${method}${value}`);
+        }
     }
+
     if (trace.length > 20) {
         lines.push(`... and ${trace.length - 20} more calls`);
     }
+
+    return lines.join('\n');
+}
+
+/**
+ * Include source code context for contracts where storage layout is unavailable,
+ * so the LLM can reason about storage variable assignments.
+ */
+function formatSourceContext(result: SimulationResult, context: EnrichedContext): string | null {
+    const contractsNeedingSource = new Set<string>();
+
+    if (result.stateChanges) {
+        for (const change of result.stateChanges) {
+            const addr = change.address.toLowerCase();
+            const resolved = context.resolvedStorage?.get(addr);
+            const meta = context.contracts?.get(addr);
+
+            const hasUnresolvedSlots = change.storage?.some((_, i) => resolved?.[i] && !resolved[i].variableName);
+            if (hasUnresolvedSlots && meta?.sources) {
+                contractsNeedingSource.add(addr);
+            }
+        }
+    }
+
+    if (contractsNeedingSource.size === 0) return null;
+
+    const lines: string[] = ['## Contract Source Code (for storage interpretation)'];
+    let totalBudget = 10000;
+
+    for (const addr of contractsNeedingSource) {
+        if (totalBudget <= 0) break;
+        const meta = context.contracts.get(addr)!;
+        const label = labelAddress(addr, shortenAddress);
+        lines.push(`\n### ${label}`);
+
+        if (meta.sources) {
+            for (const [filename, source] of Object.entries(meta.sources)) {
+                if (totalBudget <= 0) break;
+                const content = source.content;
+                const maxLen = Math.min(content.length, totalBudget, 3000);
+                const truncated = content.length > maxLen ? content.slice(0, maxLen) + '\n... (truncated)' : content;
+                totalBudget -= truncated.length;
+                lines.push(`\`${filename}\`:\n\`\`\`solidity\n${truncated}\n\`\`\``);
+            }
+        }
+    }
+
     return lines.join('\n');
 }
 

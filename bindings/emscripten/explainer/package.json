@@ -11,7 +11,10 @@
             "import": "./dist/index.js"
         }
     },
-    "files": ["dist", "README.md"],
+    "files": [
+        "dist",
+        "README.md"
+    ],
     "scripts": {
         "build": "tsc",
         "test": "node --test test/*.test.mjs"
@@ -31,7 +34,9 @@
     ],
     "author": "Simon Jentzsch <simon@corpus.io>",
     "license": "MIT",
-    "dependencies": {},
+    "dependencies": {
+        "ethers": "^6.16.0"
+    },
     "peerDependencies": {
         "@corpus-core/colibri-stateless": ">=0.1.0"
     },

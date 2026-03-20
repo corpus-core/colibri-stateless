@@ -32,6 +32,7 @@ export function createProvider(config: ExplainerConfig): LLMProvider {
         model: config.model,
         baseUrl: config.baseUrl,
         maxTokens: config.maxTokens,
+        temperature: config.temperature,
     };
 
     switch (config.provider) {

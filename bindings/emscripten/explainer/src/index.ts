@@ -26,42 +26,63 @@ export type {
     SimulationLog,
     InputParam,
     TraceEntry,
-    StateChange,
-    BalanceChange,
-    AssetChange,
+    StorageSlotChange,
+    ContractStateChange,
     TxParams,
     PromptConfig,
     LLMProviderConfig,
     ExplainerConfig,
     LLMProvider,
     LLMProviderType,
+    ContractMetadata,
+    SolidityStorageLayout,
+    SolidityStorageEntry,
+    SolidityStorageType,
+    DecodedCall,
+    DecodedEvent,
+    DecodedError,
+    ParsedKey,
+    ResolvedSlot,
+    EnrichedContext,
+    EnhancedSimulationResult,
+    EnhancedLog,
+    EnhancedTraceEntry,
+    EnhancedStorageSlotChange,
+    EnhancedContractStateChange,
 } from './types.js';
 
 export { buildPrompt } from './prompt.js';
 export { createProvider } from './providers/index.js';
 export { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress } from './format.js';
 export { lookupAddress, labelAddress } from './known_addresses.js';
+export { fetchContractMetadata } from './sourcify.js';
+export { decodeFunctionCall, decodeEventLog, decodeFunctionResult, decodeRevertData } from './decoder.js';
+export { parseSlotSource, resolveStorageSlot } from './storage.js';
+export { enrichSimulation, toEnhancedResult } from './enrich.js';
 
-import type { SimulationResult, TxParams, ExplainerConfig } from './types.js';
+import type { SimulationResult, TxParams, ExplainerConfig, EnhancedSimulationResult } from './types.js';
 import { buildPrompt } from './prompt.js';
 import { createProvider } from './providers/index.js';
+import { enrichSimulation, toEnhancedResult } from './enrich.js';
 
 /**
  * Explain a transaction simulation result in human-readable language using an LLM.
  *
- * Takes the JSON result of `colibri_simulateTransaction` (or a Tenderly-compatible
- * simulation response) and produces a natural-language explanation.
+ * Takes the JSON result of `colibri_simulateTransaction` and produces a
+ * natural-language explanation. When `config.chainId` is set, contract metadata
+ * is automatically fetched from Sourcify to enrich the prompt with decoded
+ * function calls, resolved storage variables, and source code context.
  *
  * @param result - The simulation result from `colibri_simulateTransaction`
  * @param txParams - The original transaction parameters (to, from, value, data)
- * @param config - LLM provider configuration
+ * @param config - LLM provider and enrichment configuration
  * @return The LLM-generated explanation string
  *
  * ```typescript
  * const explanation = await explainSimulation(
  *   simulationResult,
  *   { to: '0xC02a...', data: '0xd0e30db0', value: '0x16345785d8a0000' },
- *   { provider: 'openai', apiKey: 'sk-...', model: 'gpt-4o-mini' }
+ *   { provider: 'openai', apiKey: 'sk-...', model: 'gpt-4o-mini', chainId: 1 }
  * );
  * ```
  */
@@ -74,7 +95,60 @@ export async function explainSimulation(
     if (!txParams?.to) throw new Error('explainSimulation: txParams.to is required');
     if (!config?.provider) throw new Error('explainSimulation: config.provider is required');
 
+    const context = config.chainId
+        ? await enrichSimulation(result, txParams, config.chainId, {
+            sourcifyBaseUrl: config.sourcifyBaseUrl,
+        })
+        : undefined;
+
     const provider = createProvider(config);
-    const { systemPrompt, userPrompt } = buildPrompt(result, txParams, config);
+    const { systemPrompt, userPrompt } = buildPrompt(result, txParams, config, context);
     return provider.complete(systemPrompt, userPrompt);
+}
+
+/**
+ * Enhance a simulation result with decoded metadata and an LLM explanation.
+ *
+ * Returns a single JSON-serializable object that combines the original
+ * `colibri_simulateTransaction` output with decoded function calls, resolved
+ * storage variables, decoded events/trace, and a natural-language explanation.
+ * Ideal for UIs that need both structured data and a human-readable summary.
+ *
+ * @param result - The simulation result from `colibri_simulateTransaction`
+ * @param txParams - The original transaction parameters (to, from, value, data)
+ * @param config - LLM provider and enrichment configuration
+ * @return Enhanced simulation result with all decoded fields and explanation
+ *
+ * ```typescript
+ * const enhanced = await enhanceSimulation(
+ *   simulationResult,
+ *   { to: '0xC02a...', data: '0xd0e30db0', value: '0x16345785d8a0000' },
+ *   { provider: 'openai', apiKey: 'sk-...', model: 'gpt-4o-mini', chainId: 1 }
+ * );
+ * // enhanced.explanation -> "This transaction deposits 0.1 ETH into WETH..."
+ * // enhanced.decodedCall -> { name: 'deposit', signature: 'deposit()', params: [] }
+ * // enhanced.logs[1].decoded -> { name: 'Deposit', params: [...] }
+ * // enhanced.stateChanges[0].storage[0].resolved -> { variableName: 'balanceOf', ... }
+ * ```
+ */
+export async function enhanceSimulation(
+    result: SimulationResult,
+    txParams: TxParams,
+    config: ExplainerConfig,
+): Promise<EnhancedSimulationResult> {
+    if (!result || typeof result !== 'object') throw new Error('enhanceSimulation: result is required');
+    if (!txParams?.to) throw new Error('enhanceSimulation: txParams.to is required');
+    if (!config?.provider) throw new Error('enhanceSimulation: config.provider is required');
+
+    const context = config.chainId
+        ? await enrichSimulation(result, txParams, config.chainId, {
+            sourcifyBaseUrl: config.sourcifyBaseUrl,
+        })
+        : { contracts: new Map(), resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [] };
+
+    const provider = createProvider(config);
+    const { systemPrompt, userPrompt } = buildPrompt(result, txParams, config, context);
+    const explanation = await provider.complete(systemPrompt, userPrompt);
+
+    return toEnhancedResult(result, context, explanation);
 }

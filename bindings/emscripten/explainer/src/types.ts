@@ -21,7 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-// -- Simulation result types (aligned with Tenderly response format) --
+// -- Simulation result types (aligned with C-core output format) --
 
 export interface SimulationLog {
     name?: string;
@@ -46,60 +46,36 @@ export interface TraceEntry {
     gasUsed?: string;
     input?: string;
     output?: string;
-    method?: string;
-    decodedInput?: InputParam[];
-    decodedOutput?: InputParam[];
     value?: string;
     type?: string;
     traceAddress?: number[];
-    subtraces?: number;
+    subtraces?: string;
 }
 
-export interface StateChange {
-    address: string;
+export interface StorageSlotChange {
     slot: string;
-    oldValue: string;
+    previousValue: string;
     newValue: string;
-    preimage?: { input: string; slot: number };
-    soltype?: { name: string; type: string };
+    slotSource?: string;
 }
 
-export interface BalanceChange {
+export interface ContractStateChange {
     address: string;
-    oldBalance: string;
-    newBalance: string;
-}
-
-export interface AssetChange {
-    type: 'Transfer' | 'Mint' | 'Burn';
-    from: string;
-    to: string;
-    amount: string;
-    rawAmount: string;
-    tokenInfo?: {
-        standard: string;
-        symbol: string;
-        name: string;
-        decimals: number;
-        contractAddress: string;
-    };
+    storage?: StorageSlotChange[];
+    balance?: { previousValue: string; newValue: string };
 }
 
 /**
- * Result of `colibri_simulateTransaction`, aligned with the
- * [Tenderly simulation format](https://docs.tenderly.co/node/guides/simulate-json-rpc).
- *
- * Phase 1 fields (available now): `gasUsed`, `status`, `returnValue`, `logs`.
- * Phase 2 fields (future): `stateChanges`, `balanceChanges`, `assetChanges`, `trace`.
+ * Result of `colibri_simulateTransaction`.
+ * Matches the C-core output format with hierarchical stateChanges
+ * grouped per contract address.
  */
 export interface SimulationResult {
     gasUsed: string;
     status: string;
     returnValue: string;
     logs: SimulationLog[];
-    stateChanges?: StateChange[];
-    balanceChanges?: BalanceChange[];
-    assetChanges?: AssetChange[];
+    stateChanges?: ContractStateChange[];
     trace?: TraceEntry[];
 }
 
@@ -141,10 +117,124 @@ export interface LLMProviderConfig {
 export interface ExplainerConfig extends PromptConfig, LLMProviderConfig {
     /** LLM provider to use. */
     provider: LLMProviderType;
+    /** Chain ID for Sourcify lookups. Enables automatic contract metadata enrichment. */
+    chainId?: number;
+    /** Base URL for a self-hosted Sourcify instance. Default: `https://sourcify.dev/server`. */
+    sourcifyBaseUrl?: string;
 }
 
 // -- LLM provider interface --
 
 export interface LLMProvider {
     complete(systemPrompt: string, userPrompt: string): Promise<string>;
+}
+
+// -- Sourcify / enrichment types --
+
+export interface SolidityStorageEntry {
+    slot: string;
+    type: string;
+    astId: number;
+    label: string;
+    offset: number;
+    contract: string;
+}
+
+export interface SolidityStorageType {
+    label: string;
+    encoding: string;
+    numberOfBytes: string;
+    key?: string;
+    value?: string;
+    base?: string;
+    members?: SolidityStorageEntry[];
+}
+
+export interface SolidityStorageLayout {
+    storage: SolidityStorageEntry[];
+    types: Record<string, SolidityStorageType> | null;
+}
+
+export interface ContractMetadata {
+    abi: unknown[] | null;
+    sources: Record<string, { content: string }> | null;
+    storageLayout: SolidityStorageLayout | null;
+}
+
+export interface DecodedCall {
+    name: string;
+    signature: string;
+    params: { name: string; type: string; value: string }[];
+}
+
+export interface DecodedEvent {
+    name: string;
+    signature: string;
+    params: { name: string; type: string; value: string; indexed: boolean }[];
+}
+
+export interface DecodedError {
+    name: string;
+    signature: string;
+    params: { name: string; type: string; value: string }[];
+    reason?: string;
+}
+
+export interface ParsedKey {
+    type: 'address' | 'uint256' | 'bytes32' | 'unknown';
+    value: string;
+}
+
+export interface ResolvedSlot {
+    variableName?: string;
+    variableType?: string;
+    keys?: ParsedKey[];
+    baseSlot: number;
+    raw: string;
+}
+
+export interface EnrichedContext {
+    contracts: Map<string, ContractMetadata>;
+    decodedCall?: DecodedCall;
+    decodedError?: DecodedError;
+    resolvedStorage: Map<string, ResolvedSlot[]>;
+    decodedTrace: (DecodedCall | null)[];
+    decodedEvents: (DecodedEvent | null)[];
+}
+
+// -- Enhanced result types (JSON-serializable, for UI consumption) --
+
+export interface EnhancedLog extends SimulationLog {
+    decoded?: DecodedEvent;
+}
+
+export interface EnhancedStorageSlotChange extends StorageSlotChange {
+    resolved?: ResolvedSlot;
+}
+
+export interface EnhancedContractStateChange {
+    address: string;
+    storage?: EnhancedStorageSlotChange[];
+    balance?: { previousValue: string; newValue: string };
+}
+
+export interface EnhancedTraceEntry extends TraceEntry {
+    decoded?: DecodedCall;
+}
+
+/**
+ * The original `SimulationResult` enriched with decoded metadata and
+ * a natural-language explanation. All fields are JSON-serializable,
+ * making this suitable for direct use in UIs or APIs.
+ */
+export interface EnhancedSimulationResult {
+    gasUsed: string;
+    status: string;
+    returnValue: string;
+    logs: EnhancedLog[];
+    stateChanges?: EnhancedContractStateChange[];
+    trace?: EnhancedTraceEntry[];
+    explanation: string;
+    decodedCall?: DecodedCall;
+    error?: DecodedError;
 }
