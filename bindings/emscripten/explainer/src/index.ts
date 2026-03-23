@@ -28,12 +28,15 @@ export type {
     TraceEntry,
     StorageSlotChange,
     ContractStateChange,
+    AccessListEntry,
     TxParams,
     PromptConfig,
     LLMProviderConfig,
     ExplainerConfig,
     LLMProvider,
     LLMProviderType,
+    ContractCache,
+    VerifiedContract,
     ContractMetadata,
     SolidityStorageLayout,
     SolidityStorageEntry,
@@ -55,10 +58,13 @@ export { buildPrompt } from './prompt.js';
 export { createProvider } from './providers/index.js';
 export { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress } from './format.js';
 export { lookupAddress, labelAddress } from './known_addresses.js';
-export { fetchContractMetadata } from './sourcify.js';
+export { fetchContractMetadata, fetchCompilationInput } from './sourcify.js';
 export { decodeFunctionCall, decodeEventLog, decodeFunctionResult, decodeRevertData } from './decoder.js';
-export { parseSlotSource, resolveStorageSlot } from './storage.js';
+export { parseSlotSource, resolveStorageSlot, resolveDirectSlot } from './storage.js';
 export { enrichSimulation, toEnhancedResult } from './enrich.js';
+export { compileAndVerify, loadCompiler, getBundledCompiler } from './compiler.js';
+export { extractStorageLayout } from './layout.js';
+export { get_default_cache, cacheGet, cacheSet } from './cache.js';
 
 import type { SimulationResult, TxParams, ExplainerConfig, EnhancedSimulationResult } from './types.js';
 import { buildPrompt } from './prompt.js';
@@ -98,6 +104,7 @@ export async function explainSimulation(
     const context = config.chainId
         ? await enrichSimulation(result, txParams, config.chainId, {
             sourcifyBaseUrl: config.sourcifyBaseUrl,
+            cache: config.cache,
         })
         : undefined;
 
@@ -143,6 +150,7 @@ export async function enhanceSimulation(
     const context = config.chainId
         ? await enrichSimulation(result, txParams, config.chainId, {
             sourcifyBaseUrl: config.sourcifyBaseUrl,
+            cache: config.cache,
         })
         : { contracts: new Map(), resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [] };
 

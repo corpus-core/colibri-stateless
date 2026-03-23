@@ -209,11 +209,10 @@ function formatStateChanges(changes: ContractStateChange[], context?: EnrichedCo
                 const resolved = resolvedSlots?.[i];
 
                 if (resolved?.variableName) {
-                    const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') || '';
-                    const varLabel = `${resolved.variableName}${keyStr}`;
+                    const varLabel = formatResolvedLabel(resolved);
                     const typeHint = resolved.variableType ? ` (${resolved.variableType})` : '';
                     lines.push(`- ${addr}: ${varLabel}${typeHint}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
-                } else if (resolved) {
+                } else if (resolved && typeof resolved.baseSlot === 'number' && resolved.baseSlot >= 0) {
                     const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') || '';
                     lines.push(`- ${addr}: slot ${resolved.baseSlot}${keyStr}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
                 } else {
@@ -224,6 +223,20 @@ function formatStateChanges(changes: ContractStateChange[], context?: EnrichedCo
     }
 
     return lines.join('\n');
+}
+
+function formatResolvedLabel(resolved: ResolvedSlot): string {
+    let label = resolved.variableName || `slot ${resolved.baseSlot}`;
+    if (resolved.keys?.length) {
+        label += resolved.keys.map(k => `[${formatKeyValue(k)}]`).join('');
+    }
+    if (resolved.arrayIndex !== undefined) {
+        label += `[${resolved.arrayIndex}]`;
+    }
+    if (resolved.structField) {
+        label += `.${resolved.structField}`;
+    }
+    return label;
 }
 
 function formatKeyValue(key: { type: string; value: string }): string {

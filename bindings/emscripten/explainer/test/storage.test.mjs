@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSlotSource, resolveStorageSlot } from '../dist/storage.js';
+import { parseSlotSource, resolveStorageSlot, resolveDirectSlot } from '../dist/storage.js';
 import { UNI_STORAGE_LAYOUT } from './fixtures.mjs';
 
 const WETH_SLOT_SOURCE =
@@ -81,5 +81,37 @@ describe('resolveStorageSlot', () => {
         assert.ok(result.keys);
         assert.equal(result.keys[0].type, 'uint256');
         assert.equal(result.keys[0].value, '66');
+    });
+});
+
+describe('resolveDirectSlot', () => {
+    it('resolves a direct variable by slot number', () => {
+        const result = resolveDirectSlot('0x0000000000000000000000000000000000000000000000000000000000000000', UNI_STORAGE_LAYOUT);
+        assert.equal(result.variableName, 'totalSupply');
+        assert.equal(result.variableType, 'uint256');
+        assert.equal(result.baseSlot, 0);
+    });
+
+    it('resolves minter at slot 1', () => {
+        const result = resolveDirectSlot('0x0000000000000000000000000000000000000000000000000000000000000001', UNI_STORAGE_LAYOUT);
+        assert.equal(result.variableName, 'minter');
+        assert.equal(result.variableType, 'address');
+    });
+
+    it('resolves mintingAllowedAfter at slot 2', () => {
+        const result = resolveDirectSlot('0x0000000000000000000000000000000000000000000000000000000000000002', UNI_STORAGE_LAYOUT);
+        assert.equal(result.variableName, 'mintingAllowedAfter');
+    });
+
+    it('returns unresolved for unknown slot', () => {
+        const result = resolveDirectSlot('0x0000000000000000000000000000000000000000000000000000000000000099', UNI_STORAGE_LAYOUT);
+        assert.equal(result.variableName, undefined);
+        assert.equal(result.baseSlot, 0x99);
+    });
+
+    it('returns unresolved without layout', () => {
+        const result = resolveDirectSlot('0x0000000000000000000000000000000000000000000000000000000000000000', null);
+        assert.equal(result.variableName, undefined);
+        assert.equal(result.baseSlot, 0);
     });
 });

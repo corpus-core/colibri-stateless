@@ -22,7 +22,8 @@ describe('enrichSimulation', () => {
             return new Response(JSON.stringify({
                 abi,
                 sources: abi ? { 'Contract.sol': { content: 'pragma solidity ^0.8.0;' } } : null,
-                storageLayout: null,
+                compilation: abi ? { compilerVersion: '0.8.0', name: 'Contract' } : null,
+                stdJsonInput: null,
             }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         };
     }
@@ -67,7 +68,7 @@ describe('enrichSimulation', () => {
             const match = url.match(/\/v2\/contract\/\d+\/([^?]+)/);
             if (match) fetchedAddresses.add(match[1].toLowerCase());
             return new Response(JSON.stringify({
-                abi: null, sources: null, storageLayout: null,
+                abi: null, sources: null, compilation: null, stdJsonInput: null,
             }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         };
 
@@ -118,7 +119,7 @@ describe('toEnhancedResult', () => {
             const addr = match?.[1]?.toLowerCase();
             const abi = addr === '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' ? WETH_ABI : null;
             return new Response(JSON.stringify({
-                abi, sources: null, storageLayout: null,
+                abi, sources: null, compilation: null, stdJsonInput: null,
             }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         };
 

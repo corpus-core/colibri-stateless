@@ -24,7 +24,16 @@
 import type { ContractMetadata, SolidityStorageLayout } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://sourcify.dev/server';
+const REQUEST_TIMEOUT_MS = 15_000;
 const EMPTY_METADATA: ContractMetadata = { abi: null, sources: null, storageLayout: null };
+
+export interface CompilationInput {
+    stdJsonInput: Record<string, unknown> | null;
+    compilerVersion: string | null;
+    contractName: string | null;
+    abi: unknown[] | null;
+    sources: Record<string, { content: string }> | null;
+}
 
 /**
  * Fetch contract metadata (ABI, source files, storage layout) from the
@@ -45,7 +54,7 @@ export async function fetchContractMetadata(
 
     let response: Response;
     try {
-        response = await fetch(url);
+        response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     } catch {
         return EMPTY_METADATA;
     }
@@ -68,6 +77,61 @@ export async function fetchContractMetadata(
         : null;
 
     return { abi, sources, storageLayout };
+}
+
+const EMPTY_COMPILATION: CompilationInput = {
+    stdJsonInput: null, compilerVersion: null, contractName: null, abi: null, sources: null,
+};
+
+/**
+ * Fetch compilation input (stdJsonInput, compiler version, contract name, ABI, sources)
+ * from the Sourcify v2 API. Used for bytecode verification via `compileAndVerify`.
+ *
+ * @param address - Contract address
+ * @param chainId - EVM chain ID
+ * @param baseUrl - Override Sourcify server URL
+ * @return Compilation metadata with nullable fields
+ */
+export async function fetchCompilationInput(
+    address: string,
+    chainId: number,
+    baseUrl?: string,
+): Promise<CompilationInput> {
+    const base = (baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
+    const url = `${base}/v2/contract/${chainId}/${address}?fields=abi,stdJsonInput,compilation,sources`;
+
+    let response: Response;
+    try {
+        response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    } catch {
+        return EMPTY_COMPILATION;
+    }
+
+    if (!response.ok) return EMPTY_COMPILATION;
+
+    let body: Record<string, unknown>;
+    try {
+        body = await response.json() as Record<string, unknown>;
+    } catch {
+        return EMPTY_COMPILATION;
+    }
+
+    const abi = Array.isArray(body.abi) ? body.abi : null;
+    const sources = isSourcesObject(body.sources) ? body.sources : null;
+
+    const stdJsonInput = (body.stdJsonInput && typeof body.stdJsonInput === 'object')
+        ? body.stdJsonInput as Record<string, unknown>
+        : null;
+
+    const compilation = body.compilation as Record<string, unknown> | undefined;
+    const compilerVersion = (typeof compilation?.compilerVersion === 'string')
+        ? compilation.compilerVersion
+        : null;
+    const contractName = (typeof compilation?.name === 'string')
+        ? compilation.name
+        : null;
+
+    return { stdJsonInput, compilerVersion, contractName, abi, sources };
 }
 
 function isSourcesObject(val: unknown): val is Record<string, { content: string }> {

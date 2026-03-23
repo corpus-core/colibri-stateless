@@ -25,17 +25,22 @@ import type {
     SimulationResult, TxParams, EnrichedContext, ContractMetadata,
     DecodedCall, DecodedEvent, DecodedError, ResolvedSlot,
     EnhancedSimulationResult, EnhancedLog, EnhancedTraceEntry, EnhancedContractStateChange,
+    ContractCache, VerifiedContract, AccessListEntry,
 } from './types.js';
-import { fetchContractMetadata } from './sourcify.js';
+import { fetchCompilationInput } from './sourcify.js';
 import { decodeFunctionCall, decodeEventLog, decodeRevertData } from './decoder.js';
-import { resolveStorageSlot } from './storage.js';
+import { resolveStorageSlot, resolveDirectSlot } from './storage.js';
+import { compileAndVerify } from './compiler.js';
+import { extractStorageLayout } from './layout.js';
+import { cacheGet, cacheSet, get_default_cache } from './cache.js';
 
 /**
- * Enrich a simulation result with decoded contract metadata from Sourcify.
+ * Enrich a simulation result with decoded contract metadata.
  *
- * Collects all unique contract addresses from stateChanges, trace, and the
- * target contract, fetches their ABI/source/storageLayout in parallel, then
- * decodes function calls, events, trace entries, and storage slot changes.
+ * Resolve chain per contract address:
+ * 1. Cache lookup by `codeHash` (from `accessList`)
+ * 2. Fetch source from Sourcify, compile + verify bytecode, extract layout via skeleton
+ * 3. Best-effort Sourcify fallback when no `codeHash` is available
  *
  * @param result - Simulation result from C-core
  * @param txParams - Original transaction parameters
@@ -47,10 +52,12 @@ export async function enrichSimulation(
     result: SimulationResult,
     txParams: TxParams,
     chainId: number,
-    options?: { sourcifyBaseUrl?: string },
+    options?: { sourcifyBaseUrl?: string; cache?: ContractCache },
 ): Promise<EnrichedContext> {
+    const cache = options?.cache || await get_default_cache();
+    const codeHashes = buildCodeHashMap(result.accessList);
     const addresses = collectAddresses(result, txParams);
-    const contracts = await fetchAllContracts(addresses, chainId, options?.sourcifyBaseUrl);
+    const contracts = await fetchAllContracts(addresses, chainId, codeHashes, cache, options?.sourcifyBaseUrl);
     const decodedCall = decodeMainCall(txParams, contracts);
     const decodedError = decodeRevertError(result, txParams, contracts);
     const decodedTrace = decodeTraceEntries(result.trace, contracts);
@@ -58,6 +65,17 @@ export async function enrichSimulation(
     const resolvedStorage = resolveAllStorage(result, contracts);
 
     return { contracts, decodedCall, decodedError, resolvedStorage, decodedTrace, decodedEvents };
+}
+
+function buildCodeHashMap(accessList?: AccessListEntry[]): Map<string, string> {
+    const map = new Map<string, string>();
+    if (!accessList) return map;
+    for (const entry of accessList) {
+        if (entry.address && entry.codeHash) {
+            map.set(entry.address.toLowerCase(), entry.codeHash);
+        }
+    }
+    return map;
 }
 
 function collectAddresses(result: SimulationResult, txParams: TxParams): string[] {
@@ -92,16 +110,80 @@ function collectAddresses(result: SimulationResult, txParams: TxParams): string[
 async function fetchAllContracts(
     addresses: string[],
     chainId: number,
+    codeHashes: Map<string, string>,
+    cache: ContractCache,
     baseUrl?: string,
 ): Promise<Map<string, ContractMetadata>> {
     const results = await Promise.all(
-        addresses.map(async addr => {
-            const meta = await fetchContractMetadata(addr, chainId, baseUrl);
-            return [addr.toLowerCase(), meta] as const;
-        }),
+        addresses.map(addr => resolveContract(addr, chainId, codeHashes, cache, baseUrl)),
     );
-
     return new Map(results);
+}
+
+async function resolveContract(
+    address: string,
+    chainId: number,
+    codeHashes: Map<string, string>,
+    cache: ContractCache,
+    baseUrl?: string,
+): Promise<[string, ContractMetadata]> {
+    const addr = address.toLowerCase();
+    const codeHash = codeHashes.get(addr);
+    const empty: ContractMetadata = { abi: null, sources: null, storageLayout: null };
+
+    // Step 1: Cache lookup by codeHash
+    if (codeHash) {
+        const cached = await cacheGet(cache, codeHash);
+        if (cached) {
+            return [addr, {
+                abi: cached.abi,
+                sources: cached.sources,
+                storageLayout: cached.storageLayout,
+            }];
+        }
+    }
+
+    // Step 2 & 3: Fetch from Sourcify
+    const comp = await fetchCompilationInput(addr, chainId, baseUrl);
+    if (!comp.abi && !comp.sources) return [addr, empty];
+
+    // Extract storage layout via skeleton when sources are available
+    let storageLayout = null;
+    if (comp.sources) {
+        try {
+            storageLayout = await extractStorageLayout(comp.sources, comp.contractName ?? undefined) ?? null;
+        } catch { /* parser or compiler failure -- proceed without layout */ }
+    }
+
+    if (codeHash && comp.sources && comp.stdJsonInput && comp.compilerVersion) {
+        // Step 2: Compile + verify bytecode, then cache
+        let verification;
+        try {
+            verification = await compileAndVerify(
+                comp.stdJsonInput, comp.compilerVersion, codeHash, comp.sources,
+            );
+        } catch {
+            return [addr, { abi: comp.abi, sources: comp.sources, storageLayout }];
+        }
+
+        const abi = verification.verified ? (verification.abi ?? comp.abi) : comp.abi;
+
+        if (verification.verified) {
+            const verifiedContract: VerifiedContract = {
+                abi: abi || [],
+                storageLayout,
+                sources: comp.sources,
+                compilerVersion: comp.compilerVersion,
+                contractName: comp.contractName || '',
+            };
+            await cacheSet(cache, codeHash, verifiedContract);
+        }
+
+        return [addr, { abi, sources: comp.sources, storageLayout }];
+    }
+
+    // Step 3: No codeHash or no sources -- best-effort (not cached)
+    return [addr, { abi: comp.abi, sources: comp.sources, storageLayout }];
 }
 
 function decodeMainCall(
@@ -225,10 +307,10 @@ function resolveAllStorage(
         }
 
         const slots = change.storage.map(s => {
-            if (!s.slotSource) {
-                return { baseSlot: -1, raw: s.slot } as ResolvedSlot;
+            if (s.slotSource) {
+                return resolveStorageSlot(s.slotSource, layout);
             }
-            return resolveStorageSlot(s.slotSource, layout);
+            return resolveDirectSlot(s.slot, layout);
         });
 
         resolved.set(addr, slots);

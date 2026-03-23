@@ -65,6 +65,11 @@ export interface ContractStateChange {
     balance?: { previousValue: string; newValue: string };
 }
 
+export interface AccessListEntry {
+    address: string;
+    codeHash: string;
+}
+
 /**
  * Result of `colibri_simulateTransaction`.
  * Matches the C-core output format with hierarchical stateChanges
@@ -77,6 +82,7 @@ export interface SimulationResult {
     logs: SimulationLog[];
     stateChanges?: ContractStateChange[];
     trace?: TraceEntry[];
+    accessList?: AccessListEntry[];
 }
 
 /** Transaction parameters as passed to `colibri_simulateTransaction`. */
@@ -121,6 +127,23 @@ export interface ExplainerConfig extends PromptConfig, LLMProviderConfig {
     chainId?: number;
     /** Base URL for a self-hosted Sourcify instance. Default: `https://sourcify.dev/server`. */
     sourcifyBaseUrl?: string;
+    /** Custom cache implementation. Uses localStorage (browser), fs (Node.js), or in-memory fallback by default. */
+    cache?: ContractCache;
+}
+
+/** Persistent cache for verified contract metadata, keyed by `codeHash`. */
+export interface ContractCache {
+    get(key: string): Promise<string | null>;
+    set(key: string, value: string): Promise<void>;
+}
+
+/** Verified and cached contract metadata. Stored as JSON in the cache. */
+export interface VerifiedContract {
+    abi: unknown[];
+    storageLayout: SolidityStorageLayout | null;
+    sources: Record<string, { content: string }>;
+    compilerVersion: string;
+    contractName: string;
 }
 
 // -- LLM provider interface --
@@ -189,8 +212,10 @@ export interface ResolvedSlot {
     variableName?: string;
     variableType?: string;
     keys?: ParsedKey[];
-    baseSlot: number;
+    baseSlot: number | string;
     raw: string;
+    arrayIndex?: number;
+    structField?: string;
 }
 
 export interface EnrichedContext {

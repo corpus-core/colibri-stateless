@@ -21,7 +21,16 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { SolidityStorageLayout, ParsedKey, ResolvedSlot } from './types.js';
+import type { SolidityStorageLayout, ParsedKey, ResolvedSlot, SolidityStorageEntry } from './types.js';
+import { keccak256, AbiCoder } from 'ethers';
+
+const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+
+/** Convert a bigint slot to number when safe, hex string otherwise. */
+function safeBaseSlot(n: bigint): number | string {
+    if (n >= -1n && n <= MAX_SAFE) return Number(n);
+    return '0x' + n.toString(16).padStart(64, '0');
+}
 
 /**
  * Parse a slotSource (KECCAK256 preimage) into its components.
@@ -69,11 +78,10 @@ export function resolveStorageSlot(
         return { baseSlot: -1, raw: slotSource };
     }
 
-    const baseSlotNum = Number(baseSlot);
     const keys = [detectKeyType(keyData)];
 
     if (layout && layout.types) {
-        const entry = layout.storage.find(s => Number(s.slot) === baseSlotNum);
+        const entry = layout.storage.find(s => BigInt(s.slot) === baseSlot);
         if (entry) {
             const typeInfo = layout.types[entry.type];
             if (typeInfo) {
@@ -82,7 +90,7 @@ export function resolveStorageSlot(
                     variableName: entry.label,
                     variableType: typeInfo.label,
                     keys: resolvedKeys,
-                    baseSlot: baseSlotNum,
+                    baseSlot: safeBaseSlot(baseSlot),
                     raw: slotSource,
                 };
             }
@@ -91,9 +99,115 @@ export function resolveStorageSlot(
 
     return {
         keys,
-        baseSlot: baseSlotNum,
+        baseSlot: safeBaseSlot(baseSlot),
         raw: slotSource,
     };
+}
+
+/**
+ * Resolve a storage slot that has no slotSource by matching the raw slot
+ * number against the storage layout. Handles direct variables, packed
+ * variables, and dynamic arrays (via keccak256 heuristic).
+ *
+ * @param slotHex - The raw slot hash (hex string with 0x prefix)
+ * @param layout - Solidity compiler storage layout (null if unavailable)
+ */
+export function resolveDirectSlot(
+    slotHex: string,
+    layout: SolidityStorageLayout | null,
+): ResolvedSlot {
+    const slotBigInt = BigInt(slotHex);
+
+    if (!layout?.storage || !layout.types) {
+        return { baseSlot: safeBaseSlot(slotBigInt), raw: slotHex };
+    }
+
+    const entry = layout.storage.find(s => BigInt(s.slot) === slotBigInt);
+    if (entry) {
+        const typeInfo = layout.types[entry.type];
+        return {
+            variableName: entry.label,
+            variableType: typeInfo?.label ?? entry.type,
+            baseSlot: safeBaseSlot(slotBigInt),
+            raw: slotHex,
+        };
+    }
+
+    const arrayResult = resolveArraySlot(slotBigInt, layout);
+    if (arrayResult) return arrayResult;
+
+    return { baseSlot: safeBaseSlot(slotBigInt), raw: slotHex };
+}
+
+/**
+ * Heuristic: check if the slot falls inside a dynamic array range.
+ * For a dynamic array at slot `p`, elements start at `keccak256(abi.encode(p))`.
+ */
+function resolveArraySlot(
+    slot: bigint,
+    layout: SolidityStorageLayout,
+): ResolvedSlot | null {
+    if (!layout.storage || !layout.types) return null;
+
+    for (const entry of layout.storage) {
+        const typeInfo = layout.types[entry.type];
+        if (!typeInfo || typeInfo.encoding !== 'dynamic_array') continue;
+
+        const arrayBaseHash = keccak256(
+            AbiCoder.defaultAbiCoder().encode(['uint256'], [BigInt(entry.slot)]),
+        );
+        const arrayStart = BigInt(arrayBaseHash);
+
+        const MAX_ARRAY_ELEMENTS = 100_000;
+        if (slot >= arrayStart) {
+            const elementSize = getElementSlotSize(typeInfo, layout);
+            if (elementSize <= 0) continue;
+
+            const offset = slot - arrayStart;
+            const index = Number(offset / BigInt(elementSize));
+            if (index > MAX_ARRAY_ELEMENTS) continue;
+            const remainder = Number(offset % BigInt(elementSize));
+
+            const structField = (remainder > 0 && typeInfo.base)
+                ? resolveStructField(remainder, typeInfo.base, layout)
+                : undefined;
+
+            return {
+                variableName: entry.label,
+                variableType: typeInfo.label,
+                baseSlot: safeBaseSlot(BigInt(entry.slot)),
+                raw: '0x' + slot.toString(16).padStart(64, '0'),
+                arrayIndex: index,
+                structField,
+            };
+        }
+    }
+
+    return null;
+}
+
+function getElementSlotSize(
+    arrayType: { base?: string; numberOfBytes: string },
+    layout: SolidityStorageLayout,
+): number {
+    if (!arrayType.base || !layout.types) return 1;
+    const baseType = layout.types[arrayType.base];
+    if (!baseType) return 1;
+    return Math.ceil(Number(baseType.numberOfBytes) / 32);
+}
+
+function resolveStructField(
+    slotOffset: number,
+    baseType: string,
+    layout: SolidityStorageLayout,
+): string | undefined {
+    if (!layout.types) return undefined;
+    const typeInfo = layout.types[baseType];
+    if (!typeInfo?.members) return undefined;
+    const member = typeInfo.members.find(
+        (m: SolidityStorageEntry) => Number(m.slot) === slotOffset,
+    );
+    return member?.label;
 }
 
 /**
