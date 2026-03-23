@@ -145,10 +145,7 @@ static void req_free(void* req_void) {
 // uv_close callback for memcached connections
 static void on_conn_close(uv_handle_t* handle) {
   mc_conn_t* connection = (mc_conn_t*) handle->data;
-  // --- START CHANGE ---
-  // Comment out debug print
-  // fprintf(stderr, "DEBUG: on_conn_close called for conn %p (current data: %p)\n", connection, connection ? connection->data : NULL);
-  // --- END CHANGE ---
+  (void) connection;
   // Note: We don't free the connection struct itself here,
   // that happens in memcache_free after the loop.
 }
@@ -431,13 +428,7 @@ static void mc_process_queue(mc_t* client) {
 /// -------- SET ---------
 
 static void req_set_free(mc_set_req_t* req) {
-  if (!req) {
-    return; // Prevent double-free
-  }
-  // --- START CHANGE ---
-  // Comment out debug print
-  // fprintf(stderr, "DEBUG: req_set_free freeing req %p\n", req);
-  // --- END CHANGE ---
+  if (!req) return;
   safe_free(req->msg[0].base);
   safe_free(req->msg[1].base);
   // Free the associated write request if it hasn't been freed yet
@@ -448,117 +439,7 @@ static void req_set_free(mc_set_req_t* req) {
   safe_free(req);
 }
 
-static void on_set_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-  // Safety check for stream
-  if (!stream) {
-    log_error("Error: on_set_read called with null stream");
-    if (buf && buf->base) safe_free(buf->base);
-    return;
-  }
-
-  mc_conn_t* connection = (mc_conn_t*) stream->data;
-  // Check if connection is valid
-  if (!connection) {
-    log_error("Error: Invalid connection in on_set_read");
-    if (buf && buf->base) safe_free(buf->base);
-    return;
-  }
-
-  mc_set_req_t* req_data = (mc_set_req_t*) connection->data;
-  // Check if request data is valid
-  if (!req_data || req_data->has_been_freed) {
-    log_error("Error: Invalid or already freed request data in on_set_read");
-    if (buf && buf->base) safe_free(buf->base);
-    return;
-  }
-
-  // Stop reading first to prevent race conditions
-  uv_read_stop(stream);
-
-  // Check for connection errors
-  if (nread < 0 && nread != UV_EOF) {
-    log_error("Connection error in set operation: %s", uv_strerror(nread));
-  }
-
-  bool success = false;
-  if (nread > 0 && buf && buf->base) {
-    char* response  = buf->base;
-    response[nread] = '\0';
-
-    // Check if the set was successful
-    if (strncmp(response, "STORED", 6) == 0) {
-      success = true;
-    }
-    else {
-      log_error("Memcached SET error: %s", response);
-    }
-  }
-
-  // Mark the request as being handled (important for req_free)
-  // req_data->has_been_freed = true; // Flag removed
-
-  // Release connection before freeing request - REMOVED
-  // mc_release_connection(connection);
-
-  // Free the request data itself - REMOVED (handled by on_conn_close)
-  // req_set_free(req_data);
-}
-
-// NEW: Callback to simply discard the read result for SET operations
-static void on_set_read_discard(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-  // Safety check for stream
-  if (!stream) {
-    log_error("Error: on_set_read_discard called with null stream");
-    if (buf && buf->base) safe_free(buf->base);
-    return;
-  }
-
-  mc_conn_t* connection = (mc_conn_t*) stream->data;
-  // Check if connection is valid
-  if (!connection) {
-    log_error("Error: Invalid connection in on_set_read_discard");
-    if (buf && buf->base) safe_free(buf->base);
-    return;
-  }
-
-  // Get req_data BEFORE releasing connection
-  mc_set_req_t* req_data = (mc_set_req_t*) connection->data;
-
-  // Stop reading, we got the response (or an error)
-  uv_read_stop(stream);
-
-  // Log errors but otherwise ignore the response content
-  if (nread < 0 && nread != UV_EOF) {
-    log_error("Connection error discarding set response: %s", uv_strerror(nread));
-    // Don't free req_data or release connection here, let on_conn_close handle it
-    // Release the connection even on error
-    mc_release_connection(connection); // This sets connection->data = NULL
-
-    // Now free the request data if it was valid
-    if (req_data) {
-      req_set_free(req_data);
-    }
-  }
-  // We don't care about the actual response ("STORED", "ERROR", etc.)
-
-  // Free the buffer provided by on_alloc
-  if (buf && buf->base) {
-    safe_free(buf->base);
-  }
-
-  // Release the connection back to the pool (if not already released due to error)
-  if (nread >= 0 || nread == UV_EOF) { // Only if no error previously handled release/free
-    mc_release_connection(connection); // This sets connection->data = NULL
-
-    // Now free the request data
-    if (req_data) { // Check if req_data was valid before freeing
-      req_set_free(req_data);
-    }
-  }
-}
-
 static void on_set_write(uv_write_t* req, int status) {
-  // Check if request is valid
   if (!req) {
     log_error("Error: on_set_write called with NULL request");
     return;
@@ -567,46 +448,30 @@ static void on_set_write(uv_write_t* req, int status) {
   mc_set_req_t* req_data = (mc_set_req_t*) req->data;
   if (!req_data || req_data->has_been_freed) {
     log_error("Error: Invalid or already freed request data in on_set_write");
-    safe_free(req); // Free the write request struct itself
+    safe_free(req);
     return;
   }
 
-  // Nullify the pointer in req_data before freeing req locally
   req_data->write_req = NULL;
 
-  // Store connection reference for safety
   mc_conn_t* connection = req_data->connection;
+  safe_free(req);
+
   if (!connection) {
     log_error("Error: NULL connection in on_set_write");
-
-    // Mark as freed - REMOVED
-    // req_data->has_been_freed = true;
-
-    // Set connection data to NULL before releasing/freeing - REMOVED
-    // connection->data = NULL;
-
-    // Release connection and free resources - ADJUSTED
-    // mc_release_connection(connection); // DO NOT release potentially bad connection
-    // req_set_free(req_data); // DO NOT free req_data, let on_conn_close handle it
-    return; // Return added as we don't proceed to read
+    req_set_free(req_data);
+    return;
   }
-
-  safe_free(req); // Free the write request struct itself
 
   if (status != 0) {
     log_error("Error writing SET to memcached: %s", uv_strerror(status));
-    // DO NOT free req_data (on_conn_close handles it)
-    // DO NOT touch connection (assume it's bad, let uv_close handle it)
-    return; // Don't proceed to read
+    return;
   }
 
-  // START READ WITH NEW DISCARD CALLBACK
-  int r = uv_read_start((uv_stream_t*) &connection->tcp, on_alloc, on_set_read_discard);
-  if (r != 0) {
-    log_error("Error starting read after SET write: %s", uv_strerror(r));
-    // DO NOT free req_data (on_conn_close handles it)
-    // DO NOT touch connection (assume it's bad, let uv_close handle it)
-  }
+  // With "noreply" flag, memcached won't send a response.
+  // Release the connection immediately -- no read phase needed.
+  mc_release_connection(connection);
+  req_set_free(req_data);
 }
 
 // Set value in memcached
@@ -665,9 +530,8 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
   req_data->connection = connection;
   req_data->type       = REQ_SET;
 
-  // --- Allocation Path 1: command buffer ---
   buffer_t command_buf  = {0};
-  req_data->msg[0].base = bprintf(&command_buf, "set %s 0 %d %d\r\n", key, (uint32_t) ttl, (uint32_t) value_len);
+  req_data->msg[0].base = bprintf(&command_buf, "set %s 0 %d %d noreply\r\n", key, (uint32_t) ttl, (uint32_t) value_len);
   // Assuming bprintf allocates; need to handle its failure if it can fail
   // For now, assume it succeeds or crashes
 
@@ -690,10 +554,6 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
 
   // Associate req_data with connection *AFTER* most allocations
   connection->data = req_data;
-  // --- START CHANGE ---
-  // Comment out debug print
-  // fprintf(stderr, "DEBUG: memcache_set assigned req %p to conn %p\n", req_data, connection);
-  // --- END CHANGE ---
 
   // --- Allocation Path 3: write request struct ---
   uv_write_t* req = (uv_write_t*) safe_calloc(1, sizeof(uv_write_t));
@@ -731,10 +591,6 @@ static void req_get_free(mc_get_req_t* req) {
   if (!req) {
     return; // Prevent double-free
   }
-  // --- START CHANGE ---
-  // Comment out debug print
-  // fprintf(stderr, "DEBUG: req_get_free freeing req %p\n", req);
-  // --- END CHANGE ---
   safe_free(req->key);
   buffer_free(&req->buffer);
   // Free the associated write request if it hasn't been freed yet
@@ -1080,10 +936,6 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
 
   req->data        = req_data;
   connection->data = req_data;
-  // --- START CHANGE ---
-  // Comment out debug print
-  // fprintf(stderr, "DEBUG: memcache_get assigned req %p to conn %p\n", req_data, connection);
-  // --- END CHANGE ---
 
   int r = uv_write(req, (uv_stream_t*) &connection->tcp, req_data->msg, 3, on_get_write);
   if (r != 0) {
@@ -1123,10 +975,6 @@ static void mc_release_connection(mc_conn_t* connection) {
   if (connection->in_use) {
     connection->in_use = false;
     client->available++;
-    // --- START CHANGE ---
-    // Comment out debug print
-    // fprintf(stderr, "DEBUG: Releasing connection %p, available now %d\n", connection, client->available);
-    // --- END CHANGE ---
 
     // Clear associated request data as it's being handled by the caller
     connection->data = NULL;
