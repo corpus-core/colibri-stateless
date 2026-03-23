@@ -64,7 +64,7 @@ export { parseSlotSource, resolveStorageSlot, resolveDirectSlot } from './storag
 export { enrichSimulation, toEnhancedResult } from './enrich.js';
 export { compileAndVerify, loadCompiler, getBundledCompiler } from './compiler.js';
 export { extractStorageLayout } from './layout.js';
-export { get_default_cache, cacheGet, cacheSet } from './cache.js';
+export { getDefaultCache, get_default_cache, cacheGet, cacheSet } from './cache.js';
 
 import type { SimulationResult, TxParams, ExplainerConfig, EnhancedSimulationResult } from './types.js';
 import { buildPrompt } from './prompt.js';

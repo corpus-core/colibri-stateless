@@ -32,7 +32,7 @@ import { decodeFunctionCall, decodeEventLog, decodeRevertData } from './decoder.
 import { resolveStorageSlot, resolveDirectSlot } from './storage.js';
 import { compileAndVerify } from './compiler.js';
 import { extractStorageLayout } from './layout.js';
-import { cacheGet, cacheSet, get_default_cache } from './cache.js';
+import { cacheGet, cacheSet, getDefaultCache } from './cache.js';
 
 /**
  * Enrich a simulation result with decoded contract metadata.
@@ -54,7 +54,7 @@ export async function enrichSimulation(
     chainId: number,
     options?: { sourcifyBaseUrl?: string; cache?: ContractCache },
 ): Promise<EnrichedContext> {
-    const cache = options?.cache || await get_default_cache();
+    const cache = options?.cache || await getDefaultCache();
     const codeHashes = buildCodeHashMap(result.accessList);
     const addresses = collectAddresses(result, txParams);
     const contracts = await fetchAllContracts(addresses, chainId, codeHashes, cache, options?.sourcifyBaseUrl);

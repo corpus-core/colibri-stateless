@@ -38,7 +38,9 @@ export class OpenAIProvider implements LLMProvider {
     constructor(config: LLMProviderConfig) {
         this.apiKey = config.apiKey || '';
         this.model = config.model || 'gpt-4o-mini';
-        this.baseUrl = (config.baseUrl || 'https://api.openai.com').replace(/\/+$/, '');
+        let base = config.baseUrl || 'https://api.openai.com';
+        while (base.endsWith('/')) base = base.slice(0, -1);
+        this.baseUrl = base;
         this.maxTokens = config.maxTokens || 1024;
         this.temperature = config.temperature ?? 0.2;
     }

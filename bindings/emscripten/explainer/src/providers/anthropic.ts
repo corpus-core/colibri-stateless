@@ -34,7 +34,9 @@ export class AnthropicProvider implements LLMProvider {
     constructor(config: LLMProviderConfig) {
         this.apiKey = config.apiKey || '';
         this.model = config.model || 'claude-sonnet-4-20250514';
-        this.baseUrl = (config.baseUrl || 'https://api.anthropic.com').replace(/\/+$/, '');
+        let base = config.baseUrl || 'https://api.anthropic.com';
+        while (base.endsWith('/')) base = base.slice(0, -1);
+        this.baseUrl = base;
         this.maxTokens = config.maxTokens || 1024;
         this.temperature = config.temperature ?? 0.2;
     }

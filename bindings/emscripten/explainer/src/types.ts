@@ -67,7 +67,7 @@ export interface ContractStateChange {
 
 export interface AccessListEntry {
     address: string;
-    codeHash: string;
+    codeHash?: string;
 }
 
 /**
