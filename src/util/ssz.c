@@ -210,7 +210,7 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
           }
           else {
             uint32_t len = ssz_fixed_length(def);
-            if (!ssz_is_valid(ssz_ob(*def, bytes(ob.bytes.data + pos, len)), recursive, state)) return add_error_prefix(state, def->name);
+            if (!ssz_is_valid(ssz_ob(*def, bytes(ob.bytes.data + pos, len)), recursive, state)) return add_error_prefix(state, def ? def->name : "unknown");
             pos += len;
           }
         }
