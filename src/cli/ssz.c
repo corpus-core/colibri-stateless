@@ -157,6 +157,13 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "No value found!\n");
     exit(EXIT_FAILURE);
   }
+  c4_state_t state = {0};
+  if (!ssz_is_valid(res, true, &state)) {
+    if (state.error) {
+      fprintf(stderr, "Invalid SSZ object: %s\n", state.error);
+      exit(EXIT_FAILURE);
+    }
+  }
 
   ssz_dump_to_file(stdout, res, show_name, false);
   if (show_hash) {
