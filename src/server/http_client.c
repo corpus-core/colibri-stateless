@@ -599,10 +599,14 @@ static void handle_curl_events() {
                            response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED);
     // Update via unified end hook (also adjusts AIMD and method stats)
     {
-      char* rpc_method = extract_rpc_method(r->req);
+      char*       rpc_method = extract_rpc_method(r->req);
+      bool        is_null = (http_code >= 200 && http_code < 300
+                         && rpc_method && r->buffer.data.data && r->buffer.data.len > 0
+                         && strstr((const char*) r->buffer.data.data, "\"result\":null"));
+      const char* ctx    = is_null ? "null_result" : NULL;
       c4_on_request_end(servers, r->req->response_node_index, response_time,
                         health_success, response_type, http_code,
-                        rpc_method, NULL);
+                        rpc_method, ctx);
       if (rpc_method) safe_free(rpc_method);
     }
 
@@ -1418,6 +1422,8 @@ void c4_init_curl(uv_timer_t* timer) {
   // Auto-detect client types for servers without explicit configuration
   c4_detect_server_client_types(&eth_rpc_servers, C4_DATA_TYPE_ETH_RPC);
   c4_detect_server_client_types(&beacon_api_servers, C4_DATA_TYPE_BEACON_API);
+  // Detect which RPC servers have pruned transaction history
+  c4_detect_archive_status(&eth_rpc_servers);
   // Start RPC head polling (optional, based on ENV)
   c4_start_rpc_head_poller(&eth_rpc_servers);
 }

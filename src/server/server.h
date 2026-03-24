@@ -185,6 +185,8 @@ typedef struct {
   uint64_t head_last_seen_ms; // timestamp when head was last observed
   // Per-method statistics (linked list)
   struct method_stats* method_stats;
+  // Archive status: node has limited transaction history (e.g. Geth --history.transactions)
+  bool pruned;
 } server_health_t;
 
 /**
@@ -197,6 +199,7 @@ typedef struct method_stats {
   double               ewma_latency_ms;     // smoothed latency for this method
   double               success_ewma;        // success ratio EWMA
   double               not_found_ewma;      // not-found ratio EWMA
+  double               null_result_ewma;    // JSON-RPC null result rate EWMA (-1.0 = no data)
   bool                 rate_limited_recent; // method recently rate limited
   uint64_t             last_update_ms;      // last stats update timestamp
   struct method_stats* next;                // next entry in list
@@ -369,7 +372,10 @@ void c4_signal_rate_limited(server_list_t* servers, int idx, const char* method)
 // Server configuration and client type detection functions
 void                 c4_parse_server_config(server_list_t* list, char* servers);
 void                 c4_detect_server_client_types(server_list_t* servers, data_request_type_t type);
+void                 c4_detect_archive_status(server_list_t* servers);
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type);
+method_stats_t*      c4_find_method_stats(server_health_t* h, const char* method);
+bool                 c4_is_verified_archive(server_health_t* h, const char* method);
 const char*          c4_client_type_to_name(beacon_client_type_t client_type, http_server_t* http_server);
 bool                 c4_start_rpc_head_poller(server_list_t* servers);
 void                 c4_stop_rpc_head_poller(void);
