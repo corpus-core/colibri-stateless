@@ -555,7 +555,9 @@ static const uint8_t* resolve_cached_node(
       gindex_t tmp = gi;
       while (tmp > 1) { tmp >>= 1; gi_depth++; }
     }
-    uint32_t k = gi_depth - ep_body_depth;
+    if (gi_depth < ep_body_depth || (gi_depth - ep_body_depth) >= 64)
+      return NULL;
+    uint32_t k        = gi_depth - ep_body_depth;
     gindex_t ep_local = (((gindex_t) 1) << k) | (gi & ((((gindex_t) 1) << k) - 1));
     if (ep_local > 0 && ep_local < ep_tree_size)
       return ep_tree[ep_local];
