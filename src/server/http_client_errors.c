@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
 
 // Helper function for safe substring search in bytes_t
 static bool bytes_contains_string(bytes_t data, const char* needle) {
@@ -347,8 +350,51 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
               log_warn("   [json ] result=null, node head=%lu best=%lu - retrying", (unsigned long) this_head, (unsigned long) max_head);
               return C4_RESPONSE_ERROR_RETRY;
             }
+
+            // For methods affected by transaction history pruning, retry unless
+            // the responding node is a verified archive (low null-result rate).
+            {
+              static const char* prunable_methods[] = {
+                  "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getBlockReceipts", NULL};
+              const char* method = NULL;
+              for (const char** m = prunable_methods; *m; m++) {
+                if (req_is_method(req, *m)) { method = *m; break; }
+              }
+              if (method) {
+                server_health_t* h = &servers->health_stats[req->response_node_index];
+                if (h->pruned) {
+                  for (size_t i = 0; i < servers->count; i++) {
+                    if (i == req->response_node_index || (req->node_exclude_mask & (1 << i))) continue;
+                    if (!servers->health_stats[i].pruned) {
+                      if (!req->error) req->error = strdup("JSON-RPC result is null (pruned node)");
+                      log_warn("   [json ] result=null from pruned node - retrying with non-pruned");
+                      return C4_RESPONSE_ERROR_RETRY;
+                    }
+                  }
+                }
+                else if (!c4_is_verified_archive(h, method)) {
+                  bool has_archive_alt = false;
+                  for (size_t i = 0; i < servers->count; i++) {
+                    if (i == req->response_node_index || (req->node_exclude_mask & (1 << i))) continue;
+                    if (c4_is_verified_archive(&servers->health_stats[i], method)) {
+                      has_archive_alt = true;
+                      break;
+                    }
+                  }
+#ifdef _MSC_VER
+                  int tried = (int) __popcnt(req->node_exclude_mask);
+#else
+                  int tried = __builtin_popcount(req->node_exclude_mask);
+#endif
+                  if (has_archive_alt || tried == 0) {
+                    if (!req->error) req->error = strdup("JSON-RPC result is null");
+                    log_warn("   [json ] result=null, node not verified as archive (tried=%d) - retrying", tried);
+                    return C4_RESPONSE_ERROR_RETRY;
+                  }
+                }
+              }
+            }
           }
-          // Node is at or near the best known head - null is likely the correct answer
         }
       }
       // Quick check: only parse JSON if "error" appears in first 100 bytes
