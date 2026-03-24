@@ -446,6 +446,30 @@ gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...);
 bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, bytes32_t root_hash, gindex_t* gindex, int gindex_len);
 
 /**
+ * Creates a multi-Merkle proof from pre-computed two-level Merkle tree caches.
+ *
+ * The trees represent a parent container (body) with a nested child container (ep)
+ * at a known position. All gindexes must resolve to nodes within these two levels;
+ * returns `NULL_BYTES` if any gindex falls outside the cached range.
+ *
+ * @param body_tree Pre-computed body tree nodes indexed by gindex (array of 32-byte hashes)
+ * @param body_tree_size Number of entries in body_tree (must be a power of 2)
+ * @param ep_tree Pre-computed child container tree nodes indexed by gindex
+ * @param ep_tree_size Number of entries in ep_tree (must be a power of 2)
+ * @param ep_body_gindex Body-level gindex of the child container
+ * @param root_hash Output: receives body_tree[1] (the body hash_tree_root)
+ * @param gindex Array of compound generalized indices to prove
+ * @param gindex_len Number of generalized indices
+ * @return Allocated proof bytes (caller must free), or NULL_BYTES on cache miss
+ */
+bytes_t ssz_create_multi_proof_from_tree_cache(
+    const bytes32_t* body_tree, uint32_t body_tree_size,
+    const bytes32_t* ep_tree, uint32_t ep_tree_size,
+    gindex_t ep_body_gindex,
+    bytes32_t root_hash,
+    const gindex_t* gindex, int gindex_len);
+
+/**
  * Checks if an SSZ type has dynamic length.
  *
  * Dynamic types include: lists, bit lists, unions, and containers containing dynamic fields.

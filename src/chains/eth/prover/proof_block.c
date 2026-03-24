@@ -48,7 +48,14 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
   // create merkle proof
-  bytes_t execution_payload_proof = ssz_create_proof(block.body, body_root, ssz_gindex(block.body.def, 1, "executionPayload"));
+  gindex_t ep_gindex              = ssz_gindex(block.body.def, 1, "executionPayload");
+  bytes_t  execution_payload_proof = NULL_BYTES;
+#ifdef PROVER_CACHE
+  if (block.merkle_cache.valid)
+    execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, &ep_gindex, 1);
+  if (!execution_payload_proof.data)
+#endif
+    execution_payload_proof = ssz_create_proof(block.body, body_root, ep_gindex);
 
   // build the proof
   ssz_add_builders(&block_proof, "executionPayload", (ssz_builder_t) {.def = block.execution.def, .fixed = {.data = bytes_dup(block.execution.bytes)}});
@@ -82,9 +89,15 @@ c4_status_t c4_proof_block_number(prover_ctx_t* ctx) {
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
   // create merkle proof
-  bytes_t execution_payload_proof = ssz_create_multi_proof(block.body, body_root, 2,
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
-                                                           ssz_gindex(block.body.def, 2, "executionPayload", "timestamp"));
+  gindex_t bn_gi[2] = {ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
+                        ssz_gindex(block.body.def, 2, "executionPayload", "timestamp")};
+  bytes_t  execution_payload_proof = NULL_BYTES;
+#ifdef PROVER_CACHE
+  if (block.merkle_cache.valid)
+    execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, bn_gi, 2);
+  if (!execution_payload_proof.data)
+#endif
+    execution_payload_proof = ssz_create_multi_proof(block.body, body_root, 2, bn_gi[0], bn_gi[1]);
 
   // build the proof
   ssz_add_bytes(&block_proof, "blockNumber", ssz_get(&block.execution, "blockNumber").bytes);
@@ -121,9 +134,15 @@ c4_status_t c4_proof_block_header(prover_ctx_t* ctx) {
 
   // create multi-merkle proof for 12 selected execution payload fields
   const gindex_t* gi                      = c4_block_header_gindexes(ctx->chain_id, ssz_get_uint64(&block.header, "slot"));
-  bytes_t         execution_payload_proof = ssz_create_multi_proof(block.body, body_root, BLOCK_HEADER_FIELD_COUNT,
-                                                                   gi[0], gi[1], gi[2], gi[3], gi[4], gi[5],
-                                                                   gi[6], gi[7], gi[8], gi[9], gi[10], gi[11]);
+  bytes_t         execution_payload_proof = NULL_BYTES;
+#ifdef PROVER_CACHE
+  if (block.merkle_cache.valid)
+    execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, gi, BLOCK_HEADER_FIELD_COUNT);
+  if (!execution_payload_proof.data)
+#endif
+    execution_payload_proof = ssz_create_multi_proof(block.body, body_root, BLOCK_HEADER_FIELD_COUNT,
+                                                     gi[0], gi[1], gi[2], gi[3], gi[4], gi[5],
+                                                     gi[6], gi[7], gi[8], gi[9], gi[10], gi[11]);
 
   // build the data
   ssz_add_bytes(&data, "parentHash", ssz_get(&block.execution, "parentHash").bytes);

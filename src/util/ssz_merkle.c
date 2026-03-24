@@ -526,6 +526,84 @@ bytes_t ssz_create_proof(ssz_ob_t root, bytes32_t root_hash, gindex_t gindex) {
   return ssz_create_multi_proof(root, root_hash, 1, gindex);
 }
 
+/**
+ * Resolves a compound gindex against the two-level body/EP tree cache.
+ * Returns a pointer to the 32-byte hash, or NULL if the gindex falls outside the cache.
+ */
+static const uint8_t* resolve_cached_node(
+    const bytes32_t* body_tree, uint32_t body_tree_size,
+    const bytes32_t* ep_tree, uint32_t ep_tree_size,
+    gindex_t ep_body_gindex,
+    gindex_t gi) {
+
+  if (gi == 0) return NULL;
+
+  // Check if gi is within the EP subtree by finding k where gi >> k == ep_body_gindex
+  uint32_t ep_body_depth = 0;
+  {
+    gindex_t tmp = ep_body_gindex;
+    while (tmp > 1) { tmp >>= 1; ep_body_depth++; }
+  }
+
+  gindex_t probe = gi;
+  while (probe > ep_body_gindex) probe >>= 1;
+
+  if (probe == ep_body_gindex && gi >= ep_body_gindex) {
+    // gi is in the EP subtree - compute depth within EP
+    uint32_t gi_depth = 0;
+    {
+      gindex_t tmp = gi;
+      while (tmp > 1) { tmp >>= 1; gi_depth++; }
+    }
+    uint32_t k = gi_depth - ep_body_depth;
+    gindex_t ep_local = (((gindex_t) 1) << k) | (gi & ((((gindex_t) 1) << k) - 1));
+    if (ep_local > 0 && ep_local < ep_tree_size)
+      return ep_tree[ep_local];
+    return NULL;
+  }
+
+  // Body-level node
+  if (gi > 0 && gi < body_tree_size)
+    return body_tree[gi];
+  return NULL;
+}
+
+bytes_t ssz_create_multi_proof_from_tree_cache(
+    const bytes32_t* body_tree, uint32_t body_tree_size,
+    const bytes32_t* ep_tree, uint32_t ep_tree_size,
+    gindex_t ep_body_gindex,
+    bytes32_t root_hash,
+    const gindex_t* gindex, int gindex_len) {
+
+  buffer_t witnesses  = {0};
+  buffer_t calculated = {0};
+
+  for (int i = 0; i < gindex_len; i++)
+    ssz_add_multi_merkle_proof(gindex[i], &witnesses, &calculated);
+
+  buffer_free(&calculated);
+
+  int       witness_count = witnesses.data.len / sizeof(gindex_t);
+  gindex_t* witness_list  = (gindex_t*) witnesses.data.data;
+
+  uint8_t* proof_data = safe_calloc(witness_count, 32);
+  for (int i = 0; i < witness_count; i++) {
+    const uint8_t* node = resolve_cached_node(body_tree, body_tree_size, ep_tree, ep_tree_size,
+                                              ep_body_gindex, witness_list[i]);
+    if (!node) {
+      safe_free(proof_data);
+      buffer_free(&witnesses);
+      return NULL_BYTES;
+    }
+    memcpy(proof_data + i * 32, node, 32);
+  }
+
+  memcpy(root_hash, body_tree[1], 32);
+
+  buffer_free(&witnesses);
+  return bytes(proof_data, witness_count * 32);
+}
+
 typedef struct {
   bytes_t   witnesses_data;
   gindex_t* witnesses_gindex;
