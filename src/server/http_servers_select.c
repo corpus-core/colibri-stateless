@@ -1198,16 +1198,16 @@ void c4_detect_archive_status(server_list_t* servers) {
                       strstr((char*) phase3[i].response.data.data, "\"result\":null") != NULL);
       if (is_null) {
         servers->health_stats[idx].pruned = true;
-        log_info("   [archive] Server %lu (%s): pruned (null for old tx)", (unsigned long) idx, servers->urls[idx]);
+        log_info("   [archive] Server %l (%s): pruned (null for old tx)", (uint64_t) idx, servers->urls[idx]);
       }
       else {
-        log_info("   [archive] Server %lu (%s): full history", (unsigned long) idx, servers->urls[idx]);
+        log_info("   [archive] Server %l (%s): full history", (uint64_t) idx, servers->urls[idx]);
         method_stats_t* ms = c4_get_or_create_method_stats(&servers->health_stats[idx], "eth_getTransactionByHash");
         if (ms) ms->null_result_ewma = 0.0;
       }
     }
     else {
-      log_warn("   [archive] Server %lu (%s): probe failed (HTTP %ld)", (unsigned long) idx, servers->urls[idx], phase3[i].http_code);
+      log_warn("   [archive] Server %l (%s): probe failed (HTTP %ld)", (uint64_t) idx, servers->urls[idx], phase3[i].http_code);
     }
   }
   rpc_probe_results_free(phase3, phase3_n);

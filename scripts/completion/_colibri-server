@@ -1,0 +1,88 @@
+#compdef colibri-server
+
+# Zsh completion for colibri-server CLI
+# https://github.com/corpus-core/colibri-stateless
+
+_colibri-server() {
+  local -a args
+  args=(
+    # General
+    '(- *)--help[Show help message]'
+    '(- *)-h[Show help message]'
+    '(- *)--version[Display version information]'
+    '(- *)-v[Display version information]'
+    {-f,--config}'[Path to config file]:config file:_files -g "*.conf"'
+    {-c,--chain_id}'[Chain ID]:chain_id:(1 11155111 100 10200 8453 10 130 480 5000)'
+    {-l,--log_level}'[Log level]:level:((0\:silent 1\:error 2\:warning 3\:info 4\:debug 5\:debug_full))'
+    '--host[Host/IP to bind to]:host:(127.0.0.1 0.0.0.0)'
+    {-p,--port}'[Port to listen on]:port:'
+    {-u,--web_ui_enabled}'[Enable web-based configuration UI]:enabled:((0\:disabled 1\:enabled))'
+
+    # Memcached
+    {-m,--memcached_host}'[Hostname of the memcached server]:hostname:(localhost)'
+    '--memcached_port[Port of the memcached server]:port:'
+    '--memcached_pool[Pool size of the memcached server]:pool_size:'
+
+    # Keys
+    {-w,--witness_key}'[Private key for witness signing (hex or file path)]:key_or_file:_files'
+
+    # Backends
+    {-r,--rpc}'[List of RPC endpoints (comma-separated)]:urls:'
+    {-b,--beacon}'[List of beacon API endpoints (comma-separated)]:urls:'
+    {-R,--prover}'[List of remote prover endpoints (comma-separated)]:urls:'
+    {-z,--checkpointz}'[List of checkpointz endpoints (comma-separated)]:urls:'
+    {-t,--req_timeout}'[Request timeout in seconds]:seconds:'
+
+    # HTTP pools
+    {-M,--max_concurrency_default}'[Default per-server max concurrency]:count:'
+    {-K,--max_concurrency_cap}'[Cap for dynamic concurrency]:count:'
+    {-L,--latency_target_ms}'[Target latency for AIMD in ms]:ms:'
+    {-o,--conc_cooldown_ms}'[Cooldown for concurrency adjustments in ms]:ms:'
+    '--overflow_slots[Overflow slots per server when saturated]:count:'
+    {-W,--saturation_wait_ms}'[Wait on saturation before overflow in ms]:ms:'
+    '--method_stats_half_life_sec[Half-life for method stats in seconds]:seconds:'
+    {-B,--block_availability_window}'[Block availability window size]:size:'
+    {-J,--block_availability_ttl_sec}'[Block availability TTL in seconds]:seconds:'
+    {-q,--rpc_head_poll_interval_ms}'[Interval for eth_blockNumber polling in ms]:ms:'
+    {-Q,--rpc_head_poll_enabled}'[Enable head polling]:enabled:((0\:disabled 1\:enabled))'
+    '--latency_bias_power_x100[Exponent*100 for latency bias]:value:'
+    '--latency_backpressure_power_x100[Exponent*100 for backpressure penalty]:value:'
+    '--latency_bias_offset_ms[Offset added to latency for stability in ms]:ms:'
+    '--max_parallel_requests[Max requests dispatched per batch (0=unlimited)]:count:'
+    '--http2[Enable HTTP/2]:enabled:((0\:disabled 1\:enabled))'
+    '--pool_max_host[Max connections per host]:count:'
+    '--pool_max_total[Max total connections]:count:'
+    '--pool_maxconnects[Connection cache size]:count:'
+    '--upkeep_ms[Upkeep interval in ms]:ms:'
+    '--tcp_keepalive[TCP keepalive]:enabled:((0\:disabled 1\:enabled))'
+    '--tcp_keepidle[TCP keepidle seconds]:seconds:'
+    '--tcp_keepintvl[TCP keepintvl seconds]:seconds:'
+
+    # Test
+    {-x,--test_dir}'[Record responses to test directory]:directory:_directories'
+
+    # Tracing
+    '--tracing_enabled[Enable tracing]:enabled:((0\:disabled 1\:enabled))'
+    '--tracing_url[Zipkin v2 endpoint URL]:url:'
+    '--tracing_service[Tracing service name]:name:'
+    '--tracing_sample_percent[Tracing sample rate percent (0-100)]:percent:'
+
+    # ETH
+    {-e,--beacon_events}'[Activate beacon event streaming]:enabled:((0\:disabled 1\:enabled))'
+    '--period_backfill_delay_ms[Delay between backfill requests in ms]:ms:'
+    '--period_backfill_max_periods[Max periods to backfill at startup]:count:'
+    '--eth_logs_cache_blocks[Max contiguous blocks to cache for eth_getLogs]:count:'
+    {-d,--data}'[Path to data directory for blockroots and light client updates]:directory:_directories'
+    '--period_master_url[URL of the master node for period store]:url:'
+    '--period_full_sync[Periodically sync full period_store from master]:enabled:((0\:disabled 1\:enabled))'
+    '--period_prover_key_file[Path to file with SP1/Network private key]:file:_files'
+
+    # OP Stack
+    '--preconf_dir[Directory for storing preconfirmations]:directory:_directories'
+    '--preconf_ttl[TTL for preconfirmations in minutes]:minutes:'
+    '--preconf_cleanup_interval[Cleanup interval in minutes]:minutes:'
+  )
+  _arguments -s -S $args
+}
+
+_colibri-server "$@"

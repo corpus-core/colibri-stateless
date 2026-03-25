@@ -101,6 +101,12 @@ class ColibriServer < Formula
     # Install config file (path relative to buildpath, not build dir)
     (etc/"colibri").install buildpath/"installer/config/server.conf.default" => "server.conf"
     
+    # Zsh completions
+    zsh_completion.install "scripts/completion/_colibri"
+    zsh_completion.install "scripts/completion/_colibri-prover"
+    zsh_completion.install "scripts/completion/_colibri-ssz"
+    zsh_completion.install "scripts/completion/_colibri-server"
+    
     # Documentation
     doc.install "README.md"
   end

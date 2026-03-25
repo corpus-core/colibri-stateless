@@ -610,6 +610,25 @@ if(SHAREDLIB AND NOT EMBEDDED)
     )
 endif()
 
+# Install zsh completion scripts
+include(GNUInstallDirs)
+set(ZSH_COMPLETIONS_DIR "${CMAKE_INSTALL_DATAROOTDIR}/zsh/site-functions"
+    CACHE STRING "Path for zsh completion scripts (relative to install prefix)")
+if(CLI)
+    install(FILES
+        scripts/completion/_colibri
+        scripts/completion/_colibri-prover
+        scripts/completion/_colibri-ssz
+        DESTINATION ${ZSH_COMPLETIONS_DIR}
+    )
+endif()
+if(HTTP_SERVER)
+    install(FILES
+        scripts/completion/_colibri-server
+        DESTINATION ${ZSH_COMPLETIONS_DIR}
+    )
+endif()
+
 # Installer configuration
 if(INSTALLER)
     add_subdirectory(installer)

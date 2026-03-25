@@ -1,0 +1,24 @@
+#compdef colibri-ssz ssz
+
+# Zsh completion for colibri-ssz CLI
+# https://github.com/corpus-core/colibri-stateless
+
+_colibri-ssz() {
+  local -a args
+  args=(
+    '-c[Chain ID]:chain_id:(mainnet sepolia gnosis chiado base 1 11155111 100 10200 8453)'
+    '-t[SSZ type name]:typename:(signedblock blockbody lcu lcb zk txcache txpending)'
+    '-o[Output file]:output file:_files'
+    '-h[Show hash_tree_root of the SSZ object]'
+    '-n[Show type name in JSON output]'
+    '-s[Show serialization as hex string]'
+    '(- *)--version[Display version information]'
+    '(- *)-v[Display version information]'
+    '(- *)--help[Display help]'
+    '1:SSZ input file:_files -g "*.ssz"'
+    '*:fields:'
+  )
+  _arguments -s -S $args
+}
+
+_colibri-ssz "$@"
