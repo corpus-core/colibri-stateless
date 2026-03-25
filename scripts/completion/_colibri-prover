@@ -1,0 +1,49 @@
+#compdef colibri-prover
+
+# Zsh completion for colibri-prover CLI
+# https://github.com/corpus-core/colibri-stateless
+
+_colibri_prover_methods=(
+  'eth_getBlockByHash:Get block by hash'
+  'eth_getBlockByNumber:Get block by number'
+  'eth_blockNumber:Get latest block number'
+  'eth_getBlockHeader:Get block header'
+  'eth_blobBaseFee:Get blob base fee'
+  'eth_maxPriorityFeePerGas:Get max priority fee per gas'
+  'eth_getTransactionByHash:Get transaction by hash'
+  'eth_getTransactionByBlockHashAndIndex:Get transaction by block hash and index'
+  'eth_getTransactionByBlockNumberAndIndex:Get transaction by block number and index'
+  'eth_getTransactionReceipt:Get transaction receipt'
+  'eth_getBlockReceipts:Get all receipts for a block'
+  'eth_getBalance:Get account balance'
+  'eth_getStorageAt:Get storage value at position'
+  'eth_getCode:Get contract code'
+  'eth_getTransactionCount:Get account nonce'
+  'eth_getProof:Get Merkle proof for account'
+  'eth_call:Execute call without creating transaction'
+  'eth_estimateGas:Estimate gas for transaction'
+  'eth_getLogs:Get logs matching filter'
+  'eth_chainId:Get chain ID'
+  'colibri_simulateTransaction:Simulate a transaction'
+)
+
+_colibri-prover() {
+  local -a args
+  args=(
+    '-c[Selected chain ID]:chain_id:(mainnet sepolia gnosis chiado base 1 11155111 100 10200 8453)'
+    '-t[Generate test files in test/data/<testname>]:testname:'
+    '-x[Cache all requests in cache directory]:directory:_directories'
+    '-o[Output SSZ proof file]:output file:_files -g "*.ssz"'
+    '-d[Use chain_data from chain_store path]:chain store:_directories'
+    '-i[Include code in the proof]'
+    '(- *)--version[Display version information]'
+    '(- *)-v[Display version information]'
+    '(- *)-h[Display help]'
+    '(- *)--help[Display help]'
+    '1:method:(($_colibri_prover_methods))'
+    '*:params:'
+  )
+  _arguments -s -S $args
+}
+
+_colibri-prover "$@"

@@ -204,13 +204,4 @@ target_include_directories(evmone_wrapper
 
 target_link_libraries(evmone_wrapper PUBLIC evmone)
 
-# Install targets
-install(TARGETS evmone_wrapper
-    ARCHIVE DESTINATION lib
-    INCLUDES DESTINATION include
-)
-
-install(FILES evmone_c_wrapper.h
-    DESTINATION include
-)
 

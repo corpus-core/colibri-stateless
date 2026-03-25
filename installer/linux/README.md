@@ -69,6 +69,20 @@ The installer places files in the following locations:
 - **Data Directory**: `/var/lib/colibri/`
 - **System User**: `colibri` (created automatically)
 
+### Shell Completion
+
+The package also installs Zsh tab-completion scripts for `colibri`, `colibri-prover`, `colibri-ssz`, and `colibri-server`. Completions cover all command-line options, supported RPC methods (e.g. `eth_getBlockByNumber`), chain names, SSZ type names, server configuration flags, and more.
+
+- **DEB** (Debian/Ubuntu): Installed to `/usr/share/zsh/vendor-completions/`
+- **RPM** (RHEL/CentOS/Fedora): Installed to `/usr/share/zsh/site-functions/`
+
+Both paths are included in Zsh's default `fpath`. After installation, open a **new terminal** (or run `exec zsh`) and completions will be available:
+
+```bash
+colibri -<TAB>
+colibri eth_<TAB>
+```
+
 ### Automatic Service Start
 
 The Colibri Server is automatically installed as a systemd service and:

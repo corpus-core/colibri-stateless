@@ -23,14 +23,14 @@ cmake_minimum_required(VERSION 3.11)
 
 include(FetchContent)
 
-# Fetch intx from GitHub
+# Fetch intx from GitHub (EXCLUDE_FROM_ALL suppresses intx's own install rules)
 FetchContent_Declare(
     intx
     GIT_REPOSITORY https://github.com/chfast/intx.git
     GIT_TAG v0.15.0
+    EXCLUDE_FROM_ALL
 )
 
-# Make the content available
 FetchContent_MakeAvailable(intx)
 
 # Using modern NDK with better C++20 support instead of patching
@@ -77,13 +77,6 @@ endif()
 # Export C interface
 set_target_properties(intx_wrapper PROPERTIES
     PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/intx_c_api.h"
-)
-
-# Installation rules (optional)
-install(TARGETS intx_wrapper
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    PUBLIC_HEADER DESTINATION include
 )
 
 # Build the test program (optional - can be controlled with an option)

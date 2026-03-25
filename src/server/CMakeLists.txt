@@ -93,3 +93,8 @@ target_link_libraries(colibri-server PRIVATE serverlib ${SERVER_HANDLER_LIBS})
 set_target_properties(colibri-server PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+
+include(GNUInstallDirs)
+install(TARGETS colibri-server
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)

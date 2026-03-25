@@ -83,8 +83,20 @@ if (CLI)
 
     endif()
 
-
-
+    # Install targets
+    include(GNUInstallDirs)
+    install(TARGETS colibri-prover colibri-verifier colibri-ssz
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+    # Recreate convenience symlinks: colibri -> colibri-verifier, ssz -> colibri-ssz
+    install(CODE "
+        execute_process(COMMAND \${CMAKE_COMMAND} -E create_symlink
+            colibri-verifier \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/colibri)
+        message(STATUS \"Creating symlink: colibri -> colibri-verifier\")
+        execute_process(COMMAND \${CMAKE_COMMAND} -E create_symlink
+            colibri-ssz \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/ssz)
+        message(STATUS \"Creating symlink: ssz -> colibri-ssz\")
+    ")
 
 
 endif()

@@ -170,6 +170,25 @@ colibri-verifier --help
 colibri-ssz --help
 ```
 
+## Shell Completion
+
+Zsh tab-completion for `colibri`, `colibri-prover`, `colibri-ssz`, and `colibri-server` is installed automatically with Homebrew. It provides completions for all command-line options, supported RPC methods (e.g. `eth_getBlockByNumber`), chain names, SSZ type names, server configuration flags, and more.
+
+After installation, open a **new terminal** (or run `exec zsh`) and type:
+
+```bash
+colibri -<TAB>
+colibri eth_<TAB>
+```
+
+If completions don't work, make sure `compinit` is active in your `~/.zshrc`:
+
+```zsh
+autoload -Uz compinit && compinit
+```
+
+Most Zsh frameworks (oh-my-zsh, prezto, etc.) enable this by default.
+
 ## Updating Colibri Server
 
 ```bash

@@ -1,0 +1,58 @@
+#compdef colibri colibri-verifier
+
+# Zsh completion for colibri / colibri-verifier CLI
+# https://github.com/corpus-core/colibri-stateless
+
+_colibri_methods=(
+  'eth_getBlockByHash:Get block by hash'
+  'eth_getBlockByNumber:Get block by number'
+  'eth_blockNumber:Get latest block number'
+  'eth_getBlockHeader:Get block header'
+  'eth_blobBaseFee:Get blob base fee'
+  'eth_maxPriorityFeePerGas:Get max priority fee per gas'
+  'eth_getTransactionByHash:Get transaction by hash'
+  'eth_getTransactionByBlockHashAndIndex:Get transaction by block hash and index'
+  'eth_getTransactionByBlockNumberAndIndex:Get transaction by block number and index'
+  'eth_getTransactionReceipt:Get transaction receipt'
+  'eth_getBlockReceipts:Get all receipts for a block'
+  'eth_getBalance:Get account balance'
+  'eth_getStorageAt:Get storage value at position'
+  'eth_getCode:Get contract code'
+  'eth_getTransactionCount:Get account nonce'
+  'eth_getProof:Get Merkle proof for account'
+  'eth_call:Execute call without creating transaction'
+  'eth_estimateGas:Estimate gas for transaction'
+  'eth_getLogs:Get logs matching filter'
+  'eth_chainId:Get chain ID'
+  'colibri_simulateTransaction:Simulate a transaction'
+)
+
+_colibri() {
+  local -a args
+  args=(
+    '-c[Chain name or ID]:chain:(mainnet sepolia gnosis chiado base)'
+    '-l[Log level]:level:((0\:silent 1\:error 2\:info 3\:debug 4\:debug_full))'
+    '-s[Directory to store states]:directory:_directories'
+    '-b[Trusted checkpoint block hash]:block_hash:'
+    '-t[Test directory]:directory:_directories'
+    '-z[Use zk_proof]'
+    '-i[Proof file to read]:proof file:_files -g "*.ssz"'
+    '-o[Proof file to write]:output file:_files -g "*.ssz"'
+    '-p[URL of the prover]:url:_urls'
+    '-L[Use local proof]'
+    '-r[RPC URL]:url:_urls'
+    '-x[Checkpointz URL]:url:_urls'
+    '-n[Witness signers (hex addresses)]:signers:'
+    '-P[Enable PAP (Pragmatic Adaptive Privacy) mode]'
+    '-O[No verifier, just return the proof]'
+    '(- *)--version[Display version information]'
+    '(- *)-v[Display version information]'
+    '(- *)-h[Display help]'
+    '(- *)--help[Display help]'
+    '1:method:(($_colibri_methods))'
+    '*:params:'
+  )
+  _arguments -s -S $args
+}
+
+_colibri "$@"
