@@ -20,7 +20,7 @@
 # SPDX-License-Identifier: MIT
 
 option(CLI "generates the CLI tools." ON)
-if (WASM)
+if (WASM OR SWIFT)
     set(CLI false)
 endif()
 
