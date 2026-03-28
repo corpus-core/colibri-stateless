@@ -84,7 +84,7 @@ static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof,
   add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &eth_account_proof, "accountProof");
   ssz_add_bytes(&eth_account_proof, "address", json_as_bytes(address, &tmp));
   ssz_add_builders(&eth_account_proof, "storageProof", create_storage_proof(ctx, ssz_get_def(eth_account_proof.def, "storageProof"), json_get(eth_proof, "storageProof")));
-  ssz_add_builders(&eth_account_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data, &historic_proof));
+  ssz_add_builders(&eth_account_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data, &historic_proof, false));
 
   // build the data only if we have code
   if (strcmp(ctx->method, "eth_getCode") == 0) {
