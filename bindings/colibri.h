@@ -1234,7 +1234,7 @@ uint32_t c4_get_current_version_number(void);
  * @param chain_id The blockchain chain ID
  * @param prover_flags Flags for proof generation (see prover flag types)
  * @param verify_flags Flags for verification (e.g., 2 for `VERIFY_FLAG_PAP`)
- * @param use_remote_prover If non-zero, request proof from a remote prover server instead of generating locally
+ * @param prover_mode proof generation mode: 0 = local, 1 = remote, 2 = hybrid (header proof from server, execution data from RPC provider)
  * @return A new RPC context pointer, or NULL if creation failed
  *
  * **Example**:
@@ -1245,11 +1245,11 @@ uint32_t c4_get_current_version_number(void);
  *     1,    // Ethereum Mainnet
  *     0,    // No special prover flags
  *     0,    // No special verify flags
- *     1     // Use remote prover
+ *     2     // Use hybrid prover mode
  * );
  * ```
  */
-void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int use_remote_prover);
+void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int prover_mode);
 
 /**
  * Sets a trusted checkpoint for a chain (context-independent).

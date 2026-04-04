@@ -32,17 +32,6 @@
 #define MAX_PROOF_DEPTH 10 // max number of proofs requested by the verifier
 /* ── string converters ── */
 
-static bytes_t get_client_state(chain_id_t chain_id) {
-  storage_plugin_t storage = {0};
-  c4_get_storage_config(&storage);
-  char name[100] = {0};
-  sbprintf(name, "states_%l", (uint64_t) chain_id);
-  buffer_t state_buf = {0};
-  if (storage.get && storage.get(name, &state_buf) && state_buf.data.data && state_buf.data.len)
-    return state_buf.data;
-  return NULL_BYTES;
-}
-
 static const char* status_to_string(c4_status_t status) {
   switch (status) {
     case C4_SUCCESS: return "success";
@@ -167,21 +156,28 @@ void c4_set_checkpoint(chain_id_t chain_id, const char* checkpoint_hex) {
 
 c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id_t chain_id,
                                 prover_flags_t prover_flags, verify_flags_t verify_flags,
-                                bool use_remote_prover) {
+                                c4_prover_mode_t prover_mode) {
   c4_rpc_ctx_t* ctx = safe_calloc(1, sizeof(c4_rpc_ctx_t));
   if (!method || strlen(method) == 0) {
     ctx->error = strdup("method cannot be NULL or empty");
     ctx->phase = RPC_PHASE_DONE;
     return ctx;
   }
-  ctx->method            = strdup(method);
-  ctx->params            = strdup(params ? params : "[]");
-  ctx->chain_id          = chain_id;
-  ctx->prover_flags      = prover_flags;
-  ctx->verify_flags      = verify_flags;
-  ctx->use_remote_prover = use_remote_prover;
-  ctx->phase             = RPC_PHASE_INIT;
-  ctx->method_type       = METHOD_UNDEFINED;
+  if (prover_mode < C4_PROVER_MODE_LOCAL || prover_mode > C4_PROVER_MODE_HYBRID) {
+    ctx->error = strdup("invalid prover_mode value");
+    ctx->phase = RPC_PHASE_DONE;
+    return ctx;
+  }
+  ctx->method       = strdup(method);
+  ctx->params       = strdup(params ? params : "[]");
+  ctx->chain_id     = chain_id;
+  ctx->prover_flags = prover_flags;
+  ctx->verify_flags = verify_flags;
+  ctx->prover_mode  = prover_mode;
+  ctx->phase        = RPC_PHASE_INIT;
+  ctx->method_type  = METHOD_UNDEFINED;
+  if (prover_mode == C4_PROVER_MODE_HYBRID)
+    ctx->prover_flags |= C4_PROVER_FLAG_HYBRID;
   return ctx;
 }
 
@@ -206,8 +202,10 @@ static c4_status_t rpc_handle_verifying(c4_rpc_ctx_t* ctx);
 
 static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   verify_flags_t vf = ctx->verify_flags;
-  if (ctx->use_remote_prover)
+  if (ctx->prover_mode == C4_PROVER_MODE_REMOTE || ctx->prover_mode == C4_PROVER_MODE_HYBRID)
     vf |= VERIFY_FLAG_REMOTE_PROVER;
+  if (ctx->prover_mode == C4_PROVER_MODE_HYBRID)
+    vf |= VERIFY_FLAG_HYBRID;
   c4_status_t status = c4_verify_init(&ctx->verifier, proof, ctx->method, json_parse(ctx->params),
                                       ctx->chain_id, vf);
   if (status == C4_ERROR) {
@@ -219,8 +217,8 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
     ctx->verifier.witness_keys = bytes_dup(ctx->witness_keys);
 
   if (vf & VERIFY_FLAG_PROOF_ONLY) {
-    ctx->phase = RPC_PHASE_DONE;
-    ctx->verifier.data = (ssz_ob_t) {.def = &ssz_bytes_list, .bytes = proof};
+    ctx->phase            = RPC_PHASE_DONE;
+    ctx->verifier.data    = (ssz_ob_t) {.def = &ssz_bytes_list, .bytes = proof};
     ctx->verifier.success = true;
     return C4_SUCCESS;
   }
@@ -260,7 +258,7 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
     buffer_free(&params_buf);
     bprintf(&payload, ", \"version\": %d", (uint32_t) c4_current_version_number());
 
-    bytes_t client_state = get_client_state(ctx->chain_id);
+    bytes_t client_state = c4_get_client_state(ctx->chain_id);
     if (client_state.data) {
       bprintf(&payload, ", \"c4\": \"0x%x\"", client_state);
       safe_free(client_state.data);
@@ -402,7 +400,7 @@ static prover_ctx_t* create_prover_from_request(data_request_t* req, chain_id_t 
     req->error = strdup("Failed to create local prover");
     return NULL;
   }
-  pctx->client_state = get_client_state(chain_id);
+  pctx->client_state = c4_get_client_state(chain_id);
   if (pctx->state.error) {
     req->error        = pctx->state.error;
     pctx->state.error = NULL;
@@ -419,12 +417,32 @@ static void free_request_prover(c4_rpc_ctx_t* ctx) {
   ctx->request_prover = NULL;
 }
 
+static bool is_remote_delegated_method(data_request_t* req) {
+  if (!req->payload.data || !req->payload.len || req->payload.len > (UINT32_MAX - 1)) return false;
+  char* tmp = safe_malloc(req->payload.len + 1);
+  memcpy(tmp, req->payload.data, req->payload.len);
+  tmp[req->payload.len] = '\0';
+  json_t root   = json_parse(tmp);
+  json_t method = json_get(root, "method");
+  bool   remote = false;
+  if (method.type == JSON_TYPE_STRING) {
+    char* m = bprintf(NULL, "%j", method);
+    remote  = strcmp(m, "eth_getBlockHeader") == 0 ||
+             strcmp(m, "eth_getBlockByNumber") == 0 ||
+             strcmp(m, "eth_getBlockByHash") == 0;
+    safe_free(m);
+  }
+  safe_free(tmp);
+  return remote;
+}
+
 // returns true if there is a prover request which needs to be handled
 static bool check_prover_requests(c4_rpc_ctx_t* ctx) {
-  if (ctx->request_prover) return true;     // still processing a proof
-  if (ctx->use_remote_prover) return false; // no need
+  if (ctx->request_prover) return true;                                                                     // still processing a proof
+  if (ctx->prover_mode == C4_PROVER_MODE_REMOTE) return false;                                              // no need
   data_request_t* prover_req = find_pending_prover_request(&ctx->verifier.state);
-  if (!prover_req) return false; // no prover request found
+  if (!prover_req) return false;                                                                            // no prover request found
+  if (ctx->prover_mode == C4_PROVER_MODE_HYBRID && is_remote_delegated_method(prover_req)) return false;    // header/block requests go to the remote prover
   prover_ctx_t* pctx = create_prover_from_request(prover_req, ctx->chain_id, ctx->prover_flags);
   if (!pctx) return false;
   request_prover_t* rp = safe_calloc(1, sizeof(request_prover_t));
@@ -481,14 +499,14 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
         case METHOD_PROOFABLE:
           if (ctx->proof.data) // the user passed in a proof
             return rpc_start_verifier(ctx, ctx->proof);
-          else if (ctx->use_remote_prover) { // fetch the proof from the remote prover
+          else if (ctx->prover_mode == C4_PROVER_MODE_REMOTE) {
             ctx->phase = RPC_PHASE_RPC;
             return rpc_handle_remote_proof(ctx);
           }
-          else { // we create the proof locally
+          else { // local or hybrid: create the proof locally
             ctx->prover               = c4_prover_create(ctx->method, ctx->params, ctx->chain_id, ctx->prover_flags);
             ctx->phase                = RPC_PHASE_PROVING;
-            ctx->prover->client_state = get_client_state(ctx->chain_id);
+            ctx->prover->client_state = c4_get_client_state(ctx->chain_id);
             return rpc_handle_proving(ctx);
           }
 

@@ -136,18 +136,20 @@ const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot) {
   // Deneb: body has 12 fields, EP has 17 fields → EP gindex=25, same layout
   // Electra: body has 13 fields, EP has 17 fields → EP gindex=25, same layout
   static const gindex_t deneb_gindexes[BLOCK_HEADER_FIELD_COUNT] = {
-      800,  // parentHash    (EP index 0)
-      802,  // stateRoot     (EP index 2)
-      803,  // receiptsRoot  (EP index 3)
-      804,  // logsBloom     (EP index 4)
-      806,  // blockNumber   (EP index 6)
-      807,  // gasLimit      (EP index 7)
-      808,  // gasUsed       (EP index 8)
-      809,  // timestamp     (EP index 9)
-      811,  // baseFeePerGas (EP index 11)
-      812,  // blockHash     (EP index 12)
-      815,  // blobGasUsed   (EP index 15)
-      816}; // excessBlobGas (EP index 16)
+      800,  // parentHash      (EP index 0)
+      802,  // stateRoot       (EP index 2)
+      803,  // receiptsRoot    (EP index 3)
+      804,  // logsBloom       (EP index 4)
+      806,  // blockNumber     (EP index 6)
+      807,  // gasLimit        (EP index 7)
+      808,  // gasUsed         (EP index 8)
+      809,  // timestamp       (EP index 9)
+      811,  // baseFeePerGas   (EP index 11)
+      812,  // blockHash       (EP index 12)
+      815,  // blobGasUsed     (EP index 15)
+      816,  // excessBlobGas   (EP index 16)
+      801,  // feeRecipient    (EP index 1)
+      813}; // transactionsRoot (EP index 13, leaf = ssz_hash_tree_root(transactions))
   const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
   fork_id_t           fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
   (void) fork;

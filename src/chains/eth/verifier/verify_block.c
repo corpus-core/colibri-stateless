@@ -253,6 +253,8 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
   memcpy(leafes + 9 * 32, ssz_get(&ctx->data, "blockHash").bytes.data, 32);     // bytes32
   memcpy(leafes + 10 * 32, ssz_get(&ctx->data, "blobGasUsed").bytes.data, 8);   // uint64 fields
   memcpy(leafes + 11 * 32, ssz_get(&ctx->data, "excessBlobGas").bytes.data, 8);
+  memcpy(leafes + 12 * 32, ssz_get(&ctx->data, "feeRecipient").bytes.data, 20);    // 20-byte address, zero-padded to 32
+  memcpy(leafes + 13 * 32, ssz_get(&ctx->data, "transactionsRoot").bytes.data, 32); // ssz_hash_tree_root(transactions)
 
   if (!ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, sizeof(leafes)), gi, body_root))
     RETURN_VERIFY_ERROR(ctx, "invalid block header merkle proof!");

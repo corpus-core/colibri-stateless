@@ -108,6 +108,9 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   // geth the beacon-block with signature
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
 
+  if (block.header_only)
+    return c4_hybrid_delegate_proof(ctx);
+
   // check if we need historical proofs
   if (block.slot) TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &block_proof, &block));
 

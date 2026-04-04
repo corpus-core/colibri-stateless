@@ -74,6 +74,14 @@ static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, ssz_builder_t accoun
   return C4_SUCCESS;
 }
 
+static c4_status_t create_hybrid_call_proof(prover_ctx_t* ctx, ssz_builder_t account_proofs, beacon_block_t* block_data) {
+  ssz_builder_t hybrid_call_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_CALL_PROOF);
+  ssz_add_builders(&hybrid_call_proof, "accounts", account_proofs);
+  ssz_add_bytes(&hybrid_call_proof, "header_data", block_data->execution.bytes);
+  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, hybrid_call_proof, NULL_SSZ_BUILDER);
+  return C4_SUCCESS;
+}
+
 static void add_account(prover_ctx_t* ctx, ssz_builder_t* builder, json_t values, bytes_t address, json_t code, int accounts_len) {
   builder->def                  = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF), "accounts");
   bytes_t          key          = {0};
@@ -303,8 +311,9 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   if (has_overrides) TRY_ASYNC(eth_parse_state_overrides_state(&ctx->state, state_overrides, &overrides_parsed));
 
   TRY_ASYNC_CATCH(c4_beacon_get_block_for_eth(ctx, block_number, &block), eth_state_overrides_free(&overrides_parsed)); // get the beacon-block matching the block-tag (usually cached)
-  uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");                                              // this is our blocknumber now
-  bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;                                              // we exclude accounts from the miner address, since mining is not part of an eth_call proof
+
+  uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
+  bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;
   TRACE_ADD_UINT64(ctx, "target_block", target_block);
 
   TRACE_START(ctx, "fetch access list and eth_getProof");
@@ -315,6 +324,16 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
     TRY_ADD_ASYNC(status, eth_create_access_list(ctx, tx, &trace, target_block, state_overrides));
   else
     TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? eth_create_access_list(ctx, tx, &trace, target_block, (json_t) {0}) : eth_debug_trace_call(ctx, tx, &trace, target_block));
+
+  if (block.header_only) {
+    TRY_ASYNC_CATCH(
+        c4_get_eth_proofs(ctx, trace, target_block, &accounts, miner.data, has_overrides ? &overrides_parsed : NULL),
+        ssz_builder_free(&accounts);
+        eth_state_overrides_free(&overrides_parsed););
+    eth_state_overrides_free(&overrides_parsed);
+    return create_hybrid_call_proof(ctx, accounts, &block);
+  }
+
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed));
   TRY_ASYNC_CATCH(

@@ -202,6 +202,14 @@ public enum PrivacyMode: String, CaseIterable {
     case basic
 }
 
+// MARK: - Prover Mode
+/// Proof generation mode controlling how proofs are built and verified.
+public enum ProverMode: Int, CaseIterable {
+    case local = 0
+    case remote = 1
+    case hybrid = 2
+}
+
 // MARK: - Method Types
 public enum MethodType: Int, CaseIterable {
     case UNKNOWN = 0
@@ -235,6 +243,8 @@ public class Colibri {
     public var zkProof: Bool = false
     /// PAP mode; .basic sets verify flag for Pragmatic Adaptive Privacy.
     public var privacyMode: PrivacyMode = .none
+    /// Proof generation mode. nil = auto-detect (remote if provers configured, else local).
+    public var proverMode: ProverMode? = nil
     /// Optional witness signer keys (hex-encoded, 0x-prefixed) for sync committee signing.
     public var checkpointWitnessKeys: String? = nil
 
@@ -431,9 +441,9 @@ public class Colibri {
         defer { free(mPtr); free(pPtr) }
 
         let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0)
-        let useRemote: Int32 = provers.isEmpty ? 0 : 1
+        let effectiveProverMode: Int32 = Int32((proverMode ?? (provers.isEmpty ? .local : .remote)).rawValue)
 
-        guard let ctx = c4_create_rpc_ctx(mPtr, pPtr, chainId, proverFlags, getVerifyFlags(), useRemote) else {
+        guard let ctx = c4_create_rpc_ctx(mPtr, pPtr, chainId, proverFlags, getVerifyFlags(), effectiveProverMode) else {
             throw ColibriError.contextCreationFailed
         }
         defer { c4_free_rpc_ctx(ctx) }

@@ -77,7 +77,14 @@ typedef enum {
   ETH_SSZ_DATA_CALL_BLOCK_CONTEXT   = 30,
 
   ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF = 31,
-  ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32
+  ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32,
+
+  // hybrid proof types (header_data embedded, no consensus proof needed)
+  ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF     = 33,
+  ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF = 34,
+  ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF     = 35,
+  ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF        = 36,
+  ETH_SSZ_VERIFY_HYBRID_CALL_PROOF        = 37
 
 } eth_ssz_type_t;
 
@@ -136,7 +143,7 @@ inline static bool is_gnosis_chain(chain_id_t chain_id) {
   return chain_id == C4_CHAIN_GNOSIS || chain_id == C4_CHAIN_GNOSIS_CHIADO;
 }
 
-#define BLOCK_HEADER_FIELD_COUNT 12
+#define BLOCK_HEADER_FIELD_COUNT 14
 const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot);
 
 /** Number of leaves in the call state proof when block context is included (stateRoot + 8 execution payload fields). */

@@ -29,10 +29,12 @@
 #include "verify.h"
 
 bool verify_account_proof(verify_ctx_t* ctx);
+bool verify_hybrid_account_proof(verify_ctx_t* ctx);
 bool verify_tx_proof(verify_ctx_t* ctx);
 bool verify_receipt_proof(verify_ctx_t* ctx);
 bool verify_logs_proof(verify_ctx_t* ctx);
 bool verify_call_proof(verify_ctx_t* ctx);
+bool verify_hybrid_call_proof(verify_ctx_t* ctx);
 bool verify_block_proof(verify_ctx_t* ctx);
 bool verify_block_number_proof(verify_ctx_t* ctx);
 bool verify_block_header_proof(verify_ctx_t* ctx);

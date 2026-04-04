@@ -180,6 +180,7 @@ add_prover(
     prover/proof_logs.c
     prover/proof_call.c
     prover/beacon.c
+    prover/beacon_header.c
     prover/proof_receipt.c
     prover/proof_block_receipts.c
     prover/eth_req.c

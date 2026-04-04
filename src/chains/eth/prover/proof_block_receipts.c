@@ -45,6 +45,9 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   // first resolve the block to get a concrete block number
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_param, &block));
 
+  if (block.header_only)
+    return c4_hybrid_delegate_proof(ctx);
+
   // use the resolved block number for fetching receipts to avoid race conditions with "latest"
   uint64_t block_num = ssz_get_uint64(&block.execution, "blockNumber");
   char     block_num_hex[32];

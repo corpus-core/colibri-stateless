@@ -220,10 +220,23 @@ The constructor of the colibri client accepts a configuration-object, which may 
         "https://eth-mainnet.g.alchemy.com/v2/<APIKEY>",
         "https://rpc.ankr.com/eth/<APIKEY>" ]})
      ```
-- `prover` - urls for remove prover
-    a array of endpoints for remote prover. This allows to generate the proof in the backend, where caches can speed up the process.
+- `prover` - urls for remote prover
+    an array of endpoints for remote prover. This allows to generate the proof in the backend, where caches can speed up the process.
     ```js
     new Colibri({ prover: ["https://mainnet.colibri-proof.tech" ]})
+    ```
+- `prover_mode` - proof generation mode (default: `"remote"` if prover URLs configured, otherwise `"local"`)
+    Controls how proofs are built and verified. Three modes are available:
+    - `"local"` -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+    - `"remote"` -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+    - `"hybrid"` -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+    ```js
+    // Explicit hybrid mode
+    new Colibri({
+      prover: ["https://mainnet.colibri-proof.tech"],
+      rpcs: ["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
+      prover_mode: "hybrid"
+    })
     ```
 - `zk_proof` - use remote ZK sync proof for bootstrap (default: `false`)
     If `true`, the verifier will bootstrap the initial sync committee using the ZK proof (`ZKSyncData`) provided by the remote prover, instead of initializing via `checkpointz` / trusted checkpoints.

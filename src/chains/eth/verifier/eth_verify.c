@@ -230,10 +230,14 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
 #ifdef ETH_ACCOUNT
       if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF)))
     verify_account_proof(ctx);
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF)))
+    verify_hybrid_account_proof(ctx);
   else
 #endif
 #ifdef ETH_CALL
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF)) || (no_proof(ctx) && is_call_method(ctx->method)))
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_CALL_PROOF)))
+    verify_hybrid_call_proof(ctx);
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF)) || (no_proof(ctx) && is_call_method(ctx->method))) // no_proof covers PAP mode (both hybrid and non-hybrid)
     verify_call_proof(ctx);
   else
 #endif

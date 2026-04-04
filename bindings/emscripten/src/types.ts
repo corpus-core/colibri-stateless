@@ -121,6 +121,9 @@ export interface EIP1193Client {
 }
 
 
+/** Proof generation mode controlling how proofs are built and verified. */
+export type ProverMode = 'local' | 'remote' | 'hybrid';
+
 // C4Client configuration
 export interface Config extends ChainConfig {
     chainId: number | string;
@@ -132,6 +135,8 @@ export interface Config extends ChainConfig {
     /** Pragmatic Adaptive Privacy mode. Default "none". "basic" sets verify flag for PAP. */
     privacy_mode?: PrivacyMode;
     zk_proof?: boolean;
+    /** Proof generation mode. Default: "remote" if prover URLs configured, otherwise "local". */
+    prover_mode?: ProverMode;
     chains: {
         [chainId: number]: ChainConfig;
     };

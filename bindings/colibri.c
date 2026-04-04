@@ -119,10 +119,10 @@ uint32_t c4_get_current_version_number(void) {
 
 /* ── Unified RPC API ── */
 
-void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int use_remote_prover) {
+void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int prover_mode) {
   return (void*) c4_rpc_ctx_create(method, params, (chain_id_t) chain_id,
                                    (prover_flags_t) prover_flags, (verify_flags_t) verify_flags,
-                                   use_remote_prover != 0);
+                                   (c4_prover_mode_t) prover_mode);
 }
 
 char* c4_rpc_execute_json_status(void* ctx) {

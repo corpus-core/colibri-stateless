@@ -178,6 +178,7 @@ class Colibri:
         trusted_checkpoint: Optional[str] = None,
         request_handler: Optional[RequestHandler] = None,
         privacy_mode: Optional[PrivacyMode] = None,
+        prover_mode: Optional[ProverMode] = None,
         storage: Optional[ColibriStorage] = None
     ):
         """
@@ -190,6 +191,7 @@ class Colibri:
             beacon_apis: Beacon chain API endpoints
             trusted_checkpoint: Optional trusted checkpoint block hash for anchoring
             privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
+            prover_mode: Proof generation mode (ProverMode.LOCAL, REMOTE, or HYBRID). Default: REMOTE if provers configured, LOCAL otherwise.
             request_handler: Custom HTTP request handler
             storage: Custom storage implementation
         """
@@ -459,6 +461,29 @@ client = Colibri(
     request_handler=MyCustomRequestHandler()
 )
 ```
+
+### Prover Mode
+
+Controls how proofs are built and verified. Set via `prover_mode` in the constructor:
+
+- **`ProverMode.LOCAL`** -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+- **`ProverMode.REMOTE`** -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+- **`ProverMode.HYBRID`** -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+
+```python
+from colibri import Colibri
+from colibri.types import ProverMode
+
+# Hybrid mode: header proofs from Colibri, execution data from RPC provider
+client = Colibri(
+    chain_id=1,
+    provers=["https://mainnet.colibri-proof.tech"],
+    eth_rpcs=["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
+    prover_mode=ProverMode.HYBRID
+)
+```
+
+Default: `ProverMode.REMOTE` when prover URLs are configured, `ProverMode.LOCAL` otherwise.
 
 ### Privacy (PAP)
 

@@ -80,19 +80,128 @@ typedef struct {
 typedef struct {
   uint64_t  slot;             // slot of the block
   ssz_ob_t  header;           // block header
-  ssz_ob_t  execution;        // execution payload of the block
-  ssz_ob_t  body;             // body of the block
-  ssz_ob_t  sync_aggregate;   // sync aggregate with the signature of the block
+  ssz_ob_t  execution;        // execution payload or SSZ-encoded header data (14 fields) when header_only
+  ssz_ob_t  body;             // body of the block (empty in hybrid mode)
+  ssz_ob_t  sync_aggregate;   // sync aggregate with the signature of the block (empty in hybrid mode)
   bytes32_t sign_parent_root; // the parentRoot of the block containing the signature
   bytes32_t data_block_root;  // the blockroot used for the data block
+  bool      header_only;      // true when only header data is available (hybrid mode)
 #ifdef PROVER_CACHE
   beacon_body_merkle_cache_t merkle_cache; /**< pre-computed body/EP Merkle trees */
 #endif
 } beacon_block_t;
 
+// :: Verified Header Cache
+
+#define HEADER_CACHE_SIZE 256
+
+/**
+ * A single cached verified block header entry.
+ * Stores the SSZ-encoded `ETH_BLOCK_HEADER_DATA` (14 fields, ~540 bytes).
+ * Memory for `header_data.bytes` is independently allocated via `bytes_dup()`.
+ */
+typedef struct {
+  chain_id_t chain_id;
+  uint64_t   block_number;
+  bytes32_t  block_hash;
+  ssz_ob_t   header_data;
+  uint64_t   cached_at_ms;
+} verified_header_entry_t;
+
+/** Block tag indices for the tag-to-block-hash cache. */
+typedef enum {
+  HEADER_TAG_LATEST    = 0,
+  HEADER_TAG_SAFE      = 1,
+  HEADER_TAG_FINALIZED = 2,
+  HEADER_TAG_COUNT     = 3
+} header_tag_t;
+
+/** Maps a block tag (latest/safe/finalized) to a cached block hash with a timestamp for TTL checks. */
+typedef struct {
+  bytes32_t block_hash;
+  uint64_t  cached_at_ms;
+} tag_cache_entry_t;
+
+/**
+ * Ring-buffer cache of verified block headers for prover-side optimization.
+ * Avoids redundant `eth_getBlockHeader` requests when multiple RPC calls
+ * target the same block. The verifier does NOT read from this cache.
+ *
+ * The `tags` array caches the mapping from special block identifiers
+ * (`latest`, `safe`/`justified`, `finalized`) to their resolved block hash.
+ * Each mapping has a TTL: `latest` ~ block_time/2, `safe` ~ half epoch,
+ * `finalized` ~ one epoch.
+ */
+typedef struct {
+  verified_header_entry_t entries[HEADER_CACHE_SIZE];
+  uint32_t                count;
+  uint32_t                head_idx;
+  tag_cache_entry_t       tags[HEADER_TAG_COUNT];
+} verified_header_cache_t;
+
+/**
+ * Looks up a verified header by block number.
+ *
+ * @param cache the header cache
+ * @param chain_id the chain to match
+ * @param block_number the block number to look up
+ * @return pointer to the cached entry, or NULL on miss
+ */
+const verified_header_entry_t* c4_header_cache_get_by_number(const verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number);
+
+/**
+ * Looks up a verified header by block hash.
+ *
+ * @param cache the header cache
+ * @param chain_id the chain to match
+ * @param block_hash 32-byte block hash to look up
+ * @return pointer to the cached entry, or NULL on miss
+ */
+const verified_header_entry_t* c4_header_cache_get_by_hash(const verified_header_cache_t* cache, chain_id_t chain_id, const uint8_t* block_hash);
+
+/**
+ * Inserts a verified header into the cache. Overwrites the oldest entry when full.
+ * The `header_data.bytes` are duplicated via `bytes_dup()`.
+ *
+ * @param cache the header cache
+ * @param chain_id the chain ID
+ * @param block_number the block number
+ * @param block_hash 32-byte block hash
+ * @param header_data SSZ-encoded `ETH_BLOCK_HEADER_DATA` (will be copied)
+ */
+void c4_header_cache_put(verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t header_data);
+
 // get the beacon block for the given eth block number or hash
 c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_root, bytes32_t data_root, ssz_ob_t* sig_block, ssz_ob_t* data_block, bytes32_t data_root_result);
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+
+// :: Hybrid Mode (beacon_header.c)
+
+/**
+ * Resolves the block identifier and fetches/caches the verified block header
+ * from the remote prover. Returns a header-only `beacon_block_t`.
+ *
+ * Handles all block identifier formats: `"latest"`, `"safe"`, `"justified"`,
+ * `"finalized"`, block hash (`0x...` 32 bytes), and block number (`0x...`).
+ * Tag-based identifiers are cached with TTLs (latest ~ block_time/2,
+ * safe ~ half epoch, finalized ~ one epoch).
+ *
+ * @param ctx prover context (must have `C4_PROVER_FLAG_HYBRID` set)
+ * @param block JSON block identifier
+ * @param beacon_block output: populated with header-only data
+ * @return `C4_SUCCESS` when header is ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
+ */
+c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+
+/**
+ * Delegates a full proof request to the remote prover in hybrid mode.
+ * Used for methods that require the full beacon block body (transactions, receipts, calls, logs).
+ * The remote prover's response (full SSZ `C4Request`) is set as `ctx->proof`.
+ *
+ * @param ctx prover context (must have `C4_PROVER_FLAG_HYBRID` set)
+ * @return `C4_SUCCESS` when proof is ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
+ */
+c4_status_t c4_hybrid_delegate_proof(prover_ctx_t* ctx);
 
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);

@@ -105,10 +105,10 @@ method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* 
 
 /* ── Unified RPC API ── */
 
-void* EMSCRIPTEN_KEEPALIVE c4w_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int use_remote_prover) {
+void* EMSCRIPTEN_KEEPALIVE c4w_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int prover_mode) {
   return (void*) c4_rpc_ctx_create(method, params, (chain_id_t) chain_id,
                                    (prover_flags_t) prover_flags, (verify_flags_t) verify_flags,
-                                   use_remote_prover != 0);
+                                   (c4_prover_mode_t) prover_mode);
 }
 
 char* EMSCRIPTEN_KEEPALIVE c4w_execute_rpc_ctx(void* ctx) {

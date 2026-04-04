@@ -328,6 +328,7 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder) {
   // nothing to be done - no data to be added.
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID) return C4_SUCCESS; // no need to handle this for hybrid mode.
   if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0 && !(ctx->flags & C4_PROVER_FLAG_ZK_PROOF)) return C4_SUCCESS;
   if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)==0) return C4_SUCCESS;
   if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF)  && ((sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) ||
@@ -407,6 +408,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
 }
 
 c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID) return C4_SUCCESS;
   const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
   if (!chain) THROW_ERROR("unsupported chain id!");
 

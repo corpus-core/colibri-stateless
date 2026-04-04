@@ -476,7 +476,7 @@ class ColibriNative {
     int chainId,
     int proverFlags,
     int verifyFlags,
-    int useRemoteProver,
+    int proverMode,
   ) {
     final methodPtr = method.toNativeUtf8();
     final paramsPtr = params.toNativeUtf8();
@@ -486,7 +486,7 @@ class ColibriNative {
       chainId,
       proverFlags,
       verifyFlags,
-      useRemoteProver,
+      proverMode,
     );
     malloc.free(methodPtr);
     malloc.free(paramsPtr);

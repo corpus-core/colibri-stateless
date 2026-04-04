@@ -43,6 +43,34 @@
 #include <malloc.h>
 #endif
 
+bool verify_hybrid_account_proof(verify_ctx_t* ctx) {
+  if (!(ctx->flags & VERIFY_FLAG_HYBRID)) RETURN_VERIFY_ERROR(ctx, "hybrid account proof requires VERIFY_FLAG_HYBRID");
+  ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
+  if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid proof");
+  bytes32_t           state_root       = {0};
+  bytes32_t           expected_root    = {0};
+  bytes_t             verified_address = ssz_get(&ctx->proof, "address").bytes;
+  eth_account_field_t field            = eth_account_get_field(ctx);
+  bytes32_t           value            = {0};
+  uint32_t            storage_keys_len = ssz_len(ssz_get(&ctx->proof, "storageProof"));
+#ifdef _MSC_VER
+  bytes_t values = field == ETH_ACCOUNT_PROOF ? bytes(_alloca(32 * storage_keys_len), 32 * storage_keys_len) : bytes(value, 32);
+#else
+  bytes_t values = field == ETH_ACCOUNT_PROOF ? bytes(alloca(32 * storage_keys_len), 32 * storage_keys_len) : bytes(value, 32);
+#endif
+
+  ssz_ob_t sr_ob = ssz_get(&header_data, "stateRoot");
+  if (sr_ob.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "missing stateRoot in header_data");
+  memcpy(expected_root, sr_ob.bytes.data, 32);
+
+  if (!eth_verify_account_proof_exec(ctx, &ctx->proof, state_root, field == ETH_ACCOUNT_PROOF ? ETH_ACCOUNT_STORAGE_HASH : field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
+  if (memcmp(state_root, expected_root, 32) != 0) RETURN_VERIFY_ERROR(ctx, "stateRoot mismatch between account proof and header_data");
+  if (field && !eth_account_verify_data(ctx, verified_address.data, field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account data!");
+
+  ctx->success = true;
+  return true;
+}
+
 bool verify_account_proof(verify_ctx_t* ctx) {
   bytes32_t           state_root       = {0};
   ssz_ob_t            state_proof      = ssz_get(&ctx->proof, "state_proof");
