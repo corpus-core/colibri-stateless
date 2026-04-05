@@ -171,7 +171,7 @@ c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id
   ctx->method       = strdup(method);
   ctx->params       = strdup(params ? params : "[]");
   ctx->chain_id     = chain_id;
-  ctx->prover_flags = prover_flags | C4_PROVER_FLAG_USE_ACCESSLIST;
+  ctx->prover_flags = prover_flags;
   ctx->verify_flags = verify_flags;
   ctx->prover_mode  = prover_mode;
   ctx->phase        = RPC_PHASE_INIT;
