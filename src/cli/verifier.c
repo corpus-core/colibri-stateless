@@ -344,7 +344,7 @@ int main(int argc, char* argv[]) {
       safe_free(filename);
       safe_free(content);
     }
-    if (verify_flags && VERIFY_FLAG_PROOF_ONLY)
+    if (verify_flags & VERIFY_FLAG_PROOF_ONLY)
       fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
     else
       ssz_dump_to_file_no_quotes(stdout, ctx->verifier.data);

@@ -326,6 +326,7 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
     TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? eth_create_access_list(ctx, tx, &trace, target_block, (json_t) {0}) : eth_debug_trace_call(ctx, tx, &trace, target_block));
 
   if (block.header_only) {
+    TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed));
     TRY_ASYNC_CATCH(
         c4_get_eth_proofs(ctx, trace, target_block, &accounts, miner.data, has_overrides ? &overrides_parsed : NULL),
         ssz_builder_free(&accounts);

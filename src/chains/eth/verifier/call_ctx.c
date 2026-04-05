@@ -53,9 +53,10 @@ static bool eth_get_call_block_context_from_header_data(ssz_ob_t header_data, et
 static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
   if (!ctx->proof.def || ctx->proof.def->type == SSZ_TYPE_NONE) return false;
 
-  ssz_ob_t hd = ssz_get(&ctx->proof, "header_data");
-  if (hd.bytes.data) return eth_get_call_block_context_from_header_data(hd, out);
-
+  if (ctx->flags & VERIFY_FLAG_HYBRID) {
+    ssz_ob_t hd = ssz_get(&ctx->proof, "header_data");
+    if (hd.bytes.data) return eth_get_call_block_context_from_header_data(hd, out);
+  }
   ssz_ob_t sp = ssz_get(&ctx->proof, "state_proof");
   ssz_ob_t bc = ssz_get(&sp, "block");
   if (!bc.def || !ssz_is_type(&bc, eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT)))
