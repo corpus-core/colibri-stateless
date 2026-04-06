@@ -98,13 +98,16 @@ typedef struct {
 /**
  * A single cached verified block header entry.
  * Stores the SSZ-encoded `ETH_BLOCK_HEADER_DATA` (14 fields, ~540 bytes).
- * Memory for `header_data.bytes` is independently allocated via `bytes_dup()`.
+ * Optionally stores the full SSZ execution payload when fetched via
+ * `eth_getBlockByNumber` (for transaction/receipt proofs that need the full block).
+ * Memory for `header_data.bytes` and `execution.bytes` is independently allocated via `bytes_dup()`.
  */
 typedef struct {
   chain_id_t chain_id;
   uint64_t   block_number;
   bytes32_t  block_hash;
   ssz_ob_t   header_data;
+  ssz_ob_t   execution; // optional: full SSZ execution payload (NULL when only header is cached)
   uint64_t   cached_at_ms;
 } verified_header_entry_t;
 
@@ -171,6 +174,19 @@ const verified_header_entry_t* c4_header_cache_get_by_hash(const verified_header
  */
 void c4_header_cache_put(verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t header_data);
 
+/**
+ * Attaches a full SSZ execution payload to an existing cache entry.
+ * This allows subsequent calls (e.g. `eth_getTransactionReceipt` after
+ * `eth_getTransactionByHash`) to reuse the execution payload from cache.
+ * No-op if the entry does not exist. The `execution.bytes` are duplicated.
+ *
+ * @param cache the header cache
+ * @param chain_id the chain ID
+ * @param block_number the block number of the entry to update
+ * @param execution full SSZ execution payload (will be copied)
+ */
+void c4_header_cache_set_execution(verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number, ssz_ob_t execution);
+
 // get the beacon block for the given eth block number or hash
 c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_root, bytes32_t data_root, ssz_ob_t* sig_block, ssz_ob_t* data_block, bytes32_t data_root_result);
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
@@ -202,6 +218,43 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
  * @return `C4_SUCCESS` when proof is ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
  */
 c4_status_t c4_hybrid_delegate_proof(prover_ctx_t* ctx);
+
+/**
+ * Fetches the full SSZ execution payload for the given block in hybrid mode.
+ * Checks the header cache for a cached execution payload first. On miss,
+ * fetches `eth_getBlockByNumber` from the remote prover, verifies the response,
+ * and caches both the header data and execution payload.
+ *
+ * In non-hybrid mode, delegates to `c4_beacon_get_block_for_eth`.
+ *
+ * @param ctx prover context
+ * @param block JSON block identifier
+ * @param beacon_block output: populated with execution payload (`header_only = false`)
+ * @return `C4_SUCCESS` when ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
+ */
+c4_status_t c4_beacon_get_execution_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+
+/**
+ * Internal hybrid implementation: fetches the full execution payload from the
+ * remote prover via `eth_getBlockByNumber`, verifies it, and populates
+ * `beacon_block->execution` with the full SSZ execution payload.
+ *
+ * @param ctx prover context (must have `C4_PROVER_FLAG_HYBRID` set)
+ * @param block JSON block identifier
+ * @param beacon_block output: populated with full execution payload
+ * @return `C4_SUCCESS` when ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
+ */
+c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+
+/**
+ * Builds an SSZ-encoded `ETH_BLOCK_HEADER_DATA` (14 fields) from a full execution payload.
+ * Computes `transactionsRoot` via `ssz_hash_tree_root(transactions)`.
+ * The returned `ssz_ob_t.bytes` is heap-allocated and must be freed by the caller.
+ *
+ * @param execution full SSZ execution payload
+ * @return SSZ object with `ETH_BLOCK_HEADER_DATA` def and heap-allocated bytes
+ */
+ssz_ob_t c4_build_header_data_from_execution(ssz_ob_t execution);
 
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);

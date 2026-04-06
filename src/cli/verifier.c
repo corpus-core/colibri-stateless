@@ -353,9 +353,7 @@ int main(int argc, char* argv[]) {
     return EXIT_SUCCESS;
   }
 
-  fprintf(stderr, "proof is invalid: %s\n",
-          ctx->error ? ctx->error
-                     : (ctx->verifier.state.error ? ctx->verifier.state.error : "unknown error"));
+  fprintf(stderr, "Error: %s\n", c4_rpc_get_state(ctx)->error ? c4_rpc_get_state(ctx)->error : "unknown error");
   c4_rpc_ctx_free(ctx);
   return EXIT_FAILURE;
 }

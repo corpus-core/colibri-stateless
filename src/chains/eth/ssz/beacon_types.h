@@ -84,7 +84,10 @@ typedef enum {
   ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF = 34,
   ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF     = 35,
   ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF        = 36,
-  ETH_SSZ_VERIFY_HYBRID_CALL_PROOF        = 37
+  ETH_SSZ_VERIFY_HYBRID_CALL_PROOF        = 37,
+
+  // beacon container types (chain- and fork-aware, resolved via eth_ssz_type_for_fork)
+  ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 38
 
 } eth_ssz_type_t;
 
@@ -110,6 +113,16 @@ const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, c
 // forks
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id);
 const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_id);
+
+/**
+ * Returns the SSZ container definition for the execution payload of the given chain.
+ * The returned pointer references the `executionPayload` entry inside the
+ * `BeaconBlockBody` container, so it carries the correct container name and child layout.
+ *
+ * @param chain_id the chain to resolve (Gnosis chains get `GNOSIS_EXECUTION_PAYLOAD`)
+ * @return pointer to the `ssz_def_t` container (never NULL for known chains)
+ */
+const ssz_def_t* c4_eth_execution_payload_def(chain_id_t chain_id);
 const ssz_def_t* eth_get_light_client_update(fork_id_t fork);
 //  c4 specific
 const ssz_def_t*       eth_ssz_verification_type(eth_ssz_type_t type);

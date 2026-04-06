@@ -211,7 +211,8 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
   if (!c4_update_from_sync_data(ctx)) return true;
 
 #ifdef ETH_TX
-  if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF)))
+  if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF)) ||
+      ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF)))
     verify_tx_proof(ctx);
   else
 #endif

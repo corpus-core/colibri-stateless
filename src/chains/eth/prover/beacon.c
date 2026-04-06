@@ -482,6 +482,12 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
   return C4_SUCCESS;
 }
 
+c4_status_t c4_beacon_get_execution_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID)
+    return c4_hybrid_get_execution_for_eth(ctx, block, beacon_block);
+  return c4_beacon_get_block_for_eth(ctx, block, beacon_block);
+}
+
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
 
   if (ctx->flags & C4_PROVER_FLAG_HYBRID)
