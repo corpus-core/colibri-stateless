@@ -749,9 +749,10 @@ static const ssz_def_t ETH_HYBRID_RECEIPT_PROOF[] = {
     SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
 };
 
-// Hybrid logs block: per-block receipts + Patricia proofs + embedded header data
+// Hybrid logs block: header_data + SSZ multi-merkle proof for txs + Patricia receipt proofs
 static const ssz_def_t ETH_HYBRID_LOGS_BLOCK[] = {
     SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
+    SSZ_LIST("txProof", ssz_bytes32, 256),
     SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256),
 };
 

@@ -225,7 +225,8 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
   else
 #endif
 #ifdef ETH_LOGS
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF)))
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF)) ||
+          ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF)))
     verify_logs_proof(ctx);
   else
 #endif
