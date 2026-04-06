@@ -34,6 +34,34 @@
 #include <stdlib.h>
 #include <string.h>
 
+static c4_status_t create_hybrid_block_receipts_proof(prover_ctx_t* ctx, beacon_block_t* block, json_t block_receipts) {
+  ssz_builder_t proof_builder = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF);
+
+  ssz_add_bytes(&proof_builder, "transactions", ssz_get(&block->execution, "transactions").bytes);
+
+  const ssz_def_t* receipts_list_def = ssz_get_def(proof_builder.def, "receipts");
+  ssz_builder_t    receipts_builder  = ssz_builder_for_def(receipts_list_def);
+  buffer_t         rbuf              = {0};
+  uint32_t         num_receipts      = 0;
+
+  json_for_each_value(block_receipts, receipt) {
+    bytes_t serialized = c4_serialize_receipt(receipt, &rbuf);
+    ssz_add_dynamic_list_bytes(&receipts_builder, 0, serialized);
+    buffer_reset(&rbuf);
+    num_receipts++;
+  }
+  ssz_builder_fix_list_offsets(&receipts_builder, num_receipts);
+  buffer_free(&rbuf);
+  ssz_add_builders(&proof_builder, "receipts", receipts_builder);
+
+  ssz_ob_t header_data = c4_build_header_data_from_execution(block->execution);
+  ssz_add_bytes(&proof_builder, "header_data", header_data.bytes);
+  safe_free(header_data.bytes.data);
+
+  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, proof_builder, NULL_SSZ_BUILDER);
+  return C4_SUCCESS;
+}
+
 c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   json_t            block_param    = json_at(ctx->params, 0);
   beacon_block_t    block          = {0};
@@ -41,18 +69,20 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   bytes32_t         body_root      = {0};
   blockroot_proof_t block_proof    = {0};
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
+  bool              hybrid         = (ctx->flags & C4_PROVER_FLAG_HYBRID) != 0;
 
-  // first resolve the block to get a concrete block number
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_param, &block));
-
-  if (block.header_only)
-    return c4_hybrid_delegate_proof(ctx);
+  TRY_ASYNC(hybrid
+                ? c4_beacon_get_execution_for_eth(ctx, block_param, &block)
+                : c4_beacon_get_block_for_eth(ctx, block_param, &block));
 
   // use the resolved block number for fetching receipts to avoid race conditions with "latest"
   uint64_t block_num = ssz_get_uint64(&block.execution, "blockNumber");
   char     block_num_hex[32];
   sbprintf(block_num_hex, "\"0x%lx\"", block_num);
   TRY_ASYNC(eth_getBlockReceipts(ctx, json_parse(block_num_hex), &block_receipts));
+
+  if (hybrid)
+    return create_hybrid_block_receipts_proof(ctx, &block, block_receipts);
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &block_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &block_proof.sync, &sync_proof));

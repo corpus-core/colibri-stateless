@@ -758,6 +758,13 @@ static const ssz_def_t ETH_HYBRID_LOGS_BLOCK[] = {
 
 static const ssz_def_t ETH_HYBRID_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("HybridLogsBlock", ETH_HYBRID_LOGS_BLOCK);
 
+// Hybrid block receipts proof: transactions + receipts + header_data (no multi-merkle proof needed)
+static const ssz_def_t ETH_HYBRID_BLOCK_RECEIPTS_PROOF[] = {
+    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576),
+    SSZ_LIST("receipts", ssz_bytes_list, 65536),
+    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
+};
+
 // Hybrid block proof: full execution payload (no merkle proof against bodyRoot needed)
 static const ssz_def_t ETH_HYBRID_BLOCK_PROOF[] = {
     SSZ_UNION("executionPayload", ETH_EXECUTION_PAYLOAD_UNION),
