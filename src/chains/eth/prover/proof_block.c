@@ -34,19 +34,41 @@
 #include <stdlib.h>
 #include <string.h>
 
+static c4_status_t create_hybrid_header_data_proof(prover_ctx_t* ctx, eth_ssz_type_t type, bytes_t header_data) {
+  ssz_builder_t proof_builder = ssz_builder_for_type(type);
+  ssz_add_bytes(&proof_builder, "header_data", header_data);
+  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, proof_builder, NULL_SSZ_BUILDER);
+  return C4_SUCCESS;
+}
+
+static c4_status_t create_hybrid_block_proof(prover_ctx_t* ctx, beacon_block_t* block) {
+  ssz_builder_t proof_builder = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF);
+
+  ssz_add_builders(&proof_builder, "executionPayload",
+                   (ssz_builder_t) {.def = block->execution.def, .fixed = {.data = bytes_dup(block->execution.bytes)}});
+
+  ssz_ob_t header_data = c4_build_header_data_from_execution(block->execution);
+  ssz_add_bytes(&proof_builder, "header_data", header_data.bytes);
+  safe_free(header_data.bytes.data);
+
+  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, proof_builder, NULL_SSZ_BUILDER);
+  return C4_SUCCESS;
+}
+
 c4_status_t c4_proof_block(prover_ctx_t* ctx) {
-  uint8_t           empty_selector = 0;
   beacon_block_t    block          = {0};
   bytes32_t         body_root      = {0};
   ssz_builder_t     block_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
   blockroot_proof_t historic_proof = {0};
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
 
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID) {
+    TRY_ASYNC(c4_beacon_get_execution_for_eth(ctx, json_at(ctx->params, 0), &block));
+    return create_hybrid_block_proof(ctx, &block);
+  }
+
   // fetch the block
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_at(ctx->params, 0), &block));
-
-  if (block.header_only)
-    return c4_hybrid_delegate_proof(ctx);
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
@@ -80,7 +102,6 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
 }
 
 c4_status_t c4_proof_block_number(prover_ctx_t* ctx) {
-  uint8_t           empty_selector = 0;
   beacon_block_t    block          = {0};
   bytes32_t         body_root      = {0};
   ssz_builder_t     block_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF);
@@ -91,7 +112,7 @@ c4_status_t c4_proof_block_number(prover_ctx_t* ctx) {
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block));
 
   if (block.header_only)
-    return c4_hybrid_delegate_proof(ctx);
+    return create_hybrid_header_data_proof(ctx, ETH_SSZ_VERIFY_HYBRID_BLOCK_NUMBER_PROOF, block.execution.bytes);
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
@@ -139,7 +160,7 @@ c4_status_t c4_proof_block_header(prover_ctx_t* ctx) {
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_arg, &block));
 
   if (block.header_only)
-    return c4_hybrid_delegate_proof(ctx);
+    return create_hybrid_header_data_proof(ctx, ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF, block.execution.bytes);
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));

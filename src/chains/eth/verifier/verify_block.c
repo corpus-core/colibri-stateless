@@ -163,14 +163,46 @@ bool verify_block_proof_for_block(verify_ctx_t* ctx, ssz_ob_t block_proof, json_
 
 
 bool verify_block_proof(verify_ctx_t* ctx) {
+  bool is_hybrid = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF));
+
+  if (is_hybrid) {
+    if (!(ctx->flags & VERIFY_FLAG_HYBRID))
+      RETURN_VERIFY_ERROR(ctx, "hybrid block proof requires hybrid mode");
+
+    json_t   block_number      = json_at(ctx->args, 0);
+    bool     include_txs       = json_as_bool(json_at(ctx->args, 1));
+    ssz_ob_t execution_payload = ssz_get(&ctx->proof, "executionPayload");
+    ssz_ob_t header_data       = ssz_get(&ctx->proof, "header_data");
+
+    if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid block proof");
+    if (!execution_payload.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing executionPayload in hybrid block proof");
+
+    bytes_t ep_hash = ssz_get(&execution_payload, "blockHash").bytes;
+    bytes_t hd_hash = ssz_get(&header_data, "blockHash").bytes;
+    if (!ep_hash.data || !hd_hash.data || ep_hash.len != 32 || hd_hash.len != 32 ||
+        memcmp(ep_hash.data, hd_hash.data, 32) != 0)
+      RETURN_VERIFY_ERROR(ctx, "blockHash mismatch between executionPayload and header_data");
+
+    if (!matches_blocknumber(ctx, header_data, block_number)) return false;
+
+    bytes32_t withdrawal_root = {0};
+    ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), withdrawal_root);
+
+    bytes32_t parent_root = {0}; // BeaconBlockHeader not available in hybrid mode
+    eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS, execution_payload, parent_root, withdrawal_root, include_txs);
+    if (ctx->state.error) return false;
+
+    ctx->success = true;
+    return true;
+  }
+
   json_t    block_number      = json_at(ctx->args, 0);
   bytes32_t exec_root         = {0};
   ssz_ob_t  execution_payload = ssz_get(&ctx->proof, "executionPayload");
   ssz_ob_t  header            = ssz_get(&ctx->proof, "header");
   bool      include_txs       = json_as_bool(json_at(ctx->args, 1));
 
-  if (!verify_block_proof_for_block(ctx, ctx->proof,block_number,exec_root)) return false;
-
+  if (!verify_block_proof_for_block(ctx, ctx->proof, block_number, exec_root)) return false;
 
   eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
   if (ctx->state.error) return false;
@@ -188,6 +220,19 @@ static bool verify_block_number_merkle_proof(verify_ctx_t* ctx, bytes_t proof, b
 }
 
 bool verify_block_number_proof(verify_ctx_t* ctx) {
+  bool is_hybrid = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_NUMBER_PROOF));
+
+  if (is_hybrid) {
+    if (!(ctx->flags & VERIFY_FLAG_HYBRID))
+      RETURN_VERIFY_ERROR(ctx, "hybrid block number proof requires hybrid mode");
+
+    ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
+    if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid block number proof");
+
+    ctx->data    = ssz_get(&header_data, "blockNumber");
+    ctx->success = true;
+    return true;
+  }
 
   bytes32_t body_root    = {0};
   ssz_ob_t  block_number = ssz_get(&ctx->proof, "blockNumber");
@@ -225,13 +270,48 @@ static bool is_block_header_method(const char* method) {
   return strcmp(method, "eth_getBlockHeader") == 0 || strcmp(method, "eth_blobBaseFee") == 0 || strcmp(method, "eth_maxPriorityFeePerGas") == 0;
 }
 
+static bool verify_block_header_derived_methods(verify_ctx_t* ctx) {
+  if (strcmp(ctx->method, "eth_blobBaseFee") == 0) {
+    uint64_t      fee     = fake_exponential(1, ssz_get_uint64(&ctx->data, "excessBlobGas"), 3338477);
+    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+    ssz_add_uint64(&builder, fee);
+    buffer_append(&builder.fixed, bytes(NULL, 24));
+    ctx->data = ssz_builder_to_bytes(&builder);
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+  else if (strcmp(ctx->method, "eth_maxPriorityFeePerGas") == 0) {
+    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+    ssz_add_uint64(&builder, 1000000000ULL);
+    buffer_append(&builder.fixed, bytes(NULL, 24));
+    ctx->data = ssz_builder_to_bytes(&builder);
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+  ctx->success = true;
+  return true;
+}
+
 bool verify_block_header_proof(verify_ctx_t* ctx) {
-  if (!ssz_is_type(&ctx->data, eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_HEADER)))
-    RETURN_VERIFY_ERROR(ctx, "invalid data type for block header proof");
+  bool is_hybrid = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF));
+
   if (!ctx->method || !is_block_header_method(ctx->method))
     RETURN_VERIFY_ERROR(ctx, "method mismatch for block header proof");
   if (json_len(ctx->args) > 1)
     RETURN_VERIFY_ERROR(ctx, "invalid arguments for block header proof");
+
+  if (is_hybrid) {
+    if (!(ctx->flags & VERIFY_FLAG_HYBRID))
+      RETURN_VERIFY_ERROR(ctx, "hybrid block header proof requires hybrid mode");
+
+    ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
+    if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid block header proof");
+    if (json_len(ctx->args) >= 1 && !matches_blocknumber(ctx, header_data, json_at(ctx->args, 0))) return false;
+
+    ctx->data = header_data;
+    return verify_block_header_derived_methods(ctx);
+  }
+
+  if (!ssz_is_type(&ctx->data, eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_HEADER)))
+    RETURN_VERIFY_ERROR(ctx, "invalid data type for block header proof");
 
   bytes32_t       body_root                             = {0};
   ssz_ob_t        proof                                 = ssz_get(&ctx->proof, "proof");
@@ -263,22 +343,5 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
   if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
   if (json_len(ctx->args) >= 1 && !matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
 
-  if (strcmp(ctx->method, "eth_blobBaseFee") == 0) {
-    uint64_t      fee     = fake_exponential(1, ssz_get_uint64(&ctx->data, "excessBlobGas"), 3338477);
-    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
-    ssz_add_uint64(&builder, fee);
-    buffer_append(&builder.fixed, bytes(NULL, 24));
-    ctx->data = ssz_builder_to_bytes(&builder);
-    ctx->flags |= VERIFY_FLAG_FREE_DATA;
-  }
-  else if (strcmp(ctx->method, "eth_maxPriorityFeePerGas") == 0) {
-    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
-    ssz_add_uint64(&builder, 1000000000ULL);
-    buffer_append(&builder.fixed, bytes(NULL, 24));
-    ctx->data = ssz_builder_to_bytes(&builder);
-    ctx->flags |= VERIFY_FLAG_FREE_DATA;
-  }
-
-  ctx->success = true;
-  return true;
+  return verify_block_header_derived_methods(ctx);
 }

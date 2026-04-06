@@ -24,8 +24,8 @@
 #ifndef ETH_SSZ_TYPES_H
 #define ETH_SSZ_TYPES_H
 
-#include "common.h"
 #include "chains.h"
+#include "common.h"
 #include "ssz.h"
 
 typedef enum {
@@ -80,14 +80,17 @@ typedef enum {
   ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32,
 
   // hybrid proof types (header_data embedded, no consensus proof needed)
-  ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF     = 33,
-  ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF = 34,
-  ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF     = 35,
-  ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF        = 36,
-  ETH_SSZ_VERIFY_HYBRID_CALL_PROOF        = 37,
+  ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF      = 33,
+  ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF  = 34,
+  ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF      = 35,
+  ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF         = 36,
+  ETH_SSZ_VERIFY_HYBRID_CALL_PROOF         = 37,
+  ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF        = 38,
+  ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF = 39,
+  ETH_SSZ_VERIFY_HYBRID_BLOCK_NUMBER_PROOF = 40,
 
   // beacon container types (chain- and fork-aware, resolved via eth_ssz_type_for_fork)
-  ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 38
+  ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 41
 
 } eth_ssz_type_t;
 
@@ -152,7 +155,7 @@ extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
 #define slot_for_period(period, chain_spec) ((period) << (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))
 
 #define ssz_builder_for_type(typename) \
-  (ssz_builder_t){ .def = eth_ssz_verification_type(typename), .fixed = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }, .dynamic = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }}
+  (ssz_builder_t) { .def = eth_ssz_verification_type(typename), .fixed = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0}, .dynamic = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0} }
 
 inline static bool is_gnosis_chain(chain_id_t chain_id) {
   return chain_id == C4_CHAIN_GNOSIS || chain_id == C4_CHAIN_GNOSIS_CHIADO;

@@ -94,7 +94,10 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("HybridTransactionProof", ETH_HYBRID_TRANSACTION_PROOF), // 13: Hybrid tx proof (SSZ branch + header_data)
     SSZ_CONTAINER("HybridReceiptProof", ETH_HYBRID_RECEIPT_PROOF),       // 14: Hybrid receipt proof (Patricia + header_data)
     SSZ_LIST("HybridLogsProof", ETH_HYBRID_LOGS_BLOCK_CONTAINER, 256),    // 15: Hybrid logs proof with embedded header_data per block
-    SSZ_CONTAINER("HybridCallProof", ETH_HYBRID_CALL_PROOF),             // 16: Hybrid call proof with embedded header_data
+    SSZ_CONTAINER("HybridCallProof", ETH_HYBRID_CALL_PROOF),               // 16: Hybrid call proof with embedded header_data
+    SSZ_CONTAINER("HybridBlockProof", ETH_HYBRID_BLOCK_PROOF),             // 17: Hybrid block proof (EP + header_data)
+    SSZ_CONTAINER("HybridBlockHeaderProof", ETH_HYBRID_BLOCK_HEADER_PROOF), // 18: Hybrid block header proof (header_data only)
+    SSZ_CONTAINER("HybridBlockNumberProof", ETH_HYBRID_BLOCK_NUMBER_PROOF), // 19: Hybrid block number proof (header_data only)
 };
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -266,6 +269,12 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, &ETH_HYBRID_LOGS_BLOCK_CONTAINER);
     case ETH_SSZ_VERIFY_HYBRID_CALL_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_CALL_PROOF);
+    case ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF:
+      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_PROOF);
+    case ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF:
+      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_HEADER_PROOF);
+    case ETH_SSZ_VERIFY_HYBRID_BLOCK_NUMBER_PROOF:
+      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_NUMBER_PROOF);
     default: return NULL;
   }
 }
