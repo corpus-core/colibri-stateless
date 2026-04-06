@@ -314,11 +314,11 @@ const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id
                  : &BEACON_BLOCK_BODY_CONTAINER;
     case ETH_SSZ_BEACON_BLOCK_HEADER:
       return &BEACON_BLOCKHEADER_CONTAINER;
-#endif
     case ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER:
       return is_gnosis_chain(chain_id)
                  ? &BEACON_BLOCK_BODY_GNOSIS[9]
                  : &BEACON_BLOCK_BODY[9];
+#endif
 
     default:
       return eth_ssz_verification_type(type);

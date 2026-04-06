@@ -285,11 +285,11 @@ const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_
       return is_gnosis_chain(chain_id)
                  ? &SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER
                  : &SIGNED_BEACON_BLOCK_CONTAINER;
-#endif
     case ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER:
       return is_gnosis_chain(chain_id)
                  ? &BEACON_BLOCK_BODY_GNOSIS[9]
                  : &BEACON_BLOCK_BODY[9];
+#endif
     case ETH_SSZ_BEACON_BLOCK_HEADER:
     default:
       // Fallback to Deneb for any other types.

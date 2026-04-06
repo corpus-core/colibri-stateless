@@ -114,6 +114,7 @@ const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, c
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id);
 const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_id);
 
+#ifdef PROVER
 /**
  * Returns the SSZ container definition for the execution payload of the given chain.
  * The returned pointer references the `executionPayload` entry inside the
@@ -123,6 +124,7 @@ const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_
  * @return pointer to the `ssz_def_t` container (never NULL for known chains)
  */
 const ssz_def_t* c4_eth_execution_payload_def(chain_id_t chain_id);
+#endif
 const ssz_def_t* eth_get_light_client_update(fork_id_t fork);
 //  c4 specific
 const ssz_def_t*       eth_ssz_verification_type(eth_ssz_type_t type);
