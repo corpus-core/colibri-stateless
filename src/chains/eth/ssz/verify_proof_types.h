@@ -740,10 +740,11 @@ static const ssz_def_t ETH_HYBRID_TRANSACTION_PROOF[] = {
     SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
 };
 
-// Hybrid receipt proof: receipt + Patricia proof against EL receiptsRoot + raw tx for txHash
+// Hybrid receipt proof: raw tx + SSZ Merkle proof for tx + Patricia proof for receipt + header_data
 static const ssz_def_t ETH_HYBRID_RECEIPT_PROOF[] = {
     SSZ_BYTES("transaction", 1073741824),
     SSZ_UINT32("transactionIndex"),
+    SSZ_LIST("txProof", ssz_bytes32, 64),
     SSZ_LIST("receipt_proof", ssz_bytes_1024, 64),
     SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
 };
