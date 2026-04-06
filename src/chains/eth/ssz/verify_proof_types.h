@@ -756,18 +756,12 @@ static const ssz_def_t ETH_HYBRID_LOGS_BLOCK[] = {
 
 static const ssz_def_t ETH_HYBRID_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("HybridLogsBlock", ETH_HYBRID_LOGS_BLOCK);
 
-// Hybrid block proof: full execution payload + verified header data (no merkle proof against bodyRoot needed)
+// Hybrid block proof: full execution payload (no merkle proof against bodyRoot needed)
 static const ssz_def_t ETH_HYBRID_BLOCK_PROOF[] = {
     SSZ_UNION("executionPayload", ETH_EXECUTION_PAYLOAD_UNION),
-    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
 };
 
-// Hybrid block header proof: header_data alone serves as trusted proof for eth_getBlockHeader / eth_blobBaseFee
+// Hybrid block header proof: header_data alone serves as trusted proof for eth_getBlockHeader / eth_blobBaseFee / eth_blockNumber
 static const ssz_def_t ETH_HYBRID_BLOCK_HEADER_PROOF[] = {
-    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
-};
-
-// Hybrid block number proof: header_data contains blockNumber + timestamp
-static const ssz_def_t ETH_HYBRID_BLOCK_NUMBER_PROOF[] = {
     SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
 };

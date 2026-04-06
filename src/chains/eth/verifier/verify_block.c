@@ -172,18 +172,8 @@ bool verify_block_proof(verify_ctx_t* ctx) {
     json_t   block_number      = json_at(ctx->args, 0);
     bool     include_txs       = json_as_bool(json_at(ctx->args, 1));
     ssz_ob_t execution_payload = ssz_get(&ctx->proof, "executionPayload");
-    ssz_ob_t header_data       = ssz_get(&ctx->proof, "header_data");
-
-    if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid block proof");
     if (!execution_payload.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing executionPayload in hybrid block proof");
-
-    bytes_t ep_hash = ssz_get(&execution_payload, "blockHash").bytes;
-    bytes_t hd_hash = ssz_get(&header_data, "blockHash").bytes;
-    if (!ep_hash.data || !hd_hash.data || ep_hash.len != 32 || hd_hash.len != 32 ||
-        memcmp(ep_hash.data, hd_hash.data, 32) != 0)
-      RETURN_VERIFY_ERROR(ctx, "blockHash mismatch between executionPayload and header_data");
-
-    if (!matches_blocknumber(ctx, header_data, block_number)) return false;
+    if (!matches_blocknumber(ctx, execution_payload, block_number)) return false;
 
     bytes32_t withdrawal_root = {0};
     ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), withdrawal_root);
@@ -220,7 +210,7 @@ static bool verify_block_number_merkle_proof(verify_ctx_t* ctx, bytes_t proof, b
 }
 
 bool verify_block_number_proof(verify_ctx_t* ctx) {
-  bool is_hybrid = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_NUMBER_PROOF));
+  bool is_hybrid = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF));
 
   if (is_hybrid) {
     if (!(ctx->flags & VERIFY_FLAG_HYBRID))

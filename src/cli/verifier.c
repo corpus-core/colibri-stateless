@@ -353,7 +353,10 @@ int main(int argc, char* argv[]) {
     return EXIT_SUCCESS;
   }
 
-  fprintf(stderr, "Error: %s\n", c4_rpc_get_state(ctx)->error ? c4_rpc_get_state(ctx)->error : "unknown error");
+  c4_state_t* state = c4_rpc_get_state(ctx);
+  char* error = state ? state->error : ctx->error;
+  fprintf(stderr, "Error: %s\n", error ? error : "unknown error");
+
   c4_rpc_ctx_free(ctx);
   return EXIT_FAILURE;
 }

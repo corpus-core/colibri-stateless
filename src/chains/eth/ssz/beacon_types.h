@@ -87,7 +87,6 @@ typedef enum {
   ETH_SSZ_VERIFY_HYBRID_CALL_PROOF         = 37,
   ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF        = 38,
   ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF = 39,
-  ETH_SSZ_VERIFY_HYBRID_BLOCK_NUMBER_PROOF = 40,
 
   // beacon container types (chain- and fork-aware, resolved via eth_ssz_type_for_fork)
   ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 41
