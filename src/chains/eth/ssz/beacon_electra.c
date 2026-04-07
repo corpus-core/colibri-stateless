@@ -285,11 +285,12 @@ const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_
       return is_gnosis_chain(chain_id)
                  ? &SIGNED_BEACON_BLOCK_GNOSIS_CONTAINER
                  : &SIGNED_BEACON_BLOCK_CONTAINER;
+    case ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER:
+      return is_gnosis_chain(chain_id)
+                 ? &BEACON_BLOCK_BODY_GNOSIS[9]
+                 : &BEACON_BLOCK_BODY[9];
 #endif
-    // BlockHeader is unchanged from Deneb as per user request.
-    // eth_ssz_type_for_denep will be called for it.
-    // Explicitly handle BEACON_BLOCK_HEADER if it should use Deneb's version
-    case ETH_SSZ_BEACON_BLOCK_HEADER: // Assuming this should fall through to Deneb
+    case ETH_SSZ_BEACON_BLOCK_HEADER:
     default:
       // Fallback to Deneb for any other types.
       // This includes ETH_SSZ_BEACON_BLOCK_HEADER etc.

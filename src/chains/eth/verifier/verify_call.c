@@ -220,9 +220,9 @@ static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
     trace_entry_t* cur  = evm->traces;
     while (cur) {
       trace_entry_t* next = cur->next;
-      cur->next            = prev;
-      prev                 = cur;
-      cur                  = next;
+      cur->next           = prev;
+      prev                = cur;
+      cur                 = next;
     }
     evm->traces = prev;
   }
@@ -461,19 +461,26 @@ static uint32_t pap_build_proof_payload(call_account_t* ac, buffer_t* out_payloa
 static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_accounts, bytes_t response, bool* values_changed) {
   verify_ctx_t proof_ctx = {0};
   bool         result    = false;
+  bool         is_hybrid = false;
 
   if (c4_verify_init(&proof_ctx, response, "eth_call", ctx->args, ctx->chain_id, 0) != C4_SUCCESS) {
     if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
     goto cleanup;
   }
 
-  if (!ssz_is_type(&proof_ctx.proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF))) {
-    c4_state_add_error(&ctx->state, "eth_getProof response has unexpected proof type");
+  if (ssz_is_type(&proof_ctx.proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_CALL_PROOF))) {
+    if (!(ctx->flags & VERIFY_FLAG_HYBRID)) {
+      c4_state_add_error(&ctx->state, "received hybrid call proof but VERIFY_FLAG_HYBRID is not set");
+      goto cleanup;
+    }
+    is_hybrid = true;
+  }
+  else if (!ssz_is_type(&proof_ctx.proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF))) {
+    c4_state_add_error(&ctx->state, "proofCall response has unexpected proof type");
     goto cleanup;
   }
 
-  bytes32_t state_root  = {0};
-  ssz_ob_t  state_proof = ssz_get(&proof_ctx.proof, "state_proof");
+  bytes32_t state_root = {0};
   if (!c4_eth_verify_accounts(ctx, ssz_get(&proof_ctx.proof, "accounts"), state_root)) {
     if (proof_ctx.state.error)
       c4_state_add_error(&ctx->state, proof_ctx.state.error);
@@ -482,22 +489,37 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     goto cleanup;
   }
 
-  if (!eth_verify_state_proof(&proof_ctx, state_proof, state_root)) {
-    if (proof_ctx.state.error)
-      c4_state_add_error(&ctx->state, proof_ctx.state.error);
-    else
-      c4_state_add_error(&ctx->state, "eth_getProof state proof verification failed");
-    goto cleanup;
+  if (is_hybrid) {
+    ssz_ob_t header_data = ssz_get(&proof_ctx.proof, "header_data");
+    if (!header_data.bytes.data) {
+      c4_state_add_error(&ctx->state, "missing header_data in hybrid call proof");
+      goto cleanup;
+    }
+    ssz_ob_t sr_ob = ssz_get(&header_data, "stateRoot");
+    if (sr_ob.bytes.len != 32 || memcmp(state_root, sr_ob.bytes.data, 32) != 0) {
+      c4_state_add_error(&ctx->state, "stateRoot mismatch between account proofs and header_data");
+      goto cleanup;
+    }
   }
+  else {
+    ssz_ob_t state_proof = ssz_get(&proof_ctx.proof, "state_proof");
+    if (!eth_verify_state_proof(&proof_ctx, state_proof, state_root)) {
+      if (proof_ctx.state.error)
+        c4_state_add_error(&ctx->state, proof_ctx.state.error);
+      else
+        c4_state_add_error(&ctx->state, "proofCall state proof verification failed");
+      goto cleanup;
+    }
 
-  if (!c4_update_from_sync_data(&proof_ctx)) {
-    if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
-    goto cleanup;
+    if (!c4_update_from_sync_data(&proof_ctx)) {
+      if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
+      goto cleanup;
+    }
+
+    c4_status_t hdr_status = c4_verify_header(ctx, ssz_get(&state_proof, "header"), state_proof);
+    if (hdr_status == C4_ERROR && !ctx->state.error) c4_state_add_error(&ctx->state, "header verification failed");
+    if (hdr_status != C4_SUCCESS) goto cleanup;
   }
-
-  c4_status_t hdr_status = c4_verify_header(ctx, ssz_get(&state_proof, "header"), state_proof);
-  if (hdr_status == C4_ERROR && !ctx->state.error) c4_state_add_error(&ctx->state, "header verification failed");
-  if (hdr_status != C4_SUCCESS) goto cleanup;
 
   // Proof is valid, so we check the values for changes
   ssz_ob_t accounts     = ssz_get(&proof_ctx.proof, "accounts");
@@ -664,24 +686,37 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   bool            is_estimate   = ctx->method && strcmp(ctx->method, "eth_estimateGas") == 0;
   bool            has_overrides = json_len(ctx->args) > 2 && json_at(ctx->args, 2).type == JSON_TYPE_OBJECT;
   bool            has_proof     = ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE;
+  bool            is_hybrid     = has_proof && ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_CALL_PROOF));
   evm_call_ctx_t* evm           = call_get_evm_ctx(ctx);
+
+  if (is_hybrid && !(ctx->flags & VERIFY_FLAG_HYBRID))
+    RETURN_VERIFY_ERROR(ctx, "hybrid call proof requires VERIFY_FLAG_HYBRID");
 
   if (evm->evm_done) {
     bool success = verify_call_result_and_finish(ctx, evm, is_simulate, is_estimate);
-    if (!(success && !evm->evm_done)) return success; // do we need to re run because values changes?
+    if (!(success && !evm->evm_done)) return success;
   }
 
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
 
-  // prepare the accounts and storage
   if (!evm->accounts && has_proof) {
-    ssz_ob_t accounts    = ssz_get(&ctx->proof, "accounts");
-    ssz_ob_t state_proof = ssz_get(&ctx->proof, "state_proof");
-    ssz_ob_t header      = ssz_get(&state_proof, "header");
+    ssz_ob_t accounts = ssz_get(&ctx->proof, "accounts");
     if (!c4_eth_verify_accounts(ctx, accounts, evm->state_root)) return false;
-    if (!bytes_all_zero(bytes(evm->state_root, 32)) &&
-        (!eth_verify_state_proof(ctx, state_proof, evm->state_root) || c4_verify_header(ctx, header, state_proof) != C4_SUCCESS))
-      return false;
+
+    if (is_hybrid) {
+      ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
+      if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid call proof");
+      ssz_ob_t sr_ob = ssz_get(&header_data, "stateRoot");
+      if (sr_ob.bytes.len != 32 || memcmp(evm->state_root, sr_ob.bytes.data, 32) != 0)
+        RETURN_VERIFY_ERROR(ctx, "stateRoot mismatch between account proofs and header_data");
+    }
+    else {
+      ssz_ob_t state_proof = ssz_get(&ctx->proof, "state_proof");
+      ssz_ob_t header      = ssz_get(&state_proof, "header");
+      if (!bytes_all_zero(bytes(evm->state_root, 32)) &&
+          (!eth_verify_state_proof(ctx, state_proof, evm->state_root) || c4_verify_header(ctx, header, state_proof) != C4_SUCCESS))
+        return false;
+    }
     evm->accounts = call_accounts_from_ssz(accounts);
   }
   if (!prepare_evm_call(ctx, evm, has_overrides)) return false;

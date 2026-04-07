@@ -169,6 +169,24 @@ class MainActivity : AppCompatActivity() {
 
 ## Configuration
 
+### Prover Mode
+
+Controls how proofs are built and verified. Set via `proverMode` in the constructor:
+
+- **`ProverMode.LOCAL`** -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+- **`ProverMode.REMOTE`** -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+- **`ProverMode.HYBRID`** -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+
+```kotlin
+// Hybrid mode: header proofs from Colibri, execution data from RPC provider
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    proverMode = ProverMode.HYBRID
+)
+```
+
+Default: `ProverMode.REMOTE` when prover URLs are configured, `ProverMode.LOCAL` otherwise.
+
 ### Privacy (PAP)
 
 **PAP (Pragmatic Adaptive Privacy)** reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards.

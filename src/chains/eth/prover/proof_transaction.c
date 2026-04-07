@@ -64,6 +64,35 @@ static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, bea
   return C4_SUCCESS;
 }
 
+static c4_status_t create_hybrid_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, beacon_block_t* block_data) {
+  ssz_builder_t proof_builder = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF);
+
+  ssz_ob_t transactions = ssz_get(&block_data->execution, "transactions");
+  ssz_ob_t raw_tx       = ssz_at(transactions, tx_index);
+  if (!raw_tx.bytes.data) THROW_ERROR("transaction index out of range");
+
+  ssz_add_bytes(&proof_builder, "transaction", raw_tx.bytes);
+  ssz_add_uint32(&proof_builder, tx_index);
+
+  bytes32_t tx_root  = {0};
+  gindex_t  tx_gi    = ssz_gindex(transactions.def, 1, tx_index);
+  bytes_t   tx_proof = ssz_create_proof(transactions, tx_root, tx_gi);
+  ssz_add_bytes(&proof_builder, "txProof", tx_proof);
+  safe_free(tx_proof.data);
+
+  ssz_ob_t header_data = c4_build_header_data_from_execution(block_data->execution);
+  ssz_add_bytes(&proof_builder, "header_data", header_data.bytes);
+  safe_free(header_data.bytes.data);
+
+  ctx->proof = eth_create_proof_request(
+      ctx->chain_id,
+      NULL_SSZ_BUILDER,
+      proof_builder,
+      NULL_SSZ_BUILDER);
+
+  return C4_SUCCESS;
+}
+
 c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   bytes32_t         body_root    = {0};
   json_t            txhash       = json_at(ctx->params, 0);
@@ -105,7 +134,13 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
     }
   }
 
-  // geth the beacon-block with signature
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID) {
+    TRY_ADD_ASYNC(status, c4_beacon_get_execution_for_eth(ctx, block_number, &block));
+    if (status != C4_SUCCESS) return status;
+    return create_hybrid_tx_proof(ctx, tx_index, &block);
+  }
+
+  // get the beacon-block with signature
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
 
   // check if we need historical proofs

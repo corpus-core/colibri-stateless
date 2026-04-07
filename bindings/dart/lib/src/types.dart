@@ -10,6 +10,21 @@ enum PrivacyMode {
   basic,
 }
 
+/// Proof generation mode controlling how proofs are built and verified.
+enum ProverMode {
+  /// Proof built locally (requires Beacon API + execution client).
+  local(0),
+  /// Proof fetched entirely from remote prover server.
+  remote(1),
+  /// Header proof from remote server, execution data from RPC provider.
+  hybrid(2);
+
+  const ProverMode(this.value);
+
+  /// Native integer value for this mode.
+  final int value;
+}
+
 /// Classification of how an RPC method is supported by Colibri.
 enum MethodType {
   /// Method not recognized.

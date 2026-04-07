@@ -530,6 +530,13 @@ static int host_access_account(void* context, const evmc_address* addr) {
     EVM_LOG("access_account: WARM");
     return EVMONE_ACCESS_WARM;
   }
+  if (!acc && ctx->pap_mode) {
+    acc = eth_call_account_cache_load(ctx->ctx, addr->bytes);
+    if (acc) {
+      acc->next     = root->accounts;
+      root->accounts = acc;
+    }
+  }
 
   if (!acc) acc = call_account_list_get_or_create(&root->accounts, addr->bytes);
   acc->flags |= ACCOUNT_ACCESSED;

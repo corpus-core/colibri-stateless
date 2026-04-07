@@ -40,6 +40,7 @@ class Colibri {
     this.useAccesslist = false,
     this.zkProof = false,
     this.privacyMode = PrivacyMode.none,
+    this.proverMode,
     this.checkpointWitnessKeys,
     this.logProverRequests = false,
     this.storage,
@@ -85,6 +86,8 @@ class Colibri {
   final bool zkProof;
   /// PAP mode; [PrivacyMode.basic] sets VERIFY_FLAG_PAP on verify / method-support calls.
   final PrivacyMode privacyMode;
+  /// Proof generation mode. null = auto-detect (remote if provers configured, else local).
+  final ProverMode? proverMode;
   /// Optional witness signer keys for ZK proof verification.
   final String? checkpointWitnessKeys;
   /// Whether to log prover request parameters (debug only). When true, only
@@ -234,11 +237,11 @@ class Colibri {
   Future<dynamic> rpc(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
     final proverFlags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0);
-    final useRemote = provers.isEmpty ? 0 : 1;
+    final effectiveProverMode = (proverMode ?? (provers.isEmpty ? ProverMode.local : ProverMode.remote)).value;
 
-    _onDebug?.call('rpc: method=$method useRemote=$useRemote chainId=$chainId');
+    _onDebug?.call('rpc: method=$method proverMode=$effectiveProverMode chainId=$chainId');
 
-    final ctx = _native.createRpcCtx(method, paramsJson, chainId, proverFlags, _getVerifyFlags(), useRemote);
+    final ctx = _native.createRpcCtx(method, paramsJson, chainId, proverFlags, _getVerifyFlags(), effectiveProverMode);
     if (ctx == ffi.nullptr) {
       throw ColibriError('Failed to create RPC context for $method');
     }

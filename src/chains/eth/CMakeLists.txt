@@ -180,6 +180,7 @@ add_prover(
     prover/proof_logs.c
     prover/proof_call.c
     prover/beacon.c
+    prover/beacon_header.c
     prover/proof_receipt.c
     prover/proof_block_receipts.c
     prover/eth_req.c
@@ -190,7 +191,7 @@ add_prover(
     prover/proof_witness.c
     prover/historic_proof.c
     prover/historic_proof_zk.c
-  DEPENDS util eth_verifier
+  DEPENDS util eth_verifier verifier
   PROOF eth_prover_execute
 )
 

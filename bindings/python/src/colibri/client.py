@@ -16,6 +16,7 @@ from .types import (
     MethodType,
     PrivacyMode,
     ProofError,
+    ProverMode,
     RPCError,
     VerificationError,
 )
@@ -54,6 +55,7 @@ class Colibri:
         use_accesslist: bool = False,
         zk_proof: bool = False,
         privacy_mode: Optional[PrivacyMode] = None,
+        prover_mode: Optional['ProverMode'] = None,
         checkpoint_witness_keys: Optional[str] = None,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
@@ -87,6 +89,7 @@ class Colibri:
         self.use_accesslist = use_accesslist
         self.zk_proof = zk_proof
         self.privacy_mode = privacy_mode if privacy_mode is not None else PrivacyMode.NONE
+        self.prover_mode = prover_mode
         self.checkpoint_witness_keys = checkpoint_witness_keys
         self.request_handler = request_handler
 
@@ -349,10 +352,10 @@ class Colibri:
 
         params_json = json.dumps(params)
         prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0) | ((1 << 7) if self.zk_proof else 0)
-        use_remote = 1 if self.provers else 0
+        effective_prover_mode = self.prover_mode if self.prover_mode is not None else (ProverMode.REMOTE if self.provers else ProverMode.LOCAL)
 
         ctx = native.create_rpc_ctx(method, params_json, self.chain_id,
-                                    prover_flags, self._get_verify_flags(), use_remote)
+                                    prover_flags, self._get_verify_flags(), int(effective_prover_mode))
         if not ctx:
             raise ColibriError(f"Failed to create RPC context for {method}")
 

@@ -56,6 +56,12 @@ enum class PrivacyMode {
     BASIC
 }
 
+enum class ProverMode(val value: Int) {
+    LOCAL(0),
+    REMOTE(1),
+    HYBRID(2)
+}
+
 // Custom Exception for Colibri errors
 class ColibriException(message: String) : RuntimeException(message)
 
@@ -98,6 +104,7 @@ class Colibri(
     var useAccesslist: Boolean = false,
     var zkProof: Boolean = false,
     var privacyMode: PrivacyMode = PrivacyMode.NONE, // PAP mode; BASIC sets verify flag
+    var proverMode: ProverMode? = null, // null = auto-detect (REMOTE if provers configured, else LOCAL)
     var checkpointWitnessKeys: String? = null,
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
@@ -520,9 +527,9 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args)
             val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (zkProof) (1L shl 7) else 0L)
-            val useRemote = if (provers.isEmpty()) 0 else 1
+            val effectiveProverMode = (proverMode ?: if (provers.isEmpty()) ProverMode.LOCAL else ProverMode.REMOTE).value
 
-            val ctx = com.corpuscore.colibri.c4.c4_create_rpc_ctx(method, jsonArgs, chainId, proverFlags, getVerifyFlags(), useRemote)
+            val ctx = com.corpuscore.colibri.c4.c4_create_rpc_ctx(method, jsonArgs, chainId, proverFlags, getVerifyFlags(), effectiveProverMode)
                 ?: throw ColibriException("Failed to create RPC context for method $method")
 
             val checkpointStr = trustedCheckpoint

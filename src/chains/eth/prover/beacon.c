@@ -26,8 +26,10 @@
 #include "eth_req.h"
 #include "json.h"
 #include "logger.h"
+#include "plugin.h"
 #include "prover.h"
 #include "tx_cache.h"
+#include "version.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
@@ -164,9 +166,9 @@ void c4_beacon_compute_merkle_cache(beacon_block_t* block) {
 
 bytes_t ssz_create_multi_proof_from_body_cache(
     const beacon_body_merkle_cache_t* cache,
-    bytes32_t root_hash,
-    const gindex_t* gindex,
-    int gindex_len) {
+    bytes32_t                         root_hash,
+    const gindex_t*                   gindex,
+    int                               gindex_len) {
   return ssz_create_multi_proof_from_tree_cache(
       cache->body, BODY_MERKLE_TREE_SIZE,
       cache->ep, EP_MERKLE_TREE_SIZE,
@@ -480,8 +482,17 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
   return C4_SUCCESS;
 }
 
-// main beacn_block method
+c4_status_t c4_beacon_get_execution_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID)
+    return c4_hybrid_get_execution_for_eth(ctx, block, beacon_block);
+  return c4_beacon_get_block_for_eth(ctx, block, beacon_block);
+}
+
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
+
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID)
+    return c4_hybrid_get_block_for_eth(ctx, block, beacon_block);
+
   ssz_ob_t  sig_block = {0}, data_block = {0}, sig_body = {0};
   bytes32_t sig_root  = {0};
   bytes32_t data_root = {0};
@@ -700,3 +711,4 @@ c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query,
 
   return C4_SUCCESS;
 }
+

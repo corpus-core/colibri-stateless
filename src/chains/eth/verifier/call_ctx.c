@@ -31,9 +31,32 @@
 
 // :: Account lookup helpers (traverse parent chain)
 
+static bool eth_get_call_block_context_from_header_data(ssz_ob_t header_data, eth_call_block_context_t* out) {
+  if (!header_data.bytes.data) return false;
+
+  out->block_number    = ssz_get_uint64(&header_data, "blockNumber");
+  out->timestamp       = ssz_get_uint64(&header_data, "timestamp");
+  out->gas_limit       = ssz_get_uint64(&header_data, "gasLimit");
+  out->excess_blob_gas = ssz_get_uint64(&header_data, "excessBlobGas");
+
+  bytes_t coinbase = ssz_get(&header_data, "feeRecipient").bytes;
+  if (coinbase.data && coinbase.len >= 20) memcpy(out->coinbase, coinbase.data, 20);
+  memset(out->prev_randao, 0, 32); // not available in ETH_BLOCK_HEADER_DATA
+  bytes_t base_fee = ssz_get(&header_data, "baseFeePerGas").bytes;
+  if (base_fee.data && base_fee.len >= 32) memcpy(out->base_fee_per_gas, base_fee.data, 32);
+  bytes_t bh = ssz_get(&header_data, "blockHash").bytes;
+  if (bh.data && bh.len >= 32) memcpy(out->block_hash, bh.data, 32);
+
+  return true;
+}
+
 static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
   if (!ctx->proof.def || ctx->proof.def->type == SSZ_TYPE_NONE) return false;
 
+  if (ctx->flags & VERIFY_FLAG_HYBRID) {
+    ssz_ob_t hd = ssz_get(&ctx->proof, "header_data");
+    if (hd.bytes.data) return eth_get_call_block_context_from_header_data(hd, out);
+  }
   ssz_ob_t sp = ssz_get(&ctx->proof, "state_proof");
   ssz_ob_t bc = ssz_get(&sp, "block");
   if (!bc.def || !ssz_is_type(&bc, eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT)))

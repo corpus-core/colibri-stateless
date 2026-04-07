@@ -12,6 +12,13 @@ class PrivacyMode(IntEnum):
     BASIC = 1
 
 
+class ProverMode(IntEnum):
+    """Proof generation mode controlling how proofs are built and verified."""
+    LOCAL = 0
+    REMOTE = 1
+    HYBRID = 2
+
+
 class MethodType(IntEnum):
     """Enum for RPC method support types"""
     UNDEFINED = 0      # Method is not defined/recognized

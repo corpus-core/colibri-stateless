@@ -42,7 +42,8 @@ import {
   DataRequest,
   MethodType as C4MethodType,
   ProviderMessage,
-  ChainConfig
+  ChainConfig,
+  ProverMode
 } from './types.js';
 import { default_config, get_chain_id, chain_conf } from './chains.js';
 import { SubscriptionManager, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
@@ -65,7 +66,8 @@ export {
   C4MethodType as MethodType,
   ProviderMessage,
   EthSubscribeSubscriptionType,
-  EthNewFilterType
+  EthNewFilterType,
+  ProverMode
 };
 
 // Re-export transaction verification utilities
@@ -298,7 +300,8 @@ export default class C4Client {
     let ctx = 0;
 
     try {
-      const use_remote_prover = (this.config.prover?.length) ? 1 : 0;
+      const prover_mode_map: Record<ProverMode, number> = { local: 0, remote: 1, hybrid: 2 };
+      const prover_mode = prover_mode_map[this.config.prover_mode ?? (this.config.prover?.length ? 'remote' : 'local')];
       let prover_flags = this.flags;
       if (this.config.zk_proof) prover_flags |= (1 << 7);
 
@@ -308,7 +311,7 @@ export default class C4Client {
         BigInt(this.config.chainId),
         prover_flags,
         this.verify_flags,
-        use_remote_prover
+        prover_mode
       );
 
       if (this.config.trusted_checkpoint)

@@ -66,18 +66,27 @@ typedef struct {
 } request_prover_t;
 
 /**
+ * Prover mode controlling how proofs are generated and verified.
+ */
+typedef enum {
+  C4_PROVER_MODE_LOCAL  = 0, ///< proof built locally (requires Beacon API + execution client)
+  C4_PROVER_MODE_REMOTE = 1, ///< proof fetched entirely from remote prover server
+  C4_PROVER_MODE_HYBRID = 2, ///< header proof from remote server, execution data from RPC provider
+} c4_prover_mode_t;
+
+/**
  * Unified RPC context that manages the full lifecycle of an RPC request:
  * method type determination, proof generation (local or remote), and verification.
  */
 typedef struct {
-  char*           method;
-  char*           params;
-  chain_id_t      chain_id;
-  prover_flags_t  prover_flags;
-  verify_flags_t  verify_flags;
-  c4_rpc_phase_t  phase;
-  method_type_t   method_type;
-  bool            use_remote_prover;
+  char*             method;
+  char*             params;
+  chain_id_t        chain_id;
+  prover_flags_t    prover_flags;
+  verify_flags_t    verify_flags;
+  c4_rpc_phase_t    phase;
+  method_type_t     method_type;
+  c4_prover_mode_t  prover_mode;
 
   prover_ctx_t*   prover;
   verify_ctx_t    verifier;
@@ -100,12 +109,12 @@ typedef struct {
  * @param chain_id target chain ID
  * @param prover_flags flags for proof generation (see `prover_flag_types_t`)
  * @param verify_flags flags for verification (see `verify_flag_t`, e.g. `VERIFY_FLAG_PAP`)
- * @param use_remote_prover if true, emit a prover data_request instead of local proving
+ * @param prover_mode proof generation mode: `C4_PROVER_MODE_LOCAL` (0), `C4_PROVER_MODE_REMOTE` (1), or `C4_PROVER_MODE_HYBRID` (2)
  * @return heap-allocated context, or NULL on allocation failure
  */
 c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id_t chain_id,
                                 prover_flags_t prover_flags, verify_flags_t verify_flags,
-                                bool use_remote_prover);
+                                c4_prover_mode_t prover_mode);
 
 /**
  * Executes one step of the unified RPC state machine.

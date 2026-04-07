@@ -68,6 +68,7 @@
 // | `-p`           | `<prover_url>` | URL of the prover           |         |
 // | `-r`           | `<rpc_url>` | URL of the rpc-prover          |         |
 // | `-x`           | `<checkpointz_url>` | URL of a checkpointz or beacon-api|         |
+// | `-m`           | `<mode>`        | Prover mode: `local`, `remote`, `hybrid` |         |
 // | `-P`           |                 | Enable PAP (Pragmatic Adaptive Privacy) mode       |         |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
@@ -106,7 +107,8 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -s <cache_dir> cache directory\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
     fprintf(stderr, "  -p url of the prover\n");
-    fprintf(stderr, "  -L local proof\n");
+    fprintf(stderr, "  -m <mode> prover mode: local, remote, hybrid\n");
+    fprintf(stderr, "  -L local proof (shorthand for -m local)\n");
     fprintf(stderr, "  -r rpc url\n");
     fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
@@ -137,7 +139,8 @@ int main(int argc, char* argv[]) {
   char*          checkpointz_url    = NULL;
   char*          prover_url         = NULL;
   char*          trace_id           = NULL;
-  bool           local_proof        = false;
+  c4_prover_mode_t prover_mode      = C4_PROVER_MODE_REMOTE;
+  bool             prover_mode_set  = false;
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
 
@@ -164,8 +167,27 @@ int main(int argc, char* argv[]) {
             }
             break;
           case 'L':
-            local_proof = true;
+            prover_mode     = C4_PROVER_MODE_LOCAL;
+            prover_mode_set = true;
             break;
+          case 'm': {
+            char* mode = argv[++i];
+            if (strcmp(mode, "local") == 0) {
+              prover_mode = C4_PROVER_MODE_LOCAL;
+            }
+            else if (strcmp(mode, "remote") == 0) {
+              prover_mode = C4_PROVER_MODE_REMOTE;
+            }
+            else if (strcmp(mode, "hybrid") == 0) {
+              prover_mode = C4_PROVER_MODE_HYBRID;
+            }
+            else {
+              fprintf(stderr, "invalid prover mode: %s (expected: local, remote, hybrid)\n", mode);
+              exit(EXIT_FAILURE);
+            }
+            prover_mode_set = true;
+            break;
+          }
         case 'p':
             prover_url = argv[++i];
             break;
@@ -238,7 +260,7 @@ int main(int argc, char* argv[]) {
     if (json_len(provers) > 0)
       prover_url = (char*)json_at(provers, 0).start;
   }
-  if (local_proof) prover_url = NULL;
+  if (prover_mode_set && prover_mode == C4_PROVER_MODE_LOCAL) prover_url = NULL;
   if (rpc_url) set_config("eth_rpc", rpc_url);
   if (beacon_url) set_config("beacon_api", beacon_url);
   if (checkpointz_url) set_config("checkpointz", checkpointz_url);
@@ -267,12 +289,19 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  prover_flags_t prover_flags = 0;
+  prover_flags_t prover_flags = C4_PROVER_FLAG_USE_ACCESSLIST;
   if (use_zk_proof) prover_flags |= C4_PROVER_FLAG_ZK_PROOF;
-  bool use_remote = (prover_url != NULL && input == NULL);
+  if (!prover_mode_set) {
+    if (input != NULL)
+      prover_mode = C4_PROVER_MODE_LOCAL;
+    else if (prover_url != NULL)
+      prover_mode = C4_PROVER_MODE_REMOTE;
+    else
+      prover_mode = C4_PROVER_MODE_LOCAL;
+  }
 
   c4_rpc_ctx_t* ctx = c4_rpc_ctx_create(method, (char*) args.data.data, chain_id,
-                                        prover_flags, verify_flags, use_remote);
+                                        prover_flags, verify_flags, prover_mode);
 
   if (input) {
     ctx->proof       = bytes_read(input);
@@ -306,16 +335,16 @@ int main(int argc, char* argv[]) {
   if (status == C4_SUCCESS) {
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
-      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"remote_prover\": %s,\n  \"expected_result\": %Z\n}",
+      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"expected_result\": %Z\n}",
                                ctx->verifier.method, ctx->verifier.args, chain_id,
                                verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
-                               use_remote ? "true" : "false",
+                               prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
                                ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
       safe_free(content);
     }
-    if (verify_flags && VERIFY_FLAG_PROOF_ONLY)
+    if (verify_flags & VERIFY_FLAG_PROOF_ONLY)
       fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
     else
       ssz_dump_to_file_no_quotes(stdout, ctx->verifier.data);
@@ -324,9 +353,10 @@ int main(int argc, char* argv[]) {
     return EXIT_SUCCESS;
   }
 
-  fprintf(stderr, "proof is invalid: %s\n",
-          ctx->error ? ctx->error
-                     : (ctx->verifier.state.error ? ctx->verifier.state.error : "unknown error"));
+  c4_state_t* state = c4_rpc_get_state(ctx);
+  char* error = state ? state->error : ctx->error;
+  fprintf(stderr, "Error: %s\n", error ? error : "unknown error");
+
   c4_rpc_ctx_free(ctx);
   return EXIT_FAILURE;
 }

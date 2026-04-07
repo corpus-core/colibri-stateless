@@ -114,6 +114,7 @@ class Colibri {
     this.trustedCheckpoint,
     this.includeCode = false,
     this.zkProof = false,
+    this.proverMode,
     this.checkpointWitnessKeys,
     this.storage,
     void Function(String message)? onDebug,
@@ -164,6 +165,27 @@ final colibri = Colibri(
   libraryPath: 'native/libcolibri.dylib',
 );
 ```
+
+### Prover Mode
+
+Controls how proofs are built and verified. Set via `proverMode` in the constructor:
+
+- **`ProverMode.local`** -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+- **`ProverMode.remote`** -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+- **`ProverMode.hybrid`** -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+
+```dart
+// Hybrid mode: header proofs from Colibri, execution data from RPC provider
+final colibri = Colibri(
+  chainId: 1,
+  provers: ['https://mainnet.colibri-proof.tech'],
+  ethRpcs: ['https://eth-mainnet.g.alchemy.com/v2/<APIKEY>'],
+  proverMode: ProverMode.hybrid,
+  libraryPath: 'native/libcolibri.dylib',
+);
+```
+
+Default: `ProverMode.remote` when prover URLs are configured, `ProverMode.local` otherwise.
 
 ### Environment
 

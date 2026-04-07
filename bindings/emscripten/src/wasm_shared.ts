@@ -34,7 +34,7 @@ export interface C4W {
     _c4w_verify_proof: (verifyCtx: number) => number;
     _c4w_req_free: (reqPtr: number) => void;
     _c4w_get_current_version_number: () => number;
-    _c4w_create_rpc_ctx: (method: number, params: number, chainId: bigint, prover_flags: number, verify_flags: number, use_remote_prover: number) => number;
+    _c4w_create_rpc_ctx: (method: number, params: number, chainId: bigint, prover_flags: number, verify_flags: number, prover_mode: number) => number;
     _c4w_execute_rpc_ctx: (ctx: number) => number;
     _c4w_free_rpc_ctx: (ctx: number) => void;
     _c4w_set_checkpoint: (chainId: bigint, checkpoint: number) => void;

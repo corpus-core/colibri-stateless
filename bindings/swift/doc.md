@@ -180,6 +180,9 @@ public class Colibri {
     /// List of Prover URLs (empty = local proof generation)
     public var provers: [String]
     
+    /// Proof generation mode: .local, .remote (default), or .hybrid
+    public var proverMode: ProverMode?
+    
     /// PAP (Pragmatic Adaptive Privacy) mode: .none (default) or .basic
     public var privacyMode: PrivacyMode
     
@@ -193,6 +196,23 @@ public class Colibri {
     public func getMethodSupport(method: String) -> Bool
 }
 ```
+
+### Prover Mode
+
+Controls how proofs are built and verified. Set via `proverMode`:
+
+- **`.local`** -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+- **`.remote`** -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+- **`.hybrid`** -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.provers = ["https://mainnet.colibri-proof.tech"]
+colibri.proverMode = .hybrid
+```
+
+Default: `.remote` when prover URLs are configured, `.local` otherwise.
 
 ### Privacy (PAP)
 

@@ -225,6 +225,8 @@ static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
     SSZ_BYTES32("blockHash"),          // the hash of the block
     SSZ_UINT64("blobGasUsed"),         // the gas used for the blob transactions
     SSZ_UINT64("excessBlobGas"),       // the excess blob gas of the block
+    SSZ_ADDRESS("feeRecipient"),       // the address of the fee recipient (coinbase)
+    SSZ_BYTES32("transactionsRoot"),   // ssz_hash_tree_root(transactions) -- NOT the EL Patricia root
 };
 
 // :: Account Proof

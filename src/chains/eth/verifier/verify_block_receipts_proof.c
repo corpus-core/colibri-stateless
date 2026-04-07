@@ -103,23 +103,75 @@ bool verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof)
   return true;
 }
 
+static bool verify_hybrid_block_receipts(verify_ctx_t* ctx) {
+  if (!(ctx->flags & VERIFY_FLAG_HYBRID))
+    RETURN_VERIFY_ERROR(ctx, "hybrid block receipts proof requires hybrid mode!");
+
+  ssz_ob_t  header_data    = ssz_get(&ctx->proof, "header_data");
+  ssz_ob_t  transactions   = ssz_get(&ctx->proof, "transactions");
+  ssz_ob_t  receipts       = ssz_get(&ctx->proof, "receipts");
+  uint32_t  num_receipts   = ssz_len(receipts);
+  uint32_t  num_txs        = ssz_len(transactions);
+
+  bytes_t   receipts_root  = ssz_get(&header_data, "receiptsRoot").bytes;
+  bytes_t   tx_root        = ssz_get(&header_data, "transactionsRoot").bytes;
+
+  if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data");
+  if (!receipts_root.data || receipts_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid receiptsRoot in header_data");
+  if (!tx_root.data || tx_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid transactionsRoot in header_data");
+  if (num_receipts != num_txs) RETURN_VERIFY_ERROR(ctx, "receipt count does not match transaction count!");
+
+  node_t*   trie_root = NULL;
+  bytes32_t tmp       = {0};
+  buffer_t  buf       = stack_buffer(tmp);
+  for (uint32_t i = 0; i < num_receipts; i++)
+    patricia_set_value(&trie_root, c4_eth_create_tx_path(i, &buf), ssz_at(receipts, i).bytes);
+
+  bytes32_t receipt_root = {0};
+  if (trie_root) {
+    memcpy(receipt_root, patricia_get_root(trie_root).data, 32);
+    patricia_node_free(trie_root);
+  }
+  else
+    memcpy(receipt_root, EMPTY_ROOT_HASH, 32);
+
+  if (memcmp(receipt_root, receipts_root.data, 32) != 0)
+    RETURN_VERIFY_ERROR(ctx, "receiptsRoot mismatch!");
+
+  bytes32_t computed_tx_root = {0};
+  ssz_hash_tree_root(transactions, computed_tx_root);
+  if (memcmp(computed_tx_root, tx_root.data, 32) != 0)
+    RETURN_VERIFY_ERROR(ctx, "transactionsRoot mismatch!");
+
+  return true;
+}
+
 bool verify_block_receipts_proof(verify_ctx_t* ctx) {
+  bool is_hybrid = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF));
+
   if (ctx->data.def->type != SSZ_TYPE_NONE)
     RETURN_VERIFY_ERROR(ctx, "data must be empty; verifier builds receipt data from RLP!");
 
-  if (!verify_block_receipts_proof_for(ctx, ctx->proof))
-    RETURN_VERIFY_ERROR(ctx, "invalid block receipts proof!");
+  if (is_hybrid) {
+    if (!verify_hybrid_block_receipts(ctx))
+      RETURN_VERIFY_ERROR(ctx, "invalid hybrid block receipts proof!");
+  }
+  else {
+    if (!verify_block_receipts_proof_for(ctx, ctx->proof))
+      RETURN_VERIFY_ERROR(ctx, "invalid block receipts proof!");
+  }
 
-  // build receipt data list from RLP receipts + transactions (reduces payload; no redundant data from prover)
+  ssz_ob_t header_data = is_hybrid ? ssz_get(&ctx->proof, "header_data") : (ssz_ob_t) {0};
+
   const ssz_def_t* list_def        = eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_RECEIPTS);
   ssz_builder_t    data_builder    = ssz_builder_for_def(list_def);
-  uint64_t         base_fee        = ssz_get_uint64(&ctx->proof, "baseFeePerGas");
+  uint64_t         base_fee        = is_hybrid ? ssz_get_uint64(&header_data, "baseFeePerGas") : ssz_get_uint64(&ctx->proof, "baseFeePerGas");
   uint64_t         prev_cumulative = 0;
   uint32_t         next_log_index  = 0;
   ssz_ob_t         receipts        = ssz_get(&ctx->proof, "receipts");
-  ssz_ob_t         block_hash      = ssz_get(&ctx->proof, "blockHash");
+  bytes_t          block_hash      = is_hybrid ? ssz_get(&header_data, "blockHash").bytes : ssz_get(&ctx->proof, "blockHash").bytes;
   ssz_ob_t         transactions    = ssz_get(&ctx->proof, "transactions");
-  uint64_t         blk_num         = ssz_get_uint64(&ctx->proof, "blockNumber");
+  uint64_t         blk_num         = is_hybrid ? ssz_get_uint64(&header_data, "blockNumber") : ssz_get_uint64(&ctx->proof, "blockNumber");
   uint32_t         num_receipts    = ssz_len(receipts);
 
   for (uint32_t i = 0; i < num_receipts; i++) {
@@ -128,7 +180,7 @@ bool verify_block_receipts_proof(verify_ctx_t* ctx) {
     const ssz_def_t* item_def     = list_def->def.vector.type;
     ssz_builder_t    item_builder = ssz_builder_for_def(item_def);
 
-    if (!c4_write_receipt_data_from_raw(ctx, &item_builder, raw_tx, raw_receipt, block_hash.bytes.data, blk_num, i,
+    if (!c4_write_receipt_data_from_raw(ctx, &item_builder, raw_tx, raw_receipt, block_hash.data, blk_num, i,
                                         base_fee, &prev_cumulative, &next_log_index))
       RETURN_VERIFY_ERROR(ctx, "invalid receipt data from RLP!");
     ssz_add_dynamic_list_builders(&data_builder, (int) num_receipts, item_builder);
