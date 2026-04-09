@@ -159,10 +159,12 @@ typedef enum {
 } hybrid_fetch_type_t;
 
 static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybrid_fetch_type_t type, ssz_ob_t* result_out) {
-  const char* method = type == HYBRID_FETCH_EXECUTION ? "eth_getBlockByNumber" : "eth_getBlockHeader";
-  bytes32_t   id     = {0};
-  buffer_t    buffer = {0};
-  bprintf(&buffer, "{\"method\":\"%s\",\"params\":[%J%s]", method, block, type == HYBRID_FETCH_EXECUTION ? ",false" : "");
+  const char* method          = type == HYBRID_FETCH_EXECUTION ? "eth_getBlockByNumber" : "eth_getBlockHeader";
+  char        arg_buffer[100] = {0};
+  bytes32_t   id              = {0};
+  buffer_t    buffer          = {0};
+  sbprintf(arg_buffer, "[%J%s]", block, type == HYBRID_FETCH_EXECUTION ? ",false" : "");
+  bprintf(&buffer, "{\"method\":\"%s\",\"params\":%s", method, arg_buffer);
   sha256(buffer.data, id); // we create the id befor adding the props, so client_state changes will not effect the hash.
   c4_append_prover_request_props(&buffer, ctx->chain_id, ctx->flags, ctx->witness_key);
   bprintf(&buffer, "}");
@@ -183,10 +185,8 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
       return C4_SUCCESS;
     }
 
-    verify_ctx_t verify_ctx      = {0};
-    char         arg_buffer[100] = {0};
-    sbprintf(arg_buffer, "[%J%s]", block, type == HYBRID_FETCH_EXECUTION ? ",false" : "");
-    c4_status_t status = c4_verify_init(&verify_ctx, data_request->response, method, json_parse(arg_buffer), ctx->chain_id, 0);
+    verify_ctx_t verify_ctx = {0};
+    c4_status_t  status     = c4_verify_init(&verify_ctx, data_request->response, method, json_parse(arg_buffer), ctx->chain_id, 0);
     if (status != C4_SUCCESS) {
       c4_state_add_error(&ctx->state, verify_ctx.state.error);
       c4_verify_free_data(&verify_ctx);
@@ -236,43 +236,6 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
   data_request->method   = C4_DATA_METHOD_POST;
   data_request->encoding = C4_DATA_ENCODING_SSZ;
   data_request->payload  = buffer.data;
-
-  c4_state_add_request(&ctx->state, data_request);
-  return C4_PENDING;
-}
-
-// -- Hybrid: Delegate Full Proof to Remote Prover --
-
-c4_status_t c4_hybrid_delegate_proof(prover_ctx_t* ctx) {
-  bytes32_t id     = {0};
-  buffer_t  buffer = {0};
-  bprintf(&buffer, "{\"method\":\"%s\",\"params\":%J,\"delegate\":true}", ctx->method, ctx->params);
-  sha256(buffer.data, id);
-  data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
-
-  if (data_request) {
-    buffer_free(&buffer);
-    if (c4_state_is_pending(data_request)) return C4_PENDING;
-    if (data_request->error) THROW_ERROR(data_request->error);
-    if (!data_request->response.data) THROW_ERROR("empty response from remote prover");
-
-    ctx->proof = bytes_dup(data_request->response);
-    return C4_SUCCESS;
-  }
-
-  data_request = safe_calloc(1, sizeof(data_request_t));
-  memcpy(data_request->id, id, 32);
-  data_request->type     = C4_DATA_TYPE_PROVER;
-  data_request->chain_id = ctx->chain_id;
-  data_request->method   = C4_DATA_METHOD_POST;
-  data_request->encoding = C4_DATA_ENCODING_SSZ;
-
-  buffer_t payload = {0};
-  bprintf(&payload, "{\"method\":\"%s\",\"params\":%J", ctx->method, ctx->params);
-  c4_append_prover_request_props(&payload, ctx->chain_id, ctx->flags, ctx->witness_key);
-  bprintf(&payload, "}");
-  data_request->payload = payload.data;
-  buffer_free(&buffer);
 
   c4_state_add_request(&ctx->state, data_request);
   return C4_PENDING;
