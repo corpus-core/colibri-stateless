@@ -203,8 +203,10 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
         bytes_t result;
         if (type == HYBRID_FETCH_EXECUTION) {
           ssz_ob_t ep = ssz_get(&verify_ctx.proof, "executionPayload");
-          if (!ep.bytes.data)
+          if (!ep.bytes.data) {
             status = c4_state_add_error(&ctx->state, "no executionPayload in proof");
+            break;
+          }
           else
             result = bytes_dup(ep.bytes);
         }
