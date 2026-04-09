@@ -206,6 +206,11 @@ void rpc_set_witness_keys_wrapper(void* ctx, const std::string& keys) {
   c4_rpc_set_witness_keys(ctx, keys.empty() ? nullptr : keys.c_str());
 }
 
+void rpc_set_proxy_urls_wrapper(void* ctx, const std::string& rpc_urls, const std::string& beacon_urls) {
+  c4_rpc_set_proxy_urls(ctx, rpc_urls.empty() ? nullptr : rpc_urls.c_str(),
+                        beacon_urls.empty() ? nullptr : beacon_urls.c_str());
+}
+
 // Storage registration function
 void register_storage(
     std::function<py::bytes(const std::string&)>       get_func,
@@ -321,4 +326,8 @@ PYBIND11_MODULE(_native, m) {
   m.def("rpc_set_witness_keys", &rpc_set_witness_keys_wrapper,
         "Set witness/signer keys on an RPC context",
         py::arg("ctx"), py::arg("keys"));
+
+  m.def("rpc_set_proxy_urls", &rpc_set_proxy_urls_wrapper,
+        "Set proxy RPC and Beacon API URLs on an RPC context",
+        py::arg("ctx"), py::arg("rpc_urls"), py::arg("beacon_urls"));
 }

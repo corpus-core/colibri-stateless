@@ -69,9 +69,11 @@ typedef struct {
  * Prover mode controlling how proofs are generated and verified.
  */
 typedef enum {
-  C4_PROVER_MODE_LOCAL  = 0, ///< proof built locally (requires Beacon API + execution client)
-  C4_PROVER_MODE_REMOTE = 1, ///< proof fetched entirely from remote prover server
-  C4_PROVER_MODE_HYBRID = 2, ///< header proof from remote server, execution data from RPC provider
+  C4_PROVER_MODE_LOCAL        = 0, ///< proof built locally (requires Beacon API + execution client)
+  C4_PROVER_MODE_REMOTE       = 1, ///< proof fetched entirely from remote prover server
+  C4_PROVER_MODE_HYBRID       = 2, ///< header proof from remote server, execution data from RPC provider
+  C4_PROVER_MODE_PROXY        = 3, ///< like remote; client sends RPC/Beacon URLs in proof request (prover server)
+  C4_PROVER_MODE_LIGHT_CLIENT = 4, ///< like hybrid; host may prefetch headers (same flags as hybrid in core)
 } c4_prover_mode_t;
 
 /**
@@ -98,6 +100,10 @@ typedef struct {
 
   bytes_t         witness_keys;
 
+  /** Comma-separated URLs for `C4_PROVER_MODE_PROXY` (owned; appended to remote proof JSON as `rpc` / `beacon` arrays). */
+  char* proxy_rpc_urls;
+  char* proxy_beacon_urls;
+
   request_prover_t* request_prover; ///< active local prover for a verifier-emitted PROVER request (NULL if idle)
 } c4_rpc_ctx_t;
 
@@ -109,7 +115,7 @@ typedef struct {
  * @param chain_id target chain ID
  * @param prover_flags flags for proof generation (see `prover_flag_types_t`)
  * @param verify_flags flags for verification (see `verify_flag_t`, e.g. `VERIFY_FLAG_PAP`)
- * @param prover_mode proof generation mode: `C4_PROVER_MODE_LOCAL` (0), `C4_PROVER_MODE_REMOTE` (1), or `C4_PROVER_MODE_HYBRID` (2)
+ * @param prover_mode proof generation mode (`C4_PROVER_MODE_*`, up to `C4_PROVER_MODE_LIGHT_CLIENT`)
  * @return heap-allocated context, or NULL on allocation failure
  */
 c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id_t chain_id,
@@ -145,6 +151,15 @@ c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx);
  * @param keys_hex hex string with "0x" prefix (e.g. "0xabcd..."), or NULL to clear
  */
 void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex);
+
+/**
+ * Sets comma-separated RPC and Beacon API URLs for `C4_PROVER_MODE_PROXY`.
+ *
+ * @param ctx the RPC context
+ * @param rpc_urls comma-separated HTTPS RPC endpoints, or NULL to clear
+ * @param beacon_urls comma-separated Beacon API base URLs, or NULL to clear
+ */
+void c4_rpc_ctx_set_proxy_urls(c4_rpc_ctx_t* ctx, const char* rpc_urls, const char* beacon_urls);
 
 /**
  * Frees the RPC context and all owned resources.

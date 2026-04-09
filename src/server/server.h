@@ -151,6 +151,11 @@ typedef struct {
   char* tracing_url;            // Zipkin v2 endpoint
   char* tracing_service_name;   // service name
   int   tracing_sample_percent; // 0..100
+
+  /** If 1, `/proof` may accept client `rpc` / `beacon` JSON arrays (proxy mode). */
+  int   proxy_enabled;
+  /** Comma-separated domain patterns allowed for proxy URLs (e.g. `*.alchemy.com,infura.io`). */
+  char* proxy_allowed_domains;
 } http_server_t;
 
 // Method support tracking for RPC methods
@@ -292,6 +297,9 @@ typedef struct request_t {
   http_request_cb   parent_cb;   // callback function to call when the ctx (mostly prover) has a result
   trace_span_t*     trace_root;  // root tracing span for the overall proof request
   uint32_t          prover_step; // counts c4_prover_execute invocations for this request
+  /** Per-request backend lists when client sends `rpc` / `beacon` in proxy mode (owned). */
+  server_list_t* proxy_rpc_servers;
+  server_list_t* proxy_beacon_servers;
 } request_t;
 
 typedef enum {
@@ -344,6 +352,8 @@ uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
 bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
+server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req);
+void           c4_free_server_list(server_list_t* list);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
 const char*    c4_extract_server_name(const char* url);
 // Load balancing functions
@@ -358,7 +368,6 @@ void               c4_update_server_health(server_list_t* servers, int server_in
 void               c4_calculate_server_weights(server_list_t* servers);
 bool               c4_should_reset_health_stats(server_list_t* servers);
 void               c4_reset_server_health_stats(server_list_t* servers);
-c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
 bool               c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
 void               c4_attempt_server_recovery(server_list_t* servers);
 
@@ -384,7 +393,8 @@ void                 c4_stop_rpc_head_poller(void);
 char*                   c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);
 data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
-c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
+c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
+                                               server_list_t* servers_opt);
 bool                    c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
 
 // Internal call handlers

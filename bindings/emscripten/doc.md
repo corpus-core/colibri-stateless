@@ -229,10 +229,12 @@ The constructor of the colibri client accepts a configuration-object, which may 
     new Colibri({ prover: ["https://mainnet.colibri-proof.tech" ]})
     ```
 - `prover_mode` - proof generation mode (default: `"remote"` if prover URLs configured, otherwise `"local"`)
-    Controls how proofs are built and verified. Three modes are available:
+    Controls how proofs are built and verified. Five modes are available:
     - `"local"` -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
     - `"remote"` -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
     - `"hybrid"` -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+    - `"proxy"` -- Like remote, but the client sends its own RPC and Beacon API URLs to the prover server. The server uses these endpoints instead of its own. Useful when the client has access to private or premium RPC providers.
+    - `"light_client"` -- Like hybrid, with additional background polling of block headers to keep the cache warm. Call `startLightClient()` / `stopLightClient()` to control polling. Default interval: 12000ms. By default only the compact `eth_getBlockHeader` is fetched; pass `fullBlock: true` to fetch the full block (useful when many `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow).
     ```js
     // Explicit hybrid mode: header proofs from Colibri, execution data from RPC provider
     new Colibri({
@@ -240,6 +242,15 @@ The constructor of the colibri client accepts a configuration-object, which may 
       rpcs: ["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
       prover_mode: "hybrid"
     })
+
+    // Light client mode with background header polling
+    const client = new Colibri({
+      prover: ["https://mainnet.colibri-proof.tech"],
+      rpcs: ["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
+      prover_mode: "light_client"
+    });
+    client.startLightClient();              // polls eth_getBlockHeader every 12s
+    client.startLightClient(12000, true);   // or fetch the full block
     ```
 - `zk_proof` - use remote ZK sync proof for bootstrap (default: `false`)
     If `true`, the verifier will bootstrap the initial sync committee using the ZK proof (`ZKSyncData`) provided by the remote prover, instead of initializing via `checkpointz` / trusted checkpoints.

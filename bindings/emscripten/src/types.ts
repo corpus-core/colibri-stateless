@@ -122,7 +122,7 @@ export interface EIP1193Client {
 
 
 /** Proof generation mode controlling how proofs are built and verified. */
-export type ProverMode = 'local' | 'remote' | 'hybrid';
+export type ProverMode = 'local' | 'remote' | 'hybrid' | 'proxy' | 'light_client';
 
 // C4Client configuration
 export interface Config extends ChainConfig {

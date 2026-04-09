@@ -147,6 +147,9 @@ typedef _SetCheckpoint = void Function(int, ffi.Pointer<ffi.Int8>);
 typedef _RpcSetWitnessKeysNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>);
 typedef _RpcSetWitnessKeys = void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>);
 
+typedef _RpcSetProxyUrlsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>, ffi.Pointer<ffi.Int8>);
+typedef _RpcSetProxyUrls = void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>, ffi.Pointer<ffi.Int8>);
+
 // Global storage bridge used by native callbacks.
 ColibriStorage? _storageHandler;
 late _BufferAppend _bufferAppend;
@@ -252,6 +255,8 @@ class ColibriNative {
         _lib.lookupFunction<_SetCheckpointNative, _SetCheckpoint>('c4_set_checkpoint');
     _rpcSetWitnessKeys =
         _lib.lookupFunction<_RpcSetWitnessKeysNative, _RpcSetWitnessKeys>('c4_rpc_set_witness_keys');
+    _rpcSetProxyUrls =
+        _lib.lookupFunction<_RpcSetProxyUrlsNative, _RpcSetProxyUrls>('c4_rpc_set_proxy_urls');
   }
 
   final ffi.DynamicLibrary _lib;
@@ -274,6 +279,7 @@ class ColibriNative {
   late final _FreeCtx _freeRpcCtx;
   late final _SetCheckpoint _setCheckpoint;
   late final _RpcSetWitnessKeys _rpcSetWitnessKeys;
+  late final _RpcSetProxyUrls _rpcSetProxyUrls;
 
   /// Load the native shared library from [libraryPath] or platform defaults.
   static ColibriNative load({String? libraryPath}) {
@@ -516,6 +522,15 @@ class ColibriNative {
     final keysPtr = keys.toNativeUtf8();
     _rpcSetWitnessKeys(ctx, keysPtr.cast());
     malloc.free(keysPtr);
+  }
+
+  /// Set proxy RPC and Beacon API URLs on an RPC context.
+  void rpcSetProxyUrls(ffi.Pointer<ffi.Void> ctx, String rpcUrls, String beaconUrls) {
+    final rpcPtr = rpcUrls.toNativeUtf8();
+    final beaconPtr = beaconUrls.toNativeUtf8();
+    _rpcSetProxyUrls(ctx, rpcPtr.cast(), beaconPtr.cast());
+    malloc.free(rpcPtr);
+    malloc.free(beaconPtr);
   }
 
   /// Resolve the platform-specific library path.

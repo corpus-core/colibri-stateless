@@ -77,6 +77,8 @@ typedef enum {
   C4_PROVER_FLAG_ZK_PROOF           = 1 << 7, // if true, the the prover will try to store the zk_proof within the sync_section
   C4_PROVER_FLAG_CALL_BLOCK_CONTEXT = 1 << 8, // if true, eth_call state_proof uses blockContext union variant and multi-proof with execution payload fields
   C4_PROVER_FLAG_HYBRID             = 1 << 9, // hybrid mode: header proof from remote server, execution data from RPC provider
+  C4_PROVER_FLAG_PROXY              = 1 << 10, // server: request used client-supplied RPC/Beacon URLs (proxy mode)
+  C4_PROVER_FLAG_LIGHT_CLIENT       = 1 << 11, // light client mode: extended header cache TTL for "latest" (full block_time instead of half)
 } prover_flag_types_t;
 
 /**

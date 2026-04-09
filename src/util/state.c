@@ -23,8 +23,26 @@
 
 #include "state.h"
 #include "logger.h"
+#include "plugin.h"
+#include "version.h"
 #include <stdlib.h>
 #include <string.h>
+
+void c4_append_prover_request_props(buffer_t* payload, chain_id_t chain_id, uint32_t flags, bytes_t witness_key) {
+  if (!payload) return;
+  bprintf(payload, ",\"version\":%u", (unsigned) c4_current_version_number());
+  bytes_t cs = c4_get_client_state(chain_id);
+  if (cs.data && cs.len) {
+    bprintf(payload, ",\"c4\":\"0x%x\"", cs);
+    safe_free(cs.data);
+  }
+  if (flags & C4_PROVER_REQ_FLAG_ZK_PROOF)
+    bprintf(payload, ",\"zk_proof\":true");
+  if (flags & C4_PROVER_REQ_FLAG_INCLUDE_CODE)
+    bprintf(payload, ",\"include_code\":true");
+  if (witness_key.data && witness_key.len)
+    bprintf(payload, ",\"signers\":\"0x%x\"", witness_key);
+}
 
 void c4_request_free(data_request_t* req) {
   if (!req) return;

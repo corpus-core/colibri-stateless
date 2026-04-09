@@ -71,7 +71,30 @@ http_server_t http_server = {
     .tracing_enabled        = 0,
     .tracing_url            = "",
     .tracing_service_name   = "colibri-stateless",
-    .tracing_sample_percent = 10 // 10%
+    .tracing_sample_percent = 10, // 10%
+
+    .proxy_enabled         = 0,
+    .proxy_allowed_domains = ""
+                             "*.alchemy.com,"
+                             "*.infura.io,"
+                             "*.quiknode.pro,"
+                             "*.ankr.com,"
+                             "*.chainsafe.io,"
+                             "*.publicnode.com,"
+                             "*.drpc.org,"
+                             "*.blastapi.io,"
+                             "*.chainstack.com,"
+                             "*.tenderly.co,"
+                             "*.llamarpc.com,"
+                             "*.1rpc.io,"
+                             "*.blockpi.io,"
+                             "*.getblock.io,"
+                             "*.grove.city,"
+                             "*.cloudflare-eth.com,"
+                             "*.beaconcha.in,"
+                             "beaconstate.info,"
+                             "*.invis.tools,"
+                             "*.ethstaker.cc",
 };
 
 static void config() {
@@ -96,6 +119,11 @@ static void config() {
   conf_string(&http_server.prover_nodes, "PROVER", "prover", 'R', "list of remote prover endpoints");
   conf_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
   conf_int(&http_server.req_timeout, "REQUEST_TIMEOUT", "req_timeout", 't', "request timeout", 1, 300);
+
+  c4_configure_add_section("proxy");
+  conf_int(&http_server.proxy_enabled, "PROXY_ENABLED", "proxy_enabled", 0, "allow client rpc/beacon arrays on /proof (0/1)", 0, 1);
+  conf_string(&http_server.proxy_allowed_domains, "PROXY_ALLOWED_DOMAINS", "proxy_allowed_domains", 0,
+              "comma-separated domain patterns for proxy URLs (e.g. *.alchemy.com,infura.io)");
 
   // Heuristic load-balancing configuration (ENV/args)
   c4_configure_add_section("http pools");

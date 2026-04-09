@@ -127,6 +127,10 @@ void EMSCRIPTEN_KEEPALIVE c4w_rpc_ctx_set_witness_keys(void* ctx, char* keys) {
   c4_rpc_ctx_set_witness_keys((c4_rpc_ctx_t*) ctx, keys);
 }
 
+void EMSCRIPTEN_KEEPALIVE c4w_rpc_ctx_set_proxy_urls(void* ctx, char* rpc_urls, char* beacon_urls) {
+  c4_rpc_ctx_set_proxy_urls((c4_rpc_ctx_t*) ctx, rpc_urls, beacon_urls);
+}
+
 /* ── Utilities ── */
 
 char* EMSCRIPTEN_KEEPALIVE c4w_decode_proof(uint8_t* data, size_t len) {
