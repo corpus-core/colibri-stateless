@@ -31,6 +31,8 @@
 
 // -- Global Header Cache (hybrid mode only) --
 
+#define TAG_FETCH_TIMEOUT_MS 30000 /**< max time a stale-while-revalidate sentinel stays valid before allowing a retry */
+
 static verified_header_cache_t g_header_cache = {0};
 
 // -- Tag TTL Calculation --
@@ -271,10 +273,15 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
     tag = HEADER_TAG_FINALIZED;
 
   if (tag < HEADER_TAG_COUNT) {
-    tag_cache_entry_t* tc = &g_header_cache.tags[tag];
+    tag_cache_entry_t* tc  = &g_header_cache.tags[tag];
+    uint64_t           now = current_ms();
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
-      uint64_t ttl = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
-      if (current_ms() - tc->cached_at_ms < ttl)
+      uint64_t ttl                  = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
+      bool     within_ttl           = (now - tc->cached_at_ms < ttl);
+      bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms
+                                      && tc->fetching_ctx != (uintptr_t) ctx
+                                      && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
+      if (within_ttl || stale_while_revalidate)
         cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, tc->block_hash);
     }
   }
@@ -293,13 +300,26 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
     header_data.bytes = bytes_dup(cached->header_data.bytes);
   }
   else {
-    TRY_ASYNC(hybrid_fetch_header(ctx, block, &header_data));
+    if (tag < HEADER_TAG_COUNT && !g_header_cache.tags[tag].fetching_since_ms) {
+      g_header_cache.tags[tag].fetching_since_ms = current_ms();
+      g_header_cache.tags[tag].fetching_ctx      = (uintptr_t) ctx;
+    }
+    c4_status_t status = hybrid_fetch_header(ctx, block, &header_data);
+    if (status != C4_SUCCESS) {
+      if (status == C4_ERROR && tag < HEADER_TAG_COUNT) {
+        g_header_cache.tags[tag].fetching_since_ms = 0;
+        g_header_cache.tags[tag].fetching_ctx      = 0;
+      }
+      return status;
+    }
     uint64_t hdr_bn = ssz_get_uint64(&header_data, "blockNumber");
     bytes_t  bh     = ssz_get(&header_data, "blockHash").bytes;
     c4_header_cache_put(&g_header_cache, ctx->chain_id, hdr_bn, bh.data, header_data);
     if (tag < HEADER_TAG_COUNT && bh.data && bh.len == 32) {
       memcpy(g_header_cache.tags[tag].block_hash, bh.data, 32);
-      g_header_cache.tags[tag].cached_at_ms = current_ms();
+      g_header_cache.tags[tag].cached_at_ms      = current_ms();
+      g_header_cache.tags[tag].fetching_since_ms = 0;
+      g_header_cache.tags[tag].fetching_ctx      = 0;
     }
   }
 
@@ -400,10 +420,15 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
     tag = HEADER_TAG_FINALIZED;
 
   if (tag < HEADER_TAG_COUNT) {
-    tag_cache_entry_t* tc = &g_header_cache.tags[tag];
+    tag_cache_entry_t* tc  = &g_header_cache.tags[tag];
+    uint64_t           now = current_ms();
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
-      uint64_t ttl = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
-      if (current_ms() - tc->cached_at_ms < ttl)
+      uint64_t ttl                  = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
+      bool     within_ttl           = (now - tc->cached_at_ms < ttl);
+      bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms
+                                      && tc->fetching_ctx != (uintptr_t) ctx
+                                      && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
+      if (within_ttl || stale_while_revalidate)
         cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, tc->block_hash);
     }
   }
@@ -425,8 +450,20 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
     return C4_SUCCESS;
   }
 
-  ssz_ob_t execution = {0};
-  TRY_ASYNC(hybrid_fetch_execution(ctx, block, &execution));
+  if (tag < HEADER_TAG_COUNT && !g_header_cache.tags[tag].fetching_since_ms) {
+    g_header_cache.tags[tag].fetching_since_ms = current_ms();
+    g_header_cache.tags[tag].fetching_ctx      = (uintptr_t) ctx;
+  }
+
+  ssz_ob_t    execution = {0};
+  c4_status_t status    = hybrid_fetch_execution(ctx, block, &execution);
+  if (status != C4_SUCCESS) {
+    if (status == C4_ERROR && tag < HEADER_TAG_COUNT) {
+      g_header_cache.tags[tag].fetching_since_ms = 0;
+      g_header_cache.tags[tag].fetching_ctx      = 0;
+    }
+    return status;
+  }
 
   uint64_t ep_bn = ssz_get_uint64(&execution, "blockNumber");
   bytes_t  bh    = ssz_get(&execution, "blockHash").bytes;
@@ -441,7 +478,9 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
 
   if (tag < HEADER_TAG_COUNT && bh.data && bh.len == 32) {
     memcpy(g_header_cache.tags[tag].block_hash, bh.data, 32);
-    g_header_cache.tags[tag].cached_at_ms = current_ms();
+    g_header_cache.tags[tag].cached_at_ms      = current_ms();
+    g_header_cache.tags[tag].fetching_since_ms = 0;
+    g_header_cache.tags[tag].fetching_ctx      = 0;
   }
 
   memset(beacon_block, 0, sizeof(beacon_block_t));

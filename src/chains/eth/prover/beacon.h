@@ -119,10 +119,23 @@ typedef enum {
   HEADER_TAG_COUNT     = 3
 } header_tag_t;
 
-/** Maps a block tag (latest/safe/finalized) to a cached block hash with a timestamp for TTL checks. */
+/**
+ * Maps a block tag (latest/safe/finalized) to a cached block hash with a timestamp for TTL checks.
+ *
+ * The `fetching_since_ms` / `fetching_ctx` pair implements a stale-while-revalidate sentinel
+ * to prevent thundering-herd fetches when the tag TTL expires while multiple requests are in flight.
+ * The first request to miss sets the sentinel; subsequent requests serve the stale entry.
+ * `fetching_ctx` is only compared by pointer value (never dereferenced) so that the fetching
+ * context's own re-entry can bypass the stale path and process its response.
+ *
+ * Thread safety: these fields are not protected by a mutex. In multi-threaded bindings
+ * (Kotlin, Swift, Python) a race can at worst cause a duplicate fetch, which is acceptable.
+ */
 typedef struct {
   bytes32_t block_hash;
   uint64_t  cached_at_ms;
+  uint64_t  fetching_since_ms; /**< non-zero while a fetch is in progress (unprotected: benign race accepted) */
+  uintptr_t fetching_ctx;     /**< opaque identity of the fetching prover context (compared, never dereferenced) */
 } tag_cache_entry_t;
 
 /**
