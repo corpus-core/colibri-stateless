@@ -151,12 +151,22 @@ ssz_ob_t c4_build_header_data_from_execution(ssz_ob_t execution) {
   return ssz_builder_to_bytes(&data);
 }
 
-// -- Hybrid: Fetch + Verify Header from Remote Prover --
+// -- Hybrid: Fetch + Verify from Remote Prover --
 
-static c4_status_t hybrid_fetch_header(prover_ctx_t* ctx, json_t block, ssz_ob_t* header_data_out) {
+typedef enum {
+  HYBRID_FETCH_HEADER,
+  HYBRID_FETCH_EXECUTION
+} hybrid_fetch_type_t;
+
+static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybrid_fetch_type_t type, ssz_ob_t* result_out) {
+  const char* method = type == HYBRID_FETCH_EXECUTION ? "eth_getBlockByNumber" : "eth_getBlockHeader";
+
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
-  bprintf(&buffer, "{\"method\":\"eth_getBlockHeader\",\"params\":[%J]", block);
+  if (type == HYBRID_FETCH_EXECUTION)
+    bprintf(&buffer, "{\"method\":\"%s\",\"params\":[%J,false]", method, block);
+  else
+    bprintf(&buffer, "{\"method\":\"%s\",\"params\":[%J]", method, block);
   c4_append_prover_request_props(&buffer, ctx->chain_id, ctx->flags, ctx->witness_key);
   bprintf(&buffer, "}");
   sha256(buffer.data, id);
@@ -166,21 +176,28 @@ static c4_status_t hybrid_fetch_header(prover_ctx_t* ctx, json_t block, ssz_ob_t
     buffer_free(&buffer);
     if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (data_request->error) THROW_ERROR(data_request->error);
-    if (!data_request->response.data) THROW_ERROR("empty response from remote prover for eth_getBlockHeader");
-    const ssz_def_t* def = eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_HEADER);
+    if (!data_request->response.data) THROW_ERROR_WITH("empty response from remote prover for %s", method);
+
+    const ssz_def_t* def = type == HYBRID_FETCH_EXECUTION
+                               ? c4_eth_execution_payload_def(ctx->chain_id)
+                               : eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_HEADER);
+
     if (data_request->validated) {
-      *header_data_out = (ssz_ob_t) {.def = def, .bytes = data_request->response};
+      *result_out = (ssz_ob_t) {.def = def, .bytes = data_request->response};
       return C4_SUCCESS;
     }
 
     verify_ctx_t verify_ctx      = {0};
     char         arg_buffer[100] = {0};
-    sbprintf(arg_buffer, "[%J]", block);
-    c4_status_t status = c4_verify_init(&verify_ctx, data_request->response, "eth_getBlockHeader", json_parse(arg_buffer), ctx->chain_id, 0);
+    if (type == HYBRID_FETCH_EXECUTION)
+      sbprintf(arg_buffer, "[%J,false]", block);
+    else
+      sbprintf(arg_buffer, "[%J]", block);
+    c4_status_t status = c4_verify_init(&verify_ctx, data_request->response, method, json_parse(arg_buffer), ctx->chain_id, 0);
     if (status != C4_SUCCESS) {
       c4_state_add_error(&ctx->state, verify_ctx.state.error);
       c4_verify_free_data(&verify_ctx);
-      THROW_ERROR("failed to initialize verify context for eth_getBlockHeader");
+      THROW_ERROR_WITH("failed to initialize verify context for %s", method);
     }
 
     // share the parent state so pending requests propagate upward;
@@ -190,10 +207,23 @@ static c4_status_t hybrid_fetch_header(prover_ctx_t* ctx, json_t block, ssz_ob_t
     switch (status) {
       case C4_SUCCESS: {
         data_request->validated = true;
-        bytes_t header_data     = bytes_dup(verify_ctx.data.bytes);
+        bytes_t result;
+        if (type == HYBRID_FETCH_EXECUTION) {
+          ssz_ob_t ep = ssz_get(&verify_ctx.proof, "executionPayload");
+          if (!ep.bytes.data) {
+            ctx->state.requests       = verify_ctx.state.requests;
+            verify_ctx.state.requests = NULL;
+            c4_verify_free_data(&verify_ctx);
+            THROW_ERROR_WITH("no executionPayload in %s proof", method);
+          }
+          result = bytes_dup(ep.bytes);
+        }
+        else
+          result = bytes_dup(verify_ctx.data.bytes);
+
         safe_free(data_request->response.data);
-        data_request->response = header_data;
-        *header_data_out       = (ssz_ob_t) {.def = def, .bytes = header_data};
+        data_request->response = result;
+        *result_out            = (ssz_ob_t) {.def = def, .bytes = result};
         break;
       }
       case C4_PENDING:
@@ -304,7 +334,7 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
       g_header_cache.tags[tag].fetching_since_ms = current_ms();
       g_header_cache.tags[tag].fetching_ctx      = (uintptr_t) ctx;
     }
-    c4_status_t status = hybrid_fetch_header(ctx, block, &header_data);
+    c4_status_t status = hybrid_fetch_and_verify(ctx, block, HYBRID_FETCH_HEADER, &header_data);
     if (status != C4_SUCCESS) {
       if (status == C4_ERROR && tag < HEADER_TAG_COUNT) {
         g_header_cache.tags[tag].fetching_since_ms = 0;
@@ -330,80 +360,6 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
   bytes_t bh                = ssz_get(&header_data, "blockHash").bytes;
   if (bh.data && bh.len == 32) memcpy(beacon_block->data_block_root, bh.data, 32);
   return C4_SUCCESS;
-}
-
-// -- Hybrid: Fetch Full Execution Payload from Remote Prover --
-
-static c4_status_t hybrid_fetch_execution(prover_ctx_t* ctx, json_t block, ssz_ob_t* execution_out) {
-  bytes32_t id     = {0};
-  buffer_t  buffer = {0};
-  bprintf(&buffer, "{\"method\":\"eth_getBlockByNumber\",\"params\":[%J,false]", block);
-  c4_append_prover_request_props(&buffer, ctx->chain_id, ctx->flags, ctx->witness_key);
-  bprintf(&buffer, "}");
-  sha256(buffer.data, id);
-  data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
-
-  if (data_request) {
-    buffer_free(&buffer);
-    if (c4_state_is_pending(data_request)) return C4_PENDING;
-    if (data_request->error) THROW_ERROR(data_request->error);
-    if (!data_request->response.data) THROW_ERROR("empty response from remote prover for eth_getBlockByNumber");
-
-    if (data_request->validated) {
-      *execution_out = (ssz_ob_t) {.def = c4_eth_execution_payload_def(ctx->chain_id), .bytes = data_request->response};
-      return C4_SUCCESS;
-    }
-
-    verify_ctx_t verify_ctx      = {0};
-    char         arg_buffer[100] = {0};
-    sbprintf(arg_buffer, "[%J,false]", block);
-    c4_status_t status = c4_verify_init(&verify_ctx, data_request->response, "eth_getBlockByNumber", json_parse(arg_buffer), ctx->chain_id, 0);
-    if (status != C4_SUCCESS) {
-      c4_state_add_error(&ctx->state, verify_ctx.state.error);
-      c4_verify_free_data(&verify_ctx);
-      THROW_ERROR("failed to initialize verify context for eth_getBlockByNumber");
-    }
-
-    verify_ctx.state = ctx->state;
-    status           = c4_verify(&verify_ctx);
-    switch (status) {
-      case C4_SUCCESS: {
-        data_request->validated = true;
-        ssz_ob_t ep             = ssz_get(&verify_ctx.proof, "executionPayload");
-        if (!ep.bytes.data) {
-          ctx->state.requests       = verify_ctx.state.requests;
-          verify_ctx.state.requests = NULL;
-          c4_verify_free_data(&verify_ctx);
-          THROW_ERROR("no executionPayload in eth_getBlockByNumber proof");
-        }
-        bytes_t ep_dup = bytes_dup(ep.bytes);
-        safe_free(data_request->response.data);
-        data_request->response = ep_dup;
-        *execution_out         = (ssz_ob_t) {.def = c4_eth_execution_payload_def(ctx->chain_id), .bytes = ep_dup};
-        break;
-      }
-      case C4_PENDING:
-        break;
-      case C4_ERROR:
-        c4_state_add_error(&ctx->state, verify_ctx.state.error);
-    }
-
-    ctx->state.requests       = verify_ctx.state.requests;
-    verify_ctx.state.requests = NULL;
-    c4_verify_free_data(&verify_ctx);
-    return status;
-  }
-
-  data_request = safe_calloc(1, sizeof(data_request_t));
-  memcpy(data_request->id, id, 32);
-  data_request->type     = C4_DATA_TYPE_PROVER;
-  data_request->chain_id = ctx->chain_id;
-  data_request->method   = C4_DATA_METHOD_POST;
-  data_request->encoding = C4_DATA_ENCODING_SSZ;
-  data_request->payload  = buffer.data;
-
-  c4_state_add_request(&ctx->state, data_request);
-  return C4_PENDING;
 }
 
 // -- Hybrid: Resolve Block + Fetch Full Execution Payload --
@@ -456,7 +412,7 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
   }
 
   ssz_ob_t    execution = {0};
-  c4_status_t status    = hybrid_fetch_execution(ctx, block, &execution);
+  c4_status_t status    = hybrid_fetch_and_verify(ctx, block, HYBRID_FETCH_EXECUTION, &execution);
   if (status != C4_SUCCESS) {
     if (status == C4_ERROR && tag < HEADER_TAG_COUNT) {
       g_header_cache.tags[tag].fetching_since_ms = 0;
