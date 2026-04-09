@@ -160,16 +160,12 @@ typedef enum {
 
 static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybrid_fetch_type_t type, ssz_ob_t* result_out) {
   const char* method = type == HYBRID_FETCH_EXECUTION ? "eth_getBlockByNumber" : "eth_getBlockHeader";
-
-  bytes32_t id     = {0};
-  buffer_t  buffer = {0};
-  if (type == HYBRID_FETCH_EXECUTION)
-    bprintf(&buffer, "{\"method\":\"%s\",\"params\":[%J,false]", method, block);
-  else
-    bprintf(&buffer, "{\"method\":\"%s\",\"params\":[%J]", method, block);
+  bytes32_t   id     = {0};
+  buffer_t    buffer = {0};
+  bprintf(&buffer, "{\"method\":\"%s\",\"params\":[%J%s]", method, block, type == HYBRID_FETCH_EXECUTION ? ",false" : "");
+  sha256(buffer.data, id); // we create the id befor adding the props, so client_state changes will not effect the hash.
   c4_append_prover_request_props(&buffer, ctx->chain_id, ctx->flags, ctx->witness_key);
   bprintf(&buffer, "}");
-  sha256(buffer.data, id);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
 
   if (data_request) {
@@ -189,10 +185,7 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
 
     verify_ctx_t verify_ctx      = {0};
     char         arg_buffer[100] = {0};
-    if (type == HYBRID_FETCH_EXECUTION)
-      sbprintf(arg_buffer, "[%J,false]", block);
-    else
-      sbprintf(arg_buffer, "[%J]", block);
+    sbprintf(arg_buffer, "[%J%s]", block, type == HYBRID_FETCH_EXECUTION ? ",false" : "");
     c4_status_t status = c4_verify_init(&verify_ctx, data_request->response, method, json_parse(arg_buffer), ctx->chain_id, 0);
     if (status != C4_SUCCESS) {
       c4_state_add_error(&ctx->state, verify_ctx.state.error);
@@ -210,13 +203,10 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
         bytes_t result;
         if (type == HYBRID_FETCH_EXECUTION) {
           ssz_ob_t ep = ssz_get(&verify_ctx.proof, "executionPayload");
-          if (!ep.bytes.data) {
-            ctx->state.requests       = verify_ctx.state.requests;
-            verify_ctx.state.requests = NULL;
-            c4_verify_free_data(&verify_ctx);
-            THROW_ERROR_WITH("no executionPayload in %s proof", method);
-          }
-          result = bytes_dup(ep.bytes);
+          if (!ep.bytes.data)
+            status = c4_state_add_error(&ctx->state, "no executionPayload in proof");
+          else
+            result = bytes_dup(ep.bytes);
         }
         else
           result = bytes_dup(verify_ctx.data.bytes);
@@ -306,11 +296,9 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
     tag_cache_entry_t* tc  = &g_header_cache.tags[tag];
     uint64_t           now = current_ms();
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
-      uint64_t ttl                  = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
-      bool     within_ttl           = (now - tc->cached_at_ms < ttl);
-      bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms
-                                      && tc->fetching_ctx != (uintptr_t) ctx
-                                      && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
+      uint64_t ttl                    = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
+      bool     within_ttl             = (now - tc->cached_at_ms < ttl);
+      bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms && tc->fetching_ctx != (uintptr_t) ctx && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
       if (within_ttl || stale_while_revalidate)
         cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, tc->block_hash);
     }
@@ -379,11 +367,9 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
     tag_cache_entry_t* tc  = &g_header_cache.tags[tag];
     uint64_t           now = current_ms();
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
-      uint64_t ttl                  = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
-      bool     within_ttl           = (now - tc->cached_at_ms < ttl);
-      bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms
-                                      && tc->fetching_ctx != (uintptr_t) ctx
-                                      && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
+      uint64_t ttl                    = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
+      bool     within_ttl             = (now - tc->cached_at_ms < ttl);
+      bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms && tc->fetching_ctx != (uintptr_t) ctx && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
       if (within_ttl || stale_while_revalidate)
         cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, tc->block_hash);
     }
@@ -426,7 +412,7 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
 
   const verified_header_entry_t* hdr_cached = c4_header_cache_get_by_number(&g_header_cache, ctx->chain_id, ep_bn);
   if (!hdr_cached) {
-    ssz_ob_t      header_data = c4_build_header_data_from_execution(execution);
+    ssz_ob_t header_data = c4_build_header_data_from_execution(execution);
     c4_header_cache_put(&g_header_cache, ctx->chain_id, ep_bn, bh.data, header_data);
     safe_free(header_data.bytes.data);
   }
