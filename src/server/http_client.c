@@ -558,13 +558,14 @@ static void handle_curl_events() {
     }
 #endif
 
-    server_list_t* servers           = c4_get_server_list(r->req->type);
+    server_list_t* servers           = c4_get_effective_server_list(r->req->type, r->parent);
     r->end_time                      = current_ms();
     uint64_t           response_time = r->end_time - r->start_time;
     c4_response_type_t response_type = c4_classify_response(http_code,
                                                             r->url ? r->url : r->req->url,
                                                             r->buffer.data,
-                                                            r->req); // Classify the response type
+                                                            r->req,
+                                                            servers);
 
     // Collect libcurl-level metrics
     {
@@ -903,6 +904,16 @@ server_list_t* c4_get_server_list(data_request_type_t type) {
   }
 }
 
+server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req) {
+  if (req) {
+    if (type == C4_DATA_TYPE_ETH_RPC && req->proxy_rpc_servers && req->proxy_rpc_servers->count > 0)
+      return req->proxy_rpc_servers;
+    if (type == C4_DATA_TYPE_BEACON_API && req->proxy_beacon_servers && req->proxy_beacon_servers->count > 0)
+      return req->proxy_beacon_servers;
+  }
+  return c4_get_server_list(type);
+}
+
 static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) {
   buffer_t* buffer = (buffer_t*) buf;
   buffer_grow(buffer, buffer->data.len + size * nmemb + 1);
@@ -1055,7 +1066,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   }
   else {
     // Cache miss - proceed with normal request handling
-    server_list_t* servers = c4_get_server_list(r->req->type);
+    server_list_t* servers = c4_get_effective_server_list(r->req->type, r->parent);
 
     int selected_index = -1;
 
@@ -1304,7 +1315,7 @@ bool c4_check_retry_request(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
-    server_list_t*    servers = c4_get_server_list(pending->type);
+    server_list_t*    servers = c4_get_effective_server_list(pending->type, req);
 
     if (pending->error && servers) {
       // Check if too many servers are unhealthy (might indicate user error)
@@ -1428,7 +1439,7 @@ void c4_init_curl(uv_timer_t* timer) {
   c4_start_rpc_head_poller(&eth_rpc_servers);
 }
 
-static void free_server_list(server_list_t* list) {
+void c4_free_server_list(server_list_t* list) {
   if (!list) return;
   if (list->health_stats) {
     for (size_t i = 0; i < list->count; i++)
@@ -1463,8 +1474,8 @@ void c4_cleanup_curl() {
     memcache_free(&memcache_client);
   }
 
-  free_server_list(&eth_rpc_servers);
-  free_server_list(&beacon_api_servers);
-  free_server_list(&prover_servers);
-  free_server_list(&checkpointz_servers);
+  c4_free_server_list(&eth_rpc_servers);
+  c4_free_server_list(&beacon_api_servers);
+  c4_free_server_list(&prover_servers);
+  c4_free_server_list(&checkpointz_servers);
 }

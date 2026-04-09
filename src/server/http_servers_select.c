@@ -11,6 +11,7 @@
 #include "server_handlers.h"
 #include "util/chain_props.h"
 #include "util/json.h"
+#include "util/compat.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -665,10 +666,11 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
   // Count servers first
   char* servers_copy = strdup(servers);
   int   count        = 0;
-  char* token        = strtok(servers_copy, ",");
+  char* save_count   = NULL;
+  char* token        = c4_strtok_r(servers_copy, ",", &save_count);
   while (token) {
     count++;
-    token = strtok(NULL, ",");
+    token = c4_strtok_r(NULL, ",", &save_count);
   }
 
   // Reset for actual parsing
@@ -684,8 +686,9 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
   // Get known client type suffixes for manual configuration
   const char** known_types = c4_get_known_config_names();
 
-  count = 0;
-  token = strtok(servers_copy, ",");
+  count           = 0;
+  char* save_parse = NULL;
+  token            = c4_strtok_r(servers_copy, ",", &save_parse);
 
   while (token) {
     char*                url_part    = token;
@@ -750,7 +753,7 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
     list->client_types[count]                     = client_type;
 
     count++;
-    token = strtok(NULL, ",");
+    token = c4_strtok_r(NULL, ",", &save_parse);
   }
 
   safe_free(servers_copy);

@@ -85,6 +85,7 @@ export default class C4Client {
   private subscriptionManager: SubscriptionManager;
   private flags: number = 0;
   private verify_flags: number = 0;
+  private _lightClientTimer: ReturnType<typeof setInterval> | null = null;
 
   // Protect against prototype pollution by freezing critical methods
   private static readonly CRITICAL_METHODS = ['rpc', 'request', 'verifyProof', 'createProof'] as const;
@@ -300,8 +301,9 @@ export default class C4Client {
     let ctx = 0;
 
     try {
-      const prover_mode_map: Record<ProverMode, number> = { local: 0, remote: 1, hybrid: 2 };
-      const prover_mode = prover_mode_map[this.config.prover_mode ?? (this.config.prover?.length ? 'remote' : 'local')];
+      const prover_mode_map: Record<ProverMode, number> = { local: 0, remote: 1, hybrid: 2, proxy: 3, light_client: 4 };
+      const resolved_mode = this.config.prover_mode ?? (this.config.prover?.length ? 'remote' : 'local');
+      const native_mode = resolved_mode === 'light_client' ? prover_mode_map['hybrid'] : prover_mode_map[resolved_mode];
       let prover_flags = this.flags;
       if (this.config.zk_proof) prover_flags |= (1 << 7);
 
@@ -311,8 +313,18 @@ export default class C4Client {
         BigInt(this.config.chainId),
         prover_flags,
         this.verify_flags,
-        prover_mode
+        native_mode
       );
+
+      if (resolved_mode === 'proxy') {
+        const rpc_csv = this.config.rpcs.join(',');
+        const beacon_csv = this.config.beacon_apis.join(',');
+        c4w._c4w_rpc_ctx_set_proxy_urls(
+          ctx,
+          as_char_ptr(rpc_csv, c4w, free_buffers),
+          as_char_ptr(beacon_csv, c4w, free_buffers)
+        );
+      }
 
       if (this.config.trusted_checkpoint)
         c4w._c4w_set_checkpoint(BigInt(this.config.chainId), as_char_ptr(this.config.trusted_checkpoint, c4w, free_buffers));
@@ -400,5 +412,44 @@ export default class C4Client {
   public removeListener(event: string, callback: (data: any) => void): this {
     this.eventEmitter.removeListener(event, callback);
     return this;
+  }
+
+  /** Stops light client polling and releases resources. Call when the client is no longer needed. */
+  destroy(): void {
+    this.stopLightClient();
+  }
+
+  /**
+   * Starts background polling to keep the block header cache warm.
+   * Useful for `prover_mode: "light_client"`.
+   *
+   * By default polls `eth_getBlockHeader("latest")` which fetches only the
+   * compact header proof. Set `fullBlock` to `true` to poll
+   * `eth_getBlockByNumber("latest")` instead -- useful when many
+   * `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow,
+   * since those need the full block data.
+   *
+   * @param intervalMs polling interval in milliseconds (default: 12000 = one Ethereum slot)
+   * @param fullBlock if true, fetch the full block instead of just the header (default: false)
+   */
+  startLightClient(intervalMs: number = 12000, fullBlock: boolean = false): void {
+    this.stopLightClient();
+    const method = fullBlock ? 'eth_getBlockByNumber' : 'eth_getBlockHeader';
+    const params = fullBlock ? ['latest', false] : ['latest'];
+    this._lightClientTimer = setInterval(async () => {
+      try {
+        await this.rpc(method, params);
+      } catch (e) {
+        if (this.config.debug) console.warn('[C4Client] lightClient poll error:', e);
+      }
+    }, intervalMs);
+  }
+
+  /** Stops background light client polling. */
+  stopLightClient(): void {
+    if (this._lightClientTimer !== null) {
+      clearInterval(this._lightClientTimer);
+      this._lightClientTimer = null;
+    }
   }
 }

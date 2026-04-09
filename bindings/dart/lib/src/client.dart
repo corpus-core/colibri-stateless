@@ -105,12 +105,44 @@ class Colibri {
   final ColibriNative _native;
   final http.Client _http;
   String? _runtimeTrustedCheckpoint;
+  Timer? _lightClientTimer;
 
-  /// Closes the underlying HTTP client.
+  /// Closes the underlying HTTP client and stops any light client polling.
   ///
   /// Call when the client is no longer needed to release resources.
   void close() {
+    stopLightClient();
     _http.close();
+  }
+
+  /// Starts background polling to keep the block header cache warm.
+  /// Useful for [ProverMode.lightClient].
+  ///
+  /// By default polls `eth_getBlockHeader("latest")` which fetches only the
+  /// compact header proof. Set [fullBlock] to `true` to poll
+  /// `eth_getBlockByNumber("latest")` instead -- useful when many
+  /// `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow,
+  /// since those need the full block data.
+  ///
+  /// [interval] defaults to 12 seconds (one Ethereum slot).
+  void startLightClient({Duration interval = const Duration(seconds: 12), bool fullBlock = false}) {
+    stopLightClient();
+    final method = fullBlock ? 'eth_getBlockByNumber' : 'eth_getBlockHeader';
+    final params = fullBlock ? ['latest', false] : ['latest'];
+    _lightClientTimer = Timer.periodic(interval, (_) async {
+      try {
+        await rpc(method, params);
+      } catch (e) {
+        _onDebug?.call('lightClient poll error: $e');
+      }
+    });
+    _onDebug?.call('lightClient started (interval=${interval.inSeconds}s, fullBlock=$fullBlock)');
+  }
+
+  /// Stops background light client polling started by [startLightClient].
+  void stopLightClient() {
+    _lightClientTimer?.cancel();
+    _lightClientTimer = null;
   }
 
   /// Returns verify flags derived from [privacyMode].
@@ -237,13 +269,18 @@ class Colibri {
   Future<dynamic> rpc(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
     final proverFlags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0);
-    final effectiveProverMode = (proverMode ?? (provers.isEmpty ? ProverMode.local : ProverMode.remote)).value;
+    final resolvedMode = proverMode ?? (provers.isEmpty ? ProverMode.local : ProverMode.remote);
+    final nativeMode = resolvedMode == ProverMode.lightClient ? ProverMode.hybrid.value : resolvedMode.value;
 
-    _onDebug?.call('rpc: method=$method proverMode=$effectiveProverMode chainId=$chainId');
+    _onDebug?.call('rpc: method=$method proverMode=$nativeMode chainId=$chainId');
 
-    final ctx = _native.createRpcCtx(method, paramsJson, chainId, proverFlags, _getVerifyFlags(), effectiveProverMode);
+    final ctx = _native.createRpcCtx(method, paramsJson, chainId, proverFlags, _getVerifyFlags(), nativeMode);
     if (ctx == ffi.nullptr) {
       throw ColibriError('Failed to create RPC context for $method');
+    }
+
+    if (resolvedMode == ProverMode.proxy) {
+      _native.rpcSetProxyUrls(ctx, ethRpcs.join(','), beaconApis.join(','));
     }
 
     final checkpoint = _runtimeTrustedCheckpoint ?? trustedCheckpoint;

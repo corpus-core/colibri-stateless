@@ -133,6 +133,10 @@ void c4_rpc_set_witness_keys(void* ctx, const char* witness_keys) {
   c4_rpc_ctx_set_witness_keys((c4_rpc_ctx_t*) ctx, witness_keys);
 }
 
+void c4_rpc_set_proxy_urls(void* ctx, const char* rpc_urls, const char* beacon_urls) {
+  c4_rpc_ctx_set_proxy_urls((c4_rpc_ctx_t*) ctx, rpc_urls, beacon_urls);
+}
+
 void c4_free_rpc_ctx(void* ctx) {
   c4_rpc_ctx_free((c4_rpc_ctx_t*) ctx);
 }

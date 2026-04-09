@@ -1275,6 +1275,19 @@ void c4_set_checkpoint(uint64_t chain_id, const char* trusted_checkpoint);
 void c4_rpc_set_witness_keys(void* ctx, const char* witness_keys);
 
 /**
+ * Sets comma-separated RPC and Beacon API URLs for proxy mode.
+ *
+ * When the prover mode is `C4_PROVER_MODE_PROXY` (3), the client supplies its own
+ * RPC and Beacon API endpoints. Call this after `c4_create_rpc_ctx()` and before the
+ * first `c4_rpc_execute_json_status()`.
+ *
+ * @param ctx The RPC context created by `c4_create_rpc_ctx()`
+ * @param rpc_urls comma-separated HTTPS RPC endpoint URLs, or NULL
+ * @param beacon_urls comma-separated Beacon API base URLs, or NULL
+ */
+void c4_rpc_set_proxy_urls(void* ctx, const char* rpc_urls, const char* beacon_urls);
+
+/**
  * Executes one step of the unified RPC state machine.
  *
  * This function drives the full RPC lifecycle: method type detection, proof generation

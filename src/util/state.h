@@ -283,6 +283,26 @@ void c4_state_free(c4_state_t* state);
 void c4_request_free(data_request_t* req);
 
 /**
+ * Bit positions for `flags` passed to `c4_append_prover_request_props`.
+ * Must stay in sync with `prover_flag_types_t` in `prover.h`.
+ */
+#define C4_PROVER_REQ_FLAG_INCLUDE_CODE (1u << 0)
+#define C4_PROVER_REQ_FLAG_ZK_PROOF     (1u << 7)
+
+/**
+ * Appends common remote-prover JSON fields to an open object (after `method` / `params`).
+ *
+ * Writes: `,"version"`, optional `,"c4"`, optional `zk_proof`, `include_code`, `signers`.
+ * Caller must finish the JSON object with `}`.
+ *
+ * @param payload growable buffer; current content must not include the closing `}`
+ * @param chain_id chain used for `c4_get_client_state`
+ * @param flags bitmask using `C4_PROVER_REQ_FLAG_*` (same bit layout as `prover_flags_t`)
+ * @param witness_key witness bytes for `signers` (may be `NULL_BYTES`)
+ */
+void c4_append_prover_request_props(buffer_t* payload, chain_id_t chain_id, uint32_t flags, bytes_t witness_key);
+
+/**
  * Finds a data request by its unique identifier.
  *
  * Performs a linear search through the request list to find a request

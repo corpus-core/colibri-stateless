@@ -22,14 +22,54 @@
  */
 
 #include "colibri_common.h"
+#include "bytes.h"
+#include "compat.h"
 #include "plugin.h"
-#include "version.h"
 #ifdef CHAIN_ETH
 #include "sync_committee.h"
 #endif
 #include <stdlib.h>
 #include <string.h>
 #define MAX_PROOF_DEPTH 10 // max number of proofs requested by the verifier
+
+static bool bytes_memmem(bytes_t p, const char* needle) {
+  size_t nl = strlen(needle);
+  if (!p.data || p.len < nl) return false;
+#ifdef __GLIBC__
+  return memmem(p.data, p.len, needle, nl) != NULL;
+#else
+  for (size_t i = 0; i + nl <= p.len; i++) {
+    if (memcmp(p.data + i, needle, nl) == 0) return true;
+  }
+  return false;
+#endif
+}
+
+/** Appends `,"key":"csv_value"` (the CSV is transmitted as-is; server splits on comma). */
+static void append_proxy_fields(buffer_t* payload, c4_rpc_ctx_t* ctx) {
+  if (ctx->prover_mode != C4_PROVER_MODE_PROXY) return;
+  if (ctx->proxy_rpc_urls && *ctx->proxy_rpc_urls && !strchr(ctx->proxy_rpc_urls, '"'))
+    bprintf(payload, ",\"rpc\":\"%s\"", ctx->proxy_rpc_urls);
+  if (ctx->proxy_beacon_urls && *ctx->proxy_beacon_urls && !strchr(ctx->proxy_beacon_urls, '"'))
+    bprintf(payload, ",\"beacon\":\"%s\"", ctx->proxy_beacon_urls);
+}
+
+static void enrich_pending_prover_requests(c4_rpc_ctx_t* ctx) {
+  for (data_request_t* req = ctx->verifier.state.requests; req; req = req->next) {
+    if (req->type != C4_DATA_TYPE_PROVER || !c4_state_is_pending(req)) continue;
+    if (req->method != C4_DATA_METHOD_POST || !req->payload.data || req->payload.len < 2) continue;
+    if (bytes_memmem(req->payload, "\"version\"")) continue;
+    if (req->payload.data[req->payload.len - 1] != (uint8_t) '}') continue;
+
+    buffer_t out = {0};
+    buffer_append(&out, bytes(req->payload.data, req->payload.len - 1));
+    c4_append_prover_request_props(&out, ctx->chain_id, ctx->prover_flags, ctx->witness_keys);
+    append_proxy_fields(&out, ctx);
+    bprintf(&out, "}");
+    safe_free(req->payload.data);
+    req->payload = out.data;
+  }
+}
 /* ── string converters ── */
 
 static const char* status_to_string(c4_status_t status) {
@@ -163,7 +203,7 @@ c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id
     ctx->phase = RPC_PHASE_DONE;
     return ctx;
   }
-  if (prover_mode < C4_PROVER_MODE_LOCAL || prover_mode > C4_PROVER_MODE_HYBRID) {
+  if (prover_mode < C4_PROVER_MODE_LOCAL || prover_mode > C4_PROVER_MODE_LIGHT_CLIENT) {
     ctx->error = strdup("invalid prover_mode value");
     ctx->phase = RPC_PHASE_DONE;
     return ctx;
@@ -176,9 +216,25 @@ c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id
   ctx->prover_mode  = prover_mode;
   ctx->phase        = RPC_PHASE_INIT;
   ctx->method_type  = METHOD_UNDEFINED;
-  if (prover_mode == C4_PROVER_MODE_HYBRID)
+  if (prover_mode == C4_PROVER_MODE_HYBRID || prover_mode == C4_PROVER_MODE_LIGHT_CLIENT)
     ctx->prover_flags |= C4_PROVER_FLAG_HYBRID;
+  if (prover_mode == C4_PROVER_MODE_LIGHT_CLIENT)
+    ctx->prover_flags |= C4_PROVER_FLAG_LIGHT_CLIENT;
   return ctx;
+}
+
+void c4_rpc_ctx_set_proxy_urls(c4_rpc_ctx_t* ctx, const char* rpc_urls, const char* beacon_urls) {
+  if (!ctx) return;
+  if (ctx->proxy_rpc_urls) {
+    free(ctx->proxy_rpc_urls);
+    ctx->proxy_rpc_urls = NULL;
+  }
+  if (ctx->proxy_beacon_urls) {
+    free(ctx->proxy_beacon_urls);
+    ctx->proxy_beacon_urls = NULL;
+  }
+  if (rpc_urls && *rpc_urls) ctx->proxy_rpc_urls = strdup(rpc_urls);
+  if (beacon_urls && *beacon_urls) ctx->proxy_beacon_urls = strdup(beacon_urls);
 }
 
 void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex) {
@@ -202,9 +258,10 @@ static c4_status_t rpc_handle_verifying(c4_rpc_ctx_t* ctx);
 
 static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   verify_flags_t vf = ctx->verify_flags;
-  if (ctx->prover_mode == C4_PROVER_MODE_REMOTE || ctx->prover_mode == C4_PROVER_MODE_HYBRID)
+  if (ctx->prover_mode == C4_PROVER_MODE_REMOTE || ctx->prover_mode == C4_PROVER_MODE_PROXY || ctx->prover_mode == C4_PROVER_MODE_HYBRID ||
+      ctx->prover_mode == C4_PROVER_MODE_LIGHT_CLIENT)
     vf |= VERIFY_FLAG_REMOTE_PROVER;
-  if (ctx->prover_mode == C4_PROVER_MODE_HYBRID)
+  if (ctx->prover_mode == C4_PROVER_MODE_HYBRID || ctx->prover_mode == C4_PROVER_MODE_LIGHT_CLIENT)
     vf |= VERIFY_FLAG_HYBRID;
   c4_status_t status = c4_verify_init(&ctx->verifier, proof, ctx->method, json_parse(ctx->params),
                                       ctx->chain_id, vf);
@@ -256,21 +313,8 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
             params_buf.data.len ? (char*) params_buf.data.data : ctx->params);
     buffer_free(&method_buf);
     buffer_free(&params_buf);
-    bprintf(&payload, ", \"version\": %d", (uint32_t) c4_current_version_number());
-
-    bytes_t client_state = c4_get_client_state(ctx->chain_id);
-    if (client_state.data) {
-      bprintf(&payload, ", \"c4\": \"0x%x\"", client_state);
-      safe_free(client_state.data);
-    }
-
-    if (ctx->prover_flags & C4_PROVER_FLAG_ZK_PROOF)
-      bprintf(&payload, ", \"zk_proof\": true");
-    if (ctx->prover_flags & C4_PROVER_FLAG_INCLUDE_CODE)
-      bprintf(&payload, ", \"include_code\": true");
-    if (ctx->witness_keys.data && ctx->witness_keys.len)
-      bprintf(&payload, ", \"signers\": \"0x%x\"", ctx->witness_keys);
-
+    c4_append_prover_request_props(&payload, ctx->chain_id, ctx->prover_flags, ctx->witness_keys);
+    append_proxy_fields(&payload, ctx);
     bprintf(&payload, "}");
     ctx->rpc_state.requests->payload = payload.data;
 
@@ -438,11 +482,17 @@ static bool is_remote_delegated_method(data_request_t* req) {
 
 // returns true if there is a prover request which needs to be handled
 static bool check_prover_requests(c4_rpc_ctx_t* ctx) {
-  if (ctx->request_prover) return true;                                                                     // still processing a proof
-  if (ctx->prover_mode == C4_PROVER_MODE_REMOTE) return false;                                              // no need
+  if (ctx->request_prover) return true;
+  if (ctx->prover_mode == C4_PROVER_MODE_REMOTE || ctx->prover_mode == C4_PROVER_MODE_PROXY) {
+    enrich_pending_prover_requests(ctx);
+    return false;
+  }
   data_request_t* prover_req = find_pending_prover_request(&ctx->verifier.state);
-  if (!prover_req) return false;                                                                            // no prover request found
-  if (ctx->prover_mode == C4_PROVER_MODE_HYBRID && is_remote_delegated_method(prover_req)) return false;    // header/block requests go to the remote prover
+  if (!prover_req) return false;
+  if ((ctx->prover_mode == C4_PROVER_MODE_HYBRID || ctx->prover_mode == C4_PROVER_MODE_LIGHT_CLIENT) && is_remote_delegated_method(prover_req)) {
+    enrich_pending_prover_requests(ctx);
+    return false;
+  }
   prover_ctx_t* pctx = create_prover_from_request(prover_req, ctx->chain_id, ctx->prover_flags);
   if (!pctx) return false;
   request_prover_t* rp = safe_calloc(1, sizeof(request_prover_t));
@@ -499,7 +549,7 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
         case METHOD_PROOFABLE:
           if (ctx->proof.data) // the user passed in a proof
             return rpc_start_verifier(ctx, ctx->proof);
-          else if (ctx->prover_mode == C4_PROVER_MODE_REMOTE) {
+          else if (ctx->prover_mode == C4_PROVER_MODE_REMOTE || ctx->prover_mode == C4_PROVER_MODE_PROXY) {
             ctx->phase = RPC_PHASE_RPC;
             return rpc_handle_remote_proof(ctx);
           }
@@ -569,6 +619,8 @@ void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx) {
   c4_verify_free_data(&ctx->verifier);
   if (ctx->proof_owned && ctx->proof.data) free(ctx->proof.data);
   if (ctx->witness_keys.data) free(ctx->witness_keys.data);
+  if (ctx->proxy_rpc_urls) free(ctx->proxy_rpc_urls);
+  if (ctx->proxy_beacon_urls) free(ctx->proxy_beacon_urls);
   if (ctx->rpc_state.requests)
     c4_request_free(ctx->rpc_state.requests);
   if (ctx->rpc_state.error) safe_free(ctx->rpc_state.error);

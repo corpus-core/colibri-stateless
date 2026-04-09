@@ -24,10 +24,8 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "json.h"
-#include "plugin.h"
 #include "prover.h"
 #include "verify.h"
-#include "version.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -37,13 +35,13 @@ static verified_header_cache_t g_header_cache = {0};
 
 // -- Tag TTL Calculation --
 
-static uint64_t header_tag_ttl_ms(chain_id_t chain_id, header_tag_t tag) {
+static uint64_t header_tag_ttl_ms(chain_id_t chain_id, header_tag_t tag, prover_flags_t flags) {
   const chain_spec_t* spec          = c4_eth_get_chain_spec(chain_id);
   uint64_t            block_time_ms = is_gnosis_chain(chain_id) ? 5000 : 12000;
 
   switch (tag) {
     case HEADER_TAG_LATEST:
-      return block_time_ms / 2;
+      return (flags & C4_PROVER_FLAG_LIGHT_CLIENT) ? block_time_ms : block_time_ms / 2;
     case HEADER_TAG_SAFE: {
       uint64_t slots_per_epoch = 1ULL << (spec ? spec->slots_per_epoch_bits : 5);
       return (slots_per_epoch / 2) * block_time_ms;
@@ -154,22 +152,11 @@ ssz_ob_t c4_build_header_data_from_execution(ssz_ob_t execution) {
 // -- Hybrid: Fetch + Verify Header from Remote Prover --
 
 static c4_status_t hybrid_fetch_header(prover_ctx_t* ctx, json_t block, ssz_ob_t* header_data_out) {
-  bytes32_t id           = {0};
-  buffer_t  buffer       = {0};
-  bytes_t   client_state = c4_get_client_state(ctx->chain_id);
+  bytes32_t id     = {0};
+  buffer_t  buffer = {0};
   bprintf(&buffer, "{\"method\":\"eth_getBlockHeader\",\"params\":[%J]", block);
-  if (client_state.data && client_state.len) {
-    bprintf(&buffer, ",\"c4\":\"0x%b\"", client_state);
-    safe_free(client_state.data);
-  }
-  if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF)
-    bprintf(&buffer, ", \"zk_proof\": true");
-  if (ctx->flags & C4_PROVER_FLAG_INCLUDE_CODE)
-    bprintf(&buffer, ", \"include_code\": true");
-  if (ctx->witness_key.len)
-    bprintf(&buffer, ", \"signers\": \"0x%x\"", ctx->witness_key);
-
-  bprintf(&buffer, ",\"version\":%d}", (uint32_t) c4_current_version_number());
+  c4_append_prover_request_props(&buffer, ctx->chain_id, ctx->flags, ctx->witness_key);
+  bprintf(&buffer, "}");
   sha256(buffer.data, id);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
 
@@ -260,7 +247,8 @@ c4_status_t c4_hybrid_delegate_proof(prover_ctx_t* ctx) {
 
   buffer_t payload = {0};
   bprintf(&payload, "{\"method\":\"%s\",\"params\":%J", ctx->method, ctx->params);
-  bprintf(&payload, ",\"version\":%d}", (uint32_t) c4_current_version_number());
+  c4_append_prover_request_props(&payload, ctx->chain_id, ctx->flags, ctx->witness_key);
+  bprintf(&payload, "}");
   data_request->payload = payload.data;
   buffer_free(&buffer);
 
@@ -285,7 +273,7 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
   if (tag < HEADER_TAG_COUNT) {
     tag_cache_entry_t* tc = &g_header_cache.tags[tag];
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
-      uint64_t ttl = header_tag_ttl_ms(ctx->chain_id, tag);
+      uint64_t ttl = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
       if (current_ms() - tc->cached_at_ms < ttl)
         cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, tc->block_hash);
     }
@@ -327,15 +315,11 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
 // -- Hybrid: Fetch Full Execution Payload from Remote Prover --
 
 static c4_status_t hybrid_fetch_execution(prover_ctx_t* ctx, json_t block, ssz_ob_t* execution_out) {
-  bytes32_t id           = {0};
-  buffer_t  buffer       = {0};
-  bytes_t   client_state = c4_get_client_state(ctx->chain_id);
+  bytes32_t id     = {0};
+  buffer_t  buffer = {0};
   bprintf(&buffer, "{\"method\":\"eth_getBlockByNumber\",\"params\":[%J,false]", block);
-  if (client_state.data && client_state.len) {
-    bprintf(&buffer, ",\"c4\":\"0x%b\"", client_state);
-    safe_free(client_state.data);
-  }
-  bprintf(&buffer, ",\"version\":%d}", (uint32_t) c4_current_version_number());
+  c4_append_prover_request_props(&buffer, ctx->chain_id, ctx->flags, ctx->witness_key);
+  bprintf(&buffer, "}");
   sha256(buffer.data, id);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
 
@@ -418,7 +402,7 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
   if (tag < HEADER_TAG_COUNT) {
     tag_cache_entry_t* tc = &g_header_cache.tags[tag];
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
-      uint64_t ttl = header_tag_ttl_ms(ctx->chain_id, tag);
+      uint64_t ttl = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
       if (current_ms() - tc->cached_at_ms < ttl)
         cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, tc->block_hash);
     }

@@ -17,6 +17,8 @@ class ProverMode(IntEnum):
     LOCAL = 0
     REMOTE = 1
     HYBRID = 2
+    PROXY = 3
+    LIGHT_CLIENT = 4
 
 
 class MethodType(IntEnum):

@@ -6,7 +6,178 @@
 #include "beacon.h"
 #include "logger.h"
 #include "server.h"
+#include "util/compat.h"
 #include "verify.h"
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifdef _WIN32
+#include "../util/win_compat.h"
+#endif
+
+#define HANDLE_PROOF_PROXY_MAX_URLS   32
+#define HANDLE_PROOF_PROXY_MAX_URL_LEN 2048
+
+static bool proxy_pattern_matches_host(const char* pattern, const char* host) {
+  if (!pattern || !host || !*pattern) return false;
+  if (pattern[0] == '*' && pattern[1] == '.') {
+    const char* base = pattern + 2;
+    if (!*base) return false;
+    size_t bl = strlen(base);
+    size_t hl = strlen(host);
+    if (hl < bl + 2) return false;
+    if (strcasecmp(host + hl - bl, base) != 0) return false;
+    if (host[hl - bl - 1] != '.') return false;
+    return true;
+  }
+  return strcasecmp(host, pattern) == 0;
+}
+
+static bool proxy_host_allowed_by_config(const char* host) {
+  const char* cfg = http_server.proxy_allowed_domains;
+  if (!cfg || !*cfg) return false;
+  char* copy = strdup(cfg);
+  if (!copy) return false;
+  bool  ok    = false;
+  char* save  = NULL;
+  for (char* tok = c4_strtok_r(copy, ",", &save); tok && !ok; tok = c4_strtok_r(NULL, ",", &save)) {
+    while (*tok && isspace((unsigned char) *tok)) tok++;
+    char* end = tok + strlen(tok);
+    while (end > tok && isspace((unsigned char) end[-1])) *--end = '\0';
+    if (!*tok) continue;
+    if (proxy_pattern_matches_host(tok, host)) ok = true;
+  }
+  free(copy);
+  return ok;
+}
+
+/** Extract host from `https://` URL (no userinfo). Returns false if invalid. */
+static bool proxy_extract_https_host(const char* url, char* out, size_t cap) {
+  const char* p = url;
+  while (*p && isspace((unsigned char) *p)) p++;
+  if (strncasecmp(p, "https://", 8) != 0) return false;
+  p += 8;
+  for (const char* q = p; *q && *q != '/' && *q != '?' && *q != '#'; q++) {
+    if (*q == '@') return false;
+  }
+  const char *host_start, *host_end;
+  if (*p == '[') {
+    host_start = p + 1;
+    host_end   = strchr(host_start, ']');
+    if (!host_end) return false;
+    p = host_end + 1;
+    if (*p == ':') {
+      while (*p && *p != '/' && *p != '?' && *p != '#') p++;
+    }
+  }
+  else {
+    host_start = p;
+    host_end   = strpbrk(p, "/?#");
+    if (!host_end) host_end = p + strlen(p);
+    const char* colon = NULL;
+    for (const char* q = host_start; q < host_end; q++) {
+      if (*q == ':') colon = q;
+    }
+    if (colon) {
+      bool all_digit = true;
+      for (const char* q = colon + 1; q < host_end; q++) {
+        if (!isdigit((unsigned char) *q)) {
+          all_digit = false;
+          break;
+        }
+      }
+      if (all_digit) host_end = colon;
+    }
+  }
+  size_t n = (size_t) (host_end - host_start);
+  if (n == 0 || n >= cap) return false;
+  memcpy(out, host_start, n);
+  out[n] = '\0';
+  return true;
+}
+
+static bool proxy_url_acceptable(const char* url, char* err, size_t err_len) {
+  if (strlen(url) > HANDLE_PROOF_PROXY_MAX_URL_LEN) {
+    snprintf(err, err_len, "URL too long");
+    return false;
+  }
+  char host[256];
+  if (!proxy_extract_https_host(url, host, sizeof host)) {
+    snprintf(err, err_len, "URL must use https:// without credentials");
+    return false;
+  }
+  if (!proxy_host_allowed_by_config(host)) {
+    snprintf(err, err_len, "host '%s' is not in proxy_allowed_domains", host);
+    return false;
+  }
+  return true;
+}
+
+/** Validate every URL in a comma-separated list, then build a `server_list_t`. */
+static bool handle_proof_parse_proxy_csv(char* csv, server_list_t** out_list, char* err, size_t err_len) {
+  *out_list = NULL;
+  if (!csv || !*csv) return true;
+
+  char*  copy  = strdup(csv);
+  char*  save  = NULL;
+  size_t count = 0;
+  for (char* tok = c4_strtok_r(copy, ",", &save); tok; tok = c4_strtok_r(NULL, ",", &save)) {
+    while (*tok && isspace((unsigned char) *tok)) tok++;
+    char* end = tok + strlen(tok);
+    while (end > tok && isspace((unsigned char) end[-1])) end--;
+    *end = '\0';
+    if (!*tok) continue;
+    if (count >= (size_t) HANDLE_PROOF_PROXY_MAX_URLS) {
+      snprintf(err, err_len, "at most %d URLs allowed", HANDLE_PROOF_PROXY_MAX_URLS);
+      free(copy);
+      return false;
+    }
+    if (!proxy_url_acceptable(tok, err, err_len)) {
+      free(copy);
+      return false;
+    }
+    count++;
+  }
+  free(copy);
+  if (count == 0) return true;
+
+  server_list_t* list = (server_list_t*) safe_calloc(1, sizeof(server_list_t));
+  c4_parse_server_config(list, csv);
+  if (list->count == 0) {
+    c4_free_server_list(list);
+    safe_free(list);
+    snprintf(err, err_len, "no valid URLs after parsing");
+    return false;
+  }
+  *out_list = list;
+  return true;
+}
+
+static void proof_request_free_proxy_lists(request_t* req) {
+  if (!req) return;
+  if (req->proxy_rpc_servers) {
+    c4_free_server_list(req->proxy_rpc_servers);
+    safe_free(req->proxy_rpc_servers);
+    req->proxy_rpc_servers = NULL;
+  }
+  if (req->proxy_beacon_servers) {
+    c4_free_server_list(req->proxy_beacon_servers);
+    safe_free(req->proxy_beacon_servers);
+    req->proxy_beacon_servers = NULL;
+  }
+}
+
+/** Roll back `/proof` setup after `req`/`ctx` were allocated (frees proxy lists, prover, strings, sends HTTP error). */
+static void proof_request_abort_after_alloc(client_t* client, request_t* req, prover_ctx_t* ctx, char* method_str, char* params_str,
+                                            int http_status, const char* msg) {
+  if (req) proof_request_free_proxy_lists(req);
+  if (ctx) c4_prover_free(ctx);
+  if (req) safe_free(req);
+  safe_free(method_str);
+  safe_free(params_str);
+  c4_write_error_response(client, http_status, msg);
+}
 
 typedef struct {
   uv_work_t     req;
@@ -119,6 +290,14 @@ static void prover_request_free(request_t* req) {
     c4_metrics_add_request(C4_DATA_TYPE_INTERN, ctx->method, ctx->state.error ? strlen(ctx->state.error) : ctx->proof.len, current_ms() - req->start_time, ctx->state.error == NULL, false);
   c4_prover_free((prover_ctx_t*) req->ctx);
   // NOTE: We do NOT free req->requests here - that's handled elsewhere
+  if (req->proxy_rpc_servers) {
+    c4_free_server_list(req->proxy_rpc_servers);
+    safe_free(req->proxy_rpc_servers);
+  }
+  if (req->proxy_beacon_servers) {
+    c4_free_server_list(req->proxy_beacon_servers);
+    safe_free(req->proxy_beacon_servers);
+  }
   safe_free(req);
 }
 static bool c4_check_worker_request(request_t* req) {
@@ -317,6 +496,17 @@ bool c4_handle_proof_request(client_t* client) {
     return true;
   }
 
+  json_t rpc_proxy_j    = json_get(rpc_req, "rpc");
+  json_t beacon_proxy_j = json_get(rpc_req, "beacon");
+  if (rpc_proxy_j.type != JSON_TYPE_NOT_FOUND && rpc_proxy_j.type != JSON_TYPE_STRING) {
+    c4_write_error_response(client, 400, "Invalid rpc field (expected comma-separated URL string)");
+    return true;
+  }
+  if (beacon_proxy_j.type != JSON_TYPE_NOT_FOUND && beacon_proxy_j.type != JSON_TYPE_STRING) {
+    c4_write_error_response(client, 400, "Invalid beacon field (expected comma-separated URL string)");
+    return true;
+  }
+
   prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | http_server.prover_flags;
   buffer_t       client_state_buf = {0};
   char*          method_str       = bprintf(NULL, "%j", method);
@@ -336,6 +526,36 @@ bool c4_handle_proof_request(client_t* client) {
     ctx->witness_key = json_as_bytes(signers, NULL);
   else if (!bytes_all_zero(bytes(http_server.witness_key, 32)))
     ctx->witness_key = bytes_dup(bytes(http_server.witness_key, 32));
+
+  bool wants_rpc_proxy    = rpc_proxy_j.type == JSON_TYPE_STRING && rpc_proxy_j.len > 2;
+  bool wants_beacon_proxy = beacon_proxy_j.type == JSON_TYPE_STRING && beacon_proxy_j.len > 2;
+  if ((wants_rpc_proxy || wants_beacon_proxy) && !http_server.proxy_enabled) {
+    proof_request_abort_after_alloc(client, req, ctx, method_str, params_str, 403,
+                                    "Client rpc/beacon URL lists are disabled on this server");
+    return true;
+  }
+
+  char  proxy_err[256];
+  char* rpc_csv    = wants_rpc_proxy ? json_new_string(rpc_proxy_j) : NULL;
+  char* beacon_csv = wants_beacon_proxy ? json_new_string(beacon_proxy_j) : NULL;
+
+  if (rpc_csv && !handle_proof_parse_proxy_csv(rpc_csv, &req->proxy_rpc_servers, proxy_err, sizeof proxy_err)) {
+    safe_free(rpc_csv);
+    safe_free(beacon_csv);
+    proof_request_abort_after_alloc(client, req, ctx, method_str, params_str, 400, proxy_err);
+    return true;
+  }
+  if (beacon_csv && !handle_proof_parse_proxy_csv(beacon_csv, &req->proxy_beacon_servers, proxy_err, sizeof proxy_err)) {
+    safe_free(rpc_csv);
+    safe_free(beacon_csv);
+    proof_request_abort_after_alloc(client, req, ctx, method_str, params_str, 400, proxy_err);
+    return true;
+  }
+  safe_free(rpc_csv);
+  safe_free(beacon_csv);
+  /* Per-request proxy lists keep BEACON_CLIENT_UNKNOWN: c4_detect_server_client_types uses sync curl and would block
+   * libuv. Planned: per-host cache + async detection (track via GitHub issue on corpus-core/colibri-stateless). */
+  if (wants_rpc_proxy || wants_beacon_proxy) ctx->flags |= C4_PROVER_FLAG_PROXY;
 
   // Tracing: start root span
   if (tracing_is_enabled() && client->trace_level != TRACE_LEVEL_NONE) {

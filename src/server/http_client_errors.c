@@ -318,12 +318,14 @@ static bool c4_is_beacon_api_sync_lag(long http_code, const char* url, bytes_t r
 }
 
 // Main function to classify response based on HTTP code and content
-c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req) {
+c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
+                                        server_list_t* servers_opt) {
 
   // Check for success first
   if (http_code >= 200 && http_code < 300) {
     // For JSON-RPC, we need to check for error field even with 200 status
     if (req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
+      server_list_t* servers = servers_opt ? servers_opt : c4_get_server_list(req->type);
       // For methods that can legitimately return null (e.g. unknown tx, pending tx, unknown block),
       // only treat null as retryable if the responding node demonstrably lags behind other nodes.
       // This avoids penalising healthy nodes for correct null responses while still retrying
@@ -337,7 +339,6 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
             req_is_method(req, "eth_getTransactionReceipt") ||
             req_is_method(req, "eth_getBlockByNumber");
         if (nullable_method) {
-          server_list_t* servers = c4_get_server_list(req->type);
           if (servers && servers->count > 1 && req->response_node_index < servers->count) {
             uint64_t this_head = servers->health_stats[req->response_node_index].latest_block;
             uint64_t max_head  = 0;

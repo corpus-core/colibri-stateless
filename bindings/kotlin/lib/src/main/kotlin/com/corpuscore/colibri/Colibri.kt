@@ -27,6 +27,11 @@ package com.corpuscore.colibri
 //import c4
 import kotlin.concurrent.withLock
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONArray
@@ -59,7 +64,9 @@ enum class PrivacyMode {
 enum class ProverMode(val value: Int) {
     LOCAL(0),
     REMOTE(1),
-    HYBRID(2)
+    HYBRID(2),
+    PROXY(3),
+    LIGHT_CLIENT(4)
 }
 
 // Custom Exception for Colibri errors
@@ -136,6 +143,9 @@ class Colibri(
              requestTimeout = 30_000 // 30 seconds timeout
         }
     }
+
+    private val lightClientScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var lightClientJob: Job? = null
 
     /** Returns verify flags (e.g. VERIFY_FLAG_PAP) from privacyMode. Centralized so future flags can be added in one place. */
     private fun getVerifyFlags(): Long = if (privacyMode == PrivacyMode.BASIC) 2L else 0L
@@ -527,10 +537,15 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args)
             val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (zkProof) (1L shl 7) else 0L)
-            val effectiveProverMode = (proverMode ?: if (provers.isEmpty()) ProverMode.LOCAL else ProverMode.REMOTE).value
+            val resolvedMode = proverMode ?: if (provers.isEmpty()) ProverMode.LOCAL else ProverMode.REMOTE
+            val nativeMode = if (resolvedMode == ProverMode.LIGHT_CLIENT) ProverMode.HYBRID.value else resolvedMode.value
 
-            val ctx = com.corpuscore.colibri.c4.c4_create_rpc_ctx(method, jsonArgs, chainId, proverFlags, getVerifyFlags(), effectiveProverMode)
+            val ctx = com.corpuscore.colibri.c4.c4_create_rpc_ctx(method, jsonArgs, chainId, proverFlags, getVerifyFlags(), nativeMode)
                 ?: throw ColibriException("Failed to create RPC context for method $method")
+
+            if (resolvedMode == ProverMode.PROXY) {
+                com.corpuscore.colibri.c4.c4_rpc_set_proxy_urls(ctx, ethRpcs.joinToString(","), beaconApis.joinToString(","))
+            }
 
             val checkpointStr = trustedCheckpoint
             if (!checkpointStr.isNullOrEmpty()) {
@@ -594,6 +609,39 @@ class Colibri(
                 com.corpuscore.colibri.c4.c4_free_rpc_ctx(ctx)
             }
         }
+    }
+
+    /**
+     * Starts background polling to keep the block header cache warm.
+     * Useful for [ProverMode.LIGHT_CLIENT].
+     *
+     * By default polls `eth_getBlockHeader("latest")` which fetches only the
+     * compact header proof. Set [fullBlock] to `true` to poll
+     * `eth_getBlockByNumber("latest")` instead -- useful when many
+     * `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow,
+     * since those need the full block data.
+     *
+     * @param intervalMs polling interval in milliseconds (default: 12000 = one Ethereum slot)
+     * @param fullBlock if true, fetch the full block instead of just the header (default: false)
+     */
+    fun startLightClient(intervalMs: Long = 12_000, fullBlock: Boolean = false) {
+        stopLightClient()
+        val method = if (fullBlock) "eth_getBlockByNumber" else "eth_getBlockHeader"
+        val params: Array<Any?> = if (fullBlock) arrayOf("latest", false) else arrayOf("latest")
+        lightClientJob = lightClientScope.launch {
+            while (true) {
+                try {
+                    rpc(method, params)
+                } catch (_: Exception) { }
+                delay(intervalMs)
+            }
+        }
+    }
+
+    /** Stops background light client polling started by [startLightClient]. */
+    fun stopLightClient() {
+        lightClientJob?.cancel()
+        lightClientJob = null
     }
 }
 

@@ -67,4 +67,26 @@
 #endif
 #endif /* EMBEDDED */
 
+#include <string.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Reentrant string tokenizer (POSIX `strtok_r` on most platforms, `strtok_s` on MSVC).
+ * Same usage as `strtok_r`: first call with non-NULL `str`, then NULL with same `saveptr`.
+ */
+static inline char* c4_strtok_r(char* str, const char* delim, char** saveptr) {
+#if defined(_MSC_VER) && !defined(__MINGW32__) && !defined(__MINGW64__)
+  return strtok_s(str, delim, saveptr);
+#else
+  return strtok_r(str, delim, saveptr);
+#endif
+}
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* UTIL_COMPAT_H */

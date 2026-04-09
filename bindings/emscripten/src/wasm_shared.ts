@@ -39,6 +39,7 @@ export interface C4W {
     _c4w_free_rpc_ctx: (ctx: number) => void;
     _c4w_set_checkpoint: (chainId: bigint, checkpoint: number) => void;
     _c4w_rpc_ctx_set_witness_keys: (ctx: number, keys: number) => void;
+    _c4w_rpc_ctx_set_proxy_urls: (ctx: number, rpc_urls: number, beacon_urls: number) => void;
     _c4w_decode_proof: (data: number, len: number) => number;
     _init_storage: () => void;
     HEAPU8: Uint8Array;

@@ -469,6 +469,8 @@ Controls how proofs are built and verified. Set via `prover_mode` in the constru
 - **`ProverMode.LOCAL`** -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
 - **`ProverMode.REMOTE`** -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
 - **`ProverMode.HYBRID`** -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+- **`ProverMode.PROXY`** -- Like remote, but the client sends its own RPC and Beacon API URLs to the prover server. The server uses these endpoints instead of its own. Useful when the client has access to private or premium RPC providers.
+- **`ProverMode.LIGHT_CLIENT`** -- Like hybrid, with additional background polling of block headers to keep the cache warm. Call `await start_light_client()` / `stop_light_client()` to control polling (default interval: 12s). By default only the compact `eth_getBlockHeader` is fetched; pass `full_block=True` to fetch the full block (useful when many `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow).
 
 ```python
 from colibri import Colibri
@@ -481,6 +483,16 @@ client = Colibri(
     eth_rpcs=["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
     prover_mode=ProverMode.HYBRID
 )
+
+# Light client mode with background header polling
+light_client = Colibri(
+    chain_id=1,
+    provers=["https://mainnet.colibri-proof.tech"],
+    eth_rpcs=["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
+    prover_mode=ProverMode.LIGHT_CLIENT
+)
+await light_client.start_light_client()                    # polls eth_getBlockHeader every 12s
+await light_client.start_light_client(full_block=True)     # or fetch the full block
 ```
 
 Default: `ProverMode.REMOTE` when prover URLs are configured, `ProverMode.LOCAL` otherwise.
