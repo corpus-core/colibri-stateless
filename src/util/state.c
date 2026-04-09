@@ -30,7 +30,7 @@
 
 void c4_append_prover_request_props(buffer_t* payload, chain_id_t chain_id, uint32_t flags, bytes_t witness_key) {
   if (!payload) return;
-  bprintf(payload, ",\"version\":%u", (unsigned) c4_current_version_number());
+  bprintf(payload, ",\"version\":%d", c4_current_version_number());
   bytes_t cs = c4_get_client_state(chain_id);
   if (cs.data && cs.len) {
     bprintf(payload, ",\"c4\":\"0x%x\"", cs);
