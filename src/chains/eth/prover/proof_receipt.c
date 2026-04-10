@@ -197,7 +197,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
 
     TRACE_START(ctx, "receipt_proof");
     TRY_ASYNC(c4_eth_get_receipt_proof(ctx, ssz_get(&block.execution, "blockHash").bytes.data, block_receipts, tx_index, &receipt, &receipt_proof));
-
+    TRY_ASYNC(status);
     TRACE_START(ctx, "finalize_proof");
     c4_status_t result = create_hybrid_receipt_proof(ctx, &block, tx_index, receipt_proof, receipt);
     safe_free(receipt_proof.bytes.data);

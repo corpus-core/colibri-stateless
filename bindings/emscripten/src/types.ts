@@ -142,6 +142,8 @@ export interface Config extends ChainConfig {
     };
     fallback_provider?: EIP1193Client;
     warningHandler: WarningHandler;
+    /** Optional callback invoked for every sub-request transfer with the response byte count. */
+    onTransfer?: (size: number, req: DataRequest) => void;
 }
 
 // Data request structure used internally

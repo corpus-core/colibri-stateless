@@ -38,6 +38,8 @@ These benchmarks were obtained from tests performed on an **Apple M3 Max** syste
 | eth_getLogs | 19 ms (17+2) | 47 ms (12+35) |
 | eth_call ( ERC20.balanceOf) | 12 ms (10+2) | 51 ms (11+40) |
 
+#include ../bindings/emscripten/benchmark-results.md
+
 ## Code size
 
 Using **CMake-defines**, the code size can be adjusted by including only the required components.  

@@ -181,6 +181,15 @@ function handle_doc_comment(line, doc_comment, sections, file, line_number) {
 }
 function parse_ssz_file(file) {
     const lines = fs.readFileSync(get_full_src_path(file), 'utf8').split('\n');
+    for (let i=0; i<lines.length; i++) {
+        if (lines[i].startsWith('#include ')) {
+            const include_file = lines[i].split('#include ')[1].trim()
+            if (!include_file.endsWith('.md')) continue
+            const include_lines = fs.readFileSync(get_full_src_path(include_file), 'utf8').split('\n')
+            lines.splice(i, 1, ...include_lines)
+            i += include_lines.length - 1
+        }
+    }
 
     let is_markdown = file.endsWith('.md')
     let sections = []

@@ -20,7 +20,8 @@
         "webpack:install": "cd webpack && npm install --legacy-peer-deps",
         "webpack:build": "cd webpack && npm run build",
         "webpack:start": "cd webpack && npm run start",
-        "check:cors": "node scripts/check_cors.mjs"
+        "check:cors": "node scripts/check_cors.mjs",
+        "benchmark": "node test/benchmark.mjs"
     },
     "repository": {
         "type": "git",
