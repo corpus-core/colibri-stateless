@@ -75,6 +75,7 @@ http_server_t http_server = {
 
     .proxy_enabled         = 0,
     .proxy_allowed_domains = ""
+                             "*.colibri-proof.tech,"
                              "*.alchemy.com,"
                              "*.infura.io,"
                              "*.quiknode.pro,"

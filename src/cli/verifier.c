@@ -60,13 +60,14 @@
 // |----------------|-----------------|----------------------------|---------|
 // | `-c`           | `<chain_id>`    | Chain name or ID           |         |
 // | `-l`           | `<log_level>`   | Log level (0=silent, 1=error, 2=info, 3=debug, 4=debug_full)                 |         |
-// | `-b`           | `<block_hash>`  | Trusted checkpoint         |         |
+// | `-C`           | `<block_hash>`  | Trusted checkpoint         |         |
 // | `-s`           | `<cache_dir>`  | cache-directory   |         |
 // | `-t`           | `<test_dir>`    | Test directory (if -DTEST=1)|         |
 // | `-i`           | `<proof_file>`  | Proof file to verify       |
 // | `-o`           | `<proof_file>`  | Proof file to write        |         |
 // | `-p`           | `<prover_url>` | URL of the prover           |         |
 // | `-r`           | `<rpc_url>` | URL of the rpc-prover          |         |
+// | `-b`           | `<beacon_url>` | URL of the beacon-api|         |
 // | `-x`           | `<checkpointz_url>` | URL of a checkpointz or beacon-api|         |
 // | `-m`           | `<mode>`        | Prover mode: `local`, `remote`, `hybrid` |         |
 // | `-P`           |                 | Enable PAP (Pragmatic Adaptive Privacy) mode       |         |
@@ -96,7 +97,7 @@ int main(int argc, char* argv[]) {
 #ifdef FILE_STORAGE
     fprintf(stderr, "  -s <states_dir> directory to store states\n");
 #endif
-    fprintf(stderr, "  -b <block_hash> trusted checkpoint\n");
+    fprintf(stderr, "  -C <block_hash> trusted checkpoint\n");
 #ifdef TEST
     fprintf(stderr, "  -t <test_dir>  test directory\n");
 #endif
@@ -110,6 +111,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -m <mode> prover mode: local, remote, hybrid\n");
     fprintf(stderr, "  -L local proof (shorthand for -m local)\n");
     fprintf(stderr, "  -r rpc url\n");
+    fprintf(stderr, "  -b beacon url\n");
     fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
     fprintf(stderr, "  -P enable PAP (Pragmatic Adaptive Privacy) mode\n");
@@ -198,8 +200,11 @@ int main(int argc, char* argv[]) {
           case 'x':
             checkpointz_url = argv[++i];
             break;
-          case 'r':
+            case 'r':
             rpc_url = argv[++i];
+            break;
+          case 'b':
+            beacon_url = argv[++i];
             break;
           case 'T':
             curl_set_config(json_parse(bprintf(&buf, "{\"trace_config\":{\"level\":\"%s\"}}", argv[++i])));
@@ -216,7 +221,7 @@ int main(int argc, char* argv[]) {
           case 'O':
             verify_flags |= VERIFY_FLAG_PROOF_ONLY;
             break;
-          case 'b':
+          case 'C':
             if (hex_to_bytes(argv[++i], -1, bytes(trusted_checkpoint, 32)) == 32)
               has_checkpoint = true;
             else {
