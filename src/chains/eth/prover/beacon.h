@@ -223,16 +223,6 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
 c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
 
 /**
- * Delegates a full proof request to the remote prover in hybrid mode.
- * Used for methods that require the full beacon block body (transactions, receipts, calls, logs).
- * The remote prover's response (full SSZ `C4Request`) is set as `ctx->proof`.
- *
- * @param ctx prover context (must have `C4_PROVER_FLAG_HYBRID` set)
- * @return `C4_SUCCESS` when proof is ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
- */
-c4_status_t c4_hybrid_delegate_proof(prover_ctx_t* ctx);
-
-/**
  * Fetches the full SSZ execution payload for the given block in hybrid mode.
  * Checks the header cache for a cached execution payload first. On miss,
  * fetches `eth_getBlockByNumber` from the remote prover, verifies the response,
