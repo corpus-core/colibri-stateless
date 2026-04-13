@@ -84,11 +84,31 @@ jobs:
 
       # --- colibri-thor: Build, Test, Version, Publish ---
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Cache Arti build
+        uses: actions/cache@v4
+        with:
+          path: |
+            bindings/emscripten/thor/.arti-build
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: arti-wasm-${{ hashFiles('bindings/emscripten/thor/scripts/build-arti.sh') }}
+          restore-keys: arti-wasm-
+
+      - name: Build tor-js from source
+        run: bash scripts/build-arti.sh
+        working-directory: bindings/emscripten/thor
+
       - name: Build colibri-thor
-        run: |
-          cd bindings/emscripten/thor
-          npm install --ignore-scripts 2>/dev/null || true
-          npx tsc
+        run: npx tsc
+        working-directory: bindings/emscripten/thor
 
       - name: Test colibri-thor
         run: |

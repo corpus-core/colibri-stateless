@@ -74,14 +74,16 @@ Creates a `fetch`-compatible function that routes requests through a local Tor S
 
 ## Building tor-js from source
 
-Until `tor-js` is published on npm, you can build the Arti WASM artifacts from source:
+Until `tor-js` is published on npm, the CI automatically builds the Arti WASM package from source and bundles it with `@corpus-core/colibri-thor` via `bundleDependencies`. Users installing the published package get `tor-js` included -- no extra steps needed.
+
+For local development, you can trigger the same build manually:
 
 ```sh
 # Requires: Rust toolchain, wasm-pack, Node.js
 npm run build:arti
 ```
 
-This clones [voltrevo/arti](https://github.com/voltrevo/arti), builds the WASM package, and copies the artifacts into `src/vendor/`.
+This clones [voltrevo/arti](https://github.com/voltrevo/arti), builds the WASM package, and installs the resulting `tor-js` ts-wrapper into `node_modules/`.
 
 ## License
 
