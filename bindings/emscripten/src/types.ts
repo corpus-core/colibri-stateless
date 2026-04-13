@@ -66,7 +66,7 @@ export interface ColibriClient {
     getMethodSupport(method: string, args?: any[]): Promise<MethodType>;
 }
 
-export type FetchRpc = (urls: string[], payload: any, as_proof: boolean) => Promise<any>;
+export type FetchRpc = (urls: string[], payload: any, as_proof: boolean, fetchFn?: typeof globalThis.fetch) => Promise<any>;
 export type ProofStrategy = (client: ColibriClient, req: RequestArguments, config: Config, fetch_rpc: FetchRpc) => Promise<any>;
 export type WarningHandler = (req: RequestArguments, message: string) => Promise<any>;
 
@@ -111,7 +111,7 @@ export interface ChainConfig {
     verify?: (method: string, args: any[]) => boolean;
     pollingInterval?: number;
     proofStrategy?: ProofStrategy;
-    verifyTransactions?: boolean; // Neue Option für Transaction-Verifikation
+    verifyTransactions?: boolean;
 }
 
 export interface EIP1193Client {
@@ -144,6 +144,9 @@ export interface Config extends ChainConfig {
     warningHandler: WarningHandler;
     /** Optional callback invoked for every sub-request transfer with the response byte count. */
     onTransfer?: (size: number, req: DataRequest) => void;
+    /** Custom fetch function replacing `globalThis.fetch` for all HTTP requests.
+     *  Use this to route traffic through Tor, a SOCKS proxy, or any other transport layer. */
+    fetch?: typeof globalThis.fetch;
 }
 
 // Data request structure used internally

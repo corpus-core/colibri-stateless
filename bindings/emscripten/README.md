@@ -2,11 +2,11 @@
 
 <img src="c4_logo.png" alt="C4 Logo" width="300"/>
 
-# C4 (corpus core colibri client)
+# Colibri-stateless
 
 ![ETH2.0_Spec_Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
 
-The colibri client is a stateless and trustless ethereum client, which is optimized for the mobile apps or embedded devices, because it does not hols the state, but verifies on demand. 
+The colibri client is a stateless and trustless ethereum client, which is optimized for the mobile apps or embedded devices, because it does not hold any state, but verifies on demand.
 
 ## Installation
 

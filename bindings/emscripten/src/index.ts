@@ -286,7 +286,8 @@ export default class C4Client {
         args[0],
         this.config,
         (method, args, methodType) => this.rpc(method, args, methodType),
-        fetch_rpc
+        fetch_rpc,
+        this.config.fetch
       );
     }
 
@@ -294,7 +295,7 @@ export default class C4Client {
     if (method_type === undefined)
       method_type = await this.getMethodSupport(method, args);
     if (method_type === C4MethodType.PROOFABLE && this.config.verify && !this.config.verify(method, args))
-      return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
+      return await fetch_rpc(this.config.rpcs, { method, params: args }, false, this.config.fetch);
 
     const c4w = await getC4w();
     const free_buffers: number[] = [];
