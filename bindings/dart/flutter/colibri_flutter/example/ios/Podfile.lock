@@ -1,5 +1,5 @@
 PODS:
-  - colibri_flutter (0.1.0):
+  - colibri_flutter (0.1.9):
     - Flutter
   - Flutter (1.0.0)
 
@@ -14,7 +14,7 @@ EXTERNAL SOURCES:
     :path: Flutter
 
 SPEC CHECKSUMS:
-  colibri_flutter: b5f6b7d50b85963b3449a986357d15cdb49e99e3
+  colibri_flutter: 5e5bc14f0224d50077ba6cb6a84ebb899f4569d5
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
 
 PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e

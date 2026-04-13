@@ -39,14 +39,14 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "0.1.7"
+    version: "0.1.9"
   colibri_stateless:
     dependency: "direct overridden"
     description:
       path: "../../.."
       relative: true
     source: path
-    version: "0.1.7"
+    version: "0.1.8"
   collection:
     dependency: transitive
     description:

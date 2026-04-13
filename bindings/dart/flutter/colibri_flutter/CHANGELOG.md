@@ -1,3 +1,8 @@
+## 0.1.9
+
+- iOS: fixed Release/Profile builds where all `c4_*` symbols were stripped by the optimizing compiler. Replaced local `volatile` array in `force_link.c` with a global exported symbol array that survives `-Os`/`-O2`. Added `-force_load` linker flag in podspec as additional safeguard.
+- Aligned podspec versions (iOS/macOS) with pubspec version.
+
 ## 0.1.8
 
 - Requires `colibri_stateless: ^0.1.8`.
