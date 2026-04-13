@@ -7,7 +7,7 @@ bindings/swift/src/include
 bindings/swift/.build
 bindings/kotlin/.cxx
 bindings/emscripten/node_modules
-bindings/emscripten/rn-web-test/node_modules
+bindings/emscripten/test/rn-web/node_modules
 bindings/kotlin/build
 bindings/kotlin/example/build
 bindings/kotlin/example/.gradle
@@ -16,8 +16,8 @@ bindings/kotlin/.gradle
 test/embedded/sdcard.img
 test/embedded/memory_map.txt
 /.memcached
-bindings/emscripten/webpack/dist
-bindings/emscripten/webpack/node_modules
+bindings/emscripten/test/webpack/dist
+bindings/emscripten/test/webpack/node_modules
 bindings/emscripten/test/s*
 bindings/kotlin/*.log
 /build_x86
@@ -32,8 +32,8 @@ sync_1*
 **/.cache
 # Generated config files
 bindings/emscripten/test/test_config.js
-bindings/emscripten/webpack/webpack_build_config.mjs
-bindings/emscripten/rn-web-test/rn_web_test_build_config.cjs
+bindings/emscripten/test/webpack/webpack_build_config.mjs
+bindings/emscripten/test/rn-web/rn_web_test_build_config.cjs
 bindings/swift/Sources/TestConfig/
 bindings/swift/Tests/GeneratedIntegrationTests.swift
 bindings/swift/.swiftpm

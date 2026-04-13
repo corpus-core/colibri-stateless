@@ -69,35 +69,39 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
 | `.github/workflows/` | CI/CD pipelines | cmake.yml, bindings, release, CodeQL |
 
 <!-- AUTO:DIRECTORY_MAP:START -->
-- `bindings/` (5 .c, 19 .h) -- Language Bindings
+- `bindings/` (6 .c, 11 .h) -- Language Bindings
+  - `bindings/dart/` (1 .c, 8 .h) -- Colibri Dart Bindings
+    - `bindings/dart/audit/`
+    - `bindings/dart/doc/`
+    - `bindings/dart/example/` -- Dart Examples
+    - `bindings/dart/flutter/` (1 .c, 8 .h)
+    - `bindings/dart/lib/`
+    - `bindings/dart/scripts/`
+    - `bindings/dart/test/`
+    - `bindings/dart/tool/`
   - `bindings/docker/` -- Colibri Prover - Docker Image
-    - `bindings/docker/valgrind-logs/`
-  - `bindings/emscripten/` (1 .c) -- C4 (corpus core colibri client)
+  - `bindings/emscripten/` (1 .c) -- Colibri-stateless
     - `bindings/emscripten/cjs/`
-    - `bindings/emscripten/rn-web-test/`
+    - `bindings/emscripten/packages/`
     - `bindings/emscripten/scripts/`
     - `bindings/emscripten/src/`
     - `bindings/emscripten/test/`
-    - `bindings/emscripten/webpack/`
   - `bindings/kotlin/` (1 .c) -- Kotlin/Java Bindings for Colibri
     - `bindings/kotlin/example/` -- Colibri Android Example App
     - `bindings/kotlin/gradle/`
     - `bindings/kotlin/lib/`
-  - `bindings/node-addon/`
   - `bindings/python/` -- Colibri Python Bindings (corpus core colibri client)
     - `bindings/python/examples/`
     - `bindings/python/scripts/`
     - `bindings/python/src/`
     - `bindings/python/tests/`
-  - `bindings/swift/` (2 .c, 18 .h) -- Colibri Swift Bindings
-    - `bindings/swift/Sources/` (1 .c, 2 .h)
+  - `bindings/swift/` (1 .c, 1 .h) -- Colibri Swift Bindings
+    - `bindings/swift/Sources/` (1 .c, 1 .h)
     - `bindings/swift/Tests/`
-    - `bindings/swift/ios_package/` (1 .c, 16 .h) -- Colibri Swift Bindings
     - `bindings/swift/test_ios_app/` -- Colibri iOS Test App
 - `installer/` -- Build with installer support
   - `installer/assets/`
   - `installer/config/`
-  - `installer/copr/` -- Fedora Copr (Community Repository)
   - `installer/homebrew/` -- For local use only (secure, recommended for Metamask):
   - `installer/linux/` -- Install the package
     - `installer/linux/debian/`
@@ -105,19 +109,19 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `installer/macos/` -- Server port
     - `installer/macos/resources/`
     - `installer/macos/scripts/`
-  - `installer/ppa/` -- Ubuntu PPA (Personal Package Archive)
   - `installer/scripts/`
     - `installer/scripts/launchd/`
     - `installer/scripts/systemd/`
   - `installer/windows/` -- Using PowerShell
-- `libs/` (42 .c, 50 .h)
+- `libs/` (43 .c, 52 .h)
   - `libs/blst/`
   - `libs/crypto/` (40 .c, 47 .h)
     - `libs/crypto/aes/` (5 .c, 4 .h)
     - `libs/crypto/ed25519-donna/` (10 .c, 15 .h)
   - `libs/curl/` (1 .c, 1 .h)
-  - `libs/evmone/` (1 .h)
+  - `libs/evmone/` (1 .c, 3 .h)
     - `libs/evmone/compat/`
+    - `libs/evmone/evmone_precompiles/` (2 .h)
   - `libs/intx/` (1 .c, 1 .h)
   - `libs/libuv/`
   - `libs/llhttp/`
@@ -125,10 +129,11 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `libs/tommath/`
   - `libs/zstd/`
 - `scripts/`
+  - `scripts/completion/`
   - `scripts/doc/`
-- `src/` (135 .c, 61 .h) -- Core C Library
-  - `src/chains/` (96 .c, 39 .h)
-    - `src/chains/eth/` (73 .c, 28 .h) -- Ethereum Chain Module
+- `src/` (144 .c, 65 .h) -- Core C Library
+  - `src/chains/` (105 .c, 43 .h)
+    - `src/chains/eth/` (82 .c, 32 .h) -- Ethereum Chain Module
     - `src/chains/op/` (23 .c, 11 .h) -- OP-Stack Chain Module
   - `src/cli/` (3 .c, 1 .h)
   - `src/prover/` (1 .c, 1 .h) -- Prover
@@ -137,8 +142,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
     - `src/server/web_ui/` -- Colibri Server Web Configuration UI
   - `src/util/` (13 .c, 14 .h) -- Utility Modules
   - `src/verifier/` (1 .c, 1 .h)
-- `test/` (46 .c, 5 .h) -- Test Suite
-  - `test/beanchmarks/`
+- `test/` (47 .c, 5 .h) -- Test Suite
   - `test/data/`
     - `test/data/eth_blockNumber_electra/`
     - `test/data/eth_call1/`
@@ -146,14 +150,17 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
     - `test/data/eth_call_7702/`
     - `test/data/eth_call_authorization_list/`
     - `test/data/eth_call_electra/`
+    - `test/data/eth_call_pap_cached/`
     - `test/data/eth_getBalance1/`
     - `test/data/eth_getBalance_electra/`
     - `test/data/eth_getBlockByHash1/`
     - `test/data/eth_getBlockByNumber1/`
     - `test/data/eth_getBlockByNumber_electra/`
     - `test/data/eth_getBlockHeader1/`
+    - `test/data/eth_getBlockReceipts1/`
     - `test/data/eth_getLogs1/`
     - `test/data/eth_getLogs_electra/`
+    - `test/data/eth_getLogs_pap1/`
     - `test/data/eth_getProof1/`
     - `test/data/eth_getProof2/`
     - `test/data/eth_getStorageAt1/`
@@ -169,6 +176,10 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
     - `test/data/eth_getTransactionreceipt_electra/`
     - `test/data/eth_sync/`
     - `test/data/log_cache/`
+    - `test/data/pap_tx_by_block_index/`
+    - `test/data/pap_tx_by_hash/`
+    - `test/data/pap_tx_fallback/`
+    - `test/data/pap_tx_pending/`
     - `test/data/precompile_identity/`
     - `test/data/precompile_ripemd160/`
     - `test/data/precompile_sha256/`
@@ -182,8 +193,9 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `test/embedded/` (6 .c, 1 .h) -- Build the Docker image
   - `test/eth/`
     - `test/eth/TrieTests/`
-  - `test/unittests/` (40 .c, 4 .h)
+  - `test/unittests/` (41 .c, 4 .h)
   - `test/valgrind/` -- Valgrind Suppressions
+- `valgrind_results/`
 <!-- AUTO:DIRECTORY_MAP:END -->
 
 ## Key Data Structures
@@ -257,6 +269,7 @@ ctest --test-dir build/default  # Run tests
 | `COMBINED_STATIC_LIB` | OFF | Build a combined static library | CMakeLists.txt |
 | `COVERAGE` | OFF | Enable coverage tracking | CMakeLists.txt |
 | `CURL` | ON | Enable CURL support | CMakeLists.txt |
+| `DART` | OFF | Build Dart bindings | CMakeLists.txt |
 | `EMBEDDED` | OFF | Build for embedded target | CMakeLists.txt |
 | `EMBEDDED_ASM_M_PROFILE` | OFF | Use Cortex-M profile for assembly files | test/embedded/CMakeLists.txt |
 | `ETH_ACCOUNT` | ON | support eth account verification. eth_getBalance, eth_getStorageAt, eth_getProof, eth_getCode, eth_getTransactionCount | src/chains/eth/CMakeLists.txt |
@@ -271,13 +284,15 @@ ctest --test-dir build/default  # Run tests
 | `ETH_ZKPROOF_BUILD_HOST` | OFF | Build eth-sync-script host binary (Rust/SP1 | CMakeLists.txt |
 | `EVMLIGHT` | OFF | uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas. | src/chains/eth/CMakeLists.txt |
 | `EVMONE` | ON | uses evmone to verify eth_calls | src/chains/eth/CMakeLists.txt |
-| `FILE_STORAGE` | ON | if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR | CMakeLists.txt |
+| `FILE_STORAGE` | ON | if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env var C4_STATES_DIR | CMakeLists.txt |
 | `GENERATE_JAVA_SOURCES` | OFF | Generate Java sources using SWIG | bindings/kotlin/CMakeLists.txt |
 | `HTTP_SERVER` | OFF | Build the HTTP server using libuv and llhttp | CMakeLists.txt |
 | `HTTP_SERVER_GEO` | ON | support for geo-location | CMakeLists.txt |
 | `INSTALLER` | OFF | Build installer packages (requires HTTP_SERVER=ON | CMakeLists.txt |
 | `KOTLIN` | OFF | Build Kotlin bindings | CMakeLists.txt |
+| `MEMORY_STORAGE` | OFF | if activated the verifier will use an in-memory storage (no filesystem | CMakeLists.txt |
 | `MESSAGES` | ON | if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory | CMakeLists.txt |
+| `PAP` | ON | Enable Pragmatic Adaptive Privacy mode in verifier | CMakeLists.txt |
 | `PRECOMPILE_ZERO_HASHES` | OFF | Enable precomputed zero hashes cache (1 KB RAM | src/util/CMakeLists.txt |
 | `PRECOMPILES_BN128` | OFF | Precompile BN128 (ecadd, ecmul, ecpairing | src/chains/eth/CMakeLists.txt |
 | `PRECOMPILES_KZG` | OFF | Precompile KZG (point evaluation | src/chains/eth/CMakeLists.txt |
