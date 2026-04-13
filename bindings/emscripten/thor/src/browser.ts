@@ -22,7 +22,9 @@
  */
 
 import type { ThorBrowserOptions } from './types.js';
+import { DEFAULT_GATEWAY } from './types.js';
 export type { ThorBrowserOptions };
+export { DEFAULT_GATEWAY };
 
 // tor-js is loaded dynamically so the import path can switch between vendored
 // artifacts (built from source via scripts/build-arti.sh) and the future npm
@@ -49,29 +51,46 @@ function getTorJs(): Promise<any> {
  * Create a `fetch`-compatible function that routes HTTP requests through the
  * Tor network using Arti compiled to WebAssembly.  Browser only.
  *
- * The returned function matches the `globalThis.fetch` signature and can be
- * passed directly to the Colibri client's `fetch` config option.
+ * Tor bootstrap starts immediately but does **not** block the returned
+ * function.  The first actual `fetch` call will await the bootstrap if it
+ * has not completed yet.  This allows the application to continue
+ * initializing while Tor connects in the background.
+ *
+ * ```typescript
+ * // Bootstrap starts immediately, returns without blocking
+ * const torFetch = createBrowserFetch();
+ * const client = new Colibri({ fetch: torFetch });
+ * // ... app continues initializing ...
+ * // First request will await bootstrap completion if still in progress
+ * await client.request({ method: 'eth_blockNumber' });
+ * ```
  *
  * @param options - Browser transport options (gateway URL, log level, etc.)
- * @return A `fetch`-compatible function routing through Tor
+ * @return A `fetch`-compatible function that routes through Tor
  */
-export async function createBrowserFetch(
+export function createBrowserFetch(
     options: ThorBrowserOptions = {}
-): Promise<typeof globalThis.fetch> {
-    const { TorClient } = await getTorJs();
+): typeof globalThis.fetch {
+    const gateway = options.gateway ?? DEFAULT_GATEWAY;
 
+    // Kick off bootstrap eagerly -- the promise is shared across all requests.
     const startTime = Date.now();
-    const client = new TorClient({
-        gateway: options.gateway,
-        logLevel: options.logLevel ?? 'warn',
+    const clientReady: Promise<any> = getTorJs().then(async ({ TorClient }) => {
+        const client = new TorClient({
+            gateway,
+            logLevel: options.logLevel ?? 'warn',
+        });
+        await client.ready();
+        options.onBootstrap?.(Date.now() - startTime);
+        return client;
     });
-    await client.ready();
-    options.onBootstrap?.(Date.now() - startTime);
 
     const torFetch: typeof globalThis.fetch = async (
         input: RequestInfo | URL,
         init?: RequestInit
     ): Promise<Response> => {
+        const client = await clientReady;
+
         const url = typeof input === 'string'
             ? input
             : input instanceof URL

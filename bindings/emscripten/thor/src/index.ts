@@ -21,6 +21,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-export { createBrowserFetch } from './browser.js';
+export { createBrowserFetch, DEFAULT_GATEWAY } from './browser.js';
 export { createSocksFetch } from './node.js';
 export type { ThorBrowserOptions, ThorNodeOptions, LogLevel } from './types.js';

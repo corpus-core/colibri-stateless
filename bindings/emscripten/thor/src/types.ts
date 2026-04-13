@@ -23,8 +23,11 @@
 
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
 
+export const DEFAULT_GATEWAY = 'https://tor-js-gateway.voltrevo.com';
+
 export interface ThorBrowserOptions {
-    /** WebSocket/WebRTC gateway URL for Tor relay connections. Required in browsers. */
+    /** WebSocket/WebRTC gateway URL for Tor relay connections.
+     *  Default: `'https://tor-js-gateway.voltrevo.com'`. */
     gateway?: string;
     /** Callback invoked when Tor bootstrap completes, with elapsed time in ms. */
     onBootstrap?: (elapsedMs: number) => void;

@@ -19,16 +19,16 @@ npm install @corpus-core/colibri-thor @corpus-core/colibri-stateless
 import Colibri from '@corpus-core/colibri-stateless';
 import { createBrowserFetch } from '@corpus-core/colibri-thor/browser';
 
-// Bootstrap Tor in the browser (takes a few seconds on first load)
-const torFetch = await createBrowserFetch({
-  gateway: 'https://tor-js-gateway.voltrevo.com'
-});
+// Bootstrap starts immediately in the background (no await needed).
+// The first actual request will wait for bootstrap to complete.
+const torFetch = createBrowserFetch();
 
 const client = new Colibri({
   fetch: torFetch,
   prover: ['https://mainnet.colibri-proof.tech']
 });
 
+// This request will await Tor bootstrap if still in progress
 const balance = await client.request({
   method: 'eth_getBalance',
   params: ['0x...', 'latest']
@@ -53,13 +53,13 @@ const client = new Colibri({
 
 ## API
 
-### `createBrowserFetch(options?): Promise<typeof fetch>`
+### `createBrowserFetch(options?): typeof fetch`
 
-Creates a `fetch`-compatible function that routes requests through Tor via Arti WASM. Browser only.
+Creates a `fetch`-compatible function that routes requests through Tor via Arti WASM. Browser only. Returns synchronously -- Tor bootstrap starts immediately in the background and the first actual request awaits completion if needed.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `gateway` | `string` | `undefined` | WebSocket/WebRTC gateway URL for Tor relay connections |
+| `gateway` | `string` | `'https://tor-js-gateway.voltrevo.com'` | WebSocket/WebRTC gateway URL for Tor relay connections |
 | `onBootstrap` | `(ms: number) => void` | `undefined` | Callback when Tor bootstrap completes |
 | `logLevel` | `LogLevel` | `'warn'` | Arti log level (`'trace'` \| `'debug'` \| `'info'` \| `'warn'` \| `'error'`) |
 
