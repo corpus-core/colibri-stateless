@@ -70,10 +70,54 @@ export function isBrowserEnvironment() {
 
 function hasLocalStorage(): boolean {
     try {
-        // In some contexts (e.g. extension workers), accessing localStorage may throw or be unavailable.
         return typeof globalThis !== 'undefined' && !!(globalThis as any).localStorage;
     } catch {
         return false;
+    }
+}
+
+function hasCacheApi(): boolean {
+    try {
+        return typeof globalThis !== 'undefined' && 'caches' in globalThis;
+    } catch {
+        return false;
+    }
+}
+
+// Keys from C are always alphanumeric + underscore (e.g. "states_1", "sync_1_234"),
+// so no URL encoding is needed.
+const CACHE_URL_PREFIX = 'http://colibri.storage/';
+
+async function loadCacheApiStorage(): Promise<Storage | null> {
+    try {
+        const cache = await globalThis.caches.open('colibri-storage');
+        const mem = new Map<string, Uint8Array>();
+        const requests = await cache.keys();
+        await Promise.all(requests.map(async (req) => {
+            const resp = await cache.match(req);
+            if (resp) {
+                const key = req.url.slice(CACHE_URL_PREFIX.length);
+                mem.set(key, new Uint8Array(await resp.arrayBuffer()));
+            }
+        }));
+        return {
+            get: (key: string) => mem.get(key) ?? null,
+            set: (key: string, value: Uint8Array) => {
+                const copy = new Uint8Array(value);
+                mem.set(key, copy);
+                cache.put(CACHE_URL_PREFIX + key, new Response(copy, {
+                    headers: {'Content-Type': 'application/octet-stream', 'Content-Length': '' + copy.byteLength},
+                })).catch(
+                    e => console.warn('colibri: cache write failed for', key, e));
+            },
+            del: (key: string) => {
+                mem.delete(key);
+                cache.delete(CACHE_URL_PREFIX + key).catch(
+                    e => console.warn('colibri: cache delete failed for', key, e));
+            },
+        };
+    } catch {
+        return null;
     }
 }
 
@@ -86,8 +130,12 @@ async function importNodeFs(): Promise<any> {
 }
 
 export async function get_default_storage(): Promise<Storage> {
+    if (hasCacheApi()) {
+        const storage = await loadCacheApiStorage();
+        if (storage) return storage;
+    }
+
     if (hasLocalStorage())
-        // Web interface (localStorage).
         return {
             get: (key: string) => {
                 const ls = (globalThis as any).localStorage as {
@@ -124,7 +172,7 @@ export async function get_default_storage(): Promise<Storage> {
             },
         };
 
-    else if (isNodeEnvironment()) {
+    if (isNodeEnvironment()) {
         const fs = await importNodeFs();
         // node interface
         return {

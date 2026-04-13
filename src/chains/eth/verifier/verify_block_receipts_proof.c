@@ -59,14 +59,16 @@ static bool verify_block_receipts_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof
 }
 
 bool verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof) {
+  bool      is_hybrid        = strcmp(receipts_proof.def->name, "HybridBlockReceiptsProof") == 0;
+  ssz_ob_t  exec_header      = is_hybrid ? ssz_get(&receipts_proof, "header_data") : receipts_proof;
   ssz_ob_t  transactions     = ssz_get(&receipts_proof, "transactions");
   ssz_ob_t  receipts         = ssz_get(&receipts_proof, "receipts");
-  ssz_ob_t  block_proof      = ssz_get(&receipts_proof, "block_proof");
-  ssz_ob_t  header           = ssz_get(&receipts_proof, "header");
-  ssz_ob_t  block_hash       = ssz_get(&receipts_proof, "blockHash");
-  ssz_ob_t  block_number     = ssz_get(&receipts_proof, "blockNumber");
-  ssz_ob_t  base_fee_per_gas = ssz_get(&receipts_proof, "baseFeePerGas");
-  ssz_ob_t  body_root        = ssz_get(&header, "bodyRoot");
+  ssz_ob_t  block_proof      = !is_hybrid ? ssz_get(&receipts_proof, "block_proof") : (ssz_ob_t) {0};
+  ssz_ob_t  header           = !is_hybrid ? ssz_get(&exec_header, "header") : (ssz_ob_t) {0};
+  ssz_ob_t  block_hash       = ssz_get(&exec_header, "blockHash");
+  ssz_ob_t  block_number     = ssz_get(&exec_header, "blockNumber");
+  ssz_ob_t  base_fee_per_gas = ssz_get(&exec_header, "baseFeePerGas");
+  ssz_ob_t  body_root        = !is_hybrid ? ssz_get(&header, "bodyRoot") : (ssz_ob_t) {0};
   uint32_t  num_receipts     = ssz_len(receipts);
   uint32_t  num_txs          = ssz_len(transactions);
   bytes32_t receipt_root     = {0};
@@ -92,13 +94,25 @@ bool verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof)
   // compute the SSZ hash_tree_root of the transactions list
   ssz_hash_tree_root(transactions, tx_root);
 
-  // verify multi-merkle proof: blockNumber, blockHash, receiptsRoot, transactions, baseFeePerGas against bodyRoot
-  if (!verify_block_receipts_merkle_proof(ctx, block_proof, block_hash.bytes, block_number.bytes,
-                                          receipt_root, tx_root, base_fee_per_gas.bytes, body_root.bytes.data))
-    return false;
+  if (is_hybrid) {
+    if (!(ctx->flags & VERIFY_FLAG_HYBRID))  RETURN_VERIFY_ERROR(ctx, "hybrid proof requires hybrid mode!");
+    uint8_t* header_receipts_root = ssz_get(&exec_header, "receiptsRoot").bytes.data;
+    uint8_t* header_tx_root = ssz_get(&exec_header, "transactionsRoot").bytes.data;
+    if (memcmp(tx_root, header_tx_root, 32) != 0)
+      RETURN_VERIFY_ERROR(ctx, "transactionsRoot mismatch!");
+    if (memcmp(receipt_root, header_receipts_root, 32) != 0)
+      RETURN_VERIFY_ERROR(ctx, "receiptsRoot mismatch!");
+  }
+  else {
 
-  // verify beacon header and sync committee signature
-  if (c4_verify_header(ctx, header, receipts_proof) != C4_SUCCESS) return false;
+    // verify multi-merkle proof: blockNumber, blockHash, receiptsRoot, transactions, baseFeePerGas against bodyRoot
+    if (!verify_block_receipts_merkle_proof(ctx, block_proof, block_hash.bytes, block_number.bytes,
+                                            receipt_root, tx_root, base_fee_per_gas.bytes, body_root.bytes.data))
+      return false;
+
+    // verify beacon header and sync committee signature
+    if (c4_verify_header(ctx, header, receipts_proof) != C4_SUCCESS) return false;
+  }
 
   return true;
 }
@@ -107,14 +121,14 @@ static bool verify_hybrid_block_receipts(verify_ctx_t* ctx) {
   if (!(ctx->flags & VERIFY_FLAG_HYBRID))
     RETURN_VERIFY_ERROR(ctx, "hybrid block receipts proof requires hybrid mode!");
 
-  ssz_ob_t  header_data    = ssz_get(&ctx->proof, "header_data");
-  ssz_ob_t  transactions   = ssz_get(&ctx->proof, "transactions");
-  ssz_ob_t  receipts       = ssz_get(&ctx->proof, "receipts");
-  uint32_t  num_receipts   = ssz_len(receipts);
-  uint32_t  num_txs        = ssz_len(transactions);
+  ssz_ob_t header_data  = ssz_get(&ctx->proof, "header_data");
+  ssz_ob_t transactions = ssz_get(&ctx->proof, "transactions");
+  ssz_ob_t receipts     = ssz_get(&ctx->proof, "receipts");
+  uint32_t num_receipts = ssz_len(receipts);
+  uint32_t num_txs      = ssz_len(transactions);
 
-  bytes_t   receipts_root  = ssz_get(&header_data, "receiptsRoot").bytes;
-  bytes_t   tx_root        = ssz_get(&header_data, "transactionsRoot").bytes;
+  bytes_t receipts_root = ssz_get(&header_data, "receiptsRoot").bytes;
+  bytes_t tx_root       = ssz_get(&header_data, "transactionsRoot").bytes;
 
   if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data");
   if (!receipts_root.data || receipts_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid receiptsRoot in header_data");

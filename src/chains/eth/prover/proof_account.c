@@ -149,7 +149,7 @@ c4_status_t c4_proof_account(prover_ctx_t* ctx) {
   TRY_ADD_ASYNC(status, eth_get_proof(ctx, address, storage_keys, &eth_proof, ssz_get_uint64(&block.execution, "blockNumber")));
 
   if (block.header_only)
-    return create_hybrid_account_proof(ctx, eth_proof, &block, address);
+    return status == C4_SUCCESS ? create_hybrid_account_proof(ctx, eth_proof, &block, address) : status;
 
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
   if (status != C4_SUCCESS) {

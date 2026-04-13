@@ -219,9 +219,10 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
   ssz_ob_t receipt_proof   = ssz_get(&proof, "proof");
   ssz_ob_t receipts        = ssz_get(&receipt_proof, "receipts");
   ssz_ob_t transactions    = ssz_get(&receipt_proof, "transactions");
-  ssz_ob_t block_hash      = ssz_get(&receipt_proof, "blockHash");
-  uint64_t blk_num         = ssz_get_uint64(&receipt_proof, "blockNumber");
-  uint64_t base_fee        = ssz_get_uint64(&receipt_proof, "baseFeePerGas");
+  ssz_ob_t header          = strcmp(receipt_proof.def->name,"HybridBlockReceiptsProof") == 0 ? ssz_get(&receipt_proof, "header_data") : receipt_proof;
+  ssz_ob_t block_hash      = ssz_get(&header, "blockHash");
+  uint64_t blk_num         = ssz_get_uint64(&header, "blockNumber");
+  uint64_t base_fee        = ssz_get_uint64(&header, "baseFeePerGas");
   uint32_t num_receipts    = ssz_len(ssz_get(&receipt_proof, "receipts"));
   uint64_t prev_cumulative = 0;
   uint32_t next_log_index  = 0;

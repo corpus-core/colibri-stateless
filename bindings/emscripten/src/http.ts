@@ -28,6 +28,7 @@ export type AcceptKind = 'json' | 'octet';
 function joinPath(base: string, path?: string): string {
   if (!path) return base;
   if (!path.length) return base;
+  if (base.endsWith('/')) return base + path;
   return base + (path.startsWith('/') ? path : '/' + path);
 }
 
@@ -72,7 +73,7 @@ export async function fetch_from_servers(
       const bytes = await response.blob().then(b => b.arrayBuffer());
       return { data: new Uint8Array(bytes), nodeIndex };
     } catch (e) {
-      lastError = (e instanceof Error) ? e.message : String(e);
+      lastError = 'Request to ' + joinPath(server, path) + (payload ? ' with payload ' + JSON.stringify(payload) : '') + ' failed: ' + (  (e instanceof Error) ? e.message : String(e));
     }
     nodeIndex++;
   }
@@ -156,6 +157,7 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
     if (data) {
       if (conf.debug) log(`::: ${path} (len=${data.length} bytes) CACHED`);
       c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, 0);
+      if (conf.onTransfer) conf.onTransfer(data.length, req);
       return;
     }
   }
@@ -163,6 +165,7 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
     const accept = req.encoding == 'json' ? 'json' : 'octet';
     const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask);
     c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, nodeIndex);
+    if (conf.onTransfer) conf.onTransfer(data.length, req);
     if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
     if (conf.cache && cacheable) conf.cache.set(req, data);
   } catch (e) {

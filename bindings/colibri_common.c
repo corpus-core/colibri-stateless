@@ -462,6 +462,7 @@ static void free_request_prover(c4_rpc_ctx_t* ctx) {
 }
 
 static bool is_remote_delegated_method(data_request_t* req) {
+  if (req->method != C4_DATA_METHOD_POST) return req->method == C4_DATA_METHOD_GET;
   if (!req->payload.data || !req->payload.len || req->payload.len > (UINT32_MAX - 1)) return false;
   char* tmp = safe_malloc(req->payload.len + 1);
   memcpy(tmp, req->payload.data, req->payload.len);
