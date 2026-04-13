@@ -106,7 +106,7 @@ function makeRow(modeDef, block, run, method, latency_ms, transfer_bytes, error)
 // Shared constants
 // ---------------------------------------------------------------------------
 
-const MODE_NAMES = ['local', 'hybrid', 'lightclient', 'proxy', 'remote', 'direct'];
+const MODE_NAMES = ['local', 'lightclient', 'proxy', 'remote', 'direct'];
 
 function modeDisplayName(mode) {
   return mode === 'direct' ? 'unverified' : mode;
@@ -137,8 +137,6 @@ const MODE_DEFS = [
   { name: 'remote', pap: true, colibri: true, prover_mode: 'remote', prover: [PROVER_URL] },
   { name: 'proxy', pap: false, colibri: true, prover_mode: 'proxy', prover: [PROVER_URL] },
   { name: 'proxy', pap: true, colibri: true, prover_mode: 'proxy', prover: [PROVER_URL] },
-  { name: 'hybrid', pap: false, colibri: true, prover_mode: 'hybrid', prover: [PROVER_URL] },
-  { name: 'hybrid', pap: true, colibri: true, prover_mode: 'hybrid', prover: [PROVER_URL] },
   { name: 'lightclient', pap: false, colibri: true, prover_mode: 'light_client', prover: [PROVER_URL] },
   { name: 'lightclient', pap: true, colibri: true, prover_mode: 'light_client', prover: [PROVER_URL] },
 ];
@@ -452,54 +450,104 @@ function writeCSV(allRows, filename) {
 // Output: Markdown (gitbook-ready)
 // ---------------------------------------------------------------------------
 
+const PAP_EXCLUDED_METHODS = [
+  'eth_blockNumber',
+  'eth_getBlockByNumber(false)',
+  'eth_getBlockByNumber(true)',
+];
+
+// Columns shown in markdown tables: proxy is merged into remote (best value wins)
+const MD_COLUMNS = ['local', 'lightclient', 'remote', 'direct'];
+
 function writeMarkdown(agg, syncAgg, filename) {
-  const modes = MODE_NAMES;
   const methodLabels = METHOD_LABELS;
 
-  function lookup(mode, pap, method) {
+  function lookupRaw(mode, pap, method) {
     return agg[`${mode}|${pap}|${method}`];
   }
 
+  // For 'remote' column: pick the better entry between remote and proxy
+  function lookup(col, pap, method) {
+    if (col === 'remote') {
+      const r = lookupRaw('remote', pap, method);
+      const p = lookupRaw('proxy', pap, method);
+      if (!r) return p;
+      if (!p) return r;
+      return r.min_ms <= p.min_ms ? r : p;
+    }
+    return lookupRaw(col, pap, method);
+  }
+
+  const displayNames = MD_COLUMNS.map(modeDisplayName);
+
   let md = '';
 
-  md += '## End-to-End Performance\n\n';
+//  md += '## End-to-End Performance\n\n';
+//  md += 'Measured using the WASM client against `mainnet1.colibri-proof.tech`.  \n';
+//  md += `${NUM_BLOCKS} blocks, ${RUNS_PER_BLOCK} runs per block. Best-case (min) latency shown.\n\n`;
+
+  // --- Latency table ---
+  md += '## Latency\n\n';
   md += 'Measured using the WASM client against `mainnet1.colibri-proof.tech`.  \n';
-  md += `${NUM_BLOCKS} blocks, ${RUNS_PER_BLOCK} runs per block. Best-case (min) latency shown.\n\n`;
+  md += `${NUM_BLOCKS} blocks, ${RUNS_PER_BLOCK} runs per block.\n\n`;
 
-  const displayNames = modes.map(modeDisplayName);
-
-  // --- Latency table (no-PAP only for compactness) ---
-  md += '### Latency (best-case, ms)\n\n';
   md += `| Method | ${displayNames.join(' | ')} |\n`;
-  md += `|--------|${modes.map(() => '------').join('|')}|\n`;
+  md += `|--------|${MD_COLUMNS.map(() => '------').join('|')}|\n`;
 
   for (const method of methodLabels) {
-    const cells = modes.map((mode) => {
-      const entry = lookup(mode, 'off', method);
+    const cells = MD_COLUMNS.map((col) => {
+      const entry = lookup(col, 'off', method);
       if (!entry) return '-';
-      return fmtMs(mode == 'direct' ? entry.avg_ms : entry.min_ms);
+      return fmtMs(col === 'direct' ? entry.avg_ms : entry.min_ms);
     });
     md += `| ${method} | ${cells.join(' | ')} |\n`;
   }
 
+  // --- PAP impact (right after latency) ---
+  const verifiedCols = MD_COLUMNS.filter((m) => m !== 'direct');
+  const verifiedDisplayNames = verifiedCols.map(modeDisplayName);
+  const papMethods = methodLabels.filter((m) => !PAP_EXCLUDED_METHODS.includes(m));
+
+  md += '\n## PAP Impact on Latency \n\n';
+  md += `| Method | ${verifiedDisplayNames.join(' | ')} |\n`;
+  md += `|--------|${verifiedCols.map(() => '------').join('|')}|\n`;
+
+  for (const method of papMethods) {
+    const cells = verifiedCols.map((col) => {
+      const noPap = lookup(col, 'off', method);
+      const pap = lookup(col, 'on', method);
+      if (!noPap || !pap) return '-';
+      const best = pap.min_ms - noPap.min_ms;
+      const worst = pap.max_ms - noPap.min_ms;
+      const fmtDiff = (d) => (d >= 0 ? '+' : '') + fmtMs(d);
+      return method === 'eth_call' ? `${fmtDiff(best)} / ${fmtDiff(worst)}` : `${fmtDiff(best)}`;
+    });
+    md += `| ${method} | ${cells.join(' | ')} |\n`;
+  }
+
+  md += '\**Note:**: eth_call will require additional request when used for the first time to fill the cache, so a cold-request may take a bit longer, butrequesting the same or simiular data, will be very fast, since the storage is taken from the cache and verified afterwards.\n\n';
+
   // --- Transfer size table ---
   md += '\n### Transfer Size (avg, kB)\n\n';
+  md += 'The size of a payload depend on the method. **colibri.stateless** uses ssz while json-rpc returs a json-response from a RPC-provider:\n\n';
   md += `| Method | ${displayNames.join(' | ')} |\n`;
-  md += `|--------|${modes.map(() => '------').join('|')}|\n`;
+  md += `|--------|${MD_COLUMNS.map(() => '------').join('|')}|\n`;
 
   for (const method of methodLabels) {
-    const cells = modes.map((mode) => {
-      const entry = lookup(mode, 'off', method);
+    const cells = MD_COLUMNS.map((col) => {
+      const entry = lookup(col, 'off', method);
       if (!entry) return '-';
       return fmtKB(entry.avg_bytes);
     });
     md += `| ${method} | ${cells.join(' | ')} |\n`;
   }
 
+  md += '\n**Note:** So, while a complete block is often smaller than the corresponding JSON-RPC data (because colibri.stateless uses the binary SSZ-encoded execution payload from the beacon chain and extracts it directly), other methods such as eth_call require additional Merkle proofs for every accessed storage value before the EVM execution can be verified.\n';
+
   // --- Sync time (single best value across all modes) ---
   {
     const realSyncTimes = [];
-    for (const mode of modes) {
+    for (const mode of MODE_NAMES) {
       if (mode === 'direct') continue;
       for (const pap of ['off', 'on']) {
         const entry = syncAgg[`${mode}|${pap}`];
@@ -507,28 +555,7 @@ function writeMarkdown(agg, syncAgg, filename) {
       }
     }
     const bestSync = realSyncTimes.length ? Math.min(...realSyncTimes) : null;
-    md += `\n### Sync Time\n\nInitial sync (cold cache): **${bestSync != null ? fmtMs(bestSync) + ' ms' : '-'}**\n`;
-  }
-
-  // --- PAP impact (best / worst overhead) ---
-  const verifiedModes = modes.filter((m) => m !== 'direct');
-  const verifiedDisplayNames = verifiedModes.map(modeDisplayName);
-  md += '\n### PAP Impact on Latency (best / worst overhead, ms)\n\n';
-  md += `| Method | ${verifiedDisplayNames.join(' | ')} |\n`;
-  md += `|--------|${verifiedModes.map(() => '------').join('|')}|\n`;
-
-  for (const method of methodLabels) {
-    const cells = verifiedModes.map((mode) => {
-      const noPap = lookup(mode, 'off', method);
-      const pap = lookup(mode, 'on', method);
-      if (!noPap || !pap) return '-';
-      const best = pap.min_ms - noPap.min_ms;
-      const worst = pap.max_ms - noPap.min_ms;
-      const fmtDiff = (d) => (d >= 0 ? '+' : '') + fmtMs(d);
-
-      return method == 'eth_call' ? `${fmtDiff(best)} / ${fmtDiff(worst)}` : `${fmtDiff(best)}`;
-    });
-    md += `| ${method} | ${cells.join(' | ')} |\n`;
+    md += `\n## Sync Time\n\nThe first request takes a bit longer since it needs to fetch and verify the pubkeys of the sync_committee.\n\nInitial sync (cold cache): **${bestSync != null ? fmtMs(bestSync) + ' ms' : '-'}**\n`;
   }
 
   md += '\n';
@@ -541,8 +568,19 @@ function writeMarkdown(agg, syncAgg, filename) {
 // ---------------------------------------------------------------------------
 
 function printSummary(agg, syncAgg) {
-  const modes = MODE_NAMES;
+  const cols = MD_COLUMNS;
   const methodLabels = METHOD_LABELS;
+
+  function lookupBest(col, pap, method) {
+    if (col === 'remote') {
+      const r = agg[`remote|${pap}|${method}`];
+      const p = agg[`proxy|${pap}|${method}`];
+      if (!r) return p;
+      if (!p) return r;
+      return r.min_ms <= p.min_ms ? r : p;
+    }
+    return agg[`${col}|${pap}|${method}`];
+  }
 
   console.log('\n' + '='.repeat(80));
   console.log('BENCHMARK SUMMARY (best-case latency, ms)');
@@ -551,13 +589,13 @@ function printSummary(agg, syncAgg) {
   const colW = 14;
   const methW = 40;
 
-  const header = 'Method'.padEnd(methW) + modes.map((m) => modeDisplayName(m).padStart(colW)).join('');
+  const header = 'Method'.padEnd(methW) + cols.map((m) => modeDisplayName(m).padStart(colW)).join('');
   console.log(header);
   console.log('-'.repeat(header.length));
 
   for (const method of methodLabels) {
-    const cells = modes.map((mode) => {
-      const entry = agg[`${mode}|off|${method}`];
+    const cells = cols.map((col) => {
+      const entry = lookupBest(col, 'off', method);
       if (!entry) return '-'.padStart(colW);
       return (fmtMs(entry.min_ms) + 'ms').padStart(colW);
     });
@@ -568,7 +606,7 @@ function printSummary(agg, syncAgg) {
   console.log('SYNC TIME');
   console.log('-'.repeat(60));
   const realSyncTimes = [];
-  for (const mode of modes) {
+  for (const mode of MODE_NAMES) {
     if (mode === 'direct') continue;
     for (const pap of ['off', 'on']) {
       const entry = syncAgg[`${mode}|${pap}`];
