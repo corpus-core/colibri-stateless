@@ -1,3 +1,5 @@
+<img src="c4_logo.png" alt="C4 Logo" width="300"/>
+
 # @corpus-core/colibri-tor
 
 Tor network transport for [Colibri Stateless](https://github.com/corpus-core/colibri-stateless). Routes all RPC requests through [Tor](https://www.torproject.org/) for enhanced network-level privacy.
@@ -21,10 +23,8 @@ import { createBrowserFetch } from '@corpus-core/colibri-tor/browser';
 
 // Bootstrap starts immediately in the background (no await needed).
 // The first actual request will wait for bootstrap to complete.
-const torFetch = createBrowserFetch();
-
 const client = new Colibri({
-  fetch: torFetch,
+  fetch: createBrowserFetch(),
   prover: ['https://mainnet.colibri-proof.tech']
 });
 
