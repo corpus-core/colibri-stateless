@@ -13,7 +13,7 @@
 #   - Node.js >= 18
 #
 # Usage:
-#   npm run build:arti          # from bindings/emscripten/thor/
+#   npm run build:arti          # from bindings/emscripten/tor/
 #   bash scripts/build-arti.sh  # directly
 
 set -e
@@ -57,10 +57,10 @@ echo "=== Build complete ==="
 echo "WASM package: $ARTI_DIR/crates/tor-js/pkg/"
 echo "TS wrapper:   $TS_WRAPPER/dist/"
 
-# Install the local ts-wrapper as 'tor-js' into colibri-thor's node_modules.
+# Install the local ts-wrapper as 'tor-js' into colibri-tor's node_modules.
 # This makes `import('tor-js')` resolve at runtime.
 echo ""
-echo "Installing tor-js into colibri-thor..."
+echo "Installing tor-js into colibri-tor..."
 cd "$THOR_DIR"
 npm install "$TS_WRAPPER" --install-links
 echo "Done. tor-js is now available via import('tor-js')."

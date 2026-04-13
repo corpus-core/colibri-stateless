@@ -3,7 +3,7 @@
  *
  * tor-js is loaded dynamically at runtime and may not be installed.
  * This declaration provides type information for the subset of the
- * tor-js API used by colibri-thor. Once tor-js is published on npm
+ * tor-js API used by colibri-tor. Once tor-js is published on npm
  * with its own type declarations, this file can be removed.
  */
 declare module 'tor-js' {

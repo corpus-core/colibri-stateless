@@ -82,7 +82,16 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: build/emscripten
 
-      # --- colibri-thor: Build, Test, Version, Publish ---
+  colibri-tor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -96,38 +105,37 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            bindings/emscripten/thor/.arti-build
+            bindings/emscripten/tor/.arti-build
             ~/.cargo/registry
             ~/.cargo/git
-          key: arti-wasm-${{ hashFiles('bindings/emscripten/thor/scripts/build-arti.sh') }}
+          key: arti-wasm-${{ hashFiles('bindings/emscripten/tor/scripts/build-arti.sh') }}
           restore-keys: arti-wasm-
 
       - name: Build tor-js from source
         run: bash scripts/build-arti.sh
-        working-directory: bindings/emscripten/thor
+        working-directory: bindings/emscripten/tor
 
-      - name: Build colibri-thor
+      - name: Build colibri-tor
         run: npx tsc
-        working-directory: bindings/emscripten/thor
+        working-directory: bindings/emscripten/tor
 
-      - name: Test colibri-thor
-        run: |
-          cd bindings/emscripten/thor
-          npm test
+      - name: Test colibri-tor
+        run: npm test
+        working-directory: bindings/emscripten/tor
 
-      - name: Set colibri-thor version from tag
+      - name: Set colibri-tor version from tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          echo "Setting colibri-thor version to $TAG_VERSION"
+          echo "Setting colibri-tor version to $TAG_VERSION"
           npm version $TAG_VERSION --no-git-tag-version
-        working-directory: bindings/emscripten/thor
+        working-directory: bindings/emscripten/tor
 
-      - name: Publish colibri-thor to npm
+      - name: Publish colibri-tor to npm
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
           npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        working-directory: bindings/emscripten/thor
+        working-directory: bindings/emscripten/tor

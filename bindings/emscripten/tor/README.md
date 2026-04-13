@@ -1,4 +1,4 @@
-# @corpus-core/colibri-thor
+# @corpus-core/colibri-tor
 
 Tor network transport for [Colibri Stateless](https://github.com/corpus-core/colibri-stateless). Routes all RPC requests through [Tor](https://www.torproject.org/) for enhanced network-level privacy.
 
@@ -8,7 +8,7 @@ Tor network transport for [Colibri Stateless](https://github.com/corpus-core/col
 ## Installation
 
 ```sh
-npm install @corpus-core/colibri-thor @corpus-core/colibri-stateless
+npm install @corpus-core/colibri-tor @corpus-core/colibri-stateless
 ```
 
 ## Usage
@@ -17,7 +17,7 @@ npm install @corpus-core/colibri-thor @corpus-core/colibri-stateless
 
 ```typescript
 import Colibri from '@corpus-core/colibri-stateless';
-import { createBrowserFetch } from '@corpus-core/colibri-thor/browser';
+import { createBrowserFetch } from '@corpus-core/colibri-tor/browser';
 
 // Bootstrap starts immediately in the background (no await needed).
 // The first actual request will wait for bootstrap to complete.
@@ -41,7 +41,7 @@ Start a Tor daemon first (e.g. `tor --SocksPort 9050` or via your system's packa
 
 ```typescript
 import Colibri from '@corpus-core/colibri-stateless';
-import { createSocksFetch } from '@corpus-core/colibri-thor/node';
+import { createSocksFetch } from '@corpus-core/colibri-tor/node';
 
 const torFetch = await createSocksFetch({ socksPort: 9050 });
 
@@ -74,7 +74,7 @@ Creates a `fetch`-compatible function that routes requests through a local Tor S
 
 ## Building tor-js from source
 
-Until `tor-js` is published on npm, the CI automatically builds the Arti WASM package from source and bundles it with `@corpus-core/colibri-thor` via `bundleDependencies`. Users installing the published package get `tor-js` included -- no extra steps needed.
+Until `tor-js` is published on npm, the CI automatically builds the Arti WASM package from source and bundles it with `@corpus-core/colibri-tor` via `bundleDependencies`. Users installing the published package get `tor-js` included -- no extra steps needed.
 
 For local development, you can trigger the same build manually:
 

@@ -327,13 +327,13 @@ The constructor of the colibri client accepts a configuration-object, which may 
     Provide a custom `fetch` implementation to route all network traffic through Tor, a SOCKS proxy, or any other transport layer. The function must match the signature of `globalThis.fetch`. When not set, the standard `fetch` is used.
     ```js
     // Browser: route through Tor via Arti WASM (bootstrap runs in background)
-    import { createBrowserFetch } from '@corpus-core/colibri-thor/browser';
+    import { createBrowserFetch } from '@corpus-core/colibri-tor/browser';
     const torFetch = createBrowserFetch();
     new Colibri({ fetch: torFetch })
     ```
     ```js
     // Node.js: route through a locally running Tor SOCKS5 proxy
-    import { createSocksFetch } from '@corpus-core/colibri-thor/node';
+    import { createSocksFetch } from '@corpus-core/colibri-tor/node';
     const torFetch = await createSocksFetch({ socksPort: 9050 });
     new Colibri({ fetch: torFetch })
     ```
