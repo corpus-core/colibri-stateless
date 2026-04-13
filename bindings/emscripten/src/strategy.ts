@@ -57,7 +57,7 @@ function fetch_unverified_rpc(config: Config, req: RequestArguments, fetch_rpc: 
     if (!rpcs || !Array.isArray(rpcs) || rpcs.length === 0)
         throw new Error("No RPC- Endpoint configured");
 
-    return fetch_rpc(rpcs, req, false);
+    return fetch_rpc(rpcs, req, false, config.fetch);
 }
 
 

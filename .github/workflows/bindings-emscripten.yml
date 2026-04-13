@@ -81,3 +81,33 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: build/emscripten
+
+      # --- colibri-thor: Build, Test, Version, Publish ---
+
+      - name: Build colibri-thor
+        run: |
+          cd bindings/emscripten/thor
+          npm install --ignore-scripts 2>/dev/null || true
+          npx tsc
+
+      - name: Test colibri-thor
+        run: |
+          cd bindings/emscripten/thor
+          npm test
+
+      - name: Set colibri-thor version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Setting colibri-thor version to $TAG_VERSION"
+          npm version $TAG_VERSION --no-git-tag-version
+        working-directory: bindings/emscripten/thor
+
+      - name: Publish colibri-thor to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: bindings/emscripten/thor

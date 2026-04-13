@@ -1,0 +1,88 @@
+# @corpus-core/colibri-thor
+
+Tor network transport for [Colibri Stateless](https://github.com/corpus-core/colibri-stateless). Routes all RPC requests through [Tor](https://www.torproject.org/) for enhanced network-level privacy.
+
+- **Browser**: Uses [Arti](https://gitlab.torproject.org/tpo/core/arti) compiled to WebAssembly via [tor-js](https://github.com/voltrevo/arti) -- no browser extension or external software needed.
+- **Node.js**: Connects to a locally running Tor SOCKS5 proxy -- zero dependencies, pure `node:net`/`node:tls` implementation.
+
+## Installation
+
+```sh
+npm install @corpus-core/colibri-thor @corpus-core/colibri-stateless
+```
+
+## Usage
+
+### Browser (Arti WASM)
+
+```typescript
+import Colibri from '@corpus-core/colibri-stateless';
+import { createBrowserFetch } from '@corpus-core/colibri-thor/browser';
+
+// Bootstrap Tor in the browser (takes a few seconds on first load)
+const torFetch = await createBrowserFetch({
+  gateway: 'https://tor-js-gateway.voltrevo.com'
+});
+
+const client = new Colibri({
+  fetch: torFetch,
+  prover: ['https://mainnet.colibri-proof.tech']
+});
+
+const balance = await client.request({
+  method: 'eth_getBalance',
+  params: ['0x...', 'latest']
+});
+```
+
+### Node.js (SOCKS5 Proxy)
+
+Start a Tor daemon first (e.g. `tor --SocksPort 9050` or via your system's package manager), then:
+
+```typescript
+import Colibri from '@corpus-core/colibri-stateless';
+import { createSocksFetch } from '@corpus-core/colibri-thor/node';
+
+const torFetch = await createSocksFetch({ socksPort: 9050 });
+
+const client = new Colibri({
+  fetch: torFetch,
+  prover: ['https://mainnet.colibri-proof.tech']
+});
+```
+
+## API
+
+### `createBrowserFetch(options?): Promise<typeof fetch>`
+
+Creates a `fetch`-compatible function that routes requests through Tor via Arti WASM. Browser only.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `gateway` | `string` | `undefined` | WebSocket/WebRTC gateway URL for Tor relay connections |
+| `onBootstrap` | `(ms: number) => void` | `undefined` | Callback when Tor bootstrap completes |
+| `logLevel` | `LogLevel` | `'warn'` | Arti log level (`'trace'` \| `'debug'` \| `'info'` \| `'warn'` \| `'error'`) |
+
+### `createSocksFetch(options?): Promise<typeof fetch>`
+
+Creates a `fetch`-compatible function that routes requests through a local Tor SOCKS5 proxy. Node.js only.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `socksHost` | `string` | `'127.0.0.1'` | SOCKS5 proxy hostname |
+| `socksPort` | `number` | `9050` | SOCKS5 proxy port |
+
+## Building tor-js from source
+
+Until `tor-js` is published on npm, you can build the Arti WASM artifacts from source:
+
+```sh
+# Requires: Rust toolchain, wasm-pack, Node.js
+npm run build:arti
+```
+
+This clones [voltrevo/arti](https://github.com/voltrevo/arti), builds the WASM package, and copies the artifacts into `src/vendor/`.
+
+## License
+
+MIT
