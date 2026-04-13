@@ -116,7 +116,9 @@ jobs:
         working-directory: bindings/emscripten/tor
 
       - name: Build colibri-tor
-        run: npx tsc
+        run: |
+          npm install
+          npx tsc
         working-directory: bindings/emscripten/tor
 
       - name: Test colibri-tor
