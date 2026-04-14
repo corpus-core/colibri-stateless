@@ -52,5 +52,18 @@ fi
 
 echo ""
 echo "Step 3: Publishing to pub.dev..."
-cd "$PLUGIN_DIR"
-dart pub publish "$@"
+
+# Copy package to a temp directory outside the monorepo so parent .gitignore
+# rules don't hide the native binaries from dart pub publish.
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+rsync -a \
+  --exclude='.dart_tool/' \
+  --exclude='.git/' \
+  --exclude='build/' \
+  --exclude='pubspec_overrides.yaml' \
+  "$PLUGIN_DIR/" "$TMP_DIR/"
+
+echo "Publishing colibri_flutter from $TMP_DIR (outside monorepo .gitignore)"
+(cd "$TMP_DIR" && dart pub publish "$@")

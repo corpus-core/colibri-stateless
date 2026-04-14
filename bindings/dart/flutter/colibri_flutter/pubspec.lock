@@ -37,10 +37,10 @@ packages:
     dependency: "direct main"
     description:
       name: colibri_stateless
-      sha256: "1b0c7e5d281d77b93bc0d88bba3462ed65f59c0694a0efcfa56b21745ba4aab7"
+      sha256: "2544d5057fed7c19d63565444211564f5cdda78475eee44f0fdce7ac1fcbb3ce"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.8"
+    version: "0.1.9"
   collection:
     dependency: transitive
     description:

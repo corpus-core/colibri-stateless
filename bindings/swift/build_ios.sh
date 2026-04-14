@@ -17,7 +17,7 @@ BUILD_iOS_ARM_SIM_DIR="$BUILD_ROOT/ios_arm64_sim"
 
 # Cleanup alte iOS Builds
 echo "🧹 Cleanup alte iOS Builds..."
-rm -rf "$BUILD_ROOT"
+# rm -rf "$BUILD_ROOT"  # Disabled: incremental builds save re-cloning
 
 # Prüfe ob wir auf macOS sind
 if [[ "$(uname)" != "Darwin" ]]; then
@@ -62,6 +62,18 @@ build_ios_arch() {
         resolved_sysroot="iphonesimulator"
     fi
 
+    # Pre-populate FetchContent sources from Android build to avoid re-cloning
+    local android_deps="$ROOT_DIR/build/flutter-android-arm64-v8a/_deps"
+    if [[ -d "$android_deps" ]]; then
+        local fc_base="$build_dir/_deps"
+        mkdir -p "$fc_base"
+        for repo in blst-src evmone_external-src intx-src; do
+            if [[ -d "$android_deps/$repo" && ! -d "$fc_base/$repo" ]]; then
+                cp -R "$android_deps/$repo" "$fc_base/$repo"
+            fi
+        done
+    fi
+
     cmake \
         -DSWIFT=true \
         -DCHAIN_OP=ON \
@@ -71,6 +83,7 @@ build_ios_arch() {
         -DCMAKE_OSX_ARCHITECTURES="$arch" \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="13.0" \
         -DCMAKE_BUILD_TYPE=Release \
+        -DFETCHCONTENT_UPDATES_DISCONNECTED=ON \
         -B "$build_dir" \
         .
     

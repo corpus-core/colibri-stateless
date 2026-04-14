@@ -1,3 +1,8 @@
+## 0.1.9
+
+- Added `c4_rpc_set_proxy_urls` FFI binding for configurable proxy RPC/Beacon endpoints.
+- Rebuilt native shared library (`libcolibri.dylib` / `libcolibri.so`) with latest C API.
+
 ## 0.1.8
 
 - Configurable timeouts: added `rpcTimeout` (default 30s) and `proverTimeout` (default 120s) to `Colibri` constructor, replacing hardcoded 30s timeouts.
