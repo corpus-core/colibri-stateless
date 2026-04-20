@@ -1,7 +1,7 @@
 {
-    "name": "@corpus-core/colibri-explainer",
+    "name": "@corpus-core/colibri-tor",
     "version": "0.1.0",
-    "description": "LLM-powered transaction simulation explainer for Colibri Stateless. Takes simulation results from colibri_simulateTransaction and produces human-readable explanations via configurable LLM providers.",
+    "description": "Tor network transport for Colibri Stateless. Routes RPC requests through Tor for enhanced privacy -- via Arti WASM in browsers, via SOCKS5 proxy in Node.js.",
     "main": "dist/index.js",
     "type": "module",
     "types": "dist/index.d.ts",
@@ -9,36 +9,45 @@
         ".": {
             "types": "./dist/index.d.ts",
             "import": "./dist/index.js"
+        },
+        "./browser": {
+            "types": "./dist/browser.d.ts",
+            "import": "./dist/browser.js"
+        },
+        "./node": {
+            "types": "./dist/node.d.ts",
+            "import": "./dist/node.js"
         }
     },
     "files": [
         "dist",
         "README.md"
     ],
+    "bundleDependencies": [
+        "tor-js"
+    ],
     "scripts": {
         "build": "tsc",
+        "build:arti": "bash scripts/build-arti.sh",
         "test": "node --test test/*.test.mjs"
     },
     "repository": {
         "type": "git",
         "url": "git+https://github.com/corpus-core/c4.git",
-        "directory": "bindings/emscripten/explainer"
+        "directory": "bindings/emscripten/packages/tor"
     },
     "keywords": [
         "ethereum",
-        "transaction",
-        "simulation",
-        "explainer",
-        "llm",
-        "colibri"
+        "tor",
+        "arti",
+        "privacy",
+        "socks5",
+        "colibri",
+        "stateless"
     ],
     "author": "Simon Jentzsch <simon@corpus.io>",
     "license": "MIT",
-    "dependencies": {
-        "@solidity-parser/parser": "^0.20.2",
-        "ethers": "^6.16.0",
-        "solc": "^0.8.34"
-    },
+    "dependencies": {},
     "peerDependencies": {
         "@corpus-core/colibri-stateless": ">=0.1.0"
     },
@@ -46,6 +55,9 @@
         "@corpus-core/colibri-stateless": {
             "optional": true
         }
+    },
+    "devDependencies": {
+        "typescript": "^5.5.0"
     },
     "publishConfig": {
         "access": "public"

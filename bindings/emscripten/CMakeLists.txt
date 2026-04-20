@@ -55,8 +55,8 @@ file(MAKE_DIRECTORY ${EMSCRIPTEN_OUTPUT_DIR})
 get_filename_component(EMSCRIPTEN_OUTPUT_DIR_ABS ${EMSCRIPTEN_OUTPUT_DIR} ABSOLUTE)
 
 # Configure the Webpack helper file
-set(WEBPACK_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/webpack/webpack_build_config.js.in")
-set(WEBPACK_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/webpack/webpack_build_config.mjs")
+set(WEBPACK_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/test/webpack/webpack_build_config.js.in")
+set(WEBPACK_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/test/webpack/webpack_build_config.mjs")
 configure_file(
   ${WEBPACK_CONFIG_TEMPLATE}
   ${WEBPACK_CONFIG_OUTPUT}
@@ -64,8 +64,8 @@ configure_file(
 )
 
 # Configure the RN-web test helper file (so the project can find the correct build output dir)
-set(RN_WEB_TEST_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/rn-web-test/rn_web_test_build_config.cjs.in")
-set(RN_WEB_TEST_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/rn-web-test/rn_web_test_build_config.cjs")
+set(RN_WEB_TEST_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/test/rn-web/rn_web_test_build_config.cjs.in")
+set(RN_WEB_TEST_CONFIG_OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/test/rn-web/rn_web_test_build_config.cjs")
 configure_file(
   ${RN_WEB_TEST_CONFIG_TEMPLATE}
   ${RN_WEB_TEST_CONFIG_OUTPUT}
