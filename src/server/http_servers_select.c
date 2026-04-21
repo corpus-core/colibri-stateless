@@ -1414,13 +1414,12 @@ static bytes_t convert_lighthouse_to_ssz(data_request_t* req, json_t result, uin
   uint64_t            slots_per_epoch = slot_for_period(1, chain);
   c4_state_t          state           = {0};
   buffer_t            response        = {0};
-
   int found = 0;
   json_for_each_value(result, entry) {
     json_t   data = json_get(entry, "data");
     uint64_t slot = json_get_uint64(json_get(json_get(data, "attested_header"), "beacon"), "slot");
     if (slot >= slot_start + found * slots_per_epoch && slot < slot_start + (found + 1) * slots_per_epoch && found < count) {
-      const ssz_def_t* client_update_def = eth_get_light_client_update(c4_chain_fork_id(chain->chain_id, slot));
+      const ssz_def_t* client_update_def = eth_get_light_client_update(c4_chain_fork_id(chain->chain_id, epoch_for_slot(slot, chain)));
       if (!client_update_def) continue;
       ssz_ob_t ob = ssz_from_json(data, client_update_def, &state);
       if (state.error) {
