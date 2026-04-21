@@ -56,7 +56,7 @@ static void debug_print_bytes32(const char* prefix, const evmc_bytes32* data) {
 #define debug_print_bytes32(prefix, data) (void) 0
 #endif
 
-#define EVMC_REV_PRAGUE 13
+#define EVMC_REV_OSAKA 14
 
 static const char* evmone_status_message(int code) {
   static const char* positive_msgs[] = {
@@ -421,7 +421,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       ctx->executor,
       &host_interface,
       &child,
-      EVMC_REV_PRAGUE,
+      EVMC_REV_OSAKA,
       msg,
       execution_code,
       execution_code_size);
@@ -799,7 +799,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       executor,
       &host_interface,
       &context,
-      EVMC_REV_PRAGUE,
+      EVMC_REV_OSAKA,
       &message,
       code.data,
       code.len);
