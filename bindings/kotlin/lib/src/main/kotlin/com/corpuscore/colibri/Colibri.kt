@@ -27,6 +27,11 @@ package com.corpuscore.colibri
 //import c4
 import kotlin.concurrent.withLock
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONArray
@@ -54,6 +59,14 @@ enum class MethodType(val value: Int) {
 enum class PrivacyMode {
     NONE,
     BASIC
+}
+
+enum class ProverMode(val value: Int) {
+    LOCAL(0),
+    REMOTE(1),
+    HYBRID(2),
+    PROXY(3),
+    LIGHT_CLIENT(4)
 }
 
 // Custom Exception for Colibri errors
@@ -96,7 +109,10 @@ class Colibri(
     var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
     var useAccesslist: Boolean = false,
+    var zkProof: Boolean = false,
     var privacyMode: PrivacyMode = PrivacyMode.NONE, // PAP mode; BASIC sets verify flag
+    var proverMode: ProverMode? = null, // null = auto-detect (REMOTE if provers configured, else LOCAL)
+    var checkpointWitnessKeys: String? = null,
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
     companion object {
@@ -127,6 +143,9 @@ class Colibri(
              requestTimeout = 30_000 // 30 seconds timeout
         }
     }
+
+    private val lightClientScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var lightClientJob: Job? = null
 
     /** Returns verify flags (e.g. VERIFY_FLAG_PAP) from privacyMode. Centralized so future flags can be added in one place. */
     private fun getVerifyFlags(): Long = if (privacyMode == PrivacyMode.BASIC) 2L else 0L
@@ -513,81 +532,117 @@ class Colibri(
         }
     }
 
-     // Add rpc method implementation
-     suspend fun rpc(method: String, args: Array<Any?>): Any? { // Allow nullable args, return Any?
-         val argsJson = org.json.JSONArray(args.toList()).toString()
-         val methodType = getMethodSupport(method, argsJson)
-         var proof: ByteArray = byteArrayOf() // Initialize empty proof
+    // Unified RPC execution via the C core state machine.
+    suspend fun rpc(method: String, args: Array<Any?>): Any? {
+        return withContext(Dispatchers.IO) {
+            val jsonArgs = formatArgsArray(args)
+            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (zkProof) (1L shl 7) else 0L)
+            val resolvedMode = proverMode ?: if (provers.isEmpty()) ProverMode.LOCAL else ProverMode.REMOTE
+            val nativeMode = if (resolvedMode == ProverMode.LIGHT_CLIENT) ProverMode.HYBRID.value else resolvedMode.value
 
-//         println("rpc: Method $method, Type: $methodType, Args: ${formatArgsArray(args)}")
+            val ctx = com.corpuscore.colibri.c4.c4_create_rpc_ctx(method, jsonArgs, chainId, proverFlags, getVerifyFlags(), nativeMode)
+                ?: throw ColibriException("Failed to create RPC context for method $method")
 
-         when (methodType) {
-             MethodType.PROOFABLE -> {
-                 // TODO: Implement optional verify hook if needed
-                 if (provers.isNotEmpty()) {
-                  //   println("rpc: Fetching proof for $method from prover...")
-                     proof = try {
-                          fetchRpc(provers, method, formatArgsArray(args), true)
-                     } catch (e: Exception) {
-                          println("rpc: Failed to fetch proof from prover, falling back to local creation. Error: ${e.message}")
-                          println("rpc: Creating proof locally for $method...")
-                          getProof(method, args) // Create proof locally if fetch fails
-                     }
+            if (resolvedMode == ProverMode.PROXY) {
+                com.corpuscore.colibri.c4.c4_rpc_set_proxy_urls(ctx, ethRpcs.joinToString(","), beaconApis.joinToString(","))
+            }
 
-                 } else {
-//                     println("rpc: Creating proof locally for $method...")
-                     proof = getProof(method, args)
-                 }
-//                 println("rpc: Obtained proof (${proof.size} bytes) for $method.")
-                 // Verification happens below
-             }
-             MethodType.UNPROOFABLE -> {
-//                 println("rpc: Method $method is UNPROOFABLE, fetching directly...")
-                 val responseData = fetchRpc(ethRpcs, method, formatArgsArray(args), false)
-//                 println("rpc: Fetched direct response (${responseData.size} bytes) for $method.")
-                 // Parse JSON response
-                 return try {
-                      val jsonString = responseData.toString(Charsets.UTF_8)
-                      if (jsonString.isBlank()) { // Handle empty response (e.g., 204 No Content)
-                            null
-                      } else {
-                          val jsonResponse = JSONObject(jsonString)
-                          if (jsonResponse.has("error") && jsonResponse.get("error") != JSONObject.NULL) {
-                              val errorObj = jsonResponse.getJSONObject("error")
-                              throw ColibriException("RPC Error for $method: ${errorObj.optString("message", "Unknown error")}")
-                          }
-                          if (jsonResponse.has("result")) {
-                              val result = jsonResponse.get("result")
-                              if (result == JSONObject.NULL) null else result // Return null if JSON result is null
-                          } else {
-                               // Neither error nor result - treat as success with null result?
-                               null
-                          }
-                      }
+            val checkpointStr = trustedCheckpoint
+            if (!checkpointStr.isNullOrEmpty()) {
+                com.corpuscore.colibri.c4.c4_set_checkpoint(chainId, checkpointStr)
+            }
+            val witnessKeys = checkpointWitnessKeys
+            if (!witnessKeys.isNullOrEmpty()) {
+                com.corpuscore.colibri.c4.c4_rpc_set_witness_keys(ctx, witnessKeys)
+            }
 
-                 } catch (e: Exception) {
-                      throw ColibriException("Failed to parse direct RPC response for $method: ${e.message}")
-                 }
-             }
-             MethodType.NOT_SUPPORTED -> {
-                 println("rpc: Method $method is NOT_SUPPORTED.")
-                 throw ColibriException("Method $method is not supported")
-             }
-             MethodType.LOCAL -> {
-//                 println("rpc: Method $method is LOCAL, proceeding with verification (empty proof).")
-                 proof = byteArrayOf() // Ensure proof is empty for local verification
-                 // Verification happens below
-             }
-             MethodType.UNKNOWN -> {
-                 println("rpc: Method $method has UNKNOWN type.")
-                 throw ColibriException("Method $method has unknown support type")
-             }
-         }
+            val maxIterations = 50
+            var iteration = 0
 
-         // Verify the proof (either created/fetched for PROOFABLE, or empty for LOCAL)
-//         println("rpc: Verifying proof for $method...")
-         return verifyProof(proof, method, args)
-     }
+            try {
+                while (iteration < maxIterations) {
+                    iteration++
+                    val statusJsonPtr = com.corpuscore.colibri.c4.c4_rpc_execute_json_status(ctx)
+                        ?: throw ColibriException("RPC execution returned null status for method $method")
+                    val stateString = statusJsonPtr.toString()
+
+                    val state = try {
+                        JSONObject(stateString)
+                    } catch (e: Exception) {
+                        throw ColibriException("Failed to parse RPC status JSON: ${e.message}")
+                    }
+
+                    when (state.getString("status")) {
+                        "success" -> {
+                            if (state.has("result")) {
+                                val result = state.get("result")
+                                return@withContext if (result == JSONObject.NULL) null else convertJsonToJava(result)
+                            }
+                            return@withContext null
+                        }
+                        "error" -> {
+                            throw ColibriException("RPC error for method $method: ${state.optString("error", "Unknown error")}")
+                        }
+                        "pending" -> {
+                            val requests = state.optJSONArray("requests") ?: JSONArray()
+                            for (i in 0 until requests.length()) {
+                                val request = requests.getJSONObject(i)
+                                val type = request.optString("type", "eth_rpc")
+                                val servers = when (type) {
+                                    "checkpointz" -> checkpointz
+                                    "beacon_api" -> if (provers.isNotEmpty()) provers else beaconApis
+                                    "prover" -> provers
+                                    else -> ethRpcs
+                                }
+                                try {
+                                    fetchRequest(servers, request)
+                                } catch (e: Exception) {
+                                    println("Error handling pending request $i: ${e.message}")
+                                }
+                            }
+                        }
+                        else -> throw ColibriException("Unknown RPC status: ${state.getString("status")}")
+                    }
+                }
+                throw ColibriException("rpc exceeded max iterations ($maxIterations) for method $method")
+            } finally {
+                com.corpuscore.colibri.c4.c4_free_rpc_ctx(ctx)
+            }
+        }
+    }
+
+    /**
+     * Starts background polling to keep the block header cache warm.
+     * Useful for [ProverMode.LIGHT_CLIENT].
+     *
+     * By default polls `eth_getBlockHeader("latest")` which fetches only the
+     * compact header proof. Set [fullBlock] to `true` to poll
+     * `eth_getBlockByNumber("latest")` instead -- useful when many
+     * `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow,
+     * since those need the full block data.
+     *
+     * @param intervalMs polling interval in milliseconds (default: 12000 = one Ethereum slot)
+     * @param fullBlock if true, fetch the full block instead of just the header (default: false)
+     */
+    fun startLightClient(intervalMs: Long = 12_000, fullBlock: Boolean = false) {
+        stopLightClient()
+        val method = if (fullBlock) "eth_getBlockByNumber" else "eth_getBlockHeader"
+        val params: Array<Any?> = if (fullBlock) arrayOf("latest", false) else arrayOf("latest")
+        lightClientJob = lightClientScope.launch {
+            while (true) {
+                try {
+                    rpc(method, params)
+                } catch (_: Exception) { }
+                delay(intervalMs)
+            }
+        }
+    }
+
+    /** Stops background light client polling started by [startLightClient]. */
+    fun stopLightClient() {
+        lightClientJob?.cancel()
+        lightClientJob = null
+    }
 }
 
 // Helper function to convert org.json types to standard Java/Kotlin types

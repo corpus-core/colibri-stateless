@@ -346,7 +346,8 @@ class FileBasedMockStorage(ColibriStorage):
         file_path = self._find_file_with_truncation(key)
         if file_path:
             data = file_path.read_bytes()
-            # Load file from storage
+            if key.startswith('tx_pending_'):
+                data = self._refresh_pending_timestamps(data)
             self._cache[key] = data
             return data
         else:
@@ -354,6 +355,17 @@ class FileBasedMockStorage(ColibriStorage):
             self._cache[key] = None
             return None
     
+    @staticmethod
+    def _refresh_pending_timestamps(data: bytes) -> bytes:
+        """Refresh timestamps in pending tx entries so the TTL check always passes.
+        Each entry is 40 bytes: 32 bytes tx_hash + 8 bytes uint64 LE timestamp."""
+        import struct, time
+        buf = bytearray(data)
+        now = int(time.time())
+        for i in range(0, len(buf) - 39, 40):
+            struct.pack_into('<Q', buf, i + 32, now)
+        return bytes(buf)
+
     def set(self, key: str, value: bytes) -> None:
         # Cache value in mock storage
         self._cache[key] = value
@@ -426,7 +438,7 @@ class FileBasedMockRequestHandler:
             params = request.payload.get('params', [])
             base_name = method
             for param in params:
-                param_str = param if isinstance(param, str) else json.dumps(param)
+                param_str = param if isinstance(param, str) else json.dumps(param, separators=(',', ':'))
                 base_name += '_' + param_str
             # Sanitize the base name
             for char in ['/', '.', ',', ' ', ':', '=', '?', '"', '&', '[', ']', '{', '}']:
@@ -526,7 +538,11 @@ def discover_tests(test_data_root=None):
                 'method': test_config['method'],
                 'params': test_config['params'],
                 'chain_id': test_config['chain_id'],
-                'expected_result': test_config.get('expected_result')
+                'expected_result': test_config.get('expected_result'),
+                'pap': test_config.get('pap', False),
+                'remote_prover': test_config.get('remote_prover', False),
+                'include_code': test_config.get('include_code', False),
+                'use_accesslist': test_config.get('use_accesslist', False),
             }
             
             test_cases.append(test_case)
@@ -548,12 +564,18 @@ async def run_test_case(test_case):
     # Lazy import to avoid circular import issues
     from .client import Colibri
     
+    from .types import PrivacyMode
+
     test_name = test_case['name']
     test_dir = test_case['directory']
     method = test_case['method']
     params = test_case['params']
     chain_id = test_case['chain_id']
     expected_result = test_case.get('expected_result')
+    pap = test_case.get('pap', False)
+    remote_prover = test_case.get('remote_prover', False)
+    include_code = test_case.get('include_code', False)
+    use_accesslist = test_case.get('use_accesslist', False)
     
     print(f"\nRunning test: {test_name}")
     print(f"   Method: {method}")
@@ -563,10 +585,14 @@ async def run_test_case(test_case):
     mock_storage = FileBasedMockStorage(test_dir)
     mock_request_handler = FileBasedMockRequestHandler(test_dir)
     
-    # Create client with NO provers to force local proof creation
+    # Only tests with remote_prover:true use a mock prover URL;
+    # all others use an empty provers list to force local proof creation.
     client = Colibri(
         chain_id=chain_id,
-        provers=[],  # CRITICAL: No remote provers! Use only mock data
+        provers=['http://mock-prover'] if remote_prover else [],
+        include_code=include_code,
+        use_accesslist=use_accesslist,
+        privacy_mode=PrivacyMode.BASIC if pap else PrivacyMode.NONE,
         storage=mock_storage,
         request_handler=mock_request_handler
     )

@@ -76,7 +76,7 @@ static void memory_delete(char* key) {
   while (*p) {
     if (strcmp((*p)->key, key) == 0) {
       mem_entry_t* e = *p;
-      *p = e->next;
+      *p             = e->next;
       safe_free(e->key);
       safe_free(e->value.data);
       safe_free(e);
@@ -183,4 +183,15 @@ void c4_set_parallel_for(c4_parallel_for_fn fn) {
 
 c4_parallel_for_fn c4_get_parallel_for(void) {
   return g_parallel_for;
+}
+
+bytes_t c4_get_client_state(chain_id_t chain_id) {
+  storage_plugin_t storage = {0};
+  c4_get_storage_config(&storage);
+  char name[100] = {0};
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
+  buffer_t state_buf = {0};
+  if (storage.get && storage.get(name, &state_buf) && state_buf.data.data && state_buf.data.len)
+    return state_buf.data;
+  return NULL_BYTES;
 }

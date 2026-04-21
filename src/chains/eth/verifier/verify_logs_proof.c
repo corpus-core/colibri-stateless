@@ -25,6 +25,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "eth_bloom.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
@@ -37,6 +38,42 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define GINDEX_TX_IN_LOGS_LIST_BASE 2097152L
+
+static bool verify_hybrid_tx_multi_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t receipt_root) {
+  ssz_ob_t  header_data = ssz_get(&block, "header_data");
+  ssz_ob_t  tx_proof_ob = ssz_get(&block, "txProof");
+  ssz_ob_t  txs         = ssz_get(&block, "txs");
+  int       tx_count    = ssz_len(txs);
+
+  bytes_t receipts_root = ssz_get(&header_data, "receiptsRoot").bytes;
+  bytes_t tx_root       = ssz_get(&header_data, "transactionsRoot").bytes;
+
+  if (!receipts_root.data || receipts_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid receiptsRoot in header_data");
+  if (!tx_root.data || tx_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid transactionsRoot in header_data");
+  if (memcmp(receipt_root, receipts_root.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "receiptsRoot mismatch!");
+
+  if (!tx_proof_ob.bytes.data || !tx_proof_ob.bytes.len) RETURN_VERIFY_ERROR(ctx, "missing txProof in hybrid logs block");
+
+  uint8_t*  leafes   = safe_calloc(tx_count, 32);
+  gindex_t* gindexes = safe_calloc(tx_count, sizeof(gindex_t));
+
+  for (int i = 0; i < tx_count; i++) {
+    ssz_ob_t tx = ssz_at(txs, i);
+    ssz_hash_tree_root(ssz_ob(ssz_transactions_bytes, ssz_get(&tx, "transaction").bytes), leafes + 32 * i);
+    gindexes[i] = GINDEX_TX_IN_LOGS_LIST_BASE + ssz_get_uint64(&tx, "transactionIndex");
+  }
+
+  bytes32_t computed_root = {0};
+  bool      valid         = ssz_verify_multi_merkle_proof(tx_proof_ob.bytes, bytes(leafes, tx_count * 32), gindexes, computed_root);
+  safe_free(leafes);
+  safe_free(gindexes);
+
+  if (!valid) RETURN_VERIFY_ERROR(ctx, "invalid txProof in hybrid logs block!");
+  if (memcmp(computed_root, tx_root.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "transactionsRoot mismatch in hybrid logs block!");
+  return true;
+}
 
 static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t receipt_root) {
   ssz_ob_t  txs          = ssz_get(&block, "txs");
@@ -118,10 +155,54 @@ static c4_status_t verif_block(verify_ctx_t* ctx, ssz_ob_t block) {
   return c4_verify_header(ctx, header, block);
 }
 
-static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index, uint32_t block_count) {
+static bool verify_hybrid_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, bytes32_t receipt_root) {
+  bytes_t   raw_receipt  = {0};
+  bytes32_t root_hash    = {0};
+  uint32_t  log_len      = ssz_len(ctx->data);
+  ssz_ob_t  tidx         = ssz_get(&tx, "transactionIndex");
+  ssz_ob_t  header_data  = ssz_get(&block, "header_data");
+  bytes_t   block_hash   = ssz_get(&header_data, "blockHash").bytes;
+  ssz_ob_t  block_number = ssz_get(&header_data, "blockNumber");
+
+  if (ctx->data.def->type == SSZ_TYPE_NONE && ctx->method && strcmp(ctx->method, "eth_verifyLogs") == 0) {
+    ctx->data = ssz_from_json(ctx->args, eth_ssz_verification_type(ETH_SSZ_DATA_LOGS), &ctx->state);
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+
+  if (!c4_tx_verify_receipt_proof(ctx, ssz_get(&tx, "proof"), ssz_uint32(tidx), root_hash, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
+  if (bytes_all_zero(bytes(receipt_root, 32)))
+    memcpy(receipt_root, root_hash, 32);
+  else if (memcmp(receipt_root, root_hash, 32) != 0)
+    RETURN_VERIFY_ERROR(ctx, "invalid receipt proof, receipt root mismatch!");
+
+  for (int i = 0; i < log_len; i++) {
+    ssz_ob_t log = ssz_at(ctx->data, i);
+    if (bytes_eq(block_number.bytes, ssz_get(&log, "blockNumber").bytes) && bytes_eq(tidx.bytes, ssz_get(&log, "transactionIndex").bytes)) {
+      if (!c4_tx_verify_log_data(ctx, log, block_hash.data, ssz_uint64(block_number), ssz_uint32(tidx), ssz_get(&tx, "transaction").bytes, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid log data!");
+    }
+  }
+  return true;
+}
+
+static c4_status_t verif_hybrid_block(verify_ctx_t* ctx, ssz_ob_t block) {
+  ssz_ob_t  txs          = ssz_get(&block, "txs");
+  bytes32_t receipt_root  = {0};
+  uint32_t  tx_count      = ssz_len(txs);
+
+  for (int i = 0; i < tx_count; i++) {
+    if (!verify_hybrid_tx(ctx, block, ssz_at(txs, i), receipt_root)) THROW_ERROR("invalid receipt proof!");
+  }
+  if (!verify_hybrid_tx_multi_proof(ctx, block, receipt_root)) THROW_ERROR("invalid tx proof!");
+  return C4_SUCCESS;
+}
+
+static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index, uint32_t block_count, bool hybrid) {
   for (int i = 0; i < block_count; i++) {
-    ssz_ob_t block = ssz_at(ctx->proof, i);
-    if (bytes_eq(block_number, ssz_get(&block, "blockNumber").bytes)) {
+    ssz_ob_t block    = ssz_at(ctx->proof, i);
+    bytes_t  block_bn = hybrid
+                             ? ssz_get(&(ssz_ob_t) {.bytes = ssz_get(&block, "header_data").bytes, .def = ssz_get(&block, "header_data").def}, "blockNumber").bytes
+                             : ssz_get(&block, "blockNumber").bytes;
+    if (bytes_eq(block_number, block_bn)) {
       ssz_ob_t txs      = ssz_get(&block, "txs");
       uint32_t tx_count = ssz_len(txs);
       for (int j = 0; j < tx_count; j++) {
@@ -136,20 +217,38 @@ static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index,
 }
 
 bool verify_logs_proof(verify_ctx_t* ctx) {
+  bool     is_hybrid    = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF));
+  uint32_t log_count    = ssz_len(ctx->data);
+  uint32_t block_count  = ssz_len(ctx->proof);
 
-  uint32_t log_count   = ssz_len(ctx->data);
-  uint32_t block_count = ssz_len(ctx->proof);
+  if (is_hybrid && !(ctx->flags & VERIFY_FLAG_HYBRID))
+    RETURN_VERIFY_ERROR(ctx, "hybrid logs proof requires hybrid mode!");
 
-  // verify each block we have a proof for
   for (int i = 0; i < block_count; i++) {
-    if (verif_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
+    if (is_hybrid) {
+      if (verif_hybrid_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
+    }
+    else {
+      if (verif_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
+    }
   }
 
-  // make sure we have a proof for each log
   for (int i = 0; i < log_count; i++) {
     ssz_ob_t log = ssz_at(ctx->data, i);
-    if (!has_proof(ctx, ssz_get(&log, "blockNumber").bytes, ssz_get(&log, "transactionIndex").bytes, block_count)) RETURN_VERIFY_ERROR(ctx, "missing log proof!");
+    if (!has_proof(ctx, ssz_get(&log, "blockNumber").bytes, ssz_get(&log, "transactionIndex").bytes, block_count, is_hybrid)) RETURN_VERIFY_ERROR(ctx, "missing log proof!");
   }
+
+#ifdef PAP
+  if (ctx->flags & VERIFY_FLAG_PAP) {
+    json_t filter = json_at(ctx->args, 0);
+    if (filter.type != JSON_TYPE_OBJECT) RETURN_VERIFY_ERROR(ctx, "PAP mode requires filter object in args");
+    ssz_ob_t filtered = c4_eth_filter_logs(ctx->data, filter);
+    if (ctx->flags & VERIFY_FLAG_FREE_DATA)
+      safe_free(ctx->data.bytes.data);
+    ctx->data = filtered;
+    ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  }
+#endif
 
   ctx->success = true;
   return true;

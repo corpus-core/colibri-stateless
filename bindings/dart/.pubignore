@@ -1,5 +1,8 @@
 # Do not ship build artifacts or local state.
 flutter/
+# To publish colibri_stateless, run: ./scripts/publish_colibri_stateless.sh
+build-dart/
+doc/
 native/
 code_*
 states_1
@@ -8,7 +11,6 @@ sync_1_*
 .env.example
 _tmp/
 *.lock
-flutter/colibri_flutter/pubspec.lock
 test/coverage/
 coverage/
 audit/

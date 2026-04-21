@@ -1,0 +1,10 @@
+# scan-build known false positives (one pattern per line; '#' = comment)
+# Format: FILE:FUNCTION:DESCRIPTION_SUBSTRING
+# Match: report is ignored if BUGFILE contains FILE, FUNCTIONNAME equals FUNCTION, BUGDESC contains DESCRIPTION_SUBSTRING
+#
+# See in-code comment in bindings/colibri.c (c4_verify_create_ctx) for the rationale; Valgrind shows no leak.
+bindings/colibri.c:c4_verify_create_ctx:Potential leak of memory pointed to by 'args_copy'
+#
+# c4_prover_create uses safe_calloc which zero-initialises the struct (including state.error = NULL).
+# scan-build cannot track this across function boundaries and reports state.error as uninitialised.
+bindings/colibri_common.c:create_prover_from_request:Branch condition evaluates to a garbage value

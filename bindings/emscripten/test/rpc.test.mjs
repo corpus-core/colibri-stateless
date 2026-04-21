@@ -81,7 +81,14 @@ test('RPC-Proof Test Suite', async (t) => {
             Colibri.register_storage({
                 get: (key) => {
                     try {
-                        return cache[key] ?? fs.readFileSync(`${testdir}/${test}/${key}`);
+                        let data = cache[key] ?? fs.readFileSync(`${testdir}/${test}/${key}`);
+                        if (data && key.startsWith('tx_pending_')) {
+                            data = Buffer.from(data);
+                            const now = BigInt(Math.floor(Date.now() / 1000));
+                            for (let i = 0; i + 40 <= data.length; i += 40)
+                                data.writeBigUInt64LE(now, i + 32);
+                        }
+                        return data;
                     } catch (e) {
                         return null;
                     }
@@ -103,9 +110,20 @@ test('RPC-Proof Test Suite', async (t) => {
                 conf.include_code = true
             if (test_conf.use_accesslist)
                 conf.use_accesslist = true
-            //            console.log(`### ${test} ######`)
+            if (test_conf.pap)
+                conf.privacy_mode = "basic";
+            if (test_conf.remote_prover)
+                conf.prover = ["http://mock-prover"];
+            else
+                conf.prover = [];
 
             const c4 = new Colibri(conf);
+
+            if (conf.privacy_mode == "basic") {
+                const result = await c4.rpc(test_conf.method, test_conf.params);
+                assert.deepStrictEqual(result, test_conf.expected_result, 'Proof should be valid');
+                return;
+            }
 
             // Benchmark für createProof
             const createProofStart = performance.now();

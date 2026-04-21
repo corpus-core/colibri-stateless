@@ -16,6 +16,8 @@
     "baseFeePerGas": "0x2fbf493",
     "blockHash": "0x8172dcd8215f02003cd251864652a00bf9b011861a15324ac6b48281a912253f",
     "blobGasUsed": "0x100000",
-    "excessBlobGas": "0xa6838a7"
+    "excessBlobGas": "0xa6838a7",
+    "feeRecipient": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+    "transactionsRoot": "0xf1d8c30581321be929fbd135fde4ae6eaf0a1209c3f73f75d716d8a7802da020"
   }
 }

@@ -28,23 +28,22 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-# Fetch libuv from GitHub using URL approach for consistency
+# Fetch libuv from GitHub (EXCLUDE_FROM_ALL suppresses libuv's own install rules)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
-  # CMake 3.24+: Use DOWNLOAD_EXTRACT_TIMESTAMP
   FetchContent_Declare(libuv
       URL "https://github.com/libuv/libuv/archive/refs/tags/v1.50.0.tar.gz"
-      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+      EXCLUDE_FROM_ALL)
 else()
-  # CMake < 3.24: Don't use DOWNLOAD_EXTRACT_TIMESTAMP
   FetchContent_Declare(libuv
-      URL "https://github.com/libuv/libuv/archive/refs/tags/v1.50.0.tar.gz")
+      URL "https://github.com/libuv/libuv/archive/refs/tags/v1.50.0.tar.gz"
+      EXCLUDE_FROM_ALL)
 endif()
 
 # Configure build options before making available
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 
-# Make the content available
 FetchContent_MakeAvailable(libuv)
 
 # Create an INTERFACE library with include directories

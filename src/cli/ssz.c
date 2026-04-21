@@ -26,17 +26,23 @@
 #include "bytes.h"
 #include "chains.h"
 #include "crypto.h"
+#include "pap_tx_cache_types.h"
 #include "verify.h"
 #include "version.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+const ssz_def_t ELECTRA_LIGHT_CLIENT_BOOTSTRAP_CONTAINER = SSZ_CONTAINER("LightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP);
+
 const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
   if (strcmp(typename, "signedblock") == 0) return eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_ELECTRA, chain_id);
   if (strcmp(typename, "blockbody") == 0) return eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_ELECTRA, chain_id);
   if (strcmp(typename, "lcu") == 0) return eth_get_light_client_update(C4_FORK_ELECTRA);
+  if (strcmp(typename, "lcb") == 0) return &ELECTRA_LIGHT_CLIENT_BOOTSTRAP_CONTAINER;
   if (strcmp(typename, "zk") == 0) return C4_ETH_REQUEST_SYNCDATA_UNION + 2;
+  if (strcmp(typename, "txcache") == 0) return &PAP_TX_CACHE_SNAPSHOT;
+  if (strcmp(typename, "txpending") == 0) return &PAP_PENDING_TX_LIST;
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
 }
@@ -150,6 +156,13 @@ int main(int argc, char* argv[]) {
   if (ssz_is_error(res)) {
     fprintf(stderr, "No value found!\n");
     exit(EXIT_FAILURE);
+  }
+  c4_state_t state = {0};
+  if (!ssz_is_valid(res, true, &state)) {
+    if (state.error) {
+      fprintf(stderr, "Invalid SSZ object: %s\n", state.error);
+      exit(EXIT_FAILURE);
+    }
   }
 
   ssz_dump_to_file(stdout, res, show_name, false);

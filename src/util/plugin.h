@@ -29,6 +29,7 @@ extern "C" {
 #endif
 
 #include "bytes.h"
+#include "chains.h"
 
 #ifdef FILE_STORAGE
 extern char* state_data_dir;
@@ -42,8 +43,9 @@ typedef struct {
   uint32_t max_sync_states;
 } storage_plugin_t;
 
-void c4_get_storage_config(storage_plugin_t* plugin);
-void c4_set_storage_config(storage_plugin_t* plugin);
+void    c4_get_storage_config(storage_plugin_t* plugin);
+void    c4_set_storage_config(storage_plugin_t* plugin);
+bytes_t c4_get_client_state(chain_id_t chain_id);
 
 #ifdef FILE_STORAGE
 /**

@@ -37,7 +37,7 @@
 #define JSON_RECEIPTS_FIELDS    "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
 #define JSON_ETH_PROOF_FIELDS   "{accountProof:[bytes],storageProof:[{key:hex32,value:hex32,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
 #define JSON_TRACE_FIELDS       "{*:{balance?:hexuint,code?:bytes,nonce?:uint,storage?:{*:bytes32}}}"
-#define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys:[hex32]}],error?:string,gasUsed:hexuint}"
+#define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys?:[hex32]}],error?:string,gasUsed:hexuint}"
 
 static bool is_nullable_method(char* method) {
   return method && (strcmp(method, "eth_getTransactionByHash") == 0 || strcmp(method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 || strcmp(method, "eth_getTransactionReceipt") == 0);
@@ -47,7 +47,7 @@ c4_status_t get_eth_tx(prover_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   uint8_t         tmp[200];
   buffer_t        buf = stack_buffer(tmp);
   data_request_t* req = NULL;
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), DEFAULT_TTL, tx_data, &req));
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), 12, tx_data, &req));
   if (req && !req->validated) {
     if (tx_data->type == JSON_TYPE_OBJECT && (json_get(*tx_data, "transactionIndex").type != JSON_TYPE_STRING || json_get(*tx_data, "transactionIndex").len < 5))
       // this tx is not mined yet, we treat it as not found

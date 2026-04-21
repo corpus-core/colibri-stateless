@@ -55,7 +55,8 @@ typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint6
 #include "precompiles_blake2.c"
 
 static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  if (input.len != 128) return PRE_INVALID_INPUT;
+  *gas_used = 3000;
+  if (input.len != 128) return PRE_SUCCESS;
   bytes_t hash       = bytes_slice(input, 0, 32);
   uint8_t v          = input.data[63];
   uint8_t sig[65]    = {0};
@@ -63,13 +64,12 @@ static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas
   memcpy(sig, input.data + 64, 64); // copy r s
   sig[64] = v > 28 ? (v % 2 ? 27 : 28) : v;
 
-  if (!secp256k1_recover(hash.data, bytes(sig, 65), pubkey)) return PRE_INVALID_INPUT;
+  if (!secp256k1_recover(hash.data, bytes(sig, 65), pubkey)) return PRE_SUCCESS;
 
   keccak(bytes(pubkey, 64), sig);
   memset(sig, 0, 12);
   buffer_reset(output);
   buffer_append(output, bytes(sig, 32));
-  *gas_used = 3000;
   return PRE_SUCCESS;
 }
 

@@ -21,16 +21,21 @@
  * SPDX-License-Identifier: MIT
  */
 
-// datei: test_addiere.c
 #include "bytes.h"
 #include "c4_assert.h"
 #include "ssz.h"
 #include "tx_cache.h"
 #include "unity.h"
+#ifdef PAP
+#include "pap_tx_cache.h"
+#endif
 void setUp(void) {
   reset_local_filecache();
 #ifdef PROVER_CACHE
   c4_eth_tx_cache_reset();
+#endif
+#ifdef PAP
+  pap_tx_cache_reset();
 #endif
 }
 
@@ -51,12 +56,30 @@ void test_tx_with_history() {
 }
 
 void test_tx_by_hash_and_index() {
-  run_rpc_test("eth_getTransactionByBlockHashAndIndex1", 0);
+  run_rpc_test("eth_getTransactionByBlockHashAndIndex1", 0,0);
 }
 
 void test_tx_type_4() {
-  run_rpc_test("eth_getTransaction_Type_4", 0);
+  run_rpc_test("eth_getTransaction_Type_4", 0, 0);
 }
+
+#ifdef PAP
+void test_pap_tx_by_hash() {
+  run_rpc_test("pap_tx_by_hash", 0, VERIFY_FLAG_PAP);
+}
+
+void test_pap_tx_by_block_index() {
+  run_rpc_test("pap_tx_by_block_index", 0, VERIFY_FLAG_PAP);
+}
+
+void test_pap_tx_pending() {
+  run_rpc_test("pap_tx_pending", 0, VERIFY_FLAG_PAP);
+}
+
+void test_pap_tx_fallback() {
+  run_rpc_test("pap_tx_fallback", 0, VERIFY_FLAG_PAP);
+}
+#endif
 
 int main(void) {
   UNITY_BEGIN();
@@ -65,5 +88,11 @@ int main(void) {
   RUN_TEST(test_tx_with_history);
   RUN_TEST(test_tx_electra);
   RUN_TEST(test_tx_type_4);
+#ifdef PAP
+  RUN_TEST(test_pap_tx_by_hash);
+  RUN_TEST(test_pap_tx_by_block_index);
+  RUN_TEST(test_pap_tx_pending);
+  RUN_TEST(test_pap_tx_fallback);
+#endif
   return UNITY_END();
 }

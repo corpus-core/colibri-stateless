@@ -60,15 +60,24 @@ static void debug_print_bytes32(const char* prefix, const evmc_bytes32* data) {
 
 static const char* evmone_status_message(int code) {
   static const char* positive_msgs[] = {
-      [0] = "Success",           [1] = "Failure",
-      [2] = "Revert",            [3] = "Out of gas",
-      [4] = "Invalid instruction",[5] = "Undefined instruction",
-      [6] = "Stack overflow",    [7] = "Stack underflow",
-      [8] = "Bad jump destination",[9] = "Invalid memory access",
-      [10] = "Call depth exceeded",[11] = "Static mode violation",
-      [12] = "Precompile failure",[13] = "Contract validation failure",
-      [14] = "Argument out of range",[15] = "WASM unreachable instruction",
-      [16] = "WASM trap",        [17] = "Insufficient balance",
+      [0]  = "Success",
+      [1]  = "Failure",
+      [2]  = "Revert",
+      [3]  = "Out of gas",
+      [4]  = "Invalid instruction",
+      [5]  = "Undefined instruction",
+      [6]  = "Stack overflow",
+      [7]  = "Stack underflow",
+      [8]  = "Bad jump destination",
+      [9]  = "Invalid memory access",
+      [10] = "Call depth exceeded",
+      [11] = "Static mode violation",
+      [12] = "Precompile failure",
+      [13] = "Contract validation failure",
+      [14] = "Argument out of range",
+      [15] = "WASM unreachable instruction",
+      [16] = "WASM trap",
+      [17] = "Insufficient balance",
   };
   if (code >= 0 && code <= 17) return positive_msgs[code];
   if (code == -1) return "Internal error";
@@ -285,7 +294,7 @@ static void host_selfdestruct(void* context, const evmc_address* addr, const evm
   // EIP-6780: transfer remaining balance to beneficiary, zero own balance.
   // Storage is NOT cleared post-Cancun (unless created in same tx, which we don't track).
   if (!bytes_all_zero(bytes(acc->balance, 32)) && memcmp(addr->bytes, beneficiary->bytes, 20) != 0) {
-    call_account_t* ben = call_account_get_or_create(ctx, beneficiary->bytes);
+    call_account_t* ben   = call_account_get_or_create(ctx, beneficiary->bytes);
     uint16_t        carry = 0;
     for (int i = 31; i >= 0; i--) {
       carry += (uint16_t) ben->balance[i] + (uint16_t) acc->balance[i];
@@ -301,6 +310,34 @@ static void host_selfdestruct(void* context, const evmc_address* addr, const evm
   }
 
   EVM_LOG("selfdestruct: balance transferred, account flagged");
+}
+
+static evmone_context_t* context_root(evmone_context_t* ctx) {
+  while (ctx->parent) ctx = ctx->parent;
+  return ctx;
+}
+
+static trace_entry_t* create_trace_entry(evmone_context_t* ctx, const struct evmone_message* msg) {
+  trace_entry_t* entry = safe_calloc(1, sizeof(trace_entry_t));
+  entry->type          = (msg->kind == CALL_KIND_CALL && msg->is_static) ? TRACE_STATICCALL : (uint8_t) msg->kind;
+  entry->gas           = (uint64_t) msg->gas;
+  memcpy(entry->from, msg->sender.bytes, 20);
+  memcpy(entry->to, msg->destination.bytes, 20);
+  memcpy(entry->value, msg->value.bytes, 32);
+  if (msg->input_data && msg->input_size)
+    entry->input = bytes_dup(bytes(msg->input_data, msg->input_size));
+
+  entry->trace_depth   = ctx->trace_depth + 1;
+  entry->trace_address = safe_malloc(entry->trace_depth * sizeof(uint32_t));
+  if (ctx->trace_depth && ctx->trace_address)
+    memcpy(entry->trace_address, ctx->trace_address, ctx->trace_depth * sizeof(uint32_t));
+  entry->trace_address[ctx->trace_depth] = ctx->subtrace_count;
+  ctx->subtrace_count++;
+
+  evmone_context_t* root       = context_root(ctx);
+  entry->next                  = root->traces;
+  root->traces                 = entry;
+  return entry;
 }
 
 static void host_call(void* context, const struct evmone_message* msg, const uint8_t* code, size_t code_size, struct evmone_result* result) {
@@ -323,6 +360,12 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     if (pre_result != PRE_SUCCESS) {
       EVM_LOG("Precompile failed with status code: %d", pre_result);
       result->gas_left = 0;
+    }
+    if (ctx->capture_events) {
+      trace_entry_t* entry = create_trace_entry(ctx, msg);
+      entry->gas_used      = (pre_result == PRE_SUCCESS) ? gas_used : (uint64_t) msg->gas;
+      if (result->output_data && result->output_size)
+        entry->output = bytes_dup(bytes(result->output_data, result->output_size));
     }
     add_evm_result(ctx, result);
     return;
@@ -360,11 +403,19 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     }
   }
 
+  trace_entry_t* trace = ctx->capture_events ? create_trace_entry(ctx, msg) : NULL;
+
   evmone_context_t child  = *ctx;
   child.parent            = ctx;
   child.accounts          = NULL;
   child.logs              = NULL;
+  child.traces            = NULL;
   child.transient_storage = NULL; // shared via root, not copied
+  child.subtrace_count    = 0;
+  if (trace) {
+    child.trace_depth   = trace->trace_depth;
+    child.trace_address = trace->trace_address; // borrowed, owned by root trace list
+  }
 
   evmone_result exec_result = evmone_execute(
       ctx->executor,
@@ -376,6 +427,13 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       execution_code_size);
 
   EVM_LOG("Child call complete. Status: %d, Gas left: %l", exec_result.status_code, (size_t) exec_result.gas_left);
+
+  if (trace) {
+    trace->gas_used  = (uint64_t) (msg->gas - exec_result.gas_left);
+    trace->subtraces = child.subtrace_count;
+    if (exec_result.output_data && exec_result.output_size)
+      trace->output = bytes_dup(bytes(exec_result.output_data, exec_result.output_size));
+  }
 
   if (exec_result.output_data && exec_result.output_size > 0) {
     if (EVM_DEBUG) {
@@ -395,11 +453,6 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   context_free(&child);
 
   *result = exec_result;
-}
-
-static evmone_context_t* context_root(evmone_context_t* ctx) {
-  while (ctx->parent) ctx = ctx->parent;
-  return ctx;
 }
 
 static void host_get_tx_context(void* context, evmone_tx_context* result) {
@@ -435,8 +488,8 @@ static void host_get_tx_context(void* context, evmone_tx_context* result) {
 static evmc_bytes32 host_get_block_hash(void* context, int64_t number) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   EVM_LOG("get_block_hash for block number: %l", (size_t) number);
-  evmc_bytes32 result     = {0};
-  c4_status_t  status     = call_fetch_block_hash(ctx, number, result.bytes);
+  evmc_bytes32 result = {0};
+  c4_status_t  status = call_fetch_block_hash(ctx, number, result.bytes);
   if (status == C4_PENDING) ctx->storage_miss = true;
   debug_print_bytes32("get_block_hash result", &result);
   return result;
@@ -476,6 +529,13 @@ static int host_access_account(void* context, const evmc_address* addr) {
   if (acc && (acc->flags & ACCOUNT_ACCESSED)) {
     EVM_LOG("access_account: WARM");
     return EVMONE_ACCESS_WARM;
+  }
+  if (!acc && ctx->pap_mode) {
+    acc = eth_call_account_cache_load(ctx->ctx, addr->bytes);
+    if (acc) {
+      acc->next     = root->accounts;
+      root->accounts = acc;
+    }
   }
 
   if (!acc) acc = call_account_list_get_or_create(&root->accounts, addr->bytes);
@@ -539,7 +599,7 @@ static void host_set_transient_storage(void* context, const evmc_address* addr, 
   memcpy(slot->address, addr->bytes, 20);
   memcpy(slot->key, key->bytes, 32);
   memcpy(slot->value, value->bytes, 32);
-  slot->next             = root->transient_storage;
+  slot->next              = root->transient_storage;
   root->transient_storage = slot;
 }
 
@@ -609,6 +669,15 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
   debug_print_bytes32("  value", &message->value);
 }
 
+static void keccak_hook_cb(void* context, const uint8_t* data, size_t size, const uint8_t* hash) {
+  keccak_entry_t** head  = (keccak_entry_t**) context;
+  keccak_entry_t*  entry = safe_calloc(1, sizeof(keccak_entry_t));
+  memcpy(entry->hash, hash, 32);
+  entry->input = bytes_dup(bytes(data, size));
+  entry->next  = *head;
+  *head        = entry;
+}
+
 INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool capture_events) {
   buffer_t       buffer  = {0};
   address_t      to      = {0};
@@ -621,12 +690,14 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   if ((tx_input.type != JSON_TYPE_STRING || tx_input.len < 5) && !evm->accounts && !evm->pap_mode) return C4_SUCCESS;
   if (json_get_bytes(tx, "to", &to_buf).len != 20) THROW_ERROR("Invalid transaction: to address is not 20 bytes");
 
-  // reset the call result and logs
+  // reset the call result, logs, and traces
   if (evm->call_result.data) safe_free(evm->call_result.data);
   call_account_reset_accessed(evm->accounts);
   evm->call_result = NULL_BYTES;
   free_emitted_logs(evm->logs);
-  evm->logs     = NULL;
+  evm->logs = NULL;
+  free_trace_entries(evm->traces);
+  evm->traces = NULL;
   evm->gas_used = 0;
   evm->evm_done = false;
 
@@ -669,6 +740,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
 
   // read gas_price from the transaction if provided
   context.gas_price = json_get_uint64(json_at(ctx->args, 0), "gasPrice");
+  bytes_t code = call_account_get_code(&context, to);
 
   // EIP-2929: pre-warm sender and destination
   {
@@ -678,7 +750,6 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     dest_acc->flags |= ACCOUNT_ACCESSED;
   }
 
-  bytes_t code = call_account_get_code(&context, to);
 
   // EIP-7702: resolve delegation indicator for top-level call
   if (code.len == 23 && code.data[0] == 0xef && code.data[1] == 0x01 && code.data[2] == 0x00) {
@@ -688,7 +759,10 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     debug_print_address("  delegated code_address", &message.code_address);
   }
 
-  EVM_LOG("Contract code size: %d bytes", (uint32_t) code.len);
+  if (code.len < 500)
+    EVM_LOG("Contract code : 0x%x", code);
+  else
+    EVM_LOG("Contract code : %d bytes", (uint32_t) code.len);
 
   // Apply top-level value transfer: credit msg.value to destination account
   if (!bytes_all_zero(bytes(message.value.bytes, 32))) {
@@ -704,6 +778,23 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     }
   }
 
+  if (capture_events) {
+    free_keccak_entries(evm->keccak_entries);
+    evm->keccak_entries = NULL;
+    evmone_set_keccak_hook(keccak_hook_cb, &evm->keccak_entries);
+
+    // top-level trace entry with traceAddress = []
+    trace_entry_t* root_trace = safe_calloc(1, sizeof(trace_entry_t));
+    root_trace->type          = (uint8_t) message.kind;
+    root_trace->gas           = (uint64_t) message.gas;
+    memcpy(root_trace->from, message.sender.bytes, 20);
+    memcpy(root_trace->to, message.destination.bytes, 20);
+    memcpy(root_trace->value, message.value.bytes, 32);
+    if (message.input_data && message.input_size)
+      root_trace->input = bytes_dup(bytes(message.input_data, message.input_size));
+    context.traces = root_trace;
+  }
+
   evmone_result result = evmone_execute(
       executor,
       &host_interface,
@@ -712,6 +803,9 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       &message,
       code.data,
       code.len);
+
+  if (capture_events)
+    evmone_set_keccak_hook(NULL, NULL);
 
   EVM_LOG("Result status code: %d", result.status_code);
   EVM_LOG("Gas left: %l", (size_t) result.gas_left);
@@ -738,12 +832,30 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   if (capture_events) {
     evm->logs    = context.logs;
     context.logs = NULL;
+
+    // update the root trace entry with gas_used, output, subtraces
+    if (context.traces) {
+      context.traces->gas_used  = evm->gas_used;
+      context.traces->subtraces = context.subtrace_count;
+      if (result.output_data && result.output_size)
+        context.traces->output = bytes_dup(bytes(result.output_data, result.output_size));
+    }
+    evm->traces     = context.traces;
+    context.traces  = NULL;
   }
 
   // The EVM may have created/modified accounts in context.accounts that
   // were originally pointing into evm->accounts. Propagate them back.
   evm->accounts    = context.accounts;
   context.accounts = NULL;
+
+  // detect balance/nonce modifications for simulation stateChanges
+  for (call_account_t* acc = evm->accounts; acc; acc = acc->next) {
+    if (memcmp(acc->balance, acc->src_balance, 32) != 0)
+      acc->flags |= ACCOUNT_BALANCE_MODIFIED;
+    if (acc->nonce != acc->src_nonce)
+      acc->flags |= ACCOUNT_NONCE_MODIFIED;
+  }
 
   if (result.status_code == 0) {
     EVM_LOG("Call verification successful");

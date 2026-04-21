@@ -840,3 +840,129 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 
   return true;
 }
+
+bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
+                                             bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
+                                             uint64_t base_fee, uint64_t* out_cumulative_gas,
+                                             uint32_t* out_log_index) {
+  bytes_t   val             = {0};
+  bytes_t   receipt_list    = receipt_raw;
+  bytes_t   tx_list_payload = tx_raw;
+  tx_type_t type            = 0;
+  bytes32_t tx_hash         = {0};
+  address_t from_address    = {0};
+  uint64_t  status_u64      = 0;
+  uint64_t  cumulative_gas  = 0;
+  uint64_t  gas_used       = 0;
+  uint64_t  effective_gas   = 0;
+  uint64_t  deposit_nonce   = 0;
+  uint32_t  deposit_ver     = 0;
+  const rlp_type_defs_t* defs_ptr = NULL;
+
+  if (!buffer || !buffer->def || !out_cumulative_gas || !out_log_index) return false;
+  keccak(tx_raw, tx_hash);
+  if (!get_and_remove_tx_type(ctx, &tx_list_payload, &type)) return false;
+  if (rlp_decode(&tx_list_payload, 0, &tx_list_payload) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: invalid tx list");
+  defs_ptr = get_tx_type_defs(type);
+  if (!defs_ptr) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: unsupported tx type");
+
+  if (type != TX_TYPE_LEGACY) {
+    if (receipt_raw.len < 1 || receipt_raw.data[0] != type) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: receipt type mismatch");
+    receipt_list.data = receipt_raw.data + 1;
+    receipt_list.len  = receipt_raw.len - 1;
+  }
+  if (rlp_decode(&receipt_list, 0, &receipt_list) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: invalid receipt list");
+  if (rlp_decode(&receipt_list, 0, &val) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: status");
+  status_u64 = bytes_as_be(val);
+  if (rlp_decode(&receipt_list, 1, &val) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: cumulativeGasUsed");
+  cumulative_gas = bytes_as_be(val);
+  gas_used       = cumulative_gas -  *out_cumulative_gas;
+  if (rlp_decode(&receipt_list, 2, &val) != RLP_ITEM || val.len != 256) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: logsBloom");
+  bytes_t logs_bloom = val;
+
+  if (type == TX_TYPE_DEPOSITED) {
+    if (rlp_decode(&receipt_list, 4, &val) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: depositNonce");
+    deposit_nonce = bytes_as_be(val);
+    if (rlp_decode(&receipt_list, 5, &val) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: depositReceiptVersion");
+    deposit_ver = (uint32_t) bytes_as_be(val);
+  }
+
+  if (type == TX_TYPE_DEPOSITED) {
+    bytes_t from_field = get_rlp_field(ctx, tx_list_payload, defs_ptr, "from", RLP_ITEM);
+    if (from_field.len == 20) memcpy(from_address, from_field.data, 20);
+  }
+  else if (!c4_tx_create_from_address(ctx, tx_raw, from_address))
+    return false;
+
+  bytes_t to_field = get_rlp_field(ctx, tx_list_payload, defs_ptr, "to", RLP_ITEM);
+  uint64_t gas_price_rlp_val = 0, max_priority_fee_per_gas_rlp_val = 0, max_fee_per_gas_rlp_val = 0;
+  if (type != TX_TYPE_DEPOSITED)
+    gas_price_rlp_val = bytes_as_be(get_rlp_field(ctx, tx_list_payload, defs_ptr, "gasPrice", RLP_ITEM));
+  if (type >= TX_TYPE_EIP1559 && type != TX_TYPE_DEPOSITED) {
+    max_priority_fee_per_gas_rlp_val = bytes_as_be(get_rlp_field(ctx, tx_list_payload, defs_ptr, "maxPriorityFeePerGas", RLP_ITEM));
+    max_fee_per_gas_rlp_val          = bytes_as_be(get_rlp_field(ctx, tx_list_payload, defs_ptr, "maxFeePerGas", RLP_ITEM));
+  }
+  if (ctx->state.error != NULL) return false;
+
+  effective_gas = gas_price_rlp_val;
+  if (type >= TX_TYPE_EIP1559 && type != TX_TYPE_DEPOSITED)
+    effective_gas = base_fee + (max_priority_fee_per_gas_rlp_val < (max_fee_per_gas_rlp_val - base_fee) ? max_priority_fee_per_gas_rlp_val : (max_fee_per_gas_rlp_val - base_fee));
+
+  ssz_add_uint32(buffer, 0xFFFFFFFFu);
+  ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
+  ssz_add_uint64(buffer, block_number);
+  ssz_add_bytes(buffer, "transactionHash", bytes(tx_hash, 32));
+  ssz_add_uint32(buffer, tx_index);
+  ssz_add_uint8(buffer, (uint8_t) type);
+  ssz_add_bytes(buffer, "from", bytes(from_address, 20));
+  uint8_t to_pad[20] = {0};
+  if (to_field.len > 0 && to_field.len <= 20) memcpy(to_pad, to_field.data, to_field.len);
+  ssz_add_bytes(buffer, "to", bytes(to_pad, 20));
+  ssz_add_uint64(buffer, cumulative_gas);
+  ssz_add_uint64(buffer, gas_used);
+
+  bytes_t logs_rlp = {0};
+  if (rlp_decode(&receipt_list, 3, &logs_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: logs");
+  int num_logs = rlp_decode(&logs_rlp, -1, &logs_rlp);
+  const ssz_def_t* logs_def = ssz_get_def(buffer->def, "logs");
+  ssz_builder_t logs_builder = ssz_builder_for_def(logs_def);
+  for (int log_index = 0; log_index < num_logs; log_index++) {
+    bytes_t log_rlp = {0};
+    if (rlp_decode(&logs_rlp, log_index, &log_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: log entry");
+    bytes_t addr_bytes = {0}, data_bytes = {0}, topics_rlp = {0};
+    if (rlp_decode(&log_rlp, 0, &addr_bytes) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: log address");
+    if (rlp_decode(&log_rlp, 1, &topics_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: log topics");
+    if (rlp_decode(&log_rlp, 2, &data_bytes) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: log data");
+    int num_topics = rlp_decode(&topics_rlp, -1, &topics_rlp);
+    ssz_builder_t log_builder = ssz_builder_for_def(logs_def->def.vector.type);
+    ssz_add_bytes(&log_builder, "blockHash", bytes(block_hash, 32));
+    ssz_add_uint64(&log_builder, block_number);
+    ssz_add_bytes(&log_builder, "transactionHash", bytes(tx_hash, 32));
+    ssz_add_uint32(&log_builder, tx_index);
+    uint8_t addr_20[20] = {0};
+    if (addr_bytes.len <= 20) memcpy(addr_20 + (20 - addr_bytes.len), addr_bytes.data, addr_bytes.len);
+    ssz_add_bytes(&log_builder, "address", bytes(addr_20, 20));
+    ssz_add_uint32(&log_builder, *out_log_index + (uint32_t) log_index);
+    ssz_add_uint8(&log_builder, 0);
+    ssz_builder_t topics_builder = ssz_builder_for_def(ssz_get_def(log_builder.def, "topics"));
+    for (int t = 0; t < num_topics; t++) {
+      bytes_t topic = {0};
+      uint8_t topic32[32] = {0};
+      if (rlp_decode(&topics_rlp, t, &topic) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: topic");
+      if (topic.len <= 32) memcpy(topic32 + (32 - topic.len), topic.data, topic.len);
+      ssz_add_dynamic_list_bytes(&topics_builder, num_topics, bytes(topic32, 32));
+    }
+    ssz_add_builders(&log_builder, "topics", topics_builder);
+    ssz_add_bytes(&log_builder, "data", data_bytes);
+    ssz_add_dynamic_list_builders(&logs_builder, num_logs, log_builder);
+  }
+  ssz_add_builders(buffer, "logs", logs_builder);
+  ssz_add_bytes(buffer, "logsBloom", logs_bloom);
+  ssz_add_uint8(buffer, (uint8_t) status_u64);
+  ssz_add_uint64(buffer, effective_gas);
+  ssz_add_uint64(buffer, deposit_nonce);
+  ssz_add_uint32(buffer, deposit_ver);
+  *out_cumulative_gas = cumulative_gas;
+  *out_log_index      = *out_log_index + (uint32_t) num_logs;
+  return true;
+}

@@ -34,6 +34,12 @@ export interface C4W {
     _c4w_verify_proof: (verifyCtx: number) => number;
     _c4w_req_free: (reqPtr: number) => void;
     _c4w_get_current_version_number: () => number;
+    _c4w_create_rpc_ctx: (method: number, params: number, chainId: bigint, prover_flags: number, verify_flags: number, prover_mode: number) => number;
+    _c4w_execute_rpc_ctx: (ctx: number) => number;
+    _c4w_free_rpc_ctx: (ctx: number) => void;
+    _c4w_set_checkpoint: (chainId: bigint, checkpoint: number) => void;
+    _c4w_rpc_ctx_set_witness_keys: (ctx: number, keys: number) => void;
+    _c4w_rpc_ctx_set_proxy_urls: (ctx: number, rpc_urls: number, beacon_urls: number) => void;
     _c4w_decode_proof: (data: number, len: number) => number;
     _init_storage: () => void;
     HEAPU8: Uint8Array;
@@ -64,10 +70,54 @@ export function isBrowserEnvironment() {
 
 function hasLocalStorage(): boolean {
     try {
-        // In some contexts (e.g. extension workers), accessing localStorage may throw or be unavailable.
         return typeof globalThis !== 'undefined' && !!(globalThis as any).localStorage;
     } catch {
         return false;
+    }
+}
+
+function hasCacheApi(): boolean {
+    try {
+        return typeof globalThis !== 'undefined' && 'caches' in globalThis;
+    } catch {
+        return false;
+    }
+}
+
+// Keys from C are always alphanumeric + underscore (e.g. "states_1", "sync_1_234"),
+// so no URL encoding is needed.
+const CACHE_URL_PREFIX = 'http://colibri.storage/';
+
+async function loadCacheApiStorage(): Promise<Storage | null> {
+    try {
+        const cache = await globalThis.caches.open('colibri-storage');
+        const mem = new Map<string, Uint8Array>();
+        const requests = await cache.keys();
+        await Promise.all(requests.map(async (req) => {
+            const resp = await cache.match(req);
+            if (resp) {
+                const key = req.url.slice(CACHE_URL_PREFIX.length);
+                mem.set(key, new Uint8Array(await resp.arrayBuffer()));
+            }
+        }));
+        return {
+            get: (key: string) => mem.get(key) ?? null,
+            set: (key: string, value: Uint8Array) => {
+                const copy = new Uint8Array(value);
+                mem.set(key, copy);
+                cache.put(CACHE_URL_PREFIX + key, new Response(copy, {
+                    headers: {'Content-Type': 'application/octet-stream', 'Content-Length': '' + copy.byteLength},
+                })).catch(
+                    e => console.warn('colibri: cache write failed for', key, e));
+            },
+            del: (key: string) => {
+                mem.delete(key);
+                cache.delete(CACHE_URL_PREFIX + key).catch(
+                    e => console.warn('colibri: cache delete failed for', key, e));
+            },
+        };
+    } catch {
+        return null;
     }
 }
 
@@ -80,8 +130,12 @@ async function importNodeFs(): Promise<any> {
 }
 
 export async function get_default_storage(): Promise<Storage> {
+    if (hasCacheApi()) {
+        const storage = await loadCacheApiStorage();
+        if (storage) return storage;
+    }
+
     if (hasLocalStorage())
-        // Web interface (localStorage).
         return {
             get: (key: string) => {
                 const ls = (globalThis as any).localStorage as {
@@ -118,7 +172,7 @@ export async function get_default_storage(): Promise<Storage> {
             },
         };
 
-    else if (isNodeEnvironment()) {
+    if (isNodeEnvironment()) {
         const fs = await importNodeFs();
         // node interface
         return {
@@ -256,7 +310,7 @@ export function createC4wApi(options: {
     async function set_trusted_checkpoint(chainId: number, checkpoint: string): Promise<void> {
         const c4w = await getC4w();
         const free_buffers: number[] = [];
-        c4w._c4w_create_verify_ctx(0, 0, 0, 0, BigInt(chainId), as_char_ptr(checkpoint, c4w, free_buffers), 0, 0);
+        c4w._c4w_set_checkpoint(BigInt(chainId), as_char_ptr(checkpoint, c4w, free_buffers));
         free_buffers.forEach(ptr => c4w._free(ptr));
     }
 

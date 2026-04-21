@@ -83,7 +83,7 @@ build_android_libs() {
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
             -DANDROID_ABI="$abi" \
             -DANDROID_PLATFORM="android-$ANDROID_API_LEVEL" \
-            -DANDROID_STL=c++_shared \
+            -DANDROID_STL=c++_static \
             -DANDROID_TOOLCHAIN=clang \
             -DDART=ON \
             -DETH_ZKPROOF=true \

@@ -141,6 +141,9 @@ typedef struct {
   // Test recording mode: if set, all responses are written to TESTDATA_DIR/server/<test_dir>/
   char* test_dir;
 #endif
+  // Request dispatch throttling
+  int max_parallel_requests; // max requests dispatched per batch (0 = unlimited)
+
   // Global cURL pool configuration and metrics
   curl_stats_t curl;
   // Tracing configuration
@@ -148,6 +151,11 @@ typedef struct {
   char* tracing_url;            // Zipkin v2 endpoint
   char* tracing_service_name;   // service name
   int   tracing_sample_percent; // 0..100
+
+  /** If 1, `/proof` may accept client `rpc` / `beacon` JSON arrays (proxy mode). */
+  int   proxy_enabled;
+  /** Comma-separated domain patterns allowed for proxy URLs (e.g. `*.alchemy.com,infura.io`). */
+  char* proxy_allowed_domains;
 } http_server_t;
 
 // Method support tracking for RPC methods
@@ -182,6 +190,8 @@ typedef struct {
   uint64_t head_last_seen_ms; // timestamp when head was last observed
   // Per-method statistics (linked list)
   struct method_stats* method_stats;
+  // Archive status: node has limited transaction history (e.g. Geth --history.transactions)
+  bool pruned;
 } server_health_t;
 
 /**
@@ -194,6 +204,7 @@ typedef struct method_stats {
   double               ewma_latency_ms;     // smoothed latency for this method
   double               success_ewma;        // success ratio EWMA
   double               not_found_ewma;      // not-found ratio EWMA
+  double               null_result_ewma;    // JSON-RPC null result rate EWMA (-1.0 = no data)
   bool                 rate_limited_recent; // method recently rate limited
   uint64_t             last_update_ms;      // last stats update timestamp
   struct method_stats* next;                // next entry in list
@@ -278,13 +289,17 @@ typedef struct request_t {
   client_t*         client; // client request
   void*             ctx;    // prover
   single_request_t* requests;
-  size_t            request_count; // count of handles
+  size_t            request_count;  // count of handles
+  size_t            batch_started;  // how many requests have been dispatched so far (for throttled dispatch)
   uint64_t          start_time;
   http_client_cb    cb;          // callback function to call when all requests are done
   void*             parent_ctx;  // pointer to parent context or parent caller
   http_request_cb   parent_cb;   // callback function to call when the ctx (mostly prover) has a result
   trace_span_t*     trace_root;  // root tracing span for the overall proof request
   uint32_t          prover_step; // counts c4_prover_execute invocations for this request
+  /** Per-request backend lists when client sends `rpc` / `beacon` in proxy mode (owned). */
+  server_list_t* proxy_rpc_servers;
+  server_list_t* proxy_beacon_servers;
 } request_t;
 
 typedef enum {
@@ -337,6 +352,8 @@ uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
 bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
+server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req);
+void           c4_free_server_list(server_list_t* list);
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
 const char*    c4_extract_server_name(const char* url);
 // Load balancing functions
@@ -351,7 +368,6 @@ void               c4_update_server_health(server_list_t* servers, int server_in
 void               c4_calculate_server_weights(server_list_t* servers);
 bool               c4_should_reset_health_stats(server_list_t* servers);
 void               c4_reset_server_health_stats(server_list_t* servers);
-c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
 bool               c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
 void               c4_attempt_server_recovery(server_list_t* servers);
 
@@ -365,7 +381,10 @@ void c4_signal_rate_limited(server_list_t* servers, int idx, const char* method)
 // Server configuration and client type detection functions
 void                 c4_parse_server_config(server_list_t* list, char* servers);
 void                 c4_detect_server_client_types(server_list_t* servers, data_request_type_t type);
+void                 c4_detect_archive_status(server_list_t* servers);
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type);
+method_stats_t*      c4_find_method_stats(server_health_t* h, const char* method);
+bool                 c4_is_verified_archive(server_health_t* h, const char* method);
 const char*          c4_client_type_to_name(beacon_client_type_t client_type, http_server_t* http_server);
 bool                 c4_start_rpc_head_poller(server_list_t* servers);
 void                 c4_stop_rpc_head_poller(void);
@@ -374,7 +393,8 @@ void                 c4_stop_rpc_head_poller(void);
 char*                   c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);
 data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
-c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req);
+c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
+                                               server_list_t* servers_opt);
 bool                    c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
 
 // Internal call handlers

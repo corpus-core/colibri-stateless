@@ -14,12 +14,14 @@
     },
     "scripts": {
         "test": "npm run test:node && npm run test:webpack",
-        "test:node": "node --test test/*.test.mjs",
+        "test:node": "node --test test/rpc.test.mjs test/cjs_bridge.test.mjs",
+        "test:integration": "C4_RUN_INTEGRATION=1 node --test test/integration.test.mjs",
         "test:webpack": "npm run webpack:install && npm run webpack:build",
-        "webpack:install": "cd webpack && npm install --legacy-peer-deps",
-        "webpack:build": "cd webpack && npm run build",
-        "webpack:start": "cd webpack && npm run start",
-        "check:cors": "node scripts/check_cors.mjs"
+        "webpack:install": "cd test/webpack && npm install --legacy-peer-deps",
+        "webpack:build": "cd test/webpack && npm run build",
+        "webpack:start": "cd test/webpack && npm run start",
+        "check:cors": "node scripts/check_cors.mjs",
+        "benchmark": "node test/benchmark.mjs"
     },
     "repository": {
         "type": "git",

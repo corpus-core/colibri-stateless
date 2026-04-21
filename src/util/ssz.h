@@ -446,6 +446,30 @@ gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...);
 bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, bytes32_t root_hash, gindex_t* gindex, int gindex_len);
 
 /**
+ * Creates a multi-Merkle proof from pre-computed two-level Merkle tree caches.
+ *
+ * The trees represent a parent container (body) with a nested child container (ep)
+ * at a known position. All gindexes must resolve to nodes within these two levels;
+ * returns `NULL_BYTES` if any gindex falls outside the cached range.
+ *
+ * @param body_tree Pre-computed body tree nodes indexed by gindex (array of 32-byte hashes)
+ * @param body_tree_size Number of entries in body_tree (must be a power of 2)
+ * @param ep_tree Pre-computed child container tree nodes indexed by gindex
+ * @param ep_tree_size Number of entries in ep_tree (must be a power of 2)
+ * @param ep_body_gindex Body-level gindex of the child container
+ * @param root_hash Output: receives body_tree[1] (the body hash_tree_root)
+ * @param gindex Array of compound generalized indices to prove
+ * @param gindex_len Number of generalized indices
+ * @return Allocated proof bytes (caller must free), or NULL_BYTES on cache miss
+ */
+bytes_t ssz_create_multi_proof_from_tree_cache(
+    const bytes32_t* body_tree, uint32_t body_tree_size,
+    const bytes32_t* ep_tree, uint32_t ep_tree_size,
+    gindex_t ep_body_gindex,
+    bytes32_t root_hash,
+    const gindex_t* gindex, int gindex_len);
+
+/**
  * Checks if an SSZ type has dynamic length.
  *
  * Dynamic types include: lists, bit lists, unions, and containers containing dynamic fields.
@@ -513,6 +537,7 @@ extern const ssz_def_t ssz_secp256k1_signature; // Vector<uint8> of length 65
 extern const ssz_def_t ssz_bls_pubky;           // Vector<uint8> of length 48
 extern const ssz_def_t ssz_bytes_list;          // List<uint8> displayed as hex in JSON
 extern const ssz_def_t ssz_string_def;          // List<uint8> displayed as string in JSON
+extern const ssz_def_t ssz_json_def;            // List<uint8> displayed as raw json 
 extern const ssz_def_t ssz_none;                // special value for none in uions.
 
 /**
@@ -955,6 +980,21 @@ void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_
  * @param data Bytes representing the uint256 (any length, will be padded/truncated to 32 bytes)
  */
 void ssz_add_uint256(ssz_builder_t* buffer, bytes_t data);
+
+/**
+ * Fixes the offset table of a dynamic-element list builder after all
+ * elements have been added with `num_elements=0`.
+ *
+ * When using `ssz_add_dynamic_list_builders()` / `ssz_add_dynamic_list_bytes()`
+ * with `num_elements=0`, each offset is written relative to the dynamic
+ * area only. This function adds `num_elements * 4` to every offset so
+ * they become relative to the start of the serialized list body (which
+ * begins with the offset table itself).
+ *
+ * @param builder the list builder whose offsets need correction
+ * @param num_elements total number of elements that were added
+ */
+void ssz_builder_fix_list_offsets(ssz_builder_t* builder, uint32_t num_elements);
 
 /** Adds a uint64 value to the builder in little-endian format */
 void ssz_add_uint64(ssz_builder_t* buffer, uint64_t value);

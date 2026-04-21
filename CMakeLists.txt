@@ -89,6 +89,7 @@ option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
 option(ETH_ZKPROOF_BUILD_HOST "Build eth-sync-script host binary (Rust/SP1). Disable for clients/slaves or platforms where SP1 doesn't build." OFF)
+option(PAP "Enable Pragmatic Adaptive Privacy mode in verifier" ON)
 
 
 # Make ETH availability visible to all targets (server + chains)
@@ -235,15 +236,26 @@ if(SWIFT)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         message(STATUS "Building for iOS (CMAKE_SYSTEM_NAME=iOS)")
         
-        # Set SDK paths based on target architecture
-        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+        # Detect whether the caller requested a simulator build via CMAKE_OSX_SYSROOT
+        set(_IS_SIMULATOR OFF)
+        if(CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator" OR CMAKE_OSX_SYSROOT STREQUAL "iphonesimulator")
+            set(_IS_SIMULATOR ON)
+        endif()
+
+        # Set SDK paths based on target architecture and simulator flag
+        if(_IS_SIMULATOR)
             execute_process(
                 COMMAND xcrun --sdk iphonesimulator --show-sdk-path
                 OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-            set(IOS_PLATFORM "SIMULATOR64")
-            set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+            if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+                set(IOS_PLATFORM "SIMULATOR64")
+                set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+            else()
+                set(IOS_PLATFORM "SIMULATORARM64")
+                set(TARGET_TRIPLE "arm64-apple-ios-simulator")
+            endif()
         elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
             execute_process(
                 COMMAND xcrun --sdk iphoneos --show-sdk-path
@@ -252,6 +264,14 @@ if(SWIFT)
             )
             set(IOS_PLATFORM "OS64")
             set(TARGET_TRIPLE "arm64-apple-ios")
+        elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+            execute_process(
+                COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+                OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            set(IOS_PLATFORM "SIMULATOR64")
+            set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
         endif()
 
         # Set iOS-specific compiler and linker flags
@@ -313,6 +333,10 @@ endif()
 
 if(BLS_DESERIALIZE)
     add_definitions(-DBLS_DESERIALIZE)
+endif()
+
+if(PAP AND VERIFIER)
+    add_definitions(-DPAP)
 endif()
 
 if(TEST)
@@ -577,12 +601,31 @@ endif()
 
 # Shared library if requested and not embedded
 if(SHAREDLIB AND NOT EMBEDDED)
-    add_library(c4 SHARED src/util/version.c bindings/colibri.c)
+    add_library(c4 SHARED src/util/version.c bindings/colibri.c bindings/colibri_common.c)
     target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier eth_verifier)
     set_target_properties(c4 PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
         VERSION 1.0
         SOVERSION 1
+    )
+endif()
+
+# Install zsh completion scripts
+include(GNUInstallDirs)
+set(ZSH_COMPLETIONS_DIR "${CMAKE_INSTALL_DATAROOTDIR}/zsh/site-functions"
+    CACHE STRING "Path for zsh completion scripts (relative to install prefix)")
+if(CLI)
+    install(FILES
+        scripts/completion/_colibri
+        scripts/completion/_colibri-prover
+        scripts/completion/_colibri-ssz
+        DESTINATION ${ZSH_COMPLETIONS_DIR}
+    )
+endif()
+if(HTTP_SERVER)
+    install(FILES
+        scripts/completion/_colibri-server
+        DESTINATION ${ZSH_COMPLETIONS_DIR}
     )
 endif()
 

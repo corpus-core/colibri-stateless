@@ -108,9 +108,12 @@ void main() {
       final params = (content['params'] as List<dynamic>);
       final chainId = (content['chain_id'] as num).toInt();
       final trusted = content['trusted_blockhash']?.toString();
+      final hasExpectedResult = content.containsKey('expected_result');
       final expected = content['expected_result'];
       final includeCode = (content['include_code'] as bool?) ?? false;
       final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
+      final pap = (content['pap'] as bool?) ?? false;
+      final remoteProver = (content['remote_prover'] as bool?) ?? false;
 
       /// Storage is backed by fixture files to emulate chain data.
       final storage = FileBackedStorage(dir);
@@ -119,12 +122,15 @@ void main() {
       final client = MockClient(responder.handle);
 
       /// Create a Colibri instance with fixtures and a mock HTTP client.
+      /// Only tests with remote_prover:true use a mock prover URL;
+      /// all others use an empty provers list to force local proof creation.
       final colibri = Colibri(
         chainId: chainId,
-        provers: const [],
+        provers: remoteProver ? ['http://mock-prover'] : const [],
         trustedCheckpoint: trusted,
         includeCode: includeCode,
         useAccesslist: useAccesslist,
+        privacyMode: pap ? PrivacyMode.basic : PrivacyMode.none,
         storage: storage,
         libraryPath: _resolveLibraryPath(),
         httpClient: client,
@@ -136,7 +142,7 @@ void main() {
       colibri.close();
 
       /// Compare against expected output when defined.
-      if (expected != null) {
+      if (hasExpectedResult) {
         /// Adjust expected output for known format differences.
         final adjusted = _adjustExpectedResult(method, params, expected, result);
         expect(result, equals(adjusted));

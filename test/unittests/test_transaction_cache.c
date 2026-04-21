@@ -69,9 +69,11 @@ void test_tx_cache_update_in_place(void) {
 }
 
 void test_tx_cache_eviction_fifo(void) {
-  // Fill more than MAX (10000) entries in 200-sized blocks and verify FIFO eviction
+  const uint32_t test_max         = 10000;
+  c4_eth_tx_cache_set_max_size(test_max);
+
   const uint32_t per_block        = 200;
-  const uint32_t blocks_to_insert = 60; // 12000 entries total
+  const uint32_t blocks_to_insert = 60; // 12000 entries total > test_max
   uint32_t       inserted         = 0;
   for (uint32_t b = 0; b < blocks_to_insert; b++) {
     uint64_t block_number = 10000 + b;
@@ -82,7 +84,7 @@ void test_tx_cache_eviction_fifo(void) {
       inserted++;
     }
   }
-  TEST_ASSERT_TRUE(c4_eth_tx_cache_size() <= 10000);
+  TEST_ASSERT_TRUE(c4_eth_tx_cache_size() <= test_max);
 
   // The earliest blocks should be evicted; check an early key is gone
   {

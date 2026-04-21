@@ -169,6 +169,34 @@ class MainActivity : AppCompatActivity() {
 
 ## Configuration
 
+### Prover Mode
+
+Controls how proofs are built and verified. Set via `proverMode` in the constructor:
+
+- **`ProverMode.LOCAL`** -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+- **`ProverMode.REMOTE`** -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+- **`ProverMode.HYBRID`** -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+- **`ProverMode.PROXY`** -- Like remote, but the client sends its own RPC and Beacon API URLs to the prover server. The server uses these endpoints instead of its own. Useful when the client has access to private or premium RPC providers.
+- **`ProverMode.LIGHT_CLIENT`** -- Like hybrid, with additional background polling of block headers to keep the cache warm. Call `startLightClient()` / `stopLightClient()` to control polling (default interval: 12s). By default only the compact `eth_getBlockHeader` is fetched; pass `fullBlock = true` to fetch the full block (useful when many `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow).
+
+```kotlin
+// Hybrid mode: header proofs from Colibri, execution data from RPC provider
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    proverMode = ProverMode.HYBRID
+)
+
+// Light client mode with background header polling
+val lightClient = Colibri(
+    chainId = BigInteger.ONE,
+    proverMode = ProverMode.LIGHT_CLIENT
+)
+lightClient.startLightClient()                    // polls eth_getBlockHeader every 12s
+lightClient.startLightClient(fullBlock = true)    // or fetch the full block
+```
+
+Default: `ProverMode.REMOTE` when prover URLs are configured, `ProverMode.LOCAL` otherwise.
+
 ### Privacy (PAP)
 
 **PAP (Pragmatic Adaptive Privacy)** reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards.

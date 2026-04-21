@@ -481,6 +481,10 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
       if (c4_req_checkpointz_status(state, ctx->chain_id, &checkpoint_epoch, checkpoint_root)) {
         // Set the checkpoint as trusted blockhash
         c4_eth_set_trusted_checkpoint(ctx->chain_id, checkpoint_root);
+        // Verify the checkpoint was actually persisted before recursing
+        c4_chain_state_t updated = c4_get_chain_state(ctx->chain_id);
+        if (updated.status == C4_STATE_SYNC_EMPTY)
+          THROW_ERROR("Failed to persist checkpoint - storage not available");
         // Recursively call init_sync_state to process the bootstrap with the new trusted checkpoint
         return init_sync_state(ctx);
       }

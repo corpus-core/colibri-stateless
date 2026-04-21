@@ -7,6 +7,7 @@ file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/dart/native)
 
 add_library(colibri_dart SHARED
     ../colibri.c
+    ../colibri_common.c
 )
 
 set_target_properties(colibri_dart PROPERTIES

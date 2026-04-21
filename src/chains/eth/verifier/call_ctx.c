@@ -31,10 +31,32 @@
 
 // :: Account lookup helpers (traverse parent chain)
 
+static bool eth_get_call_block_context_from_header_data(ssz_ob_t header_data, eth_call_block_context_t* out) {
+  if (!header_data.bytes.data) return false;
+
+  out->block_number    = ssz_get_uint64(&header_data, "blockNumber");
+  out->timestamp       = ssz_get_uint64(&header_data, "timestamp");
+  out->gas_limit       = ssz_get_uint64(&header_data, "gasLimit");
+  out->excess_blob_gas = ssz_get_uint64(&header_data, "excessBlobGas");
+
+  bytes_t coinbase = ssz_get(&header_data, "feeRecipient").bytes;
+  if (coinbase.data && coinbase.len >= 20) memcpy(out->coinbase, coinbase.data, 20);
+  memset(out->prev_randao, 0, 32); // not available in ETH_BLOCK_HEADER_DATA
+  bytes_t base_fee = ssz_get(&header_data, "baseFeePerGas").bytes;
+  if (base_fee.data && base_fee.len >= 32) memcpy(out->base_fee_per_gas, base_fee.data, 32);
+  bytes_t bh = ssz_get(&header_data, "blockHash").bytes;
+  if (bh.data && bh.len >= 32) memcpy(out->block_hash, bh.data, 32);
+
+  return true;
+}
 
 static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
   if (!ctx->proof.def || ctx->proof.def->type == SSZ_TYPE_NONE) return false;
 
+  if (ctx->flags & VERIFY_FLAG_HYBRID) {
+    ssz_ob_t hd = ssz_get(&ctx->proof, "header_data");
+    if (hd.bytes.data) return eth_get_call_block_context_from_header_data(hd, out);
+  }
   ssz_ob_t sp = ssz_get(&ctx->proof, "state_proof");
   ssz_ob_t bc = ssz_get(&sp, "block");
   if (!bc.def || !ssz_is_type(&bc, eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT)))
@@ -218,9 +240,10 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
       acc->flags |= ACCOUNT_HAS_BALANCE;
     }
     if (a->has_code) {
-      acc->code = a->code;
-      acc->flags |= ACCOUNT_HAS_CODE;
-      acc->flags &= ~ACCOUNT_FREE_CODE;
+      if (acc->code.data && (acc->flags & ACCOUNT_FREE_CODE))
+        safe_free(acc->code.data);
+      acc->code = bytes_dup(a->code);
+      acc->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
     }
     if (a->storage) {
       if (a->full_state) acc->flags |= ACCOUNT_FULL_STATE;
@@ -229,16 +252,18 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
         if (cs) {
           memcpy(cs->src_value, s->value, 32);
           memcpy(cs->post_value, s->value, 32);
-          cs->source = STORAGE_SRC_OVERRIDE;
+          cs->verified_at = 1;
+          cs->source      = STORAGE_SRC_OVERRIDE;
         }
         else {
           cs = safe_calloc(1, sizeof(call_storage_t));
           memcpy(cs->key, s->key, 32);
           memcpy(cs->src_value, s->value, 32);
           memcpy(cs->post_value, s->value, 32);
-          cs->source   = STORAGE_SRC_OVERRIDE;
-          cs->next     = acc->storage;
-          acc->storage = cs;
+          cs->source      = STORAGE_SRC_OVERRIDE;
+          cs->verified_at = 1;
+          cs->next        = acc->storage;
+          acc->storage    = cs;
         }
       }
     }
@@ -248,6 +273,26 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
 }
 
 // :: Emitted log helpers
+
+void free_keccak_entries(keccak_entry_t* entries) {
+  while (entries) {
+    keccak_entry_t* next = entries->next;
+    safe_free(entries->input.data);
+    safe_free(entries);
+    entries = next;
+  }
+}
+
+void free_trace_entries(trace_entry_t* entries) {
+  while (entries) {
+    trace_entry_t* next = entries->next;
+    safe_free(entries->input.data);
+    safe_free(entries->output.data);
+    safe_free(entries->trace_address);
+    safe_free(entries);
+    entries = next;
+  }
+}
 
 void free_emitted_logs(emitted_log_t* logs) {
   while (logs) {
@@ -297,6 +342,8 @@ void context_free(evmone_context_t* ctx) {
   ctx->accounts = NULL;
   free_emitted_logs(ctx->logs);
   ctx->logs = NULL;
+  free_trace_entries(ctx->traces);
+  ctx->traces = NULL;
   if (!ctx->parent) {
     free_transient_storage(ctx->transient_storage);
     ctx->transient_storage = NULL;
@@ -345,13 +392,13 @@ void context_apply(evmone_context_t* ctx) {
 
 void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_t* evm, void* executor, bool capture_events) {
   memset(out, 0, sizeof(*out));
-  out->executor       = executor;
-  out->ctx            = ctx;
-  out->accounts       = evm->accounts;
-  out->chain_id       = ctx->chain_id;
+  out->executor        = executor;
+  out->ctx             = ctx;
+  out->accounts        = evm->accounts;
+  out->chain_id        = ctx->chain_id;
   out->block_gas_limit = 30000000; // safe default
-  out->capture_events = capture_events;
-  out->pap_mode       = evm->pap_mode;
+  out->capture_events  = capture_events;
+  out->pap_mode        = evm->pap_mode;
 
   // extract block context from state_proof.block when union selector is 3 (blockContext)
   eth_call_block_context_t bctx = {0};
@@ -375,6 +422,10 @@ void evm_call_ctx_free(evm_call_ctx_t* evm) {
   evm->call_result = NULL_BYTES;
   free_emitted_logs(evm->logs);
   evm->logs = NULL;
+  free_keccak_entries(evm->keccak_entries);
+  evm->keccak_entries = NULL;
+  free_trace_entries(evm->traces);
+  evm->traces = NULL;
   call_account_free_list(evm->accounts);
   evm->accounts = NULL;
 }

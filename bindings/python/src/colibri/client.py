@@ -16,6 +16,7 @@ from .types import (
     MethodType,
     PrivacyMode,
     ProofError,
+    ProverMode,
     RPCError,
     VerificationError,
 )
@@ -52,7 +53,10 @@ class Colibri:
         trusted_checkpoint: Optional[str] = None,
         include_code: bool = False,
         use_accesslist: bool = False,
+        zk_proof: bool = False,
         privacy_mode: Optional[PrivacyMode] = None,
+        prover_mode: Optional['ProverMode'] = None,
+        checkpoint_witness_keys: Optional[str] = None,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
     ):
@@ -68,7 +72,9 @@ class Colibri:
             trusted_checkpoint: Optional trusted checkpoint as hex string (0x-prefixed, 66 chars)
             include_code: Whether to include code in proofs
             use_accesslist: Whether to use eth_createAccessList instead of debug_traceCall
+            zk_proof: Whether to request ZK sync proofs from remote provers
             privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
+            checkpoint_witness_keys: Optional hex-encoded witness signer keys (0x-prefixed)
             storage: Storage implementation (defaults to DefaultStorage)
             request_handler: Optional request handler for testing
         """
@@ -81,8 +87,12 @@ class Colibri:
         self.trusted_checkpoint = trusted_checkpoint
         self.include_code = include_code
         self.use_accesslist = use_accesslist
+        self.zk_proof = zk_proof
         self.privacy_mode = privacy_mode if privacy_mode is not None else PrivacyMode.NONE
+        self.prover_mode = prover_mode
+        self.checkpoint_witness_keys = checkpoint_witness_keys
         self.request_handler = request_handler
+        self._light_client_task: Optional[asyncio.Task] = None
 
         # Initialize storage - registration is global in C
         # The first instance determines the global storage type for C operations
@@ -325,45 +335,93 @@ class Colibri:
 
     async def rpc(self, method: str, params: List[Any]) -> Any:
         """
-        Execute an RPC call with automatic proof handling
+        Execute an RPC call via the unified C core state machine.
         
         Args:
             method: RPC method name
             params: Method parameters
             
         Returns:
-            RPC result
+            Verified RPC result
             
         Raises:
             ColibriError: If the RPC call fails
         """
-        method_type = self.get_method_support(method, params)
-        
-        if method_type == MethodType.PROOFABLE:
-            # Try to fetch proof from prover first
-            if self.provers:
+        native = _get_native()
+        if not native:
+            raise ColibriError("Native module not available")
+
+        params_json = json.dumps(params)
+        prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0) | ((1 << 7) if self.zk_proof else 0)
+        resolved_mode = self.prover_mode if self.prover_mode is not None else (ProverMode.REMOTE if self.provers else ProverMode.LOCAL)
+        native_mode = int(ProverMode.HYBRID) if resolved_mode == ProverMode.LIGHT_CLIENT else int(resolved_mode)
+
+        ctx = native.create_rpc_ctx(method, params_json, self.chain_id,
+                                    prover_flags, self._get_verify_flags(), native_mode)
+        if not ctx:
+            raise ColibriError(f"Failed to create RPC context for {method}")
+
+        if resolved_mode == ProverMode.PROXY:
+            native.rpc_set_proxy_urls(ctx, ",".join(self.eth_rpcs), ",".join(self.beacon_apis))
+
+        if self.trusted_checkpoint:
+            native.set_checkpoint(self.chain_id, self.trusted_checkpoint)
+        if self.checkpoint_witness_keys:
+            native.rpc_set_witness_keys(ctx, self.checkpoint_witness_keys)
+
+        try:
+            while True:
+                status_json = native.rpc_execute_json_status(ctx)
+                if not status_json:
+                    raise ColibriError("RPC execution returned null")
+
+                status = json.loads(status_json)
+
+                if status["status"] == "success":
+                    return status.get("result")
+                elif status["status"] == "error":
+                    raise ColibriError(status.get("error", "Unknown RPC error"))
+                elif status["status"] == "pending":
+                    await self._handle_requests(status.get("requests", []), use_prover_fallback=True)
+                else:
+                    raise ColibriError(f"Unknown status: {status['status']}")
+        finally:
+            native.free_rpc_ctx(ctx)
+
+    async def start_light_client(self, interval: float = 12.0, full_block: bool = False) -> None:
+        """
+        Start background polling to keep the block header cache warm.
+        Useful for ``ProverMode.LIGHT_CLIENT``.
+
+        By default polls ``eth_getBlockHeader("latest")`` which fetches only the
+        compact header proof. Set *full_block* to ``True`` to poll
+        ``eth_getBlockByNumber("latest")`` instead -- useful when many
+        ``eth_getTransactionByHash`` / ``eth_getTransactionReceipt`` calls follow,
+        since those need the full block data.
+
+        Args:
+            interval: polling interval in seconds (default: 12 = one Ethereum slot)
+            full_block: if True, fetch the full block instead of just the header
+        """
+        self.stop_light_client()
+        method = "eth_getBlockByNumber" if full_block else "eth_getBlockHeader"
+        params = ["latest", False] if full_block else ["latest"]
+
+        async def _poll():
+            while True:
                 try:
-                    proof = await self._fetch_rpc(self.provers, method, params, as_proof=True)
+                    await self.rpc(method, params)
                 except Exception:
-                    # Fallback to local proof creation
-                    proof = await self.create_proof(method, params)
-            else:
-                proof = await self.create_proof(method, params)
-            
-            return await self.verify_proof(proof, method, params)
-            
-        elif method_type == MethodType.UNPROOFABLE:
-            return await self._fetch_rpc(self.eth_rpcs, method, params, as_proof=False)
-            
-        elif method_type == MethodType.LOCAL:
-            # Local methods use empty proof
-            return await self.verify_proof(b"", method, params)
-            
-        elif method_type == MethodType.NOT_SUPPORTED or method_type == MethodType.UNDEFINED:
-            raise ColibriError(f"Method {method} is not supported")
-            
-        else:
-            raise ColibriError(f"Unknown method type for {method}")
+                    pass
+                await asyncio.sleep(interval)
+
+        self._light_client_task = asyncio.create_task(_poll())
+
+    def stop_light_client(self) -> None:
+        """Stop background light client polling."""
+        if self._light_client_task is not None:
+            self._light_client_task.cancel()
+            self._light_client_task = None
 
     async def _handle_requests(
         self, 
@@ -398,6 +456,8 @@ class Colibri:
                 # Determine server list
                 if request.request_type == "checkpointz":
                     servers = self.checkpointz
+                elif request.request_type == "prover":
+                    servers = self.provers
                 elif request.request_type == "beacon_api":
                     if use_prover_fallback and self.provers:
                         servers = self.provers

@@ -180,10 +180,7 @@ class TestIntegrationCases:
             assert False, f"Test {result['name']} failed: {result['error']}"
             
         elif result['status'] == 'ERROR':
-            # Test had an error
-            # For now, we'll mark these as expected failures since some tests
-            # might require specific chain states or network conditions
-            pytest.xfail(f"Test {result['name']} had error: {result['error']}")
+            assert False, f"Test {result['name']} had error: {result['error']}"
         
         else:
             assert False, f"Unknown test status: {result['status']}"

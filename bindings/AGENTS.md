@@ -97,11 +97,11 @@ The JSON status protocol (returned by `*_execute_json_status()`) uses this forma
 
 ### Binding Modules (auto-generated)
 
-- `docker/` -- 8 files
-- `emscripten/` -- 54 files
+- `dart/` -- 347 files
+- `docker/` -- 7 files
+- `emscripten/` -- 95 files
 - `kotlin/` -- 36 files
-- `node-addon/` -- 0 files
-- `python/` -- 41 files
-- `swift/` -- 46 files
+- `python/` -- 27 files
+- `swift/` -- 14 files
 
 <!-- AUTO:BINDINGS_INDEX:END -->

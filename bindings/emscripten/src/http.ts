@@ -28,6 +28,7 @@ export type AcceptKind = 'json' | 'octet';
 function joinPath(base: string, path?: string): string {
   if (!path) return base;
   if (!path.length) return base;
+  if (base.endsWith('/')) return base + path;
   return base + (path.startsWith('/') ? path : '/' + path);
 }
 
@@ -46,7 +47,8 @@ export async function fetch_from_servers(
   method: 'GET' | 'POST',
   payload?: any,
   accept: AcceptKind = 'json',
-  excludeMask = 0
+  excludeMask = 0,
+  fetchFn: typeof globalThis.fetch = globalThis.fetch
 ): Promise<{ data: Uint8Array, nodeIndex: number }> {
   let lastError = 'All nodes failed';
   let nodeIndex = 0;
@@ -56,7 +58,7 @@ export async function fetch_from_servers(
       continue;
     }
     try {
-      const response = await fetch(joinPath(server, path), {
+      const response = await fetchFn(joinPath(server, path), {
         method,
         body: payload ? JSON.stringify(payload) : undefined,
         headers: {
@@ -72,7 +74,7 @@ export async function fetch_from_servers(
       const bytes = await response.blob().then(b => b.arrayBuffer());
       return { data: new Uint8Array(bytes), nodeIndex };
     } catch (e) {
-      lastError = (e instanceof Error) ? e.message : String(e);
+      lastError = 'Request to ' + joinPath(server, path) + (payload ? ' with payload ' + JSON.stringify(payload) : '') + ' failed: ' + (  (e instanceof Error) ? e.message : String(e));
     }
     nodeIndex++;
   }
@@ -93,30 +95,34 @@ function log(msg: string) {
  * @param as_proof Expect octet-stream (true) or JSON result (false)
  * @return result value for JSON or raw bytes for proofs
  */
-export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false): Promise<any> {
+export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false, fetchFn: typeof globalThis.fetch = globalThis.fetch): Promise<any> {
   let last_error = 'All nodes failed';
   for (const url of urls) {
-    const response = await fetch(url, {
-      method: 'POST',
-      body: JSON.stringify({ id: 1, jsonrpc: '2.0', ...payload }),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': as_proof ? 'application/octet-stream' : 'application/json',
-      },
-    });
-    if (response.ok) {
-      if (!as_proof) {
-        const res = await response.json();
-        if (res.error) {
-          last_error = res.error?.message || res.error;
-          continue;
+    try {
+      const response = await fetchFn(url, {
+        method: 'POST',
+        body: JSON.stringify({ id: 1, jsonrpc: '2.0', ...payload }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': as_proof ? 'application/octet-stream' : 'application/json',
+        },
+      });
+      if (response.ok) {
+        if (!as_proof) {
+          const res = await response.json();
+          if (res.error) {
+            last_error = res.error?.message || res.error;
+            continue;
+          }
+          return res.result;
         }
-        return res.result;
+        const bytes = await response.blob().then(blob => blob.arrayBuffer());
+        return new Uint8Array(bytes);
+      } else {
+        last_error = `HTTP error! Status: ${response.status}, Details: ${await response.text()}`;
       }
-      const bytes = await response.blob().then(blob => blob.arrayBuffer());
-      return new Uint8Array(bytes);
-    } else {
-      last_error = `HTTP error! Status: ${response.status}, Details: ${await response.text()}`;
+    } catch (e) {
+      last_error = 'Request to ' + url + ' failed: ' + ((e instanceof Error) ? e.message : String(e));
     }
   }
   throw new Error(last_error);
@@ -156,13 +162,16 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
     if (data) {
       if (conf.debug) log(`::: ${path} (len=${data.length} bytes) CACHED`);
       c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, 0);
+      if (conf.onTransfer) conf.onTransfer(data.length, req);
       return;
     }
   }
   try {
     const accept = req.encoding == 'json' ? 'json' : 'octet';
-    const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask);
+    const fetchFn = conf.fetch || globalThis.fetch;
+    const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask, fetchFn);
     c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, nodeIndex);
+    if (conf.onTransfer) conf.onTransfer(data.length, req);
     if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
     if (conf.cache && cacheable) conf.cache.set(req, data);
   } catch (e) {

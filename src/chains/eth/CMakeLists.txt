@@ -116,12 +116,12 @@ if(ETH_BLOCK)
 endif()
 
 if(ETH_RECEIPT)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_receipt_proof.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_receipt_proof.c verifier/verify_block_receipts_proof.c)
   add_definitions(-DETH_RECEIPT)
 endif()
 
 if(ETH_LOGS)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_logs_proof.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_logs_proof.c verifier/eth_bloom.c)
   add_definitions(-DETH_LOGS)
 endif()
 
@@ -147,6 +147,10 @@ if(ETH_UTIL)
   add_definitions(-DETH_UTIL)
 endif()
 
+if(PAP)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/pap_tx_cache.c verifier/pap_req.c verifier/verify_pap_tx.c)
+endif()
+
 # Add ZK Verifier if enabled
 if(ETH_ZKPROOF)
     add_subdirectory(zk_verifier)
@@ -160,6 +164,7 @@ add_verifier(
   GET_REQ_TYPE c4_eth_get_request_type
   VERIFY c4_eth_verify
   METHOD_TYPE c4_eth_get_method_type
+  PROVER_PAYLOAD c4_eth_get_prover_payload
 )
 
 # Register ETH chain properties provider
@@ -175,7 +180,9 @@ add_prover(
     prover/proof_logs.c
     prover/proof_call.c
     prover/beacon.c
+    prover/beacon_header.c
     prover/proof_receipt.c
+    prover/proof_block_receipts.c
     prover/eth_req.c
     prover/logs_cache.c
     prover/eth_tools.c
@@ -184,7 +191,7 @@ add_prover(
     prover/proof_witness.c
     prover/historic_proof.c
     prover/historic_proof_zk.c
-  DEPENDS util eth_verifier
+  DEPENDS util eth_verifier verifier
   PROOF eth_prover_execute
 )
 
@@ -211,6 +218,7 @@ add_server_handler(
     server/period_store_zk_prover.c
     server/period_store_zk_ssz.c
     server/handle_period_static.c
+    server/handle_tx_cache.c
     server/eth_conf.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init

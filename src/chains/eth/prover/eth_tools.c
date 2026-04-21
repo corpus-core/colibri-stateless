@@ -91,24 +91,37 @@ static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_da
   ssz_add_bytes(builder, "block", bytes(buffer, l));
 }
 
-ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number, beacon_block_t* block, blockroot_proof_t* historic_proof) {
+ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number, beacon_block_t* block, blockroot_proof_t* historic_proof, bool is_call) {
   bytes32_t     body_root   = {0};
   ssz_builder_t state_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
-  bool          use_block_context = ctx->version >= c4_version_number(1, 1, 15); // block context is supported since version 1.1.15
-  bytes_t       proof;
+  bool          use_block_context = is_call && ctx->version >= c4_version_number(1, 1, 15); // block context is supported since version 1.1.15
+  bytes_t       proof             = NULL_BYTES;
 
   if (use_block_context) {
     const gindex_t* gi = c4_call_block_context_gindexes();
-    proof = ssz_create_multi_proof(block->body, body_root, CALL_BLOCK_CONTEXT_FIELD_COUNT,
-                                   gi[0], gi[1], gi[2], gi[3], gi[4], gi[5], gi[6], gi[7], gi[8]);
+#ifdef PROVER_CACHE
+    if (block->merkle_cache.valid)
+      proof = ssz_create_multi_proof_from_body_cache(&block->merkle_cache, body_root, gi, CALL_BLOCK_CONTEXT_FIELD_COUNT);
+    if (!proof.data)
+#endif
+      proof = ssz_create_multi_proof(block->body, body_root, CALL_BLOCK_CONTEXT_FIELD_COUNT,
+                                     gi[0], gi[1], gi[2], gi[3], gi[4], gi[5], gi[6], gi[7], gi[8]);
     ssz_add_block_proof(&state_proof, block, 0, true);
   }
   else {
     gindex_t block_index = eth_get_gindex_for_block(c4_chain_fork_id(ctx->chain_id, block->slot >> 5), block_number);
-    gindex_t state_index  = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
-    proof = block_index == 0
-                ? ssz_create_proof(block->body, body_root, state_index)
-                : ssz_create_multi_proof(block->body, body_root, 2, block_index, state_index);
+    gindex_t state_index = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
+#ifdef PROVER_CACHE
+    if (block->merkle_cache.valid) {
+      gindex_t gi_arr[2] = {state_index, block_index};
+      int      gi_len    = block_index == 0 ? 1 : 2;
+      proof               = ssz_create_multi_proof_from_body_cache(&block->merkle_cache, body_root, gi_arr, gi_len);
+    }
+    if (!proof.data)
+#endif
+      proof = block_index == 0
+                  ? ssz_create_proof(block->body, body_root, state_index)
+                  : ssz_create_multi_proof(block->body, body_root, 2, block_index, state_index);
     ssz_add_block_proof(&state_proof, block, block_index, false);
   }
 

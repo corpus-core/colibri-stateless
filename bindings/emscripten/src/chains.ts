@@ -35,8 +35,8 @@ export const default_config: {
 } = {
   '1': { // mainnet
     alias: ["mainnet", "eth", "0x1"],
-    beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
-    rpcs: ["https://rpc.ankr.com/eth"],
+    rpcs: ["https://mainnet1.colibri-proof.tech/execution"],
+    beacon_apis: ["https://mainnet1.colibri-proof.tech/consensus/"],
     prover: ["https://mainnet1.colibri-proof.tech"],
     checkpointz: [], //"https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
     pollingInterval: 12000,

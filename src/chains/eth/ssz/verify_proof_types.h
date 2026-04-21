@@ -675,3 +675,102 @@ static const ssz_def_t ETH_BLOCK_HEADER_PROOF[] = {
     SSZ_LIST("proof", ssz_bytes32, 256),                 // the multi merkle proof from the selected executionPayload fields down to the blockBodyRoot hash
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),        // the header of the beacon block
     SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION)}; // the proof for the correctness of the header
+
+// :: Block Receipts Proof
+//
+// A **Block Receipts Proof** verifies all transaction receipts of a given block.
+// Instead of proving a single receipt via Patricia Merkle Proof, the proof includes
+// **all** raw serialized receipts and the full transactions list from the execution payload.
+//
+// 1. **Receipt Trie Verification:**
+//    The verifier builds the complete Patricia Merkle Trie from all serialized receipts
+//    and computes the `receiptsRoot`, comparing it against the value in the ExecutionPayload.
+//
+// 2. **Transactions Verification:**
+//    The raw transactions list is included so the verifier can compute each `transactionHash`
+//    and verify `transactionIndex` for every receipt.
+//
+// 3. **Execution Payload Proof:**
+//    An SSZ multi-Merkle proof connects `blockNumber`, `blockHash`, `receiptsRoot`, and
+//    the `transactions` hash tree root to the `blockBodyRoot`.
+//
+// 4. **Consensus Reference:**
+//    The BeaconBlockHeader provides the `slot` for sync committee identification.
+//
+// 5. **Sync Committee Signature:**
+//    The BLS aggregate signature from the sync committee confirms canonical chain membership.
+
+// The main proof data for all receipts of a block.
+static const ssz_def_t ETH_BLOCK_RECEIPTS_PROOF[] = {
+    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576), // all transactions from the execution payload
+    SSZ_LIST("receipts", ssz_bytes_list, 65536),               // all RLP-serialized receipts of the block
+    SSZ_UINT64("blockNumber"),                                 // the number of the execution block
+    SSZ_BYTES32("blockHash"),                                  // the blockHash of the execution block
+    SSZ_UINT256("baseFeePerGas"),                               // for effectiveGasPrice when building receipt data in verifier
+    SSZ_LIST("block_proof", ssz_bytes32, 64),                  // the multi proof of transactions, receiptsRoot, blockNumber, blockHash and baseFeePerGas
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),              // the header of the beacon block
+    SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION)};       // the proof for the correctness of the header
+
+// :: Hybrid Proof Types
+//
+// Hybrid proofs embed verified `ETH_BLOCK_HEADER_DATA` (14 fields, ~540 bytes)
+// directly instead of full consensus-layer proofs. The verifier trusts this data
+// because the local prover already verified it (hybrid mode = same process).
+// These proofs are significantly smaller than their full counterparts.
+
+// Hybrid account proof: MPT proof + verified header data (stateRoot from header_data)
+static const ssz_def_t ETH_HYBRID_ACCOUNT_PROOF[] = {
+    SSZ_LIST("accountProof", ssz_bytes_1024, 256),
+    SSZ_ADDRESS("address"),
+    SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256),
+    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
+};
+
+// Hybrid call proof: accounts + verified header data (stateRoot, feeRecipient, etc.)
+static const ssz_def_t ETH_HYBRID_CALL_PROOF[] = {
+    SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256),
+    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
+};
+
+// Hybrid transaction proof: tx + SSZ Merkle proof against embedded SSZ transactionsRoot
+static const ssz_def_t ETH_HYBRID_TRANSACTION_PROOF[] = {
+    SSZ_BYTES("transaction", 1073741824),
+    SSZ_UINT32("transactionIndex"),
+    SSZ_LIST("txProof", ssz_bytes32, 64),
+    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
+};
+
+// Hybrid receipt proof: raw tx + SSZ Merkle proof for tx + Patricia proof for receipt + header_data
+static const ssz_def_t ETH_HYBRID_RECEIPT_PROOF[] = {
+    SSZ_BYTES("transaction", 1073741824),
+    SSZ_UINT32("transactionIndex"),
+    SSZ_LIST("txProof", ssz_bytes32, 64),
+    SSZ_LIST("receipt_proof", ssz_bytes_1024, 64),
+    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
+};
+
+// Hybrid logs block: header_data + SSZ multi-merkle proof for txs + Patricia receipt proofs
+static const ssz_def_t ETH_HYBRID_LOGS_BLOCK[] = {
+    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
+    SSZ_LIST("txProof", ssz_bytes32, 256),
+    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256),
+};
+
+static const ssz_def_t ETH_HYBRID_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("HybridLogsBlock", ETH_HYBRID_LOGS_BLOCK);
+
+// Hybrid block receipts proof: transactions + receipts + header_data (no multi-merkle proof needed)
+static const ssz_def_t ETH_HYBRID_BLOCK_RECEIPTS_PROOF[] = {
+    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576),
+    SSZ_LIST("receipts", ssz_bytes_list, 65536),
+    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
+};
+
+// Hybrid block proof: full execution payload (no merkle proof against bodyRoot needed)
+static const ssz_def_t ETH_HYBRID_BLOCK_PROOF[] = {
+    SSZ_UNION("executionPayload", ETH_EXECUTION_PAYLOAD_UNION),
+};
+
+// Hybrid block header proof: header_data alone serves as trusted proof for eth_getBlockHeader / eth_blobBaseFee / eth_blockNumber
+static const ssz_def_t ETH_HYBRID_BLOCK_HEADER_PROOF[] = {
+    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
+};

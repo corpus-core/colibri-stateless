@@ -98,21 +98,6 @@ if(BUILD_KONA_BRIDGE_STANDALONE)
     )
 endif()
 
-# Installation
-install(FILES kona_bridge.h
-    DESTINATION include
-)
-
-install(FILES ${CMAKE_BINARY_DIR}/lib/libkona_bridge.${KONA_LIB_EXT}
-    DESTINATION lib
-    OPTIONAL
-)
-
-if(EXISTS ${CMAKE_BINARY_DIR}/bin/kona_bridge)
-    install(PROGRAMS ${CMAKE_BINARY_DIR}/bin/kona_bridge
-        DESTINATION bin
-    )
-endif()
 
 # Test (optional) - nur wenn test_integration.c existiert
 if(BUILD_TESTING AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_integration.c)

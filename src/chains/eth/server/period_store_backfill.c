@@ -21,6 +21,7 @@
 #include <sys/stat.h>
 #include <uv.h>
 #define SLOTS_PER_PERIOD 8192u
+#define MAX_REORG_RETRIES 32u
 // Macro to log libuv errors, perform cleanup and return with a custom statement
 #define UVX_CHECK(op, expr, cleanup, retstmt)                                                  \
   do {                                                                                         \
@@ -86,6 +87,8 @@ static void     run_write_block_queue();
 static void     enqueue_backfill(void);
 static uint64_t latest_head_slot = 0;
 static void     fetch_header_cb(client_t* client, void* data, data_request_t* r);
+static void     reorg_recovery_cb(client_t* client, void* data, data_request_t* r);
+static void     fetch_header_by_slot(uint64_t slot, block_t* target);
 
 // write completion callback for c4_write_files_uv
 static void ps_write_done_cb(void* user_data, file_data_t* files, int num_files) {
@@ -104,11 +107,16 @@ static void ps_write_done_cb(void* user_data, file_data_t* files, int num_files)
 static backfill_ctx_t    bf_ctx = {0};
 static write_queue_ctx_t queue  = {0};
 
+static uint32_t reorg_retries       = 0;
+static uint64_t reorg_recovery_slot = 0;
+
 // Delayed header fetch (rate-limit friendly)
 typedef struct {
   uint8_t  root[32];
   block_t* target;
   bool     use_head;
+  bool     use_slot;
+  uint64_t slot;
 } fetch_ctx_t;
 static uv_timer_t fetch_timer;
 static bool       fetch_timer_initialized = false;
@@ -117,13 +125,17 @@ static void       fetch_timer_cb(uv_timer_t* h) {
   static client_t bf_client = {0};
   bf_client.being_closed    = false;
   data_request_t* req       = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-  req->url                  = fc->use_head ? strdup("eth/v1/beacon/headers/head")
-                                                 : bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(fc->root, 32));
+  if (fc->use_slot)
+    req->url = bprintf(NULL, "eth/v1/beacon/headers/%l", fc->slot);
+  else if (fc->use_head)
+    req->url = strdup("eth/v1/beacon/headers/head");
+  else
+    req->url = bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(fc->root, 32));
   req->method               = C4_DATA_METHOD_GET;
   req->chain_id             = http_server.chain_id;
   req->type                 = C4_DATA_TYPE_BEACON_API;
   req->encoding             = C4_DATA_ENCODING_JSON;
-  c4_add_request(&bf_client, req, fc->target, fetch_header_cb);
+  c4_add_request(&bf_client, req, fc->target, fc->use_slot ? reorg_recovery_cb : fetch_header_cb);
   uv_timer_stop(h);
   safe_free(fc);
 }
@@ -518,15 +530,102 @@ void c4_ps_set_block(block_t* block, bool run_backfill) {
     run_write_block_queue();    // if there are more it will be handled after the first is finished.
 }
 
-static void fetch_header_cb(client_t* client, void* data, data_request_t* r) {
+static void reorg_recovery_cb(client_t* client, void* data, data_request_t* r) {
+  (void) client;
+  (void) data;
   block_t block;
   char*   err = response_to_header(r, &block);
   if (err) {
-    log_error("backfill failed: error while fetching header: %s", err);
+    bool is404 = strstr(err, "(404)") != NULL;
+    if (is404 && reorg_retries < MAX_REORG_RETRIES) {
+      if (reorg_recovery_slot <= bf_ctx.end_slot + 1) {
+        log_error("period_store: reorg recovery cannot step below backfill window (slot %l, end_slot %l): %s", reorg_recovery_slot,
+                  bf_ctx.end_slot, err);
+        safe_free(err);
+        backfill_done();
+        return;
+      }
+      reorg_retries++;
+      reorg_recovery_slot--;
+      log_warn("period_store: reorg recovery slot fetch returned 404; trying slot %l (attempt %u)", reorg_recovery_slot, reorg_retries);
+      safe_free(err);
+      fetch_header_by_slot(reorg_recovery_slot, &bf_ctx.current);
+      return;
+    }
+    log_error("period_store: reorg recovery failed at slot %l: %s", bf_ctx.current.slot, err);
     safe_free(err);
     backfill_done();
     return;
   }
+
+  reorg_retries = 0;
+  bf_ctx.current = block;
+  memcpy(bf_ctx.current.parent_root, bf_ctx.current.header + 16, 32);
+  c4_ps_set_block(&bf_ctx.current, true);
+}
+
+static void fetch_header_by_slot(uint64_t slot, block_t* target) {
+  if (graceful_shutdown_in_progress) return;
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  if (!sl || sl->count == 0) return;
+  int delay_ms = eth_config.period_backfill_delay_ms;
+  if (delay_ms > 0) {
+    if (!fetch_timer_initialized) {
+      if (uv_timer_init(uv_default_loop(), &fetch_timer) != 0) {
+        log_warn("period_store: uv_timer_init(fetch) failed; sending immediately");
+        delay_ms = 0;
+      }
+      else {
+        fetch_timer_initialized = true;
+      }
+    }
+    if (delay_ms > 0) {
+      fetch_ctx_t* fc = (fetch_ctx_t*) safe_calloc(1, sizeof(fetch_ctx_t));
+      fc->target      = target;
+      fc->use_slot    = true;
+      fc->slot        = slot;
+      fetch_timer.data = fc;
+      int rc           = uv_timer_start(&fetch_timer, fetch_timer_cb, (uint64_t) delay_ms, 0);
+      if (rc < 0) {
+        log_warn("period_store: uv_timer_start(fetch) failed; sending immediately: %s", uv_strerror(rc));
+        delay_ms = 0;
+      }
+      if (delay_ms > 0) return;
+    }
+  }
+
+  static client_t bf_client = {0};
+  bf_client.being_closed    = false;
+  data_request_t* req       = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->url                  = bprintf(NULL, "eth/v1/beacon/headers/%l", slot);
+  req->method               = C4_DATA_METHOD_GET;
+  req->chain_id             = http_server.chain_id;
+  req->type                 = C4_DATA_TYPE_BEACON_API;
+  req->encoding             = C4_DATA_ENCODING_JSON;
+  c4_add_request(&bf_client, req, target, reorg_recovery_cb);
+}
+
+static void fetch_header_cb(client_t* client, void* data, data_request_t* r) {
+  block_t block;
+  char*   err = response_to_header(r, &block);
+  if (err) {
+    block_t* target = (block_t*) data;
+    if (target == &bf_ctx.parent && strstr(err, "(404)")) {
+      log_warn("period_store: parent not found for slot %l (parent_root=0x%x): %s - attempting reorg recovery by re-fetching slot",
+               bf_ctx.current.slot, bytes(bf_ctx.current.parent_root, 32), err);
+      safe_free(err);
+      reorg_retries       = 1;
+      reorg_recovery_slot = bf_ctx.current.slot;
+      memset(&bf_ctx.parent, 0, sizeof(block_t));
+      fetch_header_by_slot(reorg_recovery_slot, &bf_ctx.current);
+      return;
+    }
+    log_error("period_store: backfill failed while fetching header (current slot %l): %s", bf_ctx.current.slot, err);
+    safe_free(err);
+    backfill_done();
+    return;
+  }
+  reorg_retries = 0;
   block_t* target = (block_t*) data;
   *target         = block;
 

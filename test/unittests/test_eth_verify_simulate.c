@@ -37,14 +37,14 @@ void tearDown(void) {
 // Test 1: Simple transaction simulation (no events)
 void test_simulate_simple() {
   // No special flags needed - uses state from test data
-  run_rpc_test("simulate_simple", 0);
+  run_rpc_test("simulate_simple", 0,0);
 }
 
 // Test 2: WETH deposit simulation with events
 void test_simulate_weth_deposit() {
   // INCLUDE_CODE flag because contract code is included in test data (code_d0a06...)
   // Could also run without flag since code file is present in test directory
-  run_rpc_test("simulate_weth", C4_PROVER_FLAG_INCLUDE_CODE);
+  run_rpc_test("simulate_weth", C4_PROVER_FLAG_INCLUDE_CODE,0);
 }
 
 int main(void) {

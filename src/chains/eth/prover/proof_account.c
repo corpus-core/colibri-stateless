@@ -84,7 +84,7 @@ static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof,
   add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &eth_account_proof, "accountProof");
   ssz_add_bytes(&eth_account_proof, "address", json_as_bytes(address, &tmp));
   ssz_add_builders(&eth_account_proof, "storageProof", create_storage_proof(ctx, ssz_get_def(eth_account_proof.def, "storageProof"), json_get(eth_proof, "storageProof")));
-  ssz_add_builders(&eth_account_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data, &historic_proof));
+  ssz_add_builders(&eth_account_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data, &historic_proof, false));
 
   // build the data only if we have code
   if (strcmp(ctx->method, "eth_getCode") == 0) {
@@ -99,6 +99,30 @@ static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof,
       sync_proof);
 
   // empty sync_data
+  buffer_free(&tmp);
+  return C4_SUCCESS;
+}
+
+static c4_status_t create_hybrid_account_proof(prover_ctx_t* ctx, json_t eth_proof, beacon_block_t* block_data, json_t address) {
+  json_t        json_code             = {0};
+  buffer_t      tmp                   = {0};
+  ssz_builder_t eth_data              = {0};
+  ssz_builder_t hybrid_account_proof  = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF);
+  ssz_builder_t sync_proof            = NULL_SSZ_BUILDER;
+
+  if (strcmp(ctx->method, "eth_getCode") == 0) TRY_ASYNC(eth_get_code(ctx, address, &json_code, 0));
+
+  add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &hybrid_account_proof, "accountProof");
+  ssz_add_bytes(&hybrid_account_proof, "address", json_as_bytes(address, &tmp));
+  ssz_add_builders(&hybrid_account_proof, "storageProof", create_storage_proof(ctx, ssz_get_def(hybrid_account_proof.def, "storageProof"), json_get(eth_proof, "storageProof")));
+  ssz_add_bytes(&hybrid_account_proof, "header_data", block_data->execution.bytes);
+
+  if (strcmp(ctx->method, "eth_getCode") == 0) {
+    eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES);
+    json_as_bytes(json_code, &eth_data.fixed);
+  }
+
+  ctx->proof = eth_create_proof_request(ctx->chain_id, eth_data, hybrid_account_proof, sync_proof);
   buffer_free(&tmp);
   return C4_SUCCESS;
 }
@@ -123,6 +147,10 @@ c4_status_t c4_proof_account(prover_ctx_t* ctx) {
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
   TRY_ADD_ASYNC(status, eth_get_proof(ctx, address, storage_keys, &eth_proof, ssz_get_uint64(&block.execution, "blockNumber")));
+
+  if (block.header_only)
+    return status == C4_SUCCESS ? create_hybrid_account_proof(ctx, eth_proof, &block, address) : status;
+
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
   if (status != C4_SUCCESS) {
     c4_free_block_proof(&historic_proof);

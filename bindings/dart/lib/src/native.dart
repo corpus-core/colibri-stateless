@@ -124,6 +124,32 @@ typedef _SetStorageConfig = void Function(ffi.Pointer<StoragePluginT>);
 typedef _BufferAppendNative = ffi.Uint32 Function(ffi.Pointer<BufferT>, BytesT);
 typedef _BufferAppend = int Function(ffi.Pointer<BufferT>, BytesT);
 
+typedef _CreateRpcCtxNative = ffi.Pointer<ffi.Void> Function(
+  ffi.Pointer<ffi.Int8>,
+  ffi.Pointer<ffi.Int8>,
+  ffi.Uint64,
+  ffi.Uint32,
+  ffi.Uint32,
+  ffi.Int32,
+);
+typedef _CreateRpcCtx = ffi.Pointer<ffi.Void> Function(
+  ffi.Pointer<ffi.Int8>,
+  ffi.Pointer<ffi.Int8>,
+  int,
+  int,
+  int,
+  int,
+);
+
+typedef _SetCheckpointNative = ffi.Void Function(ffi.Uint64, ffi.Pointer<ffi.Int8>);
+typedef _SetCheckpoint = void Function(int, ffi.Pointer<ffi.Int8>);
+
+typedef _RpcSetWitnessKeysNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>);
+typedef _RpcSetWitnessKeys = void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>);
+
+typedef _RpcSetProxyUrlsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>, ffi.Pointer<ffi.Int8>);
+typedef _RpcSetProxyUrls = void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>, ffi.Pointer<ffi.Int8>);
+
 // Global storage bridge used by native callbacks.
 ColibriStorage? _storageHandler;
 late _BufferAppend _bufferAppend;
@@ -221,6 +247,16 @@ class ColibriNative {
     _setStorageConfig =
         _lib.lookupFunction<_SetStorageConfigNative, _SetStorageConfig>('c4_set_storage_config');
     _bufferAppend = _lib.lookupFunction<_BufferAppendNative, _BufferAppend>('buffer_append');
+    _createRpcCtx = _lib.lookupFunction<_CreateRpcCtxNative, _CreateRpcCtx>('c4_create_rpc_ctx');
+    _rpcExecuteJsonStatus =
+        _lib.lookupFunction<_ExecuteStatusNative, _ExecuteStatus>('c4_rpc_execute_json_status');
+    _freeRpcCtx = _lib.lookupFunction<_FreeCtxNative, _FreeCtx>('c4_free_rpc_ctx');
+    _setCheckpoint =
+        _lib.lookupFunction<_SetCheckpointNative, _SetCheckpoint>('c4_set_checkpoint');
+    _rpcSetWitnessKeys =
+        _lib.lookupFunction<_RpcSetWitnessKeysNative, _RpcSetWitnessKeys>('c4_rpc_set_witness_keys');
+    _rpcSetProxyUrls =
+        _lib.lookupFunction<_RpcSetProxyUrlsNative, _RpcSetProxyUrls>('c4_rpc_set_proxy_urls');
   }
 
   final ffi.DynamicLibrary _lib;
@@ -238,12 +274,26 @@ class ColibriNative {
   late final _GetMethodSupport _getMethodSupport;
   late final _Free _free;
   late final _SetStorageConfig _setStorageConfig;
+  late final _CreateRpcCtx _createRpcCtx;
+  late final _ExecuteStatus _rpcExecuteJsonStatus;
+  late final _FreeCtx _freeRpcCtx;
+  late final _SetCheckpoint _setCheckpoint;
+  late final _RpcSetWitnessKeys _rpcSetWitnessKeys;
+  late final _RpcSetProxyUrls _rpcSetProxyUrls;
 
   /// Load the native shared library from [libraryPath] or platform defaults.
   static ColibriNative load({String? libraryPath}) {
     if (Platform.isIOS) {
-      // iOS: XCFramework is linked into the app; resolve symbols from process.
-      final lib = ffi.DynamicLibrary.process();
+      // iOS: static XCFramework is linked into the Flutter runner binary.
+      // Try executable() first (dlsym RTLD_MAIN_ONLY), fall back to process()
+      // (dlsym RTLD_DEFAULT) which works on some simulator configurations.
+      ffi.DynamicLibrary lib;
+      try {
+        lib = ffi.DynamicLibrary.executable();
+        lib.lookup<ffi.Void>('c4_create_rpc_ctx');
+      } catch (_) {
+        lib = ffi.DynamicLibrary.process();
+      }
       final libc = _openLibc();
       return ColibriNative._(lib, libc);
     }
@@ -425,6 +475,64 @@ class ColibriNative {
     calloc.free(plugin);
   }
 
+  /// Create a unified RPC context.
+  ffi.Pointer<ffi.Void> createRpcCtx(
+    String method,
+    String params,
+    int chainId,
+    int proverFlags,
+    int verifyFlags,
+    int proverMode,
+  ) {
+    final methodPtr = method.toNativeUtf8();
+    final paramsPtr = params.toNativeUtf8();
+    final ctx = _createRpcCtx(
+      methodPtr.cast(),
+      paramsPtr.cast(),
+      chainId,
+      proverFlags,
+      verifyFlags,
+      proverMode,
+    );
+    malloc.free(methodPtr);
+    malloc.free(paramsPtr);
+    return ctx;
+  }
+
+  /// Execute a unified RPC step and return the JSON status string.
+  String rpcExecuteJsonStatus(ffi.Pointer<ffi.Void> ctx) {
+    final resultPtr = _rpcExecuteJsonStatus(ctx);
+    final result = resultPtr.cast<Utf8>().toDartString();
+    _free(resultPtr.cast());
+    return result;
+  }
+
+  /// Free the unified RPC context.
+  void freeRpcCtx(ffi.Pointer<ffi.Void> ctx) => _freeRpcCtx(ctx);
+
+  /// Set a trusted checkpoint for a chain (context-independent).
+  void setCheckpoint(int chainId, String checkpoint) {
+    final checkpointPtr = checkpoint.toNativeUtf8();
+    _setCheckpoint(chainId, checkpointPtr.cast());
+    malloc.free(checkpointPtr);
+  }
+
+  /// Set witness/signer keys on an RPC context.
+  void rpcSetWitnessKeys(ffi.Pointer<ffi.Void> ctx, String keys) {
+    final keysPtr = keys.toNativeUtf8();
+    _rpcSetWitnessKeys(ctx, keysPtr.cast());
+    malloc.free(keysPtr);
+  }
+
+  /// Set proxy RPC and Beacon API URLs on an RPC context.
+  void rpcSetProxyUrls(ffi.Pointer<ffi.Void> ctx, String rpcUrls, String beaconUrls) {
+    final rpcPtr = rpcUrls.toNativeUtf8();
+    final beaconPtr = beaconUrls.toNativeUtf8();
+    _rpcSetProxyUrls(ctx, rpcPtr.cast(), beaconPtr.cast());
+    malloc.free(rpcPtr);
+    malloc.free(beaconPtr);
+  }
+
   /// Resolve the platform-specific library path.
   static String _resolveDefaultLibraryPath() {
     final envPath = Platform.environment['COLIBRI_DART_LIBRARY'];
@@ -433,7 +541,7 @@ class ColibriNative {
     }
 
     if (Platform.isAndroid || Platform.isIOS) {
-      // Should not reach here: iOS/Android use DynamicLibrary.process() in load().
+      // Should not reach here: iOS uses executable(), Android uses open() in load().
       throw UnsupportedError(
         'Colibri native library: use package colibri_flutter on Android/iOS so the plugin loads the library',
       );

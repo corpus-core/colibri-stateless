@@ -69,7 +69,9 @@ typedef enum {
   ACCOUNT_FREE_CODE        = 1 << 5,
   ACCOUNT_FULL_STATE       = 1 << 6,
   ACCOUNT_DELETED          = 1 << 7,
-  ACCOUNT_ACCESSED         = 1 << 8, // EIP-2929: account was accessed in this transaction
+  ACCOUNT_ACCESSED         = 1 << 8,  // EIP-2929: account was accessed in this transaction
+  ACCOUNT_BALANCE_MODIFIED = 1 << 9,  // balance was changed during simulation
+  ACCOUNT_NONCE_MODIFIED   = 1 << 10, // nonce was changed during simulation
 } call_account_flags_t;
 
 // :: Unified account
@@ -77,7 +79,9 @@ typedef enum {
 typedef struct call_account {
   address_t            address;
   uint64_t             nonce;
+  uint64_t             src_nonce;
   bytes32_t            balance;
+  bytes32_t            src_balance;
   bytes32_t            code_hash;
   bytes32_t            storage_root;
   bytes_t              code;

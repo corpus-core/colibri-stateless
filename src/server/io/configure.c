@@ -6,6 +6,7 @@
 #include "configure.h"
 #include "chains.h"
 #include "logger.h"
+#include "compat.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -313,7 +314,8 @@ int c4_save_config_file(const char* updates) {
 
   // Parse updates string (format: "KEY1=VALUE1\nKEY2=VALUE2\n...")
   char* updates_copy = strdup(updates);
-  char* line         = strtok(updates_copy, "\n");
+  char* line_save    = NULL;
+  char* line         = c4_strtok_r(updates_copy, "\n", &line_save);
   while (line && update_count < MAX_UPDATES) {
     char* eq = strchr(line, '=');
     if (eq) {
@@ -349,7 +351,7 @@ int c4_save_config_file(const char* updates) {
       update_map[update_count].value = strdup(val);
       update_count++;
     }
-    line = strtok(NULL, "\n");
+    line = c4_strtok_r(NULL, "\n", &line_save);
   }
   free(updates_copy);
 

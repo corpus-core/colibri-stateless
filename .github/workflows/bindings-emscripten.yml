@@ -30,15 +30,21 @@ jobs:
           emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
           cmake --build build
 
-      - name: Run tests
+      - name: Run unit tests (node) + webpack build
         run: |
           cd bindings/emscripten
           npm test
           cd ../../
 
+      - name: Run integration tests (real infrastructure)
+        run: |
+          cd bindings/emscripten
+          npm run test:integration
+          cd ../../
+
       - name: RN-web smoke (Expo) tests
         run: |
-          cd bindings/emscripten/rn-web-test
+          cd bindings/emscripten/test/rn-web
           npm install
           npm test
           npm run build:web
@@ -75,3 +81,63 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: build/emscripten
+
+  colibri-tor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Cache Arti build
+        uses: actions/cache@v4
+        with:
+          path: |
+            bindings/emscripten/packages/tor/.arti-build
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: arti-wasm-${{ hashFiles('bindings/emscripten/packages/tor/scripts/build-arti.sh') }}
+          restore-keys: arti-wasm-
+
+      - name: Build tor-js from source
+        run: bash scripts/build-arti.sh
+        working-directory: bindings/emscripten/packages/tor
+
+      - name: Build colibri-tor
+        run: |
+          npm install
+          npx tsc
+        working-directory: bindings/emscripten/packages/tor
+
+      - name: Test colibri-tor
+        run: npm test
+        working-directory: bindings/emscripten/packages/tor
+
+      - name: Set colibri-tor version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Setting colibri-tor version to $TAG_VERSION"
+          npm version $TAG_VERSION --no-git-tag-version
+        working-directory: bindings/emscripten/packages/tor
+
+      - name: Publish colibri-tor to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: bindings/emscripten/packages/tor

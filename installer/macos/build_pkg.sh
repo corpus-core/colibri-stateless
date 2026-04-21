@@ -74,6 +74,14 @@ if [ -f "$CLI_BIN_DIR/colibri-ssz" ]; then
     echo "Installed CLI tool: colibri-ssz"
 fi
 
+# Install zsh completions
+install -d "$PACKAGE_ROOT/usr/local/share/zsh/site-functions"
+install -m 0644 "$PROJECT_ROOT/scripts/completion/_colibri" "$PACKAGE_ROOT/usr/local/share/zsh/site-functions/_colibri"
+install -m 0644 "$PROJECT_ROOT/scripts/completion/_colibri-prover" "$PACKAGE_ROOT/usr/local/share/zsh/site-functions/_colibri-prover"
+install -m 0644 "$PROJECT_ROOT/scripts/completion/_colibri-ssz" "$PACKAGE_ROOT/usr/local/share/zsh/site-functions/_colibri-ssz"
+install -m 0644 "$PROJECT_ROOT/scripts/completion/_colibri-server" "$PACKAGE_ROOT/usr/local/share/zsh/site-functions/_colibri-server"
+echo "Installed zsh completions"
+
 # Install config
 install -d "$PACKAGE_ROOT/usr/local/etc/colibri"
 install -m 0644 "$PROJECT_ROOT/installer/config/server.conf.default" \

@@ -166,7 +166,11 @@ class ColibriTest {
             if (file.exists() && file.isFile) {
              //    println("InMemoryStorage: Reading '$key' from file ${file.absolutePath}")
                 return try {
-                     file.readBytes()
+                     var data = file.readBytes()
+                     if (key.startsWith("tx_pending_")) {
+                         data = refreshPendingTimestamps(data)
+                     }
+                     data
                  } catch (e: Exception) {
                      println("InMemoryStorage: Error reading file '$key': ${e.message}")
                      null
@@ -187,8 +191,18 @@ class ColibriTest {
             cache.remove(key)
         }
 
-        // No preloading needed with this get logic
-        // fun preloadFromFile(file: File) { ... }
+        private fun refreshPendingTimestamps(data: ByteArray): ByteArray {
+            val buf = data.copyOf()
+            val now = System.currentTimeMillis() / 1000
+            var offset = 0
+            while (offset + 40 <= buf.size) {
+                for (b in 0 until 8) {
+                    buf[offset + 32 + b] = ((now shr (b * 8)) and 0xFF).toByte()
+                }
+                offset += 40
+            }
+            return buf
+        }
     }
 
     @Test
@@ -244,25 +258,30 @@ class ColibriTest {
         // --- End Storage Setup ---
 
         // Create Colibri instance with mock request handler
+        val pap = testConf.optBoolean("pap", false)
+        val remoteProver = testConf.optBoolean("remote_prover", false)
         val mockHandler = createMockRequestHandler(testDir)
         val colibri = Colibri(
             chainId = chainId,
             requestHandler = mockHandler,
+            provers = if (remoteProver) arrayOf("http://mock-prover") else emptyArray(),
             includeCode = testConf.optBoolean("include_code", false),
-            useAccesslist = testConf.optBoolean("use_accesslist", false)
+            useAccesslist = testConf.optBoolean("use_accesslist", false),
+            privacyMode = if (pap) PrivacyMode.BASIC else PrivacyMode.NONE
         )
 
         if (trusted_blockhash != null) {
             colibri.trustedCheckpoint = trusted_blockhash
         }
 
-        // Run the test logic 
-//        println("Creating proof for ${testDir.name}...")
-        val proof = colibri.getProof(method, params)
-        assertTrue("Proof should not be empty for ${testDir.name}", proof.isNotEmpty())
-//        println("Proof created (size: ${proof.size}). Verifying...")
-
-        val result = colibri.verifyProof(proof, method, params)
+        val result: Any?
+        if (pap) {
+            result = colibri.rpc(method, params)
+        } else {
+            val proof = colibri.getProof(method, params)
+            assertTrue("Proof should not be empty for ${testDir.name}", proof.isNotEmpty())
+            result = colibri.verifyProof(proof, method, params)
+        }
 //        println("Verification result: $result")
 
         // Compare result with expected_result (needs careful comparison of Any? and org.json)
