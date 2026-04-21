@@ -663,34 +663,34 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
   if (!eth_config.period_store) return;
   if (!eth_config.period_prover_key_file) return;
 
-  bool     run_prover               = false;
-  uint64_t target_period            = period + 1;
+  uint64_t max_period               = period + 1;
   prover_stats.last_check_timestamp = current_unix_ms() / 1000;
-  prover_stats.current_period       = target_period;
+  prover_stats.current_period       = max_period;
 
-  if (target_period <= last_verified_period) return;
+  if (max_period <= last_verified_period) return;
 
-  // Paths
-  char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, target_period);
-  char* proof_path = bprintf(NULL, "%s/zk_proof_g16.bin", period_dir);
-  char* pub_path   = bprintf(NULL, "%s/zk_pub.bin", period_dir);
-  safe_free(period_dir);
+  // Fill gaps sequentially: each proof needs the previous period's recursion inputs.
+  for (uint64_t p = last_verified_period + 1; p <= max_period; p++) {
+    char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, p);
+    char* proof_path = bprintf(NULL, "%s/zk_proof_g16.bin", period_dir);
+    char* pub_path   = bprintf(NULL, "%s/zk_pub.bin", period_dir);
+    safe_free(period_dir);
 
-  // Check if exists
-  struct stat st;
-  if (stat(proof_path, &st) == 0) {
-    // Exists, verify
-    log_info("Prover: Verifying existing proof for period %l", target_period);
+    struct stat st;
+    if (stat(proof_path, &st) == 0) {
+      log_info("Prover: Verifying existing proof for period %l", p);
 
-    // Read files
-    bool valid = c4_verify_proof_files(proof_path, pub_path);
+      bool valid = c4_verify_proof_files(proof_path, pub_path);
 
-    if (valid) {
-      log_info("Prover: Existing proof valid for period %l", target_period);
-      last_verified_period = target_period;
-    }
-    else {
-      log_warn("Prover: Existing proof INVALID for period %l", target_period);
+      if (valid) {
+        log_info("Prover: Existing proof valid for period %l", p);
+        last_verified_period = p;
+        safe_free(proof_path);
+        safe_free(pub_path);
+        continue;
+      }
+
+      log_warn("Prover: Existing proof INVALID for period %l", p);
 
       // Check age (1 hour = 3600 seconds)
       time_t now     = time(NULL);
@@ -699,20 +699,19 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
       if (age_sec < 3600) {
         log_error("Prover: Proof is fresh (%f s old), NOT retrying to avoid loop", age_sec);
         prover_stats.total_failure++;
+        safe_free(proof_path);
+        safe_free(pub_path);
+        return;
       }
-      else {
-        log_warn("Prover: Proof is old (%f s old), deleting and retrying", age_sec);
-        unlink(proof_path);
-        run_prover = true;
-      }
+
+      log_warn("Prover: Proof is old (%f s old), deleting and retrying", age_sec);
+      unlink(proof_path);
     }
+
+    safe_free(proof_path);
+    safe_free(pub_path);
+
+    c4_period_prover_spawn(p, p - 1);
+    return;
   }
-  else
-    run_prover = true;
-
-  safe_free(proof_path);
-  safe_free(pub_path);
-
-  if (run_prover)
-    c4_period_prover_spawn(target_period, period);
 }
