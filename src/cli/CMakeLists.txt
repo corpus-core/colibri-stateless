@@ -42,15 +42,15 @@ if (CLI)
     if(WIN32)
         add_custom_command(TARGET colibri-ssz POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy
-                "${CMAKE_BINARY_DIR}/bin/colibri-ssz$<TARGET_FILE_SUFFIX:colibri-ssz>"
-                "${CMAKE_BINARY_DIR}/bin/ssz$<TARGET_FILE_SUFFIX:colibri-ssz>"
+                "$<TARGET_FILE:colibri-ssz>"
+                "$<TARGET_FILE_DIR:colibri-ssz>/ssz$<TARGET_FILE_SUFFIX:colibri-ssz>"
             COMMENT "Copying: colibri-ssz -> ssz"
         )
     else()
         add_custom_command(TARGET colibri-ssz POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E create_symlink
                 colibri-ssz$<TARGET_FILE_SUFFIX:colibri-ssz>
-                "${CMAKE_BINARY_DIR}/bin/ssz$<TARGET_FILE_SUFFIX:colibri-ssz>"
+                "$<TARGET_FILE_DIR:colibri-ssz>/ssz$<TARGET_FILE_SUFFIX:colibri-ssz>"
             COMMENT "Creating symlink: ssz -> colibri-ssz"
         )
     endif()
@@ -62,15 +62,15 @@ if (CLI)
     if(WIN32)
         add_custom_command(TARGET colibri-verifier POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy
-                "${CMAKE_BINARY_DIR}/bin/colibri-verifier$<TARGET_FILE_SUFFIX:colibri-verifier>"
-                "${CMAKE_BINARY_DIR}/bin/colibri$<TARGET_FILE_SUFFIX:colibri-verifier>"
+                "$<TARGET_FILE:colibri-verifier>"
+                "$<TARGET_FILE_DIR:colibri-verifier>/colibri$<TARGET_FILE_SUFFIX:colibri-verifier>"
             COMMENT "Copying: colibri-verifier -> colibri"
         )
     else()
         add_custom_command(TARGET colibri-verifier POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E create_symlink
                 colibri-verifier$<TARGET_FILE_SUFFIX:colibri-verifier>
-                "${CMAKE_BINARY_DIR}/bin/colibri$<TARGET_FILE_SUFFIX:colibri-verifier>"
+                "$<TARGET_FILE_DIR:colibri-verifier>/colibri$<TARGET_FILE_SUFFIX:colibri-verifier>"
             COMMENT "Creating symlink: colibri -> colibri-verifier"
         )
     endif()
