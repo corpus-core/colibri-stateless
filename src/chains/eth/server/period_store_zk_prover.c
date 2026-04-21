@@ -26,8 +26,12 @@
 #include <unistd.h>
 #endif
 
-prover_stats_t  prover_stats         = {0};
-static uint64_t last_verified_period = 0;
+prover_stats_t  prover_stats          = {0};
+static uint64_t last_verified_period  = 0;
+// True once we have located (or built) a valid Groth16 proof to recurse on.
+// Stays false when no baseline proof exists yet in the period_store (e.g. during
+// initial backfill with gaps), so the checkpoint handler can retry init later.
+static bool prover_baseline_found = false;
 
 // Prevent concurrent proof generation runs.
 static bool     g_prover_running          = false;
@@ -141,16 +145,57 @@ static bool c4_verify_proof_files(const char* proof_path, const char* pub_path) 
   return valid;
 }
 
+// Returns true if s is a non-empty string of decimal digits.
+static bool is_numeric_period_name(const char* s) {
+  if (!s || !*s) return false;
+  for (const char* c = s; *c; c++) {
+    if (*c < '0' || *c > '9') return false;
+  }
+  return true;
+}
+
 void c4_period_prover_init_from_store(void) {
   // Only meaningful on master with a local period_store.
   if (eth_config.period_master_url) return;
   if (!eth_config.period_store) return;
 
-  uint64_t first = 0, last = 0;
-  if (!c4_ps_period_index_get_contiguous_from(0, &first, &last)) return;
+  // Scan the period_store directory directly. We intentionally do NOT use the
+  // period index here because it refuses to expose the range when gaps exist,
+  // which is a valid state during backfill. For the recursive prover we only
+  // need the newest valid Groth16 proof regardless of gaps below it.
+  uv_fs_t req = {0};
+  int     rc  = uv_fs_scandir(uv_default_loop(), &req, eth_config.period_store, 0, NULL);
+  if (rc < 0) {
+    uv_fs_req_cleanup(&req);
+    return;
+  }
 
-  // Walk backwards to find the newest valid Groth16 proof.
-  for (uint64_t p = last;; p--) {
+  uint64_t max_period = 0;
+  uint64_t min_period = 0;
+  bool     has_any    = false;
+
+  uv_dirent_t ent;
+  while (uv_fs_scandir_next(&req, &ent) != UV_EOF) {
+    if (ent.type != UV_DIRENT_DIR) continue;
+    if (!is_numeric_period_name(ent.name)) continue;
+    uint64_t p = (uint64_t) strtoull(ent.name, NULL, 10);
+    if (!has_any) {
+      max_period = p;
+      min_period = p;
+      has_any    = true;
+    }
+    else {
+      if (p > max_period) max_period = p;
+      if (p < min_period) min_period = p;
+    }
+  }
+  uv_fs_req_cleanup(&req);
+
+  if (!has_any) return;
+
+  // Walk backwards from the newest period to find the newest valid Groth16 proof.
+  // Non-existent period directories (gaps) are silently skipped via c4_ps_file_exists.
+  for (uint64_t p = max_period;; p--) {
     if (c4_ps_file_exists(p, "zk_proof_g16.bin") && c4_ps_file_exists(p, "zk_pub.bin")) {
       char* proof_path = bprintf(NULL, "%s/%l/zk_proof_g16.bin", eth_config.period_store, p);
       char* pub_path   = bprintf(NULL, "%s/%l/zk_pub.bin", eth_config.period_store, p);
@@ -161,6 +206,7 @@ void c4_period_prover_init_from_store(void) {
           prover_stats.last_run_timestamp = (uint64_t) st.st_mtime;
           prover_stats.last_run_status    = 0;
           last_verified_period            = p;
+          prover_baseline_found           = true;
           log_info("Prover: Initialized last_run_timestamp=%l from period %l", prover_stats.last_run_timestamp, p);
           safe_free(proof_path);
           safe_free(pub_path);
@@ -172,7 +218,7 @@ void c4_period_prover_init_from_store(void) {
       safe_free(pub_path);
     }
 
-    if (p == first) break;
+    if (p == min_period || p == 0) break;
   }
 }
 
@@ -361,6 +407,7 @@ static void on_prover_exit(uv_process_t* req, int64_t exit_status, int term_sign
     safe_free(pub_path);
     if (valid) {
       if (ctx->period > last_verified_period) last_verified_period = ctx->period;
+      prover_baseline_found = true;
     }
     else {
       log_error("Prover: Generated proof failed local verification for period %l", ctx->period);
@@ -666,6 +713,16 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
   uint64_t max_period               = period + 1;
   prover_stats.last_check_timestamp = current_unix_ms() / 1000;
   prover_stats.current_period       = max_period;
+
+  // If we have no baseline yet (e.g. startup ran before backfill completed),
+  // retry locating it in the period_store on every checkpoint.
+  if (!prover_baseline_found) {
+    c4_period_prover_init_from_store();
+    if (!prover_baseline_found) {
+      log_warn("Prover: No baseline Groth16 proof found in period_store yet, skipping checkpoint");
+      return;
+    }
+  }
 
   if (max_period <= last_verified_period) return;
 
