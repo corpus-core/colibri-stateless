@@ -100,18 +100,21 @@ static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_
 
 static uint64_t calculate_gas_for_modexp(uint32_t l_base, uint32_t l_exp, uint32_t l_mod, bytes_t b_exp) {
 
-  uint64_t max_len                   = l_base > l_mod ? l_base : l_mod;
-  uint32_t words                     = (max_len + 7) / 8;
-  uint32_t multiplication_complexity = words * words;
-  uint32_t iteration_count           = 0;
+  uint64_t max_len = l_base > l_mod ? l_base : l_mod;
+  uint32_t words   = (max_len + 7) / 8;
+
+  // EIP-7883: minimum complexity 16; for inputs > 32 bytes use 2 * words^2
+  uint64_t multiplication_complexity = 16;
+  if (max_len > 32) multiplication_complexity = 2ULL * words * words;
+
+  uint32_t iteration_count = 0;
 
   if (l_exp <= 32 && bytes_all_zero(b_exp)) {
     iteration_count = 0;
   }
   else if (l_exp <= 32) {
-    // Calculate bit_length() - 1 of the exponent
     uint32_t bit_length = 0;
-    for (int i = 0; i < b_exp.len; i++) {
+    for (int i = 0; i < (int) b_exp.len; i++) {
       if (b_exp.data[i] != 0) {
         uint8_t byte = b_exp.data[i];
         for (int j = 7; j >= 0; j--) {
@@ -125,14 +128,13 @@ static uint64_t calculate_gas_for_modexp(uint32_t l_base, uint32_t l_exp, uint32
     }
     iteration_count = bit_length > 0 ? bit_length - 1 : 0;
   }
-  else if (l_exp > 32) {
-    // 8 * (Esize - 32) + bit_length of lower 256 bits - 1
-    uint32_t base_count = 8 * (l_exp - 32);
+  else {
+    // EIP-7883: multiplier changed from 8 to 16
+    uint32_t base_count = 16 * (l_exp - 32);
 
-    // Calculate bit_length of lower 256 bits
     uint32_t bit_length     = 0;
-    uint32_t bytes_to_check = l_exp > 64 ? 32 : l_exp - 32; // Only check up to 256 bits (32 bytes)
-    for (int i = 0; i < bytes_to_check; i++) {
+    uint32_t bytes_to_check = l_exp > 64 ? 32 : l_exp - 32;
+    for (int i = 0; i < (int) bytes_to_check; i++) {
       if (b_exp.data[i] != 0) {
         uint8_t byte = b_exp.data[i];
         for (int j = 7; j >= 0; j--) {
@@ -148,12 +150,11 @@ static uint64_t calculate_gas_for_modexp(uint32_t l_base, uint32_t l_exp, uint32
     iteration_count = base_count + (bit_length > 0 ? bit_length - 1 : 0);
   }
 
-  // Ensure iteration_count is at least 1
-  uint32_t calculate_iteration_count = iteration_count > 0 ? iteration_count : 1;
+  uint32_t final_iteration_count = iteration_count > 0 ? iteration_count : 1;
 
-  // Calculate final gas cost
-  uint64_t dynamic_gas = multiplication_complexity * calculate_iteration_count / 3;
-  if (dynamic_gas < 200) dynamic_gas = 200;
+  // EIP-7883: division by 3 removed, minimum raised from 200 to 500
+  uint64_t dynamic_gas = multiplication_complexity * final_iteration_count;
+  if (dynamic_gas < 500) dynamic_gas = 500;
 
   return dynamic_gas;
 }
@@ -162,6 +163,9 @@ static pre_result_t pre_modexp(bytes_t input, buffer_t* output, uint64_t* gas_us
   uint32_t l_base = (uint32_t) bytes_as_be(bytes_slice(input, 24, 8));
   uint32_t l_exp  = (uint32_t) bytes_as_be(bytes_slice(input, 32 + 24, 8));
   uint32_t l_mod  = (uint32_t) bytes_as_be(bytes_slice(input, 64 + 24, 8));
+
+  // EIP-7823: each input length must not exceed 1024 bytes
+  if (l_base > 1024 || l_exp > 1024 || l_mod > 1024) return PRE_INVALID_INPUT;
 
   if (input.len < 96 + l_base + l_exp + l_mod) return PRE_INVALID_INPUT;
 
