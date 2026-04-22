@@ -44,6 +44,24 @@ static char* get_default_config(char* chain_name, chain_id_t* chain_id, char* co
                "\"checkpointz\":[],"
                "\"prover\":[\"https://sepolia.colibri-proof.tech\"]}";
       break;
+
+      
+
+      case 100: // gnosis
+      config = "{\"eth_rpc\":[\"https://gnosis.colibri-proof.tech/execution\"],"
+               "\"beacon_api\":[\"https://gnosis.colibri-proof.tech/consensus/\"],"
+               "\"checkpointz\":[\"https://gnosis.colibri-proof.tech/consensus/\"],"
+               "\"prover\":[\"https://gnosis.colibri-proof.tech\"]}";
+      break;
+
+      case 10200: // chiado
+      config = "{\"eth_rpc\":[\"https://gnosis-chiado-rpc.publicnode.com\"],"
+               "\"beacon_api\":[\"https://chiado.colibri-proof.tech/consensus/\"],"
+               "\"checkpointz\":[\"https://chiado.colibri-proof.tech/consensus/\"],"
+               "\"prover\":[\"https://chiado.colibri-proof.tech\"]}";
+      break;
+
+
   }
 
 #ifdef USE_CURL

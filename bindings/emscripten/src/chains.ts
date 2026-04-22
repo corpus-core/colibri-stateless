@@ -59,10 +59,10 @@ export const default_config: {
   },
   '10200': { // gnosis chiado
     alias: ["chiado", "0x27d8"],
-    beacon_apis: ["https://gnosis-chiado-beacon-api.publicnode.com"],
+    beacon_apis: ["https://chiado.colibri-proof.tech/consensus/"],
     rpcs: ["https://gnosis-chiado-rpc.publicnode.com"],
     prover: ["https://chiado.colibri-proof.tech"],
-    checkpointz: [], // No public checkpointz for Chiado yet
+    checkpointz: ["https://chiado.colibri-proof.tech/consensus/"], // No public checkpointz for Chiado yet
     pollingInterval: 5000,
   },
 };
