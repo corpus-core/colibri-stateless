@@ -59,6 +59,18 @@ typedef enum {
 pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used);
 
 /**
+ * @brief Tests whether `address` (20 bytes) is recognised as an Ethereum precompile address.
+ *
+ * Mirrors the address-range checks performed by `eth_execute_precompile`:
+ *   - classic 1-byte precompiles with `address[0..18] == 0` and `address[19]` in `0x01..0x14`;
+ *   - EIP-7951 `P256VERIFY` at `0x0000…0100` (`address[18]==0x01`, `address[19]==0x00`).
+ *
+ * Returns `true` even for entries whose implementation may be compiled out (e.g. KZG/BN128);
+ * in that case `eth_execute_precompile` will return `PRE_NOT_SUPPORTED` rather than dispatching.
+ */
+bool eth_is_precompile_address(const uint8_t* address);
+
+/**
  * Inject the trusted-setup G2^tau point (compressed, 96 bytes) for the KZG precompile.
  * Allows runtime provisioning (e.g., in WASM) when not embedded at build time.
  * @param comp96 96-byte compressed G2^tau (tau^1) in big-endian format
