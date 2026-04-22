@@ -50,7 +50,7 @@ typedef enum {
 /**
  * @brief Executes an Ethereum precompile contract.
  * 
- * @param address The address of the precompile (20 bytes). Usually only the last byte is checked (e.g. 0x01, 0x08).
+ * @param address The address of the precompile (20 bytes). Standard precompiles use only the last byte (`0x01`–`0x11`) with the leading bytes zero; EIP-7951 `P256VERIFY` uses `0x0000…0100` (bytes `address[18]==0x01`, `address[19]==0x00`).
  * @param input The input data for the precompile call.
  * @param output Pointer to a buffer where the output will be written. The buffer data will be allocated/resized.
  * @param gas_used Pointer to a uint64_t where the consumed gas cost will be written.

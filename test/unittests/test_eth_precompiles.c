@@ -38,6 +38,182 @@ static void make_precompile_address(uint8_t num, uint8_t addr[20]) {
   addr[19] = num;
 }
 
+/** EIP-7951 P256VERIFY at 0x0000…0100 */
+static void make_precompile_address_0x100(uint8_t addr[20]) {
+  memset(addr, 0, 20);
+  addr[18] = 0x01;
+  addr[19] = 0x00;
+}
+
+/*
+ * SHA256("colibri p256 precompile test") as the 32-byte digest, `openssl pkeyutl -sign -rawin`
+ * on that digest, and secp256r1 public coordinates from the same key (uncompressed x||y).
+ * OpenSSL `pkeyutl -verify -rawin` and the precompile use the same raw-ECDSA path
+ * (EVP_DigestVerify* with a NULL digest for the 32-byte value).
+ */
+static const uint8_t p256_ok_input[160] = {
+    0x46,
+    0x6b,
+    0xa7,
+    0x1e,
+    0xe8,
+    0xa6,
+    0x9a,
+    0x0f,
+    0x3f,
+    0x22,
+    0x3f,
+    0xbb,
+    0x00,
+    0x7c,
+    0xcc,
+    0x2b,
+    0x2f,
+    0xcc,
+    0x76,
+    0x92,
+    0xf3,
+    0x8a,
+    0x51,
+    0x18,
+    0x74,
+    0xd3,
+    0x33,
+    0x00,
+    0x1a,
+    0x9c,
+    0x67,
+    0x1b,
+    0xe0,
+    0x57,
+    0xa2,
+    0x0c,
+    0x15,
+    0xc1,
+    0xdd,
+    0xb6,
+    0x53,
+    0x41,
+    0xd5,
+    0xf5,
+    0x9c,
+    0xc3,
+    0x87,
+    0xd4,
+    0x5d,
+    0xc8,
+    0x8b,
+    0x2d,
+    0xed,
+    0x5b,
+    0x3d,
+    0xf4,
+    0xd9,
+    0x68,
+    0xb7,
+    0xc5,
+    0x7b,
+    0x96,
+    0x9b,
+    0x66,
+    0x2d,
+    0x31,
+    0xe9,
+    0x9c,
+    0x70,
+    0xcc,
+    0xd5,
+    0x54,
+    0x19,
+    0xac,
+    0x4b,
+    0x38,
+    0xcb,
+    0x7c,
+    0x09,
+    0xc7,
+    0x2d,
+    0x0c,
+    0x63,
+    0xf1,
+    0xc1,
+    0x42,
+    0x2a,
+    0x2d,
+    0x0a,
+    0x87,
+    0xa3,
+    0xea,
+    0x35,
+    0xad,
+    0xae,
+    0xbb,
+    0x2d,
+    0xf8,
+    0x67,
+    0xb4,
+    0xe6,
+    0x85,
+    0x19,
+    0xc8,
+    0x81,
+    0x3e,
+    0xa5,
+    0x4d,
+    0xa6,
+    0xd2,
+    0xc3,
+    0x6f,
+    0xae,
+    0x59,
+    0xc7,
+    0xde,
+    0xce,
+    0x8b,
+    0x2d,
+    0x3c,
+    0x6b,
+    0x34,
+    0xe6,
+    0x09,
+    0xa9,
+    0xaa,
+    0x5f,
+    0x53,
+    0x79,
+    0xd5,
+    0x74,
+    0xef,
+    0x3c,
+    0xfc,
+    0x13,
+    0x50,
+    0xd4,
+    0x53,
+    0x2b,
+    0xb0,
+    0x72,
+    0xc4,
+    0xb2,
+    0x17,
+    0x40,
+    0xae,
+    0x74,
+    0x3d,
+    0xc8,
+    0x28,
+    0x8e,
+    0x15,
+    0xc2,
+    0x14,
+    0x9c,
+    0x97,
+    0x01,
+    0x82,
+    0x5b,
+    0x77,
+};
+
 // Helper to convert hex string to bytes (allocates memory)
 static bytes_t hex_to_bytes_alloc(const char* hex) {
   int      hex_len  = strlen(hex);
@@ -730,6 +906,110 @@ void test_precompile_bls_g2msm_zero() {
   buffer_free(&output);
 }
 
+void test_precompile_p256verify_ok() {
+  uint8_t  addr[20];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  bytes_t  input    = bytes((uint8_t*) p256_ok_input, sizeof(p256_ok_input));
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(32, output.data.len);
+  TEST_ASSERT_EQUAL_UINT8(1, output.data.data[31]);
+  for (int i = 0; i < 31; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_wrong_hash() {
+  uint8_t  addr[20];
+  uint8_t  buf[160];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  memcpy(buf, p256_ok_input, sizeof(buf));
+  buf[0] ^= 0xff;
+  bytes_t input = bytes(buf, sizeof(buf));
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_wrong_len_159() {
+  uint8_t  addr[20];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  bytes_t  input    = bytes((uint8_t*) p256_ok_input, 159);
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_wrong_len_161() {
+  uint8_t  addr[20];
+  uint8_t  buf[161];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  memcpy(buf, p256_ok_input, sizeof(p256_ok_input));
+  buf[160]      = 0;
+  bytes_t input = bytes(buf, sizeof(buf));
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_off_curve_pubkey() {
+  uint8_t  addr[20];
+  uint8_t  buf[160];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  memcpy(buf, p256_ok_input, sizeof(buf));
+  memset(buf + 96, 0, 64);
+  buf[96 + 31]  = 1;
+  buf[96 + 63]  = 2;
+  bytes_t input = bytes(buf, sizeof(buf));
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_invalid_address_0101() {
+  uint8_t  addr[20];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  bytes_t  input    = bytes((uint8_t*) p256_ok_input, sizeof(p256_ok_input));
+  memset(addr, 0, 20);
+  addr[18]         = 0x01;
+  addr[19]         = 0x01;
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_INVALID_ADDRESS, res);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_invalid_address_0200() {
+  uint8_t  addr[20];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  bytes_t  input    = bytes((uint8_t*) p256_ok_input, sizeof(p256_ok_input));
+  memset(addr, 0, 20);
+  addr[18]         = 0x02;
+  addr[19]         = 0x00;
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_INVALID_ADDRESS, res);
+  buffer_free(&output);
+}
+
 int main(void) {
   UNITY_BEGIN();
 
@@ -767,6 +1047,15 @@ int main(void) {
   // EIP-152 Blake2f
   RUN_TEST(test_precompile_blake2f);
   RUN_TEST(test_precompile_blake2f_invalid);
+
+  // EIP-7951 P256VERIFY (0x100)
+  RUN_TEST(test_precompile_p256verify_ok);
+  RUN_TEST(test_precompile_p256verify_wrong_hash);
+  RUN_TEST(test_precompile_p256verify_wrong_len_159);
+  RUN_TEST(test_precompile_p256verify_wrong_len_161);
+  RUN_TEST(test_precompile_p256verify_off_curve_pubkey);
+  RUN_TEST(test_precompile_p256verify_invalid_address_0101);
+  RUN_TEST(test_precompile_p256verify_invalid_address_0200);
 
   return UNITY_END();
 }

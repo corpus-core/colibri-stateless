@@ -25,6 +25,18 @@
 #include "crypto.h"
 #include "json.h"
 #include "precompiles.h"
+
+#include <openssl/bn.h>
+#include <openssl/core_names.h>
+#include <openssl/crypto.h>
+#include <openssl/ecdsa.h>
+#include <openssl/evp.h>
+#include <openssl/param_build.h>
+
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 #include "ripemd160.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -95,6 +107,104 @@ static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_
   *gas_used = 15 + 3 * data_word_size(input.len);
   return PRE_SUCCESS;
 }
+
+/**
+ * EIP-7951 P256VERIFY at address 0x0000…0100 (fixed gas 6900; invalid input → empty return).
+ * Verification follows OpenSSL `pkeyutl -verify -rawin` for EC keys: `EVP_DigestVerify*` with a
+ * NULL digest type so the 32-byte input is used as the ECDSA message representative (no extra
+ * hash).
+ */
+static bool p256_digest_verify_openssl(const uint8_t digest[32], const uint8_t sig_r[32],
+                                       const uint8_t sig_s[32], const uint8_t pub_x[32],
+                                       const uint8_t pub_y[32]) {
+  bool            ok = false;
+  unsigned char   pub_uncomp[65];
+  OSSL_PARAM_BLD* bld      = NULL;
+  OSSL_PARAM*     params   = NULL;
+  EVP_PKEY_CTX*   from_ctx = NULL;
+  EVP_PKEY*       pkey     = NULL;
+  ECDSA_SIG*      esig     = NULL;
+  BIGNUM*         rr       = NULL;
+  BIGNUM*         ss       = NULL;
+  unsigned char   der_sig[144];
+  unsigned char*  der_ptr = der_sig;
+  int             der_len = 0;
+  EVP_MD_CTX*     md_ctx  = NULL;
+  EVP_PKEY_CTX*   op_ctx  = NULL;
+  int             vr      = 0;
+
+  pub_uncomp[0] = 0x04;
+  memcpy(pub_uncomp + 1, pub_x, 32);
+  memcpy(pub_uncomp + 33, pub_y, 32);
+
+  bld = OSSL_PARAM_BLD_new();
+  if (!bld) goto cleanup;
+  if (!OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, "prime256v1", 0)) {
+    goto cleanup;
+  }
+  if (!OSSL_PARAM_BLD_push_octet_string(bld, OSSL_PKEY_PARAM_PUB_KEY, pub_uncomp,
+                                        sizeof(pub_uncomp))) {
+    goto cleanup;
+  }
+  params = OSSL_PARAM_BLD_to_param(bld);
+  OSSL_PARAM_BLD_free(bld);
+  bld = NULL;
+
+  from_ctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL);
+  if (!from_ctx || EVP_PKEY_fromdata_init(from_ctx) <= 0) goto cleanup;
+  if (EVP_PKEY_fromdata(from_ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) <= 0) goto cleanup;
+
+  esig = ECDSA_SIG_new();
+  rr   = BN_bin2bn(sig_r, 32, NULL);
+  ss   = BN_bin2bn(sig_s, 32, NULL);
+  if (!esig || !rr || !ss || !ECDSA_SIG_set0(esig, rr, ss)) goto cleanup;
+  rr = NULL;
+  ss = NULL;
+
+  der_len = i2d_ECDSA_SIG(esig, NULL);
+  if (der_len <= 0 || der_len > (int) sizeof(der_sig)) goto cleanup;
+  der_ptr = der_sig;
+  if (i2d_ECDSA_SIG(esig, &der_ptr) != der_len) goto cleanup;
+
+  md_ctx = EVP_MD_CTX_new();
+  op_ctx = EVP_PKEY_CTX_new_from_pkey(NULL, pkey, NULL);
+  if (!md_ctx || !op_ctx) goto cleanup;
+  EVP_MD_CTX_set_pkey_ctx(md_ctx, op_ctx);
+  if (!EVP_DigestVerifyInit_ex(md_ctx, NULL, NULL, NULL, NULL, pkey, NULL)) goto cleanup;
+  vr = EVP_DigestVerify(md_ctx, der_sig, (size_t) der_len, digest, 32);
+  ok = vr == 1;
+
+cleanup:
+  BN_clear_free(rr);
+  BN_clear_free(ss);
+  ECDSA_SIG_free(esig);
+  EVP_MD_CTX_free(md_ctx);
+  EVP_PKEY_CTX_free(from_ctx);
+  EVP_PKEY_free(pkey);
+  OSSL_PARAM_free(params);
+  OSSL_PARAM_BLD_free(bld);
+  return ok;
+}
+
+static pre_result_t pre_p256verify(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+  *gas_used = 6900;
+  buffer_reset(output);
+  if (input.len != 160) return PRE_SUCCESS;
+
+  if (!p256_digest_verify_openssl(input.data, input.data + 32, input.data + 64, input.data + 96,
+                                  input.data + 128)) {
+    return PRE_SUCCESS;
+  }
+
+  static const uint8_t ok_out[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+  buffer_append(output, bytes(ok_out, 32));
+  return PRE_SUCCESS;
+}
+
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 #ifdef INTX
 
@@ -242,8 +352,13 @@ const precompile_func_t precompile_fn[] = {
 };
 
 pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  if (!bytes_all_zero(bytes(address, 19)) || address[19] > PRECOMPILE_FN_COUNT) return PRE_INVALID_ADDRESS;
-  precompile_func_t fn = precompile_fn[address[19] - 1];
-  if (fn == NULL) return PRE_NOT_SUPPORTED;
-  return fn(input, output, gas_used);
+  if (!bytes_all_zero(bytes(address, 18))) return PRE_INVALID_ADDRESS;
+  if (address[18] == 0x00) {
+    if (address[19] == 0 || address[19] > PRECOMPILE_FN_COUNT) return PRE_INVALID_ADDRESS;
+    precompile_func_t fn = precompile_fn[address[19] - 1];
+    if (fn == NULL) return PRE_NOT_SUPPORTED;
+    return fn(input, output, gas_used);
+  }
+  if (address[18] == 0x01 && address[19] == 0x00) return pre_p256verify(input, output, gas_used);
+  return PRE_INVALID_ADDRESS;
 }
