@@ -23,15 +23,10 @@
 
 #include "bytes.h"
 #include "crypto.h"
+#include "ecdsa.h"
 #include "json.h"
+#include "nist256p1.h"
 #include "precompiles.h"
-
-#include <openssl/bn.h>
-#include <openssl/core_names.h>
-#include <openssl/crypto.h>
-#include <openssl/ecdsa.h>
-#include <openssl/evp.h>
-#include <openssl/param_build.h>
 
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -109,92 +104,32 @@ static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_
 }
 
 /**
- * EIP-7951 P256VERIFY at address 0x0000…0100 (fixed gas 6900; invalid input → empty return).
- * Verification follows OpenSSL `pkeyutl -verify -rawin` for EC keys: `EVP_DigestVerify*` with a
- * NULL digest type so the 32-byte input is used as the ECDSA message representative (no extra
- * hash).
+ * EIP-7951 P256VERIFY at address 0x0000…0100.
+ *
+ * Input (exactly 160 bytes): `hash(32) || r(32) || s(32) || qx(32) || qy(32)`.
+ * Gas is a fixed 6900 charged unconditionally (also on malformed input).
+ * On success the precompile returns 32 bytes `0x00…01`; on any failure
+ * (wrong length, signature mismatch, off-curve key, out-of-range r/s) it
+ * returns empty output but never reverts, matching the EIP's no-revert
+ * semantics.
+ *
+ * Verification uses Trezor's `ecdsa_verify_digest(&nist256p1, …)`, which
+ * validates the public key (on-curve, not identity), checks `r, s ∈ [1,n-1]`,
+ * rejects `R == ∞`, and compares `r ≡ R.x (mod n)`.
  */
-static bool p256_digest_verify_openssl(const uint8_t digest[32], const uint8_t sig_r[32],
-                                       const uint8_t sig_s[32], const uint8_t pub_x[32],
-                                       const uint8_t pub_y[32]) {
-  bool            ok = false;
-  unsigned char   pub_uncomp[65];
-  OSSL_PARAM_BLD* bld      = NULL;
-  OSSL_PARAM*     params   = NULL;
-  EVP_PKEY_CTX*   from_ctx = NULL;
-  EVP_PKEY*       pkey     = NULL;
-  ECDSA_SIG*      esig     = NULL;
-  BIGNUM*         rr       = NULL;
-  BIGNUM*         ss       = NULL;
-  unsigned char   der_sig[144];
-  unsigned char*  der_ptr = der_sig;
-  int             der_len = 0;
-  EVP_MD_CTX*     md_ctx  = NULL;
-  EVP_PKEY_CTX*   op_ctx  = NULL;
-  int             vr      = 0;
-
-  pub_uncomp[0] = 0x04;
-  memcpy(pub_uncomp + 1, pub_x, 32);
-  memcpy(pub_uncomp + 33, pub_y, 32);
-
-  bld = OSSL_PARAM_BLD_new();
-  if (!bld) goto cleanup;
-  if (!OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, "prime256v1", 0)) {
-    goto cleanup;
-  }
-  if (!OSSL_PARAM_BLD_push_octet_string(bld, OSSL_PKEY_PARAM_PUB_KEY, pub_uncomp,
-                                        sizeof(pub_uncomp))) {
-    goto cleanup;
-  }
-  params = OSSL_PARAM_BLD_to_param(bld);
-  OSSL_PARAM_BLD_free(bld);
-  bld = NULL;
-
-  from_ctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL);
-  if (!from_ctx || EVP_PKEY_fromdata_init(from_ctx) <= 0) goto cleanup;
-  if (EVP_PKEY_fromdata(from_ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) <= 0) goto cleanup;
-
-  esig = ECDSA_SIG_new();
-  rr   = BN_bin2bn(sig_r, 32, NULL);
-  ss   = BN_bin2bn(sig_s, 32, NULL);
-  if (!esig || !rr || !ss || !ECDSA_SIG_set0(esig, rr, ss)) goto cleanup;
-  rr = NULL;
-  ss = NULL;
-
-  der_len = i2d_ECDSA_SIG(esig, NULL);
-  if (der_len <= 0 || der_len > (int) sizeof(der_sig)) goto cleanup;
-  der_ptr = der_sig;
-  if (i2d_ECDSA_SIG(esig, &der_ptr) != der_len) goto cleanup;
-
-  md_ctx = EVP_MD_CTX_new();
-  op_ctx = EVP_PKEY_CTX_new_from_pkey(NULL, pkey, NULL);
-  if (!md_ctx || !op_ctx) goto cleanup;
-  EVP_MD_CTX_set_pkey_ctx(md_ctx, op_ctx);
-  if (!EVP_DigestVerifyInit_ex(md_ctx, NULL, NULL, NULL, NULL, pkey, NULL)) goto cleanup;
-  vr = EVP_DigestVerify(md_ctx, der_sig, (size_t) der_len, digest, 32);
-  ok = vr == 1;
-
-cleanup:
-  BN_clear_free(rr);
-  BN_clear_free(ss);
-  ECDSA_SIG_free(esig);
-  EVP_MD_CTX_free(md_ctx);
-  EVP_PKEY_CTX_free(from_ctx);
-  EVP_PKEY_free(pkey);
-  OSSL_PARAM_free(params);
-  OSSL_PARAM_BLD_free(bld);
-  return ok;
-}
-
 static pre_result_t pre_p256verify(bytes_t input, buffer_t* output, uint64_t* gas_used) {
   *gas_used = 6900;
   buffer_reset(output);
   if (input.len != 160) return PRE_SUCCESS;
 
-  if (!p256_digest_verify_openssl(input.data, input.data + 32, input.data + 64, input.data + 96,
-                                  input.data + 128)) {
-    return PRE_SUCCESS;
-  }
+  uint8_t pub[65];
+  pub[0] = 0x04;
+  memcpy(pub + 1, input.data + 96, 64); // qx || qy
+
+  const uint8_t* sig    = input.data + 32;  // r || s
+  const uint8_t* digest = input.data;       // 32-byte message digest
+
+  if (ecdsa_verify_digest(&nist256p1, pub, sig, digest) != 0) return PRE_SUCCESS;
 
   static const uint8_t ok_out[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};

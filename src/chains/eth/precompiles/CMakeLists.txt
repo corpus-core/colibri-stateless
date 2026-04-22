@@ -19,8 +19,6 @@
 #
 # SPDX-License-Identifier: MIT
 
-find_package(OpenSSL REQUIRED)
-
 add_library(eth_precompiles STATIC 
   precompiles_basic.c
 )
@@ -68,4 +66,4 @@ endif()
 # Link against eth_bn254 for BN254 precompiles
 target_link_libraries(eth_precompiles PRIVATE eth_bn254)
 
-target_link_libraries(eth_precompiles PUBLIC ${DEPS} OpenSSL::Crypto)
+target_link_libraries(eth_precompiles PUBLIC ${DEPS})
