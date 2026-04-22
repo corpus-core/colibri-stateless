@@ -38,6 +38,39 @@ static void make_precompile_address(uint8_t num, uint8_t addr[20]) {
   addr[19] = num;
 }
 
+/** EIP-7951 P256VERIFY at 0x0000…0100 */
+static void make_precompile_address_0x100(uint8_t addr[20]) {
+  memset(addr, 0, 20);
+  addr[18] = 0x01;
+  addr[19] = 0x00;
+}
+
+/*
+ * RFC 6979 Appendix A.2.5 ECDSA over curve P-256 with SHA-256, message "sample".
+ *   digest = SHA-256("sample")
+ *   r, s   = deterministic ECDSA signature (RFC 6979 k)
+ *   Qx, Qy = public key U from the same RFC section
+ * Source: https://datatracker.ietf.org/doc/html/rfc6979#appendix-A.2.5
+ * This vector is reproducible and independent of any particular crypto library.
+ */
+static const uint8_t p256_ok_input[160] = {
+    // hash = SHA-256("sample")
+    0xaf, 0x2b, 0xdb, 0xe1, 0xaa, 0x9b, 0x6e, 0xc1, 0xe2, 0xad, 0xe1, 0xd6, 0x94, 0xf4, 0x1f, 0xc7,
+    0x1a, 0x83, 0x1d, 0x02, 0x68, 0xe9, 0x89, 0x15, 0x62, 0x11, 0x3d, 0x8a, 0x62, 0xad, 0xd1, 0xbf,
+    // r
+    0xef, 0xd4, 0x8b, 0x2a, 0xac, 0xb6, 0xa8, 0xfd, 0x11, 0x40, 0xdd, 0x9c, 0xd4, 0x5e, 0x81, 0xd6,
+    0x9d, 0x2c, 0x87, 0x7b, 0x56, 0xaa, 0xf9, 0x91, 0xc3, 0x4d, 0x0e, 0xa8, 0x4e, 0xaf, 0x37, 0x16,
+    // s
+    0xf7, 0xcb, 0x1c, 0x94, 0x2d, 0x65, 0x7c, 0x41, 0xd4, 0x36, 0xc7, 0xa1, 0xb6, 0xe2, 0x9f, 0x65,
+    0xf3, 0xe9, 0x00, 0xdb, 0xb9, 0xaf, 0xf4, 0x06, 0x4d, 0xc4, 0xab, 0x2f, 0x84, 0x3a, 0xcd, 0xa8,
+    // Qx
+    0x60, 0xfe, 0xd4, 0xba, 0x25, 0x5a, 0x9d, 0x31, 0xc9, 0x61, 0xeb, 0x74, 0xc6, 0x35, 0x6d, 0x68,
+    0xc0, 0x49, 0xb8, 0x92, 0x3b, 0x61, 0xfa, 0x6c, 0xe6, 0x69, 0x62, 0x2e, 0x60, 0xf2, 0x9f, 0xb6,
+    // Qy
+    0x79, 0x03, 0xfe, 0x10, 0x08, 0xb8, 0xbc, 0x99, 0xa4, 0x1a, 0xe9, 0xe9, 0x56, 0x28, 0xbc, 0x64,
+    0xf2, 0xf1, 0xb2, 0x0c, 0x2d, 0x7e, 0x9f, 0x51, 0x77, 0xa3, 0xc2, 0x94, 0xd4, 0x46, 0x22, 0x99,
+};
+
 // Helper to convert hex string to bytes (allocates memory)
 static bytes_t hex_to_bytes_alloc(const char* hex) {
   int      hex_len  = strlen(hex);
@@ -730,6 +763,110 @@ void test_precompile_bls_g2msm_zero() {
   buffer_free(&output);
 }
 
+void test_precompile_p256verify_ok() {
+  uint8_t  addr[20];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  bytes_t  input    = bytes((uint8_t*) p256_ok_input, sizeof(p256_ok_input));
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(32, output.data.len);
+  TEST_ASSERT_EQUAL_UINT8(1, output.data.data[31]);
+  for (int i = 0; i < 31; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_wrong_hash() {
+  uint8_t  addr[20];
+  uint8_t  buf[160];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  memcpy(buf, p256_ok_input, sizeof(buf));
+  buf[0] ^= 0xff;
+  bytes_t input = bytes(buf, sizeof(buf));
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_wrong_len_159() {
+  uint8_t  addr[20];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  bytes_t  input    = bytes((uint8_t*) p256_ok_input, 159);
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_wrong_len_161() {
+  uint8_t  addr[20];
+  uint8_t  buf[161];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  memcpy(buf, p256_ok_input, sizeof(p256_ok_input));
+  buf[160]      = 0;
+  bytes_t input = bytes(buf, sizeof(buf));
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_off_curve_pubkey() {
+  uint8_t  addr[20];
+  uint8_t  buf[160];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  memcpy(buf, p256_ok_input, sizeof(buf));
+  memset(buf + 96, 0, 64);
+  buf[96 + 31]  = 1;
+  buf[96 + 63]  = 2;
+  bytes_t input = bytes(buf, sizeof(buf));
+  make_precompile_address_0x100(addr);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_invalid_address_0101() {
+  uint8_t  addr[20];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  bytes_t  input    = bytes((uint8_t*) p256_ok_input, sizeof(p256_ok_input));
+  memset(addr, 0, 20);
+  addr[18]         = 0x01;
+  addr[19]         = 0x01;
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_INVALID_ADDRESS, res);
+  buffer_free(&output);
+}
+
+void test_precompile_p256verify_invalid_address_0200() {
+  uint8_t  addr[20];
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  bytes_t  input    = bytes((uint8_t*) p256_ok_input, sizeof(p256_ok_input));
+  memset(addr, 0, 20);
+  addr[18]         = 0x02;
+  addr[19]         = 0x00;
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_INVALID_ADDRESS, res);
+  buffer_free(&output);
+}
+
 int main(void) {
   UNITY_BEGIN();
 
@@ -767,6 +904,15 @@ int main(void) {
   // EIP-152 Blake2f
   RUN_TEST(test_precompile_blake2f);
   RUN_TEST(test_precompile_blake2f_invalid);
+
+  // EIP-7951 P256VERIFY (0x100)
+  RUN_TEST(test_precompile_p256verify_ok);
+  RUN_TEST(test_precompile_p256verify_wrong_hash);
+  RUN_TEST(test_precompile_p256verify_wrong_len_159);
+  RUN_TEST(test_precompile_p256verify_wrong_len_161);
+  RUN_TEST(test_precompile_p256verify_off_curve_pubkey);
+  RUN_TEST(test_precompile_p256verify_invalid_address_0101);
+  RUN_TEST(test_precompile_p256verify_invalid_address_0200);
 
   return UNITY_END();
 }

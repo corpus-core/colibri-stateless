@@ -23,8 +23,15 @@
 
 #include "bytes.h"
 #include "crypto.h"
+#include "ecdsa.h"
 #include "json.h"
+#include "nist256p1.h"
 #include "precompiles.h"
+
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 #include "ripemd160.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -95,6 +102,44 @@ static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_
   *gas_used = 15 + 3 * data_word_size(input.len);
   return PRE_SUCCESS;
 }
+
+/**
+ * EIP-7951 P256VERIFY at address 0x0000…0100.
+ *
+ * Input (exactly 160 bytes): `hash(32) || r(32) || s(32) || qx(32) || qy(32)`.
+ * Gas is a fixed 6900 charged unconditionally (also on malformed input).
+ * On success the precompile returns 32 bytes `0x00…01`; on any failure
+ * (wrong length, signature mismatch, off-curve key, out-of-range r/s) it
+ * returns empty output but never reverts, matching the EIP's no-revert
+ * semantics.
+ *
+ * Verification uses Trezor's `ecdsa_verify_digest(&nist256p1, …)`, which
+ * validates the public key (on-curve, not identity), checks `r, s ∈ [1,n-1]`,
+ * rejects `R == ∞`, and compares `r ≡ R.x (mod n)`.
+ */
+static pre_result_t pre_p256verify(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+  *gas_used = 6900;
+  buffer_reset(output);
+  if (input.len != 160) return PRE_SUCCESS;
+
+  uint8_t pub[65];
+  pub[0] = 0x04;
+  memcpy(pub + 1, input.data + 96, 64); // qx || qy
+
+  const uint8_t* sig    = input.data + 32;  // r || s
+  const uint8_t* digest = input.data;       // 32-byte message digest
+
+  if (ecdsa_verify_digest(&nist256p1, pub, sig, digest) != 0) return PRE_SUCCESS;
+
+  static const uint8_t ok_out[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+  buffer_append(output, bytes(ok_out, 32));
+  return PRE_SUCCESS;
+}
+
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 #ifdef INTX
 
@@ -242,8 +287,13 @@ const precompile_func_t precompile_fn[] = {
 };
 
 pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used) {
-  if (!bytes_all_zero(bytes(address, 19)) || address[19] > PRECOMPILE_FN_COUNT) return PRE_INVALID_ADDRESS;
-  precompile_func_t fn = precompile_fn[address[19] - 1];
-  if (fn == NULL) return PRE_NOT_SUPPORTED;
-  return fn(input, output, gas_used);
+  if (!bytes_all_zero(bytes(address, 18))) return PRE_INVALID_ADDRESS;
+  if (address[18] == 0x00) {
+    if (address[19] == 0 || address[19] > PRECOMPILE_FN_COUNT) return PRE_INVALID_ADDRESS;
+    precompile_func_t fn = precompile_fn[address[19] - 1];
+    if (fn == NULL) return PRE_NOT_SUPPORTED;
+    return fn(input, output, gas_used);
+  }
+  if (address[18] == 0x01 && address[19] == 0x00) return pre_p256verify(input, output, gas_used);
+  return PRE_INVALID_ADDRESS;
 }
