@@ -32,7 +32,6 @@ extern "C" {
 #include <stdint.h>
 
 #include "bytes.h"
-#include "chains.h"
 #include "crypto.h"
 
 #define CHAIN(id)                ((chain_id_t) ((uint64_t) id))
@@ -110,6 +109,13 @@ static inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* 
 
 chain_type_t c4_chain_type(chain_id_t chain_id);
 uint64_t     c4_chain_specific_id(chain_id_t chain_id);
+
+/** True for Ethereum L1 or OP Stack execution chains (shared EL proof stack). */
+static inline bool c4_is_eth_compatible_chain(chain_id_t id) {
+  chain_type_t t = c4_chain_type(id);
+  return t == C4_CHAIN_TYPE_ETHEREUM || t == C4_CHAIN_TYPE_OP;
+}
+
 #ifdef __cplusplus
 }
 #endif

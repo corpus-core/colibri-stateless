@@ -25,8 +25,10 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "bytes.h"
+#include "chains.h"
 #include "eth_account.h"
 #include "eth_tx.h"
+#include "op_tools.h"
 #include "prover.h"
 #include "version.h"
 
@@ -38,6 +40,9 @@ static void set_data(ssz_builder_t* req, const char* name, ssz_builder_t data) {
 }
 
 bytes_t eth_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_builder_t proof, ssz_builder_t sync_data) {
+  if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_OP)
+    return op_create_proof_request(chain_id, data, proof, sync_data);
+
   ssz_builder_t c4_req = ssz_builder_for_type(ETH_SSZ_VERIFY_REQUEST);
 
   // build the request

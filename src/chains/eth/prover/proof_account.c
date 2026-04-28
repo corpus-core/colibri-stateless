@@ -145,7 +145,7 @@ c4_status_t c4_proof_account(prover_ctx_t* ctx) {
   else
     CHECK_JSON(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
 
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
+  TRY_ASYNC(c4_get_block_for_chain(ctx, block_number, &block));
   TRY_ADD_ASYNC(status, eth_get_proof(ctx, address, storage_keys, &eth_proof, ssz_get_uint64(&block.execution, "blockNumber")));
 
   if (block.header_only)

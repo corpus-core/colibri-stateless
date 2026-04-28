@@ -481,7 +481,7 @@ static c4_status_t get_exec_blocknumber(prover_ctx_t* ctx, json_t block, uint64_
     *out_block_number = json_as_uint64(block);
     return C4_SUCCESS;
   }
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block, &beacon_block));
+  TRY_ASYNC(c4_get_block_for_chain(ctx, block, &beacon_block));
   *out_block_number = ssz_get_uint64(&beacon_block.execution, "blockNumber");
   return C4_SUCCESS;
 }

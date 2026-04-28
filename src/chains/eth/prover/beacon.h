@@ -200,6 +200,43 @@ void c4_header_cache_put(verified_header_cache_t* cache, chain_id_t chain_id, ui
  */
 void c4_header_cache_set_execution(verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number, ssz_ob_t execution);
 
+/**
+ * Returns the process-wide verified header cache used by hybrid mode (ETH + OP).
+ *
+ * @return pointer to the global cache singleton
+ */
+verified_header_cache_t* c4_header_cache_global(void);
+
+/**
+ * TTL in milliseconds for a logical block tag (`latest` / `safe` / `finalized`) in the header cache.
+ *
+ * @param chain_id chain identifier
+ * @param tag block tag
+ * @param flags prover flags (affects `latest` TTL when light-client flag is set)
+ * @return TTL in milliseconds
+ */
+uint64_t c4_header_tag_ttl_ms(chain_id_t chain_id, header_tag_t tag, prover_flags_t flags);
+
+/**
+ * Fetches execution payload for the given chain: Ethereum beacon/hybrid or OP preconf/hybrid.
+ *
+ * @param ctx prover context
+ * @param block JSON block parameter (e.g. `"latest"`, `"0x…"` number or hash)
+ * @param beacon_block output execution payload and metadata
+ * @return status
+ */
+c4_status_t c4_get_execution_for_chain(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+
+/**
+ * Fetches block context for state proofs: beacon block (ETH) or OP execution/preconf analogue.
+ *
+ * @param ctx prover context
+ * @param block JSON block parameter
+ * @param beacon_block output
+ * @return status
+ */
+c4_status_t c4_get_block_for_chain(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+
 // get the beacon block for the given eth block number or hash
 c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_root, bytes32_t data_root, ssz_ob_t* sig_block, ssz_ob_t* data_block, bytes32_t data_root_result);
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);

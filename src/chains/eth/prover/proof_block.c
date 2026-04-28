@@ -23,10 +23,14 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "chains.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "historic_proof.h"
 #include "json.h"
+#include "op_block_fetch.h"
+#include "op_tools.h"
+#include "op_types.h"
 #include "prover.h"
 #include "ssz.h"
 #include "version.h"
@@ -48,6 +52,26 @@ static c4_status_t create_hybrid_block_proof(prover_ctx_t* ctx, beacon_block_t* 
   return C4_SUCCESS;
 }
 
+/** OP Stack non-hybrid: wrap sequencer preconfirmation proof (no beacon merkle proofs). */
+static c4_status_t c4_proof_block_op_preconf(prover_ctx_t* ctx) {
+  json_t        block_number  = json_at(ctx->params, 0);
+  ssz_builder_t preconf_proof = {0};
+  TRY_ASYNC(c4_op_create_block_proof(ctx, block_number, &preconf_proof));
+  ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
+  ssz_add_builders(&block_proof, "block_proof", preconf_proof);
+  ctx->proof = op_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, block_proof, NULL_SSZ_BUILDER);
+  return C4_SUCCESS;
+}
+
+static c4_status_t c4_proof_block_number_op_preconf(prover_ctx_t* ctx) {
+  ssz_builder_t preconf_proof = {0};
+  TRY_ASYNC(c4_op_create_block_proof(ctx, (json_t) {.type = JSON_TYPE_STRING, .start = "\"latest\"", .len = 8}, &preconf_proof));
+  ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
+  ssz_add_builders(&block_proof, "block_proof", preconf_proof);
+  ctx->proof = op_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, block_proof, NULL_SSZ_BUILDER);
+  return C4_SUCCESS;
+}
+
 c4_status_t c4_proof_block(prover_ctx_t* ctx) {
   beacon_block_t    block          = {0};
   bytes32_t         body_root      = {0};
@@ -56,12 +80,15 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
 
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) {
-    TRY_ASYNC(c4_beacon_get_execution_for_eth(ctx, json_at(ctx->params, 0), &block));
+    TRY_ASYNC(c4_get_execution_for_chain(ctx, json_at(ctx->params, 0), &block));
     return create_hybrid_block_proof(ctx, &block);
   }
 
+  if (c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_OP)
+    return c4_proof_block_op_preconf(ctx);
+
   // fetch the block
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_at(ctx->params, 0), &block));
+  TRY_ASYNC(c4_get_block_for_chain(ctx, json_at(ctx->params, 0), &block));
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
@@ -101,8 +128,11 @@ c4_status_t c4_proof_block_number(prover_ctx_t* ctx) {
   blockroot_proof_t historic_proof = {0};
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
 
+  if (!(ctx->flags & C4_PROVER_FLAG_HYBRID) && c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_OP)
+    return c4_proof_block_number_op_preconf(ctx);
+
   // fetch the block
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block));
+  TRY_ASYNC(c4_get_block_for_chain(ctx, json_parse("\"latest\""), &block));
 
   if (block.header_only)
     return create_hybrid_header_data_proof(ctx, ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF, block.execution.bytes);
@@ -150,7 +180,7 @@ c4_status_t c4_proof_block_header(prover_ctx_t* ctx) {
   json_t            block_arg      = json_len(ctx->params) > 0 ? json_at(ctx->params, 0) : json_parse("\"latest\"");
 
   // fetch the block (default to "latest" if no params given, e.g. for eth_blobBaseFee)
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_arg, &block));
+  TRY_ASYNC(c4_get_block_for_chain(ctx, block_arg, &block));
 
   if (block.header_only)
     return create_hybrid_header_data_proof(ctx, ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF, block.execution.bytes);

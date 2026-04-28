@@ -21,31 +21,31 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ETH_PROVER_H
-#define ETH_PROVER_H
+#ifndef OP_PAYLOAD_H
+#define OP_PAYLOAD_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+#include "json.h"
 #include "prover.h"
+#include "ssz.h"
+#include "verify.h"
 
-/** Dispatches RPC method handling for Ethereum and OP-compatible chains. */
-bool eth_prover_execute(prover_ctx_t* ctx);
+/**
+ * Decompresses and verifies the sequencer-signed OP preconfirmation payload.
+ *
+ * @param ctx verifier context (used for errors)
+ * @param block_proof SSZ object for preconf (`OP_PRECONF` union variant under `block_proof`)
+ * @param block_number optional RPC block identifier for consistency checks (may be NULL)
+ * @param parent_hash optional output for the 32-byte parent hash prefix before the execution payload
+ * @return heap-allocated pointer to `ssz_ob_t` embedded at the start of decompressed storage; caller must `safe_free()`
+ */
+ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash);
 
-c4_status_t c4_proof_account(prover_ctx_t* ctx);     // creates an account proof
-c4_status_t c4_proof_transaction(prover_ctx_t* ctx); // creates a transaction proof
-c4_status_t c4_proof_receipt(prover_ctx_t* ctx);     // creates a receipt proof
-c4_status_t c4_proof_logs(prover_ctx_t* ctx);        // creates a logs proof
-c4_status_t c4_proof_call(prover_ctx_t* ctx);
-c4_status_t c4_proof_sync(prover_ctx_t* ctx);
-c4_status_t c4_proof_block(prover_ctx_t* ctx);
-c4_status_t c4_proof_block_number(prover_ctx_t* ctx);
-c4_status_t c4_proof_block_header(prover_ctx_t* ctx);
-c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx);
-c4_status_t c4_proof_witness(prover_ctx_t* ctx);
-#ifdef __cplusplus
-}
-#endif
+/**
+ * Decompresses ZSTD preconfirmation payload bytes from an `ssz_builder_t` produced by `c4_op_create_block_proof`.
+ *
+ * @param block_proof builder holding compressed payload (fixed or dynamic buffer)
+ * @return heap pointer to embedded `ssz_ob_t` + backing storage; caller must `safe_free()`
+ */
+ssz_ob_t* op_decode_preconf_builder_execution_payload(ssz_builder_t* block_proof);
 
 #endif

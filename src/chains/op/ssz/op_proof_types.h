@@ -23,8 +23,7 @@
 
 #include "beacon_types.h"
 #include "ssz.h"
-// Helper type definition for byte arrays with large maximum size (1GB)
-static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
+/* `ssz_bytes_1024` is defined in `verify_types.c` before this header is included. */
 // : OP-Stack
 //
 

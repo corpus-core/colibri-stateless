@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "chains.h"
 #include "json.h"
 #include "prover.h"
 #include "verify.h"
@@ -35,11 +36,17 @@
 
 static verified_header_cache_t g_header_cache = {0};
 
+verified_header_cache_t* c4_header_cache_global(void) {
+  return &g_header_cache;
+}
+
 // -- Tag TTL Calculation --
 
-static uint64_t header_tag_ttl_ms(chain_id_t chain_id, header_tag_t tag, prover_flags_t flags) {
+uint64_t c4_header_tag_ttl_ms(chain_id_t chain_id, header_tag_t tag, prover_flags_t flags) {
   const chain_spec_t* spec          = c4_eth_get_chain_spec(chain_id);
   uint64_t            block_time_ms = is_gnosis_chain(chain_id) ? 5000 : 12000;
+  if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_OP)
+    block_time_ms = 2000;
 
   switch (tag) {
     case HEADER_TAG_LATEST:
@@ -261,7 +268,7 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
     tag_cache_entry_t* tc  = &g_header_cache.tags[tag];
     uint64_t           now = current_ms();
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
-      uint64_t ttl                    = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
+      uint64_t ttl                    = c4_header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
       bool     within_ttl             = (now - tc->cached_at_ms < ttl);
       bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms && tc->fetching_ctx != (uintptr_t) ctx && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
       if (within_ttl || stale_while_revalidate)
@@ -332,7 +339,7 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
     tag_cache_entry_t* tc  = &g_header_cache.tags[tag];
     uint64_t           now = current_ms();
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
-      uint64_t ttl                    = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
+      uint64_t ttl                    = c4_header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
       bool     within_ttl             = (now - tc->cached_at_ms < ttl);
       bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms && tc->fetching_ctx != (uintptr_t) ctx && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
       if (within_ttl || stale_while_revalidate)

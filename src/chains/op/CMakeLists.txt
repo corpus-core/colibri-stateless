@@ -39,66 +39,50 @@ if (EVMLIGHT OR EVMONE)
     endif()
 endif()
 
+# Shared OP execution / preconf / hybrid fetch (linked from eth_prover and op_verifier)
+add_library(op_chain_support STATIC
+  op_payload.c
+  verifier/op_zstd.c
+  verifier/op_chains_conf.c
+  prover/op_block_fetch.c
+)
+target_include_directories(op_chain_support PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/ssz
+  ${CMAKE_CURRENT_SOURCE_DIR}/prover
+  ${CMAKE_CURRENT_SOURCE_DIR}/verifier
+  ${CMAKE_CURRENT_SOURCE_DIR}/../eth/ssz
+  ${CMAKE_CURRENT_SOURCE_DIR}/../eth/prover
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../prover
+)
+target_link_libraries(op_chain_support PUBLIC util zstd eth_verifier)
+
+if(TARGET eth_prover)
+  target_link_libraries(eth_prover PUBLIC op_chain_support op_verifier)
+  target_include_directories(eth_prover PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ssz)
+endif()
 
 set(VERIFIER_SOURCES
   verifier/op_verify.c
-  verifier/op_zstd.c
-  verifier/op_chains_conf.c
-  ssz/op_types.c
+  verifier/op_verify_block.c
 )
-
-
-if(ETH_ACCOUNT)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_account.c)
-  add_definitions(-DETH_ACCOUNT)
-endif()
-
-if(ETH_TX)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_tx.c)
-  add_definitions(-DETH_TX)
-endif()
-
-if(ETH_BLOCK)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_block.c)
-  add_definitions(-DETH_BLOCK)
-endif()
-
-if(ETH_RECEIPT)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_receipt.c)
-  add_definitions(-DETH_RECEIPT)
-endif()
-
-if(ETH_LOGS)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_logs.c)
-  add_definitions(-DETH_LOGS)
-endif()
-
-if(ETH_CALL)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_call.c verifier/op_verify_simulate.c)
-  add_definitions(-DETH_CALL)
-endif()
 
 add_verifier(
   NAME op_verifier
   SOURCES ${VERIFIER_SOURCES}
-  DEPENDS util eth_verifier zstd
+  DEPENDS util eth_verifier zstd op_chain_support
   GET_REQ_TYPE c4_op_get_request_type
   VERIFY c4_op_verify
   METHOD_TYPE c4_op_get_method_type
 )
 
+target_include_directories(op_verifier PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../eth/ssz)
 
 add_prover(
   NAME op_prover
   SOURCES 
     prover/op_tools.c
     prover/op_prover.c
-    prover/op_proof_block.c
-    prover/op_proof_transaction.c
-    prover/op_proof_receipt.c
-    prover/op_proof_logs.c
-    prover/op_proof_call.c
-    prover/op_proof_account.c
   DEPENDS util eth_prover op_verifier
   PROOF op_prover_execute
 )

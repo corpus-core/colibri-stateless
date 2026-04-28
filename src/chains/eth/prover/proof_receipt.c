@@ -188,7 +188,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
 
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) {
     TRACE_START(ctx, "get_execution_payload");
-    TRY_ADD_ASYNC(status, c4_beacon_get_execution_for_eth(ctx, block_number, &block));
+    TRY_ADD_ASYNC(status, c4_get_execution_for_chain(ctx, block_number, &block));
     if (status != C4_SUCCESS) return status;
 
     TRACE_START(ctx, "get_block_receipts");
@@ -205,7 +205,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   }
 
   TRACE_START(ctx, "get_beacon_block");
-  TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
+  TRY_ADD_ASYNC(status, c4_get_block_for_chain(ctx, block_number, &block));
 
   TRACE_START(ctx, "get_block_receipts");
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));

@@ -2,8 +2,8 @@
  * Copyright (c) 2025 corpus.core
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
+ * this software and associated documentation files (the "Software"), to deal in the
+ * Software without restriction, including without limitation the rights to
  * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
  * the Software, and to permit persons to whom the Software is furnished to do so,
  * subject to the following conditions:
@@ -26,15 +26,13 @@
 
 #include "verify.h"
 
+/** Verifies legacy OP `OpBlockProof` (preconfirmation bundle). Hybrid EL proofs use `c4_eth_dispatch_execution_proof`. */
 bool op_verify_block(verify_ctx_t* ctx);
-bool op_verify_tx_proof(verify_ctx_t* ctx);
-bool op_verify_receipt_proof(verify_ctx_t* ctx);
-bool op_verify_logs_proof(verify_ctx_t* ctx);
-bool op_verify_call_proof(verify_ctx_t* ctx);
-bool op_verify_account_proof(verify_ctx_t* ctx);
 
-// extracts the execution payload from the block_proof and returns the ssz_ob if successful. Caller must free the ssz_ob_t!.
-ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash);
+method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags);
 
-// helper
-#endif // eth_verify_h__
+const ssz_def_t* c4_op_get_request_type(chain_type_t chain_type);
+
+bool c4_op_verify(verify_ctx_t* ctx);
+
+#endif /* op_verify_h__ */

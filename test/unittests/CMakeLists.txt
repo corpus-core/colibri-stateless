@@ -22,6 +22,10 @@
 # Finde alle C-Dateien im aktuellen Verzeichnis
 file(GLOB TEST_SOURCES test_*.c)
 
+if(NOT CHAIN_OP)
+  list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/test_op_verify_methods.c")
+endif()
+
 set(TEST_INCLUDES
   ${unity_SOURCE_DIR}/src 
   ${CMAKE_SOURCE_DIR}/src 
@@ -132,6 +136,10 @@ foreach(test_source ${TEST_SOURCES})
     # Suppress MSVC warning C4113 for test targets
     if(MSVC)
         target_compile_options(${test_name} PRIVATE /wd4113)
+    endif()
+
+    if(CHAIN_OP AND "${test_name}" STREQUAL "test_op_verify_methods")
+      target_link_libraries(${test_name} PRIVATE op_verifier op_chain_support zstd)
     endif()
 
     # Füge den Test zu CTest hinzu

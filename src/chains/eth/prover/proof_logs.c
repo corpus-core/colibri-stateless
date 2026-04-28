@@ -144,9 +144,9 @@ static c4_status_t get_receipts(prover_ctx_t* ctx, proof_logs_block_t* blocks, b
     buffer_reset(&buf);
     json_t block_number = json_parse(bprintf(&buf, "\"0x%lx\"", block->block_number));
     if (hybrid)
-      TRY_ADD_ASYNC(status, c4_beacon_get_execution_for_eth(ctx, block_number, &block->beacon_block));
+      TRY_ADD_ASYNC(status, c4_get_execution_for_chain(ctx, block_number, &block->beacon_block));
     else
-      TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block->beacon_block));
+      TRY_ADD_ASYNC(status, c4_get_block_for_chain(ctx, block_number, &block->beacon_block));
 #ifdef PROVER_CACHE
     // we get the merkle tree from the cache if available now so we can use it later in the worker thread
     bytes32_t cachekey;

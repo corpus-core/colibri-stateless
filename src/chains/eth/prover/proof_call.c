@@ -310,7 +310,7 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   }
   if (has_overrides) TRY_ASYNC(eth_parse_state_overrides_state(&ctx->state, state_overrides, &overrides_parsed));
 
-  TRY_ASYNC_CATCH(c4_beacon_get_block_for_eth(ctx, block_number, &block), eth_state_overrides_free(&overrides_parsed)); // get the beacon-block matching the block-tag (usually cached)
+  TRY_ASYNC_CATCH(c4_get_block_for_chain(ctx, block_number, &block), eth_state_overrides_free(&overrides_parsed)); // get the beacon-block matching the block-tag (usually cached)
 
   uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
   bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;

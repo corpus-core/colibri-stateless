@@ -14,7 +14,6 @@ const doc_files = [
     "chains/eth/verifier/verify_local.c",
 
     "chains/op/verifier/op_verify.c",
-    "chains/op/ssz/op_types.c",
     "chains/op/ssz/op_proof_types.h",
 
     "util/witness.c",

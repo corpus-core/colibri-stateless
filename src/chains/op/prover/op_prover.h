@@ -28,18 +28,10 @@
 extern "C" {
 #endif
 
+#include "op_block_fetch.h"
 #include "prover.h"
 #include "ssz.h"
 
-c4_status_t c4_op_proof_block(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_transaction(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_receipt(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_logs(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_call(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_blocknumber(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_account(prover_ctx_t* ctx);
-
-c4_status_t c4_op_create_block_proof(prover_ctx_t* ctx, json_t block_number, ssz_builder_t* block_proof);
 #ifdef __cplusplus
 }
 #endif

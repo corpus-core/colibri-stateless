@@ -21,6 +21,19 @@
  * SPDX-License-Identifier: MIT
  */
 
-/* This file is intentionally empty.
- * OP simulate verification is now handled by op_verify_call_proof()
- * via the shared verify_evm_call() which detects the method internally. */
+#ifndef ETH_HYBRID_PROOF_TYPES_H
+#define ETH_HYBRID_PROOF_TYPES_H
+
+#include "ssz.h"
+
+extern const ssz_def_t ETH_HYBRID_ACCOUNT_PROOF[];
+extern const ssz_def_t ETH_HYBRID_CALL_PROOF[];
+extern const ssz_def_t ETH_HYBRID_TRANSACTION_PROOF[];
+extern const ssz_def_t ETH_HYBRID_RECEIPT_PROOF[];
+extern const ssz_def_t ETH_HYBRID_LOGS_BLOCK[];
+extern const ssz_def_t ETH_HYBRID_LOGS_BLOCK_CONTAINER;
+extern const ssz_def_t ETH_HYBRID_BLOCK_RECEIPTS_PROOF[];
+extern const ssz_def_t ETH_HYBRID_BLOCK_PROOF[];
+extern const ssz_def_t ETH_HYBRID_BLOCK_HEADER_PROOF[];
+
+#endif /* ETH_HYBRID_PROOF_TYPES_H */

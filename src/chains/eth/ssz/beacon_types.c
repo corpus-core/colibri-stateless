@@ -22,13 +22,29 @@
  */
 
 #include "beacon_types.h"
+#include "chains.h"
 #include "ssz.h"
+#include <string.h>
 
 // the fork epochs for the different chains. index 0 is the the first fork or the epcoh of the ALTAIR fork. Must be NULL-Terminated
 static const uint64_t eth_mainnet_fork_epochs[] = {74240ULL, 144896ULL, 194048ULL, 269568ULL, 364032ULL, 411392ULL, 0ULL};
 static const uint64_t eth_gnosis_fork_epochs[]  = {512ULL, 385536ULL, 648704ULL, 889856ULL, 1337856ULL, 1714688ULL, 0ULL};
 static const uint64_t eth_sepolia_fork_epochs[] = {50L, 100L, 56832L, 132608L, 222464L, 272640L, 0ULL};
 static const uint64_t eth_chiado_fork_epochs[]  = {90L, 180L, 244224L, 516608L, 948224L, 1353216L , 0ULL};
+
+/* OP Stack: no beacon fork schedule; monotonic placeholders map any epoch to `C4_FORK_DENEB` for EL SSZ paths. */
+static const uint64_t op_fork_epochs_denep_stub[] = {1ULL, 2ULL, 3ULL, 4ULL, 0ULL};
+
+/** Placeholder 32-byte root for OP Stack chain specs (no beacon genesis). */
+#define OP_STUB_BYTES32                                                                                                \
+  "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"                                                   \
+  "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+static void op_fork_version_stub(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
+  (void) chain_id;
+  (void) fork;
+  memset(version, 0, 4);
+}
 
 static void mainnet_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
   version[0] = (uint8_t) fork;
@@ -92,6 +108,95 @@ static const chain_spec_t chain_data[] = {
      .fork_version_func        = gnosis_fork_version
 
     },
+    {// OP Stack chains (execution-layer / hybrid metadata stub; not L1 beacon)
+     .chain_id                 = C4_CHAIN_OP_MAINNET,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_BASE,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_WORLDCHAIN,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_ZORA,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_UNICHAIN,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_PGN,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_ORDERLY,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_MODE,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_FRAXTAL,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_MANTLE,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
+    {.chain_id                 = C4_CHAIN_OP_KLAYTN,
+     .fork_epochs              = op_fork_epochs_denep_stub,
+     .genesis_validators_root  = OP_STUB_BYTES32,
+     .zk_sync_keys_root        = OP_STUB_BYTES32,
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 0,
+     .fork_version_func        = op_fork_version_stub},
 };
 
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id) {

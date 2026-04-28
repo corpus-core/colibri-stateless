@@ -18,34 +18,26 @@ OP-Stack (Optimism, Base, etc.) chain module. Similar structure to the Ethereum 
 2. **ZSTD Compression**: OP proofs use ZSTD compression for batch transaction data.
 3. **Chain Configuration**: OP-Stack chains have different configurations (L1 origin, system config, etc.) managed in `op_chains_conf.c`.
 4. **Kona Bridge**: Native P2P bridge (Rust/FFI) connects to OP-Stack sequencers for live preconf capture.
+5. **Shared EL stack**: Execution-layer proofs and hybrid SSZ layouts match Ethereum; OP-specific code only covers preconf payloads and sequencer verification (`op_payload.c`, `op_verify_block.c`).
 
 ## Verification Modules (`verifier/`)
 
 | File | Purpose |
 |------|---------|
-| `op_verify.c` | Main OP verification dispatcher and method registration |
-| `op_verify_account.c` | Account verification (OP-specific) |
-| `op_verify_tx.c` | Transaction verification |
-| `op_verify_block.c` | Block verification |
-| `op_verify_receipt.c` | Receipt verification |
-| `op_verify_logs.c` | Log verification |
-| `op_verify_call.c` | Contract call verification |
-| `op_verify_simulate.c` | Transaction simulation |
+| `op_verify.c` | OP method registration, legacy `OpBlockProof` branch, else delegates to `c4_eth_dispatch_execution_proof` |
+| `op_verify_block.c` | Preconf / non-hybrid `OpBlockProof` verification (sequencer + ZSTD) |
 | `op_zstd.c` | ZSTD decompression for OP batch data |
 | `op_chains_conf.c` | Chain configuration (L1 origin, system config) |
+
+Hybrid and other execution-layer proofs use **Ethereum verifier** implementations (`verify_*` in `chains/eth/verifier/`).
 
 ## Prover Modules (`prover/`)
 
 | File | Purpose |
 |------|---------|
-| `op_prover.c` | Main OP prover dispatcher |
-| `op_proof_account.c` | Account proof generation |
-| `op_proof_transaction.c` | Transaction proof generation |
-| `op_proof_receipt.c` | Receipt proof generation |
-| `op_proof_logs.c` | Log proof generation |
-| `op_proof_call.c` | Contract call proof generation |
-| `op_proof_block.c` | Block proof generation |
-| `op_tools.c` | OP utility functions |
+| `op_prover.c` | Thin wrapper delegating to `eth_prover_execute()` for EL proofs |
+| `op_block_fetch.c` | Hybrid + preconf execution/block loading (`c4_op_hybrid_*`, `c4_op_preconf_*`) consumed via `chains/eth/prover/beacon.c` |
+| `op_tools.c` | OP SSZ/version helpers (`op_create_proof_request`, etc.) |
 
 ## Kona Bridge (`kona_bridge/`)
 
@@ -70,7 +62,7 @@ C Server <--FFI--> Kona Bridge (Rust) <--discv5+GossipSub--> OP Sequencers
 | File | Purpose |
 |------|---------|
 | `op_proof_types.h` | OP proof type definitions (extends ETH types with preconf fields) |
-| `op_types.c` | OP type implementations |
+| `../eth/ssz/verify_types.c` | Shared SSZ defs including `C4_OP_REQUEST_PROOFS_UNION` and `op_ssz_verification_type()` |
 
 <!-- AUTO:OP_MODULE_INDEX:START -->
 

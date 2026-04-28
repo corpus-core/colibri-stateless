@@ -40,6 +40,9 @@ bool verify_block_header_proof(verify_ctx_t* ctx);
 bool verify_block_receipts_proof(verify_ctx_t* ctx);
 bool verify_eth_local(verify_ctx_t* ctx);
 
+/** Runs ETH/EL proof dispatch for compatible chains (Ethereum L1 and OP Stack EL proofs). */
+bool c4_eth_dispatch_execution_proof(verify_ctx_t* ctx);
+
 #ifdef PAP
 bool verify_pap_tx(verify_ctx_t* ctx);
 #endif

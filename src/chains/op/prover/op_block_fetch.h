@@ -20,33 +20,26 @@
  *
  * SPDX-License-Identifier: MIT
  */
-#include "bytes.h"
-#include "call_ctx.h"
-#include "eth_verify.h"
-#include "op_types.h"
-#include "op_verify.h"
+
+#ifndef OP_BLOCK_FETCH_H
+#define OP_BLOCK_FETCH_H
+
+#include "beacon.h"
+#include "json.h"
+#include "prover.h"
 #include "ssz.h"
-#include <stdbool.h>
-#include <string.h>
 
-bool op_verify_call_proof(verify_ctx_t* ctx) {
-  evm_call_ctx_t evm         = {0};
-  ssz_ob_t       block_proof = ssz_get(&ctx->proof, "block_proof");
+c4_status_t c4_op_create_block_proof(prover_ctx_t* ctx, json_t block_number, ssz_builder_t* block_proof);
 
-  bool success = verify_evm_call(ctx, &evm);
+c4_status_t c4_op_hybrid_get_execution_for_chain(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
 
-  if (success) {
-    ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
-    if (!execution_payload)
-      success = false;
-    else {
-      success = memcmp(evm.state_root, ssz_get(execution_payload, "stateRoot").bytes.data, 32) == 0;
-      safe_free(execution_payload);
-      if (!success) ctx->state.error = strdup("State root mismatch");
-    }
-  }
+c4_status_t c4_op_hybrid_get_block_for_chain(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
 
-  evm_call_ctx_free(&evm);
-  ctx->success = success;
-  return ctx->success;
-}
+/**
+ * Loads execution payload from OP preconfirmation data.
+ *
+ * @param preconf_proof_out if non-NULL, receives the preconf SSZ builder (caller must `ssz_builder_free`). If NULL, internal builder is freed.
+ */
+c4_status_t c4_op_preconf_load_block(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block, ssz_builder_t* preconf_proof_out);
+
+#endif

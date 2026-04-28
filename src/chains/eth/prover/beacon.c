@@ -23,7 +23,9 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "chains.h"
 #include "eth_req.h"
+#include "op_block_fetch.h"
 #include "json.h"
 #include "logger.h"
 #include "plugin.h"
@@ -79,7 +81,7 @@ c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number)
   buffer_t       buf      = stack_buffer(tmp);
   bytes32_t      key      = {0};
 
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse(bprintf(&buf, "\"0x%lx\"", latest_block_number)), &block));
+  TRY_ASYNC(c4_get_block_for_chain(ctx, json_parse(bprintf(&buf, "\"0x%lx\"", latest_block_number)), &block));
 
   beacon_head_t head = {.slot = block.slot};
   memcpy(head.root, block.data_block_root, 32);
@@ -712,3 +714,20 @@ c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query,
   return C4_SUCCESS;
 }
 
+c4_status_t c4_get_execution_for_chain(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
+  if (c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_OP) {
+    if (ctx->flags & C4_PROVER_FLAG_HYBRID)
+      return c4_op_hybrid_get_execution_for_chain(ctx, block, beacon_block);
+    return c4_op_preconf_load_block(ctx, block, beacon_block, NULL);
+  }
+  return c4_beacon_get_execution_for_eth(ctx, block, beacon_block);
+}
+
+c4_status_t c4_get_block_for_chain(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
+  if (c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_OP) {
+    if (ctx->flags & C4_PROVER_FLAG_HYBRID)
+      return c4_op_hybrid_get_block_for_chain(ctx, block, beacon_block);
+    return c4_op_preconf_load_block(ctx, block, beacon_block, NULL);
+  }
+  return c4_beacon_get_block_for_eth(ctx, block, beacon_block);
+}

@@ -135,13 +135,13 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   }
 
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) {
-    TRY_ADD_ASYNC(status, c4_beacon_get_execution_for_eth(ctx, block_number, &block));
+    TRY_ADD_ASYNC(status, c4_get_execution_for_chain(ctx, block_number, &block));
     if (status != C4_SUCCESS) return status;
     return create_hybrid_tx_proof(ctx, tx_index, &block);
   }
 
   // get the beacon-block with signature
-  TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
+  TRY_ADD_ASYNC(status, c4_get_block_for_chain(ctx, block_number, &block));
 
   // check if we need historical proofs
   if (block.slot) TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &block_proof, &block));

@@ -115,7 +115,7 @@ static bool no_proof(verify_ctx_t* ctx) {
 }
 method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
   (void) params;
-  if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return METHOD_UNDEFINED;
+  if (!c4_is_eth_compatible_chain(chain_id)) return METHOD_UNDEFINED;
 
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
     if (strcmp(method, proofable_methods[i]) == 0) {
@@ -146,7 +146,7 @@ method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t p
 
 bool c4_eth_get_prover_payload(chain_id_t chain_id, const char* method, const char* params,
                                verify_flags_t flags, buffer_t* method_out, buffer_t* params_out) {
-  if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return false;
+  if (!c4_is_eth_compatible_chain(chain_id)) return false;
   json_t arr = json_parse((char*) params);
 
   if (strcmp(method, "eth_verifyLogs") == 0) {
@@ -203,13 +203,12 @@ bool c4_eth_get_prover_payload(chain_id_t chain_id, const char* method, const ch
 }
 
 const ssz_def_t* c4_eth_get_request_type(chain_type_t chain_type) {
-  return chain_type == C4_CHAIN_TYPE_ETHEREUM ? eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST) : NULL;
+  return (chain_type == C4_CHAIN_TYPE_ETHEREUM || chain_type == C4_CHAIN_TYPE_OP)
+             ? eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST)
+             : NULL;
 }
 
-bool c4_eth_verify(verify_ctx_t* ctx) {
-  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ETHEREUM || c4_eth_get_chain_spec(ctx->chain_id) == NULL) return false;
-  if (!c4_update_from_sync_data(ctx)) return true;
-
+bool c4_eth_dispatch_execution_proof(verify_ctx_t* ctx) {
 #ifdef ETH_TX
   if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF)) ||
       ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF)))
@@ -280,4 +279,10 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
     ctx->success     = false;
   }
   return true;
+}
+
+bool c4_eth_verify(verify_ctx_t* ctx) {
+  if (!c4_is_eth_compatible_chain(ctx->chain_id) || c4_eth_get_chain_spec(ctx->chain_id) == NULL) return false;
+  if (!c4_update_from_sync_data(ctx)) return true;
+  return c4_eth_dispatch_execution_proof(ctx);
 }
