@@ -35,14 +35,71 @@
 #include "op_verify.h"
 #include "op_zstd.h"
 #include "patricia.h"
+#include "plugin.h"
 #include "rlp.h"
 #include "ssz.h"
+#include "sync_committee.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 static const ssz_def_t EXECUTION_PAYLOAD_CONTAINER = SSZ_CONTAINER("payload", DENEP_EXECUTION_PAYLOAD);
+
+/**
+ * Build the storage key used for the cached OP execution payload.
+ * Single slot per chain - any new full payload replaces the previous one.
+ */
+static void op_payload_key(chain_id_t chain_id, char* out) {
+  sbprintf(out, "op_payload_%l", (uint64_t) chain_id);
+}
+
+/**
+ * Load a previously verified execution payload from local storage.
+ *
+ * @param chain_id chain identifier
+ * @return raw decompressed bytes [parent_hash(32) | ssz_execution_payload], or NULL_BYTES if absent.
+ *         Caller owns the returned buffer and must `safe_free(result.data)`.
+ */
+static bytes_t op_load_cached_payload(chain_id_t chain_id) {
+  storage_plugin_t storage = {0};
+  c4_get_storage_config(&storage);
+  if (!storage.get) return NULL_BYTES;
+
+  char name[64] = {0};
+  op_payload_key(chain_id, name);
+  buffer_t buf = {0};
+  if (!storage.get(name, &buf) || !buf.data.data || buf.data.len < 32) {
+    if (buf.data.data) buffer_free(&buf);
+    return NULL_BYTES;
+  }
+  return buf.data;
+}
+
+/**
+ * Persist a freshly verified execution payload and update the chain client state.
+ * The previous cached entry is implicitly replaced; the chain state transitions to
+ * `C4_STATE_SYNC_EXECUTION_PAYLOAD` referencing (block_number, blockhash).
+ *
+ * @param chain_id chain identifier
+ * @param decompressed_data full decompressed preconf data: [parent_hash(32) | ssz_execution_payload]
+ * @param block_number block number of the verified payload
+ * @param blockhash block hash of the verified payload
+ */
+static void op_store_cached_payload(chain_id_t chain_id, bytes_t decompressed_data, uint64_t block_number, bytes32_t blockhash) {
+  storage_plugin_t storage = {0};
+  c4_get_storage_config(&storage);
+  if (!storage.set) return;
+
+  char name[64] = {0};
+  op_payload_key(chain_id, name);
+  storage.set(name, decompressed_data);
+
+  c4_chain_state_t state             = {.status = C4_STATE_SYNC_EXECUTION_PAYLOAD};
+  state.data.block.block_number      = block_number;
+  memcpy(state.data.block.blockhash, blockhash, 32);
+  c4_set_chain_state(chain_id, &state);
+}
 
 static void verify_signature(bytes_t data, bytes_t signature, uint64_t chain_id, address_t address) {
   uint8_t buf[96] = {0};
@@ -55,7 +112,69 @@ static void verify_signature(bytes_t data, bytes_t signature, uint64_t chain_id,
   memcpy(address, buf + 12, 20);
 }
 
+/**
+ * Verify that the (already extracted) execution payload matches the user-requested block.
+ *
+ * @param ctx verify context (used for error reporting)
+ * @param ep execution payload to inspect
+ * @param block_number user-requested block (hex number or hex blockhash JSON string), may be NULL
+ * @return true on match (or no constraint), false on mismatch (error already added to ctx)
+ */
+static bool match_requested_block(verify_ctx_t* ctx, ssz_ob_t* ep, json_t* block_number) {
+  if (!block_number || block_number->len <= 2 || block_number->start[1] != '0' || block_number->start[2] != 'x')
+    return true;
+
+  bytes32_t buf    = {0};
+  buffer_t  buffer = stack_buffer(buf);
+  if (block_number->len == 68) { // blockhash
+    json_as_bytes(*block_number, &buffer);
+    bytes_t block_hash = ssz_get(ep, "blockHash").bytes;
+    if (memcmp(buf, block_hash.data, 32)) {
+      c4_state_add_error(&ctx->state, "blockhash mismatch");
+      return false;
+    }
+  }
+  else if (json_as_uint64(*block_number) != ssz_get_uint64(ep, "blockNumber")) {
+    c4_state_add_error(&ctx->state, "blocknumber mismatch");
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Reconstruct an `ssz_ob_t*` execution payload in-place at the start of the given buffer.
+ * The first 32 bytes (parent_hash) are overwritten by the ssz_ob_t struct; the payload bytes
+ * (offset 32..end) remain intact and are referenced via `bytes_slice`.
+ *
+ * The caller must have already extracted parent_hash before invoking this helper.
+ */
+static ssz_ob_t* embed_execution_payload(bytes_t data) {
+  ssz_ob_t* ep = (void*) data.data;
+  ep->def      = &EXECUTION_PAYLOAD_CONTAINER;
+  ep->bytes    = bytes_slice(data, 32, data.len - 32);
+  return ep;
+}
+
 ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash) {
+  // Cached path: client signaled (via OP_BLOCKPROOF_UNION = NONE) that it already has this block.
+  // Load the previously verified execution payload from local storage.
+  if (block_proof.def && block_proof.def->type == SSZ_TYPE_NONE) {
+    bytes_t cached = op_load_cached_payload(ctx->chain_id);
+    if (!cached.data || cached.len < 32) {
+      c4_state_add_error(&ctx->state, "block_proof is none but no cached execution payload available");
+      return NULL;
+    }
+
+    if (parent_hash) memcpy(parent_hash, cached.data, 32);
+
+    ssz_ob_t* execution_payload = embed_execution_payload(cached);
+    if (!match_requested_block(ctx, execution_payload, block_number)) {
+      safe_free(execution_payload);
+      return NULL;
+    }
+    return execution_payload;
+  }
+
   const op_chain_config_t* config          = op_get_chain_config(ctx->chain_id);
   address_t                signer          = {0};
   ssz_ob_t                 compressed_data = ssz_get(&block_proof, "payload");
@@ -87,36 +206,28 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
     return NULL;
   }
 
-  if (parent_hash) memcpy(parent_hash, decompressed_data.data, 32);
-
-  // here we use the fact, that the execution payload starts at the 32nd byte
-  // so we store the ssz_ob_t at the beginning of the decompressed data, so we can then easily use it to call free on it.
-  ssz_ob_t* execution_payload = (void*) decompressed_data.data;
-  execution_payload->def      = &EXECUTION_PAYLOAD_CONTAINER;
-  execution_payload->bytes    = bytes_slice(decompressed_data, 32, decompressed_data.len - 32);
-
-  // check blocknumber
-
-  if (block_number && block_number->len > 2 && block_number->start[1] == '0' && block_number->start[2] == 'x') {
-    bytes32_t buf    = {0};
-    buffer_t  buffer = stack_buffer(buf);
-    if (block_number->len == 68) { // must be blockhash
-      json_as_bytes(*block_number, &buffer);
-      bytes_t block_hash = ssz_get(execution_payload, "blockHash").bytes;
-      if (memcmp(buf, block_hash.data, 32)) {
-        safe_free(execution_payload);
-        c4_state_add_error(&ctx->state, "blockhash mismatch");
-        return NULL;
-      }
-    }
-    else if (json_as_uint64(*block_number) != ssz_get_uint64(execution_payload, "blockNumber")) {
-      safe_free(execution_payload);
-      c4_state_add_error(&ctx->state, "blocknumber mismatch");
-      return NULL;
-    }
+  // Validate against the requested block BEFORE the in-place ssz_ob_t embedding so the
+  // decompressed buffer remains intact for caching.
+  ssz_ob_t payload_view = {.def = &EXECUTION_PAYLOAD_CONTAINER, .bytes = bytes_slice(decompressed_data, 32, decompressed_data.len - 32)};
+  if (!match_requested_block(ctx, &payload_view, block_number)) {
+    safe_free(decompressed_data.data);
+    return NULL;
   }
 
-  return execution_payload;
+  // Cache the freshly verified payload so subsequent requests for the same block can omit it.
+  bytes_t   bh_bytes = ssz_get(&payload_view, "blockHash").bytes;
+  uint64_t  bn       = ssz_get_uint64(&payload_view, "blockNumber");
+  bytes32_t bh       = {0};
+  if (bh_bytes.len == 32) {
+    memcpy(bh, bh_bytes.data, 32);
+    op_store_cached_payload(ctx->chain_id, decompressed_data, bn, bh);
+  }
+
+  if (parent_hash) memcpy(parent_hash, decompressed_data.data, 32);
+
+  // Embed ssz_ob_t header in-place: this overwrites the parent_hash bytes (already captured above)
+  // and lets the caller free both the wrapper and payload bytes via a single `safe_free`.
+  return embed_execution_payload(decompressed_data);
 }
 
 bool op_verify_block(verify_ctx_t* ctx) {

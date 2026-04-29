@@ -50,7 +50,7 @@ static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, op_call_proof_t* pro
 
   ssz_builder_t eth_call_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_CALL_PROOF);
   ssz_add_builders(&eth_call_proof, "accounts", proof->accounts);
-  ssz_add_builders(&eth_call_proof, "block_proof", proof->block_proof);
+  c4_op_add_block_proof(ctx, &eth_call_proof, "block_proof", &proof->block_proof);
 
   proof->accounts    = (ssz_builder_t) {0};
   proof->block_proof = (ssz_builder_t) {0};

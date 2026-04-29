@@ -56,7 +56,7 @@ c4_status_t c4_op_proof_transaction(prover_ctx_t* ctx) {
   ssz_builder_t eth_tx_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_TRANSACTION_PROOF);
   ssz_add_bytes(&eth_tx_proof, "tx_proof", NULL_BYTES); // no proof since we have the full execution payload
   ssz_add_uint32(&eth_tx_proof, tx_index);              // txindex
-  ssz_add_builders(&eth_tx_proof, "block_proof", block_proof);
+  c4_op_add_block_proof(ctx, &eth_tx_proof, "block_proof", &block_proof);
 
   ctx->proof = op_create_proof_request(
       ctx->chain_id,

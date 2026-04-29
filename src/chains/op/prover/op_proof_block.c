@@ -27,14 +27,54 @@
 #include "eth_tools.h"
 #include "json.h"
 #include "logger.h"
+#include "op_prover.h"
 #include "op_tools.h"
 #include "op_types.h"
 #include "prover.h"
 #include "ssz.h"
+#include "sync_committee.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>
+
+/**
+ * Decide whether the verifier already has the requested execution payload cached and the
+ * preconf payload may therefore be omitted from the proof.
+ *
+ * The decision uses the `client_state` provided in the prover context. The state must be
+ * `C4_STATE_SYNC_EXECUTION_PAYLOAD` and the cached (block_number, blockhash) tuple must
+ * match the actually produced preconf payload.
+ *
+ * @param ctx prover context
+ * @param preconf_proof builder containing the (compressed) execution payload of the upcoming block
+ * @return true if the verifier can reuse its cache and the prover may emit `block_proof = none`
+ */
+static bool client_already_has_block(prover_ctx_t* ctx, ssz_builder_t* preconf_proof) {
+  if (!ctx->client_state.data || !ctx->client_state.len) return false;
+  c4_chain_state_t cs = c4_state_deserialize(ctx->client_state);
+  if (cs.status != C4_STATE_SYNC_EXECUTION_PAYLOAD) return false;
+
+  ssz_ob_t* ep = op_get_execution_payload(preconf_proof);
+  if (!ep) return false;
+
+  uint64_t bn    = ssz_get_uint64(ep, "blockNumber");
+  bytes_t  bh    = ssz_get(ep, "blockHash").bytes;
+  bool     match = bn == cs.data.block.block_number && bh.len == 32 &&
+               memcmp(bh.data, cs.data.block.blockhash, 32) == 0;
+  safe_free(ep);
+  return match;
+}
+
+void c4_op_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* parent, const char* name, ssz_builder_t* preconf_proof) {
+  if (client_already_has_block(ctx, preconf_proof)) {
+    log_debug("OP block already cached on client - emitting block_proof = NONE");
+    ssz_builder_free(preconf_proof);
+    ssz_add_ob(parent, name, (ssz_ob_t) {.def = &ssz_none, .bytes = NULL_BYTES});
+  }
+  else
+    ssz_add_builders(parent, name, *preconf_proof);
+}
 
 c4_status_t c4_op_create_block_proof(prover_ctx_t* ctx, json_t block_number, ssz_builder_t* block_proof) {
   uint8_t  path[200]    = {0};
@@ -72,7 +112,7 @@ c4_status_t c4_op_proof_block(prover_ctx_t* ctx) {
 
   // build the proof
   ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
-  ssz_add_builders(&block_proof, "block_proof", preconf_proof);
+  c4_op_add_block_proof(ctx, &block_proof, "block_proof", &preconf_proof);
 
   ctx->proof = op_create_proof_request(
       ctx->chain_id,
@@ -90,7 +130,7 @@ c4_status_t c4_op_proof_blocknumber(prover_ctx_t* ctx) {
 
   // build the proof
   ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
-  ssz_add_builders(&block_proof, "block_proof", preconf_proof);
+  c4_op_add_block_proof(ctx, &block_proof, "block_proof", &preconf_proof);
 
   ctx->proof = op_create_proof_request(
       ctx->chain_id,
