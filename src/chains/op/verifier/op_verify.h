@@ -33,8 +33,21 @@ bool op_verify_logs_proof(verify_ctx_t* ctx);
 bool op_verify_call_proof(verify_ctx_t* ctx);
 bool op_verify_account_proof(verify_ctx_t* ctx);
 
-// extracts the execution payload from the block_proof and returns the ssz_ob if successful. Caller must free the ssz_ob_t!.
-ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash);
+/**
+ * Extract and verify the OP execution payload referenced by `block_proof`.
+ *
+ * Returns an `ssz_ob_t` view (by value) onto the underlying decompressed bytes;
+ * those bytes live in `ctx->state.requests` and are released automatically
+ * during verifier teardown. On failure, the returned value has `.def == NULL`
+ * and `.bytes == NULL_BYTES`, and an error is recorded on `ctx->state`.
+ *
+ * @param ctx verify context
+ * @param block_proof SSZ `OP_BLOCKPROOF_UNION` from the proof
+ * @param block_number optional user-requested block (number or hash JSON), may be NULL
+ * @param parent_hash optional out-buffer for the 32-byte parent hash, may be NULL
+ * @return `ssz_ob_t` view; check `.def` to detect failure (no free required)
+ */
+ssz_ob_t op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash);
 
 /**
  * Build the storage key used for the cached OP execution payload.
