@@ -209,6 +209,34 @@ method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t param
 void c4_get_prover_payload(chain_id_t chain_id, const char* method, const char* params,
                            verify_flags_t flags, buffer_t* method_out, buffer_t* params_out);
 
+/**
+ * Helper context for chain-specific RPC initialization (`c4_init_rpc_ctx`).
+ *
+ * The caller (e.g. the bindings layer) populates `chain_id` and `client_state`
+ * before invoking `c4_init_rpc_ctx`. Each registered chain hook may then
+ * prepend `data_request_t` entries (typically `C4_DATA_TYPE_CACHE`) to the
+ * `snapshots` list. Ownership of allocated entries transfers to the caller,
+ * which is responsible for freeing them (or transferring ownership further).
+ */
+typedef struct {
+  chain_id_t      chain_id;     ///< target chain
+  bytes_t         client_state; ///< snapshot of `client_state` at request start (read-only)
+  data_request_t* snapshots;    ///< output: linked list of cache snapshots (owned by caller after the call returns)
+} c4_init_ctx_t;
+
+/**
+ * Dispatches to chain-specific RPC-context initialization hooks.
+ *
+ * Each chain module may register an `INIT_RPC_CTX` hook via CMake. Hooks
+ * are invoked in registration order; they typically inspect `client_state`
+ * to decide which cached data to snapshot and prepend matching entries to
+ * `ctx->snapshots`. Hooks not relevant for the given `chain_id` simply
+ * return without modifying `ctx`.
+ *
+ * @param ctx initialization context (must not be NULL)
+ */
+void c4_init_rpc_ctx(c4_init_ctx_t* ctx);
+
 #pragma endregion
 #ifdef MESSAGES
 #define RETURN_VERIFY_ERROR(ctx, msg)     \

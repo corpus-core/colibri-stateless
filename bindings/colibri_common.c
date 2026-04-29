@@ -63,7 +63,7 @@ static void enrich_pending_prover_requests(c4_rpc_ctx_t* ctx) {
 
     buffer_t out = {0};
     buffer_append(&out, bytes(req->payload.data, req->payload.len - 1));
-    c4_append_prover_request_props(&out, ctx->chain_id, ctx->prover_flags, ctx->witness_keys);
+    c4_append_prover_request_props(&out, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys);
     append_proxy_fields(&out, ctx);
     bprintf(&out, "}");
     safe_free(req->payload.data);
@@ -107,6 +107,7 @@ static const char* data_request_type_to_string(data_request_type_t type) {
     case C4_DATA_TYPE_INTERN: return "intern";
     case C4_DATA_TYPE_PROVER: return "prover";
     case C4_DATA_TYPE_CHECKPOINTZ: return "checkpointz";
+    case C4_DATA_TYPE_CACHE: return "cache";
   }
   return "eth_rpc";
 }
@@ -175,6 +176,37 @@ char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
   return status == C4_SUCCESS
              ? bprintf(&buf, "\"result\": %Z}", result)
              : build_error_or_pending(&buf, status, state, req_ptr_as_string);
+}
+
+/**
+ * Capture per-request snapshots before any prover communication starts.
+ *
+ * Reads `client_state` from storage once and lets each chain module attach
+ * additional cache snapshots (`C4_DATA_TYPE_CACHE` `data_request_t` entries
+ * keyed by their identifier, e.g. blockhash for OP execution payloads).
+ * All entries are owned by `ctx` until they are either transferred to the
+ * verifier (`rpc_transfer_snapshots`) or freed via `c4_rpc_ctx_free`.
+ */
+static void rpc_capture_snapshots(c4_rpc_ctx_t* ctx) {
+  if (!ctx || ctx->client_state.data) return; // already captured
+  ctx->client_state    = c4_get_client_state(ctx->chain_id);
+  c4_init_ctx_t init   = {.chain_id = ctx->chain_id, .client_state = ctx->client_state, .snapshots = NULL};
+  c4_init_rpc_ctx(&init);
+  ctx->snapshots = init.snapshots;
+}
+
+/**
+ * Move `ctx->snapshots` to the head of `verifier.state.requests`.
+ * After the call `ctx->snapshots == NULL`; ownership of the entries is
+ * transferred to the verifier and they are released via `c4_state_free`.
+ */
+static void rpc_transfer_snapshots(c4_rpc_ctx_t* ctx) {
+  if (!ctx || !ctx->snapshots) return;
+  data_request_t* tail = ctx->snapshots;
+  while (tail->next) tail = tail->next;
+  tail->next                   = ctx->verifier.state.requests;
+  ctx->verifier.state.requests = ctx->snapshots;
+  ctx->snapshots               = NULL;
 }
 
 /* ── Standalone checkpoint setter ── */
@@ -273,6 +305,10 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   if (ctx->witness_keys.data && ctx->witness_keys.len)
     ctx->verifier.witness_keys = bytes_dup(ctx->witness_keys);
 
+  // Hand off cache snapshots to the verifier so chain modules can locate them via
+  // `c4_state_get_data_request_by_id` and the runtime auto-frees them on cleanup.
+  rpc_transfer_snapshots(ctx);
+
   if (vf & VERIFY_FLAG_PROOF_ONLY) {
     ctx->phase            = RPC_PHASE_DONE;
     ctx->verifier.data    = (ssz_ob_t) {.def = &ssz_bytes_list, .bytes = proof};
@@ -313,7 +349,7 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
             params_buf.data.len ? (char*) params_buf.data.data : ctx->params);
     buffer_free(&method_buf);
     buffer_free(&params_buf);
-    c4_append_prover_request_props(&payload, ctx->chain_id, ctx->prover_flags, ctx->witness_keys);
+    c4_append_prover_request_props(&payload, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys);
     append_proxy_fields(&payload, ctx);
     bprintf(&payload, "}");
     ctx->rpc_state.requests->payload = payload.data;
@@ -409,7 +445,7 @@ static data_request_t* find_pending_prover_request(c4_state_t* state) {
   return NULL;
 }
 
-static prover_ctx_t* create_prover_from_request(data_request_t* req, chain_id_t chain_id, prover_flags_t prover_flags) {
+static prover_ctx_t* create_prover_from_request(c4_rpc_ctx_t* rpc_ctx, data_request_t* req) {
   if (!req->payload.data || !req->payload.len || req->payload.len > (UINT32_MAX - 1)) {
     req->error = strdup("Empty or oversized prover request payload");
     return NULL;
@@ -437,14 +473,16 @@ static prover_ctx_t* create_prover_from_request(data_request_t* req, chain_id_t 
   char* params_str = bprintf(NULL, "%j", params);
   safe_free(tmp);
 
-  prover_ctx_t* pctx = c4_prover_create(method_str, params_str, chain_id, prover_flags);
+  prover_ctx_t* pctx = c4_prover_create(method_str, params_str, rpc_ctx->chain_id, rpc_ctx->prover_flags);
   safe_free(method_str);
   safe_free(params_str);
   if (!pctx) {
     req->error = strdup("Failed to create local prover");
     return NULL;
   }
-  pctx->client_state = c4_get_client_state(chain_id);
+  // Reuse the snapshot taken at request start so the sub-prover sees the same client_state
+  // as the main prover, regardless of any storage updates that happened since.
+  pctx->client_state = bytes_dup(rpc_ctx->client_state);
   if (pctx->state.error) {
     req->error        = pctx->state.error;
     pctx->state.error = NULL;
@@ -494,7 +532,7 @@ static bool check_prover_requests(c4_rpc_ctx_t* ctx) {
     enrich_pending_prover_requests(ctx);
     return false;
   }
-  prover_ctx_t* pctx = create_prover_from_request(prover_req, ctx->chain_id, ctx->prover_flags);
+  prover_ctx_t* pctx = create_prover_from_request(ctx, prover_req);
   if (!pctx) return false;
   request_prover_t* rp = safe_calloc(1, sizeof(request_prover_t));
   rp->request          = prover_req;
@@ -548,6 +586,10 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
                                             json_parse(ctx->params), ctx->verify_flags);
       switch (ctx->method_type) {
         case METHOD_PROOFABLE:
+          // Capture client_state + chain-specific cache snapshots ONCE per request, before any
+          // network I/O. Verifier-issued sub-provers and the verifier itself reuse this snapshot
+          // so concurrent storage updates cannot taint an in-flight request (race-free design).
+          rpc_capture_snapshots(ctx);
           if (ctx->proof.data) // the user passed in a proof
             return rpc_start_verifier(ctx, ctx->proof);
           else if (ctx->prover_mode == C4_PROVER_MODE_REMOTE || ctx->prover_mode == C4_PROVER_MODE_PROXY) {
@@ -557,7 +599,7 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
           else { // local or hybrid: create the proof locally
             ctx->prover               = c4_prover_create(ctx->method, ctx->params, ctx->chain_id, ctx->prover_flags);
             ctx->phase                = RPC_PHASE_PROVING;
-            ctx->prover->client_state = c4_get_client_state(ctx->chain_id);
+            ctx->prover->client_state = bytes_dup(ctx->client_state);
             return rpc_handle_proving(ctx);
           }
 
@@ -625,6 +667,14 @@ void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx) {
   if (ctx->rpc_state.requests)
     c4_request_free(ctx->rpc_state.requests);
   if (ctx->rpc_state.error) safe_free(ctx->rpc_state.error);
+  // Snapshots are normally transferred to verifier.state.requests in rpc_start_verifier;
+  // this cleanup only triggers if the request errored out before the verifier started.
+  while (ctx->snapshots) {
+    data_request_t* next = ctx->snapshots->next;
+    c4_request_free(ctx->snapshots);
+    ctx->snapshots = next;
+  }
+  if (ctx->client_state.data) safe_free(ctx->client_state.data);
   if (ctx->error) free(ctx->error);
   free(ctx);
 }

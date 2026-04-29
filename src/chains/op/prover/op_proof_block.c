@@ -27,6 +27,7 @@
 #include "eth_tools.h"
 #include "json.h"
 #include "logger.h"
+#include "op_proof_types.h"
 #include "op_prover.h"
 #include "op_tools.h"
 #include "op_types.h"
@@ -39,7 +40,8 @@
 #include <string.h>
 
 /**
- * Decide whether the verifier already has the requested execution payload cached.
+ * Decide whether the verifier already has the requested execution payload cached
+ * and, if so, copy the cached blockhash into `out_hint`.
  *
  * The decision is metadata-only: it compares the user-supplied JSON block reference
  * (hex block number or 32-byte block hash) directly against the cached
@@ -53,10 +55,10 @@
  *
  * @param ctx prover context
  * @param requested user-supplied JSON block reference (e.g. `"0x1234"` or `"0xabcd...``)
- * @return true if the verifier already has this block cached and the prover may
- *         emit `block_proof = NONE`
+ * @param out_hint receives the cached blockhash on hit (32 bytes)
+ * @return true if the verifier already has this block cached
  */
-static bool client_already_has_block(prover_ctx_t* ctx, json_t requested) {
+static bool client_already_has_block(prover_ctx_t* ctx, json_t requested, bytes32_t out_hint) {
   if (!ctx->client_state.data || !ctx->client_state.len) return false;
   if (!requested.start || requested.len < 4) return false;
   // only hex block references (number or hash) can be matched without decompression
@@ -65,21 +67,28 @@ static bool client_already_has_block(prover_ctx_t* ctx, json_t requested) {
   c4_chain_state_t cs = c4_state_deserialize(ctx->client_state);
   if (cs.status != C4_STATE_SYNC_EXECUTION_PAYLOAD) return false;
 
+  bool hit = false;
   if (requested.len == 68) { // 0x + 64 hex chars + 2 quotes -> 32-byte block hash
     bytes32_t hash = {0};
     buffer_t  buf  = {.data = bytes(hash, 32), .allocated = -32};
     json_as_bytes(requested, &buf);
-    return memcmp(hash, cs.data.block.blockhash, 32) == 0;
+    hit = memcmp(hash, cs.data.block.blockhash, 32) == 0;
   }
-  // hex block number
-  return json_as_uint64(requested) == cs.data.block.block_number;
+  else
+    hit = json_as_uint64(requested) == cs.data.block.block_number;
+
+  if (hit) memcpy(out_hint, cs.data.block.blockhash, 32);
+  return hit;
 }
 
 void c4_op_add_block_proof(prover_ctx_t* ctx, json_t requested, ssz_builder_t* parent, const char* name, ssz_builder_t* preconf_proof) {
-  if (client_already_has_block(ctx, requested)) {
-    log_debug("OP block already cached on client - emitting block_proof = NONE");
+  bytes32_t hint = {0};
+  if (client_already_has_block(ctx, requested, hint)) {
+    log_debug("OP block already cached on client - emitting block_proof = cached_ref");
     ssz_builder_free(preconf_proof);
-    ssz_add_ob(parent, name, (ssz_ob_t) {.def = &ssz_none, .bytes = NULL_BYTES});
+    // Emit union variant `cached_ref` (index 1) carrying the cached blockhash so the verifier
+    // can locate the matching `C4_DATA_TYPE_CACHE` snapshot via `c4_state_get_data_request_by_id`.
+    ssz_add_ob(parent, name, (ssz_ob_t) {.def = &OP_BLOCKPROOF_UNION[1], .bytes = bytes(hint, 32)});
   }
   else
     ssz_add_builders(parent, name, *preconf_proof);

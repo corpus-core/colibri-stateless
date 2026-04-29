@@ -28,14 +28,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-void c4_append_prover_request_props(buffer_t* payload, chain_id_t chain_id, uint32_t flags, bytes_t witness_key) {
+void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, chain_id_t chain_id, uint32_t flags, bytes_t witness_key) {
   if (!payload) return;
   bprintf(payload, ",\"version\":%d", c4_current_version_number());
-  bytes_t cs = c4_get_client_state(chain_id);
-  if (cs.data && cs.len) {
-    bprintf(payload, ",\"c4\":\"0x%x\"", cs);
-    safe_free(cs.data);
+
+  // Prefer the supplied snapshot; fall back to a fresh storage read if the caller passed NULL_BYTES.
+  bytes_t cs        = client_state;
+  bool    cs_owned  = false;
+  if (!cs.data || !cs.len) {
+    cs       = c4_get_client_state(chain_id);
+    cs_owned = true;
   }
+  if (cs.data && cs.len)
+    bprintf(payload, ",\"c4\":\"0x%x\"", cs);
+  if (cs_owned && cs.data) safe_free(cs.data);
+
   if (flags & C4_PROVER_REQ_FLAG_ZK_PROOF)
     bprintf(payload, ",\"zk_proof\":true");
   if (flags & C4_PROVER_REQ_FLAG_INCLUDE_CODE)
