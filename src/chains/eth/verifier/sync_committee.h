@@ -36,7 +36,8 @@ extern "C" {
 #include <stdint.h>
 
 #define MAX_SYNC_PERIODS 8
-#define MAX_STATES_SIZE  (MAX_SYNC_PERIODS * 4 + 1)
+// max(MAX_SYNC_PERIODS*4=32, 32, uint64+bytes32=40) + 1 status byte = 41
+#define MAX_STATES_SIZE  41
 
 // Light client update format constants
 #define SSZ_OFFSET_SIZE        4
@@ -68,9 +69,11 @@ typedef struct {
 } c4_sync_validators_t;
 
 typedef enum {
-  C4_STATE_SYNC_EMPTY      = 0, // No states and no checkpoint yet
-  C4_STATE_SYNC_PERIODS    = 1, // We do have at least one period stored
-  C4_STATE_SYNC_CHECKPOINT = 2  // we only have a checkpoint stored
+  C4_STATE_SYNC_EMPTY              = 0, // No states and no checkpoint yet
+  C4_STATE_SYNC_PERIODS            = 1, // We do have at least one period stored
+  C4_STATE_SYNC_CHECKPOINT         = 2, // we only have a checkpoint stored
+  C4_STATE_SYNC_BLOCKHASH_HEADER   = 3, // OP-Stack: cached verified execution-block header (number+hash); body not stored
+  C4_STATE_SYNC_EXECUTION_PAYLOAD  = 4  // OP-Stack: cached full execution payload; data here holds (number+hash), payload stored separately via storage_plugin
 } c4_state_sync_type_t;
 
 typedef struct {
@@ -78,6 +81,10 @@ typedef struct {
   union {
     uint32_t  periods[MAX_SYNC_PERIODS]; // max 8 periods (8*4 =32)
     bytes32_t checkpoint;                // 32 bytes
+    struct {
+      uint64_t  block_number;            // execution block number
+      bytes32_t blockhash;                // execution block hash
+    } block;                             // BLOCKHASH_HEADER / EXECUTION_PAYLOAD (40 bytes)
   } data;
 } c4_chain_state_t;
 
@@ -190,6 +197,15 @@ fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data);
 uint64_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
 
 c4_chain_state_t c4_state_deserialize(bytes_t data);
+
+/**
+ * Persist the chain state in storage.
+ * Used by both ETH (sync committee state) and OP (cached execution payload reference).
+ *
+ * @param chain_id Chain identifier
+ * @param state Chain state to persist
+ */
+void c4_set_chain_state(chain_id_t chain_id, c4_chain_state_t* state);
 
 bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root);
 

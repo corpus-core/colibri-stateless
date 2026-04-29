@@ -398,6 +398,10 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
 
       break;
     }
+    case C4_STATE_SYNC_BLOCKHASH_HEADER:
+    case C4_STATE_SYNC_EXECUTION_PAYLOAD:
+      // OP-Stack-specific chain states must not be sent to the ETH prover.
+      THROW_ERROR("unexpected OP-Stack chain state for ETH prover");
   }
   // if there is a gap, fetch the light client updates
   if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) && sync_data->newest_period < sync_data->required_period)

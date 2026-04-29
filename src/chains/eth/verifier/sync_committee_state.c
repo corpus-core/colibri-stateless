@@ -107,6 +107,14 @@ c4_chain_state_t c4_state_deserialize(bytes_t data) {
       if (data.len != 33) return (c4_chain_state_t) {0}; // invalid length
       memcpy(state.data.checkpoint, data.data + 1, 32);
       break;
+    case C4_STATE_SYNC_BLOCKHASH_HEADER:
+    case C4_STATE_SYNC_EXECUTION_PAYLOAD:
+      // Layout: status(1) + uint64 LE block_number(8) + bytes32 blockhash(32) = 41
+      if (data.len != 41) return (c4_chain_state_t) {0};
+      state.data.block.block_number = uint64_from_le(data.data + 1);
+      memcpy(state.data.block.blockhash, data.data + 9, 32);
+      break;
+    case C4_STATE_SYNC_EMPTY:
     default:
       return (c4_chain_state_t) {0}; // invalid status
   }
@@ -163,6 +171,13 @@ INTERNAL void c4_set_chain_state(chain_id_t chain_id, c4_chain_state_t* state) {
       memcpy(data + 1, state->data.checkpoint, 32);
       bytes.len += 32;
       break;
+    case C4_STATE_SYNC_BLOCKHASH_HEADER:
+    case C4_STATE_SYNC_EXECUTION_PAYLOAD:
+      uint64_to_le(data + 1, state->data.block.block_number);
+      memcpy(data + 9, state->data.block.blockhash, 32);
+      bytes.len += 40;
+      break;
+    case C4_STATE_SYNC_EMPTY:
     default:
       break;
   }
@@ -502,6 +517,10 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
 
     case C4_STATE_SYNC_PERIODS:
       THROW_ERROR("init_sync_state called with existing sync committee state");
+
+    case C4_STATE_SYNC_BLOCKHASH_HEADER:
+    case C4_STATE_SYNC_EXECUTION_PAYLOAD:
+      THROW_ERROR("unexpected OP-Stack chain state for ETH chain");
 
     default:
       THROW_ERROR("unknown sync state");
