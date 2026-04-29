@@ -41,9 +41,10 @@ ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t bloc
  * Single slot per chain - any new full payload replaces the previous one.
  *
  * @param chain_id chain identifier
- * @param out output buffer (must be at least 64 bytes)
+ * @param out output buffer
+ * @param out_size capacity of `out` in bytes (the helper truncates to fit)
  */
-void op_payload_key(chain_id_t chain_id, char* out);
+void op_payload_key(chain_id_t chain_id, char* out, size_t out_size);
 
 /**
  * Load a previously verified execution payload from local storage.

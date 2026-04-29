@@ -46,8 +46,10 @@
 
 static const ssz_def_t EXECUTION_PAYLOAD_CONTAINER = SSZ_CONTAINER("payload", DENEP_EXECUTION_PAYLOAD);
 
-void op_payload_key(chain_id_t chain_id, char* out) {
-  sbprintf(out, "op_payload_%l", (uint64_t) chain_id);
+void op_payload_key(chain_id_t chain_id, char* out, size_t out_size) {
+  if (!out || out_size == 0) return;
+  buffer_t buf = {.data = bytes((uint8_t*) out, 0), .allocated = -((int32_t) out_size)};
+  bprintf(&buf, "op_payload_%l", (uint64_t) chain_id);
 }
 
 bytes_t op_load_cached_payload(chain_id_t chain_id) {
@@ -56,7 +58,7 @@ bytes_t op_load_cached_payload(chain_id_t chain_id) {
   if (!storage.get) return NULL_BYTES;
 
   char name[64] = {0};
-  op_payload_key(chain_id, name);
+  op_payload_key(chain_id, name, sizeof(name));
   buffer_t buf = {0};
   if (!storage.get(name, &buf) || !buf.data.data || buf.data.len < 32) {
     if (buf.data.data) buffer_free(&buf);
@@ -78,7 +80,7 @@ void op_store_cached_payload(chain_id_t chain_id, bytes_t decompressed_data, uin
     return;
 
   char name[64] = {0};
-  op_payload_key(chain_id, name);
+  op_payload_key(chain_id, name, sizeof(name));
   storage.set(name, decompressed_data);
 
   c4_chain_state_t state        = {.status = C4_STATE_SYNC_EXECUTION_PAYLOAD};
