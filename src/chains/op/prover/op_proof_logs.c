@@ -217,7 +217,10 @@ static c4_status_t serialize_log_proof(prover_ctx_t* ctx, proof_logs_block_t* bl
 
   for (proof_logs_block_t* block = blocks; block; block = block->next) {
     ssz_builder_t block_ssz = ssz_builder_for_def(block_def);
-    c4_op_add_block_proof(ctx, &block_ssz, "block_proof", &block->block_proof);
+    uint8_t       blk_buf[32]   = {0};
+    buffer_t      blk_jbuf      = stack_buffer(blk_buf);
+    json_t        block_number_json = json_parse(bprintf(&blk_jbuf, "\"0x%lx\"", block->block_number));
+    c4_op_add_block_proof(ctx, block_number_json, &block_ssz, "block_proof", &block->block_proof);
     block->block_proof = (ssz_builder_t) {0};
 
     ssz_builder_t tx_list = ssz_builder_for_def(txs_def);

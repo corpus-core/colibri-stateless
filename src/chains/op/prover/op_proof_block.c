@@ -39,35 +39,44 @@
 #include <string.h>
 
 /**
- * Decide whether the verifier already has the requested execution payload cached and the
- * preconf payload may therefore be omitted from the proof.
+ * Decide whether the verifier already has the requested execution payload cached.
  *
- * The decision uses the `client_state` provided in the prover context. The state must be
- * `C4_STATE_SYNC_EXECUTION_PAYLOAD` and the cached (block_number, blockhash) tuple must
- * match the actually produced preconf payload.
+ * The decision is metadata-only: it compares the user-supplied JSON block reference
+ * (hex block number or 32-byte block hash) directly against the cached
+ * `(block_number, blockhash)` tuple in `ctx->client_state`. This deliberately
+ * avoids decompressing the (~100 kB) preconf payload because:
+ *   - block-by-number / block-by-hash requests already carry the comparison key in
+ *     the JSON, so no decompression is needed.
+ *   - "latest" / "earliest" / "pending" are intentionally NOT optimised here:
+ *     deciding cache-hit for those would require decompressing the freshly fetched
+ *     preconf, which is the work we want to avoid.
  *
  * @param ctx prover context
- * @param preconf_proof builder containing the (compressed) execution payload of the upcoming block
- * @return true if the verifier can reuse its cache and the prover may emit `block_proof = none`
+ * @param requested user-supplied JSON block reference (e.g. `"0x1234"` or `"0xabcd...``)
+ * @return true if the verifier already has this block cached and the prover may
+ *         emit `block_proof = NONE`
  */
-static bool client_already_has_block(prover_ctx_t* ctx, ssz_builder_t* preconf_proof) {
+static bool client_already_has_block(prover_ctx_t* ctx, json_t requested) {
   if (!ctx->client_state.data || !ctx->client_state.len) return false;
+  if (!requested.start || requested.len < 4) return false;
+  // only hex block references (number or hash) can be matched without decompression
+  if (requested.start[1] != '0' || requested.start[2] != 'x') return false;
+
   c4_chain_state_t cs = c4_state_deserialize(ctx->client_state);
   if (cs.status != C4_STATE_SYNC_EXECUTION_PAYLOAD) return false;
 
-  ssz_ob_t* ep = op_get_execution_payload(preconf_proof);
-  if (!ep) return false;
-
-  uint64_t bn    = ssz_get_uint64(ep, "blockNumber");
-  bytes_t  bh    = ssz_get(ep, "blockHash").bytes;
-  bool     match = bn == cs.data.block.block_number && bh.len == 32 &&
-               memcmp(bh.data, cs.data.block.blockhash, 32) == 0;
-  safe_free(ep);
-  return match;
+  if (requested.len == 68) { // 0x + 64 hex chars + 2 quotes -> 32-byte block hash
+    bytes32_t hash = {0};
+    buffer_t  buf  = {.data = bytes(hash, 32), .allocated = -32};
+    json_as_bytes(requested, &buf);
+    return memcmp(hash, cs.data.block.blockhash, 32) == 0;
+  }
+  // hex block number
+  return json_as_uint64(requested) == cs.data.block.block_number;
 }
 
-void c4_op_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* parent, const char* name, ssz_builder_t* preconf_proof) {
-  if (client_already_has_block(ctx, preconf_proof)) {
+void c4_op_add_block_proof(prover_ctx_t* ctx, json_t requested, ssz_builder_t* parent, const char* name, ssz_builder_t* preconf_proof) {
+  if (client_already_has_block(ctx, requested)) {
     log_debug("OP block already cached on client - emitting block_proof = NONE");
     ssz_builder_free(preconf_proof);
     ssz_add_ob(parent, name, (ssz_ob_t) {.def = &ssz_none, .bytes = NULL_BYTES});
@@ -112,7 +121,7 @@ c4_status_t c4_op_proof_block(prover_ctx_t* ctx) {
 
   // build the proof
   ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
-  c4_op_add_block_proof(ctx, &block_proof, "block_proof", &preconf_proof);
+  c4_op_add_block_proof(ctx, block_number, &block_proof, "block_proof", &preconf_proof);
 
   ctx->proof = op_create_proof_request(
       ctx->chain_id,
@@ -125,12 +134,13 @@ c4_status_t c4_op_proof_block(prover_ctx_t* ctx) {
 c4_status_t c4_op_proof_blocknumber(prover_ctx_t* ctx) {
   // first try to fetch the block from the preconfs
   ssz_builder_t preconf_proof = {0};
+  json_t        latest        = (json_t) {.type = JSON_TYPE_STRING, .start = "\"latest\"", .len = 8};
 
-  TRY_ASYNC(c4_op_create_block_proof(ctx, (json_t) {.type = JSON_TYPE_STRING, .start = "\"latest\"", .len = 8}, &preconf_proof));
+  TRY_ASYNC(c4_op_create_block_proof(ctx, latest, &preconf_proof));
 
   // build the proof
   ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
-  c4_op_add_block_proof(ctx, &block_proof, "block_proof", &preconf_proof);
+  c4_op_add_block_proof(ctx, latest, &block_proof, "block_proof", &preconf_proof);
 
   ctx->proof = op_create_proof_request(
       ctx->chain_id,
