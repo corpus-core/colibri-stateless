@@ -25,6 +25,7 @@
 #include "../server/eth_clients.h"
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "json.h"
@@ -101,6 +102,7 @@ static c4_status_t check_historic_proof_header(prover_ctx_t* ctx, blockroot_proo
     buffer_add_le(&proof, json_get_uint64(header, "proposer_index"), 8);
     buffer_append(&proof, json_get_bytes(header, "state_root", &header_buf));
     buffer_append(&proof, json_get_bytes(header, "body_root", &header_buf));
+    eth_cu_add(ctx, CU_HISTORIC_HEADER_HOP); // each successful hop in the header chain
   }
 
   block_proof->sync_aggregate = src_block->sync_aggregate;
@@ -172,6 +174,11 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   if (!state_period) return C4_SUCCESS;                                                        // the client does not have a state yet, so he might as well get the head and verify the block.
   if (block_period >= state_period) return C4_SUCCESS;                                         // the target block is within the current range of the client
 
+  // Historic-direct path: the actual sub-requests below are billed via their
+  // respective helpers; this constant covers the server-side composition work
+  // (summary list build, gindex math, proof concatenation, hash_tree_root).
+  eth_cu_add(ctx, CU_HISTORIC_DIRECT);
+
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
   TRY_ADD_ASYNC(status, get_historical_summaries(ctx, &block, &history_proof));
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "period_store/%d/blocks.ssz", block_period), NULL, 0, &blocks)); // get the blockd
@@ -198,10 +205,11 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
     buffer_append(&list_data, json_get_bytes(entry, "state_summary_root", &buf));
   }
 
-  // create the proofs
-  ssz_ob_t summaries_ob           = {.bytes = list_data.data, .def = &SUMMARIES};
-  bytes_t  block_idx_proof        = ssz_create_proof(blocks_ob, blocks_root, block_gidx);
-  bytes_t  period_idx_proof       = ssz_create_proof(summaries_ob, root, period_gidx);
+  // create the proofs (two genuinely separate single-leaf proofs)
+  ssz_ob_t summaries_ob = {.bytes = list_data.data, .def = &SUMMARIES};
+  eth_cu_add(ctx, 2 * CU_SSZ_PROOF);
+  bytes_t block_idx_proof  = ssz_create_proof(blocks_ob, blocks_root, block_gidx);
+  bytes_t period_idx_proof = ssz_create_proof(summaries_ob, root, period_gidx);
   bytes_t  block_root_expected    = ssz_at(blocks_ob, block_idx).bytes;
   ssz_ob_t summary_ob             = ssz_at(summaries_ob, summary_idx);
   bytes_t  blocks_root_in_summary = ssz_get(&summary_ob, "block_summary_root").bytes;
@@ -336,6 +344,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     // we need a zk_proof (if available) for the required period.
     builder->def             = C4_ETH_REQUEST_SYNCDATA_UNION + 2; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
     zk_proof_data_t zk_proof = {0};
+    eth_cu_add(ctx, CU_ZK_PROOF_INCLUDE); // ZK proof attached to the sync section
     TRY_ASYNC(c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period));
     ssz_add_bytes(builder, "vk_hash", ssz_get(&zk_proof.sync_proof, "vk_hash").bytes);
     ssz_add_bytes(builder, "proof", ssz_get(&zk_proof.sync_proof, "proof").bytes);

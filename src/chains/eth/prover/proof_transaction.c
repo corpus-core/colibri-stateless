@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "historic_proof.h"
@@ -154,6 +155,7 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
 
   TRACE_START(ctx, "proof_data");
 
+  eth_cu_add_multi_proof(ctx, 4);
   bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 4,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),

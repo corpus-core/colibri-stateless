@@ -24,6 +24,7 @@
 #include "eth_req.h"
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "json.h"
 #include "logger.h"
 #include "rlp.h"
@@ -226,6 +227,10 @@ bytes_t c4_serialize_receipt(json_t r, buffer_t* buf) {
 
 // sends a request to the eth rpc and returns the result or returns with status C4_PENDING
 c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint32_t ttl, json_t* result, data_request_t** req) {
+  // Account for compute units. Counted on every call (cache-hit or not) so that
+  // the value reported by `eth_prover_execute` reflects the work the server had
+  // to coordinate for this request, regardless of caching state.
+  eth_cu_add(ctx, cu_for_eth_rpc_method(method));
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   bprintf(&buffer, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s,\"id\":1}", method, params);

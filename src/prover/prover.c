@@ -432,6 +432,13 @@ c4_status_t c4_prover_execute(prover_ctx_t* ctx) {
   if (ctx->state.error) return C4_ERROR;
   if (ctx->proof.data) return C4_SUCCESS;
 
+  // Reset compute units before each pass so that only the work performed in
+  // the final, successful pass contributes to the value reported as the
+  // `Compute-Units` HTTP response header. This rule is a property of the
+  // prover state machine and must hold for every chain implementation; doing
+  // it here means individual chain modules don't have to remember to reset.
+  ctx->compute_units = 0;
+
   // execute the prover. The return value does not matter, we always check the state again after execution.
   prover_execute(ctx);
 

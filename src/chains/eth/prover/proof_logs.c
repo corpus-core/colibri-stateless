@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "historic_proof.h"
@@ -170,6 +171,7 @@ static c4_status_t proof_create_multiproof(prover_ctx_t* ctx, proof_logs_block_t
   for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next, i++)
     gindex[i + 3] = ssz_gindex(block->beacon_block.body.def, 3, "executionPayload", "transactions", tx->tx_index);
 
+  eth_cu_add_multi_proof(ctx, 3 + block->tx_count);
   block->proof = ssz_create_multi_proof_for_gindexes(block->beacon_block.body, block->body_root, gindex, 3 + block->tx_count);
   safe_free(gindex);
 
@@ -188,6 +190,10 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
 
   TRACE_START(ctx, "build_receipt_tree");
   TRACE_ADD_UINT64(ctx, "block", block->block_number);
+
+  // Patricia trie work for this block: linear cost per receipt inserted into
+  // the trie, plus one proof per matching tx.
+  eth_cu_add_patricia(ctx, (uint32_t) json_len(block->block_receipts), block->tx_count);
 
 #ifdef PROVER_CACHE
   bytes32_t cachekey;

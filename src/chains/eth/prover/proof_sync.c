@@ -22,6 +22,7 @@
  */
 
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_tools.h"
 #include "eth_verify.h"
 #include "prover.h"
@@ -39,6 +40,10 @@ static uint64_t next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
 }
 
 static c4_status_t req_client_update(prover_ctx_t* ctx, uint32_t period, uint32_t count, chain_id_t chain_id, bytes_t* data) {
+  // This helper enqueues a Beacon-API SSZ request directly on `ctx->state`
+  // instead of going through `c4_send_beacon_ssz`, so we have to add the CU
+  // ourselves to keep accounting consistent with the rest of the code.
+  eth_cu_add(ctx, CU_BEACON_SSZ);
   buffer_t tmp = {0};
   bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", period, count);
 
@@ -125,8 +130,9 @@ static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t old_data, bytes_
   ssz_add_bytes(&signgin_data_builder, "BeaconBlockHeader", header.bytes);
   ssz_add_bytes(&signgin_data_builder, "domain", bytes(domain, 32));
   ssz_ob_t signing_data = ssz_builder_to_bytes(&signgin_data_builder);
-  gindex_t state_gidx   = ssz_gindex(signing_data.def, 2, "BeaconBlockHeader", "stateRoot");
-  bytes_t  header_proof = ssz_create_proof(signing_data, domain, state_gidx);
+  gindex_t state_gidx = ssz_gindex(signing_data.def, 2, "BeaconBlockHeader", "stateRoot");
+  eth_cu_add_proof(ctx);
+  bytes_t header_proof = ssz_create_proof(signing_data, domain, state_gidx);
   bytes_t  full_proof   = bytes(malloc(header_proof.len + state_proof.len + 32), header_proof.len + state_proof.len + 32);
   memcpy(full_proof.data, aggregate, 32);                                              // 1
   memcpy(full_proof.data + 32, state_proof.data, state_proof.len);                     // 5 for deneb

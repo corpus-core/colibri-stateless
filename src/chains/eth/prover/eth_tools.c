@@ -26,6 +26,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "eth_account.h"
+#include "eth_compute_units.h"
 #include "eth_tx.h"
 #include "prover.h"
 #include "version.h"
@@ -99,6 +100,7 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
 
   if (use_block_context) {
     const gindex_t* gi = c4_call_block_context_gindexes();
+    eth_cu_add_multi_proof(ctx, CALL_BLOCK_CONTEXT_FIELD_COUNT);
 #ifdef PROVER_CACHE
     if (block->merkle_cache.valid)
       proof = ssz_create_multi_proof_from_body_cache(&block->merkle_cache, body_root, gi, CALL_BLOCK_CONTEXT_FIELD_COUNT);
@@ -111,6 +113,10 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
   else {
     gindex_t block_index = eth_get_gindex_for_block(c4_chain_fork_id(ctx->chain_id, block->slot >> 5), block_number);
     gindex_t state_index = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
+    if (block_index == 0)
+      eth_cu_add_proof(ctx);
+    else
+      eth_cu_add_multi_proof(ctx, 2);
 #ifdef PROVER_CACHE
     if (block->merkle_cache.valid) {
       gindex_t gi_arr[2] = {state_index, block_index};
