@@ -24,6 +24,7 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "bytes.h"
+#include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "historic_proof.h"
@@ -121,7 +122,8 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
                         ssz_gindex(block.body.def, 2, "executionPayload", "receiptsRoot"),
                         ssz_gindex(block.body.def, 2, "executionPayload", "transactions"),
                         ssz_gindex(block.body.def, 2, "executionPayload", "baseFeePerGas")};
-  bytes_t  multi_proof = NULL_BYTES;
+  bytes_t multi_proof = NULL_BYTES;
+  eth_cu_add_multi_proof(ctx, 5);
 #ifdef PROVER_CACHE
   if (block.merkle_cache.valid)
     multi_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, br_gi, 5);

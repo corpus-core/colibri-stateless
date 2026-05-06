@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "historic_proof.h"
@@ -98,6 +99,12 @@ static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, 
 }
 
 c4_status_t c4_eth_get_receipt_proof(prover_ctx_t* ctx, bytes32_t block_hash, json_t block_receipts, uint32_t tx_index, json_t* receipt, ssz_ob_t* receipt_proof) {
+
+  // Account for Patricia trie work: one insertion per receipt plus one proof.
+  // When the trie is served from the prover cache the linear part is essentially
+  // a no-op, but we still bill it because the original work that filled the
+  // cache was performed by this server -- this keeps the formula simple.
+  eth_cu_add_patricia(ctx, (uint32_t) json_len(block_receipts), 1);
 
   // now we should have all data required to create the proof
 #ifdef PROVER_CACHE
@@ -220,6 +227,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
 
   REQUEST_WORKER_THREAD_CATCH(ctx, c4_free_block_proof(&block_proof));
   TRACE_START(ctx, "multiproof");
+  eth_cu_add_multi_proof(ctx, 4);
   bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 4,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),

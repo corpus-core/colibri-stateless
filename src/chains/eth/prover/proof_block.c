@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "historic_proof.h"
@@ -69,6 +70,7 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
   // create merkle proof
   gindex_t ep_gindex              = ssz_gindex(block.body.def, 1, "executionPayload");
   bytes_t  execution_payload_proof = NULL_BYTES;
+  eth_cu_add_proof(ctx);
 #ifdef PROVER_CACHE
   if (block.merkle_cache.valid)
     execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, &ep_gindex, 1);
@@ -114,6 +116,7 @@ c4_status_t c4_proof_block_number(prover_ctx_t* ctx) {
   gindex_t bn_gi[2] = {ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                         ssz_gindex(block.body.def, 2, "executionPayload", "timestamp")};
   bytes_t  execution_payload_proof = NULL_BYTES;
+  eth_cu_add_multi_proof(ctx, 2);
 #ifdef PROVER_CACHE
   if (block.merkle_cache.valid)
     execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, bn_gi, 2);
@@ -161,6 +164,7 @@ c4_status_t c4_proof_block_header(prover_ctx_t* ctx) {
   // create multi-merkle proof for 14 selected execution payload fields
   const gindex_t* gi                      = c4_block_header_gindexes(ctx->chain_id, ssz_get_uint64(&block.header, "slot"));
   bytes_t         execution_payload_proof = NULL_BYTES;
+  eth_cu_add_multi_proof(ctx, BLOCK_HEADER_FIELD_COUNT);
 #ifdef PROVER_CACHE
   if (block.merkle_cache.valid)
     execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, gi, BLOCK_HEADER_FIELD_COUNT);

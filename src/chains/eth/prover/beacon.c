@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_req.h"
 #include "json.h"
 #include "logger.h"
@@ -551,6 +552,7 @@ c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, 
 #ifdef HTTP_SERVER
   client_type |= ctx->client_type;
 #endif
+  eth_cu_add(ctx, CU_BEACON_JSON);
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -636,7 +638,7 @@ c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, c
 #ifdef HTTP_SERVER
   client_type |= ctx->client_type;
 #endif
-
+  eth_cu_add(ctx, CU_BEACON_SSZ);
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -678,6 +680,7 @@ c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, c
 }
 
 c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result) {
+  eth_cu_add(ctx, CU_INTERNAL_REQUEST);
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
