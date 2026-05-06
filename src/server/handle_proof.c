@@ -262,9 +262,8 @@ static void respond(request_t* req, bytes_t result, int status, char* content_ty
   }
   else {
     char hdr[64];
-    int  hdr_len = snprintf(hdr, sizeof(hdr), "Compute-Units: %" PRIu64 "\r\n", compute_units);
-    c4_http_respond_ex(req->client, status, content_type, result,
-                       hdr_len > 0 ? bytes((uint8_t*) hdr, (uint32_t) hdr_len) : NULL_BYTES);
+    sbprintf(hdr, "Compute-Units: %l\r\n", compute_units);
+    c4_http_respond_ex(req->client, status, content_type, result, bytes((uint8_t*) hdr, (uint32_t) strlen(hdr)));
   }
 }
 
