@@ -551,6 +551,10 @@ void c4_write_error_response(client_t* client, int status, const char* error) {
 }
 
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body) {
+  c4_http_respond_ex(client, status, content_type, body, NULL_BYTES);
+}
+
+void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers) {
   // Only decrement if on_message_complete was reached for this request cycle
   if (client && client->message_complete_reached) {
     http_server.stats.open_requests--;
@@ -579,16 +583,25 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
   }
 
   char     tmp[500];
-  uv_buf_t uvbuf[2]; // Declared to be filled
+  uv_buf_t uvbuf[4]; // [0]=status+fixed headers, [1]=extra headers, [2]=header block terminator, [3]=body
 
   const char* conn_header_val = llhttp_should_keep_alive(&client->parser) ? "keep-alive" : "close";
 
+  // Status line plus fixed headers, ending with the CRLF that terminates the "Connection:" header line.
   uvbuf[0].base = tmp;
-  uvbuf[0].len  = snprintf(tmp, sizeof(tmp), "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: %s\r\n\r\n",
+  uvbuf[0].len  = snprintf(tmp, sizeof(tmp), "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: %s\r\n",
                            status, status_text(status), content_type, body.len, conn_header_val);
 
-  uvbuf[1].base = (char*) body.data;
-  uvbuf[1].len  = body.len;
+  // Caller-provided headers are emitted verbatim. Each line must already be CRLF-terminated.
+  uvbuf[1].base = (char*) (extra_headers.data ? extra_headers.data : (uint8_t*) "");
+  uvbuf[1].len  = extra_headers.len;
+
+  // Empty line that ends the HTTP header block.
+  uvbuf[2].base = "\r\n";
+  uvbuf[2].len  = 2;
+
+  uvbuf[3].base = (char*) body.data;
+  uvbuf[3].len  = body.len;
 
   // Set client->being_closed based on the connection header *before* the write attempt.
   // This informs on_write_complete whether to close or reset for keep-alive.
@@ -602,7 +615,7 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
   uv_write_t* write_req = &client->write_req;
   write_req->data       = client; // Ensure client is associated with write_req for on_write_complete
 
-  int result = uv_write(write_req, (uv_stream_t*) &client->handle, uvbuf, 2, on_write_complete);
+  int result = uv_write(write_req, (uv_stream_t*) &client->handle, uvbuf, 4, on_write_complete);
 
   if (result < 0) {
     log_error("Failed to write HTTP response for client 0x%lx: %s",
