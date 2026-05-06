@@ -228,8 +228,12 @@ static void c4_tracing_flush_prover_spans(trace_span_t* parent, prover_ctx_t* ct
  * Sends the prover response to the client or to a parent callback.
  *
  * Two modes:
- * 1. DIRECT (parent_cb == NULL): Sends HTTP response directly to client
- * 2. CALLBACK (parent_cb != NULL): Calls parent_cb with result
+ * 1. DIRECT (parent_cb == NULL): Sends HTTP response directly to client, including
+ *    a `Compute-Units` header so an upstream load balancer can forward the value
+ *    to API-key based billing without the server itself knowing about API keys.
+ * 2. CALLBACK (parent_cb != NULL): Calls parent_cb with result. `compute_units` is
+ *    intentionally not propagated to the parent because internal verifier sub-requests
+ *    are not subject to billing.
  *
  * When in callback mode:
  * - Used when the prover is called as a sub-request from the verifier
@@ -241,8 +245,9 @@ static void c4_tracing_flush_prover_spans(trace_span_t* parent, prover_ctx_t* ct
  * @param result Result bytes (proof or error message)
  * @param status HTTP status code
  * @param content_type Content-Type for direct HTTP response
+ * @param compute_units accumulated compute units for billing; emitted as `Compute-Units` header in DIRECT mode
  */
-static void respond(request_t* req, bytes_t result, int status, char* content_type) {
+static void respond(request_t* req, bytes_t result, int status, char* content_type, uint64_t compute_units) {
   if (req->parent_cb && req->parent_ctx) {
     // CALLBACK MODE: Call parent_cb instead of responding directly
     data_request_t* data = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
@@ -255,8 +260,11 @@ static void respond(request_t* req, bytes_t result, int status, char* content_ty
     }
     req->parent_cb(req->client, req->parent_ctx, data);
   }
-  else
-    c4_http_respond(req->client, status, content_type, result);
+  else {
+    char hdr[64];
+    sbprintf(hdr, "Compute-Units: %l\r\n", compute_units);
+    c4_http_respond_ex(req->client, status, content_type, result, bytes((uint8_t*) hdr, (uint32_t) strlen(hdr)));
+  }
 }
 
 // --- executed in worker-thread ---
@@ -435,7 +443,7 @@ void c4_prover_handle_request(request_t* req) {
       log_info(MAGENTA("::[ OK ]") "%s " GRAY(" (%d bytes in %l ms) :: #%lx"),
                c4_req_info(C4_DATA_TYPE_INTERN, req_path, req_payload),
                ctx->proof.len, (uint64_t) (current_ms() - req->start_time), client_ptr);
-      respond(req, ctx->proof, 200, "application/octet-stream");
+      respond(req, ctx->proof, 200, "application/octet-stream", ctx->compute_units);
       prover_request_free(req);
       return;
 
@@ -447,7 +455,7 @@ void c4_prover_handle_request(request_t* req) {
 
       buffer_t buf = {0};
       bprintf(&buf, "{\"error\":\"%s\"}", ctx->state.error);
-      respond(req, buf.data, 500, "application/json");
+      respond(req, buf.data, 500, "application/json", ctx->compute_units);
       buffer_free(&buf);
       prover_request_free(req);
       return;
@@ -461,7 +469,7 @@ void c4_prover_handle_request(request_t* req) {
       else {
         // stop here, we don't have anything to do
         char* error = "{\"error\":\"Internal prover error: no prover available\"}";
-        respond(req, bytes((uint8_t*) error, strlen(error)), 500, "application/json");
+        respond(req, bytes((uint8_t*) error, strlen(error)), 500, "application/json", ctx->compute_units);
         if (req->trace_root) {
           tracing_span_tag_str(req->trace_root, "status", "error");
           tracing_span_tag_str(req->trace_root, "error", "Internal prover error: no prover available");

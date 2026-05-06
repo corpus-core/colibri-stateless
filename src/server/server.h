@@ -323,6 +323,28 @@ void c4_init_curl(uv_timer_t* timer);
 void c4_cleanup_curl();
 void c4_on_new_connection(uv_stream_t* server, int status);
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body);
+/**
+ * Like `c4_http_respond`, but allows the caller to inject additional response headers.
+ *
+ * The extra header buffer is forwarded as-is. Each header line MUST already be terminated
+ * with `\r\n`; the function appends the empty line that terminates the header block.
+ * Pass `NULL_BYTES` (or `{0}`) to omit extra headers -- in that case the output is byte-identical to `c4_http_respond`.
+ *
+ * Example:
+ *
+ * ```c
+ * char hdr[64];
+ * int  n = snprintf(hdr, sizeof(hdr), "Compute-Units: %llu\r\n", (unsigned long long) units);
+ * c4_http_respond_ex(client, 200, "application/octet-stream", body, bytes((uint8_t*) hdr, (uint32_t) n));
+ * ```
+ *
+ * @param client       the client to respond to
+ * @param status       HTTP status code
+ * @param content_type Content-Type header value
+ * @param body         response body
+ * @param extra_headers additional CRLF-terminated header lines, or `NULL_BYTES` for none
+ */
+void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers);
 void c4_write_error_response(client_t* client, int status, const char* error);
 void c4_http_server_on_close_callback(uv_handle_t* handle); // Cleanup callback for closing client connections
 void c4_register_http_handler(http_handler handler);

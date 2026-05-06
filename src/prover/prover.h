@@ -133,7 +133,8 @@ typedef struct {
 #ifdef HTTP_SERVER
   uint32_t client_type; // client type for the prover (for beacon API only)
 #endif
-  uint32_t version; // the version of the requesting client
+  uint32_t version;       // the version of the requesting client
+  uint64_t compute_units; // accumulated compute units for this request. Filled by prover implementations and consumed by the server to emit the `Compute-Units` HTTP response header (used by an upstream load balancer for API-key billing).
 
 #ifdef PROVER_TRACE
   // Collected finished spans (consumed by server); and currently open span
