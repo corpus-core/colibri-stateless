@@ -28,6 +28,7 @@
 #include "state_overrides.h"
 #include <stdlib.h>
 #include <string.h>
+#include "precompiles.h"
 
 // :: Account lookup helpers (traverse parent chain)
 
@@ -164,7 +165,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
 }
 
 bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address) {
-  if (bytes_all_zero(bytes(address, 20)) || ctx->storage_miss) return NULL_BYTES;
+  if (bytes_all_zero(bytes(address, 20)) || ctx->storage_miss || eth_is_precompile_address(address)) return NULL_BYTES;
   call_account_t* acc = call_account_find(ctx, address);
   if (!acc && ctx->pap_mode) {
     acc = eth_call_account_cache_load(ctx->ctx, address);
@@ -182,7 +183,7 @@ bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address) {
     }
 
     if (!ctx->ctx->state.error) {
-      char _tmp[64];
+      char _tmp[100];
       sbprintf(_tmp, "Missing account proof for 0x%x", bytes(address, 20));
       c4_state_add_error(&ctx->ctx->state, _tmp);
     }
