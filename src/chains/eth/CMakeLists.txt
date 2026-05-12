@@ -135,12 +135,14 @@ if(ETH_CALL)
   set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c verifier/verify_simulate.c verifier/verify_simulation_events.c verifier/state_overrides.c verifier/eth_call_account.c verifier/call_ctx.c)
   add_definitions(-DETH_CALL)
 
+  add_subdirectory(precompiles)
+  set(VERIFIER_DEPS ${VERIFIER_DEPS} eth_precompiles)
+
   if(EVMONE)
-    add_subdirectory(precompiles)
     set(VERIFIER_SOURCES ${VERIFIER_SOURCES}  verifier/call_evmone.c)
-    set(VERIFIER_DEPS PUBLIC eth_precompiles evmone_wrapper )
+    set(VERIFIER_DEPS ${VERIFIER_DEPS} evmone_wrapper)
   endif()
-  
+
 endif()
 if(ETH_UTIL)
   set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_local.c)
