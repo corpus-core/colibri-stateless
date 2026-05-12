@@ -197,6 +197,7 @@ const char* json_validate(json_t val, const char* def, const char* error_prefix)
   if (strncmp(def, "suint", 5) == 0) return val.type == JSON_TYPE_STRING ? NULL : strdup("Expected suint");
   if (strncmp(def, "bool", 4) == 0) return val.type == JSON_TYPE_BOOLEAN ? NULL : strdup("Expected boolean");
   if (strncmp(def, "block", 5) == 0) return check_block(val, error_prefix);
+  if (strncmp(def, "string", 6) == 0) return val.type == JSON_TYPE_STRING ? NULL : strdup("Expected string");
   ERROR("%sUnknown type %s", error_prefix ? error_prefix : "", def);
 }
 
