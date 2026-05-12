@@ -95,6 +95,22 @@ function log(msg: string) {
  * @param as_proof Expect octet-stream (true) or JSON result (false)
  * @return result value for JSON or raw bytes for proofs
  */
+// Branded error type for JSON-RPC responses that carry revert data
+// (EIP-3668 / CCIP-Read style). The brand lets the catch block distinguish
+// deterministic node responses from transport-layer errors (Node `fetch`
+// throws TypeErrors whose `code` is a string like 'ENOTFOUND') so failover
+// continues for transient issues but not for verified reverts.
+class JsonRpcRevertError extends Error {
+  readonly code?: number;
+  readonly data: unknown;
+  constructor(message: string, code: number | undefined, data: unknown) {
+    super(message);
+    this.name = 'JsonRpcRevertError';
+    if (typeof code === 'number') this.code = code;
+    this.data = data;
+  }
+}
+
 export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false, fetchFn: typeof globalThis.fetch = globalThis.fetch): Promise<any> {
   let last_error = 'All nodes failed';
   for (const url of urls) {
@@ -111,6 +127,14 @@ export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean 
         if (!as_proof) {
           const res = await response.json();
           if (res.error) {
+            // Preserve `error.data` for JSON-RPC errors that carry revert
+            // bytes (e.g. eth_call revert with code 3 + ABI-encoded
+            // OffchainLookup payload). These are deterministic per-block
+            // responses; failover would just produce the same answer. All
+            // other errors (rate limits, invalid params, node-internal)
+            // remain transient and fall through to the next URL.
+            if (res.error.data !== undefined)
+              throw new JsonRpcRevertError(res.error.message || 'execution reverted', res.error.code, res.error.data);
             last_error = res.error?.message || res.error;
             continue;
           }
@@ -122,6 +146,11 @@ export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean 
         last_error = `HTTP error! Status: ${response.status}, Details: ${await response.text()}`;
       }
     } catch (e) {
+      // Only short-circuit on revert errors we built ourselves above.
+      // Node's `fetch` (undici) throws TypeErrors whose `code` is a string
+      // (e.g. 'ENOTFOUND', 'UND_ERR_HEADERS_TIMEOUT') -- those must still
+      // fall through to the next URL so multi-RPC failover keeps working.
+      if (e instanceof JsonRpcRevertError) throw e;
       last_error = 'Request to ' + url + ' failed: ' + ((e instanceof Error) ? e.message : String(e));
     }
   }

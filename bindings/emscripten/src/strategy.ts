@@ -21,7 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { ColibriClient, RequestArguments, Config, FetchRpc, MethodType } from './types.js';
+import { ColibriClient, RequestArguments, Config, FetchRpc, MethodType, ProviderRpcError } from './types.js';
 
 function argsToArray(args: any): any[] {
     return Array.isArray(args) ? args : (args ? [args] : []);
@@ -88,6 +88,14 @@ async function WarningStrategy(client: ColibriClient, req: RequestArguments, con
             return fetch_unverified_rpc(config, req, fetch_rpc)
         case MethodType.PROOFABLE: {
             return client.rpc(req.method, argsToArray(req.params), method_type).catch(async err => {
+                // An EVM revert is a fully verified outcome, not a verification
+                // failure. Propagate it as-is so callers (e.g. ethers) can decode
+                // OffchainLookup / custom error data instead of silently falling
+                // back to an unverified RPC call. The only producer of code-3
+                // ProviderRpcErrors is `client.rpc`, so an instanceof check is
+                // both sufficient and the strictest predicate.
+                if (err instanceof ProviderRpcError && err.code === 3)
+                    throw err;
                 if (config.warningHandler)
                     await config.warningHandler(req, `[Warning] ${req.method} with params ${JSON.stringify(req.params)} failed to be verfiy: ${err.message}, falling back to Default`);
                 else

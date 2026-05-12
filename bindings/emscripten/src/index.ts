@@ -29,7 +29,6 @@ import {
   C4W,
   copy_to_c,
   getC4w,
-  decode_proof,
   Storage as C4Storage
 } from "./wasm.js";
 import { EventEmitter } from './eventEmitter.js';
@@ -76,6 +75,13 @@ export {
   PrototypeProtection
 } from './transactionVerifier.js';
 
+// EIP-3668 / CCIP-Read: the EVM ran to completion but reverted. Map the
+// verifier's `revert` status to a structured EIP-1193 error (code 3 + data)
+// so clients like ethers can decode OffchainLookup payloads from
+// `error.data` and fetch the offchain gateway.
+function throwRevert(data: unknown): never {
+  throw new ProviderRpcError(3, "execution reverted", data);
+}
 
 export default class C4Client {
 
@@ -256,6 +262,8 @@ export default class C4Client {
         switch (state.status) {
           case "success":
             return state.result;
+          case "revert":
+            throwRevert(state.data);
           case "error":
             throw new Error(state.error);
           case "pending": {
@@ -337,6 +345,8 @@ export default class C4Client {
         switch (state.status) {
           case "success":
             return state.result;
+          case "revert":
+            throwRevert(state.data);
           case "error":
             throw new Error(state.error);
           case "pending":

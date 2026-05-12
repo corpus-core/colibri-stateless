@@ -16,6 +16,7 @@
         "test": "npm run test:node && npm run test:webpack",
         "test:node": "node --test test/rpc.test.mjs test/cjs_bridge.test.mjs",
         "test:integration": "C4_RUN_INTEGRATION=1 node --test test/integration.test.mjs",
+        "test:ccip": "C4_RUN_INTEGRATION=1 node --test test/ens_ccip.test.mjs",
         "test:webpack": "npm run webpack:install && npm run webpack:build",
         "webpack:install": "cd test/webpack && npm install --legacy-peer-deps",
         "webpack:build": "cd test/webpack && npm run build",
@@ -53,6 +54,9 @@
     },
     "homepage": "https://github.com/corpus-core/c4#readme",
     "dependencies": {},
+    "devDependencies": {
+        "ethers": "^6.16.0"
+    },
     "publishConfig": {
         "access": "public"
     }

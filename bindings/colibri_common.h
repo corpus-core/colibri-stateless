@@ -207,14 +207,20 @@ char* c4i_build_prover_json_status(c4_status_t status, c4_state_t* state,
 /**
  * Builds a JSON status string for a verifier execution step.
  *
+ * When `reverted` is `true` and `status` is `C4_SUCCESS`, the function emits
+ * a `{"status":"revert","data":"0x..."}` payload instead of the normal
+ * `{"status":"success","result":...}`. The `data` field then carries the
+ * raw revert bytes (used for EIP-3668 / CCIP-Read in callers like ethers).
+ *
  * @param status the status code from `c4_verify()`
  * @param state the verifier state holding pending requests or error
  * @param result the SSZ result object (used only on `C4_SUCCESS`)
+ * @param reverted true if the verified call reverted (carry `result` as `data`)
  * @param req_ptr_as_string if true, emit `req_ptr` values as JSON strings
  * @return heap-allocated JSON string (caller must `free()`)
  */
 char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
-                                     ssz_ob_t result,
+                                     ssz_ob_t result, bool reverted,
                                      bool req_ptr_as_string);
 
 #ifdef __cplusplus

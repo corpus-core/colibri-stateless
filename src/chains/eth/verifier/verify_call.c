@@ -226,7 +226,11 @@ static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
     }
     evm->traces = prev;
   }
-  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, ctx->state.error == NULL, evm->gas_used, NULL, evm->accounts, evm->keccak_entries, evm->traces);
+  // A revert is reflected in the simulation result via `success = false`.
+  // The revert bytes are already in `evm->call_result` and are carried as
+  // the call output for callers that want to decode them.
+  bool     evm_success      = ctx->state.error == NULL && !evm->reverted;
+  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, evm_success, evm->gas_used, NULL, evm->accounts, evm->keccak_entries, evm->traces);
 
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
     ctx->data = simulation_result;
@@ -239,6 +243,24 @@ static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
 }
 
 static bool match_estimate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
+  // Like eth_call: a reverting estimateGas is a valid outcome -- expose the
+  // revert data through the standard channel so hosts can throw a structured
+  // JSON-RPC error (code 3, data = revert bytes). The REVERTED flag is set
+  // only on success branches and the def is pinned to bytes so callers get
+  // a hex string instead of a uint256 hex.
+  if (evm->reverted) {
+    if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
+      ctx->data = (ssz_ob_t) {.bytes = evm->call_result, .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
+      if (evm->call_result.data) ctx->flags |= VERIFY_FLAG_FREE_DATA;
+      ctx->flags |= VERIFY_FLAG_REVERTED;
+      evm->call_result = NULL_BYTES;
+      return true;
+    }
+    if (!bytes_eq(evm->call_result, ctx->data.bytes)) return false;
+    ctx->data.def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES);
+    ctx->flags |= VERIFY_FLAG_REVERTED;
+    return true;
+  }
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
     ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
     ssz_add_uint64(&builder, evm->gas_used);
@@ -253,6 +275,27 @@ static bool match_estimate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
 }
 
 static bool match_call_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
+  // Propagate revert state. The `call_result` for a revert may be empty
+  // (raw `revert();` without data); we still hand over an empty bytes
+  // object so the binding can surface the revert. The REVERTED flag is set
+  // only on the success branches -- a byte-equality mismatch must still
+  // raise the regular "Call result mismatch" error without lingering flags.
+  if (evm->reverted) {
+    if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
+      ctx->data = (ssz_ob_t) {.bytes = evm->call_result, .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
+      if (evm->call_result.data) ctx->flags |= VERIFY_FLAG_FREE_DATA;
+      ctx->flags |= VERIFY_FLAG_REVERTED;
+      evm->call_result = NULL_BYTES;
+      return true;
+    }
+    // remote prover provided expected revert bytes -- enforce byte-equality
+    if (!bytes_eq(evm->call_result, ctx->data.bytes)) return false;
+    // force-pin the def to bytes: even if the caller pre-set a different SSZ
+    // type, the JSON serializer must dump the revert bytes as a hex string.
+    ctx->data.def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES);
+    ctx->flags |= VERIFY_FLAG_REVERTED;
+    return true;
+  }
   if (evm->call_result.data && (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE)) {
     ctx->data = (ssz_ob_t) {.bytes = evm->call_result, .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
     ctx->flags |= VERIFY_FLAG_FREE_DATA;
