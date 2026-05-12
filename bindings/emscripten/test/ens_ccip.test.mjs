@@ -44,7 +44,7 @@ const OFFCHAIN_FALLBACK = 'offchaindemo.eth';
 // Candidate .box names probed in order. .box uses 3DNS's L1 resolver with
 // CCIP-Read to fetch records from L2 (Optimism). We try a few plausible
 // candidates; success requires a non-empty contenthash response.
-const BOX_CANDIDATES = ['3dns.box', 'my.box', 'colibri.box', 'nick.box', 'vitalik.box'];
+const BOX_CANDIDATES = []//'3dns.box', 'my.box', 'colibri.box', 'nick.box', 'vitalik.box'];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -159,7 +159,7 @@ describe('ENS CCIP-Read (EIP-3668) end-to-end', { skip: !RUN_INTEGRATION, timeou
   // Best-effort probe of .box names. .box uses 3DNS's L2 resolver via CCIP-Read.
   // The set of registered names changes over time, so this test is informational
   // only -- it does not fail the suite if no candidate currently has a contenthash.
-  test('.box CCIP-Read probe (informational)', async () => {
+  test.skip('.box CCIP-Read probe (informational)', async () => {
     const attempts = [];
     let success = null;
 
