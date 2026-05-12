@@ -28,7 +28,7 @@
 #include "state_overrides.h"
 #include <stdlib.h>
 #include <string.h>
-#include "precompiles.h"
+#include "../precompiles/precompiles.h"
 
 // :: Account lookup helpers (traverse parent chain)
 
