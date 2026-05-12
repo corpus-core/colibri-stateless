@@ -286,6 +286,13 @@ const precompile_func_t precompile_fn[] = {
     pre_bls12_map_fp2_to_g2, // 0x11
 };
 
+bool eth_is_precompile_address(const uint8_t* address) {
+  if (!bytes_all_zero(bytes(address, 18))) return false;
+  if (address[18] == 0x00 && address[19] >= 1 && address[19] <= PRECOMPILE_FN_COUNT) return true;
+  if (address[18] == 0x01 && address[19] == 0x00) return true; // EIP-7951 P256VERIFY
+  return false;
+}
+
 pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used) {
   if (!bytes_all_zero(bytes(address, 18))) return PRE_INVALID_ADDRESS;
   if (address[18] == 0x00) {

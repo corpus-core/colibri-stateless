@@ -348,7 +348,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   debug_print_address("code from", &msg->code_address);
   EVM_LOG("call gas: %l, depth: %d, is_static: %s", (size_t) msg->gas, msg->depth, msg->is_static ? "true" : "false");
 
-  if (bytes_all_zero(bytes(msg->code_address.bytes, 19)) && msg->code_address.bytes[19]) {
+  if (eth_is_precompile_address(msg->code_address.bytes)) {
     buffer_t     output     = {0};
     uint64_t     gas_used   = 0;
     pre_result_t pre_result = eth_execute_precompile(msg->code_address.bytes, bytes(msg->input_data, msg->input_size), &output, &gas_used);
@@ -519,9 +519,13 @@ static int host_access_account(void* context, const evmc_address* addr) {
   evmone_context_t* root = context_root(ctx);
   debug_print_address("access_account", addr);
 
-  // precompiles 1-9 are always warm (EIP-2929)
+  // precompiles 1-9 are always warm (EIP-2929); EIP-7951 adds P256VERIFY at 0x0000…0100
   if (bytes_all_zero(bytes(addr->bytes, 19)) && addr->bytes[19] >= 1 && addr->bytes[19] <= 9) {
     EVM_LOG("access_account: WARM (precompile)");
+    return EVMONE_ACCESS_WARM;
+  }
+  if (bytes_all_zero(bytes(addr->bytes, 18)) && addr->bytes[18] == 0x01 && addr->bytes[19] == 0x00) {
+    EVM_LOG("access_account: WARM (P256VERIFY)");
     return EVMONE_ACCESS_WARM;
   }
 
@@ -705,7 +709,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   set_message(&message, tx, &buffer);
 
   // special handling for precompiles
-  if (bytes_all_zero(bytes(to, 19)) && to[19]) {
+  if (eth_is_precompile_address(to)) {
     buffer_t     output         = {0};
     uint64_t     precompile_gas = 0;
     pre_result_t pre_result     = eth_execute_precompile(to, bytes(message.input_data, message.input_size), &output, &precompile_gas);
