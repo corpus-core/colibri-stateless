@@ -168,9 +168,14 @@ char* c4i_build_prover_json_status(c4_status_t status, c4_state_t* state,
 }
 
 char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
-                                     ssz_ob_t result,
+                                     ssz_ob_t result, bool reverted,
                                      bool     req_ptr_as_string) {
   buffer_t buf = {0};
+  // The EVM ran to completion but reverted. We expose this as a distinct
+  // status (`revert`) so hosts can map it to a structured JSON-RPC error
+  // (code 3) with the revert data attached (needed for EIP-3668 / CCIP-Read).
+  if (status == C4_SUCCESS && reverted)
+    return bprintf(&buf, "{\"status\": \"revert\", \"data\": %Z}", result);
   bprintf(&buf, "{\"status\": \"%s\",", status_to_string(status));
   return status == C4_SUCCESS
              ? bprintf(&buf, "\"result\": %Z}", result)
@@ -634,6 +639,12 @@ void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx) {
 char* c4_rpc_build_json_status(c4_rpc_ctx_t* ctx, bool req_ptr_as_string) {
   c4_status_t status = c4_rpc_execute(ctx);
   buffer_t    buf    = {0};
+
+  // EVM revert: the call ran to completion but reverted. Surface as a
+  // distinct `revert` status with the raw revert bytes in `data`. Hosts map
+  // this to JSON-RPC error code 3 (used by ethers for CCIP-Read / EIP-3668).
+  if (status == C4_SUCCESS && (ctx->verifier.flags & VERIFY_FLAG_REVERTED))
+    return bprintf(&buf, "{\"status\": \"revert\", \"data\": %Z}", ctx->verifier.data);
 
   bprintf(&buf, "{\"status\": \"%s\",", status_to_string(status));
 

@@ -96,7 +96,8 @@ void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t cha
 char* c4_verify_execute_json_status(void* ptr) {
   c4_verify_ctx_t* ctx    = (c4_verify_ctx_t*) ptr;
   c4_status_t      status = c4_verify(&ctx->ctx);
-  return c4i_build_verifier_json_status(status, &ctx->ctx.state, ctx->ctx.data, true);
+  bool             reverted = (ctx->ctx.flags & VERIFY_FLAG_REVERTED) != 0;
+  return c4i_build_verifier_json_status(status, &ctx->ctx.state, ctx->ctx.data, reverted, true);
 }
 
 void c4_verify_free_ctx(void* ptr) {

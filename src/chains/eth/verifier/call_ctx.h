@@ -102,6 +102,7 @@ typedef struct evm_call_ctx {
   bytes32_t        state_root;
   bool             pap_mode;
   bool             evm_done;
+  bool             reverted; // set to true when the EVM execution reverted; `call_result` then holds the revert data
 } evm_call_ctx_t;
 
 /**

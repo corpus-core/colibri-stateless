@@ -700,6 +700,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   evm->traces = NULL;
   evm->gas_used = 0;
   evm->evm_done = false;
+  evm->reverted = false; // defense-in-depth: prevent stale revert flag from leaking into early-return paths
 
   set_message(&message, tx, &buffer);
 
@@ -824,6 +825,12 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   if (EVM_DEBUG && result.output_data && result.output_size > 0)
     print_hex(stderr, bytes(result.output_data, result.output_size), "[EVM] Output data: 0x", "\n");
 
+  // On a deterministic EVM revert (status_code == 2) the output_data holds the
+  // revert payload (e.g. ABI-encoded `Error(string)`, custom errors, or
+  // `OffchainLookup(...)` for EIP-3668 / CCIP-Read). We preserve it on the
+  // call context and signal the revert via `evm->reverted`, so verify_call.c
+  // can surface it to the caller without treating the EVM run as a failure.
+  evm->reverted = (result.status_code == 2);
   if (!ctx->state.error)
     evm->call_result = result.output_size ? bytes_dup(bytes(result.output_data, result.output_size)) : NULL_BYTES;
   else
@@ -859,6 +866,12 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
 
   if (result.status_code == 0) {
     EVM_LOG("Call verification successful");
+  }
+  else if (result.status_code == 2) {
+    // Reverts are an expected, valid execution outcome. They are NOT a
+    // verification error: the EVM ran the bytecode to completion and chose
+    // to revert. The caller decides how to surface this (see VERIFY_FLAG_REVERTED).
+    EVM_LOG("Call reverted (revert data size=%l)", (size_t) (result.output_data ? result.output_size : 0));
   }
   else {
     const char* error_msg = evmone_status_message(result.status_code);

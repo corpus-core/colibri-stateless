@@ -337,6 +337,31 @@ int main(int argc, char* argv[]) {
   if (output && ctx->proof.data)
     bytes_write(ctx->proof, fopen(output, "w"), true);
 
+  if (status == C4_SUCCESS && (ctx->verifier.flags & VERIFY_FLAG_REVERTED)) {
+    // EVM revert is a fully verified outcome but signals failure to the user.
+    // We surface the revert data on stderr (so it doesn't get mixed into the
+    // result stream) and exit with a non-zero status. test_dir captures the
+    // revert as a regression fixture.
+    if (test_dir) {
+      char* filename = bprintf(NULL, "%s/test.json", test_dir);
+      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"reverted\": true,\n  \"revert_data\": %Z\n}",
+                               ctx->verifier.method, ctx->verifier.args, chain_id,
+                               verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
+                               prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
+                               ctx->verifier.data);
+      bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
+      safe_free(filename);
+      safe_free(content);
+    }
+    fprintf(stderr, "execution reverted\n");
+    if (ctx->verifier.data.bytes.len)
+      print_hex(stderr, ctx->verifier.data.bytes, "revert data: 0x", "\n");
+    else
+      fprintf(stderr, "revert data: (empty)\n");
+    c4_rpc_ctx_free(ctx);
+    return EXIT_FAILURE;
+  }
+
   if (status == C4_SUCCESS) {
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);

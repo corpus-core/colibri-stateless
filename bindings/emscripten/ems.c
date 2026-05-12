@@ -91,9 +91,10 @@ void EMSCRIPTEN_KEEPALIVE c4w_free_verify_ctx(void* ptr) {
 }
 
 char* EMSCRIPTEN_KEEPALIVE c4w_verify_proof(void* ptr) {
-  verify_ctx_t* ctx    = &((c4w_verify_ctx_t*) ptr)->verify;
-  c4_status_t   status = c4_verify(ctx);
-  return c4i_build_verifier_json_status(status, &ctx->state, ctx->data, false);
+  verify_ctx_t* ctx      = &((c4w_verify_ctx_t*) ptr)->verify;
+  c4_status_t   status   = c4_verify(ctx);
+  bool          reverted = (ctx->flags & VERIFY_FLAG_REVERTED) != 0;
+  return c4i_build_verifier_json_status(status, &ctx->state, ctx->data, reverted, false);
 }
 
 /* ── Method type ── */
