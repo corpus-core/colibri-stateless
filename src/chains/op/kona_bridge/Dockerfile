@@ -26,6 +26,14 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=builder /build/target/release/kona-preconf-service /usr/local/bin/kona-preconf-service
 
+# Add OCI labels for better GHCR integration
+LABEL org.opencontainers.image.title="Colibri Kona Bridge"
+LABEL org.opencontainers.image.description="OP Stack preconfirmation P2P service for Colibri"
+LABEL org.opencontainers.image.url="https://github.com/corpus-core/colibri-stateless"
+LABEL org.opencontainers.image.source="https://github.com/corpus-core/colibri-stateless"
+LABEL org.opencontainers.image.vendor="Corpus Core"
+LABEL org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
+
 # P2P ports
 EXPOSE 8080
 EXPOSE 9090/udp

@@ -50,7 +50,9 @@ void op_server_shutdown(http_server_t* server) {
   log_info("🛑 Shutting down OP server handler...");
 
   // Stop Kona preconf capture if running
+#ifdef KONA_BRIDGE_AVAILABLE
   stop_kona_preconf_capture();
+#endif
 
   log_info("✅ OP server handler shutdown complete");
 }
