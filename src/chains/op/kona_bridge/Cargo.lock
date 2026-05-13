@@ -3273,12 +3273,14 @@ dependencies = [
 
 [[package]]
 name = "kona_bridge"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "alloy",
+ "anyhow",
  "axum",
  "clap",
  "discv5",
+ "futures-util",
  "hex",
  "kona-p2p",
  "kona-registry",
@@ -3290,6 +3292,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber",
  "zstd",

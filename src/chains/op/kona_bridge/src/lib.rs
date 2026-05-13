@@ -1,32 +1,36 @@
-// lib.rs - HTTP-first Kona-Bridge mit modularer Struktur
-// Haupteinstiegspunkt und C-FFI für die Kona-Bridge
+// lib.rs - Kona-Bridge: Bibliothek (C-FFI via feature "ffi") und Basis für Standalone-Binary
 
-mod config;
-mod gossip;
-mod http;
-mod processing;
-mod types;
-mod utils;
+pub mod config;
+pub mod gossip;
+pub mod http;
+pub mod processing;
+pub mod types;
+pub mod utils;
+pub mod server;
 
 use config::ChainConfig;
 use http::run_http_primary_with_gossip_fallback;
-use types::{BridgeMode, BlockBitmaskTracker, BlockDeduplicator, HttpHealthTracker, KonaBridgeConfig, KonaBridgeHandle, KonaBridgeStats};
+use types::{BridgeMode, BlockBitmaskTracker, BlockDeduplicator, HttpHealthTracker, KonaBridgeStats};
 use utils::cleanup_old_files;
 
 use alloy::primitives::Address;
 use std::{
-    ffi::CStr,
-    fs,
-    os::raw::c_int,
     path::PathBuf,
     sync::{Arc, Mutex},
-    thread,
-    time::Duration,
 };
-use tracing::{error, info, warn};
+use tokio::sync::broadcast;
+use tracing::{info, warn};
+#[cfg(feature = "ffi")]
+use tracing::error;
+
+#[cfg(feature = "ffi")]
+use std::{ffi::CStr, fs, os::raw::c_int, thread, time::Duration};
+#[cfg(feature = "ffi")]
+use types::{KonaBridgeConfig, KonaBridgeHandle};
 
 
 /// Startet die echte Kona-Bridge mit korrektem Preconf-Format
+#[cfg(feature = "ffi")]
 #[no_mangle]
 pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut KonaBridgeHandle {
     eprintln!("🚀 kona_bridge_start called from C");
@@ -175,6 +179,7 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
                 sequencer_address.as_deref(),
                 stats_clone,
                 running_clone,
+                None, // No SSE in C-FFI mode
             ).await {
                 error!("❌ HTTP-first network failed: {}", e);
                 error!("❌ Error details: {:?}", e);
@@ -215,8 +220,8 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
     Box::into_raw(Box::new(handle))
 }
 
-/// HTTP-first Netzwerk mit Gossip-Fallback
-async fn run_http_first_network(
+/// HTTP-first Netzwerk mit Gossip-Fallback (auch vom Standalone-Binary nutzbar)
+pub async fn run_http_first_network(
     chain_id: u64,
     disc_port: u16,
     gossip_port: u16,
@@ -228,6 +233,7 @@ async fn run_http_first_network(
     expected_sequencer: Option<&str>,
     stats: Arc<Mutex<KonaBridgeStats>>,
     running: Arc<Mutex<bool>>,
+    sse_tx: Option<broadcast::Sender<u64>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     info!("🚀 HTTP-first network starting for chain {}", chain_id);
@@ -290,12 +296,12 @@ async fn run_http_first_network(
             health_tracker,
             stats,
             running,
-            Arc::new(Mutex::new(BlockDeduplicator::new())), // Shared Deduplicator
-            Arc::new(Mutex::new(BlockBitmaskTracker::new())), // Shared Bitmask Tracker
+            Arc::new(Mutex::new(BlockDeduplicator::new())),
+            Arc::new(Mutex::new(BlockBitmaskTracker::new())),
+            sse_tx,
         ).await?;
     } else {
         info!("🌐 No HTTP endpoint - starting directly in gossip mode");
-        // No HTTP endpoint available, start gossip directly
         gossip::run_gossip_network(
             chain_id,
             disc_port,
@@ -305,8 +311,9 @@ async fn run_http_first_network(
             expected_sequencer,
             stats,
             running,
-            None, // Kein Deduplicator im reinen Gossip-Modus
-            None, // Kein Bitmask-Tracker im reinen Gossip-Modus
+            None,
+            None,
+            sse_tx,
         ).await?;
     }
     
@@ -314,6 +321,7 @@ async fn run_http_first_network(
 }
 
 /// Stoppt die Kona-Bridge
+#[cfg(feature = "ffi")]
 #[no_mangle]
 pub extern "C" fn kona_bridge_stop(handle: *mut KonaBridgeHandle) {
     if handle.is_null() {
@@ -342,6 +350,7 @@ pub extern "C" fn kona_bridge_stop(handle: *mut KonaBridgeHandle) {
 }
 
 /// Prüft ob die Bridge läuft
+#[cfg(feature = "ffi")]
 #[no_mangle]
 pub extern "C" fn kona_bridge_is_running(handle: *const KonaBridgeHandle) -> c_int {
     if handle.is_null() {
@@ -357,6 +366,7 @@ pub extern "C" fn kona_bridge_is_running(handle: *const KonaBridgeHandle) -> c_i
 }
 
 /// Gibt Statistiken über die Bridge zurück
+#[cfg(feature = "ffi")]
 #[no_mangle]
 pub extern "C" fn kona_bridge_get_stats(
     handle: *const KonaBridgeHandle,
@@ -399,6 +409,7 @@ pub extern "C" fn kona_bridge_get_stats(
 }
 
 /// Hilfsfunktion für Logging-Setup von C aus (CPU-optimized)
+#[cfg(feature = "ffi")]
 #[no_mangle]
 pub extern "C" fn kona_bridge_init_logging() {
     use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};

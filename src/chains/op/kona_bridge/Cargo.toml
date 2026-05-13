@@ -1,16 +1,11 @@
 [package]
 name = "kona_bridge"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
+# TODO: Dependency migration to alloy 1.x + kona d7d4b5d requires kona-p2p → kona-node-service + kona-disc
+# refactoring of gossip.rs. Tracked separately.
 [dependencies]
-# SECURITY NOTE: alloy v0.15.10 contains alloy-dyn-abi with known DoS vulnerability (GHSA-76c9-3jph-rj3q)
-# However, this is a FALSE POSITIVE for kona_bridge:
-# - The vulnerable function eip712_signing_hash() is never called
-# - TypedData is not used (no EIP-712 signing)
-# - Only alloy::primitives and alloy::signers are used (not alloy-dyn-abi)
-# - Cannot update to newer alloy versions due to kona git dependency compatibility
-# See: .github/SECURITY_ASSESSMENT_alloy-dyn-abi.md for detailed analysis
 alloy = { version = "=0.15.10" }
 kona-p2p = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
 kona-registry = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
@@ -20,6 +15,8 @@ libp2p = { version = "0.55.0", features = ["macros", "tokio", "tcp", "noise", "g
 discv5 = "0.9.1"
 tokio = { version = "1.44.2", features = ["full"] }
 axum = "0.8.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
 
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
@@ -28,14 +25,21 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.85"
 clap = { version = "4.5.4", features = ["derive", "env"] }
 
-# Additional dependencies for HTTP-first implementation
 zstd = "0.13"
 tempfile = "3.0"
 hex = "0.4"
 reqwest = { version = "0.11", features = ["json"] }
 md5 = "0.7"
+anyhow = "1"
 
+[[bin]]
+name = "kona-preconf-service"
+path = "src/main.rs"
 
 [lib]
 name = "kona_bridge"
-crate-type = ["staticlib"]
+crate-type = ["staticlib", "rlib"]
+
+[features]
+default = []
+ffi = []
