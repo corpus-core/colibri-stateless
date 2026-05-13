@@ -4,6 +4,10 @@ RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Tell openssl-sys to use system OpenSSL (avoids vendored build which needs perl/make)
+ENV OPENSSL_NO_VENDOR=1
+ENV PKG_CONFIG_ALLOW_CROSS=1
+
 WORKDIR /build
 
 # Cache dependencies first
