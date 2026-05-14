@@ -67,18 +67,19 @@ extern "C" {
  * a bitmask holding flags used during the prover context.
  */
 typedef enum {
-  C4_PROVER_FLAG_INCLUDE_CODE       = 1 << 0, // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed
-  C4_PROVER_FLAG_UV_SERVER_CTX      = 1 << 1, // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROVER_FLAG_UV_WORKER_REQUIRED flag.
-  C4_PROVER_FLAG_UV_WORKER_REQUIRED = 1 << 2, // requests the proof execution to run in a worker thread instead of the main eventloop.
-  C4_PROVER_FLAG_CHAIN_STORE        = 1 << 3, // allows the prover to use internal request with data from the chain stroe
-  C4_PROVER_FLAG_UNSTABLE_LATEST    = 1 << 4, // usually we use latest-1, but if this is set we return the real "latest"
-  C4_PROVER_FLAG_INCLUDE_SYNC       = 1 << 5, // if true, the sync data will be included in the proof (requires the client_state to be set)
-  C4_PROVER_FLAG_USE_ACCESSLIST     = 1 << 6, // if true, eth_call will use eth_createAccessList instead of eth_debug_traceCall
-  C4_PROVER_FLAG_ZK_PROOF           = 1 << 7, // if true, the the prover will try to store the zk_proof within the sync_section
-  C4_PROVER_FLAG_CALL_BLOCK_CONTEXT = 1 << 8, // if true, eth_call state_proof uses blockContext union variant and multi-proof with execution payload fields
-  C4_PROVER_FLAG_HYBRID             = 1 << 9, // hybrid mode: header proof from remote server, execution data from RPC provider
+  C4_PROVER_FLAG_INCLUDE_CODE       = 1 << 0,  // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed
+  C4_PROVER_FLAG_UV_SERVER_CTX      = 1 << 1,  // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROVER_FLAG_UV_WORKER_REQUIRED flag.
+  C4_PROVER_FLAG_UV_WORKER_REQUIRED = 1 << 2,  // requests the proof execution to run in a worker thread instead of the main eventloop.
+  C4_PROVER_FLAG_CHAIN_STORE        = 1 << 3,  // allows the prover to use internal request with data from the chain stroe
+  C4_PROVER_FLAG_UNSTABLE_LATEST    = 1 << 4,  // usually we use latest-1, but if this is set we return the real "latest"
+  C4_PROVER_FLAG_INCLUDE_SYNC       = 1 << 5,  // if true, the sync data will be included in the proof (requires the client_state to be set)
+  C4_PROVER_FLAG_USE_ACCESSLIST     = 1 << 6,  // if true, eth_call will use eth_createAccessList instead of eth_debug_traceCall
+  C4_PROVER_FLAG_ZK_PROOF           = 1 << 7,  // if true, the the prover will try to store the zk_proof within the sync_section
+  C4_PROVER_FLAG_CALL_BLOCK_CONTEXT = 1 << 8,  // if true, eth_call state_proof uses blockContext union variant and multi-proof with execution payload fields
+  C4_PROVER_FLAG_HYBRID             = 1 << 9,  // hybrid mode: header proof from remote server, execution data from RPC provider
   C4_PROVER_FLAG_PROXY              = 1 << 10, // server: request used client-supplied RPC/Beacon URLs (proxy mode)
   C4_PROVER_FLAG_LIGHT_CLIENT       = 1 << 11, // light client mode: extended header cache TTL for "latest" (full block_time instead of half)
+  C4_PROVER_FLAG_PAP                = 1 << 12, // PAP mode: if this is set, we expect this a local prover with pap
 } prover_flag_types_t;
 
 /**

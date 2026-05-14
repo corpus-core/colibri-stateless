@@ -122,8 +122,8 @@ method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t p
       if (strcmp(method, "eth_estimateGas") == 0)
         return ((flags & VERIFY_FLAG_PAP) ? METHOD_LOCAL : METHOD_UNPROOFABLE);
 #ifdef PAP
-      if (flags & VERIFY_FLAG_PAP && is_call_method(method))
-        return METHOD_LOCAL;
+      if (flags & VERIFY_FLAG_PAP && is_call_method(method)) // in pap and hybriod-mode we build a blockkheader-only proof with empty accounts
+        return ((flags & VERIFY_FLAG_HYBRID) ? METHOD_UNPROOFABLE : METHOD_LOCAL );
       if (flags & VERIFY_FLAG_PAP && is_pap_tx_method(method))
         return METHOD_LOCAL;
 #endif

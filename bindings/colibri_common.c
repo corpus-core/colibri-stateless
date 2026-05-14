@@ -225,6 +225,8 @@ c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id
     ctx->prover_flags |= C4_PROVER_FLAG_HYBRID;
   if (prover_mode == C4_PROVER_MODE_LIGHT_CLIENT)
     ctx->prover_flags |= C4_PROVER_FLAG_LIGHT_CLIENT;
+  if (verify_flags & VERIFY_FLAG_PAP)
+    ctx->prover_flags |= C4_PROVER_FLAG_PAP;
   return ctx;
 }
 

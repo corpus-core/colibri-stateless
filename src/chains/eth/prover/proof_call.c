@@ -293,6 +293,7 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   eth_state_overrides_t overrides_parsed = {0};
   bool                  has_overrides    = state_overrides.type == JSON_TYPE_OBJECT;
   bool                  is_proof_call    = strcmp(ctx->method, "colibri_proofCall") == 0;
+  bool                  is_pap           = ctx->flags & C4_PROVER_FLAG_PAP;
 
   if (block_number.type == JSON_TYPE_NOT_FOUND) block_number = json_parse("\"latest\"");
 
@@ -318,8 +319,10 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
 
   TRACE_START(ctx, "fetch access list and eth_getProof");
   // If state overrides are provided, we must use eth_createAccessList so the upstream can account for overrides.
-  if (is_proof_call)
+  if (is_proof_call) // we already have the accessList as input
     trace = tx;
+  else if (is_pap) // we don't need to fetch the accessList for PAP
+    trace = json_parse("{\"accessList\":[],\"gasUsed\":\"0x0\"}");
   else if (has_overrides)
     TRY_ADD_ASYNC(status, eth_create_access_list(ctx, tx, &trace, target_block, state_overrides));
   else
