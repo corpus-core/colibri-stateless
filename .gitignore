@@ -67,6 +67,7 @@ valgrind_results
 /test/data/uv_util_write/missing_*
 # Dart tooling
 .dart_tool/
+.claude
 
 # Flutter plugin pre-built native binaries (built in CI / locally before publish)
 bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/
