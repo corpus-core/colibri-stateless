@@ -17,6 +17,7 @@ from .types import (
     PrivacyMode,
     ProofError,
     ProverMode,
+    RevertError,
     RPCError,
     VerificationError,
 )
@@ -323,6 +324,8 @@ class Colibri:
                     
                     if status["status"] == "success":
                         return status.get("result")
+                    elif status["status"] == "revert":
+                        raise RevertError(status.get("data", "0x"))
                     elif status["status"] == "error":
                         raise VerificationError(status.get("error", "Unknown verification error"))
                     elif status["status"] == "pending":
@@ -333,11 +336,15 @@ class Colibri:
             finally:
                 native.verify_free_ctx(ctx)
                 
+        # Propagate VerificationError and RevertError as-is. RevertError is a
+        # fully verified outcome (the EVM ran to completion but reverted) --
+        # callers need it intact to decode the data for EIP-3668 / CCIP-Read or
+        # custom Solidity errors.
+        except (VerificationError, RevertError):
+            raise
         except json.JSONDecodeError as e:
             raise VerificationError(f"Invalid JSON in verification response: {e}") from e
         except Exception as e:
-            if isinstance(e, VerificationError):
-                raise
             raise VerificationError(f"Proof verification failed: {e}") from e
 
     async def rpc(self, method: str, params: List[Any]) -> Any:
@@ -386,6 +393,8 @@ class Colibri:
 
                 if status["status"] == "success":
                     return status.get("result")
+                elif status["status"] == "revert":
+                    raise RevertError(status.get("data", "0x"))
                 elif status["status"] == "error":
                     raise ColibriError(status.get("error", "Unknown RPC error"))
                 elif status["status"] == "pending":

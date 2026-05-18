@@ -70,7 +70,25 @@ enum class ProverMode(val value: Int) {
 }
 
 // Custom Exception for Colibri errors
-class ColibriException(message: String) : RuntimeException(message)
+open class ColibriException(message: String) : RuntimeException(message)
+
+/**
+ * Thrown when an `eth_call` (or similar EVM execution) ran to completion but
+ * reverted. The verifier has fully verified the revert -- this is a legitimate
+ * EVM outcome, not a transport or proof error.
+ *
+ * Maps to the Geth-style RPC error `{ "code": 3, "message": "execution reverted",
+ * "data": "0x..." }`, which is also the EIP-1193 representation used by ethers
+ * to decode `OffchainLookup` (EIP-3668 / CCIP-Read) and custom Solidity errors.
+ *
+ * @param data Raw EVM revert return-data as `0x`-prefixed hex string
+ *   (`"0x"` when empty). Callers typically ABI-decode this with the
+ *   contract's error definitions.
+ */
+class ColibriRevertException(val data: String) : ColibriException("execution reverted") {
+    /** EIP-1193 / Geth RPC error code for `execution reverted`. */
+    val code: Int = 3
+}
 
 // Interface for storage operations callback.
 // Implementations MUST be thread-safe when used with coroutines on Dispatchers.IO.
@@ -508,6 +526,12 @@ class Colibri(
                                 return@withContext null
                              }
                         }
+                        "revert" -> {
+                            // EVM ran to completion but reverted -- a fully verified
+                            // outcome. Expose the raw revert data so callers can decode
+                            // OffchainLookup (EIP-3668) / custom Solidity errors.
+                            throw ColibriRevertException(state.optString("data", "0x"))
+                        }
                         "error" -> {
                              throw ColibriException("Verifier error for method $method: ${state.optString("error", "Unknown error")}")
                         }
@@ -585,6 +609,12 @@ class Colibri(
                                 return@withContext if (result == JSONObject.NULL) null else convertJsonToJava(result)
                             }
                             return@withContext null
+                        }
+                        "revert" -> {
+                            // EVM ran to completion but reverted -- a fully verified
+                            // outcome. Expose the raw revert data so callers can decode
+                            // OffchainLookup (EIP-3668) / custom Solidity errors.
+                            throw ColibriRevertException(state.optString("data", "0x"))
                         }
                         "error" -> {
                             throw ColibriException("RPC error for method $method: ${state.optString("error", "Unknown error")}")

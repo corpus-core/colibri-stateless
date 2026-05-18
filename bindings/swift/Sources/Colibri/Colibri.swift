@@ -427,6 +427,12 @@ public class Colibri {
             case "success":
                 // Success: return the result (could be any JSON type)
                 return state["result"] as Any // Explicitly cast to Any
+            case "revert":
+                // EVM ran to completion but reverted -- a fully verified
+                // outcome. Expose the raw revert data so callers can decode
+                // OffchainLookup (EIP-3668) / custom Solidity errors.
+                let data = state["data"] as? String ?? "0x"
+                throw ColibriError.revert(data: data)
             case "error":
                 let errorMsg = state["error"] as? String ?? "Unknown verifier error"
                 throw ColibriError.proofError("Verifier error for method \(method): \(errorMsg)")
@@ -493,6 +499,12 @@ public class Colibri {
             switch status {
             case "success":
                 return statusDict["result"] as Any
+            case "revert":
+                // EVM ran to completion but reverted -- a fully verified
+                // outcome. Expose the raw revert data so callers can decode
+                // OffchainLookup (EIP-3668) / custom Solidity errors.
+                let data = statusDict["data"] as? String ?? "0x"
+                throw ColibriError.revert(data: data)
             case "error":
                 let errorMsg = statusDict["error"] as? String ?? "Unknown error"
                 throw ColibriError.proofError("RPC error for method \(method): \(errorMsg)")
@@ -829,7 +841,18 @@ public enum ColibriError: Error, LocalizedError, Equatable {
     case memoryAllocationFailed
     case nullPointerReceived
     case contextCreationFailed
-    
+    /// EVM `eth_call` ran to completion but reverted. The verifier has fully
+    /// verified the revert -- this is a legitimate EVM outcome, not a transport
+    /// or proof error. The associated value is the raw revert return-data as a
+    /// `0x`-prefixed hex string ("0x" when empty). Maps to the Geth/EIP-1193
+    /// RPC error code 3 (see `ColibriError.revertCode`), which ethers uses to
+    /// decode `OffchainLookup` (EIP-3668 / CCIP-Read) and custom Solidity errors.
+    case revert(data: String)
+
+    /// EIP-1193 / Geth RPC error code for `execution reverted`. Use this when
+    /// forwarding a `.revert(data:)` outcome to a JSON-RPC layer.
+    public static let revertCode: Int = 3
+
     public var errorDescription: String? {
         switch self {
         case .invalidInput:
@@ -858,6 +881,8 @@ public enum ColibriError: Error, LocalizedError, Equatable {
             return "Null-Pointer von C-Funktion erhalten"
         case .contextCreationFailed:
             return "Kontext-Erstellung fehlgeschlagen"
+        case .revert:
+            return "execution reverted"
         }
     }
     
@@ -889,6 +914,8 @@ public enum ColibriError: Error, LocalizedError, Equatable {
             return "Unerwarteter null-Pointer von der C-Bibliothek."
         case .contextCreationFailed:
             return "Der Kontext für die Operation konnte nicht erstellt werden."
+        case .revert(let data):
+            return "EVM-Call wurde verifiziert, aber revertierte. Revert-Data: \(data)"
         }
     }
 }
