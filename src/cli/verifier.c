@@ -111,6 +111,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -m <mode> prover mode: local, remote, hybrid\n");
     fprintf(stderr, "  -L local proof (shorthand for -m local)\n");
     fprintf(stderr, "  -r rpc url\n");
+    fprintf(stderr, "  -Z oblivious node url (TEE RPC for eth_getProof during eth_call; sets VERIFY_FLAG_OBLIVIOUS)\n");
     fprintf(stderr, "  -b beacon url\n");
     fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
@@ -136,6 +137,7 @@ int main(int argc, char* argv[]) {
   bool           has_checkpoint     = false;
   bool           use_zk_proof       = false;
   verify_flags_t verify_flags       = 0;
+  char*          oblivious_url      = NULL;
   char*          rpc_url            = NULL;
   char*          beacon_url         = NULL;
   char*          checkpointz_url    = NULL;
@@ -206,6 +208,10 @@ int main(int argc, char* argv[]) {
           case 'b':
             beacon_url = argv[++i];
             break;
+          case 'Z':
+            oblivious_url = argv[++i];
+            verify_flags |= VERIFY_FLAG_OBLIVIOUS | VERIFY_FLAG_PAP;
+            break;
           case 'T':
             curl_set_config(json_parse(bprintf(&buf, "{\"trace_config\":{\"level\":\"%s\"}}", argv[++i])));
             break;
@@ -269,6 +275,10 @@ int main(int argc, char* argv[]) {
   if (rpc_url) set_config("eth_rpc", rpc_url);
   if (beacon_url) set_config("beacon_api", beacon_url);
   if (checkpointz_url) set_config("checkpointz", checkpointz_url);
+  if (oblivious_url) set_config("oblivious", oblivious_url);
+#ifdef USE_CURL
+  if (curl_has_oblivious_nodes()) verify_flags |= VERIFY_FLAG_OBLIVIOUS | VERIFY_FLAG_PAP;
+#endif
 
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);

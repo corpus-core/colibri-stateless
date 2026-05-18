@@ -210,6 +210,24 @@ val colibri = Colibri(
 )
 ```
 
+### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
+
+For an `eth_call` with full storage privacy, use hybrid prover mode, PAP, and oblivious nodes (`obliviousNodes` default is empty).
+
+- **HYBRID:** only the block proof from the prover; storage values from RPC/oblivious node, verified locally.
+- **PAP (`PrivacyMode.BASIC`):** no `eth_createAccessList` on the prover; optimistic local EVM, only `eth_getProof` leaves the client.
+- **Oblivious:** TEE RPC for `eth_getProof`; enables OBLIVIOUS + PAP verify flags automatically. See [Oblivious Labs](https://www.obliviouslabs.com/) for TEE/ORAM background.
+
+```kotlin
+// https://rpc.safe-node.com/ requires an API key for testing
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    privacyMode = PrivacyMode.BASIC,
+    proverMode = ProverMode.HYBRID,
+    obliviousNodes = arrayOf("https://rpc.safe-node.com/"),
+)
+```
+
 ## Example Android App
 
 A complete working example is available in the [example directory](https://github.com/corpus-core/colibri-stateless/tree/main/bindings/kotlin/example). This minimal Android app demonstrates:

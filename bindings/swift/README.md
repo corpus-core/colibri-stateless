@@ -55,6 +55,16 @@ Enable Pragmatic Adaptive Privacy to reduce intent leakage (e.g. use cached stor
 colibri.privacyMode = .basic  // default: .none
 ```
 
+### Privacy-preserving `eth_call`
+
+Use hybrid + PAP + oblivious nodes (`obliviousNodes` default `[]`). Hybrid: block proof only from prover. PAP: no access-list leak to prover. Oblivious: TEE for `eth_getProof` (auto-enables PAP). `https://rpc.safe-node.com/` needs an API key for testing. Background on TEE/ORAM: [Oblivious Labs](https://www.obliviouslabs.com/).
+
+```swift
+colibri.privacyMode = .basic
+colibri.proverMode = .hybrid
+colibri.obliviousNodes = ["https://rpc.safe-node.com/"]
+```
+
 ### Custom Storage
 
 ```swift

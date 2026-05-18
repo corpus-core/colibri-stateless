@@ -166,7 +166,9 @@ export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean 
 export async function handle_request(req: DataRequest, conf: C4Config) {
   const free_buffers: number[] = [];
   let servers: string[] = [];
-  switch (req.type) {
+  if (req.type === 'eth_rpc' && req.payload?.method === 'eth_getProof' && conf.oblivious_nodes?.length) {
+    servers = [...conf.oblivious_nodes];
+  } else switch (req.type) {
     case 'checkpointz':
       servers = [...(conf.checkpointz || []), ...(conf.beacon_apis || []), ...(conf.prover || [])];
       break;

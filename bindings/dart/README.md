@@ -41,6 +41,7 @@ final colibri = Colibri(
 - Proof generation + verification through the C core
 - Async request handling with `dart:async`
 - Multi-chain configuration with sensible defaults
+- **Privacy-preserving `eth_call`** – `proverMode: hybrid`, `privacyMode: basic`, `obliviousNodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Oblivious auto-enables PAP. TEE/ORAM: [Oblivious Labs](https://www.obliviouslabs.com/).
 
 You can also set the library path via `COLIBRI_DART_LIBRARY`.
 

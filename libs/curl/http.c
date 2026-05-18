@@ -64,6 +64,7 @@ static void init_config() {
   curl_nodes.eth_rpc     = json_dup(json_get(config, "eth_rpc"));
   curl_nodes.beacon_api  = json_dup(json_get(config, "beacon_api"));
   curl_nodes.checkpointz = json_dup(json_get(config, "checkpointz"));
+  curl_nodes.oblivious   = json_dup(json_get(config, "oblivious"));
   curl_nodes.prover      = json_dup(json_get(config, "prover"));
 
   char*   config_file = getenv("C4_CONFIG");
@@ -81,6 +82,11 @@ static void replace_config(json_t* old_config, json_t new_config) {
   *old_config = json_dup(new_config);
 }
 
+bool curl_has_oblivious_nodes(void) {
+  init_config();
+  return curl_nodes.oblivious.type == JSON_TYPE_ARRAY && json_len(curl_nodes.oblivious) > 0;
+}
+
 void curl_set_config(json_t config) {
   init_config();
   json_t nodes = {0};
@@ -88,6 +94,7 @@ void curl_set_config(json_t config) {
   if ((nodes = json_get(config, "eth_rpc")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.eth_rpc, nodes);
   if ((nodes = json_get(config, "beacon_api")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.beacon_api, nodes);
   if ((nodes = json_get(config, "checkpointz")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.checkpointz, nodes);
+  if ((nodes = json_get(config, "oblivious")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.oblivious, nodes);
   if ((nodes = json_get(config, "prover")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.prover, nodes);
   if ((nodes = json_get(config, "chain_store")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.chain_store, nodes);
   if ((nodes = json_get(config, "trace_config")).type == JSON_TYPE_OBJECT) replace_config(&curl_nodes.trace_config, nodes);
@@ -103,15 +110,32 @@ static void add_nodes(buffer_t* buffer, json_t nodes) {
   }
 }
 
-static json_t get_nodes(data_request_type_t type) {
+static bool req_payload_is_eth_get_proof(data_request_t* req) {
+  if (!req || req->type != C4_DATA_TYPE_ETH_RPC || !req->payload.data || req->payload.len == 0) return false;
+  json_t payload = json_parse((char*) req->payload.data);
+  if (payload.type != JSON_TYPE_OBJECT) return false;
+  json_t method_json = json_get(payload, "method");
+  if (method_json.type != JSON_TYPE_STRING) return false;
+  char* method = json_as_string(method_json, NULL);
+  if (!method) return false;
+  bool is_proof = strcmp(method, "eth_getProof") == 0;
+  safe_free(method);
+  return is_proof;
+}
+
+static json_t get_nodes(data_request_t* req) {
   init_config();
   buffer_t buffer = {0};
 
-  switch (type) {
+  switch (req->type) {
     case C4_DATA_TYPE_ETH_RPC:
-      add_nodes(&buffer, curl_nodes.eth_rpc);
-      if (buffer.data.len == 0 && curl_nodes.prover.type == JSON_TYPE_ARRAY && curl_nodes.prover.len > 2)
-        bprintf(&buffer, "[\"%junverified_rpc\"", json_at(curl_nodes.prover, 0));
+      if (req_payload_is_eth_get_proof(req) && curl_nodes.oblivious.type == JSON_TYPE_ARRAY && curl_nodes.oblivious.len > 2)
+        add_nodes(&buffer, curl_nodes.oblivious);
+      else {
+        add_nodes(&buffer, curl_nodes.eth_rpc);
+        if (buffer.data.len == 0 && curl_nodes.prover.type == JSON_TYPE_ARRAY && curl_nodes.prover.len > 2)
+          bprintf(&buffer, "[\"%junverified_rpc\"", json_at(curl_nodes.prover, 0));
+      }
       break;
     case C4_DATA_TYPE_BEACON_API:
       add_nodes(&buffer, curl_nodes.beacon_api);
@@ -209,7 +233,7 @@ static bool configure_request(curl_request_t* creq) {
   if (cache_dir && check_cache(req)) return false;
 
 #endif
-  json_t servers = get_nodes(req->type);
+  json_t servers = get_nodes(req);
 
   if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) {
     safe_free(servers.start);
@@ -459,7 +483,7 @@ void curl_fetch_all(c4_state_t* state) {
 
               // Check if we need to keep retrying with different nodes
               if (creq->request->type != C4_DATA_TYPE_REST_API) {
-                json_t servers = get_nodes(creq->request->type);
+                json_t servers = get_nodes(creq->request);
 
                 // Calculate if we have more nodes to try
                 int node_count = 0;

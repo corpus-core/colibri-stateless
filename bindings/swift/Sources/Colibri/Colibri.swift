@@ -237,6 +237,8 @@ public class Colibri {
     public var beacon_apis: [String] = []
     public var provers: [String] = ["https://c4.incubed.net"]
     public var checkpointz: [String] = ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"]
+    /// TEE RPC endpoints for eth_getProof (privacy-preserving storage reads).
+    public var obliviousNodes: [String] = []
     public var trustedCheckpoint: String? = nil
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
@@ -265,7 +267,12 @@ public class Colibri {
 
     /// Returns verify flags (e.g. VERIFY_FLAG_PAP) derived from privacyMode. Centralized so future flags can be added in one place.
     private func getVerifyFlags() -> UInt32 {
-        return privacyMode == .basic ? 2 : 0
+        let pap = privacyMode == .basic || !obliviousNodes.isEmpty
+        var flags: UInt32 = pap ? 2 : 0
+        if !obliviousNodes.isEmpty {
+            flags |= 1 << 6
+        }
+        return flags
     }
 
     // MARK: - Method Support
@@ -562,6 +569,10 @@ public class Colibri {
                         servers = self.provers
                     } else if requestType == "beacon_api" {
                         servers = self.beacon_apis
+                    } else if let payload = request["payload"] as? [String: Any],
+                              payload["method"] as? String == "eth_getProof",
+                              !self.obliviousNodes.isEmpty {
+                        servers = self.obliviousNodes
                     } else {
                         servers = self.eth_rpcs
                     }
