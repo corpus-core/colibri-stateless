@@ -111,6 +111,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -m <mode> prover mode: local, remote, hybrid\n");
     fprintf(stderr, "  -L local proof (shorthand for -m local)\n");
     fprintf(stderr, "  -r rpc url\n");
+    fprintf(stderr, "  -Z oblivious node url\n");
     fprintf(stderr, "  -b beacon url\n");
     fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
@@ -136,6 +137,7 @@ int main(int argc, char* argv[]) {
   bool           has_checkpoint     = false;
   bool           use_zk_proof       = false;
   verify_flags_t verify_flags       = 0;
+  char*          oblivious_url      = NULL;
   char*          rpc_url            = NULL;
   char*          beacon_url         = NULL;
   char*          checkpointz_url    = NULL;
@@ -233,6 +235,10 @@ int main(int argc, char* argv[]) {
 #ifdef USE_CURL
           case 'o':
             output = argv[++i];
+            break;
+          case 'Z':
+            oblivious_url = argv[++i];
+            verify_flags |= VERIFY_FLAG_OBLIVIOUS;
             break;
           case 't':
             test_dir = curl_set_test_dir(argv[++i]);

@@ -22,13 +22,13 @@
  */
 
 #include "call_ctx.h"
+#include "../precompiles/precompiles.h"
 #include "eth_account.h"
 #include "eth_verify.h"
 #include "plugin.h"
 #include "state_overrides.h"
 #include <stdlib.h>
 #include <string.h>
-#include "../precompiles/precompiles.h"
 
 // :: Account lookup helpers (traverse parent chain)
 
@@ -118,17 +118,30 @@ call_account_t* call_account_get_or_create(evmone_context_t* ctx, const address_
 // :: PAP-mode lazy fetchers
 
 void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result) {
+  bool      is_oblivious = ctx->ctx->flags & VERIFY_FLAG_OBLIVIOUS;
   char      tmp[256];
   buffer_t  buf    = stack_buffer(tmp);
   bytes32_t req_id = {0};
-  bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getStorageAt\",\"params\":[\"0x%x\",\"0x%x\",\"latest\"]}", bytes((uint8_t*) address, 20), bytes((uint8_t*) key, 32));
+  if (is_oblivious)
+    bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getProof\",\"params\":[\"0x%x\",[\"0x%x\"],\"latest\"]}", bytes((uint8_t*) address, 20), bytes((uint8_t*) key, 32));
+  else
+    bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getStorageAt\",\"params\":[\"0x%x\",\"0x%x\",\"latest\"]}", bytes((uint8_t*) address, 20), bytes((uint8_t*) key, 32));
   keccak(buf.data, req_id);
 
   data_request_t* req = c4_state_get_data_request_by_id(&ctx->ctx->state, req_id);
   if (req && req->response.data) {
     json_t    val_json = json_get(json_parse((char*) req->response.data), "result");
     bytes32_t val      = {0};
-    if (val_json.type == JSON_TYPE_STRING) {
+    if (is_oblivious) {
+      json_t proof_json = json_get(val_json, "storageProof");
+      json_t proof_item = json_get(json_at(proof_json, 0),"value");
+      if (proof_item.type == JSON_TYPE_STRING) {
+        buffer_t val_buf = stack_buffer(val);
+        bytes_t  b       = json_as_bytes(proof_item, &val_buf);
+        if (b.len <= 32) memcpy(val + (32 - b.len), b.data, b.len);
+      }
+    }
+    else if (val_json.type == JSON_TYPE_STRING) {
       buffer_t val_buf = stack_buffer(val);
       bytes_t  b       = json_as_bytes(val_json, &val_buf);
       if (b.len <= 32) memcpy(val + (32 - b.len), b.data, b.len);

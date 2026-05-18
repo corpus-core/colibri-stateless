@@ -730,6 +730,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   bool            has_overrides = json_len(ctx->args) > 2 && json_at(ctx->args, 2).type == JSON_TYPE_OBJECT;
   bool            has_proof     = ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE;
   bool            is_hybrid     = has_proof && ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_CALL_PROOF));
+  bool            is_pap        = ctx->flags & VERIFY_FLAG_PAP;
   evm_call_ctx_t* evm           = call_get_evm_ctx(ctx);
 
   if (is_hybrid && !(ctx->flags & VERIFY_FLAG_HYBRID))
@@ -750,7 +751,9 @@ bool verify_call_proof(verify_ctx_t* ctx) {
       ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
       if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid call proof");
       ssz_ob_t sr_ob = ssz_get(&header_data, "stateRoot");
-      if (sr_ob.bytes.len != 32 || memcmp(evm->state_root, sr_ob.bytes.data, 32) != 0)
+      if (is_pap)
+        memcpy(evm->state_root, sr_ob.bytes.data, 32);
+      else if (sr_ob.bytes.len != 32 || memcmp(evm->state_root, sr_ob.bytes.data, 32) != 0)
         RETURN_VERIFY_ERROR(ctx, "stateRoot mismatch between account proofs and header_data");
     }
     else {
