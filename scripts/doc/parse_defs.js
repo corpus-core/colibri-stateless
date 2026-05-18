@@ -4,7 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const { toCamelCase, get_full_src_path, align, get_doc_path } = require('./utils');
 
-
+// Branch or tag used in generated GitHub source links. Defaults to `dev` for
+// local invocations; release workflows set this to the release tag (e.g. `v1.1.25`)
+// so that documentation links point to the exact code revision of the release.
+const GITHUB_REF = process.env.DOCS_GITHUB_REF || 'dev';
+const GITHUB_BLOB_BASE = `https://github.com/corpus-core/colibri-stateless/blob/${GITHUB_REF}`;
 
 function add_section(line, sections) {
     const regex = /\/\/ (\:+) (.*)/g;
@@ -130,7 +134,8 @@ function add_function_def(sections, line, doc_comment, file, line_number) {
     let fn = p >= 0 ? last_line.substring(0, p).trim().split(' ').at(-1) : last_line.trim().split(' ').at(-1).replace(';', '').trim()
 
     section.content.push('\n## ' + fn)
-    section.content.push(`[${file.replace('../', '')}](https://github.com/corpus-core/colibri-stateless/blob/dev/src/${file}#L${line_number})`)
+    const display_file = file.startsWith('../') ? file.substring(3) : file
+    section.content.push(`[${display_file}](${GITHUB_BLOB_BASE}/src/${file}#L${line_number})`)
     section.content.push('')
     section.content.push(doc_comment.comment)
     section.content.push('')
@@ -415,7 +420,7 @@ function create_type(type, types) {
     content.push('\n## ' + type.type + '\n')
     content.push(type.comment)
     content.push('')
-    content.push(`\nThe Type is defined in [src/${type.file}](https://github.com/corpus-core/colibri-stateless/blob/dev/src/${type.file}#L${type.line_number}).\n`)
+    content.push(`\nThe Type is defined in [src/${type.file}](${GITHUB_BLOB_BASE}/src/${type.file}#L${type.line_number}).\n`)
     content.push('')
     content.push('```python')
     content.push('class ' + type.type + '(Container):')

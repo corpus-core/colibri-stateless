@@ -400,3 +400,76 @@ jobs:
           else
             echo "- ❌ No Windows installers found" >> $GITHUB_STEP_SUMMARY
           fi
+
+  update-docs:
+    needs: check-workflows-and-tag
+    if: needs.check-workflows-and-tag.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ needs.check-workflows-and-tag.outputs.tag_name }}
+    steps:
+      - name: Checkout source repository at release commit
+        uses: actions/checkout@v4
+        with:
+          path: source
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Checkout colibri-stateless-doc repository
+        uses: actions/checkout@v4
+        with:
+          repository: corpus-core/colibri-stateless-doc
+          token: ${{ secrets.DOCS_REPO_TOKEN }}
+          path: docs
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install mermaid-cli
+        run: npm install -g @mermaid-js/mermaid-cli
+
+      - name: Generate documentation
+        working-directory: source
+        env:
+          DOCS_DIR: ${{ github.workspace }}/docs
+          DOCS_GITHUB_REF: ${{ needs.check-workflows-and-tag.outputs.tag_name }}
+        run: node scripts/doc/index.js
+
+      - name: Commit, push and tag documentation
+        working-directory: docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No documentation changes detected."
+            DOC_CHANGED=false
+          else
+            git commit -m "docs: update for release ${TAG_NAME}"
+            git push origin HEAD:main
+            DOC_CHANGED=true
+          fi
+
+          # Tag the doc repo with the same release tag so it stays in sync with the
+          # source release. Force-update so re-runs of the same release work.
+          git tag -f "${TAG_NAME}"
+          git push origin "${TAG_NAME}" --force
+
+          echo "doc_changed=${DOC_CHANGED}" >> $GITHUB_ENV
+
+      - name: Create Summary
+        if: always()
+        run: |
+          echo "## Documentation Update Result" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" = "success" ]; then
+            if [ "${doc_changed:-false}" = "true" ]; then
+              echo "✅ Pushed documentation update and tag \`${TAG_NAME}\` to corpus-core/colibri-stateless-doc" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "ℹ️ No documentation changes; only tag \`${TAG_NAME}\` was updated in corpus-core/colibri-stateless-doc" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ Failed to update documentation for tag \`${TAG_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          fi
