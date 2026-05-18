@@ -111,6 +111,7 @@ class Colibri {
     List<String>? ethRpcs,
     List<String>? beaconApis,
     List<String>? checkpointz,
+    List<String>? obliviousNodes,
     this.trustedCheckpoint,
     this.includeCode = false,
     this.zkProof = false,
@@ -163,6 +164,24 @@ final colibri = Colibri(
   beaconApis: ['https://lodestar-mainnet.chainsafe.io'],
   trustedCheckpoint: '0x…',  // optional
   libraryPath: 'native/libcolibri.dylib',
+);
+```
+
+### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
+
+For an `eth_call` with full storage privacy, configure hybrid prover mode, PAP, and oblivious nodes (`obliviousNodes` defaults to `[]`).
+
+- **`ProverMode.hybrid`:** only the block proof from the prover; storage/account data from RPC or oblivious node, verified locally.
+- **`PrivacyMode.basic` (PAP):** no `eth_createAccessList` on the prover; optimistic local EVM, only `eth_getProof` RPCs leave the client.
+- **`obliviousNodes`:** TEE RPC for `eth_getProof`; sets OBLIVIOUS + PAP verify flags automatically when non-empty. See [Oblivious Labs](https://www.obliviouslabs.com/) for how oblivious nodes use TEE and ORAM.
+
+```dart
+// https://rpc.safe-node.com/ requires an API key for testing
+final colibri = Colibri(
+  chainId: 1,
+  privacyMode: PrivacyMode.basic,
+  proverMode: ProverMode.hybrid,
+  obliviousNodes: ['https://rpc.safe-node.com/'],
 );
 ```
 

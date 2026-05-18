@@ -106,6 +106,7 @@ class Colibri(
     var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
     var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
     var checkpointz: Array<String> = arrayOf("https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"), // Default checkpointz servers
+    var obliviousNodes: Array<String> = emptyArray(), // TEE RPC endpoints for eth_getProof
     var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
     var useAccesslist: Boolean = false,
@@ -147,8 +148,26 @@ class Colibri(
     private val lightClientScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var lightClientJob: Job? = null
 
-    /** Returns verify flags (e.g. VERIFY_FLAG_PAP) from privacyMode. Centralized so future flags can be added in one place. */
-    private fun getVerifyFlags(): Long = if (privacyMode == PrivacyMode.BASIC) 2L else 0L
+    /** Returns verify flags (e.g. VERIFY_FLAG_PAP, VERIFY_FLAG_OBLIVIOUS). PAP is enabled when BASIC or obliviousNodes is set. */
+    private fun getVerifyFlags(): Long {
+        val pap = privacyMode == PrivacyMode.BASIC || obliviousNodes.isNotEmpty()
+        return (if (pap) 2L else 0L) or (if (obliviousNodes.isNotEmpty()) (1L shl 6) else 0L)
+    }
+
+    private fun serversForRequest(request: JSONObject, useProverFallback: Boolean = false): Array<String> {
+        val type = request.optString("type", "eth_rpc")
+        return when (type) {
+            "checkpointz" -> checkpointz
+            "beacon_api" -> if (useProverFallback && provers.isNotEmpty()) provers else beaconApis
+            "prover" -> provers
+            else -> {
+                if (request.optJSONObject("payload")?.optString("method") == "eth_getProof" && obliviousNodes.isNotEmpty())
+                    obliviousNodes
+                else
+                    ethRpcs
+            }
+        }
+    }
 
     // Example method to demonstrate usage
     fun printConfig() {
@@ -339,14 +358,8 @@ class Colibri(
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
                                  // Ensure type field exists before accessing
-                                 val type = request.optString("type", "eth_rpc") // Default or handle missing type
-                                val servers = when (type) {
-                                    "checkpointz" -> checkpointz
-                                    "beacon_api" -> beaconApis
-                                    else -> ethRpcs
-                                }
                                  try {
-                                     fetchRequest(servers, request)
+                                     fetchRequest(serversForRequest(request), request)
                                  } catch (e: Exception) {
                                      // Log error during fetchRequest and potentially set error on C side if possible/needed
                                      println("Error handling pending request $i: ${e.message}")
@@ -503,15 +516,8 @@ class Colibri(
                             val requests = state.optJSONArray("requests") ?: JSONArray() // Handle missing requests array
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
-                                 val type = request.optString("type", "eth_rpc")
-                                // Prioritize provers if not empty and type is beacon_api
-                                val servers = when (type) {
-                                    "checkpointz" -> checkpointz
-                                    "beacon_api" -> if (provers.isNotEmpty()) provers else beaconApis
-                                    else -> ethRpcs
-                                }
                                  try {
-                                     fetchRequest(servers, request)
+                                     fetchRequest(serversForRequest(request, useProverFallback = true), request)
                                  } catch (e: Exception) {
                                      println("Error handling pending request $i: ${e.message}")
                                      // Consider setting error on C side via c4_req_set_error
@@ -587,15 +593,8 @@ class Colibri(
                             val requests = state.optJSONArray("requests") ?: JSONArray()
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
-                                val type = request.optString("type", "eth_rpc")
-                                val servers = when (type) {
-                                    "checkpointz" -> checkpointz
-                                    "beacon_api" -> if (provers.isNotEmpty()) provers else beaconApis
-                                    "prover" -> provers
-                                    else -> ethRpcs
-                                }
                                 try {
-                                    fetchRequest(servers, request)
+                                    fetchRequest(serversForRequest(request, useProverFallback = true), request)
                                 } catch (e: Exception) {
                                     println("Error handling pending request $i: ${e.message}")
                                 }

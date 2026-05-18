@@ -510,6 +510,26 @@ from colibri.types import PrivacyMode
 client = Colibri(chain_id=1, privacy_mode=PrivacyMode.BASIC)
 ```
 
+### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
+
+For an `eth_call` where storage privacy is preserved end-to-end, use all three options below. Defaults keep `oblivious_nodes` empty (disabled).
+
+| Setting | Role |
+|---------|------|
+| `prover_mode=ProverMode.HYBRID` | Only the block proof comes from the prover; storage/account data is fetched from RPC or oblivious node and verified locally. Remote mode would pull the full call proof from the server. |
+| `privacy_mode=PrivacyMode.BASIC` | PAP: no `eth_createAccessList` on the prover (that would leak which slots you read). Storage is resolved optimistically in the local EVM; only `eth_getProof` requests go out. |
+| `oblivious_nodes` | TEE RPC for those `eth_getProof` calls. Sets `VERIFY_FLAG_OBLIVIOUS` and **PAP automatically** when non-empty. See [Oblivious Labs](https://www.obliviouslabs.com/) for how oblivious nodes use TEE and Oblivious RAM (ORAM). |
+
+```python
+# https://rpc.safe-node.com/ requires an API key for testing
+client = Colibri(
+    chain_id=1,
+    privacy_mode=PrivacyMode.BASIC,
+    prover_mode=ProverMode.HYBRID,
+    oblivious_nodes=["https://rpc.safe-node.com/"],
+)
+```
+
 ## Error Handling
 
 ### Exception Types

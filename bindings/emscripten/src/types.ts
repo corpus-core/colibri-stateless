@@ -105,6 +105,8 @@ export interface Cache {
 export interface ChainConfig {
     beacon_apis: string[];
     rpcs: string[];
+    /** TEE RPC endpoints for eth_getProof. Sets VERIFY_FLAG_OBLIVIOUS and PAP when non-empty. Use with privacy_mode "basic" and prover_mode "hybrid" for private eth_call. */
+    oblivious_nodes?: string[];
     prover?: string[];
     checkpointz?: string[];
     trusted_checkpoint?: string;

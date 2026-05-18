@@ -46,7 +46,7 @@ dependencies {
 }
 ```
 
-**Configuration:** You can set `privacyMode` to `PrivacyMode.BASIC` to enable PAP (Pragmatic Adaptive Privacy), which reduces intent leakage by using cached data when available.
+**Configuration:** For a privacy-preserving `eth_call`, use `proverMode = HYBRID`, `privacyMode = BASIC`, and `obliviousNodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `obliviousNodes` also enables PAP automatically. How oblivious nodes work (TEE, ORAM): [Oblivious Labs](https://www.obliviouslabs.com/).
 
 Use it like this:
 ```java

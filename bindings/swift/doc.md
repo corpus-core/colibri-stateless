@@ -236,6 +236,23 @@ colibri.chainId = 1
 colibri.privacyMode = .basic
 ```
 
+### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
+
+For full storage privacy on `eth_call`, use hybrid prover mode, PAP, and oblivious nodes (`obliviousNodes` defaults to `[]`).
+
+- **`.hybrid`:** block proof only from prover; storage from RPC/oblivious node, verified locally.
+- **`.basic` (PAP):** avoids `eth_createAccessList` on the prover; only `eth_getProof` RPCs are sent externally.
+- **Oblivious:** TEE RPC for `eth_getProof`; sets OBLIVIOUS + PAP flags when non-empty. See [Oblivious Labs](https://www.obliviouslabs.com/) for TEE/ORAM background.
+
+```swift
+// https://rpc.safe-node.com/ requires an API key for testing
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.privacyMode = .basic
+colibri.proverMode = .hybrid
+colibri.obliviousNodes = ["https://rpc.safe-node.com/"]
+```
+
 ### Storage System
 
 ```swift

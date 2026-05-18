@@ -35,6 +35,7 @@ class Colibri {
     List<String>? ethRpcs,
     List<String>? beaconApis,
     List<String>? checkpointz,
+    List<String>? obliviousNodes,
     this.trustedCheckpoint,
     this.includeCode = false,
     this.useAccesslist = false,
@@ -54,6 +55,7 @@ class Colibri {
         ethRpcs = ethRpcs ?? _defaultEthRpcs(chainId),
         beaconApis = beaconApis ?? _defaultBeaconApis(chainId),
         checkpointz = checkpointz ?? _defaultCheckpointz(chainId),
+        obliviousNodes = obliviousNodes ?? const [],
         _native = ColibriNative.load(libraryPath: libraryPath),
         _http = httpClient ?? http.Client() {
     _runtimeTrustedCheckpoint = trustedCheckpoint;
@@ -76,6 +78,8 @@ class Colibri {
   final List<String> beaconApis;
   /// Checkpointz-style URLs for finalized checkpoint bootstrap.
   final List<String> checkpointz;
+  /// TEE RPC endpoints for eth_getProof (privacy-preserving storage reads).
+  final List<String> obliviousNodes;
   /// Optional trusted checkpoint root (0x-prefixed hex).
   final String? trustedCheckpoint;
   /// Whether to include code in proof requests.
@@ -84,7 +88,7 @@ class Colibri {
   final bool useAccesslist;
   /// Whether to request ZK sync proofs from provers.
   final bool zkProof;
-  /// PAP mode; [PrivacyMode.basic] sets VERIFY_FLAG_PAP on verify / method-support calls.
+  /// PAP mode; [PrivacyMode.basic] sets VERIFY_FLAG_PAP. Also set automatically when [obliviousNodes] is non-empty.
   final PrivacyMode privacyMode;
   /// Proof generation mode. null = auto-detect (remote if provers configured, else local).
   final ProverMode? proverMode;
@@ -145,8 +149,12 @@ class Colibri {
     _lightClientTimer = null;
   }
 
-  /// Returns verify flags derived from [privacyMode].
-  int _getVerifyFlags() => privacyMode == PrivacyMode.basic ? 2 : 0;
+  /// Returns verify flags derived from [privacyMode] and [obliviousNodes].
+  /// PAP is enabled when [privacyMode] is basic or [obliviousNodes] is set (oblivious requires PAP).
+  int _getVerifyFlags() {
+    final pap = privacyMode == PrivacyMode.basic || obliviousNodes.isNotEmpty;
+    return (pap ? 2 : 0) | (obliviousNodes.isNotEmpty ? (1 << 6) : 0);
+  }
 
   /// Returns how [method] is supported (proofable, local, unproofable, etc.).
   ///
@@ -383,6 +391,9 @@ class Colibri {
       case 'prover':
         return provers;
       default:
+        if (request.payload?['method'] == 'eth_getProof' && obliviousNodes.isNotEmpty) {
+          return obliviousNodes;
+        }
         return ethRpcs;
     }
   }

@@ -311,6 +311,19 @@ The constructor of the colibri client accepts a configuration-object, which may 
     new Colibri({ privacy_mode: "basic" })
     ```
 
+- `oblivious_nodes` - TEE RPC endpoints for private `eth_getProof` (default: empty). Sets `VERIFY_FLAG_OBLIVIOUS` and **PAP** automatically. For a privacy-preserving `eth_call`, also use `privacy_mode: "basic"` (or rely on auto-PAP when oblivious is set), `prover_mode: "hybrid"`, and oblivious nodes — see below.
+    ```js
+    // Privacy-preserving eth_call (https://rpc.safe-node.com/ needs an API key for testing)
+    new Colibri({
+      privacy_mode: "basic",
+      prover_mode: "hybrid",
+      oblivious_nodes: ["https://rpc.safe-node.com/"],
+    })
+    ```
+    **Why:** `hybrid` fetches only the block proof from the prover; storage values come from RPC/oblivious node and are verified locally. `basic` (PAP) avoids `eth_createAccessList` on the prover (which would leak intent); the EVM discovers storage optimistically so only `eth_getProof` requests leave the client.
+
+    TEE/ORAM details: [Oblivious Labs](https://www.obliviouslabs.com/).
+
 - `verify`- a function to decide which request should be verified and which should be fetched from the default RPC-Provider. It allows you to speed up performance for requests which are not critical.
     ```js
     new Colibri({ verify:  (method, args) => method != 'eth_blockNumber' })

@@ -50,6 +50,7 @@ class Colibri:
         eth_rpcs: List[str] = None,
         beacon_apis: List[str] = None,
         checkpointz: List[str] = None,
+        oblivious_nodes: Optional[List[str]] = None,
         trusted_checkpoint: Optional[str] = None,
         include_code: bool = False,
         use_accesslist: bool = False,
@@ -69,6 +70,7 @@ class Colibri:
             eth_rpcs: List of Ethereum RPC URLs
             beacon_apis: List of beacon chain API URLs
             checkpointz: List of checkpointz server URLs
+            oblivious_nodes: TEE RPC endpoints for eth_getProof (privacy-preserving storage reads)
             trusted_checkpoint: Optional trusted checkpoint as hex string (0x-prefixed, 66 chars)
             include_code: Whether to include code in proofs
             use_accesslist: Whether to use eth_createAccessList instead of debug_traceCall
@@ -84,6 +86,7 @@ class Colibri:
         self.eth_rpcs = eth_rpcs if eth_rpcs is not None else self._get_default_eth_rpcs(chain_id)
         self.beacon_apis = beacon_apis if beacon_apis is not None else self._get_default_beacon_apis(chain_id)
         self.checkpointz = checkpointz if checkpointz is not None else self._get_default_checkpointz(chain_id)
+        self.oblivious_nodes = oblivious_nodes if oblivious_nodes is not None else []
         self.trusted_checkpoint = trusted_checkpoint
         self.include_code = include_code
         self.use_accesslist = use_accesslist
@@ -156,8 +159,12 @@ class Colibri:
         return defaults.get(chain_id, [])
 
     def _get_verify_flags(self) -> int:
-        """Return verify flags for C API (e.g. VERIFY_FLAG_PAP = 2 for BASIC)."""
-        return 2 if self.privacy_mode == PrivacyMode.BASIC else 0
+        """Return verify flags for C API (e.g. VERIFY_FLAG_PAP = 2, VERIFY_FLAG_OBLIVIOUS = 64)."""
+        pap = self.privacy_mode == PrivacyMode.BASIC or bool(self.oblivious_nodes)
+        flags = 2 if pap else 0
+        if self.oblivious_nodes:
+            flags |= 1 << 6
+        return flags
 
     def get_method_support(self, method: str, params: Optional[List[Any]] = None) -> MethodType:
         """
@@ -463,6 +470,13 @@ class Colibri:
                         servers = self.provers
                     else:
                         servers = self.beacon_apis
+                elif (
+                    request.request_type == "eth_rpc"
+                    and request.payload
+                    and request.payload.get("method") == "eth_getProof"
+                    and self.oblivious_nodes
+                ):
+                    servers = self.oblivious_nodes
                 else:
                     servers = self.eth_rpcs
 

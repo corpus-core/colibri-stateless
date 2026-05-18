@@ -322,6 +322,18 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ privacy_mode: "basic" })
     ```
+- `oblivious_nodes` - TEE RPC endpoints for private `eth_getProof` (default: empty). Routes `eth_getProof` only to these URLs; sets `VERIFY_FLAG_OBLIVIOUS` and **PAP** automatically. For full `eth_call` privacy, combine with `privacy_mode: "basic"` and `prover_mode: "hybrid"`:
+    ```js
+    // https://rpc.safe-node.com/ requires an API key for testing
+    new Colibri({
+      privacy_mode: "basic",
+      prover_mode: "hybrid",
+      oblivious_nodes: ["https://rpc.safe-node.com/"],
+    })
+    ```
+    **Why hybrid:** only the block proof is fetched from the prover; account/storage data is loaded from RPC or oblivious node and verified locally (remote mode would download the full call proof from the server). **Why PAP:** avoids `eth_createAccessList` on the prover (intent leakage); storage slots are resolved optimistically in the local EVM so only `eth_getProof` RPCs are exposed externally.
+
+    How oblivious RPC nodes work (TEE, Oblivious RAM): [Oblivious Labs](https://www.obliviouslabs.com/).
 
 - `fetch` - custom fetch function for all HTTP requests    
     Provide a custom `fetch` implementation to route all network traffic through Tor, a SOCKS proxy, or any other transport layer. The function must match the signature of `globalThis.fetch`. When not set, the standard `fetch` is used.
