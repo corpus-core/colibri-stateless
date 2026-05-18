@@ -279,6 +279,34 @@ public enum ColibriError: Error {
     case proofError(String)
     case networkError(String)
     case invalidParams(String)
+    /// EVM execution ran to completion but reverted. Raw revert return-data
+    /// as a `0x`-prefixed hex string ("0x" when empty). EIP-1193 error code 3.
+    case revert(data: String)
+}
+```
+
+#### Verified EVM reverts (`ColibriError.revert`)
+
+When an `eth_call` (or similar EVM execution) is verified successfully but the
+EVM itself executed a `REVERT`, the binding throws `ColibriError.revert(data:)`.
+This is a fully verified outcome -- not a transport or proof failure -- and
+matches the Geth-style RPC error
+`{ code: 3, message: "execution reverted", data: "0x..." }`.
+
+The associated value is the raw revert return data as a `0x`-prefixed hex
+string. Callers typically ABI-decode this against the contract's error
+definitions (custom errors, `Error(string)`, etc.). This is the mechanism that
+lets dApp libraries decode `OffchainLookup` (EIP-3668 / CCIP-Read) for example
+for the ENS off-chain resolver.
+
+```swift
+do {
+    let result = try await colibri.rpc(method: "eth_call", params: "[{...}, \"latest\"]")
+} catch ColibriError.revert(let data) {
+    // data == "0x556f1830..."  // ABI-encoded OffchainLookup or custom error
+    print("reverted with: \(data)")
+} catch {
+    print("other error: \(error)")
 }
 ```
 

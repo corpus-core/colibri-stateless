@@ -95,6 +95,24 @@ class RPCError extends ColibriError {
   final int? code;
 }
 
+/// Thrown when an `eth_call` (or similar EVM execution) ran to completion but
+/// reverted. The verifier has fully verified the revert -- this is a legitimate
+/// outcome of EVM execution, not a transport or proof error.
+///
+/// Maps to the Geth-style RPC error `{ code: 3, message: "execution reverted",
+/// data: "0x..." }`, which is also the EIP-1193 representation used by ethers
+/// to decode `OffchainLookup` (EIP-3668 / CCIP-Read) and custom Solidity errors.
+///
+/// The raw revert bytes are exposed in [data] as a `0x`-prefixed hex string;
+/// callers typically ABI-decode them with the contract's error definitions.
+class RevertError extends RPCError {
+  RevertError(this.data, {super.details})
+      : super('execution reverted', code: 3);
+
+  /// Raw EVM revert return-data as `0x`-prefixed hex (may be `0x` when empty).
+  final String data;
+}
+
 /// Thrown when HTTP transport fails for a data request.
 class HTTPError extends ColibriError {
   HTTPError(super.message, {this.statusCode, super.details});

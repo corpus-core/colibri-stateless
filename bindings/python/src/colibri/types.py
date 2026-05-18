@@ -77,6 +77,26 @@ class RPCError(ColibriError):
         self.code = code
 
 
+class RevertError(RPCError):
+    """Raised when an ``eth_call`` (or similar EVM execution) ran to completion
+    but reverted. The verifier has fully verified the revert -- this is a
+    legitimate EVM outcome, not a transport or proof error.
+
+    Maps to the Geth-style RPC error
+    ``{"code": 3, "message": "execution reverted", "data": "0x..."}``, which is
+    also the EIP-1193 representation used by ethers to decode
+    ``OffchainLookup`` (EIP-3668 / CCIP-Read) and custom Solidity errors.
+
+    :ivar data: Raw EVM revert return-data as ``0x``-prefixed hex string
+        (``"0x"`` when empty). Callers typically ABI-decode this with the
+        contract's error definitions.
+    """
+
+    def __init__(self, data: str, details: Optional[str] = None):
+        super().__init__("execution reverted", code=3, details=details)
+        self.data = data
+
+
 class HTTPError(ColibriError):
     """Exception raised for HTTP errors"""
     

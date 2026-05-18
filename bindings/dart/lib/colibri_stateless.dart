@@ -10,6 +10,7 @@
 /// {@canonicalFor types.ProofError}
 /// {@canonicalFor types.VerificationError}
 /// {@canonicalFor types.RPCError}
+/// {@canonicalFor types.RevertError}
 /// {@canonicalFor types.HTTPError}
 /// {@canonicalFor types.DataRequest}
 library colibri_stateless;

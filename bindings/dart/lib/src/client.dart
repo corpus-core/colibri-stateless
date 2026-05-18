@@ -251,6 +251,8 @@ class Colibri {
         switch (status['status']) {
           case 'success':
             return status['result'];
+          case 'revert':
+            throw RevertError((status['data'] ?? '0x').toString());
           case 'error':
             throw VerificationError(status['error']?.toString() ?? 'Unknown verification error');
           case 'pending':
@@ -308,6 +310,11 @@ class Colibri {
           case 'success':
             _onDebug?.call('rpc: $method → success');
             return status['result'];
+          case 'revert': {
+            final data = (status['data'] ?? '0x').toString();
+            _onDebug?.call('rpc: $method → revert (data=$data)');
+            throw RevertError(data);
+          }
           case 'error':
             final errorMsg = status['error']?.toString() ?? 'Unknown RPC error';
             _onDebug?.call('rpc: $method → error: $errorMsg');

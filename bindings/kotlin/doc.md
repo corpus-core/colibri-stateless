@@ -228,6 +228,38 @@ val colibri = Colibri(
 )
 ```
 
+## Error handling
+
+The binding throws `ColibriException` for any failure (proof, network, RPC, etc.).
+Verified EVM reverts are signalled by the dedicated subclass `ColibriRevertException`
+so callers can distinguish them from transport/proof errors.
+
+### Verified EVM reverts (`ColibriRevertException`)
+
+When an `eth_call` (or similar EVM execution) is verified successfully but the
+EVM itself executed a `REVERT`, the binding throws `ColibriRevertException`.
+This is a fully verified outcome -- not a transport or proof failure -- and
+matches the Geth-style RPC error
+`{ "code": 3, "message": "execution reverted", "data": "0x..." }`.
+
+`ColibriRevertException` extends `ColibriException` (with `code = 3`) and
+exposes the raw revert return data as a `0x`-prefixed hex string in `data`.
+Callers typically ABI-decode this against the contract's error definitions
+(custom errors, `Error(string)`, etc.). This is the mechanism that lets dApp
+libraries decode `OffchainLookup` (EIP-3668 / CCIP-Read) for example for the
+ENS off-chain resolver.
+
+```kotlin
+try {
+    val result = colibri.rpc("eth_call", arrayOf(mapOf("to" to "0x…", "data" to "0x…"), "latest"))
+} catch (e: ColibriRevertException) {
+    // e.data == "0x556f1830..."  // ABI-encoded OffchainLookup or custom error
+    println("reverted with: ${e.data}")
+} catch (e: ColibriException) {
+    println("other error: ${e.message}")
+}
+```
+
 ## Example Android App
 
 A complete working example is available in the [example directory](https://github.com/corpus-core/colibri-stateless/tree/main/bindings/kotlin/example). This minimal Android app demonstrates:

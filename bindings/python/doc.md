@@ -540,11 +540,15 @@ from colibri.types import (
     ProofError,        # Proof generation/verification failed
     VerificationError, # Proof verification failed
     RPCError,          # RPC call failed
+    RevertError,       # Verified EVM revert (eth_call etc.) -- subclass of RPCError
     HTTPError          # Network request failed
 )
 
 try:
     result = await client.rpc("eth_getBalance", ["0x...", "latest"])
+except RevertError as e:
+    # Verified EVM revert -- decode e.data with the contract ABI
+    print(f"Reverted with data: {e.data}")
 except ProofError as e:
     print(f"Proof error: {e}")
     # Handle proof generation failure
@@ -560,6 +564,30 @@ except HTTPError as e:
 except ColibriError as e:
     print(f"General Colibri error: {e}")
     # Handle any other Colibri error
+```
+
+### Verified EVM reverts (`RevertError`)
+
+When an `eth_call` (or similar EVM execution) is verified successfully but the
+EVM itself executed a `REVERT`, the binding raises `RevertError`. This is a
+fully verified outcome -- not a transport or proof failure -- and matches the
+Geth-style RPC error `{"code": 3, "message": "execution reverted", "data": "0x..."}`.
+
+`RevertError` is a subclass of `RPCError` (with `code = 3`) and exposes the raw
+revert return data as a `0x`-prefixed hex string in `data`. Callers typically
+ABI-decode this against the contract's error definitions (custom errors,
+`Error(string)`, etc.). This is the mechanism that lets dApp libraries decode
+`OffchainLookup` (EIP-3668 / CCIP-Read) for example for the ENS off-chain
+resolver.
+
+```python
+from colibri import RevertError
+
+try:
+    await client.rpc("eth_call", [{"to": "0x...", "data": "0x..."}, "latest"])
+except RevertError as e:
+    # e.data == "0x556f1830..."  # ABI-encoded OffchainLookup or custom error
+    print(f"reverted with: {e.data}")
 ```
 
 ### Graceful Degradation

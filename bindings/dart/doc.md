@@ -230,12 +230,36 @@ import 'package:colibri_stateless/colibri_stateless.dart';
 
 try {
   final result = await colibri.rpc('eth_getBalance', ['0x…', 'latest']);
+} on RevertError catch (e) {
+  // Verified EVM revert (e.g. eth_call) -- decode e.data with the contract ABI
 } on ProofError catch (e) {
   // Proof generation or verification failed
 } on RPCError catch (e) {
   // RPC or network error
 } on ColibriError catch (e) {
   // Other Colibri errors
+}
+```
+
+### Verified EVM reverts (`RevertError`)
+
+When an `eth_call` (or similar EVM execution) is verified successfully but the
+EVM itself executed a `REVERT`, the binding throws a [RevertError]. This is a
+fully verified outcome -- not a transport or proof failure -- and matches the
+Geth-style RPC error `{ code: 3, message: "execution reverted", data: "0x..." }`.
+
+`RevertError` extends [RPCError] (code = 3) and exposes the raw revert return
+data as a `0x`-prefixed hex string in `data`. Callers typically ABI-decode this
+against the contract's error definitions (custom errors, `Error(string)`, etc.).
+This is the mechanism that lets dApp libraries decode `OffchainLookup`
+(EIP-3668 / CCIP-Read) for example for the ENS off-chain resolver.
+
+```dart
+try {
+  await colibri.rpc('eth_call', [{'to': '0x…', 'data': '0x…'}, 'latest']);
+} on RevertError catch (e) {
+  // e.data == '0x556f1830...'  // ABI-encoded OffchainLookup or custom error
+  print('reverted with: ${e.data}');
 }
 ```
 
