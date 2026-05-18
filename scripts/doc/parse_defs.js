@@ -134,7 +134,8 @@ function add_function_def(sections, line, doc_comment, file, line_number) {
     let fn = p >= 0 ? last_line.substring(0, p).trim().split(' ').at(-1) : last_line.trim().split(' ').at(-1).replace(';', '').trim()
 
     section.content.push('\n## ' + fn)
-    section.content.push(`[${file.replace('../', '')}](${GITHUB_BLOB_BASE}/src/${file}#L${line_number})`)
+    const display_file = file.startsWith('../') ? file.substring(3) : file
+    section.content.push(`[${display_file}](${GITHUB_BLOB_BASE}/src/${file}#L${line_number})`)
     section.content.push('')
     section.content.push(doc_comment.comment)
     section.content.push('')
