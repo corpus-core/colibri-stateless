@@ -152,10 +152,18 @@ class Colibri:
     def _get_default_checkpointz(chain_id: int) -> List[str]:
         """Get default checkpointz URLs for chain"""
         defaults = {
-            1: ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
-            11155111: [],  # No public checkpointz for Sepolia yet
-            100: [],  # TODO: Add Gnosis checkpointz servers
-            10200: [],  # No public checkpointz for Chiado yet
+            1: [
+                "https://sync-mainnet.beaconcha.in",
+                "https://beaconstate.info",
+                "https://sync.invis.tools",
+                "https://beaconstate.ethstaker.cc",
+            ],
+            11155111: [
+                "https://sepolia.beaconstate.info",
+                "https://checkpoint-sync.sepolia.ethpandaops.io",
+            ],
+            100: ["https://checkpoint.gnosischain.com"],
+            10200: ["https://checkpoint.chiadochain.net"],
         }
         return defaults.get(chain_id, [])
 
@@ -471,7 +479,7 @@ class Colibri:
 
                 # Determine server list
                 if request.request_type == "checkpointz":
-                    servers = self.checkpointz
+                    servers = list(self.checkpointz) + list(self.beacon_apis)
                 elif request.request_type == "prover":
                     servers = self.provers
                 elif request.request_type == "beacon_api":

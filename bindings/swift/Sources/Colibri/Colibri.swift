@@ -236,7 +236,7 @@ public class Colibri {
     public var eth_rpcs: [String] = []
     public var beacon_apis: [String] = []
     public var provers: [String] = ["https://c4.incubed.net"]
-    public var checkpointz: [String] = ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"]
+    public var checkpointz: [String] = []
     /// TEE RPC endpoints for eth_getProof (privacy-preserving storage reads).
     public var obliviousNodes: [String] = []
     public var trustedCheckpoint: String? = nil
@@ -258,6 +258,30 @@ public class Colibri {
     private var lightClientTimer: DispatchSourceTimer?
 
     public init() {}
+
+    /// Default checkpointz URLs for supported chains.
+    public static func defaultCheckpointz(for chainId: UInt64) -> [String] {
+        switch chainId {
+        case 1:
+            return [
+                "https://sync-mainnet.beaconcha.in",
+                "https://beaconstate.info",
+                "https://sync.invis.tools",
+                "https://beaconstate.ethstaker.cc",
+            ]
+        case 11155111:
+            return [
+                "https://sepolia.beaconstate.info",
+                "https://checkpoint-sync.sepolia.ethpandaops.io",
+            ]
+        case 100:
+            return ["https://checkpoint.gnosischain.com"]
+        case 10200:
+            return ["https://checkpoint.chiadochain.net"]
+        default:
+            return []
+        }
+    }
 
     public static func initialize() {
         // Placeholder for initialization if needed
@@ -574,7 +598,10 @@ public class Colibri {
                     let requestType = request["type"] as? String
                     let servers: [String]
                     if requestType == "checkpointz" {
-                        servers = self.checkpointz
+                        let configured = self.checkpointz.isEmpty
+                            ? Colibri.defaultCheckpointz(for: self.chainId)
+                            : self.checkpointz
+                        servers = configured + self.beacon_apis
                     } else if requestType == "prover" {
                         servers = self.provers
                     } else if requestType == "beacon_api" && useProverFallback && !self.provers.isEmpty {
