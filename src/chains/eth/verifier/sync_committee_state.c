@@ -695,47 +695,37 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
   }
   if (!slot) return c4_state_add_error(&ctx->state, "Checkpoint slot not provided for WSP check");
 
-  buffer_t url_buf = {0};
-  bprintf(&url_buf, "eth/v1/beacon/blocks/%l/root", slot);
+  char* url = NULL;
+  sbprintf(url, "eth/v1/beacon/blocks/%l/root", slot);
 
-  data_request_t* req = c4_state_get_data_request_by_url(&ctx->state, (char*) url_buf.data.data);
+  data_request_t* req = c4_state_get_data_request_by_url(&ctx->state, url);
   if (!req) {
     // Issue a fresh request; ownership of url_buf.data.data transfers to the request
     data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
     new_req->chain_id       = ctx->chain_id;
-    new_req->url            = (char*) url_buf.data.data;
+    new_req->url            = url;
     new_req->encoding       = C4_DATA_ENCODING_JSON;
     new_req->type           = C4_DATA_TYPE_CHECKPOINTZ;
     c4_state_add_request(&ctx->state, new_req);
     return C4_PENDING;
   }
 
-  buffer_free(&url_buf);
+  safe_free(url);
 
   if (req->error)
     return c4_state_add_error(&ctx->state, req->error);
 
   if (!req->response.data) return C4_PENDING;
 
-  // Parse JSON response: {"data":{"root":"0x..."}}
-  json_t res  = json_parse((char*) req->response.data);
-  json_t data = json_get(res, "data");
-  json_t root = json_get(data, "root");
-
-  // Lightweight validation: check the root token directly (saves ~2 KB by avoiding json_validate)
-  if (!data.start || data.type != JSON_TYPE_OBJECT)
-    return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'data' object");
-
-  if (!root.start || root.type != JSON_TYPE_STRING)
-    return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'root' field");
-
-  // Expected token: "0x" + 64 hex chars surrounded by quotes => 68 chars total
-  if (root.len != 68 || strncmp(root.start, "\"0x", 3) != 0)
-    return c4_state_add_error(&ctx->state, "Invalid checkpointz response: root must be a 0x-prefixed 32-byte hex string");
+  // Validate the checkpointz response shape: {"data":{"root":"0x<32-byte-hex>"}}
+  // CHECK_JSON returns C4_ERROR with a precise "checkpointz response.data.root: ..." message
+  // if anything is off (missing field, wrong type, wrong hex length).
+  json_t res = json_parse((char*) req->response.data);
+  CHECK_JSON(res, "{data:{root:bytes32}}", "checkpointz response");
 
   bytes32_t checkpointz_root = {0};
-  buffer_t  root_buf         = {.data = bytes(checkpointz_root, 32), .allocated = -32};
-  json_as_bytes(root, &root_buf);
+  buffer_t  root_buf         = stack_buffer(checkpointz_root);
+  json_as_bytes(json_get(json_get(res, "data"), "root"), &root_buf);
 
   if (memcmp(checkpointz_root, expected_root, 32) != 0)
     return c4_state_add_error(&ctx->state, "Weak subjectivity check failed: checkpoint mismatch");
