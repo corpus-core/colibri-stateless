@@ -110,9 +110,23 @@ Colibri performs an explicit **Weak Subjectivity Period (WSP) check** whenever a
 | ---------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Verifier-driven LightClient updates**  | Verifier fetches `light_client/updates` itself when bridging a gap larger than the WSP.   | The last finalized header from the verified updates is compared against the block root returned by the configured `checkpointz` / Beacon API endpoint (`eth/v1/beacon/blocks/{slot}/root`).                    |
 | **Prover-supplied `LCSyncData`**         | Prover pushes a batch of `light_client/updates` whose finalized header crosses the WSP.   | After the in-band BLS verification, the highest finalized header is anchored against `checkpointz` exactly like the verifier-driven path.                                                                      |
-| **Prover-supplied `ZKSyncData`**         | Prover pushes a recursive ZK proof for a sync committee period beyond the WSP.            | First choice: if `checkpoint_witness_keys` are configured **and** the prover delivered matching `signatures`, the EIP-191 signatures over the attested header are verified. Otherwise: `checkpointz` fallback. |
+| **Prover-supplied `ZKSyncData`**         | Prover pushes a recursive ZK proof for a sync committee period beyond the WSP.            | First choice: if `checkpoint_witness_keys` are configured **and** the prover delivered matching `signatures`, the EIP-191 signatures over the attested header are verified. Otherwise: `checkpointz` anchor against an embedded checkpoint header (epoch boundary). When the checkpoint variant is `historic_proof`, the recent anchor header is additionally tied to the attested block root via a Merkle proof over `historical_summaries`. |
 
 The WSP boundary itself is derived from `spec->weak_subjectivity_epochs` (a Colibri-side value, defaulting to a value below the protocol's own WSP estimate so that the anchor is checked well before validators can safely exit).
+
+#### `historic_proof` variant (preferred for `ZKSyncData`)
+
+The original `header_proof` variant requires `checkpointz` to serve a block root for the epoch boundary right *after* the period the ZK proof covers -- typically days or even months in the past for older periods. Public `checkpointz` instances only keep roughly the last 30 finalized snapshots (~6 hours), so a large fraction of WSP requests for older periods fall back to a Beacon API node, defeating the goal of routing checkpoint lookups through dedicated, low-trust checkpointz instances.
+
+The `historic_proof` variant addresses this by anchoring against a **recent** epoch boundary (currently the finalized head from the SSE event that built the snapshot) and additionally proving cryptographically that the attested block root from the ZK proof is part of that recent state's history:
+
+1. The prover delivers `checkpoint.historic_proof = { proof, header, gindex, ... }` where `header` is the recent epoch-boundary BeaconBlockHeader.
+2. The verifier asks `checkpointz` (or a Beacon API fallback) for the block root at `header.slot` and rejects on mismatch -- same anchor mechanism as `header_proof`.
+3. The verifier then evaluates `ssz_verify_single_merkle_proof(proof, attested_root, gindex)` and rejects if the result does not match `header.stateRoot`.
+
+The second step closes the long-range window: an attacker who fabricates a fork after the period's last block cannot exhibit a matching `historical_summaries` entry inside the canonical recent state, so the merkle check fails.
+
+A non-trivial implication is that the trust assumption shifts entirely to `checkpointz` for the anchor header; the historic proof itself carries no BLS signature (this would re-introduce the chicken-and-egg problem of needing the sync committee we are about to verify). Witness-key deployments therefore still receive a `header_proof` snapshot from the server so they can use signature-based anchoring without round-tripping to `checkpointz`.
 
 #### When the check is skipped
 

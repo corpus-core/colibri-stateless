@@ -2,6 +2,7 @@
 #include "period_store.h"
 #include "eth_conf.h"
 #include "period_store_zk_prover.h"
+#include <unistd.h>
 
 bool c4_ps_file_exists(uint64_t period, const char* filename) {
   char*       path = bprintf(NULL, "%s/%l/%s", eth_config.period_store, period, filename);
@@ -33,8 +34,29 @@ void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
     if (c4_ps_file_exists(period, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period);
     if (c4_ps_file_exists(period + 1, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period + 1);
     c4_period_prover_on_checkpoint(period);
+
+    // Master: schedule a fresh historic_proof snapshot for the periods we just rebuilt.
+    // First-success cascade over (finalized, justified, head epoch boundary) anchor candidates.
+    if (c4_ps_file_exists(period, "zk_proof.ssz")) c4_ps_build_historic_proof_snapshot(period, slot);
+    if (c4_ps_file_exists(period + 1, "zk_proof.ssz")) c4_ps_build_historic_proof_snapshot(period + 1, slot);
   }
-  else
+  else {
     // Slave instance: optionally full-sync the period store from master for backup purposes.
     c4_ps_full_sync_on_checkpoint(period);
+
+    // The slave-side period_store cache replicates files from the master on first
+    // request and treats them as immutable forever after. That is correct for
+    // `zk_proof_checkpoint_${slot}.ssz` (each slot has exactly one canonical
+    // snapshot), but wrong for `snapshots.idx` which grows whenever the master
+    // builds a new snapshot. To keep slave responses fresh, invalidate the local
+    // copy of the index for the current and next period on every checkpoint
+    // event -- the next prover request will then re-fetch the latest index from
+    // the master via the existing `c4_handle_period_master_cb` path.
+    char* idx_path      = bprintf(NULL, "%s/%l/snapshots.idx", eth_config.period_store, period);
+    char* idx_path_next = bprintf(NULL, "%s/%l/snapshots.idx", eth_config.period_store, period + 1);
+    unlink(idx_path);
+    unlink(idx_path_next);
+    safe_free(idx_path);
+    safe_free(idx_path_next);
+  }
 }

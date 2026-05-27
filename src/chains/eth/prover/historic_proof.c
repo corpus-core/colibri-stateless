@@ -156,13 +156,97 @@ static c4_status_t get_historical_summaries(prover_ctx_t* ctx, beacon_block_t* b
    */
 }
 
+// Records an error either to the provided state (prover path) or via log_warn
+// (server-side path with no state). Returns C4_ERROR for convenience.
+static c4_status_t historic_merkle_error(c4_state_t* state, const char* msg) {
+  if (state) {
+    state->error = strdup(msg);
+  }
+  else {
+    log_warn("%s", msg);
+  }
+  return C4_ERROR;
+}
+
+c4_status_t c4_build_historic_merkle_proof(
+    chain_id_t  chain_id,
+    c4_state_t* state,
+    uint64_t    block_period,
+    uint64_t    block_idx,
+    bytes_t     blocks_roots,
+    json_t      history_proof,
+    uint64_t    recent_state_slot,
+    bytes_t*    out_proof,
+    gindex_t*   out_gindex) {
+
+  if (!out_proof || !out_gindex) return historic_merkle_error(state, "invalid output pointers!");
+  *out_proof  = NULL_BYTES;
+  *out_gindex = 0;
+
+  const chain_spec_t* chain = c4_eth_get_chain_spec(chain_id);
+  if (chain == NULL) return historic_merkle_error(state, "unsupported chain id!");
+
+  uint8_t  tmp[200] = {0};
+  buffer_t buf      = stack_buffer(tmp);
+
+  uint32_t  offset_period  = (uint32_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
+  fork_id_t fork           = c4_chain_fork_id(chain_id, epoch_for_slot(recent_state_slot, chain)); // fork for the recent state
+  json_t    data           = json_get(history_proof, "data");
+  uint32_t  summary_idx    = (uint32_t) (block_period - offset_period);                            // index from Capella fork (first summary entry)
+  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                             // summaries field gindex in the state (idx 27)
+  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root");         // gindex of the summary object
+  gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
+  ssz_ob_t  blocks_ob      = {.bytes = blocks_roots, .def = &BLOCKS};
+  buffer_t  full_proof     = {0};
+  buffer_t  list_data      = {0};
+  bytes32_t root           = {0};
+  bytes32_t blocks_root    = {0};
+
+  // Build summaries list from JSON
+  json_for_each_value(json_get(data, "historical_summaries"), entry) {
+    buffer_append(&list_data, json_get_bytes(entry, "block_summary_root", &buf));
+    buffer_append(&list_data, json_get_bytes(entry, "state_summary_root", &buf));
+  }
+
+  ssz_ob_t summaries_ob    = {.bytes = list_data.data, .def = &SUMMARIES};
+  bytes_t  block_idx_proof = ssz_create_proof(blocks_ob, blocks_root, block_gidx);
+  bytes_t  period_idx_proof = ssz_create_proof(summaries_ob, root, period_gidx);
+
+  // Sanity: blocks_root we just computed must match the block_summary_root
+  // recorded in the historical_summaries list for this period.
+  ssz_ob_t summary_ob             = ssz_at(summaries_ob, summary_idx);
+  bytes_t  blocks_root_in_summary = ssz_get(&summary_ob, "block_summary_root").bytes;
+  if (memcmp(blocks_root, blocks_root_in_summary.data, 32) != 0) {
+    log_info("blocks_root computed:    0x%b", bytes(blocks_root, 32));
+    log_info("blocks_root in summary:  0x%b", blocks_root_in_summary);
+
+    safe_free(block_idx_proof.data);
+    safe_free(period_idx_proof.data);
+    safe_free(list_data.data.data);
+    return historic_merkle_error(state, "blocks_root mismatch");
+  }
+
+  buffer_append(&full_proof, block_idx_proof);
+  buffer_append(&full_proof, period_idx_proof);
+  json_for_each_value(json_get(data, "proof"), entry)
+      buffer_append(&full_proof, json_as_bytes(entry, &buf));
+
+  *out_proof  = full_proof.data;
+  *out_gindex = ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
+
+  safe_free(block_idx_proof.data);
+  safe_free(period_idx_proof.data);
+  safe_free(list_data.data.data);
+
+  return C4_SUCCESS;
+}
+
 static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
   uint64_t            slot          = src_block->slot;
   c4_status_t         status        = C4_SUCCESS;
   beacon_block_t      block         = {0};
   json_t              history_proof = {0};
   uint8_t             tmp[200]      = {0};
-  buffer_t            buf           = stack_buffer(tmp);
   buffer_t            buf2          = stack_buffer(tmp);
   const chain_spec_t* chain         = c4_eth_get_chain_spec(ctx->chain_id);
   bytes_t             blocks        = {0};
@@ -184,66 +268,23 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "period_store/%d/blocks.ssz", block_period), NULL, 0, &blocks)); // get the blockd
   TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
 
-  uint32_t  offset_period  = (uint32_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
-  fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
-  json_t    data           = json_get(history_proof, "data");                                    // the the main json-object
-  uint32_t  summary_idx    = block_period - offset_period;                                       // the index starting from the  cappella fork, where we got zhe first Summary entry.
-  uint32_t  block_idx      = slot % 8192;                                                        // idx within the period
-  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                           // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
-  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root");       // the gindex of the single summary-object we need to proof
-  gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
-  ssz_ob_t  blocks_ob      = {.bytes = blocks, .def = &BLOCKS};
-  buffer_t  full_proof     = {0};
-  buffer_t  list_data      = {0};
-  bytes32_t root           = {0};
+  bytes_t   historic_proof = {0};
+  gindex_t  combined_gidx  = 0;
   bytes32_t body_root      = {0};
-  bytes32_t blocks_root    = {0};
-
-  // create summary-list
-  json_for_each_value(json_get(data, "historical_summaries"), entry) {
-    buffer_append(&list_data, json_get_bytes(entry, "block_summary_root", &buf));
-    buffer_append(&list_data, json_get_bytes(entry, "state_summary_root", &buf));
-  }
-
-  // create the proofs (two genuinely separate single-leaf proofs)
-  ssz_ob_t summaries_ob = {.bytes = list_data.data, .def = &SUMMARIES};
+  // CU accounting for the SSZ proof construction below (in addition to the
+  // CU_HISTORIC_DIRECT base above): two single-leaf merkle proofs over the
+  // 8192-block roots and the historical_summaries list.
   eth_cu_add(ctx, 2 * CU_SSZ_PROOF);
-  bytes_t block_idx_proof  = ssz_create_proof(blocks_ob, blocks_root, block_gidx);
-  bytes_t period_idx_proof = ssz_create_proof(summaries_ob, root, period_gidx);
-  bytes_t  block_root_expected    = ssz_at(blocks_ob, block_idx).bytes;
-  ssz_ob_t summary_ob             = ssz_at(summaries_ob, summary_idx);
-  bytes_t  blocks_root_in_summary = ssz_get(&summary_ob, "block_summary_root").bytes;
+  TRY_ASYNC(c4_build_historic_merkle_proof(ctx->chain_id, &ctx->state, block_period, slot % 8192, blocks, history_proof, block.slot, &historic_proof, &combined_gidx));
 
-  if (memcmp(blocks_root, blocks_root_in_summary.data, 32) != 0) {
-    log_info("block_root_expected: 0x%b", block_root_expected);
-    log_info("blocks_root1: 0x%b", bytes(blocks_root, 32));
-    log_info("blocks_root_in_summary: 0x%b", blocks_root_in_summary);
-
-    safe_free(block_idx_proof.data);
-    safe_free(period_idx_proof.data);
-    safe_free(list_data.data.data);
-    THROW_ERROR("blocks_root mismatch");
-  }
-
-  // combine the proofs
-  buffer_append(&full_proof, block_idx_proof);
-  buffer_append(&full_proof, period_idx_proof);               // add the proof from summary to the root of the list.
-  json_for_each_value(json_get(data, "proof"), entry)         // add the proof from the root of the list to the root of the state.
-      buffer_append(&full_proof, json_as_bytes(entry, &buf)); // as provided by lodestar
-
-  // calc header
   ssz_hash_tree_root(block.body, body_root);
-  block_proof->historic_proof = full_proof.data;
-  block_proof->gindex         = ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
+  block_proof->historic_proof = historic_proof;
+  block_proof->gindex         = combined_gidx;
   block_proof->sync_aggregate = block.sync_aggregate;
   block_proof->proof_header   = bytes(safe_malloc(112), 112);
   block_proof->type           = HISTORIC_PROOF_DIRECT;
   memcpy(block_proof->proof_header.data, block.header.bytes.data, 112 - 32);
   memcpy(block_proof->proof_header.data + 112 - 32, body_root, 32);
-
-  safe_free(block_idx_proof.data);
-  safe_free(period_idx_proof.data);
-  safe_free(list_data.data.data);
 
   return C4_SUCCESS;
 }
