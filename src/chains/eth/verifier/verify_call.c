@@ -554,8 +554,11 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
       goto cleanup;
     }
 
-    if (!c4_update_from_sync_data(&proof_ctx)) {
+    if (c4_update_from_sync_data(&proof_ctx) != C4_SUCCESS) {
       if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
+      // Forward pending requests (e.g. a checkpointz WSP anchor) from the inner sub-proof
+      // context to the outer ctx so the host can fulfil them and we re-enter via retry.
+      c4_state_take_requests(&ctx->state, &proof_ctx.state);
       goto cleanup;
     }
 

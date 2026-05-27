@@ -59,6 +59,7 @@ class Colibri:
         privacy_mode: Optional[PrivacyMode] = None,
         prover_mode: Optional['ProverMode'] = None,
         checkpoint_witness_keys: Optional[str] = None,
+        skip_wsp_check: bool = False,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
     ):
@@ -78,6 +79,11 @@ class Colibri:
             zk_proof: Whether to request ZK sync proofs from remote provers
             privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
             checkpoint_witness_keys: Optional hex-encoded witness signer keys (0x-prefixed)
+            skip_wsp_check: If True, set VERIFY_FLAG_SKIP_WSP_CHECK (bit 1<<7) and skip the
+                Weak Subjectivity Period check. SECURITY: only safe with an alternative trust
+                anchor (witness signatures, hard-coded checkpoint, signed package); disabling
+                raises the risk of long-range attacks across periods older than the WSP.
+                Default: False.
             storage: Storage implementation (defaults to DefaultStorage)
             request_handler: Optional request handler for testing
         """
@@ -95,6 +101,7 @@ class Colibri:
         self.privacy_mode = privacy_mode if privacy_mode is not None else PrivacyMode.NONE
         self.prover_mode = prover_mode
         self.checkpoint_witness_keys = checkpoint_witness_keys
+        self.skip_wsp_check = skip_wsp_check
         self.request_handler = request_handler
         self._light_client_task: Optional[asyncio.Task] = None
 
@@ -168,11 +175,13 @@ class Colibri:
         return defaults.get(chain_id, [])
 
     def _get_verify_flags(self) -> int:
-        """Return verify flags for C API (e.g. VERIFY_FLAG_PAP = 2, VERIFY_FLAG_OBLIVIOUS = 64)."""
+        """Return verify flags for C API (e.g. VERIFY_FLAG_PAP = 2, VERIFY_FLAG_OBLIVIOUS = 64, VERIFY_FLAG_SKIP_WSP_CHECK = 128)."""
         pap = self.privacy_mode == PrivacyMode.BASIC or bool(self.oblivious_nodes)
         flags = 2 if pap else 0
         if self.oblivious_nodes:
             flags |= 1 << 6
+        if self.skip_wsp_check:
+            flags |= 1 << 7
         return flags
 
     def get_method_support(self, method: str, params: Optional[List[Any]] = None) -> MethodType:

@@ -671,7 +671,80 @@ static uint64_t find_last_verified_finality_checkpoint(verify_ctx_t* ctx, bytes3
 }
 
 /**
- * Weak Subjectivity Period (WSP) Validation
+ * Anchor a locally derived finalized header root against an external `checkpointz` / Beacon API
+ * endpoint by fetching `eth/v1/beacon/blocks/{slot}/root` and comparing the response.
+ *
+ * This is the low-level building block of the Weak Subjectivity Period (WSP) check. It is used
+ * by both the verifier-driven sync path (`c4_check_weak_subjectivity`) and the prover-supplied
+ * sync paths (`update_from_zk_sync_data`, `update_from_lc_sync_data`).
+ *
+ * The caller is responsible for any local cleanup (e.g. clearing the sync state) on `C4_ERROR`.
+ * When `VERIFY_FLAG_SKIP_WSP_CHECK` is set, the function short-circuits without emitting a request.
+ *
+ * @param ctx           Verification context (provides state and flags)
+ * @param slot          Slot number of the finalized header to anchor
+ * @param expected_root Locally derived block root (32 bytes) to compare against the checkpointz answer
+ * @return C4_SUCCESS if the roots match (or the check was skipped), C4_ERROR on mismatch or
+ *         invalid response, C4_PENDING while the request is in flight.
+ */
+INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot, bytes32_t expected_root) {
+  if (!ctx) return C4_ERROR;
+  if (ctx->flags & VERIFY_FLAG_SKIP_WSP_CHECK) {
+    log_warn("Skipping Weak Subjectivity Period check due to VERIFY_FLAG_SKIP_WSP_CHECK");
+    return C4_SUCCESS;
+  }
+  if (!slot) return c4_state_add_error(&ctx->state, "Checkpoint slot not provided for WSP check");
+
+  buffer_t url_buf = {0};
+  bprintf(&url_buf, "eth/v1/beacon/blocks/%l/root", slot);
+
+  data_request_t* req = c4_state_get_data_request_by_url(&ctx->state, (char*) url_buf.data.data);
+  if (!req) {
+    // Issue a fresh request; ownership of url_buf.data.data transfers to the request
+    data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
+    new_req->chain_id       = ctx->chain_id;
+    new_req->url            = (char*) url_buf.data.data;
+    new_req->encoding       = C4_DATA_ENCODING_JSON;
+    new_req->type           = C4_DATA_TYPE_CHECKPOINTZ;
+    c4_state_add_request(&ctx->state, new_req);
+    return C4_PENDING;
+  }
+
+  buffer_free(&url_buf);
+
+  if (req->error)
+    return c4_state_add_error(&ctx->state, req->error);
+
+  if (!req->response.data) return C4_PENDING;
+
+  // Parse JSON response: {"data":{"root":"0x..."}}
+  json_t res  = json_parse((char*) req->response.data);
+  json_t data = json_get(res, "data");
+  json_t root = json_get(data, "root");
+
+  // Lightweight validation: check the root token directly (saves ~2 KB by avoiding json_validate)
+  if (!data.start || data.type != JSON_TYPE_OBJECT)
+    return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'data' object");
+
+  if (!root.start || root.type != JSON_TYPE_STRING)
+    return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'root' field");
+
+  // Expected token: "0x" + 64 hex chars surrounded by quotes => 68 chars total
+  if (root.len != 68 || strncmp(root.start, "\"0x", 3) != 0)
+    return c4_state_add_error(&ctx->state, "Invalid checkpointz response: root must be a 0x-prefixed 32-byte hex string");
+
+  bytes32_t checkpointz_root = {0};
+  buffer_t  root_buf         = {.data = bytes(checkpointz_root, 32), .allocated = -32};
+  json_as_bytes(root, &root_buf);
+
+  if (memcmp(checkpointz_root, expected_root, 32) != 0)
+    return c4_state_add_error(&ctx->state, "Weak subjectivity check failed: checkpoint mismatch");
+
+  return C4_SUCCESS;
+}
+
+/**
+ * Weak Subjectivity Period (WSP) Validation for the verifier-driven sync path.
  *
  * This function protects against long-range attacks when a client syncs after being offline
  * for longer than the weak subjectivity period (typically ~2 weeks / 256 epochs).
@@ -688,16 +761,14 @@ static uint64_t find_last_verified_finality_checkpoint(verify_ctx_t* ctx, bytes3
  *
  * When a sync gap exceeds the WSP, this function:
  * 1. Finds the last verified finalized checkpoint from cached light client updates
- * 2. Queries checkpointz (external beacon node) for the block root at that slot
- * 3. Verifies that both roots match, confirming we're on the canonical chain
+ * 2. Delegates the anchor comparison to `c4_verify_checkpointz_root`
+ * 3. Clears the sync state on mismatch to force a fresh bootstrap on the next round
  *
- * ## When to Disable (USE_CHECKPOINTZ=OFF)
+ * ## When to Disable
  *
- * Disabling checkpointz (which disables this function AND bootstrap checkpoint fetching) is acceptable when:
- * - Device has no HTTP access (e.g., Bluetooth-only embedded devices)
- * - Protected value is small relative to attack cost
- * - Application can tolerate the increased risk
- * - Initial checkpoint is provided manually in configuration
+ * Either at build time via `USE_CHECKPOINTZ=OFF` (this entire function is compiled out, see
+ * `c4_get_validators`), or at runtime via `VERIFY_FLAG_SKIP_WSP_CHECK`. Both are explicit
+ * security trade-offs intended for environments with an alternative trust anchor.
  *
  * ⚠️ WARNING: Disabling increases long-range attack risk during extended offline periods!
  *
@@ -723,69 +794,17 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
   // Check if we exceed weak subjectivity period
   if (epoch_diff <= spec->weak_subjectivity_epochs) return C4_SUCCESS; // Within WSP
 
-  // first find the last finality checkpoint we have verifier during a light_client_update.
+  // first find the last finality checkpoint we have verified during a light_client_update.
   uint64_t finality_slot = find_last_verified_finality_checkpoint(ctx, last_verified_finality_checkpoint_root);
   if (!finality_slot) {
     clear_sync_state(ctx->chain_id);
     return c4_state_add_error(&ctx->state, "Checkpoint slot not found in local state");
   }
 
-  buffer_t url_buf = {0};
-  bprintf(&url_buf, "eth/v1/beacon/blocks/%l/root", finality_slot);
-
-  data_request_t* req = c4_state_get_data_request_by_url(&ctx->state, (char*) url_buf.data.data);
-  if (!req) {
-    // Create new request
-    data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
-    new_req->chain_id       = ctx->chain_id;
-    new_req->url            = (char*) url_buf.data.data;
-    new_req->encoding       = C4_DATA_ENCODING_JSON;
-    new_req->type           = C4_DATA_TYPE_CHECKPOINTZ;
-    c4_state_add_request(&ctx->state, new_req);
-    return C4_PENDING;
-  }
-
-  buffer_free(&url_buf);
-
-  if (req->error)
-    return c4_state_add_error(&ctx->state, req->error);
-
-  if (req->response.data) {
-    // Parse JSON response: {"data":{"root":"0x..."}}
-    json_t res = json_parse((char*) req->response.data);
-
-    json_t data = json_get(res, "data");
-    json_t root = json_get(data, "root");
-
-    // Lightweight validation: just check the root token directly
-    // This saves ~2 KB by avoiding json_validate
-    if (!data.start || data.type != JSON_TYPE_OBJECT)
-      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'data' object");
-
-    if (!root.start || root.type != JSON_TYPE_STRING)
-      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: missing or invalid 'root' field");
-
-    // Check if root starts with "0x prefix (including opening quote)
-    if (root.len < 4 || strncmp(root.start, "\"0x", 3) != 0)
-      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: root must start with 0x prefix");
-
-    // Check if root has correct length for a hex string: "0x" + 64 hex chars = 66 chars (without quotes)
-    if (root.len != 68) // includes opening and closing quotes
-      return c4_state_add_error(&ctx->state, "Invalid checkpointz response: root must be 66 hex characters (with 0x prefix)");
-
-    bytes32_t checkpointz_root = {0};
-    buffer_t  root_buf         = {.data = bytes(checkpointz_root, 32), .allocated = -32};
-    json_as_bytes(root, &root_buf);
-
-    if (memcmp(checkpointz_root, last_verified_finality_checkpoint_root, 32) != 0) {
-      clear_sync_state(ctx->chain_id);
-      return c4_state_add_error(&ctx->state, "Weak subjectivity check failed: checkpoint mismatch");
-    }
-
-    return C4_SUCCESS;
-  }
-
-  return C4_PENDING;
+  c4_status_t status = c4_verify_checkpointz_root(ctx, finality_slot, last_verified_finality_checkpoint_root);
+  if (status == C4_ERROR)
+    clear_sync_state(ctx->chain_id);
+  return status;
 }
 #endif // USE_CHECKPOINTZ
 

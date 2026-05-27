@@ -117,6 +117,7 @@ class Colibri {
     this.zkProof = false,
     this.proverMode,
     this.checkpointWitnessKeys,
+    this.skipWspCheck = false,
     this.storage,
     void Function(String message)? onDebug,
     String? libraryPath,
@@ -218,6 +219,21 @@ lightClient.startLightClient(fullBlock: true); // or fetch the full block
 ```
 
 Default: `ProverMode.remote` when prover URLs are configured, `ProverMode.local` otherwise.
+
+### Weak Subjectivity Period check
+
+Whenever a sync crosses the **Weak Subjectivity Period (WSP)** -- typically ~2 to 4 months on Ethereum mainnet -- the verifier anchors the highest finalized header it has just accepted against an external `checkpointz` / Beacon API endpoint (`/eth/v1/beacon/blocks/{slot}/root`). The check runs for all three sync paths: verifier-driven Light Client updates, prover-supplied `LCSyncData`, and prover-supplied `ZKSyncData`. For `ZKSyncData` the verifier prefers configured **witness signatures** (`checkpointWitnessKeys` + matching `signatures` from the prover) and only falls back to `checkpointz` when no witness anchor is available. Background: see the [threat model -- long range attacks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/threat-model).
+
+- `skipWspCheck` (`bool`, default `false`) -- sets `VERIFY_FLAG_SKIP_WSP_CHECK` (bit `1 << 7`) and disables the round-trip. **SECURITY:** only safe when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place. Disabling raises the risk of long-range attacks across periods older than the WSP.
+
+```dart
+final colibri = Colibri(
+  chainId: 1,
+  provers: ['https://mainnet.colibri-proof.tech'],
+  // I already trust the signed app bundle / checkpoint baked into my firmware.
+  skipWspCheck: true,
+);
+```
 
 ### Environment
 

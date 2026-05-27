@@ -322,6 +322,11 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ privacy_mode: "basic" })
     ```
+- `skip_wsp_check` - if `true`, the verifier skips the **Weak Subjectivity Period (WSP) check** for prover-supplied or self-fetched sync committee data, setting `VERIFY_FLAG_SKIP_WSP_CHECK` (bit `1 << 7`). The WSP check anchors the highest finalized header against the configured `checkpointz` endpoint whenever a sync crosses the WSP (typically ~2 to 4 months on Ethereum mainnet); for ZK sync data the verifier prefers `checkpoint_witness_keys` + matching signatures when available, otherwise falls back to `checkpointz`. **SECURITY:** only enable when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; disabling raises the risk of long-range attacks. Default: `false`. See the [threat model -- long range attacks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/threat-model) for background.
+    ```js
+    new Colibri({ skip_wsp_check: true })
+    ```
+
 - `oblivious_nodes` - TEE RPC endpoints for private `eth_getProof` (default: empty). Routes `eth_getProof` only to these URLs; sets `VERIFY_FLAG_OBLIVIOUS` and **PAP** automatically. For full `eth_call` privacy, combine with `privacy_mode: "basic"` and `prover_mode: "hybrid"`:
     ```js
     // https://rpc.safe-node.com/ requires an API key for testing

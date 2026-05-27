@@ -1003,7 +1003,12 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  * @param chain_id The blockchain chain ID (must match proof)
  * @param trusted_checkpoint Optional trusted checkpoint as hex string (0x-prefixed, 66 chars),
  *                           or NULL/empty string to use the default checkpoint for this chain
- * @param flags Verify flags (e.g. 2 for VERIFY_FLAG_PAP). Use 0 for default.
+ * @param flags Verify flags bitmask. Common values: `2` = `VERIFY_FLAG_PAP`,
+ *              `64` = `VERIFY_FLAG_OBLIVIOUS`, `128` = `VERIFY_FLAG_SKIP_WSP_CHECK`.
+ *              `VERIFY_FLAG_SKIP_WSP_CHECK` disables the Weak Subjectivity Period anchor
+ *              against `checkpointz` for prover-supplied or self-fetched sync committee
+ *              data. SECURITY: only safe when another trust anchor (witness signatures,
+ *              hard-coded checkpoint, signed package) is in place. Use `0` for default.
  * @return A new verification context pointer, or NULL if creation failed
  *
  * **Trusted Checkpoints**:
@@ -1143,7 +1148,8 @@ void c4_verify_free_ctx(void* ctx);
  * @param method The Ethereum RPC method name (e.g., "eth_getBalance")
  * @param params The method parameters as a JSON array string (e.g., `[{"to":"0x...","data":"0x..."}, "latest"]`),
  *               or NULL if not available. Used in PAP mode to check cached data availability.
- * @param flags Verify flags (e.g. 2 for VERIFY_FLAG_PAP / PAP basic mode). Use 0 for default.
+ * @param flags Verify flags bitmask. Common values: `2` = `VERIFY_FLAG_PAP`,
+ *              `64` = `VERIFY_FLAG_OBLIVIOUS`, `128` = `VERIFY_FLAG_SKIP_WSP_CHECK`. Use `0` for default.
  * @return Method support type (see table below)
  *
  * **Return Values**:
@@ -1233,7 +1239,10 @@ uint32_t c4_get_current_version_number(void);
  * @param params The method parameters as a JSON array string
  * @param chain_id The blockchain chain ID
  * @param prover_flags Flags for proof generation (see prover flag types)
- * @param verify_flags Flags for verification (e.g., 2 for `VERIFY_FLAG_PAP`)
+ * @param verify_flags Flags for verification bitmask. Common values: `2` = `VERIFY_FLAG_PAP`,
+ *                     `64` = `VERIFY_FLAG_OBLIVIOUS`, `128` = `VERIFY_FLAG_SKIP_WSP_CHECK`
+ *                     (SECURITY: disables the Weak Subjectivity Period anchor; only safe with an
+ *                     alternative trust anchor such as witness signatures or a hard-coded checkpoint).
  * @param prover_mode proof generation mode: 0 = local, 1 = remote, 2 = hybrid (header proof from server, execution data from RPC provider)
  * @return A new RPC context pointer, or NULL if creation failed
  *

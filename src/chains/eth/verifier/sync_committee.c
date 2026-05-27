@@ -72,6 +72,15 @@ static uint64_t finalized_root_gindex(chain_id_t chain_id, uint64_t slot) {
   return fork == C4_FORK_DENEB ? DENEP_FINALIZED_ROOT_GINDEX : ELECTRA_FINALIZED_ROOT_GINDEX;
 }
 
+/**
+ * Extract the `finalizedHeader.beacon` token from a light client update. Centralized so the
+ * apply path and the WSP pre-scan agree on the same SSZ accessor sequence.
+ */
+static ssz_ob_t lcu_finalized_beacon(ssz_ob_t* update) {
+  ssz_ob_t finalized = ssz_get(update, "finalizedHeader");
+  return ssz_get(&finalized, "beacon");
+}
+
 static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
 
   bytes32_t sync_root             = {0};
@@ -83,8 +92,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   // Extract components (no need for ssz_is_error checks after validation in c4_handle_client_updates)
   ssz_ob_t attested            = ssz_get(update, "attestedHeader");
   ssz_ob_t attested_header     = ssz_get(&attested, "beacon");
-  ssz_ob_t finalized           = ssz_get(update, "finalizedHeader");
-  ssz_ob_t finalized_header    = ssz_get(&finalized, "beacon");
+  ssz_ob_t finalized_header    = lcu_finalized_beacon(update);
   ssz_ob_t finality_branch     = ssz_get(update, "finalityBranch");
   ssz_ob_t sync_aggregate      = ssz_get(update, "syncAggregate");
   ssz_ob_t signature           = ssz_get(&sync_aggregate, "syncCommitteeSignature");
@@ -174,29 +182,96 @@ static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_
   if (witness_keys_found != (1 << ctx->witness_keys.len / 20) - 1) RETURN_VERIFY_ERROR(ctx, "some witness keys are missing!");
   return true;
 }
-static bool update_from_lc_sync_data(verify_ctx_t* ctx) {
-  ssz_ob_t bootstrap = ssz_get(&ctx->sync_data, "bootstrap");
-  ssz_ob_t updates   = ssz_get(&ctx->sync_data, "update");
+/**
+ * Determine the highest cached sync committee period for the given chain.
+ * Returns 0 if no periods are stored.
+ */
+static uint32_t cached_highest_period(chain_id_t chain_id) {
+  c4_chain_state_t chain_state = c4_get_chain_state(chain_id);
+  if (chain_state.status != C4_STATE_SYNC_PERIODS) return 0;
+  uint32_t highest = 0;
+  for (int i = 0; i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++)
+    if (chain_state.data.periods[i] > highest) highest = chain_state.data.periods[i];
+  return highest;
+}
 
-  // do we have bootstrap data?
+/**
+ * Check whether the gap between `highest_known_period` and `target_period` exceeds the
+ * Weak Subjectivity Period for the given chain. Used to decide whether the prover-supplied
+ * sync data requires a checkpointz anchor.
+ */
+static bool wsp_exceeded(const chain_spec_t* spec, uint32_t highest_known_period, uint32_t target_period) {
+  if (!spec || target_period <= highest_known_period) return false;
+  uint64_t epoch_diff = ((uint64_t) (target_period - highest_known_period)) << spec->epochs_per_period_bits;
+  return epoch_diff > spec->weak_subjectivity_epochs;
+}
+
+static c4_status_t update_from_lc_sync_data(verify_ctx_t* ctx) {
+  ssz_ob_t            bootstrap = ssz_get(&ctx->sync_data, "bootstrap");
+  ssz_ob_t            updates   = ssz_get(&ctx->sync_data, "update");
+  const chain_spec_t* spec      = c4_eth_get_chain_spec(ctx->chain_id);
+
+  // Bootstrap establishes the initial chain state from a trusted_checkpoint -- that checkpoint
+  // is itself the trust anchor, so no WSP round-trip is required for the bootstrap step.
   if (bootstrap.def->type == SSZ_TYPE_CONTAINER) {
     c4_chain_state_t chain_state = c4_get_chain_state(ctx->chain_id);
-    if (chain_state.status == C4_STATE_SYNC_EMPTY) RETURN_VERIFY_ERROR(ctx, "bootstrap data found, but no checkpoint set!");
-    if (chain_state.status == C4_STATE_SYNC_CHECKPOINT && c4_handle_bootstrap(ctx, bootstrap.bytes, chain_state.data.checkpoint) != C4_SUCCESS) return false;
+    if (chain_state.status == C4_STATE_SYNC_EMPTY) RETURN_VERIFY_ERROR_STATUS(ctx, "bootstrap data found, but no checkpoint set!");
+    if (chain_state.status == C4_STATE_SYNC_CHECKPOINT && c4_handle_bootstrap(ctx, bootstrap.bytes, chain_state.data.checkpoint) != C4_SUCCESS) return C4_ERROR;
   }
 
-  // run all light client updates
   uint32_t updates_len = ssz_len(updates);
+
+#ifdef USE_CHECKPOINTZ
+  // Run the Weak Subjectivity Period anchor *before* persisting any new sync committee
+  // period. update_light_client_update() calls c4_set_sync_period() inline, so doing this
+  // after the apply loop would persist potentially-malicious state on the first PENDING
+  // round and then bypass the check on retry (highest_known would already include the new
+  // periods, making wsp_exceeded false). Pre-scanning the SSZ-validated updates for the
+  // highest finalized header is safe: we only read header fields, no signatures are trusted
+  // at this point. If the prover provides a forged header, the checkpointz mismatch aborts
+  // before any side effect; if the prover provides a real header that does not pass BLS
+  // verification later, the apply loop returns C4_ERROR with no committed state.
+  if (spec && updates_len) {
+    uint32_t  highest_known          = cached_highest_period(ctx->chain_id);
+    uint64_t  highest_finalized_slot = 0;
+    bytes32_t highest_finalized_root = {0};
+
+    for (uint32_t i = 0; i < updates_len; i++) {
+      ssz_ob_t update           = ssz_union(ssz_at(updates, i));
+      ssz_ob_t finalized_beacon = lcu_finalized_beacon(&update);
+      uint64_t slot             = ssz_get_uint64(&finalized_beacon, "slot");
+      if (slot > highest_finalized_slot) {
+        highest_finalized_slot = slot;
+        ssz_hash_tree_root(finalized_beacon, highest_finalized_root);
+      }
+    }
+
+    if (highest_finalized_slot) {
+      // Map the finalized header to the period whose next sync committee these updates would
+      // teach us about; matches the period that update_light_client_update() will persist.
+      uint32_t target_period = (highest_finalized_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
+      if (wsp_exceeded(spec, highest_known, target_period)) {
+        c4_status_t wsp_status = c4_verify_checkpointz_root(ctx, highest_finalized_slot, highest_finalized_root);
+        if (wsp_status != C4_SUCCESS) return wsp_status; // PENDING re-enters cleanly; ERROR is already recorded on ctx->state
+      }
+    }
+  }
+#else
+  (void) spec;
+#endif
+
+  // WSP anchor passed (or not required) -- now it is safe to apply and persist the updates.
   for (uint32_t i = 0; i < updates_len; i++) {
     ssz_ob_t update = ssz_union(ssz_at(updates, i));
-    if (!update_light_client_update(ctx, &update)) return false;
+    if (!update_light_client_update(ctx, &update)) return C4_ERROR;
   }
 
   // we may want to clean up the sync data, so we don't sync again.
   ctx->sync_data.def = &ssz_none;
-  return true;
+  return C4_SUCCESS;
 }
-static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
+
+static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
 #ifdef ETH_ZKPROOF
   bytes32_t           previous_pubkeys_hash = {0};
   const chain_spec_t* spec                  = c4_eth_get_chain_spec(ctx->chain_id);
@@ -206,6 +281,7 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
   ssz_ob_t            header                = ssz_get(&ctx->sync_data, "header");
   uint64_t            attested_slot         = ssz_get_uint64(&header, "slot");
   ssz_ob_t            pub_keys              = ssz_get(&ctx->sync_data, "pubkeys");
+  ssz_ob_t            signatures            = ssz_get(&ctx->sync_data, "signatures");
   uint32_t            period                = (attested_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits)) + 1;
   c4_chain_state_t    chain_state           = c4_get_chain_state(ctx->chain_id);
 
@@ -215,7 +291,7 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
       if (chain_state.data.periods[i] == period) {
         log_debug("period %d already exists", period);
         ctx->sync_data.def = &ssz_none;
-        return true;
+        return C4_SUCCESS;
       }
     }
   }
@@ -225,23 +301,50 @@ static bool update_from_zk_sync_data(verify_ctx_t* ctx) {
   ssz_hash_tree_root(pub_keys, pub_inputs + 32);   // next_keys_root
   uint64_to_le(pub_inputs + 64, period);           // next_period
   ssz_hash_tree_root(header, pub_inputs + 72);     // attested_header_root
-  if (!eth_calculate_domain(ctx->chain_id, attested_slot, pub_inputs + 104)) RETURN_VERIFY_ERROR(ctx, "unsupported chain!");
-  if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 136), vk_hash.data)) RETURN_VERIFY_ERROR(ctx, "invalid zk_proof!");
-  if (!verify_signatures(ctx, ssz_get(&ctx->sync_data, "checkpoint"), header, ssz_get(&ctx->sync_data, "signatures"))) RETURN_VERIFY_ERROR(ctx, "invalid checkpoint signatures!");
-  if (!c4_set_sync_period(period, pub_keys.bytes, ctx->chain_id, previous_pubkeys_hash)) RETURN_VERIFY_ERROR(ctx, "failed to store next sync committee!");
-  log_debug("zk proof and signatures verified successfully for period %d!", period);
+  if (!eth_calculate_domain(ctx->chain_id, attested_slot, pub_inputs + 104)) RETURN_VERIFY_ERROR_STATUS(ctx, "unsupported chain!");
+  if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 136), vk_hash.data)) RETURN_VERIFY_ERROR_STATUS(ctx, "invalid zk_proof!");
+
+  // Trust anchor: prefer configured witness signatures (no network round-trip), otherwise fall
+  // back to checkpointz when the sync crosses the Weak Subjectivity Period.
+  bool have_witness_anchor = ctx->witness_keys.len > 0 && ssz_len(signatures) > 0;
+  if (have_witness_anchor) {
+    if (!verify_signatures(ctx, ssz_get(&ctx->sync_data, "checkpoint"), header, signatures))
+      RETURN_VERIFY_ERROR_STATUS(ctx, "invalid checkpoint signatures!");
+  }
+  else if (ctx->witness_keys.len > 0) {
+    // Witness keys configured but no signatures supplied -- this is a configuration mismatch.
+    RETURN_VERIFY_ERROR_STATUS(ctx, "checkpoint_witness_keys configured but prover did not deliver witness signatures");
+  }
+  else {
+#ifdef USE_CHECKPOINTZ
+    uint32_t highest_known = cached_highest_period(ctx->chain_id);
+    if (wsp_exceeded(spec, highest_known, period)) {
+      bytes32_t attested_root = {0};
+      ssz_hash_tree_root(header, attested_root);
+      c4_status_t wsp_status = c4_verify_checkpointz_root(ctx, attested_slot, attested_root);
+      if (wsp_status == C4_PENDING) return C4_PENDING; // keep sync_data so we re-enter cleanly on retry
+      if (wsp_status == C4_ERROR) RETURN_VERIFY_ERROR_STATUS(ctx, "Weak subjectivity check failed for ZK sync data");
+    }
+#else
+    if (wsp_exceeded(spec, cached_highest_period(ctx->chain_id), period))
+      log_warn("ZK sync data crosses the Weak Subjectivity Period but USE_CHECKPOINTZ is disabled -- anchor cannot be verified");
+#endif
+  }
+
+  if (!c4_set_sync_period(period, pub_keys.bytes, ctx->chain_id, previous_pubkeys_hash)) RETURN_VERIFY_ERROR_STATUS(ctx, "failed to store next sync committee!");
+  log_debug("zk proof verified successfully for period %d!", period);
 
   // we may want to clean up the sync data, so we don't sync again.
   ctx->sync_data.def = &ssz_none;
-  return true;
+  return C4_SUCCESS;
 #else
-  RETURN_VERIFY_ERROR(ctx, "zk_proof not supported!");
+  RETURN_VERIFY_ERROR_STATUS(ctx, "zk_proof not supported!");
 #endif
 }
 
-INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
-  if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR(ctx, "invalid sync_data!");
-  if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return true;
+INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
+  if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR_STATUS(ctx, "invalid sync_data!");
+  if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return C4_SUCCESS;
 
   log_debug("c4_update_from_sync_data: %s", (char*) ctx->sync_data.def->name);
   if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0)
@@ -249,7 +352,7 @@ INTERNAL bool c4_update_from_sync_data(verify_ctx_t* ctx) {
   else if (strcmp(ctx->sync_data.def->name, "ZKSyncData") == 0)
     return update_from_zk_sync_data(ctx);
   else
-    RETURN_VERIFY_ERROR(ctx, "unknown sync_data type!");
+    RETURN_VERIFY_ERROR_STATUS(ctx, "unknown sync_data type!");
 }
 
 fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {

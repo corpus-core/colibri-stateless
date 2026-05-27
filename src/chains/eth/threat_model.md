@@ -59,7 +59,7 @@ LightClientUpdates include both an `attestedHeader` and a `finalityHeader`. The 
 
 ---
 
-## 3. Long Chain Attacks
+## 3. Long Range Attacks
 
 ### Description
 
@@ -101,6 +101,34 @@ An attacker could attempt to:
 * **Weak Subjectivity Checkpoints**: **Colibri** and Light Clients must be configured with trusted block hashes (Checkpoints) to anchor verification.
 * **Checkpoint Providers**: External sources can provide safe synchronization points.
 * **Community Consensus**: Social recovery (hard forks) in extreme attack scenarios.
+
+### How Colibri enforces WSP today
+
+Colibri performs an explicit **Weak Subjectivity Period (WSP) check** whenever a sync attempt crosses the WSP boundary, regardless of how the sync committee data is obtained. The check applies to all three sync paths:
+
+| Sync path                                | When triggered                                                                            | What is checked                                                                                                                                                                                                |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Verifier-driven LightClient updates**  | Verifier fetches `light_client/updates` itself when bridging a gap larger than the WSP.   | The last finalized header from the verified updates is compared against the block root returned by the configured `checkpointz` / Beacon API endpoint (`eth/v1/beacon/blocks/{slot}/root`).                    |
+| **Prover-supplied `LCSyncData`**         | Prover pushes a batch of `light_client/updates` whose finalized header crosses the WSP.   | After the in-band BLS verification, the highest finalized header is anchored against `checkpointz` exactly like the verifier-driven path.                                                                      |
+| **Prover-supplied `ZKSyncData`**         | Prover pushes a recursive ZK proof for a sync committee period beyond the WSP.            | First choice: if `checkpoint_witness_keys` are configured **and** the prover delivered matching `signatures`, the EIP-191 signatures over the attested header are verified. Otherwise: `checkpointz` fallback. |
+
+The WSP boundary itself is derived from `spec->weak_subjectivity_epochs` (a Colibri-side value, defaulting to a value below the protocol's own WSP estimate so that the anchor is checked well before validators can safely exit).
+
+#### When the check is skipped
+
+* **`USE_CHECKPOINTZ=OFF` build** -- intended for devices without HTTP access (e.g. Bluetooth-only embedded targets). The check is compiled out; an explicit trusted checkpoint in the configuration is the only anchor.
+* **`VERIFY_FLAG_SKIP_WSP_CHECK`** (runtime, bit `1 << 7`) -- exposed via `skipWspCheck` / `skip_wsp_check` in every binding. Allows hosts that already have an alternative trust anchor (hard-coded checkpoint, witness signatures, attested OS package) to skip the round-trip. **Default is off.** Disabling the check is an explicit security trade-off that must be documented in the host application.
+* **Within the WSP** -- no round-trip is performed when the sync gap is smaller than `spec->weak_subjectivity_epochs`; the kept anchor is the previously verified checkpoint chain.
+
+#### Failure handling
+
+Each path commits the new sync committee state only after the anchor check has succeeded:
+
+* For the verifier-driven path the check runs after the updates are applied; on mismatch the cached sync state is cleared (`clear_sync_state`) so the next verification round forces a fresh bootstrap.
+* For prover-supplied `LCSyncData` the check runs **before** any update is folded into the cache (a pre-scan over the SSZ-validated updates determines the highest finalized header). On mismatch nothing is persisted, and the host can simply retry against a different prover or checkpointz endpoint.
+* For prover-supplied `ZKSyncData` the new period is committed via `c4_set_sync_period` only after the witness signatures or checkpointz anchor have been verified. On mismatch nothing is persisted.
+
+A non-responsive checkpointz endpoint returns `C4_PENDING` rather than silently passing, so a single transport failure cannot bypass the check. The next host loop iteration re-enters the same code path; persistent state is only mutated once the anchor agrees.
 
 ---
 

@@ -371,6 +371,21 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state);
 c4_status_t c4_state_add_error(c4_state_t* state, const char* error);
 
 /**
+ * Moves all pending data requests from `src` to `dst`.
+ *
+ * Appends `dst`'s existing request list to the tail of `src`'s request list and then
+ * transfers ownership of the resulting list to `dst`. `src->requests` is set to NULL.
+ * Use this when forwarding requests from a temporary sub-context (e.g. a nested
+ * `verify_ctx_t` used for PAP sub-proofs) to its parent so the host can fulfil them.
+ *
+ * No-op when `src->requests` is NULL.
+ *
+ * @param dst Destination state (receives the merged request list)
+ * @param src Source state (request list is detached)
+ */
+void c4_state_take_requests(c4_state_t* dst, c4_state_t* src);
+
+/**
  * **TRY_ASYNC(fn)** - Executes an async function and returns early if not successful.
  *
  * This macro is used to chain asynchronous operations. If the function

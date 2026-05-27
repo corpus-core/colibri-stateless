@@ -139,6 +139,14 @@ export interface Config extends ChainConfig {
     zk_proof?: boolean;
     /** Proof generation mode. Default: "remote" if prover URLs configured, otherwise "local". */
     prover_mode?: ProverMode;
+    /**
+     * If true, the verifier skips the Weak Subjectivity Period check
+     * (`VERIFY_FLAG_SKIP_WSP_CHECK`, bit `1 << 7`). **SECURITY:** only safe when another
+     * trust anchor (witness signatures, hard-coded checkpoint, signed package) is in
+     * place; disabling raises the risk of long-range attacks across periods older than
+     * the WSP. Default: false.
+     */
+    skip_wsp_check?: boolean;
     chains: {
         [chainId: number]: ChainConfig;
     };
