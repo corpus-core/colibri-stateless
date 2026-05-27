@@ -84,11 +84,9 @@ static c4_status_t choose_snapshot_slot(prover_ctx_t* ctx, uint64_t period, uint
     }
   }
 
-  // Clear any error from the index lookup; absence is not fatal.
-  if (ctx->state.error) {
-    safe_free(ctx->state.error);
-    ctx->state.error = NULL;
-  }
+  // Clear any error from the index lookup; absence is not fatal. saved_err is
+  // restored unconditionally (it overwrites whatever the lookup left behind).
+  if (ctx->state.error) safe_free(ctx->state.error);
   ctx->state.error = saved_err;
   return C4_SUCCESS;
 }
@@ -119,7 +117,7 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, (char*) buf.data.data, NULL, 0, &zk_proof->sync_proof.bytes));
 
   if (ctx->witness_key.len && ctx->witness_key.len % 20 == 0) {
-    for (int i = 0; i < (int) ctx->witness_key.len; i += 20) {
+    for (uint32_t i = 0; i < ctx->witness_key.len; i += 20) {
       buffer_reset(&buf);
       bytes_t     sig_data   = {0};
       c4_status_t sig_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data);

@@ -156,15 +156,13 @@ static c4_status_t get_historical_summaries(prover_ctx_t* ctx, beacon_block_t* b
    */
 }
 
-// Records an error either to the provided state (prover path) or via log_warn
-// (server-side path with no state). Returns C4_ERROR for convenience.
+// Records an error either to the provided state (prover path, uses the
+// canonical `c4_state_add_error` so existing errors are preserved and chained,
+// not leaked) or via log_warn (server-side path with no state).
+// Returns C4_ERROR for convenience.
 static c4_status_t historic_merkle_error(c4_state_t* state, const char* msg) {
-  if (state) {
-    state->error = strdup(msg);
-  }
-  else {
-    log_warn("%s", msg);
-  }
+  if (state) return c4_state_add_error(state, msg);
+  log_warn("%s", msg);
   return C4_ERROR;
 }
 
@@ -190,6 +188,11 @@ c4_status_t c4_build_historic_merkle_proof(
   buffer_t buf      = stack_buffer(tmp);
 
   uint32_t  offset_period  = (uint32_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
+  // historical_summaries first appears at the Capella fork; periods before
+  // that have no corresponding summary entry, so refuse to build a proof
+  // (otherwise `summary_idx` would underflow uint64 -> uint32).
+  if (block_period < offset_period)
+    return historic_merkle_error(state, "block_period predates historical_summaries fork");
   fork_id_t fork           = c4_chain_fork_id(chain_id, epoch_for_slot(recent_state_slot, chain)); // fork for the recent state
   json_t    data           = json_get(history_proof, "data");
   uint32_t  summary_idx    = (uint32_t) (block_period - offset_period);                            // index from Capella fork (first summary entry)

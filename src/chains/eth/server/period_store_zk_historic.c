@@ -46,9 +46,11 @@
 // anchors. Public checkpointz instances retain ~30 finalized snapshots which
 // roughly corresponds to 6 hours, hence 1800 slots at 12s/slot.
 #define CHECKPOINTZ_WINDOW_SLOTS 1800u
-
-// SSZ definition for blocks.ssz (must match period_store_historical_roots.c).
-static const ssz_def_t BLOCKS_DEF = SSZ_VECTOR("blocks", ssz_bytes32, SLOTS_PER_PERIOD);
+// Sanity cap for snapshots.idx entries. One snapshot per finalized SSE event
+// (~6 min) within the checkpointz window yields at most ~60 slots; we cap
+// generously so a corrupted local file does not trigger a huge `safe_calloc`
+// abort. Also bounds the `4 + count * 8` byte calculation on 32-bit platforms.
+#define SNAPSHOTS_IDX_MAX_COUNT  4096u
 
 typedef struct {
   uint64_t period;
@@ -101,8 +103,14 @@ static bool snapshots_idx_load(uint64_t period, uint64_t** out_slots, uint32_t* 
     fclose(f);
     return true;
   }
+  if (count > SNAPSHOTS_IDX_MAX_COUNT) {
+    log_warn("period_store: snapshots.idx for period %l has implausible count %u (max %u), treating as missing",
+             period, count, SNAPSHOTS_IDX_MAX_COUNT);
+    fclose(f);
+    return false;
+  }
 
-  uint64_t* slots = (uint64_t*) safe_calloc(count, sizeof(uint64_t));
+  uint64_t* slots = safe_calloc(count, sizeof(uint64_t));
   uint8_t   buf[8];
   for (uint32_t i = 0; i < count; i++) {
     if (fread(buf, 1, 8, f) != 8) {
@@ -266,79 +274,113 @@ static void snapshot_write_cb(void* user_data, file_data_t* files, int num_files
 // Builds a 112-byte BeaconBlockHeader from the JSON response of
 // `eth/v1/beacon/headers/${slot}` (message section). Writes into `out` (must
 // be at least HEADER_SSZ_SIZE bytes).
+//
+// The string-length pre-checks guard against an oversized hex value from a
+// malicious / compromised beacon API: `json_as_bytes` sets `buffer->data.len`
+// to the input JSON token length, and the downstream `hex_to_bytes` capacity
+// check then uses that length instead of the true fixed-buffer capacity, so
+// a longer hex value would overflow the 32-byte slot inside our 112-byte
+// stack array. Refusing anything but `"0x" + 64 hex chars` (= 66 chars)
+// closes that path here without requiring a `json_as_bytes` rewrite.
 static bool encode_beacon_block_header_from_json(json_t header_message, uint8_t* out) {
   if (header_message.type != JSON_TYPE_OBJECT) return false;
+
+  json_t parent = json_get(header_message, "parent_root");
+  json_t state  = json_get(header_message, "state_root");
+  json_t body   = json_get(header_message, "body_root");
+  if (parent.type != JSON_TYPE_STRING || parent.len != 66 ||
+      state.type != JSON_TYPE_STRING || state.len != 66 ||
+      body.type != JSON_TYPE_STRING || body.len != 66) return false;
 
   uint64_to_le(out + 0, json_get_uint64(header_message, "slot"));
   uint64_to_le(out + 8, json_get_uint64(header_message, "proposer_index"));
 
-  buffer_t parent_buf = {.data = {.data = out + 16, .len = 32}, .allocated = -32};
-  buffer_t state_buf  = {.data = {.data = out + 48, .len = 32}, .allocated = -32};
-  buffer_t body_buf   = {.data = {.data = out + 80, .len = 32}, .allocated = -32};
+  buffer_t parent_buf = {.data = {.data = out + 16, .len = 0}, .allocated = -32};
+  buffer_t state_buf  = {.data = {.data = out + 48, .len = 0}, .allocated = -32};
+  buffer_t body_buf   = {.data = {.data = out + 80, .len = 0}, .allocated = -32};
 
-  bytes_t parent = json_get_bytes(header_message, "parent_root", &parent_buf);
-  bytes_t state  = json_get_bytes(header_message, "state_root", &state_buf);
-  bytes_t body   = json_get_bytes(header_message, "body_root", &body_buf);
-  return parent.len == 32 && state.len == 32 && body.len == 32;
+  bytes_t parent_dec = json_as_bytes(parent, &parent_buf);
+  bytes_t state_dec  = json_as_bytes(state, &state_buf);
+  bytes_t body_dec   = json_as_bytes(body, &body_buf);
+  return parent_dec.len == 32 && state_dec.len == 32 && body_dec.len == 32;
+}
+
+// Reads `zk_proof.ssz` for the given period synchronously. Returns NULL_BYTES on
+// any failure (caller treats that as "skip snapshot, retry next event").
+static bytes_t read_legacy_zk_proof(uint64_t period) {
+  bytes_t out  = NULL_BYTES;
+  char*   path = bprintf(NULL, "%s/%l/zk_proof.ssz", eth_config.period_store, period);
+  FILE*   lf   = fopen(path, "rb");
+  safe_free(path);
+  if (!lf) return out;
+  fseek(lf, 0, SEEK_END);
+  long sz = ftell(lf);
+  fseek(lf, 0, SEEK_SET);
+  if (sz > 0) {
+    out.data = safe_malloc((uint32_t) sz);
+    out.len  = (uint32_t) fread(out.data, 1, (size_t) sz, lf);
+  }
+  fclose(lf);
+  return out;
 }
 
 static void try_complete_build(build_ctx_t* bctx) {
+  // All heap allocations declared up-front so the single `cleanup:` label can
+  // free everything that was actually allocated (NULL/zeroed values are no-ops).
+  char*         hdr_str            = NULL;
+  char*         sum_str            = NULL;
+  bytes_t       merkle_proof       = NULL_BYTES;
+  bytes_t       legacy_bytes       = NULL_BYTES;
+  ssz_builder_t builder            = {0};
+  ssz_builder_t checkpoint_builder = {0};
+  file_data_t   out_file           = {0};
+  bool          write_scheduled    = false;
+
   if (bctx->any_failed) {
     log_debug("period_store: historic_proof snapshot build for period %l slot %l aborted (one or more fetches failed)",
               bctx->period, bctx->anchor_slot);
-    build_ctx_free(bctx);
-    return;
+    goto cleanup;
   }
 
   // Decode period attested header from sync.ssz
-  const ssz_def_t* verify_request_def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST);
-  ssz_ob_t         sync               = {.def = verify_request_def, .bytes = bctx->sync_ssz};
-  ssz_ob_t         proof              = ssz_get(&sync, "proof");
-  uint64_t         attested_slot      = ssz_get_uint64(&proof, "slot");
+  ssz_ob_t sync          = {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = bctx->sync_ssz};
+  ssz_ob_t proof         = ssz_get(&sync, "proof");
+  uint64_t attested_slot = ssz_get_uint64(&proof, "slot");
   if (attested_slot == 0) {
     log_warn("period_store: invalid sync.ssz for period %l (no slot)", bctx->period);
-    build_ctx_free(bctx);
-    return;
+    goto cleanup;
   }
   uint64_t block_period = attested_slot >> 13;
   uint64_t block_idx    = attested_slot & (SLOTS_PER_PERIOD - 1);
 
-  // Parse JSON responses
-  char* hdr_str = (char*) safe_calloc(1, bctx->header_response.len + 1);
+  // Parse JSON responses: json_parse() mutates the buffer, so we duplicate.
+  hdr_str = (char*) safe_calloc(1, bctx->header_response.len + 1);
   memcpy(hdr_str, bctx->header_response.data, bctx->header_response.len);
   json_t hdr_doc = json_parse(hdr_str);
   json_t hdr_msg = json_get(json_get(json_get(hdr_doc, "data"), "header"), "message");
   if (hdr_msg.type != JSON_TYPE_OBJECT) {
     log_warn("period_store: invalid header response for slot %l", bctx->anchor_slot);
-    safe_free(hdr_str);
-    build_ctx_free(bctx);
-    return;
+    goto cleanup;
   }
   uint8_t anchor_header[HEADER_SSZ_SIZE] = {0};
   if (!encode_beacon_block_header_from_json(hdr_msg, anchor_header)) {
     log_warn("period_store: failed to encode anchor header for slot %l", bctx->anchor_slot);
-    safe_free(hdr_str);
-    build_ctx_free(bctx);
-    return;
+    goto cleanup;
   }
 
-  char* sum_str = (char*) safe_calloc(1, bctx->summaries_response.len + 1);
+  sum_str = (char*) safe_calloc(1, bctx->summaries_response.len + 1);
   memcpy(sum_str, bctx->summaries_response.data, bctx->summaries_response.len);
   json_t sum_doc = json_parse(sum_str);
   if (json_get(sum_doc, "data").type != JSON_TYPE_OBJECT) {
     log_warn("period_store: invalid historical_summaries response for slot %l", bctx->anchor_slot);
-    safe_free(hdr_str);
-    safe_free(sum_str);
-    build_ctx_free(bctx);
-    return;
+    goto cleanup;
   }
 
   // Build merkle proof via shared helper.
-  bytes_t  merkle_proof = {0};
   gindex_t combined_gix = 0;
   if (c4_build_historic_merkle_proof(
           (chain_id_t) http_server.chain_id,
-          NULL, // server has no state; errors get log_warn
+          NULL, // server has no state; helper logs via log_warn
           block_period,
           block_idx,
           bctx->blocks_ssz,
@@ -346,16 +388,22 @@ static void try_complete_build(build_ctx_t* bctx) {
           bctx->anchor_slot,
           &merkle_proof,
           &combined_gix) != C4_SUCCESS) {
-    safe_free(hdr_str);
-    safe_free(sum_str);
-    safe_free(merkle_proof.data);
-    build_ctx_free(bctx);
-    return;
+    goto cleanup;
+  }
+
+  // Read vk_hash, proof, header, pubkeys from the existing legacy zk_proof.ssz
+  // -- that file is the source of truth for these fields after
+  // `c4_build_zk_sync_proof_data`. Re-using it avoids maintaining two build
+  // paths for the ZK side.
+  legacy_bytes = read_legacy_zk_proof(bctx->period);
+  if (legacy_bytes.len == 0) {
+    log_warn("period_store: cannot read zk_proof.ssz for period %l, skipping historic snapshot", bctx->period);
+    goto cleanup;
   }
 
   // Build ZKSyncData SSZ with historic_proof variant (index 1 in checkpoint union).
-  ssz_builder_t builder            = ssz_builder_for_def(C4_ETH_REQUEST_SYNCDATA_UNION + 2);
-  ssz_builder_t checkpoint_builder = ssz_builder_for_def(ssz_get_def(builder.def, "checkpoint")->def.container.elements + 1);
+  builder            = ssz_builder_for_def(C4_ETH_REQUEST_SYNCDATA_UNION + 2);
+  checkpoint_builder = ssz_builder_for_def(ssz_get_def(builder.def, "checkpoint")->def.container.elements + 1);
   ssz_add_bytes(&checkpoint_builder, "proof", merkle_proof);
   ssz_add_bytes(&checkpoint_builder, "header", bytes(anchor_header, HEADER_SSZ_SIZE));
   ssz_add_uint64(&checkpoint_builder, (uint64_t) combined_gix);
@@ -364,62 +412,40 @@ static void try_complete_build(build_ctx_t* bctx) {
   ssz_add_bytes(&checkpoint_builder, "sync_committee_bits", bytes(NULL, 64));
   ssz_add_bytes(&checkpoint_builder, "sync_committee_signature", bytes(NULL, 96));
 
-  // Reuse vk_hash, proof, header, pubkeys from the legacy zk_proof.ssz. We
-  // read it back from disk rather than re-deriving to avoid maintaining two
-  // build paths (and because zk_proof.ssz is the source of truth for these
-  // fields after `c4_build_zk_sync_proof_data`).
-  char*       legacy_path  = bprintf(NULL, "%s/%l/zk_proof.ssz", eth_config.period_store, bctx->period);
-  FILE*       lf           = fopen(legacy_path, "rb");
-  bytes_t     legacy_bytes = NULL_BYTES;
-  if (lf) {
-    fseek(lf, 0, SEEK_END);
-    long sz = ftell(lf);
-    fseek(lf, 0, SEEK_SET);
-    if (sz > 0) {
-      legacy_bytes.data = safe_malloc((uint32_t) sz);
-      legacy_bytes.len  = (uint32_t) fread(legacy_bytes.data, 1, (size_t) sz, lf);
-    }
-    fclose(lf);
-  }
-  safe_free(legacy_path);
-
-  if (legacy_bytes.len == 0) {
-    log_warn("period_store: cannot read zk_proof.ssz for period %l, skipping historic snapshot", bctx->period);
-    safe_free(legacy_bytes.data);
-    safe_free(hdr_str);
-    safe_free(sum_str);
-    safe_free(merkle_proof.data);
-    buffer_free(&builder.fixed);
-    buffer_free(&builder.dynamic);
-    buffer_free(&checkpoint_builder.fixed);
-    buffer_free(&checkpoint_builder.dynamic);
-    build_ctx_free(bctx);
-    return;
-  }
-
   ssz_ob_t legacy = {.def = C4_ETH_REQUEST_SYNCDATA_UNION + 2, .bytes = legacy_bytes};
   ssz_add_bytes(&builder, "vk_hash", ssz_get(&legacy, "vk_hash").bytes);
   ssz_add_bytes(&builder, "proof", ssz_get(&legacy, "proof").bytes);
   ssz_add_bytes(&builder, "header", ssz_get(&legacy, "header").bytes);
   ssz_add_bytes(&builder, "pubkeys", ssz_get(&legacy, "pubkeys").bytes);
   ssz_add_builders(&builder, "checkpoint", checkpoint_builder);
+  // checkpoint_builder buffers were consumed/moved by ssz_add_builders;
+  // zero them so the cleanup label does not double-free.
+  checkpoint_builder = (ssz_builder_t) {0};
   ssz_add_bytes(&builder, "signatures", NULL_BYTES);
 
-  file_data_t out_file = {
-      .data = ssz_builder_to_bytes(&builder).bytes,
-      .path = bprintf(NULL, "%s/%l/zk_proof_checkpoint_%l.ssz", eth_config.period_store, bctx->period, bctx->anchor_slot)};
-
-  safe_free(legacy_bytes.data);
-  safe_free(hdr_str);
-  safe_free(sum_str);
-  safe_free(merkle_proof.data);
+  out_file.data = ssz_builder_to_bytes(&builder).bytes;
+  builder       = (ssz_builder_t) {0}; // builder buffers transferred to out_file
+  out_file.path = bprintf(NULL, "%s/%l/zk_proof_checkpoint_%l.ssz", eth_config.period_store, bctx->period, bctx->anchor_slot);
 
   int rc = c4_write_files_uv(bctx, snapshot_write_cb, &out_file, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
   if (rc < 0) {
     log_warn("period_store: scheduling snapshot write failed for period %l slot %l", bctx->period, bctx->anchor_slot);
     c4_file_data_array_free(&out_file, 1, 1);
-    build_ctx_free(bctx);
+    goto cleanup;
   }
+  write_scheduled = true;
+
+cleanup:
+  safe_free(hdr_str);
+  safe_free(sum_str);
+  safe_free(merkle_proof.data);
+  safe_free(legacy_bytes.data);
+  buffer_free(&builder.fixed);
+  buffer_free(&builder.dynamic);
+  buffer_free(&checkpoint_builder.fixed);
+  buffer_free(&checkpoint_builder.dynamic);
+  if (!write_scheduled) build_ctx_free(bctx);
+  // else: snapshot_write_cb owns bctx and frees it on completion.
 }
 
 static void header_fetch_cb(client_t* client, void* user_data, data_request_t* r) {
@@ -500,6 +526,11 @@ static void files_read_cb(void* user_data, file_data_t* files, int num_files) {
 }
 
 void c4_ps_build_historic_proof_snapshot(uint64_t period, uint64_t finalized_slot) {
+  // TODO(historic_proof): implement first-success fallback cascade over
+  //   [finalized_slot, finalized_slot + 32, finalized_slot + 64]
+  // when Lodestar's historical_summaries endpoint is unavailable for the
+  // finalized anchor. Empirical Lodestar cache depth is ~80 slots (~16min),
+  // so finalized (-64 slots) is at the edge. MVP uses finalized only.
   if (eth_config.period_master_url) return; // slave mode: no local builds
   if (!eth_config.period_store) return;
   if (period == 0) return;

@@ -352,9 +352,17 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
         bytes_t   state_root  = ssz_get(&anchor_header, "stateRoot").bytes;
         bytes32_t att_root    = {0};
         bytes32_t computed    = {0};
+
+        // Defense-in-depth: reject structurally invalid input before the merkle
+        // verifier (which is `void`-returning and silently leaves `computed`
+        // unchanged on bad input -- safe today only because `computed` is
+        // zero-initialized and a SHA-256 state_root will never match all-zero).
+        if (state_root.len != 32 || (proof_bytes.len % 32) != 0 || gindex == 0)
+          RETURN_VERIFY_ERROR_STATUS(ctx, "historic_proof merkle verification: malformed input");
+
         ssz_hash_tree_root(header, att_root);
         ssz_verify_single_merkle_proof(proof_bytes, att_root, gindex, computed);
-        if (state_root.len != 32 || memcmp(computed, state_root.data, 32) != 0)
+        if (memcmp(computed, state_root.data, 32) != 0)
           RETURN_VERIFY_ERROR_STATUS(ctx, "historic_proof merkle verification failed for ZK sync data");
       }
     }
