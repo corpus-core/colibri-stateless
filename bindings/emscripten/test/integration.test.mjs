@@ -147,7 +147,15 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
       const result = await c4.rpc('eth_blockNumber', []);
       assertIsHexBlockNumber(result);
 
-      assert.ok(spy.log.length == 1, 'Should have made one network requests');
+      // With empty storage the prover delivers the ZK sync data (1 request). Since no
+      // witness keys are configured here, the verifier additionally anchors the highest
+      // finalized header against `checkpointz` to satisfy the Weak Subjectivity Period
+      // check (1 more request). Total: 2 network requests, both required for security.
+      const proverReqs      = spy.log.filter(r => r.type === 'prover');
+      const checkpointzReqs = spy.log.filter(r => r.type === 'checkpointz');
+      assert.strictEqual(proverReqs.length, 1, 'Should issue exactly one prover request');
+      assert.strictEqual(checkpointzReqs.length, 1, 'Should issue exactly one checkpointz WSP anchor request');
+      assert.strictEqual(spy.log.length, 2, 'No other requests expected (prover + WSP anchor only)');
       assert.ok(storage._map.size == 2, 'Storage should be populated after zk_proof sync');
     });
 

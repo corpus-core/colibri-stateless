@@ -695,12 +695,18 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
   }
   if (!slot) return c4_state_add_error(&ctx->state, "Checkpoint slot not provided for WSP check");
 
-  char* url = NULL;
-  sbprintf(url, "eth/v1/beacon/blocks/%l/root", slot);
+  // NOTE: `sbprintf(url, ...)` was wrong here -- sbprintf expects a stack-allocated array
+  // (uses sizeof(var) to size the backing buffer), not a `char*` pointer. With a `char*`
+  // it produced an 8-byte fixed buffer pointing at NULL, leaving `url` empty/NULL. That
+  // turned every checkpointz request into a fresh request with empty URL, so the lookup
+  // by URL never deduplicated and the verifier looped forever on the WSP anchor request
+  // (caught by the emscripten integration test's `before` hook). Use bprintf with NULL
+  // buf to get an owned, heap-allocated formatted string instead.
+  char* url = bprintf(NULL, "eth/v1/beacon/blocks/%l/root", slot);
 
   data_request_t* req = c4_state_get_data_request_by_url(&ctx->state, url);
   if (!req) {
-    // Issue a fresh request; ownership of url_buf.data.data transfers to the request
+    // Issue a fresh request; ownership of `url` transfers to the request
     data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
     new_req->chain_id       = ctx->chain_id;
     new_req->url            = url;
