@@ -123,7 +123,7 @@ class Colibri(
     var provers: Array<String> = arrayOf("https://c4.incubed.net"), // Default value
     var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
     var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
-    var checkpointz: Array<String> = arrayOf("https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"), // Default checkpointz servers
+    var checkpointz: Array<String> = emptyArray(),
     var obliviousNodes: Array<String> = emptyArray(), // TEE RPC endpoints for eth_getProof
     var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
@@ -156,6 +156,23 @@ class Colibri(
 //            println("ColibriStorage implementation registered.")
             // Optionally, trigger C-side re-configuration if needed, but likely handled at init.
         }
+
+        /** Default checkpointz URLs for supported chains. */
+        fun defaultCheckpointz(chainId: BigInteger): Array<String> = when (chainId) {
+            BigInteger.ONE -> arrayOf(
+                "https://sync-mainnet.beaconcha.in",
+                "https://beaconstate.info",
+                "https://sync.invis.tools",
+                "https://beaconstate.ethstaker.cc",
+            )
+            BigInteger.valueOf(11155111) -> arrayOf(
+                "https://sepolia.beaconstate.info",
+                "https://checkpoint-sync.sepolia.ethpandaops.io",
+            )
+            BigInteger.valueOf(100) -> arrayOf("https://checkpoint.gnosischain.com")
+            BigInteger.valueOf(10200) -> arrayOf("https://checkpoint.chiadochain.net")
+            else -> emptyArray()
+        }
     }
     private val client = HttpClient(CIO) {
         engine {
@@ -175,7 +192,10 @@ class Colibri(
     private fun serversForRequest(request: JSONObject, useProverFallback: Boolean = false): Array<String> {
         val type = request.optString("type", "eth_rpc")
         return when (type) {
-            "checkpointz" -> checkpointz
+            "checkpointz" -> {
+                val configured = if (checkpointz.isEmpty()) defaultCheckpointz(chainId) else checkpointz
+                configured + beaconApis
+            }
             "beacon_api" -> if (useProverFallback && provers.isNotEmpty()) provers else beaconApis
             "prover" -> provers
             else -> {

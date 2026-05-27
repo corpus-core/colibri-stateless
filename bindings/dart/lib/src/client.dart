@@ -389,7 +389,7 @@ class Colibri {
   List<String> _selectServers(DataRequest request, {required bool useProverFallback}) {
     switch (request.requestType) {
       case 'checkpointz':
-        return checkpointz;
+        return [...checkpointz, ...beaconApis];
       case 'beacon_api':
         if (useProverFallback && provers.isNotEmpty) {
           return [...provers, ...beaconApis];
@@ -487,6 +487,12 @@ List<String> _defaultCheckpointz(int chainId) {
         'https://sync.invis.tools',
         'https://beaconstate.ethstaker.cc',
       ],
+    11155111 => [
+        'https://sepolia.beaconstate.info',
+        'https://checkpoint-sync.sepolia.ethpandaops.io',
+      ],
+    100 => ['https://checkpoint.gnosischain.com'],
+    10200 => ['https://checkpoint.chiadochain.net'],
     _ => <String>[],
   };
 }

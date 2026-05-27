@@ -38,7 +38,12 @@ export const default_config: {
     rpcs: ["https://mainnet1.colibri-proof.tech/execution"],
     beacon_apis: ["https://mainnet1.colibri-proof.tech/consensus/"],
     prover: ["https://mainnet1.colibri-proof.tech"],
-    checkpointz: [], //"https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
+    checkpointz: [
+      "https://sync-mainnet.beaconcha.in",
+      "https://beaconstate.info",
+      "https://sync.invis.tools",
+      "https://beaconstate.ethstaker.cc",
+    ],
     pollingInterval: 12000,
   },
   '11155111': { // Sepolia
@@ -46,7 +51,10 @@ export const default_config: {
     beacon_apis: ["https://ethereum-sepolia-beacon-api.publicnode.com"],
     rpcs: ["https://ethereum-sepolia-rpc.publicnode.com"],
     prover: ["https://sepolia.colibri-proof.tech"],
-    checkpointz: [], // No public checkpointz for Sepolia yet
+    checkpointz: [
+      "https://sepolia.beaconstate.info",
+      "https://checkpoint-sync.sepolia.ethpandaops.io",
+    ],
     pollingInterval: 12000,
   },
   '100': { // gnosis
@@ -54,7 +62,7 @@ export const default_config: {
     beacon_apis: ["https://gnosis.colibri-proof.tech"],
     rpcs: ["https://rpc.ankr.com/gnosis"],
     prover: ["https://gnosis.colibri-proof.tech"],
-    checkpointz: [], // TODO: Add Gnosis checkpointz servers
+    checkpointz: ["https://checkpoint.gnosischain.com"],
     pollingInterval: 5000,
   },
   '10200': { // gnosis chiado
@@ -62,7 +70,10 @@ export const default_config: {
     beacon_apis: ["https://chiado.colibri-proof.tech/consensus/"],
     rpcs: ["https://gnosis-chiado-rpc.publicnode.com"],
     prover: ["https://chiado.colibri-proof.tech"],
-    checkpointz: ["https://chiado.colibri-proof.tech/consensus/"], // No public checkpointz for Chiado yet
+    checkpointz: [
+      "https://checkpoint.chiadochain.net",
+      "https://chiado.colibri-proof.tech/consensus/",
+    ],
     pollingInterval: 5000,
   },
 };
