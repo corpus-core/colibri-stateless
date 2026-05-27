@@ -706,12 +706,42 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
 
   data_request_t* req = c4_state_get_data_request_by_url(&ctx->state, url);
   if (!req) {
-    // Issue a fresh request; ownership of `url` transfers to the request
+    // Issue a fresh request; ownership of `url` transfers to the request.
+    //
+    // The request is routed as `C4_DATA_TYPE_BEACON_API` (not CHECKPOINTZ), even
+    // though the surrounding feature is named the "checkpointz WSP anchor". Two
+    // reasons:
+    //
+    //   1. Ethpandaops/checkpointz servers reject arbitrary historic slots. They
+    //      keep `BlockIDSlot` semantically (see BlockRoot in pkg/service/eth/eth.go)
+    //      but only retain the last ~30 finalized snapshots (~6 h on mainnet, see
+    //      `/checkpointz/v1/beacon/slots`). The slots we anchor against are
+    //      typically much older:
+    //        - LC sync:       `finalizedHeader.beacon.slot`, can be many periods old
+    //                         after long offline gaps.
+    //        - ZK sync:       `checkpoint.header.slot` from `ZKSyncData.checkpoint`
+    //                         (header_proof variant). The prover sets this in
+    //                         `period_store_zk_ssz.c` to the next epoch boundary
+    //                         after the attested slot, which can be ~1-2 days old.
+    //        - `c4_check_weak_subjectivity`: last verified `finalizedHeader` slot.
+    //
+    //   2. Routing through CHECKPOINTZ caused a cascade of HTTP 500s on every WSP
+    //      check before the beacon_api fallback finally answered (verified live
+    //      against `https://sync-mainnet.beaconcha.in` and others -- see PR #276).
+    //
+    // The "current finalized snapshot" lookup in `c4_req_checkpointz_status`
+    // (`eth/v1/beacon/states/head/finality_checkpoints`) intentionally stays on
+    // CHECKPOINTZ because that is exactly the endpoint checkpointz is designed for.
+    //
+    // Callers SHOULD still pass an epoch-boundary slot whenever possible: beacon-API
+    // nodes always have arbitrary slots, but an epoch boundary makes the anchor a
+    // canonical finality checkpoint and matches what the prover assembles into
+    // `checkpoint.header` (slots_per_epoch + slot - slot % slots_per_epoch).
     data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
     new_req->chain_id       = ctx->chain_id;
     new_req->url            = url;
     new_req->encoding       = C4_DATA_ENCODING_JSON;
-    new_req->type           = C4_DATA_TYPE_CHECKPOINTZ;
+    new_req->type           = C4_DATA_TYPE_BEACON_API;
     c4_state_add_request(&ctx->state, new_req);
     return C4_PENDING;
   }

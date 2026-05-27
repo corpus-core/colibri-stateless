@@ -148,13 +148,20 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
       assertIsHexBlockNumber(result);
 
       // With empty storage the prover delivers the ZK sync data (1 request). Since no
-      // witness keys are configured here, the verifier additionally anchors the highest
-      // finalized header against `checkpointz` to satisfy the Weak Subjectivity Period
-      // check (1 more request). Total: 2 network requests, both required for security.
-      const proverReqs      = spy.log.filter(r => r.type === 'prover');
-      const checkpointzReqs = spy.log.filter(r => r.type === 'checkpointz');
+      // witness keys are configured here, the verifier additionally anchors the
+      // checkpoint header (an epoch boundary, by construction in the prover) by
+      // looking up `eth/v1/beacon/blocks/{slot}/root` against a Beacon-API node
+      // (1 more request). The request is routed as `beacon_api`, NOT `checkpointz`,
+      // because public checkpointz servers only retain ~6h of finalized snapshots
+      // and cannot serve historic anchor slots -- see `sync_committee_state.c`'s
+      // `c4_verify_checkpointz_root` for the long explanation.
+      // Total: 2 network requests, both required for security.
+      const proverReqs = spy.log.filter(r => r.type === 'prover');
+      const wspReqs    = spy.log.filter(r =>
+        r.type === 'beacon_api' && typeof r.url === 'string' && /eth\/v1\/beacon\/blocks\/\d+\/root$/.test(r.url),
+      );
       assert.strictEqual(proverReqs.length, 1, 'Should issue exactly one prover request');
-      assert.strictEqual(checkpointzReqs.length, 1, 'Should issue exactly one checkpointz WSP anchor request');
+      assert.strictEqual(wspReqs.length, 1, 'Should issue exactly one beacon_api WSP anchor request');
       assert.strictEqual(spy.log.length, 2, 'No other requests expected (prover + WSP anchor only)');
       assert.ok(storage._map.size == 2, 'Storage should be populated after zk_proof sync');
     });

@@ -319,9 +319,21 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
 #ifdef USE_CHECKPOINTZ
     uint32_t highest_known = cached_highest_period(ctx->chain_id);
     if (wsp_exceeded(spec, highest_known, period)) {
-      bytes32_t attested_root = {0};
-      ssz_hash_tree_root(header, attested_root);
-      c4_status_t wsp_status = c4_verify_checkpointz_root(ctx, attested_slot, attested_root);
+      // Anchor against the checkpoint header (an epoch boundary by construction in
+      // `period_store_zk_ssz.c`: `checkpoint = slots_per_epoch + slot - slot % slots_per_epoch`),
+      // NOT the attested header (typically mid-epoch). Checkpointz only serves
+      // epoch-boundary blocks; using the attested slot turns every WSP request into
+      // a cascade of 500s before the beacon_api fallback answers. The checkpoint
+      // header is also what `verify_signatures` treats as the signed anchor for the
+      // witness-key path above, so both trust anchors agree on the same block.
+      ssz_ob_t  checkpoint    = ssz_get(&ctx->sync_data, "checkpoint");
+      ssz_ob_t  anchor_header = (checkpoint.def && (strcmp(checkpoint.def->name, "header_proof") == 0 || strcmp(checkpoint.def->name, "historic_proof") == 0))
+                                    ? ssz_get(&checkpoint, "header")
+                                    : header; // signature_proof has no embedded anchor header; falls back to attested
+      uint64_t  anchor_slot   = ssz_get_uint64(&anchor_header, "slot");
+      bytes32_t anchor_root   = {0};
+      ssz_hash_tree_root(anchor_header, anchor_root);
+      c4_status_t wsp_status = c4_verify_checkpointz_root(ctx, anchor_slot, anchor_root);
       if (wsp_status == C4_PENDING) return C4_PENDING; // keep sync_data so we re-enter cleanly on retry
       if (wsp_status == C4_ERROR) RETURN_VERIFY_ERROR_STATUS(ctx, "Weak subjectivity check failed for ZK sync data");
     }
