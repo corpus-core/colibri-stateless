@@ -506,7 +506,13 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   bool         result    = false;
   bool         is_hybrid = false;
 
-  if (c4_verify_init(&proof_ctx, response, "eth_call", ctx->args, ctx->chain_id, 0) != C4_SUCCESS) {
+  // Inherit the outer verification flags into the inner sub-proof context so user-facing
+  // policy flags (VERIFY_FLAG_SKIP_WSP_CHECK, VERIFY_FLAG_HYBRID, VERIFY_FLAG_OBLIVIOUS, …)
+  // behave consistently across both contexts. VERIFY_FLAG_FREE_DATA must be masked out:
+  // proof_ctx.data points into the prover response (owned by the data_request_t), so
+  // c4_verify_free_data must not free it.
+  verify_flags_t inner_flags = ctx->flags & ~VERIFY_FLAG_FREE_DATA;
+  if (c4_verify_init(&proof_ctx, response, "eth_call", ctx->args, ctx->chain_id, inner_flags) != C4_SUCCESS) {
     if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
     goto cleanup;
   }
@@ -554,11 +560,27 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
       goto cleanup;
     }
 
-    if (c4_update_from_sync_data(&proof_ctx) != C4_SUCCESS) {
+    // c4_update_from_sync_data may need to issue (or look up the response of)
+    // a checkpointz WSP anchor request. The persistent request list lives on
+    // the outer `ctx` (the host fulfils requests by id against that list), so
+    // we lend it to proof_ctx for the call and immediately move everything
+    // back. This is critical for two reasons:
+    //   1) On a retry the cached WSP response sits in ctx.state.requests; the
+    //      URL lookup inside c4_verify_checkpointz_root runs against
+    //      proof_ctx.state.requests and would otherwise miss it and append a
+    //      duplicate request forever (request-loop bug).
+    //   2) The subsequent c4_verify_header(ctx, ...) call also resolves
+    //      requests against ctx.state.requests (via c4_get_validators →
+    //      req_client_update). Leaving the requests on proof_ctx would make
+    //      that path append duplicates of its own.
+    // Net effect: WSP requests transit through proof_ctx solely so the inner
+    // URL lookup sees them; they are always owned by ctx outside this block.
+    c4_state_take_requests(&proof_ctx.state, &ctx->state);
+    c4_status_t sd_status = c4_update_from_sync_data(&proof_ctx);
+    c4_state_take_requests(&ctx->state, &proof_ctx.state);
+
+    if (sd_status != C4_SUCCESS) {
       if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
-      // Forward pending requests (e.g. a checkpointz WSP anchor) from the inner sub-proof
-      // context to the outer ctx so the host can fulfil them and we re-enter via retry.
-      c4_state_take_requests(&ctx->state, &proof_ctx.state);
       goto cleanup;
     }
 
@@ -612,6 +634,11 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   result = true;
 
 cleanup:
+  // Safety net: if any unexpected requests still sit on the inner sub-context
+  // (e.g. a future helper that emits requests through proof_ctx between the
+  // lend/return block and cleanup), forward them to the outer ctx instead of
+  // leaking them via c4_state_free below.
+  c4_state_take_requests(&ctx->state, &proof_ctx.state);
   c4_verify_free_data(&proof_ctx);
   return result;
 }
