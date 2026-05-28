@@ -395,7 +395,6 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
 #ifdef ETH_ZKPROOF
   bytes32_t           previous_pubkeys_hash = {0};
   const chain_spec_t* spec                  = c4_eth_get_chain_spec(ctx->chain_id);
-  uint8_t             pub_inputs[136]       = {0};
   bytes_t             vk_hash               = ssz_get(&ctx->sync_data, "vk_hash").bytes;
   bytes_t             proof                 = ssz_get(&ctx->sync_data, "proof").bytes;
   ssz_ob_t            header                = ssz_get(&ctx->sync_data, "header");
@@ -416,16 +415,14 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
     }
   }
 
-  // create the public input for the zk proof
-  memcpy(pub_inputs, spec->zk_sync_keys_root, 32); // root-anchor
-  ssz_hash_tree_root(pub_keys, pub_inputs + 32);   // next_keys_root
-  uint64_to_le(pub_inputs + 64, period);           // next_period
-  ssz_hash_tree_root(header, pub_inputs + 72);     // attested_header_root
-  if (!eth_calculate_domain(ctx->chain_id, attested_slot, pub_inputs + 104)) RETURN_VERIFY_ERROR_STATUS(ctx, "unsupported chain!");
-  if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 136), vk_hash.data)) RETURN_VERIFY_ERROR_STATUS(ctx, "invalid zk_proof!");
-
-  // Trust anchor: prefer configured witness signatures (no network round-trip), otherwise fall
-  // back to checkpointz when the sync crosses the Weak Subjectivity Period.
+  // Trust-anchor first, ZK-proof second. The ZK-proof verification is the heaviest
+  // operation in this function (~hundreds of ms for a Groth16 verify). If the WSP
+  // anchor returns C4_PENDING (checkpointz round-trip in flight), the host re-enters
+  // this function on the next loop iteration -- so any work done *before* a PENDING
+  // return is paid for twice. Pushing the ZK-proof past every PENDING-capable step
+  // makes the second pass cheap (cached checkpointz response → straight through to
+  // the ZK-proof). Witness-anchor and synchronous SSZ accessors stay first because
+  // they cannot return PENDING.
   bool have_witness_anchor = ctx->witness_keys.len > 0 && ssz_len(signatures) > 0;
   if (have_witness_anchor) {
     if (!verify_signatures(ctx, ssz_get(&ctx->sync_data, "checkpoint"), header, signatures))
@@ -444,9 +441,9 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
       // CheckpointProof variant: bootstrap-derived anchor with full pubkeys-cross-check.
       // The double-trust model requires the chain-of-trust (ZK proof public output =
       // `pubkeys`) and the canonical anchor (checkpointz-confirmed Bootstrap header)
-      // to vouch for the same `currentSyncCommittee`. Note: this runs *before*
-      // `c4_set_sync_period` below, so a cross-check failure does not persist forged
-      // committee state.
+      // to vouch for the same `currentSyncCommittee`. The cross-check happens *before*
+      // ZK-proof verification, so a forged `pubkeys` blob would be caught here without
+      // having to first absorb the cost of a 100 ms+ Groth16 verify on bogus data.
       if (is_checkpoint_proof_variant(checkpoint)) {
         bytes32_t zk_pubkeys_root = {0};
         ssz_hash_tree_root(pub_keys, zk_pubkeys_root);
@@ -477,6 +474,15 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
       log_warn("ZK sync data crosses the Weak Subjectivity Period but USE_CHECKPOINTZ is disabled -- anchor cannot be verified");
 #endif
   }
+
+  // Trust anchor passed; now the expensive ZK-proof verification.
+  uint8_t pub_inputs[136] = {0};
+  memcpy(pub_inputs, spec->zk_sync_keys_root, 32); // root-anchor
+  ssz_hash_tree_root(pub_keys, pub_inputs + 32);   // next_keys_root
+  uint64_to_le(pub_inputs + 64, period);           // next_period
+  ssz_hash_tree_root(header, pub_inputs + 72);     // attested_header_root
+  if (!eth_calculate_domain(ctx->chain_id, attested_slot, pub_inputs + 104)) RETURN_VERIFY_ERROR_STATUS(ctx, "unsupported chain!");
+  if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 136), vk_hash.data)) RETURN_VERIFY_ERROR_STATUS(ctx, "invalid zk_proof!");
 
   if (!c4_set_sync_period(period, pub_keys.bytes, ctx->chain_id, previous_pubkeys_hash)) RETURN_VERIFY_ERROR_STATUS(ctx, "failed to store next sync committee!");
   log_debug("zk proof verified successfully for period %d!", period);
