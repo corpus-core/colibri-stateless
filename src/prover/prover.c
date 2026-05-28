@@ -35,6 +35,7 @@
 #include "prover.h"
 #include PROVERS_PATH
 #include "logger.h"
+#include "../util/version.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -309,6 +310,7 @@ prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, 
   prover_ctx_t* ctx = (prover_ctx_t*) safe_calloc(1, sizeof(prover_ctx_t));
   ctx->chain_id     = chain_id;
   ctx->flags        = flags;
+  ctx->version      = c4_current_version_number();
 
   // Input validation
   if (!method) {
