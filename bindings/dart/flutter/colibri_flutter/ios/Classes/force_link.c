@@ -19,6 +19,8 @@ extern int   c4_rpc_execute_json_status();
 extern void  c4_free_rpc_ctx();
 extern void  c4_set_checkpoint();
 extern void  c4_rpc_set_witness_keys();
+extern void  c4_rpc_set_min_latest_block_ts();
+extern void  c4_verify_set_min_latest_block_ts();
 
 __attribute__((used))
 void _colibri_force_link(void) {
@@ -40,6 +42,8 @@ void _colibri_force_link(void) {
         (void*)c4_free_rpc_ctx,
         (void*)c4_set_checkpoint,
         (void*)c4_rpc_set_witness_keys,
+        (void*)c4_rpc_set_min_latest_block_ts,
+        (void*)c4_verify_set_min_latest_block_ts,
     };
     (void)syms;
 }

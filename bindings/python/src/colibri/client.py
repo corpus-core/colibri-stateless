@@ -4,6 +4,7 @@ Main Colibri client implementation
 
 import asyncio
 import json
+import time
 from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
@@ -60,6 +61,7 @@ class Colibri:
         prover_mode: Optional['ProverMode'] = None,
         checkpoint_witness_keys: Optional[str] = None,
         skip_wsp_check: bool = False,
+        max_latest_age_seconds: int = 60,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
     ):
@@ -84,6 +86,13 @@ class Colibri:
                 anchor (witness signatures, hard-coded checkpoint, signed package); disabling
                 raises the risk of long-range attacks across periods older than the WSP.
                 Default: False.
+            max_latest_age_seconds: Maximum age (in seconds) accepted for a proof whose
+                request uses the ``"latest"`` block tag. The verifier rejects proofs whose
+                ``block.timestamp`` is older than ``time.time() - max_latest_age_seconds``
+                with ``"proof for latest too old"``. Set to ``0`` to disable the check
+                (e.g. when working with proof formats that lack a block context). Currently
+                active for ``eth_call``, ``eth_estimateGas``, and
+                ``colibri_simulateTransaction``. Default: 60 (~5 Ethereum slots).
             storage: Storage implementation (defaults to DefaultStorage)
             request_handler: Optional request handler for testing
         """
@@ -102,6 +111,7 @@ class Colibri:
         self.prover_mode = prover_mode
         self.checkpoint_witness_keys = checkpoint_witness_keys
         self.skip_wsp_check = skip_wsp_check
+        self.max_latest_age_seconds = max_latest_age_seconds
         self.request_handler = request_handler
         self._light_client_task: Optional[asyncio.Task] = None
 
@@ -183,6 +193,19 @@ class Colibri:
         if self.skip_wsp_check:
             flags |= 1 << 7
         return flags
+
+    def _get_min_latest_block_ts(self) -> int:
+        """Compute the lower bound for block.timestamp accepted on "latest" proofs.
+
+        Returns ``now - max_latest_age_seconds`` in Unix seconds, or ``0`` when
+        the host disables the check (``max_latest_age_seconds <= 0``). The
+        wallclock is read here in the binding so the C/WASM core stays
+        clock-free.
+        """
+        if self.max_latest_age_seconds <= 0:
+            return 0
+        now = int(time.time())
+        return max(0, now - self.max_latest_age_seconds)
 
     def get_method_support(self, method: str, params: Optional[List[Any]] = None) -> MethodType:
         """
@@ -325,6 +348,9 @@ class Colibri:
             if not ctx:
                 raise VerificationError(f"Failed to create verification context for {method}")
 
+            if hasattr(native, 'verify_set_min_latest_block_ts'):
+                native.verify_set_min_latest_block_ts(ctx, self._get_min_latest_block_ts())
+
             try:
                 # Execute verification with request handling
                 while True:
@@ -399,6 +425,8 @@ class Colibri:
             native.set_checkpoint(self.chain_id, self.trusted_checkpoint)
         if self.checkpoint_witness_keys:
             native.rpc_set_witness_keys(ctx, self.checkpoint_witness_keys)
+        if hasattr(native, 'rpc_set_min_latest_block_ts'):
+            native.rpc_set_min_latest_block_ts(ctx, self._get_min_latest_block_ts())
 
         try:
             while True:

@@ -103,7 +103,18 @@ typedef struct {
   chain_id_t     chain_id;     // the chain-id of the verification
   bytes_t        witness_keys; // the witness keys used to sign the checkpoints (multiple addresses are concatinated bytes with 20 bytes each)
   verify_flags_t flags;
-  void*          user_data;      // optional method-specific in-memory state surviving C4_PENDING rounds
+  /**
+   * Lower bound for `block.timestamp` (Unix seconds) when an RPC argument
+   * uses the `"latest"` block tag. The host computes `now - max_age` on its
+   * own wallclock and writes the result here; the verifier rejects proofs
+   * whose block timestamp is older. `0` disables the freshness check.
+   *
+   * The verifier does **not** call any wallclock function itself: this keeps
+   * the core embedded-friendly (devices without RTC simply leave it at 0)
+   * and avoids platform-specific time APIs in WASM builds.
+   */
+  uint64_t min_latest_block_ts;
+  void*    user_data;            // optional method-specific in-memory state surviving C4_PENDING rounds
   void (*user_data_free)(void*); // cleanup function called by c4_verify_free(); may be NULL
 } verify_ctx_t;
 

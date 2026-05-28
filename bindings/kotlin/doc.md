@@ -223,6 +223,23 @@ val colibri = Colibri(
 )
 ```
 
+### Freshness window for `latest` proofs
+
+Proofs for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Kotlin binding therefore reads `System.currentTimeMillis() / 1000` and forwards `now - maxLatestAgeSeconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+
+- `maxLatestAgeSeconds` (`Long`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
+
+> **Caveat:** the gate fires only on `"latest"` (not `"safe"`/`"finalized"`). If the host wallclock is behind `maxLatestAgeSeconds` (devices without configured time, fresh emulators), the lower bound clamps to `0` and the check is silently disabled. Make sure your runtime has a synced clock or set `maxLatestAgeSeconds = 0` explicitly to acknowledge this state.
+
+```kotlin
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    maxLatestAgeSeconds = 30, // tighter window for latency-sensitive flows
+)
+```
+
+> **Limitation:** in PAP mode the `eth_getProof`-derived proof currently has no embedded block timestamp, so the freshness check is intentionally skipped on the PAP path. This is tracked as a follow-up.
+
 ### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
 
 For an `eth_call` with full storage privacy, use hybrid prover mode, PAP, and oblivious nodes (`obliviousNodes` default is empty).

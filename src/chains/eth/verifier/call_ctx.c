@@ -51,7 +51,7 @@ static bool eth_get_call_block_context_from_header_data(ssz_ob_t header_data, et
   return true;
 }
 
-static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
+bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
   if (!ctx->proof.def || ctx->proof.def->type == SSZ_TYPE_NONE) return false;
 
   if (ctx->flags & VERIFY_FLAG_HYBRID) {
@@ -68,10 +68,30 @@ static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_bl
   out->gas_limit       = ssz_get_uint64(&bc, "gasLimit");
   out->excess_blob_gas = ssz_get_uint64(&bc, "excessBlobGas");
 
-  memcpy(out->coinbase, ssz_get(&bc, "coinbase").bytes.data, 20);
-  memcpy(out->prev_randao, ssz_get(&bc, "prevRandao").bytes.data, 32);
-  memcpy(out->base_fee_per_gas, ssz_get(&bc, "baseFeePerGas").bytes.data, 32);
-  memcpy(out->block_hash, ssz_get(&bc, "blockHash").bytes.data, 32);
+  // Defensive copies: this helper is now also reached from the freshness gate
+  // *before* the proof has been Merkle-verified, so a malformed (but typed)
+  // proof can produce empty bytes for any of these fields. memcpy(dst, NULL, N)
+  // would be undefined behaviour, so we zero on absence.
+  bytes_t coinbase = ssz_get(&bc, "coinbase").bytes;
+  if (coinbase.data && coinbase.len >= 20)
+    memcpy(out->coinbase, coinbase.data, 20);
+  else
+    memset(out->coinbase, 0, 20);
+  bytes_t prev_randao = ssz_get(&bc, "prevRandao").bytes;
+  if (prev_randao.data && prev_randao.len >= 32)
+    memcpy(out->prev_randao, prev_randao.data, 32);
+  else
+    memset(out->prev_randao, 0, 32);
+  bytes_t base_fee = ssz_get(&bc, "baseFeePerGas").bytes;
+  if (base_fee.data && base_fee.len >= 32)
+    memcpy(out->base_fee_per_gas, base_fee.data, 32);
+  else
+    memset(out->base_fee_per_gas, 0, 32);
+  bytes_t block_hash = ssz_get(&bc, "blockHash").bytes;
+  if (block_hash.data && block_hash.len >= 32)
+    memcpy(out->block_hash, block_hash.data, 32);
+  else
+    memset(out->block_hash, 0, 32);
 
   return true;
 }

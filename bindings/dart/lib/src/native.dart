@@ -150,6 +150,9 @@ typedef _RpcSetWitnessKeys = void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ff
 typedef _RpcSetProxyUrlsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>, ffi.Pointer<ffi.Int8>);
 typedef _RpcSetProxyUrls = void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>, ffi.Pointer<ffi.Int8>);
 
+typedef _SetMinLatestBlockTsNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Uint64);
+typedef _SetMinLatestBlockTs = void Function(ffi.Pointer<ffi.Void>, int);
+
 // Global storage bridge used by native callbacks.
 ColibriStorage? _storageHandler;
 late _BufferAppend _bufferAppend;
@@ -257,6 +260,10 @@ class ColibriNative {
         _lib.lookupFunction<_RpcSetWitnessKeysNative, _RpcSetWitnessKeys>('c4_rpc_set_witness_keys');
     _rpcSetProxyUrls =
         _lib.lookupFunction<_RpcSetProxyUrlsNative, _RpcSetProxyUrls>('c4_rpc_set_proxy_urls');
+    _rpcSetMinLatestBlockTs = _lib
+        .lookupFunction<_SetMinLatestBlockTsNative, _SetMinLatestBlockTs>('c4_rpc_set_min_latest_block_ts');
+    _verifySetMinLatestBlockTs = _lib
+        .lookupFunction<_SetMinLatestBlockTsNative, _SetMinLatestBlockTs>('c4_verify_set_min_latest_block_ts');
   }
 
   final ffi.DynamicLibrary _lib;
@@ -280,6 +287,8 @@ class ColibriNative {
   late final _SetCheckpoint _setCheckpoint;
   late final _RpcSetWitnessKeys _rpcSetWitnessKeys;
   late final _RpcSetProxyUrls _rpcSetProxyUrls;
+  late final _SetMinLatestBlockTs _rpcSetMinLatestBlockTs;
+  late final _SetMinLatestBlockTs _verifySetMinLatestBlockTs;
 
   /// Load the native shared library from [libraryPath] or platform defaults.
   static ColibriNative load({String? libraryPath}) {
@@ -531,6 +540,23 @@ class ColibriNative {
     _rpcSetProxyUrls(ctx, rpcPtr.cast(), beaconPtr.cast());
     malloc.free(rpcPtr);
     malloc.free(beaconPtr);
+  }
+
+  /// Sets the lower bound for `block.timestamp` accepted on `"latest"` proofs.
+  ///
+  /// Pass `0` to disable the freshness check. Bindings typically compute
+  /// `ts = now - maxLatestAgeSeconds` from the platform wallclock; the C
+  /// library never reads the wallclock itself.
+  void rpcSetMinLatestBlockTs(ffi.Pointer<ffi.Void> ctx, int ts) {
+    _rpcSetMinLatestBlockTs(ctx, ts);
+  }
+
+  /// Sets the lower bound for `block.timestamp` accepted on `"latest"` proofs.
+  ///
+  /// Same semantics as [rpcSetMinLatestBlockTs] but for the standalone verifier
+  /// context returned by [verifyCreateCtx].
+  void verifySetMinLatestBlockTs(ffi.Pointer<ffi.Void> ctx, int ts) {
+    _verifySetMinLatestBlockTs(ctx, ts);
   }
 
   /// Resolve the platform-specific library path.

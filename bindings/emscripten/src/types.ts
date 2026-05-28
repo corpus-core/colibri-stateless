@@ -147,6 +147,16 @@ export interface Config extends ChainConfig {
      * the WSP. Default: false.
      */
     skip_wsp_check?: boolean;
+    /**
+     * Maximum age (in seconds) accepted for a proof whose request uses the
+     * `"latest"` block tag. The verifier compares the block timestamp from
+     * the proof against `now - max_latest_age_seconds`; older proofs are
+     * rejected with `"proof for latest too old"`. `0` disables the check
+     * (useful when working with older proof formats that lack a block
+     * context). Currently active for `eth_call`, `eth_estimateGas`, and
+     * `colibri_simulateTransaction`. Default: 60.
+     */
+    max_latest_age_seconds?: number;
     chains: {
         [chainId: number]: ChainConfig;
     };

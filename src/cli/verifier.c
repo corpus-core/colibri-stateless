@@ -36,6 +36,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
@@ -72,6 +73,7 @@
 // | `-m`           | `<mode>`        | Prover mode: `local`, `remote`, `hybrid` |         |
 // | `-P`           |                 | Enable PAP (Pragmatic Adaptive Privacy) mode       |         |
 // | `-W`           |                 | Skip the Weak Subjectivity Period check (sets `VERIFY_FLAG_SKIP_WSP_CHECK`). **SECURITY:** only safe when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; raises the risk of long-range attacks across periods older than the WSP. |         |
+// | `-A`           | `<seconds>`     | Maximum age (in seconds) accepted for proofs whose request uses the `"latest"` block tag. Currently active for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction`. `0` disables the check. | `60` |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
@@ -118,6 +120,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
     fprintf(stderr, "  -P enable PAP (Pragmatic Adaptive Privacy) mode\n");
     fprintf(stderr, "  -W skip the Weak Subjectivity Period check (VERIFY_FLAG_SKIP_WSP_CHECK). SECURITY: only safe with an alternative trust anchor (witness signatures, hard-coded checkpoint, signed package).\n");
+    fprintf(stderr, "  -A <seconds> max age accepted for proofs targeting the \"latest\" block tag (eth_call/eth_estimateGas/colibri_simulateTransaction; default 60, 0 = disabled)\n");
     fprintf(stderr, "  -O no verifier, just return the proof\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
@@ -147,6 +150,7 @@ int main(int argc, char* argv[]) {
   char*          trace_id           = NULL;
   c4_prover_mode_t prover_mode      = C4_PROVER_MODE_REMOTE;
   bool             prover_mode_set  = false;
+  uint64_t         max_latest_age_seconds = 60; // 0 disables the freshness check for "latest" proofs
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
 
@@ -229,6 +233,26 @@ int main(int argc, char* argv[]) {
           case 'W':
             verify_flags |= VERIFY_FLAG_SKIP_WSP_CHECK;
             break;
+          case 'A': {
+            if (i + 1 >= argc) {
+              fprintf(stderr, "-A requires a value (non-negative integer seconds; 0 disables the check)\n");
+              exit(EXIT_FAILURE);
+            }
+            const char* val = argv[++i];
+            // strtoull happily parses "-1" as UINT64_MAX -- explicitly reject signs.
+            if (val[0] == '\0' || val[0] == '-' || val[0] == '+') {
+              fprintf(stderr, "invalid value for -A: %s (expected non-negative integer seconds)\n", val);
+              exit(EXIT_FAILURE);
+            }
+            char*              end    = NULL;
+            unsigned long long parsed = strtoull(val, &end, 10);
+            if (end == val || !end || *end != '\0') {
+              fprintf(stderr, "invalid value for -A: %s (expected non-negative integer seconds)\n", val);
+              exit(EXIT_FAILURE);
+            }
+            max_latest_age_seconds = (uint64_t) parsed;
+            break;
+          }
           case 'O':
             verify_flags |= VERIFY_FLAG_PROOF_ONLY;
             break;
@@ -322,6 +346,14 @@ int main(int argc, char* argv[]) {
 
   c4_rpc_ctx_t* ctx = c4_rpc_ctx_create(method, (char*) args.data.data, chain_id,
                                         prover_flags, verify_flags, prover_mode);
+
+  if (max_latest_age_seconds > 0) {
+    // Compute the lower bound on the host wallclock and forward to the verifier.
+    // The C core never reads the clock so it stays portable for WASM/embedded.
+    time_t  now   = time(NULL);
+    int64_t lower = (int64_t) now - (int64_t) max_latest_age_seconds;
+    c4_rpc_ctx_set_min_latest_block_ts(ctx, lower > 0 ? (uint64_t) lower : 0);
+  }
 
   if (input) {
     ctx->proof       = bytes_read(input);

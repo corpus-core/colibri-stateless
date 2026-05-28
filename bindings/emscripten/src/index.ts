@@ -93,6 +93,9 @@ export default class C4Client {
   private verify_flags: number = 0;
   private _lightClientTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Default freshness window for `latest` proofs in seconds (≈5 Ethereum slots). */
+  private static readonly DEFAULT_MAX_LATEST_AGE_SECONDS = 60;
+
   // Protect against prototype pollution by freezing critical methods
   private static readonly CRITICAL_METHODS = ['rpc', 'request', 'verifyProof', 'createProof'] as const;
 
@@ -164,6 +167,21 @@ export default class C4Client {
         pollingInterval: this.config.pollingInterval || chain_conf(this.config, this.config.chainId)?.pollingInterval || 12000
       }
     )
+  }
+
+  /**
+   * Computes the lower bound for `block.timestamp` accepted on `"latest"`
+   * proofs as `now - max_latest_age_seconds`. Returns `0n` when the host
+   * disables the check (`max_latest_age_seconds === 0`). The platform
+   * wallclock is read here in the binding so the C/WASM core stays
+   * clock-free (relevant for embedded/WASM portability).
+   */
+  private get_min_latest_block_ts(): bigint {
+    const maxAge = this.config.max_latest_age_seconds ?? C4Client.DEFAULT_MAX_LATEST_AGE_SECONDS;
+    if (maxAge <= 0) return 0n;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const lower = nowSec - maxAge;
+    return BigInt(lower > 0 ? lower : 0);
   }
 
   /**
@@ -256,7 +274,8 @@ export default class C4Client {
         BigInt(this.config.chainId),
         checkpoint_ptr,
         witness_keys_ptr,
-        this.verify_flags);
+        this.verify_flags,
+        this.get_min_latest_block_ts());
 
       while (true) {
         const state = as_json(c4w._c4w_verify_proof(ctx), c4w, true);
@@ -341,6 +360,8 @@ export default class C4Client {
         c4w._c4w_set_checkpoint(BigInt(this.config.chainId), as_char_ptr(this.config.trusted_checkpoint, c4w, free_buffers));
       if (this.config.checkpoint_witness_keys)
         c4w._c4w_rpc_ctx_set_witness_keys(ctx, as_char_ptr(this.config.checkpoint_witness_keys, c4w, free_buffers));
+
+      c4w._c4w_rpc_ctx_set_min_latest_block_ts(ctx, this.get_min_latest_block_ts());
 
       while (true) {
         const state = as_json(c4w._c4w_execute_rpc_ctx(ctx), c4w, true);

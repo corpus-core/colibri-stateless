@@ -180,6 +180,7 @@ class Colibri:
         privacy_mode: Optional[PrivacyMode] = None,
         prover_mode: Optional[ProverMode] = None,
         skip_wsp_check: bool = False,
+        max_latest_age_seconds: int = 60,
         storage: Optional[ColibriStorage] = None
     ):
         """
@@ -511,6 +512,23 @@ client = Colibri(
     skip_wsp_check=True,  # only safe with an alternative trust anchor
 )
 ```
+
+### Freshness window for `latest` proofs
+
+Proofs for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Python binding therefore reads `time.time()` and forwards `now - max_latest_age_seconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+
+- `max_latest_age_seconds` (`int`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
+
+> **Caveat:** the gate fires only on `"latest"` (not `"safe"`/`"finalized"`). If the host wallclock is behind `max_latest_age_seconds` (containers without time sync, sandboxes with `time = 0`), the lower bound clamps to `0` and the check is silently disabled. Make sure your runtime has a synced clock or set `max_latest_age_seconds=0` explicitly to acknowledge this state.
+
+```python
+client = Colibri(
+    chain_id=1,
+    max_latest_age_seconds=30,  # tighter window for latency-sensitive flows
+)
+```
+
+> **Limitation:** in PAP mode the `eth_getProof`-derived proof currently has no embedded block timestamp, so the freshness check is intentionally skipped on the PAP path. This is tracked as a follow-up.
 
 ### Privacy (PAP)
 
