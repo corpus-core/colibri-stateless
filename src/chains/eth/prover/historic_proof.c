@@ -168,11 +168,11 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   bytes_t             blocks        = {0};
 
   if (chain == NULL) THROW_ERROR("unsupported chain id!");
-  if (!ctx->client_state.len || !(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;                           // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
-  uint64_t state_period = block_proof->sync.post_sync_period? block_proof->sync.post_sync_period : block_proof->sync.oldest_period;                                                               // this is the oldest period we have in the client state
-  uint64_t block_period = block_proof->sync.block_period ? block_proof->sync.block_period : block_proof->sync.required_period; // the period of the target block
-  if (!state_period) return C4_SUCCESS;                                                                                  // the client does not have a state yet, so he might as well get the head and verify the block.
-  if (block_period >= state_period) return C4_SUCCESS;                                                                   // the target block is within the current range of the client
+  if (!ctx->client_state.len || !(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;                                       // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
+  uint64_t state_period = block_proof->sync.post_sync_period ? block_proof->sync.post_sync_period : block_proof->sync.oldest_period; // this is the oldest period we have in the client state
+  uint64_t block_period = block_proof->sync.block_period ? block_proof->sync.block_period : block_proof->sync.required_period;       // the period of the target block
+  if (!state_period) return C4_SUCCESS;                                                                                              // the client does not have a state yet, so he might as well get the head and verify the block.
+  if (block_period >= state_period) return C4_SUCCESS;                                                                               // the target block is within the current range of the client
 
   // Historic-direct path: the actual sub-requests below are billed via their
   // respective helpers; this constant covers the server-side composition work
@@ -490,7 +490,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
         if (!sync_data->oldest_period || chain_state.data.periods[i] < sync_data->oldest_period) sync_data->oldest_period = chain_state.data.periods[i];
         if (!sync_data->newest_period || chain_state.data.periods[i] > sync_data->newest_period) sync_data->newest_period = chain_state.data.periods[i];
       }
-      sync_data->post_sync_period  = sync_data->newest_period;
+      sync_data->post_sync_period = sync_data->newest_period;
       break;
     case C4_STATE_SYNC_CHECKPOINT: {
       if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0) return C4_SUCCESS;
@@ -525,7 +525,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
       TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"finalized\""), &fin));
       uint32_t current_period = (uint32_t) (fin.slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits));
       if ((uint64_t) current_period > sync_data->required_period) {
-        sync_data->required_period = (uint64_t) current_period;
+        sync_data->required_period  = (uint64_t) current_period;
         sync_data->post_sync_period = sync_data->required_period;
       }
     }
