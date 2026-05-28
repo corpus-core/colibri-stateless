@@ -72,6 +72,20 @@ static uint64_t finalized_root_gindex(chain_id_t chain_id, uint64_t slot) {
   return fork == C4_FORK_DENEB ? DENEP_FINALIZED_ROOT_GINDEX : ELECTRA_FINALIZED_ROOT_GINDEX;
 }
 
+// True iff `ob` is the `checkpoint_proof` variant of either ETH_HEADER_PROOFS_UNION
+// (ZKSyncData.checkpoint) or C4_ETH_SYNCDATA_BOOTSTRAP_UNION (LCSyncData.bootstrap).
+// Single source of truth for the union-variant discrimination so a future rename of
+// the SSZ field cannot silently bypass the cross-check at one of the call sites.
+//
+// Defined outside the `USE_CHECKPOINTZ` gate because `update_from_lc_sync_data` calls
+// it unconditionally (to disambiguate the `bootstrap` union variant from a full
+// LightClientBootstrap that would still be handled when USE_CHECKPOINTZ is OFF).
+static inline bool is_checkpoint_proof_variant(ssz_ob_t ob) {
+  return ob.def &&
+         ob.def->type == SSZ_TYPE_CONTAINER &&
+         strcmp(ob.def->name, "checkpoint_proof") == 0;
+}
+
 #ifdef USE_CHECKPOINTZ
 // SSZ ByteVector[48] -> two 32-byte chunks: chunk0 = bytes[0..32], chunk1 = bytes[32..48] || zero[16]
 #define AGGREGATE_PUBKEY_FIRST_CHUNK 32
@@ -136,16 +150,6 @@ INTERNAL c4_status_t c4_verify_checkpoint_proof(verify_ctx_t* ctx, ssz_ob_t chec
   if (anchor_status == C4_ERROR)
     RETURN_VERIFY_ERROR_STATUS(ctx, "checkpoint_proof: checkpointz anchor mismatch");
   return anchor_status; // SUCCESS or PENDING
-}
-
-// True iff `ob` is the `checkpoint_proof` variant of either ETH_HEADER_PROOFS_UNION
-// (ZKSyncData.checkpoint) or C4_ETH_SYNCDATA_BOOTSTRAP_UNION (LCSyncData.bootstrap).
-// Single source of truth for the union-variant discrimination so a future rename of
-// the SSZ field cannot silently bypass the cross-check at one of the call sites.
-static inline bool is_checkpoint_proof_variant(ssz_ob_t ob) {
-  return ob.def &&
-         ob.def->type == SSZ_TYPE_CONTAINER &&
-         strcmp(ob.def->name, "checkpoint_proof") == 0;
 }
 
 // If `update` is the LCU whose `nextSyncCommittee.pubkeys` are the keys for
