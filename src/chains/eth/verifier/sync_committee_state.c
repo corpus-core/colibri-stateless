@@ -223,8 +223,11 @@ bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t*
     if (req->response.data) {
       json_t res = json_parse((char*) req->response.data);
 
-      // Validate JSON structure (Beacon API compatible format)
-      const char* err = json_validate(res, "{data:{finalized:{epoch:suint,root:bytes32}}}", "finality checkpoints");
+      // Validate JSON structure (Beacon API compatible format). `root` is checked as a
+      // generic `string` (not `bytes32`) because some Beacon API providers emit block
+      // roots WITHOUT the `0x` prefix; `json_as_bytes` -> `hex_to_bytes` accepts both,
+      // we just enforce the 32-byte length after decoding.
+      const char* err = json_validate(res, "{data:{finalized:{epoch:suint,root:string}}}", "finality checkpoints");
       if (err) {
         c4_state_add_error(state, err);
         return false;
@@ -237,7 +240,11 @@ bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t*
 
       *checkpoint_epoch = json_as_uint64(epoch);
       buffer_t root_buf = {.data = bytes(checkpoint_root, 32), .allocated = -32};
-      json_as_bytes(root, &root_buf);
+      bytes_t  decoded  = json_as_bytes(root, &root_buf);
+      if (decoded.len != 32) {
+        c4_state_add_error(state, "finality checkpoints data.finalized.root: expected 32-byte hex string");
+        return false;
+      }
       return true;
     }
     else if (req->error) {
@@ -697,7 +704,7 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
     new_req->chain_id       = ctx->chain_id;
     new_req->url            = url;
     new_req->encoding       = C4_DATA_ENCODING_JSON;
-    new_req->type           = C4_DATA_TYPE_BEACON_API;
+    new_req->type           = C4_DATA_TYPE_CHECKPOINTZ;
     c4_state_add_request(&ctx->state, new_req);
     return C4_PENDING;
   }
@@ -709,15 +716,21 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
 
   if (!req->response.data) return C4_PENDING;
 
-  // Validate the checkpointz response shape: {"data":{"root":"0x<32-byte-hex>"}}
-  // CHECK_JSON returns C4_ERROR with a precise "checkpointz response.data.root: ..." message
-  // if anything is off (missing field, wrong type, wrong hex length).
+  // Validate the checkpointz response shape: {"data":{"root":"<64-hex-chars>"}}.
+  // We validate `root` as a generic `string` (not `bytes32`) because some Beacon API
+  // endpoints (e.g. `sync-mainnet.beaconcha.in`) emit the block root WITHOUT the `0x`
+  // prefix, while others (e.g. Lodestar) emit it WITH the prefix; the strict
+  // `bytes32` schema check rejects the un-prefixed form. `hex_to_bytes` (used inside
+  // `json_as_bytes`) accepts both variants, so we just need to enforce the 32-byte
+  // length after decoding.
   json_t res = json_parse((char*) req->response.data);
-  CHECK_JSON(res, "{data:{root:bytes32}}", "checkpointz response");
+  CHECK_JSON(res, "{data:{root:string}}", "checkpointz response");
 
   bytes32_t checkpointz_root = {0};
   buffer_t  root_buf         = stack_buffer(checkpointz_root);
-  json_as_bytes(json_get(json_get(res, "data"), "root"), &root_buf);
+  bytes_t   decoded          = json_as_bytes(json_get(json_get(res, "data"), "root"), &root_buf);
+  if (decoded.len != 32)
+    return c4_state_add_error(&ctx->state, "checkpointz response.data.root: expected 32-byte hex string");
 
   if (memcmp(checkpointz_root, expected_root, 32) != 0)
     return c4_state_add_error(&ctx->state, "Weak subjectivity check failed: checkpoint mismatch");

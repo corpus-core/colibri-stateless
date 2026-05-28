@@ -72,7 +72,7 @@ static uint64_t finalized_root_gindex(chain_id_t chain_id, uint64_t slot) {
   return fork == C4_FORK_DENEB ? DENEP_FINALIZED_ROOT_GINDEX : ELECTRA_FINALIZED_ROOT_GINDEX;
 }
 
-// True iff `ob` is the `checkpoint_proof` variant of either ETH_HEADER_PROOFS_UNION
+// True if `ob` is the `checkpoint_proof` variant of either ETH_HEADER_PROOFS_UNION
 // (ZKSyncData.checkpoint) or C4_ETH_SYNCDATA_BOOTSTRAP_UNION (LCSyncData.bootstrap).
 // Single source of truth for the union-variant discrimination so a future rename of
 // the SSZ field cannot silently bypass the cross-check at one of the call sites.
