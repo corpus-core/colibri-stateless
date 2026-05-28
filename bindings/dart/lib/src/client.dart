@@ -43,6 +43,7 @@ class Colibri {
     this.privacyMode = PrivacyMode.none,
     this.proverMode,
     this.checkpointWitnessKeys,
+    this.skipWspCheck = false,
     this.logProverRequests = false,
     this.storage,
     this.rpcTimeout = const Duration(seconds: 30),
@@ -94,6 +95,12 @@ class Colibri {
   final ProverMode? proverMode;
   /// Optional witness signer keys for ZK proof verification.
   final String? checkpointWitnessKeys;
+  /// If true, the verifier skips the Weak Subjectivity Period check
+  /// (`VERIFY_FLAG_SKIP_WSP_CHECK`, bit `1 << 7`). **SECURITY:** Only enable
+  /// when another trust anchor (witness signatures, hard-coded checkpoint,
+  /// signed package) is in place. Disabling raises the risk of long-range
+  /// attacks across periods older than the WSP. Default: `false`.
+  final bool skipWspCheck;
   /// Whether to log prover request parameters (debug only). When true, only
   /// non-sensitive summaries are printed; do not enable in production.
   final bool logProverRequests;
@@ -149,11 +156,14 @@ class Colibri {
     _lightClientTimer = null;
   }
 
-  /// Returns verify flags derived from [privacyMode] and [obliviousNodes].
+  /// Returns verify flags derived from [privacyMode], [obliviousNodes] and [skipWspCheck].
   /// PAP is enabled when [privacyMode] is basic or [obliviousNodes] is set (oblivious requires PAP).
+  /// [skipWspCheck] adds `VERIFY_FLAG_SKIP_WSP_CHECK` (bit `1 << 7`).
   int _getVerifyFlags() {
     final pap = privacyMode == PrivacyMode.basic || obliviousNodes.isNotEmpty;
-    return (pap ? 2 : 0) | (obliviousNodes.isNotEmpty ? (1 << 6) : 0);
+    return (pap ? 2 : 0)
+        | (obliviousNodes.isNotEmpty ? (1 << 6) : 0)
+        | (skipWspCheck ? (1 << 7) : 0);
   }
 
   /// Returns how [method] is supported (proofable, local, unproofable, etc.).

@@ -611,6 +611,8 @@ c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx) {
       return &ctx->verifier.state;
     case RPC_PHASE_RPC:
       return &ctx->rpc_state;
+    case RPC_PHASE_DONE:
+      return &ctx->verifier.state;
     default:
       return NULL;
   }

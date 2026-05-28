@@ -34,7 +34,8 @@ void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
     if (c4_ps_file_exists(period + 1, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period + 1);
     c4_period_prover_on_checkpoint(period);
   }
-  else
+  else {
     // Slave instance: optionally full-sync the period store from master for backup purposes.
     c4_ps_full_sync_on_checkpoint(period);
+  }
 }

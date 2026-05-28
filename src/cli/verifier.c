@@ -71,6 +71,7 @@
 // | `-x`           | `<checkpointz_url>` | URL of a checkpointz or beacon-api|         |
 // | `-m`           | `<mode>`        | Prover mode: `local`, `remote`, `hybrid` |         |
 // | `-P`           |                 | Enable PAP (Pragmatic Adaptive Privacy) mode       |         |
+// | `-W`           |                 | Skip the Weak Subjectivity Period check (sets `VERIFY_FLAG_SKIP_WSP_CHECK`). **SECURITY:** only safe when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; raises the risk of long-range attacks across periods older than the WSP. |         |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
@@ -116,6 +117,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
     fprintf(stderr, "  -P enable PAP (Pragmatic Adaptive Privacy) mode\n");
+    fprintf(stderr, "  -W skip the Weak Subjectivity Period check (VERIFY_FLAG_SKIP_WSP_CHECK). SECURITY: only safe with an alternative trust anchor (witness signatures, hard-coded checkpoint, signed package).\n");
     fprintf(stderr, "  -O no verifier, just return the proof\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
@@ -223,6 +225,9 @@ int main(int argc, char* argv[]) {
 #endif
           case 'P':
             verify_flags |= VERIFY_FLAG_PAP;
+            break;
+          case 'W':
+            verify_flags |= VERIFY_FLAG_SKIP_WSP_CHECK;
             break;
           case 'O':
             verify_flags |= VERIFY_FLAG_PROOF_ONLY;

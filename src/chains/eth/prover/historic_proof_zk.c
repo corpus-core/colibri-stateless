@@ -21,20 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "../server/eth_clients.h"
-#include "../zk_verifier/zk_verifier_constants.h"
-#include "beacon.h"
-#include "beacon_types.h"
-#include "eth_req.h"
-#include "eth_tools.h"
 #include "historic_proof.h"
-#include "json.h"
-#include "logger.h"
 #include "prover.h"
-#include "ssz.h"
-#include "sync_committee.h"
-#include "version.h"
-#include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>
 #define MAX_SIGNATURES   5
@@ -48,9 +36,14 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   buffer_t    buf                                           = stack_buffer(buffer);
   zk_proof->sync_proof.def                                  = C4_ETH_REQUEST_SYNCDATA_UNION + 2;
 
-  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/zk_proof.ssz", period), NULL, 0, &zk_proof->sync_proof.bytes)); // get the blockd
+  // The WSP anchor for ZK sync data is now built at proof-assembly time
+  // (see `c4_get_syncdata_proof` in `historic_proof.c`) from a freshly-fetched
+  // LightClientBootstrap, so the prover always reads the single canonical
+  // `zk_proof.ssz` per period.
+  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/zk_proof.ssz", period), NULL, 0, &zk_proof->sync_proof.bytes));
+
   if (ctx->witness_key.len && ctx->witness_key.len % 20 == 0) {
-    for (int i = 0; i < ctx->witness_key.len; i += 20) {
+    for (uint32_t i = 0; i < ctx->witness_key.len; i += 20) {
       buffer_reset(&buf);
       bytes_t     sig_data   = {0};
       c4_status_t sig_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data);

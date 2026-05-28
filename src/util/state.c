@@ -110,6 +110,16 @@ data_request_t* c4_state_get_pending_request(c4_state_t* state) {
   return NULL;
 }
 
+void c4_state_take_requests(c4_state_t* dst, c4_state_t* src) {
+  if (!src || !src->requests) return;
+  if (!dst) return;
+  data_request_t* tail = src->requests;
+  while (tail->next) tail = tail->next;
+  tail->next     = dst->requests;
+  dst->requests  = src->requests;
+  src->requests  = NULL;
+}
+
 c4_status_t c4_state_add_error(c4_state_t* state, const char* error) {
   // NULL-Check: Use generic message if error is NULL
   if (!error) error = "Unknown error";

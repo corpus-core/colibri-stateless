@@ -185,7 +185,13 @@ public class Colibri {
     
     /// PAP (Pragmatic Adaptive Privacy) mode: .none (default) or .basic
     public var privacyMode: PrivacyMode
-    
+
+    /// If true, skip the Weak Subjectivity Period check (VERIFY_FLAG_SKIP_WSP_CHECK, bit 1 << 7).
+    /// SECURITY: only safe with an alternative trust anchor (witness signatures, hard-coded
+    /// checkpoint, signed package); raises the risk of long-range attacks across periods older
+    /// than the WSP. Default: false.
+    public var skipWspCheck: Bool
+
     /// Initialization
     public init()
     
@@ -234,6 +240,18 @@ Default: `.remote` when prover URLs are configured, `.local` otherwise.
 let colibri = Colibri()
 colibri.chainId = 1
 colibri.privacyMode = .basic
+```
+
+### Weak Subjectivity Period check
+
+Whenever a sync crosses the **Weak Subjectivity Period (WSP)** -- typically ~2 to 4 months on Ethereum mainnet -- the verifier anchors the highest finalized header against an external `checkpointz` / Beacon API endpoint. The check applies to all three sync paths: verifier-driven Light Client updates, prover-supplied `LCSyncData`, and prover-supplied `ZKSyncData`. For `ZKSyncData` the verifier prefers configured **witness signatures** (`checkpointWitnessKeys` + matching signatures from the prover) and only falls back to `checkpointz` when no witness anchor is available.
+
+- `skipWspCheck` (`Bool`, default `false`) -- sets `VERIFY_FLAG_SKIP_WSP_CHECK` (bit `1 << 7`) and disables the round-trip. **SECURITY:** only safe with an alternative trust anchor; raises the risk of long-range attacks across periods older than the WSP. See the [threat model -- long range attacks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/threat-model) for details.
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.skipWspCheck = true  // only safe with an alternative trust anchor
 ```
 
 ### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)

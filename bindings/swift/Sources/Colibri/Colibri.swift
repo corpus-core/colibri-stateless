@@ -252,6 +252,13 @@ public class Colibri {
     /// Optional witness signer keys (hex-encoded, 0x-prefixed) for sync committee signing.
     public var checkpointWitnessKeys: String? = nil
 
+    /// If true, the verifier skips the Weak Subjectivity Period check
+    /// (`VERIFY_FLAG_SKIP_WSP_CHECK`, bit `1 << 7`). SECURITY: only safe when another
+    /// trust anchor (witness signatures, hard-coded checkpoint, signed package) is in
+    /// place; disabling raises the risk of long-range attacks across periods older than
+    /// the WSP. Default: false.
+    public var skipWspCheck: Bool = false
+
     /// Optional request handler for mocking HTTP requests in tests
     public var requestHandler: RequestHandler?
 
@@ -289,12 +296,17 @@ public class Colibri {
 
     // MARK: - Verify Flags
 
-    /// Returns verify flags (e.g. VERIFY_FLAG_PAP) derived from privacyMode. Centralized so future flags can be added in one place.
+    /// Returns verify flags (VERIFY_FLAG_PAP, VERIFY_FLAG_OBLIVIOUS, VERIFY_FLAG_SKIP_WSP_CHECK)
+    /// derived from privacyMode, obliviousNodes and skipWspCheck. Centralized so future flags
+    /// can be added in one place.
     private func getVerifyFlags() -> UInt32 {
         let pap = privacyMode == .basic || !obliviousNodes.isEmpty
         var flags: UInt32 = pap ? 2 : 0
         if !obliviousNodes.isEmpty {
             flags |= 1 << 6
+        }
+        if skipWspCheck {
+            flags |= 1 << 7
         }
         return flags
     }

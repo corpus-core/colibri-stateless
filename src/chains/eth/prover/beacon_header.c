@@ -186,17 +186,29 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
     }
 
     verify_ctx_t verify_ctx = {0};
-    c4_status_t  status     = c4_verify_init(&verify_ctx, data_request->response, method, json_parse(arg_buffer), ctx->chain_id, 0);
+    // NOTE: verify_flags are intentionally 0 here. prover_flags_t and verify_flags_t use
+    // disjoint bitmasks, so the outer ctx->flags cannot be passed through verbatim. A
+    // proper mapping (e.g. a future C4_PROVER_FLAG_SKIP_WSP_CHECK that translates to
+    // VERIFY_FLAG_SKIP_WSP_CHECK) is tracked separately.
+    c4_status_t status = c4_verify_init(&verify_ctx, data_request->response, method, json_parse(arg_buffer), ctx->chain_id, 0);
     if (status != C4_SUCCESS) {
-      c4_state_add_error(&ctx->state, verify_ctx.state.error);
+      if (verify_ctx.state.error) c4_state_add_error(&ctx->state, verify_ctx.state.error);
       c4_verify_free_data(&verify_ctx);
       THROW_ERROR_WITH("failed to initialize verify context for %s", method);
     }
 
-    // share the parent state so pending requests propagate upward;
-    // must not double-free data_requests when releasing the temp verify_ctx
-    verify_ctx.state = ctx->state;
-    status           = c4_verify(&verify_ctx);
+    // Lend the persistent request list of the outer prover ctx to verify_ctx so URL/id
+    // lookups inside c4_verify (LC updates, checkpointz WSP anchor, ...) find responses
+    // the host has already fulfilled on previous iterations. Move everything back
+    // immediately so the prover ctx remains the single owner of the request list across
+    // retries. (Previously this was implemented as a shallow struct copy
+    // `verify_ctx.state = ctx->state;` -- functionally correct for the loop, but it
+    // aliased the `error` pointer between both contexts and caused subtle double-free /
+    // error-loss bugs on edge cases.)
+    c4_state_take_requests(&verify_ctx.state, &ctx->state);
+    status = c4_verify(&verify_ctx);
+    c4_state_take_requests(&ctx->state, &verify_ctx.state);
+
     switch (status) {
       case C4_SUCCESS: {
         data_request->validated = true;
@@ -213,19 +225,27 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
         else
           result = bytes_dup(verify_ctx.data.bytes);
 
+        // after we have verified the proof, we replace the response with the verified result, so it will be freed by the prover_ctx.
         safe_free(data_request->response.data);
         data_request->response = result;
         *result_out            = (ssz_ob_t) {.def = def, .bytes = result};
         break;
       }
       case C4_PENDING:
+        // If verify_ctx accumulated an error while still returning PENDING (rare, but
+        // possible via nested verification paths), forward it so it is not lost when
+        // c4_verify_free_data releases verify_ctx.state below.
+        if (verify_ctx.state.error) c4_state_add_error(&ctx->state, verify_ctx.state.error);
         break;
       case C4_ERROR:
-        c4_state_add_error(&ctx->state, verify_ctx.state.error);
+        if (verify_ctx.state.error) c4_state_add_error(&ctx->state, verify_ctx.state.error);
+        break;
     }
 
-    ctx->state.requests       = verify_ctx.state.requests;
-    verify_ctx.state.requests = NULL;
+    // Safety net: if any unexpected requests remain on verify_ctx after the lend/return
+    // (e.g. a future helper that adds requests after c4_verify returns), forward them
+    // to the prover ctx instead of leaking them through c4_state_free below.
+    c4_state_take_requests(&ctx->state, &verify_ctx.state);
     c4_verify_free_data(&verify_ctx);
 
     return status;

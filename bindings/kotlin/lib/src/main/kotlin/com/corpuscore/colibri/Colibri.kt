@@ -132,6 +132,14 @@ class Colibri(
     var privacyMode: PrivacyMode = PrivacyMode.NONE, // PAP mode; BASIC sets verify flag
     var proverMode: ProverMode? = null, // null = auto-detect (REMOTE if provers configured, else LOCAL)
     var checkpointWitnessKeys: String? = null,
+    /**
+     * If true, the verifier skips the Weak Subjectivity Period check
+     * (`VERIFY_FLAG_SKIP_WSP_CHECK`, bit `1 shl 7`). SECURITY: only safe when another
+     * trust anchor (witness signatures, hard-coded checkpoint, signed package) is in
+     * place; disabling raises the risk of long-range attacks across periods older than
+     * the WSP. Default: false.
+     */
+    var skipWspCheck: Boolean = false,
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
     companion object {
@@ -183,10 +191,13 @@ class Colibri(
     private val lightClientScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var lightClientJob: Job? = null
 
-    /** Returns verify flags (e.g. VERIFY_FLAG_PAP, VERIFY_FLAG_OBLIVIOUS). PAP is enabled when BASIC or obliviousNodes is set. */
+    /** Returns verify flags (e.g. VERIFY_FLAG_PAP, VERIFY_FLAG_OBLIVIOUS, VERIFY_FLAG_SKIP_WSP_CHECK).
+     *  PAP is enabled when BASIC or obliviousNodes is set. */
     private fun getVerifyFlags(): Long {
         val pap = privacyMode == PrivacyMode.BASIC || obliviousNodes.isNotEmpty()
-        return (if (pap) 2L else 0L) or (if (obliviousNodes.isNotEmpty()) (1L shl 6) else 0L)
+        return (if (pap) 2L else 0L) or
+                (if (obliviousNodes.isNotEmpty()) (1L shl 6) else 0L) or
+                (if (skipWspCheck) (1L shl 7) else 0L)
     }
 
     private fun serversForRequest(request: JSONObject, useProverFallback: Boolean = false): Array<String> {

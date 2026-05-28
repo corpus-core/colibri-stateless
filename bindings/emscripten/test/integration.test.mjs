@@ -147,7 +147,25 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
       const result = await c4.rpc('eth_blockNumber', []);
       assertIsHexBlockNumber(result);
 
-      assert.ok(spy.log.length == 1, 'Should have made one network requests');
+      // With empty storage the prover delivers the ZK sync data (1 request). Since no
+      // witness keys are configured here, the verifier additionally anchors the
+      // checkpoint header by looking up `eth/v1/beacon/blocks/{slot}/root`. Depending
+      // on which snapshot variant the server delivers, the anchor slot is either:
+      //   * legacy `header_proof`: epoch boundary RIGHT AFTER the period (often older
+      //     than the ~6h checkpointz cache window) -- routed as `beacon_api`.
+      //   * new `historic_proof`: a RECENT finalized epoch boundary (within the
+      //     checkpointz cache window) -- routed as `checkpointz` (or `beacon_api`
+      //     as fallback). The accompanying merkle proof over `historical_summaries`
+      //     is verified locally (no extra request).
+      // Either way: exactly 2 network requests (prover + WSP anchor), both required.
+      const proverReqs = spy.log.filter(r => r.type === 'prover');
+      const wspReqs    = spy.log.filter(r =>
+        (r.type === 'beacon_api' || r.type === 'checkpointz') &&
+        typeof r.url === 'string' && /eth\/v1\/beacon\/blocks\/\d+\/root$/.test(r.url),
+      );
+      assert.strictEqual(proverReqs.length, 1, 'Should issue exactly one prover request');
+      assert.strictEqual(wspReqs.length, 1, 'Should issue exactly one WSP anchor request (checkpointz or beacon_api)');
+      assert.strictEqual(spy.log.length, 2, 'No other requests expected (prover + WSP anchor only)');
       assert.ok(storage._map.size == 2, 'Storage should be populated after zk_proof sync');
     });
 

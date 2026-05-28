@@ -210,6 +210,19 @@ val colibri = Colibri(
 )
 ```
 
+### Weak Subjectivity Period check
+
+Whenever a sync crosses the **Weak Subjectivity Period (WSP)** -- typically ~2 to 4 months on Ethereum mainnet -- the verifier anchors the highest finalized header against an external `checkpointz` / Beacon API endpoint. The check applies to all three sync paths: verifier-driven Light Client updates, prover-supplied `LCSyncData`, and prover-supplied `ZKSyncData`. For `ZKSyncData` the verifier prefers configured **witness signatures** (`checkpointWitnessKeys` + matching signatures from the prover) and only falls back to `checkpointz` when no witness anchor is available.
+
+- `skipWspCheck` (`Boolean`, default `false`) -- sets `VERIFY_FLAG_SKIP_WSP_CHECK` (bit `1 shl 7`) and disables the round-trip. **SECURITY:** only safe when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; raises the risk of long-range attacks across periods older than the WSP. See the [threat model -- long range attacks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/threat-model) for details.
+
+```kotlin
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    skipWspCheck = true,
+)
+```
+
 ### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
 
 For an `eth_call` with full storage privacy, use hybrid prover mode, PAP, and oblivious nodes (`obliviousNodes` default is empty).

@@ -168,11 +168,11 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   bytes_t             blocks        = {0};
 
   if (chain == NULL) THROW_ERROR("unsupported chain id!");
-  if (!ctx->client_state.len || !(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS; // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
-  uint64_t state_period = block_proof->sync.oldest_period;                                     // this is the oldest period we have in the client state
-  uint64_t block_period = block_proof->sync.required_period;                                   // the period of the target block
-  if (!state_period) return C4_SUCCESS;                                                        // the client does not have a state yet, so he might as well get the head and verify the block.
-  if (block_period >= state_period) return C4_SUCCESS;                                         // the target block is within the current range of the client
+  if (!ctx->client_state.len || !(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;                                       // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
+  uint64_t state_period = block_proof->sync.post_sync_period ? block_proof->sync.post_sync_period : block_proof->sync.oldest_period; // this is the oldest period we have in the client state
+  uint64_t block_period = block_proof->sync.block_period ? block_proof->sync.block_period : block_proof->sync.required_period;       // the period of the target block
+  if (!state_period) return C4_SUCCESS;                                                                                              // the client does not have a state yet, so he might as well get the head and verify the block.
+  if (block_period >= state_period) return C4_SUCCESS;                                                                               // the target block is within the current range of the client
 
   // Historic-direct path: the actual sub-requests below are billed via their
   // respective helpers; this constant covers the server-side composition work
@@ -208,8 +208,8 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   // create the proofs (two genuinely separate single-leaf proofs)
   ssz_ob_t summaries_ob = {.bytes = list_data.data, .def = &SUMMARIES};
   eth_cu_add(ctx, 2 * CU_SSZ_PROOF);
-  bytes_t block_idx_proof  = ssz_create_proof(blocks_ob, blocks_root, block_gidx);
-  bytes_t period_idx_proof = ssz_create_proof(summaries_ob, root, period_gidx);
+  bytes_t  block_idx_proof        = ssz_create_proof(blocks_ob, blocks_root, block_gidx);
+  bytes_t  period_idx_proof       = ssz_create_proof(summaries_ob, root, period_gidx);
   bytes_t  block_root_expected    = ssz_at(blocks_ob, block_idx).bytes;
   ssz_ob_t summary_ob             = ssz_at(summaries_ob, summary_idx);
   bytes_t  blocks_root_in_summary = ssz_get(&summary_ob, "block_summary_root").bytes;
@@ -280,21 +280,61 @@ void c4_free_block_proof(blockroot_proof_t* block_proof) {
   safe_free(block_proof->proof_header.data);
 }
 
-static c4_status_t fetch_bootstrap_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_ob_t* bootstrap) {
-  if (!sync_data->checkpoint) return C4_SUCCESS;
-  char path[200] = {0};
-  sbprintf(path, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(sync_data->checkpoint, 32));
-  // send request for checkpoint
-  ssz_ob_t result = {0};
-  //  ssz_def_t def    = SSZ_CONTAINER("bootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP);
+// Fetch and SSZ-validate a LightClientBootstrap for an explicit beacon block root.
+// On success `*out_bootstrap` is set to a typed SSZ object pointing at the response
+// bytes; the request layer owns the underlying buffer (lives for the prover_ctx).
+static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_root, ssz_ob_t* out_bootstrap) {
+  ssz_ob_t result    = {0};
+  char     path[200] = {0};
+  sbprintf(path, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(header_root, 32));
   TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &result));
 
   const ssz_def_t* bootstrap_union_def = ssz_get_def(C4_ETH_REQUEST_SYNCDATA_UNION + 1, "bootstrap");
   fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
-  result.def                           = &bootstrap_union_def->def.container.elements[fork == C4_FORK_DENEB ? 1 : 2]; // get the correct bootstrap definition for the fork
+  if (fork == 0) THROW_ERROR("Invalid bootstrap data: cannot determine fork!");
+  // Mirror the verifier-side mapping in `sync_committee_state.c`: pre-Electra forks
+  // (incl. Deneb) use the Deneb container; Electra and later use the Electra container.
+  result.def = &bootstrap_union_def->def.container.elements[fork <= C4_FORK_DENEB ? 1 : 2];
   if (!ssz_is_valid(result, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
-  *bootstrap = result;
+  *out_bootstrap = result;
+  return C4_SUCCESS;
+}
 
+static c4_status_t fetch_bootstrap_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_ob_t* bootstrap) {
+  if (!sync_data->checkpoint) return C4_SUCCESS;
+  return fetch_bootstrap_by_root(ctx, sync_data->checkpoint, bootstrap);
+}
+
+// Build the ETH_CHECKPOINT_PROOF SSZ object from a parsed LightClientBootstrap.
+// On success the caller owns `out->bytes.data` (must safe_free after use).
+//
+// Note: `currentSyncCommitteeBranch` in the bootstrap is a fixed-depth VECTOR
+// (5 for Deneb, 6 for Electra); the CheckpointProof's `proof` is a LIST to keep
+// one container valid across both forks. The on-wire byte layout is identical
+// (concatenated 32-byte chunks), so we copy the raw branch bytes through.
+static ssz_ob_t build_checkpoint_proof_ob(ssz_ob_t bootstrap) {
+  ssz_ob_t      header           = ssz_get(&bootstrap, "header");
+  ssz_ob_t      beacon           = ssz_get(&header, "beacon");
+  ssz_ob_t      current_sync     = ssz_get(&bootstrap, "currentSyncCommittee");
+  ssz_ob_t      aggregate_pubkey = ssz_get(&current_sync, "aggregatePubkey");
+  ssz_ob_t      branch           = ssz_get(&bootstrap, "currentSyncCommitteeBranch");
+  ssz_builder_t bp               = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_CHECKPOINT_PROOF));
+  ssz_add_bytes(&bp, "header", beacon.bytes);
+  ssz_add_bytes(&bp, "aggregate_pubkey", aggregate_pubkey.bytes);
+  ssz_add_bytes(&bp, "proof", branch.bytes);
+  return ssz_builder_to_bytes(&bp);
+}
+
+// Fetch the current finalized BeaconBlock, then a LightClientBootstrap for its
+// block_root, and build the slim CheckpointProof from it. On success the caller
+// owns `out->bytes.data`. Used by both the ZK and LC sync-data paths so they
+// share the same async sequencing and avoid duplicated fin-block roundtrips.
+static c4_status_t fetch_finalized_checkpoint_proof(prover_ctx_t* ctx, ssz_ob_t* out) {
+  beacon_block_t fin       = {0};
+  ssz_ob_t       bootstrap = {0};
+  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"finalized\""), &fin));
+  TRY_ASYNC(fetch_bootstrap_by_root(ctx, fin.data_block_root, &bootstrap));
+  *out = build_checkpoint_proof_ob(bootstrap);
   return C4_SUCCESS;
 }
 
@@ -303,9 +343,9 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
   uint32_t count      = (uint32_t) (sync_data->required_period - sync_data->newest_period);
   char     query[100] = {0};
   sbprintf(query, "start_period=%l&count=%l", sync_data->newest_period, sync_data->required_period - sync_data->newest_period);
-//  if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)
-//    TRY_ASYNC(c4_send_internal_request(ctx, "lcu_updates", query, 0, &result.bytes));
-//  else
+  //  if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)
+  //    TRY_ASYNC(c4_send_internal_request(ctx, "lcu_updates", query, 0, &result.bytes));
+  //  else
   TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
 
   if (!updates) return C4_SUCCESS;
@@ -338,19 +378,45 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
   // nothing to be done - no data to be added.
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) return C4_SUCCESS; // no need to handle this for hybrid mode.
   if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0 && !(ctx->flags & C4_PROVER_FLAG_ZK_PROOF)) return C4_SUCCESS;
-  if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)==0) return C4_SUCCESS;
-  if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF)  && ((sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) ||
-                                               (sync_data->newest_period && sync_data->newest_period < sync_data->required_period))) {
+  if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) == 0) return C4_SUCCESS;
+  if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && ((sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) ||
+                                                 (sync_data->newest_period && sync_data->newest_period < sync_data->required_period))) {
     // we need a zk_proof (if available) for the required period.
     builder->def             = C4_ETH_REQUEST_SYNCDATA_UNION + 2; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
     zk_proof_data_t zk_proof = {0};
     eth_cu_add(ctx, CU_ZK_PROOF_INCLUDE); // ZK proof attached to the sync section
-    TRY_ASYNC(c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period));
+
+    // The witness-key path keeps the original header_proof checkpoint embedded in
+    // `zk_proof.ssz` because the witness BLS signatures vouch for the signed header
+    // directly. Without witness keys we anchor the sync committee instead against an
+    // independently checkpointz-confirmed LightClientBootstrap (double-trust model):
+    // both the verified ZK proof's pubkeys and the bootstrap's currentSyncCommittee
+    // must hash to the same root -- an attacker would have to compromise the ZK
+    // anchor AND the checkpointz provider.
+    //
+    // Async sequencing: build the checkpoint_proof first (may return PENDING on
+    // beacon/bootstrap roundtrips, in which case `checkpoint_ob` stays zero-initialised
+    // and no cleanup is needed); fetch the ZK proof second (allocates signatures);
+    // then assemble the builder. This ordering guarantees no leak on any PENDING return.
+    bool     need_checkpoint_proof = ctx->witness_key.len == 0;
+    ssz_ob_t checkpoint_ob         = {0};
+    if (need_checkpoint_proof)
+      TRY_ASYNC(fetch_finalized_checkpoint_proof(ctx, &checkpoint_ob));
+
+    TRY_ASYNC_CATCH(c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period), safe_free(checkpoint_ob.bytes.data));
+
     ssz_add_bytes(builder, "vk_hash", ssz_get(&zk_proof.sync_proof, "vk_hash").bytes);
     ssz_add_bytes(builder, "proof", ssz_get(&zk_proof.sync_proof, "proof").bytes);
     ssz_add_ob(builder, "header", ssz_get(&zk_proof.sync_proof, "header"));
     ssz_add_ob(builder, "pubkeys", ssz_get(&zk_proof.sync_proof, "pubkeys"));
-    ssz_add_ob(builder, "checkpoint", ssz_get(&zk_proof.sync_proof, "checkpoint"));
+
+    if (need_checkpoint_proof) {
+      ssz_add_ob(builder, "checkpoint", checkpoint_ob);
+      safe_free(checkpoint_ob.bytes.data);
+    }
+    else
+      ssz_add_ob(builder, "checkpoint", ssz_get(&zk_proof.sync_proof, "checkpoint"));
+
     ssz_add_bytes(builder, "signatures", zk_proof.signatures);
     safe_free(zk_proof.signatures.data);
     return C4_SUCCESS;
@@ -359,12 +425,41 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
 
   builder->def            = C4_ETH_REQUEST_SYNCDATA_UNION + 1; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
   ssz_ob_t      bootstrap = {.def = &ssz_none};
+  ssz_ob_t      cp_ob     = {0}; // owns checkpoint_proof bytes (free at end)
   ssz_builder_t updates   = ssz_builder_for_def(ssz_get_def(builder->def, "update"));
-  if (sync_data->checkpoint_period) TRY_ASYNC(fetch_bootstrap_data(ctx, sync_data, &bootstrap));
-  if (sync_data->required_period > sync_data->newest_period) TRY_ASYNC(fetch_updates_data(ctx, sync_data, &updates));
+
+  if (sync_data->checkpoint_period)
+    // Client supplied a checkpoint -- this is the bootstrap-init use case; the full
+    // LightClientBootstrap binds the verifier to that trusted checkpoint directly.
+    TRY_ASYNC(fetch_bootstrap_data(ctx, sync_data, &bootstrap));
+  else {
+    // No client checkpoint. If the update path crosses the Weak Subjectivity Period
+    // (almost always true once a single period was missed -- WSP = 256 epochs = 1 period),
+    // the verifier has no canonical anchor: the LCU chain alone is vulnerable to a
+    // long-range attack. Attach a CheckpointProof built from a fresh, checkpointz-
+    // anchored LightClientBootstrap so the verifier can cross-check the chain-of-trust
+    // pubkeys (LCU chain tail) against the bootstrap's currentSyncCommittee.
+    //
+    // Note: the chain spec is dereferenced inside the `if (chain && ...)` guard, not
+    // before, so a missing spec (unsupported chain) skips the WSP path cleanly.
+    const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
+    if (chain && sync_data->required_period > sync_data->newest_period) {
+      uint64_t epoch_gap = ((uint64_t) (sync_data->required_period - sync_data->newest_period)) << chain->epochs_per_period_bits;
+      if (epoch_gap > chain->weak_subjectivity_epochs) {
+        TRY_ASYNC(fetch_finalized_checkpoint_proof(ctx, &cp_ob));
+        bootstrap = cp_ob;
+      }
+    }
+  }
+
+  // After this point `cp_ob` may own heap memory; any early-return must `safe_free` it.
+  // `fetch_updates_data` can return PENDING, so we cannot rely on TRY_ASYNC here.
+  if (sync_data->required_period > sync_data->newest_period)
+    TRY_ASYNC_CATCH(fetch_updates_data(ctx, sync_data, &updates), safe_free(cp_ob.bytes.data));
 
   ssz_add_ob(builder, "bootstrap", bootstrap);
   ssz_add_builders(builder, "update", updates);
+  safe_free(cp_ob.bytes.data);
   return C4_SUCCESS;
 }
 
@@ -376,11 +471,15 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
   zk_proof_data_t  zk_proof    = {0};
   c4_chain_state_t chain_state = c4_state_deserialize(ctx->client_state);
   sync_data->status            = chain_state.status;
+  sync_data->block_period      = sync_data->required_period;
+  sync_data->post_sync_period  = sync_data->oldest_period;
+
   switch (sync_data->status) {
     case C4_STATE_SYNC_EMPTY:
       if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) {
         // we only fetch them so we safe time in case we download the proof files later.
-        c4_status_t status = c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+        c4_status_t status          = c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
+        sync_data->post_sync_period = sync_data->required_period;
         if (status == C4_SUCCESS)
           safe_free(zk_proof.signatures.data);
         return status;
@@ -391,6 +490,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
         if (!sync_data->oldest_period || chain_state.data.periods[i] < sync_data->oldest_period) sync_data->oldest_period = chain_state.data.periods[i];
         if (!sync_data->newest_period || chain_state.data.periods[i] > sync_data->newest_period) sync_data->newest_period = chain_state.data.periods[i];
       }
+      sync_data->post_sync_period = sync_data->newest_period;
       break;
     case C4_STATE_SYNC_CHECKPOINT: {
       if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0) return C4_SUCCESS;
@@ -404,10 +504,33 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
       sync_data->checkpoint_period = (uint64_t) (ssz_get_uint64(&beacon, "slot") >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
       sync_data->newest_period     = sync_data->checkpoint_period;
       sync_data->oldest_period     = sync_data->checkpoint_period;
+      sync_data->post_sync_period  = sync_data->checkpoint_period;
 
       break;
     }
   }
+
+  // Long-offline edge case (e.g. 6-month gap): if the block we want to prove sits
+  // more than the WSP behind the *current* canonical head, the CheckpointProof
+  // anchor (built later from a fresh LightClientBootstrap in `c4_get_syncdata_proof`)
+  // would be too far ahead of the chain-of-trust for the LCU/ZK pubkeys to
+  // cross-check. Bump `required_period` to the current period so the chain-of-trust
+  // extends all the way to the canonical anchor; the actual block validation
+  // remains independent (via historical_summaries Merkle proofs against a recent
+  // state). This is a no-op in the common case where the gap is within the WSP.
+  if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && sync_data->required_period) {
+    uint64_t epoch_gap = (((uint64_t) sync_data->required_period) - (uint64_t) sync_data->newest_period) << chain->epochs_per_period_bits;
+    if (sync_data->newest_period && sync_data->required_period > sync_data->newest_period && epoch_gap > chain->weak_subjectivity_epochs) {
+      beacon_block_t fin = {0};
+      TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"finalized\""), &fin));
+      uint32_t current_period = (uint32_t) (fin.slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits));
+      if ((uint64_t) current_period > sync_data->required_period) {
+        sync_data->required_period  = (uint64_t) current_period;
+        sync_data->post_sync_period = sync_data->required_period;
+      }
+    }
+  }
+
   // if there is a gap, fetch the light client updates
   if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) && sync_data->newest_period < sync_data->required_period)
     return c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);

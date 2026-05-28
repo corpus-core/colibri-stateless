@@ -105,7 +105,7 @@ static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
                                         uint32_t        target_tx_index,
                                         const bytes32_t expected_tx_hash) {
   ctx->sync_data = ssz_get(&proof_req, "sync_data");
-  if (!c4_update_from_sync_data(ctx)) return false;
+  if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
 
   ssz_ob_t block_proof = ssz_get(&proof_req, "proof");
 #ifdef ETH_BLOCK
@@ -227,7 +227,7 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
   uint64_t prev_cumulative = 0;
   uint32_t next_log_index  = 0;
   if (tx_index > num_receipts) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction index");
-  if (!c4_update_from_sync_data(ctx)) return false;
+  if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
   #ifdef ETH_RECEIPT
     if (!verify_block_receipts_proof_for(ctx, receipt_proof)) return false;
   #else

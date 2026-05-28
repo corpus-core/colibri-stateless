@@ -96,12 +96,15 @@ const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_
 
 /**
  * Update sync committee state from provided sync_data in verification context.
- * Processes light client updates to populate validator keys for required periods.
+ * Processes light client updates or ZK proofs to populate validator keys for the required periods.
+ * When the resulting sync gap exceeds the Weak Subjectivity Period (WSP), the function will
+ * additionally anchor the finalized header against a `checkpointz` endpoint, unless
+ * `VERIFY_FLAG_SKIP_WSP_CHECK` is set on the context or `USE_CHECKPOINTZ` is disabled.
  *
  * @param ctx Verification context containing sync_data
- * @return true if updates processed successfully, false on error
+ * @return C4_SUCCESS on success, C4_ERROR on failure, C4_PENDING if waiting for network requests
  */
-bool c4_update_from_sync_data(verify_ctx_t* ctx);
+c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx);
 
 /**
  * Handle and process raw light client updates from Beacon API.
@@ -192,6 +195,53 @@ uint64_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
 c4_chain_state_t c4_state_deserialize(bytes_t data);
 
 bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t* checkpoint_epoch, bytes32_t checkpoint_root);
+
+#ifdef USE_CHECKPOINTZ
+/**
+ * Anchor a locally derived finalized header root against an external `checkpointz` / Beacon API
+ * endpoint by fetching `eth/v1/beacon/blocks/{slot}/root` and comparing the response to
+ * `expected_root`. This is the low-level building block used by the Weak Subjectivity check
+ * for both verifier-driven and prover-supplied sync data.
+ *
+ * The caller is responsible for any local cleanup (e.g. `clear_sync_state`) when the result
+ * is `C4_ERROR`. When `VERIFY_FLAG_SKIP_WSP_CHECK` is set on the context, the function
+ * short-circuits with `C4_SUCCESS` without emitting a request.
+ *
+ * @param ctx           Verification context (state and flags)
+ * @param slot          Slot number of the finalized header to anchor
+ * @param expected_root Locally derived block root (32 bytes) to compare against
+ * @return C4_SUCCESS if the roots match (or check skipped), C4_ERROR on mismatch or invalid
+ *         response, C4_PENDING while the request is in flight.
+ */
+c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot, bytes32_t expected_root);
+
+/**
+ * Verify a `ETH_CHECKPOINT_PROOF` against the canonical chain.
+ *
+ * The CheckpointProof is the WSP anchor for both `ZKSyncData.checkpoint` and
+ * `LCSyncData.bootstrap` (when delivered as the `checkpoint_proof` union variant).
+ * It binds the locally derived pubkeys (chain-of-trust: ZK proof public output or
+ * LCU chain tail) to an anchor `BeaconBlockHeader` whose root is independently
+ * confirmed via an external `checkpointz` endpoint.
+ *
+ * Steps performed:
+ *   1. Reconstruct `sync_committee_root = SHA256(pubkeys_root || hash_tree_root(aggregate_pubkey))`.
+ *   2. Walk `proof` up to a computed `state_root` using the fork-specific
+ *      `currentSyncCommittee` gindex (Deneb 54, Electra 86).
+ *   3. Compare against `header.stateRoot`.
+ *   4. Anchor `header` against `checkpointz` via `c4_verify_checkpointz_root`.
+ *
+ * Both trust paths (chain-of-trust + canonical anchor) must agree; an attacker has
+ * to compromise BOTH layers (forged LCU/ZK keys AND the checkpointz provider).
+ *
+ * @param ctx              Verification context (state, flags, chain_id)
+ * @param checkpoint_proof SSZ object pointing at an `ETH_CHECKPOINT_PROOF` container
+ * @param pubkeys_root     `hash_tree_root` of the chain-of-trust pubkeys vector
+ * @return `C4_SUCCESS` if both paths agree, `C4_ERROR` on mismatch or malformed
+ *         input, `C4_PENDING` while the checkpointz request is in flight.
+ */
+c4_status_t c4_verify_checkpoint_proof(verify_ctx_t* ctx, ssz_ob_t checkpoint_proof, bytes32_t pubkeys_root);
+#endif
 
 #ifdef __cplusplus
 }

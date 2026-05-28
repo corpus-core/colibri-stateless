@@ -90,7 +90,13 @@ typedef enum {
   ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF = 40,
 
   // beacon container types (chain- and fork-aware, resolved via eth_ssz_type_for_fork)
-  ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 42
+  ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 42,
+
+  // Resolves to the `CheckpointProof` variant of `ETH_HEADER_PROOFS_UNION` (which is
+  // structurally identical to the `CheckpointProof` variant of
+  // `C4_ETH_SYNCDATA_BOOTSTRAP_UNION`). Single source of truth so the prover can build
+  // a CheckpointProof SSZ blob using the same definition the verifier reads.
+  ETH_SSZ_VERIFY_CHECKPOINT_PROOF = 43
 
 } eth_ssz_type_t;
 
