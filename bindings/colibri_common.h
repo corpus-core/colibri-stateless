@@ -105,6 +105,25 @@ typedef struct {
   char* proxy_beacon_urls;
 
   request_prover_t* request_prover; ///< active local prover for a verifier-emitted PROVER request (NULL if idle)
+
+  /**
+   * Snapshot of `client_state` taken once in `RPC_PHASE_INIT` (owned).
+   *
+   * Both the main prover and any verifier-issued sub-provers reuse this
+   * snapshot so the entire request lifecycle observes a consistent view -
+   * even if the underlying storage advances while the request is in flight.
+   */
+  bytes_t client_state;
+
+  /**
+   * Linked list of chain-specific cache snapshots (owned, optional).
+   *
+   * Filled by `c4_init_rpc_ctx` in `RPC_PHASE_INIT` and transferred to
+   * `verifier.state.requests` when the verifier starts. After transfer this
+   * pointer is `NULL`. Each entry has `type = C4_DATA_TYPE_CACHE` and uses
+   * `id` (32 bytes) as its lookup key (e.g. blockhash for OP cached EPs).
+   */
+  data_request_t* snapshots;
 } c4_rpc_ctx_t;
 
 /**

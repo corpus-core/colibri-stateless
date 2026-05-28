@@ -36,12 +36,11 @@ bool op_verify_call_proof(verify_ctx_t* ctx) {
   bool success = verify_evm_call(ctx, &evm);
 
   if (success) {
-    ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
-    if (!execution_payload)
+    ssz_ob_t execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
+    if (!execution_payload.def)
       success = false;
     else {
-      success = memcmp(evm.state_root, ssz_get(execution_payload, "stateRoot").bytes.data, 32) == 0;
-      safe_free(execution_payload);
+      success = memcmp(evm.state_root, ssz_get(&execution_payload, "stateRoot").bytes.data, 32) == 0;
       if (!success) ctx->state.error = strdup("State root mismatch");
     }
   }

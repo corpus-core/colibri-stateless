@@ -52,7 +52,7 @@ static bool create_eth_tx_data(verify_ctx_t* ctx, bytes32_t tx_hash_expected, by
 bool op_verify_tx_proof(verify_ctx_t* ctx) {
   ssz_ob_t  block_proof       = ssz_get(&ctx->proof, "block_proof");
   uint32_t  tx_index          = ssz_get_uint32(&ctx->proof, "transactionIndex");
-  ssz_ob_t* execution_payload = NULL;
+  ssz_ob_t  execution_payload = {0};
   bytes32_t tx_hash_expected  = {0};
 
   if (strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0) {
@@ -66,27 +66,24 @@ bool op_verify_tx_proof(verify_ctx_t* ctx) {
     json_as_bytes(json_at(ctx->args, 0), &buf);
     if (json_as_uint32(json_at(ctx->args, 1)) != tx_index) RETURN_VERIFY_ERROR(ctx, "invalid tx index!");
     execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
-    if (execution_payload == NULL) return false; // error already set
-    bytes_t block_hash_found = ssz_get(execution_payload, "blockHash").bytes;
-    if (memcmp(block_hash_expected, block_hash_found.data, 32) != 0) {
-      safe_free(execution_payload);
+    if (!execution_payload.def) return false; // error already set
+    bytes_t block_hash_found = ssz_get(&execution_payload, "blockHash").bytes;
+    if (memcmp(block_hash_expected, block_hash_found.data, 32) != 0)
       RETURN_VERIFY_ERROR(ctx, "invalid block hash!");
-    }
   }
   else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0) {
     execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
     buffer_t buf      = stack_buffer(tx_hash_expected);
     json_as_bytes(json_at(ctx->args, 0), &buf);
   }
-  if (execution_payload == NULL) return false; // error already set
+  if (!execution_payload.def) return false; // error already set
 
   // for now we only support the full execution payload
-  ssz_ob_t raw              = ssz_at(ssz_get(execution_payload, "transactions"), tx_index);
-  ssz_ob_t block_hash       = ssz_get(execution_payload, "blockHash");
-  ssz_ob_t block_number     = ssz_get(execution_payload, "blockNumber");
-  ssz_ob_t base_fee_per_gas = ssz_get(execution_payload, "baseFeePerGas");
+  ssz_ob_t raw              = ssz_at(ssz_get(&execution_payload, "transactions"), tx_index);
+  ssz_ob_t block_hash       = ssz_get(&execution_payload, "blockHash");
+  ssz_ob_t block_number     = ssz_get(&execution_payload, "blockNumber");
+  ssz_ob_t base_fee_per_gas = ssz_get(&execution_payload, "baseFeePerGas");
 
   ctx->success = create_eth_tx_data(ctx, bytes_all_zero(bytes(tx_hash_expected, 32)) ? tx_hash_expected : NULL, raw.bytes, block_hash.bytes.data, ssz_uint64(block_number), ssz_uint64(base_fee_per_gas), tx_index);
-  safe_free(execution_payload);
   return ctx->success;
 }

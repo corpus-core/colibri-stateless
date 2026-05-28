@@ -26,7 +26,10 @@
 #include "json.h"
 #include "op_types.h"
 #include "ssz.h"
+#include "state.h"
+#include "sync_committee.h"
 #include "verify.h"
+#include <stdlib.h>
 #include <string.h>
 
 // : OP-Stack
@@ -110,6 +113,29 @@ const ssz_def_t* c4_op_get_request_type(chain_type_t chain_type) {
   return chain_type == C4_CHAIN_TYPE_OP ? op_ssz_verification_type(OP_SSZ_VERIFY_REQUEST) : NULL;
 }
 extern bool verify_eth_local(verify_ctx_t* ctx);
+
+void op_init_rpc_ctx(c4_init_ctx_t* ctx) {
+  if (!ctx || c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return;
+
+#ifdef ETH_BLOCK
+  // Identify the snapshot via the blockhash recorded in `client_state`.
+  c4_chain_state_t cs = c4_state_deserialize(ctx->client_state);
+  if (cs.status != C4_STATE_SYNC_EXECUTION_PAYLOAD) return;
+
+  bytes_t cached = op_load_cached_payload(ctx->chain_id);
+  if (!cached.data || !cached.len) return;
+
+  data_request_t* snap = safe_calloc(1, sizeof(data_request_t));
+  snap->type           = C4_DATA_TYPE_CACHE;
+  snap->chain_id       = ctx->chain_id;
+  snap->response       = cached; // ownership transferred
+  snap->validated      = true;
+  memcpy(snap->id, cs.data.block.blockhash, 32);
+
+  snap->next     = ctx->snapshots;
+  ctx->snapshots = snap;
+#endif
+}
 
 bool c4_op_verify(verify_ctx_t* ctx) {
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return false;

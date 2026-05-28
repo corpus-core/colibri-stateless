@@ -508,6 +508,10 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
 
       break;
     }
+    case C4_STATE_SYNC_BLOCKHASH_HEADER:
+    case C4_STATE_SYNC_EXECUTION_PAYLOAD:
+      // OP-Stack-specific chain states must not be sent to the ETH prover.
+      THROW_ERROR("unexpected OP-Stack chain state for ETH prover");
   }
 
   // Long-offline edge case (e.g. 6-month gap): if the block we want to prove sits

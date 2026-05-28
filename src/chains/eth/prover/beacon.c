@@ -39,9 +39,9 @@
 static inline void create_cache_block_key(bytes32_t key, json_t block) {
   buffer_t buffer = {.allocated = -32, .data = {.data = key, .len = 0}};
   if (strncmp(block.start, "\"latest\"", 8) == 0)
-    sbprintf(((char*) key) + 1, "%s", "latest");
+    memcpy((char*) key + 1, "latest", 7);
   else if (strncmp(block.start, "\"safe\"", 6) == 0 || strncmp(block.start, "\"finalized\"", 12) == 0) {
-    sbprintf((char*) key, "%s", FINALITY_KEY);
+    memcpy((char*) key, FINALITY_KEY, sizeof(FINALITY_KEY));
     return;
   }
   else if (block.start[1] == '0' && block.start[2] == 'x') {
@@ -207,7 +207,7 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   memset(key, 0, 32);
   *key = 'S';
   if (latest_timestamp) {
-    sbprintf((char*) key, "%s", "Slatest");
+    memcpy((char*) key, "Slatest", 8);
     /*:: [ $COUNT of $ALL ] $service_to_build
     uint64_t now_unix_ms                  = current_unix_ms(); // Use Unix epoch time
     uint64_t block_interval_ms            = 12000;
@@ -440,7 +440,7 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
 
 #ifdef PROVER_CACHE
   bytes32_t key = {0};
-  sbprintf((char*) key, "%s", FINALITY_KEY);
+  memcpy((char*) key, FINALITY_KEY, sizeof(FINALITY_KEY));
   c4_prover_cache_set(ctx, key, bytes_dup(bytes(hashes, sizeof(hashes))).data, sizeof(hashes), 1000 * 60 * 7, free); // 6 min
 #endif
   if (hash) memcpy(hash, hashes[safe ? 0 : 1].root, 32);
@@ -450,7 +450,7 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
 #ifdef PROVER_CACHE
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint64_t* slot) {
   bytes32_t key = {0};
-  sbprintf((char*) key, "%s", FINALITY_KEY);
+  memcpy((char*) key, FINALITY_KEY, sizeof(FINALITY_KEY));
   c4_prover_cache_invalidate(key);
   return eth_get_final_hash(ctx, true, checkpoint, slot);
 }

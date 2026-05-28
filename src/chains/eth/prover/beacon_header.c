@@ -166,7 +166,7 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
   sbprintf(arg_buffer, "[%J%s]", block, type == HYBRID_FETCH_EXECUTION ? ",false" : "");
   bprintf(&buffer, "{\"method\":\"%s\",\"params\":%s", method, arg_buffer);
   sha256(buffer.data, id); // we create the id befor adding the props, so client_state changes will not effect the hash.
-  c4_append_prover_request_props(&buffer, ctx->chain_id, ctx->flags, ctx->witness_key);
+  c4_append_prover_request_props(&buffer, ctx->client_state, ctx->chain_id, ctx->flags, ctx->witness_key);
   bprintf(&buffer, "}");
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
 

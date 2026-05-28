@@ -35,7 +35,7 @@
 #include "rlp.h"
 #include "ssz.h"
 
-static c4_status_t create_op_receipt_proof(prover_ctx_t* ctx, ssz_builder_t block_proof, ssz_ob_t receipt_proof, json_t receipt) {
+static c4_status_t create_op_receipt_proof(prover_ctx_t* ctx, json_t block_number, ssz_builder_t* block_proof, ssz_ob_t receipt_proof, json_t receipt) {
 
   ssz_builder_t eth_tx_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_RECEIPT_PROOF);
   uint32_t      tx_index     = json_get_uint32(receipt, "transactionIndex");
@@ -45,7 +45,7 @@ static c4_status_t create_op_receipt_proof(prover_ctx_t* ctx, ssz_builder_t bloc
   ssz_add_uint32(&eth_tx_proof, tx_index);
   ssz_add_bytes(&eth_tx_proof, "receipt_proof", receipt_proof.bytes);
   ssz_add_bytes(&eth_tx_proof, "tx_proof", NULL_BYTES);
-  ssz_add_builders(&eth_tx_proof, "block_proof", block_proof);
+  c4_op_add_block_proof(ctx, block_number, &eth_tx_proof, "block_proof", block_proof);
 
   ctx->proof = op_create_proof_request(
       ctx->chain_id,
@@ -83,7 +83,7 @@ c4_status_t c4_op_proof_receipt(prover_ctx_t* ctx) {
                   ssz_builder_free(&block_proof));
 
   TRY_ASYNC_FINAL(
-      create_op_receipt_proof(ctx, block_proof, receipt_proof, receipt),
+      create_op_receipt_proof(ctx, block_number, &block_proof, receipt_proof, receipt),
       safe_free(receipt_proof.bytes.data));
   return C4_SUCCESS;
 }
