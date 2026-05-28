@@ -141,7 +141,7 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
     SSZ_CONTAINER("signature_proof", ETH_SIGNATURE_BLOCK_PROOF),  // proof fby provding signature of the sync_committee
     SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF),    // proof for a historic block using the state_root of a current block.
     SSZ_CONTAINER("header_proof", ETH_HEADERS_BLOCK_PROOF),       // proof block giving headers up to a verifyable header.
-    SSZ_CONTAINER("checkpoint_proof", ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
+    SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
 };
 
 // :: Receipt Proof

@@ -105,7 +105,7 @@ static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
     SSZ_NONE,
     SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP),     // Denep Fork Structureed LightClient Bootstrap
     SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // Electra Fork Structureed LightClient Bootstrap
-    SSZ_CONTAINER("checkpoint_proof", ETH_CHECKPOINT_PROOF)                       // slim WSP anchor (header + currentSyncCommitteeBranch + aggregate)
+    SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)                       // slim WSP anchor (header + currentSyncCommitteeBranch + aggregate)
 };
 
 // A List of LightClient Updates as returned from light_client/updates endpoint.

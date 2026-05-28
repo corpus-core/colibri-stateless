@@ -358,7 +358,7 @@ static const ssz_def_t LOCAL_ETH_CHECKPOINT_PROOF[] = {
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
     SSZ_BYTE_VECTOR("aggregate_pubkey", 48),
     SSZ_LIST("proof", ssz_bytes32, 16)};
-static const ssz_def_t CHECKPOINT_PROOF_CONTAINER = SSZ_CONTAINER("checkpoint_proof", LOCAL_ETH_CHECKPOINT_PROOF);
+static const ssz_def_t CHECKPOINT_PROOF_CONTAINER = SSZ_CONTAINER("CheckpointProof", LOCAL_ETH_CHECKPOINT_PROOF);
 
 static c4_status_t build_checkpoint_proof_ob(ssz_ob_t bootstrap, ssz_ob_t* out) {
   ssz_ob_t header           = ssz_get(&bootstrap, "header");

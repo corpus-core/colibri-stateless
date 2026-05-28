@@ -83,7 +83,7 @@ static uint64_t finalized_root_gindex(chain_id_t chain_id, uint64_t slot) {
 static inline bool is_checkpoint_proof_variant(ssz_ob_t ob) {
   return ob.def &&
          ob.def->type == SSZ_TYPE_CONTAINER &&
-         strcmp(ob.def->name, "checkpoint_proof") == 0;
+         strcmp(ob.def->name, "CheckpointProof") == 0;
 }
 
 #ifdef USE_CHECKPOINTZ

@@ -41,7 +41,7 @@ static const ssz_def_t WSP_TEST_CHECKPOINT_PROOF[] = {
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
     SSZ_BYTE_VECTOR("aggregate_pubkey", 48),
     SSZ_LIST("proof", ssz_bytes32, 16)};
-static const ssz_def_t WSP_TEST_CHECKPOINT_PROOF_CONTAINER = SSZ_CONTAINER("checkpoint_proof", WSP_TEST_CHECKPOINT_PROOF);
+static const ssz_def_t WSP_TEST_CHECKPOINT_PROOF_CONTAINER = SSZ_CONTAINER("CheckpointProof", WSP_TEST_CHECKPOINT_PROOF);
 
 void setUp(void) {
   reset_local_filecache();
