@@ -87,45 +87,6 @@ void        ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_d
 void        c4_free_block_proof(blockroot_proof_t* block_proof);
 c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof, uint64_t period);
 
-/**
- * Builds the concatenated merkle proof from a block root in `block_period` to
- * the `state_root` of a recent beacon state, using `historical_summaries` of
- * that recent state.
- *
- * The proof concatenates three single-leaf proofs:
- *   1. blocks_roots[block_idx]              -> hash_tree_root(blocks_roots)
- *   2. summaries[summary_idx].block_summary_root -> hash_tree_root(summaries)
- *   3. summaries_root                        -> recent state_root (provided by Lodestar)
- *
- * The combined gindex is `summaries_field_gidx ++ period_summary_gidx ++ block_idx_gidx`.
- *
- * Caller owns `out_proof->data` after success. On error, no allocation is leaked.
- *
- * Designed to be callable from both the prover (sync historic proof building)
- * and the server (snapshot pre-building). The `state` parameter is optional;
- * when `NULL`, errors are logged via `log_warn` instead of being stored.
- *
- * @param chain_id          Chain identifier (used for fork epoch lookup).
- * @param state             Optional state for error reporting (may be `NULL`).
- * @param block_period      Period containing the block whose root we anchor.
- * @param block_idx         Slot index within the period (slot % 8192).
- * @param blocks_roots      SSZ `Vector[bytes32, 8192]` of block roots for `block_period`.
- * @param history_proof     JSON from Lodestar `/eth/v1/lodestar/states/{state_id}/historical_summaries`.
- * @param recent_state_slot Slot of the recent state we anchor against (determines fork id).
- * @param out_proof         OUT: concatenated merkle proof bytes (heap allocated, caller frees `.data`).
- * @param out_gindex        OUT: combined generalized index.
- * @return `C4_SUCCESS` on success, `C4_ERROR` on failure.
- */
-c4_status_t c4_build_historic_merkle_proof(
-    chain_id_t  chain_id,
-    c4_state_t* state,
-    uint64_t    block_period,
-    uint64_t    block_idx,
-    bytes_t     blocks_roots,
-    json_t      history_proof,
-    uint64_t    recent_state_slot,
-    bytes_t*    out_proof,
-    gindex_t*   out_gindex);
 #ifdef __cplusplus
 }
 #endif

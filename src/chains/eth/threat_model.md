@@ -104,29 +104,55 @@ An attacker could attempt to:
 
 ### How Colibri enforces WSP today
 
-Colibri performs an explicit **Weak Subjectivity Period (WSP) check** whenever a sync attempt crosses the WSP boundary, regardless of how the sync committee data is obtained. The check applies to all three sync paths:
+Colibri uses a **double-trust model** for the Weak Subjectivity Period (WSP) anchor: the
+chain-of-trust (LCU chain or ZK proof, rooted in a hard-coded genesis anchor) and an
+independent anchor-to-canonical (a `LightClientBootstrap` fetched from `checkpointz`)
+must agree on the same `currentSyncCommittee` for the bootstrap-anchor period. An
+attacker therefore has to compromise BOTH layers (forge LCU/ZK keys AND control the
+`checkpointz` provider) before the verifier accepts the sync committee.
+
+The cross-check applies uniformly to all three sync paths:
 
 | Sync path                                | When triggered                                                                            | What is checked                                                                                                                                                                                                |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Verifier-driven LightClient updates**  | Verifier fetches `light_client/updates` itself when bridging a gap larger than the WSP.   | The last finalized header from the verified updates is compared against the block root returned by the configured `checkpointz` / Beacon API endpoint (`eth/v1/beacon/blocks/{slot}/root`).                    |
-| **Prover-supplied `LCSyncData`**         | Prover pushes a batch of `light_client/updates` whose finalized header crosses the WSP.   | After the in-band BLS verification, the highest finalized header is anchored against `checkpointz` exactly like the verifier-driven path.                                                                      |
-| **Prover-supplied `ZKSyncData`**         | Prover pushes a recursive ZK proof for a sync committee period beyond the WSP.            | First choice: if `checkpoint_witness_keys` are configured **and** the prover delivered matching `signatures`, the EIP-191 signatures over the attested header are verified. Otherwise: `checkpointz` anchor against an embedded checkpoint header (epoch boundary). When the checkpoint variant is `historic_proof`, the recent anchor header is additionally tied to the attested block root via a Merkle proof over `historical_summaries`. |
+| **Verifier-driven LightClient updates**  | Verifier fetches `light_client/updates` itself when bridging a gap larger than the WSP.   | After the LCU apply loop, the verifier fetches `head/finality_checkpoints` and the matching `LightClientBootstrap`, then compares `hash_tree_root(bootstrap.currentSyncCommittee.pubkeys)` against the LCU-supplied `nextSyncCommittee.pubkeys` for the period preceding the bootstrap-anchor period. |
+| **Prover-supplied `LCSyncData`**         | Prover pushes a batch of `light_client/updates` whose finalized header crosses the WSP.   | The prover embeds a `checkpoint_proof` (slim `LightClientBootstrap`-derived anchor) in the `bootstrap` union field. After applying the LCUs, the verifier reconstructs `sync_committee_root` from the LCU-tail pubkeys and the bootstrap's `aggregate_pubkey`, then walks the embedded Merkle branch to the anchor header's `stateRoot` and anchors the header against `checkpointz`. |
+| **Prover-supplied `ZKSyncData`**         | Prover pushes a recursive ZK proof for a sync committee period beyond the WSP.            | First choice: if `checkpoint_witness_keys` are configured **and** the prover delivered matching `signatures`, the EIP-191 signatures over the attested header are verified. Otherwise: the prover embeds a `checkpoint_proof` in the `checkpoint` union and the verifier cross-checks `hash_tree_root(zk_proof.pubkeys)` against the bootstrap's currentSyncCommittee root before anchoring the bootstrap header against `checkpointz`. |
 
 The WSP boundary itself is derived from `spec->weak_subjectivity_epochs` (a Colibri-side value, defaulting to a value below the protocol's own WSP estimate so that the anchor is checked well before validators can safely exit).
 
-#### `historic_proof` variant (preferred for `ZKSyncData`)
+#### `checkpoint_proof` SSZ container
 
-The original `header_proof` variant requires `checkpointz` to serve a block root for the epoch boundary right *after* the period the ZK proof covers -- typically days or even months in the past for older periods. Public `checkpointz` instances only keep roughly the last 30 finalized snapshots (~6 hours), so a large fraction of WSP requests for older periods fall back to a Beacon API node, defeating the goal of routing checkpoint lookups through dedicated, low-trust checkpointz instances.
+The cross-check between the chain-of-trust pubkeys and the canonical bootstrap pubkeys
+is mediated by a single SSZ container, `ETH_CHECKPOINT_PROOF` (see
+`src/chains/eth/ssz/verify_proof_types.h`):
 
-The `historic_proof` variant addresses this by anchoring against a **recent** epoch boundary (currently the finalized head from the SSE event that built the snapshot) and additionally proving cryptographically that the attested block root from the ZK proof is part of that recent state's history:
+```
+ETH_CHECKPOINT_PROOF {
+  header:           BeaconBlockHeader,   // anchor header; state_root binds the merkle proof, slot+root anchor against checkpointz
+  aggregate_pubkey: bytes[48],           // SyncCommittee.aggregate_pubkey for sync_committee_root reconstruction
+  proof:            List[bytes32, 16]    // currentSyncCommitteeBranch (depth 5 in Deneb, 6 in Electra)
+}
+```
 
-1. The prover delivers `checkpoint.historic_proof = { proof, header, gindex, ... }` where `header` is the recent epoch-boundary BeaconBlockHeader.
-2. The verifier asks `checkpointz` (or a Beacon API fallback) for the block root at `header.slot` and rejects on mismatch -- same anchor mechanism as `header_proof`.
-3. The verifier then evaluates `ssz_verify_single_merkle_proof(proof, attested_root, gindex)` and rejects if the result does not match `header.stateRoot`.
+The container is added as a fourth variant to both `ETH_HEADER_PROOFS_UNION` (the
+`checkpoint` field inside `ZKSyncData`) and `C4_ETH_SYNCDATA_BOOTSTRAP_UNION` (the
+`bootstrap` field inside `LCSyncData`). The verifier-side helper
+`c4_verify_checkpoint_proof` performs the entire cross-check in four steps:
 
-The second step closes the long-range window: an attacker who fabricates a fork after the period's last block cannot exhibit a matching `historical_summaries` entry inside the canonical recent state, so the merkle check fails.
+1. Reconstruct `sync_committee_root = SHA256(pubkeys_root || hash_tree_root(aggregate_pubkey))` where `pubkeys_root` is supplied by the caller (= chain-of-trust source: ZK proof public output, or LCU chain tail).
+2. Walk `proof` up to a computed `state_root` using the fork-specific `currentSyncCommittee` gindex (Deneb 54, Electra 86).
+3. Compare against `header.stateRoot`.
+4. Anchor `header` against `checkpointz` via `c4_verify_checkpointz_root`.
 
-A non-trivial implication is that the trust assumption shifts entirely to `checkpointz` for the anchor header; the historic proof itself carries no BLS signature (this would re-introduce the chicken-and-egg problem of needing the sync committee we are about to verify). Witness-key deployments therefore still receive a `header_proof` snapshot from the server so they can use signature-based anchoring without round-tripping to `checkpointz`.
+Steps 1–3 bind the LCU/ZK keys to the bootstrap header's `stateRoot`; step 4 binds the
+bootstrap header to the canonical chain. Both sides are required; failing either step
+clears the local sync state and forces a fresh bootstrap on the next round.
+
+`aggregate_pubkey` is included so the verifier can compute the SyncCommittee container
+root without re-aggregating the 512 pubkeys (which would be an expensive BLS operation
+in the verifier path). The `proof` list (rather than a fixed-depth vector) keeps the
+container valid across Deneb (depth 5) and Electra (depth 6).
 
 #### When the check is skipped
 
@@ -136,13 +162,36 @@ A non-trivial implication is that the trust assumption shifts entirely to `check
 
 #### Failure handling
 
-Each path commits the new sync committee state only after the anchor check has succeeded:
+Each path commits the new sync committee state only after the cross-check has succeeded:
 
-* For the verifier-driven path the check runs after the updates are applied; on mismatch the cached sync state is cleared (`clear_sync_state`) so the next verification round forces a fresh bootstrap.
-* For prover-supplied `LCSyncData` the check runs **before** any update is folded into the cache (a pre-scan over the SSZ-validated updates determines the highest finalized header). On mismatch nothing is persisted, and the host can simply retry against a different prover or checkpointz endpoint.
-* For prover-supplied `ZKSyncData` the new period is committed via `c4_set_sync_period` only after the witness signatures or checkpointz anchor have been verified. On mismatch nothing is persisted.
+* The **verifier-driven path** runs `c4_check_weak_subjectivity` after the LCU apply
+  loop. On any failure (`C4_ERROR` from SSZ parse, header-root mismatch, missing LCU,
+  pubkeys disagreement) it calls `clear_sync_state(chain_id)` so the apply-loop's
+  optimistically-persisted committees are dropped and the next verification round
+  forces a fresh bootstrap.
+* For prover-supplied **`LCSyncData` with `checkpoint_proof`** the cross-check runs
+  as a **pre-scan over the SSZ-validated updates**, *before* the apply loop persists
+  anything via `c4_set_sync_period`. The pre-scan extracts
+  `attestedHeader.beacon.slot` and `nextSyncCommittee.pubkeys` directly from the SSZ
+  bytes (no BLS trust required at that point) for the LCU whose attested period
+  precedes the bootstrap period, hashes those pubkeys, and runs
+  `c4_verify_checkpoint_proof`. Only on success does the in-band BLS apply-and-persist
+  loop run. If the prover sends a full `LightClientBootstrap` instead (init use case
+  with a client-supplied checkpoint), the legacy bootstrap-against-trusted-checkpoint
+  path is used.
+* For prover-supplied **`ZKSyncData` with `checkpoint_proof`** the ZK proof is
+  verified first (binds `pub_keys` to the recursive genesis anchor), then
+  `c4_verify_checkpoint_proof` cross-checks `hash_tree_root(pub_keys)` against the
+  bootstrap's currentSyncCommittee root *before* the new period is committed via
+  `c4_set_sync_period`. Witness-key deployments stay on the EIP-191 signature path.
 
-A non-responsive checkpointz endpoint returns `C4_PENDING` rather than silently passing, so a single transport failure cannot bypass the check. The next host loop iteration re-enters the same code path; persistent state is only mutated once the anchor agrees.
+The pre-scan ordering for `LCSyncData` is load-bearing: without it, a long-range
+attack with compromised pre-WSP validator keys could persist forged sync committees
+on the first `PENDING`/`ERROR` round and bypass the cross-check on subsequent retries.
+A non-responsive checkpointz endpoint returns `C4_PENDING` rather than silently
+passing, so a single transport failure cannot bypass the check. The next host loop
+iteration re-enters the same code path; persistent state is only mutated once both
+trust paths agree.
 
 ---
 

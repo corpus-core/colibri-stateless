@@ -40,30 +40,6 @@ void     c4_ps_schedule_fetch_historical_root(uint64_t period);
 char*    c4_ps_ensure_period_dir(uint64_t period);
 void     c4_build_zk_sync_proof_data(uint64_t period);
 
-/**
- * Triggers the asynchronous build of a `zk_proof_checkpoint_${anchor_slot}.ssz`
- * snapshot for `period`. The function returns immediately; the actual fetch of
- * `historical_summaries` and the beacon header for the anchor slot, the merkle
- * proof construction and the file write happen via libuv callbacks.
- *
- * MVP behaviour: the anchor slot is always `finalized_slot`. A planned
- * first-success fallback cascade over `[finalized_slot, finalized_slot + 32,
- * finalized_slot + 64]` (finalized -> justified -> head epoch boundary) is
- * tracked as a `TODO` inside the implementation; when Lodestar's
- * `historical_summaries` endpoint is unavailable for `finalized_slot` the
- * build is currently skipped and retried on the next checkpoint event.
- *
- * On success the snapshot file is written and `snapshots.idx` for the period
- * is updated atomically. Old snapshots outside the checkpointz cache window
- * (`anchor_slot < finalized_slot - 1800`, ~6h) are unlinked.
- *
- * No-op when `eth_config.period_master_url` is set (slave mode) or when the
- * period has no legacy `zk_proof.ssz` yet (nothing to anchor against).
- *
- * @param period          Period of the attested block (snapshot lives in `${period}/`).
- * @param finalized_slot  Latest finalized slot from the SSE checkpoint event.
- */
-void c4_ps_build_historic_proof_snapshot(uint64_t period, uint64_t finalized_slot);
 // ---- Blocks root verification marker (blocks_root.bin) ----
 //
 // The file `blocks_root.bin` is written after a period's blocks_root is verified against

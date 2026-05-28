@@ -116,10 +116,32 @@ static const ssz_def_t PROOF_HEADER[4] = {
     SSZ_BYTES32("stateRoot"),    // the hash_tree_root of the state at the end of the block
     SSZ_BYTES32("bodyRoot")};    // the hash_tree_root of the block body
 
+// A slim checkpoint proof anchoring the sync committee's currentSyncCommittee
+// against the state_root of a recent (checkpointz-servable) BeaconBlockHeader.
+//
+// Used as the WSP anchor for both ZKSyncData (`checkpoint`) and LCSyncData
+// (`bootstrap`): the verifier reconstructs the SyncCommittee root from the
+// chain-of-trust pubkeys (ZK proof public input or LCU chain end) plus the
+// `aggregate_pubkey` packed here, walks `proof` up to the `header.stateRoot`,
+// and then anchors `header` itself against checkpointz.
+//
+// `proof` is a list rather than a vector because the currentSyncCommittee
+// branch depth differs between forks (Deneb = 5, Electra = 6).
+//
+// `aggregate_pubkey` is included so the verifier can compute the
+// SyncCommittee container root as `SHA256(pubkeys_root || aggregate_padded)`
+// without re-aggregating the 512 pubkeys (an expensive BLS operation).
+static const ssz_def_t ETH_CHECKPOINT_PROOF[] = {
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER), // anchor header (state_root binds the merkle proof, slot+root anchor against checkpointz)
+    SSZ_BYTE_VECTOR("aggregate_pubkey", 48),      // SyncCommittee.aggregate_pubkey for sync_committee_root reconstruction
+    SSZ_LIST("proof", ssz_bytes32, 16)            // currentSyncCommitteeBranch (depth 5 in Deneb, 6 in Electra)
+};
+
 static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
-    SSZ_CONTAINER("signature_proof", ETH_SIGNATURE_BLOCK_PROOF), // proof fby provding signature of the sync_committee
-    SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF),   // proof for a historic block using the state_root of a current block.
-    SSZ_CONTAINER("header_proof", ETH_HEADERS_BLOCK_PROOF)       // proof block giving headers up to a verifyable header.
+    SSZ_CONTAINER("signature_proof", ETH_SIGNATURE_BLOCK_PROOF),  // proof fby provding signature of the sync_committee
+    SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF),    // proof for a historic block using the state_root of a current block.
+    SSZ_CONTAINER("header_proof", ETH_HEADERS_BLOCK_PROOF),       // proof block giving headers up to a verifyable header.
+    SSZ_CONTAINER("checkpoint_proof", ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
 };
 
 // :: Receipt Proof

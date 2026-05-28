@@ -51,8 +51,6 @@ A **period** is a contiguous range of **8192 beacon slots** (≈ 27h on mainnet)
     zk_vk_raw.bin
     zk_groth16.bin
     zk_proof.ssz
-    zk_proof_checkpoint_<slot>.ssz   # one per snapshot anchor (see "Historic-proof snapshots")
-    snapshots.idx                    # binary index of available zk_proof_checkpoint_* files
 ```
 
 ### Files (what they mean)
@@ -87,27 +85,7 @@ A **period** is a contiguous range of **8192 beacon slots** (≈ 27h on mainnet)
   - `zk_proof.bin`: SP1 core proof
   - `zk_proof_g16.bin`: Groth16 proof (used by the verifier)
   - `zk_vk.bin`, `zk_vk_raw.bin`, `zk_groth16.bin`: verification keys / proof artifacts
-  - `zk_proof.ssz`: Packs `zk_proof_g16.bin` into the SSZ container used for sync-data delivery (`ZKSyncData`, see `C4_ETH_REQUEST_SYNCDATA_UNION[2]` in `src/chains/eth/ssz/verify_types.c`). This is the legacy `header_proof` variant: the embedded `checkpoint` is the epoch boundary right after the period's last block, anchored via a chain of headers up to the signed sync committee. Always built; serves as fallback when no historic-proof snapshot is available.
-
-### Historic-proof snapshots (`zk_proof_checkpoint_<slot>.ssz`)
-
-To minimise WSP round-trips to Beacon API nodes (see `threat_model.md`, section "Long Range Attacks"), the server pre-builds `historic_proof`-variant `ZKSyncData` blobs anchored against **recent** epoch boundaries on every finalized SSE event:
-
-- File name: `zk_proof_checkpoint_${anchor_slot}.ssz` -- one per build, where `anchor_slot` is the finalized slot from the SSE event that triggered the build.
-- Layout: identical to `zk_proof.ssz` except `checkpoint` carries the `historic_proof` union variant (`{ proof, header, gindex, ... }`) instead of `header_proof`.
-- `header` is the 112-byte BeaconBlockHeader at `anchor_slot` (fetched from `eth/v1/beacon/headers/${anchor_slot}`), and `proof` is the concatenated merkle proof from the period's attested block root all the way up to `header.stateRoot` (constructed via `c4_build_historic_merkle_proof`, sourcing `historical_summaries` from Lodestar's `eth/v1/lodestar/states/${anchor_slot}/historical_summaries` endpoint).
-- Builds happen for both `period` and `period + 1` whenever the corresponding `zk_proof.ssz` exists (same scope as the legacy build).
-- Snapshots older than `anchor_slot - 1800` (~6h, matches the typical `checkpointz` retention window) are unlinked after each successful build.
-- No-op in slave mode (`eth_config.period_master_url` is set); slaves replicate snapshots on demand via the existing `period_store/` fetch path.
-
-### `snapshots.idx`
-
-Binary index listing the slot numbers of all `zk_proof_checkpoint_*.ssz` files in the period directory. The prover consults this file to choose the freshest snapshot whose anchor is already finalized; without it, every prover call would either probe random slot numbers or fall back to `zk_proof.ssz`.
-
-- Format: `<uint32 count LE><uint64 slots[count] LE>` -- typically a few dozen bytes.
-- Writes are atomic: a tmp file is written and then `rename()`-ed in place, so a partial write never surfaces.
-- Update ordering: when adding a slot, the idx is updated **before** the snapshot file is unlinked during cleanup, ensuring the idx is always a subset of the physically present snapshots (the prover never references a missing file).
-- Slave mode: the index is *not* immutable, so slaves invalidate their local copy on every finalized SSE event (`unlink` in `c4_period_sync_on_checkpoint`). The next prover request will re-fetch a fresh copy from the master via the standard `period_store_call` replication path.
+  - `zk_proof.ssz`: Packs `zk_proof_g16.bin` into the SSZ container used for sync-data delivery (`ZKSyncData`, see `C4_ETH_REQUEST_SYNCDATA_UNION[2]` in `src/chains/eth/ssz/verify_types.c`). Carries the `header_proof` variant (embedded `checkpoint` is the epoch boundary right after the period's last block, anchored via a chain of headers up to the signed sync committee). The prover replaces this with a freshly-fetched LightClientBootstrap-derived `checkpoint_proof` at request-assembly time when no `witness_keys` are configured -- see `c4_get_syncdata_proof` in `prover/historic_proof.c`. The witness-key path keeps `header_proof` because witness BLS signatures vouch for the signed header directly.
 
 ## Writer model
 

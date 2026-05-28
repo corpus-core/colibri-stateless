@@ -214,6 +214,33 @@ bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t*
  *         response, C4_PENDING while the request is in flight.
  */
 c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot, bytes32_t expected_root);
+
+/**
+ * Verify a `ETH_CHECKPOINT_PROOF` against the canonical chain.
+ *
+ * The CheckpointProof is the WSP anchor for both `ZKSyncData.checkpoint` and
+ * `LCSyncData.bootstrap` (when delivered as the `checkpoint_proof` union variant).
+ * It binds the locally derived pubkeys (chain-of-trust: ZK proof public output or
+ * LCU chain tail) to an anchor `BeaconBlockHeader` whose root is independently
+ * confirmed via an external `checkpointz` endpoint.
+ *
+ * Steps performed:
+ *   1. Reconstruct `sync_committee_root = SHA256(pubkeys_root || hash_tree_root(aggregate_pubkey))`.
+ *   2. Walk `proof` up to a computed `state_root` using the fork-specific
+ *      `currentSyncCommittee` gindex (Deneb 54, Electra 86).
+ *   3. Compare against `header.stateRoot`.
+ *   4. Anchor `header` against `checkpointz` via `c4_verify_checkpointz_root`.
+ *
+ * Both trust paths (chain-of-trust + canonical anchor) must agree; an attacker has
+ * to compromise BOTH layers (forged LCU/ZK keys AND the checkpointz provider).
+ *
+ * @param ctx              Verification context (state, flags, chain_id)
+ * @param checkpoint_proof SSZ object pointing at an `ETH_CHECKPOINT_PROOF` container
+ * @param pubkeys_root     `hash_tree_root` of the chain-of-trust pubkeys vector
+ * @return `C4_SUCCESS` if both paths agree, `C4_ERROR` on mismatch or malformed
+ *         input, `C4_PENDING` while the checkpointz request is in flight.
+ */
+c4_status_t c4_verify_checkpoint_proof(verify_ctx_t* ctx, ssz_ob_t checkpoint_proof, bytes32_t pubkeys_root);
 #endif
 
 #ifdef __cplusplus
