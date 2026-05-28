@@ -45,6 +45,8 @@ typedef struct {
   uint64_t             required_period;   // latest_period  required
   uint64_t             oldest_period;     // current period used by the the verifier
   uint64_t             newest_period;     // current period used by the the verifier
+  uint64_t             block_period;      // the period of the target block
+  uint64_t             post_sync_period;  // the period of the target block after the sync period
   c4_state_sync_type_t status;            // the status of the
 
 } syncdata_state_t;
