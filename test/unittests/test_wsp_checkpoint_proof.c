@@ -33,16 +33,6 @@
 
 #ifdef USE_CHECKPOINTZ
 
-// Local copy of the ETH_CHECKPOINT_PROOF container (the canonical definition in
-// `verify_proof_types.h` is not self-contained -- it references TU-local statics
-// from `verify_types.c`). SSZ field order and types must stay byte-for-byte in
-// sync with the production container.
-static const ssz_def_t WSP_TEST_CHECKPOINT_PROOF[] = {
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
-    SSZ_BYTE_VECTOR("aggregate_pubkey", 48),
-    SSZ_LIST("proof", ssz_bytes32, 16)};
-static const ssz_def_t WSP_TEST_CHECKPOINT_PROOF_CONTAINER = SSZ_CONTAINER("CheckpointProof", WSP_TEST_CHECKPOINT_PROOF);
-
 void setUp(void) {
   reset_local_filecache();
 }
@@ -79,7 +69,9 @@ static ssz_ob_t build_dummy_checkpoint_proof(uint64_t slot, uint8_t fill_byte) {
   uint8_t branch_buf[5 * 32] = {0};
   memset(branch_buf, fill_byte, sizeof(branch_buf));
 
-  ssz_builder_t cp = ssz_builder_for_def(&WSP_TEST_CHECKPOINT_PROOF_CONTAINER);
+  const ssz_def_t* cp_def = eth_ssz_verification_type(ETH_SSZ_VERIFY_CHECKPOINT_PROOF);
+  TEST_ASSERT_NOT_NULL_MESSAGE(cp_def, "ETH_SSZ_VERIFY_CHECKPOINT_PROOF must resolve to the canonical container");
+  ssz_builder_t cp = ssz_builder_for_def(cp_def);
   ssz_add_bytes(&cp, "header", header_ob.bytes);
   ssz_add_bytes(&cp, "aggregate_pubkey", bytes(aggregate, 48));
   ssz_add_bytes(&cp, "proof", bytes(branch_buf, sizeof(branch_buf)));
