@@ -229,7 +229,7 @@ static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   // A revert is reflected in the simulation result via `success = false`.
   // The revert bytes are already in `evm->call_result` and are carried as
   // the call output for callers that want to decode them.
-  bool     evm_success      = ctx->state.error == NULL && !evm->reverted;
+  bool     evm_success       = ctx->state.error == NULL && !evm->reverted;
   ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, evm_success, evm->gas_used, NULL, evm->accounts, evm->keccak_entries, evm->traces);
 
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
@@ -501,9 +501,7 @@ static uint32_t pap_build_proof_payload(call_account_t* ac, buffer_t* out_payloa
   return key_count;
 }
 
-// Defined below; shared between the direct (eth_call) and PAP
-// (colibri_proofCall) freshness gates. See the doc comment at the definition.
-static bool verify_call_freshness_against(verify_ctx_t* ctx, verify_ctx_t* proof_ctx, bool has_proof);
+static bool verify_call_freshness(verify_ctx_t* ctx, verify_ctx_t* proof_ctx);
 
 static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_accounts, bytes_t response, bool* values_changed) {
   verify_ctx_t proof_ctx = {0};
@@ -600,7 +598,7 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   // proof, so this is the right place to enforce the host's "latest" lower
   // bound. The block context lives in the sub-proof (proof_ctx); the request
   // args, the lower bound and the error sink live on the outer ctx.
-  if (!verify_call_freshness_against(ctx, &proof_ctx, true)) goto cleanup;
+  if (!verify_call_freshness(ctx, &proof_ctx)) goto cleanup;
 
   // Proof is valid, so we check the values for changes
   ssz_ob_t accounts     = ssz_get(&proof_ctx.proof, "accounts");
@@ -786,7 +784,7 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
 // the chosen block is actually the most recent block of that category at
 // proof-generation time (e.g. a sync-committee attestation or a separate
 // light-client checkpoint witness). Tracked as follow-up issue #283.
-static bool verify_call_freshness_against(verify_ctx_t* ctx, verify_ctx_t* proof_ctx, bool has_proof) {
+static bool verify_call_freshness(verify_ctx_t* ctx, verify_ctx_t* proof_ctx) {
   static const size_t LATEST_LITERAL_LEN = sizeof("\"latest\"") - 1;
   if (!ctx->min_latest_block_ts) return true;
 
@@ -796,22 +794,12 @@ static bool verify_call_freshness_against(verify_ctx_t* ctx, verify_ctx_t* proof
     return true;
 
   eth_call_block_context_t bctx = {0};
-  if (!has_proof || !eth_get_call_block_context_from_proof(proof_ctx, &bctx))
+  if (!eth_get_call_block_context_from_proof(proof_ctx, &bctx))
     RETURN_VERIFY_ERROR(ctx, "cannot verify freshness of latest block without block context");
   if (bctx.timestamp < ctx->min_latest_block_ts)
     RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
   return true;
 }
-
-// Direct (non-PAP) eth_call/estimateGas/simulate freshness gate. In PAP mode
-// there is no usable proof yet at this point -- the call proof arrives later
-// with the colibri_proofCall response and is checked in
-// pap_verify_proof_response instead.
-static bool verify_call_freshness(verify_ctx_t* ctx, bool has_proof, bool is_pap) {
-  if (is_pap) return true;
-  return verify_call_freshness_against(ctx, ctx, has_proof);
-}
-
 bool verify_call_proof(verify_ctx_t* ctx) {
   bool            is_simulate   = ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0;
   bool            is_estimate   = ctx->method && strcmp(ctx->method, "eth_estimateGas") == 0;
@@ -831,7 +819,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
 
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
 
-  if (!verify_call_freshness(ctx, has_proof, is_pap)) return false;
+  if (has_proof && !verify_call_freshness(ctx, ctx)) return false;
 
   if (!evm->accounts && has_proof) {
     ssz_ob_t accounts = ssz_get(&ctx->proof, "accounts");
