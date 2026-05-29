@@ -103,7 +103,11 @@ test('RPC-Proof Test Suite', async (t) => {
 
             let test_conf = JSON.parse(fs.readFileSync(`${testdir}/${test}/test.json`, 'utf8'));
             if (test_conf.requires_chain_store) return;
-            let conf = { chainId: test_conf.chain_id, cache: create_cache(`${testdir}/${test}`) }
+            // The fixtures under test/data are static recordings whose `latest`
+            // blocks are inevitably stale, so disable the freshness check here
+            // (otherwise `eth_call`/simulate proofs fail with "proof for latest
+            // too old"). The check itself is covered by test_verify_call_freshness.
+            let conf = { chainId: test_conf.chain_id, cache: create_cache(`${testdir}/${test}`), max_latest_age_seconds: 0 }
             if (test_conf.trusted_blockhash)
                 conf.trusted_checkpoint = test_conf.trusted_blockhash
             if (test_conf.include_code)

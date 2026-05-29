@@ -124,6 +124,10 @@ void main() {
       /// Create a Colibri instance with fixtures and a mock HTTP client.
       /// Only tests with remote_prover:true use a mock prover URL;
       /// all others use an empty provers list to force local proof creation.
+      /// The fixtures under test/data are static recordings whose `latest`
+      /// blocks are inevitably stale, so disable the freshness check here
+      /// (otherwise eth_call/simulate proofs fail with "proof for latest too
+      /// old"). The check itself is covered by test_verify_call_freshness.
       final colibri = Colibri(
         chainId: chainId,
         provers: remoteProver ? ['http://mock-prover'] : const [],
@@ -132,6 +136,7 @@ void main() {
         useAccesslist: useAccesslist,
         privacyMode: pap ? PrivacyMode.basic : PrivacyMode.none,
         storage: storage,
+        maxLatestAgeSeconds: 0,
         libraryPath: _resolveLibraryPath(),
         httpClient: client,
       );
@@ -186,6 +191,7 @@ void main() {
         includeCode: includeCode,
         useAccesslist: useAccesslist,
         storage: FileBackedStorage(dir),
+        maxLatestAgeSeconds: 0,
         libraryPath: _resolveLibraryPath(),
         httpClient: client,
       );
@@ -230,6 +236,7 @@ void main() {
         provers: [proverUrl],
         trustedCheckpoint: trusted,
         storage: storage,
+        maxLatestAgeSeconds: 0,
         libraryPath: _resolveLibraryPath(),
         httpClient: client,
       );
