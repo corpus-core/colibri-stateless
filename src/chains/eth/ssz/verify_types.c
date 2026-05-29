@@ -254,6 +254,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return C4_ETH_REQUEST_DATA_UNION + 10;
     case ETH_SSZ_DATA_CALL_BLOCK_CONTEXT:
       return ETH_STATE_BLOCK_UNION + 3;
+    case ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP:
+      return ETH_STATE_BLOCK_UNION + 4;
     case ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_HEADER_PROOF);
     case ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF:

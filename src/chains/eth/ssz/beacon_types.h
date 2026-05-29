@@ -96,7 +96,12 @@ typedef enum {
   // structurally identical to the `CheckpointProof` variant of
   // `C4_ETH_SYNCDATA_BOOTSTRAP_UNION`). Single source of truth so the prover can build
   // a CheckpointProof SSZ blob using the same definition the verifier reads.
-  ETH_SSZ_VERIFY_CHECKPOINT_PROOF = 43
+  ETH_SSZ_VERIFY_CHECKPOINT_PROOF = 43,
+
+  // Resolves to the `timestamp` variant of `ETH_STATE_BLOCK_UNION` (UINT64). Used
+  // by the verifier to distinguish the new account-`latest` freshness leaf from
+  // the `blockNumber` variant (both are 8 bytes long).
+  ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP = 44
 
 } eth_ssz_type_t;
 

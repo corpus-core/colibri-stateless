@@ -30,6 +30,7 @@ extern "C" {
 
 #include "beacon_types.h"
 #include "verify.h"
+// STATE_ROOT_GINDEX = (25 << 5) | 2 (see GINDEX_* comment in eth_tx.h).
 #define STATE_ROOT_GINDEX 802
 
 extern const uint8_t* EMPTY_HASH;

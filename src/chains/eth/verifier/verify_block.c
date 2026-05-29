@@ -39,8 +39,9 @@
 
 #define EXECUTION_PAYLOAD_ROOT_GINDEX 25
 
-#define GINDEX_BLOCKUMBER 806
-#define GINDEX_TIMESTAMP  809
+// GINDEX_BLOCKUMBER (806) is provided by eth_tx.h; GINDEX_TIMESTAMP (809) by
+// eth_account.h. Both already get pulled in via the includes above.
+
 
 static const char* SHA3_UNCLUES = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
 static const char* EMPTY_SHA256 = "\xe3\xb0\xc4\x42\x98\xfc\x1c\x14\x9a\xfb\xf4\xc8\x99\x6f\xb9\x24\x27\xae\x41\xe4\x64\x9b\x93\x4c\xa4\x95\x99\x1b\x78\x52\xb8\x55";
@@ -175,6 +176,10 @@ bool verify_block_proof(verify_ctx_t* ctx) {
     if (!execution_payload.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing executionPayload in hybrid block proof");
     if (!matches_blocknumber(ctx, execution_payload, block_number)) return false;
 
+    if (!eth_check_latest_freshness(ctx, eth_json_is_latest(block_number), true,
+                                    ssz_get_uint64(&execution_payload, "timestamp")))
+      return false;
+
     bytes32_t withdrawal_root = {0};
     ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), withdrawal_root);
 
@@ -193,6 +198,10 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   bool      include_txs       = json_as_bool(json_at(ctx->args, 1));
 
   if (!verify_block_proof_for_block(ctx, ctx->proof, block_number, exec_root)) return false;
+
+  if (!eth_check_latest_freshness(ctx, eth_json_is_latest(block_number), true,
+                                  ssz_get_uint64(&execution_payload, "timestamp")))
+    return false;
 
   eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS, execution_payload, ssz_get(&header, "parentRoot").bytes.data, exec_root, include_txs);
   if (ctx->state.error) return false;
@@ -219,6 +228,11 @@ bool verify_block_number_proof(verify_ctx_t* ctx) {
     ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
     if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid block number proof");
 
+    // `eth_blockNumber` has no `block_tag` argument; the request implicitly
+    // targets `latest`, so the freshness gate is always applicable here.
+    if (!eth_check_latest_freshness(ctx, true, true, ssz_get_uint64(&header_data, "timestamp")))
+      return false;
+
     ctx->data    = ssz_get(&header_data, "blockNumber");
     ctx->success = true;
     return true;
@@ -235,7 +249,11 @@ bool verify_block_number_proof(verify_ctx_t* ctx) {
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
   if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
 
-  // TODO check if the timestamp is not in the future and within the 30s of the current time
+  // The Merkle proof above already cryptographically binds `timestamp.bytes` to
+  // the execution payload, so we can run the freshness gate on it. The
+  // `eth_blockNumber` request always implicitly targets `latest`.
+  if (!eth_check_latest_freshness(ctx, true, true, ssz_uint64(timestamp))) return false;
+
   ctx->data    = block_number;
   ctx->success = true;
   return true;
@@ -288,6 +306,10 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
   if (json_len(ctx->args) > 1)
     RETURN_VERIFY_ERROR(ctx, "invalid arguments for block header proof");
 
+  // `eth_blobBaseFee` and `eth_maxPriorityFeePerGas` take no arguments and
+  // implicitly target `latest`; `eth_getBlockHeader` may take an explicit tag.
+  bool is_latest = json_len(ctx->args) == 0 || eth_json_is_latest(json_at(ctx->args, 0));
+
   if (is_hybrid) {
     if (!(ctx->flags & VERIFY_FLAG_HYBRID))
       RETURN_VERIFY_ERROR(ctx, "hybrid block header proof requires hybrid mode");
@@ -295,6 +317,7 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
     ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
     if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid block header proof");
     if (json_len(ctx->args) >= 1 && !matches_blocknumber(ctx, header_data, json_at(ctx->args, 0))) return false;
+    if (!eth_check_latest_freshness(ctx, is_latest, true, ssz_get_uint64(&header_data, "timestamp"))) return false;
 
     ctx->data = header_data;
     return verify_block_header_derived_methods(ctx);
@@ -332,6 +355,7 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
     RETURN_VERIFY_ERROR(ctx, "invalid body root!");
   if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
   if (json_len(ctx->args) >= 1 && !matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
+  if (!eth_check_latest_freshness(ctx, is_latest, true, ssz_get_uint64(&ctx->data, "timestamp"))) return false;
 
   return verify_block_header_derived_methods(ctx);
 }

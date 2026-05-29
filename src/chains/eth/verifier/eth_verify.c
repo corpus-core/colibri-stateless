@@ -29,7 +29,24 @@
 #include "ssz.h"
 #include "sync_committee.h"
 #include "verify.h"
+#include <stdint.h>
 #include <string.h>
+
+// :: Freshness gate for `"latest"` proofs (shared by all block-tag methods)
+
+bool eth_json_is_latest(json_t block_tag) {
+  static const size_t LATEST_LITERAL_LEN = sizeof("\"latest\"") - 1;
+  return block_tag.type == JSON_TYPE_STRING &&
+         block_tag.len == LATEST_LITERAL_LEN &&
+         strncmp(block_tag.start, "\"latest\"", LATEST_LITERAL_LEN) == 0;
+}
+
+bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, uint64_t block_ts) {
+  if (!ctx->min_latest_block_ts || !is_latest) return true;
+  if (!has_ts) RETURN_VERIFY_ERROR(ctx, "cannot verify freshness of latest block without block context");
+  if (block_ts < ctx->min_latest_block_ts) RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
+  return true;
+}
 
 // : Ethereum
 

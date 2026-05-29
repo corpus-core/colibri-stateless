@@ -366,10 +366,11 @@ static const ssz_def_t ETH_CALL_BLOCK_CONTEXT[] = {
 
 // definition of an enum depending on the requested block
 static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
-    SSZ_NONE,                                             // no block-proof for latest
-    SSZ_BYTES32("blockHash"),                             // proof for the right blockhash
-    SSZ_UINT64("blockNumber"),                            // proof for the right blocknumber
-    SSZ_CONTAINER("blockContext", ETH_CALL_BLOCK_CONTEXT) // compact header for EVM block context (multi-proof)
+    SSZ_NONE,                                              // no block-proof for latest
+    SSZ_BYTES32("blockHash"),                              // proof for the right blockhash
+    SSZ_UINT64("blockNumber"),                             // proof for the right blocknumber
+    SSZ_CONTAINER("blockContext", ETH_CALL_BLOCK_CONTEXT), // compact header for EVM block context (multi-proof)
+    SSZ_UINT64("timestamp")                                // timestamp-only proof for account `latest` freshness gate
 };
 
 // The stateRoot proof is used as part of different other types since it contains all relevant
