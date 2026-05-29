@@ -157,6 +157,10 @@ Future<List<CompareResult>> compareAll() async {
     final responder = FileBasedMockResponder(dir);
     final client = MockClient(responder.handle);
 
+    // The fixtures under test/data are static recordings whose `latest` blocks
+    // are inevitably stale, so disable the freshness check here (otherwise
+    // eth_call/simulate proofs fail with "proof for latest too old"). The check
+    // itself is covered by test_verify_call_freshness.
     final colibri = Colibri(
       chainId: chainId,
       provers: remoteProver ? ['http://mock-prover'] : const [],
@@ -165,6 +169,7 @@ Future<List<CompareResult>> compareAll() async {
       useAccesslist: useAccesslist,
       privacyMode: pap ? PrivacyMode.basic : PrivacyMode.none,
       storage: storage,
+      maxLatestAgeSeconds: 0,
       libraryPath: libraryPath,
       httpClient: client,
     );
