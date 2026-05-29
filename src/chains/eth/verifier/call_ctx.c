@@ -51,7 +51,7 @@ static bool eth_get_call_block_context_from_header_data(ssz_ob_t header_data, et
   return true;
 }
 
-static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
+bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
   if (!ctx->proof.def || ctx->proof.def->type == SSZ_TYPE_NONE) return false;
 
   if (ctx->flags & VERIFY_FLAG_HYBRID) {
@@ -67,7 +67,6 @@ static bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_bl
   out->timestamp       = ssz_get_uint64(&bc, "timestamp");
   out->gas_limit       = ssz_get_uint64(&bc, "gasLimit");
   out->excess_blob_gas = ssz_get_uint64(&bc, "excessBlobGas");
-
   memcpy(out->coinbase, ssz_get(&bc, "coinbase").bytes.data, 20);
   memcpy(out->prev_randao, ssz_get(&bc, "prevRandao").bytes.data, 32);
   memcpy(out->base_fee_per_gas, ssz_get(&bc, "baseFeePerGas").bytes.data, 32);

@@ -44,6 +44,7 @@ class Colibri {
     this.proverMode,
     this.checkpointWitnessKeys,
     this.skipWspCheck = false,
+    this.maxLatestAgeSeconds = 60,
     this.logProverRequests = false,
     this.storage,
     this.rpcTimeout = const Duration(seconds: 30),
@@ -101,6 +102,14 @@ class Colibri {
   /// signed package) is in place. Disabling raises the risk of long-range
   /// attacks across periods older than the WSP. Default: `false`.
   final bool skipWspCheck;
+  /// Maximum age (in seconds) accepted for a proof whose request uses the
+  /// `"latest"` block tag. The verifier compares `block.timestamp` from the
+  /// proof against `DateTime.now().millisecondsSinceEpoch ~/ 1000 - maxLatestAgeSeconds`;
+  /// older proofs are rejected with `"proof for latest too old"`. Set to `0`
+  /// to disable the check (e.g. when working with proof formats that lack a
+  /// block context). Currently active for `eth_call`, `eth_estimateGas`, and
+  /// `colibri_simulateTransaction`. Default: `60` (~5 Ethereum slots).
+  final int maxLatestAgeSeconds;
   /// Whether to log prover request parameters (debug only). When true, only
   /// non-sensitive summaries are printed; do not enable in production.
   final bool logProverRequests;
@@ -164,6 +173,17 @@ class Colibri {
     return (pap ? 2 : 0)
         | (obliviousNodes.isNotEmpty ? (1 << 6) : 0)
         | (skipWspCheck ? (1 << 7) : 0);
+  }
+
+  /// Computes the lower bound for `block.timestamp` accepted on `"latest"`
+  /// proofs as `now - maxLatestAgeSeconds`. Returns `0` when the host
+  /// disables the check (`maxLatestAgeSeconds <= 0`). The wallclock is
+  /// read here in the binding so the C/FFI core stays clock-free.
+  int _getMinLatestBlockTs() {
+    if (maxLatestAgeSeconds <= 0) return 0;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final lower = now - maxLatestAgeSeconds;
+    return lower > 0 ? lower : 0;
   }
 
   /// Returns how [method] is supported (proofable, local, unproofable, etc.).
@@ -253,6 +273,8 @@ class Colibri {
       throw VerificationError('Failed to create verification context for $method');
     }
 
+    _native.verifySetMinLatestBlockTs(ctx, _getMinLatestBlockTs());
+
     try {
       while (true) {
         final statusJson = _native.verifyExecuteJsonStatus(ctx);
@@ -310,6 +332,7 @@ class Colibri {
     if (checkpointWitnessKeys != null && checkpointWitnessKeys!.isNotEmpty) {
       _native.rpcSetWitnessKeys(ctx, checkpointWitnessKeys!);
     }
+    _native.rpcSetMinLatestBlockTs(ctx, _getMinLatestBlockTs());
 
     try {
       while (true) {

@@ -118,6 +118,7 @@ class Colibri {
     this.proverMode,
     this.checkpointWitnessKeys,
     this.skipWspCheck = false,
+    this.maxLatestAgeSeconds = 60,
     this.storage,
     void Function(String message)? onDebug,
     String? libraryPath,
@@ -234,6 +235,23 @@ final colibri = Colibri(
   skipWspCheck: true,
 );
 ```
+
+### Freshness window for `latest` proofs
+
+Proofs for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Dart binding therefore reads `DateTime.now()` and forwards `now - maxLatestAgeSeconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+
+- `maxLatestAgeSeconds` (`int`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
+
+> **Caveat:** the gate fires only on `"latest"` (not `"safe"`/`"finalized"`). If the host wallclock is behind `maxLatestAgeSeconds` (devices without configured time, fresh simulators), the lower bound clamps to `0` and the check is silently disabled. Make sure your runtime has a synced clock or set `maxLatestAgeSeconds: 0` explicitly to acknowledge this state.
+
+```dart
+final colibri = Colibri(
+  chainId: 1,
+  maxLatestAgeSeconds: 30, // tighter window for latency-sensitive flows
+);
+```
+
+> **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `maxLatestAgeSeconds: 0` to opt out.
 
 ### Environment
 

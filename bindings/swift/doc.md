@@ -192,6 +192,13 @@ public class Colibri {
     /// than the WSP. Default: false.
     public var skipWspCheck: Bool
 
+    /// Maximum age (in seconds) accepted for a proof whose request uses the
+    /// `"latest"` block tag. The verifier rejects proofs whose block timestamp
+    /// is older than `now - maxLatestAgeSeconds`. Set to `0` to disable.
+    /// Currently active for `eth_call`, `eth_estimateGas`, and
+    /// `colibri_simulateTransaction`. Default: 60.
+    public var maxLatestAgeSeconds: UInt64
+
     /// Initialization
     public init()
     
@@ -253,6 +260,22 @@ let colibri = Colibri()
 colibri.chainId = 1
 colibri.skipWspCheck = true  // only safe with an alternative trust anchor
 ```
+
+### Freshness window for `latest` proofs
+
+Proofs for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Swift binding therefore reads the wallclock and forwards `now - maxLatestAgeSeconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+
+- `maxLatestAgeSeconds` (`UInt64`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
+
+> **Caveat:** the gate fires only on `"latest"` (not `"safe"`/`"finalized"`). If the host wallclock is behind `maxLatestAgeSeconds` (devices without configured time, sandboxed simulators), the lower bound clamps to `0` and the check is silently disabled. Make sure your runtime has a synced clock or set `maxLatestAgeSeconds = 0` explicitly to acknowledge this state.
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.maxLatestAgeSeconds = 30 // tighter window for latency-sensitive flows
+```
+
+> **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `maxLatestAgeSeconds = 0` to opt out.
 
 ### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
 

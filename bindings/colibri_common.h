@@ -124,6 +124,16 @@ typedef struct {
    * `id` (32 bytes) as its lookup key (e.g. blockhash for OP cached EPs).
    */
   data_request_t* snapshots;
+
+  /**
+   * Lower bound for `block.timestamp` on `"latest"` requests (Unix seconds).
+   *
+   * The binding sets this to `now - max_latest_age_seconds` using the
+   * platform-native wallclock; the value is forwarded 1:1 to
+   * `verify_ctx_t.min_latest_block_ts` when the verifier starts. `0`
+   * disables the freshness check.
+   */
+  uint64_t min_latest_block_ts;
 } c4_rpc_ctx_t;
 
 /**
@@ -179,6 +189,21 @@ void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex);
  * @param beacon_urls comma-separated Beacon API base URLs, or NULL to clear
  */
 void c4_rpc_ctx_set_proxy_urls(c4_rpc_ctx_t* ctx, const char* rpc_urls, const char* beacon_urls);
+
+/**
+ * Sets the lower bound for `block.timestamp` on `"latest"` requests.
+ *
+ * The verifier rejects proofs whose block timestamp is older than `ts`
+ * for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction`
+ * when the request uses the `"latest"` block tag. `ts == 0` disables
+ * the check. Bindings typically compute `ts = now - max_age_seconds`
+ * from the platform wallclock; `colibri_common` itself never reads the
+ * clock so the same code path works on WASM and embedded targets.
+ *
+ * @param ctx the RPC context
+ * @param ts lower bound as Unix timestamp (seconds), or `0` to disable
+ */
+void c4_rpc_ctx_set_min_latest_block_ts(c4_rpc_ctx_t* ctx, uint64_t ts);
 
 /**
  * Frees the RPC context and all owned resources.

@@ -1138,6 +1138,21 @@ char* c4_verify_execute_json_status(void* ctx);
 void c4_verify_free_ctx(void* ctx);
 
 /**
+ * Sets the lower bound for `block.timestamp` on `"latest"` requests.
+ *
+ * The verifier rejects proofs whose block timestamp is older than `ts` for
+ * `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` when the
+ * request uses the `"latest"` block tag. Pass `0` to disable the check.
+ * The host typically computes `ts = now - max_age_seconds` from the platform
+ * wallclock; the C library never reads the wallclock itself so the check
+ * works the same way on native, WASM, and embedded targets.
+ *
+ * @param ctx The verification context created by `c4_verify_create_ctx()`
+ * @param ts Lower bound as Unix timestamp in seconds (`0` disables the check)
+ */
+void c4_verify_set_min_latest_block_ts(void* ctx, uint64_t ts);
+
+/**
  * Queries whether a specific RPC method is supported and how it should be handled.
  *
  * Not all Ethereum RPC methods can be cryptographically proven. This function returns
@@ -1295,6 +1310,21 @@ void c4_rpc_set_witness_keys(void* ctx, const char* witness_keys);
  * @param beacon_urls comma-separated Beacon API base URLs, or NULL
  */
 void c4_rpc_set_proxy_urls(void* ctx, const char* rpc_urls, const char* beacon_urls);
+
+/**
+ * Sets the lower bound for `block.timestamp` on `"latest"` requests.
+ *
+ * The verifier rejects proofs whose block timestamp is older than `ts` for
+ * `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` when the
+ * request uses the `"latest"` block tag. Pass `0` to disable the check.
+ * The host typically computes `ts = now - max_age_seconds` from the platform
+ * wallclock; the C library never reads the wallclock itself so the check
+ * works the same way on native, WASM, and embedded targets.
+ *
+ * @param ctx The RPC context created by `c4_create_rpc_ctx()`
+ * @param ts Lower bound as Unix timestamp in seconds (`0` disables the check)
+ */
+void c4_rpc_set_min_latest_block_ts(void* ctx, uint64_t ts);
 
 /**
  * Executes one step of the unified RPC state machine.

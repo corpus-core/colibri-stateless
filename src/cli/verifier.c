@@ -36,6 +36,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
@@ -72,6 +73,7 @@
 // | `-m`           | `<mode>`        | Prover mode: `local`, `remote`, `hybrid` |         |
 // | `-P`           |                 | Enable PAP (Pragmatic Adaptive Privacy) mode       |         |
 // | `-W`           |                 | Skip the Weak Subjectivity Period check (sets `VERIFY_FLAG_SKIP_WSP_CHECK`). **SECURITY:** only safe when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; raises the risk of long-range attacks across periods older than the WSP. |         |
+// | `-A`           | `<seconds>`     | Maximum age (in seconds) accepted for proofs whose request uses the `"latest"` block tag. Currently active for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction`. `0` disables the check. | `60` |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
@@ -118,6 +120,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
     fprintf(stderr, "  -P enable PAP (Pragmatic Adaptive Privacy) mode\n");
     fprintf(stderr, "  -W skip the Weak Subjectivity Period check (VERIFY_FLAG_SKIP_WSP_CHECK). SECURITY: only safe with an alternative trust anchor (witness signatures, hard-coded checkpoint, signed package).\n");
+    fprintf(stderr, "  -A <seconds> max age accepted for proofs targeting the \"latest\" block tag (eth_call/eth_estimateGas/colibri_simulateTransaction; default 60, 0 = disabled)\n");
     fprintf(stderr, "  -O no verifier, just return the proof\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
@@ -127,26 +130,27 @@ int main(int argc, char* argv[]) {
   char     tmp[1000] = {0};
   buffer_t buf       = stack_buffer(tmp);
 #endif
-  char*          method             = NULL;
-  chain_id_t     chain_id           = C4_CHAIN_MAINNET;
-  buffer_t       args               = {0};
-  char*          input              = NULL;
-  char*          test_dir           = NULL;
-  char*          chain_name         = NULL;
-  char*          output             = NULL;
-  char*          signers            = NULL;
-  bytes32_t      trusted_checkpoint = {0};
-  bool           has_checkpoint     = false;
-  bool           use_zk_proof       = false;
-  verify_flags_t verify_flags       = 0;
-  char*          oblivious_url      = NULL;
-  char*          rpc_url            = NULL;
-  char*          beacon_url         = NULL;
-  char*          checkpointz_url    = NULL;
-  char*          prover_url         = NULL;
-  char*          trace_id           = NULL;
-  c4_prover_mode_t prover_mode      = C4_PROVER_MODE_REMOTE;
-  bool             prover_mode_set  = false;
+  char*            method                 = NULL;
+  chain_id_t       chain_id               = C4_CHAIN_MAINNET;
+  buffer_t         args                   = {0};
+  char*            input                  = NULL;
+  char*            test_dir               = NULL;
+  char*            chain_name             = NULL;
+  char*            output                 = NULL;
+  char*            signers                = NULL;
+  bytes32_t        trusted_checkpoint     = {0};
+  bool             has_checkpoint         = false;
+  bool             use_zk_proof           = false;
+  verify_flags_t   verify_flags           = 0;
+  char*            oblivious_url          = NULL;
+  char*            rpc_url                = NULL;
+  char*            beacon_url             = NULL;
+  char*            checkpointz_url        = NULL;
+  char*            prover_url             = NULL;
+  char*            trace_id               = NULL;
+  c4_prover_mode_t prover_mode            = C4_PROVER_MODE_REMOTE;
+  bool             prover_mode_set        = false;
+  uint64_t         max_latest_age_seconds = 60; // 0 disables the freshness check for "latest" proofs
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
 
@@ -194,7 +198,7 @@ int main(int argc, char* argv[]) {
             prover_mode_set = true;
             break;
           }
-        case 'p':
+          case 'p':
             prover_url = argv[++i];
             break;
 #ifdef USE_CURL
@@ -204,7 +208,7 @@ int main(int argc, char* argv[]) {
           case 'x':
             checkpointz_url = argv[++i];
             break;
-            case 'r':
+          case 'r':
             rpc_url = argv[++i];
             break;
           case 'b':
@@ -229,6 +233,26 @@ int main(int argc, char* argv[]) {
           case 'W':
             verify_flags |= VERIFY_FLAG_SKIP_WSP_CHECK;
             break;
+          case 'A': {
+            if (i + 1 >= argc) {
+              fprintf(stderr, "-A requires a value (non-negative integer seconds; 0 disables the check)\n");
+              exit(EXIT_FAILURE);
+            }
+            const char* val = argv[++i];
+            // strtoull happily parses "-1" as UINT64_MAX -- explicitly reject signs.
+            if (val[0] == '\0' || val[0] == '-' || val[0] == '+') {
+              fprintf(stderr, "invalid value for -A: %s (expected non-negative integer seconds)\n", val);
+              exit(EXIT_FAILURE);
+            }
+            char*              end    = NULL;
+            unsigned long long parsed = strtoull(val, &end, 10);
+            if (end == val || !end || *end != '\0') {
+              fprintf(stderr, "invalid value for -A: %s (expected non-negative integer seconds)\n", val);
+              exit(EXIT_FAILURE);
+            }
+            max_latest_age_seconds = (uint64_t) parsed;
+            break;
+          }
           case 'O':
             verify_flags |= VERIFY_FLAG_PROOF_ONLY;
             break;
@@ -274,7 +298,7 @@ int main(int argc, char* argv[]) {
   else {
     json_t provers = json_get(default_config, "prover");
     if (json_len(provers) > 0)
-      prover_url = (char*)json_at(provers, 0).start;
+      prover_url = (char*) json_at(provers, 0).start;
   }
   if (prover_mode_set && prover_mode == C4_PROVER_MODE_LOCAL) prover_url = NULL;
   if (rpc_url) set_config("eth_rpc", rpc_url);
@@ -323,6 +347,14 @@ int main(int argc, char* argv[]) {
   c4_rpc_ctx_t* ctx = c4_rpc_ctx_create(method, (char*) args.data.data, chain_id,
                                         prover_flags, verify_flags, prover_mode);
 
+  if (max_latest_age_seconds > 0) {
+    // Compute the lower bound on the host wallclock and forward to the verifier.
+    // The C core never reads the clock so it stays portable for WASM/embedded.
+    time_t  now   = time(NULL);
+    int64_t lower = (int64_t) now - (int64_t) max_latest_age_seconds;
+    c4_rpc_ctx_set_min_latest_block_ts(ctx, lower > 0 ? (uint64_t) lower : 0);
+  }
+
   if (input) {
     ctx->proof       = bytes_read(input);
     ctx->proof_owned = true;
@@ -361,8 +393,8 @@ int main(int argc, char* argv[]) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
       char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"reverted\": true,\n  \"revert_data\": %Z\n}",
                                ctx->verifier.method, ctx->verifier.args, chain_id,
-                               verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
-                               prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
+                              verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
+                              prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
                                ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
@@ -382,8 +414,8 @@ int main(int argc, char* argv[]) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
       char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"expected_result\": %Z\n}",
                                ctx->verifier.method, ctx->verifier.args, chain_id,
-                               verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
-                               prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
+                              verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
+                              prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
                                ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
@@ -399,7 +431,7 @@ int main(int argc, char* argv[]) {
   }
 
   c4_state_t* state = c4_rpc_get_state(ctx);
-  char* error = state ? state->error : ctx->error;
+  char*       error = state ? state->error : ctx->error;
   fprintf(stderr, "Error: %s\n", error ? error : "unknown error");
 
   c4_rpc_ctx_free(ctx);

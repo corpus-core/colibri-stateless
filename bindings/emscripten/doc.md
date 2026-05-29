@@ -327,6 +327,11 @@ The constructor of the colibri client accepts a configuration-object, which may 
     new Colibri({ skip_wsp_check: true })
     ```
 
+- `max_latest_age_seconds` - upper bound (in seconds) on the age of a proof whose request uses the **`"latest"`** block tag. Without this guard a proof for an old `latest` block remains cryptographically valid forever and could be replayed as "current" months later. The binding reads `Date.now()` and forwards `now - max_latest_age_seconds` to the verifier, which rejects stale proofs with `"proof for latest too old"`. Currently active for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction`. Set to `0` to disable the check (useful for legacy proof formats that do not embed a block context). Default: `60` (≈ 5 Ethereum slots). The check also applies in PAP mode, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`); this requires a prover that embeds the block context (≥ 1.1.15). Against an older PAP proof without a block timestamp the check fails closed with `"cannot verify freshness of latest block without block context"` -- set `max_latest_age_seconds: 0` to opt out. **Caveat:** the gate fires only on `"latest"` (not `"safe"`/`"finalized"`), and if the host wallclock is below `max_latest_age_seconds` (embedded boards before NTP sync, sandboxed environments) the lower bound clamps to `0` and the check is silently disabled; ensure your runtime has a synced clock or set `max_latest_age_seconds: 0` explicitly to acknowledge this state.
+    ```js
+    new Colibri({ max_latest_age_seconds: 30 })
+    ```
+
 - `oblivious_nodes` - TEE RPC endpoints for private `eth_getProof` (default: empty). Routes `eth_getProof` only to these URLs; sets `VERIFY_FLAG_OBLIVIOUS` and **PAP** automatically. For full `eth_call` privacy, combine with `privacy_mode: "basic"` and `prover_mode: "hybrid"`:
     ```js
     // https://rpc.safe-node.com/ requires an API key for testing

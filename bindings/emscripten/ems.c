@@ -64,7 +64,7 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_set_error(data_request_t* ctx, char* error, ui
 
 /* ── Verify API ── */
 
-void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys, uint32_t flags) {
+void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_len, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, char* witness_keys, uint32_t flags, uint64_t min_latest_block_ts) {
   c4_set_checkpoint((chain_id_t) chain_id, trusted_checkpoint);
   if (method == NULL || strlen(method) == 0) return NULL;
 
@@ -77,6 +77,8 @@ void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_le
     hex_to_bytes(witness_keys + 2, -1, witness_key_bytes);
     ctx->verify.witness_keys = witness_key_bytes;
   }
+
+  ctx->verify.min_latest_block_ts = min_latest_block_ts;
 
   return (void*) ctx;
 }
@@ -130,6 +132,10 @@ void EMSCRIPTEN_KEEPALIVE c4w_rpc_ctx_set_witness_keys(void* ctx, char* keys) {
 
 void EMSCRIPTEN_KEEPALIVE c4w_rpc_ctx_set_proxy_urls(void* ctx, char* rpc_urls, char* beacon_urls) {
   c4_rpc_ctx_set_proxy_urls((c4_rpc_ctx_t*) ctx, rpc_urls, beacon_urls);
+}
+
+void EMSCRIPTEN_KEEPALIVE c4w_rpc_ctx_set_min_latest_block_ts(void* ctx, uint64_t ts) {
+  c4_rpc_ctx_set_min_latest_block_ts((c4_rpc_ctx_t*) ctx, ts);
 }
 
 /* ── Utilities ── */

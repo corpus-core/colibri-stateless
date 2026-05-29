@@ -29,7 +29,7 @@ export interface C4W {
     _c4w_req_set_response: (reqPtr: number, data: number, len: number, node_index: number) => void;
     _c4w_req_set_error: (reqPtr: number, error: number, node_index: number) => void;
     _c4w_get_method_type: (chain_id: bigint, method: number, params: number, flags: number) => number;
-    _c4w_create_verify_ctx: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint, trusted_checkpoint: number, witness_keys: number, flags: number) => number;
+    _c4w_create_verify_ctx: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint, trusted_checkpoint: number, witness_keys: number, flags: number, min_latest_block_ts: bigint) => number;
     _c4w_free_verify_ctx: (verifyCtx: number) => void;
     _c4w_verify_proof: (verifyCtx: number) => number;
     _c4w_req_free: (reqPtr: number) => void;
@@ -40,6 +40,7 @@ export interface C4W {
     _c4w_set_checkpoint: (chainId: bigint, checkpoint: number) => void;
     _c4w_rpc_ctx_set_witness_keys: (ctx: number, keys: number) => void;
     _c4w_rpc_ctx_set_proxy_urls: (ctx: number, rpc_urls: number, beacon_urls: number) => void;
+    _c4w_rpc_ctx_set_min_latest_block_ts: (ctx: number, ts: bigint) => void;
     _c4w_decode_proof: (data: number, len: number) => number;
     _init_storage: () => void;
     HEAPU8: Uint8Array;

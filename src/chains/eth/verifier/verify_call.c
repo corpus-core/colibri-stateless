@@ -229,7 +229,7 @@ static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   // A revert is reflected in the simulation result via `success = false`.
   // The revert bytes are already in `evm->call_result` and are carried as
   // the call output for callers that want to decode them.
-  bool     evm_success      = ctx->state.error == NULL && !evm->reverted;
+  bool     evm_success       = ctx->state.error == NULL && !evm->reverted;
   ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, evm_success, evm->gas_used, NULL, evm->accounts, evm->keccak_entries, evm->traces);
 
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
@@ -431,6 +431,44 @@ static c4_status_t call_apply_authorization_list(verify_ctx_t* ctx, call_account
   return C4_SUCCESS;
 }
 
+
+// Freshness check: when the host opted in via `min_latest_block_ts > 0` and
+// the request uses the `"latest"` block tag, reject proofs whose block
+// timestamp is older than the host's lower bound. This prevents replay of
+// stale proofs (a proof for an old `latest` block remains cryptographically
+// valid forever; without this check it could be presented as "current"
+// months later).
+//
+// `ctx` always supplies the request args, the host-supplied lower bound and
+// the error sink. `proof_ctx` is the context whose verified `->proof` carries
+// the block context: it is the same object as `ctx` on the direct eth_call
+// path, and the colibri_proofCall sub-proof context on the PAP path (see
+// pap_verify_proof_response).
+//
+// Intentionally scoped to `"latest"` only: the schema validator also accepts
+// `"safe"`, `"finalized"`, and `"justified"`, but a "freshness" check there
+// needs more than just a timestamp -- it needs cryptographic evidence that
+// the chosen block is actually the most recent block of that category at
+// proof-generation time (e.g. a sync-committee attestation or a separate
+// light-client checkpoint witness). Tracked as follow-up issue #283.
+static bool verify_call_freshness(verify_ctx_t* ctx, verify_ctx_t* proof_ctx) {
+  static const size_t LATEST_LITERAL_LEN = sizeof("\"latest\"") - 1;
+  if (!ctx->min_latest_block_ts) return true;
+
+  json_t blk = json_at(ctx->args, 1);
+  if (blk.type != JSON_TYPE_STRING || blk.len != LATEST_LITERAL_LEN ||
+      strncmp(blk.start, "\"latest\"", LATEST_LITERAL_LEN) != 0)
+    return true;
+
+  eth_call_block_context_t bctx = {0};
+  if (!eth_get_call_block_context_from_proof(proof_ctx, &bctx))
+    RETURN_VERIFY_ERROR(ctx, "cannot verify freshness of latest block without block context");
+  if (bctx.timestamp < ctx->min_latest_block_ts)
+    RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
+  return true;
+}
+
+
 // shared helper: resolve codes, apply state overrides and EIP-7702 authorization list
 static bool prepare_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool apply_overrides) {
   if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
@@ -588,6 +626,15 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     if (hdr_status == C4_ERROR && !ctx->state.error) c4_state_add_error(&ctx->state, "header verification failed");
     if (hdr_status != C4_SUCCESS) goto cleanup;
   }
+
+  // Freshness gate for PAP: in PAP mode there is no usable proof when
+  // verify_call_proof first runs, so the direct-path gate skips it. The call
+  // proof arrives here via colibri_proofCall and has just been Merkle-verified
+  // above; it carries the same block context (timestamp) as a direct eth_call
+  // proof, so this is the right place to enforce the host's "latest" lower
+  // bound. The block context lives in the sub-proof (proof_ctx); the request
+  // args, the lower bound and the error sink live on the outer ctx.
+  if (!verify_call_freshness(ctx, &proof_ctx)) goto cleanup;
 
   // Proof is valid, so we check the values for changes
   ssz_ob_t accounts     = ssz_get(&proof_ctx.proof, "accounts");
@@ -772,6 +819,8 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   }
 
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
+
+  if (has_proof && !verify_call_freshness(ctx, ctx)) return false;
 
   if (!evm->accounts && has_proof) {
     ssz_ob_t accounts = ssz_get(&ctx->proof, "accounts");

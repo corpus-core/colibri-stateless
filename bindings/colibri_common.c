@@ -274,6 +274,11 @@ void c4_rpc_ctx_set_proxy_urls(c4_rpc_ctx_t* ctx, const char* rpc_urls, const ch
   if (beacon_urls && *beacon_urls) ctx->proxy_beacon_urls = strdup(beacon_urls);
 }
 
+void c4_rpc_ctx_set_min_latest_block_ts(c4_rpc_ctx_t* ctx, uint64_t ts) {
+  if (!ctx) return;
+  ctx->min_latest_block_ts = ts;
+}
+
 void c4_rpc_ctx_set_witness_keys(c4_rpc_ctx_t* ctx, const char* keys_hex) {
   if (!ctx) return;
   if (ctx->witness_keys.data) {
@@ -309,6 +314,10 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   }
   if (ctx->witness_keys.data && ctx->witness_keys.len)
     ctx->verifier.witness_keys = bytes_dup(ctx->witness_keys);
+
+  // Forward the host-supplied freshness lower bound (`now - max_age` computed
+  // by the binding). `0` keeps the check disabled in the verifier.
+  ctx->verifier.min_latest_block_ts = ctx->min_latest_block_ts;
 
   // Hand off cache snapshots to the verifier so chain modules can locate them via
   // `c4_state_get_data_request_by_id` and the runtime auto-frees them on cleanup.

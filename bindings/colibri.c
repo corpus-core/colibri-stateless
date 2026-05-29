@@ -109,6 +109,12 @@ void c4_verify_free_ctx(void* ptr) {
   free(ctx);
 }
 
+void c4_verify_set_min_latest_block_ts(void* ptr, uint64_t ts) {
+  if (!ptr) return;
+  c4_verify_ctx_t* ctx     = (c4_verify_ctx_t*) ptr;
+  ctx->ctx.min_latest_block_ts = ts;
+}
+
 int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags) {
   return (int) c4_get_method_type((chain_id_t) chain_id, method,
                                   params ? json_parse(params) : (json_t){0}, (verify_flags_t) flags);
@@ -136,6 +142,10 @@ void c4_rpc_set_witness_keys(void* ctx, const char* witness_keys) {
 
 void c4_rpc_set_proxy_urls(void* ctx, const char* rpc_urls, const char* beacon_urls) {
   c4_rpc_ctx_set_proxy_urls((c4_rpc_ctx_t*) ctx, rpc_urls, beacon_urls);
+}
+
+void c4_rpc_set_min_latest_block_ts(void* ctx, uint64_t ts) {
+  c4_rpc_ctx_set_min_latest_block_ts((c4_rpc_ctx_t*) ctx, ts);
 }
 
 void c4_free_rpc_ctx(void* ctx) {

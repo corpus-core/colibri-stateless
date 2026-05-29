@@ -587,6 +587,10 @@ async def run_test_case(test_case):
     
     # Only tests with remote_prover:true use a mock prover URL;
     # all others use an empty provers list to force local proof creation.
+    # The fixtures under test/data are static recordings whose `latest` blocks
+    # are inevitably stale, so disable the freshness check here (otherwise
+    # eth_call/simulate proofs fail with "proof for latest too old"). The check
+    # itself is covered by the C unit test test_verify_call_freshness.
     client = Colibri(
         chain_id=chain_id,
         provers=['http://mock-prover'] if remote_prover else [],
@@ -594,7 +598,8 @@ async def run_test_case(test_case):
         use_accesslist=use_accesslist,
         privacy_mode=PrivacyMode.BASIC if pap else PrivacyMode.NONE,
         storage=mock_storage,
-        request_handler=mock_request_handler
+        request_handler=mock_request_handler,
+        max_latest_age_seconds=0
     )
     
     try:

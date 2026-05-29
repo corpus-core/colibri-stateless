@@ -140,6 +140,16 @@ class Colibri(
      * the WSP. Default: false.
      */
     var skipWspCheck: Boolean = false,
+    /**
+     * Maximum age (in seconds) accepted for a proof whose request uses the
+     * `"latest"` block tag. The verifier compares `block.timestamp` from the
+     * proof against `System.currentTimeMillis() / 1000 - maxLatestAgeSeconds`;
+     * older proofs are rejected with `"proof for latest too old"`. Set to `0`
+     * to disable the check (e.g. when working with proof formats that lack a
+     * block context). Currently active for `eth_call`, `eth_estimateGas`, and
+     * `colibri_simulateTransaction`. Default: 60 (~5 Ethereum slots).
+     */
+    var maxLatestAgeSeconds: Long = 60,
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
     companion object {
@@ -198,6 +208,19 @@ class Colibri(
         return (if (pap) 2L else 0L) or
                 (if (obliviousNodes.isNotEmpty()) (1L shl 6) else 0L) or
                 (if (skipWspCheck) (1L shl 7) else 0L)
+    }
+
+    /**
+     * Computes the lower bound for `block.timestamp` accepted on `"latest"`
+     * proofs as `now - maxLatestAgeSeconds`. Returns `0` when the host
+     * disables the check (`maxLatestAgeSeconds <= 0`). The wallclock is
+     * read here in the binding so the C/JNI core stays clock-free.
+     */
+    private fun getMinLatestBlockTs(): java.math.BigInteger {
+        if (maxLatestAgeSeconds <= 0L) return java.math.BigInteger.ZERO
+        val now = System.currentTimeMillis() / 1000L
+        val lower = now - maxLatestAgeSeconds
+        return java.math.BigInteger.valueOf(if (lower > 0L) lower else 0L)
     }
 
     private fun serversForRequest(request: JSONObject, useProverFallback: Boolean = false): Array<String> {
@@ -516,6 +539,8 @@ class Colibri(
             val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedCheckpointStr, getVerifyFlags())
                  ?: throw ColibriException("Failed to create verifier context for method $method")
 
+            com.corpuscore.colibri.c4.c4_verify_set_min_latest_block_ts(ctx, getMinLatestBlockTs())
+
             // Add iteration limit to prevent infinite loops
             val maxIterations = 50
             var iteration = 0
@@ -616,6 +641,7 @@ class Colibri(
             if (!witnessKeys.isNullOrEmpty()) {
                 com.corpuscore.colibri.c4.c4_rpc_set_witness_keys(ctx, witnessKeys)
             }
+            com.corpuscore.colibri.c4.c4_rpc_set_min_latest_block_ts(ctx, getMinLatestBlockTs())
 
             val maxIterations = 50
             var iteration = 0

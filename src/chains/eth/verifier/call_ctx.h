@@ -162,6 +162,20 @@ typedef struct eth_call_block_context {
   uint64_t   excess_blob_gas;
 } eth_call_block_context_t;
 
+/**
+ * Extracts the block context from a call/estimate/simulate proof.
+ *
+ * Handles both hybrid call proofs (`header_data`) and standard proofs
+ * (`state_proof.block` blockContext union variant). Returns `false` when
+ * no block context is available (e.g. PAP-only proof or legacy format),
+ * in which case `out` is left untouched.
+ *
+ * @param ctx verification context (must have `proof` set)
+ * @param out destination struct (zeroed before this call by the caller)
+ * @return `true` if `out` was populated, `false` otherwise
+ */
+bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out);
+
 // :: EVM call context lifecycle
 
 void evm_call_ctx_free(evm_call_ctx_t* evm);

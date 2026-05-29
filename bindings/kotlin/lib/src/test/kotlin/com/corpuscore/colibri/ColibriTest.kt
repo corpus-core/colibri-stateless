@@ -257,7 +257,11 @@ class ColibriTest {
         Colibri.registerStorage(storage)
         // --- End Storage Setup ---
 
-        // Create Colibri instance with mock request handler
+        // Create Colibri instance with mock request handler.
+        // The fixtures under test/data are static recordings whose `latest`
+        // blocks are inevitably stale, so disable the freshness check here
+        // (otherwise eth_call/simulate proofs fail with "proof for latest too
+        // old"). The check itself is covered by test_verify_call_freshness.
         val pap = testConf.optBoolean("pap", false)
         val remoteProver = testConf.optBoolean("remote_prover", false)
         val mockHandler = createMockRequestHandler(testDir)
@@ -267,7 +271,8 @@ class ColibriTest {
             provers = if (remoteProver) arrayOf("http://mock-prover") else emptyArray(),
             includeCode = testConf.optBoolean("include_code", false),
             useAccesslist = testConf.optBoolean("use_accesslist", false),
-            privacyMode = if (pap) PrivacyMode.BASIC else PrivacyMode.NONE
+            privacyMode = if (pap) PrivacyMode.BASIC else PrivacyMode.NONE,
+            maxLatestAgeSeconds = 0L
         )
 
         if (trusted_blockhash != null) {
