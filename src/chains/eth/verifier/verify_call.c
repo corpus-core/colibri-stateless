@@ -754,6 +754,38 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
   return true;
 }
 
+// Freshness check: when the host opted in via `min_latest_block_ts > 0` and
+// the request uses the `"latest"` block tag, reject proofs whose block
+// timestamp is older than the host's lower bound. This prevents replay of
+// stale proofs (a proof for an old `latest` block remains cryptographically
+// valid forever; without this check it could be presented as "current"
+// months later). The PAP path is exempt for now -- its block context is
+// assembled later from the lazily-fetched eth_getProof response, which
+// currently does not carry a timestamp; tracked as a follow-up.
+//
+// Intentionally scoped to `"latest"` only: the schema validator also accepts
+// `"safe"`, `"finalized"`, and `"justified"`, but a "freshness" check there
+// needs more than just a timestamp -- it needs cryptographic evidence that
+// the chosen block is actually the most recent block of that category at
+// proof-generation time (e.g. a sync-committee attestation or a separate
+// light-client checkpoint witness). Tracked as follow-up issue #283.
+static bool verify_call_freshness(verify_ctx_t* ctx, bool has_proof, bool is_pap) {
+  static const size_t LATEST_LITERAL_LEN = sizeof("\"latest\"") - 1;
+  if (!ctx->min_latest_block_ts || is_pap) return true;
+
+  json_t blk = json_at(ctx->args, 1);
+  if (blk.type != JSON_TYPE_STRING || blk.len != LATEST_LITERAL_LEN ||
+      strncmp(blk.start, "\"latest\"", LATEST_LITERAL_LEN) != 0)
+    return true;
+
+  eth_call_block_context_t bctx = {0};
+  if (!has_proof || !eth_get_call_block_context_from_proof(ctx, &bctx))
+    RETURN_VERIFY_ERROR(ctx, "cannot verify freshness of latest block without block context");
+  if (bctx.timestamp < ctx->min_latest_block_ts)
+    RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
+  return true;
+}
+
 bool verify_call_proof(verify_ctx_t* ctx) {
   bool            is_simulate   = ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0;
   bool            is_estimate   = ctx->method && strcmp(ctx->method, "eth_estimateGas") == 0;
@@ -773,33 +805,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
 
   CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
 
-  // Freshness check: when the host opted in via `min_latest_block_ts > 0` and
-  // the request uses the `"latest"` block tag, reject proofs whose block
-  // timestamp is older than the host's lower bound. This prevents replay of
-  // stale proofs (a proof for an old `latest` block remains cryptographically
-  // valid forever; without this check it could be presented as "current"
-  // months later). The PAP path is exempt for now -- its block context is
-  // assembled later from the lazily-fetched eth_getProof response, which
-  // currently does not carry a timestamp; tracked as a follow-up.
-  //
-  // Intentionally scoped to `"latest"` only: the schema validator also accepts
-  // `"safe"`, `"finalized"`, and `"justified"`, but a "freshness" check there
-  // needs more than just a timestamp -- it needs cryptographic evidence that
-  // the chosen block is actually the most recent block of that category at
-  // proof-generation time (e.g. a sync-committee attestation or a separate
-  // light-client checkpoint witness). Tracked as follow-up issue #283.
-  static const size_t LATEST_LITERAL_LEN = sizeof("\"latest\"") - 1;
-  if (ctx->min_latest_block_ts && !is_pap) {
-    json_t blk = json_at(ctx->args, 1);
-    if (blk.type == JSON_TYPE_STRING && blk.len == LATEST_LITERAL_LEN &&
-        strncmp(blk.start, "\"latest\"", LATEST_LITERAL_LEN) == 0) {
-      eth_call_block_context_t bctx = {0};
-      if (!has_proof || !eth_get_call_block_context_from_proof(ctx, &bctx))
-        RETURN_VERIFY_ERROR(ctx, "cannot verify freshness of latest block without block context");
-      if (bctx.timestamp < ctx->min_latest_block_ts)
-        RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
-    }
-  }
+  if (!verify_call_freshness(ctx, has_proof, is_pap)) return false;
 
   if (!evm->accounts && has_proof) {
     ssz_ob_t accounts = ssz_get(&ctx->proof, "accounts");
