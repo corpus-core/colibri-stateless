@@ -56,6 +56,7 @@ void tearDown(void) {
 typedef enum {
   EXPECT_SUCCESS,
   EXPECT_ERROR_TOO_OLD,
+  EXPECT_ERROR_NO_CONTEXT,
 } freshness_expectation_t;
 
 // Drive the unified RPC state machine through the recorded fixture and assert
@@ -114,6 +115,14 @@ static void run_freshness_case(
       const char* err = rpc_ctx->verifier.state.error ? rpc_ctx->verifier.state.error : (rpc_ctx->error ? rpc_ctx->error : "");
       TEST_ASSERT_NOT_NULL_MESSAGE(strstr(err, "proof for latest too old"),
                                    bprintf(NULL, "expected freshness error, got: %s", err));
+      break;
+    }
+
+    case EXPECT_ERROR_NO_CONTEXT: {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(C4_ERROR, status, "expected verifier error when block context is missing");
+      const char* err = rpc_ctx->verifier.state.error ? rpc_ctx->verifier.state.error : (rpc_ctx->error ? rpc_ctx->error : "");
+      TEST_ASSERT_NOT_NULL_MESSAGE(strstr(err, "cannot verify freshness of latest block without block context"),
+                                   bprintf(NULL, "expected missing-block-context error, got: %s", err));
       break;
     }
   }
@@ -193,16 +202,30 @@ void test_freshness_simulate_stale_rejected(void) {
                      EXPECT_ERROR_TOO_OLD);
 }
 
-// :: Test 5: PAP mode skips the freshness check (intentional, follow-up tracked)
+// :: PAP-mode freshness gate
 //
-// In PAP mode the proof is assembled lazily after `eth_getProof` and currently
-// contains no block-context timestamp. To avoid spuriously rejecting valid
-// PAP runs, the verifier explicitly skips the freshness check when
-// `VERIFY_FLAG_PAP` is set. This regression test pins that behaviour: even
-// with a far-future lower bound that would otherwise blow up Test 3, the PAP
-// run completes successfully.
+// In PAP mode there is no usable proof when `verify_call_proof` first runs;
+// the call proof arrives later via `colibri_proofCall` (same SSZ structure as
+// an `eth_call` proof) and is verified inside `pap_verify_proof_response`,
+// which now also enforces the freshness gate. The two tests below pin both
+// halves of that behaviour using the `eth_call_pap_cached` fixture.
+//
+// NOTE on the fixture: its recorded `colibri_proofCall` response predates the
+// block-context feature (prover < 1.1.15), so the verified sub-proof carries
+// no timestamp. We can therefore exercise the "missing context" branch but
+// not the timestamp comparison itself (that path is already covered for the
+// locally generated proofs in Tests 2/3).
 
-void test_freshness_pap_skips_check(void) {
+// :: Test 5: PAP + enabled check + proof without block context -> fail-closed
+//
+// When the host opts into the freshness check but the (older) PAP proof does
+// not carry a block context, the verifier must refuse to vouch for a `latest`
+// result rather than silently accepting a potentially stale proof. The lower
+// bound value is irrelevant here -- the gate fails before any timestamp
+// comparison -- so we use `1` to make clear this is about the missing context,
+// not about being "too old".
+
+void test_freshness_pap_missing_context_rejected(void) {
   run_freshness_case("eth_call_pap_cached", "eth_call",
                      "[{\"to\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\","
                      "\"data\":\"0x70a082310000000000000000000000008825ef664b8b43984bbf32b09e6a690c9b914931\"},\"latest\"]",
@@ -210,7 +233,25 @@ void test_freshness_pap_skips_check(void) {
                      C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE,
                      VERIFY_FLAG_PAP,
                      true /* remote prover for the cached PAP fixture */,
-                     UINT64_C(99999999999) /* would normally trigger the check */,
+                     1 /* check enabled; fails on missing context regardless of value */,
+                     EXPECT_ERROR_NO_CONTEXT);
+}
+
+// :: Test 6: PAP + disabled check (min_ts = 0) -> success
+//
+// Confirms the PAP path is unaffected when the host opts out of the freshness
+// check (the binding default when `max_latest_age_seconds = 0`). This also
+// guards against the gate accidentally firing on the disabled code path.
+
+void test_freshness_pap_disabled_passes(void) {
+  run_freshness_case("eth_call_pap_cached", "eth_call",
+                     "[{\"to\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\","
+                     "\"data\":\"0x70a082310000000000000000000000008825ef664b8b43984bbf32b09e6a690c9b914931\"},\"latest\"]",
+                     C4_CHAIN_MAINNET,
+                     C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE,
+                     VERIFY_FLAG_PAP,
+                     true /* remote prover for the cached PAP fixture */,
+                     0 /* check disabled */,
                      EXPECT_SUCCESS);
 }
 
@@ -220,6 +261,7 @@ int main(void) {
   RUN_TEST(test_freshness_fresh_proof_passes);
   RUN_TEST(test_freshness_stale_proof_rejected);
   RUN_TEST(test_freshness_simulate_stale_rejected);
-  RUN_TEST(test_freshness_pap_skips_check);
+  RUN_TEST(test_freshness_pap_missing_context_rejected);
+  RUN_TEST(test_freshness_pap_disabled_passes);
   return UNITY_END();
 }

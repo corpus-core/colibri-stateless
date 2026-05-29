@@ -528,7 +528,7 @@ client = Colibri(
 )
 ```
 
-> **Limitation:** in PAP mode the `eth_getProof`-derived proof currently has no embedded block timestamp, so the freshness check is intentionally skipped on the PAP path. This is tracked as a follow-up.
+> **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `max_latest_age_seconds=0` to opt out.
 
 ### Privacy (PAP)
 

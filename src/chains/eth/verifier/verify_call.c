@@ -501,6 +501,10 @@ static uint32_t pap_build_proof_payload(call_account_t* ac, buffer_t* out_payloa
   return key_count;
 }
 
+// Defined below; shared between the direct (eth_call) and PAP
+// (colibri_proofCall) freshness gates. See the doc comment at the definition.
+static bool verify_call_freshness_against(verify_ctx_t* ctx, verify_ctx_t* proof_ctx, bool has_proof);
+
 static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_accounts, bytes_t response, bool* values_changed) {
   verify_ctx_t proof_ctx = {0};
   bool         result    = false;
@@ -588,6 +592,15 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     if (hdr_status == C4_ERROR && !ctx->state.error) c4_state_add_error(&ctx->state, "header verification failed");
     if (hdr_status != C4_SUCCESS) goto cleanup;
   }
+
+  // Freshness gate for PAP: in PAP mode there is no usable proof when
+  // verify_call_proof first runs, so the direct-path gate skips it. The call
+  // proof arrives here via colibri_proofCall and has just been Merkle-verified
+  // above; it carries the same block context (timestamp) as a direct eth_call
+  // proof, so this is the right place to enforce the host's "latest" lower
+  // bound. The block context lives in the sub-proof (proof_ctx); the request
+  // args, the lower bound and the error sink live on the outer ctx.
+  if (!verify_call_freshness_against(ctx, &proof_ctx, true)) goto cleanup;
 
   // Proof is valid, so we check the values for changes
   ssz_ob_t accounts     = ssz_get(&proof_ctx.proof, "accounts");
@@ -759,9 +772,13 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
 // timestamp is older than the host's lower bound. This prevents replay of
 // stale proofs (a proof for an old `latest` block remains cryptographically
 // valid forever; without this check it could be presented as "current"
-// months later). The PAP path is exempt for now -- its block context is
-// assembled later from the lazily-fetched eth_getProof response, which
-// currently does not carry a timestamp; tracked as a follow-up.
+// months later).
+//
+// `ctx` always supplies the request args, the host-supplied lower bound and
+// the error sink. `proof_ctx` is the context whose verified `->proof` carries
+// the block context: it is the same object as `ctx` on the direct eth_call
+// path, and the colibri_proofCall sub-proof context on the PAP path (see
+// pap_verify_proof_response).
 //
 // Intentionally scoped to `"latest"` only: the schema validator also accepts
 // `"safe"`, `"finalized"`, and `"justified"`, but a "freshness" check there
@@ -769,9 +786,9 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
 // the chosen block is actually the most recent block of that category at
 // proof-generation time (e.g. a sync-committee attestation or a separate
 // light-client checkpoint witness). Tracked as follow-up issue #283.
-static bool verify_call_freshness(verify_ctx_t* ctx, bool has_proof, bool is_pap) {
+static bool verify_call_freshness_against(verify_ctx_t* ctx, verify_ctx_t* proof_ctx, bool has_proof) {
   static const size_t LATEST_LITERAL_LEN = sizeof("\"latest\"") - 1;
-  if (!ctx->min_latest_block_ts || is_pap) return true;
+  if (!ctx->min_latest_block_ts) return true;
 
   json_t blk = json_at(ctx->args, 1);
   if (blk.type != JSON_TYPE_STRING || blk.len != LATEST_LITERAL_LEN ||
@@ -779,11 +796,20 @@ static bool verify_call_freshness(verify_ctx_t* ctx, bool has_proof, bool is_pap
     return true;
 
   eth_call_block_context_t bctx = {0};
-  if (!has_proof || !eth_get_call_block_context_from_proof(ctx, &bctx))
+  if (!has_proof || !eth_get_call_block_context_from_proof(proof_ctx, &bctx))
     RETURN_VERIFY_ERROR(ctx, "cannot verify freshness of latest block without block context");
   if (bctx.timestamp < ctx->min_latest_block_ts)
     RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
   return true;
+}
+
+// Direct (non-PAP) eth_call/estimateGas/simulate freshness gate. In PAP mode
+// there is no usable proof yet at this point -- the call proof arrives later
+// with the colibri_proofCall response and is checked in
+// pap_verify_proof_response instead.
+static bool verify_call_freshness(verify_ctx_t* ctx, bool has_proof, bool is_pap) {
+  if (is_pap) return true;
+  return verify_call_freshness_against(ctx, ctx, has_proof);
 }
 
 bool verify_call_proof(verify_ctx_t* ctx) {
