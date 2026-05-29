@@ -130,26 +130,26 @@ int main(int argc, char* argv[]) {
   char     tmp[1000] = {0};
   buffer_t buf       = stack_buffer(tmp);
 #endif
-  char*          method             = NULL;
-  chain_id_t     chain_id           = C4_CHAIN_MAINNET;
-  buffer_t       args               = {0};
-  char*          input              = NULL;
-  char*          test_dir           = NULL;
-  char*          chain_name         = NULL;
-  char*          output             = NULL;
-  char*          signers            = NULL;
-  bytes32_t      trusted_checkpoint = {0};
-  bool           has_checkpoint     = false;
-  bool           use_zk_proof       = false;
-  verify_flags_t verify_flags       = 0;
-  char*          oblivious_url      = NULL;
-  char*          rpc_url            = NULL;
-  char*          beacon_url         = NULL;
-  char*          checkpointz_url    = NULL;
-  char*          prover_url         = NULL;
-  char*          trace_id           = NULL;
-  c4_prover_mode_t prover_mode      = C4_PROVER_MODE_REMOTE;
-  bool             prover_mode_set  = false;
+  char*            method                 = NULL;
+  chain_id_t       chain_id               = C4_CHAIN_MAINNET;
+  buffer_t         args                   = {0};
+  char*            input                  = NULL;
+  char*            test_dir               = NULL;
+  char*            chain_name             = NULL;
+  char*            output                 = NULL;
+  char*            signers                = NULL;
+  bytes32_t        trusted_checkpoint     = {0};
+  bool             has_checkpoint         = false;
+  bool             use_zk_proof           = false;
+  verify_flags_t   verify_flags           = 0;
+  char*            oblivious_url          = NULL;
+  char*            rpc_url                = NULL;
+  char*            beacon_url             = NULL;
+  char*            checkpointz_url        = NULL;
+  char*            prover_url             = NULL;
+  char*            trace_id               = NULL;
+  c4_prover_mode_t prover_mode            = C4_PROVER_MODE_REMOTE;
+  bool             prover_mode_set        = false;
   uint64_t         max_latest_age_seconds = 60; // 0 disables the freshness check for "latest" proofs
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
@@ -198,7 +198,7 @@ int main(int argc, char* argv[]) {
             prover_mode_set = true;
             break;
           }
-        case 'p':
+          case 'p':
             prover_url = argv[++i];
             break;
 #ifdef USE_CURL
@@ -208,7 +208,7 @@ int main(int argc, char* argv[]) {
           case 'x':
             checkpointz_url = argv[++i];
             break;
-            case 'r':
+          case 'r':
             rpc_url = argv[++i];
             break;
           case 'b':
@@ -298,7 +298,7 @@ int main(int argc, char* argv[]) {
   else {
     json_t provers = json_get(default_config, "prover");
     if (json_len(provers) > 0)
-      prover_url = (char*)json_at(provers, 0).start;
+      prover_url = (char*) json_at(provers, 0).start;
   }
   if (prover_mode_set && prover_mode == C4_PROVER_MODE_LOCAL) prover_url = NULL;
   if (rpc_url) set_config("eth_rpc", rpc_url);
@@ -393,8 +393,8 @@ int main(int argc, char* argv[]) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
       char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"reverted\": true,\n  \"revert_data\": %Z\n}",
                                ctx->verifier.method, ctx->verifier.args, chain_id,
-                               verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
-                               prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
+                              verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
+                              prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
                                ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
@@ -414,8 +414,8 @@ int main(int argc, char* argv[]) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
       char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"expected_result\": %Z\n}",
                                ctx->verifier.method, ctx->verifier.args, chain_id,
-                               verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
-                               prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
+                              verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
+                              prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
                                ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
@@ -431,7 +431,7 @@ int main(int argc, char* argv[]) {
   }
 
   c4_state_t* state = c4_rpc_get_state(ctx);
-  char* error = state ? state->error : ctx->error;
+  char*       error = state ? state->error : ctx->error;
   fprintf(stderr, "Error: %s\n", error ? error : "unknown error");
 
   c4_rpc_ctx_free(ctx);

@@ -431,6 +431,44 @@ static c4_status_t call_apply_authorization_list(verify_ctx_t* ctx, call_account
   return C4_SUCCESS;
 }
 
+
+// Freshness check: when the host opted in via `min_latest_block_ts > 0` and
+// the request uses the `"latest"` block tag, reject proofs whose block
+// timestamp is older than the host's lower bound. This prevents replay of
+// stale proofs (a proof for an old `latest` block remains cryptographically
+// valid forever; without this check it could be presented as "current"
+// months later).
+//
+// `ctx` always supplies the request args, the host-supplied lower bound and
+// the error sink. `proof_ctx` is the context whose verified `->proof` carries
+// the block context: it is the same object as `ctx` on the direct eth_call
+// path, and the colibri_proofCall sub-proof context on the PAP path (see
+// pap_verify_proof_response).
+//
+// Intentionally scoped to `"latest"` only: the schema validator also accepts
+// `"safe"`, `"finalized"`, and `"justified"`, but a "freshness" check there
+// needs more than just a timestamp -- it needs cryptographic evidence that
+// the chosen block is actually the most recent block of that category at
+// proof-generation time (e.g. a sync-committee attestation or a separate
+// light-client checkpoint witness). Tracked as follow-up issue #283.
+static bool verify_call_freshness(verify_ctx_t* ctx, verify_ctx_t* proof_ctx) {
+  static const size_t LATEST_LITERAL_LEN = sizeof("\"latest\"") - 1;
+  if (!ctx->min_latest_block_ts) return true;
+
+  json_t blk = json_at(ctx->args, 1);
+  if (blk.type != JSON_TYPE_STRING || blk.len != LATEST_LITERAL_LEN ||
+      strncmp(blk.start, "\"latest\"", LATEST_LITERAL_LEN) != 0)
+    return true;
+
+  eth_call_block_context_t bctx = {0};
+  if (!eth_get_call_block_context_from_proof(proof_ctx, &bctx))
+    RETURN_VERIFY_ERROR(ctx, "cannot verify freshness of latest block without block context");
+  if (bctx.timestamp < ctx->min_latest_block_ts)
+    RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
+  return true;
+}
+
+
 // shared helper: resolve codes, apply state overrides and EIP-7702 authorization list
 static bool prepare_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool apply_overrides) {
   if (eth_resolve_account_codes(ctx, evm->accounts) != C4_SUCCESS) return false;
@@ -500,8 +538,6 @@ static uint32_t pap_build_proof_payload(call_account_t* ac, buffer_t* out_payloa
   keccak(out_payload->data, out_req_id);
   return key_count;
 }
-
-static bool verify_call_freshness(verify_ctx_t* ctx, verify_ctx_t* proof_ctx);
 
 static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_accounts, bytes_t response, bool* values_changed) {
   verify_ctx_t proof_ctx = {0};
@@ -765,41 +801,6 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
   return true;
 }
 
-// Freshness check: when the host opted in via `min_latest_block_ts > 0` and
-// the request uses the `"latest"` block tag, reject proofs whose block
-// timestamp is older than the host's lower bound. This prevents replay of
-// stale proofs (a proof for an old `latest` block remains cryptographically
-// valid forever; without this check it could be presented as "current"
-// months later).
-//
-// `ctx` always supplies the request args, the host-supplied lower bound and
-// the error sink. `proof_ctx` is the context whose verified `->proof` carries
-// the block context: it is the same object as `ctx` on the direct eth_call
-// path, and the colibri_proofCall sub-proof context on the PAP path (see
-// pap_verify_proof_response).
-//
-// Intentionally scoped to `"latest"` only: the schema validator also accepts
-// `"safe"`, `"finalized"`, and `"justified"`, but a "freshness" check there
-// needs more than just a timestamp -- it needs cryptographic evidence that
-// the chosen block is actually the most recent block of that category at
-// proof-generation time (e.g. a sync-committee attestation or a separate
-// light-client checkpoint witness). Tracked as follow-up issue #283.
-static bool verify_call_freshness(verify_ctx_t* ctx, verify_ctx_t* proof_ctx) {
-  static const size_t LATEST_LITERAL_LEN = sizeof("\"latest\"") - 1;
-  if (!ctx->min_latest_block_ts) return true;
-
-  json_t blk = json_at(ctx->args, 1);
-  if (blk.type != JSON_TYPE_STRING || blk.len != LATEST_LITERAL_LEN ||
-      strncmp(blk.start, "\"latest\"", LATEST_LITERAL_LEN) != 0)
-    return true;
-
-  eth_call_block_context_t bctx = {0};
-  if (!eth_get_call_block_context_from_proof(proof_ctx, &bctx))
-    RETURN_VERIFY_ERROR(ctx, "cannot verify freshness of latest block without block context");
-  if (bctx.timestamp < ctx->min_latest_block_ts)
-    RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
-  return true;
-}
 bool verify_call_proof(verify_ctx_t* ctx) {
   bool            is_simulate   = ctx->method && strcmp(ctx->method, "colibri_simulateTransaction") == 0;
   bool            is_estimate   = ctx->method && strcmp(ctx->method, "eth_estimateGas") == 0;
