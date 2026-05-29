@@ -30,8 +30,15 @@ extern "C" {
 
 #include "verify.h"
 
+// Execution-payload field gindexes. These are computed as `(25 << 5) | <field_idx>`
+// where 25 is the gindex of `executionPayload` inside `BeaconBlockBody` and
+// `<field_idx>` is the SSZ field index inside `ExecutionPayload`. They are
+// fork-stable as long as neither container reorders or grows past the next
+// power-of-two boundary; if a future fork changes the layout, all the
+// constants below must be revisited together.
 #define GINDEX_RECEIPT_ROOT 803
 #define GINDEX_BLOCKUMBER   806
+#define GINDEX_TIMESTAMP    809
 #define GINDEX_BLOCHASH     812
 #define GINDEX_TXINDEX_G    1704984576L // gindex of the first tx
 

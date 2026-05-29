@@ -82,4 +82,36 @@ bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm);
  * @param out_digest 32-byte digest output buffer
  */
 void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest);
+
+/**
+ * Returns `true` if `block_tag` is the JSON string `"latest"`.
+ *
+ * Intentionally narrow: only the literal `"latest"` triggers a freshness check;
+ * `"safe"`, `"finalized"` and `"justified"` need a separate witness (see #283).
+ *
+ * @param block_tag JSON token from `ctx->args` (usually `json_at(args, idx)`)
+ * @return `true` if the token is exactly the JSON string `"latest"`
+ */
+bool eth_json_is_latest(json_t block_tag);
+
+/**
+ * Shared freshness gate for proofs targeting the `"latest"` block tag.
+ *
+ * Reject proofs whose block timestamp is older than `ctx->min_latest_block_ts`.
+ * This prevents replay of stale `latest` proofs (a proof for an old `latest`
+ * block remains cryptographically valid forever; without this check it could
+ * be presented as "current" months later).
+ *
+ * The check is **disabled** when `ctx->min_latest_block_ts == 0` (the host
+ * opted out) or when `is_latest == false` (the request used a pinned tag).
+ * When the check is enabled but `has_ts == false` the gate fails closed.
+ *
+ * @param ctx     verification context (supplies the host lower bound + error sink)
+ * @param is_latest `true` if the request used the `"latest"` block tag
+ * @param has_ts  `true` if a block timestamp could be extracted from the proof
+ * @param block_ts block timestamp (Unix seconds) extracted from the proof
+ * @return `true` if the proof passes (or the check is inactive); `false` on error
+ */
+bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, uint64_t block_ts);
+
 #endif // eth_verify_h__

@@ -242,6 +242,7 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
   ssz_ob_t   header             = ssz_get(&state_proof, "header");
   ssz_ob_t   block              = ssz_get(&state_proof, "block");
   const bool is_block_context   = block.def == eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT);
+  const bool is_timestamp       = block.def == eth_ssz_verification_type(ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP);
 
   if (is_block_context) {
     const gindex_t* gi = c4_call_block_context_gindexes();
@@ -258,6 +259,16 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
     memcpy(leafes + 8 * 32, ssz_get(&block, "excessBlobGas").bytes.data, 8);
     if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, sizeof(leafes)), gi, body_root))
       RETURN_VERIFY_ERROR(ctx, "invalid state proof (block context)");
+  }
+  else if (is_timestamp) {
+    // Timestamp variant: 2-leaf multi-proof over {stateRoot, timestamp} so the
+    // verifier can run the `latest` freshness gate on account proofs.
+    gindex_t gindex[2]  = {STATE_ROOT_GINDEX, GINDEX_TIMESTAMP};
+    uint8_t  leafes[64] = {0};
+    memcpy(leafes, state_root, 32);
+    if (block.bytes.len == 8) memcpy(leafes + 32, block.bytes.data, 8);
+    if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, 64), gindex, body_root))
+      RETURN_VERIFY_ERROR(ctx, "invalid state proof (timestamp)");
   }
   else {
     gindex_t gindex[2]  = {STATE_ROOT_GINDEX, block.bytes.len == 8 ? GINDEX_BLOCKUMBER : GINDEX_BLOCHASH};
@@ -277,6 +288,13 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
         if (memcmp(want, ssz_get(&block, "blockHash").bytes.data, 32) != 0)
           RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
       }
+      else if (is_timestamp) {
+        // The host pinned the request to a specific block (hex), but the prover
+        // emitted the freshness-only timestamp variant. This combination should
+        // not occur in practice (the prover only uses timestamp for non-pinned
+        // tags); refuse rather than silently accept a hash mismatch.
+        RETURN_VERIFY_ERROR(ctx, "timestamp variant unexpected for pinned block tag");
+      }
       else {
         if (block.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "did not expect blockhash as blocknumber");
         if (memcmp(want, block.bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
@@ -287,13 +305,17 @@ bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t s
         if (ssz_get_uint64(&block, "blockNumber") != json_as_uint64(block_number))
           RETURN_VERIFY_ERROR(ctx, "wrong blocknumber");
       }
+      else if (is_timestamp) {
+        // See note above: timestamp is only emitted for non-pinned tags.
+        RETURN_VERIFY_ERROR(ctx, "timestamp variant unexpected for pinned block tag");
+      }
       else {
         if (block.bytes.len != 8) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
         if (ssz_uint64(block) != json_as_uint64(block_number)) RETURN_VERIFY_ERROR(ctx, "wrong blocknumber");
       }
     }
   }
-  else if (block.bytes.len && !is_block_context)
+  else if (block.bytes.len && !is_block_context && !is_timestamp)
     RETURN_VERIFY_ERROR(ctx, "Expected a blocknumber or blockhash as blocknumber");
 
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");

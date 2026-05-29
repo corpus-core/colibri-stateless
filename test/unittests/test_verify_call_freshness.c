@@ -21,14 +21,17 @@
  * SPDX-License-Identifier: MIT
  */
 
-// Coverage for the freshness check on `eth_call` (and friends) when the
-// requested block tag is `"latest"`. The check is host-driven via
+// Coverage for the freshness check across all block-tag-bearing RPC methods
+// when the requested block tag is `"latest"` (or implicitly latest, e.g.
+// `eth_blockNumber`). The check is host-driven via
 // `c4_rpc_ctx_set_min_latest_block_ts`; the C verifier never reads a wallclock.
 //
-// We replay the existing `eth_call1` / `simulate_simple` fixtures (which pin
-// `params[1] = "latest"`) through the unified RPC pipeline with different
-// lower-bound timestamps. The local prover emits a proof carrying the block
-// context (timestamp), so we can exercise all three branches of the gate:
+// We replay the existing fixtures through the unified RPC pipeline with
+// different lower-bound timestamps. The local prover emits a proof carrying
+// the block timestamp (either as `blockContext` for `eth_call`*, as the new
+// `timestamp` union variant for account methods, or directly inside the
+// payload for block/header methods), so we can exercise all three branches
+// of the gate:
 //
 //   1. "check disabled" (`min_latest_block_ts = 0`) -> success
 //   2. "fresh enough"   (`min_latest_block_ts <= block.timestamp`) -> success
@@ -255,6 +258,174 @@ void test_freshness_pap_disabled_passes(void) {
                      EXPECT_SUCCESS);
 }
 
+// :: Account methods (timestamp union variant)
+//
+// `eth_getBalance`, `eth_getCode` (via getBalance flow), `eth_getStorageAt`,
+// `eth_getTransactionCount` and `eth_getProof` all share the
+// `verify_account_proof` path. For non-pinned tags the prover (>= 1.1.27)
+// emits the `timestamp` variant of `ETH_STATE_BLOCK_UNION` so the verifier
+// can run the freshness gate without a full block-context multi-proof.
+// We only assert the stale-path for each method (fresh-path is implicitly
+// covered by the existing `test_eth_verify_*` integration tests, which run
+// with `min_latest_block_ts == 0`).
+
+void test_freshness_account_balance_stale_rejected(void) {
+  run_freshness_case("eth_getBalance1", "eth_getBalance",
+                     "[\"0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5\",\"latest\"]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
+}
+
+void test_freshness_account_balance_fresh_passes(void) {
+  run_freshness_case("eth_getBalance1", "eth_getBalance",
+                     "[\"0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5\",\"latest\"]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     1,
+                     EXPECT_SUCCESS);
+}
+
+void test_freshness_account_storage_at_stale_rejected(void) {
+  // `eth_getStorageAt` has the block tag at args[2], not args[1]; this guards
+  // against accidentally hard-coding the index in the verifier.
+  run_freshness_case("eth_getStorageAt1", "eth_getStorageAt",
+                     "[\"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48\","
+                     "\"0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3\","
+                     "\"latest\"]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
+}
+
+void test_freshness_account_transaction_count_stale_rejected(void) {
+  run_freshness_case("eth_getTransactionCount1", "eth_getTransactionCount",
+                     "[\"0xd2674dA94285660c9b2353131bef2d8211369A4B\",\"latest\"]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
+}
+
+void test_freshness_account_get_proof_stale_rejected(void) {
+  // `eth_getProof` also has the block tag at args[2].
+  run_freshness_case("eth_getProof1", "eth_getProof",
+                     "[\"0xB685760EBD368a891F27ae547391F4E2A289895b\","
+                     "[\"0x0000000000000000000000000000000000000000000000000000000000000001\","
+                     "\"0x0000000000000000000000000000000000000000000000000000000000000002\"],"
+                     "\"latest\"]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
+}
+
+// :: Block methods
+//
+// `eth_getBlockByNumber` with `params[0] == "latest"`. The execution payload
+// is part of the proof, so the timestamp is unconditionally available.
+
+void test_freshness_block_by_number_latest_stale_rejected(void) {
+  run_freshness_case("eth_getBlockByNumber_electra", "eth_getBlockByNumber",
+                     "[\"latest\",false]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
+}
+
+void test_freshness_block_by_number_latest_fresh_passes(void) {
+  run_freshness_case("eth_getBlockByNumber_electra", "eth_getBlockByNumber",
+                     "[\"latest\",false]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     1,
+                     EXPECT_SUCCESS);
+}
+
+// :: BlockNumber (implicit-latest)
+//
+// `eth_blockNumber` has no block-tag argument; the request always implicitly
+// targets `latest`, so the gate must fire even with empty args.
+
+void test_freshness_block_number_stale_rejected(void) {
+  run_freshness_case("eth_blockNumber_electra", "eth_blockNumber",
+                     "[]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
+}
+
+void test_freshness_block_number_fresh_passes(void) {
+  run_freshness_case("eth_blockNumber_electra", "eth_blockNumber",
+                     "[]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     1,
+                     EXPECT_SUCCESS);
+}
+
+// :: Header methods
+//
+// `eth_getBlockHeader` carries the timestamp directly in the proven header.
+
+void test_freshness_block_header_stale_rejected(void) {
+  run_freshness_case("eth_getBlockHeader1", "eth_getBlockHeader",
+                     "[\"latest\"]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
+}
+
+void test_freshness_block_header_fresh_passes(void) {
+  run_freshness_case("eth_getBlockHeader1", "eth_getBlockHeader",
+                     "[\"latest\"]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     1,
+                     EXPECT_SUCCESS);
+}
+
+// :: eth_blobBaseFee / eth_maxPriorityFeePerGas (empty-args latest)
+//
+// Both methods take no arguments and implicitly target `latest`; the
+// `verify_block_header_proof` short-circuits `is_latest` on `json_len == 0`.
+// The dispatch share `c4_proof_block_header` (see eth_prover.c) and the
+// `EthBlockHeaderProof` SSZ shape, so the existing `eth_getBlockHeader1`
+// fixture is reusable -- the prover defaults `block_arg` to `"latest"` when
+// `params == []`, producing identical beacon requests.
+
+void test_freshness_blob_base_fee_implicit_latest_stale_rejected(void) {
+  run_freshness_case("eth_getBlockHeader1", "eth_blobBaseFee",
+                     "[]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
+}
+
+void test_freshness_blob_base_fee_implicit_latest_fresh_passes(void) {
+  run_freshness_case("eth_getBlockHeader1", "eth_blobBaseFee",
+                     "[]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     1,
+                     EXPECT_SUCCESS);
+}
+
+void test_freshness_max_priority_fee_per_gas_implicit_latest_stale_rejected(void) {
+  run_freshness_case("eth_getBlockHeader1", "eth_maxPriorityFeePerGas",
+                     "[]",
+                     C4_CHAIN_MAINNET, 0, 0,
+                     false,
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_freshness_disabled_passes_on_latest);
@@ -263,5 +434,19 @@ int main(void) {
   RUN_TEST(test_freshness_simulate_stale_rejected);
   RUN_TEST(test_freshness_pap_missing_context_rejected);
   RUN_TEST(test_freshness_pap_disabled_passes);
+  RUN_TEST(test_freshness_account_balance_stale_rejected);
+  RUN_TEST(test_freshness_account_balance_fresh_passes);
+  RUN_TEST(test_freshness_account_storage_at_stale_rejected);
+  RUN_TEST(test_freshness_account_transaction_count_stale_rejected);
+  RUN_TEST(test_freshness_account_get_proof_stale_rejected);
+  RUN_TEST(test_freshness_block_by_number_latest_stale_rejected);
+  RUN_TEST(test_freshness_block_by_number_latest_fresh_passes);
+  RUN_TEST(test_freshness_block_number_stale_rejected);
+  RUN_TEST(test_freshness_block_number_fresh_passes);
+  RUN_TEST(test_freshness_block_header_stale_rejected);
+  RUN_TEST(test_freshness_block_header_fresh_passes);
+  RUN_TEST(test_freshness_blob_base_fee_implicit_latest_stale_rejected);
+  RUN_TEST(test_freshness_blob_base_fee_implicit_latest_fresh_passes);
+  RUN_TEST(test_freshness_max_priority_fee_per_gas_implicit_latest_stale_rejected);
   return UNITY_END();
 }

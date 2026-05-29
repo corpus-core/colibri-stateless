@@ -263,7 +263,16 @@ colibri.skipWspCheck = true  // only safe with an alternative trust anchor
 
 ### Freshness window for `latest` proofs
 
-Proofs for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Swift binding therefore reads the wallclock and forwards `now - maxLatestAgeSeconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+Proofs that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Swift binding therefore reads the wallclock and forwards `now - maxLatestAgeSeconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+
+The gate covers the following RPC methods:
+
+- **EVM:** `eth_call`, `eth_estimateGas`, `colibri_simulateTransaction`
+- **Account:** `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getProof`
+- **Block / header:** `eth_getBlockByNumber`, `eth_getBlockHeader`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`
+- **Implicit-latest:** `eth_blockNumber`
+
+`eth_getLogs` is **not** covered yet (tracked in issue #128). Account methods rely on a slim `timestamp` leaf inside the state proof which is only emitted by **prover version ≥ 1.1.27**; against older provers the verifier fails closed (`"cannot verify freshness of latest block without block context"`).
 
 - `maxLatestAgeSeconds` (`UInt64`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
 

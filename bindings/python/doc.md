@@ -515,7 +515,16 @@ client = Colibri(
 
 ### Freshness window for `latest` proofs
 
-Proofs for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Python binding therefore reads `time.time()` and forwards `now - max_latest_age_seconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+Proofs that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Python binding therefore reads `time.time()` and forwards `now - max_latest_age_seconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+
+The gate covers the following RPC methods:
+
+- **EVM:** `eth_call`, `eth_estimateGas`, `colibri_simulateTransaction`
+- **Account:** `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getProof`
+- **Block / header:** `eth_getBlockByNumber`, `eth_getBlockHeader`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`
+- **Implicit-latest:** `eth_blockNumber`
+
+Account methods rely on a slim `timestamp` leaf inside the state proof which is only emitted by **prover version ≥ 1.1.27**; against older provers the verifier fails closed (`"cannot verify freshness of latest block without block context"`).
 
 - `max_latest_age_seconds` (`int`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
 
@@ -529,6 +538,8 @@ client = Colibri(
 ```
 
 > **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `max_latest_age_seconds=0` to opt out.
+
+> **`eth_getLogs`:** intentionally **not** covered. The proof witnesses individual log entries; the request range itself (up to `latest`) is not part of the proof yet. Tracked under issue #128 (full log-range proofs).
 
 ### Privacy (PAP)
 

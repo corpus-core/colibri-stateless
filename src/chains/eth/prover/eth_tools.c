@@ -61,7 +61,14 @@ uint8_t* c4_eth_receipt_cachekey(bytes32_t target, bytes32_t blockhash) {
 }
 #endif
 
-static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_data, gindex_t block_index, bool use_block_context) {
+// Union variant selectors for ETH_STATE_BLOCK_UNION (see verify_proof_types.h).
+#define ETH_STATE_BLOCK_UNION_NONE         0
+#define ETH_STATE_BLOCK_UNION_BLOCKHASH    1
+#define ETH_STATE_BLOCK_UNION_BLOCKNUMBER  2
+#define ETH_STATE_BLOCK_UNION_BLOCKCONTEXT 3
+#define ETH_STATE_BLOCK_UNION_TIMESTAMP    4
+
+static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_data, gindex_t block_index, bool use_block_context, bool use_timestamp) {
   if (use_block_context) {
     ssz_builder_t bc   = ssz_builder_for_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT);
     ssz_ob_t      exec = block_data->execution;
@@ -77,26 +84,44 @@ static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_da
     return;
   }
 
+  if (use_timestamp) {
+    // Timestamp-only variant for account `latest` freshness gate. The verifier
+    // proves {stateRoot, timestamp} against the body root in one multi-proof,
+    // so the block payload here only carries the timestamp leaf (8 bytes LE).
+    uint8_t buffer[9] = {0};
+    buffer[0]         = ETH_STATE_BLOCK_UNION_TIMESTAMP;
+    memcpy(buffer + 1, ssz_get(&block_data->execution, "timestamp").bytes.data, 8);
+    ssz_add_bytes(builder, "block", bytes(buffer, 9));
+    return;
+  }
+
   uint8_t  buffer[33] = {0};
   uint32_t l          = 1;
   if (block_index == GINDEX_BLOCHASH) {
     l         = 33;
-    buffer[0] = 1;
+    buffer[0] = ETH_STATE_BLOCK_UNION_BLOCKHASH;
     memcpy(buffer + 1, ssz_get(&block_data->execution, "blockHash").bytes.data, 32);
   }
   else if (block_index == GINDEX_BLOCKUMBER) {
-    l = 9;
+    l         = 9;
+    buffer[0] = ETH_STATE_BLOCK_UNION_BLOCKNUMBER;
     memcpy(buffer + 1, ssz_get(&block_data->execution, "blockNumber").bytes.data, 8);
-    buffer[0] = 2;
   }
   ssz_add_bytes(builder, "block", bytes(buffer, l));
 }
 
 ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number, beacon_block_t* block, blockroot_proof_t* historic_proof, bool is_call) {
-  bytes32_t     body_root   = {0};
-  ssz_builder_t state_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
+  bytes32_t     body_root         = {0};
+  ssz_builder_t state_proof       = ssz_builder_for_type(ETH_SSZ_VERIFY_STATE_PROOF);
   bool          use_block_context = is_call && ctx->version >= c4_version_number(1, 1, 15); // block context is supported since version 1.1.15
   bytes_t       proof             = NULL_BYTES;
+  gindex_t      block_index       = use_block_context ? 0 : eth_get_gindex_for_block(c4_chain_fork_id(ctx->chain_id, block->slot >> 5), block_number);
+  // Timestamp variant for account proofs: the request used a non-pinned block tag
+  // (`block_index == 0`, e.g. "latest"/"safe"/"finalized"), so add an 8-byte
+  // timestamp leaf alongside the stateRoot so the verifier can run a freshness
+  // gate on `latest`. Requires client version 1.1.27+ -- older clients still see
+  // the legacy `none` variant.
+  bool          use_timestamp     = !is_call && block_index == 0 && ctx->version >= c4_version_number(1, 1, 27);
 
   if (use_block_context) {
     const gindex_t* gi = c4_call_block_context_gindexes();
@@ -108,10 +133,23 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
 #endif
       proof = ssz_create_multi_proof(block->body, body_root, CALL_BLOCK_CONTEXT_FIELD_COUNT,
                                      gi[0], gi[1], gi[2], gi[3], gi[4], gi[5], gi[6], gi[7], gi[8]);
-    ssz_add_block_proof(&state_proof, block, 0, true);
+    ssz_add_block_proof(&state_proof, block, 0, true, false);
+  }
+  else if (use_timestamp) {
+    gindex_t state_index = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
+    gindex_t ts_index    = ssz_gindex(block->body.def, 2, "executionPayload", "timestamp");
+    eth_cu_add_multi_proof(ctx, 2);
+#ifdef PROVER_CACHE
+    if (block->merkle_cache.valid) {
+      gindex_t gi_arr[2] = {state_index, ts_index};
+      proof              = ssz_create_multi_proof_from_body_cache(&block->merkle_cache, body_root, gi_arr, 2);
+    }
+    if (!proof.data)
+#endif
+      proof = ssz_create_multi_proof(block->body, body_root, 2, state_index, ts_index);
+    ssz_add_block_proof(&state_proof, block, 0, false, true);
   }
   else {
-    gindex_t block_index = eth_get_gindex_for_block(c4_chain_fork_id(ctx->chain_id, block->slot >> 5), block_number);
     gindex_t state_index = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
     if (block_index == 0)
       eth_cu_add_proof(ctx);
@@ -128,7 +166,7 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
       proof = block_index == 0
                   ? ssz_create_proof(block->body, body_root, state_index)
                   : ssz_create_multi_proof(block->body, body_root, 2, block_index, state_index);
-    ssz_add_block_proof(&state_proof, block, block_index, false);
+    ssz_add_block_proof(&state_proof, block, block_index, false, false);
   }
 
   ssz_add_bytes(&state_proof, "proof", proof);

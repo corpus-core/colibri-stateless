@@ -219,14 +219,18 @@ class TestSpecificIntegrationCases:
         mock_request_handler = FileBasedMockRequestHandler(blocknum_dir)
         
         # Create client with NO provers to force local proof creation
-        # Integration tests should use mock data, not remote provers
+        # Integration tests should use mock data, not remote provers.
+        # `max_latest_age_seconds=0` disables the freshness gate so the
+        # static `latest` fixture (whose recorded block timestamp can be
+        # arbitrarily old) is not rejected with "proof for latest too old".
         client = Colibri(
             chain_id=config['chain_id'],
             provers=[],  # CRITICAL: Empty list forces local proof creation with mock data
             include_code=config.get('include_code', False),
             use_accesslist=config.get('use_accesslist', False),
             storage=mock_storage,
-            request_handler=mock_request_handler
+            request_handler=mock_request_handler,
+            max_latest_age_seconds=0
         )
         
         # Test method support
@@ -283,14 +287,17 @@ class TestSpecificIntegrationCases:
         mock_request_handler = FileBasedMockRequestHandler(balance_dir)
         
         # Create client with NO provers to force local proof creation
-        # Integration tests should use mock data, not remote provers
+        # Integration tests should use mock data, not remote provers.
+        # `max_latest_age_seconds=0` disables the freshness gate (see note
+        # in the eth_blockNumber test above).
         client = Colibri(
             chain_id=config['chain_id'],
             provers=[],  # CRITICAL: Empty list forces local proof creation with mock data
             include_code=config.get('include_code', False),
             use_accesslist=config.get('use_accesslist', False),
             storage=mock_storage,
-            request_handler=mock_request_handler
+            request_handler=mock_request_handler,
+            max_latest_age_seconds=0
         )
         
         # Execute RPC call
