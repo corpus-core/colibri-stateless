@@ -534,6 +534,33 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
   }
 }
 
+
+/**
+ * Clear all sync committee state for a chain on critical errors.
+ * Called when weak subjectivity validation fails or corruption is detected.
+ * Forces re-initialization from a trusted checkpoint on next verification.
+ *
+ * @param chain_id Chain identifier for which to clear all state
+ */
+static void clear_sync_state(chain_id_t chain_id) {
+  storage_plugin_t storage_conf = {0};
+  c4_get_storage_config(&storage_conf);
+
+  // Delete all sync states for this chain
+  c4_chain_state_t chain_state = c4_get_chain_state(chain_id);
+  for (uint32_t i = 0; chain_state.status == C4_STATE_SYNC_PERIODS && i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++) {
+    uint32_t p = chain_state.data.periods[i];
+    char     name[100];
+    sbprintf(name, "sync_%l_%d", (uint64_t) chain_id, p);
+    storage_conf.del(name);
+  }
+
+  // Delete chain state
+  char name[100];
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
+  storage_conf.del(name);
+}
+
 /**
  * Retrieve sync committee validators from persistent storage cache.
  * Handles BLS deserialization if needed and strips the 32-byte previous_pubkeys_hash suffix.
@@ -577,6 +604,13 @@ static c4_sync_validators_t get_validators_from_cache(verify_ctx_t* ctx, uint32_
   }
 
   if (found && storage_conf.get) storage_conf.get(name, &validators);
+  if (found && validators.data.len == 0) {
+    log_debug("sync cache corrupted. The data for %s is missing, so we re init the sync state", name);
+
+    // this is a corrupted state, we need to clear it
+    clear_sync_state(ctx->chain_id);
+    return (c4_sync_validators_t){.current_period = period };
+  }
   log_debug("fetch from cache %s : %d bytes)", name, validators.data.len);
   if (validators.data.len % 48 == 32)
     memcpy(previous_root, validators.data.data + validators.data.len - 32, 32);
@@ -623,32 +657,6 @@ static c4_sync_validators_t get_validators_from_cache(verify_ctx_t* ctx, uint32_
       .validators     = validators.data};
   memcpy(result.previous_pubkeys_hash, previous_root, 32);
   return result;
-}
-
-/**
- * Clear all sync committee state for a chain on critical errors.
- * Called when weak subjectivity validation fails or corruption is detected.
- * Forces re-initialization from a trusted checkpoint on next verification.
- *
- * @param chain_id Chain identifier for which to clear all state
- */
-static void clear_sync_state(chain_id_t chain_id) {
-  storage_plugin_t storage_conf = {0};
-  c4_get_storage_config(&storage_conf);
-
-  // Delete all sync states for this chain
-  c4_chain_state_t chain_state = c4_get_chain_state(chain_id);
-  for (uint32_t i = 0; chain_state.status == C4_STATE_SYNC_PERIODS && i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++) {
-    uint32_t p = chain_state.data.periods[i];
-    char     name[100];
-    sbprintf(name, "sync_%l_%d", (uint64_t) chain_id, p);
-    storage_conf.del(name);
-  }
-
-  // Delete chain state
-  char name[100];
-  sbprintf(name, "states_%l", (uint64_t) chain_id);
-  storage_conf.del(name);
 }
 
 #ifdef USE_CHECKPOINTZ
