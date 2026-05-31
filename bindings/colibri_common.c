@@ -566,6 +566,9 @@ static c4_status_t handle_request_prover(c4_rpc_ctx_t* ctx) {
       return C4_SUCCESS;
     case C4_ERROR:
       rp->request->error = strdup(rp->ctx->state.error ? rp->ctx->state.error : "local prover failed");
+      // make sure the error is also set on the verifier
+      if (!ctx->verifier.state.error) 
+        ctx->verifier.state.error = bprintf(NULL, "Proof-creating for %s (%j) failed: %s", rp->ctx->method, rp->ctx->params, rp->request->error);
       free_request_prover(ctx);
       return C4_ERROR;
     default:

@@ -33,8 +33,8 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
   bprintf(payload, ",\"version\":%d", c4_current_version_number());
 
   // Prefer the supplied snapshot; fall back to a fresh storage read if the caller passed NULL_BYTES.
-  bytes_t cs        = client_state;
-  bool    cs_owned  = false;
+  bytes_t cs       = client_state;
+  bool    cs_owned = false;
   if (!cs.data || !cs.len) {
     cs       = c4_get_client_state(chain_id);
     cs_owned = true;
@@ -122,15 +122,14 @@ void c4_state_take_requests(c4_state_t* dst, c4_state_t* src) {
   if (!dst) return;
   data_request_t* tail = src->requests;
   while (tail->next) tail = tail->next;
-  tail->next     = dst->requests;
-  dst->requests  = src->requests;
-  src->requests  = NULL;
+  tail->next    = dst->requests;
+  dst->requests = src->requests;
+  src->requests = NULL;
 }
 
 c4_status_t c4_state_add_error(c4_state_t* state, const char* error) {
   // NULL-Check: Use generic message if error is NULL
   if (!error) error = "Unknown error";
-
   if (state->error) {
     // Store old error pointer to free after creating new concatenated string
     char* old_error = state->error;
