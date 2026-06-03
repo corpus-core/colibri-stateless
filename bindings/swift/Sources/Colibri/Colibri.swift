@@ -613,6 +613,19 @@ public class Colibri {
                         print("❌ ERROR: req_ptr neither String nor NSNumber in request: \(request)")
                         return
                     }
+
+                    // Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
+                    let delayMs: UInt64
+                    if let delayNum = request["delay"] as? NSNumber {
+                        delayMs = delayNum.uint64Value
+                    } else if let delayStr = request["delay"] as? String, let v = UInt64(delayStr) {
+                        delayMs = v
+                    } else {
+                        delayMs = 0
+                    }
+                    if delayMs > 0 {
+                        try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+                    }
                     
                     // Convert exclude_mask from String to Int
                     let excludeMask: Int

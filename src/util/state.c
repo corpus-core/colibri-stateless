@@ -96,6 +96,21 @@ bool c4_state_is_pending(data_request_t* req) {
   return !req->error && !req->response.data;
 }
 
+bool c4_state_retry_after(data_request_t* req, uint32_t delay_ms, uint16_t max_retries) {
+  if (!req || req->retry_count >= max_retries) return false;
+  if (req->response.data) {
+    safe_free(req->response.data);
+    req->response = NULL_BYTES;
+  }
+  if (req->error) {
+    safe_free(req->error);
+    req->error = NULL;
+  }
+  req->delay = delay_ms;
+  req->retry_count++;
+  return true;
+}
+
 void c4_state_add_request(c4_state_t* state, data_request_t* data_request) {
   log_debug("adding request type %d : %s %r", data_request->type, data_request->url ? "url" : "rpc", data_request->url ? bytes(data_request->url, strlen(data_request->url)) : data_request->payload);
   if (bytes_all_zero(bytes(data_request->id, C4_BYTES32_SIZE))) {

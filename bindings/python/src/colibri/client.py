@@ -499,7 +499,11 @@ class Colibri:
         async def handle_single_request(request_dict: Dict[str, Any]) -> None:
             try:
                 request = DataRequest.from_dict(request_dict)
-                
+
+                # Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
+                if getattr(request, "delay", 0):
+                    await asyncio.sleep(request.delay / 1000.0)
+
                 # Mock request handling for testing
                 if self.request_handler:
                     try:

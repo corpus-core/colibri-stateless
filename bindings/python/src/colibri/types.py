@@ -123,6 +123,7 @@ class DataRequest:
         request_type: str = "eth_rpc",
         exclude_mask: int = 0,
         chain_id: int = 1,
+        delay: int = 0,
     ):
         self.req_ptr = req_ptr
         self.url = url
@@ -132,6 +133,8 @@ class DataRequest:
         self.request_type = request_type
         self.exclude_mask = exclude_mask
         self.chain_id = chain_id
+        # Milliseconds to wait before (re-)executing (e.g. oblivious-node retry backoff).
+        self.delay = delay
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DataRequest":
@@ -145,6 +148,7 @@ class DataRequest:
             request_type=data.get("type", "eth_rpc"),
             exclude_mask=int(data.get("exclude_mask", 0)),
             chain_id=int(data.get("chain_id", 1)),
+            delay=int(data.get("delay", 0)),
         )
 
     def to_dict(self) -> Dict[str, Any]:

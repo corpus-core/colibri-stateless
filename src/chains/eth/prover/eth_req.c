@@ -25,6 +25,7 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "eth_compute_units.h"
+#include "eth_verify.h"
 #include "json.h"
 #include "logger.h"
 #include "rlp.h"
@@ -252,6 +253,16 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
         json_t code = json_get(error, "code");
         if (code.len == 6 && strncmp(code.start, "-32602", 6) == 0)
           RETRY_REQUEST(data_request);
+        else if (strcmp(method, "eth_getProof") == 0 && eth_is_oblivious_unavailable(response)) {
+          // Oblivious node reported the requested state as not yet available.
+          // Retry the SAME node after a short delay (bounded), instead of
+          // failing the whole proof. Covers the locally generated
+          // colibri_proofCall in hybrid mode whose eth_getProof requests are
+          // routed to the oblivious node by the host.
+          if (c4_state_retry_after(data_request, ETH_OBLIVIOUS_RETRY_DELAY_MS, ETH_OBLIVIOUS_MAX_RETRIES))
+            return C4_PENDING;
+          THROW_ERROR_WITH("oblivious node did not provide the proof within the retry budget for %s (params: %s) : %j", method, params, json_get(error, "message"));
+        }
         else
           THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s) : %j", method, params, json_get(error, "message"));
       }

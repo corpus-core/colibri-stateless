@@ -48,6 +48,26 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
   return true;
 }
 
+bool eth_is_oblivious_unavailable(json_t response) {
+  if (response.type != JSON_TYPE_OBJECT) return false;
+  json_t error = json_get(response, "error");
+  if (error.type != JSON_TYPE_OBJECT) return false;
+
+  json_t code = json_get(error, "code");
+  if (code.type != JSON_TYPE_NUMBER || code.len != 6 || strncmp(code.start, "-32001", 6) != 0) return false;
+
+  json_t message = json_get(error, "message");
+  if (message.type != JSON_TYPE_STRING) return false;
+  // message.start/len spans the JSON string token (incl. quotes); a substring
+  // search is sufficient to recognise the oblivious node's availability signal.
+  static const char marker[] = "data non availability";
+  const uint32_t    marker_len = sizeof(marker) - 1;
+  for (uint32_t i = 0; i + marker_len <= message.len; i++) {
+    if (strncmp(message.start + i, marker, marker_len) == 0) return true;
+  }
+  return false;
+}
+
 // : Ethereum
 
 // :: Supported RPC-Methods

@@ -114,4 +114,38 @@ bool eth_json_is_latest(json_t block_tag);
  */
 bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, uint64_t block_ts);
 
+// :: Oblivious node delayed-retry
+
+/**
+ * Delay (in milliseconds) between successive retries of an `eth_getProof`
+ * request against an oblivious TEE node that reported the requested state as
+ * not yet available. The node typically needs a few seconds to make the data
+ * available (ORAM/TEE warm-up).
+ */
+#define ETH_OBLIVIOUS_RETRY_DELAY_MS 3000
+
+/**
+ * Maximum number of delayed retries for an oblivious `eth_getProof` request.
+ * With `ETH_OBLIVIOUS_RETRY_DELAY_MS` this bounds the total wait (~45s) and avoids
+ * endless loops if the node never returns the data.
+ */
+#define ETH_OBLIVIOUS_MAX_RETRIES 15
+
+/**
+ * Returns `true` if a JSON-RPC response signals that an oblivious node could not
+ * (yet) provide the requested data and the request should be retried.
+ *
+ * Detects the oblivious-node specific signal `error.code == -32001` together
+ * with a `data non availability` message. The match is intentionally narrow so
+ * a regular RPC provider's unrelated `-32001` does not trigger pointless waits.
+ *
+ * Lives in the verifier library (MIT) so both the verifier (`call_ctx.c`) and
+ * the prover (`eth_req.c`, which depends on the verifier) can share it without
+ * the prover becoming a dependency of embedded verifier-only builds.
+ *
+ * @param response Parsed JSON-RPC response object (as returned by `json_parse`)
+ * @return `true` if the response is an oblivious "data not available" error
+ */
+bool eth_is_oblivious_unavailable(json_t response);
+
 #endif // eth_verify_h__

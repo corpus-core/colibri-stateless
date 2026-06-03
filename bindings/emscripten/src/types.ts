@@ -179,6 +179,8 @@ export interface DataRequest {
     url: string;
     payload: any;
     req_ptr: number;
+    /** Milliseconds to wait before (re-)executing this request (e.g. oblivious-node retry backoff). Optional. */
+    delay?: number;
 }
 
 // Enum for RPC method types

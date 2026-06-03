@@ -34,10 +34,23 @@
 #include <direct.h>
 #define MKDIR(path) _mkdir(path)
 #include "../../src/util/win_compat.h"
+#include <windows.h>
 #else
 #include <unistd.h>
 #define MKDIR(path) mkdir(path, 0755)
 #endif
+
+// Blocks the current thread for the given number of milliseconds. Used to honor
+// a data_request_t.delay (e.g. waiting between oblivious-node retries). The CLI
+// host is single-threaded, so a blocking sleep is acceptable here.
+static void curl_sleep_ms(uint32_t ms) {
+  if (!ms) return;
+#ifdef _WIN32
+  Sleep(ms);
+#else
+  usleep((useconds_t) ms * 1000);
+#endif
+}
 
 typedef struct {
   json_t config;
@@ -378,15 +391,34 @@ static void log_request(curl_request_t* creq, bool success, bytes_t data, char* 
     bprintf(&buf, "(%d bytes, %l ms)", data.len, duration_ms);
   else
     bprintf(&buf, "-> %r ", data);
+  char* server = strdup(creq->url ? creq->url : "");
+  char* host = strncmp(server, "http://", 7) == 0 ? server + 7 : strncmp(server, "https://", 8) == 0 ? server + 8 : server;
+  char* end =strchr(host, '/');
+  if (end) *end = '\0';
   if (creq->request->payload.len && creq->request->payload.data)
-    log_info("[%s]: %s : %r -> %s", success ? "SUCCESS" : "ERROR  ", creq->url, creq->request->payload, buffer_as_string(buf));
+    log_info("[%s]: %s : %r -> %s", success ? "SUCCESS" : "ERROR  ", host, creq->request->payload, buffer_as_string(buf));
   else
-    log_info("[%s]: %s -> %s", success ? "SUCCESS" : "ERROR  ", creq->url, buffer_as_string(buf));
+    log_info("[%s]: %s -> %s", success ? "SUCCESS" : "ERROR  ", host, buffer_as_string(buf));
   buffer_free(&buf);
+  safe_free(server);
 }
 
 void curl_fetch_all(c4_state_t* state) {
   bool retry = true;
+
+  // Honor any requested delay (e.g. oblivious-node retry backoff) before issuing
+  // the pending requests. Sleep once for the longest requested delay, then clear
+  // it so we don't wait again on internal node-rotation retries.
+  uint32_t max_delay = 0;
+  for (data_request_t* req = state->requests; req; req = req->next) {
+    if (!req->response.data && req->delay > max_delay) max_delay = req->delay;
+  }
+  if (max_delay) {
+    curl_sleep_ms(max_delay);
+    for (data_request_t* req = state->requests; req; req = req->next) {
+      if (!req->response.data) req->delay = 0;
+    }
+  }
 
   while (retry) {
     retry               = false;
