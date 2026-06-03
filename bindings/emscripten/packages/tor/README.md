@@ -4,7 +4,7 @@
 
 Tor network transport for [Colibri Stateless](https://github.com/corpus-core/colibri-stateless). Routes all RPC requests through [Tor](https://www.torproject.org/) for enhanced network-level privacy.
 
-- **Browser**: Uses [Arti](https://gitlab.torproject.org/tpo/core/arti) compiled to WebAssembly via [tor-js](https://github.com/voltrevo/arti) -- no browser extension or external software needed.
+- **Browser**: Uses [Arti](https://gitlab.torproject.org/tpo/core/arti) compiled to WebAssembly via [tor-js](https://github.com/privacy-ethereum/tor-js) -- no browser extension or external software needed.
 - **Node.js**: Connects to a locally running Tor SOCKS5 proxy -- zero dependencies, pure `node:net`/`node:tls` implementation.
 
 ## Installation
@@ -63,6 +63,14 @@ Creates a `fetch`-compatible function that routes requests through Tor via Arti 
 | `onBootstrap` | `(ms: number) => void` | `undefined` | Callback when Tor bootstrap completes |
 | `logLevel` | `LogLevel` | `'warn'` | Arti log level (`'trace'` \| `'debug'` \| `'info'` \| `'warn'` \| `'error'`) |
 
+> **Note on the gateway:** In the browser, Tor relay connections are proxied
+> through a WebSocket/WebRTC gateway (browsers cannot open raw TCP sockets).
+> The default `https://tor-js-gateway.voltrevo.com` is a community-operated
+> gateway provided by the `tor-js` author. For production deployments you are
+> strongly encouraged to run your own gateway
+> (see [privacy-ethereum/tor-js-gateway](https://github.com/privacy-ethereum/tor-js-gateway))
+> and pass its URL via the `gateway` option.
+
 ### `createSocksFetch(options?): Promise<typeof fetch>`
 
 Creates a `fetch`-compatible function that routes requests through a local Tor SOCKS5 proxy. Node.js only.
@@ -72,18 +80,11 @@ Creates a `fetch`-compatible function that routes requests through a local Tor S
 | `socksHost` | `string` | `'127.0.0.1'` | SOCKS5 proxy hostname |
 | `socksPort` | `number` | `9050` | SOCKS5 proxy port |
 
-## Building tor-js from source
+## tor-js dependency
 
-Until `tor-js` is published on npm, the CI automatically builds the Arti WASM package from source and bundles it with `@corpus-core/colibri-tor` via `bundleDependencies`. Users installing the published package get `tor-js` included -- no extra steps needed.
+The browser transport relies on the [`tor-js`](https://www.npmjs.com/package/tor-js) npm package, which ships Arti compiled to WebAssembly. It is a regular dependency of `@corpus-core/colibri-tor` and is installed automatically via `npm install` -- no build-from-source step is required.
 
-For local development, you can trigger the same build manually:
-
-```sh
-# Requires: Rust toolchain, wasm-pack, Node.js
-npm run build:arti
-```
-
-This clones [voltrevo/arti](https://github.com/voltrevo/arti), builds the WASM package, and installs the resulting `tor-js` ts-wrapper into `node_modules/`.
+This package imports the `tor-js/wasm-base64` entry point, which embeds the WASM binary directly in the JavaScript bundle, so no WASM is fetched from a CDN at runtime.
 
 ## License
 

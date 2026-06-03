@@ -26,21 +26,16 @@ import { DEFAULT_GATEWAY } from './types.js';
 export type { ThorBrowserOptions };
 export { DEFAULT_GATEWAY };
 
-// tor-js is loaded dynamically so the import path can switch between vendored
-// artifacts (built from source via scripts/build-arti.sh) and the future npm
-// package without changing this file.
+// tor-js is loaded dynamically so the WASM payload is only pulled in when the
+// browser transport is actually used.  The `wasm-base64` entry point embeds the
+// Arti WASM directly in the JS bundle, so no CDN fetch is required at runtime.
 let torJsImport: Promise<any> | null = null;
 
 function getTorJs(): Promise<any> {
     if (!torJsImport) {
-        // Dynamic import -- resolved at runtime.  When tor-js is published on
-        // npm this will become `import('tor-js')`.  Until then, the vendored
-        // build (src/vendor/tor-js.js) is used via the package.json "imports"
-        // map or a direct relative path.
-        torJsImport = import('tor-js').catch(() => {
+        torJsImport = import('tor-js/wasm-base64').catch(() => {
             throw new Error(
-                'tor-js is not installed. Install it via npm (once published) ' +
-                'or run `npm run build:arti` to build from source.'
+                'tor-js is not installed. Install it via `npm install tor-js`.'
             );
         });
     }
