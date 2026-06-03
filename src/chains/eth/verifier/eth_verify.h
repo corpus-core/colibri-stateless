@@ -120,13 +120,14 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
  * Delay (in milliseconds) between successive retries of an `eth_getProof`
  * request against an oblivious TEE node that reported the requested state as
  * not yet available. The node typically needs a few seconds to make the data
- * available (ORAM/TEE warm-up).
+ * available (ORAM/TEE warm-up). The effective spacing between attempts is this
+ * delay plus the request round-trip time.
  */
-#define ETH_OBLIVIOUS_RETRY_DELAY_MS 3000
+#define ETH_OBLIVIOUS_RETRY_DELAY_MS 2000
 
 /**
  * Maximum number of delayed retries for an oblivious `eth_getProof` request.
- * With `ETH_OBLIVIOUS_RETRY_DELAY_MS` this bounds the total wait (~45s) and avoids
+ * With `ETH_OBLIVIOUS_RETRY_DELAY_MS` this bounds the total wait (~30s) and avoids
  * endless loops if the node never returns the data.
  */
 #define ETH_OBLIVIOUS_MAX_RETRIES 15
