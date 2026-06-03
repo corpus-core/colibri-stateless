@@ -99,28 +99,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Cache Arti build
-        uses: actions/cache@v4
-        with:
-          path: |
-            bindings/emscripten/packages/tor/.arti-build
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: arti-wasm-${{ hashFiles('bindings/emscripten/packages/tor/scripts/build-arti.sh') }}
-          restore-keys: arti-wasm-
-
-      - name: Build tor-js from source
-        run: bash scripts/build-arti.sh
-        working-directory: bindings/emscripten/packages/tor
-
       - name: Build colibri-tor
         run: |
           npm install

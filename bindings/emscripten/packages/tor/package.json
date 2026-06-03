@@ -23,12 +23,8 @@
         "dist",
         "README.md"
     ],
-    "bundleDependencies": [
-        "tor-js"
-    ],
     "scripts": {
         "build": "tsc",
-        "build:arti": "bash scripts/build-arti.sh",
         "test": "node --test test/*.test.mjs"
     },
     "repository": {
@@ -47,7 +43,9 @@
     ],
     "author": "Simon Jentzsch <simon@corpus.io>",
     "license": "MIT",
-    "dependencies": {},
+    "dependencies": {
+        "tor-js": "^0.3.2"
+    },
     "peerDependencies": {
         "@corpus-core/colibri-stateless": ">=0.1.0"
     },

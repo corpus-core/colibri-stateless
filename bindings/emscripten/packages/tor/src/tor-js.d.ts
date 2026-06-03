@@ -1,12 +1,12 @@
 /**
- * Ambient module declaration for tor-js.
+ * Ambient module declaration for the tor-js `wasm-base64` entry point.
  *
- * tor-js is loaded dynamically at runtime and may not be installed.
- * This declaration provides type information for the subset of the
- * tor-js API used by colibri-tor. Once tor-js is published on npm
- * with its own type declarations, this file can be removed.
+ * tor-js ships its own type declarations, but the `tsconfig` uses
+ * `moduleResolution: "node"`, which does not resolve the package's
+ * `exports` subpaths. This declaration provides type information for the
+ * subset of the tor-js API used by colibri-tor.
  */
-declare module 'tor-js' {
+declare module 'tor-js/wasm-base64' {
     export interface TorClientOptions {
         gateway?: string;
         logLevel?: 'trace' | 'debug' | 'info' | 'warn' | 'error';
