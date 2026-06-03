@@ -259,7 +259,7 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
           // failing the whole proof. Covers the locally generated
           // colibri_proofCall in hybrid mode whose eth_getProof requests are
           // routed to the oblivious node by the host.
-          if (c4_state_retry_after(data_request, ETH_OBLIVIOUS_RETRY_DELAY_MS, ETH_OBLIVIOUS_MAX_RETRIES))
+          if (c4_state_retry_after(data_request, eth_oblivious_retry_delay(data_request->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
             return C4_PENDING;
           THROW_ERROR_WITH("oblivious node did not provide the proof within the retry budget for %s (params: %s) : %j", method, params, json_get(error, "message"));
         }

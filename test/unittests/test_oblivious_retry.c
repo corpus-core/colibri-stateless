@@ -36,7 +36,8 @@
 #include "unity.h"
 #include <string.h>
 
-extern bool eth_is_oblivious_unavailable(json_t response);
+extern bool     eth_is_oblivious_unavailable(json_t response);
+extern uint32_t eth_oblivious_retry_delay(uint16_t retry_count);
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -88,6 +89,18 @@ void test_retry_after_clears_response_and_error(void) {
   TEST_ASSERT_EQUAL_UINT32(1500, req.delay);
 }
 
+void test_oblivious_retry_delay_backoff(void) {
+  // Exponential backoff doubling from the base, capped at the max.
+  TEST_ASSERT_EQUAL_UINT32(500, eth_oblivious_retry_delay(0));
+  TEST_ASSERT_EQUAL_UINT32(1000, eth_oblivious_retry_delay(1));
+  TEST_ASSERT_EQUAL_UINT32(2000, eth_oblivious_retry_delay(2));
+  TEST_ASSERT_EQUAL_UINT32(4000, eth_oblivious_retry_delay(3));
+  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(4));
+  // Capped from here on; large counts must not overflow the shift.
+  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(5));
+  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(40));
+}
+
 void test_retry_after_resets_node_selection(void) {
   // A same-node retry must reset the host-side node selection: hosts resume
   // from `response_node_index` and skip excluded nodes, so leaving these set
@@ -109,6 +122,7 @@ int main(void) {
   RUN_TEST(test_detector_rejects_valid_result);
   RUN_TEST(test_retry_after_schedules_and_bounds);
   RUN_TEST(test_retry_after_clears_response_and_error);
+  RUN_TEST(test_oblivious_retry_delay_backoff);
   RUN_TEST(test_retry_after_resets_node_selection);
   return UNITY_END();
 }

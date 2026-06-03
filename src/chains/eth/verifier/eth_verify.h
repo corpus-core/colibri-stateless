@@ -117,20 +117,41 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
 // :: Oblivious node delayed-retry
 
 /**
- * Delay (in milliseconds) between successive retries of an `eth_getProof`
+ * Initial delay (in milliseconds) before the first retry of an `eth_getProof`
  * request against an oblivious TEE node that reported the requested state as
- * not yet available. The node typically needs a few seconds to make the data
- * available (ORAM/TEE warm-up). The effective spacing between attempts is this
- * delay plus the request round-trip time.
+ * not yet available. Subsequent retries use exponential backoff (doubling),
+ * capped at `ETH_OBLIVIOUS_RETRY_MAX_MS`. Starting low polls fast for the
+ * common case (data ready after ~1s); the cap keeps the request count low for
+ * slow cases. The effective spacing is this delay plus the round-trip time.
  */
-#define ETH_OBLIVIOUS_RETRY_DELAY_MS 2000
+#define ETH_OBLIVIOUS_RETRY_BASE_MS 500
+
+/**
+ * Upper bound (in milliseconds) for the exponential backoff between oblivious
+ * `eth_getProof` retries. Caps the doubling so a slow node is not polled with
+ * ever-growing gaps.
+ */
+#define ETH_OBLIVIOUS_RETRY_MAX_MS 8000
 
 /**
  * Maximum number of delayed retries for an oblivious `eth_getProof` request.
- * With `ETH_OBLIVIOUS_RETRY_DELAY_MS` this bounds the total wait (~30s) and avoids
- * endless loops if the node never returns the data.
+ * With the capped backoff this bounds the total wait (~55s) and avoids endless
+ * loops if the node never returns the data.
  */
-#define ETH_OBLIVIOUS_MAX_RETRIES 15
+#define ETH_OBLIVIOUS_MAX_RETRIES 10
+
+/**
+ * Computes the exponential-backoff delay (in milliseconds) for the next
+ * oblivious `eth_getProof` retry, given how many retries have already happened.
+ *
+ * The delay is `ETH_OBLIVIOUS_RETRY_BASE_MS << retry_count`, capped at
+ * `ETH_OBLIVIOUS_RETRY_MAX_MS` (so the sequence is 500, 1000, 2000, 4000, 8000,
+ * 8000, ...). Pass `data_request_t.retry_count` *before* the retry is scheduled.
+ *
+ * @param retry_count number of delayed retries already performed for the request
+ * @return delay in milliseconds to wait before the next retry
+ */
+uint32_t eth_oblivious_retry_delay(uint16_t retry_count);
 
 /**
  * Returns `true` if a JSON-RPC response signals that an oblivious node could not

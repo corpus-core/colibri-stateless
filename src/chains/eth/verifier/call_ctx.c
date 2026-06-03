@@ -136,7 +136,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
       // (TEE/ORAM warm-up). Retry the SAME node after a short delay, bounded by
       // the retry budget, instead of treating the missing `result` as zero.
       if (eth_is_oblivious_unavailable(response)) {
-        if (c4_state_retry_after(req, ETH_OBLIVIOUS_RETRY_DELAY_MS, ETH_OBLIVIOUS_MAX_RETRIES))
+        if (c4_state_retry_after(req, eth_oblivious_retry_delay(req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
           ctx->storage_miss = true;
         else
           c4_state_add_error(&ctx->ctx->state, "oblivious node did not provide the proof within the retry budget");
@@ -180,7 +180,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
   else if (req && req->error) {
     // A transport-level error against the oblivious node may also be transient
     // (node still warming up). Retry the same node with delay before failing.
-    if (is_oblivious && c4_state_retry_after(req, ETH_OBLIVIOUS_RETRY_DELAY_MS, ETH_OBLIVIOUS_MAX_RETRIES)) {
+    if (is_oblivious && c4_state_retry_after(req, eth_oblivious_retry_delay(req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES)) {
       ctx->storage_miss = true;
       return;
     }
