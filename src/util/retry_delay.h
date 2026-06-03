@@ -104,17 +104,24 @@ uint32_t c4_retry_delay_for(const char* category, chain_id_t chain, uint16_t ret
 /**
  * Feeds a successful request outcome back into the learner.
  *
- * `retry_count == 0` means the very first request succeeded (the node was
- * already warm); the base is probed slightly downward. `retry_count > 0`
- * means delayed retries were needed; the cumulative scheduled wait at the
- * successful retry (`base * (2^retry_count - 1)`) is used as the warm-up
- * estimate and the base is moved towards it.
+ * The new target base is derived from `retry_count` as follows:
+ *
+ * - `retry_count == 0` or `retry_count == 1`: the server was ready within
+ *   `base` ms. Both outcomes give only an upper bound on the warm-up time
+ *   (`T_warm <= base`), so we use the midpoint `base/2` as the target and
+ *   let the slow downward gain (`DOWN_SHIFT`) probe carefully. Once the
+ *   base drifts too low we will see an `R == 2` and jump back up.
+ * - `retry_count >= 2`: the warm-up time fell into
+ *   `(base * (2^(R-1) - 1), base * (2^R - 1)]`. We target the upper bound
+ *   so the next attempt is again likely to hit `R == 1`, from which we can
+ *   probe down again.
  *
  * Adaptation is intentionally asymmetric: it reacts fast when more delay is
- * needed (so a slow node converges quickly) and probes downward slowly (to
- * avoid the converse — gradually drifting into an extra retry per request).
- * The new base is clamped to `[C4_RETRY_DELAY_MIN_MS, C4_RETRY_DELAY_MAX_MS]`
- * and persisted via the storage plugin when one is registered.
+ * needed (so a slow node converges quickly, `UP_SHIFT` half the gap) and
+ * probes downward slowly (`DOWN_SHIFT` an eighth of the gap, to avoid
+ * gradually drifting into an extra retry per request). The new base is
+ * clamped to `[C4_RETRY_DELAY_MIN_MS, C4_RETRY_DELAY_MAX_MS]` and persisted
+ * via the storage plugin when one is registered.
  *
  * Only call this from a code path where the same-node retry loop for the
  * given category was active (e.g. for `C4_RETRY_CATEGORY_OBLIVIOUS`, only

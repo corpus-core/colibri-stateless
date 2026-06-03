@@ -31,18 +31,17 @@
 // arithmetic is exact on integers and obvious from the code. Up: react fast
 // (1/2 of the gap); Down: probe slowly (1/8 of the gap). The factors were
 // chosen so that a single under-estimate quickly catches up (one extra retry
-// roughly doubles the base) while a slightly over-estimated base takes many
-// successful R=0 outcomes to drift down (avoiding an extra retry just to
+// roughly doubles the base) while an over-estimated base takes several
+// "server was ready"-outcomes to drift down (avoiding an extra retry just to
 // "save" a few hundred ms).
 #define RETRY_DELAY_UP_SHIFT   1
 #define RETRY_DELAY_DOWN_SHIFT 3
 
-// On R == 0 (first request already succeeded) we have no measurement of how
-// much faster the node could be; probe downward by 25% as a conservative
-// guess. Combined with DOWN_SHIFT the effective base reduction is
-// (1 - 3/4) / 8 = 1/32 of the current base per R=0 success.
-#define RETRY_DELAY_R0_TARGET_NUM 3
-#define RETRY_DELAY_R0_TARGET_DEN 4
+// Target for the "server was already ready" outcomes (R == 0 and R == 1).
+// Both observations only tell us T_warm <= base; the midpoint of the bound
+// (0, base] is base/2, which is what we use as the next-base target. The
+// slow DOWN_SHIFT prevents this from oscillating around the actual T_warm.
+#define RETRY_DELAY_READY_TARGET_SHIFT 1
 
 // Persisted blob layout: 1 byte version || 4 bytes uint32 LE base_ms.
 // The version byte lets us evolve the format without breaking older state
@@ -155,13 +154,17 @@ void c4_retry_delay_observe(const char* category, chain_id_t chain, uint16_t ret
   uint32_t             base = e->base_ms;
 
   // Translate the (retry_count, base) outcome into a target base for next time:
-  //   R == 0: server was already warm -> probe down to 0.75 * base.
-  //   R >= 1: warm-up time was approximately base * (2^R - 1) (the cumulative
-  //           scheduled wait at the successful retry). R == 1 hits target=base
-  //           exactly, which means "no change" -- the sweet spot.
+  //   R == 0 or R == 1: server was ready by base ms -> probe down to base/2.
+  //     We cannot tell whether T_warm was 0 or close to base from a single
+  //     observation, so we use the midpoint of the bound (0, base] as our
+  //     guess. The slow DOWN_SHIFT keeps this from oscillating; once the
+  //     base drifts too low we will see an R == 2 and jump back up.
+  //   R >= 2: warm-up time was in (base*(2^(R-1)-1), base*(2^R - 1)]; we
+  //     target the upper bound so the next attempt is again likely to hit
+  //     R == 1 (the optimum we then probe down from again).
   uint32_t target;
-  if (retry_count == 0) {
-    target = (uint32_t) ((uint64_t) base * RETRY_DELAY_R0_TARGET_NUM / RETRY_DELAY_R0_TARGET_DEN);
+  if (retry_count <= 1) {
+    target = base >> RETRY_DELAY_READY_TARGET_SHIFT;
   }
   else {
     // Compute (2^R - 1), saturating in uint64_t to keep the multiplication

@@ -143,13 +143,16 @@ void test_default_when_storage_empty(void) {
 
 // --- asymmetric adaptation ---------------------------------------------------
 
-void test_observe_R1_keeps_base_unchanged(void) {
-  // R == 1 means: warm-up time ≈ base. target == base, delta == 0, no update,
-  // and therefore no persistence write either.
+void test_observe_R1_probes_down_slowly(void) {
+  // R == 1 only proves T_warm <= base; the learner treats it as evidence
+  // that the current base may be too generous and probes down toward the
+  // midpoint of (0, base]. With default base = 1000:
+  //   target = base/2 = 500. delta = 500. step = ceil(500/8) = 63.
+  //   new_base = 1000 - 63 = 937.
   TEST_ASSERT_EQUAL_UINT32(C4_RETRY_DELAY_DEFAULT_MS, c4_retry_delay_for(TEST_CATEGORY, TEST_CHAIN, 0));
   c4_retry_delay_observe(TEST_CATEGORY, TEST_CHAIN, 1);
-  TEST_ASSERT_EQUAL_UINT32(C4_RETRY_DELAY_DEFAULT_MS, c4_retry_delay_for(TEST_CATEGORY, TEST_CHAIN, 0));
-  TEST_ASSERT_EQUAL_INT(0, g_mock_set_calls);
+  TEST_ASSERT_EQUAL_UINT32(937, c4_retry_delay_for(TEST_CATEGORY, TEST_CHAIN, 0));
+  TEST_ASSERT_EQUAL_INT(1, g_mock_set_calls);
 }
 
 void test_observe_R2_jumps_up_fast(void) {
@@ -161,16 +164,16 @@ void test_observe_R2_jumps_up_fast(void) {
   TEST_ASSERT_EQUAL_INT(1, g_mock_set_calls);
 }
 
-void test_observe_R0_probes_down_slowly(void) {
+void test_observe_R0_probes_down(void) {
   // Start the learner at a known high value by feeding two R=2 observations.
   c4_retry_delay_observe(TEST_CATEGORY, TEST_CHAIN, 2); // 1000 -> 2000
   c4_retry_delay_observe(TEST_CATEGORY, TEST_CHAIN, 2); // 2000 -> 4000
   TEST_ASSERT_EQUAL_UINT32(4000, c4_retry_delay_for(TEST_CATEGORY, TEST_CHAIN, 0));
 
-  // R == 0 -> target = base*3/4 = 3000. delta = 1000. DOWN_SHIFT=3 -> -125.
-  // New base = 3875.
+  // R == 0 -> target = base/2 = 2000. delta = 2000. DOWN_SHIFT=3 -> -250.
+  // New base = 3750.
   c4_retry_delay_observe(TEST_CATEGORY, TEST_CHAIN, 0);
-  TEST_ASSERT_EQUAL_UINT32(3875, c4_retry_delay_for(TEST_CATEGORY, TEST_CHAIN, 0));
+  TEST_ASSERT_EQUAL_UINT32(3750, c4_retry_delay_for(TEST_CATEGORY, TEST_CHAIN, 0));
 }
 
 void test_repeated_high_R_saturates_at_max(void) {
@@ -321,20 +324,18 @@ void test_cache_eviction_round_trips_via_storage(void) {
 
 // --- saturation guards -------------------------------------------------------
 
-void test_observe_at_max_skips_persist(void) {
-  // Drive base to MAX first (saturated). Any further observe with R >= 1
+void test_observe_at_max_skips_persist_for_high_r(void) {
+  // Drive base to MAX first (saturated). Any further observe with R >= 2
   // computes target >= MAX, gets clamped back to MAX, finds new_base ==
-  // current_base, and must short-circuit the persist write.
+  // current_base, and must short-circuit the persist write. (R == 0 / R == 1
+  // are a legitimate downward probe, so they are NOT short-circuited.)
   for (int i = 0; i < 50; i++) c4_retry_delay_observe(TEST_CATEGORY, TEST_CHAIN, 8);
   TEST_ASSERT_EQUAL_UINT32(C4_RETRY_DELAY_MAX_MS, c4_retry_delay_for(TEST_CATEGORY, TEST_CHAIN, 0));
 
   int before = g_mock_set_calls;
   c4_retry_delay_observe(TEST_CATEGORY, TEST_CHAIN, 8);
   TEST_ASSERT_EQUAL_INT_MESSAGE(before, g_mock_set_calls,
-                                "observe at MAX with high R must be a no-op (no redundant write)");
-  c4_retry_delay_observe(TEST_CATEGORY, TEST_CHAIN, 1); // R=1 -> target == base
-  TEST_ASSERT_EQUAL_INT_MESSAGE(before, g_mock_set_calls,
-                                "observe(R=1) at MAX must also short-circuit");
+                                "observe(R >= 2) at MAX must be a no-op (no redundant write)");
 }
 
 // --- reset semantics ---------------------------------------------------------
@@ -371,9 +372,9 @@ void test_observe_R0_is_a_meaningful_update(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_default_when_storage_empty);
-  RUN_TEST(test_observe_R1_keeps_base_unchanged);
+  RUN_TEST(test_observe_R1_probes_down_slowly);
   RUN_TEST(test_observe_R2_jumps_up_fast);
-  RUN_TEST(test_observe_R0_probes_down_slowly);
+  RUN_TEST(test_observe_R0_probes_down);
   RUN_TEST(test_repeated_high_R_saturates_at_max);
   RUN_TEST(test_repeated_R0_floors_at_min);
   RUN_TEST(test_persist_and_reload);
@@ -385,7 +386,7 @@ int main(void) {
   RUN_TEST(test_observe_with_only_get_plugin_does_not_crash);
   RUN_TEST(test_null_get_plugin_is_overridden_by_default_storage);
   RUN_TEST(test_cache_eviction_round_trips_via_storage);
-  RUN_TEST(test_observe_at_max_skips_persist);
+  RUN_TEST(test_observe_at_max_skips_persist_for_high_r);
   RUN_TEST(test_reset_does_not_touch_persisted_value);
   RUN_TEST(test_observe_R0_is_a_meaningful_update);
   return UNITY_END();
