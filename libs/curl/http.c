@@ -395,6 +395,7 @@ static void log_request(curl_request_t* creq, bool success, bytes_t data, char* 
   char* host = strncmp(server, "http://", 7) == 0 ? server + 7 : strncmp(server, "https://", 8) == 0 ? server + 8 : server;
   char* end =strchr(host, '/');
   if (end) *end = '\0';
+  if (creq->request->type != C4_DATA_TYPE_ETH_RPC) host = creq->url;
   if (creq->request->payload.len && creq->request->payload.data)
     log_info("[%s]: %s : %r -> %s", success ? "SUCCESS" : "ERROR  ", host, creq->request->payload, buffer_as_string(buf));
   else
