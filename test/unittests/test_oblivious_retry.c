@@ -91,13 +91,12 @@ void test_retry_after_clears_response_and_error(void) {
 
 void test_oblivious_retry_delay_backoff(void) {
   // Exponential backoff doubling from the base, capped at the max.
-  TEST_ASSERT_EQUAL_UINT32(500, eth_oblivious_retry_delay(0));
-  TEST_ASSERT_EQUAL_UINT32(1000, eth_oblivious_retry_delay(1));
-  TEST_ASSERT_EQUAL_UINT32(2000, eth_oblivious_retry_delay(2));
-  TEST_ASSERT_EQUAL_UINT32(4000, eth_oblivious_retry_delay(3));
-  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(4));
+  TEST_ASSERT_EQUAL_UINT32(1000, eth_oblivious_retry_delay(0));
+  TEST_ASSERT_EQUAL_UINT32(2000, eth_oblivious_retry_delay(1));
+  TEST_ASSERT_EQUAL_UINT32(4000, eth_oblivious_retry_delay(2));
+  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(3));
   // Capped from here on; large counts must not overflow the shift.
-  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(5));
+  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(4));
   TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(40));
 }
 

@@ -120,11 +120,12 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
  * Initial delay (in milliseconds) before the first retry of an `eth_getProof`
  * request against an oblivious TEE node that reported the requested state as
  * not yet available. Subsequent retries use exponential backoff (doubling),
- * capped at `ETH_OBLIVIOUS_RETRY_MAX_MS`. Starting low polls fast for the
- * common case (data ready after ~1s); the cap keeps the request count low for
- * slow cases. The effective spacing is this delay plus the round-trip time.
+ * capped at `ETH_OBLIVIOUS_RETRY_MAX_MS`. 1s matches the observed warm-up of
+ * the node (a 500ms first retry was empirically still too early); the cap keeps
+ * the request count low for slow cases. The effective spacing is this delay
+ * plus the round-trip time.
  */
-#define ETH_OBLIVIOUS_RETRY_BASE_MS 500
+#define ETH_OBLIVIOUS_RETRY_BASE_MS 1000
 
 /**
  * Upper bound (in milliseconds) for the exponential backoff between oblivious
@@ -145,7 +146,7 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
  * oblivious `eth_getProof` retry, given how many retries have already happened.
  *
  * The delay is `ETH_OBLIVIOUS_RETRY_BASE_MS << retry_count`, capped at
- * `ETH_OBLIVIOUS_RETRY_MAX_MS` (so the sequence is 500, 1000, 2000, 4000, 8000,
+ * `ETH_OBLIVIOUS_RETRY_MAX_MS` (so the sequence is 1000, 2000, 4000, 8000,
  * 8000, ...). Pass `data_request_t.retry_count` *before* the retry is scheduled.
  *
  * @param retry_count number of delayed retries already performed for the request
