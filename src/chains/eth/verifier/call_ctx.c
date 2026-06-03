@@ -136,7 +136,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
       // (TEE/ORAM warm-up). Retry the SAME node after a short delay, bounded by
       // the retry budget, instead of treating the missing `result` as zero.
       if (eth_is_oblivious_unavailable(response)) {
-        if (c4_state_retry_after(req, eth_oblivious_retry_delay(req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
+        if (c4_state_retry_after(req, eth_oblivious_retry_delay(req->chain_id, req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
           ctx->storage_miss = true;
         else
           c4_state_add_error(&ctx->ctx->state, "oblivious node did not provide the proof within the retry budget");
@@ -155,6 +155,10 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
         bytes_t  b       = json_as_bytes(proof_item, &val_buf);
         if (b.len <= 32) memcpy(val + (32 - b.len), b.data, b.len);
       }
+      // Feed the adaptive learner. The oblivious flag confirms the request
+      // went through the oblivious code path, so even retry_count == 0 is
+      // meaningful (enables the slow downward probe).
+      eth_oblivious_retry_observe(req->chain_id, req->retry_count);
     }
     else {
       json_t val_json = json_get(response, "result");
@@ -180,7 +184,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
   else if (req && req->error) {
     // A transport-level error against the oblivious node may also be transient
     // (node still warming up). Retry the same node with delay before failing.
-    if (is_oblivious && c4_state_retry_after(req, eth_oblivious_retry_delay(req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES)) {
+    if (is_oblivious && c4_state_retry_after(req, eth_oblivious_retry_delay(req->chain_id, req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES)) {
       ctx->storage_miss = true;
       return;
     }

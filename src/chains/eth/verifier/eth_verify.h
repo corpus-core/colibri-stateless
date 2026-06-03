@@ -117,42 +117,40 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
 // :: Oblivious node delayed-retry
 
 /**
- * Initial delay (in milliseconds) before the first retry of an `eth_getProof`
- * request against an oblivious TEE node that reported the requested state as
- * not yet available. Subsequent retries use exponential backoff (doubling),
- * capped at `ETH_OBLIVIOUS_RETRY_MAX_MS`. 1s matches the observed warm-up of
- * the node (a 500ms first retry was empirically still too early); the cap keeps
- * the request count low for slow cases. The effective spacing is this delay
- * plus the round-trip time.
- */
-#define ETH_OBLIVIOUS_RETRY_BASE_MS 1000
-
-/**
- * Upper bound (in milliseconds) for the exponential backoff between oblivious
- * `eth_getProof` retries. Caps the doubling so a slow node is not polled with
- * ever-growing gaps.
- */
-#define ETH_OBLIVIOUS_RETRY_MAX_MS 8000
-
-/**
  * Maximum number of delayed retries for an oblivious `eth_getProof` request.
- * With the capped backoff this bounds the total wait (~55s) and avoids endless
+ * With the capped backoff (see `C4_RETRY_DELAY_MAX_MS` in `retry_delay.h`)
+ * this bounds the total wait (~55s in the worst case) and prevents endless
  * loops if the node never returns the data.
  */
 #define ETH_OBLIVIOUS_MAX_RETRIES 10
 
 /**
- * Computes the exponential-backoff delay (in milliseconds) for the next
- * oblivious `eth_getProof` retry, given how many retries have already happened.
+ * Computes the next exponential-backoff delay (in milliseconds) for an
+ * oblivious `eth_getProof` retry. Thin wrapper around `c4_retry_delay_for`
+ * with the oblivious category, so the prover and verifier paths share a
+ * single, adaptive learner that persists per chain via the storage plugin.
  *
- * The delay is `ETH_OBLIVIOUS_RETRY_BASE_MS << retry_count`, capped at
- * `ETH_OBLIVIOUS_RETRY_MAX_MS` (so the sequence is 1000, 2000, 4000, 8000,
- * 8000, ...). Pass `data_request_t.retry_count` *before* the retry is scheduled.
+ * Pass `data_request_t.retry_count` *before* the retry is scheduled.
  *
+ * @param chain target chain (used as part of the persistence key)
  * @param retry_count number of delayed retries already performed for the request
  * @return delay in milliseconds to wait before the next retry
  */
-uint32_t eth_oblivious_retry_delay(uint16_t retry_count);
+uint32_t eth_oblivious_retry_delay(chain_id_t chain, uint16_t retry_count);
+
+/**
+ * Notifies the adaptive learner that an oblivious `eth_getProof` request
+ * eventually succeeded after `retry_count` delayed retries (0 means the very
+ * first request already succeeded).
+ *
+ * Thin wrapper around `c4_retry_delay_observe` with the oblivious category.
+ * Call this only when the request was actually routed to an oblivious node;
+ * otherwise the learner would be polluted by unrelated traffic.
+ *
+ * @param chain target chain (used as part of the persistence key)
+ * @param retry_count number of delayed retries that were performed
+ */
+void eth_oblivious_retry_observe(chain_id_t chain, uint16_t retry_count);
 
 /**
  * Returns `true` if a JSON-RPC response signals that an oblivious node could not

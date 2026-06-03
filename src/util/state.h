@@ -355,7 +355,7 @@ bool c4_state_is_pending(data_request_t* req);
  *
  * ```c
  * if (eth_is_oblivious_unavailable(response) &&
- *     !c4_state_retry_after(req, eth_oblivious_retry_delay(req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
+ *     !c4_state_retry_after(req, eth_oblivious_retry_delay(req->chain_id, req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
  *   THROW_ERROR("oblivious node did not provide the proof in time");
  * ```
  *

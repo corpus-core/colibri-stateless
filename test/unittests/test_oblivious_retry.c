@@ -26,20 +26,34 @@
 //     "data non availability" (-32001) signal and nothing else.
 //   - c4_state_retry_after(): schedules a same-node retry with a delay,
 //     bounded by a retry budget, and clears the previous response/error.
+//   - eth_oblivious_retry_delay(): adaptive base * 2^retry_count, capped.
 //
 // The detector lives in the eth verifier (eth_verify.h); it is declared here
 // to keep the test independent of the eth verifier's internal include paths.
 
 #include "bytes.h"
+#include "chains.h"
 #include "json.h"
+#include "plugin.h"
+#include "retry_delay.h"
 #include "state.h"
 #include "unity.h"
 #include <string.h>
 
 extern bool     eth_is_oblivious_unavailable(json_t response);
-extern uint32_t eth_oblivious_retry_delay(uint16_t retry_count);
+extern uint32_t eth_oblivious_retry_delay(chain_id_t chain, uint16_t retry_count);
 
-void setUp(void) {}
+// Use distinct chain ids per test to avoid cross-test learner contamination,
+// plus reset the learner cache in setUp so we always start from the default.
+#define TEST_CHAIN_BACKOFF ((chain_id_t) 11155111u)
+
+void setUp(void) {
+  c4_retry_delay_reset();
+  // Detach any registered storage plugin to keep the learner in-memory only
+  // (no implicit fs writes during default unit-test runs).
+  storage_plugin_t empty = {0};
+  c4_set_storage_config(&empty);
+}
 void tearDown(void) {}
 
 void test_detector_matches_oblivious_unavailable(void) {
@@ -90,14 +104,15 @@ void test_retry_after_clears_response_and_error(void) {
 }
 
 void test_oblivious_retry_delay_backoff(void) {
-  // Exponential backoff doubling from the base, capped at the max.
-  TEST_ASSERT_EQUAL_UINT32(1000, eth_oblivious_retry_delay(0));
-  TEST_ASSERT_EQUAL_UINT32(2000, eth_oblivious_retry_delay(1));
-  TEST_ASSERT_EQUAL_UINT32(4000, eth_oblivious_retry_delay(2));
-  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(3));
+  // With a fresh learner (no persisted value), base falls back to
+  // C4_RETRY_DELAY_DEFAULT_MS (=1000) and we get the documented sequence.
+  TEST_ASSERT_EQUAL_UINT32(1000, eth_oblivious_retry_delay(TEST_CHAIN_BACKOFF, 0));
+  TEST_ASSERT_EQUAL_UINT32(2000, eth_oblivious_retry_delay(TEST_CHAIN_BACKOFF, 1));
+  TEST_ASSERT_EQUAL_UINT32(4000, eth_oblivious_retry_delay(TEST_CHAIN_BACKOFF, 2));
+  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(TEST_CHAIN_BACKOFF, 3));
   // Capped from here on; large counts must not overflow the shift.
-  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(4));
-  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(40));
+  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(TEST_CHAIN_BACKOFF, 4));
+  TEST_ASSERT_EQUAL_UINT32(8000, eth_oblivious_retry_delay(TEST_CHAIN_BACKOFF, 40));
 }
 
 void test_retry_after_resets_node_selection(void) {

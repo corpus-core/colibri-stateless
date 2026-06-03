@@ -26,6 +26,7 @@
 #include "chains.h"
 #include "eth_bloom.h"
 #include "json.h"
+#include "retry_delay.h"
 #include "ssz.h"
 #include "sync_committee.h"
 #include "verify.h"
@@ -48,12 +49,12 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
   return true;
 }
 
-uint32_t eth_oblivious_retry_delay(uint16_t retry_count) {
-  uint32_t delay = ETH_OBLIVIOUS_RETRY_BASE_MS;
-  // Double per retry, but stop once the cap is reached to avoid shift overflow.
-  for (uint16_t i = 0; i < retry_count && delay < ETH_OBLIVIOUS_RETRY_MAX_MS; i++)
-    delay <<= 1;
-  return delay > ETH_OBLIVIOUS_RETRY_MAX_MS ? ETH_OBLIVIOUS_RETRY_MAX_MS : delay;
+uint32_t eth_oblivious_retry_delay(chain_id_t chain, uint16_t retry_count) {
+  return c4_retry_delay_for(C4_RETRY_CATEGORY_OBLIVIOUS, chain, retry_count);
+}
+
+void eth_oblivious_retry_observe(chain_id_t chain, uint16_t retry_count) {
+  c4_retry_delay_observe(C4_RETRY_CATEGORY_OBLIVIOUS, chain, retry_count);
 }
 
 bool eth_is_oblivious_unavailable(json_t response) {
