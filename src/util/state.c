@@ -106,7 +106,13 @@ bool c4_state_retry_after(data_request_t* req, uint32_t delay_ms, uint16_t max_r
     safe_free(req->error);
     req->error = NULL;
   }
-  req->delay = delay_ms;
+  // Retry on the SAME node: reset the host-side node selection. Hosts (e.g. the
+  // curl host) resume from `response_node_index` and skip already-tried nodes;
+  // without this reset the only oblivious node is skipped ("no more nodes to
+  // try"). Unlike `RETRY_REQUEST`, we explicitly do NOT exclude the node.
+  req->response_node_index = 0;
+  req->node_exclude_mask   = 0;
+  req->delay               = delay_ms;
   req->retry_count++;
   return true;
 }

@@ -88,6 +88,19 @@ void test_retry_after_clears_response_and_error(void) {
   TEST_ASSERT_EQUAL_UINT32(1500, req.delay);
 }
 
+void test_retry_after_resets_node_selection(void) {
+  // A same-node retry must reset the host-side node selection: hosts resume
+  // from `response_node_index` and skip excluded nodes, so leaving these set
+  // would make the host skip the only oblivious node ("no more nodes to try").
+  data_request_t req     = {0};
+  req.response_node_index = 1;
+  req.node_exclude_mask   = 0x1;
+
+  TEST_ASSERT_TRUE(c4_state_retry_after(&req, 3000, 5));
+  TEST_ASSERT_EQUAL_UINT16(0, req.response_node_index);
+  TEST_ASSERT_EQUAL_UINT16(0, req.node_exclude_mask);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_detector_matches_oblivious_unavailable);
@@ -96,5 +109,6 @@ int main(void) {
   RUN_TEST(test_detector_rejects_valid_result);
   RUN_TEST(test_retry_after_schedules_and_bounds);
   RUN_TEST(test_retry_after_clears_response_and_error);
+  RUN_TEST(test_retry_after_resets_node_selection);
   return UNITY_END();
 }
