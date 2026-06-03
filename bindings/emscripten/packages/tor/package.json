@@ -55,6 +55,7 @@
         }
     },
     "devDependencies": {
+        "@types/node": "^20",
         "typescript": "^5.5.0"
     },
     "publishConfig": {
