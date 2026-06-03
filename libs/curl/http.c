@@ -415,6 +415,7 @@ void curl_fetch_all(c4_state_t* state) {
     if (!req->response.data && req->delay > max_delay) max_delay = req->delay;
   }
   if (max_delay) {
+    log_info("Sleeping for %d ms", max_delay);
     curl_sleep_ms(max_delay);
     for (data_request_t* req = state->requests; req; req = req->next) {
       if (!req->response.data) req->delay = 0;
