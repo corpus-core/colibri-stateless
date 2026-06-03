@@ -103,15 +103,15 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP),     // Denep Fork Structureed LightClient Bootstrap
-    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // Electra Fork Structureed LightClient Bootstrap
-    SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)                       // slim WSP anchor (header + currentSyncCommitteeBranch + aggregate)
+    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP),     // Deneb-fork structured LightClient Bootstrap
+    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // Electra-fork structured LightClient Bootstrap
+    SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)                        // slim WSP anchor (header + currentSyncCommitteeBranch + aggregate)
 };
 
 // A List of LightClient Updates as returned from light_client/updates endpoint.
 static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
-    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),    // Denep Fork Structureed LightClient Update
-    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE) // Electra Fork Structureed LightClient Update
+    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),    // Deneb-fork structured LightClient Update
+    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE) // Electra-fork structured LightClient Update
 };
 
 // A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -138,9 +138,9 @@ static const ssz_def_t C4_ETH_SYNCDATA_UPDATE = SSZ_UNION("updates", C4_ETH_SYNC
 //
 // The Verifier always needs the pubkeys of the sync committee for a given period in order to verify the BLS signature of a Beacon BlockHeader.
 //
-// If a verifier requests a proof from a remote prover, the verifier may use the c4-property of the RPC-Request to describe it's state of the knpown periods or checkpoint.
+// If a verifier requests a proof from a remote prover, the verifier may use the c4-property of the RPC-Request to describe its state of the known periods or checkpoint.
 // If the verifier only reports a checkpoint, a bootstrap is added proving the current_sync_committee for the given checkpoint.
-// If the header requested has a higher period that the bootstrap or the latest period, all required lightClientUpdates will be proved.
+// If the requested header has a higher period than the bootstrap or the latest known period, all required lightClientUpdates will be proved.
 //
 
 // LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
