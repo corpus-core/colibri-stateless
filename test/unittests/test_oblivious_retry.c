@@ -30,6 +30,14 @@
 //
 // The detector lives in the eth verifier (eth_verify.h); it is declared here
 // to keep the test independent of the eth verifier's internal include paths.
+//
+// When `ETH_OBLIVIOUS` is disabled at configure time, the helpers under test
+// don't exist; we compile out to a no-op main so the test binary still links
+// and reports a clean pass.
+
+#include "unity.h"
+
+#ifdef ETH_OBLIVIOUS
 
 #include "bytes.h"
 #include "chains.h"
@@ -37,7 +45,6 @@
 #include "plugin.h"
 #include "retry_delay.h"
 #include "state.h"
-#include "unity.h"
 #include <string.h>
 
 extern bool     eth_is_oblivious_unavailable(json_t response);
@@ -140,3 +147,19 @@ int main(void) {
   RUN_TEST(test_retry_after_resets_node_selection);
   return UNITY_END();
 }
+
+#else // !ETH_OBLIVIOUS
+
+// Unity links setUp/tearDown unconditionally; provide empty stubs so the
+// stub-mode binary still resolves all symbols.
+void setUp(void) {}
+void tearDown(void) {}
+
+int main(void) {
+  UNITY_BEGIN();
+  // ETH_OBLIVIOUS disabled: nothing to verify, exit with a clean pass so the
+  // CI matrix can still build this test binary.
+  return UNITY_END();
+}
+
+#endif // ETH_OBLIVIOUS

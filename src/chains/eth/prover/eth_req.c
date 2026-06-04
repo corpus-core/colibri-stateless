@@ -253,6 +253,7 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
         json_t code = json_get(error, "code");
         if (code.len == 6 && strncmp(code.start, "-32602", 6) == 0)
           RETRY_REQUEST(data_request);
+#ifdef ETH_OBLIVIOUS
         else if (strcmp(method, "eth_getProof") == 0 && eth_is_oblivious_unavailable(response)) {
           // Oblivious node reported the requested state as not yet available.
           // Retry the SAME node after a short delay (bounded), instead of
@@ -263,6 +264,7 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
             return C4_PENDING;
           THROW_ERROR_WITH("oblivious node did not provide the proof within the retry budget for %s (params: %s) : %j", method, params, json_get(error, "message"));
         }
+#endif
         else
           THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s) : %j", method, params, json_get(error, "message"));
       }
@@ -275,6 +277,7 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
         RETRY_REQUEST(data_request);
       //      THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s): Invalid JSON response (no result)", method, params);
 
+#ifdef ETH_OBLIVIOUS
       // Feed the adaptive oblivious-retry learner. Only when at least one
       // delayed retry was needed do we *know* this request went through the
       // oblivious code path -- a plain `eth_getProof` against a regular node
@@ -283,6 +286,7 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
       // in call_ctx.c, which has the explicit VERIFY_FLAG_OBLIVIOUS signal.
       if (strcmp(method, "eth_getProof") == 0 && data_request->retry_count > 0)
         eth_oblivious_retry_observe(ctx->chain_id, data_request->retry_count);
+#endif
 
       *result = res;
       return C4_SUCCESS;

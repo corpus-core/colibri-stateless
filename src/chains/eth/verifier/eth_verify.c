@@ -26,12 +26,15 @@
 #include "chains.h"
 #include "eth_bloom.h"
 #include "json.h"
-#include "retry_delay.h"
 #include "ssz.h"
 #include "sync_committee.h"
 #include "verify.h"
 #include <stdint.h>
 #include <string.h>
+
+#ifdef ETH_OBLIVIOUS
+#include "retry_delay.h"
+#endif
 
 // :: Freshness gate for `"latest"` proofs (shared by all block-tag methods)
 
@@ -48,6 +51,8 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
   if (block_ts < ctx->min_latest_block_ts) RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
   return true;
 }
+
+#ifdef ETH_OBLIVIOUS
 
 uint32_t eth_oblivious_retry_delay(chain_id_t chain, uint16_t retry_count) {
   return c4_retry_delay_for(C4_RETRY_CATEGORY_OBLIVIOUS, chain, retry_count);
@@ -76,6 +81,8 @@ bool eth_is_oblivious_unavailable(json_t response) {
   }
   return false;
 }
+
+#endif // ETH_OBLIVIOUS
 
 // : Ethereum
 

@@ -37,10 +37,13 @@
 //       response/error and must NOT set the delay (host keeps the failure)
 //     - the delay value is refreshed on a subsequent retry
 
+#include "unity.h"
+
+#ifdef ETH_OBLIVIOUS
+
 #include "bytes.h"
 #include "json.h"
 #include "state.h"
-#include "unity.h"
 #include <string.h>
 
 extern bool eth_is_oblivious_unavailable(json_t response);
@@ -141,3 +144,15 @@ int main(void) {
   RUN_TEST(test_retry_after_refreshes_delay);
   return UNITY_END();
 }
+
+#else // !ETH_OBLIVIOUS
+
+void setUp(void) {}
+void tearDown(void) {}
+
+int main(void) {
+  UNITY_BEGIN();
+  return UNITY_END();
+}
+
+#endif // ETH_OBLIVIOUS

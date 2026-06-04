@@ -114,7 +114,13 @@ bool eth_json_is_latest(json_t block_tag);
  */
 bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, uint64_t block_ts);
 
+#ifdef ETH_OBLIVIOUS
 // :: Oblivious node delayed-retry
+//
+// The entire oblivious helper surface is compiled out when `ETH_OBLIVIOUS` is
+// disabled at configure time. Call sites in the verifier and prover are gated
+// the same way, so the linker can drop the generic adaptive retry-delay
+// learner (`src/util/retry_delay.c`) as dead code when no chain references it.
 
 /**
  * Maximum number of delayed retries for an oblivious `eth_getProof` request.
@@ -168,5 +174,7 @@ void eth_oblivious_retry_observe(chain_id_t chain, uint16_t retry_count);
  * @return `true` if the response is an oblivious "data not available" error
  */
 bool eth_is_oblivious_unavailable(json_t response);
+
+#endif // ETH_OBLIVIOUS
 
 #endif // eth_verify_h__
