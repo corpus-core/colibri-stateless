@@ -76,20 +76,13 @@ static uint32_t clamp_base(uint32_t base) {
 static bool decode_base(bytes_t blob, uint32_t* out) {
   if (blob.len != RETRY_DELAY_BLOB_SIZE || blob.data == NULL) return false;
   if (blob.data[0] != RETRY_DELAY_BLOB_VERSION) return false;
-  uint32_t v = (uint32_t) blob.data[1] |
-               ((uint32_t) blob.data[2] << 8) |
-               ((uint32_t) blob.data[3] << 16) |
-               ((uint32_t) blob.data[4] << 24);
-  *out = clamp_base(v);
+  *out = clamp_base(uint32_from_le(blob.data + 1));
   return true;
 }
 
 static void encode_base(uint32_t base, uint8_t buf[RETRY_DELAY_BLOB_SIZE]) {
   buf[0] = (uint8_t) RETRY_DELAY_BLOB_VERSION;
-  buf[1] = (uint8_t) (base & 0xff);
-  buf[2] = (uint8_t) ((base >> 8) & 0xff);
-  buf[3] = (uint8_t) ((base >> 16) & 0xff);
-  buf[4] = (uint8_t) ((base >> 24) & 0xff);
+  uint32_to_le(buf + 1, base);
 }
 
 static retry_delay_entry_t* lookup_entry(const char* category, chain_id_t chain) {
