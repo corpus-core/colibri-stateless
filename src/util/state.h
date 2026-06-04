@@ -246,7 +246,9 @@ typedef struct data_request {
   char*                   error;                 ///< Error message if request failed (NULL if no error)
   struct data_request*    next;                  ///< Pointer to next request in linked list
   bytes32_t               id;                    ///< Unique identifier for this request (32-byte hash)
-  uint32_t                ttl;                   ///< Time-to-live or retry counter for this request
+  uint32_t                ttl;                   ///< Time-to-live / node-rotation retry counter (see `RETRY_REQUEST`, which retries on a *different* node); distinct from `retry_count` below
+  uint32_t                delay;                 ///< Milliseconds the host must wait before (re-)executing this request (0 = no delay). Used for delayed same-node retries (e.g. oblivious node warm-up).
+  uint16_t                retry_count;           ///< Number of delayed *same-node* retries already performed (see `c4_state_retry_after`); managed by the chain module, not the host
   bool                    validated;             ///< Whether the response has been validated
 } data_request_t;
 
@@ -338,6 +340,31 @@ data_request_t* c4_state_get_data_request_by_url(c4_state_t* state, char* url);
  * @return true if pending, false if completed or failed
  */
 bool c4_state_is_pending(data_request_t* req);
+
+/**
+ * Schedules a delayed retry of a request on the **same** node.
+ *
+ * Unlike `RETRY_REQUEST`, this does **not** set `node_exclude_mask`: the request
+ * is meant to hit the same endpoint again after a short pause (e.g. an oblivious
+ * TEE node that needs a few seconds to make the requested state available).
+ *
+ * On success the response and error are cleared, `delay` is set and
+ * `retry_count` is incremented, so the host re-executes the request after
+ * waiting `delay_ms` milliseconds. The retry budget is bounded by `max_retries`
+ * to avoid endless loops.
+ *
+ * ```c
+ * if (eth_is_oblivious_unavailable(response) &&
+ *     !c4_state_retry_after(req, eth_oblivious_retry_delay(req->chain_id, req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
+ *   THROW_ERROR("oblivious node did not provide the proof in time");
+ * ```
+ *
+ * @param req Pointer to the request to retry
+ * @param delay_ms Milliseconds the host should wait before re-executing
+ * @param max_retries Maximum number of delayed retries allowed
+ * @return `true` if a retry was scheduled, `false` if the retry budget is exhausted
+ */
+bool c4_state_retry_after(data_request_t* req, uint32_t delay_ms, uint16_t max_retries);
 
 /**
  * Adds a new data request to the state.

@@ -114,4 +114,67 @@ bool eth_json_is_latest(json_t block_tag);
  */
 bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, uint64_t block_ts);
 
+#ifdef ETH_OBLIVIOUS
+// :: Oblivious node delayed-retry
+//
+// The entire oblivious helper surface is compiled out when `ETH_OBLIVIOUS` is
+// disabled at configure time. Call sites in the verifier and prover are gated
+// the same way, so the linker can drop the generic adaptive retry-delay
+// learner (`src/util/retry_delay.c`) as dead code when no chain references it.
+
+/**
+ * Maximum number of delayed retries for an oblivious `eth_getProof` request.
+ * With the capped backoff (see `C4_RETRY_DELAY_MAX_MS` in `retry_delay.h`)
+ * this bounds the total wait (~55s in the worst case) and prevents endless
+ * loops if the node never returns the data.
+ */
+#define ETH_OBLIVIOUS_MAX_RETRIES 10
+
+/**
+ * Computes the next exponential-backoff delay (in milliseconds) for an
+ * oblivious `eth_getProof` retry. Thin wrapper around `c4_retry_delay_for`
+ * with the oblivious category, so the prover and verifier paths share a
+ * single, adaptive learner that persists per chain via the storage plugin.
+ *
+ * Pass `data_request_t.retry_count` *before* the retry is scheduled.
+ *
+ * @param chain target chain (used as part of the persistence key)
+ * @param retry_count number of delayed retries already performed for the request
+ * @return delay in milliseconds to wait before the next retry
+ */
+uint32_t eth_oblivious_retry_delay(chain_id_t chain, uint16_t retry_count);
+
+/**
+ * Notifies the adaptive learner that an oblivious `eth_getProof` request
+ * eventually succeeded after `retry_count` delayed retries (0 means the very
+ * first request already succeeded).
+ *
+ * Thin wrapper around `c4_retry_delay_observe` with the oblivious category.
+ * Call this only when the request was actually routed to an oblivious node;
+ * otherwise the learner would be polluted by unrelated traffic.
+ *
+ * @param chain target chain (used as part of the persistence key)
+ * @param retry_count number of delayed retries that were performed
+ */
+void eth_oblivious_retry_observe(chain_id_t chain, uint16_t retry_count);
+
+/**
+ * Returns `true` if a JSON-RPC response signals that an oblivious node could not
+ * (yet) provide the requested data and the request should be retried.
+ *
+ * Detects the oblivious-node specific signal `error.code == -32001` together
+ * with a `data non availability` message. The match is intentionally narrow so
+ * a regular RPC provider's unrelated `-32001` does not trigger pointless waits.
+ *
+ * Lives in the verifier library (MIT) so both the verifier (`call_ctx.c`) and
+ * the prover (`eth_req.c`, which depends on the verifier) can share it without
+ * the prover becoming a dependency of embedded verifier-only builds.
+ *
+ * @param response Parsed JSON-RPC response object (as returned by `json_parse`)
+ * @return `true` if the response is an oblivious "data not available" error
+ */
+bool eth_is_oblivious_unavailable(json_t response);
+
+#endif // ETH_OBLIVIOUS
+
 #endif // eth_verify_h__

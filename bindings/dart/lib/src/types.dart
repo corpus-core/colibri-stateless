@@ -135,6 +135,7 @@ class DataRequest {
     required this.excludeMask,
     required this.chainId,
     this.payload,
+    this.delay = 0,
   });
 
   /// Opaque native handle (pointer) for this request; used when fulfilling.
@@ -153,11 +154,20 @@ class DataRequest {
   final int chainId;
   /// Optional JSON payload for the request.
   final Map<String, dynamic>? payload;
+  /// Milliseconds to wait before (re-)executing this request (e.g. oblivious-node retry backoff).
+  final int delay;
 
   /// Parses a JSON request object returned by native status calls.
   static DataRequest fromJson(Map<String, dynamic> data) {
     final excludeRaw = data['exclude_mask'];
     final excludeMask = switch (excludeRaw) {
+      int value => value,
+      String value => int.tryParse(value) ?? 0,
+      _ => 0,
+    };
+
+    final delayRaw = data['delay'];
+    final delay = switch (delayRaw) {
       int value => value,
       String value => int.tryParse(value) ?? 0,
       _ => 0,
@@ -202,6 +212,7 @@ class DataRequest {
         return int.tryParse(raw.toString()) ?? 1;
       }(),
       payload: normalizedPayload,
+      delay: delay,
     );
   }
 }

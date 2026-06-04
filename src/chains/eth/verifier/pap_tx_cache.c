@@ -28,7 +28,6 @@
 #include "pap_tx_cache_types.h"
 #include "plugin.h"
 #include "ssz.h"
-#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -50,7 +49,11 @@ static void cache_free(void) {
 }
 
 static void tx_cache_storage_key(chain_id_t chain_id, char* buf, size_t buf_len) {
-  snprintf(buf, buf_len, "tx_cache_%u", (unsigned) chain_id);
+  // bprintf instead of snprintf so embedded/verifier-only builds stay free of
+  // the libc printf family. The buffer is treated as fixed-size (negative
+  // `allocated`); bprintf clamps + NUL-terminates within `buf_len`.
+  buffer_t b = (buffer_t) {.data = bytes((uint8_t*) buf, 0), .allocated = -(int32_t) buf_len};
+  bprintf(&b, "tx_cache_%d", (uint32_t) chain_id);
 }
 
 static bool parse_snapshot(bytes_t ssz_data) {
@@ -249,7 +252,8 @@ uint64_t pap_tx_cache_last_updated(chain_id_t chain_id) {
 #define PAP_PENDING_ENTRY_SIZE 40 /* 32 (tx_hash) + 8 (timestamp LE) */
 
 static void pending_storage_key(chain_id_t chain_id, char* buf, size_t buf_len) {
-  snprintf(buf, buf_len, "tx_pending_%u", (unsigned) chain_id);
+  buffer_t b = (buffer_t) {.data = bytes((uint8_t*) buf, 0), .allocated = -(int32_t) buf_len};
+  bprintf(&b, "tx_pending_%d", (uint32_t) chain_id);
 }
 
 static ssz_ob_t pending_load_list(chain_id_t chain_id) {

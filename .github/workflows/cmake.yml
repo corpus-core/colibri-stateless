@@ -36,6 +36,7 @@ jobs:
             -DETH_LOGS=OFF \
             -DETH_CALL=OFF \
             -DETH_ACCOUNT=OFF \
+            -DETH_OBLIVIOUS=OFF \
             -DEVMLIGHT=OFF \
             -DPROVER=OFF \
             -DCLI=OFF \

@@ -26,7 +26,12 @@ option(ETH_RECEIPT  "support eth receipt verification. eth_getTransactionReceipt
 option(ETH_LOGS  "support eth logs verification. eth_getLogs" ON)
 option(ETH_CALL  "support eth call verification. eth_call, eth_estimateGas" ON)
 option(ETH_UTIL  "support eth utils like eth_chainId or web3_sha3" ON)
+option(ETH_OBLIVIOUS "support oblivious-node delayed-retry path (TEE/ORAM warm-up). When OFF, the oblivious helpers and call paths are compiled out so the linker drops the adaptive retry-delay learner (saves ~1-2 KB). Disable for embedded targets that never talk to oblivious nodes." ON)
 option(USE_CHECKPOINTZ "enable checkpoint fetching from checkpointz (beacon node) for bootstrap and weak subjectivity validation (requires HTTP access, saves ~2-3 KB if disabled). SECURITY WARNING: Disabling this removes (1) automatic bootstrap checkpoint fetching and (2) weak subjectivity period validation, requiring manual checkpoint configuration and increasing long-range attack risk. Only disable for embedded devices without HTTP access. See: https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf" ON)
+
+if(ETH_OBLIVIOUS)
+    add_definitions(-DETH_OBLIVIOUS)
+endif()
 
 if(USE_CHECKPOINTZ)
     add_definitions(-DUSE_CHECKPOINTZ)

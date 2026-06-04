@@ -32,6 +32,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifdef ETH_OBLIVIOUS
+#include "retry_delay.h"
+#endif
+
 // :: Freshness gate for `"latest"` proofs (shared by all block-tag methods)
 
 bool eth_json_is_latest(json_t block_tag) {
@@ -47,6 +51,38 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
   if (block_ts < ctx->min_latest_block_ts) RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
   return true;
 }
+
+#ifdef ETH_OBLIVIOUS
+
+uint32_t eth_oblivious_retry_delay(chain_id_t chain, uint16_t retry_count) {
+  return c4_retry_delay_for(C4_RETRY_CATEGORY_OBLIVIOUS, chain, retry_count);
+}
+
+void eth_oblivious_retry_observe(chain_id_t chain, uint16_t retry_count) {
+  c4_retry_delay_observe(C4_RETRY_CATEGORY_OBLIVIOUS, chain, retry_count);
+}
+
+bool eth_is_oblivious_unavailable(json_t response) {
+  if (response.type != JSON_TYPE_OBJECT) return false;
+  json_t error = json_get(response, "error");
+  if (error.type != JSON_TYPE_OBJECT) return false;
+
+  json_t code = json_get(error, "code");
+  if (code.type != JSON_TYPE_NUMBER || code.len != 6 || strncmp(code.start, "-32001", 6) != 0) return false;
+
+  json_t message = json_get(error, "message");
+  if (message.type != JSON_TYPE_STRING) return false;
+  // message.start/len spans the JSON string token (incl. quotes); a substring
+  // search is sufficient to recognise the oblivious node's availability signal.
+  static const char marker[] = "data non availability";
+  const uint32_t    marker_len = sizeof(marker) - 1;
+  for (uint32_t i = 0; i + marker_len <= message.len; i++) {
+    if (strncmp(message.start + i, marker, marker_len) == 0) return true;
+  }
+  return false;
+}
+
+#endif // ETH_OBLIVIOUS
 
 // : Ethereum
 

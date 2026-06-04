@@ -273,6 +273,10 @@ class Colibri(
         val reqPtr = request.getLong("req_ptr")
 //        println("fetchRequest:  for req_ptr $reqPtr)")
 
+        // Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
+        val delayMs = request.optLong("delay", 0L)
+        if (delayMs > 0L) delay(delayMs)
+
         var index = 0
         var lastError = ""
         for (server in servers) {

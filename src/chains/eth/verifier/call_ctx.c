@@ -117,7 +117,14 @@ call_account_t* call_account_get_or_create(evmone_context_t* ctx, const address_
 // :: PAP-mode lazy fetchers
 
 void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result) {
-  bool      is_oblivious = ctx->ctx->flags & VERIFY_FLAG_OBLIVIOUS;
+#ifdef ETH_OBLIVIOUS
+  bool is_oblivious = (ctx->ctx->flags & VERIFY_FLAG_OBLIVIOUS) != 0;
+#else
+  // Without oblivious support the flag is meaningless; pinning to false lets the
+  // compiler dead-strip the oblivious branches below, so the linker can drop
+  // the adaptive retry-delay learner together with `eth_oblivious_*` helpers.
+  const bool is_oblivious = false;
+#endif
   char      tmp[256];
   buffer_t  buf    = stack_buffer(tmp);
   bytes32_t req_id = {0};
@@ -129,21 +136,46 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
 
   data_request_t* req = c4_state_get_data_request_by_id(&ctx->ctx->state, req_id);
   if (req && req->response.data) {
-    json_t    val_json = json_get(json_parse((char*) req->response.data), "result");
+    json_t    response = json_parse((char*) req->response.data);
     bytes32_t val      = {0};
     if (is_oblivious) {
-      json_t proof_json = json_get(val_json, "storageProof");
-      json_t proof_item = json_get(json_at(proof_json, 0),"value");
+#ifdef ETH_OBLIVIOUS
+      // The oblivious node may report the requested state as not yet available
+      // (TEE/ORAM warm-up). Retry the SAME node after a short delay, bounded by
+      // the retry budget, instead of treating the missing `result` as zero.
+      if (eth_is_oblivious_unavailable(response)) {
+        if (c4_state_retry_after(req, eth_oblivious_retry_delay(req->chain_id, req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
+          ctx->storage_miss = true;
+        else
+          c4_state_add_error(&ctx->ctx->state, "oblivious node did not provide the proof within the retry budget");
+        return;
+      }
+      // Any other JSON-RPC error must surface as a failure rather than being
+      // silently interpreted as an empty storage slot.
+      json_t err = json_get(response, "error");
+      if (err.type == JSON_TYPE_OBJECT || err.type == JSON_TYPE_STRING) {
+        c4_state_add_error(&ctx->ctx->state, "oblivious eth_getProof returned an error");
+        return;
+      }
+      json_t proof_item = json_get(json_at(json_get(json_get(response, "result"), "storageProof"), 0), "value");
       if (proof_item.type == JSON_TYPE_STRING) {
         buffer_t val_buf = stack_buffer(val);
         bytes_t  b       = json_as_bytes(proof_item, &val_buf);
         if (b.len <= 32) memcpy(val + (32 - b.len), b.data, b.len);
       }
+      // Feed the adaptive learner. The oblivious flag confirms the request
+      // went through the oblivious code path, so even retry_count == 0 is
+      // meaningful (enables the slow downward probe).
+      eth_oblivious_retry_observe(req->chain_id, req->retry_count);
+#endif // ETH_OBLIVIOUS
     }
-    else if (val_json.type == JSON_TYPE_STRING) {
-      buffer_t val_buf = stack_buffer(val);
-      bytes_t  b       = json_as_bytes(val_json, &val_buf);
-      if (b.len <= 32) memcpy(val + (32 - b.len), b.data, b.len);
+    else {
+      json_t val_json = json_get(response, "result");
+      if (val_json.type == JSON_TYPE_STRING) {
+        buffer_t val_buf = stack_buffer(val);
+        bytes_t  b       = json_as_bytes(val_json, &val_buf);
+        if (b.len <= 32) memcpy(val + (32 - b.len), b.data, b.len);
+      }
     }
     memcpy(result, val, 32);
 
@@ -159,6 +191,14 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
     return;
   }
   else if (req && req->error) {
+#ifdef ETH_OBLIVIOUS
+    // A transport-level error against the oblivious node may also be transient
+    // (node still warming up). Retry the same node with delay before failing.
+    if (is_oblivious && c4_state_retry_after(req, eth_oblivious_retry_delay(req->chain_id, req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES)) {
+      ctx->storage_miss = true;
+      return;
+    }
+#endif
     c4_state_add_error(&ctx->ctx->state, req->error);
     return;
   }

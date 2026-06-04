@@ -67,6 +67,11 @@ foreach(test_source ${TEST_SOURCES})
     if(USE_CHECKPOINTZ)
         target_compile_definitions(${test_name} PRIVATE USE_CHECKPOINTZ)
     endif()
+    # Same for ETH_OBLIVIOUS: the oblivious helper declarations in eth_verify.h
+    # and the test bodies in test_oblivious_retry*.c are gated on this flag.
+    if(ETH_OBLIVIOUS)
+        target_compile_definitions(${test_name} PRIVATE ETH_OBLIVIOUS)
+    endif()
     
     if("${test_name}" STREQUAL "test_eth_precompiles")
         target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper eth_precompiles)

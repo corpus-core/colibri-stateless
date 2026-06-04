@@ -376,6 +376,10 @@ class Colibri {
   }) async {
     Future<void> handleRequest(DataRequest request) async {
       try {
+        // Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
+        if (request.delay > 0) {
+          await Future<void>.delayed(Duration(milliseconds: request.delay));
+        }
         final response = await _executeHttpRequest(request, useProverFallback: useProverFallback);
         _native.reqSetResponse(request.reqPtr, response.data, response.nodeIndex);
       } catch (error) {
