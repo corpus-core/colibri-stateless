@@ -24,7 +24,6 @@
 #include "retry_delay.h"
 #include "bytes.h"
 #include "plugin.h"
-#include <stdio.h>
 #include <string.h>
 
 // Asymmetric learning gains expressed as right-shifts (powers of two) so the
@@ -64,7 +63,12 @@ typedef struct {
 static retry_delay_entry_t g_cache[RETRY_DELAY_CACHE_SIZE];
 
 static void build_key(const char* category, chain_id_t chain, char* buf, size_t len) {
-  snprintf(buf, len, "rdelay_%s_%llu", category, (unsigned long long) chain);
+  // Use `bprintf` so embedded/verifier-only builds don't pull in the libc
+  // printf family (saves ~5-10 KB on glibc/newlib targets). The buffer stays
+  // fixed-size by marking `allocated` negative; `bprintf` writes within the
+  // bound and adds the NUL terminator.
+  buffer_t b = (buffer_t) {.data = bytes((uint8_t*) buf, 0), .allocated = -(int32_t) len};
+  bprintf(&b, "rdelay_%s_%l", category, (uint64_t) chain);
 }
 
 static uint32_t clamp_base(uint32_t base) {
