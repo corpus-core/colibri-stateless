@@ -67,8 +67,13 @@ valgrind_results
 /test/data/uv_util_write/missing_*
 # Dart tooling
 .dart_tool/
+bindings/dart/.env
+bindings/dart/**/assets/.env
 
 # Flutter plugin pre-built native binaries (built in CI / locally before publish)
 bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/
 bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework/
 
+
+audit-workspace/
+.colibri-audit*/
