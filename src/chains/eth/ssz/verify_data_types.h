@@ -155,7 +155,7 @@ static const ssz_def_t ETH_RECEIPT_DATA[] = {
     SSZ_UINT32("transactionIndex"),                        // the index of the transaction in the block
     SSZ_UINT8("type"),                                     // the type of the transaction
     SSZ_ADDRESS("from"),                                   // the sender of the transaction
-    SSZ_BYTES("to", 20),                                   // the target of the transaction
+    SSZ_NULLABLE_BYTES("to", 20),                          // the target of the transaction
     SSZ_UINT64("cumulativeGasUsed"),                       // the cumulative gas used in the block up to and including this transaction
     SSZ_UINT64("gasUsed"),                                 // the gas used by this transaction alone
     SSZ_LIST("logs", ETH_RECEIPT_DATA_LOG_CONTAINER, 256), // the logs of the transaction
