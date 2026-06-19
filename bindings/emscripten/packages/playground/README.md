@@ -48,6 +48,26 @@ browser** (recent Chrome/Edge) for the local model. The first run downloads the
 selected model (cached afterwards in the browser); a progress bar shows the
 status.
 
+## Docker
+
+A self-contained image (static site served by nginx) is built in CI and
+published to GHCR. It bundles the colibri-stateless WASM and the playground UI;
+the LLM model is still downloaded client-side by the browser on first use.
+
+```bash
+# dev branch -> :dev tag, releases -> :<version> + :latest
+docker run --rm -p 8080:80 ghcr.io/corpus-core/colibri-explainer-playground:dev
+# open http://localhost:8080
+```
+
+Build it locally:
+
+```bash
+# from the repo root
+docker build -f bindings/docker/Dockerfile.playground -t colibri-explainer-playground .
+docker run --rm -p 8080:80 colibri-explainer-playground
+```
+
 ## Model sizing
 
 The explainer pre-processes the prompt heavily (decoded calls, resolved storage
