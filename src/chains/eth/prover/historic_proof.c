@@ -398,7 +398,10 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     // beacon/bootstrap roundtrips, in which case `checkpoint_ob` stays zero-initialised
     // and no cleanup is needed); fetch the ZK proof second (allocates signatures);
     // then assemble the builder. This ordering guarantees no leak on any PENDING return.
-    bool     need_checkpoint_proof = ctx->witness_key.len == 0;
+    //
+    // The CheckpointProof anchor can only be processed by clients from version 1.1.28
+    // onwards, so only request/embed it when the consumer is new enough.
+    bool     need_checkpoint_proof = ctx->witness_key.len == 0 && ctx->version >= c4_version_number(1, 1, 28);      
     ssz_ob_t checkpoint_ob         = {0};
     if (need_checkpoint_proof)
       TRY_ASYNC(fetch_finalized_checkpoint_proof(ctx, &checkpoint_ob));
