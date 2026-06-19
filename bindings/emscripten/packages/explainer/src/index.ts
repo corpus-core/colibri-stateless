@@ -35,6 +35,7 @@ export type {
     ExplainerConfig,
     LLMProvider,
     LLMProviderType,
+    ModelProgress,
     ContractCache,
     VerifiedContract,
     ContractMetadata,
@@ -56,6 +57,7 @@ export type {
 
 export { buildPrompt } from './prompt.js';
 export { createProvider } from './providers/index.js';
+export { WebLLMProvider, DEFAULT_WEBLLM_MODEL } from './providers/webllm.js';
 export { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress } from './format.js';
 export { lookupAddress, labelAddress } from './known_addresses.js';
 export { fetchContractMetadata, fetchCompilationInput } from './sourcify.js';

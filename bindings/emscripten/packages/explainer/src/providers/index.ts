@@ -24,6 +24,7 @@
 import type { ExplainerConfig, LLMProvider } from '../types.js';
 import { OpenAIProvider } from './openai.js';
 import { AnthropicProvider } from './anthropic.js';
+import { WebLLMProvider } from './webllm.js';
 
 /** Create an LLM provider instance from the explainer configuration. */
 export function createProvider(config: ExplainerConfig): LLMProvider {
@@ -33,6 +34,9 @@ export function createProvider(config: ExplainerConfig): LLMProvider {
         baseUrl: config.baseUrl,
         maxTokens: config.maxTokens,
         temperature: config.temperature,
+        contextWindowSize: config.contextWindowSize,
+        onModelProgress: config.onModelProgress,
+        webllmEngine: config.webllmEngine,
     };
 
     switch (config.provider) {
@@ -47,6 +51,9 @@ export function createProvider(config: ExplainerConfig): LLMProvider {
 
         case 'anthropic':
             return new AnthropicProvider(providerConfig);
+
+        case 'webllm':
+            return new WebLLMProvider(providerConfig);
 
         default:
             throw new Error(`Unknown LLM provider: ${config.provider}`);

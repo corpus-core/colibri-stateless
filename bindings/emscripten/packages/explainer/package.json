@@ -39,6 +39,9 @@
         "ethers": "^6.16.0",
         "solc": "^0.8.34"
     },
+    "optionalDependencies": {
+        "@mlc-ai/web-llm": "^0.2.84"
+    },
     "peerDependencies": {
         "@corpus-core/colibri-stateless": ">=0.1.0"
     },

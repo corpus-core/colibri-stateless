@@ -1,0 +1,226 @@
+:root {
+    --bg: #0f1419;
+    --panel: #1a2029;
+    --border: #2a323d;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+    --accent: #4f9cf9;
+    --accent-hover: #3b82f6;
+    --error: #f87171;
+    --radius: 10px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    line-height: 1.5;
+}
+
+.app {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+}
+
+header h1 {
+    margin: 0 0 .25rem;
+    font-size: 1.6rem;
+}
+
+header .sub {
+    margin: 0 0 1.5rem;
+    color: var(--muted);
+}
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.panel h2 {
+    font-size: 1rem;
+    margin: 0 0 .85rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+.row {
+    display: flex;
+    gap: .75rem;
+    flex-wrap: wrap;
+    margin-bottom: .75rem;
+}
+
+.row:last-child {
+    margin-bottom: 0;
+}
+
+label {
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    font-size: .82rem;
+    color: var(--muted);
+}
+
+label.grow {
+    flex: 1 1 200px;
+}
+
+label.check {
+    flex-direction: row;
+    align-items: center;
+    gap: .4rem;
+    align-self: flex-end;
+}
+
+input,
+textarea,
+select {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: .5rem .6rem;
+    font-size: .9rem;
+    font-family: inherit;
+}
+
+textarea {
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .82rem;
+}
+
+.tabs {
+    display: flex;
+    gap: .4rem;
+    margin-bottom: .85rem;
+}
+
+.tab {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: .4rem .9rem;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: .5rem 0 1rem;
+}
+
+#run {
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: .7rem 1.4rem;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+#run:hover {
+    background: var(--accent-hover);
+}
+
+#run:disabled {
+    opacity: .5;
+    cursor: default;
+}
+
+.status {
+    color: var(--muted);
+    font-size: .85rem;
+}
+
+.progress-wrap {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin-bottom: 1rem;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 8px;
+    background: #0d1117;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+#progress-fill {
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    transition: width .2s ease;
+}
+
+.progress-text {
+    font-size: .78rem;
+    color: var(--muted);
+    min-width: 40%;
+}
+
+.explanation {
+    white-space: pre-wrap;
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.debug {
+    margin-top: 1rem;
+}
+
+.debug summary {
+    cursor: pointer;
+    color: var(--muted);
+}
+
+.debug h3 {
+    font-size: .8rem;
+    color: var(--muted);
+    margin: 1rem 0 .35rem;
+}
+
+pre {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .75rem;
+    overflow: auto;
+    font-size: .78rem;
+    max-height: 360px;
+}
+
+.error pre {
+    color: var(--error);
+}
+
+.hidden {
+    display: none !important;
+}

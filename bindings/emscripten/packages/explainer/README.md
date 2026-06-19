@@ -39,14 +39,15 @@ console.log(explanation);
 ```typescript
 const explanation = await explainSimulation(result, tx, {
   // Required: LLM provider
-  provider: 'openai',        // 'openai' | 'anthropic' | 'ollama'
-  apiKey: 'sk-...',          // API key (not needed for Ollama)
+  provider: 'openai',        // 'openai' | 'anthropic' | 'ollama' | 'webllm'
+  apiKey: 'sk-...',          // API key (not needed for Ollama/WebLLM)
 
   // Optional
   model: 'gpt-4o-mini',     // Model name (provider-specific default if omitted)
   baseUrl: 'http://...',    // Custom endpoint (required for Ollama)
   language: 'de',           // Response language (default: English)
   maxTokens: 1024,          // Max response tokens
+  maxSourceChars: 10000,    // Source-code budget embedded in the prompt
 
   // App-specific context appended to the system prompt
   systemPromptInclude: 'This is a DeFi wallet. Focus on user-facing financial impact.'
@@ -62,6 +63,40 @@ const explanation = await explainSimulation(result, tx, {
   model: 'llama3.1'
 });
 ```
+
+### Local / in-browser (WebGPU via WebLLM)
+
+Runs a quantized model fully on-device with WebGPU, so the **prompt and
+explanation never leave the browser** -- no LLM service is contacted. Requires a
+WebGPU-capable browser (recent Chrome/Edge).
+
+`@mlc-ai/web-llm` is declared as an optional dependency and is installed by
+default; it is loaded lazily (dynamic `import`) only when the `webllm` provider
+is actually used. Skip it with `npm install --omit=optional` if you never use
+the local provider.
+
+> Note on privacy: the LLM inference is local, but setting `chainId` enables
+> Sourcify enrichment, which fetches public contract metadata (by address /
+> code hash) over the network. Omit `chainId` for a fully offline run.
+
+```typescript
+const explanation = await explainSimulation(result, tx, {
+  provider: 'webllm',
+  // Code-tuned 7B model (~5-6 GB VRAM). Use 'Llama-3.2-3B-Instruct-q4f16_1-MLC'
+  // (~2.3 GB) for lower-end devices. Defaults to Qwen2.5-Coder-7B if omitted.
+  model: 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC',
+  chainId: 1,
+  // Many prebuilt models default to a 4096-token context. Either raise it...
+  contextWindowSize: 8192,
+  // ...and/or shrink the embedded source-code budget (default 10000 chars).
+  maxSourceChars: 4000,
+  // Progress for the one-time model download (cached afterwards).
+  onModelProgress: ({ progress, text }) => console.log(`${Math.round(progress * 100)}% ${text}`),
+});
+```
+
+The model is downloaded once and cached by the browser. To reuse an
+already-initialized engine across calls, pass it via `webllmEngine`.
 
 ## Architecture
 

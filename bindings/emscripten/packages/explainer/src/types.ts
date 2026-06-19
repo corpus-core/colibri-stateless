@@ -96,7 +96,15 @@ export interface TxParams {
 
 // -- Explainer configuration --
 
-export type LLMProviderType = 'openai' | 'anthropic' | 'ollama';
+export type LLMProviderType = 'openai' | 'anthropic' | 'ollama' | 'webllm';
+
+/** Progress information emitted while a local model is being downloaded/initialized. */
+export interface ModelProgress {
+    /** Loading progress in the range `[0, 1]`. */
+    progress: number;
+    /** Human-readable status text (e.g. cache/download phase). */
+    text: string;
+}
 
 /** Prompt-related configuration (subset of ExplainerConfig). */
 export interface PromptConfig {
@@ -108,6 +116,11 @@ export interface PromptConfig {
     systemPromptInclude?: string;
     /** Desired response language as ISO 639-1 code (e.g. `"de"`, `"es"`). Default: English. */
     language?: string;
+    /**
+     * Maximum number of source-code characters embedded into the prompt.
+     * Lower this for local models with a small context window. Default: `10000`.
+     */
+    maxSourceChars?: number;
 }
 
 /** Configuration shared by all LLM provider implementations. */
@@ -118,6 +131,22 @@ export interface LLMProviderConfig {
     maxTokens?: number;
     /** Sampling temperature (0.0 = deterministic, 1.0 = creative). Default: 0.2. */
     temperature?: number;
+    /**
+     * Override the model's context window size (in tokens). Only used by the
+     * local `webllm` provider; many prebuilt WebLLM models default to 4096.
+     */
+    contextWindowSize?: number;
+    /**
+     * Progress callback for local model download/initialization.
+     * Only invoked by the `webllm` provider.
+     */
+    onModelProgress?: (progress: ModelProgress) => void;
+    /**
+     * Pre-initialized WebLLM engine to reuse across calls (avoids re-downloading
+     * the model). Only used by the `webllm` provider. Typed as `unknown` so the
+     * core package stays free of a hard dependency on `@mlc-ai/web-llm`.
+     */
+    webllmEngine?: unknown;
 }
 
 export interface ExplainerConfig extends PromptConfig, LLMProviderConfig {

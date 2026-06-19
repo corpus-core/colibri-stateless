@@ -52,9 +52,12 @@ export function buildPrompt(
     context?: EnrichedContext,
 ): PromptParts {
     const systemPrompt = buildSystemPrompt(config);
-    const userPrompt = buildUserPrompt(result, txParams, context);
+    const userPrompt = buildUserPrompt(result, txParams, context, config.maxSourceChars);
     return { systemPrompt, userPrompt };
 }
+
+/** Default source-code character budget embedded into the prompt. */
+const DEFAULT_MAX_SOURCE_CHARS = 10000;
 
 function buildSystemPrompt(config: PromptConfig): string {
     let prompt = BASE_SYSTEM_PROMPT;
@@ -70,7 +73,7 @@ function buildSystemPrompt(config: PromptConfig): string {
     return prompt;
 }
 
-function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?: EnrichedContext): string {
+function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?: EnrichedContext, maxSourceChars?: number): string {
     const sections: string[] = [];
 
     sections.push(formatTxOverview(result, txParams, context));
@@ -88,7 +91,7 @@ function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?:
     }
 
     if (context) {
-        const sourceSection = formatSourceContext(result, context);
+        const sourceSection = formatSourceContext(result, context, maxSourceChars);
         if (sourceSection) sections.push(sourceSection);
     }
 
@@ -283,7 +286,7 @@ function formatTrace(trace: TraceEntry[], context?: EnrichedContext): string {
  * Include source code context for contracts where storage layout is unavailable,
  * so the LLM can reason about storage variable assignments.
  */
-function formatSourceContext(result: SimulationResult, context: EnrichedContext): string | null {
+function formatSourceContext(result: SimulationResult, context: EnrichedContext, maxSourceChars?: number): string | null {
     const contractsNeedingSource = new Set<string>();
 
     if (result.stateChanges) {
@@ -302,7 +305,12 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext)
     if (contractsNeedingSource.size === 0) return null;
 
     const lines: string[] = ['## Contract Source Code (for storage interpretation)'];
-    let totalBudget = 10000;
+    // Total character budget for embedded source code. Lower this for local
+    // models with a small context window via `config.maxSourceChars`.
+    let totalBudget = maxSourceChars && maxSourceChars > 0 ? maxSourceChars : DEFAULT_MAX_SOURCE_CHARS;
+    // Per-file cap stays proportional to the overall budget so a single large
+    // file cannot consume the entire context.
+    const perFileCap = Math.max(500, Math.floor(totalBudget * 0.3));
 
     for (const addr of contractsNeedingSource) {
         if (totalBudget <= 0) break;
@@ -314,7 +322,7 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext)
             for (const [filename, source] of Object.entries(meta.sources)) {
                 if (totalBudget <= 0) break;
                 const content = source.content;
-                const maxLen = Math.min(content.length, totalBudget, 3000);
+                const maxLen = Math.min(content.length, totalBudget, perFileCap);
                 const truncated = content.length > maxLen ? content.slice(0, maxLen) + '\n... (truncated)' : content;
                 totalBudget -= truncated.length;
                 lines.push(`\`${filename}\`:\n\`\`\`solidity\n${truncated}\n\`\`\``);
