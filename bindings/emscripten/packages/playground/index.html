@@ -138,6 +138,15 @@
                 <label class="check">
                     <input id="privacy" type="checkbox" checked /> Privacy mode (PAP + ZK proof, hybrid prover)
                 </label>
+                <label class="grow" id="oblivious-wrap">Oblivious node URL (TEE, optional)
+                    <input id="oblivious" type="text" placeholder="https://oblivious.colibri-proof.tech" />
+                    <small class="hint">Terminates eth_getProof inside a TEE (ORAM) so the requested account/storage
+                        keys stay private. Leave empty to use standard PAP.</small>
+                </label>
+                <label class="grow">System prompt (optional override)
+                    <textarea id="systemPrompt" rows="4"
+                        placeholder="Leave empty to use the default analyst prompt. Anything here fully replaces it; the language hint is still appended."></textarea>
+                </label>
             </div>
             </div>
         </details>

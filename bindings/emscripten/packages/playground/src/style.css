@@ -166,6 +166,12 @@ label.grow {
     flex: 1 1 200px;
 }
 
+.hint {
+    font-size: .72rem;
+    color: var(--muted);
+    font-weight: 400;
+}
+
 label.check {
     flex-direction: row;
     align-items: center;

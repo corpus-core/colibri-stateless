@@ -198,6 +198,7 @@ function buildExplainerConfig(useEnrichment: boolean, chainId: number): Explaine
     const language = ($('language') as HTMLInputElement).value.trim() || 'en';
     const maxSourceChars = Number(($('maxSourceChars') as HTMLInputElement).value) || undefined;
     const ctx = Number(($('contextWindow') as HTMLInputElement).value) || undefined;
+    const systemPrompt = ($('systemPrompt') as HTMLTextAreaElement).value.trim();
 
     const config: ExplainerConfig = {
         provider,
@@ -208,6 +209,7 @@ function buildExplainerConfig(useEnrichment: boolean, chainId: number): Explaine
     };
     if (apiKey) config.apiKey = apiKey;
     if (baseUrl) config.baseUrl = baseUrl;
+    if (systemPrompt) config.systemPrompt = systemPrompt;
     if (provider === 'webllm') {
         if (ctx) config.contextWindowSize = ctx;
         config.onModelProgress = ({ progress, text }) => setProgress(progress, text);
@@ -271,6 +273,10 @@ async function run(): Promise<void> {
             // via a TEE-backed hybrid prover and ZK-verified state proofs.
             clientConfig.privacy_mode = 'basic';
             clientConfig.prover_mode = 'hybrid';
+            // Optional: route the privacy-critical eth_getProof requests to a TEE
+            // (ORAM) node so even the requested storage keys are not leaked.
+            const oblivious = ($('oblivious') as HTMLInputElement).value.trim();
+            if (oblivious) clientConfig.oblivious_nodes = [oblivious];
         }
         const client = new C4Client(clientConfig);
         sim = (await client.rpc('colibri_simulateTransaction', [tx, 'latest'])) as SimulationResult;
