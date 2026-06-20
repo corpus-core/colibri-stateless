@@ -79,6 +79,18 @@ header .sub {
     color: var(--accent);
 }
 
+.links a.icon-link {
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
+}
+
+.links a.icon-link svg {
+    width: 20px;
+    height: 20px;
+    display: block;
+}
+
 .links a.report-issue {
     color: var(--accent);
     border: 1px solid var(--accent);
