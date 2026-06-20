@@ -172,6 +172,15 @@ label.grow {
     font-weight: 400;
 }
 
+.config-link {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.config-link:hover {
+    text-decoration: underline;
+}
+
 label.check {
     flex-direction: row;
     align-items: center;

@@ -8,6 +8,7 @@ import {
     shortenAddress,
     labelAddress,
     hexToBigInt,
+    DEFAULT_SYSTEM_PROMPT,
 } from '@corpus-core/colibri-explainer';
 import type {
     ExplainerConfig,
@@ -33,6 +34,16 @@ const MODELS: Record<LLMProviderType, string[]> = {
     openai: ['gpt-4o-mini', 'gpt-4o'],
     anthropic: ['claude-sonnet-4-20250514', 'claude-3-5-haiku-latest'],
     ollama: ['qwen2.5-coder', 'llama3.1'],
+};
+
+// Approximate one-time download size per local WebLLM model (q4f16_1 weights),
+// shown in the dropdown so users can gauge the download before selecting. These
+// are rounded approximations derived from the MLC model sizes.
+const WEBLLM_MODEL_SIZE: Record<string, string> = {
+    'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC': '~4.7 GB',
+    'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC': '~2.0 GB',
+    'Llama-3.2-3B-Instruct-q4f16_1-MLC': '~1.9 GB',
+    'Llama-3.2-1B-Instruct-q4f16_1-MLC': '~0.9 GB',
 };
 
 // -- Tiny DOM helpers --------------------------------------------------------
@@ -125,7 +136,8 @@ function populateModels(): void {
     for (const m of MODELS[provider]) {
         const opt = document.createElement('option');
         opt.value = m;
-        opt.textContent = m;
+        const size = WEBLLM_MODEL_SIZE[m];
+        opt.textContent = size ? `${m} (${size})` : m;
         select.appendChild(opt);
     }
 
@@ -201,7 +213,7 @@ function buildExplainerConfig(useEnrichment: boolean, chainId: number): Explaine
     const model = ($('model') as HTMLSelectElement).value;
     const apiKey = ($('apiKey') as HTMLInputElement).value.trim();
     const baseUrl = ($('baseUrl') as HTMLInputElement).value.trim();
-    const language = ($('language') as HTMLInputElement).value.trim() || 'en';
+    const language = ($('language') as HTMLSelectElement).value.trim() || 'en';
     const maxSourceChars = Number(($('maxSourceChars') as HTMLInputElement).value) || undefined;
     const ctx = Number(($('contextWindow') as HTMLInputElement).value) || undefined;
     const systemPrompt = ($('systemPrompt') as HTMLTextAreaElement).value.trim();
@@ -456,6 +468,11 @@ function init(): void {
     updatePrivacyVisibility();
     $('provider').addEventListener('change', populateModels);
     $('privacy').addEventListener('change', updatePrivacyVisibility);
+    // Load the built-in base prompt into the textarea as an editable template.
+    $('load-default-prompt').addEventListener('click', (e) => {
+        e.preventDefault();
+        ($('systemPrompt') as HTMLTextAreaElement).value = DEFAULT_SYSTEM_PROMPT;
+    });
     $('run').addEventListener('click', () => void run());
 
     if (typeof navigator !== 'undefined' && !(navigator as { gpu?: unknown }).gpu) {
