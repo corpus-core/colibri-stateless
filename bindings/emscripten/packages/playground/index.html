@@ -155,7 +155,16 @@
         <div id="status" class="status"></div>
 
         <div id="progress-wrap" class="progress-wrap hidden">
+            <div class="progress-head">
+                <span id="progress-label" class="progress-label">Downloading model…</span>
+                <span id="progress-pct" class="progress-pct">0%</span>
+            </div>
             <div class="progress-bar"><div id="progress-fill"></div></div>
+            <div class="progress-info">
+                <span id="progress-eta" class="progress-eta"></span>
+                <span id="progress-hint" class="progress-hint">One-time download — the model is cached in your
+                    browser, so later visits start instantly.</span>
+            </div>
             <span id="progress-text" class="progress-text"></span>
         </div>
 

@@ -214,7 +214,7 @@ details.config>summary::-webkit-details-marker {
 }
 
 details.config>summary::before {
-    content: "▸";
+    content: "\25B8";
     display: inline-block;
     transition: transform .15s ease;
 }
@@ -308,7 +308,7 @@ details.config[open]>summary::before {
 }
 
 .steps li.done .step-icon::after {
-    content: "✓";
+    content: "\2713";
 }
 
 .steps li.done .step-label {
@@ -316,7 +316,7 @@ details.config[open]>summary::before {
 }
 
 .steps li.skipped .step-icon::after {
-    content: "–";
+    content: "\2013";
 }
 
 .steps li.skipped {
@@ -330,7 +330,7 @@ details.config[open]>summary::before {
 }
 
 .steps li.error .step-icon::after {
-    content: "✕";
+    content: "\2715";
 }
 
 @keyframes spin {
@@ -366,16 +366,37 @@ details.config[open]>summary::before {
 
 .progress-wrap {
     display: flex;
-    align-items: center;
-    gap: .75rem;
+    flex-direction: column;
+    gap: .5rem;
     margin-bottom: 1rem;
+    padding: 1rem 1.25rem;
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.progress-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.progress-label {
+    font-weight: 600;
+    font-size: .95rem;
+}
+
+.progress-pct {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--accent);
 }
 
 .progress-bar {
-    flex: 1;
-    height: 8px;
-    background: #0d1117;
-    border-radius: 4px;
+    height: 12px;
+    background: #06080b;
+    border-radius: 6px;
     overflow: hidden;
     border: 1px solid var(--border);
 }
@@ -384,13 +405,32 @@ details.config[open]>summary::before {
     height: 100%;
     width: 0;
     background: var(--accent);
-    transition: width .2s ease;
+    transition: width .3s ease;
+}
+
+.progress-info {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.progress-eta {
+    font-size: .85rem;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.progress-hint {
+    font-size: .78rem;
+    color: var(--muted);
 }
 
 .progress-text {
-    font-size: .78rem;
+    font-size: .72rem;
     color: var(--muted);
-    min-width: 40%;
+    opacity: .7;
 }
 
 .explanation {
