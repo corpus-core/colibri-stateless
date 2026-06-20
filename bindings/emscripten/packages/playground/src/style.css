@@ -233,6 +233,32 @@ details.config[open]>summary::before {
     padding: 0 1.25rem 1.25rem;
 }
 
+.config-group {
+    padding: 1rem 0 0;
+    border-top: 1px solid var(--border);
+    margin-top: 1rem;
+}
+
+.config-group:first-child {
+    border-top: none;
+    margin-top: 0;
+    padding-top: 0;
+}
+
+.config-group-title {
+    margin: 0 0 .75rem;
+    font-size: .72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--accent);
+}
+
+.row.checks {
+    align-items: center;
+    gap: 1.25rem;
+}
+
 .tabs {
     display: flex;
     gap: .4rem;

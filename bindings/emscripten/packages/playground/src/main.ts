@@ -138,6 +138,12 @@ function populateModels(): void {
     show('contextWindow-wrap', isLocal);
 }
 
+// The oblivious-node option only applies to PAP, so it is hidden unless privacy
+// mode is enabled.
+function updatePrivacyVisibility(): void {
+    show('oblivious-wrap', ($('privacy') as HTMLInputElement).checked);
+}
+
 function bindTabs(): void {
     for (const tab of Array.from(document.querySelectorAll('.tab'))) {
         tab.addEventListener('click', () => {
@@ -250,7 +256,10 @@ async function run(): Promise<void> {
     try {
         const chainId = Number(($('chainId') as HTMLInputElement).value);
         if (!Number.isFinite(chainId) || chainId <= 0) throw new Error('Invalid chain ID.');
-        const endpoint = ($('endpoint') as HTMLInputElement).value.trim();
+        // The RPC node serves JSON eth_* responses; the prover returns SSZ-encoded
+        // proofs. They are distinct roles, so they are configured independently.
+        const rpc = ($('rpc') as HTMLInputElement).value.trim();
+        const prover = ($('prover') as HTMLInputElement).value.trim();
         const useEnrichment = ($('enrich') as HTMLInputElement).checked;
         const usePrivacy = ($('privacy') as HTMLInputElement).checked;
 
@@ -264,10 +273,8 @@ async function run(): Promise<void> {
         clientConfig.zk_proof = true;
         clientConfig.debug = true;
         clientConfig.skip_wsp_check = true;
-        if (endpoint) {
-            clientConfig.rpcs = [endpoint];
-            clientConfig.prover = [endpoint];
-        }
+        if (rpc) clientConfig.rpcs = [rpc];
+        if (prover) clientConfig.prover = [prover];
         if (usePrivacy) {
             // Pragmatic Adaptive Privacy: hides which account/storage is requested
             // via a TEE-backed hybrid prover and ZK-verified state proofs.
@@ -446,7 +453,9 @@ function meta(label: string, value: string): HTMLElement {
 function init(): void {
     bindTabs();
     populateModels();
+    updatePrivacyVisibility();
     $('provider').addEventListener('change', populateModels);
+    $('privacy').addEventListener('change', updatePrivacyVisibility);
     $('run').addEventListener('click', () => void run());
 
     if (typeof navigator !== 'undefined' && !(navigator as { gpu?: unknown }).gpu) {

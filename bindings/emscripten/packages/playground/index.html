@@ -93,61 +93,79 @@
             <summary>Configuration</summary>
 
             <div class="config-body">
-                <div class="row">
-                    <label>Chain ID
-                        <input id="chainId" type="number" value="1" min="1" />
+                <section class="config-group">
+                    <h4 class="config-group-title">Network</h4>
+                    <div class="row">
+                        <label>Chain ID
+                            <input id="chainId" type="number" value="1" min="1" />
+                        </label>
+                        <label class="grow">RPC endpoint (optional override)
+                            <input id="rpc" type="text" placeholder="https://mainnet1.colibri-proof.tech" />
+                            <small class="hint">Standard JSON-RPC node serving eth_* JSON responses.</small>
+                        </label>
+                        <label class="grow">Prover endpoint (optional override)
+                            <input id="prover" type="text" placeholder="https://mainnet1.colibri-proof.tech" />
+                            <small class="hint">Colibri prover returning SSZ-encoded proofs.</small>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="config-group">
+                    <h4 class="config-group-title">Privacy &amp; verification</h4>
+                    <div class="row checks">
+                        <label class="check">
+                            <input id="privacy" type="checkbox" checked /> Privacy mode (PAP + ZK proof, hybrid prover)
+                        </label>
+                        <label class="check">
+                            <input id="enrich" type="checkbox" checked /> Enrich via Sourcify (decode + storage layout)
+                        </label>
+                    </div>
+                    <label class="grow" id="oblivious-wrap">Oblivious node URL (TEE, optional)
+                        <input id="oblivious" type="text" placeholder="https://oblivious.colibri-proof.tech" />
+                        <small class="hint">Terminates eth_getProof inside a TEE (ORAM) so the requested
+                            account/storage keys stay private. Leave empty to use standard PAP.</small>
                     </label>
-                    <label class="grow">RPC / Prover endpoint (optional override)
-                        <input id="endpoint" type="text" placeholder="https://mainnet1.colibri-proof.tech" />
+                </section>
+
+                <section class="config-group">
+                    <h4 class="config-group-title">LLM / explainer</h4>
+                    <div class="row">
+                        <label>Provider
+                            <select id="provider">
+                                <option value="webllm">Local (WebGPU / WebLLM)</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="ollama">Ollama (local server)</option>
+                            </select>
+                        </label>
+                        <label class="grow">Model
+                            <select id="model"></select>
+                        </label>
+                        <label>Language
+                            <input id="language" type="text" value="en" size="4" />
+                        </label>
+                    </div>
+                    <div class="row" id="apikey-row">
+                        <label class="grow" id="apikey-wrap">API key
+                            <input id="apiKey" type="password" placeholder="sk-..." />
+                        </label>
+                        <label class="grow" id="baseurl-wrap">Base URL (Ollama / custom)
+                            <input id="baseUrl" type="text" placeholder="http://localhost:11434" />
+                        </label>
+                    </div>
+                    <div class="row">
+                        <label>Max source chars (context budget)
+                            <input id="maxSourceChars" type="number" value="10000" min="0" step="500" />
+                        </label>
+                        <label id="contextWindow-wrap">Context window (webllm, optional)
+                            <input id="contextWindow" type="number" placeholder="4096" min="0" step="512" />
+                        </label>
+                    </div>
+                    <label class="grow">System prompt (optional override)
+                        <textarea id="systemPrompt" rows="4"
+                            placeholder="Leave empty to use the default analyst prompt. Anything here fully replaces it; the language hint is still appended."></textarea>
                     </label>
-                </div>
-                <div class="row">
-                    <label>Provider
-                        <select id="provider">
-                            <option value="webllm">Local (WebGPU / WebLLM)</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="anthropic">Anthropic</option>
-                            <option value="ollama">Ollama (local server)</option>
-                        </select>
-                    </label>
-                    <label class="grow">Model
-                        <select id="model"></select>
-                    </label>
-                    <label>Language
-                        <input id="language" type="text" value="en" size="4" />
-                    </label>
-                </div>
-                <div class="row" id="apikey-row">
-                    <label class="grow" id="apikey-wrap">API key
-                        <input id="apiKey" type="password" placeholder="sk-..." />
-                    </label>
-                    <label class="grow" id="baseurl-wrap">Base URL (Ollama / custom)
-                        <input id="baseUrl" type="text" placeholder="http://localhost:11434" />
-                    </label>
-                </div>
-                <div class="row">
-                    <label>Max source chars (context budget)
-                        <input id="maxSourceChars" type="number" value="10000" min="0" step="500" />
-                    </label>
-                    <label id="contextWindow-wrap">Context window (webllm, optional)
-                        <input id="contextWindow" type="number" placeholder="4096" min="0" step="512" />
-                    </label>
-                <label class="check">
-                    <input id="enrich" type="checkbox" checked /> Enrich via Sourcify (decode + storage layout)
-                </label>
-                <label class="check">
-                    <input id="privacy" type="checkbox" checked /> Privacy mode (PAP + ZK proof, hybrid prover)
-                </label>
-                <label class="grow" id="oblivious-wrap">Oblivious node URL (TEE, optional)
-                    <input id="oblivious" type="text" placeholder="https://oblivious.colibri-proof.tech" />
-                    <small class="hint">Terminates eth_getProof inside a TEE (ORAM) so the requested account/storage
-                        keys stay private. Leave empty to use standard PAP.</small>
-                </label>
-                <label class="grow">System prompt (optional override)
-                    <textarea id="systemPrompt" rows="4"
-                        placeholder="Leave empty to use the default analyst prompt. Anything here fully replaces it; the language hint is still appended."></textarea>
-                </label>
-            </div>
+                </section>
             </div>
         </details>
 
