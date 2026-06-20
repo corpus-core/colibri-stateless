@@ -142,6 +142,13 @@ export interface LLMProviderConfig {
      */
     onModelProgress?: (progress: ModelProgress) => void;
     /**
+     * Streaming callback invoked while the answer is generated. `delta` is the
+     * newly produced fragment, `full` the accumulated text so far. Enables live
+     * rendering of the response. Currently only the `webllm` provider streams;
+     * other providers ignore it and return the full text via the promise.
+     */
+    onToken?: (delta: string, full: string) => void;
+    /**
      * Pre-initialized WebLLM engine to reuse across calls (avoids re-downloading
      * the model). Only used by the `webllm` provider. Typed as `unknown` so the
      * core package stays free of a hard dependency on `@mlc-ai/web-llm`.
